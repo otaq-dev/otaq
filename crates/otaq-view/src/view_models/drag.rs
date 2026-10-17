@@ -3,9 +3,10 @@
 //! under the dragged card is drawn allowed (accent) or forbidden (red, with the reason). A drop does what the
 //! rules allow, and a ticket with a short or empty description starts without a warning (d0067). Backlog → Ready
 //! for Dev or Dev queues it (it lands in Ready for Dev until it can start), Ready for Dev → Backlog takes it out of
-//! the queue without asking (d0066). A drop on Approved asks how (Local merge or Open PR) and never approves by
-//! itself (T-0095); Dev → Backlog asks to park first (T-0107); Approved → Ready for Review is PR rework (the PR
-//! stays, T-0150).
+//! the queue without asking (d0066). A drop on Approved (since d0087 the Review column's Approved section) asks how
+//! (Local merge or Open PR) and never approves by itself (T-0095); Dev → Backlog asks to park first (T-0107);
+//! Approved → Ready for Review (the Review column outside its Approved section) is PR rework (the PR stays,
+//! T-0150). The page's drop targets map onto these core columns (`board_page::DropTargetId`).
 //!
 //! Epics (EPC-12, EPC-14, d0080; *03 · Board & columns → epic flows 1 → 1*, *epic flows 3 → 8*): the Backlog epic
 //! card, one of its rows, and a "not queued" chip on its track are dragged to Ready for Dev or Dev. The card queues
@@ -140,7 +141,10 @@ pub fn feedback(ticket: &Ticket, tickets: &[Ticket], column: Column) -> DropFeed
         MoveCheck::Unchanged => DropFeedback::Home,
         MoveCheck::Refused { reason } => {
             let detail = match reason.as_str() {
-                ONLY_AGENT_SUBMITS => Some("Drag to Ready for Dev to queue it."),
+                // Only a Backlog card can be queued instead.
+                ONLY_AGENT_SUBMITS if ticket.column == Column::Backlog => {
+                    Some("Drag to Ready for Dev to queue it.")
+                }
                 MERGED_LOCKED => Some("Fixing merged work means a new ticket."),
                 _ => None,
             };
@@ -195,7 +199,14 @@ pub fn drop_hint(
             IconName::SquareParking,
             "Drop to park · asks first".to_owned(),
         ),
-        MoveAction::Approve => (IconName::Check, "Drop to approve · asks how".to_owned()),
+        // *Row · Review column (0086 · V)*: the Approved section as the target.
+        MoveAction::Approve => (
+            IconName::Check,
+            format!(
+                "Drop to approve {} \u{2192} choose Local merge or Open PR",
+                ticket.key
+            ),
+        ),
         MoveAction::PrRework => (
             IconName::RotateCcw,
             match ticket.flags.pr_number {

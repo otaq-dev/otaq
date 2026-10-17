@@ -53,8 +53,7 @@ const ICON_INK: Record<BoardColumnId, string> = {
   backlog: "var(--st-queued)",
   ready_for_dev: "var(--st-queued)",
   dev: "var(--st-working)",
-  ready_for_review: "var(--st-review)",
-  approved: "var(--st-approved)",
+  review: "var(--st-review)",
   done: "var(--st-done)",
 };
 
@@ -183,7 +182,9 @@ const CardList = memo(function CardList({
 
 /** Every card of a column in board order, the folded ones included. */
 export function cardsOf(column: BoardColumn): BoardCard[] {
-  return column.dev ? [...column.dev.top, ...column.dev.working] : column.cards;
+  return column.dev
+    ? [...column.dev.top, ...column.dev.working]
+    : [...column.cards, ...column.sections.flatMap((s) => s.cards)];
 }
 
 /** The cards the keyboard walks: every card but those behind a Done fold. */
@@ -327,6 +328,7 @@ export function Column({
   const [openFolds, setOpenFolds] = useState<ReadonlySet<string>>(() => new Set());
   const strong = useMemo(() => (focus ? new Set(focus.keys) : null), [focus]);
   const all = cardsOf(column);
+  const note = column.sections.find((s) => s.note !== null)?.note;
   const walk = walkOf(column);
   const tabStop = walk.some((c) => c.card.key === selected) ? selected : (walk[0]?.card.key ?? null);
 
@@ -410,10 +412,10 @@ export function Column({
         )}
       </header>
       {column.hint !== null && <div className="board-column-hint">{column.hint}</div>}
-      {column.note !== null && (
+      {note != null && (
         <div className="board-column-note">
-          <Icon name={column.note.icon} size={12} />
-          <span>{column.note.text}</span>
+          <Icon name={note.icon} size={12} />
+          <span>{note.text}</span>
         </div>
       )}
       {chip !== null && (
@@ -483,7 +485,7 @@ export function Column({
             )}
           </>
         ) : (
-          runsOf(column.cards, column.folds).map((run) => {
+          runsOf(cardsOf(column), column.folds).map((run) => {
             const list = (
               <CardList
                 key={run.kind === "fold" ? `${run.fold.epic}:cards` : `run:${run.cards[0]?.card.key ?? ""}`}

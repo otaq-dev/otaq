@@ -35,19 +35,19 @@ afterEach(() => {
 
 const ANSWER: DragAnswer = {
   key: "SHOP-24",
-  columns: [
-    { column: "backlog", verdict: { kind: "home" } },
+  targets: [
+    { target: "backlog", verdict: { kind: "home" } },
     {
-      column: "ready_for_dev",
+      target: "ready_for_dev",
       verdict: { kind: "allowed", icon: "play", hint: "Drop to queue", note: null },
     },
-    { column: "dev", verdict: { kind: "allowed", icon: "play", hint: "Drop to queue", note: null } },
+    { target: "dev", verdict: { kind: "allowed", icon: "play", hint: "Drop to queue", note: null } },
     {
-      column: "ready_for_review",
+      target: "review",
       verdict: { kind: "forbidden", title: "Only agents move tickets to Ready for Review", detail: null },
     },
-    { column: "approved", verdict: { kind: "forbidden", title: "Approve from Review", detail: null } },
-    { column: "done", verdict: { kind: "forbidden", title: "No", detail: null } },
+    { target: "approved", verdict: { kind: "forbidden", title: "Approve from Review", detail: null } },
+    { target: "done", verdict: { kind: "forbidden", title: "No", detail: null } },
   ],
 };
 
@@ -55,8 +55,7 @@ const SPANS = [
   { id: "backlog", left: 10, right: 226 },
   { id: "ready_for_dev", left: 234, right: 450 },
   { id: "dev", left: 458, right: 674 },
-  { id: "ready_for_review", left: 682, right: 898 },
-  { id: "approved", left: 906, right: 1122 },
+  { id: "review", left: 682, right: 1122 },
   { id: "done", left: 1130, right: 1164 },
 ] as const;
 
@@ -259,7 +258,7 @@ describe("dragging an epic's child out (T-0270)", () => {
       return Promise.resolve({ kind: "moved" } satisfies DropOutcome);
     };
     await dropCard("SHOP-40.3", "ready_for_dev", () => undefined, ask);
-    expect(asked).toEqual([["board.drop", { key: "SHOP-40.3", column: "ready_for_dev" }]]);
+    expect(asked).toEqual([["board.drop", { key: "SHOP-40.3", target: "ready_for_dev" }]]);
   });
 });
 
@@ -287,9 +286,9 @@ describe("dragging a track back (T-0271)", () => {
     drag.move(150, 100, () => SPANS);
     door.answer({
       key: "SHOP-45",
-      columns: [
+      targets: [
         {
-          column: "backlog",
+          target: "backlog",
           verdict: {
             kind: "allowed",
             icon: "arrow-down-to-line",
@@ -379,7 +378,7 @@ describe("drops", () => {
             } satisfies DropOutcome)
           : null,
       );
-    await dropCard("SHOP-18", "approved", (menu) => menus.push(menu.title), ask);
+    await dropCard("SHOP-18", "review", (menu) => menus.push(menu.title), ask);
     expect(menus).toEqual(["Approve SHOP-18 Checkout API"]);
     openApproveChoice("local_merge", "SHOP-18");
     openApproveChoice("push_to_pr", "SHOP-26");
@@ -400,8 +399,8 @@ describe("drops", () => {
     expect(asked).toEqual([]);
     afterDrop({ kind: "not_yet", message: "This move isn’t available yet" }, () => undefined, ask);
     expect(asked[0]?.[0]).toBe("notices.toast");
-    await dropCard("SHOP-26", "ready_for_review", () => undefined, ask);
-    expect(asked[1]).toEqual(["board.drop", { key: "SHOP-26", column: "ready_for_review" }]);
+    await dropCard("SHOP-26", "review", () => undefined, ask);
+    expect(asked[1]).toEqual(["board.drop", { key: "SHOP-26", target: "review" }]);
     expect(asked[2]).toEqual([
       "notices.toast",
       { level: "error", title: "PR rework isn't available yet", text: null, link: null, ticket: null },
@@ -420,17 +419,17 @@ describe("the board screen", () => {
   });
 
   const column = (over: Partial<BoardColumn>): BoardColumn => ({
-    id: "approved",
-    title: "Approved",
-    icon: "check",
+    id: "review",
+    title: "Review",
+    icon: "eye",
     count: "0",
     hint: null,
-    note: null,
-    empty_hint: "Drag a ticket here from Ready for Review to approve it.",
+    empty_hint: "Agents move their ticket here when they submit it for your review.",
     collapsed: false,
     toggle: null,
     hidden: null,
     cards: [],
+    sections: [],
     folds: [],
     dev: null,
     add: null,
@@ -463,8 +462,8 @@ describe("the board screen", () => {
 
   it("draws an empty column with its hint, and Done folded as the rail", () => {
     const empty = renderToStaticMarkup(createElement(Column, props(column({}))));
-    expect(empty).toContain("Drag a ticket here from Ready for Review");
-    expect(empty).toContain('data-column="approved"');
+    expect(empty).toContain("Agents move their ticket here");
+    expect(empty).toContain('data-column="review"');
     const rail = renderToStaticMarkup(
       createElement(
         Column,
@@ -537,7 +536,7 @@ describe("the board screen", () => {
   });
 
   it("outlines a column with its verdict only while dragging", () => {
-    const c = column({ id: "ready_for_review", title: "Ready for Review" });
+    const c = column({ id: "review", title: "Review" });
     const forbidden = { kind: "forbidden", title: "Only agents", detail: null } as const;
     const drawn = renderToStaticMarkup(
       createElement(Column, { ...props(c), verdict: forbidden, dragging: true }),

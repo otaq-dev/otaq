@@ -13,4 +13,9 @@ done_collapsed: boolean | null, dev_unfolded: boolean,
 /**
  * The header's search and filter (T-0221): cards that don't match hide, and each column says how many.
  */
-filter: BoardFilter, };
+filter: BoardFilter, 
+/**
+ * A Project agent's id: only the tickets it created or changed show (d0087, "Show on board" in the pane). It
+ * combines with `filter`; ✕ on its chip or Esc sets it back to `None`.
+ */
+agent: string | null, };

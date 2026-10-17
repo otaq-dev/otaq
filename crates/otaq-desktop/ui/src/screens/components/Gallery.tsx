@@ -43,6 +43,8 @@ import {
   Tooltip,
   useThemePicker,
 } from "../../components";
+import type { BoardGallery } from "../../generated/BoardGallery";
+import type { DragVerdict } from "../../generated/DragVerdict";
 import type { CardGallery } from "../../generated/CardGallery";
 import type { CleanupGallery } from "../../generated/CleanupGallery";
 import type { DecisionChangeGallery } from "../../generated/DecisionChangeGallery";
@@ -1403,6 +1405,90 @@ const loadTrust = () => request("gallery.trust") as Promise<TrustGallery>;
 /** The folder trust (T-0306, d0085; *14 → step 4*, *11 → 4c*), in Otaq Light and Otaq Dark side by side: the
  * add-project form with its line and after a failed trust (Continue), the note, the failed warning for one and two
  * projects (hover the text for the reasons), and both around the permission warning. Nothing is sent. */
+const loadBoardReview = () => request("gallery.board_review") as Promise<BoardGallery>;
+
+function verdictText(verdict: DragVerdict): string {
+  switch (verdict.kind) {
+    case "home":
+      return "home";
+    case "allowed":
+      return `✓ ${verdict.hint}`;
+    case "forbidden":
+      return `⊘ ${verdict.title}`;
+  }
+}
+
+/** *03 → Row · Review column (0086 · V)*, *Empty column & empty board* and the agent filter (T-0324, d0087): the
+ * view models' words for the Review column in each state, every drop target's verdict for a card from each column,
+ * the empty board and the "Created or changed by" chip. The board page draws them from T-0328. */
+function BoardReviewSection() {
+  const { view, error } = useServiceView(loadBoardReview, []);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  return (
+    <Section title="03 · Board & columns · Review column, drop targets, empty board, agent filter (T-0324, d0087)">
+      <div className="gallery-wrap">
+        {view.review.map((cell) => (
+          <div key={cell.name} className="gallery-stack-tight" style={{ width: 240 }}>
+            <Caption>{cell.name.toUpperCase()}</Caption>
+            <strong>
+              {cell.column.title} · {cell.column.count}
+            </strong>
+            {cell.column.sections.map((section) => (
+              <div key={section.id} className="gallery-stack-tight">
+                <Caption>
+                  {section.title} {section.count}
+                </Caption>
+                {section.cards.map((card) => (
+                  <span key={card.card.key}>
+                    {card.card.key} · {card.card.title}
+                  </span>
+                ))}
+                {section.cards.length === 0 && <Caption>{section.empty}</Caption>}
+                {section.note && <Caption>{section.note.text}</Caption>}
+                {section.drag_hint !== null && section.cards.length === 0 && (
+                  <Caption>While dragging: {section.drag_hint}</Caption>
+                )}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      <table style={{ fontSize: 12, borderSpacing: "8px 4px", textAlign: "left" }}>
+        <thead>
+          <tr>
+            <th>Dragged</th>
+            {view.drags[0]?.answer.targets.map((t) => (
+              <th key={t.target}>{t.target}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {view.drags.map((drag) => (
+            <tr key={drag.from}>
+              <td>{drag.from}</td>
+              {drag.answer.targets.map((t) => (
+                <td key={t.target}>{verdictText(t.verdict)}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="gallery-stack-tight" style={{ maxWidth: 520 }}>
+        <Caption>EMPTY BOARD</Caption>
+        <strong>{view.empty.title}</strong>
+        <span>{view.empty.text}</span>
+        <span>{view.empty.buttons.map((b) => b.label).join(" · ")}</span>
+        <Caption>{view.empty.hints.map((h) => `${h.keys ?? ""} ${h.label}`).join(" · ")}</Caption>
+      </div>
+      <div className="gallery-stack-tight">
+        <Caption>AGENT FILTER CHIP</Caption>
+        <span title={view.agent_chip.clear}>{view.agent_chip.label} ✕</span>
+      </div>
+    </Section>
+  );
+}
+
 function TrustSection() {
   const { view, error } = useServiceView(loadTrust, []);
   if (error) return <p role="alert">{error.message}</p>;
@@ -1651,6 +1737,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <WarmSwitchSection />
         <CleanupWarmGallery />
         <TrustSection />
+        <BoardReviewSection />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">
           <ThemeSection />
         </Section>

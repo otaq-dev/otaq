@@ -1,8 +1,10 @@
-//! The board as the Tauri page draws it (T-0220; UI-02, TKT-06, CLS-03, CLS-06, REV-14): [`board::build`]'s columns
-//! turned into plain, serialized shapes with every text already worded (counts, hints, the Approved note, the Dev
-//! section and fold, the Done rail, the empty board), and the drag the UIT-04 way: [`drag_answer`] gives every
-//! column's verdict for one ticket at once, from the core's `check_move` ([`drag::feedback`], [`drag::drop_hint`]),
-//! so the page draws the whole drag without asking again; a drop then asks once more what happens
+//! The board as the Tauri page draws it (T-0220, T-0324; UI-02, SHL-06, SHL-01, TKT-06, CLS-03, CLS-06, REV-14;
+//! d0087): [`board::build`]'s five columns turned into plain, serialized shapes with every text already worded
+//! (counts, hints, the Review column's two sections and the Approved note, the Dev section and fold, the Done rail,
+//! the empty board, the "Created or changed by" chip), and the drag the UIT-04 way: [`drag_answer`] gives every drop
+//! target's verdict for one ticket at once (the five columns, with the Review column split into its body, which
+//! means Ready for Review, and its Approved section), from the core's `check_move` ([`drag::feedback`],
+//! [`drag::drop_hint`]), so the page draws the whole drag without asking again; a drop then asks once more what happens
 //! ([`drop_step`]): a move, an epic queue (EPC-12: the epic card, one of its rows or a "not queued" chip, which
 //! the page follows with the queue toast), the Park confirmation ([`ParkDialog`]) or the approve choice
 //! ([`ApproveMenu`]). An epic's track dragged onto Backlog takes back (EPC-14): its waiting children at once, or,
@@ -18,7 +20,9 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::keymap::Platform;
 use crate::view_models::approve::{self, ApproveChoice};
-use crate::view_models::board::{self, BoardInput, CardEntry, ColumnView, DevSections};
+use crate::view_models::board::{
+    self, BoardInput, CardEntry, ColumnView, DevSections, SectionView,
+};
 use crate::view_models::card_page::{EpicCardView, TicketCardView};
 use crate::view_models::chain;
 use crate::view_models::close;
@@ -28,8 +32,8 @@ use crate::view_models::epic_strip::Strip;
 use crate::view_models::filter::Token;
 use crate::view_models::search_page::FilterState;
 
-/// A column as the page names it: `"backlog"`, `"ready_for_dev"`, `"dev"`, `"ready_for_review"`, `"approved"`,
-/// `"done"`.
+/// A page column (SHL-06): `"backlog"`, `"ready_for_dev"`, `"dev"`, `"review"`, `"done"`. The core keeps its six
+/// [`Column`]s (the states don't change, §7); Review holds Ready for Review and Approved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "BoardColumnId")]
@@ -37,33 +41,94 @@ pub enum ColumnId {
     Backlog,
     ReadyForDev,
     Dev,
-    ReadyForReview,
-    Approved,
+    Review,
     Done,
 }
 
 impl ColumnId {
+    /// The five columns, in board order.
+    pub const ALL: [Self; 5] = [
+        Self::Backlog,
+        Self::ReadyForDev,
+        Self::Dev,
+        Self::Review,
+        Self::Done,
+    ];
+
+    /// The page column a core column shows in.
     pub fn of(column: Column) -> Self {
         match column {
             Column::Backlog => Self::Backlog,
             Column::ReadyForDev => Self::ReadyForDev,
             Column::Dev => Self::Dev,
-            Column::ReadyForReview => Self::ReadyForReview,
-            Column::Approved => Self::Approved,
+            Column::ReadyForReview | Column::Approved => Self::Review,
             Column::Done => Self::Done,
         }
     }
 
+    /// The core columns (states) it shows, in its order: Review's sections are Ready for Review, then Approved.
+    pub fn states(self) -> &'static [Column] {
+        match self {
+            Self::Backlog => &[Column::Backlog],
+            Self::ReadyForDev => &[Column::ReadyForDev],
+            Self::Dev => &[Column::Dev],
+            Self::Review => &[Column::ReadyForReview, Column::Approved],
+            Self::Done => &[Column::Done],
+        }
+    }
+}
+
+/// Where a card can be dropped (d0087, UIT-04): a column, with the Review column in two parts. `"review"` is the
+/// Review column outside its Approved section, which means Ready for Review (only PR rework, from Approved, is
+/// allowed there); `"approved"` is the Approved section (from Ready for Review it opens the Approve choice).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "BoardDropTarget")]
+pub enum DropTargetId {
+    Backlog,
+    ReadyForDev,
+    Dev,
+    Review,
+    Approved,
+    Done,
+}
+
+impl DropTargetId {
+    /// Every target, in board order: what a drag answers for.
+    pub const ALL: [Self; 6] = [
+        Self::Backlog,
+        Self::ReadyForDev,
+        Self::Dev,
+        Self::Review,
+        Self::Approved,
+        Self::Done,
+    ];
+
+    /// The core column a drop here asks for (§7.4).
     pub fn column(self) -> Column {
         match self {
             Self::Backlog => Column::Backlog,
             Self::ReadyForDev => Column::ReadyForDev,
             Self::Dev => Column::Dev,
-            Self::ReadyForReview => Column::ReadyForReview,
+            Self::Review => Column::ReadyForReview,
             Self::Approved => Column::Approved,
             Self::Done => Column::Done,
         }
     }
+
+    /// The page column it is part of.
+    pub fn page_column(self) -> ColumnId {
+        ColumnId::of(self.column())
+    }
+}
+
+/// A section of the Review column: `"ready_for_review"` or `"approved"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "BoardReviewSectionId")]
+pub enum ReviewSectionId {
+    ReadyForReview,
+    Approved,
 }
 
 /// A card on the board. `needs_you` feeds the "7 above · 6 need you" chip of a scrolled column.
@@ -113,17 +178,41 @@ pub struct DevPage {
     pub folded: Vec<String>,
 }
 
+/// A section of the Review column (*Row · Review column (0086 · V)*): its header ("READY FOR REVIEW 2"), its cards
+/// in that state's order, and a quiet line when empty. Whether it is folded is the page's own; the count stays.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "BoardReviewSection")]
+pub struct SectionPage {
+    pub id: ReviewSectionId,
+    /// "READY FOR REVIEW", "APPROVED".
+    pub title: String,
+    /// "2", "1/2" under a filter.
+    pub count: String,
+    pub cards: Vec<BoardCard>,
+    /// "1 hidden by filter".
+    pub hidden: Option<String>,
+    /// Shown when the section has no card: "Nothing to review", "Nothing approved".
+    pub empty: String,
+    /// Approved, while a card in it has an open PR: "Otaq doesn’t watch PRs. Mark it when it lands."
+    pub note: Option<Note>,
+    /// Approved only: shown in place of `empty` while a Ready for Review card is dragged.
+    pub drag_hint: Option<String>,
+    /// The header's tooltip: "Fold Approved" / "Unfold Approved" (the page picks by its own fold state).
+    pub fold: String,
+    pub unfold: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "BoardColumn")]
 pub struct ColumnPage {
     pub id: ColumnId,
     pub title: String,
     pub icon: IconName,
+    /// Review: both sections together.
     pub count: String,
     /// Under the title: Ready for Dev's "Starts when ready, in priority order".
     pub hint: Option<String>,
-    pub note: Option<Note>,
-    /// Shown when the column has no card.
+    /// Shown when the column has no card (Review's sections have their own lines).
     pub empty_hint: String,
     /// Done only: drawn as the 34 px rail.
     pub collapsed: bool,
@@ -131,12 +220,14 @@ pub struct ColumnPage {
     pub toggle: Option<String>,
     /// "6 hidden by filter".
     pub hidden: Option<String>,
-    /// Every column but Dev.
+    /// Every column but Dev and Review.
     pub cards: Vec<BoardCard>,
+    /// Review only: Ready for Review, then Approved.
+    pub sections: Vec<SectionPage>,
     /// Done only: the epics' folded merged children (EPC-16); each fold's cards follow each other in `cards`.
     pub folds: Vec<DoneFold>,
     pub dev: Option<DevPage>,
-    /// Backlog's "Add ticket" row (and its header's plus).
+    /// Backlog's "Add ticket": the + in its header (and its row); the same as ⌘N.
     pub add: Option<String>,
 }
 
@@ -179,7 +270,64 @@ pub struct BoardPage {
     /// The focused epic (an `epic:` filter, EPC-18, Q55): its cards stay, the other cards, tracks and Done lines
     /// dim, and ↑↓ walk only its cards.
     pub focus: Option<EpicFocus>,
+    /// The "Created or changed by <agent> ✕" chip while the board is filtered by a Project agent (d0087).
+    pub agent_filter: Option<AgentChip>,
+    /// The columns fill the board's width; below this many px per column the board scrolls sideways and the
+    /// hidden-columns chip names what is off-screen (SHL-01).
+    pub min_column_width: f32,
+    /// Done as a rail.
+    pub done_rail_width: f32,
 }
+
+/// The chip of the agent filter (d0087; Q-G): ✕ or Esc sets `Params::agent` back to `None`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "BoardAgentChip")]
+pub struct AgentChip {
+    /// The Project agent's id, as in `Params::agent`.
+    pub agent: String,
+    /// "Created or changed by Checkout slowness".
+    pub label: String,
+    /// The ✕'s tooltip: "Clear filter · Esc".
+    pub clear: String,
+}
+
+/// What the agent filter keeps: a Project agent's name and the tickets in its "Created and changed" (PAG-05).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentFilter {
+    pub agent: String,
+    pub name: String,
+    pub keys: Vec<TicketKey>,
+}
+
+impl AgentFilter {
+    /// The filter of the agent `agent` named `name`, from its created and edited tickets.
+    pub fn of(
+        agent: &str,
+        name: &str,
+        created: &otaq_core::project_agents::CreatedAndChanged,
+    ) -> Self {
+        Self {
+            agent: agent.to_owned(),
+            name: name.to_owned(),
+            keys: created
+                .created
+                .iter()
+                .map(|c| c.key.clone())
+                .chain(created.edited.iter().cloned())
+                .collect(),
+        }
+    }
+
+    fn chip(&self) -> AgentChip {
+        AgentChip {
+            agent: self.agent.clone(),
+            label: format!("Created or changed by {}", self.name),
+            clear: AGENT_FILTER_CLEAR.to_owned(),
+        }
+    }
+}
+
+pub const AGENT_FILTER_CLEAR: &str = "Clear filter · Esc";
 
 /// What a focused epic keeps at full strength (*03 → epic flows 2 → 6 · Focus on Wishlist*).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -228,6 +376,10 @@ pub struct Params {
     /// The header's search and filter (T-0221): cards that don't match hide, and each column says how many.
     #[serde(default)]
     pub filter: FilterState,
+    /// A Project agent's id: only the tickets it created or changed show (d0087, "Show on board" in the pane). It
+    /// combines with `filter`; ✕ on its chip or Esc sets it back to `None`.
+    #[serde(default)]
+    pub agent: Option<String>,
 }
 
 /// The project the board shows, for the empty board's wording.
@@ -241,6 +393,8 @@ pub struct ProjectFacts<'a> {
     pub was_validating: &'a [TicketKey],
     /// Its epic leads (`lead.list`): the Lead row on epic cards, the lead's line on tracks (d0083, T-0289).
     pub leads: &'a [otaq_core::project_agents::lead::Lead],
+    /// `Params::agent`'s filter, read from the service; `None` without one (or when the agent is gone).
+    pub agent_filter: Option<&'a AgentFilter>,
 }
 
 pub const APPROVED_NOTE: &str = "doesn\u{2019}t watch PRs. Mark it when it lands.";
@@ -267,14 +421,46 @@ fn cards(entries: Vec<CardEntry>, tickets: &[Ticket]) -> Vec<BoardCard> {
         .collect()
 }
 
-fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
-    let id = ColumnId::of(view.column);
+fn hidden_text(n: usize) -> Option<String> {
+    (n > 0).then(|| format!("{n} hidden by filter"))
+}
+
+fn section_page(view: SectionView, tickets: &[Ticket]) -> SectionPage {
+    let approved = view.column == Column::Approved;
     let pr_open = view.cards.iter().any(|c| match c {
         CardEntry::Ticket(vm) => tickets
             .iter()
             .any(|t| t.key == vm.key && t.status == Status::PrOpen),
         CardEntry::Epic(_) => false,
     });
+    let name = if approved {
+        "Approved"
+    } else {
+        "Ready for Review"
+    };
+    SectionPage {
+        id: if approved {
+            ReviewSectionId::Approved
+        } else {
+            ReviewSectionId::ReadyForReview
+        },
+        title: view.title.to_owned(),
+        count: view.count,
+        hidden: hidden_text(view.hidden),
+        empty: view.empty.to_owned(),
+        note: (approved && pr_open).then(|| Note {
+            icon: IconName::Info,
+            text: format!("{} {APPROVED_NOTE}", otaq_core::naming::PRODUCT_NAME),
+        }),
+        drag_hint: view.drag_hint.map(str::to_owned),
+        fold: format!("Fold {name}"),
+        unfold: format!("Unfold {name}"),
+        cards: cards(view.cards, tickets),
+    }
+}
+
+fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
+    let id = view.id;
     let dev = view.dev.map(|d: DevSections| DevPage {
         top: cards(d.top, tickets),
         section: board::DEV_SECTION.to_owned(),
@@ -289,10 +475,6 @@ fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
         icon: view.icon,
         count: view.count,
         hint: view.hint.map(str::to_owned),
-        note: (id == ColumnId::Approved && pr_open).then(|| Note {
-            icon: IconName::Info,
-            text: format!("{} {APPROVED_NOTE}", otaq_core::naming::PRODUCT_NAME),
-        }),
         empty_hint: view.empty_hint.to_owned(),
         collapsed: view.collapsed,
         toggle: (id == ColumnId::Done).then(|| {
@@ -303,8 +485,13 @@ fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
             }
             .to_owned()
         }),
-        hidden: (view.hidden > 0).then(|| format!("{} hidden by filter", view.hidden)),
+        hidden: hidden_text(view.hidden),
         cards: cards(view.cards, tickets),
+        sections: view
+            .sections
+            .into_iter()
+            .map(|s| section_page(s, tickets))
+            .collect(),
         folds: view
             .folds
             .into_iter()
@@ -330,7 +517,8 @@ fn with_leads(
             .dev
             .iter_mut()
             .flat_map(|d| d.top.iter_mut().chain(d.working.iter_mut()));
-        for entry in column.cards.iter_mut().chain(dev) {
+        let sections = column.sections.iter_mut().flat_map(|s| s.cards.iter_mut());
+        for entry in column.cards.iter_mut().chain(dev).chain(sections) {
             let CardEntry::Epic(vm) = entry else { continue };
             let Some(epic) = tickets.iter().find(|t| t.key == vm.key) else {
                 continue;
@@ -351,8 +539,22 @@ pub fn page(
 ) -> BoardPage {
     let filter = params.filter.filter();
     // An `epic:` token dims instead of hiding (Q55).
-    let visible = filter.hiding().visible(tickets);
+    let mut visible = filter.hiding().visible(tickets);
+    // The agent filter (d0087) narrows whatever the search shows.
+    let agent_filter = project
+        .agent_filter
+        .filter(|f| params.agent.as_deref() == Some(f.agent.as_str()));
+    if let Some(agent) = agent_filter {
+        visible = Some(
+            visible
+                .unwrap_or_else(|| tickets.iter().map(|t| t.key.clone()).collect())
+                .into_iter()
+                .filter(|k| agent.keys.contains(k))
+                .collect(),
+        );
+    }
     let strong = filter.strong(tickets);
+    let done_collapsed = board::done_collapsed(params.done_collapsed, params.width);
     let input = BoardInput {
         tickets,
         visible: visible.as_deref(),
@@ -360,18 +562,18 @@ pub fn page(
         project_base: Some(project.base_branch),
         now_ms,
         dev_budget: (!params.dev_unfolded).then(|| board::dev_budget(params.height)),
-        done_collapsed: board::done_collapsed(params.done_collapsed, params.width),
+        done_collapsed,
         agent_names: project.agent_names,
         was_validating: project.was_validating,
     };
     let mut built = board::build(&input);
     with_leads(&mut built, tickets, project.leads);
-    let shown: Vec<Column> = built.iter().map(|c| c.column).collect();
     BoardPage {
-        strip: Strip::with_leads(tickets, &shown, project.leads),
+        strip: Strip::with_leads(tickets, Column::ALL, project.leads)
+            .map(|s| s.with_done_rail(done_collapsed)),
         columns: built.into_iter().map(|c| column_page(c, tickets)).collect(),
         empty: empty_board::shows(tickets.len(), false)
-            .then(|| empty_board::view(project.name, project.repo_path, platform)),
+            .then(|| empty_board::view(project.name, platform)),
         scroll_chip: ScrollChip {
             above: SCROLL_CHIP_ABOVE.to_owned(),
             need_you: SCROLL_CHIP_NEED_YOU.to_owned(),
@@ -385,6 +587,9 @@ pub fn page(
                 .collect(),
             keys: keys.iter().map(ToString::to_string).collect(),
         }),
+        agent_filter: agent_filter.map(AgentFilter::chip),
+        min_column_width: board::MIN_COLUMN_WIDTH,
+        done_rail_width: board::DONE_RAIL_WIDTH,
     }
 }
 
@@ -409,30 +614,32 @@ pub enum Verdict {
     },
 }
 
+/// One drop target's verdict.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "ColumnVerdict")]
-pub struct ColumnVerdict {
-    pub column: ColumnId,
+#[ts(rename = "DropTargetVerdict")]
+pub struct TargetVerdict {
+    pub target: DropTargetId,
     pub verdict: Verdict,
 }
 
-/// The answer to `board.drag`, asked once when a drag starts. `tickets` are the project's: an epic's answer counts
-/// the children it queues ("Queue 2 children") or, for its track over Backlog, what it takes back; other tickets
-/// need none.
+/// The answer to `board.drag`, asked once when a drag starts: a verdict for every drop target (the five columns,
+/// Review's Approved section on its own). `tickets` are the project's: an epic's answer counts the children it
+/// queues ("Queue 2 children") or, for its track over Backlog, what it takes back; other tickets need none.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "DragAnswer")]
 pub struct DragAnswer {
     pub key: String,
-    pub columns: Vec<ColumnVerdict>,
+    pub targets: Vec<TargetVerdict>,
 }
 
 pub fn drag_answer(ticket: &Ticket, tickets: &[Ticket]) -> DragAnswer {
     DragAnswer {
         key: ticket.key.to_string(),
-        columns: Column::ALL
+        targets: DropTargetId::ALL
             .iter()
-            .map(|&column| ColumnVerdict {
-                column: ColumnId::of(column),
+            .map(|&target| (target, target.column()))
+            .map(|(target, column)| TargetVerdict {
+                target,
                 verdict: match drag::feedback(ticket, tickets, column) {
                     DropFeedback::Home => Verdict::Home,
                     DropFeedback::Forbidden { title, detail } => Verdict::Forbidden {
@@ -593,14 +800,15 @@ pub enum DropStep {
     },
     /// An epic's track on Backlog with every child started: the Park-all confirmation first.
     ParkAll(ParkAllDialog),
-    /// Ready for Review → Approved: the approve choice.
+    /// Ready for Review → the Approved section: the Approve choice (Local merge · Open PR); nothing moves until one
+    /// is picked, and Esc or Cancel leaves the card where it was (d0087).
     Approve,
     NotYet(String),
 }
 
 /// `tickets` are the project's; only an epic's need them (its track's take back).
-pub fn drop_step(ticket: &Ticket, tickets: &[Ticket], column: Column) -> DropStep {
-    match drag::on_drop(ticket, tickets, column) {
+pub fn drop_step(ticket: &Ticket, tickets: &[Ticket], target: DropTargetId) -> DropStep {
+    match drag::on_drop(ticket, tickets, target.column()) {
         DropAction::Nothing => DropStep::Nothing,
         DropAction::Move => DropStep::Move,
         DropAction::QueueEpic { epic, child } => DropStep::QueueEpic { epic, child },
@@ -634,6 +842,104 @@ pub enum DropOutcome {
     NotYet { message: String },
 }
 
+/// One Review column state in the gallery.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "BoardGalleryColumn")]
+pub struct GalleryColumn {
+    pub name: String,
+    pub column: ColumnPage,
+}
+
+/// One dragged card's verdicts in the gallery.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "BoardGalleryDrag")]
+pub struct GalleryDrag {
+    /// "SHOP-25 · Dev".
+    pub from: String,
+    pub answer: DragAnswer,
+}
+
+/// The gallery's board section (T-0324): the Review column in its states (*Row · Review column (0086 · V)*), the
+/// drop verdicts of a card from each column, the empty board and the agent filter's chip.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "BoardGallery")]
+pub struct Gallery {
+    pub review: Vec<GalleryColumn>,
+    pub drags: Vec<GalleryDrag>,
+    pub empty: empty_board::View,
+    pub agent_chip: AgentChip,
+}
+
+pub fn gallery() -> Gallery {
+    use crate::view_models::card_fixtures::{NOW, ticket};
+    let facts = ProjectFacts {
+        name: "shop-web",
+        repo_path: "/Users/me/code/shop-web",
+        base_branch: "main",
+        agent_names: &[],
+        was_validating: &[],
+        leads: &[],
+        agent_filter: None,
+    };
+    let params = Params {
+        project: "SHOP".into(),
+        width: 1376.,
+        height: 856.,
+        ..Params::default()
+    };
+    let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
+    pr.flags.pr_number = Some(481);
+    let full = vec![
+        ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
+        ticket("SHOP-23", "Split user full name", Status::ReadyForReview),
+        pr.clone(),
+    ];
+    let review_of = |name: &str, tickets: &[Ticket]| GalleryColumn {
+        name: name.to_owned(),
+        column: page(tickets, &facts, &params, NOW, Platform::Mac)
+            .columns
+            .into_iter()
+            .find(|c| c.id == ColumnId::Review)
+            .expect("the Review column"),
+    };
+    let drag_of = |t: &Ticket| GalleryDrag {
+        from: format!("{} · {}", t.key, t.column.label()),
+        answer: drag_answer(t, &[]),
+    };
+    let one = |t: Ticket| vec![t, ticket("SHOP-24", "Update footer links", Status::Backlog)];
+    Gallery {
+        review: vec![
+            review_of("both sections", &full),
+            review_of(
+                "an empty Approved section",
+                &one(ticket("SHOP-18", "Checkout API", Status::ReadyForReview)),
+            ),
+            review_of("an empty Ready for Review section", &one(pr.clone())),
+            review_of(
+                "empty",
+                &one(ticket("SHOP-17", "Add Stripe client", Status::Merged)),
+            ),
+        ],
+        drags: [
+            ticket("SHOP-24", "Update footer links", Status::Backlog),
+            ticket("SHOP-25", "Upgrade to Next.js 15", Status::Working),
+            ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
+            pr,
+            ticket("SHOP-30", "Order history", Status::ClosedNotMerged),
+        ]
+        .iter()
+        .map(drag_of)
+        .collect(),
+        empty: empty_board::view("shop-web", Platform::Mac),
+        agent_chip: AgentFilter {
+            agent: "a1".into(),
+            name: "Checkout slowness".into(),
+            keys: Vec::new(),
+        }
+        .chip(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -648,6 +954,7 @@ mod tests {
             agent_names: &[],
             was_validating: &[],
             leads: &[],
+            agent_filter: None,
         }
     }
 
@@ -659,6 +966,7 @@ mod tests {
             done_collapsed: None,
             dev_unfolded: false,
             filter: FilterState::default(),
+            agent: None,
         }
     }
 
@@ -815,22 +1123,20 @@ mod tests {
         );
     }
 
+    /// SHL-06: five columns in order; Review holds Ready for Review and Approved as two sections.
     #[test]
-    fn six_columns_reach_the_page_worded() {
+    fn five_columns_reach_the_page_worded() {
         let tickets = sample();
         let page = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
         let ids: Vec<ColumnId> = page.columns.iter().map(|c| c.id).collect();
+        assert_eq!(ids, ColumnId::ALL);
+        let titles: Vec<&str> = page.columns.iter().map(|c| c.title.as_str()).collect();
         assert_eq!(
-            ids,
-            [
-                ColumnId::Backlog,
-                ColumnId::ReadyForDev,
-                ColumnId::Dev,
-                ColumnId::ReadyForReview,
-                ColumnId::Approved,
-                ColumnId::Done
-            ]
+            titles,
+            ["Backlog", "Ready for Dev", "Dev", "Review", "Done"]
         );
+        assert_eq!(page.min_column_width, 200.);
+        assert_eq!(page.done_rail_width, 34.);
         assert_eq!(page.empty, None);
         let backlog = &page.columns[0];
         assert_eq!(backlog.add.as_deref(), Some("Add ticket"));
@@ -855,7 +1161,36 @@ mod tests {
             }
         ));
         assert_eq!(dev.section, "WORKING · VALIDATING");
-        let approved = &page.columns[4];
+        let review = &page.columns[3];
+        assert_eq!(review.count, "2", "both sections");
+        assert!(review.cards.is_empty(), "the cards are in the sections");
+        let [ready, approved] = review.sections.as_slice() else {
+            panic!("two sections: {:?}", review.sections)
+        };
+        assert_eq!(
+            (ready.id, ready.title.as_str(), ready.count.as_str()),
+            (ReviewSectionId::ReadyForReview, "READY FOR REVIEW", "1")
+        );
+        assert_eq!(
+            (
+                approved.id,
+                approved.title.as_str(),
+                approved.count.as_str()
+            ),
+            (ReviewSectionId::Approved, "APPROVED", "1")
+        );
+        assert_eq!(
+            ready.cards.iter().map(BoardCard::key).collect::<Vec<_>>(),
+            ["SHOP-18"]
+        );
+        assert_eq!(
+            approved
+                .cards
+                .iter()
+                .map(BoardCard::key)
+                .collect::<Vec<_>>(),
+            ["SHOP-26"]
+        );
         assert_eq!(
             approved.note.as_ref().unwrap().text,
             format!(
@@ -863,9 +1198,15 @@ mod tests {
                 otaq_core::naming::PRODUCT_NAME
             )
         );
-        assert_eq!(page.columns[3].note, None);
-        let done = &page.columns[5];
-        assert!(!done.collapsed, "1440: all six open");
+        assert_eq!(ready.note, None);
+        assert_eq!(
+            (ready.drag_hint.as_deref(), approved.drag_hint.is_some()),
+            (None, true)
+        );
+        assert_eq!(approved.fold, "Fold Approved");
+        assert_eq!(ready.unfold, "Unfold Ready for Review");
+        let done = &page.columns[4];
+        assert!(!done.collapsed, "1376: Done open");
         assert_eq!(done.toggle.as_deref(), Some("Collapse Done"));
         let json = serde_json::to_value(&page).unwrap();
         assert_eq!(json["columns"][1]["id"], "ready_for_dev");
@@ -893,7 +1234,7 @@ mod tests {
             ticket("SHOP-17", "Add Stripe client", Status::Merged),
         ];
         let board = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
-        let done = &board.columns[5];
+        let done = &board.columns[4];
         assert_eq!(
             done.folds,
             [DoneFold {
@@ -907,22 +1248,22 @@ mod tests {
         assert_eq!(done.count, "3");
         let json = serde_json::to_value(&board).unwrap();
         assert_eq!(
-            json["columns"][5]["folds"][0]["label"],
+            json["columns"][4]["folds"][0]["label"],
             "Wishlist · 2 of 4 merged"
         );
         assert_eq!(json["columns"][0]["folds"], serde_json::json!([]));
 
         let rail = page(&tickets, &facts(), &params(1216.), NOW, Platform::Mac);
-        assert!(rail.columns[5].collapsed);
-        assert_eq!(rail.columns[5].count, "3");
+        assert!(rail.columns[4].collapsed);
+        assert_eq!(rail.columns[4].count, "3");
     }
 
     #[test]
     fn done_folds_at_1280_and_the_user_choice_wins() {
         let tickets = sample();
         let narrow = page(&tickets, &facts(), &params(1216.), NOW, Platform::Mac);
-        assert!(narrow.columns[5].collapsed);
-        assert_eq!(narrow.columns[5].toggle.as_deref(), Some("Expand Done"));
+        assert!(narrow.columns[4].collapsed);
+        assert_eq!(narrow.columns[4].toggle.as_deref(), Some("Expand Done"));
         let opened = page(
             &tickets,
             &facts(),
@@ -933,7 +1274,7 @@ mod tests {
             NOW,
             Platform::Mac,
         );
-        assert!(!opened.columns[5].collapsed);
+        assert!(!opened.columns[4].collapsed);
     }
 
     #[test]
@@ -993,7 +1334,12 @@ mod tests {
         assert_eq!(dev.count, "1/3");
         assert_eq!(dev.hidden.as_deref(), Some("2 hidden by filter"));
         assert!(filtered.columns[0].cards.is_empty());
-        let review: Vec<&str> = filtered.columns[3]
+        assert_eq!(filtered.columns[3].count, "1/2");
+        assert_eq!(
+            filtered.columns[3].sections[1].hidden.as_deref(),
+            Some("1 hidden by filter")
+        );
+        let review: Vec<&str> = filtered.columns[3].sections[0]
             .cards
             .iter()
             .map(BoardCard::key)
@@ -1058,10 +1404,35 @@ mod tests {
         let page = page(&[], &facts(), &params(1376.), NOW, Platform::Mac);
         let empty = page.empty.unwrap();
         assert_eq!(empty.title, "shop-web is ready");
-        assert_eq!(page.columns.len(), 6);
+        assert_eq!(
+            empty.text,
+            "Write the first ticket (+ in Backlog or ⌘N), or ask the Project agent on the left to investigate and create tickets."
+        );
+        let labels: Vec<&str> = empty.buttons.iter().map(|b| b.label).collect();
+        assert_eq!(
+            labels,
+            ["New ticket", "Project terminal"],
+            "no Project agent button"
+        );
+        assert_eq!(page.columns.len(), 5);
+        let review = &page.columns[3];
+        let empties: Vec<(&str, &str)> = review
+            .sections
+            .iter()
+            .map(|s| (s.title.as_str(), s.empty.as_str()))
+            .collect();
+        assert_eq!(
+            empties,
+            [
+                ("READY FOR REVIEW", "Nothing to review"),
+                ("APPROVED", "Nothing approved")
+            ]
+        );
         assert!(
-            page.columns[4]
-                .empty_hint
+            review.sections[1]
+                .drag_hint
+                .as_deref()
+                .unwrap()
                 .starts_with("Drag a ticket here from Ready for Review")
         );
     }
@@ -1070,19 +1441,19 @@ mod tests {
     fn a_drag_answers_every_column_at_once() {
         let backlog = ticket("SHOP-24", "Update footer links", Status::Backlog);
         let answer = drag_answer(&backlog, &[]);
-        assert_eq!(answer.columns.len(), 6);
-        let verdict = |id: ColumnId| {
+        assert_eq!(answer.targets.len(), 6);
+        let verdict = |id: DropTargetId| {
             answer
-                .columns
+                .targets
                 .iter()
-                .find(|c| c.column == id)
+                .find(|c| c.target == id)
                 .unwrap()
                 .verdict
                 .clone()
         };
-        assert_eq!(verdict(ColumnId::Backlog), Verdict::Home);
+        assert_eq!(verdict(DropTargetId::Backlog), Verdict::Home);
         assert_eq!(
-            verdict(ColumnId::ReadyForDev),
+            verdict(DropTargetId::ReadyForDev),
             Verdict::Allowed {
                 icon: IconName::Play,
                 hint: "Drop to queue · starts in priority order".into(),
@@ -1090,7 +1461,7 @@ mod tests {
             }
         );
         assert_eq!(
-            verdict(ColumnId::ReadyForReview),
+            verdict(DropTargetId::Review),
             Verdict::Forbidden {
                 title: "Only agents move tickets to Ready for Review".into(),
                 detail: Some("Drag to Ready for Dev to queue it.".into())
@@ -1098,7 +1469,306 @@ mod tests {
             "*Drag · over a forbidden column*"
         );
         let json = serde_json::to_value(drag_answer(&backlog, &[])).unwrap();
-        assert_eq!(json["columns"][0]["verdict"]["kind"], "home");
+        assert_eq!(json["targets"][0]["verdict"]["kind"], "home");
+        assert_eq!(json["targets"][4]["target"], "approved");
+    }
+
+    /// The verdict of `ticket` over `target`.
+    fn verdict_on(ticket: &Ticket, target: DropTargetId) -> Verdict {
+        drag_answer(ticket, &[])
+            .targets
+            .into_iter()
+            .find(|t| t.target == target)
+            .unwrap()
+            .verdict
+    }
+
+    /// d0087, §7.4: every source column over the Review column (outside Approved: Ready for Review) and over the
+    /// Approved section, answered up front.
+    #[test]
+    fn review_and_approved_verdicts_for_every_source() {
+        let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
+        pr.flags.pr_number = Some(481);
+        let sources = [
+            ticket("SHOP-24", "Update footer links", Status::Backlog),
+            ticket("SHOP-21", "Order confirmation email", Status::Queued),
+            ticket("SHOP-25", "Upgrade to Next.js 15", Status::Working),
+            ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
+            pr,
+            ticket("SHOP-30", "Order history", Status::ClosedNotMerged),
+            ticket("SHOP-17", "Add Stripe client", Status::Merged),
+        ];
+        let kind = |v: &Verdict| match v {
+            Verdict::Home => "home".to_owned(),
+            Verdict::Allowed { hint, .. } => format!("allowed: {hint}"),
+            Verdict::Forbidden { title, .. } => format!("forbidden: {title}"),
+        };
+        let rows: Vec<(String, String, String)> = sources
+            .iter()
+            .map(|t| {
+                (
+                    t.key.to_string(),
+                    kind(&verdict_on(t, DropTargetId::Review)),
+                    kind(&verdict_on(t, DropTargetId::Approved)),
+                )
+            })
+            .collect();
+        let only_agents = "forbidden: Only agents move tickets to Ready for Review";
+        let approve_first = "forbidden: Approve a ticket from Ready for Review";
+        let row = |key: &str, review: &str, approved: &str| {
+            (key.to_owned(), review.to_owned(), approved.to_owned())
+        };
+        assert_eq!(
+            rows,
+            [
+                row("SHOP-24", only_agents, approve_first),
+                row("SHOP-21", only_agents, approve_first),
+                row("SHOP-25", only_agents, approve_first),
+                row(
+                    "SHOP-18",
+                    "home",
+                    "allowed: Drop to approve SHOP-18 → choose Local merge or Open PR"
+                ),
+                row("SHOP-26", "allowed: Drop to rework · PR #481 stays", "home"),
+                row(
+                    "SHOP-30",
+                    only_agents,
+                    "forbidden: Drag it to Backlog to reopen it first"
+                ),
+                row(
+                    "SHOP-17",
+                    "forbidden: Merged tickets are locked",
+                    "forbidden: Merged tickets are locked"
+                ),
+            ]
+        );
+        // Dev → Review: today's reason, and no "queue it" line (only a Backlog card can be queued).
+        assert_eq!(
+            verdict_on(&sources[2], DropTargetId::Review),
+            Verdict::Forbidden {
+                title: drag::ONLY_AGENTS_TO_REVIEW.into(),
+                detail: None
+            }
+        );
+    }
+
+    /// d0087: Ready for Review → the Approved section opens the Approve choice and moves nothing by itself; Approved
+    /// → the Review column is PR rework; a Ready for Review card dropped on its own column does nothing.
+    #[test]
+    fn approve_choice_and_pr_rework_on_drop() {
+        let review = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
+        assert_eq!(
+            drop_step(&review, &[], DropTargetId::Approved),
+            DropStep::Approve,
+            "the choice, never a Move"
+        );
+        assert_eq!(
+            drop_step(&review, &[], DropTargetId::Review),
+            DropStep::Nothing,
+            "home"
+        );
+        let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
+        pr.flags.pr_number = Some(481);
+        assert_eq!(
+            drop_step(&pr, &[], DropTargetId::Review),
+            DropStep::Move,
+            "PR rework"
+        );
+        assert_eq!(
+            drop_step(&pr, &[], DropTargetId::Approved),
+            DropStep::Nothing
+        );
+        let working = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Working);
+        for target in [DropTargetId::Review, DropTargetId::Approved] {
+            assert_eq!(drop_step(&working, &[], target), DropStep::Nothing);
+        }
+        let targets: Vec<DropTargetId> = drag_answer(&review, &[])
+            .targets
+            .iter()
+            .map(|t| t.target)
+            .collect();
+        assert_eq!(
+            targets,
+            DropTargetId::ALL,
+            "both sections answered up front"
+        );
+        assert_eq!(DropTargetId::Approved.page_column(), ColumnId::Review);
+        assert_eq!(DropTargetId::Review.column(), Column::ReadyForReview);
+    }
+
+    /// SHL-01 on the page: Done opens from 1360 px of board width; the strip's Done station is a check while Done
+    /// is the rail.
+    #[test]
+    fn done_opens_at_1360_and_the_strip_follows() {
+        let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
+        epic.kind = Kind::Epic;
+        let child = |key: &str, status| {
+            let mut t = ticket(key, "Child", status);
+            t.epic = Some("SHOP-45".parse().unwrap());
+            t.queued_at = Some(1);
+            t
+        };
+        let tickets = vec![
+            epic,
+            child("SHOP-45.1", Status::Merged),
+            child("SHOP-45.2", Status::ReadyForReview),
+            child("SHOP-45.3", Status::Working),
+        ];
+        let open = page(&tickets, &facts(), &params(1360.), NOW, Platform::Mac);
+        assert!(!open.columns[4].collapsed);
+        let stations = |p: &BoardPage| -> Vec<(ColumnId, Option<IconName>, usize)> {
+            p.strip.as_ref().unwrap().tracks[0]
+                .stations
+                .iter()
+                .map(|s| (s.column, s.check, s.stops.len()))
+                .collect()
+        };
+        assert_eq!(
+            stations(&open),
+            [
+                (ColumnId::ReadyForDev, None, 0),
+                (ColumnId::Dev, None, 1),
+                (ColumnId::Review, None, 1),
+                (ColumnId::Done, None, 1),
+            ],
+            "one Review stop"
+        );
+        let folded = page(&tickets, &facts(), &params(1359.), NOW, Platform::Mac);
+        assert!(folded.columns[4].collapsed);
+        assert_eq!(
+            stations(&folded)[3],
+            (ColumnId::Done, Some(IconName::CircleCheck), 1)
+        );
+        let opened = page(
+            &tickets,
+            &facts(),
+            &Params {
+                done_collapsed: Some(false),
+                ..params(1359.)
+            },
+            NOW,
+            Platform::Mac,
+        );
+        assert!(!opened.columns[4].collapsed, "the user's choice wins");
+        assert_eq!(stations(&opened)[3].1, None);
+    }
+
+    #[test]
+    fn the_gallery_has_every_review_state() {
+        let g = gallery();
+        let counts: Vec<(&str, Vec<&str>)> = g
+            .review
+            .iter()
+            .map(|c| {
+                (
+                    c.column.count.as_str(),
+                    c.column.sections.iter().map(|s| s.count.as_str()).collect(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            counts,
+            [
+                ("3", vec!["2", "1"]),
+                ("1", vec!["1", "0"]),
+                ("1", vec!["0", "1"]),
+                ("0", vec!["0", "0"])
+            ]
+        );
+        assert_eq!(g.drags.len(), 5);
+        assert_eq!(g.drags[1].from, "SHOP-25 · Dev");
+        assert!(g.empty.text.starts_with("Write the first ticket"));
+    }
+
+    /// d0087 (Q-G): the agent filter shows only the tickets the agent created or changed, combines with search,
+    /// shows its chip, and clears.
+    #[test]
+    fn the_agent_filter_shows_its_tickets_and_clears() {
+        let tickets = sample();
+        let created = otaq_core::project_agents::CreatedAndChanged {
+            created: vec![otaq_core::project_agents::CreatedTicket {
+                key: "SHOP-24".parse().unwrap(),
+                title: "Update footer links".into(),
+                status: Status::Backlog,
+                deletable: true,
+            }],
+            edited: vec!["SHOP-22".parse().unwrap(), "SHOP-18".parse().unwrap()],
+            dependencies: 0,
+            summary: String::new(),
+        };
+        let agent = AgentFilter::of("a1", "Checkout slowness", &created);
+        let with = ProjectFacts {
+            agent_filter: Some(&agent),
+            ..facts()
+        };
+        let filtered = |filter: FilterState, agent: Option<&str>| {
+            page(
+                &tickets,
+                &with,
+                &Params {
+                    filter,
+                    agent: agent.map(str::to_owned),
+                    ..params(1376.)
+                },
+                NOW,
+                Platform::Mac,
+            )
+        };
+        let shown = |p: &BoardPage| -> Vec<String> {
+            let mut keys: Vec<String> = p
+                .columns
+                .iter()
+                .flat_map(|c| {
+                    let dev = c.dev.iter().flat_map(|d| d.top.iter().chain(&d.working));
+                    let sections = c.sections.iter().flat_map(|s| &s.cards);
+                    c.cards.iter().chain(dev).chain(sections)
+                })
+                .map(|c| c.key().to_owned())
+                .collect();
+            keys.sort();
+            keys
+        };
+        let by_agent = filtered(FilterState::default(), Some("a1"));
+        assert_eq!(shown(&by_agent), ["SHOP-18", "SHOP-22", "SHOP-24"]);
+        assert_eq!(
+            by_agent.agent_filter,
+            Some(AgentChip {
+                agent: "a1".into(),
+                label: "Created or changed by Checkout slowness".into(),
+                clear: "Clear filter · Esc".into(),
+            })
+        );
+        assert_eq!(by_agent.columns[0].count, "1/2");
+        assert_eq!(by_agent.columns[3].count, "1/2");
+
+        // With a search: both must match.
+        let both = filtered(
+            FilterState {
+                tokens: vec![],
+                text: "footer".into(),
+            },
+            Some("a1"),
+        );
+        assert_eq!(shown(&both), ["SHOP-24"]);
+        let both = filtered(
+            FilterState {
+                tokens: vec!["is:needs-me".into()],
+                text: String::new(),
+            },
+            Some("a1"),
+        );
+        assert_eq!(shown(&both), ["SHOP-18", "SHOP-22"]);
+
+        // Cleared (✕ or Esc): every card, no chip.
+        let cleared = filtered(FilterState::default(), None);
+        assert_eq!(cleared.agent_filter, None);
+        assert_eq!(shown(&cleared).len(), tickets.len(), "every card");
+        assert_eq!(cleared.columns[0].count, "2");
+        let json = serde_json::to_value(&by_agent).unwrap();
+        assert_eq!(
+            json["agent_filter"]["label"],
+            "Created or changed by Checkout slowness"
+        );
     }
 
     /// *Epic flows 1 → 1* and *epic flows 3 → 8* (EPC-12): the epic card and a row are allowed over Ready for Dev
@@ -1119,7 +1789,7 @@ mod tests {
             child("SHOP-45.2", Status::Backlog),
         ];
         let verdicts = |answer: DragAnswer| -> Vec<Verdict> {
-            answer.columns.into_iter().map(|c| c.verdict).collect()
+            answer.targets.into_iter().map(|c| c.verdict).collect()
         };
         let card = verdicts(drag_answer(&epic, &tickets));
         assert_eq!(card[0], Verdict::Home);
@@ -1163,22 +1833,22 @@ mod tests {
         );
 
         assert_eq!(
-            drop_step(&epic, &[], Column::ReadyForDev),
+            drop_step(&epic, &[], DropTargetId::ReadyForDev),
             DropStep::QueueEpic {
                 epic: epic.key.clone(),
                 child: None
             }
         );
         assert_eq!(
-            drop_step(&tickets[1], &[], Column::Dev),
+            drop_step(&tickets[1], &[], DropTargetId::Dev),
             DropStep::QueueEpic {
                 epic: epic.key.clone(),
                 child: Some(tickets[1].key.clone())
             }
         );
-        assert_eq!(drop_step(&epic, &[], Column::Done), DropStep::Nothing);
+        assert_eq!(drop_step(&epic, &[], DropTargetId::Done), DropStep::Nothing);
         assert_eq!(
-            drop_step(&tickets[1], &[], Column::Approved),
+            drop_step(&tickets[1], &[], DropTargetId::Approved),
             DropStep::Nothing
         );
     }
@@ -1202,7 +1872,7 @@ mod tests {
             child("SHOP-45.3", Status::Backlog),
         ];
         let verdicts = |answer: DragAnswer| -> Vec<Verdict> {
-            answer.columns.into_iter().map(|c| c.verdict).collect()
+            answer.targets.into_iter().map(|c| c.verdict).collect()
         };
         let track = verdicts(drag_answer(&epic, &tickets));
         assert_eq!(
@@ -1229,23 +1899,26 @@ mod tests {
         }
         let json = serde_json::to_value(drag_answer(&epic, &tickets)).unwrap();
         assert_eq!(
-            json["columns"][0]["verdict"]["note"],
+            json["targets"][0]["verdict"]["note"],
             "SHOP-45.1 keeps running"
         );
         assert_eq!(
-            drop_step(&epic, &tickets, Column::Backlog),
+            drop_step(&epic, &tickets, DropTargetId::Backlog),
             DropStep::TakeBack {
                 epic: epic.key.clone()
             }
         );
         assert_eq!(
-            drop_step(&epic, &tickets, Column::ReadyForDev),
+            drop_step(&epic, &tickets, DropTargetId::ReadyForDev),
             DropStep::QueueEpic {
                 epic: epic.key.clone(),
                 child: None
             }
         );
-        assert_eq!(drop_step(&epic, &tickets, Column::Done), DropStep::Nothing);
+        assert_eq!(
+            drop_step(&epic, &tickets, DropTargetId::Done),
+            DropStep::Nothing
+        );
 
         // State 11: both started and run; the drop asks first.
         tickets.truncate(2);
@@ -1258,7 +1931,7 @@ mod tests {
                 note: None,
             }
         );
-        let DropStep::ParkAll(dialog) = drop_step(&epic, &tickets, Column::Backlog) else {
+        let DropStep::ParkAll(dialog) = drop_step(&epic, &tickets, DropTargetId::Backlog) else {
             panic!("Park all asks first");
         };
         assert_eq!(
@@ -1293,7 +1966,7 @@ mod tests {
             child("SHOP-45.2", Status::Queued),
         ];
         assert_eq!(
-            drop_step(&tickets[2], &tickets, Column::Backlog),
+            drop_step(&tickets[2], &tickets, DropTargetId::Backlog),
             DropStep::Move
         );
         // What the service's unqueue leaves (d0066).
@@ -1313,13 +1986,19 @@ mod tests {
     #[test]
     fn drops_say_what_comes_next() {
         let working = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Working);
-        assert_eq!(drop_step(&working, &[], Column::Backlog), DropStep::Park);
+        assert_eq!(
+            drop_step(&working, &[], DropTargetId::Backlog),
+            DropStep::Park
+        );
         let park = park_dialog(&working);
         assert_eq!(park.title, "Park SHOP-25?");
         assert!(park.message.contains("will be stopped"), "{}", park.message);
         assert_eq!(park.kept.len(), 3);
         let review = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
-        assert_eq!(drop_step(&review, &[], Column::Approved), DropStep::Approve);
+        assert_eq!(
+            drop_step(&review, &[], DropTargetId::Approved),
+            DropStep::Approve
+        );
         let menu = approve_menu(&review, "main", std::slice::from_ref(&review), None);
         assert_eq!(menu.title, "Approve SHOP-18 Checkout API");
         assert_eq!(menu.items[0].choice, ApproveChoice::LocalMerge);
@@ -1332,17 +2011,20 @@ mod tests {
         let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         assert_eq!(
-            drop_step(&pr, &[], Column::ReadyForReview),
+            drop_step(&pr, &[], DropTargetId::Review),
             DropStep::Move,
             "PR rework"
         );
         let closed = ticket("SHOP-30", "Order history", Status::ClosedNotMerged);
         assert_eq!(
-            drop_step(&closed, &[], Column::Backlog),
+            drop_step(&closed, &[], DropTargetId::Backlog),
             DropStep::Move,
             "Reopen"
         );
-        assert_eq!(drop_step(&closed, &[], Column::Done), DropStep::Nothing);
+        assert_eq!(
+            drop_step(&closed, &[], DropTargetId::Done),
+            DropStep::Nothing
+        );
         let json = serde_json::to_value(DropOutcome::Park { dialog: park }).unwrap();
         assert_eq!(json["kind"], "park");
         assert_eq!(json["dialog"]["confirm"], "Park");
@@ -1382,7 +2064,8 @@ mod tests {
             .iter()
             .flat_map(|c| {
                 let dev = c.dev.iter().flat_map(|d| d.top.iter().chain(&d.working));
-                c.cards.iter().chain(dev)
+                let sections = c.sections.iter().flat_map(|s| &s.cards);
+                c.cards.iter().chain(dev).chain(sections)
             })
             .find(|c| c.key() == key)
             .map(|c| serde_json::to_string(c).unwrap())

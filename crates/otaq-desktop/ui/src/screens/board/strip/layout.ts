@@ -17,7 +17,7 @@ export type TrackCell =
   /** Done folded to its 34 px rail: the station shows only "n merged". */
   | { kind: "rail"; column: BoardColumnId; station: EpicStation };
 
-const EMPTY = (column: BoardColumnId): EpicStation => ({ column, stops: [], merged: null });
+const EMPTY = (column: BoardColumnId): EpicStation => ({ column, stops: [], merged: null, check: null });
 
 /** The cells of `track` over `columns` (the page's columns, in board order): the label over Backlog, each other
  * column its station (an empty one if the track has none for it), a collapsed column its rail. */

@@ -51,7 +51,7 @@ function stop(
   };
 }
 
-const STATIONS: BoardColumnId[] = ["ready_for_dev", "dev", "ready_for_review", "approved", "done"];
+const STATIONS: BoardColumnId[] = ["ready_for_dev", "dev", "review", "done"];
 
 /** The 04 strip row's Wishlist: 40.5 new and waiting, 40.2 asks you, 40.4 conflict, 40.1 merged, 40.3 not queued. */
 const WISHLIST: EpicTrack = {
@@ -86,6 +86,7 @@ const WISHLIST: EpicTrack = {
             ? [stop("SHOP-40.1", "merged", null)]
             : [],
     merged: column === "done" ? "1 merged" : null,
+    check: null,
   })),
   lead: null,
   lead_asks: false,
@@ -160,8 +161,7 @@ describe("column alignment", () => {
       ["label", "backlog"],
       ["station", "ready_for_dev"],
       ["station", "dev"],
-      ["station", "ready_for_review"],
-      ["station", "approved"],
+      ["station", "review"],
       ["station", "done"],
     ]);
     const dev = cells[2];
@@ -172,7 +172,7 @@ describe("column alignment", () => {
   });
 
   it("follows Done to its rail, with its n merged", () => {
-    const done = trackCells(RAIL, WISHLIST)[5];
+    const done = trackCells(RAIL, WISHLIST)[4];
     expect(done?.kind).toBe("rail");
     expect(done?.kind === "rail" && done.station.merged).toBe("1 merged");
     const markup = html(false, RAIL);
@@ -186,18 +186,15 @@ describe("column alignment", () => {
     expect(cells[1]).toEqual({
       kind: "station",
       column: "ready_for_dev",
-      station: { column: "ready_for_dev", stops: [], merged: null },
+      station: { column: "ready_for_dev", stops: [], merged: null, check: null },
     });
   });
 
   it("draws a cell per column, the stops in their station", () => {
     const markup = html(false);
-    expect(markup.match(/class="strip-station"/g)).toHaveLength(5);
+    expect(markup.match(/class="strip-station"/g)).toHaveLength(4);
     expect(markup).toContain('class="strip-label" data-needs-you="true"');
-    const dev = markup.slice(
-      markup.indexOf('data-column="dev"'),
-      markup.indexOf('data-column="ready_for_review"'),
-    );
+    const dev = markup.slice(markup.indexOf('data-column="dev"'), markup.indexOf('data-column="review"'));
     expect(dev).toContain("asks you");
     expect(dev).toContain("40.4");
   });

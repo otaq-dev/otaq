@@ -1,13 +1,16 @@
-//! The board's columns (UI-02; *03 · Board — shop-web*, *03 · Board & columns*): six columns with counts;
-//! Ready for Dev with the queued cards (d0066); Dev with the cards that need the user (and pins) on top, then
-//! the Agent Working section; the "N more · working" fold that never hides needs-you cards (T-0027); the Done
-//! column that collapses to a 34 px rail; epic cards in Backlog; and the empty-column hints. Order comes from
-//! the core ([`otaq_core::board::order`]), so the board, the service and the tests agree.
+//! The board's columns (UI-02, SHL-06; *03 · Board & columns*; d0087): five columns with counts, Backlog · Ready
+//! for Dev · Dev · Review · Done. The states and their stored columns are the core's six (§7); only the page groups
+//! them: the Review column holds Ready for Review and Approved as two sections ([`SectionView`]), each with its own
+//! count and its own cards in the old columns' order, and the column counts both. Ready for Dev shows the queued
+//! cards (d0066); Dev the cards that need the user (and pins) on top, then the Agent Working section; the "N more ·
+//! working" fold that never hides needs-you cards (T-0027); the Done column that collapses to a 34 px rail; epic
+//! cards in Backlog; and the empty-column hints. Order comes from the core ([`otaq_core::board::order`]), so the
+//! board, the service and the tests agree.
 //!
 //! Each child is on the board exactly once (EPC-11, d0080): an epic is a card in Backlog only in its Card place
-//! and a delivery card in Review / Approved / Done; in its Track place the strip draws it instead. Epic children
-//! never show as cards in Backlog: they are rows of the epic card, or "not queued" stops on its track. In Done an
-//! epic's merged children fold into one line (EPC-16, [`DoneFold`]); its closed children stay cards.
+//! and a delivery card in Review / Done; in its Track place the strip draws it instead. Epic children never show
+//! as cards in Backlog: they are rows of the epic card, or "not queued" stops on its track. In Done an epic's
+//! merged children fold into one line (EPC-16, [`DoneFold`]); its closed children stay cards.
 
 use otaq_core::board::epic_flight::{EpicPlace, children_of, epic_place};
 use otaq_core::board::order::{ColumnOrder, fold_dev, sort_column};
@@ -15,15 +18,21 @@ use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Column, Kind, Status, TicketKey};
 
 use crate::icons::IconName;
+use crate::view_models::board_page::ColumnId;
 use crate::view_models::card::{CardExtras, CardViewModel};
 use crate::view_models::epic_card::EpicViewModel;
 use crate::view_models::queue::queue_facts;
 
-/// Below this board width Done starts as a rail (*Width strategy · six columns*: "B · 1280 or panel open: Done
-/// becomes a 34 px rail"). The board is 1216 px at the 1280 minimum, 1376 at 1440 and 1369 just past 1600, where
-/// the 232 px sidebar replaces the rail; so all six columns are open from 1440 up unless the side panel takes the
-/// room.
-pub const DONE_OPEN_FROM_WIDTH: f32 = 1368.;
+/// From this board width Done opens as a column; below it Done is its rail (SHL-01; CHANGES-v §1: "At ≥ 1360 px of
+/// board width Done opens as a column"). The board width is the main area's: the pane and the project rail are not
+/// part of it, and the panel over the board doesn't change it.
+pub const DONE_OPEN_FROM_WIDTH: f32 = 1360.;
+
+/// The columns fill the board's width; below this width per column the board scrolls sideways (SHL-01).
+pub const MIN_COLUMN_WIDTH: f32 = 200.;
+
+/// Done as a rail.
+pub const DONE_RAIL_WIDTH: f32 = 34.;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CardEntry {
@@ -54,16 +63,38 @@ pub struct DevSections {
     pub folded: Vec<TicketKey>,
 }
 
+/// One section of the Review column (*Row · Review column (0086 · V)*): Ready for Review or Approved, with its own
+/// count and cards in that state's order (§7.5). Folding it is the page's state; the count stays.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SectionView {
+    /// The state it holds: [`Column::ReadyForReview`] or [`Column::Approved`].
+    pub column: Column,
+    /// "READY FOR REVIEW", "APPROVED".
+    pub title: &'static str,
+    /// "2", or "1/2" with a filter.
+    pub count: String,
+    pub cards: Vec<CardEntry>,
+    /// Cards a filter hides in this section.
+    pub hidden: usize,
+    /// The quiet line of an empty section ("Nothing approved").
+    pub empty: &'static str,
+    /// Approved only: what the section says while a Ready for Review card is dragged and it is empty.
+    pub drag_hint: Option<&'static str>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColumnView {
-    pub column: Column,
+    pub id: ColumnId,
     pub title: &'static str,
     pub icon: IconName,
-    /// "12" or, with a filter, "3/12" (T-0038); with an epic focused, its cards over all (Q55).
+    /// "12" or, with a filter, "3/12" (T-0038); with an epic focused, its cards over all (Q55). Review: both
+    /// sections.
     pub count: String,
-    /// Every column but Dev.
+    /// Every column but Dev and Review.
     pub cards: Vec<CardEntry>,
     pub dev: Option<DevSections>,
+    /// Review only: Ready for Review, then Approved.
+    pub sections: Vec<SectionView>,
     /// Under the title: Ready for Dev's "Starts when ready, in priority order".
     pub hint: Option<&'static str>,
     /// Shown when the column is empty.
@@ -142,30 +173,31 @@ fn items(keys: &[TicketKey], folds: &[DoneFold]) -> usize {
     keys.len() - folds.iter().map(|f| f.keys.len() - 1).sum::<usize>()
 }
 
-/// The column's icon and empty hint.
-pub fn column_look(column: Column) -> (IconName, &'static str) {
-    match column {
-        Column::Backlog => (
+/// The column's title, icon and empty hint.
+pub fn column_look(id: ColumnId) -> (&'static str, IconName, &'static str) {
+    match id {
+        ColumnId::Backlog => (
+            "Backlog",
             IconName::CircleDashed,
             "Write a ticket here: what to build and when it’s done.",
         ),
-        Column::ReadyForDev => (
+        ColumnId::ReadyForDev => (
+            "Ready for Dev",
             IconName::Hourglass,
             "Drag a ticket here from Backlog to start it when it’s ready.",
         ),
-        Column::Dev => (
+        ColumnId::Dev => (
+            "Dev",
             IconName::Activity,
             "Tickets move here when their agent starts. Each agent works in its own worktree.",
         ),
-        Column::ReadyForReview => (
+        ColumnId::Review => (
+            "Review",
             IconName::Eye,
             "Agents move their ticket here when they submit it for your review.",
         ),
-        Column::Approved => (
-            IconName::Check,
-            "Drag a ticket here from Ready for Review to approve it. It always asks how: Local merge or Open PR.",
-        ),
-        Column::Done => (
+        ColumnId::Done => (
+            "Done",
             IconName::CircleCheck,
             "Merged and closed tickets end up here.",
         ),
@@ -178,8 +210,18 @@ pub const READY_FOR_DEV_HINT: &str = "Starts when ready, in priority order";
 /// Dev's section header above its working cards.
 pub const DEV_SECTION: &str = "WORKING · VALIDATING";
 
-/// Whether Done shows as a rail: the user's choice, else by the board's width (the window less the rail or
-/// sidebar and the side panel).
+/// The Review column's section headers (*Row · Review column (0086 · V)*).
+pub const READY_FOR_REVIEW_SECTION: &str = "READY FOR REVIEW";
+pub const APPROVED_SECTION: &str = "APPROVED";
+
+/// An empty section's quiet line: the frame's "Nothing approved", and the same for Ready for Review.
+pub const NOTHING_TO_REVIEW: &str = "Nothing to review";
+pub const NOTHING_APPROVED: &str = "Nothing approved";
+
+/// The empty Approved section while a Ready for Review card is dragged (the old Approved column's hint).
+pub const APPROVED_DRAG_HINT: &str = "Drag a ticket here from Ready for Review to approve it. It always asks how: Local merge or Open PR.";
+
+/// Whether Done shows as a rail: the user's choice, else by the board's width (the main area's).
 pub fn done_collapsed(user_choice: Option<bool>, board_width: f32) -> bool {
     user_choice.unwrap_or(board_width < DONE_OPEN_FROM_WIDTH)
 }
@@ -191,7 +233,7 @@ pub fn done_collapsed(user_choice: Option<bool>, board_width: f32) -> bool {
 pub struct HiddenColumns {
     /// Off the left edge, once the board is scrolled ("Backlog · Dev").
     pub before: Option<String>,
-    /// Off the right edge ("Approved · Done").
+    /// Off the right edge ("Review · Done").
     pub after: Option<String>,
 }
 
@@ -245,6 +287,57 @@ pub fn is_card(ticket: &Ticket, all: &[Ticket]) -> bool {
     }
 }
 
+/// One state's cards, in its order, with what its count counts.
+struct StateCards {
+    order: ColumnOrder,
+    folds: Vec<DoneFold>,
+    /// Items over all (a Done fold is one).
+    total: usize,
+    /// Items the filter shows.
+    visible: usize,
+    /// Items at full strength while an epic is focused.
+    strong: Option<usize>,
+}
+
+impl StateCards {
+    fn of(column: Column, input: &BoardInput, cards: &[&TicketKey], shown: &[&TicketKey]) -> Self {
+        let all = input.tickets;
+        // Order over the whole project ("blocks more" counts every dependent), cards only; the counts count the
+        // cards the column shows.
+        let full = sort_column(column, all);
+        let keep = |keys: &[TicketKey], of: &[&TicketKey]| -> Vec<TicketKey> {
+            keys.iter().filter(|k| of.contains(k)).cloned().collect()
+        };
+        let (shown_cards, folds) = done_folds(&keep(&full.cards, shown), all);
+        let every = keep(&full.cards, cards);
+        let total = items(&every, &done_folds(&every, all).1);
+        let visible = items(&shown_cards, &folds);
+        let strong = input.strong.map(|strong| {
+            let full = keep(&shown_cards, &strong.iter().collect::<Vec<_>>());
+            items(&full, &done_folds(&full, all).1)
+        });
+        Self {
+            order: ColumnOrder {
+                column,
+                cards: shown_cards,
+            },
+            folds,
+            total,
+            visible,
+            strong,
+        }
+    }
+}
+
+/// "12", "3/12" under a filter, or the focused epic's items over all.
+fn count_text(visible: usize, total: usize, strong: Option<usize>, filtered: bool) -> String {
+    match strong {
+        Some(n) => format!("{n}/{total}"),
+        None if filtered => format!("{visible}/{total}"),
+        None => total.to_string(),
+    }
+}
+
 pub fn build(input: &BoardInput) -> Vec<ColumnView> {
     let all = input.tickets;
     let cards: Vec<&TicketKey> = all
@@ -256,6 +349,7 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
         Some(keys) => cards.iter().copied().filter(|k| keys.contains(k)).collect(),
         None => cards.clone(),
     };
+    let filtered = input.visible.is_some();
     let entry = |key: &TicketKey| -> Option<CardEntry> {
         let t = all.iter().find(|t| &t.key == key)?;
         Some(if t.kind == Kind::Epic {
@@ -297,54 +391,84 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
         })
     };
     let entries = |keys: &[TicketKey]| keys.iter().filter_map(entry).collect::<Vec<_>>();
-    Column::ALL
+    ColumnId::ALL
         .iter()
-        .map(|column| {
-            // Order over the whole project ("blocks more" counts every dependent), cards only; the counts count
-            // the cards the column shows.
-            let full = sort_column(*column, all);
-            let keep = |keys: &[TicketKey], of: &[&TicketKey]| -> Vec<TicketKey> {
-                keys.iter().filter(|k| of.contains(k)).cloned().collect()
-            };
-            let (shown_cards, folds) = done_folds(&keep(&full.cards, &shown), all);
-            let order = ColumnOrder {
-                column: *column,
-                cards: shown_cards,
-            };
-            let every = keep(&full.cards, &cards);
-            let total = items(&every, &done_folds(&every, all).1);
-            let visible = items(&order.cards, &folds);
-            let count = if let Some(strong) = input.strong {
-                let full = keep(&order.cards, &strong.iter().collect::<Vec<_>>());
-                let n = items(&full, &done_folds(&full, all).1);
-                format!("{n}/{total}")
-            } else if input.visible.is_some() {
-                format!("{visible}/{total}")
-            } else {
-                total.to_string()
-            };
-            let (icon, empty_hint) = column_look(*column);
+        .map(|&id| {
+            let states: Vec<StateCards> = id
+                .states()
+                .iter()
+                .map(|&column| StateCards::of(column, input, &cards, &shown))
+                .collect();
+            let total: usize = states.iter().map(|s| s.total).sum();
+            let visible: usize = states.iter().map(|s| s.visible).sum();
+            let strong = input
+                .strong
+                .map(|_| states.iter().filter_map(|s| s.strong).sum());
+            let (title, icon, empty_hint) = column_look(id);
             let mut view = ColumnView {
-                column: *column,
-                title: column.label(),
+                id,
+                title,
                 icon,
-                count,
+                count: count_text(visible, total, strong, filtered),
                 cards: Vec::new(),
                 dev: None,
-                hint: (*column == Column::ReadyForDev).then_some(READY_FOR_DEV_HINT),
+                sections: Vec::new(),
+                hint: (id == ColumnId::ReadyForDev).then_some(READY_FOR_DEV_HINT),
                 empty_hint,
-                collapsed: *column == Column::Done && input.done_collapsed,
+                collapsed: id == ColumnId::Done && input.done_collapsed,
                 hidden: total - visible,
-                folds,
+                folds: Vec::new(),
             };
-            if *column == Column::Dev {
-                view.dev = Some(dev_sections(&order, all, input.dev_budget, &entries));
-            } else {
-                view.cards = entries(&order.cards);
+            match id {
+                ColumnId::Dev => {
+                    view.dev = Some(dev_sections(
+                        &states[0].order,
+                        all,
+                        input.dev_budget,
+                        &entries,
+                    ));
+                }
+                ColumnId::Review => {
+                    view.sections = states
+                        .into_iter()
+                        .map(|s| section(s, filtered, &entries))
+                        .collect();
+                }
+                _ => {
+                    let [state] = <[StateCards; 1]>::try_from(states)
+                        .unwrap_or_else(|_| unreachable!("one state per column but Review"));
+                    view.cards = entries(&state.order.cards);
+                    view.folds = state.folds;
+                }
             }
             view
         })
         .collect()
+}
+
+fn section(
+    state: StateCards,
+    filtered: bool,
+    entries: &dyn Fn(&[TicketKey]) -> Vec<CardEntry>,
+) -> SectionView {
+    let approved = state.order.column == Column::Approved;
+    SectionView {
+        column: state.order.column,
+        title: if approved {
+            APPROVED_SECTION
+        } else {
+            READY_FOR_REVIEW_SECTION
+        },
+        count: count_text(state.visible, state.total, state.strong, filtered),
+        cards: entries(&state.order.cards),
+        hidden: state.total - state.visible,
+        empty: if approved {
+            NOTHING_APPROVED
+        } else {
+            NOTHING_TO_REVIEW
+        },
+        drag_hint: approved.then_some(APPROVED_DRAG_HINT),
+    }
 }
 
 fn dev_sections(
@@ -542,7 +666,10 @@ mod tests {
                 .into_iter()
                 .chain(keys(&dev.working))
                 .collect(),
-            None => keys(&column.cards),
+            None => keys(&column.cards)
+                .into_iter()
+                .chain(column.sections.iter().flat_map(|s| keys(&s.cards)))
+                .collect(),
         }
     }
 
@@ -592,7 +719,7 @@ mod tests {
         let columns = build(&input(&tickets, None));
         assert_eq!(column_keys(&columns[0]), ["SHOP-51"]);
         assert_eq!(column_keys(&columns[2]), ["SHOP-45.2"]);
-        assert_eq!(column_keys(&columns[5]), ["SHOP-45.1"]);
+        assert_eq!(column_keys(&columns[4]), ["SHOP-45.1"]);
 
         // SHOP-45.1 merged and SHOP-45.2 taken back: the track stays, 45.2 is not a Backlog card.
         let tickets = search([Status::Merged, Status::Backlog]);
@@ -637,10 +764,10 @@ mod tests {
         assert!(column_keys(&columns[0]).is_empty());
         assert_eq!(columns[0].count, "0");
         assert!(matches!(
-            columns[3].cards.as_slice(),
+            columns[3].sections[0].cards.as_slice(),
             [CardEntry::Epic(e)] if e.key.to_string() == "SHOP-40"
         ));
-        assert_eq!(column_keys(&columns[5]), ["SHOP-40.1", "SHOP-40.2"]);
+        assert_eq!(column_keys(&columns[4]), ["SHOP-40.1", "SHOP-40.2"]);
     }
 
     /// SHOP-40 Wishlist in flight: 40.1 and 40.2 merged, 40.3 working, 40.5 closed; SHOP-17 and SHOP-30 merged
@@ -675,7 +802,7 @@ mod tests {
     fn merged_children_fold_into_one_line_in_done() {
         let tickets = wishlist_done();
         let columns = build(&input(&tickets, None));
-        let done = &columns[5];
+        let done = &columns[4];
         assert_eq!(
             keys(&done.cards),
             ["SHOP-40.5", "SHOP-17", "SHOP-40.1", "SHOP-40.2", "SHOP-30"],
@@ -690,13 +817,13 @@ mod tests {
             }]
         );
         assert_eq!(done.count, "4", "40.5, 17, the fold and 30");
-        assert!(columns[..5].iter().all(|c| c.folds.is_empty()));
+        assert!(columns[..4].iter().all(|c| c.folds.is_empty()));
 
         // The first merged child folds at once ("1 of 4"), and a closed child never does.
         let mut tickets = wishlist_done();
         tickets[2].status = Status::Working;
         tickets[2].column = Column::Dev;
-        let done = &build(&input(&tickets, None))[5];
+        let done = &build(&input(&tickets, None))[4];
         assert_eq!(done.folds.len(), 1);
         assert_eq!(done.folds[0].label, "Wishlist · 1 of 4 merged");
         assert_eq!(done.count, "4");
@@ -710,31 +837,27 @@ mod tests {
         let done = &build(&BoardInput {
             visible: Some(&visible),
             ..input(&tickets, None)
-        })[5];
+        })[4];
         assert_eq!(keys(&done.cards), ["SHOP-17", "SHOP-40.2"]);
         assert_eq!(done.folds[0].keys.len(), 1);
         assert_eq!(done.folds[0].label, "Wishlist · 2 of 4 merged");
         assert_eq!((done.count.as_str(), done.hidden), ("2/4", 2));
     }
 
+    /// SHL-06: five columns; Review counts both sections.
     #[test]
-    fn six_columns_with_counts_and_epics_in_backlog() {
+    fn five_columns_with_counts_and_epics_in_backlog() {
         let tickets = board();
         let columns = build(&input(&tickets, None));
         let titles: Vec<_> = columns.iter().map(|c| c.title).collect();
         assert_eq!(
             titles,
-            [
-                "Backlog",
-                "Ready for Dev",
-                "Dev",
-                "Ready for Review",
-                "Approved",
-                "Done"
-            ]
+            ["Backlog", "Ready for Dev", "Dev", "Review", "Done"]
         );
+        let ids: Vec<_> = columns.iter().map(|c| c.id).collect();
+        assert_eq!(ids, ColumnId::ALL);
         let counts: Vec<_> = columns.iter().map(|c| c.count.as_str()).collect();
-        assert_eq!(counts, ["2", "4", "7", "1", "0", "1"]);
+        assert_eq!(counts, ["2", "4", "7", "1", "1"]);
         // The epic is a card with SHOP-40.3 as its row, not a second Backlog card.
         assert_eq!(keys(&columns[0].cards), ["SHOP-24", "SHOP-40"]);
         assert!(
@@ -750,11 +873,83 @@ mod tests {
         );
         assert_eq!(columns[1].hint, Some(READY_FOR_DEV_HINT));
         assert!(columns.iter().filter(|c| c.hint.is_some()).count() == 1);
-        assert!(columns[4].cards.is_empty());
+        // Only Review has sections; its empty Approved section says so.
+        assert!(columns.iter().filter(|c| !c.sections.is_empty()).count() == 1);
+        let review = &columns[3];
+        assert!(review.cards.is_empty());
+        let sections: Vec<_> = review
+            .sections
+            .iter()
+            .map(|s| (s.column, s.title, s.count.as_str(), keys(&s.cards)))
+            .collect();
+        assert_eq!(
+            sections,
+            [
+                (
+                    Column::ReadyForReview,
+                    READY_FOR_REVIEW_SECTION,
+                    "1",
+                    vec!["SHOP-18".to_owned()]
+                ),
+                (Column::Approved, APPROVED_SECTION, "0", vec![]),
+            ]
+        );
+        assert_eq!(review.sections[1].empty, "Nothing approved");
         assert!(
-            columns[4]
-                .empty_hint
+            review.sections[1]
+                .drag_hint
+                .unwrap()
                 .starts_with("Drag a ticket here from Ready for Review")
+        );
+        assert_eq!(review.sections[0].drag_hint, None);
+    }
+
+    /// §7.5 in each section: pinned first (most recently pinned first), then the old columns' order; the column
+    /// counts both sections, under a filter too.
+    #[test]
+    fn review_sections_keep_their_own_order_and_counts() {
+        let mut pinned = ticket("SHOP-31", "Hotfix", Status::ReadyForReview);
+        pinned.flags.pinned_at = Some(20);
+        let mut older_pin = ticket("SHOP-32", "Footer", Status::ReadyForReview);
+        older_pin.flags.pinned_at = Some(10);
+        let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
+        pr.flags.pr_number = Some(481);
+        let tickets = vec![
+            ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
+            older_pin,
+            pinned,
+            pr,
+            ticket("SHOP-27", "Search paging", Status::PrOpen),
+        ];
+        let columns = build(&input(&tickets, None));
+        let review = &columns[3];
+        assert_eq!(review.count, "5");
+        assert_eq!(
+            keys(&review.sections[0].cards),
+            ["SHOP-31", "SHOP-32", "SHOP-18"]
+        );
+        assert_eq!(review.sections[0].count, "3");
+        assert_eq!(review.sections[1].count, "2");
+        assert_eq!(keys(&review.sections[1].cards).len(), 2);
+
+        let visible: Vec<TicketKey> = vec!["SHOP-18".parse().unwrap(), "SHOP-26".parse().unwrap()];
+        let filtered = build(&BoardInput {
+            visible: Some(&visible),
+            ..input(&tickets, None)
+        });
+        let review = &filtered[3];
+        assert_eq!(
+            (review.count.as_str(), review.hidden),
+            ("2/5", 3),
+            "the column sums its sections"
+        );
+        assert_eq!(
+            (review.sections[0].count.as_str(), review.sections[0].hidden),
+            ("1/3", 2)
+        );
+        assert_eq!(
+            (review.sections[1].count.as_str(), review.sections[1].hidden),
+            ("1/2", 1)
         );
     }
 
@@ -783,37 +978,20 @@ mod tests {
         assert_eq!(dev.top.len(), 3, "the needs-you cards are never folded");
     }
 
+    /// SHL-01: Done opens as a column from 1360 px of board width (the main area's), folds below; the user's
+    /// choice wins either way.
     #[test]
     fn done_rail_state() {
-        // Board widths: the window less the 64 px rail (232 px sidebar above 1600) and the panel with its handle.
-        assert!(done_collapsed(None, 1280. - 64.), "1280 minimum");
-        assert!(!done_collapsed(None, 1440. - 64.), "1440");
-        assert!(
-            !done_collapsed(None, 1601. - 232.),
-            "just past 1600, sidebar"
-        );
-        assert!(!done_collapsed(None, 1920. - 232.), "1920");
-        assert!(
-            done_collapsed(None, 1920. - 232. - 665.),
-            "1920 with the 660 px panel"
-        );
-        assert!(
-            done_collapsed(None, 1920. - 232. - 485.),
-            "1920 with the narrowest panel"
-        );
-        assert!(
-            !done_collapsed(None, 2560. - 232. - 665.),
-            "2560 with the panel"
-        );
-        // Six open columns never go below their minimum: padding 2 × 10, five gaps of 8.
-        const { assert!((DONE_OPEN_FROM_WIDTH - 20. - 40.) / 6. >= crate::theme::density::COLUMN) };
-        // With Done as a rail, the other five fit the 1280 minimum: the rail is 34 px.
-        const { assert!(20. + 40. + 34. + 5. * crate::theme::density::COLUMN <= 1280. - 64.) };
-        assert!(
-            !done_collapsed(Some(false), 1216.),
-            "the user's choice wins"
-        );
-        assert!(done_collapsed(Some(true), 1688.));
+        assert!(!done_collapsed(None, 1360.), "open at 1360");
+        assert!(done_collapsed(None, 1359.), "folded at 1359");
+        // The main area at the three window classes, less the default pane and the 64 px project rail.
+        assert!(done_collapsed(None, 1280. - 64. - 320.), "1280");
+        assert!(done_collapsed(None, 1440. - 64. - 400.), "1440");
+        assert!(!done_collapsed(None, 1920. - 64. - 460.), "1920");
+        assert!(!done_collapsed(Some(false), 896.), "the user's choice wins");
+        assert!(done_collapsed(Some(true), 1920.));
+        // Five open columns at 1360 are at least the minimum, with padding 2 × 10 and four gaps of 8.
+        const { assert!((DONE_OPEN_FROM_WIDTH - 20. - 32.) / 5. >= MIN_COLUMN_WIDTH) };
         let tickets = board();
         let columns = build(&BoardInput {
             done_collapsed: true,
@@ -821,37 +999,36 @@ mod tests {
             was_validating: &[],
             ..input(&tickets, None)
         });
-        assert!(columns[5].collapsed && !columns[0].collapsed);
+        assert!(columns[4].collapsed && !columns[0].collapsed);
         assert_eq!(dev_budget(900.), 8);
         assert_eq!(dev_budget(300.), 4);
     }
 
     #[test]
     fn hidden_columns_are_named_at_their_edge() {
-        // 1280 with the 660 px panel: a 551 px board, columns of 216 from x 10 with gaps of 8, Done as a rail.
+        // A 551 px board: columns of the 200 px minimum from x 10 with gaps of 8, Done as a rail.
         let columns = [
-            ("Backlog", 10., 226.),
-            ("Ready for Dev", 234., 450.),
-            ("Dev", 458., 674.),
-            ("Ready for Review", 682., 898.),
-            ("Approved", 906., 1122.),
-            ("Done", 1130., 1164.),
+            ("Backlog", 10., 210.),
+            ("Ready for Dev", 218., 418.),
+            ("Dev", 426., 626.),
+            ("Review", 634., 834.),
+            ("Done", 842., 876.),
         ];
         let start = hidden_columns(&columns, (0., 551.));
         assert_eq!(start.before, None);
         assert_eq!(
             start.after.as_deref(),
-            Some("Dev · Ready for Review · Approved · Done"),
+            Some("Dev · Review · Done"),
             "a column cut off at the edge counts as hidden"
         );
-        let end = hidden_columns(&columns, (623., 1174.));
-        assert_eq!(end.before.as_deref(), Some("Backlog · Ready for Dev · Dev"));
+        let end = hidden_columns(&columns, (335., 886.));
+        assert_eq!(end.before.as_deref(), Some("Backlog · Ready for Dev"));
         assert_eq!(end.after, None);
-        let middle = hidden_columns(&columns, (458., 1009.));
-        assert_eq!(middle.before.as_deref(), Some("Backlog · Ready for Dev"));
-        assert_eq!(middle.after.as_deref(), Some("Approved · Done"));
+        let middle = hidden_columns(&columns, (218., 769.));
+        assert_eq!(middle.before.as_deref(), Some("Backlog"));
+        assert_eq!(middle.after.as_deref(), Some("Review · Done"));
         assert_eq!(
-            hidden_columns(&columns, (0.5, 1164.5)),
+            hidden_columns(&columns, (0.5, 876.5)),
             HiddenColumns::default(),
             "everything fits (a pixel of rounding is not hidden)"
         );
