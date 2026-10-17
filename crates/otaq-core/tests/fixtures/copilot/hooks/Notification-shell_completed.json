@@ -1,0 +1,7 @@
+{
+  "sessionId": "dc6612ea-4f1b-4c55-9b0e-0b6a3c1d2e4f",
+  "message": "Shell command completed",
+  "title": "Shell completed",
+  "hook_event_name": "Notification",
+  "notification_type": "shell_completed"
+}

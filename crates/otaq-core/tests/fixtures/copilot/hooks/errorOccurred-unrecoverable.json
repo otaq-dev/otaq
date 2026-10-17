@@ -1,0 +1,12 @@
+{
+  "sessionId": "22222222-2222-4333-8444-555555555555",
+  "timestamp": 1792271243910,
+  "cwd": "/wt/shop-web/SHOP-29",
+  "errorContext": "session",
+  "recoverable": false,
+  "error": {
+    "name": "Error",
+    "message": "The session ended unexpectedly.",
+    "stack": "Error: The session ended unexpectedly.\n   0: <unknown>\n"
+  }
+}

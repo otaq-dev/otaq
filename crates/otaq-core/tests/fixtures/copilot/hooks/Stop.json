@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "019a3b4c-5d6e-7f80-9123-456789abcdef",
+  "timestamp": "2026-10-17T21:09:55.903Z",
+  "cwd": "/wt/shop-web/SHOP-29",
+  "transcript_path": "/Users/me/.copilot/session-state/019a3b4c-5d6e-7f80-9123-456789abcdef/events.jsonl",
+  "stop_reason": "end_turn",
+  "stop_hook_active": false
+}

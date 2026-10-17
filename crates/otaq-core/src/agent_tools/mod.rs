@@ -987,7 +987,8 @@ mod tests {
         }
     }
 
-    /// The M23 tools refuse every launch until their lanes land, with the same sentence (Codex's landed, T-0349).
+    /// The M23 tools refuse every launch until their lanes land, with the same sentence (Codex's and Copilot's
+    /// landed, T-0349, T-0352).
     #[test]
     fn a_tool_not_built_yet_refuses_its_launches() {
         let home = tempfile::tempdir().unwrap();
@@ -1003,20 +1004,16 @@ mod tests {
             resume: None,
             model: None,
         };
-        for (tool, name) in [
-            (Tool::Copilot, "GitHub Copilot"),
-            (Tool::OpenCode, "OpenCode"),
-        ] {
-            let refusal = LaunchError(format!("{name} isn't ready in this build"));
-            assert_eq!(adapters.unavailable(Some(tool)), Err(refusal.clone()));
-            assert_eq!(adapters.launch(Some(tool), &request), Err(refusal.clone()));
-            let question = OneOffRequest {
-                cwd: "/r".into(),
-                prompt: "Suggest".into(),
-                model: None,
-            };
-            assert_eq!(adapters.get(tool).one_off(&question), Err(refusal));
-        }
+        let tool = Tool::OpenCode;
+        let refusal = LaunchError("OpenCode isn't ready in this build".to_owned());
+        assert_eq!(adapters.unavailable(Some(tool)), Err(refusal.clone()));
+        assert_eq!(adapters.launch(Some(tool), &request), Err(refusal.clone()));
+        let question = OneOffRequest {
+            cwd: "/r".into(),
+            prompt: "Suggest".into(),
+            model: None,
+        };
+        assert_eq!(adapters.get(tool).one_off(&question), Err(refusal));
     }
 
     /// A new session runs on Claude Code; what the launch returns is what the session stores (ADP-04).
