@@ -1,0 +1,18 @@
+{
+  "id": "evt_14bb6d94f00011zVqf75HovEhm3",
+  "created": 1792270981000,
+  "type": "session.inbox.enqueued",
+  "location": {
+    "directory": "/tmp/m23/shop-web"
+  },
+  "data": {
+    "sessionID": "ses_eb4534bbfffee5hwyyyzWkBMXI",
+    "inboxID": "msg_14bb6d94f0011zVqf75HovEhm3",
+    "item": {
+      "type": "prompt",
+      "payload": {
+        "text": "work-ticket"
+      }
+    }
+  }
+}

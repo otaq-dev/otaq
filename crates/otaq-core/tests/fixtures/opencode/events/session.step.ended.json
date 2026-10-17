@@ -1,0 +1,23 @@
+{
+  "id": "evt_14bb6d94f0131zVqf75HovEhm3",
+  "created": 1792270993000,
+  "type": "session.step.ended",
+  "location": {
+    "directory": "/tmp/m23/shop-web"
+  },
+  "data": {
+    "sessionID": "ses_eb4534bbfffee5hwyyyzWkBMXI",
+    "assistantMessageID": "msg_14bb6d94f0031zVqf75HovEhm3",
+    "finish": "stop",
+    "cost": 0.01,
+    "tokens": {
+      "input": 1200,
+      "output": 340,
+      "reasoning": 56,
+      "cache": {
+        "read": 8000,
+        "write": 150
+      }
+    }
+  }
+}

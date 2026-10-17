@@ -1,5 +1,6 @@
-//! OpenCode's tokens (USG-09; T-0354): its plugin's `session.usage.updated` events; no limit windows ("Limits not
-//! reported", d0086).
+//! OpenCode's tokens (USG-09; T-0354): its plugin's `session.usage.updated` events ([`super::hooks`]); no limit
+//! windows ("Limits not reported", d0086): OpenCode has no plan or remaining-limit data, and a limit shows only as
+//! its rate-limit retry, which carries its own reset.
 
 use std::path::Path;
 
@@ -11,7 +12,7 @@ use crate::agent_tools::{TokenSource, WindowsSource};
 use crate::usage::limit::LimitKind;
 
 pub(super) fn token_source(_context: &OpenCodeContext, _tool_id: &str, _cwd: &Path) -> TokenSource {
-    TokenSource::NotReported
+    TokenSource::Events
 }
 
 pub(super) fn windows_source() -> WindowsSource {

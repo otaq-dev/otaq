@@ -875,34 +875,32 @@ impl Adapters {
     ) -> Result<Launched, LaunchError> {
         let adapter = tool.map_or_else(|| self.for_new_session(), |tool| self.get(tool));
         let plan = adapter.launch(request)?;
-        let tool_session_id = match &plan.tool_id {
-            ToolIdMode::ChosenUpFront(id) => Some(id.clone()),
-            // No tool of M20 creates its conversation before launch (OpenCode, M23 runs the step).
-            ToolIdMode::CreatedBeforeLaunch { .. } => {
-                return Err(LaunchError(format!(
-                    "{} needs a step before launch that this version can't run",
-                    adapter.display_name()
-                )));
-            }
+        let (tool_session_id, prepare) = match &plan.tool_id {
+            ToolIdMode::ChosenUpFront(id) => (Some(id.clone()), None),
+            // The session runs the step before the program (OpenCode creates its conversation this way).
+            ToolIdMode::CreatedBeforeLaunch { id, step } => (Some(id.clone()), Some(step.clone())),
             // Stored once the tool reports it.
-            ToolIdMode::CapturedAfterStart => None,
+            ToolIdMode::CapturedAfterStart => (None, None),
         };
         Ok(Launched {
             tool: adapter.tool(),
             tool_session_id,
             model: request.model.clone(),
+            prepare,
             plan,
         })
     }
 }
 
 /// A launch ready to spawn, with what the session stores (ADP-04): the tool, its id (empty until a tool that
-/// reports it after start does) and the model as launched.
+/// reports it after start does) and the model as launched, and the step the session runs before the program.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Launched {
     pub tool: Tool,
     pub tool_session_id: Option<String>,
     pub model: Option<String>,
+    /// [`ToolIdMode::CreatedBeforeLaunch`]'s step, for [`crate::session::Sessions::prepared`].
+    pub prepare: Option<PrepareStep>,
     pub plan: LaunchPlan,
 }
 
@@ -987,33 +985,63 @@ mod tests {
         }
     }
 
-    /// The M23 tools refuse every launch until their lanes land, with the same sentence (Codex's and Copilot's
-    /// landed, T-0349, T-0352).
+    /// What the M23 lanes haven't built yet refuses with the same sentence (Codex's and Copilot's launches
+    /// landed, T-0349, T-0352; OpenCode's, T-0354, needs Otaq's plugin folder; its one-off question is T-0355's).
     #[test]
     fn a_tool_not_built_yet_refuses_its_launches() {
         let home = tempfile::tempdir().unwrap();
         let adapters = Adapters::launching_only(None, crate::data_dir::DataDir::new(home.path()));
-        let request = LaunchRequest {
-            role: LaunchRole::TicketAgent,
-            cwd: "/wt/SHOP-18".into(),
-            project: "SHOP".into(),
-            ticket: Some("SHOP-18".parse().unwrap()),
-            epic: None,
-            port: 4012,
-            first_prompt: None,
-            resume: None,
-            model: None,
-        };
-        let tool = Tool::OpenCode;
-        let refusal = LaunchError("OpenCode isn't ready in this build".to_owned());
-        assert_eq!(adapters.unavailable(Some(tool)), Err(refusal.clone()));
-        assert_eq!(adapters.launch(Some(tool), &request), Err(refusal.clone()));
         let question = OneOffRequest {
             cwd: "/r".into(),
             prompt: "Suggest".into(),
             model: None,
         };
-        assert_eq!(adapters.get(tool).one_off(&question), Err(refusal));
+        assert!(adapters.unavailable(Some(Tool::OpenCode)).is_err());
+        assert_eq!(
+            adapters.get(Tool::OpenCode).one_off(&question),
+            Err(LaunchError("OpenCode isn't ready in this build".into()))
+        );
+    }
+
+    /// A tool whose conversation is made before launch (OpenCode): the session stores the id like a chosen one
+    /// and gets the step to run first; a tool without a step launches as before (ADP-04).
+    #[test]
+    fn a_step_before_launch_goes_with_the_launch() {
+        let home = tempfile::tempdir().unwrap();
+        let data = crate::data_dir::DataDir::new(home.path());
+        let launch = LaunchContext {
+            bin_dir: "/opt/cb/bin".into(),
+            plugin_dir: "/opt/cb/plugin".into(),
+            path: OsString::new(),
+            claude: claude::ClaudeLaunch {
+                program: vec![Tool::Claude.command_name().into()],
+                config_dir: None,
+            },
+        };
+        let adapters = Adapters::launching_only(Some(launch), data);
+        let request = LaunchRequest {
+            role: LaunchRole::TicketAgent,
+            cwd: "/wt/SHOP-50".into(),
+            project: "SHOP".into(),
+            ticket: Some("SHOP-50".parse().unwrap()),
+            epic: None,
+            port: 4012,
+            first_prompt: Some(FirstPrompt::OtaqSkill {
+                name: WORK_TICKET_SKILL.into(),
+                message: None,
+            }),
+            resume: None,
+            model: None,
+        };
+        let launched = adapters.launch(Some(Tool::OpenCode), &request).unwrap();
+        let ToolIdMode::CreatedBeforeLaunch { id, step } = &launched.plan.tool_id else {
+            panic!("{:?}", launched.plan.tool_id)
+        };
+        assert_eq!(launched.tool_session_id.as_ref(), Some(id));
+        assert_eq!(launched.prepare.as_ref(), Some(step));
+        let claude = adapters.launch(Some(Tool::Claude), &request).unwrap();
+        assert_eq!(claude.prepare, None);
+        assert!(claude.tool_session_id.is_some());
     }
 
     /// A new session runs on Claude Code; what the launch returns is what the session stores (ADP-04).

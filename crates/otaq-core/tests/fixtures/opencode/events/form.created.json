@@ -1,0 +1,36 @@
+{
+  "id": "evt_14bb6d94f00051zVqf75HovEhm3",
+  "created": 1792270985000,
+  "type": "form.created",
+  "location": {
+    "directory": "/tmp/m23/shop-web"
+  },
+  "data": {
+    "sessionID": "ses_eb4534bbfffee5hwyyyzWkBMXI",
+    "form": {
+      "id": "frm_14bb6d94f0051zVqf75HovEhm3",
+      "sessionID": "ses_eb4534bbfffee5hwyyyzWkBMXI",
+      "title": "Question",
+      "metadata": {
+        "kind": "question"
+      },
+      "fields": [
+        {
+          "key": "q0",
+          "type": "string",
+          "description": "Which color?",
+          "options": [
+            {
+              "value": "red",
+              "label": "Red"
+            },
+            {
+              "value": "blue",
+              "label": "Blue"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

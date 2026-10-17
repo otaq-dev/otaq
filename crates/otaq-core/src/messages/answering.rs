@@ -269,6 +269,7 @@ impl Messages {
         )?;
         let session = inner
             .sessions
+            .prepared(launched.prepare)
             .spawn(SpawnSpec {
                 kind: SessionKind::Answer,
                 project_id: project.id,

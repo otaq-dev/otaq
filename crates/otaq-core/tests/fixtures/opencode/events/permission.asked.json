@@ -1,0 +1,24 @@
+{
+  "id": "evt_14bb6d94f00041zVqf75HovEhm3",
+  "created": 1792270984000,
+  "type": "permission.asked",
+  "location": {
+    "directory": "/tmp/m23/shop-web"
+  },
+  "data": {
+    "sessionID": "ses_eb4534bbfffee5hwyyyzWkBMXI",
+    "id": "per_14bb6d94f0041zVqf75HovEhm3",
+    "action": "shell",
+    "resources": [
+      "git status --short"
+    ],
+    "save": [
+      "git status *"
+    ],
+    "source": {
+      "type": "tool",
+      "messageID": "msg_14bb6d94f0031zVqf75HovEhm3",
+      "id": "call_1"
+    }
+  }
+}

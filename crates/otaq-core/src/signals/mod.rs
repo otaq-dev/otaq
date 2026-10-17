@@ -201,8 +201,21 @@ impl Signals {
                     }
                     continue;
                 }
-                // No Claude Code hook gives these; usage stores them per tool from M23 (USG-09).
-                ToolEvent::Tokens { .. } | ToolEvent::LimitWindows { .. } => {
+                // A conversation's running totals from a tool that reports them as events (USG-09).
+                ToolEvent::Tokens { totals } => {
+                    if let Some(session) = session
+                        && crate::usage::totals_reported(
+                            self.inner.board.store().pool(),
+                            session,
+                            totals,
+                        )
+                        .await?
+                    {
+                        self.inner.events.publish(Event::UsageChanged);
+                    }
+                    continue;
+                }
+                ToolEvent::LimitWindows { .. } => {
                     tracing::debug!(?event, "usage from a hook not stored");
                     continue;
                 }

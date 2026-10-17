@@ -660,6 +660,7 @@ impl Starter {
             .map_err(|e| (StartStep::Launch, StartError::Other(e.to_string())))?;
         let session = inner
             .sessions
+            .prepared(launched.prepare)
             .spawn(SpawnSpec {
                 kind: SessionKind::Agent,
                 project_id: project.id.clone(),

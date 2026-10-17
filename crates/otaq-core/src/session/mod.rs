@@ -32,7 +32,7 @@ use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_s
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, watch};
 
-use crate::agent_tools::Tool;
+use crate::agent_tools::{PrepareStep, Tool};
 use crate::attention::{ClientId, Focus};
 use crate::domain::{TicketKey, stored_enum};
 use crate::protocol::Event;
@@ -318,6 +318,66 @@ pub struct SpawnSpec {
     pub named_agent: Option<SessionAgent>,
 }
 
+/// [`Sessions::spawn`] after a launch's step ([`Sessions::prepared`]).
+pub struct Prepared<'a> {
+    sessions: &'a Sessions,
+    step: Option<PrepareStep>,
+}
+
+impl Prepared<'_> {
+    /// Runs the step, if any, then [`Sessions::spawn`].
+    pub async fn spawn(self, spec: SpawnSpec) -> Result<SessionInfo, SessionError> {
+        self.sessions.spawn_with(self.step.as_ref(), spec).await
+    }
+}
+
+/// How long a [`Sessions::prepared`] step may take.
+pub const PREPARE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Runs `step` to completion within `limit`, with the service's environment and the step's own variables on top.
+/// A non-zero exit, a failure to start or the time running out is [`SessionError::Spawn`] with what the step
+/// printed (its error output first).
+async fn run_prepare(step: &PrepareStep, limit: Duration) -> Result<(), SessionError> {
+    let mut command = tokio::process::Command::new(&step.program);
+    command
+        .args(&step.args)
+        .current_dir(&step.cwd)
+        .envs(step.env.iter().map(|(k, v)| (k, v)))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let output = match tokio::time::timeout(limit, command.output()).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(e)) => {
+            return Err(SessionError::Spawn(format!(
+                "can't start {}: {e}",
+                step.program
+            )));
+        }
+        Err(_) => {
+            return Err(SessionError::Spawn(format!(
+                "{} didn't finish within {} s",
+                step.program,
+                limit.as_secs()
+            )));
+        }
+    };
+    if output.status.success() {
+        return Ok(());
+    }
+    let printed: Vec<String> = [&output.stderr, &output.stdout]
+        .into_iter()
+        .map(|bytes| String::from_utf8_lossy(bytes).trim().to_owned())
+        .filter(|text| !text.is_empty())
+        .collect();
+    Err(SessionError::Spawn(if printed.is_empty() {
+        format!("{} failed ({})", step.program, output.status)
+    } else {
+        printed.join("\n")
+    }))
+}
+
 /// The root process of a running agent session, for caller identity (CLI-01).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentRoot {
@@ -479,9 +539,27 @@ impl Sessions {
         Ok(ended)
     }
 
+    /// The sessions with the launch's step before the program ([`crate::agent_tools::Launched::prepare`]), for
+    /// the next [`Prepared::spawn`]: the step runs to completion first, and a failure fails the spawn with its
+    /// output and writes no row. `None` spawns exactly as [`Self::spawn`].
+    pub fn prepared(&self, step: Option<PrepareStep>) -> Prepared<'_> {
+        Prepared {
+            sessions: self,
+            step,
+        }
+    }
+
     /// Starts `spec.program` in a new PTY and records its `sessions` row. A second running agent session for
     /// the same ticket is refused.
     pub async fn spawn(&self, spec: SpawnSpec) -> Result<SessionInfo, SessionError> {
+        self.spawn_with(None, spec).await
+    }
+
+    async fn spawn_with(
+        &self,
+        prepare: Option<&PrepareStep>,
+        spec: SpawnSpec,
+    ) -> Result<SessionInfo, SessionError> {
         if spec.kind == SessionKind::Agent
             && let Some(ticket) = &spec.ticket
             && let Some(running) = self.running_of(&ticket.id, SessionKind::Agent)
@@ -490,6 +568,9 @@ impl Sessions {
                 ticket: ticket.key.clone(),
                 session: running.id,
             });
+        }
+        if let Some(step) = prepare {
+            run_prepare(step, PREPARE_TIMEOUT).await?;
         }
 
         let pty = native_pty_system()
@@ -1438,6 +1519,8 @@ pub enum SessionError {
     NotFound(String),
     /// The session has ended; it takes no input or resize.
     Ended(String),
+    /// The program (or the launch's step before it, [`Sessions::prepared`]) couldn't start: why, or what the
+    /// step printed.
     Spawn(String),
     Io(String),
     Store(StoreError),
@@ -1458,3 +1541,25 @@ impl fmt::Display for SessionError {
 }
 
 impl std::error::Error for SessionError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A step that takes longer than its limit is stopped and fails the start.
+    #[tokio::test]
+    async fn a_step_that_takes_too_long_fails() {
+        let step = PrepareStep {
+            program: "sh".into(),
+            args: vec!["-c".into(), "sleep 5".into()],
+            cwd: std::env::temp_dir(),
+            env: Vec::new(),
+        };
+        let started = std::time::Instant::now();
+        let err = run_prepare(&step, Duration::from_millis(200))
+            .await
+            .unwrap_err();
+        assert_eq!(err.to_string(), "sh didn't finish within 0 s");
+        assert!(started.elapsed() < Duration::from_secs(3));
+    }
+}

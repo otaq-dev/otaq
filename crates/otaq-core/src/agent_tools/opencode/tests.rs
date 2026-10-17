@@ -53,7 +53,7 @@ fn input_quirks() {
 fn skills() {
     let bin = tempfile::tempdir().unwrap();
     let adapter = opencode(bin.path(), None);
-    // The skill's name until T-0354 verifies OpenCode's form.
+    // The skill's name: OpenCode has no syntax of its own for running a skill from text (T-0354).
     assert_eq!(adapter.skill_reference("commit"), "commit");
     assert_eq!(adapter.skill_delivery(), SkillDelivery::LaunchConfig);
     assert!(!adapter.runs_skills_by_name());
@@ -116,18 +116,17 @@ async fn detect_reads_the_version_from_the_path() {
     assert_eq!(adapter.detect().await, Detection::default());
 }
 
+/// OpenCode sends many event types; one the adapter doesn't map gives nothing (not *unrecognised*).
 #[test]
-fn hooks_are_unrecognised_until_mapped() {
+fn unmapped_events_give_nothing() {
     let bin = tempfile::tempdir().unwrap();
     let adapter = opencode(bin.path(), None);
     assert_eq!(
         adapter.map_hook(
-            "session.execution.succeeded",
-            &json!({"id": "e1"}),
+            "session.text.delta",
+            &json!({"id": "e1", "data": {"sessionID": "ses_1"}}),
             SignalContext::default()
         ),
-        [ToolEvent::Unrecognised {
-            event: "session.execution.succeeded".into()
-        }]
+        []
     );
 }
