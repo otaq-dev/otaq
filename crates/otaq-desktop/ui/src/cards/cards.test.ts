@@ -6,7 +6,7 @@ import type { CardHover } from "../generated/CardHover";
 import type { EpicCardView } from "../generated/EpicCardView";
 import type { TicketCardView } from "../generated/TicketCardView";
 import { EpicCard, TicketCard } from ".";
-import { HoverCard } from "./TicketCard";
+import { HoverCard, StatusHoverCard } from "./TicketCard";
 import {
   CHILD_STATES,
   childInk,
@@ -116,13 +116,80 @@ describe("the Ticket Card v2 draws its view", () => {
     expect(out).not.toContain("tool-avatar");
   });
 
-  it("each part only when the view has it: no flag, no line, no footer", () => {
+  it("each part only when the view has it: no flag (no empty chip), no line, no origin, no footer", () => {
     const out = html(
       createElement(TicketCard, { card: { ...SHOP_22, flag: null, situation: null, footer: null } }),
     );
     expect(out).not.toContain("status-pill");
     expect(out).not.toContain("card-situation");
+    expect(out).not.toContain("card-origin");
     expect(out).not.toContain("card-footer");
+    expect(out).not.toContain("card-pin");
+    expect(out).not.toContain("priority-chip");
+    expect(out).not.toContain("card-options");
+  });
+
+  it("the head's optional parts: tool avatar (when shown), pin, priority", () => {
+    const out = html(
+      createElement(TicketCard, {
+        card: {
+          ...SHOP_22,
+          avatar: {
+            tool: "claude_code",
+            letters: "CC",
+            background: "tool-cc",
+            foreground: "tool-cc-fg",
+            hover: "Claude Code · Opus",
+          },
+          pinned: true,
+          priority: {
+            number: 1,
+            short: "P1",
+            word: "Urgent",
+            label: "P1 · Urgent",
+            icon: "chevrons-up",
+            ink: "inverted",
+          },
+        },
+      }),
+    );
+    const head = out.slice(out.indexOf('class="card-head"'), out.indexOf('class="card-title"'));
+    expect(head).toMatch(/tool-avatar.*CC.*card-key.*card-pin.*priority-chip.*status-pill/s);
+  });
+
+  it("the hover shows the full status and what the card has no room for, from the head", () => {
+    const out = html(createElement(TicketCard, { card: SHOP_22 }));
+    expect(out).toMatch(
+      /^<article[^>]*><span class="card-hover-anchor" role="presentation"><div class="card-head">/,
+    );
+    const hover = html(createElement(StatusHoverCard, { hover: SHOP_22.hover }));
+    expect(hover).toContain("<strong>Needs you · permission</strong>");
+    expect(hover).toContain('data-muted="true">Tokens: 64k</span>');
+  });
+
+  it("the situation line: mono only for a command; the origin line in violet", () => {
+    if (!SHOP_22.situation) throw new Error("fixture");
+    const situation = { ...SHOP_22.situation, text: "Allow rm -rf .next?", mono: true };
+    const out = html(
+      createElement(TicketCard, {
+        card: { ...SHOP_22, situation, origin: "Created by Checkout slowness" },
+      }),
+    );
+    expect(out).toContain('data-mono="true"');
+    expect(out).toContain("--edge:var(--st-attn)");
+    expect(out).toContain('<div class="card-origin">Created by Checkout slowness</div>');
+  });
+
+  it("the footer's action is a label only, filled when the view says primary", () => {
+    const footer = {
+      tokens: null,
+      signal: null,
+      action: { kind: "review" as const, label: "Review", icon: "eye" as const, primary: true },
+    };
+    const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
+    expect(out).toContain('data-variant="primary"');
+    expect(out.slice(out.indexOf('class="card-footer"'))).not.toContain('class="icon"');
+    expect(html(createElement(TicketCard, { card: SHOP_22 }))).toContain('data-variant="secondary"');
   });
 
   it("a running agent's footer: tokens and the last signal, amber when old", () => {
@@ -141,7 +208,13 @@ describe("the Ticket Card v2 draws its view", () => {
       'data-selected="true"',
     );
     expect(html(createElement(TicketCard, { card: SHOP_22, state: stateOfLook("dimmed") }))).toContain(
-      "opacity:0.35",
+      'data-chain="dimmed"',
+    );
+    expect(html(createElement(TicketCard, { card: SHOP_22, state: stateOfLook("dragging") }))).toContain(
+      'data-dragging="true"',
+    );
+    expect(html(createElement(TicketCard, { card: SHOP_22, state: stateOfLook("chain") }))).toContain(
+      'data-chain="highlighted"',
     );
     const hovered = html(createElement(TicketCard, { card: SHOP_22, state: stateOfLook("hovered") }));
     expect(hovered).toContain('class="card-quick"');
@@ -149,7 +222,9 @@ describe("the Ticket Card v2 draws its view", () => {
   });
 
   it("a Done card fades", () => {
-    expect(html(createElement(TicketCard, { card: { ...SHOP_22, faded: 0.55 } }))).toContain("opacity:0.55");
+    expect(html(createElement(TicketCard, { card: { ...SHOP_22, faded: 0.55 } }))).toContain(
+      "--card-faded:0.55",
+    );
   });
 
   it("an epic child wears the sleeve: name, the epic's pin, position; it dims as one", () => {
@@ -168,7 +243,7 @@ describe("the Ticket Card v2 draws its view", () => {
     const dimmed = html(
       createElement(TicketCard, { card: { ...SHOP_22, sleeve }, state: stateOfLook("dimmed") }),
     );
-    expect(dimmed).toMatch(/^<div class="card-sleeve"[^>]*opacity:0.35/);
+    expect(dimmed).toMatch(/^<div class="card-sleeve" data-chain="dimmed"/);
     expect(html(createElement(TicketCard, { card: SHOP_22 }))).not.toContain("card-sleeve");
   });
 });
@@ -274,7 +349,9 @@ describe("the children's cards with a lead (T-0291)", () => {
       }),
     );
     expect(out).toContain("1 unread note from Wishlist lead · same file as SHOP-40.4");
-    expect(out.match(/class="card-hover-anchor"/g)).toHaveLength(1);
+    // The head's status hover and the situation line's own.
+    expect(out.match(/class="card-hover-anchor"/g)).toHaveLength(2);
+    expect(out).toMatch(/<span class="card-hover-anchor" role="presentation"><div class="card-situation"/);
     expect(out).not.toContain('class="card-hover"');
   });
 

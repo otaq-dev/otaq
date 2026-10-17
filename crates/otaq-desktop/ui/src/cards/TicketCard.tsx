@@ -3,7 +3,8 @@
 // (the full title in a tooltip), the situation line with its coloured edge, the origin line, the answer options and
 // the footer (tokens, last signal, one action). An epic child wears the violet sleeve on top (*Epic Sleeve v2*,
 // EPC-09). Everything it says comes from a `TicketCardView` (`card_page.rs`); the board (or the gallery) decides the
-// moment of interaction: selected, chain, dragging. T-0322 draws the v2 view plainly; T-0323 finishes the look.
+// moment of interaction: hovered, selected, chain, dragging (*Interaction states*). Resting on the head shows the full
+// status and what the card has no room for; the quick actions (open terminal, open panel) show on hover.
 import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 
 import { Button, PriorityChip, StatusPill, ToolAvatar, Tooltip, useFloatingStyle } from "../components";
@@ -13,6 +14,7 @@ import type { CardFooter } from "../generated/CardFooter";
 import type { CardHover } from "../generated/CardHover";
 import type { CardSituation } from "../generated/CardSituation";
 import type { CardSleeve } from "../generated/CardSleeve";
+import type { CardStatusHover } from "../generated/CardStatusHover";
 import type { TicketCardView } from "../generated/TicketCardView";
 import { Icon } from "../theme/Icon";
 import { type CardState, outlineColor, RESTING, toneInk } from "./look";
@@ -51,27 +53,37 @@ export function HoverCard({ hover }: { hover: CardHover }) {
   );
 }
 
+/** The head's hover (SHL-07 "full status on hover"): the full status ("Needs you · permission"), then the facts the
+ * card has no room for ("Tokens: 241k", "Branch otaq/SHOP-25"), one per line. */
+export function StatusHoverCard({ hover }: { hover: CardStatusHover }) {
+  return (
+    <>
+      <div className="card-hover-title">
+        <strong>{hover.status}</strong>
+      </div>
+      {hover.details.map((line) => (
+        <span key={line} className="card-hover-text" data-muted>
+          {line}
+        </span>
+      ))}
+    </>
+  );
+}
+
 /** The floating card, placed next to its anchor once it is mounted. */
-function HoverBubble({
-  hovers,
-  anchor,
-}: {
-  hovers: readonly CardHover[];
-  anchor: RefObject<HTMLElement | null>;
-}) {
+function HoverBubble({ anchor, children }: { anchor: RefObject<HTMLElement | null>; children: ReactNode }) {
   const card = useRef<HTMLDivElement>(null);
   const style = useFloatingStyle(anchor, card);
   return (
     <div ref={card} role="tooltip" className="card-hover" style={style}>
-      {hovers.map((hover) => (
-        <HoverCard key={hover.title} hover={hover} />
-      ))}
+      {children}
     </div>
   );
 }
 
-/** Shows `hovers` after a short rest of the pointer on (or focus in) what it wraps; Esc, leave or blur hide them. */
-function WithHover({ hovers, children }: { hovers: readonly CardHover[]; children: ReactNode }) {
+/** Shows `content` after a short rest of the pointer on (or focus in) what it wraps; Esc, leave or blur hide it.
+ * Without content it wraps nothing. */
+function WithHover({ content, children }: { content: ReactNode; children: ReactNode }) {
   const anchor = useRef<HTMLSpanElement>(null);
   const [open, setOpen] = useState(false);
   const timer = useRef<number | undefined>(undefined);
@@ -81,7 +93,7 @@ function WithHover({ hovers, children }: { hovers: readonly CardHover[]; childre
     },
     [],
   );
-  if (hovers.length === 0) return <>{children}</>;
+  if (content === null) return <>{children}</>;
   const show = (delay: number) => {
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
@@ -110,14 +122,18 @@ function WithHover({ hovers, children }: { hovers: readonly CardHover[]; childre
       }}
     >
       {children}
-      {open && <HoverBubble hovers={hovers} anchor={anchor} />}
+      {open && <HoverBubble anchor={anchor}>{content}</HoverBubble>}
     </span>
   );
 }
 
 function SituationLine({ situation }: { situation: CardSituation }) {
+  const content =
+    situation.hovers.length === 0
+      ? null
+      : situation.hovers.map((hover) => <HoverCard key={hover.title} hover={hover} />);
   return (
-    <WithHover hovers={situation.hovers}>
+    <WithHover content={content}>
       <div
         className="card-situation"
         data-mono={situation.mono || undefined}
@@ -134,30 +150,26 @@ function SituationLine({ situation }: { situation: CardSituation }) {
   );
 }
 
+/** The footer (*Ticket Card v2 → Footer*): the tokens and the last signal on the right while an agent runs, or the
+ * card's one action as a small button. M21 has no agent name on the left (M22). */
 function Footer({ footer, onAction }: { footer: CardFooter; onAction?: TicketCardProps["onAction"] }) {
   const { tokens, signal, action } = footer;
+  const tokenValue = tokens && (
+    <span className="card-footer-value">
+      <Icon name="coins" size={11} />
+      {tokens.text}
+    </span>
+  );
   return (
     <div className="card-footer">
+      <span className="card-spacer" />
       {tokens &&
-        (tokens.tooltip === null ? (
-          <span className="card-footer-value">
-            <Icon name="coins" size={11} />
-            {tokens.text}
-          </span>
-        ) : (
-          <Tooltip text={tokens.tooltip}>
-            <span className="card-footer-value">
-              <Icon name="coins" size={11} />
-              {tokens.text}
-            </span>
-          </Tooltip>
-        ))}
+        (tokens.tooltip === null ? tokenValue : <Tooltip text={tokens.tooltip}>{tokenValue}</Tooltip>)}
       {signal && (
         <span className="card-footer-value" data-stale={signal.stale || undefined}>
           {signal.text}
         </span>
       )}
-      <span className="card-spacer" />
       {action && (
         // The card's own click must not fire: the button's wrapper stops it.
         // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- only stops the click from reaching the card; the button inside is the control
@@ -167,11 +179,11 @@ function Footer({ footer, onAction }: { footer: CardFooter; onAction?: TicketCar
             e.stopPropagation();
           }}
         >
+          {/* The v2 footer's button is a label only (*Ticket Card v2 → Footer → Action*). */}
           <Button
             label={action.label}
             variant={action.primary ? "primary" : "secondary"}
             compact
-            {...(action.icon === null ? {} : { icon: action.icon })}
             onClick={() => onAction?.(action.kind)}
           />
         </span>
@@ -225,22 +237,20 @@ function SleeveBand({ sleeve }: { sleeve: CardSleeve }) {
 function Body({ card, onAction }: Pick<TicketCardProps, "card" | "onAction">) {
   return (
     <>
-      <div className="card-head">
-        {card.avatar && <ToolAvatar avatar={card.avatar} />}
-        <span className="card-key">{card.key_label}</span>
-        {card.pinned && (
-          <span className="card-pin">
-            <Icon name="pin" size={11} />
-          </span>
-        )}
-        {card.priority && <PriorityChip priority={card.priority} />}
-        <span className="card-spacer" />
-        {card.flag && (
-          <Tooltip text={card.hover.status}>
-            <StatusPill pill={card.flag} />
-          </Tooltip>
-        )}
-      </div>
+      <WithHover content={<StatusHoverCard hover={card.hover} />}>
+        <div className="card-head">
+          {card.avatar && <ToolAvatar avatar={card.avatar} />}
+          <span className="card-key">{card.key_label}</span>
+          {card.pinned && (
+            <span className="card-pin">
+              <Icon name="pin" size={12} />
+            </span>
+          )}
+          {card.priority && <PriorityChip priority={card.priority} />}
+          <span className="card-spacer" />
+          {card.flag && <StatusPill pill={card.flag} />}
+        </div>
+      </WithHover>
       <Tooltip text={card.title}>
         <div className="card-title">{card.title}</div>
       </Tooltip>
@@ -278,8 +288,10 @@ function Body({ card, onAction }: Pick<TicketCardProps, "card" | "onAction">) {
 }
 
 export function TicketCard({ card, state = RESTING, onSelect, onAction, onOpenPanel }: TicketCardProps) {
-  const opacity = state.chain === "dimmed" ? 0.35 : (card.faded ?? undefined);
   const sleeve = card.sleeve;
+  const chain = state.chain === "none" ? undefined : state.chain;
+  // A Done card's opacity; *Dimmed* (outside the hovered chain) overrides it in the stylesheet.
+  const faded = card.faded === null ? undefined : ({ "--card-faded": card.faded } as CSSProperties);
   const article = (
     // The card is a pointer target; the board's keyboard moves the selection (T-0220), so it isn't a tab stop.
     // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- the board's own keys select and open cards (SDD §21.3); a card isn't a button
@@ -287,16 +299,17 @@ export function TicketCard({ card, state = RESTING, onSelect, onAction, onOpenPa
       className="ticket-card"
       aria-label={`${card.key_label} ${card.title}`}
       data-selected={state.selected || undefined}
-      data-chain={state.chain === "none" ? undefined : state.chain}
+      data-chain={chain}
       data-dragging={state.dragging || undefined}
       data-hovered={state.hovered || undefined}
       data-faded={card.faded === null ? undefined : true}
       data-fresh={card.fresh || undefined}
+      data-outline={card.outline}
       style={
         {
           "--card-outline": outlineColor(card.outline),
           // In a sleeve the whole sleeve dims or fades with the card.
-          opacity: sleeve === null ? opacity : undefined,
+          ...(sleeve === null ? faded : {}),
         } as CSSProperties
       }
       onClick={sleeve === null ? onSelect : undefined}
@@ -311,7 +324,13 @@ export function TicketCard({ card, state = RESTING, onSelect, onAction, onOpenPa
   return (
     // The band selects the card too, so the sleeve takes the click.
     // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the board's own keys select and open cards (SDD §21.3); a card isn't a button
-    <div className="card-sleeve" style={{ opacity }} onClick={onSelect}>
+    <div
+      className="card-sleeve"
+      data-chain={chain}
+      data-faded={faded && true}
+      style={faded}
+      onClick={onSelect}
+    >
       <SleeveBand sleeve={sleeve} />
       {article}
     </div>

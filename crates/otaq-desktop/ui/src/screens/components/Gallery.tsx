@@ -925,17 +925,17 @@ function Cards() {
   if (!view) return null;
   return (
     <>
-      <Section title="04 · Ticket Card v2 · all variants (T-0322)">
+      <Section title="04 · Ticket Card v2 · all variants (T-0323)">
         <Caption>Last click: {picked ?? "—"}</Caption>
         <CardGrid cells={view.variants} width={view.width} onPick={setPicked} />
       </Section>
-      <Section title="04 · Ticket Card v2 · cards at 1280 (T-0322)">
+      <Section title="04 · Ticket Card v2 · all variants at 1280 (T-0323)">
         <CardGrid cells={view.variants} width={view.width_1280} onPick={setPicked} />
       </Section>
       <Section title="04 · Ticket card variants · Row · epics (fixtures)">
         <EpicGrid cards={view} onPick={setPicked} />
       </Section>
-      <Section title="04 · Ticket card variants · Epic Sleeve v2 · epic children (T-0266, d0080)">
+      <Section title="04 · Epic Sleeve v2 · epic children (T-0323, d0080)">
         <CardGrid cells={view.sleeves} onPick={setPicked} />
       </Section>
       <Section title="04 · Ticket card variants · Row · Epic children & the lead · Unread notes & same file (T-0291, d0083)">
