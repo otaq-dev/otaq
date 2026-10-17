@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 
 use otaq_core::naming;
 use otaq_view::view_models::{
-    activity, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
+    activity, agent_pane, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
     onboarding_page, settings_page, tool_avatar,
 };
 use serde_json::Value;
@@ -44,6 +44,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.board_review" => reply(&board_page::gallery()),
         // Activity's button and popover in each state (T-0325).
         "gallery.activity" => reply(&activity::gallery()),
+        // The Project agent pane in each state (T-0330).
+        "gallery.pane" => reply(&agent_pane::gallery()),
         _ => Err(unknown(method)),
     }
 }

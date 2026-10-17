@@ -1,0 +1,336 @@
+// @vitest-environment happy-dom
+// The pane's own rules (T-0330): Enter sends once and shows the new agent, an example fills the box, ⌘L shows a
+// hidden pane and focuses the box or the terminal, ⇧⌘A shows the empty pane without asking the service anything.
+import { act, createElement, useImperativeHandle } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { INITIAL_LAYOUT, shellLayout } from "../../app/layout";
+import { registered, registerScreens } from "../../app/registry";
+import { NOTHING_SELECTED, selection } from "../../app/selection";
+import type { PaneView } from "../../generated/PaneView";
+import { request } from "../../tauri";
+import type { TerminalHandle, TerminalProps } from "../../terminal/Terminal";
+import { pane } from ".";
+import { CloseAgentDialog, RecentList } from "./parts";
+import { renderToStaticMarkup } from "react-dom/server";
+import { paneFocusRequests, sendFirstMessage, shownAgents } from "./logic";
+import { PaneBody } from "./Pane";
+
+vi.mock("../../tauri", () => ({ request: vi.fn(), subscribeEvents: vi.fn(), windowAction: vi.fn() }));
+
+// The real terminal needs a canvas; this one only takes the keyboard.
+const terminalFocus = vi.fn();
+vi.mock("../../terminal/Terminal", () => ({
+  Terminal: ({ label, ref }: TerminalProps) => {
+    useImperativeHandle(ref, () => ({ focus: terminalFocus }) as unknown as TerminalHandle);
+    return createElement("div", { className: "fake-terminal", "aria-label": label });
+  },
+}));
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const ask = vi.mocked(request);
+
+const button = (icon: PaneView["strip"]["icon"], label: string) => ({ icon, label, keys: null });
+
+/** The empty pane as `agent_pane.rs` words it for pocket-notes. */
+const EMPTY: PaneView = {
+  agent: null,
+  opens_on: null,
+  header: {
+    icon: "bot",
+    title: "Project agent",
+    unnamed: false,
+    switcher: false,
+    pill: null,
+    recent: button("history", "Recently ended"),
+    new: { icon: "plus", label: "New Project agent", keys: "⇧⌘A" },
+    more: button("ellipsis", "More"),
+  },
+  empty: {
+    line: { avatar: null, tool: "Claude Code", note: "· starts when you send", rename: null },
+    title: "Ask the Project agent",
+    text: "It reads and runs code in pocket-notes (never edits) and creates or changes Backlog tickets.",
+    examples: [
+      { label: "Turn this into tickets: …", fill: "Turn this into tickets: " },
+      { label: "Why is a ticket stuck?", fill: "Why is a ticket stuck?" },
+    ],
+    recent_title: "RECENTLY ENDED",
+    placeholder: "Ask about pocket-notes, or describe work…",
+    hint: "Enter starts Claude Code",
+    send: "Send",
+  },
+  running: null,
+  switcher: { rows: [], new_label: "New Project agent (empty)", new_keys: "⇧⌘A" },
+  menu: [],
+  recent: { title: "RECENTLY ENDED · POCKET-NOTES", rows: [], empty: "No ended Project agents yet." },
+  agent_waits: false,
+  strip: { icon: "bot", label: "Show the Project agent", keys: "⌘\\" },
+};
+
+/** "Which tickets wait on NOTE-5?" running, its terminal attached. */
+const RUNNING: PaneView = {
+  ...EMPTY,
+  agent: "a1",
+  header: {
+    ...EMPTY.header,
+    title: "Tickets waiting on NOTE-5",
+    switcher: true,
+    pill: { palette: "attn", icon: "hand", label: "Waiting for you" },
+  },
+  empty: null,
+  running: {
+    line: { avatar: null, tool: "Claude Code", note: "· 52k", rename: "Rename" },
+    created: {
+      line: "CREATED 2 · CHANGED 1",
+      folded: true,
+      show_on_board: { label: "Show on board", agent: "a1" },
+      rows: [
+        {
+          key: "NOTE-12",
+          title: "Cache note previews",
+          place: "Backlog",
+          icon: "square-plus",
+          edited: false,
+          delete: "Delete",
+        },
+      ],
+    },
+    session: "s1",
+    ended: false,
+    footer: {
+      text: "Typing goes to the agent",
+      keys: "⌘L",
+      keys_label: "focus",
+      resume: null,
+      resume_note: null,
+    },
+  },
+};
+
+let root: Root;
+let box: HTMLElement;
+
+function show(view: PaneView, followFocus = true) {
+  act(() => {
+    root.render(createElement(PaneBody, { view, project: "NOTE", followFocus }));
+  });
+}
+
+const textarea = () => {
+  const found = box.querySelector("textarea");
+  if (!found) throw new Error("no box");
+  return found;
+};
+
+function type(text: string) {
+  act(() => {
+    Reflect.set(HTMLTextAreaElement.prototype, "value", text, textarea());
+    textarea().dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function enter(shiftKey = false) {
+  act(() => {
+    textarea().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey, bubbles: true }));
+  });
+}
+
+beforeEach(() => {
+  ask.mockReset();
+  terminalFocus.mockReset();
+  box = document.body.appendChild(document.createElement("div"));
+  root = createRoot(box);
+});
+
+afterEach(() => {
+  act(() => {
+    root.unmount();
+  });
+  document.body.replaceChildren();
+  shownAgents.set({});
+  paneFocusRequests.set(null);
+  shellLayout.set(INITIAL_LAYOUT);
+  selection.set(NOTHING_SELECTED);
+});
+
+describe("the empty pane", () => {
+  it("says what it will start, and nothing runs until Send", () => {
+    show(EMPTY);
+    for (const text of [
+      "Ask the Project agent",
+      "Claude Code",
+      "· starts when you send",
+      "Enter starts Claude Code",
+    ]) {
+      expect(box.textContent).toContain(text);
+    }
+    expect(textarea().placeholder).toBe("Ask about pocket-notes, or describe work…");
+    expect(ask).not.toHaveBeenCalled();
+  });
+
+  it("Enter sends once and switches to the new agent; Shift+Enter is a new line", async () => {
+    let answer: (id: string) => void = () => undefined;
+    ask.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    show(EMPTY);
+    enter();
+    expect(ask).not.toHaveBeenCalled();
+    type("Which tickets wait on NOTE-5?");
+    enter(true);
+    expect(ask).not.toHaveBeenCalled();
+    enter();
+    enter();
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(ask).toHaveBeenCalledWith("pane.send", {
+      project: "NOTE",
+      message: "Which tickets wait on NOTE-5?",
+    });
+    await act(async () => {
+      answer("a1");
+      await Promise.resolve();
+    });
+    expect(shownAgents.get()).toEqual({ NOTE: "a1" });
+    expect(paneFocusRequests.get()).toMatchObject({ agent: "a1" });
+    expect(textarea().value).toBe("");
+  });
+
+  it("a second Send for the same project waits for the first", async () => {
+    let answer: (id: string) => void = () => undefined;
+    ask.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const first = sendFirstMessage("NOTE", "hello", request);
+    expect(await sendFirstMessage("NOTE", "hello", request)).toBeNull();
+    answer("a7");
+    expect(await first).toBe("a7");
+    expect(ask).toHaveBeenCalledTimes(1);
+  });
+
+  it("an example click fills the box and never sends", () => {
+    show(EMPTY);
+    const example = [...box.querySelectorAll("button")].find(
+      (b) => b.textContent === "Turn this into tickets: …",
+    );
+    act(() => {
+      example?.click();
+    });
+    expect(textarea().value).toBe("Turn this into tickets: ");
+    expect(ask).not.toHaveBeenCalled();
+  });
+});
+
+describe("the pane's keys", () => {
+  it("registers the pane, the strip's dot, ⌘L and ⇧⌘A", () => {
+    const app = registerScreens({ pane });
+    expect(registered(app)).toMatchObject({ slots: ["pane", "pane_strip"] });
+    expect(app.shortcuts.names()).toEqual(["focus_pane", "new_project_agent"]);
+    // No project shown: both keys pass.
+    expect(app.shortcuts.run({ action: "focus_pane" })).toBe(false);
+    expect(app.shortcuts.run({ action: "new_project_agent" })).toBe(false);
+  });
+
+  it("⌘L shows a hidden pane and focuses the box, or the shown agent's terminal", () => {
+    const app = registerScreens({ pane });
+    selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
+    shellLayout.set({ ...INITIAL_LAYOUT, paneHidden: true });
+    show(EMPTY);
+    act(() => {
+      app.shortcuts.run({ action: "focus_pane" });
+    });
+    expect(shellLayout.get().paneHidden).toBe(false);
+    expect(document.activeElement).toBe(textarea());
+
+    show(RUNNING);
+    act(() => {
+      app.shortcuts.run({ action: "focus_pane" });
+    });
+    expect(terminalFocus).toHaveBeenCalledTimes(1);
+    expect(ask).not.toHaveBeenCalled();
+  });
+
+  it("⇧⌘A shows the empty pane, focused, without asking the service anything", () => {
+    const app = registerScreens({ pane });
+    selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
+    shownAgents.set({ NOTE: "a1" });
+    shellLayout.set({ ...INITIAL_LAYOUT, paneHidden: true });
+    expect(app.shortcuts.run({ action: "new_project_agent" })).toBe(true);
+    expect(shownAgents.get()).toEqual({ NOTE: null });
+    expect(shellLayout.get().paneHidden).toBe(false);
+    expect(paneFocusRequests.get()).toMatchObject({ agent: null });
+    expect(ask).not.toHaveBeenCalled();
+  });
+});
+
+describe("a running agent", () => {
+  it("draws the header, the agent line, Created and changed folded, the terminal and the footer", () => {
+    show(RUNNING, false);
+    for (const text of [
+      "Tickets waiting on NOTE-5",
+      "Waiting for you",
+      "· 52k",
+      "Rename",
+      "CREATED 2 · CHANGED 1",
+      "Show on board",
+      "Typing goes to the agent",
+      "⌘L",
+    ]) {
+      expect(box.textContent).toContain(text);
+    }
+    // Folded at the 1280 class: the rows open on a click.
+    expect(box.textContent).not.toContain("NOTE-12");
+    act(() => {
+      box.querySelector<HTMLButtonElement>(".pane-created-toggle")?.click();
+    });
+    expect(box.textContent).toContain("NOTE-12");
+    expect(box.querySelectorAll(".pane-created-delete")).toHaveLength(1);
+    expect(box.querySelector(".fake-terminal")?.getAttribute("aria-label")).toBe(
+      "Tickets waiting on NOTE-5 · Claude Code",
+    );
+  });
+
+  it("asks before ending mid-turn, and lists Recently ended", () => {
+    const close = renderToStaticMarkup(
+      createElement(CloseAgentDialog, {
+        dialog: {
+          title: "Close “Checkout slowness” while it’s working?",
+          mid_turn: "It’s mid-turn. Closing stops it now.",
+          text: "You can resume the conversation from Recently ended.",
+          confirm: "Stop and close",
+        },
+        onConfirm: () => undefined,
+        onCancel: () => undefined,
+      }),
+    );
+    expect(close).toContain("Stop and close");
+    expect(close).toContain("mid-turn");
+    const recent = renderToStaticMarkup(
+      createElement(RecentList, {
+        recent: {
+          title: "RECENTLY ENDED · POCKET-NOTES",
+          rows: [
+            {
+              id: "a9",
+              name: "Footer audit",
+              when: "yesterday · ended normally",
+              ended: "yesterday",
+              resume: "Resume",
+            },
+          ],
+          empty: "No ended Project agents yet.",
+        },
+        onResume: () => undefined,
+      }),
+    );
+    expect(recent).toContain("Footer audit");
+    expect(recent).not.toContain("No ended Project agents yet.");
+  });
+});

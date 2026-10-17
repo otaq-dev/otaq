@@ -98,9 +98,6 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::DrawerView::export_all(&cfg)?;
     crate::api::DrawerTabParams::export_all(&cfg)?;
     crate::api::DrawerNewParams::export_all(&cfg)?;
-    // The old agent tab's header and Created and changed (T-0243), until T-0330 moves the page to the pane's.
-    otaq_view::view_models::project_agent_page::AgentHeader::export_all(&cfg)?;
-    otaq_view::view_models::project_agent_page::CreatedView::export_all(&cfg)?;
     // The Project agent pane (T-0326): its view, and the requests' params and answers.
     otaq_view::view_models::agent_pane::PaneView::export_all(&cfg)?;
     crate::api::PaneParams::export_all(&cfg)?;
@@ -265,6 +262,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // Activity's popover and gallery (T-0325); the header writes the button.
     otaq_view::view_models::activity::Popover::export_all(&cfg)?;
     otaq_view::view_models::activity::Gallery::export_all(&cfg)?;
+    // The pane's gallery section (T-0330): the pane in each state.
+    otaq_view::view_models::agent_pane::Gallery::export_all(&cfg)?;
     Ok(())
 }
 

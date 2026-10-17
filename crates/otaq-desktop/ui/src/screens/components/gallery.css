@@ -333,3 +333,26 @@
   transform: scale(0.5);
   transform-origin: 0 0;
 }
+
+/* The pane's states (T-0330): each at 400 px, as tall as the 1440 window's pane. */
+.gallery-pane {
+  display: flex;
+  width: 400px;
+  height: 640px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.gallery-pane-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 28px;
+  height: 200px;
+  padding: 12px 0;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--st-investigate);
+}

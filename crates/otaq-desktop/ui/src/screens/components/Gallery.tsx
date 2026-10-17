@@ -23,6 +23,7 @@ import {
   IconButton,
   Kbd,
   LeadStatus,
+  Menu,
   MetaChip,
   OtaqMark,
   pickTheme,
@@ -62,6 +63,7 @@ import type { InboxLeadGallery } from "../../generated/InboxLeadGallery";
 import type { LeadGallery } from "../../generated/LeadGallery";
 import type { LeadTabGallery } from "../../generated/LeadTabGallery";
 import type { LegendTier } from "../../generated/LegendTier";
+import type { PaneGallery } from "../../generated/PaneGallery";
 import type { PillView } from "../../generated/PillView";
 import type { ToolAvatarGallery } from "../../generated/ToolAvatarGallery";
 import type { TrustGallery } from "../../generated/TrustGallery";
@@ -82,6 +84,8 @@ import { THEME_KEYS, type ThemeKey } from "../../theme/generated/tokens";
 import { TokenSwatches } from "../../theme/Swatches";
 import { Strip } from "../board/strip/Strip";
 import { InboxBody } from "../inbox/Inbox";
+import { PaneBody, SwitcherList } from "../pane/Pane";
+import "../pane/pane.css";
 import { CleanupBody } from "../recovery/Cleanup";
 import "../recovery/recovery.css";
 import { SuggestedBy } from "../inbox/SuggestedBy";
@@ -1438,6 +1442,59 @@ const loadTrust = () => request("gallery.trust") as Promise<TrustGallery>;
 /** The folder trust (T-0306, d0085; *14 → step 4*, *11 → 4c*), in Otaq Light and Otaq Dark side by side: the
  * add-project form with its line and after a failed trust (Continue), the note, the failed warning for one and two
  * projects (hover the text for the reasons), and both around the permission warning. Nothing is sent. */
+const loadPane = () => request("gallery.pane") as Promise<PaneGallery>;
+
+/** *18 → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row · More pane states (0086 · V)* and *Row ·
+ * Switching agents, attention (0086 · V)* (T-0330): the pane in each state at 400 px (the 1440 class), the switcher
+ * and the … menu open, and the strip's waiting dot. Clicks talk to the service as in the app. */
+function PaneSection() {
+  const { view, error } = useServiceView(loadPane, []);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const running = view.states.find((s) => s.view.agent !== null)?.view;
+  return (
+    <Section title="18 · Project agent pane: empty, running, waiting, ended, ended by restart, switcher, … menu (T-0330)">
+      <div className="gallery-wrap gallery-wrap-wide" style={{ alignItems: "flex-start" }}>
+        {view.states.map((state) => (
+          <div key={state.name} className="gallery-stack-tight">
+            <Caption>{state.name.toUpperCase()}</Caption>
+            <div className="gallery-pane">
+              <PaneBody view={state.view} project="NOTE" />
+            </div>
+          </div>
+        ))}
+        {running && (
+          <>
+            <div className="gallery-stack-tight">
+              <Caption>SWITCHER (NAME ▾) OPEN</Caption>
+              <div className="popover" style={{ position: "static" }}>
+                <SwitcherList switcher={running.switcher} onPick={() => undefined} />
+              </div>
+            </div>
+            <div className="gallery-stack-tight">
+              <Caption>THE PANE&apos;S … MENU</Caption>
+              <Menu
+                label={running.header.more.label}
+                items={running.menu}
+                onChoose={() => undefined}
+                onClose={() => undefined}
+              />
+            </div>
+            <div className="gallery-stack-tight">
+              <Caption>HIDDEN WITH ⌘\ · AN AGENT WAITS</Caption>
+              <div className="gallery-pane-strip">
+                <Icon name="bot" size={15} />
+                {view.states[0]?.view.agent_waits && <span className="pane-strip-dot" />}
+                <Icon name="chevrons-right" size={13} />
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </Section>
+  );
+}
+
 const loadBoardReview = () => request("gallery.board_review") as Promise<BoardGallery>;
 
 function verdictText(verdict: DragVerdict): string {
@@ -1758,6 +1815,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <Section title="02 · The shell at 1280, 1440 and 1920 (T-0327)">
           <ShellFrames />
         </Section>
+        <PaneSection />
         <Section title="Mark · Command tent (d0076; 15 · Settings → About)">
           <div className="gallery-wrap gallery-wrap-wide">
             {[64, 40, 32, 20, 16].map((size) => (

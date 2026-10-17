@@ -1,21 +1,16 @@
-//! A Project agent's tab as the page draws it (T-0243; UI-09, PAG-04, PAG-05, PAG-06, TKT-08; d0068, d0060, d0019;
-//! *18 · Project agents & terminals → Row · states, Row · lifecycle*): the Agent header above its terminal (name with
-//! Rename, the state pill, tokens, what it may do, "named by you", Resume once it ended), the **Created and changed**
-//! list beside it (links, Delete on the tickets it created), Close mid-turn's confirmation and Recently ended.
+//! A Project agent's parts the pane uses (T-0243, T-0330; PAG-04, PAG-05, PAG-06; d0068, d0060, d0019; *18 · Project
+//! agents & terminals → Row · states, Row · lifecycle*): the state pill, Resume once it ended, Close mid-turn's
+//! confirmation and Recently ended. The pane itself is `agent_pane.rs`.
 
 use otaq_core::domain::{Column, Status};
-use otaq_core::project_agents::{AgentState, CreatedAndChanged, NameSource, ProjectAgent};
+use otaq_core::project_agents::{AgentState, CreatedAndChanged, ProjectAgent};
 use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::theme::Status as Legend;
-use crate::view_models::card::tokens_label;
 use crate::view_models::clock::local_hhmm;
 use crate::view_models::status::PillView;
-
-/// What every Project agent may do, under its name (d0068).
-pub const SCOPE: &str = "reads & runs code \u{b7} never edits \u{b7} Backlog only";
 
 /// The header's state pill: a legend entry's colours with the frame's icon and label.
 fn pill(legend: Legend, icon: IconName, label: &str) -> PillView {
@@ -60,38 +55,6 @@ pub struct ResumeButton {
     pub primary: bool,
 }
 
-/// The Agent header. `AgentHeader` on the page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-pub struct AgentHeader {
-    pub id: String,
-    pub name: String,
-    /// "New agent" reads muted.
-    pub unnamed: bool,
-    pub rename: &'static str,
-    pub pill: PillView,
-    /// "48k".
-    pub tokens: String,
-    pub scope: &'static str,
-    /// The user named it: "named by you · the agent can’t rename it".
-    pub named_by_you: Option<&'static str>,
-    pub resume: Option<ResumeButton>,
-}
-
-pub fn header(agent: &ProjectAgent) -> AgentHeader {
-    AgentHeader {
-        id: agent.id.clone(),
-        name: agent.name.clone(),
-        unnamed: agent.name_source.is_none(),
-        rename: "Rename",
-        pill: state_pill(agent),
-        tokens: tokens_label(agent.tokens.shown()),
-        scope: SCOPE,
-        named_by_you: (agent.name_source == Some(NameSource::User))
-            .then_some("named by you \u{b7} the agent can\u{2019}t rename it"),
-        resume: resume_button(agent),
-    }
-}
-
 /// Resume once it ended: quiet after a normal end, the main button after a restart.
 pub fn resume_button(agent: &ProjectAgent) -> Option<ResumeButton> {
     match agent.state {
@@ -104,59 +67,6 @@ pub fn resume_button(agent: &ProjectAgent) -> Option<ResumeButton> {
             label: "Resume",
             primary: true,
         }),
-    }
-}
-
-/// One row of Created and changed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "CreatedRow")]
-pub struct CreatedRow {
-    /// The ticket the link opens.
-    pub key: String,
-    /// Its title, or what the agent changed ("edited").
-    pub text: String,
-    pub edited: bool,
-    /// "Delete": it never started (TKT-08, the 0060 confirmation).
-    pub delete: Option<&'static str>,
-}
-
-/// Created and changed (*Row · states*). `CreatedView` on the page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-pub struct CreatedView {
-    pub title: &'static str,
-    /// What it touched, as a number ("4"); `None` while nothing.
-    pub count: Option<String>,
-    /// "Created SHOP-35, SHOP-36 · edited SHOP-31 · 1 dependency".
-    pub summary: Option<String>,
-    pub rows: Vec<CreatedRow>,
-    pub empty: &'static str,
-}
-
-pub fn created(c: &CreatedAndChanged) -> CreatedView {
-    let n = c.created.len() + c.edited.len() + c.dependencies as usize;
-    let mut rows: Vec<CreatedRow> = c
-        .created
-        .iter()
-        .map(|t| CreatedRow {
-            key: t.key.to_string(),
-            text: t.title.clone(),
-            edited: false,
-            delete: t.deletable.then_some("Delete"),
-        })
-        .collect();
-    rows.extend(c.edited.iter().map(|key| CreatedRow {
-        key: key.to_string(),
-        text: "edited".to_owned(),
-        edited: true,
-        delete: None,
-    }));
-    CreatedView {
-        title: "CREATED AND CHANGED",
-        count: (n > 0).then(|| n.to_string()),
-        summary: (n > 0 && !c.summary.is_empty()).then(|| c.summary.clone()),
-        rows,
-        empty: "Nothing yet. Tickets this agent creates or edits show up here, each with a link, and Delete for the \
-                ones it created.",
     }
 }
 
@@ -289,7 +199,7 @@ pub fn recent(agents: &[ProjectAgent], project_name: &str, now_ms: i64) -> Recen
 
 #[cfg(test)]
 mod tests {
-    use otaq_core::project_agents::CreatedTicket;
+    use otaq_core::project_agents::{CreatedTicket, NameSource};
 
     use super::*;
 
@@ -345,16 +255,12 @@ mod tests {
     }
 
     #[test]
-    fn the_header_follows_the_agent_state() {
+    fn the_state_pill_and_resume_follow_the_agent_state() {
         let mut a = agent("Checkout slowness");
-        let h = header(&a);
-        assert_eq!(
-            (h.pill.label.as_str(), h.tokens.as_str()),
-            ("Working", "48k")
-        );
-        assert_eq!((h.scope, h.named_by_you, h.resume), (SCOPE, None, None));
+        assert_eq!(state_pill(&a).label, "Working");
+        assert_eq!(resume_button(&a), None);
         a.needs_you = Some("Bash(pnpm run profile)".into());
-        assert_eq!(header(&a).pill.label, "Waiting for you");
+        assert_eq!(state_pill(&a).label, "Waiting for you");
         a.needs_you = None;
         a.question = Some(otaq_core::board::questions::HumanQuestion {
             id: "q1".into(),
@@ -364,60 +270,24 @@ mod tests {
             asked_at: 0,
             via_lead: None,
         });
+        let p = state_pill(&a);
         assert_eq!(
-            (header(&a).pill.icon, header(&a).pill.label.as_str()),
+            (p.icon, p.label.as_str()),
             (IconName::MessageCircleQuestionMark, "Waiting for you")
         );
         a.question = None;
         a.mid_turn = false;
-        assert_eq!(header(&a).pill.label, "Idle");
-
-        let mut new = agent("New agent");
-        new.name_source = None;
-        assert!(header(&new).unnamed);
-
-        a.name_source = Some(NameSource::User);
-        assert_eq!(
-            header(&a).named_by_you,
-            Some("named by you \u{b7} the agent can\u{2019}t rename it")
-        );
+        assert_eq!(state_pill(&a).label, "Idle");
         a.state = AgentState::Ended;
         assert_eq!(
-            (header(&a).pill.label, header(&a).resume.unwrap().primary),
+            (state_pill(&a).label, resume_button(&a).unwrap().primary),
             ("Ended".to_owned(), false)
         );
         a.state = AgentState::EndedByRestart;
-        let h = header(&a);
         assert_eq!(
-            (h.pill.label.as_str(), h.resume.unwrap().primary),
-            ("Ended by restart", true)
+            (state_pill(&a).label, resume_button(&a).unwrap().primary),
+            ("Ended by restart".to_owned(), true)
         );
-    }
-
-    #[test]
-    fn created_and_changed_lists_links_and_delete() {
-        let v = created(&changed());
-        assert_eq!(v.count.as_deref(), Some("4"));
-        assert_eq!(
-            v.summary.as_deref(),
-            Some("Created SHOP-35, SHOP-36 \u{b7} edited SHOP-31 \u{b7} 1 dependency")
-        );
-        let rows: Vec<(&str, &str, bool, Option<&str>)> = v
-            .rows
-            .iter()
-            .map(|r| (r.key.as_str(), r.text.as_str(), r.edited, r.delete))
-            .collect();
-        assert_eq!(
-            rows,
-            [
-                ("SHOP-35", "Slow checkout query", false, None),
-                ("SHOP-36", "Cache product prices", false, Some("Delete")),
-                ("SHOP-31", "edited", true, None),
-            ]
-        );
-        let none = created(&CreatedAndChanged::default());
-        assert_eq!((none.count, none.summary), (None, None));
-        assert!(none.empty.starts_with("Nothing yet."));
     }
 
     #[test]
