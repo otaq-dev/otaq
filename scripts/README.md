@@ -179,51 +179,166 @@ signs in.
 
 ## Warm builds and project variables (for people using Otaq)
 
-Decision 0082. This section is about using Otaq on any project, so it names no language or build tool.
+Decisions 0082, 0085, 0086 and 0087. This section is about using Otaq on any project, so apart from the marked
+examples it names no language or build tool.
 
 **Warm builds.** Each ticket still gets its own worktree, but a new worktree doesn't have to build from nothing.
-When a ticket reaches Done, Otaq moves its worktree's gitignored files (what your setup installed and your builds
-made, but not the project's env files) into the project's warm build, `<data folder>/warm/<repo-name>` (for example
-`~/.otaq/warm/shop-web`, next to `wt/`), with the commit they were built at and the modified time of each tracked
-file. A newer build replaces an older one; an older one never replaces a newer one. The next new worktree is cloned
-from it; the tracked files unchanged since that commit get back the times they had where the build was made, and the
-ones changed since get the current time, so your first build only redoes what differs (also a file committed after
-the last build). With no warm build yet, the first worktree is cloned from your own checkout's gitignored files, if
-it has any and is on the same disk, with the checkout's own file times.
-The setup log of each ticket says where its worktree started from.
+A finished build (the worktree's gitignored files: what your setup installed and your builds made, but not the
+project's env files) goes into the project's build stock, `<data folder>/warm/<repo-name>` (for example
+`~/.otaq/warm/shop-web`, next to `wt/`), with the commit it was built at and the modified time of each tracked file.
+A new worktree starts from the stock's nearest build: the tracked files unchanged since that build's commit get back
+the times they had where the build was made, and the ones changed since get the current time, so your first build
+only redoes what differs (also a file committed after the build). The setup log of each ticket says where its
+worktree started from.
 
-- **The switch:** project Settings → "Start new worktrees from a warm build", on by default. Turn it off for a
-  project whose build output doesn't survive being moved to another folder; turning it off also clears the warm
-  build (after a confirmation).
-- **Clear:** Cleanup lists each project's warm build under the leftovers, with its size, commit and age, and a
-  **Clear…** button. Sizes say "up to": a clone shares its disk space with what it was cloned from. Nothing clears
-  warm builds automatically and there is no size limit, so clear one that has grown too big; the next Done keeps a
-  new one.
-- **It needs a disk that can clone** (copy-on-write): APFS on macOS, btrfs or XFS on Linux, a Dev Drive on Windows.
-  What counts is the disk under Otaq's data folder (where `wt/` and `warm/` live). On any other disk (NTFS, ext4,
-  exFAT…) the switch shows as unavailable with the reason, and worktrees start as before. Otaq never falls back to a
-  plain copy, which would cost a whole build's disk space per ticket.
-- **On Windows, put the data folder on a Dev Drive** to get warm builds. Create one in Settings → System → Storage →
-  Advanced storage settings → Disks & volumes → Create Dev Drive (a new partition or a virtual disk file). Then move
-  Otaq's data folder there while no ticket has a worktree (nothing in Dev or Ready for Review, and Cleanup empty):
-  quit Otaq, stop its service (`otaq daemon stop`), move the folder `%USERPROFILE%\.otaq` to the Dev Drive (for
-  example to `D:\otaq`) and delete the `scratch` folder inside it (Otaq makes it again at the next Local merge), run
-  `git worktree prune` in each project's checkout, set `OTAQ_HOME` for your account (`setx OTAQ_HOME D:\otaq`) and
-  start Otaq again. With `OTAQ_HOME` set, Otaq uses that folder instead of `~/.otaq` (on every platform).
-- **A setup command that deletes its output before installing** (a "clean install", or a step that empties the
-  build folder first) throws the warm build away on every new worktree, and the first build starts from nothing
-  again. Use the form of your install step that updates what is already there.
+- **The switch:** project Settings → "Start new worktrees from a warm build", on by default, on every disk. Turn it
+  off for a project whose build output doesn't survive being moved to another folder (a stack that writes absolute
+  paths into it, such as a Python `.venv`); turning it off also clears the stock (after a confirmation). While it is
+  off, a build never goes into the stock: it is deleted at Review and at Done or Close, and each new worktree builds
+  from nothing.
+- **Clear:** Cleanup lists each project's stock under the leftovers, with its size, commit and age, and a **Clear…**
+  button, which clears every build of that project. A build being handed to a worktree right then is waited for.
+
+### Ticket environment
+
+Otaq looks after a ticket's build and its own resources at four moments:
+
+- **Prepare** (Start, and a Closed ticket reopened): the worktree takes the stock's nearest build: the ticket's own
+  build if it is still there, else one made at an ancestor of the ticket's commit with the fewest changed files,
+  else the one nearest to the base branch's tip. Then the env files are copied, the Create command runs (see
+  *Ticket resources* below) and your setup command runs, as an update of what is already there. With no build in
+  stock, setup builds from nothing.
+- **Free at Review:** when a ticket enters Ready for Review (after the validator, if the project has one), its build
+  goes into the stock, so a ticket starting next can use it. The worktree, the branch, the ports and the agent's
+  session stay where they are; `git status` stays clean, and the env files stay in the worktree (also one inside an
+  ignored folder). An Approved ticket (PR open) stays freed too. A Run or Shell still open holds the build until the
+  last one closes: Otaq never stops a process you started. Freeing always happens; it is not a setting. If the build
+  can't be moved (on Windows, a file in it open in another program), it stays in the worktree and Cleanup lists it
+  under "Review builds that couldn’t be freed"; Review goes on as usual.
+- **Bring back** (Send back, Fix, Run, Shell): a freed ticket takes the nearest build (its own first), the file times
+  are set as above and setup runs; then the agent resumes in the same session and worktree, or the Run or Shell
+  starts. When a Run or Shell closes while the ticket is still in Review, the build is freed again.
+- **Release** (Done, Close): the worktree goes as before. A build still in it goes into the stock; a freed build has
+  nothing left to move. Then the ticket's resources are removed (see *Ticket resources*).
+
+**Which disk.** What counts is the disk under Otaq's data folder, where `wt/` and `warm/` both live, so moving a
+build between them never crosses disks.
+
+- **A disk that can clone** (copy-on-write: APFS on macOS, btrfs or XFS on Linux, a Dev Drive on Windows): a new
+  worktree gets a clone of the build, which shares its disk space, and the build stays in stock. The stock keeps one
+  build per project, and only a newer build replaces it, never an older one. With no build in stock yet, the first
+  worktree is cloned from your own checkout's gitignored files, if it has any and is on the same disk. Sizes in
+  Cleanup say "up to" because a clone shares its space with what it was cloned from.
+- **Any other disk** (NTFS, ext4, exFAT…): the build is handed over by renaming it, which takes a fraction of a
+  second, and it leaves the stock. Settings says "This disk can’t copy-on-write; the build is handed over to the
+  next ticket." Otaq never falls back to a plain copy or to hard links, which would cost a whole build's disk space
+  per ticket, and your own checkout is never a source (its files can't be moved away). If a rename fails (a file of
+  the build open in another program, or the build on another disk), that start goes on without it and setup builds
+  from nothing; the build stays in stock.
+- **On Windows, put the data folder on a Dev Drive** to get clones instead of handovers: a Dev Drive is formatted as
+  ReFS, which can copy-on-write. Create one in Settings → System → Storage → Advanced storage settings → Disks &
+  volumes → Create Dev Drive (a new partition or a virtual disk file). Then move Otaq's data folder there while no
+  ticket has a worktree (nothing in Dev or Ready for Review, and Cleanup empty): quit Otaq, stop its service
+  (`otaq daemon stop`), move the folder `%USERPROFILE%\.otaq` to the Dev Drive (for example to `D:\otaq`) and delete
+  the `scratch` folder inside it (Otaq makes it again at the next Local merge), run `git worktree prune` in each
+  project's checkout, set `OTAQ_HOME` for your account (`setx OTAQ_HOME D:\otaq`) and start Otaq again. With
+  `OTAQ_HOME` set, Otaq uses that folder instead of `~/.otaq` (on every platform).
+
+**Stock limit** (on a disk that can't clone). The stock keeps as many builds per project as there are tickets that
+could start soon: those in Ready for Dev whose dependencies are done and that wait only for a free slot or the plan
+limit. With none, it keeps 1. A ticket waiting for a dependency doesn't count: when that dependency reaches Done, its
+build goes into the stock and is the nearest one anyway. The limit is worked out again when a build goes in or is
+taken, and when a ticket enters or leaves Ready for Dev. Over the limit, the builds farthest from the base branch's
+tip (the most changed files) go first, and among equals the oldest; a build being handed over is never removed. A
+removed build is renamed into `warm/<repo-name>.trash` and deleted in the background (deleting a large build can
+take many seconds); what is left there is deleted when Otaq starts. The limit is not a setting. A freed ticket's
+build counts like any other in the stock, so a ticket in Review or Approved may find its own build gone at Bring
+back and take the nearest one instead.
+
+**Setup that updates, not reinstalls.** A setup command that deletes its output before installing (a "clean
+install", or a step that empties the build folder first) throws the handed-over build away on every new worktree,
+and the first build starts from nothing again. Use the form of your install step that updates what is already there
+and doesn't change tracked files. For example with npm: `npm install --no-save`. `npm ci` deletes the handed-over
+`node_modules`, and a plain `npm install` rewrites `package-lock.json` even when nothing changed.
+
+**Local data.** Everything gitignored in a worktree goes with its build into the stock and on to another ticket, so
+keep data that belongs to one ticket out of it:
+
+- A file database (SQLite and the like) goes in `$OTAQ_RESOURCE_DIR` (see below), not in the worktree. A database
+  file left in the worktree would hand that ticket's migrations on to the next ticket.
+- Other local data that must stay with its worktree (a local config, uploaded files): add it to the project's env
+  files list. Files on that list are copied into each new worktree and never moved with a build.
+
+**Ticket resources.** Project Settings → Ticket resources has three commands for what each ticket needs of its own,
+such as a database. Otaq knows no database engine: it only names the resource and runs your commands at the right
+moments. All three are empty by default, and with them empty nothing changes.
+
+- **Create command:** runs at Prepare in the new worktree, after the env files and before setup. Otaq records the
+  resource's name on the ticket before it runs. A failure stops the start at "creating ticket resources failed", and
+  Retry start runs it again. A resource that was created is never created again (Send back, Fix, Retry start).
+- **Remove command:** runs at Done and Close in the project's checkout, only for the name Otaq recorded on that
+  ticket; your own database's name is in none of the variables. A failure doesn't stop Done or Close: Cleanup lists
+  it under "Ticket resources that couldn’t be removed", and its Delete runs Remove again. Nothing retries it on its
+  own.
+- **Template refresh command:** runs in the project's checkout at Done, after the merge (never at Close), so new
+  tickets start from the merged schema. Refreshes of one project run one at a time, and a Create waits while one
+  runs (Postgres refuses to copy a template someone is connected to).
+
+Where a project has a Create command (or a ticket has a recorded resource), Otaq sets these in the ticket's commands
+(setup, Create, Remove) and sessions (its agent, Run and Shell), and project rows can't override them:
+
+- `OTAQ_DB_NAME`: the ticket's database name, `otaq_<project>_<ticket>` in lowercase with `_` for anything other than
+  `a-z` and `0-9`, at most 63 characters; for example `otaq_shop_shop_18` for SHOP-18.
+- `OTAQ_DB_TEMPLATE`: the project's template database, for example `otaq_shop_template`.
+- `OTAQ_RESOURCE_DIR`: a folder of the ticket's own outside the worktree, `<data folder>/res/<repo-name>/<KEY>`.
+  Otaq deletes it after a successful Remove, or at Release when there is no Remove command.
+
+The Template refresh command belongs to no ticket's resource, so it gets only `OTAQ_DB_TEMPLATE` (and `OTAQ_TICKET`,
+the ticket just merged).
+
+Examples (only examples; write them for your engine and shell):
+
+- **Postgres:** Create `createdb -T "$OTAQ_DB_TEMPLATE" "$OTAQ_DB_NAME"`. Remove
+  `dropdb --if-exists --force "$OTAQ_DB_NAME"`. Template refresh: drop the template, create it, then apply the main
+  branch's migrations and seed to it, for example `dropdb --if-exists --force "$OTAQ_DB_TEMPLATE" && createdb
+  "$OTAQ_DB_TEMPLATE" && DATABASE_URL="postgres://localhost/$OTAQ_DB_TEMPLATE" <your migrate and seed commands>`.
+- **SQLite:** Create copies the template file into the ticket's folder, such as
+  `cp db/template.sqlite3 "$OTAQ_RESOURCE_DIR/dev.sqlite3"`. Remove can stay empty, since Otaq deletes the folder.
+- **MySQL:** Create `mysql -e "CREATE DATABASE $OTAQ_DB_NAME" && mysqldump "$OTAQ_DB_TEMPLATE" | mysql
+  "$OTAQ_DB_NAME"`. Remove `mysql -e "DROP DATABASE IF EXISTS $OTAQ_DB_NAME"`.
+- **The connection:** a project variable row `DATABASE_URL = postgres://localhost/${OTAQ_DB_NAME}` gives each
+  ticket's sessions and commands its own database (see *Project variables*).
+
+**Schema paths.** Ticket resources → Schema paths takes one path per line, such as `db/migrate/**` or
+`migrations/**` (a folder alone also covers the files under it). When two tickets in Review (or Approved) both add
+files under the same path, their cards show a warning naming the other ticket, with its files on hover, and the
+ticket's History records it. It is only a warning: Otaq changes no file. It usually means the two migrations need an
+order once both are merged. A ticket that is abandoned needs no down-migration, because its database is removed and
+the template never saw its migration. With no schema paths, Otaq runs no git for this.
+
+**What Otaq can't do here.**
+
+- Create a database without your commands: it knows no engine.
+- Give an agent your real data without copying it.
+- Isolate a ticket whose connection address is written into the repository instead of read from a variable.
+- Give each ticket a database on a hosted plan that allows one database and no `CREATE DATABASE`.
+- Run a database server per ticket without something like Docker, which your own Create command would start.
 
 **Project variables.** Project Settings → Environment variables lists `NAME = value` rows that Otaq sets in
 everything it starts in that project: ticket agents, the validator, Project agents and epic leads, the Project
-terminal, the setup command, Run and Shell, and the git commands it runs in the project's repository and worktrees
-(so your git hooks see them too). It is empty by default, and Otaq adds nothing of its own. For example `CI = true`,
-so tools never wait for input or start watch mode. Another one you may want when several agents build at once: each
-build takes every core by default, so give each one a share, written for your stack, such as a variable your build
-tool reads for its job count set to your cores divided by the number of agents that build at the same time. A
-change applies to what starts or resumes after it; running sessions keep the values they started with. A row with
-an empty name, a name containing `=`, or a name repeating an earlier row's (on Windows, also one differing only in
-case) is marked and not set; Otaq's own variables (`OTAQ_*`, `PORT`) win over a row of the same name.
+terminal, the setup command and the ticket resource commands, Run and Shell, and the git commands it runs in the
+project's repository and worktrees (so your git hooks see them too). It is empty by default. For example
+`CI = true`, so tools never wait for input or start watch mode. Another one you may want when several agents build
+at once: each build takes every core by default, so give each one a share, written for your stack, such as a
+variable your build tool reads for its job count set to your cores divided by the number of agents that build at the
+same time. A change applies to what starts or resumes after it; running sessions keep the values they started with.
+A row with an empty name, a name containing `=`, or a name repeating an earlier row's (on Windows, also one
+differing only in case) is marked and not set; Otaq's own variables (`OTAQ_*`, `PORT`) win over a row of the same
+name.
+
+A value can use Otaq's own variables as `${OTAQ_…}`, such as `${OTAQ_DB_NAME}`: each one is replaced by its value
+where it is set, and by nothing where it isn't (in a git hook, for example). Only that exact form with an `OTAQ_`
+name is replaced; anything else, such as `$HOME` or `${HOME}`, is passed on as written.
 
 ## Not covered by the checks
 
