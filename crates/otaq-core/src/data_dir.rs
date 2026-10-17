@@ -9,6 +9,7 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::domain::TicketKey;
 use crate::naming;
 
 /// Where Otaq keeps its data. Only builds paths; folders are created with [`DataDir::ensure_dir`].
@@ -72,8 +73,33 @@ impl DataDir {
 
     /// A project's warm build: `warm/<repo-name>`, for example `warm/shop-web`.
     pub fn warm_path(&self, repo_name: &str) -> Result<PathBuf, DataDirError> {
-        let repo = path_component(repo_name)?;
+        let repo = warm_component(repo_name)?;
         Ok(self.warm_dir().join(repo))
+    }
+
+    /// One entry of a project's build stock (M19-a, d0085): `warm/<repo-name>/<n>`, for example `warm/shop-web/0`.
+    pub fn warm_entry_path(&self, repo_name: &str, n: u64) -> Result<PathBuf, DataDirError> {
+        Ok(self.warm_path(repo_name)?.join(n.to_string()))
+    }
+
+    /// Where a project's stock entries go to be deleted in the background: `warm/<repo-name>.trash`, next to the
+    /// stock so a rename into it never crosses a disk.
+    pub fn warm_trash_path(&self, repo_name: &str) -> Result<PathBuf, DataDirError> {
+        let repo = warm_component(repo_name)?;
+        Ok(self.warm_dir().join(format!("{repo}.trash")))
+    }
+
+    /// A ticket's own resource folder (d0087): `res/<repo-name>/<KEY>`, for example `res/shop-web/SHOP-18`, set as
+    /// `OTAQ_RESOURCE_DIR` where the project has ticket resources. Otaq-owned, like `wt/`.
+    pub fn resource_path(&self, repo_name: &str, key: &TicketKey) -> Result<PathBuf, DataDirError> {
+        let repo = path_component(repo_name)?;
+        let key = key.to_string();
+        let key = path_component(&key)?;
+        Ok(self
+            .root
+            .join(naming::resource_dir_name())
+            .join(repo)
+            .join(key))
     }
 
     /// Otaq's own scratch worktree for a repository (`scratch/<repo-name>`), where Local merges happen,
@@ -92,6 +118,13 @@ impl DataDir {
     pub fn setup_log_path(&self, key: &str) -> Result<PathBuf, DataDirError> {
         let key = path_component(key)?;
         Ok(self.logs_dir().join("setup").join(format!("{key}.log")))
+    }
+
+    /// The output of a project's ticket resource Remove and Template refresh commands (d0087):
+    /// `logs/resources-<repo-name>.log`, appended to.
+    pub fn resource_log_path(&self, repo_name: &str) -> Result<PathBuf, DataDirError> {
+        let repo = path_component(repo_name)?;
+        Ok(self.logs_dir().join(format!("resources-{repo}.log")))
     }
 
     /// The service socket (a Unix domain socket on macOS and Linux).
@@ -125,6 +158,22 @@ fn path_component(part: &str) -> Result<&str, DataDirError> {
         || part.contains(['/', '\\'])
         || part.contains('\0');
     if invalid {
+        Err(DataDirError::InvalidPathPart(part.to_owned()))
+    } else {
+        Ok(part)
+    }
+}
+
+/// The suffixes of the warm store's own folders next to a stock: `warm/<repo-name>.incoming`, `.old`, `.trash`, `.mig`.
+pub(crate) const WARM_SIBLING_SUFFIXES: [&str; 4] = [".incoming", ".old", ".trash", ".mig"];
+
+/// A repository name for `warm/`: a [`path_component`] that doesn't end with one of [`WARM_SIBLING_SUFFIXES`] (any
+/// case, as Windows and macOS compare names), so a stock never shares a folder with another project's trash or
+/// migration (`app.trash` is `app`'s trash). Such a project has no warm builds.
+fn warm_component(part: &str) -> Result<&str, DataDirError> {
+    let part = path_component(part)?;
+    let lower = part.to_ascii_lowercase();
+    if WARM_SIBLING_SUFFIXES.iter().any(|s| lower.ends_with(s)) {
         Err(DataDirError::InvalidPathPart(part.to_owned()))
     } else {
         Ok(part)
@@ -192,6 +241,24 @@ mod tests {
     }
 
     #[test]
+    fn ticket_resources_have_a_folder_and_a_log() {
+        let (tmp, data) = temp_data_dir();
+        let root = tmp.path().join("home");
+        let key: TicketKey = "SHOP-40.1".parse().unwrap();
+        assert_eq!(
+            data.resource_path("shop-web", &key).unwrap(),
+            root.join(naming::resource_dir_name())
+                .join("shop-web")
+                .join("SHOP-40.1")
+        );
+        assert!(data.resource_path("a/b", &key).is_err());
+        assert_eq!(
+            data.resource_log_path("shop-web").unwrap(),
+            root.join("logs").join("resources-shop-web.log")
+        );
+    }
+
+    #[test]
     fn warm_builds_live_next_to_the_worktrees() {
         let (tmp, data) = temp_data_dir();
         let root = tmp.path().join("home");
@@ -204,6 +271,46 @@ mod tests {
         for bad in ["", ".", "..", "a/b", "a\\b", "x\0y"] {
             assert_eq!(
                 data.warm_path(bad),
+                Err(DataDirError::InvalidPathPart(bad.to_owned()))
+            );
+        }
+    }
+
+    #[test]
+    fn stock_entries_and_trash_live_under_warm() {
+        let (tmp, data) = temp_data_dir();
+        let warm = tmp.path().join("home").join("warm");
+        assert_eq!(
+            data.warm_entry_path("shop-web", 0).unwrap(),
+            warm.join("shop-web").join("0")
+        );
+        assert_eq!(
+            data.warm_entry_path("shop-web", 12).unwrap(),
+            warm.join("shop-web").join("12")
+        );
+        assert_eq!(
+            data.warm_trash_path("shop-web").unwrap(),
+            warm.join("shop-web.trash")
+        );
+        for bad in [
+            "",
+            ".",
+            "..",
+            "a/b",
+            "a\\b",
+            "x\0y",
+            "app.trash",
+            "App.Trash",
+            "app.mig",
+            "app.incoming",
+            "app.old",
+        ] {
+            assert_eq!(
+                data.warm_entry_path(bad, 0),
+                Err(DataDirError::InvalidPathPart(bad.to_owned()))
+            );
+            assert_eq!(
+                data.warm_trash_path(bad),
                 Err(DataDirError::InvalidPathPart(bad.to_owned()))
             );
         }

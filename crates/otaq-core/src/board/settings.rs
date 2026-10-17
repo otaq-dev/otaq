@@ -396,6 +396,15 @@ pub struct ProjectSettings {
     /// "Start new worktrees from a warm build" (WRM-05, d0082). On by default; warm builds are on only where the
     /// data folder's disk can clone too.
     pub warm_builds: bool,
+    /// Ticket resources (M19-d, d0087): the command that creates a ticket's own resource (a database, say) before
+    /// setup, in the ticket's worktree. Empty: none, and Otaq sets no resource variables.
+    pub resource_create: String,
+    /// Removes what Create made, at Done and Close; runs only for a resource Otaq recorded.
+    pub resource_remove: String,
+    /// Refreshes the project's template (in the main checkout) after Done; Creates wait meanwhile.
+    pub resource_template_refresh: String,
+    /// Globs of the files that change the schema (`db/migrations/**`), relative to the repository root (M19-e).
+    pub schema_paths: Vec<String>,
 }
 
 impl Default for ProjectSettings {
@@ -414,6 +423,10 @@ impl Default for ProjectSettings {
             project_agent_instructions: String::new(),
             env_vars: Vec::new(),
             warm_builds: true,
+            resource_create: String::new(),
+            resource_remove: String::new(),
+            resource_template_refresh: String::new(),
+            schema_paths: Vec::new(),
         }
     }
 }
@@ -656,13 +669,16 @@ impl Board {
     }
 
     /// The user's `git` with the project's variables set in every command it runs (ENV-02), for the git
-    /// commands Otaq runs in the project's repository and worktrees, so the user's hooks see them.
+    /// commands Otaq runs in the project's repository and worktrees, so the user's hooks see them. Otaq sets
+    /// none of its own variables there, so a `${…}` naming one becomes empty ([`crate::session::env::substitute`]).
     pub async fn project_git(&self, project: &str) -> Result<crate::git::Git, BoardError> {
         let git = self.git()?;
         let settings = self.project_settings(project).await?;
-        Ok(git.with_env(crate::session::env::applied(
-            &settings.env_vars,
-            Os::current(),
+        let os = Os::current();
+        Ok(git.with_env(crate::session::env::substitute(
+            &crate::session::env::applied(&settings.env_vars, os),
+            &[],
+            os,
         )))
     }
 
@@ -742,6 +758,7 @@ impl Board {
                 problems.push(problem(&env_var_field(index), &message));
             }
         }
+        problems.extend(resource_problems(&settings));
         if !settings.open_url.trim().is_empty() && !looks_like_url(settings.open_url.trim()) {
             problems.push(problem(
                 "open_url",
@@ -820,6 +837,39 @@ fn env_file_problem(repo: &Path, file: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+/// The message on a Remove or Template refresh command set without a Create command.
+pub fn resource_without_create() -> String {
+    format!(
+        "Remove runs only for resources {} created",
+        naming::PRODUCT_NAME
+    )
+}
+
+/// Problems with a project's ticket resource settings (d0087): a schema path that isn't a relative glob, and a
+/// Remove or Template refresh command with no Create command (a warning: nothing is refused).
+pub fn resource_problems(settings: &ProjectSettings) -> Vec<SettingProblem> {
+    let mut problems: Vec<SettingProblem> = settings
+        .schema_paths
+        .iter()
+        .filter_map(|glob| crate::glob::problem(glob))
+        .map(|message| problem("schema_paths", &message))
+        .collect();
+    if settings.resource_create.trim().is_empty() {
+        for (field, value) in [
+            ("resource_remove", &settings.resource_remove),
+            (
+                "resource_template_refresh",
+                &settings.resource_template_refresh,
+            ),
+        ] {
+            if !value.trim().is_empty() {
+                problems.push(problem(field, &resource_without_create()));
+            }
+        }
+    }
+    problems
 }
 
 /// A light check: `http://` or `https://` followed by a host, and no spaces. `$PORT` is allowed (d0035).
@@ -959,6 +1009,24 @@ mod tests {
         assert_eq!(old.setup_command, "make");
         let off: ProjectSettings = read_or_default(serde_json::json!({"warm_builds": false}));
         assert!(!off.warm_builds);
+    }
+
+    #[test]
+    fn resource_settings_default_to_empty_in_old_settings() {
+        let old: ProjectSettings = read_or_default(serde_json::json!({"setup_command": "make"}));
+        assert_eq!(old.resource_create, "");
+        assert_eq!(old.resource_remove, "");
+        assert_eq!(old.resource_template_refresh, "");
+        assert!(old.schema_paths.is_empty());
+        assert!(resource_problems(&old).is_empty());
+        let set: ProjectSettings = read_or_default(serde_json::json!({
+            "resource_create": "createdb -T shop_template shop_1",
+            "schema_paths": ["db/migrations/**"],
+            "warm_builds": "not a flag",
+        }));
+        assert_eq!(set.schema_paths, ["db/migrations/**"]);
+        assert!(set.resource_create.starts_with("createdb"));
+        assert!(set.warm_builds, "one bad value keeps the others");
     }
 
     #[test]

@@ -10,6 +10,10 @@
 //! - **Ports**: ports still held by tickets that are Done or in Backlog.
 //! - **Kept worktrees**: Done / Closed tickets whose worktree was kept because of uncommitted changes (REC-05).
 //!   Deleting one discards those changes, so it is deleted only when listed explicitly.
+//! - **Could not free** (M19-c, d0086): Review tickets whose build couldn't leave the worktree at Review entry (a
+//!   file held open, say). "Deleting" one is the user's retry of the Free (d0018); nothing is deleted.
+//! - **Ticket resources** (M19-d, d0087): Done / Closed tickets whose resource Remove failed. "Deleting" one runs
+//!   the Remove again, for the recorded name.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -19,11 +23,13 @@ use serde::{Deserialize, Serialize};
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Column, TicketKey};
+use crate::domain::{BuildState, Column, ResourceState, TicketKey};
 use crate::naming;
 use crate::ports::PortPool;
 use crate::session::Sessions;
 use crate::store::now_ms;
+use crate::ticket_env::TicketEnv;
+use crate::ticket_env::free::{FREED_IN, FreeOutcome};
 
 /// The Cleanup view's groups, in order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -34,6 +40,10 @@ pub enum CleanupGroup {
     Branches,
     Ports,
     KeptWorktrees,
+    /// Review tickets whose build couldn't be freed (M19-c).
+    CouldNotFree,
+    /// Finished tickets whose resource Remove failed (M19-d).
+    TicketResources,
 }
 
 /// One leftover.
@@ -93,15 +103,23 @@ pub struct Cleanup {
     data: DataDir,
     sessions: Sessions,
     ports: PortPool,
+    ticket_env: TicketEnv,
 }
 
 impl Cleanup {
-    pub fn new(board: Board, data: DataDir, sessions: Sessions, ports: PortPool) -> Self {
+    pub fn new(
+        board: Board,
+        data: DataDir,
+        sessions: Sessions,
+        ports: PortPool,
+        ticket_env: TicketEnv,
+    ) -> Self {
         Self {
             board,
             data,
             sessions,
             ports,
+            ticket_env,
         }
     }
 
@@ -286,6 +304,61 @@ impl Cleanup {
             });
         }
 
+        // Review builds that couldn't be freed (M19-c): the problem is why.
+        for ticket in &tickets {
+            let Some(work) = &ticket.work else { continue };
+            let (Some(problem), Some(path)) = (&work.build_problem, &work.worktree) else {
+                continue;
+            };
+            if work.build_state != BuildState::Present || !FREED_IN.contains(&ticket.status) {
+                continue;
+            }
+            let folder = PathBuf::from(path);
+            items.push(CleanupItem {
+                group: CleanupGroup::CouldNotFree,
+                id: ticket.id.clone(),
+                label: format!("{} · {}", ticket.key, ticket.title),
+                project: Some(ticket.key.project.to_string()),
+                ticket: Some(ticket.key.clone()),
+                path: Some(path.clone()),
+                size_bytes: folder.is_dir().then(|| folder_size(&folder)),
+                age_ms: ticket.status_since.map(|s| (now - s).max(0)),
+                why: problem.clone(),
+                uncommitted: Vec::new(),
+            });
+        }
+
+        // Resources of finished tickets that Remove couldn't remove (M19-d): the recorded name, and the problem.
+        for ticket in tickets.iter().filter(|t| t.column == Column::Done) {
+            let Some(work) = &ticket.work else { continue };
+            let Some(name) = &work.resource_name else {
+                continue;
+            };
+            if work.resource_state != ResourceState::Failed {
+                continue;
+            }
+            let problem = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT resource_problem FROM tickets WHERE id = ?",
+            )
+            .bind(&ticket.id)
+            .fetch_optional(self.board.store().pool())
+            .await?
+            .flatten();
+            items.push(CleanupItem {
+                group: CleanupGroup::TicketResources,
+                id: ticket.id.clone(),
+                label: name.clone(),
+                project: Some(ticket.key.project.to_string()),
+                ticket: Some(ticket.key.clone()),
+                path: None,
+                size_bytes: None,
+                age_ms: ticket.status_since.map(|s| (now - s).max(0)),
+                why: problem
+                    .unwrap_or_else(|| format!("{}'s resources weren't removed", ticket.key)),
+                uncommitted: Vec::new(),
+            });
+        }
+
         items.sort_by(|a, b| a.group.cmp(&b.group).then(a.label.cmp(&b.label)));
         Ok(items)
     }
@@ -373,13 +446,38 @@ impl Cleanup {
                     self.remove_worktree(Path::new(path), repos).await?;
                 }
                 sqlx::query(
-                    "UPDATE tickets SET worktree_path = NULL, worktree_kept = FALSE WHERE id = ?",
+                    "UPDATE tickets SET worktree_path = NULL, worktree_kept = FALSE, build_state = ?,
+                                        build_problem = NULL
+                     WHERE id = ?",
                 )
+                .bind(BuildState::Present.as_str())
                 .bind(&item.id)
                 .execute(self.board.store().pool())
                 .await?;
                 Ok(())
             }
+            // The user's retry of the Free (d0018).
+            CleanupGroup::CouldNotFree => {
+                let Some(key) = &item.ticket else {
+                    return Ok(());
+                };
+                match self.ticket_env.free(key).await {
+                    FreeOutcome::Freed { .. } | FreeOutcome::NotNeeded => Ok(()),
+                    FreeOutcome::Waiting => Err(BoardError::refused(
+                        Refusal::NotAllowed,
+                        format!("{key}'s Run or Shell is open; its build is freed when it closes"),
+                    )),
+                    FreeOutcome::Failed(problem) => {
+                        Err(BoardError::refused(Refusal::NotAllowed, problem))
+                    }
+                }
+            }
+            // The user's retry of the Remove (d0018), for the recorded name.
+            CleanupGroup::TicketResources => self
+                .ticket_env
+                .remove_resources(&item.id)
+                .await
+                .map_err(|e| BoardError::refused(Refusal::NotAllowed, e)),
         }
     }
 
