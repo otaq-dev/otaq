@@ -10,6 +10,7 @@ mod agent_launches;
 mod agent_picks;
 mod agent_rows;
 mod agent_session_facts;
+mod agent_tool_requests;
 mod answer_resume;
 mod auto_merge;
 mod base_sync;

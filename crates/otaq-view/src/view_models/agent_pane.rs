@@ -668,6 +668,7 @@ fn sample_agent(name: &str, model: Option<&str>) -> NamedAgent {
         tool: Tool::ALL[0],
         model: model.map(str::to_owned),
         use_for: String::new(),
+        fallback: None,
         mark: None,
         created_at: 0,
         updated_at: 0,

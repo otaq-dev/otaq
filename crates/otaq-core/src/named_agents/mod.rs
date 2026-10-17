@@ -19,9 +19,14 @@
 //! - [`NamedAgents`]: the requests' rules (add, edit, duplicate, delete, defaults, rows).
 //! - [`starter`]: the starter entry and an entry for a newly connected tool; [`in_use`]: what uses an entry;
 //!   [`mark`]: the amber mark of a model the tool refused.
+//! - M23: an entry's **fallback** (AGT-08: another entry, on another tool), the **holds** ([`AgentHold`]: an agent
+//!   that would start but waits for its tool or model) and a row's **move** ([`RowMove`]); [`gate`]: the check
+//!   before every launch (T-0357); [`moves`]: Move waiting to… and Resume per tool (T-0358).
 
+pub mod gate;
 pub mod in_use;
 pub mod mark;
+pub mod moves;
 pub mod rows;
 pub mod starter;
 
@@ -112,6 +117,70 @@ pub enum RowSetBy {
     Agent { picked_by: String, reason: String },
 }
 
+stored_enum! {
+    /// Why an agent that would start is held (SCH-04 `[M23]`, §7.2; d0086, d0088).
+    pub enum HoldReason ("hold reason") {
+        /// Its tool is at its limit: only that tool's agents wait.
+        ToolLimit = "tool_limit",
+        /// Its tool isn't available (not installed, logged out, hidden, update needed).
+        ToolUnavailable = "tool_unavailable",
+        /// Its model is no longer in its tool's list: "Model unavailable · Change agent".
+        ModelUnavailable = "model_unavailable",
+    }
+}
+
+stored_enum! {
+    /// Why a Developer row moved to another named agent (AGT-08, d0086).
+    pub enum MoveReason ("move reason") {
+        /// Its tool was at its limit: the fallback (automatic or Use fallback) or Move waiting to….
+        ToolLimit = "tool_limit",
+        /// Its tool wasn't available.
+        ToolUnavailable = "tool_unavailable",
+        /// The user moved it.
+        UserMove = "user_move",
+    }
+}
+
+/// An agent that would start but doesn't (a Developer start, a Validator round, an epic lead, a Project agent's
+/// first message), one per ticket and role, or per project for its Project agent (`agent_holds`). It lifts when its
+/// cause goes (Q-D).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentHold {
+    pub id: String,
+    /// The held ticket or epic; `None` for a Project agent's first message.
+    pub ticket_id: Option<String>,
+    /// The project of a held Project agent's first message; `None` for a ticket's hold.
+    pub project_id: Option<String>,
+    pub role: Role,
+    pub reason: HoldReason,
+    /// The tool it would have started on.
+    pub tool: Tool,
+    /// The model it would have passed (`None`: the tool's default).
+    pub model: Option<String>,
+    /// The named agent it would have started on.
+    pub named_agent_id: Option<String>,
+    /// The fallback that could take it; `None` when there is none or it is held too.
+    pub fallback_agent_id: Option<String>,
+    /// The fallback is held as well ("both at their limits").
+    pub fallback_held: bool,
+    /// When it was first held for this reason, in Unix milliseconds.
+    pub since: i64,
+}
+
+/// Where a Developer row moved from, and why (AGT-08): "moved to Strong GPT (Codex): Claude Code limit".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RowMove {
+    /// The named agent it moved from (`None` once deleted).
+    pub from_id: Option<String>,
+    /// That agent's name when it moved.
+    pub from_name: String,
+    pub reason: MoveReason,
+    /// The tool that was at its limit or unavailable; `None` for the user's own move.
+    pub tool: Option<Tool>,
+    /// When, in Unix milliseconds.
+    pub at: i64,
+}
+
 /// The amber mark on an entry (AGT-05; written by T-0337): "Claude Code couldn't run `claude-fable-5-1` on
 /// SHOP-48". No dismiss; a saved model change clears it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,20 +208,28 @@ pub struct NamedAgent {
     pub model: Option<String>,
     /// The "Use for" note ("Complex features, tricky bugs").
     pub use_for: String,
+    /// Another entry, on another tool, that takes this one's waiting work when its tool is at its limit or not
+    /// available (AGT-08); one step only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
     pub mark: Option<Mark>,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
 impl NamedAgent {
-    /// The model by kind, from the tool's list. A text the list no longer has counts as exact (M23 checks it before
-    /// every launch).
+    /// The model by kind, from the tool's list. A text the list no longer has counts as exact, or as a follow choice
+    /// in one of Otaq's forms (`newest:gpt-sol`, `auto@balance`; [`crate::agent_tools::follow`]).
     pub fn model_kind(&self, models: &dyn ModelCatalog) -> AgentModel {
         match &self.model {
             None => AgentModel::ToolDefault,
-            Some(text) => models
-                .pick(self.tool, text)
-                .unwrap_or_else(|| AgentModel::Exact(text.clone())),
+            Some(text) => models.pick(self.tool, text).unwrap_or_else(|| {
+                // A follow choice is one by its form, listed or not (M23 checks it before every launch).
+                match crate::agent_tools::follow::FollowChoice::parse(text) {
+                    Some(_) => AgentModel::Follow(text.clone()),
+                    None => AgentModel::Exact(text.clone()),
+                }
+            }),
         }
     }
 }
@@ -484,6 +561,9 @@ pub struct AgentFields {
     pub model: Option<String>,
     #[serde(default)]
     pub use_for: String,
+    /// The fallback entry's id (AGT-08): on another tool, never the entry itself. `None`: no fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
 }
 
 /// The answer to `agents.list`: every entry (oldest first, the starter entry first) and the app-wide defaults.
@@ -564,6 +644,7 @@ impl NamedAgents {
             tool: agent.tool,
             model: agent.model,
             use_for: agent.use_for,
+            fallback: agent.fallback,
         })
     }
 
@@ -749,12 +830,54 @@ impl NamedAgents {
                 )
             })?,
         };
+        let fallback = self.checked_fallback(fields, editing).await?;
         Ok(NewNamedAgent {
             name: name.to_owned(),
             tool: fields.tool.as_str().to_owned(),
             model: model.passed().map(str::to_owned),
             use_for: fields.use_for.trim().to_owned(),
+            fallback,
         })
+    }
+
+    /// The fallback rules (AGT-08, d0086: "another named agent, on a different tool"): never the entry itself, never
+    /// on the entry's tool, and an existing entry. A fallback that has its own fallback is allowed (one step is a
+    /// rule at use time). On edit, an entry whose fallback this one is must stay on another tool too.
+    async fn checked_fallback(
+        &self,
+        fields: &AgentFields,
+        editing: Option<&str>,
+    ) -> Result<Option<String>, BoardError> {
+        let other_tool =
+            || BoardError::refused(Refusal::BadFallback, "A fallback must be on another tool");
+        if let Some(id) = editing {
+            let agents = self.board.store().named_agents().await?;
+            if agents
+                .iter()
+                .any(|a| a.fallback.as_deref() == Some(id) && a.id != id && a.tool == fields.tool)
+            {
+                return Err(other_tool());
+            }
+        }
+        let Some(fallback) = fields
+            .fallback
+            .as_deref()
+            .map(str::trim)
+            .filter(|f| !f.is_empty())
+        else {
+            return Ok(None);
+        };
+        if Some(fallback) == editing {
+            return Err(BoardError::refused(
+                Refusal::BadFallback,
+                "An agent can't be its own fallback",
+            ));
+        }
+        let other = self.agent(fallback).await?;
+        if other.tool == fields.tool {
+            return Err(other_tool());
+        }
+        Ok(Some(other.id))
     }
 }
 
@@ -769,6 +892,7 @@ mod tests {
             tool: Tool::ALL[0],
             model: None,
             use_for: String::new(),
+            fallback: None,
             mark: None,
             created_at: 0,
             updated_at: 0,

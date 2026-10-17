@@ -66,6 +66,21 @@ fn sample(method: &str, unit: bool) -> Request {
             params["role"] = json!("developer");
             params["agent"] = json!("nope");
         }
+        if method.starts_with("agent_tools.") || method.starts_with("limits.") {
+            params["tool"] = json!("codex");
+        }
+        if method == "agent_tools.set_hidden" {
+            params["hidden"] = json!(true);
+        }
+        if method == "limits.move_waiting" {
+            params["agent"] = json!("nope");
+        }
+        if method == "ticket.use_fallback" {
+            params["role"] = json!("developer");
+        }
+        if method == "settings.auto_fallback" {
+            params["on"] = json!(true);
+        }
         if method == "decision.mark" {
             params["source"] = json!("PAY-1");
             params["text"] = json!("t");
@@ -269,7 +284,16 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::ProjectSetAgentDefault(_)
         | Request::TicketAgentRow(_)
         | Request::TicketAgents(_)
-        | Request::BoardAgents(_) => false,
+        | Request::BoardAgents(_)
+        | Request::AgentToolsList
+        | Request::AgentToolsRecheck(_)
+        | Request::AgentToolsSetHidden(_)
+        | Request::AgentToolsSignIn(_)
+        | Request::AgentToolsDisconnect(_)
+        | Request::LimitsResumeTool(_)
+        | Request::LimitsMoveWaiting(_)
+        | Request::TicketUseFallback(_)
+        | Request::SettingsAutoFallback(_) => false,
     }
 }
 

@@ -9,8 +9,11 @@ use sqlx::{FromRow, Sqlite, Transaction};
 
 use super::settings::AGENT_DEFAULTS;
 use super::{Store, StoreError, new_id, now_ms};
+use crate::agent_tools::Tool;
 use crate::domain::{Column, ProjectKey, TicketKey};
-use crate::named_agents::{AgentRow, Mark, NamedAgent, Role, RoleDefaults, RowSetBy};
+use crate::named_agents::{
+    AgentHold, AgentRow, HoldReason, Mark, NamedAgent, Role, RoleDefaults, RowMove, RowSetBy,
+};
 use crate::session::END_MODEL_REFUSED;
 
 /// The query's session didn't end refused on the model ("not started", T-0337); bind
@@ -37,6 +40,7 @@ struct NamedAgentRecord {
     tool: String,
     model: Option<String>,
     use_for: String,
+    fallback_id: Option<String>,
     mark_text: Option<String>,
     mark_model: Option<String>,
     mark_ticket: Option<String>,
@@ -72,6 +76,7 @@ impl NamedAgentRecord {
             tool,
             model: self.model,
             use_for: self.use_for,
+            fallback: self.fallback_id,
             mark,
             created_at: self.created_at,
             updated_at: self.updated_at,
@@ -79,13 +84,15 @@ impl NamedAgentRecord {
     }
 }
 
-/// A new entry: `tool` as stored, `model` as passed to the tool (`None` = tool default).
+/// A new entry: `tool` as stored, `model` as passed to the tool (`None` = tool default), `fallback` another entry's
+/// id (checked by the rules).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewNamedAgent {
     pub name: String,
     pub tool: String,
     pub model: Option<String>,
     pub use_for: String,
+    pub fallback: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -170,14 +177,15 @@ impl Store {
         let id = new_id();
         let now = now_ms();
         sqlx::query(
-            "INSERT INTO named_agents (id, name, tool, model, use_for, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO named_agents (id, name, tool, model, use_for, fallback_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&new.name)
         .bind(&new.tool)
         .bind(&new.model)
         .bind(&new.use_for)
+        .bind(&new.fallback)
         .bind(now)
         .bind(now)
         .execute(&mut **tx)
@@ -193,12 +201,14 @@ impl Store {
         clear_mark: bool,
     ) -> Result<(), StoreError> {
         sqlx::query(
-            "UPDATE named_agents SET name = ?, tool = ?, model = ?, use_for = ?, updated_at = ? WHERE id = ?",
+            "UPDATE named_agents SET name = ?, tool = ?, model = ?, use_for = ?, fallback_id = ?, updated_at = ?
+             WHERE id = ?",
         )
         .bind(&fields.name)
         .bind(&fields.tool)
         .bind(&fields.model)
         .bind(&fields.use_for)
+        .bind(&fields.fallback)
         .bind(now_ms())
         .bind(id)
         .execute(self.pool())
@@ -316,12 +326,54 @@ impl Store {
             .collect())
     }
 
-    /// Writes one row (replacing the role's earlier one), or empties it with `None`.
+    /// Writes one row (replacing the role's earlier one and its move), or empties it with `None`.
     pub async fn set_ticket_agent_row(
         &self,
         ticket_id: &str,
         role: Role,
         value: Option<(&str, &RowSetBy)>,
+    ) -> Result<(), StoreError> {
+        self.write_ticket_agent_row(ticket_id, role, value, None)
+            .await
+    }
+
+    /// Moves a Developer row to `agent` (AGT-08): the row as [`Self::set_ticket_agent_row`] writes it, with where
+    /// it moved from and why.
+    pub async fn move_ticket_agent_row(
+        &self,
+        ticket_id: &str,
+        role: Role,
+        agent: &str,
+        set_by: &RowSetBy,
+        moved: &RowMove,
+    ) -> Result<(), StoreError> {
+        self.write_ticket_agent_row(ticket_id, role, Some((agent, set_by)), Some(moved))
+            .await
+    }
+
+    /// Where a row moved from, and why; `None` when it didn't move (or was changed since).
+    pub async fn ticket_row_move(
+        &self,
+        ticket_id: &str,
+        role: Role,
+    ) -> Result<Option<RowMove>, StoreError> {
+        let row: Option<RowMoveRecord> = sqlx::query_as(
+            "SELECT moved_from_agent_id, moved_from_name, moved_reason, moved_tool, moved_at
+             FROM ticket_agent_rows WHERE ticket_id = ? AND role = ? AND moved_reason IS NOT NULL",
+        )
+        .bind(ticket_id)
+        .bind(role.as_str())
+        .fetch_optional(self.pool())
+        .await?;
+        Ok(row.and_then(RowMoveRecord::into_move))
+    }
+
+    async fn write_ticket_agent_row(
+        &self,
+        ticket_id: &str,
+        role: Role,
+        value: Option<(&str, &RowSetBy)>,
+        moved: Option<&RowMove>,
     ) -> Result<(), StoreError> {
         let Some((agent, set_by)) = value else {
             sqlx::query("DELETE FROM ticket_agent_rows WHERE ticket_id = ? AND role = ?")
@@ -338,11 +390,14 @@ impl Store {
             }
         };
         sqlx::query(
-            "INSERT INTO ticket_agent_rows (ticket_id, role, named_agent_id, set_by, picked_by, reason, set_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
+            "INSERT INTO ticket_agent_rows (ticket_id, role, named_agent_id, set_by, picked_by, reason, set_at,
+                                            moved_from_agent_id, moved_from_name, moved_reason, moved_tool, moved_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (ticket_id, role) DO UPDATE SET named_agent_id = excluded.named_agent_id,
                  set_by = excluded.set_by, picked_by = excluded.picked_by, reason = excluded.reason,
-                 set_at = excluded.set_at",
+                 set_at = excluded.set_at, moved_from_agent_id = excluded.moved_from_agent_id,
+                 moved_from_name = excluded.moved_from_name, moved_reason = excluded.moved_reason,
+                 moved_tool = excluded.moved_tool, moved_at = excluded.moved_at",
         )
         .bind(ticket_id)
         .bind(role.as_str())
@@ -351,6 +406,11 @@ impl Store {
         .bind(picked_by)
         .bind(reason)
         .bind(now_ms())
+        .bind(moved.and_then(|m| m.from_id.as_deref()))
+        .bind(moved.map(|m| m.from_name.as_str()))
+        .bind(moved.map(|m| m.reason.as_str()))
+        .bind(moved.and_then(|m| m.tool).map(Tool::as_str))
+        .bind(moved.map(|m| m.at))
         .execute(self.pool())
         .await?;
         Ok(())
@@ -472,6 +532,157 @@ impl Store {
             .into_iter()
             .map(SessionAgentRunRecord::into_session)
             .collect())
+    }
+}
+
+/// Where an agent hold belongs: a ticket's (or epic's) role, or a project's Project agent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HoldScope<'a> {
+    Ticket(&'a str),
+    Project(&'a str),
+}
+
+impl Store {
+    /// Holds `hold`'s role (SCH-04 `[M23]`): one row per ticket (or project) and role, replacing an earlier hold of
+    /// it. A hold that stays for the same reason keeps its `since`.
+    pub async fn set_agent_hold(&self, hold: &AgentHold) -> Result<(), StoreError> {
+        let conflict = if hold.ticket_id.is_some() {
+            "(ticket_id, role) WHERE ticket_id IS NOT NULL"
+        } else {
+            "(project_id, role) WHERE project_id IS NOT NULL"
+        };
+        let sql = format!(
+            "INSERT INTO agent_holds (id, ticket_id, project_id, role, reason, tool, model, named_agent_id,
+                                      fallback_agent_id, fallback_held, since)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT {conflict} DO UPDATE SET
+                 since = CASE WHEN agent_holds.reason = excluded.reason THEN agent_holds.since
+                              ELSE excluded.since END,
+                 reason = excluded.reason, tool = excluded.tool, model = excluded.model,
+                 named_agent_id = excluded.named_agent_id, fallback_agent_id = excluded.fallback_agent_id,
+                 fallback_held = excluded.fallback_held"
+        );
+        sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(&hold.id)
+            .bind(&hold.ticket_id)
+            .bind(&hold.project_id)
+            .bind(hold.role.as_str())
+            .bind(hold.reason.as_str())
+            .bind(hold.tool.as_str())
+            .bind(&hold.model)
+            .bind(&hold.named_agent_id)
+            .bind(&hold.fallback_agent_id)
+            .bind(hold.fallback_held)
+            .bind(hold.since)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
+    /// Lifts the hold of `role` in `scope`. Returns whether there was one.
+    pub async fn clear_agent_hold(
+        &self,
+        scope: HoldScope<'_>,
+        role: Role,
+    ) -> Result<bool, StoreError> {
+        let (column, id) = match scope {
+            HoldScope::Ticket(id) => ("ticket_id", id),
+            HoldScope::Project(id) => ("project_id", id),
+        };
+        let sql = format!("DELETE FROM agent_holds WHERE {column} = ? AND role = ?");
+        let done = sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(id)
+            .bind(role.as_str())
+            .execute(self.pool())
+            .await?;
+        Ok(done.rows_affected() > 0)
+    }
+
+    /// The holds of a ticket or an epic, by role.
+    pub async fn ticket_holds(&self, ticket_id: &str) -> Result<Vec<AgentHold>, StoreError> {
+        self.holds_where("ticket_id = ?", ticket_id).await
+    }
+
+    /// The holds of a project's Project agent (its first message).
+    pub async fn project_holds(&self, project_id: &str) -> Result<Vec<AgentHold>, StoreError> {
+        self.holds_where("project_id = ?", project_id).await
+    }
+
+    /// Every hold on a tool, oldest first (the banner's line, Resume and Move waiting to… per tool).
+    pub async fn holds_on_tool(&self, tool: Tool) -> Result<Vec<AgentHold>, StoreError> {
+        self.holds_where("tool = ?", tool.as_str()).await
+    }
+
+    /// Every hold for a reason, oldest first.
+    pub async fn holds_for(&self, reason: HoldReason) -> Result<Vec<AgentHold>, StoreError> {
+        self.holds_where("reason = ?", reason.as_str()).await
+    }
+
+    async fn holds_where(&self, filter: &str, value: &str) -> Result<Vec<AgentHold>, StoreError> {
+        let sql = format!("SELECT * FROM agent_holds WHERE {filter} ORDER BY since, id");
+        let rows: Vec<AgentHoldRecord> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .bind(value)
+            .fetch_all(self.pool())
+            .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(AgentHoldRecord::into_hold)
+            .collect())
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct AgentHoldRecord {
+    id: String,
+    ticket_id: Option<String>,
+    project_id: Option<String>,
+    role: String,
+    reason: String,
+    tool: String,
+    model: Option<String>,
+    named_agent_id: Option<String>,
+    fallback_agent_id: Option<String>,
+    fallback_held: bool,
+    since: i64,
+}
+
+impl AgentHoldRecord {
+    /// `None` for a row of a tool this build doesn't know.
+    fn into_hold(self) -> Option<AgentHold> {
+        Some(AgentHold {
+            role: self.role.parse().ok()?,
+            reason: self.reason.parse().ok()?,
+            tool: self.tool.parse().ok()?,
+            id: self.id,
+            ticket_id: self.ticket_id,
+            project_id: self.project_id,
+            model: self.model,
+            named_agent_id: self.named_agent_id,
+            fallback_agent_id: self.fallback_agent_id,
+            fallback_held: self.fallback_held,
+            since: self.since,
+        })
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct RowMoveRecord {
+    moved_from_agent_id: Option<String>,
+    moved_from_name: Option<String>,
+    moved_reason: Option<String>,
+    moved_tool: Option<String>,
+    moved_at: Option<i64>,
+}
+
+impl RowMoveRecord {
+    fn into_move(self) -> Option<RowMove> {
+        Some(RowMove {
+            from_id: self.moved_from_agent_id,
+            from_name: self.moved_from_name.unwrap_or_default(),
+            reason: self.moved_reason?.parse().ok()?,
+            tool: self.moved_tool.and_then(|t| t.parse().ok()),
+            at: self.moved_at?,
+        })
     }
 }
 

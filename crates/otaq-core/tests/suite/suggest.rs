@@ -222,6 +222,7 @@ async fn the_question_runs_on_the_project_agents_named_agent() {
         tool: Tool::ALL[0],
         model: model.map(str::to_owned),
         use_for: String::new(),
+        fallback: None,
     };
     agents.add(&field("Claude Code", None)).await.unwrap();
     let strong = agents.add(&field("Strong", Some("opus"))).await.unwrap();

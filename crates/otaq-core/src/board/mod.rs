@@ -206,6 +206,9 @@ stored_enum! {
         RowLocked = "row_locked",
         /// The ticket has no such agent row: a ticket has Developer and Validator, an epic Epic lead (AGT-04).
         NoSuchRow = "no_such_row",
+        /// A named agent's fallback is itself or on the same tool: "A fallback must be on another tool" (AGT-08,
+        /// d0086).
+        BadFallback = "bad_fallback",
     }
 }
 

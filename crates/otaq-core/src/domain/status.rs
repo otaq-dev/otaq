@@ -236,6 +236,14 @@ stored_enum! {
         /// Not a step: the tool refused the Developer's model on its first turn (AGT-05, d0088). The ticket counts
         /// as not started (Start failed) until Retry start or a new Developer row.
         Model = "model",
+        /// Not a step: the Developer's tool is at its limit; only that tool's agents hold (SCH-04 `[M23]`, d0086).
+        /// Set with the ticket's `agent_holds` row (T-0357), which says which tool.
+        ToolLimit = "tool_limit",
+        /// Not a step: the Developer's tool isn't available (not installed, logged out, hidden, update needed;
+        /// d0086).
+        ToolUnavailable = "tool_unavailable",
+        /// Not a step: the Developer's model is no longer in its tool's list; nothing started (§7.2, d0088).
+        ModelUnavailable = "model_unavailable",
     }
 }
 
@@ -253,6 +261,9 @@ impl StartStep {
             Self::Launch => "starting the agent failed",
             Self::PlanLimit => "usage limit reached",
             Self::Model => "couldn't run the model",
+            Self::ToolLimit => "the tool is at its limit",
+            Self::ToolUnavailable => "the tool isn't available",
+            Self::ModelUnavailable => "Model unavailable",
         }
     }
 }

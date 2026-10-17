@@ -394,6 +394,17 @@ async fn action_for(
         | R::AgentsSetDefault(_)
         | R::ProjectSetAgentDefault(_) => Action::UserOnly("change named agents"),
         R::TicketAgentRow(_) => Action::UserOnly("set agent rows"),
+        // Agent tools, limits per tool and fallbacks are the user's (d0086).
+        R::AgentToolsList
+        | R::AgentToolsRecheck(_)
+        | R::AgentToolsSetHidden(_)
+        | R::AgentToolsSignIn(_)
+        | R::AgentToolsDisconnect(_) => Action::UserOnly("manage agent tools"),
+        R::LimitsResumeTool(_) | R::LimitsMoveWaiting(_) => {
+            Action::UserOnly("resume or move waiting work")
+        }
+        R::TicketUseFallback(_) => Action::UserOnly("use fallback agents"),
+        R::SettingsAutoFallback(_) => Action::UserOnly("change settings"),
         R::ReviewCommentAdd(_)
         | R::ReviewCommentReply(_)
         | R::ReviewCommentEdit(_)

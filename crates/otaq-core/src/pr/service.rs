@@ -77,7 +77,7 @@ const INITIAL_SIZE: TerminalSize = TerminalSize {
 /// What a PR step types into the ticket's session, or starts or resumes it with.
 enum PrStep<'a> {
     /// The Open PR or Push skill as Settings stores it, named for the session's tool and folder (ADP-05).
-    Skill(&'a str),
+    Skill(WorkflowStep, &'a str),
     /// Otaq's own words: the confirmed push ([`confirmed_instruction`]).
     Words(&'a str),
 }
@@ -85,7 +85,10 @@ enum PrStep<'a> {
 impl PrStep<'_> {
     fn first_prompt(&self) -> FirstPrompt {
         match self {
-            Self::Skill(stored) => FirstPrompt::WorkflowSkill((*stored).to_owned()),
+            Self::Skill(step, stored) => FirstPrompt::WorkflowSkill {
+                step: *step,
+                stored: (*stored).to_owned(),
+            },
             Self::Words(text) => FirstPrompt::Text((*text).to_owned()),
         }
     }
@@ -210,10 +213,15 @@ impl Prs {
         }
         board.start_pr_flow(&ticket, kind).await?;
         let started = match (ticket.is_epic(), &live) {
-            (true, None) => self.start_delivery(&ticket, &skill).await.map(|_| ()),
+            (true, None) => self.start_delivery(&ticket, step, &skill).await.map(|_| ()),
             _ => {
-                self.run_in_session(&ticket, live.as_ref(), PrStep::Skill(&skill), clear_first)
-                    .await
+                self.run_in_session(
+                    &ticket,
+                    live.as_ref(),
+                    PrStep::Skill(step, &skill),
+                    clear_first,
+                )
+                .await
             }
         };
         if let Err(e) = started {
@@ -311,16 +319,23 @@ impl Prs {
             true => confirmed_instruction(flow.kind),
             false => board.pr_flow_view(key).await?.skill,
         };
+        let skill_step = match flow.kind {
+            FlowKind::Open => WorkflowStep::OpenPr,
+            FlowKind::Push => WorkflowStep::Push,
+        };
         let step = match pushing {
             true => PrStep::Words(&text),
-            false => PrStep::Skill(&text),
+            false => PrStep::Skill(skill_step, &text),
         };
         sqlx::query("UPDATE pr_flows SET reported = NULL WHERE ticket_id = ?")
             .bind(&ticket.id)
             .execute(board.store().pool())
             .await?;
         match (ticket.is_epic(), &live) {
-            (true, None) if !pushing => self.start_delivery(&ticket, &text).await.map(|_| ())?,
+            (true, None) if !pushing => self
+                .start_delivery(&ticket, skill_step, &text)
+                .await
+                .map(|_| ())?,
             _ => {
                 self.run_in_session(&ticket, live.as_ref(), step, clear_first)
                     .await?
@@ -442,7 +457,12 @@ impl Prs {
     /// Starts the epic's short-lived delivery session: a new conversation in the delivery worktree with the skill
     /// (as stored, named by the adapter) as its first prompt, `OTAQ_TICKET` the epic (EPC-08). The one agent
     /// session an epic runs, on the project's Developer default (Q-D: an epic has no Developer row).
-    async fn start_delivery(&self, epic: &Ticket, skill: &str) -> Result<SessionInfo, BoardError> {
+    async fn start_delivery(
+        &self,
+        epic: &Ticket,
+        step: WorkflowStep,
+        skill: &str,
+    ) -> Result<SessionInfo, BoardError> {
         let board = &self.inner.board;
         let project = board.project(epic.key.project.as_str()).await?;
         let runs_on = RunsOn::resolved(
@@ -461,7 +481,10 @@ impl Prs {
                 ticket: Some(epic.key.clone()),
                 epic: None,
                 port: 0,
-                first_prompt: Some(FirstPrompt::WorkflowSkill(skill.to_owned())),
+                first_prompt: Some(FirstPrompt::WorkflowSkill {
+                    step,
+                    stored: skill.to_owned(),
+                }),
                 resume: None,
                 model: runs_on.model,
             },
@@ -593,11 +616,11 @@ impl Prs {
         match live {
             Some(session) => {
                 let text = match step {
-                    PrStep::Skill(stored) => self
+                    PrStep::Skill(skill_step, stored) => self
                         .inner
                         .adapters
                         .of_session(session.tool)
-                        .workflow_skill(stored, &worktree_of(ticket)?)
+                        .workflow_skill(skill_step, stored, &worktree_of(ticket)?)
                         .prompt(),
                     PrStep::Words(text) => text.to_owned(),
                 };

@@ -91,6 +91,7 @@ async fn add_agents(agents: &NamedAgents) {
                 tool: Tool::ALL[0],
                 model: None,
                 use_for: String::new(),
+                fallback: None,
             })
             .await
             .unwrap();

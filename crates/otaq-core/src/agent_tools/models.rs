@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
 use super::catalog::{Catalog, Catalogs, Family, FamilySource};
+use super::follow::FollowChoice;
 use super::{Adapters, Tool};
 use crate::store::{Store, now_ms};
 
@@ -126,13 +127,9 @@ pub struct ModelCopy {
     pub read_at: i64,
 }
 
-/// The stored form of a follow choice on a family (d0086): `newest:gpt-sol`.
-// TODO(T-0347): `follow::FollowChoice` replaces this prefix and its parse once both have landed.
-const NEWEST: &str = "newest:";
-
-/// The family `id` follows when it is stored `newest:<family>`.
-fn newest_family(id: &str) -> Option<&str> {
-    id.strip_prefix(NEWEST).filter(|family| !family.is_empty())
+/// Whether `id` follows a family (`newest:gpt-sol`, [`FollowChoice::Newest`]).
+fn follows_family(id: &str) -> bool {
+    matches!(FollowChoice::parse(id), Some(FollowChoice::Newest { .. }))
 }
 
 impl ModelCopy {
@@ -141,7 +138,7 @@ impl ModelCopy {
     /// holds as Model unavailable). Any other id resolves to itself: Claude Code's aliases and Copilot's
     /// `auto@…` are passed as they are.
     pub fn resolve_follow(&self, id: &str) -> Option<String> {
-        if newest_family(id).is_none() {
+        if !follows_family(id) {
             return Some(id.to_owned());
         }
         self.list.entry(id)?.resolves_to.clone()
@@ -203,7 +200,10 @@ pub fn follow_entries(
     newest
         .into_iter()
         .map(|(family, _, id)| ModelEntry {
-            id: format!("{NEWEST}{family}"),
+            id: FollowChoice::Newest {
+                family: family.clone(),
+            }
+            .stored(),
             display_name: Family::new(family.as_str()).display_name(),
             description: None,
             resolves_to: Some(id.to_owned()),
@@ -282,7 +282,7 @@ impl ModelLists {
     /// The exact model `tool`'s follow choice `id` runs on now ([`ModelCopy::resolve_follow`]); an id that
     /// isn't a family resolves to itself even before the list was read.
     pub fn resolve_follow(&self, tool: Tool, id: &str) -> Option<String> {
-        if newest_family(id).is_none() {
+        if !follows_family(id) {
             return Some(id.to_owned());
         }
         self.copy(tool)?.resolve_follow(id)

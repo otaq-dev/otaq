@@ -1,7 +1,7 @@
-//! Decision 0088 (ADP-01): Claude Code is known only by its adapter, `otaq-core/src/agent_tools/claude/`. This test
-//! reads the source of the core, the CLI and the view models and fails with the file and line wherever one of
-//! [`PATTERNS`] appears outside the adapter and outside the named [`EXCEPTIONS`]. M23 adds each new tool's patterns and
-//! adapter folder here.
+//! Decision 0088 (ADP-01): each agent tool is known only by its adapter, `otaq-core/src/agent_tools/<tool>/`. This
+//! test reads the source of the core, the CLI and the view models and fails with the file and line wherever one of
+//! [`PATTERNS`] appears outside the adapters' folders ([`ADAPTERS`]) and outside the named [`EXCEPTIONS`]. Claude
+//! Code's patterns came with M20, Codex's, Copilot's and OpenCode's with M23.
 //!
 //! What is read: code only. Comment lines (`//`, `///`, `//!`) are skipped, because the interface's docs name each
 //! tool's flags and files on purpose (`agent_tools/mod.rs`) and a caller's comment may say what a tool does; the
@@ -43,10 +43,70 @@ const PATTERNS: &[(&str, &str)] = &[
         "naming::skill(",
         "a skill in Claude Code's syntax (`/otaq:commit`); ask `skill_reference`",
     ),
+    // Codex (ADP-07).
+    ("\"codex\"", "`codex` as a program or stored name"),
+    ("\"codex ", "a Codex command line"),
+    (
+        "\".codex",
+        "Codex's home folder (`~/.codex`) or a project's `.codex`",
+    ),
+    (
+        "CODEX_",
+        "Codex's environment variables (`CODEX_HOME`, `CODEX_THREAD_ID`)",
+    ),
+    ("config.toml", "Codex's config file"),
+    (
+        "Tool::Codex",
+        "branching on the tool instead of asking its adapter",
+    ),
+    (
+        "agent_tools::codex",
+        "the Codex adapter's own module, reached past the interface",
+    ),
+    // GitHub Copilot (ADP-08).
+    ("\"copilot\"", "`copilot` as a program or stored name"),
+    ("\"copilot ", "a Copilot command line"),
+    ("\".copilot", "Copilot's home folder (`~/.copilot`)"),
+    (
+        "COPILOT_",
+        "Copilot's environment variables (`COPILOT_HOME`)",
+    ),
+    ("events.jsonl", "Copilot's session events file"),
+    ("--allow-tool", "Copilot's launch flag"),
+    (
+        "Tool::Copilot",
+        "branching on the tool instead of asking its adapter",
+    ),
+    (
+        "agent_tools::copilot",
+        "the Copilot adapter's own module, reached past the interface",
+    ),
+    // OpenCode (ADP-09).
+    ("\"opencode\"", "`opencode` as a program or stored name"),
+    ("\"opencode ", "an OpenCode command line"),
+    (
+        "OPENCODE_",
+        "OpenCode's environment variables (`OPENCODE_CONFIG_CONTENT`)",
+    ),
+    ("--standalone", "OpenCode's launch flag"),
+    (
+        "Tool::OpenCode",
+        "branching on the tool instead of asking its adapter",
+    ),
+    (
+        "agent_tools::opencode",
+        "the OpenCode adapter's own module, reached past the interface",
+    ),
 ];
 
-/// The Claude Code adapter: everything under this folder may name Claude Code.
-const ADAPTER: &str = "otaq-core/src/agent_tools/claude/";
+/// The adapters: everything under these folders may name its tool (and an adapter may share a flag's spelling with
+/// another tool's, such as Copilot's `--session-id`).
+const ADAPTERS: &[&str] = &[
+    "otaq-core/src/agent_tools/claude/",
+    "otaq-core/src/agent_tools/codex/",
+    "otaq-core/src/agent_tools/copilot/",
+    "otaq-core/src/agent_tools/opencode/",
+];
 
 /// A file (or folder, ending in `/`) under `crates/` that may use one pattern, and why.
 struct Exception {
@@ -64,6 +124,36 @@ const EXCEPTIONS: &[Exception] = &[
     Exception {
         path: "otaq-core/src/agent_tools/mod.rs",
         pattern: "Tool::Claude",
+        reason: "the registry: one arm per tool, picking its adapter",
+    },
+    Exception {
+        path: "otaq-core/src/agent_tools/mod.rs",
+        pattern: "\"codex\"",
+        reason: "the `Tool` enum's stored name for Codex",
+    },
+    Exception {
+        path: "otaq-core/src/agent_tools/mod.rs",
+        pattern: "\"copilot\"",
+        reason: "the `Tool` enum's stored name for Copilot",
+    },
+    Exception {
+        path: "otaq-core/src/agent_tools/mod.rs",
+        pattern: "\"opencode\"",
+        reason: "the `Tool` enum's stored name for OpenCode",
+    },
+    Exception {
+        path: "otaq-core/src/agent_tools/mod.rs",
+        pattern: "Tool::Codex",
+        reason: "the registry: one arm per tool, picking its adapter",
+    },
+    Exception {
+        path: "otaq-core/src/agent_tools/mod.rs",
+        pattern: "Tool::Copilot",
+        reason: "the registry: one arm per tool, picking its adapter",
+    },
+    Exception {
+        path: "otaq-core/src/agent_tools/mod.rs",
+        pattern: "Tool::OpenCode",
         reason: "the registry: one arm per tool, picking its adapter",
     },
     Exception {
@@ -112,6 +202,21 @@ const EXCEPTIONS: &[Exception] = &[
         pattern: "Tool::Claude",
         reason: "the tool avatar (d0087): the stored tool to its letters and colour token, one arm per tool",
     },
+    Exception {
+        path: "otaq-view/src/view_models/tool_avatar.rs",
+        pattern: "Tool::Codex",
+        reason: "the tool avatar (d0087): the stored tool to its letters and colour token, one arm per tool",
+    },
+    Exception {
+        path: "otaq-view/src/view_models/tool_avatar.rs",
+        pattern: "Tool::Copilot",
+        reason: "the tool avatar (d0087): the stored tool to its letters and colour token, one arm per tool",
+    },
+    Exception {
+        path: "otaq-view/src/view_models/tool_avatar.rs",
+        pattern: "Tool::OpenCode",
+        reason: "the tool avatar (d0087): the stored tool to its letters and colour token, one arm per tool",
+    },
     // Sample data outside `#[cfg(test)]`: Claude Code is the tool the samples ran on.
     Exception {
         path: "otaq-core/src/service/testing.rs",
@@ -122,6 +227,16 @@ const EXCEPTIONS: &[Exception] = &[
         path: "otaq-view/src/view_models/activity.rs",
         pattern: "Tool::Claude",
         reason: "`fixtures`, Activity's states for tests and the design gallery",
+    },
+    Exception {
+        path: "otaq-view/src/view_models/activity.rs",
+        pattern: "Tool::Codex",
+        reason: "`fixtures`, Activity's states for tests and the design gallery (`AvatarTool::Codex`)",
+    },
+    Exception {
+        path: "otaq-view/src/view_models/activity.rs",
+        pattern: "Tool::OpenCode",
+        reason: "`fixtures`, Activity's states for tests and the design gallery (`AvatarTool::OpenCode`)",
     },
     Exception {
         path: "otaq-view/src/view_models/lead_tab.rs",
@@ -220,7 +335,7 @@ fn scan() -> (Vec<String>, Vec<usize>) {
             .expect("under crates/")
             .to_string_lossy()
             .replace('\\', "/");
-        if rel.starts_with(ADAPTER) {
+        if ADAPTERS.iter().any(|adapter| rel.starts_with(adapter)) {
             continue;
         }
         let src = fs::read_to_string(file).expect("readable source");
@@ -243,11 +358,11 @@ fn scan() -> (Vec<String>, Vec<usize>) {
 }
 
 #[test]
-fn claude_code_is_known_only_by_its_adapter() {
+fn each_tool_is_known_only_by_its_adapter() {
     let (offenders, _) = scan();
     assert!(
         offenders.is_empty(),
-        "Claude Code knowledge outside its adapter ({ADAPTER}): ask the session's adapter \
+        "a tool's specifics outside its adapter ({ADAPTERS:?}): ask the session's adapter \
          (`agent_tools::AgentTool`) instead, or add a named exception with its reason (d0088):\n{}",
         offenders.join("\n")
     );

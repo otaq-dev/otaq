@@ -831,7 +831,10 @@ impl Validation {
                 ticket: Some(ticket.key.clone()),
                 epic: None,
                 port: 0,
-                first_prompt: Some(FirstPrompt::WorkflowSkill(skill.clone())),
+                first_prompt: Some(FirstPrompt::WorkflowSkill {
+                    step: crate::board::settings::WorkflowStep::Validate,
+                    stored: skill.clone(),
+                }),
                 resume: None,
                 model: runs_on.model,
             },

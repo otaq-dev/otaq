@@ -14,12 +14,13 @@ use otaq_core::domain::Status;
 use otaq_core::git::testing::TempRepos;
 use otaq_core::named_agents::starter::{self, ConnectedTool, STARTER_USE_FOR};
 use otaq_core::named_agents::{
-    AgentFields, AgentModel, CameFrom, DeleteOutcome, FixedModels, NamedAgent, NamedAgents, Role,
-    RoleDefaults, RowSetBy,
+    AgentFields, AgentHold, AgentModel, CameFrom, DeleteOutcome, FixedModels, HoldReason,
+    MoveReason, NamedAgent, NamedAgents, Role, RoleDefaults, RowMove, RowSetBy,
 };
 use otaq_core::protocol::{ErrorKind, Event, Reply, Request};
 use otaq_core::service::testing::TestService;
 use otaq_core::store::Store;
+use otaq_core::store::named_agents::HoldScope;
 use serde_json::{Value, json};
 
 use crate::common::Fixture;
@@ -56,6 +57,7 @@ fn fields(name: &str, model: Option<&str>) -> AgentFields {
         tool: Tool::ALL[0],
         model: model.map(str::to_owned),
         use_for: String::new(),
+        fallback: None,
     }
 }
 
@@ -408,6 +410,7 @@ async fn duplicate_is_a_draft_named_copy() {
             tool: strong.tool,
             model: Some("opus".into()),
             use_for: "Complex features, tricky bugs".into(),
+            fallback: None,
         }
     );
     assert_eq!(agents.list().await.unwrap().agents.len(), 2, "not saved");
@@ -996,5 +999,298 @@ async fn a_deleted_ticket_takes_its_rows_with_it() {
     assert_eq!(
         agents.delete(&light.id).await.unwrap(),
         DeleteOutcome::Deleted
+    );
+}
+
+/// An entry on another tool, as the Add dialog sends it (M23: the tool other than the first).
+fn on_tool(name: &str, tool: Tool, fallback: Option<&str>) -> AgentFields {
+    AgentFields {
+        name: name.into(),
+        tool,
+        model: None,
+        use_for: String::new(),
+        fallback: fallback.map(str::to_owned),
+    }
+}
+
+/// AGT-08, d0086: a fallback is another named agent on another tool. Refused on the same tool, for itself and when
+/// it doesn't exist; a fallback with its own fallback is allowed (one step is a rule at use time).
+#[tokio::test]
+async fn a_fallback_is_another_agent_on_another_tool() {
+    let (_f, agents) = world().await;
+    let claude = Tool::ALL[0];
+    let sonnet = add(&agents, "Sonnet", Some("sonnet")).await;
+    let strong_gpt = agents
+        .add(&on_tool("Strong GPT", Tool::Codex, None))
+        .await
+        .unwrap();
+
+    // Same tool.
+    let (code, message) = refusal(
+        agents
+            .add(&on_tool("Strong", claude, Some(&sonnet.id)))
+            .await,
+    );
+    assert_eq!(code, Refusal::BadFallback);
+    assert_eq!(message, "A fallback must be on another tool");
+    // Another tool.
+    let strong = agents
+        .add(&on_tool("Strong", claude, Some(&strong_gpt.id)))
+        .await
+        .unwrap();
+    assert_eq!(strong.fallback.as_deref(), Some(strong_gpt.id.as_str()));
+    // Itself.
+    let (code, message) = refusal(
+        agents
+            .edit(&strong.id, &on_tool("Strong", claude, Some(&strong.id)))
+            .await,
+    );
+    assert_eq!(code, Refusal::BadFallback);
+    assert_eq!(message, "An agent can't be its own fallback");
+    // Not found.
+    let missing = agents
+        .add(&on_tool("Ghost", claude, Some("no-such-agent")))
+        .await;
+    assert!(missing.is_err());
+    // A fallback whose own fallback is set: allowed here.
+    let standard = agents
+        .edit(
+            &strong_gpt.id,
+            &on_tool("Strong GPT", Tool::Codex, Some(&sonnet.id)),
+        )
+        .await
+        .unwrap();
+    assert_eq!(standard.fallback.as_deref(), Some(sonnet.id.as_str()));
+    // Moving the fallback onto its user's tool is refused too.
+    let (code, _) = refusal(
+        agents
+            .edit(&strong_gpt.id, &on_tool("Strong GPT", claude, None))
+            .await,
+    );
+    assert_eq!(code, Refusal::BadFallback);
+    // Duplicate keeps it; clearing it is an edit without one.
+    assert_eq!(
+        agents.duplicate(&strong.id).await.unwrap().fallback,
+        Some(strong_gpt.id.clone())
+    );
+    let cleared = agents
+        .edit(&strong.id, &on_tool("Strong", claude, None))
+        .await
+        .unwrap();
+    assert_eq!(cleared.fallback, None);
+}
+
+fn hold(ticket: Option<&str>, project: Option<&str>, role: Role, reason: HoldReason) -> AgentHold {
+    AgentHold {
+        id: uuid::Uuid::now_v7().to_string(),
+        ticket_id: ticket.map(str::to_owned),
+        project_id: project.map(str::to_owned),
+        role,
+        reason,
+        tool: Tool::ALL[0],
+        model: Some("opus".into()),
+        named_agent_id: None,
+        fallback_agent_id: None,
+        fallback_held: false,
+        since: 100,
+    }
+}
+
+/// SCH-04 `[M23]`: one hold per ticket (or project) and role; setting it again replaces it and keeps when it
+/// started while the reason stays; queries by ticket, tool and reason; clearing lifts it.
+#[tokio::test]
+async fn holds_are_one_per_scope_and_role() {
+    let (f, agents) = world().await;
+    let store = f.board.store();
+    let gpt = agents
+        .add(&on_tool("Strong GPT", Tool::Codex, None))
+        .await
+        .unwrap();
+    let shop31 = f.create("Checkout flow").await;
+    let shop24 = f.create("Update footer links").await;
+    let project = f.board.project("SHOP").await.unwrap();
+
+    let mut developer = hold(
+        Some(&shop31.id),
+        None,
+        Role::Developer,
+        HoldReason::ToolLimit,
+    );
+    store.set_agent_hold(&developer).await.unwrap();
+    store
+        .set_agent_hold(&hold(
+            Some(&shop31.id),
+            None,
+            Role::Validator,
+            HoldReason::ToolLimit,
+        ))
+        .await
+        .unwrap();
+    store
+        .set_agent_hold(&hold(
+            Some(&shop24.id),
+            None,
+            Role::Developer,
+            HoldReason::ModelUnavailable,
+        ))
+        .await
+        .unwrap();
+    store
+        .set_agent_hold(&hold(
+            None,
+            Some(&project.id),
+            Role::ProjectAgent,
+            HoldReason::ToolUnavailable,
+        ))
+        .await
+        .unwrap();
+
+    // The same role again: replaced, the start kept while the reason stays.
+    developer.id = "another".into();
+    developer.since = 900;
+    developer.fallback_agent_id = Some(gpt.id.clone());
+    developer.fallback_held = true;
+    store.set_agent_hold(&developer).await.unwrap();
+    let held = store.ticket_holds(&shop31.id).await.unwrap();
+    assert_eq!(held.len(), 2);
+    let dev = held.iter().find(|h| h.role == Role::Developer).unwrap();
+    assert_eq!(
+        (
+            dev.since,
+            dev.fallback_agent_id.as_deref(),
+            dev.fallback_held
+        ),
+        (100, Some(gpt.id.as_str()), true)
+    );
+    developer.reason = HoldReason::ToolUnavailable;
+    store.set_agent_hold(&developer).await.unwrap();
+    let held = store.ticket_holds(&shop31.id).await.unwrap();
+    let dev = held.iter().find(|h| h.role == Role::Developer).unwrap();
+    assert_eq!((dev.reason, dev.since), (HoldReason::ToolUnavailable, 900));
+
+    // A second row for the same scope and role can't be written by hand either.
+    let twice = sqlx::query(
+        "INSERT INTO agent_holds (id, ticket_id, role, reason, tool, since)
+         VALUES ('x', ?, 'validator', 'tool_limit', 'claude', 1)",
+    )
+    .bind(&shop31.id)
+    .execute(store.pool())
+    .await;
+    assert!(twice.is_err(), "one hold per ticket and role");
+    let both = sqlx::query(
+        "INSERT INTO agent_holds (id, ticket_id, project_id, role, reason, tool, since)
+         VALUES ('y', ?, ?, 'lead', 'tool_limit', 'claude', 1)",
+    )
+    .bind(&shop24.id)
+    .bind(&project.id)
+    .execute(store.pool())
+    .await;
+    assert!(both.is_err(), "a ticket's or a project's, not both");
+
+    assert_eq!(store.holds_on_tool(Tool::ALL[0]).await.unwrap().len(), 4);
+    assert!(store.holds_on_tool(Tool::Codex).await.unwrap().is_empty());
+    let unavailable = store.holds_for(HoldReason::ModelUnavailable).await.unwrap();
+    assert_eq!(unavailable.len(), 1);
+    assert_eq!(
+        unavailable[0].ticket_id.as_deref(),
+        Some(shop24.id.as_str())
+    );
+    assert_eq!(store.project_holds(&project.id).await.unwrap().len(), 1);
+
+    assert!(
+        store
+            .clear_agent_hold(HoldScope::Ticket(&shop31.id), Role::Validator)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !store
+            .clear_agent_hold(HoldScope::Ticket(&shop31.id), Role::Validator)
+            .await
+            .unwrap()
+    );
+    assert!(
+        store
+            .clear_agent_hold(HoldScope::Project(&project.id), Role::ProjectAgent)
+            .await
+            .unwrap()
+    );
+    // A deleted ticket takes its holds with it.
+    sqlx::query("DELETE FROM tickets WHERE id = ?")
+        .bind(&shop24.id)
+        .execute(store.pool())
+        .await
+        .unwrap();
+    assert!(
+        store
+            .holds_for(HoldReason::ModelUnavailable)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+/// AGT-08: a Developer row moved by a fallback reads back with where it came from and why; the user's next change
+/// clears it.
+#[tokio::test]
+async fn a_rows_move_is_read_back_and_cleared_by_the_next_change() {
+    let (f, agents) = world().await;
+    let store = f.board.store();
+    let strong = add(&agents, "Strong", Some("opus")).await;
+    let gpt = agents
+        .add(&on_tool("Strong GPT", Tool::Codex, None))
+        .await
+        .unwrap();
+    let ticket = f.create("Checkout flow").await;
+    let key = ticket.key.to_string();
+    agents
+        .set_row_by_user(&key, Role::Developer, Some(&strong.id))
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .ticket_row_move(&ticket.id, Role::Developer)
+            .await
+            .unwrap(),
+        None
+    );
+
+    let moved = RowMove {
+        from_id: Some(strong.id.clone()),
+        from_name: "Strong".into(),
+        reason: MoveReason::ToolLimit,
+        tool: Some(Tool::ALL[0]),
+        at: 1_760_000_000_000,
+    };
+    store
+        .move_ticket_agent_row(
+            &ticket.id,
+            Role::Developer,
+            &gpt.id,
+            &RowSetBy::User,
+            &moved,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .ticket_row_move(&ticket.id, Role::Developer)
+            .await
+            .unwrap(),
+        Some(moved)
+    );
+    let rows = store.ticket_agent_rows(&ticket.id).await.unwrap();
+    assert_eq!(rows[0].agent.as_deref(), Some(gpt.id.as_str()));
+
+    agents
+        .set_row_by_user(&key, Role::Developer, Some(&strong.id))
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .ticket_row_move(&ticket.id, Role::Developer)
+            .await
+            .unwrap(),
+        None
     );
 }

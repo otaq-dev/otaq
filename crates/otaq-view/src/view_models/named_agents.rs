@@ -743,6 +743,7 @@ pub mod fixtures {
             tool: Tool::ALL[0],
             model: model.map(str::to_owned),
             use_for: use_for.to_owned(),
+            fallback: None,
             mark: None,
             created_at: 1,
             updated_at: 1,

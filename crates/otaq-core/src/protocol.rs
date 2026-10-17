@@ -783,6 +783,78 @@ pub enum Request {
     /// has the turn; T-0345). Answered with [`Reply::BoardAgents`].
     #[serde(rename = "board.agents")]
     BoardAgents(ProjectParams),
+
+    // More agent tools (M23; d0086, d0088). The user's requests; each answers "not built yet" until its ticket lands.
+    /// Every agent tool's state on Settings → Agent tools (T-0347; T-0348 adds the rest of each row). Answered
+    /// with [`Reply::AgentTools`].
+    #[serde(rename = "agent_tools.list")]
+    AgentToolsList,
+    /// `{"tool": "codex"}`, or `{}` for every tool: detect again (Re-check, the page opening; T-0348).
+    #[serde(rename = "agent_tools.recheck")]
+    AgentToolsRecheck(RecheckParams),
+    /// `{"tool": "copilot", "hidden": true}`: a found tool set Hidden so it doesn't count, or shown again.
+    /// Answered with [`Reply::AgentTools`].
+    #[serde(rename = "agent_tools.set_hidden")]
+    AgentToolsSetHidden(SetHiddenParams),
+    /// `{"tool": "codex"}`: **Sign in…**, the tool's own login in a terminal (T-0348).
+    #[serde(rename = "agent_tools.sign_in")]
+    AgentToolsSignIn(ToolParams),
+    /// `{"tool": "codex"}`: **Disconnect…**, removing Otaq's own entries from the tool's config (T-0348).
+    #[serde(rename = "agent_tools.disconnect")]
+    AgentToolsDisconnect(ToolParams),
+    /// `{"tool": "claude"}`: Resume for one tool's agents waiting on its limit (USG-10; T-0358).
+    #[serde(rename = "limits.resume_tool")]
+    LimitsResumeTool(ToolParams),
+    /// `{"tool": "claude", "agent": "0199…"}`: **Move waiting to…**: that tool's not-yet-started tickets' Developer
+    /// rows move to `agent` (AGT-08; T-0358).
+    #[serde(rename = "limits.move_waiting")]
+    LimitsMoveWaiting(MoveWaitingParams),
+    /// `{"key": "SHOP-31", "role": "developer"}`: **Use fallback** for a held role (AGT-08; T-0357).
+    #[serde(rename = "ticket.use_fallback")]
+    TicketUseFallback(UseFallbackParams),
+    /// `{"on": true}`: "Use fallback agents automatically", off by default (AGT-08; T-0357).
+    #[serde(rename = "settings.auto_fallback")]
+    SettingsAutoFallback(AutoFallbackParams),
+}
+
+/// A request about one agent tool.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolParams {
+    pub tool: Tool,
+}
+
+/// `agent_tools.recheck`: one tool, or every tool when `tool` is absent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecheckParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<Tool>,
+}
+
+/// `agent_tools.set_hidden`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetHiddenParams {
+    pub tool: Tool,
+    pub hidden: bool,
+}
+
+/// `limits.move_waiting`: the tool whose waiting tickets move, and the named agent they move to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MoveWaitingParams {
+    pub tool: Tool,
+    pub agent: String,
+}
+
+/// `ticket.use_fallback`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UseFallbackParams {
+    pub key: String,
+    pub role: crate::named_agents::Role,
+}
+
+/// `settings.auto_fallback`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AutoFallbackParams {
+    pub on: bool,
 }
 
 /// `agents.edit`: the entry's id and its whole form.
@@ -1602,6 +1674,15 @@ impl Request {
             Self::TicketAgentRow(_) => "ticket.agent_row",
             Self::TicketAgents(_) => "ticket.agents",
             Self::BoardAgents(_) => "board.agents",
+            Self::AgentToolsList => "agent_tools.list",
+            Self::AgentToolsRecheck(_) => "agent_tools.recheck",
+            Self::AgentToolsSetHidden(_) => "agent_tools.set_hidden",
+            Self::AgentToolsSignIn(_) => "agent_tools.sign_in",
+            Self::AgentToolsDisconnect(_) => "agent_tools.disconnect",
+            Self::LimitsResumeTool(_) => "limits.resume_tool",
+            Self::LimitsMoveWaiting(_) => "limits.move_waiting",
+            Self::TicketUseFallback(_) => "ticket.use_fallback",
+            Self::SettingsAutoFallback(_) => "settings.auto_fallback",
         }
     }
 }
@@ -1713,6 +1794,8 @@ pub enum Reply {
     BoardAgents(Box<crate::named_agents::rows::BoardAgents>),
     AgentDefaults(Box<crate::named_agents::RoleDefaults>),
     AgentInUse(Box<crate::named_agents::InUse>),
+    /// Every agent tool's row (`agent_tools.list`, `agent_tools.set_hidden`).
+    AgentTools(Box<crate::agent_tools::connected::AgentToolsList>),
 }
 
 /// The global settings with any values flagged as invalid.
