@@ -46,12 +46,16 @@ impl ResourceState {
     }
 }
 
-/// Another Review ticket that adds files under the same schema path (M19-e): which ticket and which path glob.
+/// Another Review ticket that adds files under the same schema path (M19-e): which ticket, which path glob, and
+/// the files the other ticket adds under it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaOverlap {
     pub other: TicketKey,
     /// The project's schema-path glob both tickets add files under.
     pub path: String,
+    /// The files `other` adds under `path`, sorted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
 }
 
 #[cfg(test)]
