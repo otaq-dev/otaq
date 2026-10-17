@@ -1,0 +1,9 @@
+{
+  "name": "otaq",
+  "version": "0.1.0",
+  "description": "Otaq agent behaviour for GitHub Copilot: the same skills as Otaq's Claude Code plugin (skills/ links to ../plugin/skills) and hooks that pass --tool copilot.",
+  "author": {
+    "name": "The Otaq Authors"
+  },
+  "license": "FSL-1.1-MIT"
+}

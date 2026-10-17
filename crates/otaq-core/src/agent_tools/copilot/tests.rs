@@ -154,18 +154,25 @@ fn versions_before_1_0_98_need_an_update() {
     assert_eq!(detect::parse_version("nothing here"), None);
 }
 
+/// The hooks file's events reach the adapter (T-0352); a name it doesn't know is unrecognised.
 #[test]
-fn hooks_are_unrecognised_until_mapped() {
+fn hooks_are_mapped() {
     let bin = tempfile::tempdir().unwrap();
     let adapter = copilot(bin.path(), None);
     assert_eq!(
         adapter.map_hook(
-            "Stop",
-            &json!({"session_id": "s"}),
+            "UserPromptSubmit",
+            &json!({"session_id": "s", "prompt": "hi"}),
             SignalContext::default()
         ),
+        [ToolEvent::NewTurn {
+            prompt: Some("hi".into())
+        }]
+    );
+    assert_eq!(
+        adapter.map_hook("subagentStop", &json!({}), SignalContext::default()),
         [ToolEvent::Unrecognised {
-            event: "Stop".into()
+            event: "subagentStop".into()
         }]
     );
 }
