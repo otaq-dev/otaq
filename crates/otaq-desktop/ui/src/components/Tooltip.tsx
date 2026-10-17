@@ -1,5 +1,5 @@
 // Tooltip (*01 · Components → Overlays & feedback*): always dark, in both themes; the action's shortcut after the
-// text, or a bold title with detail lines and a dimmer note (*02 → Header · running chip tooltip*, *plan meter
+// text, or a bold title with detail lines and a dimmer note (*02 → Header · running chip tooltip*, *Activity ·
 // hover*). A short tooltip may lead with a small coloured icon (*05 → c · Copied state*: a green check before
 // "Copied"). It shows after a short hover or on keyboard focus, and goes on leave, blur or Esc.
 import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from "react";

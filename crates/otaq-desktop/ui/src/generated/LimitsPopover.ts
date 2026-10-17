@@ -2,6 +2,6 @@
 import type { LimitStepper } from "./LimitStepper";
 
 /**
- * The header's inline popover (limits on): the same two values as Settings, saved on every step.
+ * The stepper at the top of Activity's popover (limits on): the same two values as Settings, saved on every step.
  */
 export type LimitsPopover = { title: string, max_agents: LimitStepper, back_pressure: LimitStepper, note: string, };

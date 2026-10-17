@@ -262,6 +262,9 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::tool_avatar::Gallery::export_all(&cfg)?;
     // The board's gallery section (T-0324): the Review column, the drop verdicts, the empty board.
     otaq_view::view_models::board_page::Gallery::export_all(&cfg)?;
+    // Activity's popover and gallery (T-0325); the header writes the button.
+    otaq_view::view_models::activity::Popover::export_all(&cfg)?;
+    otaq_view::view_models::activity::Gallery::export_all(&cfg)?;
     Ok(())
 }
 

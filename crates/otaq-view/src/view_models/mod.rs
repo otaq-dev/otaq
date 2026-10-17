@@ -4,6 +4,7 @@
 //! view draws and which interactions are allowed. Views stay thin: they read a view model and render it.
 
 pub mod about;
+pub mod activity;
 pub mod add_project;
 pub mod after_restart;
 pub mod agent_activity;
@@ -63,7 +64,6 @@ pub mod onboarding;
 pub mod onboarding_page;
 pub mod panel;
 pub mod panel_actions;
-pub mod plan_meter;
 pub mod pr_dialog;
 pub mod pr_page;
 pub mod priority;

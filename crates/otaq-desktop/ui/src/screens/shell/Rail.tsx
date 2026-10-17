@@ -1,13 +1,13 @@
-// The project rail (UI-01, ATT-10, PRJ-01; d0024, d0058; *02 → One project, Another project needs you, Ten projects ·
-// long names, 1920 × 1080 · sidebar expanded*): every project in the user's order with its agents working and items
-// needing you, quiet when idle; a project that newly needs you while another is shown rings for 10 s. Tiles below
-// 1600 px, a 232 px sidebar above. Add project and Cleanup at the ends. Rows, order and wording are `shell.rail`'s.
+// The project rail (UI-01, ATT-10, PRJ-01; d0024, d0058, d0087; *02 → One project, Another project needs you, Ten
+// projects · long names*): every project in the user's order with its agents working and items needing you, quiet
+// when idle; a project that newly needs you while another is shown rings for 10 s. The 64 px column of tiles at every
+// width. Add project and Cleanup at the ends. Rows, order and wording are `shell.rail`'s.
 import { useCallback, useEffect, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
 import { selectProject, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { Kbd, Tooltip } from "../../components";
+import { Tooltip } from "../../components";
 import type { CleanupBroom } from "../../generated/CleanupBroom";
 import type { RailItem } from "../../generated/RailItem";
 import type { RailView } from "../../generated/RailView";
@@ -16,7 +16,6 @@ import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { cleanupScans } from "../recovery/logic";
-import { railMode } from "./logic";
 
 /** The service events that change the rail's projects or counts. */
 export const RAIL_EVENTS = [
@@ -26,20 +25,6 @@ export const RAIL_EVENTS = [
   "session_state",
   "inbox_changed",
 ] as const;
-
-function useWindowWidth(): number {
-  const [width, setWidth] = useState(() => window.innerWidth);
-  useEffect(() => {
-    const onResize = () => {
-      setWidth(window.innerWidth);
-    };
-    window.addEventListener("resize", onResize);
-    return () => {
-      window.removeEventListener("resize", onResize);
-    };
-  }, []);
-  return width;
-}
 
 function Broom({ broom, withLabel }: { broom: CleanupBroom | undefined; withLabel: boolean }) {
   const count = broom?.count ?? 0;
@@ -119,52 +104,6 @@ export function RailTiles({ view, broom }: RailProps) {
   );
 }
 
-/** The 232 px sidebar of wide windows: names and counts. */
-export function RailSidebar({ view, broom }: RailProps) {
-  return (
-    <nav className="sidebar" aria-label="Projects">
-      <div className="sidebar-label">
-        <span>PROJECTS</span>
-        {view.switch_keys !== null && <Kbd keys={view.switch_keys} />}
-      </div>
-      {view.items.map((item) => (
-        <Tooltip key={item.key} text={item.title} detail={item.detail} note={item.note ?? undefined}>
-          <button
-            type="button"
-            className="sidebar-row"
-            data-selected={item.selected || undefined}
-            data-idle={item.idle || undefined}
-            data-ringing={item.ringing || undefined}
-            aria-current={item.selected || undefined}
-            onClick={() => {
-              choose(item);
-            }}
-          >
-            <span className="sidebar-tile">
-              <Icon name="folder-git-2" size={12} />
-            </span>
-            <span className="sidebar-name">{item.title}</span>
-            {item.agents_working > 0 && (
-              <span className="sidebar-working">
-                <Icon name="activity" size={11} />
-                {item.agents_working}
-              </span>
-            )}
-            {item.needs_you > 0 && <span className="sidebar-needs">{item.needs_you}</span>}
-            {item.idle && <span className="sidebar-idle">idle</span>}
-          </button>
-        </Tooltip>
-      ))}
-      <button type="button" className="sidebar-row sidebar-add" onClick={addProject}>
-        <Icon name="plus" size={14} />
-        <span>Add project</span>
-      </button>
-      <div className="rail-fill" />
-      <Broom broom={broom} withLabel />
-    </nav>
-  );
-}
-
 /** The rail slot: follows the service and keeps the page's selection on a project that exists. */
 export function ShellRail() {
   const { project } = useSelection();
@@ -183,7 +122,6 @@ export function ShellRail() {
     [scans],
   );
   const broom = useServiceView(loadBroom, []).view;
-  const width = useWindowWidth();
 
   // The first project when nothing is selected yet, or when the shown one was removed. Only an answer for the
   // selection now counts: one asked before a click would switch back.
@@ -205,9 +143,5 @@ export function ShellRail() {
   }, [ringEnds]);
 
   if (view === undefined) return null;
-  return railMode(width, view.rail.sidebar_from_width) === "sidebar" ? (
-    <RailSidebar view={view.rail} broom={broom} />
-  ) : (
-    <RailTiles view={view.rail} broom={broom} />
-  );
+  return <RailTiles view={view.rail} broom={broom} />;
 }

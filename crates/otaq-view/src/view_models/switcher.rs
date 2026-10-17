@@ -1,7 +1,9 @@
 //! The project switcher (UI-01; d0024, d0058; *02 · App shell & project switcher*): the rail keeps the user's
 //! order so tiles never jump; the quick switcher (⌘P) sorts projects that need you first, then working ones,
 //! then idle ones, and filters as you type. ⌘1–9 switch to the rail's first nine projects. A project that
-//! newly needs you while another is shown gets a turquoise ring for 10 s, then keeps its badge.
+//! newly needs you while another is shown gets a turquoise ring for 10 s, then keeps its badge. The rail is the
+//! 64 px column of tiles at every window width (d0087; Q-H); at its bottom Cleanup, Terminals and Settings
+//! (CHANGES-v §3).
 
 use std::time::{Duration, Instant};
 
@@ -16,15 +18,44 @@ use crate::shell::tilde;
 /// How long a project's tile rings after it newly needs you.
 pub const RING: Duration = Duration::from_secs(10);
 
-/// Below this window width the rail shows tiles; above it, a 232 px sidebar with names and counts.
-pub const SIDEBAR_FROM_WIDTH: f32 = 1600.;
+/// The rail's width at every window width: one column of tiles (d0087, as every V window draws it).
+pub const RAIL_WIDTH: u32 = 64;
+
+/// A button at the rail's bottom: its name (the tooltip and the label for screen readers) and its keys.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "RailButton")]
+pub struct RailButton {
+    pub label: &'static str,
+    /// "⇧⌘T" on this platform.
+    pub keys: Option<String>,
+}
+
+/// The rail's bottom after Cleanup (which keeps its own view, `shell.cleanup`): Terminals (⇧⌘T, the drawer on the
+/// last-used Project terminal; no dot: agents that wait show in the pane and the inbox) and Settings (⌘,).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "RailBottom")]
+pub struct RailBottom {
+    pub terminals: RailButton,
+    pub settings: RailButton,
+}
+
+pub fn bottom(platform: Platform) -> RailBottom {
+    let button = |label, action: KeyAction| RailButton {
+        label,
+        keys: action.keys(platform),
+    };
+    RailBottom {
+        terminals: button("Terminals", KeyAction::ProjectTerminal),
+        settings: button("Settings", KeyAction::Settings),
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct RailItem {
     pub key: String,
     pub name: String,
     pub repo_path: String,
-    /// "shop-web · SHOP": the sidebar's and the quick switcher's label, and the tooltip's title.
+    /// "shop-web · SHOP": the quick switcher's label, and the tooltip's title.
     pub title: String,
     /// "~/code/shop-web".
     pub path: String,
@@ -268,6 +299,20 @@ mod tests {
             project("BILL", "billing-api", 1, 1),
             project("PORT", "customer-portal-frontend", 3, 0),
         ]
+    }
+
+    #[test]
+    fn the_rail_ends_with_terminals_and_settings() {
+        let mac = bottom(Platform::Mac);
+        assert_eq!(mac.terminals.label, "Terminals");
+        assert_eq!(mac.terminals.keys.as_deref(), Some("⇧⌘T"));
+        assert_eq!(mac.settings.label, "Settings");
+        assert_eq!(mac.settings.keys.as_deref(), Some("⌘,"));
+        assert_eq!(
+            bottom(Platform::WinLinux).settings.keys.as_deref(),
+            Some("Ctrl+,")
+        );
+        assert_eq!(RAIL_WIDTH, 64);
     }
 
     #[test]

@@ -1,25 +1,26 @@
-//! `shell.*`: the header and the project rail (UI-01, ATT-10, USG-01, USG-02, USG-05, SCH-03, RUN-04, PRJ-01; d0024,
-//! d0016, d0020, d0058; *02 · App shell & project switcher*). The header's view gathers the global things every
-//! project shares (inbox count, tokens today, plan meter, agents, processes) with the shown project's name; the rail's
-//! view is the switcher model's, kept here between calls so a project that newly needs you rings for 10 s. The page
-//! refetches both on the events that change their counts, so they update live with no spinner.
+//! `shell.*`: the header, Activity and the project rail (SHL-02, SHL-03, SCH-03, RUN-04, USG-03, ATT-10, PRJ-01; d0087,
+//! d0086, d0024, d0016, d0020, d0058; *02 · App shell & project switcher → Row · Title bars, Row · Header states, Row ·
+//! Header parts: Activity, rail, Row · Activity popover states*). The header has four items: the shown project with
+//! its base branch, search, Activity (agents, processes and the usage warning across all projects) and Needs you. The
+//! Activity popover (`shell.activity`) lists what Activity sums up. The rail's view is the switcher model's, kept here
+//! between calls so a project that newly needs you rings for 10 s; Terminals and Settings sit at its bottom. The page
+//! refetches on the events that change their counts, so they update live with no spinner.
 
 use std::time::Instant;
 
 use otaq_core::board::settings::{AgentLimits, GlobalSettings};
 use otaq_core::board::snapshot::ProjectInfo;
-use otaq_core::protocol::{Reply, Request, UsageParams};
+use otaq_core::protocol::{Reply, Request};
 use otaq_core::scheduler::SchedulerStatus;
-use otaq_core::usage::UsageSummary;
+use otaq_core::terminals::run::RunInfo;
+use otaq_core::usage::activity::Activity;
 use otaq_view::keymap::{KeyAction, Platform};
 use otaq_view::shell::tilde;
+use otaq_view::view_models::activity::{self, Button as ActivityButton, Inputs};
 use otaq_view::view_models::inbox::{self, HeaderButton};
-use otaq_view::view_models::limits::{self, AgentsChip, Field, Popover};
-use otaq_view::view_models::plan_meter::{self, PlanMeter};
-use otaq_view::view_models::processes::{self, Chip};
+use otaq_view::view_models::limits::{self, Field, Popover};
 use otaq_view::view_models::search_page;
-use otaq_view::view_models::switcher::{self, QuickRow, RailItem, SIDEBAR_FROM_WIDTH};
-use otaq_view::view_models::usage::{self, HeaderUsage};
+use otaq_view::view_models::switcher::{self, QuickRow, RAIL_WIDTH, RailBottom, RailItem};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -30,6 +31,7 @@ use crate::App;
 pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
     match method {
         "shell.header" => reply(&header(app, parse(params)?).await?),
+        "shell.activity" => reply(&activity_popover(app).await?),
         "shell.rail" => reply(&rail(app, parse(params)?).await?),
         "shell.quick" => reply(&quick(app, parse(params)?)),
         "shell.project_for_digit" => reply(&project_for_digit(app, parse(params)?)),
@@ -54,14 +56,20 @@ pub struct Params {
     pub project: Option<String>,
 }
 
-/// The shown project at the header's start: "shop-web", the base branch chip, "~/code/shop-web".
+/// The shown project at the header's start: "shop-web" and its base branch; the folder on the name's hover and in
+/// its menu's "Copy path".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "HeaderProject")]
 pub struct Project {
     pub key: String,
     pub name: String,
     pub base_branch: String,
+    /// "~/code/shop-web": the name's hover.
     pub path: String,
+    /// The full folder, which "Copy path" copies.
+    pub repo_path: String,
+    /// The name's menu item.
+    pub copy_path: &'static str,
 }
 
 /// A button's tooltip: its name and its shortcut on this platform.
@@ -81,26 +89,19 @@ impl Hint {
     }
 }
 
-/// The header, left to right (*02 → Header states*). Items without data are `None` and hidden: tokens until the
-/// first summary, the plan meter without status-line data, processes while nothing runs.
+/// The header, left to right (*02 → Row · Header states (0086 · V)*): exactly four items. New ticket, Terminals,
+/// Settings, the tokens, the plan's windows, the agents and the processes are not in it (SHL-02).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "HeaderView")]
 pub struct Header {
+    /// `None` before the first project.
     pub project: Option<Project>,
     /// The search entry's placeholder and ⌘K; it opens the board's filter (T-0221).
     pub search: Hint,
-    pub usage: Option<HeaderUsage>,
-    pub plan_meter: Option<PlanMeter>,
-    pub agents: AgentsChip,
-    /// The plain chip's tooltip: title and "shop-web 2 · billing-api 1" (limits off).
-    pub agents_tooltip: Option<(String, String)>,
-    /// The chip's popover (limits on).
-    pub limits: Option<Popover>,
-    pub processes: Option<Chip>,
+    pub activity: ActivityButton,
+    /// Needs you: turquoise with a count, a quiet outline at 0.
     pub inbox: HeaderButton,
     pub inbox_hint: Hint,
-    pub new_ticket: Hint,
-    pub settings: Hint,
 }
 
 async fn projects(app: &App) -> Result<Vec<ProjectInfo>, RequestError> {
@@ -122,57 +123,80 @@ async fn optional<T>(app: &App, request: Request, pick: impl Fn(Reply) -> Option
     app.service.send(request).await.ok().and_then(pick)
 }
 
+/// What Activity needs from the service: the settings (agent limits), the scheduler's slots, the activity summary
+/// and the Runs.
+struct ActivityData {
+    limits: AgentLimits,
+    scheduler: Option<SchedulerStatus>,
+    activity: Option<Activity>,
+    runs: Vec<RunInfo>,
+}
+
+impl ActivityData {
+    async fn fetch(app: &App) -> Result<Self, RequestError> {
+        let (settings, scheduler, activity, runs) = tokio::join!(
+            settings(app),
+            optional(app, Request::SchedulerStatus, |r| match r {
+                Reply::SchedulerStatus(s) => Some(s),
+                _ => None,
+            }),
+            optional(app, Request::UsageActivity, |r| match r {
+                Reply::Activity(a) => Some(*a),
+                _ => None,
+            }),
+            optional(app, Request::RunList, |r| match r {
+                Reply::Runs(runs) => Some(runs),
+                _ => None,
+            }),
+        );
+        Ok(Self {
+            limits: settings?.agent_limits,
+            scheduler,
+            activity,
+            runs: runs.unwrap_or_default(),
+        })
+    }
+
+    fn inputs(&self, now: i64) -> Inputs<'_> {
+        Inputs {
+            tools: self
+                .activity
+                .as_ref()
+                .map(activity::connected)
+                .unwrap_or_default(),
+            tokens_today: self.activity.as_ref().map_or(0, |a| a.tokens_today),
+            limits: &self.limits,
+            scheduler: self.scheduler.as_ref(),
+            runs: &self.runs,
+            now,
+        }
+    }
+}
+
 pub async fn header(app: &App, params: Params) -> Result<Header, RequestError> {
-    let (projects, settings, scheduler, inbox, usage, runs) = tokio::join!(
+    let (projects, data, inbox) = tokio::join!(
         projects(app),
-        settings(app),
-        optional(app, Request::SchedulerStatus, |r| match r {
-            Reply::SchedulerStatus(s) => Some(s),
-            _ => None,
-        }),
+        ActivityData::fetch(app),
         optional(app, Request::InboxCounts, |r| match r {
             Reply::InboxCounts(c) => Some(c.total),
             _ => None,
         }),
-        optional(
-            app,
-            Request::UsageSummary(UsageParams { project: None }),
-            |r| match r {
-                Reply::Usage(summary) => Some(*summary),
-                _ => None,
-            }
-        ),
-        optional(app, Request::RunList, |r| match r {
-            Reply::Runs(runs) => Some(runs),
-            _ => None,
-        }),
     );
-    let (projects, settings) = (projects?, settings?);
+    let (projects, data) = (projects?, data?);
     Ok(header_view(
         &projects,
         params.project.as_deref(),
-        &settings,
-        scheduler.as_ref(),
+        &data.inputs(otaq_core::store::now_ms()),
         inbox.unwrap_or(0),
-        usage.as_ref(),
-        &runs.unwrap_or_default(),
-        otaq_core::store::now_ms(),
     ))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn header_view(
     projects: &[ProjectInfo],
     shown: Option<&str>,
-    settings: &GlobalSettings,
-    scheduler: Option<&SchedulerStatus>,
+    activity: &Inputs<'_>,
     inbox_total: u32,
-    usage: Option<&UsageSummary>,
-    runs: &[otaq_core::terminals::run::RunInfo],
-    now_ms: i64,
 ) -> Header {
-    let limits = settings.agent_limits;
-    let agents = limits::agents_chip(&limits, scheduler, limits::running_total(projects));
     Header {
         project: projects
             .iter()
@@ -182,39 +206,40 @@ fn header_view(
                 name: p.name.clone(),
                 base_branch: p.base_branch.clone(),
                 path: tilde(&p.repo_path),
+                repo_path: p.repo_path.clone(),
+                copy_path: "Copy path",
             }),
         search: Hint::new(search_page::PLACEHOLDER, KeyAction::Search),
-        usage: usage.map(usage::header),
-        plan_meter: usage.and_then(|u| plan_meter::meter(u.plan.as_ref(), now_ms)),
-        agents_tooltip: (!agents.control).then(|| {
-            (
-                limits::RUNNING_TOOLTIP.to_owned(),
-                limits::running_by_project(projects),
-            )
-        }),
-        limits: agents.control.then(|| limits::popover(&limits)),
-        agents,
-        processes: processes::chip(runs),
+        activity: activity::button(activity, Platform::current()),
         inbox: inbox::header_button(inbox_total),
         inbox_hint: Hint::new("Needs you", KeyAction::OpenInbox),
-        new_ticket: Hint::new("New ticket", KeyAction::NewTicket),
-        settings: Hint::new("Settings", KeyAction::Settings),
     }
 }
 
-/// The project rail (tiles below 1600 px, the 232 px sidebar above) in the user's order.
+/// The Activity popover (⇧⌘U or a click on Activity).
+pub async fn activity_popover(app: &App) -> Result<activity::Popover, RequestError> {
+    let data = ActivityData::fetch(app).await?;
+    Ok(activity::popover(
+        &data.inputs(otaq_core::store::now_ms()),
+        Platform::current(),
+    ))
+}
+
+/// The project rail, the 64 px column of tiles at every width, in the user's order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "RailView")]
 pub struct Rail {
     /// The project to show: the page's selection while it exists, else the first one (`None`: no projects).
     pub selected: Option<String>,
     pub items: Vec<RailItem>,
-    /// Window widths above this get the sidebar.
-    pub sidebar_from_width: u32,
+    /// The rail's width in px.
+    pub width: u32,
     /// When a ringing tile stops ringing, so the page asks again then.
     pub ring_ends_in_ms: Option<u64>,
-    /// The sidebar's "PROJECTS ⌘P".
+    /// ⌘P, the quick switcher.
     pub switch_keys: Option<String>,
+    /// Terminals and Settings, under Cleanup.
+    pub bottom: RailBottom,
 }
 
 pub async fn rail(app: &App, params: Params) -> Result<Rail, RequestError> {
@@ -241,11 +266,12 @@ pub async fn rail(app: &App, params: Params) -> Result<Rail, RequestError> {
     Ok(Rail {
         selected: model.selected.clone(),
         items: model.rail(now, Platform::current()),
-        sidebar_from_width: SIDEBAR_FROM_WIDTH as u32,
+        width: RAIL_WIDTH,
         ring_ends_in_ms: model
             .next_ring_end(now)
             .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX)),
         switch_keys: KeyAction::SwitchProject.keys(Platform::current()),
+        bottom: switcher::bottom(Platform::current()),
     })
 }
 
@@ -314,7 +340,7 @@ pub fn project_for_digit(app: &App, params: DigitParams) -> Option<String> {
     model.project_for_digit(params.digit).map(str::to_owned)
 }
 
-/// What `shell.step_limit` takes: which popover value, one up or down.
+/// What `shell.step_limit` takes: which stepper value, one up or down.
 #[derive(Debug, Clone, Copy, Deserialize, TS)]
 #[ts(rename = "LimitStep")]
 pub struct StepParams {
@@ -322,8 +348,8 @@ pub struct StepParams {
     pub up: bool,
 }
 
-/// A stepper press in the limits popover: saved at once; it reaches the scheduler without restarting anything, and
-/// never stops a running agent (SCH-03). Answers the popover with the new values.
+/// A stepper press in Activity's popover: saved at once; it reaches the scheduler without restarting anything, and
+/// never stops a running agent (SCH-03). Answers the stepper with the new values.
 pub async fn step_limit(app: &App, params: StepParams) -> Result<Popover, RequestError> {
     let mut settings = settings(app).await?;
     let limits: AgentLimits = limits::stepped(&settings.agent_limits, params.field, params.up);
@@ -368,7 +394,6 @@ pub async fn cleanup(app: &App) -> Result<Broom, RequestError> {
 mod tests {
     use otaq_core::board::projects::AddProject;
     use otaq_core::git::testing::TempRepos;
-    use otaq_core::usage::Tokens;
     use serde_json::json;
 
     use super::*;
@@ -387,40 +412,30 @@ mod tests {
     }
 
     #[test]
-    fn the_header_shows_the_shown_project_and_the_global_counts() {
-        let projects = [project("SHOP", "shop-web", 2, 6), project("BILL", "billing-api", 1, 1)];
-        let settings = GlobalSettings::default();
-        let summary = UsageSummary {
-            today: Tokens {
-                output: 1_840_000,
-                ..Tokens::default()
-            },
-            ..UsageSummary::default()
-        };
-        let view = header_view(&projects, Some("BILL"), &settings, None, 7, Some(&summary), &[], 0);
-        let shown = view.project.unwrap();
-        assert_eq!((shown.name.as_str(), shown.base_branch.as_str()), ("billing-api", "main"));
-        assert_eq!(view.usage.unwrap().number, "1.84M");
-        assert_eq!(view.plan_meter, None, "no status-line data: hidden");
-        assert_eq!((view.agents.count.as_str(), view.agents.label), ("3", "running"));
-        assert_eq!(
-            view.agents_tooltip.unwrap().1,
-            "shop-web 2 · billing-api 1"
-        );
-        assert_eq!(view.limits, None);
-        assert_eq!(view.processes, None);
-        assert_eq!((view.inbox.label, view.inbox.count), ("Needs you", 7));
+    fn the_header_has_exactly_four_items() {
+        let projects = [project("NOTE", "pocket-notes", 2, 6), project("API", "notes-api", 1, 1)];
+        let fixtures = activity::fixtures::Fixtures::new();
+        let view = header_view(&projects, Some("API"), &fixtures.low_one.inputs(), 7);
+        let json = serde_json::to_value(&view).unwrap();
+        let keys: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
+        // Project and branch, search, Activity, Needs you (with its tooltip).
+        assert_eq!(keys, ["activity", "inbox", "inbox_hint", "project", "search"]);
 
-        // Limits on: the chip becomes the "3 / 5 agents" control with its popover; no project shown.
-        let mut on = settings.clone();
-        on.agent_limits.enabled = true;
-        let view = header_view(&projects, None, &on, None, 0, None, &[], 0);
+        let shown = view.project.unwrap();
+        assert_eq!((shown.name.as_str(), shown.base_branch.as_str()), ("notes-api", "main"));
+        assert_eq!((shown.path.as_str(), shown.copy_path), ("/code/notes-api", "Copy path"));
+        assert_eq!(view.activity.agents.count, "3");
+        assert_eq!(view.activity.processes.as_deref(), Some("2"));
+        assert_eq!(view.activity.warning.unwrap().text, "5h 18% left");
+        assert_eq!((view.inbox.label, view.inbox.count), ("Needs you", 7));
+        assert_eq!(view.inbox_hint.text, "Needs you");
+
+        // No project shown, nothing running, nothing waiting.
+        let view = header_view(&projects, None, &fixtures.idle.inputs(), 0);
         assert_eq!(view.project, None);
-        assert_eq!(view.usage, None);
-        assert_eq!((view.agents.count.as_str(), view.agents.label), ("3 / 5", "agents"));
-        assert_eq!(view.agents_tooltip, None);
-        assert_eq!(view.limits.unwrap().max_agents.value, 5);
-        assert_eq!(view.inbox.label, "Inbox");
+        assert_eq!(view.activity.processes, None);
+        assert_eq!(view.activity.warning, None);
+        assert!(!view.inbox.active);
     }
 
     #[test]
@@ -470,7 +485,9 @@ mod tests {
         assert_eq!(rail["selected"], shop.key);
         assert_eq!(rail["items"][1]["title"], format!("docs-site · {}", docs.key));
         assert_eq!(rail["items"][1]["idle"], true);
-        assert_eq!(rail["sidebar_from_width"], 1600);
+        assert_eq!(rail["width"], 64);
+        assert_eq!(rail["bottom"]["terminals"]["label"], "Terminals");
+        assert_eq!(rail["bottom"]["settings"]["label"], "Settings");
 
         // The page's selection is kept; a project that is gone falls back to the first.
         let rail = request(&h.app, "shell.rail", json!({ "project": docs.key }))
@@ -507,9 +524,24 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(header["project"]["name"], "shop-web");
-        assert_eq!(header["agents"]["label"], "running");
+        assert_eq!(header["activity"]["agents"]["label"], "running");
+        assert_eq!(header["activity"]["processes"], Value::Null);
+        assert_eq!(header["activity"]["warning"], Value::Null);
         assert_eq!(header["inbox"]["label"], "Inbox");
-        assert_eq!(header["processes"], Value::Null);
+
+        // The popover: Claude Code's block with no windows yet, nothing running, no processes.
+        let popover = request(&h.app, "shell.activity", Value::Null).await.unwrap();
+        assert_eq!(popover["limits"], Value::Null);
+        assert_eq!(popover["agents"]["count"], "0");
+        assert_eq!(
+            popover["agents"]["empty"],
+            "Nothing running. Queued tickets start when a slot and their parents allow."
+        );
+        assert_eq!(popover["usage"]["tools"][0]["name"], "Claude Code");
+        assert_eq!(popover["usage"]["tools"][0]["avatar"], Value::Null);
+        assert_eq!(popover["usage"]["tools"][0]["notes"][0], "No plan limit · tokens only");
+        assert_eq!(popover["processes"], Value::Null);
+        assert_eq!(popover["open_terminals"]["label"], "Open Terminals");
 
         let broom = request(&h.app, "shell.cleanup", Value::Null).await.unwrap();
         assert_eq!(broom["count"], 0);
@@ -556,7 +588,9 @@ mod tests {
         let header = request(&h.app, "shell.header", json!({ "project": null }))
             .await
             .unwrap();
-        assert_eq!(header["agents"]["count"], "0 / 6");
+        assert_eq!(header["activity"]["agents"]["count"], "0 / 6");
+        let popover = request(&h.app, "shell.activity", Value::Null).await.unwrap();
+        assert_eq!(popover["limits"]["max_agents"]["value"], 6);
         h.service.stop_all().await;
     }
 }

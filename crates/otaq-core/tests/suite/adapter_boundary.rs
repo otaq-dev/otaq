@@ -117,16 +117,16 @@ const EXCEPTIONS: &[Exception] = &[
         pattern: "Tool::Claude",
         reason: "the tool avatar (d0087): the stored tool to its letters and colour token, one arm per tool",
     },
-    Exception {
-        path: "otaq-view/src/view_models/plan_meter.rs",
-        pattern: "Tool::Claude",
-        reason: "the header's plan meter shows Claude Code's windows until M21's Activity lists every tool's",
-    },
     // Sample data outside `#[cfg(test)]`: Claude Code is the tool the samples ran on.
     Exception {
         path: "otaq-core/src/service/testing.rs",
         pattern: "Tool::Claude",
         reason: "the test service (for `tests/`) records a session as an earlier Claude Code start would",
+    },
+    Exception {
+        path: "otaq-view/src/view_models/activity.rs",
+        pattern: "Tool::Claude",
+        reason: "`fixtures`, Activity's states for tests and the design gallery",
     },
     Exception {
         path: "otaq-view/src/view_models/lead_tab.rs",

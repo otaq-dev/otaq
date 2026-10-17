@@ -12,9 +12,9 @@ import type { RailView } from "../../generated/RailView";
 import { HeaderBar } from "./Header";
 import { shell, switchToDigit } from ".";
 import { LimitsBody } from "./LimitsPopover";
-import { clampCursor, railMode, switcherKey } from "./logic";
+import { clampCursor, switcherKey } from "./logic";
 import { QuickList } from "./QuickSwitcher";
-import { RailSidebar, RailTiles } from "./Rail";
+import { RailTiles } from "./Rail";
 
 afterEach(() => {
   overlays.store.set([]);
@@ -24,24 +24,28 @@ afterEach(() => {
 const hint = (text: string, keys: string | null) => ({ text, keys });
 
 const HEADER: HeaderView = {
-  project: { key: "SHOP", name: "shop-web", base_branch: "main", path: "~/code/shop-web" },
-  search: hint("Search  ·  is:needs-me", "⌘K"),
-  usage: { number: "1.84M", label: "today", tooltip: ["Tokens today", "40k in · 600k out"] },
-  plan_meter: {
-    five_hour: { label: "5h", value: "82%", amber: true },
-    week: { label: "week", value: "40%", amber: false },
-    title: "Plan usage",
-    lines: ["5-hour session  82% · resets 3:45 pm (in 1 h 20 min)", "Week  40% · resets Mon 12:00 am"],
-    note: "New tickets hold at 100% · nothing resumes by itself",
+  project: {
+    key: "SHOP",
+    name: "shop-web",
+    base_branch: "main",
+    path: "~/code/shop-web",
+    repo_path: "/code/shop-web",
+    copy_path: "Copy path",
   },
-  agents: { count: "3", label: "running", control: false, active: true },
-  agents_tooltip: ["Agents running across all projects", "shop-web 2 · billing-api 1"],
-  limits: null,
-  processes: { count: "3", label: "processes" },
+  search: hint("Search  ·  is:needs-me", "⌘K"),
+  activity: {
+    agents: { count: "3", label: "running", control: false, active: true },
+    processes: "3",
+    warning: { text: "5h 18% left", token: "st-paused" },
+    hover: {
+      title: "3 agents running across all projects",
+      lines: ["shop-web 2 · billing-api 1 · 3 processes"],
+    },
+    label: "Activity",
+    keys: "⇧⌘U",
+  },
   inbox: { label: "Needs you", count: 7, active: true },
   inbox_hint: hint("Needs you", "⇧⌘I"),
-  new_ticket: hint("New ticket", "⌘N"),
-  settings: hint("Settings", "⌘,"),
 };
 
 const item = (key: string, name: string, extra: Partial<RailItem> = {}): RailItem => ({
@@ -74,9 +78,10 @@ const RAIL: RailView = {
     item("BILL", "billing-api", { idle: false, needs_you: 1, ringing: true }),
     item("CREW", "otaq"),
   ],
-  sidebar_from_width: 1600,
+  width: 64,
   ring_ends_in_ms: 4000,
   switch_keys: "⌘P",
+  bottom: { terminals: { label: "Terminals", keys: "⇧⌘T" }, settings: { label: "Settings", keys: "⌘," } },
 };
 
 describe("the quick switcher's keys", () => {
@@ -99,12 +104,6 @@ describe("the quick switcher's keys", () => {
 });
 
 describe("the rail", () => {
-  it("is tiles up to the sidebar width and the sidebar above it", () => {
-    expect(railMode(1280, 1600)).toBe("tiles");
-    expect(railMode(1600, 1600)).toBe("tiles");
-    expect(railMode(1920, 1600)).toBe("sidebar");
-  });
-
   it("draws the badges, the selection, a ringing tile and quiet idle projects", () => {
     const out = renderToStaticMarkup(createElement(RailTiles, { view: RAIL }));
     expect(out).toContain('data-selected="true"');
@@ -112,10 +111,6 @@ describe("the rail", () => {
     expect(out).toContain('<span class="rail-tile" data-ringing="true">BILL');
     expect(out).toMatch(/data-idle="true"[^>]*aria-label="otaq · CREW"/);
     expect(out).toContain('aria-label="Add project"');
-    const wide = renderToStaticMarkup(createElement(RailSidebar, { view: RAIL }));
-    expect(wide).toContain("PROJECTS");
-    expect(wide).toContain('<span class="sidebar-name">shop-web · SHOP</span>');
-    expect(wide).toContain('<span class="sidebar-idle">idle</span>');
   });
 });
 
@@ -126,16 +121,14 @@ describe("the header", () => {
       "shop-web",
       "~/code/shop-web",
       "Search  ·  is:needs-me",
-      "1.84M",
-      "82%",
       "running",
-      "processes",
+      "▷ 3",
+      "5h 18% left",
       "Needs you",
-      "New ticket",
     ].map((text) => out.indexOf(text));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect(order).toEqual(order.toSorted((a, b) => a - b));
-    expect(out).toContain('<span class="header-mono" data-amber="true">82%</span>');
+    expect(out).toContain('<span class="header-mono" data-amber="true">5h 18% left</span>');
     expect(out).toContain('class="header-inbox" data-active="true"');
     expect(out).not.toContain("chevron-down");
   });
@@ -162,7 +155,10 @@ describe("the header", () => {
     let searched = 0;
     walk(
       HeaderBar({
-        view: { ...HEADER, agents: { ...HEADER.agents, control: true }, agents_tooltip: null },
+        view: {
+          ...HEADER,
+          activity: { ...HEADER.activity, agents: { ...HEADER.activity.agents, control: true } },
+        },
         onSearch: () => (searched += 1),
       }),
       "",
@@ -174,40 +170,29 @@ describe("the header", () => {
     };
     press("header-search");
     expect(searched).toBe(1);
-    for (const name of [
-      "header-chip",
-      "header-chip header-agents",
-      "header-inbox",
-      "New ticket",
-      "Settings",
-    ]) {
+    for (const name of ["header-chip header-agents", "header-inbox"]) {
       press(name);
     }
-    expect(overlays.store.get().map((o) => o.id)).toEqual([
-      "processes",
-      "limits",
-      "inbox",
-      "new_ticket",
-      "settings",
-    ]);
+    expect(overlays.store.get().map((o) => o.id)).toEqual(["limits", "inbox"]);
   });
 
-  it("hides what has no data, and turns the chip into the limits control", () => {
+  it("hides what has no data, and reads slots with limits on", () => {
     const quiet: HeaderView = {
       ...HEADER,
       project: null,
-      usage: null,
-      plan_meter: null,
-      processes: null,
-      agents: { count: "0 / 5", label: "agents", control: true, active: false },
-      agents_tooltip: null,
+      activity: {
+        ...HEADER.activity,
+        agents: { count: "0 / 5", label: "agents", control: true, active: false },
+        processes: null,
+        warning: null,
+      },
       inbox: { label: "Inbox", count: 0, active: false },
     };
     const out = renderToStaticMarkup(createElement(HeaderBar, { view: quiet, onSearch: () => undefined }));
     expect(out).not.toContain("header-search");
-    expect(out).not.toContain("header-plan");
-    expect(out).not.toContain("1.84M");
-    expect(out).toContain('aria-haspopup="dialog"');
+    expect(out).not.toContain("▷");
+    expect(out).not.toContain("data-amber");
+    expect(out).toContain("0 / 5");
     expect(out).toContain("<span>Inbox</span>");
   });
 

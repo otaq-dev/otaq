@@ -7,10 +7,11 @@
 //! Retry). After the reset, agents Claude Code already continued by itself don't count (Q27); with none left
 //! waiting the banner goes.
 
+use otaq_core::local_time::local;
 use otaq_core::usage::limit::LimitKind;
 use otaq_core::usage::plan::PlanLimits;
 
-use crate::view_models::plan_meter::{clock_12h, in_label, local};
+use crate::view_models::clock::{WEEKDAYS, clock_12h, in_label};
 
 /// The error toast when Resume all failed.
 pub const RESUME_FAILED: &str = "Resume all failed";
@@ -123,7 +124,7 @@ pub fn banner(state: Option<&PlanLimits>, waiting: u32, now: i64) -> Option<Limi
         (format!("Resets at {clock}"), "no new tickets will start")
     } else {
         let day = local(at)
-            .map(|t| ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][t.weekday as usize])
+            .map(|t| WEEKDAYS[t.weekday as usize])
             .unwrap_or_default();
         (format!("Resets {day} {clock}"), "no new tickets will start")
     };

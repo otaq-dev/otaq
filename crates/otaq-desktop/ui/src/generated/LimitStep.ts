@@ -2,6 +2,6 @@
 import type { LimitField } from "./LimitField";
 
 /**
- * What `shell.step_limit` takes: which popover value, one up or down.
+ * What `shell.step_limit` takes: which stepper value, one up or down.
  */
 export type LimitStep = { field: LimitField, up: boolean, };

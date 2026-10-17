@@ -129,16 +129,16 @@ describe("the search field", () => {
     const view = {
       ...header,
       search: { text: "Search  ·  is:needs-me", keys: "⌘K" },
-      usage: null,
-      plan_meter: null,
-      agents_tooltip: null,
-      limits: null,
-      agents: { count: "0", label: "agents", active: false, control: false },
-      processes: null,
+      activity: {
+        agents: { count: "0", label: "running", active: false, control: false },
+        processes: null,
+        warning: null,
+        hover: { title: "0 agents running across all projects", lines: [] },
+        label: "Activity",
+        keys: null,
+      },
       inbox: { label: "Inbox", count: "0", active: false },
       inbox_hint: { text: "Needs you", keys: null },
-      new_ticket: { text: "New ticket", keys: null },
-      settings: { text: "Settings", keys: null },
     } as unknown as HeaderView;
     const html = renderToStaticMarkup(
       createElement(HeaderBar, {
