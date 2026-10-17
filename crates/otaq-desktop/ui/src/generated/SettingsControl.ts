@@ -43,7 +43,8 @@ drop_label: string,
  */
 applies: string, name_placeholder: string, value_placeholder: string, } | { "kind": "warm_build", on: boolean, 
 /**
- * The data folder's disk can't clone: drawn off and disabled, `reason` under it and in its tooltip.
+ * Drawn off and disabled, `reason` under it and in its tooltip. Never set since M19-b: the switch works on
+ * every disk (where the disk can't clone, the build is handed over).
  */
 disabled: boolean, reason: string | null, 
 /**

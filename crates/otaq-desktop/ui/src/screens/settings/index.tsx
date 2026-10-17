@@ -30,6 +30,7 @@ export const PROJECT: readonly ProjectSection[] = [
   "validation",
   "answers",
   "commands",
+  "ticket_resources",
   "pr_provider",
   "remove_project",
 ];

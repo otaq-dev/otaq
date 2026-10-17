@@ -236,7 +236,7 @@ async fn edit(app: &App, edit: SettingsEdit) -> Result<Value, RequestError> {
                 ProjectChange::Settings => {
                     let request = Request::ProjectSettingsSet(ProjectSettingsParams {
                         project: key.clone(),
-                        settings,
+                        settings: Box::new(settings),
                     });
                     app.service.send(request).await?;
                     if let Some((repo, name)) = clears {
@@ -493,20 +493,15 @@ mod tests {
         let view = open().await.unwrap();
         let control = switch(&view);
         assert_eq!(control["kind"], "warm_build");
-        if control["disabled"] == true {
-            // The temporary folder's disk can't clone: drawn off with the reason; nothing more to try here.
-            assert_eq!(control["on"], false);
-            assert!(control["reason"].as_str().unwrap().starts_with("Unavailable on this disk: "));
-            eprintln!("skipped: the temporary folder's disk can't clone");
-            h.service.stop_all().await;
-            return;
-        }
+        // On every disk (M19-b): where it can't clone, the build is handed over instead.
+        assert_eq!(control["disabled"], false);
+        assert_eq!(control["reason"], Value::Null);
         assert_eq!(control["on"], true);
         assert_eq!(control["confirm"], Value::Null, "nothing to delete: no question");
 
         // A warm build of the project's (its folder is the repo's name).
         let data = h.app.service.data().unwrap();
-        let folder = data.warm_path("shop-web").unwrap();
+        let folder = data.warm_entry_path("shop-web", 0).unwrap();
         std::fs::create_dir_all(folder.join("out")).unwrap();
         std::fs::write(folder.join("out").join("built.bin"), vec![0u8; 4096]).unwrap();
         let control = switch(&open().await.unwrap());

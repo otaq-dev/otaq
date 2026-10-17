@@ -207,6 +207,7 @@ pub fn run(
     });
     let (on_setup, on_window, on_exit) = (placement.clone(), placement.clone(), placement);
     let dropped_on = app.clone();
+    let exiting = app.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(app)
@@ -240,6 +241,7 @@ pub fn run(
         .run(move |_, event| {
             if let tauri::RunEvent::Exit = event {
                 save_placement(&on_exit);
+                exiting.usage.flush_before_exit();
             }
         });
     Ok(())

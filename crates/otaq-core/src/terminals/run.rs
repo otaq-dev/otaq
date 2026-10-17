@@ -13,6 +13,9 @@
 //! after it ran). A program that exits while still starting with a non-zero code **failed to start**. The Run port
 //! already held by another program is **port in use**, found before anything starts; Otaq never kills it.
 //!
+//! A Run of a ticket whose build was freed at Review brings it back first (M19-c, [`TicketEnv::fetch_build`]); a
+//! failure there is logged and the Run starts anyway. When the Run ends the build is freed again.
+//!
 //! Implementation choices (SDD §26): states live in the service's memory; the port is polled every 250 ms while
 //! starting, on 127.0.0.1 and ::1. Output is never written to disk (d0045), so after a restart the Run tab shows
 //! "stopped by restart" without the old output (Q28).
@@ -39,6 +42,8 @@ use crate::session::{
     TerminalSize,
 };
 use crate::store::now_ms;
+use crate::ticket_env::TicketEnv;
+use crate::ticket_env::fetch::FetchWhy;
 
 /// How often a starting Run's port is tried.
 const PORT_POLL: Duration = Duration::from_millis(250);
@@ -182,6 +187,8 @@ struct Inner {
     data: DataDir,
     events: EventBus,
     env: TerminalEnv,
+    /// Brings a freed build back before a Run (M19-c).
+    ticket_env: TicketEnv,
     /// By ticket id.
     records: Mutex<HashMap<String, Record>>,
 }
@@ -193,6 +200,7 @@ impl Runs {
         data: DataDir,
         events: EventBus,
         env: TerminalEnv,
+        ticket_env: TicketEnv,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -201,6 +209,7 @@ impl Runs {
                 data,
                 events,
                 env,
+                ticket_env,
                 records: Mutex::new(HashMap::new()),
             }),
         }
@@ -256,6 +265,21 @@ impl Runs {
             tracing::info!(ticket = %ticket.key, port, "run port in use");
             self.store(&ticket.id, record);
             self.publish(&ticket);
+            return self.info_of(&ticket).await;
+        }
+
+        // A build freed at Review comes back first; the ticket's lock is held until the Run is open, so no Free
+        // takes it away before the Run holds it.
+        let (fetched, _held) = inner
+            .ticket_env
+            .fetch_for_terminal(&ticket, FetchWhy::Run)
+            .await;
+        if let Err(e) = fetched {
+            let log = inner.data.setup_log_path(&ticket.key.to_string()).ok();
+            tracing::warn!(ticket = %ticket.key, error = %e, log = ?log, "can't bring the build back; the Run starts anyway");
+        }
+        // A second click waited for the lock while the first brought the build back and started the Run.
+        if self.record(&ticket.id).is_some_and(|r| r.state.is_live()) {
             return self.info_of(&ticket).await;
         }
 

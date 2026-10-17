@@ -224,6 +224,8 @@ stored_enum! {
         /// Branch, worktree and base_sha.
         Worktree = "worktree",
         EnvFiles = "env_files",
+        /// The project's Create command makes the ticket's own resources (M19-d, d0087).
+        Resources = "resources",
         Setup = "setup",
         Ports = "ports",
         /// Start the agent session.
@@ -242,6 +244,7 @@ impl StartStep {
             Self::SyncBase => "updating the base failed",
             Self::Worktree => "creating the worktree failed",
             Self::EnvFiles => "copying env files failed",
+            Self::Resources => "creating ticket resources failed",
             Self::Setup => "setup command failed",
             Self::Ports => "no free ports",
             Self::Launch => "starting the agent failed",

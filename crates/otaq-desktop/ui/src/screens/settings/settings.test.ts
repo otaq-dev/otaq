@@ -123,6 +123,41 @@ describe("the Settings screen", () => {
     expect(out).toContain('<span class="settings-problem">localhost isn&#x27;t a URL</span>');
   });
 
+  it("Ticket resources come right after Commands, and schema paths are one multi-line field", () => {
+    const app = registerScreens({ settings });
+    const ids = app.settings.project.ids();
+    expect(ids.indexOf("ticket_resources")).toBe(ids.indexOf("commands") + 1);
+    const section: SettingsSection<"ticket_resources"> = {
+      id: "ticket_resources",
+      title: "Ticket resources",
+      intro: null,
+      rows: [
+        {
+          field: "schema_paths",
+          label: "Schema paths",
+          description: "One path per line, like db/migrations/**.",
+          control: {
+            kind: "text",
+            value: "db/migrations/**",
+            placeholder: "none",
+            mono: true,
+            multiline: true,
+            problem: "../x must be a path inside the repository",
+          },
+          dimmed: false,
+          reset: null,
+          button: null,
+        },
+      ],
+      note: null,
+    };
+    const out = html(withPage(createElement(Section, { section })));
+    expect(out).toContain('<h3 class="settings-section-title">Ticket resources</h3>');
+    expect(out).toContain("<textarea");
+    expect(out).toContain("db/migrations/**");
+    expect(out).toContain('aria-invalid="true"');
+  });
+
   it("a project's validation rows: Use global, and Auto-merge disabled with its note", () => {
     const section: SettingsSection<"validation"> = {
       id: "validation",

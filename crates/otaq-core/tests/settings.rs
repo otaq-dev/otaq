@@ -6,6 +6,7 @@ mod common;
 use common::Fixture;
 use otaq_core::board::settings::{
     AutoMerge, GlobalSettings, ProjectSettings, Theme, ThemeSetting, WorkflowSkillOverrides,
+    resource_without_create,
 };
 use otaq_core::git::testing::{git, snapshot};
 use otaq_core::naming;
@@ -339,4 +340,70 @@ async fn m12_overrides_and_resolution() {
     );
     let problems = f.board.global_setting_problems().await.unwrap();
     assert!(problems.iter().any(|p| p.field == "validation_rounds"));
+}
+
+/// Schema paths (M19-e, d0087): each must be a relative glob inside the repository; a Remove or Template refresh
+/// command without a Create command is flagged too, and nothing is refused.
+#[tokio::test]
+async fn schema_path_problems() {
+    let f = Fixture::shop().await;
+    let repo = f.repos.root().join("shop-web");
+    let before = snapshot(&repo);
+    let settings = ProjectSettings {
+        schema_paths: vec![
+            "db/migrations/**".into(),
+            "".into(),
+            "/etc/schema.sql".into(),
+            "../other/db/**".into(),
+            "db/[0-9.sql".into(),
+            "prisma/schema.prisma".into(),
+        ],
+        resource_remove: "dropdb x".into(),
+        resource_template_refresh: "make template".into(),
+        ..ProjectSettings::default()
+    };
+    f.board
+        .set_project_settings("SHOP", &settings)
+        .await
+        .unwrap();
+    assert_eq!(
+        f.board.project_settings("SHOP").await.unwrap(),
+        settings,
+        "stored as written"
+    );
+    let problems = f.board.project_setting_problems("SHOP").await.unwrap();
+    let of = |field: &str| -> Vec<String> {
+        problems
+            .iter()
+            .filter(|p| p.field == field)
+            .map(|p| p.message.clone())
+            .collect()
+    };
+    let schema = of("schema_paths");
+    assert_eq!(schema.len(), 4, "{schema:?}");
+    assert_eq!(schema[0], "A schema path entry is empty");
+    assert!(schema[1].starts_with("/etc/schema.sql must be a path inside"));
+    assert!(schema[2].starts_with("../other/db/** must be a path inside"));
+    assert!(schema[3].contains("[ has no matching ]"), "{}", schema[3]);
+    assert_eq!(of("resource_remove"), [resource_without_create()]);
+    assert_eq!(of("resource_template_refresh").len(), 1);
+
+    // With a Create command, Remove and Refresh are fine.
+    let settings = ProjectSettings {
+        resource_create: "createdb x".into(),
+        schema_paths: vec!["db/migrations/**".into()],
+        ..settings
+    };
+    f.board
+        .set_project_settings("SHOP", &settings)
+        .await
+        .unwrap();
+    assert!(
+        f.board
+            .project_setting_problems("SHOP")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(snapshot(&repo), before, "the repository is untouched");
 }

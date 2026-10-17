@@ -10,6 +10,9 @@
 //!   and the skill is typed (or the conversation resumed) then.
 //!
 //! The agent then fetches the feedback itself with `otaq review feedback` (REV-05).
+//!
+//! A build freed at Review comes back first (M19-c): at the click for a live session, before the skill is typed;
+//! by the start for a resumed or queued one. A failure there never refuses the click.
 
 pub mod auto_merge;
 mod close;
@@ -35,7 +38,8 @@ use crate::scheduler::Scheduler;
 use crate::session::deliveries::{Deliveries, Delivery};
 use crate::session::{SessionKind, Sessions};
 use crate::start::{StartOutcome, Starter};
-use crate::warm::store::WarmBuilds;
+use crate::ticket_env::TicketEnv;
+use crate::ticket_env::fetch::FetchWhy;
 
 /// The skill Send back runs (REV-04).
 pub const ADDRESS_REVIEW_SKILL: &str = "address-review";
@@ -97,8 +101,8 @@ struct Inner {
     /// One Local merge at a time: they share the scratch worktree and move base branches.
     merging: tokio::sync::Mutex<()>,
     ports: PortPool,
-    /// Done keeps a clean worktree's build as the project's warm build (WRM-03).
-    warm: WarmBuilds,
+    /// Done releases a clean worktree's build into the stock (WRM-03), unless it was freed at Review (M19-c).
+    ticket_env: TicketEnv,
     finished_hooks: Mutex<Vec<finish::FinishedHook>>,
     /// Run for every parked ticket before its ports are freed (Q30: Park stops Run).
     parked_hooks: Mutex<Vec<finish::FinishedHook>>,
@@ -116,7 +120,7 @@ impl Review {
         starter: Starter,
         scheduler: Scheduler,
         ports: PortPool,
-        warm: WarmBuilds,
+        ticket_env: TicketEnv,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -124,7 +128,7 @@ impl Review {
                 data,
                 merging: tokio::sync::Mutex::new(()),
                 ports,
-                warm,
+                ticket_env,
                 finished_hooks: Mutex::new(Vec::new()),
                 parked_hooks: Mutex::new(Vec::new()),
                 validation_resume: Mutex::new(None),
@@ -448,6 +452,12 @@ impl Review {
                 inner.scheduler.wake();
             }
             (Some(session), false) => {
+                // The build first, then the skill; the ticket's lock is held until it is in Dev, so no Free
+                // takes the build away meanwhile.
+                let _held = inner
+                    .ticket_env
+                    .fetch_for_agent(ticket, action.fetch_why(), actor)
+                    .await;
                 self.record(ticket, &action, Status::Working, None, actor)
                     .await?;
                 let text = inner.deliveries.skill_reference(&session.id, skill);
@@ -499,6 +509,13 @@ impl Return<'_> {
         match self {
             Self::SendBack { .. } => ADDRESS_REVIEW_SKILL,
             Self::Fix { .. } => RESTACK_SKILL,
+        }
+    }
+
+    fn fetch_why(&self) -> FetchWhy {
+        match self {
+            Self::SendBack { .. } => FetchWhy::SendBack,
+            Self::Fix { .. } => FetchWhy::Fix,
         }
     }
 }

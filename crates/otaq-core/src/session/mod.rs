@@ -285,6 +285,8 @@ struct Inner {
     live: Mutex<HashMap<String, Arc<Live>>>,
     /// A project's variables (ENV-02), set once at service start; without it sessions get none.
     project_env: OnceLock<env::EnvProvider>,
+    /// A ticket's own variables (d0087), set once at service start; without it ticket sessions get none.
+    ticket_env: OnceLock<env::TicketEnvProvider>,
 }
 
 struct Live {
@@ -337,6 +339,7 @@ impl Sessions {
                 focus,
                 live: Mutex::new(HashMap::new()),
                 project_env: OnceLock::new(),
+                ticket_env: OnceLock::new(),
             }),
         }
     }
@@ -345,6 +348,12 @@ impl Sessions {
     /// project, then.
     pub fn set_env_provider(&self, provider: env::EnvProvider) {
         let _ = self.inner.project_env.set(provider);
+    }
+
+    /// Gives the sessions a ticket's own variables (the ticket resource variables, d0087): every spawn for a
+    /// ticket (its agent, validator, answering, Run and Shell) asks `provider` for them, then.
+    pub fn set_ticket_env_provider(&self, provider: env::TicketEnvProvider) {
+        let _ = self.inner.ticket_env.set(provider);
     }
 
     /// Marks sessions left running by a service that is gone as ended (agents "service stopped", Run / Shell /
@@ -404,11 +413,17 @@ impl Sessions {
             || "xterm-256color".to_owned(),
             |t| t.to_string_lossy().into_owned(),
         );
+        // A ticket's own variables come before the spec's, so a value the spec sets wins.
+        let ticket_vars = match (&spec.ticket, self.inner.ticket_env.get()) {
+            (Some(ticket), Some(provider)) => provider(ticket.id.clone()).await,
+            _ => Vec::new(),
+        };
         let own: Vec<(String, String)> = [
             ("TERM".to_owned(), term),
             ("COLORTERM".to_owned(), "truecolor".to_owned()),
         ]
         .into_iter()
+        .chain(ticket_vars)
         .chain(spec.env.iter().cloned())
         .collect();
         let inherited_path = command.get_env("PATH").map(ToOwned::to_owned);

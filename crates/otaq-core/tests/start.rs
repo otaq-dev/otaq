@@ -4,7 +4,7 @@
 
 mod common;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use common::{Fixture, me};
@@ -18,11 +18,14 @@ use otaq_core::client::{Client, ClientConfig};
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{StartStep, Status};
 use otaq_core::git::testing::{TempRepos, commit, git};
+use otaq_core::naming;
 use otaq_core::ports::{PortPool, is_free_on_machine};
 use otaq_core::protocol::{KeyParams, MoveParams, Reply, Request};
+use otaq_core::service::testing::TestService;
 use otaq_core::service::{EventBus, Service, ServiceConfig};
 use otaq_core::session::{SessionKind, SessionState, Sessions};
 use otaq_core::start::{StartOutcome, Starter};
+use otaq_core::ticket_env::resources;
 
 /// An ordinary command standing in for `claude`: prints a line, then waits like an interactive program.
 fn stand_in() -> LaunchContext {
@@ -502,4 +505,291 @@ async fn wait_for_status(board: &otaq_core::board::Board, status: Status) -> Tic
     })
     .await
     .unwrap_or_else(|_| panic!("never reached {status}"))
+}
+
+/// `unix` on macOS and Linux, `windows` on Windows, where project commands run with `cmd` (Q33).
+fn by_os(unix: &str, windows: &str) -> String {
+    if cfg!(windows) { windows } else { unix }.to_owned()
+}
+
+/// `$NAME` in `sh`, `%NAME%` in `cmd`.
+fn var(name: &str) -> String {
+    by_os(&format!("${name}"), &format!("%{name}%"))
+}
+
+async fn resource_row(f: &Fixture, t: &Ticket) -> (Option<String>, String, Option<String>) {
+    sqlx::query_as(
+        "SELECT resource_name, resource_state, resource_problem FROM tickets WHERE id = ?",
+    )
+    .bind(&t.id)
+    .fetch_one(f.board.store().pool())
+    .await
+    .unwrap()
+}
+
+/// A shell line writing the environment to `file` (`sh` for the agent; `cmd` for setup on Windows).
+fn writing_env(file: &Path, setup: bool) -> String {
+    if setup && cfg!(windows) {
+        format!(
+            "set > \"{0}.tmp\"& echo END_OF_ENV>> \"{0}.tmp\"& move /y \"{0}.tmp\" \"{0}\" >nul",
+            file.display()
+        )
+    } else {
+        format!(
+            "env > '{0}.tmp'; echo END_OF_ENV >> '{0}.tmp'; mv '{0}.tmp' '{0}'",
+            file.display()
+        )
+    }
+}
+
+/// A file written by [`writing_env`], once it is complete (30 s at most).
+async fn written_env(file: &Path) -> String {
+    tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            if let Ok(text) = std::fs::read_to_string(file)
+                && text.contains("END_OF_ENV")
+            {
+                return text;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{} was never written", file.display()))
+}
+
+/// **The M19-d acceptance**: with empty resource settings nothing changes. The setup command and the started
+/// agent get no `OTAQ_DB_*` or `OTAQ_RESOURCE_DIR`, no resource folder is made and nothing is recorded.
+#[tokio::test]
+async fn with_empty_resource_settings_nothing_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let agent_file = dir.path().join("agent.env");
+    let setup_file = dir.path().join("setup.env");
+    let launch = LaunchContext {
+        claude: ClaudeLaunch {
+            program: vec![
+                "sh".into(),
+                "-c".into(),
+                format!("{}; exec cat", writing_env(&agent_file, false)),
+                "sh".into(),
+            ],
+            config_dir: None,
+        },
+        ..stand_in()
+    };
+    let w = TestService::start_with(|config| ServiceConfig {
+        launch: Some(launch),
+        ..config
+    })
+    .await;
+    w.add_project("shop-web").await;
+    let ticket = w.create("SHOP", "Env").await;
+    let settings = ProjectSettings {
+        setup_command: writing_env(&setup_file, true),
+        ..Default::default()
+    };
+    assert_eq!(settings.resource_create, "");
+    w.board
+        .set_project_settings("SHOP", &settings)
+        .await
+        .unwrap();
+    w.force_status(&ticket, Status::Queued).await;
+    let outcome = w.starter.start("SHOP-1", &me()).await.unwrap();
+    assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
+
+    let resource_vars = [
+        naming::db_name_env_var(),
+        naming::db_template_env_var(),
+        naming::resource_dir_env_var(),
+    ];
+    for (what, text) in [
+        ("setup", written_env(&setup_file).await),
+        ("agent", written_env(&agent_file).await),
+    ] {
+        for line in text.lines() {
+            let name = line.split('=').next().unwrap_or_default();
+            assert!(
+                !resource_vars.iter().any(|v| v.eq_ignore_ascii_case(name)),
+                "{what}: {line}"
+            );
+        }
+        let ticket_line = format!("{}=SHOP-1", naming::ticket_env_var());
+        assert!(
+            text.lines().any(|l| l.to_ascii_uppercase() == ticket_line),
+            "{what} knows its ticket"
+        );
+    }
+    assert!(!w.data.root().join(naming::resource_dir_name()).exists());
+    let row = w.board.store().ticket(&ticket.id).await.unwrap().unwrap();
+    assert_eq!(
+        (row.resource_name, row.resource_state.as_str()),
+        (None, "none")
+    );
+    let work = w.board.ticket("SHOP-1").await.unwrap().work.unwrap();
+    assert_eq!(work.resource_name, None);
+    w.stop().await;
+}
+
+/// Create runs after the env files and before setup, in the worktree, with the resource variables; what it makes in
+/// `OTAQ_RESOURCE_DIR` is there for setup. Its output goes to the setup log, before setup's.
+#[tokio::test]
+async fn create_runs_after_env_files_and_before_setup() {
+    let s = setup().await;
+    std::fs::write(repo(&s.f).join(".env.local"), "SECRET=1\n").unwrap();
+    let dir = var(&naming::resource_dir_env_var());
+    let db = var(&naming::db_name_env_var());
+    set_project(
+        &s.f,
+        ProjectSettings {
+            env_files: vec![".env.local".into()],
+            // The env file is already in the worktree when Create runs.
+            resource_create: by_os(
+                &format!("cat .env.local && echo {db} > \"{dir}/db.sqlite\" && echo create-ran"),
+                &format!("type .env.local && echo {db}> \"{dir}\\db.sqlite\" && echo create-ran"),
+            ),
+            setup_command: by_os(
+                &format!("cat \"{dir}/db.sqlite\" && echo setup-ran"),
+                &format!("type \"{dir}\\db.sqlite\" && echo setup-ran"),
+            ),
+            ..Default::default()
+        },
+    )
+    .await;
+    let t = queued(&s.f, "Checkout API").await;
+    let outcome = s.starter.start("SHOP-1", &me()).await.unwrap();
+    assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
+
+    let name = resources::db_name("SHOP", &t.key);
+    let resource_dir = s.data.resource_path("shop-web", &t.key).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(resource_dir.join("db.sqlite"))
+            .unwrap()
+            .trim(),
+        name
+    );
+    assert_eq!(
+        resource_row(&s.f, &t).await,
+        (Some(name.clone()), "created".to_owned(), None)
+    );
+    let work = s.f.ticket("SHOP-1").await.work.unwrap();
+    assert_eq!(work.resource_name.as_deref(), Some(name.as_str()));
+    let log = std::fs::read_to_string(s.data.setup_log_path("SHOP-1").unwrap()).unwrap();
+    // The last match of each is the output (each also appears in its `$ command` line).
+    let at = |needle: &str| {
+        log.rfind(needle)
+            .unwrap_or_else(|| panic!("no {needle} in {log}"))
+    };
+    let setup_header = format!("$ {}", by_os("cat", "type"));
+    assert!(at("SECRET=1") < at("create-ran"), "{log}");
+    assert!(at("create-ran") < at(&setup_header), "{log}");
+    assert!(at(&setup_header) < at(&name), "{log}");
+    assert!(
+        at(&name) < at("setup-ran"),
+        "setup read what Create made: {log}"
+    );
+    s.sessions.shutdown().await;
+}
+
+/// A failed Create is Start interrupted at the resources step, setup doesn't run, and the name stays recorded;
+/// Retry start runs Create again.
+#[tokio::test]
+async fn a_failed_create_is_start_interrupted_at_resources_and_retry_runs_it_again() {
+    let s = setup().await;
+    let failing = ProjectSettings {
+        resource_create: by_os("echo no-server >&2; exit 3", "1>&2 echo no-server& exit 3"),
+        setup_command: "echo setup > setup-ran.txt".into(),
+        ..Default::default()
+    };
+    set_project(&s.f, failing.clone()).await;
+    let t = queued(&s.f, "Orders").await;
+    let outcome = s.starter.start("SHOP-1", &me()).await.unwrap();
+    let StartOutcome::Interrupted { step, message } = &outcome else {
+        panic!("{outcome:?}")
+    };
+    assert_eq!(*step, StartStep::Resources);
+    assert_eq!(step.failure_label(), "creating ticket resources failed");
+    assert!(
+        message.starts_with("create command failed (exit 3):"),
+        "{message}"
+    );
+    assert!(message.contains("no-server"), "{message}");
+    let after = s.f.ticket("SHOP-1").await;
+    assert_eq!(after.status, Status::StartInterrupted);
+    assert_eq!(after.start_problem.unwrap().step, StartStep::Resources);
+    let worktree = s.data.worktree_path("shop-web", "SHOP-1").unwrap();
+    assert!(!worktree.join("setup-ran.txt").exists(), "setup never ran");
+    let name = resources::db_name("SHOP", &t.key);
+    assert_eq!(
+        resource_row(&s.f, &t).await,
+        (
+            Some(name.clone()),
+            "failed".to_owned(),
+            Some(message.clone())
+        )
+    );
+
+    set_project(
+        &s.f,
+        ProjectSettings {
+            resource_create: "echo created".into(),
+            ..failing
+        },
+    )
+    .await;
+    s.starter.retry("SHOP-1", &me()).await.unwrap();
+    let outcome = s.starter.start("SHOP-1", &me()).await.unwrap();
+    assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
+    assert!(worktree.join("setup-ran.txt").is_file());
+    assert_eq!(
+        resource_row(&s.f, &t).await,
+        (Some(name), "created".to_owned(), None),
+        "the same name, now created"
+    );
+    s.sessions.shutdown().await;
+}
+
+/// A start that stops after Create (here at setup) doesn't create again on Retry start.
+#[tokio::test]
+async fn retry_start_does_not_create_twice() {
+    let s = setup().await;
+    let counter = s.f.home.path().join("creates.txt");
+    let create = format!("echo created>> \"{}\"", counter.display());
+    set_project(
+        &s.f,
+        ProjectSettings {
+            resource_create: create.clone(),
+            setup_command: "exit 1".into(),
+            ..Default::default()
+        },
+    )
+    .await;
+    let t = queued(&s.f, "Orders").await;
+    let outcome = s.starter.start("SHOP-1", &me()).await.unwrap();
+    assert!(
+        matches!(
+            outcome,
+            StartOutcome::Interrupted {
+                step: StartStep::Setup,
+                ..
+            }
+        ),
+        "{outcome:?}"
+    );
+    assert_eq!(resource_row(&s.f, &t).await.1, "created");
+
+    set_project(
+        &s.f,
+        ProjectSettings {
+            resource_create: create,
+            setup_command: "echo ok".into(),
+            ..Default::default()
+        },
+    )
+    .await;
+    s.starter.retry("SHOP-1", &me()).await.unwrap();
+    let outcome = s.starter.start("SHOP-1", &me()).await.unwrap();
+    assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
+    let creates = std::fs::read_to_string(&counter).unwrap();
+    assert_eq!(creates.lines().count(), 1, "{creates}");
+    s.sessions.shutdown().await;
 }

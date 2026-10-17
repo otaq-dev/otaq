@@ -53,6 +53,31 @@ pub fn epic_env_var() -> String {
     env_var("EPIC")
 }
 
+/// The ticket resource's database name, set where a project has ticket resources (d0087): `OTAQ_DB_NAME`.
+pub fn db_name_env_var() -> String {
+    env_var("DB_NAME")
+}
+
+/// The project's template database name (d0087): `OTAQ_DB_TEMPLATE`.
+pub fn db_template_env_var() -> String {
+    env_var("DB_TEMPLATE")
+}
+
+/// The ticket's own resource folder in the data folder (d0087): `OTAQ_RESOURCE_DIR`.
+pub fn resource_dir_env_var() -> String {
+    env_var("RESOURCE_DIR")
+}
+
+/// The data folder's folder of ticket resource folders: `res` (`res/<repo>/<KEY>`, d0087).
+pub fn resource_dir_name() -> &'static str {
+    "res"
+}
+
+/// The first part of every database name Otaq computes: `otaq` (`otaq_shop_shop_18`, d0087).
+pub fn db_prefix() -> &'static str {
+    COMMAND_NAME
+}
+
 /// A plugin skill as typed in Claude Code: `skill("work-ticket")` → `/otaq:work-ticket`. Only the Claude Code
 /// adapter names skills to agents with it (ADP-05), and Settings stores Otaq's own workflow skills in this form;
 /// everything else asks the session's adapter ([`crate::agent_tools::AgentTool::skill_reference`]).
@@ -117,6 +142,15 @@ mod tests {
     #[test]
     fn app_binary() {
         assert!(app_binary_name().starts_with("otaq-app"));
+    }
+
+    #[test]
+    fn resource_names() {
+        assert_eq!(db_name_env_var(), "OTAQ_DB_NAME");
+        assert_eq!(db_template_env_var(), "OTAQ_DB_TEMPLATE");
+        assert_eq!(resource_dir_env_var(), "OTAQ_RESOURCE_DIR");
+        assert_eq!(resource_dir_name(), "res");
+        assert_eq!(db_prefix(), "otaq");
     }
 
     #[test]
