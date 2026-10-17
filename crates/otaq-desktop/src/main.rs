@@ -14,6 +14,7 @@ mod service;
 #[cfg(test)]
 mod stylesheet;
 mod terminal;
+mod usage;
 mod window;
 
 use std::sync::Arc;
@@ -49,6 +50,8 @@ pub struct App {
     run_commands: std::sync::Mutex<
         std::collections::HashMap<String, otaq_view::view_models::run_command::RunCommandModel>,
     >,
+    /// Anonymous usage data, sent only after the user said yes (d0085).
+    usage: usage::Usage,
 }
 
 fn main() {
@@ -98,7 +101,9 @@ fn main() {
         pr_dialogs: Default::default(),
         cleanup: Default::default(),
         run_commands: Default::default(),
+        usage: usage::Usage::new(runtime.handle().clone()),
     });
+    runtime.spawn(api::usage_loop(app.clone()));
     if let Err(e) = door::run(app, runtime.handle().clone(), placement) {
         eprintln!("{e}");
         std::process::exit(1);

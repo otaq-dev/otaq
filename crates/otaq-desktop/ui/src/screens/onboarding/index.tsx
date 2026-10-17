@@ -10,9 +10,20 @@ import { request } from "../../tauri";
 import { AddProjectDialog } from "./AddProjectDialog";
 import { folderDropped } from "./drops";
 import { OnboardingOverlay } from "./Onboarding";
+import { askUsageDataWhenNeeded, UsageDataOverlay } from "./UsageData";
 import "./onboarding.css";
 
-/** Once the service is connected the first time: onboarding opens when no project is stored yet (UI-08). */
+/** Opens "Help improve Otaq" when the user hasn't answered yet (d0085). */
+export function askUsageData(ask: typeof request = request): void {
+  askUsageDataWhenNeeded(ask, (dialog) => {
+    openOverlay("usage_data", dialog);
+  }).catch(() => undefined);
+}
+
+/**
+ * Once the service is connected the first time: onboarding opens when no project is stored yet (UI-08); otherwise
+ * "Help improve Otaq" when it was never answered (d0085; onboarding asks it itself when it ends).
+ */
 export function openOnboardingWhenNeeded(
   ask: typeof request = request,
   watch: (onChange: (c: ServiceConnection) => void) => () => void = watchConnection,
@@ -24,6 +35,7 @@ export function openOnboardingWhenNeeded(
     ask("onboarding.start").then(
       (answer) => {
         if ((answer as OnboardingStart).show) openOverlay("onboarding");
+        else askUsageData(ask);
       },
       () => undefined,
     );
@@ -33,6 +45,7 @@ export function openOnboardingWhenNeeded(
 export const onboarding: Screen = (app) => {
   app.overlays.register("onboarding", { Component: OnboardingOverlay });
   app.overlays.register("add_project", { Component: AddProjectDialog });
+  app.overlays.register("usage_data", { Component: UsageDataOverlay });
   openOnboardingWhenNeeded();
   pageEvents.listen((event) => {
     if (event.kind === "folder_dropped") folderDropped(event.path);

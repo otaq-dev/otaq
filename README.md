@@ -214,6 +214,19 @@ and show up as "Needs you"; auto-accept modes let them run unattended. Otaq pre-
 - **Warm builds:** a new worktree starts from a copy-on-write clone of the last finished ticket's build output (APFS,
   btrfs, XFS, ReFS), so its first build only redoes what changed.
 
+### Anonymous usage data
+
+When first run ends, Otaq asks once: **"Help improve Otaq"**. Nothing is sent unless you press *Send anonymous data*;
+*No thanks* (or Esc) means nothing is ever sent, and Otaq works the same either way. Change it anytime in
+Settings → Data → *Send anonymous usage data*.
+
+If you agree, Otaq sends to [Aptabase](https://aptabase.com) (EU region) which features are used and how often, with
+the Otaq version and your OS. It never sends ticket text, code, diffs, prompts, project, file or branch names, paths,
+or any ID that follows you across launches: each launch gets a new random session, and nothing is stored on disk. The
+full list of what counts as a feature is in [`crates/otaq-desktop/src/usage.rs`](crates/otaq-desktop/src/usage.rs).
+Builds from source send nothing at all: the Aptabase App Key is only built into release builds
+(`OTAQ_APTABASE_APP_KEY`).
+
 ## The `otaq` command
 
 `otaq` is both your tool and the agents' tool. Agents use it (taught by the bundled Claude Code plugin) to read their
