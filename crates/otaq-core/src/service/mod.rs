@@ -32,7 +32,7 @@ use tokio::task::JoinSet;
 use crate::agent_tools::claude::trust::ClaudeConfig;
 use crate::agent_tools::claude::{ClaudeCode, ClaudeContext};
 use crate::agent_tools::connected::ConnectedTools;
-use crate::agent_tools::{Adapters, Tool, ToolContext};
+use crate::agent_tools::{Adapters, Tool, ToolContext, ToolEvent};
 use crate::attention::Inbox;
 use crate::attention::notify::{NoNotifier, Notifier, Opener};
 use crate::board::Board;
@@ -48,6 +48,7 @@ use crate::review::Review;
 use crate::scheduler::{self, Scheduler};
 use crate::session::Sessions;
 use crate::session::deliveries::Deliveries;
+use crate::signals::watch::{Watched, Watcher};
 use crate::signals::{Signal, Signals};
 use crate::start::Starter;
 use crate::store::{Store, StoreError, now_ms};
@@ -214,6 +215,66 @@ struct Shared {
 }
 
 impl Shared {
+    /// What follows the signals of `caller`'s hook (or watched file) from `tool`: a Project agent's own effects,
+    /// then [`Self::after_signal`].
+    async fn after_signals(&self, caller: &Caller, tool: Tool, signals: &[Signal]) {
+        for signal in signals {
+            if let Some((agent, _)) = caller.project_agent()
+                && let Err(e) = self.project_agents.hook(agent, signal).await
+            {
+                tracing::warn!(agent, error = %e, "can't apply the Project agent's hook");
+            }
+            self.after_signal(caller, tool, signal);
+        }
+    }
+
+    /// The watcher of the agents' own files (ADP-07): a read's limit windows are recorded as `tool`'s, its other
+    /// events are applied like a hook's.
+    fn watcher(shared: &Arc<Self>) -> Watcher {
+        let weak = Arc::downgrade(shared);
+        Watcher::new(
+            shared.sessions.clone(),
+            shared.adapters.clone(),
+            shared.connected.clone(),
+            Arc::new(move |watched: Watched| {
+                let weak = weak.clone();
+                Box::pin(async move {
+                    if let Some(shared) = weak.upgrade() {
+                        shared.watched(watched).await;
+                    }
+                })
+            }),
+        )
+    }
+
+    async fn watched(&self, watched: Watched) {
+        let Watched {
+            caller,
+            tool,
+            events,
+        } = watched;
+        let (windows, events): (Vec<ToolEvent>, Vec<ToolEvent>) = events
+            .into_iter()
+            .partition(|e| matches!(e, ToolEvent::LimitWindows { .. }));
+        for report in windows {
+            if let ToolEvent::LimitWindows { windows } = report
+                && let Err(e) = self
+                    .plan_limit
+                    .record_windows(tool, &windows, now_ms())
+                    .await
+            {
+                tracing::warn!(%tool, error = %e, "can't record the limit windows");
+            }
+        }
+        if events.is_empty() {
+            return;
+        }
+        match self.signals.apply_events(&caller, tool, &events).await {
+            Ok(signals) => self.after_signals(&caller, tool, &signals).await,
+            Err(e) => tracing::warn!(%tool, error = %e, "can't apply the watched file's events"),
+        }
+    }
+
     /// What follows a hook signal of `tool`'s: a turn that ended makes the agent idle, so waiting messages may go
     /// now (SES-06); a limit is recorded as `tool`'s.
     fn after_signal(&self, caller: &Caller, tool: Tool, signal: &Signal) {
@@ -854,6 +915,9 @@ impl Service {
             events,
             opener,
         });
+        // Codex's session file (ADP-07): watched like a hook while its agent runs, again after a restart.
+        shared.signals.set_watcher(Shared::watcher(&shared));
+        shared.signals.rewatch_running();
         tracing::info!(
             pid = std::process::id(),
             build_id = %shared.config.build_id,

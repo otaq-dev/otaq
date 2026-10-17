@@ -1,0 +1,10 @@
+{
+  "session_id": "01a1479b-da76-7702-a546-a8847b2bcc57",
+  "turn_id": "01a1479b-daf0-7c90-98ae-64f872041e23",
+  "transcript_path": "/Users/me/.codex/sessions/2026/10/17/rollout-2026-10-17T05-05-58-01a1479b-da76-7702-a546-a8847b2bcc57.jsonl",
+  "cwd": "/Users/me/shop-web",
+  "hook_event_name": "UserPromptSubmit",
+  "model": "gpt-6-luna",
+  "permission_mode": "default",
+  "prompt": "Reply with the single word PONG."
+}

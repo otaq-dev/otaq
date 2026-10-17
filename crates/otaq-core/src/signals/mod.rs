@@ -21,6 +21,7 @@ pub mod background;
 pub mod hooks;
 pub mod model_refused;
 pub mod state;
+pub mod watch;
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -81,6 +82,8 @@ struct Inner {
     turned: Mutex<HashSet<String>>,
     /// One signal is applied at a time, so read-modify-write of a ticket's state never interleaves.
     applying: tokio::sync::Mutex<()>,
+    /// What watches a tool's own file while its agent runs (set once at service start).
+    watcher: OnceLock<watch::Watcher>,
 }
 
 /// One session's current turn.
@@ -104,6 +107,7 @@ impl Signals {
                 refusals: OnceLock::new(),
                 turned: Mutex::new(HashSet::new()),
                 applying: tokio::sync::Mutex::new(()),
+                watcher: OnceLock::new(),
             }),
         }
     }
@@ -175,12 +179,27 @@ impl Signals {
         if events.is_empty() {
             return Ok(vec![self.on_signal(caller, Signal::Ignored).await?]);
         }
+        self.apply_events(caller, tool, &events).await
+    }
+
+    /// Applies `caller`'s events from `tool`'s adapter in order, as a hook's (a hook, or a read of the session's
+    /// watched file, [`watch`]). Returns the signal of every event that concerns the status.
+    pub async fn apply_events(
+        &self,
+        caller: &Caller,
+        tool: Tool,
+        events: &[ToolEvent],
+    ) -> Result<Vec<Signal>, BoardError> {
+        let session = session_of(caller);
         let mut signals = Vec::new();
-        for event in &events {
+        for event in events {
             match event {
+                // Stored, kept on a Project agent's or lead's row, and the session's file watched (ADP-07).
                 ToolEvent::ToolIdKnown { tool_id } => {
                     if let Some(session) = session {
-                        self.tool_id_known(session, tool_id).await?;
+                        let stored = self.tool_id_known(session, tool_id).await?;
+                        self.tool_id_reported(caller, tool, session, tool_id, stored)
+                            .await?;
                     }
                     continue;
                 }

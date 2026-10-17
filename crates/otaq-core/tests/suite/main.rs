@@ -25,6 +25,7 @@ mod client;
 mod close;
 mod closed_parent;
 mod codex_sessions;
+mod codex_signals;
 mod comments;
 mod compatibility;
 mod conflict_flag;

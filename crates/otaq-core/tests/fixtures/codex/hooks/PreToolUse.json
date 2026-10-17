@@ -1,0 +1,14 @@
+{
+  "session_id": "01a1479b-da76-7702-a546-a8847b2bcc57",
+  "turn_id": "01a1479c-9660-7c11-8cfc-68b7d61b1151",
+  "transcript_path": "/Users/me/.codex/sessions/2026/10/17/rollout-2026-10-17T05-05-58-01a1479b-da76-7702-a546-a8847b2bcc57.jsonl",
+  "cwd": "/Users/me/shop-web",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-6-luna",
+  "permission_mode": "default",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "sleep 20"
+  },
+  "tool_use_id": "exec-504e37f4-0fa9-4680-b728-520677a11749"
+}

@@ -1,0 +1,14 @@
+{
+  "session_id": "01a1479b-da76-7702-a546-a8847b2bcc57",
+  "turn_id": "01a1479d-3bc6-7060-b756-ab1cab87359f",
+  "transcript_path": "/Users/me/.codex/sessions/2026/10/17/rollout-2026-10-17T05-05-58-01a1479b-da76-7702-a546-a8847b2bcc57.jsonl",
+  "cwd": "/Users/me/shop-web",
+  "hook_event_name": "PermissionRequest",
+  "model": "gpt-6-luna",
+  "permission_mode": "default",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "curl -sI https://example.com | head -1",
+    "description": "The command produced no response in the sandbox, likely because network access is restricted. Do you want to allow running it with network access?"
+  }
+}

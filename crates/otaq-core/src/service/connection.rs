@@ -373,14 +373,7 @@ async fn respond(
         },
         Request::Hook(p) => match shared.signals.hook(who, p.tool, &p.event, &p.payload).await {
             Ok(signals) => {
-                for signal in &signals {
-                    if let Some((agent, _)) = who.project_agent()
-                        && let Err(e) = shared.project_agents.hook(agent, signal).await
-                    {
-                        tracing::warn!(agent, error = %e, "can't apply the Project agent's hook");
-                    }
-                    shared.after_signal(who, p.tool, signal);
-                }
+                shared.after_signals(who, p.tool, &signals).await;
                 (Reply::Ok, Then::Continue)
             }
             Err(e) => {
