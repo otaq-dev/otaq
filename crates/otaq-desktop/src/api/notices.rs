@@ -2,6 +2,7 @@
 //! click, and what a notification click opens.
 
 use otaq_core::board::epic_flight::EpicQueueOutcome;
+use otaq_core::agent_tools::Tool;
 use otaq_core::board::settings::AutoMerge;
 use otaq_core::protocol::{
     EpicUndoQueueParams, KeyParams, ProjectParams, ProjectSettingsParams, Reply, Request,
@@ -137,6 +138,11 @@ async fn resume_after_limit(app: &App) -> Result<Value, RequestError> {
     let Some(tool) = tool else {
         return Ok(Value::Null);
     };
+    resume_tool(app, tool).await
+}
+
+/// Resume one tool after its limit (USG-10): the inbox's limit row, a notice's Resume after reset (`limits.resume_tool`).
+pub(super) async fn resume_tool(app: &App, tool: Tool) -> Result<Value, RequestError> {
     let toast = match app
         .service
         .send(Request::LimitsResumeTool(ToolParams { tool }))

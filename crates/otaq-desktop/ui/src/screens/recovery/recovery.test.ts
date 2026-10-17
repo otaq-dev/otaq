@@ -223,6 +223,41 @@ describe("the after-restart sheet", () => {
     expect(html).toContain('data-state="failed"');
   });
 
+  it("with several tools: the agent and tool, Sign in… in place of Resume, what Resume selected skips", () => {
+    const view: AfterRestartSummary = {
+      ...SUMMARY,
+      rows: [
+        row("SHOP-25", { agent: "Strong · Claude Code" }),
+        row("SHOP-19", {
+          agent: "Standard · Codex",
+          problem: "Codex isn't available (logged out)",
+          checked: false,
+          sign_in: { label: "Sign in…", action: { kind: "sign_in", tool: "codex" }, primary: true },
+        }),
+      ],
+      more: null,
+      skipped: ["Resume selected skips the Codex session until you sign in"],
+    };
+    const html = renderToStaticMarkup(
+      createElement(SummaryBody, {
+        view,
+        resuming: new Set<string>(),
+        onCheck: nothing,
+        onResume: nothing,
+        onRetry: nothing,
+        onUnfold: nothing,
+        onLater: nothing,
+        onResumeAgent: nothing,
+      }),
+    );
+    expect(html).toContain("Strong · Claude Code");
+    expect(html).toContain('data-problem="true">Standard · Codex · Codex isn&#x27;t available (logged out)');
+    expect(html).toContain("Sign in…");
+    expect(html).toContain("Resume selected skips the Codex session until you sign in");
+    const signInRow = html.slice(html.indexOf("SHOP-19"));
+    expect(signInRow.slice(0, signInRow.indexOf("Sign in…"))).not.toContain(">Resume<");
+  });
+
   it("ticks and unticks keys together", () => {
     const off = setUnchecked(new Set(), ["SHOP-30", "SHOP-31"], false);
     expect([...off]).toEqual(["SHOP-30", "SHOP-31"]);

@@ -186,6 +186,11 @@
   height: 20px;
 }
 
+/* The tool avatar keeps its 16 px when a crowded head (at 1280) shrinks: the key gives way, not the avatar. */
+.card-head > .tooltip-anchor:has(> .tool-avatar) {
+  flex: none;
+}
+
 /* The head is the status hover's anchor: it stays one full-width row. */
 .ticket-card > .card-hover-anchor {
   display: block;

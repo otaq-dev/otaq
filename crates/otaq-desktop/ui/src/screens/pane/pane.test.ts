@@ -14,7 +14,14 @@ import type { TerminalHandle, TerminalProps } from "../../terminal/Terminal";
 import { pane } from ".";
 import { CloseAgentDialog, RecentList } from "./parts";
 import { renderToStaticMarkup } from "react-dom/server";
-import { paneFocusRequests, sendFirstMessage, shownAgents } from "./logic";
+import {
+  newProjectAgent,
+  paneFocusRequests,
+  sendFirstMessage,
+  shownAgents,
+  startNewAgentOn,
+  startOn,
+} from "./logic";
 import { PaneBody } from "./Pane";
 
 vi.mock("../../tauri", () => ({ request: vi.fn(), subscribeEvents: vi.fn(), windowAction: vi.fn() }));
@@ -335,5 +342,121 @@ describe("a running agent", () => {
     );
     expect(recent).toContain("Footer audit");
     expect(recent).not.toContain("No ended Project agents yet.");
+  });
+});
+
+/** *18 `VDJkG`*: the agent on Standard · Codex, Codex logged out; Sonnet is Standard's fallback. */
+const CODEX_OUT: NonNullable<PaneView["running"]>["notice"] = {
+  role: null,
+  tone: "amber",
+  avatar: null,
+  heading: "Codex isn't available · logged out. This agent continues after you sign in.",
+  text: null,
+  model: null,
+  buttons: [
+    { label: "Sign in…", action: { kind: "sign_in", tool: "codex" }, primary: true },
+    { label: "New agent on Sonnet", action: { kind: "new_agent", agent: "sonnet" }, primary: false },
+  ],
+};
+
+const click = (label: string) => {
+  const found = [...box.querySelectorAll("button")].find((b) => b.textContent === label);
+  if (!found) throw new Error(`no ${label}`);
+  act(() => {
+    found.click();
+  });
+};
+
+describe("a tool problem's notice (M23)", () => {
+  afterEach(() => {
+    startOn.set({});
+  });
+
+  it("shows above the terminal, amber; Sign in… opens the tool's login", () => {
+    ask.mockResolvedValue({ session: "s9", tab: "t9", title: "Codex sign in" });
+    show({ ...RUNNING, running: RUNNING.running && { ...RUNNING.running, notice: CODEX_OUT } });
+    const notice = box.querySelector(".pane-notice .tool-problem");
+    expect(notice?.getAttribute("data-tone")).toBe("amber");
+    expect(notice?.textContent).toContain("This agent continues after you sign in.");
+    click("Sign in…");
+    expect(ask).toHaveBeenCalledWith("agent_tools.sign_in", { tool: "codex" });
+  });
+
+  it("Codex at its limit: a neutral notice whose Resume after reset resumes Codex", () => {
+    ask.mockResolvedValue(null);
+    show({
+      ...RUNNING,
+      running: RUNNING.running && {
+        ...RUNNING.running,
+        notice: {
+          ...CODEX_OUT,
+          tone: "neutral",
+          heading: "Codex limit reached · resets 5:10 pm. This agent continues after the reset.",
+          buttons: [
+            { label: "Resume after reset", action: { kind: "resume_tool", tool: "codex" }, primary: true },
+            { label: "New agent on Sonnet", action: { kind: "new_agent", agent: "sonnet" }, primary: false },
+          ],
+        },
+      },
+    });
+    expect(box.querySelector(".pane-notice .tool-problem")?.getAttribute("data-tone")).toBe("neutral");
+    click("Resume after reset");
+    expect(ask).toHaveBeenCalledWith("limits.resume_tool", { tool: "codex" });
+  });
+
+  it("New agent on Sonnet opens the empty pane on Sonnet, and its first message starts it there", async () => {
+    show({ ...RUNNING, running: RUNNING.running && { ...RUNNING.running, notice: CODEX_OUT } });
+    click("New agent on Sonnet");
+    expect(ask).not.toHaveBeenCalled();
+    expect(shownAgents.get()).toEqual({ NOTE: null });
+    expect(startOn.get()).toEqual({ NOTE: "sonnet" });
+    expect(paneFocusRequests.get()).toMatchObject({ agent: null });
+
+    ask.mockResolvedValue("a2");
+    show({ ...EMPTY, empty: EMPTY.empty && { ...EMPTY.empty, starts_on: "sonnet" } });
+    type("Why is checkout slow?");
+    await act(async () => {
+      enter();
+      await Promise.resolve();
+    });
+    expect(ask).toHaveBeenCalledWith("pane.send", {
+      project: "NOTE",
+      message: "Why is checkout slow?",
+      agent: "sonnet",
+    });
+    expect(startOn.get()).toEqual({});
+    expect(shownAgents.get()).toEqual({ NOTE: "a2" });
+  });
+
+  it("+ drops the choice: the empty pane starts on the Project agent default again", () => {
+    startNewAgentOn("NOTE", "sonnet");
+    selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
+    newProjectAgent();
+    expect(startOn.get()).toEqual({});
+  });
+
+  it("a held first message shows its notice above the box", () => {
+    show({
+      ...EMPTY,
+      empty: EMPTY.empty && {
+        ...EMPTY.empty,
+        notice: {
+          ...CODEX_OUT,
+          role: "project_agent",
+          heading: "Model unavailable",
+          text: "Codex no longer lists gpt-5.4, the model of Old GPT.",
+          model: "gpt-5.4",
+          buttons: [
+            {
+              label: "Change agent",
+              action: { kind: "agent_settings", project: "NOTE", agent: "old-gpt" },
+              primary: true,
+            },
+          ],
+        },
+      },
+    });
+    expect(box.querySelector(".pane-notice")?.textContent).toContain("Model unavailable");
+    expect(box.querySelector("textarea")).not.toBeNull();
   });
 });

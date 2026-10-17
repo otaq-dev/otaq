@@ -636,3 +636,15 @@
   border-radius: 50%;
   background: var(--st-attn);
 }
+
+/* A tool problem's notice under the agent line (M23; *18 → Its tool isn't available / Its tool is at its limit*): the
+ * band runs the pane's width, amber or neutral, never turquoise (d0077). */
+.pane-notice {
+  flex: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.pane-notice > .tool-problem[data-look="band"] {
+  padding: 10px 14px;
+  border-radius: 0;
+}

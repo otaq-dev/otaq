@@ -201,6 +201,14 @@
 }
 
 /* Why Auto-merge stopped (*Auto-merge stop · messages*). */
+/* The held roles' callouts above the bar (M23; *05 → Column 3 · several tools*): one under another. */
+.panel-holds {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
 /* A refused model (AGT-05, T-0345; *05 → Start failed on the model*, *No result: the validator's model*): a 2 px
  * edge, red for Start failed and turquoise for No result (d0077), the tool's message in mono. */
 .panel-refusal {

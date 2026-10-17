@@ -194,3 +194,9 @@
   color: var(--text-primary);
   font-weight: 600;
 }
+
+/* The lead waits on its tool or its model (M23; *08 → Epic lead · its tool isn't available / at its limit*). */
+.lead-tab-waiting {
+  flex: none;
+  padding: 10px 14px 0;
+}

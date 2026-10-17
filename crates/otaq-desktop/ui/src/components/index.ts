@@ -38,4 +38,5 @@ export { Segmented, Tabs, Toggle, type TabIndicator, type TabItem, type TabsProp
 export { pickTheme, ThemePicker, useThemePicker, type ThemePickerProps } from "./ThemePicker";
 export { Toast, type ToastIconTone, type ToastKind, type ToastProps } from "./Toast";
 export { ToolAvatar, type ToolAvatarProps } from "./ToolAvatar";
+export { ToolProblemCallout, type ToolProblemCalloutProps, type ToolProblemLook } from "./ToolProblem";
 export { Tooltip, type TooltipProps } from "./Tooltip";

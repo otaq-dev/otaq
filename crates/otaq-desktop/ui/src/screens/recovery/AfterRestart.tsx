@@ -4,7 +4,9 @@
 // alone. It opens by itself once per service start and from the banner's Review & resume; Later (or Esc) closes it
 // and the tickets stay in the inbox. Nothing resumes without a click. What it says is `recovery.summary`'s
 // (`after_restart.rs`); a ticket that was validating says Resume starts a fresh validation, and the Project agents
-// the restart ended have their own rows with Resume, outside Resume selected (T-0244).
+// the restart ended have their own rows with Resume, outside Resume selected (T-0244). With several tools (M23) each
+// row names its agent and tool; a row whose tool is logged out says so in amber with Sign in… in place of Resume, and
+// the foot says what Resume selected skips (*16 → Recovery per tool (0086)*).
 import { useCallback, useEffect, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
@@ -14,9 +16,11 @@ import type { AfterRestartParams } from "../../generated/AfterRestartParams";
 import type { AfterRestartRow } from "../../generated/AfterRestartRow";
 import type { AfterRestartSummary } from "../../generated/AfterRestartSummary";
 import type { RecoveryResumeParams } from "../../generated/RecoveryResumeParams";
+import type { ToolProblemButton } from "../../generated/ToolProblemButton";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { toolProblemAction } from "../panel/toolProblemRunner";
 import { setUnchecked } from "./logic";
 
 export interface SummaryBodyProps {
@@ -30,6 +34,30 @@ export interface SummaryBodyProps {
   onLater: () => void;
   /** A Project agent's Resume: the same conversation. */
   onResumeAgent: (id: string) => void;
+}
+
+/** The agent and its tool ("Standard · Codex"), with several tools; amber with why its tool can't resume it now. */
+function ToolLine({ agent, problem }: { agent: string | null; problem: string | null }) {
+  if (agent === null && problem === null) return null;
+  return (
+    <span className="summary-tool" data-problem={problem !== null || undefined}>
+      {[agent, problem].filter((part) => part !== null).join(" · ")}
+    </span>
+  );
+}
+
+/** Sign in… in place of Resume while the row's tool is logged out: the tool's own login in a terminal. */
+function SignIn({ button }: { button: ToolProblemButton }) {
+  return (
+    <Button
+      compact
+      variant={button.primary ? "primary" : "secondary"}
+      label={button.label}
+      onClick={() => {
+        toolProblemAction(button.action, {});
+      }}
+    />
+  );
 }
 
 function Row({
@@ -93,16 +121,21 @@ function Row({
       <span className="summary-text">
         <span className="summary-title">{row.title}</span>
         <span className="summary-detail">{row.detail}</span>
+        <ToolLine agent={row.agent} problem={row.problem} />
       </span>
-      <Button
-        compact
-        variant="secondary"
-        icon="play"
-        label={view.resume}
-        onClick={() => {
-          onResume([row.key]);
-        }}
-      />
+      {row.sign_in !== null ? (
+        <SignIn button={row.sign_in} />
+      ) : (
+        <Button
+          compact
+          variant="secondary"
+          icon="play"
+          label={view.resume}
+          onClick={() => {
+            onResume([row.key]);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -165,17 +198,22 @@ export function SummaryBody(props: SummaryBodyProps) {
                     <span className="summary-text">
                       <span className="summary-title">{agent.name}</span>
                       <span className="summary-detail">{agent.detail}</span>
+                      <ToolLine agent={agent.agent} problem={agent.problem} />
                     </span>
-                    {agent.resumable && (
-                      <Button
-                        compact
-                        variant="secondary"
-                        icon="play"
-                        label={view.resume}
-                        onClick={() => {
-                          onResumeAgent(agent.id);
-                        }}
-                      />
+                    {agent.sign_in !== null ? (
+                      <SignIn button={agent.sign_in} />
+                    ) : (
+                      agent.resumable && (
+                        <Button
+                          compact
+                          variant="secondary"
+                          icon="play"
+                          label={view.resume}
+                          onClick={() => {
+                            onResumeAgent(agent.id);
+                          }}
+                        />
+                      )
                     )}
                   </div>
                 ))}
@@ -194,7 +232,14 @@ export function SummaryBody(props: SummaryBodyProps) {
         )}
       </div>
       <div className="summary-foot">
-        <span>{view.foot}</span>
+        <span className="summary-foot-text">
+          <span>{view.foot}</span>
+          {view.skipped.map((line) => (
+            <span key={line} className="summary-skipped">
+              {line}
+            </span>
+          ))}
+        </span>
         <span className="cleanup-spacer" />
         <Button variant="ghost" label={view.later} onClick={onLater} />
         <Button
