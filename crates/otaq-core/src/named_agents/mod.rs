@@ -10,7 +10,10 @@
 //!   agent with who set it.
 //! - **Resolution** ([`resolve`]), pure: the row's agent, else the project default, else the app default, with
 //!   where it came from ([`CameFrom`]).
-//! - **Locked rows** ([`row_lock`]), pure, from what is stored today (T-0336 refines it in place).
+//! - **At session start** ([`resolve_ticket_role`], [`resolve_project_role`], [`RunsOn`]): every new session
+//!   resolves its role right before launch and saves the named agent, the tool and the model as passed on the
+//!   session; a resumed conversation runs on what its session stored, never the named agent's current model.
+//! - **Locked rows** ([`row_lock`]), pure, from what the store says about the ticket's sessions ([`LockFacts`]).
 //! - **The model list** ([`ModelCatalog`]): what picking a model text from a tool's own list means, answered by
 //!   Otaq's copies of the tools' lists ([`ModelLists`]). The core never invents model text.
 //! - [`NamedAgents`]: the requests' rules (add, edit, duplicate, delete, defaults, rows).
@@ -25,10 +28,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent_tools::Tool;
 use crate::agent_tools::models::{ModelKind, ModelLists};
+use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::{Kind, stored_enum};
 use crate::naming;
+use crate::session::{SessionAgent, StoredConversation};
 use crate::store::named_agents::NewNamedAgent;
+use crate::store::projects::Project;
 pub use in_use::InUse;
 
 stored_enum! {
@@ -274,12 +280,89 @@ pub fn resolve(
     })
 }
 
+/// The role of a ticket's or an epic's new session, resolved from what is stored now (AGT-05): its row, else its
+/// project's default, else the app default. `None` only while there are no named agents.
+pub async fn resolve_ticket_role(
+    board: &Board,
+    ticket: &Ticket,
+    role: Role,
+) -> Result<Option<Resolved>, BoardError> {
+    let project = board.project(ticket.key.project.as_str()).await?;
+    let store = board.store();
+    let rows = store.ticket_agent_rows(&ticket.id).await?;
+    Ok(resolve(
+        role,
+        rows.iter().find(|row| row.role == role),
+        &project.agent_defaults(),
+        &store.agent_defaults().await?,
+        &store.named_agents().await?,
+    ))
+}
+
+/// A project's role with no row (the Project agent; Delivery's Developer, Q-D), resolved from what is stored now:
+/// the project's default, else the app default.
+pub async fn resolve_project_role(
+    board: &Board,
+    project: &Project,
+    role: Role,
+) -> Result<Option<Resolved>, BoardError> {
+    let store = board.store();
+    Ok(resolve(
+        role,
+        None,
+        &project.agent_defaults(),
+        &store.agent_defaults().await?,
+        &store.named_agents().await?,
+    ))
+}
+
+/// What a session launches on (AGT-05, ADP-04; d0088 "The exact tool, model and named agent are saved on the
+/// session"): the tool (`None`: the new-session tool, only without named agents), the model passed to it unchanged
+/// (`None` passes no model option) and the named agent saved on the session.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RunsOn {
+    pub tool: Option<Tool>,
+    pub model: Option<String>,
+    pub agent: Option<SessionAgent>,
+}
+
+impl RunsOn {
+    /// A new session on the agent its role resolved to; with none (no named agents yet) the new-session tool
+    /// with its default model.
+    pub fn resolved(resolved: Option<&Resolved>) -> Self {
+        resolved.map_or_else(Self::default, |resolved| Self::agent(&resolved.agent))
+    }
+
+    /// A new session on `agent` as it is now.
+    pub fn agent(agent: &NamedAgent) -> Self {
+        Self {
+            tool: Some(agent.tool),
+            model: agent.model.clone(),
+            agent: Some(SessionAgent {
+                id: agent.id.clone(),
+                name: agent.name.clone(),
+            }),
+        }
+    }
+
+    /// A resumed conversation: the tool, model and named agent its session stored, whatever the named agent is
+    /// set to now (the models report: Claude Code doesn't keep the model, so it is passed again).
+    pub fn resumed(conversation: &StoredConversation) -> Self {
+        Self {
+            tool: Some(conversation.tool),
+            model: conversation.model.clone(),
+            agent: conversation.named_agent.clone(),
+        }
+    }
+}
+
 /// What the store says about a ticket's sessions, for [`row_lock`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LockFacts {
-    /// The ticket has had a developer session (it started).
+    /// The ticket has a developer session that didn't end in "not started" (its first turn refused on the model,
+    /// T-0337): it started.
     pub developer_started: bool,
-    /// A validation round of the ticket is running.
+    /// A validation round of the ticket is running: its validator started and the round hasn't ended.
     pub round_running: bool,
     /// The epic's lead has started (opened, or the epic dragged; d0083).
     pub lead_started: bool,
@@ -319,9 +402,10 @@ impl RowLock {
     }
 }
 
-/// The lock rule (AGT-04, d0086), from what exists today: Developer once the ticket has a developer session;
-/// Validator while a round runs (free again after it, for the next round); Epic lead once the lead started. T-0336
-/// owns this function and refines it (a Developer that never got through its first turn, T-0337).
+/// The lock rule (AGT-04, d0086), one function for the refusals and the rows: Developer once the ticket has started
+/// (a developer session that didn't end in "not started"); Validator while a round runs (free again after it ends
+/// in a pass, a fail or no result, for the next round); Epic lead once the lead started. A Project agent has no
+/// row.
 pub fn row_lock(role: Role, facts: LockFacts) -> Option<RowLock> {
     match role {
         Role::Developer => facts.developer_started.then_some(RowLock::Started),
@@ -596,23 +680,14 @@ impl NamedAgents {
         })
     }
 
-    /// The agent a ticket's or an epic's role resolves to now ([`resolve`]).
+    /// The agent a ticket's or an epic's role resolves to now ([`resolve_ticket_role`]).
     pub async fn resolve_for_ticket(
         &self,
         key: &str,
         role: Role,
     ) -> Result<Option<Resolved>, BoardError> {
         let ticket = self.board.ticket(key).await?;
-        let project = self.board.project(ticket.key.project.as_str()).await?;
-        let store = self.board.store();
-        let rows = store.ticket_agent_rows(&ticket.id).await?;
-        Ok(resolve(
-            role,
-            rows.iter().find(|row| row.role == role),
-            &project.agent_defaults(),
-            &store.agent_defaults().await?,
-            &store.named_agents().await?,
-        ))
+        resolve_ticket_role(&self.board, &ticket, role).await
     }
 
     /// The agent a project's role (the Project agent) resolves to now: the project default, else the app default.
@@ -622,14 +697,7 @@ impl NamedAgents {
         role: Role,
     ) -> Result<Option<Resolved>, BoardError> {
         let project = self.board.project(project).await?;
-        let store = self.board.store();
-        Ok(resolve(
-            role,
-            None,
-            &project.agent_defaults(),
-            &store.agent_defaults().await?,
-            &store.named_agents().await?,
-        ))
+        resolve_project_role(&self.board, &project, role).await
     }
 
     /// The fields as stored, after the rules: a name (trimmed, not empty, new ignoring case among the entries other

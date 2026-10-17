@@ -109,6 +109,7 @@ impl World {
                 tool: None,
                 tool_session_id: None,
                 model: None,
+                named_agent: None,
             })
             .await
             .unwrap()

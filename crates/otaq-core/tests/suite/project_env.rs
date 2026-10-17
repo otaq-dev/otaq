@@ -208,6 +208,7 @@ async fn every_session_kind_gets_the_rows() {
                 tool: None,
                 tool_session_id: None,
                 model: None,
+                named_agent: None,
             })
             .await
             .unwrap();
@@ -404,6 +405,7 @@ async fn spawn_writing_env(
             tool: None,
             tool_session_id: None,
             model: None,
+            named_agent: None,
         })
         .await
         .unwrap();

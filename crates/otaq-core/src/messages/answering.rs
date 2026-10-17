@@ -15,6 +15,7 @@ use super::{Messages, PART_QUESTION, Route, question_text};
 use crate::agent_tools::{FirstPrompt, LaunchRequest, LaunchRole};
 use crate::board::tickets::Ticket;
 use crate::board::{BoardError, Refusal};
+use crate::named_agents::RunsOn;
 use crate::naming;
 use crate::session::{
     SessionInfo, SessionKind, SessionTicket, SpawnSpec, StoredConversation, TerminalSize,
@@ -247,8 +248,10 @@ impl Messages {
             .bind(&target.id)
             .execute(board.store().pool())
             .await?;
+        // Answer resumes the finished session with its own stored tool, model and named agent (Q-D).
+        let runs_on = RunsOn::resumed(&conversation);
         let launched = inner.adapters.launch(
-            Some(conversation.tool),
+            runs_on.tool,
             &LaunchRequest {
                 role: LaunchRole::Answer,
                 cwd: path,
@@ -261,7 +264,7 @@ impl Messages {
                     message: None,
                 }),
                 resume: Some(conversation.id),
-                model: conversation.model,
+                model: runs_on.model,
             },
         )?;
         let session = inner
@@ -282,6 +285,7 @@ impl Messages {
                 tool: Some(launched.tool),
                 tool_session_id: launched.tool_session_id,
                 model: launched.model,
+                named_agent: runs_on.agent,
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;

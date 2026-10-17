@@ -270,6 +270,8 @@ mod tests {
             tool: Some(otaq_core::agent_tools::Tool::Claude),
             tool_session_id: Some("abc".into()),
             model: None,
+            named_agent: None,
+            model_ran: None,
             size: None,
         }
     }

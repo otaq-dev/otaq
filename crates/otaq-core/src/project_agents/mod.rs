@@ -34,12 +34,13 @@ use crate::board::questions::{Choice, HumanQuestion};
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::stored_enum;
 use crate::domain::{Actor, Column, Status, TicketKey};
+use crate::named_agents::{Role, RunsOn, resolve_project_role};
 use crate::naming;
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, Delivery, IdleSignal};
 use crate::session::{
-    END_SERVICE_STOPPED, SessionInfo, SessionKind, Sessions, SpawnSpec, TerminalSize,
+    END_SERVICE_STOPPED, SessionAgent, SessionInfo, SessionKind, Sessions, SpawnSpec, TerminalSize,
 };
 use crate::signals::Signal;
 use crate::store::projects::Project;
@@ -354,32 +355,48 @@ impl ProjectAgents {
             return Err(BoardError::refused(Refusal::EmptyField, EMPTY_MESSAGE));
         }
         self.refuse_during_limit().await?;
+        // The project's Project agent default, else the app default (AGT-03, AGT-05): a Project agent has no row.
+        let runs_on = RunsOn::resolved(
+            resolve_project_role(&self.inner.board, &project, Role::ProjectAgent)
+                .await?
+                .as_ref(),
+        );
         let launched = self.launch(
-            None,
-            request(
-                &project,
-                LaunchRole::ProjectAgent,
-                Some(FirstPrompt::OtaqSkill {
-                    name: PROJECT_AGENT_SKILL.to_owned(),
-                    message: Some(message.to_owned()),
-                }),
-            ),
+            runs_on.tool,
+            LaunchRequest {
+                model: runs_on.model.clone(),
+                ..request(
+                    &project,
+                    LaunchRole::ProjectAgent,
+                    Some(FirstPrompt::OtaqSkill {
+                        name: PROJECT_AGENT_SKILL.to_owned(),
+                        message: Some(message.to_owned()),
+                    }),
+                )
+            },
         )?;
         let id = new_id();
         sqlx::query(
-            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, first_request, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, named_agent_id,
+                                         named_agent_name, state, first_request, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
         .bind(launched.tool.as_str())
         .bind(&launched.tool_session_id)
+        .bind(&launched.model)
+        .bind(runs_on.agent.as_ref().map(|a| &a.id))
+        .bind(runs_on.agent.as_ref().map(|a| &a.name))
         .bind(AgentState::Running.as_str())
         .bind(message)
         .bind(now_ms())
         .execute(self.inner.board.store().pool())
         .await?;
-        if let Err(e) = self.spawn(&project, launched, &id, None).await {
+        if let Err(e) = self
+            .spawn(&project, launched, &id, runs_on.agent, None)
+            .await
+        {
             sqlx::query("DELETE FROM project_agents WHERE id = ?")
                 .bind(&id)
                 .execute(self.inner.board.store().pool())
@@ -406,29 +423,55 @@ impl ProjectAgents {
             return Ok(agent);
         }
         self.refuse_during_limit().await?;
-        self.inner.adapters.unavailable(Some(agent.tool))?;
+        let runs_on = self.runs_on(&agent).await?;
+        self.inner.adapters.unavailable(runs_on.tool)?;
         let project = self.inner.board.project(&agent.project).await?;
         let launched = self.launch(
-            Some(agent.tool),
+            runs_on.tool,
             LaunchRequest {
                 resume: Some(agent.conversation()?.to_owned()),
-                model: agent.model.clone(),
+                model: runs_on.model,
                 ..request(&project, LaunchRole::ProjectAgent, None)
             },
         )?;
-        self.restart(&agent, &project, launched, None).await?;
+        self.restart(&agent, &project, launched, runs_on.agent, None)
+            .await?;
         tracing::info!(agent = id, "project agent resumed");
         self.changed(&agent.project, id);
         self.get(id).await
     }
 
-    /// Starts a new session for the ended agent `agent` with `launched` (its conversation resumed): running again,
-    /// its end and closed marks cleared; put back as it was when the session can't start.
+    /// What an ended agent's Resume runs on (ADP-04, d0088): the tool, model and named agent its row stored at its
+    /// start, whatever the named agent is set to now.
+    async fn runs_on(&self, agent: &ProjectAgent) -> Result<RunsOn, BoardError> {
+        let named: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT named_agent_id, named_agent_name FROM project_agents WHERE id = ?",
+        )
+        .bind(&agent.id)
+        .fetch_optional(self.inner.board.store().pool())
+        .await?;
+        let agent_named = named.and_then(|(id, name)| {
+            Some(SessionAgent {
+                id: id?,
+                name: name?,
+            })
+        });
+        Ok(RunsOn {
+            tool: Some(agent.tool),
+            model: agent.model.clone(),
+            agent: agent_named,
+        })
+    }
+
+    /// Starts a new session for the ended agent `agent` with `launched` (its conversation resumed) on
+    /// `named_agent`: running again, its end and closed marks cleared; put back as it was when the session can't
+    /// start.
     async fn restart(
         &self,
         agent: &ProjectAgent,
         project: &Project,
         launched: Launched,
+        named_agent: Option<SessionAgent>,
         lead: Option<(&str, &TicketKey)>,
     ) -> Result<(), BoardError> {
         let id = agent.id.as_str();
@@ -439,7 +482,7 @@ impl ProjectAgents {
         .bind(id)
         .execute(self.inner.board.store().pool())
         .await?;
-        if let Err(e) = self.spawn(project, launched, id, lead).await {
+        if let Err(e) = self.spawn(project, launched, id, named_agent, lead).await {
             self.set_state(id, agent.state).await?;
             sqlx::query("UPDATE project_agents SET ended_at = ?, closed_at = ? WHERE id = ?")
                 .bind(agent.ended_at)
@@ -1000,6 +1043,7 @@ impl ProjectAgents {
         project: &Project,
         launched: Launched,
         id: &str,
+        named_agent: Option<SessionAgent>,
         lead: Option<(&str, &TicketKey)>,
     ) -> Result<SessionInfo, BoardError> {
         let sessions = &self.inner.sessions;
@@ -1017,6 +1061,7 @@ impl ProjectAgents {
                 tool: Some(launched.tool),
                 tool_session_id: launched.tool_session_id,
                 model: launched.model,
+                named_agent,
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;

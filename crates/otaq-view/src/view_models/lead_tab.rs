@@ -626,6 +626,8 @@ pub mod fixtures {
             tool: Some(lead.agent.tool),
             tool_session_id: lead.agent.tool_session_id.clone(),
             model: None,
+            named_agent: None,
+            model_ran: None,
             size: None,
         });
         lead

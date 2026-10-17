@@ -120,6 +120,22 @@ impl TicketUsage {
     }
 }
 
+/// A ticket's tokens on one named agent in one role (d0086: "The ticket panel splits developer and validator tokens
+/// as today (0063), with the named agent and tool for each"): the parts of "Strong 61k · Light 23k (1 round)". The
+/// view models word it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentTokens {
+    /// Developer (the agent's sessions, its answers and an epic's deliveries), Validator, or Epic lead (an epic's).
+    pub role: crate::named_agents::Role,
+    /// The named agent's name at its sessions' start ("Strong"); `None` for sessions that ran on none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<Tool>,
+    /// `None` when none of these sessions' conversations could be read.
+    pub tokens: Option<Tokens>,
+}
+
 /// One session's tokens (the History tab).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionUsage {
@@ -543,6 +559,75 @@ impl Usage {
                     .then(|| tokens((a, b, c, d))),
             })
             .collect())
+    }
+
+    /// A ticket's (by id) tokens by role and named agent ([`AgentTokens`]), in role order (Developer, Validator, Epic
+    /// lead) and then the order the agents first ran. An epic's lead counts on the epic (LEAD-12).
+    pub async fn agents_of(&self, ticket_id: &str) -> Result<Vec<AgentTokens>, StoreError> {
+        use crate::named_agents::Role;
+        type Row = (
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            i64,
+        );
+        let rows: Vec<Row> = sqlx::query_as(
+            "SELECT s.kind, s.named_agent_name, s.tool, s.tool_session_id, SUM(u.input), SUM(u.cached),
+                    SUM(u.output), SUM(u.reasoning), s.started_at
+             FROM sessions s LEFT JOIN usage u ON u.session_id = s.id
+             WHERE s.ticket_id = ? AND (s.tool IS NOT NULL OR s.tool_session_id IS NOT NULL)
+             GROUP BY s.id
+             UNION ALL
+             SELECT 'lead', s.named_agent_name, s.tool, s.tool_session_id, SUM(u.input), SUM(u.cached),
+                    SUM(u.output), SUM(u.reasoning), s.started_at
+             FROM project_agents a JOIN sessions s ON s.project_agent_id = a.id
+             LEFT JOIN usage u ON u.session_id = s.id
+             WHERE a.epic_id = ? AND (s.tool IS NOT NULL OR s.tool_session_id IS NOT NULL)
+             GROUP BY s.id
+             ORDER BY 9",
+        )
+        .bind(ticket_id)
+        .bind(ticket_id)
+        .fetch_all(self.inner.store.pool())
+        .await?;
+        let unknown = self.inner.unknown.lock().expect("unknown usage").clone();
+        let mut out: Vec<AgentTokens> = Vec::new();
+        for (kind, agent, tool, tool_id, a, b, c, d, _) in rows {
+            let role = match kind.as_str() {
+                "validator" => Role::Validator,
+                "lead" => Role::EpicLead,
+                _ => Role::Developer,
+            };
+            let tool = tool.and_then(|t| t.parse().ok());
+            let at = match out
+                .iter()
+                .position(|t| t.role == role && t.agent == agent && t.tool == tool)
+            {
+                Some(at) => at,
+                None => {
+                    out.push(AgentTokens {
+                        role,
+                        agent,
+                        tool,
+                        tokens: None,
+                    });
+                    out.len() - 1
+                }
+            };
+            if tool_id.is_some_and(|id| !unknown.contains(&id)) {
+                out[at]
+                    .tokens
+                    .get_or_insert_with(Tokens::default)
+                    .add(&tokens((a, b, c, d)));
+            }
+        }
+        out.sort_by_key(|t| Role::ALL.iter().position(|r| *r == t.role));
+        Ok(out)
     }
 
     /// Every session that stored a tool id, with its tool and where it ran.

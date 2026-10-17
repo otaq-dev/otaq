@@ -26,12 +26,14 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::domain::{Actor, Status, TicketKey};
 use crate::git::merge::uncommitted_files_message;
+use crate::named_agents::{Role, RunsOn, resolve_project_role};
 use crate::naming;
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, Delivery};
 use crate::session::{
-    SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, StoredConversation, TerminalSize,
+    SessionAgent, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, StoredConversation,
+    TerminalSize,
 };
 use crate::store::now_ms;
 
@@ -439,12 +441,19 @@ impl Prs {
 
     /// Starts the epic's short-lived delivery session: a new conversation in the delivery worktree with the skill
     /// (as stored, named by the adapter) as its first prompt, `OTAQ_TICKET` the epic (EPC-08). The one agent
-    /// session an epic runs.
+    /// session an epic runs, on the project's Developer default (Q-D: an epic has no Developer row).
     async fn start_delivery(&self, epic: &Ticket, skill: &str) -> Result<SessionInfo, BoardError> {
-        self.inner.adapters.unavailable(None)?;
+        let board = &self.inner.board;
+        let project = board.project(epic.key.project.as_str()).await?;
+        let runs_on = RunsOn::resolved(
+            resolve_project_role(board, &project, Role::Developer)
+                .await?
+                .as_ref(),
+        );
+        self.inner.adapters.unavailable(runs_on.tool)?;
         let worktree = worktree_of(epic)?;
         let launched = self.inner.adapters.launch(
-            None,
+            runs_on.tool,
             &LaunchRequest {
                 role: LaunchRole::Delivery,
                 cwd: worktree,
@@ -454,10 +463,11 @@ impl Prs {
                 port: 0,
                 first_prompt: Some(FirstPrompt::WorkflowSkill(skill.to_owned())),
                 resume: None,
-                model: None,
+                model: runs_on.model,
             },
         )?;
-        self.spawn(epic, SessionKind::Delivery, launched).await
+        self.spawn(epic, SessionKind::Delivery, launched, runs_on.agent)
+            .await
     }
 
     /// Ends the epic's delivery: the session stops and the delivery worktree goes, unless it has uncommitted
@@ -514,6 +524,7 @@ impl Prs {
         ticket: &Ticket,
         kind: SessionKind,
         launched: Launched,
+        named_agent: Option<SessionAgent>,
     ) -> Result<SessionInfo, BoardError> {
         let project = self
             .inner
@@ -538,6 +549,7 @@ impl Prs {
                 tool: Some(launched.tool),
                 tool_session_id: launched.tool_session_id,
                 model: launched.model,
+                named_agent,
             })
             .await
             .map_err(other)
@@ -607,7 +619,6 @@ impl Prs {
     /// agent session; the ticket keeps its status.
     async fn resume(&self, ticket: &Ticket, step: PrStep<'_>) -> Result<SessionInfo, BoardError> {
         let inner = &self.inner;
-        inner.adapters.unavailable(None)?;
         let kind = session_kind(ticket);
         let history = inner
             .sessions
@@ -627,6 +638,8 @@ impl Prs {
                     format!("{} has no conversation to resume", ticket.key),
                 )
             })?;
+        let runs_on = RunsOn::resumed(&conversation);
+        inner.adapters.unavailable(runs_on.tool)?;
         let worktree = worktree_of(ticket)?;
         let port = ticket.work.as_ref().and_then(|w| w.agent_port).unwrap_or(0);
         let role = match kind {
@@ -634,7 +647,7 @@ impl Prs {
             _ => LaunchRole::TicketAgent,
         };
         let launched = inner.adapters.launch(
-            Some(conversation.tool),
+            runs_on.tool,
             &LaunchRequest {
                 role,
                 cwd: worktree,
@@ -644,10 +657,10 @@ impl Prs {
                 port,
                 first_prompt: Some(step.first_prompt()),
                 resume: Some(conversation.id),
-                model: conversation.model,
+                model: runs_on.model,
             },
         )?;
-        self.spawn(ticket, kind, launched).await
+        self.spawn(ticket, kind, launched, runs_on.agent).await
     }
 }
 

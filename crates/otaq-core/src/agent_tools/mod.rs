@@ -210,7 +210,8 @@ pub struct LaunchRequest {
     pub first_prompt: Option<FirstPrompt>,
     /// The tool id to resume (Resume, Park, Send back, answers); `None` starts a new conversation.
     pub resume: Option<String>,
-    /// The model, passed to the tool unchanged (d0088); `None` uses the tool's default. Always `None` in M20.
+    /// The model, passed to the tool unchanged (d0088); `None` uses the tool's default. A new session's comes from
+    /// its resolved named agent, a resume's from the session it continues ([`crate::named_agents::RunsOn`]).
     pub model: Option<String>,
 }
 
@@ -619,7 +620,7 @@ impl Adapters {
         }
     }
 
-    /// The adapter a new session runs on: Claude Code, until named agents choose one (M22).
+    /// The adapter a new session runs on when no named agent names a tool (none exist yet): Claude Code.
     pub fn for_new_session(&self) -> &dyn AgentTool {
         self.claude.as_ref()
     }

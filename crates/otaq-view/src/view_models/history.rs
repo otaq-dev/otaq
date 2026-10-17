@@ -645,6 +645,8 @@ mod tests {
             tool: Some(Tool::Claude),
             tool_session_id: Some(format!("3be94c10-{id}")),
             model: None,
+            named_agent: None,
+            model_ran: None,
             size: None,
         }
     }

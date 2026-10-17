@@ -27,7 +27,7 @@ use crate::start::StartOutcome;
 #[derive(Debug, Clone, PartialEq)]
 pub enum AutoMerged {
     /// Done · "Merged automatically"; `toast` is the event clients show (UI-07).
-    Merged { toast: Event },
+    Merged { toast: Box<Event> },
     /// Back to the agent with restack.
     Conflict,
     /// Turquoise: kept conflicting, base diverged or checkout dirty.
@@ -74,12 +74,12 @@ impl Review {
                 let (title, message) =
                     merged_toast(&ticket.key.to_string(), &into, round, &started);
                 AutoMerged::Merged {
-                    toast: Event::MergedAutomatically {
+                    toast: Box::new(Event::MergedAutomatically {
                         project: ticket.key.project.to_string(),
                         key: ticket.key.clone(),
                         title,
                         message,
-                    },
+                    }),
                 }
             }
             LocalMergeOutcome::Conflict { target, .. } => {

@@ -6,8 +6,10 @@
 //! scrollback first, then live output, so it can redraw its terminal (SVC-05). Output never goes to disk
 //! (d0045).
 //!
-//! Each spawn writes a `sessions` row (kind, state, started/ended, end reason, the agent tool, its own session id
-//! and the model as launched; d0088); every row is kept (d0045). One agent session per ticket (SES-04).
+//! Each spawn writes a `sessions` row (kind, state, started/ended, end reason, the agent tool, its own session id,
+//! the model as launched and the named agent it runs on; d0088); every row is kept (d0045). One agent session per
+//! ticket (SES-04). The exact model that ran is written on the row when the tool reports it
+//! ([`Sessions::model_known`]).
 //!
 //! Threads: each session has a reader thread (PTY → scrollback and attached clients) and a waiter thread (child
 //! exit → the row, a `session_state` event). Sessions end when their program exits, when Otaq stops them,
@@ -142,8 +144,33 @@ pub struct SessionInfo {
     /// The model passed to the tool at launch; `None` when none was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// The named agent it runs on, as resolved at its start (or copied from the conversation it resumes; AGT-05).
+    /// `None` for the user's terminals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub named_agent: Option<SessionAgent>,
+    /// The exact model the tool reported running (`claude-opus-5-5`), the first one it reported; `None` until it
+    /// does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_ran: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<TerminalSize>,
+}
+
+/// The named agent a session ran on (ADP-04, AGT-05): its id (no foreign key: a session outlives its agent) and its
+/// name at the session's start ("Light", shown "Light (deleted)" once it is gone).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SessionAgent {
+    pub id: String,
+    pub name: String,
+}
+
+impl SessionAgent {
+    fn of_columns(id: Option<String>, name: Option<String>) -> Option<Self> {
+        Some(Self {
+            id: id?,
+            name: name?,
+        })
+    }
 }
 
 impl SessionInfo {
@@ -160,21 +187,29 @@ pub struct SessionTicket {
 }
 
 /// A stored conversation to continue (Resume, Park, Send back, answers; d0045, d0088): the agent tool it ran
-/// on, the tool's own id and the model as launched, so Resume reopens the same tool and model (ADP-04).
+/// on, the tool's own id, the model as launched and the named agent, so Resume reopens the same tool and model
+/// (ADP-04) and the resumed session's row names the same agent, whatever the named agent is set to now (0088).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredConversation {
     pub tool: Tool,
     pub id: String,
     pub model: Option<String>,
+    pub named_agent: Option<SessionAgent>,
 }
 
 impl StoredConversation {
-    /// The conversation `session` ran, when it ran an agent tool whose id is known.
+    /// The conversation `session` ran, when it ran an agent tool whose id is known. A session whose first turn was
+    /// refused on the model has none to continue ("not started", T-0337).
     pub fn of(session: &SessionInfo) -> Option<Self> {
+        // T-0337: session::END_MODEL_REFUSED
+        if session.end_reason.as_deref() == Some("model refused") {
+            return None;
+        }
         Some(Self {
             tool: session.tool?,
             id: session.tool_session_id.clone()?,
             model: session.model.clone(),
+            named_agent: session.named_agent.clone(),
         })
     }
 
@@ -183,22 +218,78 @@ impl StoredConversation {
         pool: &sqlx::SqlitePool,
         ticket_id: &str,
     ) -> Result<Option<Self>, sqlx::Error> {
-        let row: Option<(String, String, Option<String>)> = sqlx::query_as(
-            "SELECT tool, tool_session_id, model FROM sessions
+        type Row = (
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        );
+        let row: Option<Row> = sqlx::query_as(
+            "SELECT tool, tool_session_id, model, named_agent_id, named_agent_name FROM sessions
              WHERE ticket_id = ? AND kind = 'agent' AND tool IS NOT NULL AND tool_session_id IS NOT NULL
              ORDER BY started_at DESC, id DESC LIMIT 1",
         )
         .bind(ticket_id)
         .fetch_optional(pool)
         .await?;
-        Ok(row.and_then(|(tool, id, model)| {
+        Ok(row.and_then(|(tool, id, model, agent_id, agent_name)| {
             Some(Self {
                 tool: tool.parse().ok()?,
                 id,
                 model,
+                named_agent: SessionAgent::of_columns(agent_id, agent_name),
             })
         }))
     }
+}
+
+/// What [`Sessions::model_known`] did with a model the tool reported.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModelRan {
+    /// The first report: written on the session.
+    Written,
+    /// The session already has this model.
+    Same,
+    /// The session already has another one (`/model` typed into its pane, say): kept; the later one is only logged.
+    Different { first: String },
+    /// No such session.
+    NoSession,
+}
+
+/// A named agent's model that moved on between two sessions of a ticket's role (d0086: "when it differs from the
+/// entry's previous run, the panel says so ('Sol → gpt-6.1-sol')"): both exact models. The view models word it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MovedOn {
+    /// The exact model of the previous session on the same named agent (`claude-sonnet-5-5`).
+    pub before: String,
+    /// The session's own (`claude-sonnet-5-6`).
+    pub now: String,
+}
+
+/// Whether `session`'s exact model differs from the previous session of the same ticket, role (session kind: the
+/// Developer's are `agent` sessions, the Validator's `validator`) and named agent: both models when they do.
+/// `None` when they are the same, when either isn't known (yet), or when there is no earlier session on that agent.
+pub async fn moved_on(
+    pool: &sqlx::SqlitePool,
+    session: &str,
+) -> Result<Option<MovedOn>, sqlx::Error> {
+    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT s.model_ran,
+                (SELECT b.model_ran FROM sessions b
+                 WHERE b.ticket_id = s.ticket_id AND b.kind = s.kind AND b.named_agent_id = s.named_agent_id
+                   AND b.model_ran IS NOT NULL
+                   AND (b.started_at < s.started_at OR (b.started_at = s.started_at AND b.id < s.id))
+                 ORDER BY b.started_at DESC, b.id DESC LIMIT 1)
+         FROM sessions s WHERE s.id = ? AND s.ticket_id IS NOT NULL AND s.named_agent_id IS NOT NULL",
+    )
+    .bind(session)
+    .fetch_optional(pool)
+    .await?;
+    Ok(match row {
+        Some((Some(now), Some(before))) if now != before => Some(MovedOn { before, now }),
+        _ => None,
+    })
 }
 
 /// What to run.
@@ -218,6 +309,8 @@ pub struct SpawnSpec {
     pub tool: Option<Tool>,
     pub tool_session_id: Option<String>,
     pub model: Option<String>,
+    /// The named agent it runs on (AGT-05); `None` for the user's terminals.
+    pub named_agent: Option<SessionAgent>,
 }
 
 /// The root process of a running agent session, for caller identity (CLI-01).
@@ -465,12 +558,14 @@ impl Sessions {
             tool: spec.tool,
             tool_session_id: spec.tool_session_id.clone(),
             model: spec.model.clone(),
+            named_agent: spec.named_agent.clone(),
+            model_ran: None,
             size: Some(spec.size),
         };
         let inserted = sqlx::query(
             "INSERT INTO sessions (id, project_id, ticket_id, kind, pty_id, tool, tool_session_id, model, state,
-                                   started_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                   started_at, named_agent_id, named_agent_name)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&info.id)
         .bind(&spec.project_id)
@@ -482,6 +577,8 @@ impl Sessions {
         .bind(&info.model)
         .bind(info.state.as_str())
         .bind(info.started_at)
+        .bind(info.named_agent.as_ref().map(|a| &a.id))
+        .bind(info.named_agent.as_ref().map(|a| &a.name))
         .execute(self.inner.store.pool())
         .await;
         if let Err(e) = inserted {
@@ -890,7 +987,7 @@ impl Sessions {
     pub async fn history(&self, ticket: &SessionTicket) -> Result<Vec<SessionInfo>, SessionError> {
         let rows: Vec<SessionRow> = sqlx::query_as(
             "SELECT s.id, s.kind, p.key AS project_key, s.state, s.started_at, s.ended_at, s.end_reason,
-                    s.tool, s.tool_session_id, s.model
+                    s.tool, s.tool_session_id, s.model, s.named_agent_id, s.named_agent_name, s.model_ran
              FROM sessions s JOIN projects p ON p.id = s.project_id
              WHERE s.ticket_id = ? ORDER BY s.started_at DESC, s.id DESC",
         )
@@ -910,6 +1007,39 @@ impl Sessions {
             .collect())
     }
 
+    /// The tool reported the exact model session `id` runs on (ADP-04; d0086 "the model is always the exact one
+    /// that ran"): written once, on its row and its in-memory info, the first value only. Nothing waits for it.
+    pub async fn model_known(&self, id: &str, model: &str) -> Result<ModelRan, SessionError> {
+        let pool = self.inner.store.pool();
+        let store = |e: sqlx::Error| SessionError::Store(e.into());
+        let written =
+            sqlx::query("UPDATE sessions SET model_ran = ? WHERE id = ? AND model_ran IS NULL")
+                .bind(model)
+                .bind(id)
+                .execute(pool)
+                .await
+                .map_err(store)?
+                .rows_affected()
+                > 0;
+        if written {
+            if let Ok(live) = self.live(id) {
+                live.info.lock().expect("session info").model_ran = Some(model.to_owned());
+            }
+            return Ok(ModelRan::Written);
+        }
+        let first: Option<Option<String>> =
+            sqlx::query_scalar("SELECT model_ran FROM sessions WHERE id = ?")
+                .bind(id)
+                .fetch_optional(pool)
+                .await
+                .map_err(store)?;
+        Ok(match first.flatten() {
+            None => ModelRan::NoSession,
+            Some(first) if first == model => ModelRan::Same,
+            Some(first) => ModelRan::Different { first },
+        })
+    }
+
     /// A session as stored (running, or ended long ago), with its ticket's key.
     pub async fn stored(&self, id: &str) -> Result<SessionInfo, SessionError> {
         #[derive(sqlx::FromRow)]
@@ -921,7 +1051,8 @@ impl Sessions {
         }
         let row: Row = sqlx::query_as(
             "SELECT s.id, s.kind, p.key AS project_key, s.state, s.started_at, s.ended_at, s.end_reason,
-                    s.tool, s.tool_session_id, s.model, t.number, t.child_number
+                    s.tool, s.tool_session_id, s.model, s.named_agent_id, s.named_agent_name, s.model_ran,
+                    t.number, t.child_number
              FROM sessions s JOIN projects p ON p.id = s.project_id LEFT JOIN tickets t ON t.id = s.ticket_id
              WHERE s.id = ?",
         )
@@ -1214,6 +1345,9 @@ struct SessionRow {
     tool: Option<String>,
     tool_session_id: Option<String>,
     model: Option<String>,
+    named_agent_id: Option<String>,
+    named_agent_name: Option<String>,
+    model_ran: Option<String>,
 }
 
 impl SessionRow {
@@ -1230,6 +1364,8 @@ impl SessionRow {
             tool: self.tool.and_then(|t| t.parse().ok()),
             tool_session_id: self.tool_session_id,
             model: self.model,
+            named_agent: SessionAgent::of_columns(self.named_agent_id, self.named_agent_name),
+            model_ran: self.model_ran,
             size: None,
         })
     }

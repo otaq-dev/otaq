@@ -621,9 +621,10 @@ async fn locked_rows_are_refused_with_their_reason() {
     let project = f.board.project("SHOP").await.unwrap();
     let pool = f.board.store().pool();
 
-    // A validation round runs: the Validator locks, the Developer doesn't yet.
+    // A validation round runs (its validator started): the Validator locks, the Developer doesn't yet.
     sqlx::query(
-        "INSERT INTO validations (id, ticket_id, round, trigger, started_at) VALUES ('v1', ?, 1, 'agent', 1)",
+        "INSERT INTO validations (id, ticket_id, round, trigger, session_id, started_at)
+         VALUES ('v1', ?, 1, 'agent', 'validator-1', 1)",
     )
     .bind(&ticket.id)
     .execute(pool)
@@ -683,6 +684,14 @@ async fn locked_rows_are_refused_with_their_reason() {
     )
     .bind(&project.id)
     .bind(&epic.id)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO sessions (id, project_id, kind, tool, project_agent_id, state, started_at)
+         VALUES ('lead-s1', ?, 'project_agent', 'claude', 'lead1', 'running', 1)",
+    )
+    .bind(&project.id)
     .execute(pool)
     .await
     .unwrap();
