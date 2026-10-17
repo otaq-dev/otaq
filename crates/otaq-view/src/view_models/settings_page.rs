@@ -9,6 +9,7 @@
 //! Auto-merge and the Project agent instructions (VAL-13, AMG-01, PAG-03; d0063, d0064, d0068): a project's empty
 //! value uses the global one and says so ("Use global (3)"), and a set one offers "Use global" to empty it again.
 
+use otaq_core::agent_tools::ModelList;
 use otaq_core::board::projects::ProjectUpdate;
 use otaq_core::board::settings::{
     AutoMerge, EnvVar, GlobalSettings, ProjectSettings, SettingProblem, TERMINAL_FONT_SIZES,
@@ -16,6 +17,7 @@ use otaq_core::board::settings::{
     env_var_problems,
 };
 use otaq_core::board::snapshot::ProjectInfo;
+use otaq_core::named_agents::{NamedAgent, RoleDefaults};
 use otaq_core::naming::{self, COMMAND_NAME, PRODUCT_NAME};
 use otaq_core::pr::provider::PrProvider;
 use otaq_core::scheduler::SchedulerStatus;
@@ -59,6 +61,7 @@ use crate::view_models::cleanup::{ConfirmLine, WarmConfirmPage};
 use crate::view_models::limits::{
     BACK_PRESSURE_ITEMS, MAX_AGENTS, right_now, settings_rows, toggled,
 };
+use crate::view_models::named_agents;
 use crate::view_models::onboarding::{OnboardingModel, RowIcon};
 use crate::view_models::settings::{
     GLOBAL_SECTIONS, PROJECT_ICON, ProviderTone, env_file_problem, instructions_placeholder,
@@ -73,6 +76,8 @@ use crate::view_models::warm_build;
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "GlobalSectionId")]
 pub enum GlobalSection {
+    /// M22, T-0340: named agents and the role defaults, drawn from `settings.agents` ([`named_agents::section`]).
+    Agents,
     AgentLimits,
     AgentInstructions,
     WorkflowSkills,
@@ -96,6 +101,8 @@ pub enum GlobalSection {
 pub enum ProjectSection {
     /// Name, key, repository, base branch.
     General,
+    /// M22, T-0340: the role default overrides, drawn from `settings.project_agents` ([`project_agents_block`]).
+    Agents,
     AgentInstructions,
     /// M12, T-0240.
     ProjectAgentInstructions,
@@ -415,7 +422,8 @@ pub struct WarmInputs<'a> {
 }
 
 /// The global sections, in nav order.
-const DRAWN: [GlobalSection; 11] = [
+const DRAWN: [GlobalSection; 12] = [
+    GlobalSection::Agents,
     GlobalSection::AgentLimits,
     GlobalSection::AgentInstructions,
     GlobalSection::WorkflowSkills,
@@ -453,6 +461,7 @@ pub fn nav(sections: &[GlobalSection], projects: &[ProjectInfo], alerts: &[Strin
 fn nav_label(id: GlobalSection) -> (&'static str, IconName) {
     let shared = |i: usize| GLOBAL_SECTIONS[i];
     match id {
+        GlobalSection::Agents => ("Agents", IconName::Bot),
         GlobalSection::AgentLimits => shared(0),
         GlobalSection::AgentInstructions => shared(1),
         GlobalSection::WorkflowSkills => shared(2),
@@ -846,6 +855,8 @@ pub fn global_page(input: &GlobalInputs) -> Page {
     Page::Global {
         title: "General".into(),
         sections: vec![
+            // Its own view: the table, the dialogs and the defaults ([`named_agents::section`]).
+            section(GlobalSection::Agents, Some("Agents"), Vec::new()),
             agent_limits,
             instructions,
             skills,
@@ -1188,6 +1199,8 @@ pub fn project_page(input: &ProjectInputs) -> Page {
             .into(),
         sections: vec![
             general,
+            // Its own view, collapsed or expanded ([`project_agents_block`]).
+            section(ProjectSection::Agents, None, Vec::new()),
             instructions,
             project_agents,
             skills,
@@ -1198,6 +1211,63 @@ pub fn project_page(input: &ProjectInputs) -> Page {
             provider,
             remove,
         ],
+    }
+}
+
+/// The project's Agents block (AGT-03, d0086; *15 → Project settings → Agents* `mQijC` / `w6fVf`, one-tool form):
+/// collapsed "Uses app defaults · Change" while it overrides nothing; expanded, the four roles, each a picker with
+/// "Use app default (<name>)" first, then the named agents with their model as Settings shows it. A project with an
+/// override opens expanded; Change expands it (the page keeps that).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ProjectAgentsBlock")]
+pub struct ProjectAgentsBlock {
+    pub project: String,
+    /// "Agents for this project", beside the collapsed line.
+    pub collapsed_title: String,
+    /// "Uses app defaults".
+    pub collapsed_text: String,
+    pub change_label: String,
+    /// The heading over the expanded rows: "Agents".
+    pub title: String,
+    /// Opens expanded: the project overrides at least one role.
+    pub expanded: bool,
+    pub rows: Vec<ProjectAgentRow>,
+}
+
+/// One role of the block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ProjectAgentRow")]
+pub struct ProjectAgentRow {
+    pub role: named_agents::RoleId,
+    pub label: String,
+    pub picker: named_agents::AgentPicker,
+}
+
+/// The block for `project` from `agents.list`, the project's overrides (`project.agent_defaults`) and the cached
+/// model list.
+pub fn project_agents_block(
+    project: &str,
+    agents: &[NamedAgent],
+    app: &RoleDefaults,
+    own: &RoleDefaults,
+    list: Option<&ModelList>,
+) -> ProjectAgentsBlock {
+    let rows: Vec<ProjectAgentRow> = named_agents::ROLES
+        .iter()
+        .map(|&role| ProjectAgentRow {
+            role: role.into(),
+            label: role.label().to_owned(),
+            picker: named_agents::project_picker(agents, app, own, role, list),
+        })
+        .collect();
+    ProjectAgentsBlock {
+        project: project.to_owned(),
+        collapsed_title: "Agents for this project".to_owned(),
+        collapsed_text: "Uses app defaults".to_owned(),
+        change_label: "Change".to_owned(),
+        title: "Agents".to_owned(),
+        expanded: rows.iter().any(|r| r.picker.value.agent.is_some()),
+        rows,
     }
 }
 
@@ -2114,24 +2184,103 @@ mod tests {
             &["BILL".into()],
         )
         .nav;
-        assert_eq!(nav.len(), 12);
-        assert_eq!(nav[0].label, "Agent limits");
+        assert_eq!(nav.len(), 13);
+        // Agents first (M22, `bVdGw`; M23 puts Agent tools above it).
         assert_eq!(
-            (nav[3].label.as_str(), nav[3].icon),
+            (nav[0].label.as_str(), nav[0].icon),
+            ("Agents", IconName::Bot)
+        );
+        assert_eq!(nav[1].label, "Agent limits");
+        assert_eq!(
+            (nav[4].label.as_str(), nav[4].icon),
             ("Validation & Auto-merge", IconName::ShieldCheck)
         );
         assert_eq!(
-            (nav[4].label.as_str(), nav[4].icon),
+            (nav[5].label.as_str(), nav[5].icon),
             ("Project agents", IconName::Bot)
         );
-        assert_eq!(nav[5].label, "Usage");
+        assert_eq!(nav[6].label, "Usage");
         // About is the last global row (d0071).
         assert_eq!(
-            (nav[10].label.as_str(), nav[10].icon),
+            (nav[11].label.as_str(), nav[11].icon),
             ("About", IconName::Info)
         );
-        assert_eq!(nav[11].target, Target::Project { key: "BILL".into() });
-        assert!(nav[11].alert);
+        assert_eq!(nav[12].target, Target::Project { key: "BILL".into() });
+        assert!(nav[12].alert);
+    }
+
+    /// The project's Agents block (AGT-03, `mQijC` in its one-tool form).
+    #[test]
+    fn the_project_agents_block_starts_collapsed_and_offers_the_app_default_first() {
+        use crate::view_models::named_agents::{RoleId, fixtures};
+        use otaq_core::named_agents::Role;
+
+        let list = fixtures::claude_list();
+        let (agents, app) = fixtures::made();
+        let b = project_agents_block("BILL", &agents, &app, &RoleDefaults::default(), Some(&list));
+        assert!(!b.expanded, "overrides nothing: collapsed");
+        assert_eq!(
+            (
+                b.collapsed_title.as_str(),
+                b.collapsed_text.as_str(),
+                b.change_label.as_str()
+            ),
+            ("Agents for this project", "Uses app defaults", "Change")
+        );
+        assert_eq!(b.title, "Agents");
+        let labels: Vec<&str> = b.rows.iter().map(|r| r.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            ["Developer", "Validator", "Epic lead", "Project agent"]
+        );
+        let developer = &b.rows[0].picker;
+        assert_eq!(developer.value.name, "Use app default (Claude Code)");
+        assert_eq!(developer.value.agent, None);
+        let options: Vec<(Option<&str>, &str, Option<&str>)> = developer
+            .options
+            .iter()
+            .map(|o| (o.agent.as_deref(), o.name.as_str(), o.model.as_deref()))
+            .collect();
+        assert_eq!(
+            options,
+            [
+                (None, "Use app default (Claude Code)", None),
+                (Some("cc"), "Claude Code", Some("tool default")),
+                (Some("strong"), "Strong", Some("Opus · always the newest")),
+                (Some("light"), "Light", Some("Haiku · always the newest")),
+                (Some("sonnet"), "Sonnet", Some("Sonnet · always the newest")),
+                (
+                    Some("fable"),
+                    "Fable test",
+                    Some("Fable · always the newest")
+                ),
+            ]
+        );
+        assert!(!developer.read_only);
+
+        // shop-web overrides Developer → Strong: opens expanded, the rest on the app default.
+        let mut own = RoleDefaults::default();
+        own.set(Role::Developer, Some("strong".into()));
+        let b = project_agents_block("SHOP", &agents, &app, &own, Some(&list));
+        assert!(b.expanded);
+        assert_eq!(b.rows[0].role, RoleId::Developer);
+        let value = &b.rows[0].picker.value;
+        assert_eq!(
+            (value.name.as_str(), value.model.as_deref()),
+            ("Strong", Some("Opus · always the newest"))
+        );
+        assert_eq!(b.rows[1].picker.value.name, "Use app default (Claude Code)");
+        assert_eq!(b.rows[2].role, RoleId::EpicLead);
+
+        // An override on a deleted entry counts as none.
+        own.set(Role::Developer, Some("gone".into()));
+        let b = project_agents_block("SHOP", &agents, &app, &own, Some(&list));
+        assert!(!b.expanded);
+
+        // One named agent: nothing offers a choice.
+        let (fresh, app) = fixtures::fresh();
+        let b = project_agents_block("BILL", &fresh, &app, &RoleDefaults::default(), Some(&list));
+        assert!(b.rows.iter().all(|r| r.picker.read_only));
     }
 
     /// The Usage section has only the token count: the dollar estimate is gone (d0086).
@@ -2242,6 +2391,7 @@ mod tests {
             ids,
             [
                 ProjectSection::General,
+                ProjectSection::Agents,
                 ProjectSection::AgentInstructions,
                 ProjectSection::ProjectAgentInstructions,
                 ProjectSection::WorkflowSkills,
@@ -2474,7 +2624,7 @@ mod tests {
             unreachable!()
         };
         assert!(
-            sections[0]
+            sections[1]
                 .note
                 .as_deref()
                 .is_some_and(|n| n.starts_with("Right now:"))
@@ -2635,14 +2785,15 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(json["page"]["page"], "global");
-        assert_eq!(json["page"]["sections"][0]["id"], "agent_limits");
+        assert_eq!(json["page"]["sections"][0]["id"], "agents");
+        assert_eq!(json["page"]["sections"][1]["id"], "agent_limits");
         assert_eq!(
-            json["page"]["sections"][0]["rows"][0]["control"]["kind"],
+            json["page"]["sections"][1]["rows"][0]["control"]["kind"],
             "toggle"
         );
         assert_eq!(
             json["nav"][0]["target"],
-            serde_json::json!({ "page": "global", "section": "agent_limits" })
+            serde_json::json!({ "page": "global", "section": "agents" })
         );
         let v: Value = serde_json::from_value(serde_json::json!(true)).unwrap();
         assert_eq!(v, Value::Flag(true));

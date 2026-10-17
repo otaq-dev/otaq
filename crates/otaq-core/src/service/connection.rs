@@ -437,6 +437,8 @@ async fn respond(
         | Request::AgentsEdit(_)
         | Request::AgentsDuplicate(_)
         | Request::AgentsDelete(_)
+        | Request::AgentsInUse(_)
+        | Request::ProjectAgentDefaults(_)
         | Request::AgentsSetDefault(_)
         | Request::ProjectSetAgentDefault(_)
         | Request::TicketAgentRow(_)) => {

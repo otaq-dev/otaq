@@ -5,20 +5,26 @@
 
 use otaq_core::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
 use otaq_core::board::snapshot::ProjectInfo;
+use otaq_core::agent_tools::ModelList;
+use otaq_core::board::Refusal;
+use otaq_core::named_agents::{AgentFields, AgentList};
 use otaq_core::protocol::{
-    KeyParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply, Request,
+    AgentDefaultParams, AgentEditParams, IdParams, KeyParams, ModelsParams,
+    ProjectAgentDefaultParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply,
+    Request,
 };
 use otaq_view::view_models::about;
 use otaq_view::view_models::editor_fields::base_choices;
 use otaq_view::view_models::licenses;
 use otaq_view::view_models::menu::MenuItem;
+use otaq_view::view_models::named_agents;
 use otaq_view::view_models::settings::data_paths;
 use otaq_view::view_models::settings_page::{
     self as page, GlobalInputs, Os, ProjectChange, ProjectInputs, Reveal, WarmInputs,
 };
 use otaq_view::view_models::warm_build;
 use otaq_view::icons::IconName;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
@@ -53,6 +59,46 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
                 .send(Request::ProjectRemove(KeyParams { key: p.project }))
                 .await?;
             reply(&view(app, None).await?)
+        }
+        // Settings → Agents and the project's Agents block (T-0340; AGT-01…AGT-03).
+        "settings.agents" => {
+            let p: AgentsOpen = parse(params)?;
+            reply(&agents_section(app, p.refresh).await?)
+        }
+        "settings.agent_dialog" => reply(&agent_dialog(app, parse(params)?).await?),
+        "settings.agent_save" => reply(&agent_save(app, parse(params)?).await?),
+        "settings.agent_delete_dialog" => {
+            let p: AgentIdParams = parse(params)?;
+            reply(&delete_dialog(app, &p.id).await?)
+        }
+        "settings.agent_delete" => {
+            let p: AgentIdParams = parse(params)?;
+            reply(&agent_delete(app, &p.id).await?)
+        }
+        "settings.agent_default" => {
+            let p: AgentDefaultSet = parse(params)?;
+            app.service
+                .send(Request::AgentsSetDefault(AgentDefaultParams {
+                    role: p.role.into(),
+                    agent: p.agent,
+                }))
+                .await?;
+            reply(&agents_section(app, false).await?)
+        }
+        "settings.project_agents" => {
+            let p: SettingsProject = parse(params)?;
+            reply(&project_agents(app, &p.project).await?)
+        }
+        "settings.project_agent_default" => {
+            let p: ProjectAgentDefaultSet = parse(params)?;
+            app.service
+                .send(Request::ProjectSetAgentDefault(ProjectAgentDefaultParams {
+                    project: p.project.clone(),
+                    role: p.role.into(),
+                    agent: p.agent,
+                }))
+                .await?;
+            reply(&project_agents(app, &p.project).await?)
         }
         "settings.credits" => reply(&page::credits()),
         // Settings → About (d0071): the section, Otaq's own license, the third-party notices.
@@ -118,6 +164,73 @@ pub struct SettingsRevealParams {
     pub target: Reveal,
 }
 
+/// `settings.agents`: `refresh` reads the tool's model list again first (`agents.models_refresh`): the page asks
+/// for it once when the section opens (d0086).
+#[derive(Debug, Clone, Copy, Default, Deserialize, TS)]
+pub struct AgentsOpen {
+    #[serde(default)]
+    pub refresh: bool,
+}
+
+/// `settings.agent_dialog`: Edit agent for `id`, Add agent prefilled from `duplicate` ("<name> copy"), else Add
+/// agent; `draft` is what the fields hold now (the page sends it on each change for the live checks).
+#[derive(Debug, Clone, Default, Deserialize, TS)]
+pub struct AgentDialogParams {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub duplicate: Option<String>,
+    #[serde(default)]
+    pub draft: Option<named_agents::Draft>,
+}
+
+/// `settings.agent_save`: Add agent (`id` none) or Save.
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct AgentSaveParams {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub draft: named_agents::Draft,
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct AgentIdParams {
+    pub id: String,
+}
+
+/// `settings.agent_default`: an app-wide role default.
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct AgentDefaultSet {
+    pub role: named_agents::RoleId,
+    pub agent: String,
+}
+
+/// `settings.project_agent_default`: `agent` null = "Use app default".
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct ProjectAgentDefaultSet {
+    pub project: String,
+    pub role: named_agents::RoleId,
+    #[serde(default)]
+    pub agent: Option<String>,
+}
+
+/// How Add agent or Save went: saved (the fresh section), or refused (the dialog with the reason in its field).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+#[ts(rename = "AgentSaveOutcome")]
+pub enum AgentSaveOutcome {
+    Saved { section: Box<named_agents::Section> },
+    Refused { dialog: Box<named_agents::Dialog> },
+}
+
+/// How Delete went: deleted (the fresh section), or something started using it since the dialog asked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+#[ts(rename = "AgentDeleteOutcome")]
+pub enum AgentDeleteOutcome {
+    Deleted { section: Box<named_agents::Section> },
+    Refused { dialog: Box<named_agents::DeleteDialog> },
+}
+
 fn parse<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, RequestError> {
     let params = if params.is_null() {
         Value::Object(Default::default())
@@ -125,6 +238,171 @@ fn parse<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, RequestErro
         params
     };
     serde_json::from_value(params).map_err(|e| RequestError::plain(e.to_string()))
+}
+
+async fn agent_list(app: &App) -> Result<AgentList, RequestError> {
+    match app.service.send(Request::AgentsList).await? {
+        Reply::Agents(list) => Ok(*list),
+        other => Err(unexpected("agents.list", &other)),
+    }
+}
+
+/// Otaq's copy of the tool's model list (T-0335), read again first when `refresh`. `None` before the first read.
+async fn model_list(app: &App, refresh: bool) -> Result<Option<ModelList>, RequestError> {
+    let params = ModelsParams {
+        tool: named_agents::new_entry_tool(),
+    };
+    let request = if refresh {
+        Request::AgentsModelsRefresh(params)
+    } else {
+        Request::AgentsModels(params)
+    };
+    match app.service.send(request).await? {
+        Reply::Models(copy) => Ok(copy.map(|c| c.list)),
+        other => Err(unexpected("agents.models", &other)),
+    }
+}
+
+async fn agents_section(app: &App, refresh: bool) -> Result<named_agents::Section, RequestError> {
+    let models = model_list(app, refresh).await?;
+    let list = agent_list(app).await?;
+    Ok(named_agents::section(&list.agents, &list.defaults, models.as_ref()))
+}
+
+async fn agent_dialog(app: &App, p: AgentDialogParams) -> Result<named_agents::Dialog, RequestError> {
+    let models = model_list(app, false).await?;
+    let list = agent_list(app).await?;
+    let draft = match (p.draft, &p.id, p.duplicate) {
+        (Some(draft), _, _) => draft,
+        (None, Some(id), _) => list
+            .agents
+            .iter()
+            .find(|a| a.id == *id)
+            .map(named_agents::Draft::of)
+            .ok_or_else(|| RequestError::plain(format!("no agent {id}")))?,
+        (None, None, Some(of)) => match app
+            .service
+            .send(Request::AgentsDuplicate(IdParams { id: of }))
+            .await?
+        {
+            Reply::AgentDraft(fields) => named_agents::Draft {
+                name: fields.name,
+                model: fields.model,
+                use_for: fields.use_for,
+            },
+            other => return Err(unexpected("agents.duplicate", &other)),
+        },
+        (None, None, None) => named_agents::Draft::default(),
+    };
+    Ok(named_agents::dialog(
+        &list.agents,
+        p.id.as_deref(),
+        draft,
+        models.as_ref(),
+        None,
+    ))
+}
+
+async fn agent_save(app: &App, p: AgentSaveParams) -> Result<AgentSaveOutcome, RequestError> {
+    let list = agent_list(app).await?;
+    let models = model_list(app, false).await?;
+    let refused = |e: Option<(&str, &str)>, draft| {
+        AgentSaveOutcome::Refused {
+            dialog: Box::new(named_agents::dialog(
+                &list.agents,
+                p.id.as_deref(),
+                draft,
+                models.as_ref(),
+                e,
+            )),
+        }
+    };
+    let checked = named_agents::dialog(&list.agents, p.id.as_deref(), p.draft.clone(), models.as_ref(), None);
+    if !checked.save_enabled {
+        return Ok(refused(None, p.draft));
+    }
+    let tool = p
+        .id
+        .as_ref()
+        .and_then(|id| list.agents.iter().find(|a| a.id == *id))
+        .map_or_else(named_agents::new_entry_tool, |a| a.tool);
+    let fields = AgentFields {
+        name: p.draft.name.trim().to_owned(),
+        tool,
+        model: p.draft.model.clone(),
+        use_for: p.draft.use_for.clone(),
+    };
+    let request = match &p.id {
+        Some(id) => Request::AgentsEdit(AgentEditParams {
+            id: id.clone(),
+            fields,
+        }),
+        None => Request::AgentsAdd(fields),
+    };
+    match app.service.send(request).await {
+        Ok(_) => Ok(AgentSaveOutcome::Saved {
+            section: Box::new(agents_section(app, false).await?),
+        }),
+        Err(e) => {
+            match e.refusal.as_deref() {
+                Some(code) => Ok(refused(Some((code, &e.message)), p.draft)),
+                None => Err(e),
+            }
+        }
+    }
+}
+
+/// What Delete… opens: the refused dialog or the plain confirmation (`agents.in_use` asks first).
+async fn delete_dialog(app: &App, id: &str) -> Result<named_agents::DeleteDialog, RequestError> {
+    let list = agent_list(app).await?;
+    let name = list
+        .agents
+        .iter()
+        .find(|a| a.id == id)
+        .map(|a| a.name.clone())
+        .ok_or_else(|| RequestError::plain(format!("no agent {id}")))?;
+    let request = Request::AgentsInUse(IdParams { id: id.to_owned() });
+    match app.service.send(request).await? {
+        Reply::AgentInUse(uses) => Ok(named_agents::delete_dialog(id, &name, &uses)),
+        other => Err(unexpected("agents.in_use", &other)),
+    }
+}
+
+async fn agent_delete(app: &App, id: &str) -> Result<AgentDeleteOutcome, RequestError> {
+    let request = Request::AgentsDelete(IdParams { id: id.to_owned() });
+    match app.service.send(request).await {
+        Ok(_) => Ok(AgentDeleteOutcome::Deleted {
+            section: Box::new(agents_section(app, false).await?),
+        }),
+        Err(e) => {
+            if e.refusal.as_deref() == Some(Refusal::AgentInUse.as_str()) {
+                Ok(AgentDeleteOutcome::Refused {
+                    dialog: Box::new(delete_dialog(app, id).await?),
+                })
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
+async fn project_agents(app: &App, project: &str) -> Result<page::ProjectAgentsBlock, RequestError> {
+    let models = model_list(app, false).await?;
+    let list = agent_list(app).await?;
+    let request = Request::ProjectAgentDefaults(ProjectParams {
+        project: project.to_owned(),
+    });
+    let own = match app.service.send(request).await? {
+        Reply::AgentDefaults(own) => *own,
+        other => return Err(unexpected("project.agent_defaults", &other)),
+    };
+    Ok(page::project_agents_block(
+        project,
+        &list.agents,
+        &list.defaults,
+        &own,
+        models.as_ref(),
+    ))
 }
 
 fn unexpected(method: &str, reply: &Reply) -> RequestError {
@@ -334,8 +612,9 @@ mod tests {
         let view = request(&h.app, "settings.view", Value::Null).await.unwrap();
         assert_eq!(view["page"]["page"], "global");
         assert_eq!(view["page"]["title"], "General");
-        assert_eq!(view["nav"][0]["label"], "Agent limits");
-        let data = &view["page"]["sections"][7];
+        assert_eq!(view["nav"][0]["label"], "Agents");
+        assert_eq!(view["nav"][1]["label"], "Agent limits");
+        let data = &view["page"]["sections"][8];
         assert_eq!(data["id"], "data");
         assert_eq!(data["rows"][0]["control"]["kind"], "path");
 
@@ -346,13 +625,13 @@ mod tests {
         )
         .await
         .unwrap();
-        let renderer = edited["page"]["sections"][8]["rows"][3]["control"]["value"].clone();
+        let renderer = edited["page"]["sections"][9]["rows"][3]["control"]["value"].clone();
         assert_eq!(renderer, "dom");
         // VAL-13: rounds accept only 1–5.
         let edited = request(&h.app, "settings.edit", json!({ "field": "validation_rounds", "value": 9 }))
             .await
             .unwrap();
-        assert_eq!(edited["page"]["sections"][3]["rows"][1]["control"]["value"], 5);
+        assert_eq!(edited["page"]["sections"][4]["rows"][1]["control"]["value"], 5);
         let (stored, _) = global(&h.app).await.unwrap();
         assert_eq!(
             stored.terminal_renderer,
@@ -522,6 +801,132 @@ mod tests {
         let control = switch(&edit(true).await.unwrap());
         assert_eq!(control["on"], true);
         assert_eq!(control["confirm"], Value::Null);
+        h.service.stop_all().await;
+    }
+
+    /// Settings → Agents through the service (T-0340): add, a taken name, defaults, Duplicate's draft, the three
+    /// Delete outcomes and the project's block. The test service has no model list, so entries are tool default.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn agents_are_added_checked_defaulted_and_deleted() {
+        use otaq_core::board::projects::AddProject;
+        use otaq_core::git::testing::TempRepos;
+
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let ask = |method: &'static str, params: Value| request(&h.app, method, params);
+
+        // Opening the section reads the list again (none in tests) and shows what's there.
+        let section = ask("settings.agents", json!({ "refresh": true })).await.unwrap();
+        assert_eq!(section["title"], "Agents");
+        assert_eq!(section["columns"], json!(["NAME", "MODEL", "USE FOR"]));
+        assert_eq!(section["rows"], json!([]));
+
+        let add = |name: &str| {
+            ask(
+                "settings.agent_save",
+                json!({ "draft": { "name": name, "model": null, "use_for": "Everything" } }),
+            )
+        };
+        let saved = add("Claude Code").await.unwrap();
+        assert_eq!(saved["outcome"], "saved");
+        assert_eq!(saved["section"]["rows"][0]["model"], "Tool default");
+        assert_eq!(saved["section"]["fresh_note"]["title"], "One agent, so nothing picks yet");
+        let cc = saved["section"]["rows"][0]["id"].as_str().unwrap().to_owned();
+        assert_eq!(saved["section"]["rows"][0]["menu"][2]["enabled"], false, "the last agent");
+
+        // A taken name, ignoring case: refused in the view's words, nothing saved.
+        let refused = add("claude code").await.unwrap();
+        assert_eq!(refused["outcome"], "refused");
+        assert_eq!(
+            refused["dialog"]["name_problem"],
+            "There's already an agent named claude code"
+        );
+        let live = ask("settings.agent_dialog", json!({ "draft": { "name": "CLAUDE CODE" } }))
+            .await
+            .unwrap();
+        assert_eq!(live["save_enabled"], false);
+        assert_eq!(live["title"], "Add agent");
+        assert_eq!(live["tool"], "Claude Code");
+
+        let light = add("Light").await.unwrap()["section"]["rows"][1]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let section = ask("settings.agent_default", json!({ "role": "validator", "agent": light }))
+            .await
+            .unwrap();
+        assert_eq!(section["fresh_note"], Value::Null);
+        assert_eq!(section["defaults"][1]["picker"]["value"]["name"], "Light");
+
+        // Duplicate's draft opens Add agent prefilled.
+        let copy = ask("settings.agent_dialog", json!({ "duplicate": light })).await.unwrap();
+        assert_eq!(copy["title"], "Add agent");
+        assert_eq!(copy["draft"]["name"], "Light copy");
+        let edit = ask("settings.agent_dialog", json!({ "id": light })).await.unwrap();
+        assert_eq!(edit["title"], "Edit agent · Light");
+        assert_eq!(edit["delete"]["enabled"], true);
+
+        // In use: Delete… opens the refused dialog, and Delete itself is refused the same way.
+        let dialog = ask("settings.agent_delete_dialog", json!({ "id": light })).await.unwrap();
+        assert_eq!(dialog["kind"], "refused");
+        assert_eq!(dialog["title"], "Light can't be deleted");
+        assert_eq!(dialog["lines"], json!(["App-wide · Validator default"]));
+        let deleted = ask("settings.agent_delete", json!({ "id": light })).await.unwrap();
+        assert_eq!(deleted["outcome"], "refused");
+
+        // The project block: collapsed, then Developer → Light opens it expanded.
+        let repos = TempRepos::new();
+        let path = repos.repo("shop-web", 1);
+        let project = match h
+            .app
+            .service
+            .send(Request::ProjectAdd(AddProject {
+                path: path.display().to_string(),
+                key: None,
+                base_branch: None,
+            }))
+            .await
+            .unwrap()
+        {
+            Reply::ProjectAdded { project: p, .. } => p.key,
+            other => panic!("{other:?}"),
+        };
+        ask("settings.agent_default", json!({ "role": "developer", "agent": cc }))
+            .await
+            .unwrap();
+        let block = ask("settings.project_agents", json!({ "project": project })).await.unwrap();
+        assert_eq!(block["expanded"], false);
+        assert_eq!(block["collapsed_text"], "Uses app defaults");
+        assert_eq!(
+            block["rows"][0]["picker"]["options"][0]["name"],
+            "Use app default (Claude Code)"
+        );
+        let block = ask(
+            "settings.project_agent_default",
+            json!({ "project": project, "role": "developer", "agent": light }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(block["expanded"], true);
+        assert_eq!(block["rows"][0]["picker"]["value"]["name"], "Light");
+        let block = ask(
+            "settings.project_agent_default",
+            json!({ "project": project, "role": "developer", "agent": null }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(block["expanded"], false);
+
+        // Unused once its default moves: the plain confirmation, then it's gone.
+        ask("settings.agent_default", json!({ "role": "validator", "agent": cc }))
+            .await
+            .unwrap();
+        let dialog = ask("settings.agent_delete_dialog", json!({ "id": light })).await.unwrap();
+        assert_eq!(dialog["kind"], "confirm");
+        assert_eq!(dialog["title"], "Delete Light?");
+        let deleted = ask("settings.agent_delete", json!({ "id": light })).await.unwrap();
+        assert_eq!(deleted["outcome"], "deleted");
+        assert_eq!(deleted["section"]["rows"].as_array().unwrap().len(), 1);
         h.service.stop_all().await;
     }
 }

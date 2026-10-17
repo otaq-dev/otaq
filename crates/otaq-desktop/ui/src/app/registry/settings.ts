@@ -15,6 +15,8 @@ const every =
     list;
 
 export const GLOBAL_SECTIONS = every<GlobalSectionId>()([
+  /** M22: named agents and the role defaults (T-0340's view; T-0343 draws it). */
+  "agents",
   "agent_limits",
   "agent_instructions",
   "workflow_skills",
@@ -34,6 +36,8 @@ export const GLOBAL_SECTIONS = every<GlobalSectionId>()([
 export const PROJECT_SECTIONS = every<ProjectSectionId>()([
   /** Name, key, repository, base branch. */
   "general",
+  /** M22: the project's role default overrides (T-0340's view; T-0343 draws it). */
+  "agents",
   "agent_instructions",
   /** M12 (T-0240). */
   "project_agent_instructions",

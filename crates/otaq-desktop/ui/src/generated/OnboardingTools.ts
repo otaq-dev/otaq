@@ -17,4 +17,8 @@ continue_reason: string | null,
 /**
  * The user has projects already (Check tools from the board): Continue ends here, no Project step.
  */
-has_projects: boolean, copy: string, };
+has_projects: boolean, copy: string, 
+/**
+ * Under the list once a tool is connected (*14* `ODRG2`, M22): the starter entry and where to make others.
+ */
+agents_line: string | null, };

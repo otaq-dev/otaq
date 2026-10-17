@@ -350,6 +350,8 @@ async fn action_for(
         | R::AgentsEdit(_)
         | R::AgentsDuplicate(_)
         | R::AgentsDelete(_)
+        | R::AgentsInUse(_)
+        | R::ProjectAgentDefaults(_)
         | R::AgentsSetDefault(_)
         | R::ProjectSetAgentDefault(_) => Action::UserOnly("change named agents"),
         R::TicketAgentRow(_) => Action::UserOnly("set agent rows"),

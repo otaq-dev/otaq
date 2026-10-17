@@ -220,6 +220,8 @@ pub struct Tools {
     /// The user has projects already (Check tools from the board): Continue ends here, no Project step.
     pub has_projects: bool,
     pub copy: String,
+    /// Under the list once a tool is connected (*14* `ODRG2`, M22): the starter entry and where to make others.
+    pub agents_line: Option<String>,
 }
 
 /// The checklist's place while the check runs.
@@ -279,7 +281,19 @@ pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
         continue_reason: state.reason,
         has_projects,
         copy: "Copy".to_owned(),
+        agents_line: state.enabled.then(agents_line),
     }
+}
+
+/// The tools step's line about the starter entry (*14* `ODRG2`; d0086). M23 puts "You can connect more later in
+/// Settings → Agent tools." in front of it.
+pub fn agents_line() -> String {
+    let tool = super::tool_avatar::AvatarTool::from(super::named_agents::new_entry_tool()).name();
+    format!(
+        "{} starts you with one agent, {tool} \u{b7} {} ({tool} picks its own model). Make others, like Strong or Light, in Settings \u{2192} Agents.",
+        naming::PRODUCT_NAME,
+        super::named_agents::TOOL_DEFAULT,
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -714,6 +728,18 @@ mod tests {
         assert!(claude.explanation.is_some());
         let fine = tools(&checked(true, PermissionVerdict::NotPrompting), false);
         assert!(fine.continue_enabled);
+        // The starter entry's line (*14* `ODRG2`), without M23's "Agent tools" sentence.
+        assert_eq!(blocked.agents_line, None);
+        assert_eq!(
+            fine.agents_line.as_deref(),
+            Some(
+                format!(
+                    "{} starts you with one agent, Claude Code · tool default (Claude Code picks its own model). Make others, like Strong or Light, in Settings → Agents.",
+                    naming::PRODUCT_NAME
+                )
+                .as_str()
+            )
+        );
         assert_eq!(fine.rows[2].look, RowLook::MissingOptional);
         assert_eq!(fine.rows[3].name, "az + azure-devops");
         assert!(fine.rows[2].command.is_some());

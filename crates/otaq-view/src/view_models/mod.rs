@@ -60,6 +60,8 @@ pub mod limits;
 pub mod menu;
 pub mod messages;
 pub mod modal;
+pub mod model_picker;
+pub mod named_agents;
 pub mod onboarding;
 pub mod onboarding_page;
 pub mod panel;

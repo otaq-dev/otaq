@@ -144,6 +144,21 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::SettingsProject::export_all(&cfg)?;
     crate::api::SettingsLink::export_all(&cfg)?;
     crate::api::SettingsRevealParams::export_all(&cfg)?;
+    // Settings → Agents and the project's Agents block (T-0340); each also writes the rows, pickers, mark and menu
+    // it is made of.
+    otaq_view::view_models::named_agents::Section::export_all(&cfg)?;
+    otaq_view::view_models::named_agents::Dialog::export_all(&cfg)?;
+    otaq_view::view_models::named_agents::DeleteDialog::export_all(&cfg)?;
+    otaq_view::view_models::named_agents::Gallery::export_all(&cfg)?;
+    otaq_view::view_models::settings_page::ProjectAgentsBlock::export_all(&cfg)?;
+    crate::api::AgentsOpen::export_all(&cfg)?;
+    crate::api::AgentDialogParams::export_all(&cfg)?;
+    crate::api::AgentSaveParams::export_all(&cfg)?;
+    crate::api::AgentIdParams::export_all(&cfg)?;
+    crate::api::AgentDefaultSet::export_all(&cfg)?;
+    crate::api::ProjectAgentDefaultSet::export_all(&cfg)?;
+    crate::api::AgentSaveOutcome::export_all(&cfg)?;
+    crate::api::AgentDeleteOutcome::export_all(&cfg)?;
     // The panel's Stack, Messages and epic sections, the History tab and the epic dialogs (T-0223).
     crate::api::SectionParams::export_all(&cfg)?;
     crate::api::StackView::export_all(&cfg)?;
