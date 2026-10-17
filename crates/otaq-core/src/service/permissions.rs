@@ -236,6 +236,7 @@ async fn action_for(
         R::BoardAgents(_) => Action::Read,
         // Starts the tool: only the user's Settings → Agents asks for it.
         R::AgentsModelsRefresh(_) => Action::UserOnly("read the model lists again"),
+        R::AgentsModelsRetry(_) => Action::UserOnly("read the model lists again"),
 
         R::TicketUpdate(p) => {
             let target = facts(board, &p.key).await?;

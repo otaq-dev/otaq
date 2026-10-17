@@ -124,6 +124,8 @@ fn entry(model: &Value) -> Option<ModelEntry> {
         description: text("description"),
         resolves_to,
         kind,
+        family: None,
+        released_at: None,
         id,
     })
 }

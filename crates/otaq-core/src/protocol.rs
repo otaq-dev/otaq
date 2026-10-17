@@ -537,6 +537,10 @@ pub enum Request {
     /// read: the new copy, or the old one when the read failed.
     #[serde(rename = "agents.models_refresh")]
     AgentsModelsRefresh(ModelsParams),
+    /// The picker's Retry: reads a tool's model list again at once (and the models.dev catalog when Otaq has no
+    /// fresh copy); answered like `agents.models_refresh`.
+    #[serde(rename = "agents.models_retry")]
+    AgentsModelsRetry(ModelsParams),
 
     // Settings (SET-01).
     #[serde(rename = "settings.get")]
@@ -939,7 +943,7 @@ pub struct HookParams {
     pub role: Option<String>,
 }
 
-/// `agents.models` and `agents.models_refresh`: whose list.
+/// `agents.models`, `agents.models_refresh` and `agents.models_retry`: whose list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelsParams {
     pub tool: Tool,
@@ -1533,6 +1537,7 @@ impl Request {
             Self::UsageRecordLimits(_) => "usage.record_limits",
             Self::AgentsModels(_) => "agents.models",
             Self::AgentsModelsRefresh(_) => "agents.models_refresh",
+            Self::AgentsModelsRetry(_) => "agents.models_retry",
             Self::UsageResumeAll => "usage.resume_all",
             Self::UsageMarkLimit => "usage.mark_limit",
             Self::SettingsGet => "settings.get",

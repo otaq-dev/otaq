@@ -99,8 +99,9 @@ pub struct ServiceConfig {
     /// Agents get the service's environment, so it is the service's file. `None` (the default, and in tests unless
     /// they pass a temporary one) records nothing; the daemon locates the real one ([`ServiceConfig::for_daemon`]).
     pub claude: Option<ClaudeConfig>,
-    /// Whether the service reads the agent tools' model lists (AGT-02): at start, on `agents.models_refresh` and
-    /// once a day. Off by default (and in tests: no test starts a tool for its list); the daemon turns it on.
+    /// Whether the service reads the agent tools' model lists (AGT-02): at start, on `agents.models_refresh` /
+    /// `agents.models_retry` and once a day, with the models.dev catalog behind their families. Off by default (and
+    /// in tests: no test starts a tool for its list or reads models.dev); the daemon turns it on.
     pub read_model_lists: bool,
 }
 
@@ -769,6 +770,7 @@ impl Service {
             store.clone(),
             adapters.clone(),
             config.read_model_lists,
+            crate::agent_tools::catalog::Catalogs::load(&config.data),
         )
         .await;
         // The named agents check models against the copies of the tools' lists (AGT-02).

@@ -747,6 +747,8 @@ pub mod fixtures {
             description: None,
             resolves_to: Some(resolves.into()),
             kind,
+            family: None,
+            released_at: None,
         };
         ModelList {
             entries: vec![
