@@ -154,7 +154,9 @@ impl Shells {
                 cwd: PathBuf::from(&project.repo_path),
                 env: self.env.env(&self.data, None, None),
                 size: START_SIZE,
-                claude_session_id: None,
+                tool: None,
+                tool_session_id: None,
+                model: None,
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
@@ -272,7 +274,9 @@ impl Shells {
                 cwd: worktree,
                 env: self.env.env(&self.data, Some(&ticket.key), port),
                 size: START_SIZE,
-                claude_session_id: None,
+                tool: None,
+                tool_session_id: None,
+                model: None,
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;

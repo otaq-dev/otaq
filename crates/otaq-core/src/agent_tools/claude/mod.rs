@@ -50,6 +50,19 @@ pub struct ClaudeContext {
     pub trust: Option<ClaudeConfig>,
 }
 
+/// The short name used in sentences ("Claude's saved conversation").
+pub(super) const SHORT_NAME: &str = "Claude";
+
+/// The command name (History's "claude 3be94c10…").
+pub(super) fn command_name() -> &'static str {
+    tools::Tool::Claude.command()
+}
+
+/// How the user resumes conversation `tool_id` by hand: `claude --resume <id>`.
+pub(super) fn resume_hint(tool_id: &str) -> String {
+    format!("{} --resume {tool_id}", command_name())
+}
+
 /// The Claude Code adapter.
 #[derive(Debug, Clone)]
 pub struct ClaudeCode {
@@ -205,11 +218,11 @@ impl AgentTool for ClaudeCode {
     }
 
     fn short_name(&self) -> &'static str {
-        "Claude"
+        SHORT_NAME
     }
 
     fn command_name(&self) -> &'static str {
-        tools::Tool::Claude.command()
+        command_name()
     }
 
     fn detect(&self) -> BoxFuture<'_, Detection> {
@@ -246,7 +259,7 @@ impl AgentTool for ClaudeCode {
             args: command.args,
             cwd: command.cwd,
             env: command.env,
-            tool_id: ToolIdMode::ChosenUpFront(command.claude_session_id),
+            tool_id: ToolIdMode::ChosenUpFront(command.tool_session_id),
         })
     }
 
@@ -257,7 +270,7 @@ impl AgentTool for ClaudeCode {
     }
 
     fn resume_hint(&self, tool_id: &str) -> String {
-        format!("{} --resume {tool_id}", self.command_name())
+        resume_hint(tool_id)
     }
 
     /// Folder trust in Claude Code's config file ([`trust`]); `None` when the file couldn't be located.

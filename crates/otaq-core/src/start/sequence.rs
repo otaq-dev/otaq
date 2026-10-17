@@ -29,6 +29,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use serde_json::{Value, json};
 
 use super::{StartError, begin_setup_log, copy_env_files, prepare_worktree, run_setup};
+use crate::agent_tools::Tool;
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
@@ -43,7 +44,9 @@ use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::session::env::applied;
 use crate::session::launch::{LaunchContext, launch_agent, resume_agent_with};
 use crate::session::statusline;
-use crate::session::{SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
+use crate::session::{
+    SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, StoredConversation, TerminalSize,
+};
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 use crate::tools::Os;
@@ -252,7 +255,8 @@ impl Starter {
                     EventKind::Started,
                     json!({
                         "session": session.id,
-                        "claude_session_id": session.claude_session_id,
+                        "tool": session.tool,
+                        "tool_session_id": session.tool_session_id,
                     }),
                 )
                 .await?;
@@ -490,16 +494,21 @@ impl Starter {
             tracing::warn!(ticket = %ticket.key, error = %e, "can't write the status-line settings");
         })
         .ok();
-        let command = match returning.and_then(|r| {
+        let conversation = returning.and_then(|r| {
             let prompt = r.first_prompt();
             r.conversation.map(|c| (c, prompt))
-        }) {
+        });
+        // A new conversation runs on Claude Code; a resumed one on the tool and model it ran on (ADP-04).
+        let (tool, model) = conversation
+            .as_ref()
+            .map_or((Tool::Claude, None), |(c, _)| (c.tool, c.model.clone()));
+        let command = match conversation {
             Some((conversation, prompt)) => resume_agent_with(
                 launch,
                 &ticket.key,
                 &worktree.path,
                 ports.agent,
-                &conversation,
+                &conversation.id,
                 prompt,
                 settings.as_deref(),
             ),
@@ -526,7 +535,9 @@ impl Starter {
                 cwd: command.cwd,
                 env: command.env,
                 size: INITIAL_SIZE,
-                claude_session_id: Some(command.claude_session_id),
+                tool: Some(tool),
+                tool_session_id: Some(command.tool_session_id),
+                model,
             })
             .await
             .map_err(|e| (StartStep::Launch, StartError::Other(e.to_string())))?;
@@ -683,8 +694,8 @@ struct Returning {
     /// The user's answer from the inbox to an Interrupted question (ATT-08), sent as the resumed
     /// conversation's first prompt.
     prompt: Option<String>,
-    /// The Claude session ID of its latest agent session, continued with `claude --resume`.
-    conversation: Option<String>,
+    /// The conversation of its latest agent session, continued with its tool's resume.
+    conversation: Option<StoredConversation>,
 }
 
 impl Returning {
@@ -712,14 +723,8 @@ impl Returning {
                 conversation: None,
             }));
         }
-        let conversation: Option<String> = sqlx::query_scalar(
-            "SELECT claude_session_id FROM sessions
-             WHERE ticket_id = ? AND kind = 'agent' AND claude_session_id IS NOT NULL
-             ORDER BY started_at DESC, id DESC LIMIT 1",
-        )
-        .bind(&ticket.id)
-        .fetch_optional(board.store().pool())
-        .await?;
+        let conversation =
+            StoredConversation::latest_agent(board.store().pool(), &ticket.id).await?;
         Ok(Some(Self {
             skill: row.resume_skill,
             prompt: row.resume_prompt,

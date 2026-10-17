@@ -2,10 +2,11 @@
 //! Before the restart; 16 → Resume failed · Start from scratch*).
 //!
 //! An Interrupted ticket's Terminal tab can't replay its grid (the session is gone), so it shows the agent's last
-//! messages and actions read from Claude Code's saved conversation, with a Resume call to action; when the
+//! messages and actions read from the agent tool's saved conversation, with a Resume call to action; when the
 //! conversation is gone it says so and offers Retry and Start from scratch. Start from scratch asks first and says
 //! what is kept and what is lost.
 
+use otaq_core::agent_tools::Tool;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::Status;
 use otaq_core::recovery::{BeforeRestart, TranscriptEntry};
@@ -14,7 +15,7 @@ use ts_rs::TS;
 
 use crate::view_models::clock::local_hhmm;
 
-/// The first 8 characters of a Claude session ID ("3be94c10"), as the frames show it.
+/// The first 8 characters of a tool session id ("3be94c10"), as the frames show it.
 pub fn short_id(id: &str) -> &str {
     id.get(..8).unwrap_or(id)
 }
@@ -23,7 +24,7 @@ pub fn short_id(id: &str) -> &str {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntryLine {
     pub time: String,
-    /// "You", "Claude" or the tool ("Bash", "Edit").
+    /// "You", the agent tool's short name ("Claude") or the action's tool ("Bash", "Edit").
     pub who: String,
     pub text: String,
     /// A tool action (drawn in the accent colour).
@@ -51,30 +52,34 @@ pub fn shows_recovery(ticket: &Ticket, session_running: bool) -> bool {
 pub fn view(ticket: &Ticket, before: &BeforeRestart) -> RecoveryView {
     match before {
         BeforeRestart::Available {
-            claude_session_id,
+            tool,
+            tool_session_id,
             entries,
         } => {
-            let short = short_id(claude_session_id).to_owned();
+            let short = short_id(tool_session_id).to_owned();
+            let hint = tool.resume_hint(&short);
             let at = ticket.status_since.map(local_hhmm);
             let ended = match at {
                 Some(at) => format!(
-                    "Session ended by a restart at {at}. Resume reopens this conversation (claude --resume {short})."
+                    "Session ended by a restart at {at}. Resume reopens this conversation ({hint})."
                 ),
-                None => format!(
-                    "The session ended. Resume reopens this conversation (claude --resume {short})."
-                ),
+                None => format!("The session ended. Resume reopens this conversation ({hint})."),
             };
             RecoveryView::BeforeRestart {
                 session: format!("session {short}"),
-                lines: entries.iter().map(entry_line).collect(),
+                lines: entries.iter().map(|e| entry_line(e, *tool)).collect(),
                 ended,
             }
         }
-        BeforeRestart::NotAvailable { claude_session_id } => RecoveryView::NotAvailable {
-            text: match claude_session_id {
-                Some(id) => format!(
-                    "Claude’s saved conversation for session {} can’t be found, so there is nothing to show or \
+        BeforeRestart::NotAvailable {
+            tool,
+            tool_session_id,
+        } => RecoveryView::NotAvailable {
+            text: match tool.zip(tool_session_id.as_deref()) {
+                Some((tool, id)) => format!(
+                    "{}’s saved conversation for session {} can’t be found, so there is nothing to show or \
                      resume. The worktree and branch are untouched.",
+                    tool.short_name(),
                     short_id(id)
                 ),
                 None => "There is no saved conversation for this ticket, so there is nothing to show or resume. \
@@ -85,7 +90,8 @@ pub fn view(ticket: &Ticket, before: &BeforeRestart) -> RecoveryView {
     }
 }
 
-pub fn entry_line(entry: &TranscriptEntry) -> EntryLine {
+/// One entry of a conversation that ran on `tool`.
+pub fn entry_line(entry: &TranscriptEntry, tool: Tool) -> EntryLine {
     let time = |at: &Option<i64>| at.map(local_hhmm).unwrap_or_default();
     match entry {
         TranscriptEntry::User { text, at } => EntryLine {
@@ -96,7 +102,7 @@ pub fn entry_line(entry: &TranscriptEntry) -> EntryLine {
         },
         TranscriptEntry::Assistant { text, at } => EntryLine {
             time: time(at),
-            who: "Claude".into(),
+            who: tool.short_name().into(),
             text: text.clone(),
             action: false,
         },
@@ -167,7 +173,8 @@ mod tests {
         let mut t = ticket(Status::Interrupted);
         t.status_since = Some(1_791_582_000_000);
         let before = BeforeRestart::Available {
-            claude_session_id: "3be94c10-aaaa-7bbb-8ccc-ddddeeeeffff".into(),
+            tool: Tool::Claude,
+            tool_session_id: "3be94c10-aaaa-7bbb-8ccc-ddddeeeeffff".into(),
             entries: vec![
                 TranscriptEntry::User {
                     text: "Upgrade to Next.js 15".into(),
@@ -206,7 +213,8 @@ mod tests {
         let view = view(
             &t,
             &BeforeRestart::NotAvailable {
-                claude_session_id: Some("3be94c10-aaaa".into()),
+                tool: Some(Tool::Claude),
+                tool_session_id: Some("3be94c10-aaaa".into()),
             },
         );
         assert_eq!(

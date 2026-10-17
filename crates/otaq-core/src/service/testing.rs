@@ -278,7 +278,9 @@ impl TestService {
                     cols: 400,
                     rows: 50,
                 },
-                claude_session_id: None,
+                tool: None,
+                tool_session_id: None,
+                model: None,
             })
             .await
             .expect("session starts");
@@ -325,21 +327,24 @@ impl TestService {
             .path
     }
 
-    /// Records an ended agent session of `ticket` with `claude_session_id`, as an earlier start would have.
-    pub async fn record_ended_agent(&self, ticket: &Ticket, claude_session_id: &str) {
+    /// Records an ended Claude Code agent session of `ticket` with `tool_session_id`, as an earlier start would
+    /// have.
+    pub async fn record_ended_agent(&self, ticket: &Ticket, tool_session_id: &str) {
         let project = self
             .board
             .project(ticket.key.project.as_str())
             .await
             .expect("project");
         sqlx::query(
-            "INSERT INTO sessions (id, project_id, ticket_id, kind, claude_session_id, state, started_at, ended_at)
-             VALUES (?, ?, ?, 'agent', ?, 'ended', ?, ?)",
+            "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, tool_session_id, state, started_at,
+                                   ended_at)
+             VALUES (?, ?, ?, 'agent', ?, ?, 'ended', ?, ?)",
         )
         .bind(crate::store::new_id())
         .bind(&project.id)
         .bind(&ticket.id)
-        .bind(claude_session_id)
+        .bind(crate::agent_tools::Tool::Claude.as_str())
+        .bind(tool_session_id)
         .bind(crate::store::now_ms() - 1000)
         .bind(crate::store::now_ms())
         .execute(self.board.store().pool())

@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::{broadcast, watch};
 
+use crate::agent_tools::Tool;
 use crate::board::tickets::{EventKind, record_event};
 use crate::board::{Board, BoardError};
 use crate::domain::{Actor, Status, TicketKey};
@@ -58,24 +59,26 @@ pub async fn before_restart(
     limit: usize,
 ) -> Result<BeforeRestart, BoardError> {
     let ticket = board.ticket(key).await?;
-    let latest: Option<String> = if ticket.is_epic() {
-        sqlx::query_scalar("SELECT claude_session_id FROM project_agents WHERE epic_id = ? LIMIT 1")
-            .bind(&ticket.id)
-            .fetch_optional(board.store().pool())
-            .await?
-    } else {
-        sqlx::query_scalar(
-            "SELECT claude_session_id FROM sessions
-             WHERE ticket_id = ? AND kind = 'agent' AND claude_session_id IS NOT NULL
-             ORDER BY started_at DESC, id DESC LIMIT 1",
+    let latest: Option<(Tool, Option<String>)> = if ticket.is_epic() {
+        let row: Option<(String, Option<String>)> = sqlx::query_as(
+            "SELECT tool, tool_session_id FROM project_agents WHERE epic_id = ? LIMIT 1",
         )
         .bind(&ticket.id)
         .fetch_optional(board.store().pool())
-        .await?
+        .await?;
+        row.and_then(|(tool, id)| Some((tool.parse().ok()?, id)))
+    } else {
+        crate::session::StoredConversation::latest_agent(board.store().pool(), &ticket.id)
+            .await?
+            .map(|c| (c.tool, Some(c.id)))
     };
-    let (Some(session_id), Some(claude_dir)) = (latest.clone(), claude_dir) else {
+    let (tool, latest) = latest.unzip();
+    let latest = latest.flatten();
+    let (Some(tool), Some(session_id), Some(claude_dir)) = (tool, latest.clone(), claude_dir)
+    else {
         return Ok(BeforeRestart::NotAvailable {
-            claude_session_id: latest,
+            tool,
+            tool_session_id: latest,
         });
     };
     let cwd = match ticket
@@ -100,11 +103,13 @@ pub async fn before_restart(
     .flatten();
     Ok(match entries {
         Some(entries) => BeforeRestart::Available {
-            claude_session_id: session_id,
+            tool,
+            tool_session_id: session_id,
             entries,
         },
         None => BeforeRestart::NotAvailable {
-            claude_session_id: Some(session_id),
+            tool: Some(tool),
+            tool_session_id: Some(session_id),
         },
     })
 }
@@ -637,7 +642,11 @@ impl Recovery {
             ticket_id,
             EventKind::ResumeFailed,
             &Actor::current_user(),
-            json!({ "session": info.id, "claude_session_id": info.claude_session_id }),
+            json!({
+                "session": info.id,
+                "tool": info.tool,
+                "tool_session_id": info.tool_session_id,
+            }),
         )
         .await?;
         tx.commit().await?;

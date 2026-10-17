@@ -26,6 +26,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
+use crate::agent_tools::Tool;
 use crate::board::settings::{AutoMerge, EffectiveSettings};
 use crate::board::tickets::Ticket;
 use crate::board::validation::{
@@ -791,7 +792,9 @@ impl Validation {
                 cwd: command.cwd,
                 env: command.env,
                 size: INITIAL_SIZE,
-                claude_session_id: Some(command.claude_session_id),
+                tool: Some(Tool::Claude),
+                tool_session_id: Some(command.tool_session_id),
+                model: None,
             })
             .await
             .map_err(other)?;

@@ -94,8 +94,8 @@ pub struct AgentCommand {
     pub args: Vec<String>,
     pub cwd: PathBuf,
     pub env: Vec<(String, String)>,
-    /// The Claude session ID the conversation uses.
-    pub claude_session_id: String,
+    /// The tool session id the conversation uses (`--session-id` or `--resume`).
+    pub tool_session_id: String,
 }
 
 /// A new agent session for `ticket` in `worktree`, with a fresh Claude session ID. `settings` is Otaq's
@@ -229,9 +229,9 @@ fn epic_lead_command(
     repo: &Path,
     epic: &TicketKey,
     flags: Vec<String>,
-    claude_session_id: String,
+    tool_session_id: String,
 ) -> AgentCommand {
-    let mut command = project_agent_command(ctx, repo, flags, claude_session_id);
+    let mut command = project_agent_command(ctx, repo, flags, tool_session_id);
     for (name, value) in &mut command.env {
         if *name == naming::role_env_var() {
             naming::ROLE_EPIC_LEAD.clone_into(value);
@@ -245,7 +245,7 @@ fn project_agent_command(
     ctx: &LaunchContext,
     repo: &Path,
     flags: Vec<String>,
-    claude_session_id: String,
+    tool_session_id: String,
 ) -> AgentCommand {
     let (program, leading, path) = program_and_path(ctx);
     AgentCommand {
@@ -259,7 +259,7 @@ fn project_agent_command(
                 naming::ROLE_PROJECT_AGENT.to_owned(),
             ),
         ],
-        claude_session_id,
+        tool_session_id,
     }
 }
 
@@ -321,7 +321,7 @@ fn command(
     worktree: &Path,
     agent_port: u16,
     flags: Vec<String>,
-    claude_session_id: String,
+    tool_session_id: String,
 ) -> AgentCommand {
     let (program, leading, path) = program_and_path(ctx);
     AgentCommand {
@@ -333,7 +333,7 @@ fn command(
             ("PORT".to_owned(), agent_port.to_string()),
             ("PATH".to_owned(), path),
         ],
-        claude_session_id,
+        tool_session_id,
     }
 }
 
@@ -393,7 +393,7 @@ mod tests {
                 "--settings".to_owned(),
                 "/home/me/.data/claude/SHOP-18.settings.json".to_owned(),
                 "--session-id".to_owned(),
-                cmd.claude_session_id.clone(),
+                cmd.tool_session_id.clone(),
                 "/my-validate".to_owned(),
             ]
         );
@@ -435,7 +435,7 @@ mod tests {
                 "--settings".to_owned(),
                 settings.display().to_string(),
                 "--session-id".to_owned(),
-                cmd.claude_session_id.clone(),
+                cmd.tool_session_id.clone(),
                 format!("/{name}:project-agent"),
             ]
         );
@@ -466,7 +466,7 @@ mod tests {
         assert_eq!(resume.env, cmd.env);
         assert_eq!(resume.args[..6], cmd.args[..6]);
         assert_eq!(resume.args[6..], ["--resume".to_owned(), "c-1".to_owned()]);
-        assert_eq!(resume.claude_session_id, "c-1");
+        assert_eq!(resume.tool_session_id, "c-1");
     }
 
     /// An epic lead (T-0278, LEAD-01): a Project agent launch with the epic lead skill, its first message after the
@@ -490,7 +490,7 @@ mod tests {
             open.args[4..],
             [
                 "--session-id".to_owned(),
-                open.claude_session_id.clone(),
+                open.tool_session_id.clone(),
                 format!("/{name}:epic-lead"),
             ]
         );
@@ -507,7 +507,7 @@ mod tests {
         let resume = resume_epic_lead(&ctx(), repo, &epic, "c-1", None);
         assert_eq!(resume.env, env);
         assert_eq!(resume.args[4..], ["--resume".to_owned(), "c-1".to_owned()]);
-        assert_eq!(resume.claude_session_id, "c-1");
+        assert_eq!(resume.tool_session_id, "c-1");
     }
 
     #[test]
@@ -520,7 +520,7 @@ mod tests {
             Some(Path::new("/home/me/.data/claude/SHOP-18.settings.json")),
         );
         assert_eq!(cmd.program, "claude");
-        let session = cmd.claude_session_id.clone();
+        let session = cmd.tool_session_id.clone();
         assert!(uuid::Uuid::parse_str(&session).is_ok());
         let name = naming::COMMAND_NAME;
         assert_eq!(
@@ -557,7 +557,7 @@ mod tests {
     fn each_launch_gets_its_own_session_id() {
         let a = launch_agent(&ctx(), &key(), Path::new("/wt"), 4019, None);
         let b = launch_agent(&ctx(), &key(), Path::new("/wt"), 4019, None);
-        assert_ne!(a.claude_session_id, b.claude_session_id);
+        assert_ne!(a.tool_session_id, b.tool_session_id);
     }
 
     #[test]
@@ -568,7 +568,7 @@ mod tests {
         assert_eq!(resume.env, launch.env);
         assert_eq!(resume.args[..4], launch.args[..4]);
         assert_eq!(resume.args[4..], ["--resume".to_owned(), id.to_owned()]);
-        assert_eq!(resume.claude_session_id, id);
+        assert_eq!(resume.tool_session_id, id);
     }
 
     #[test]

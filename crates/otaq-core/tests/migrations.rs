@@ -306,7 +306,7 @@ async fn sessions_take_the_new_kinds_and_keep_their_rows() {
 
     let store = Store::open(&path).await.unwrap();
     let row: (String, String, Option<String>, Option<i64>) = sqlx::query_as(
-        "SELECT kind, state, claude_session_id, summary_dismissed_at FROM sessions WHERE id = 's1'",
+        "SELECT kind, state, tool_session_id, summary_dismissed_at FROM sessions WHERE id = 's1'",
     )
     .fetch_one(store.pool())
     .await
@@ -374,8 +374,8 @@ async fn project_agents_start_empty_and_their_sessions_outlive_them() {
     assert_eq!(agent, None);
     exec(
         store.pool(),
-        "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at)
-         VALUES ('a1', 'p', 'c1', 'running', 0)",
+        "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, created_at)
+         VALUES ('a1', 'p', 'claude', 'c1', 'running', 0)",
     )
     .await;
     exec(
@@ -396,8 +396,8 @@ async fn project_agents_start_empty_and_their_sessions_outlive_them() {
     assert_eq!(row.get::<i64, _>(3), 0);
     assert_eq!(row.get::<Option<i64>, _>(4), None);
     let bad = sqlx::query(
-        "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at)
-         VALUES ('a2', 'p', 'c2', 'asleep', 0)",
+        "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, created_at)
+         VALUES ('a2', 'p', 'claude', 'c2', 'asleep', 0)",
     )
     .execute(store.pool())
     .await;
@@ -471,8 +471,8 @@ async fn questions_take_a_project_agent_as_the_asker() {
 
     exec(
         store.pool(),
-        "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at)
-         VALUES ('a1', 'p', 'c1', 'running', 0)",
+        "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, created_at)
+         VALUES ('a1', 'p', 'claude', 'c1', 'running', 0)",
     )
     .await;
     exec(
@@ -626,14 +626,14 @@ async fn project_agents_take_an_epic_and_an_epic_has_one_lead() {
     assert_eq!(row.get::<Option<String>, _>(1), None);
     exec(
         store.pool(),
-        "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at, epic_id)
-         VALUES ('l40', 'p', 'c2', 'running', 0, 't40'), ('l45', 'p', 'c3', 'running', 0, 't45'),
-                ('a2', 'p', 'c4', 'running', 0, NULL)",
+        "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, created_at, epic_id)
+         VALUES ('l40', 'p', 'claude', 'c2', 'running', 0, 't40'), ('l45', 'p', 'claude', 'c3', 'running', 0, 't45'),
+                ('a2', 'p', 'claude', 'c4', 'running', 0, NULL)",
     )
     .await;
     let second = sqlx::query(
-        "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at, epic_id)
-         VALUES ('l40b', 'p', 'c5', 'running', 0, 't40')",
+        "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, created_at, epic_id)
+         VALUES ('l40b', 'p', 'claude', 'c5', 'running', 0, 't40')",
     )
     .execute(store.pool())
     .await;
@@ -1068,4 +1068,147 @@ async fn lead_stuck_starts_empty_one_row_per_child() {
     assert_eq!(note, None, "the note may go");
     exec(store.pool(), "DELETE FROM tickets WHERE id = 't403'").await;
     assert_eq!(count().await, 0, "deleted with the child");
+}
+
+/// T-0309 (ADP-04, d0088): migration 0038 makes sessions tool-neutral on an M19 database (after 0037). An agent
+/// session and a Project agent (and an epic lead) ran Claude Code and keep their ids; a Shell session runs no agent
+/// tool; nothing passed a model. The index follows the rename, and a Project agent's tool id may now be empty.
+#[tokio::test]
+async fn sessions_and_project_agents_take_the_tool_and_keep_their_ids() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 37).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, kind, title, board_column, state, created_by, created_at,
+                              updated_at)
+         VALUES ('t18', 'p', 18, 'ticket', 'T', 'dev', 'working', 'me', 0, 0),
+                ('t40', 'p', 40, 'epic', 'Wishlist', 'backlog', 'backlog', 'me', 0, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO project_agents (id, project_id, name, name_source, claude_session_id, state, first_request,
+                                     limit_stopped, created_at, ended_at, closed_at, epic_id)
+         VALUES ('a1', 'p', 'Checkout slowness', 'agent', 'c-agent', 'ended', 'Why is checkout slow?', 1, 3, 4, 5,
+                 NULL),
+                ('l40', 'p', NULL, NULL, 'c-lead', 'running', NULL, 0, 6, NULL, NULL, 't40')",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO sessions (id, project_id, ticket_id, kind, claude_session_id, state, started_at,
+                               project_agent_id)
+         VALUES ('s1', 'p', 't18', 'agent', 'c-ticket', 'ended', 5, NULL),
+                ('s2', 'p', 't18', 'shell', NULL, 'ended', 6, NULL),
+                ('s3', 'p', NULL, 'project_agent', 'c-agent', 'ended', 7, 'a1')",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    /// `(id, tool, tool_session_id, model, project_agent_id)`.
+    type SessionRow = (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+    let sessions: Vec<SessionRow> = sqlx::query_as(
+        "SELECT id, tool, tool_session_id, model, project_agent_id FROM sessions ORDER BY id",
+    )
+    .fetch_all(store.pool())
+    .await
+    .unwrap();
+    let claude = || Some("claude".to_owned());
+    assert_eq!(
+        sessions,
+        [
+            ("s1".into(), claude(), Some("c-ticket".into()), None, None),
+            ("s2".into(), None, None, None, None),
+            (
+                "s3".into(),
+                claude(),
+                Some("c-agent".into()),
+                None,
+                Some("a1".into())
+            ),
+        ]
+    );
+    let agents: Vec<(String, String, Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT id, tool, tool_session_id, model FROM project_agents ORDER BY id")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        agents,
+        [
+            ("a1".into(), "claude".into(), Some("c-agent".into()), None),
+            ("l40".into(), "claude".into(), Some("c-lead".into()), None),
+        ]
+    );
+    let row = sqlx::query(
+        "SELECT name, name_source, state, first_request, limit_stopped, created_at, ended_at, closed_at, epic_id
+         FROM project_agents WHERE id = 'a1'",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>(0), "Checkout slowness");
+    assert_eq!(row.get::<String, _>(1), "agent");
+    assert_eq!(row.get::<String, _>(2), "ended");
+    assert_eq!(row.get::<String, _>(3), "Why is checkout slow?");
+    assert_eq!(row.get::<i64, _>(4), 1);
+    assert_eq!(
+        (
+            row.get::<i64, _>(5),
+            row.get::<Option<i64>, _>(6),
+            row.get::<Option<i64>, _>(7)
+        ),
+        (3, Some(4), Some(5))
+    );
+    assert_eq!(row.get::<Option<String>, _>(8), None);
+    let indexes: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN
+         ('sessions_tool_session', 'sessions_claude_session', 'project_agents_project', 'project_agents_epic')
+         ORDER BY name",
+    )
+    .fetch_all(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        indexes,
+        [
+            "project_agents_epic",
+            "project_agents_project",
+            "sessions_tool_session"
+        ]
+    );
+    // A tool that reports its id after start; still one lead per epic; the sessions still point at their agent.
+    exec(
+        store.pool(),
+        "INSERT INTO project_agents (id, project_id, tool, state, created_at) VALUES ('a2', 'p', 'claude', 'running', 8)",
+    )
+    .await;
+    let second = sqlx::query(
+        "INSERT INTO project_agents (id, project_id, tool, state, created_at, epic_id)
+         VALUES ('l40b', 'p', 'claude', 'running', 9, 't40')",
+    )
+    .execute(store.pool())
+    .await;
+    assert!(second.is_err(), "one lead per epic");
+    exec(store.pool(), "DELETE FROM project_agents WHERE id = 'a1'").await;
+    let agent: Option<String> =
+        sqlx::query_scalar("SELECT project_agent_id FROM sessions WHERE id = 's3'")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(agent, None, "the foreign key still holds");
 }

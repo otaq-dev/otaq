@@ -381,7 +381,7 @@ async fn a_killed_service_leaves_interrupted_tickets_and_an_unclean_start() {
             Some(END_SERVICE_STOPPED),
             "the leftover session is recorded as ended"
         );
-        assert!(sessions[0].claude_session_id.is_some(), "kept for Resume");
+        assert!(sessions[0].tool_session_id.is_some(), "kept for Resume");
     }
     w.stop().await;
 }

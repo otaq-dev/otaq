@@ -354,7 +354,7 @@ async fn queueing_after_park_resumes_the_parked_child() {
     w.starter.start(&key(&api), &me()).await.unwrap();
     until_status(&w, &key(&api), Status::Working).await;
     let first = w.sessions.running_of(&api.id, SessionKind::Agent).unwrap();
-    let conversation = first.claude_session_id.clone().unwrap();
+    let conversation = first.tool_session_id.clone().unwrap();
     w.review.park(&key(&api), true, &me()).await.unwrap();
     assert_eq!(w.status(&key(&api)).await, Status::Parked);
     let tickets = w.board.tickets("SHOP").await.unwrap();

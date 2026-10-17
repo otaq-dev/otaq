@@ -1,5 +1,5 @@
 //! The History tab (UI-04; d0045): every session the ticket had, with its time, duration, end reason and full
-//! Claude session ID (copyable, so `claude --resume <id>` finds the conversation), and the ticket's events
+//! tool session id (copyable, so `claude --resume <id>` finds the conversation), and the ticket's events
 //! (created, moved, start interrupted, held, retried, edited…), newest first; one entry per validation round, which
 //! opens its report (VAL-12, `validation_report.rs`).
 
@@ -26,8 +26,8 @@ pub struct HistoryRow {
     pub duration: String,
     /// The session's tokens ("226k"); "—" for events, other sessions, and unknown counts (USG-01).
     pub tokens: String,
-    /// The full Claude session ID, for the copy button.
-    pub claude_session_id: Option<String>,
+    /// The full tool session id, for the copy button.
+    pub tool_session_id: Option<String>,
     pub is_session: bool,
     /// A validation round's outcome icon and colours; sessions and events have their own icons.
     pub outcome: Option<(IconName, Palette)>,
@@ -86,7 +86,7 @@ pub fn rows_with_rounds(
             at: round.at,
             duration: round.duration,
             tokens: round.tokens,
-            claude_session_id: None,
+            tool_session_id: None,
             is_session: false,
             outcome: Some((round.icon, round.palette)),
             report: round.report,
@@ -111,9 +111,14 @@ fn session_row(s: &SessionInfo, usage: &[SessionUsage]) -> HistoryRow {
         Some(end) => clock::duration(end - s.started_at),
         None => "running".to_owned(),
     };
-    let detail = match (&s.claude_session_id, s.end_reason.as_deref()) {
-        (Some(id), Some(reason)) => Some(format!("claude {id} · {reason}")),
-        (Some(id), None) => Some(format!("claude {id}")),
+    // "claude 3be94c10… · service stopped": the tool's command and its id.
+    let conversation = s
+        .tool
+        .zip(s.tool_session_id.as_deref())
+        .map(|(tool, id)| format!("{} {id}", tool.command_name()));
+    let detail = match (conversation, s.end_reason.as_deref()) {
+        (Some(conversation), Some(reason)) => Some(format!("{conversation} · {reason}")),
+        (Some(conversation), None) => Some(conversation),
         (None, Some(reason)) => Some(reason.to_owned()),
         (None, None) => None,
     };
@@ -123,7 +128,7 @@ fn session_row(s: &SessionInfo, usage: &[SessionUsage]) -> HistoryRow {
         at: s.started_at,
         duration,
         tokens: crate::view_models::usage::session_label(usage, &s.id),
-        claude_session_id: s.claude_session_id.clone(),
+        tool_session_id: s.tool_session_id.clone(),
         is_session: true,
         outcome: None,
         report: None,
@@ -386,7 +391,7 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
         ),
         EventKind::ResumeFailed => (
             "Resume failed".to_owned(),
-            Some(match text(p, "claude_session_id") {
+            Some(match text(p, "tool_session_id") {
                 Some(id) => format!("conversation {id} not found"),
                 None => "conversation not found".to_owned(),
             }),
@@ -397,7 +402,7 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
         ),
         EventKind::StartedFromScratch => (
             "Started from scratch (resume failed)".to_owned(),
-            Some(match text(p, "old_claude_session_id") {
+            Some(match text(p, "old_tool_session_id") {
                 Some(id) => format!("same worktree · old conversation {id}"),
                 None => "same worktree".to_owned(),
             }),
@@ -598,7 +603,7 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
         at: e.at,
         duration: "—".to_owned(),
         tokens: "—".to_owned(),
-        claude_session_id: None,
+        tool_session_id: None,
         is_session: false,
         outcome: None,
         report: None,
@@ -608,6 +613,7 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use otaq_core::agent_tools::Tool;
     use otaq_core::session::SessionState;
     use serde_json::json;
 
@@ -625,7 +631,9 @@ mod tests {
             started_at: start,
             ended_at: end,
             end_reason: reason.map(str::to_owned),
-            claude_session_id: Some(format!("3be94c10-{id}")),
+            tool: Some(Tool::Claude),
+            tool_session_id: Some(format!("3be94c10-{id}")),
+            model: None,
             size: None,
         }
     }
@@ -1111,12 +1119,12 @@ mod tests {
                 event(
                     EventKind::StartedFromScratch,
                     5 * MIN,
-                    json!({"old_claude_session_id": "3be94c10-x"}),
+                    json!({"tool": "claude", "old_tool_session_id": "3be94c10-x"}),
                 ),
                 event(
                     EventKind::ResumeFailed,
                     6 * MIN,
-                    json!({"claude_session_id": "3be94c10-x"}),
+                    json!({"tool": "claude", "tool_session_id": "3be94c10-x"}),
                 ),
             ],
             &[],
@@ -1178,7 +1186,7 @@ mod tests {
             rows[1].detail.as_deref(),
             Some("claude 3be94c10-a · service stopped")
         );
-        assert_eq!(rows[1].claude_session_id.as_deref(), Some("3be94c10-a"));
+        assert_eq!(rows[1].tool_session_id.as_deref(), Some("3be94c10-a"));
         assert_eq!(
             rows[2].detail.as_deref(),
             Some("setup command failed: setup command failed (exit 1):")

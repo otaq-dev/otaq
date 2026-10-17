@@ -410,13 +410,13 @@ impl Usage {
     /// The tokens of every ticket of `project` (by key) that ran a conversation.
     pub async fn tickets(&self, project: &str) -> Result<Vec<TicketUsage>, StoreError> {
         let rows: Vec<TicketConversationRow> = sqlx::query_as(
-            "SELECT s.ticket_id, s.claude_session_id, SUM(u.tokens_in), SUM(u.tokens_out),
+            "SELECT s.ticket_id, s.tool_session_id, SUM(u.tokens_in), SUM(u.tokens_out),
                     SUM(u.cache_write_tokens), SUM(u.cache_read_tokens), MAX(s.kind = 'validator')
              FROM sessions s
              JOIN projects p ON p.id = s.project_id
              LEFT JOIN usage u ON u.session_id = s.id
-             WHERE p.key = ? AND s.ticket_id IS NOT NULL AND s.claude_session_id IS NOT NULL
-             GROUP BY s.ticket_id, s.claude_session_id
+             WHERE p.key = ? AND s.ticket_id IS NOT NULL AND s.tool_session_id IS NOT NULL
+             GROUP BY s.ticket_id, s.tool_session_id
              ORDER BY s.ticket_id",
         )
         .bind(project)
@@ -458,14 +458,14 @@ impl Usage {
         }
         // An epic's lead counts on the epic (LEAD-12, d0083).
         let leads: Vec<TicketConversationRow> = sqlx::query_as(
-            "SELECT a.epic_id, s.claude_session_id, SUM(u.tokens_in), SUM(u.tokens_out),
+            "SELECT a.epic_id, s.tool_session_id, SUM(u.tokens_in), SUM(u.tokens_out),
                     SUM(u.cache_write_tokens), SUM(u.cache_read_tokens), 0
              FROM project_agents a
              JOIN projects p ON p.id = a.project_id
              JOIN sessions s ON s.project_agent_id = a.id
              LEFT JOIN usage u ON u.session_id = s.id
-             WHERE p.key = ? AND a.epic_id IS NOT NULL AND s.claude_session_id IS NOT NULL
-             GROUP BY a.epic_id, s.claude_session_id",
+             WHERE p.key = ? AND a.epic_id IS NOT NULL AND s.tool_session_id IS NOT NULL
+             GROUP BY a.epic_id, s.tool_session_id",
         )
         .bind(project)
         .fetch_all(self.inner.store.pool())
@@ -498,11 +498,11 @@ impl Usage {
     /// The tokens of each session of a ticket (by id) that ran a conversation, oldest first.
     pub async fn sessions_of(&self, ticket_id: &str) -> Result<Vec<SessionUsage>, StoreError> {
         let rows: Vec<ConversationRow> = sqlx::query_as(
-            "SELECT s.id, s.claude_session_id, SUM(u.tokens_in), SUM(u.tokens_out),
+            "SELECT s.id, s.tool_session_id, SUM(u.tokens_in), SUM(u.tokens_out),
                     SUM(u.cache_write_tokens), SUM(u.cache_read_tokens)
              FROM sessions s LEFT JOIN usage u ON u.session_id = s.id
-             WHERE s.ticket_id = ? AND s.claude_session_id IS NOT NULL
-             GROUP BY s.id, s.claude_session_id
+             WHERE s.ticket_id = ? AND s.tool_session_id IS NOT NULL
+             GROUP BY s.id, s.tool_session_id
              ORDER BY MIN(s.started_at), s.id",
         )
         .bind(ticket_id)
@@ -521,11 +521,11 @@ impl Usage {
     /// Every session that stored a Claude session ID, with where it ran.
     async fn sessions(&self) -> Result<Vec<StoredSession>, StoreError> {
         let rows: Vec<SessionRow> = sqlx::query_as(
-            "SELECT s.id, s.claude_session_id, s.started_at, s.ended_at, t.worktree_path, p.repo_path
+            "SELECT s.id, s.tool_session_id, s.started_at, s.ended_at, t.worktree_path, p.repo_path
              FROM sessions s
              JOIN projects p ON p.id = s.project_id
              LEFT JOIN tickets t ON t.id = s.ticket_id
-             WHERE s.claude_session_id IS NOT NULL AND s.claude_session_id <> ''",
+             WHERE s.tool_session_id IS NOT NULL AND s.tool_session_id <> ''",
         )
         .fetch_all(self.inner.store.pool())
         .await?;
@@ -548,8 +548,8 @@ impl Usage {
     /// The Claude session IDs that already have counts stored.
     async fn counted_conversations(&self) -> Result<HashSet<String>, StoreError> {
         let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT DISTINCT s.claude_session_id FROM usage u JOIN sessions s ON s.id = u.session_id
-             WHERE s.claude_session_id IS NOT NULL",
+            "SELECT DISTINCT s.tool_session_id FROM usage u JOIN sessions s ON s.id = u.session_id
+             WHERE s.tool_session_id IS NOT NULL",
         )
         .fetch_all(self.inner.store.pool())
         .await?;
@@ -580,10 +580,10 @@ impl Usage {
 /// `(SUM(in), SUM(out), SUM(cache write), SUM(cache read))` of a day.
 type DayRow = (Option<i64>, Option<i64>, Option<i64>, Option<i64>);
 
-/// `(id, claude_session_id, started_at, ended_at, worktree_path, repo_path)`.
+/// `(id, tool_session_id, started_at, ended_at, worktree_path, repo_path)`.
 type SessionRow = (String, String, i64, Option<i64>, Option<String>, String);
 
-/// A conversation of a ticket: `(ticket_id, claude_session_id, SUM(in), SUM(out), SUM(cache write),
+/// A conversation of a ticket: `(ticket_id, tool_session_id, SUM(in), SUM(out), SUM(cache write),
 /// SUM(cache read), whether it was a validator's)`.
 type TicketConversationRow = (
     String,
@@ -595,7 +595,7 @@ type TicketConversationRow = (
     Option<bool>,
 );
 
-/// `(id, claude_session_id, SUM(in), SUM(out), SUM(cache write), SUM(cache read))`.
+/// `(id, tool_session_id, SUM(in), SUM(out), SUM(cache write), SUM(cache read))`.
 type ConversationRow = (
     String,
     String,

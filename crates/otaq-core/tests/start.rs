@@ -181,9 +181,13 @@ async fn a_successful_start_leaves_the_ticket_working() {
     );
     assert!(!worktree.join(".claude").exists());
 
-    // A live agent session with its Claude session ID, running in the worktree with $PORT.
+    // A live agent session with its tool, tool session id and no model, running in the worktree with $PORT.
     assert_eq!(session.kind, SessionKind::Agent);
-    assert!(session.claude_session_id.is_some());
+    assert!(session.tool_session_id.is_some());
+    assert_eq!(
+        (session.tool, session.model.as_deref()),
+        (Some(otaq_core::agent_tools::Tool::Claude), None)
+    );
     let running = s
         .sessions
         .running_of(&t.id, SessionKind::Agent)

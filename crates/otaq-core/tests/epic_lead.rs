@@ -175,15 +175,24 @@ async fn open_lead_starts_claude_with_the_role_the_epic_and_the_skill() {
     let session = lead.agent.session.as_ref().unwrap();
     assert_eq!(session.kind, SessionKind::ProjectAgent);
     assert_eq!(session.ticket, None);
+    assert_eq!(
+        (session.tool, session.model.as_deref()),
+        (Some(otaq_core::agent_tools::Tool::Claude), None)
+    );
+    assert_eq!(session.tool_session_id, lead.agent.tool_session_id);
+    assert_eq!(
+        (lead.agent.tool, lead.agent.model.as_deref()),
+        (otaq_core::agent_tools::Tool::Claude, None)
+    );
     let out = w.wait_for_output(&session.id, "CWD=").await;
     assert!(
         out.contains(&format!(
             "--session-id {} /{}:epic-lead\r\n",
-            lead.agent.claude_session_id,
+            lead.agent.tool_session_id.as_deref().unwrap(),
             naming::PLUGIN_NAMESPACE
         )) || out.contains(&format!(
             "--session-id {} /{}:epic-lead\n",
-            lead.agent.claude_session_id,
+            lead.agent.tool_session_id.as_deref().unwrap(),
             naming::PLUGIN_NAMESPACE
         )),
         "the skill and no message: {out}"
@@ -280,10 +289,19 @@ async fn an_ended_lead_is_resumed_not_started_twice_and_after_a_restart_waits_fo
     // Open lead on an ended lead resumes the same conversation.
     let resumed = leads.open(&key(&wishlist)).await.unwrap();
     assert_eq!(resumed.agent.id, first.agent.id);
+    let resumed_session = resumed.agent.session.as_ref().unwrap();
+    assert_eq!(resumed_session.tool_session_id, first.agent.tool_session_id);
+    assert_eq!(
+        (resumed_session.tool, resumed_session.model.as_deref()),
+        (Some(otaq_core::agent_tools::Tool::Claude), None)
+    );
     assert_eq!(resumed.status, LeadStatus::Idle);
     let out = w.wait_for_output(&session(&resumed.agent), "CWD=").await;
     assert!(
-        out.contains(&format!("--resume {}", first.agent.claude_session_id)),
+        out.contains(&format!(
+            "--resume {}",
+            first.agent.tool_session_id.as_deref().unwrap()
+        )),
         "{out}"
     );
     assert!(

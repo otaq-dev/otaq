@@ -19,7 +19,7 @@
 use otaq_core::board::tickets::{EventKind, HistoryEvent, Ticket};
 use otaq_core::domain::{Status, TicketKey};
 use otaq_core::project_agents::lead::{Lead, LeadStatus};
-use otaq_core::recovery::BeforeRestart;
+use otaq_core::recovery::{BeforeRestart, TranscriptEntry};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -93,12 +93,12 @@ pub enum Body {
         text: &'static str,
         button: lead_status::Button,
     },
-    /// Claude's saved conversation is still being read, or the session is starting.
-    Loading { text: &'static str },
-    /// Ended by restart: the last messages and actions from Claude's saved conversation, read-only, with Resume.
+    /// The agent tool's saved conversation is still being read, or the session is starting.
+    Loading { text: String },
+    /// Ended by restart: the last messages and actions from the tool's saved conversation, read-only, with Resume.
     BeforeRestart {
         title: &'static str,
-        source: &'static str,
+        source: String,
         session: String,
         lines: Vec<RecoveryLine>,
         ended: String,
@@ -237,7 +237,7 @@ fn body(epic: &Ticket, lead: &Lead, before: Option<&BeforeRestart>) -> Body {
                 label: terminal_label(lead),
             },
             None => Body::Loading {
-                text: "The lead\u{2019}s session is starting\u{2026}",
+                text: "The lead\u{2019}s session is starting\u{2026}".to_owned(),
             },
         },
         LeadStatus::EndedByRestart => before_restart(epic, lead, before),
@@ -254,9 +254,11 @@ fn body(epic: &Ticket, lead: &Lead, before: Option<&BeforeRestart>) -> Body {
             label: terminal_label(lead),
             title: "Ended",
             text: format!(
-                "{}\u{2019}s claude exited. Resume continues this conversation. Until then, {}\u{2019}s children \
+                "{}\u{2019}s {} exited. Resume continues this conversation. Until then, {}\u{2019}s children \
                  ask you directly.",
-                lead.name, epic.key
+                lead.name,
+                lead.agent.tool.command_name(),
+                epic.key
             ),
             icon: IconName::ZapOff,
             resume: Some(lead_status::RESUME),
@@ -265,32 +267,40 @@ fn body(epic: &Ticket, lead: &Lead, before: Option<&BeforeRestart>) -> Body {
 }
 
 fn before_restart(epic: &Ticket, lead: &Lead, before: Option<&BeforeRestart>) -> Body {
+    let tool = lead.agent.tool;
     let Some(before) = before else {
         return Body::Loading {
-            text: "Reading Claude\u{2019}s saved conversation\u{2026}",
+            text: format!(
+                "Reading {}\u{2019}s saved conversation\u{2026}",
+                tool.short_name()
+            ),
         };
     };
     match before {
         BeforeRestart::Available {
-            claude_session_id,
+            tool,
+            tool_session_id,
             entries,
         } => {
-            let short = recovery::short_id(claude_session_id);
+            let short = recovery::short_id(tool_session_id);
             let at = lead
                 .agent
                 .ended_at
                 .map_or_else(String::new, |at| format!(" at {}", local_hhmm(at)));
             Body::BeforeRestart {
                 title: "Before the restart",
-                source: "from Claude\u{2019}s saved conversation \u{b7} read-only",
+                source: format!(
+                    "from {}\u{2019}s saved conversation \u{b7} read-only",
+                    tool.short_name()
+                ),
                 session: format!("session {short}"),
                 lines: entries
                     .iter()
                     .map(|e| {
-                        let l = recovery::entry_line(e);
+                        let l = recovery::entry_line(e, *tool);
                         RecoveryLine {
                             // The assistant is the lead here.
-                            who: if l.who == "Claude" {
+                            who: if matches!(e, TranscriptEntry::Assistant { .. }) {
                                 "Lead".to_owned()
                             } else {
                                 l.who
@@ -302,19 +312,24 @@ fn before_restart(epic: &Ticket, lead: &Lead, before: Option<&BeforeRestart>) ->
                     })
                     .collect(),
                 ended: format!(
-                    "The lead ended with a restart{at}. Resume continues this conversation (claude --resume \
-                     {short}). Until then, {}\u{2019}s children ask you directly.",
+                    "The lead ended with a restart{at}. Resume continues this conversation ({}). Until then, \
+                     {}\u{2019}s children ask you directly.",
+                    tool.resume_hint(short),
                     epic.key
                 ),
                 resume: lead_status::RESUME,
             }
         }
-        BeforeRestart::NotAvailable { claude_session_id } => Body::NotAvailable {
+        BeforeRestart::NotAvailable {
+            tool: stored,
+            tool_session_id,
+        } => Body::NotAvailable {
             label: "Conversation not readable",
             text: format!(
-                "Claude\u{2019}s saved conversation{} can\u{2019}t be read, so there is nothing to show. Resume \
+                "{}\u{2019}s saved conversation{} can\u{2019}t be read, so there is nothing to show. Resume \
                  still tries to continue it. Until then, {}\u{2019}s children ask you directly.",
-                claude_session_id
+                stored.unwrap_or(tool).short_name(),
+                tool_session_id
                     .as_deref()
                     .map_or_else(String::new, |id| format!(
                         " for session {}",
@@ -598,7 +613,7 @@ pub mod fixtures {
 
     pub fn lead(status: LeadStatus) -> Lead {
         let mut lead = sample(&epic(), status, 212_000);
-        lead.agent.claude_session_id = "7c21a9e4-0000-0000-0000-000000000000".into();
+        lead.agent.tool_session_id = Some("7c21a9e4-0000-0000-0000-000000000000".into());
         lead.agent.session = Some(otaq_core::session::SessionInfo {
             id: "lead-session".into(),
             kind: otaq_core::session::SessionKind::ProjectAgent,
@@ -608,7 +623,9 @@ pub mod fixtures {
             started_at: T0,
             ended_at: None,
             end_reason: None,
-            claude_session_id: Some(lead.agent.claude_session_id.clone()),
+            tool: Some(lead.agent.tool),
+            tool_session_id: lead.agent.tool_session_id.clone(),
+            model: None,
             size: None,
         });
         lead
@@ -617,7 +634,8 @@ pub mod fixtures {
     /// The lead's saved conversation after a restart (*16 → "Before the restart"*).
     pub fn before() -> BeforeRestart {
         BeforeRestart::Available {
-            claude_session_id: "7c21a9e4-0000-0000-0000-000000000000".into(),
+            tool: otaq_core::agent_tools::Tool::Claude,
+            tool_session_id: "7c21a9e4-0000-0000-0000-000000000000".into(),
             entries: vec![
                 TranscriptEntry::User {
                     text: "Automatic message: SHOP-40.1 merged: Wishlist API".into(),
@@ -912,7 +930,8 @@ mod tests {
             Some(&restarted),
             &[],
             Some(&BeforeRestart::NotAvailable {
-                claude_session_id: Some("7c21a9e4-1".into()),
+                tool: Some(otaq_core::agent_tools::Tool::Claude),
+                tool_session_id: Some("7c21a9e4-1".into()),
             }),
         );
         let Body::NotAvailable { text, .. } = gone.body else {

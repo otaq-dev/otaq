@@ -576,7 +576,9 @@ mod tests {
             started_at: 0,
             ended_at: None,
             end_reason: Some(END_STOPPED_BY_RESTART.into()),
-            claude_session_id: None,
+            tool: None,
+            tool_session_id: None,
+            model: None,
             size: None,
         };
         let v = shell_view(

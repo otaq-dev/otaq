@@ -205,7 +205,9 @@ async fn every_session_kind_gets_the_rows() {
                     ("PATH".into(), path_without_build_folders()),
                 ],
                 size: TerminalSize::default(),
-                claude_session_id: None,
+                tool: None,
+                tool_session_id: None,
+                model: None,
             })
             .await
             .unwrap();

@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Weak};
 
 use super::{AgentState, Inner, ProjectAgent, ProjectAgents};
+use crate::agent_tools::Tool;
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, Column, TicketKey};
@@ -607,12 +608,13 @@ impl EpicLeads {
         let id = new_id();
         let pool = self.inner().board.store().pool();
         let inserted = sqlx::query(
-            "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at, epic_id)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, created_at, epic_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
-        .bind(&command.claude_session_id)
+        .bind(Tool::Claude.as_str())
+        .bind(&command.tool_session_id)
         .bind(AgentState::Running.as_str())
         .bind(now_ms())
         .bind(&epic.id)
@@ -640,7 +642,13 @@ impl EpicLeads {
             },
         );
         if let Err(e) = agents
-            .spawn(&project, command, &id, Some((&epic.id, &epic.key)))
+            .spawn(
+                &project,
+                command,
+                (Tool::Claude, None),
+                &id,
+                Some((&epic.id, &epic.key)),
+            )
             .await
         {
             sqlx::query("DELETE FROM project_agents WHERE id = ?")
@@ -672,7 +680,7 @@ impl EpicLeads {
             launch,
             &repo,
             &epic.key,
-            &agent.claude_session_id,
+            agent.conversation()?,
             settings.as_deref(),
         );
         self.inner()

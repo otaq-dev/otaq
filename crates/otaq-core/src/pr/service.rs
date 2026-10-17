@@ -18,6 +18,7 @@ use serde_json::json;
 
 use super::flow::{FlowKind, FlowState};
 use super::proposal::Proposal;
+use crate::agent_tools::Tool;
 use crate::board::review::ApproveCheck;
 use crate::board::settings::WorkflowStep;
 use crate::board::tickets::{EventKind, Ticket, record_event};
@@ -31,7 +32,8 @@ use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, Delivery};
 use crate::session::launch::{LaunchContext, resume_agent_with};
 use crate::session::{
-    SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize, statusline,
+    SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, StoredConversation, TerminalSize,
+    statusline,
 };
 use crate::store::now_ms;
 
@@ -445,7 +447,7 @@ impl Prs {
             skill.to_owned(),
             settings.as_deref(),
         );
-        self.spawn(epic, SessionKind::Delivery, command).await
+        self.spawn(epic, SessionKind::Delivery, command, None).await
     }
 
     /// Ends the epic's delivery: the session stops and the delivery worktree goes, unless it has uncommitted
@@ -515,7 +517,10 @@ impl Prs {
         ticket: &Ticket,
         kind: SessionKind,
         command: crate::session::launch::AgentCommand,
+        resumed: Option<StoredConversation>,
     ) -> Result<SessionInfo, BoardError> {
+        // A new conversation runs on Claude Code; a resumed one on the tool and model it ran on (ADP-04).
+        let (tool, model) = resumed.map_or((Tool::Claude, None), |c| (c.tool, c.model));
         let project = self
             .inner
             .board
@@ -536,7 +541,9 @@ impl Prs {
                 cwd: command.cwd,
                 env: command.env,
                 size: INITIAL_SIZE,
-                claude_session_id: Some(command.claude_session_id),
+                tool: Some(tool),
+                tool_session_id: Some(command.tool_session_id),
+                model,
             })
             .await
             .map_err(other)
@@ -610,7 +617,7 @@ impl Prs {
         let conversation = history
             .iter()
             .filter(|s| s.kind == kind)
-            .find_map(|s| s.claude_session_id.clone())
+            .find_map(StoredConversation::of)
             .ok_or_else(|| {
                 BoardError::refused(
                     Refusal::SessionEnded,
@@ -633,11 +640,11 @@ impl Prs {
             &ticket.key,
             &worktree,
             port,
-            &conversation,
+            &conversation.id,
             Some(prompt.to_owned()),
             settings.as_deref(),
         );
-        self.spawn(ticket, kind, command).await
+        self.spawn(ticket, kind, command, Some(conversation)).await
     }
 }
 

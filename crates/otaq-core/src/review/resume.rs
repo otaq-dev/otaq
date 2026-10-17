@@ -177,20 +177,20 @@ impl Review {
                 start_from_scratch_message(&ticket.key.to_string()),
             ));
         }
-        let old: Option<String> = sqlx::query_scalar(
-            "SELECT claude_session_id FROM sessions
-             WHERE ticket_id = ? AND kind = 'agent' AND claude_session_id IS NOT NULL
-             ORDER BY started_at DESC, id DESC LIMIT 1",
+        let old = crate::session::StoredConversation::latest_agent(
+            self.inner.board.store().pool(),
+            &ticket.id,
         )
-        .bind(&ticket.id)
-        .fetch_optional(self.inner.board.store().pool())
         .await?;
         self.bring_back(
             &ticket,
             RETURN_SCRATCH,
             None,
             EventKind::StartedFromScratch,
-            json!({ "old_claude_session_id": old }),
+            json!({
+                "tool": old.as_ref().map(|c| c.tool),
+                "old_tool_session_id": old.map(|c| c.id),
+            }),
             actor,
         )
         .await

@@ -105,11 +105,11 @@ async fn a_reopened_ticket_rebases_and_starts_a_new_session() {
     assert!(!out.contains("--resume"), "never a resume: {out}");
     assert!(out.contains(&naming::skill("work-ticket")), "{out}");
     assert_ne!(
-        session.claude_session_id.as_deref(),
+        session.tool_session_id.as_deref(),
         Some("0199-old-conversation")
     );
     let kept: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sessions WHERE ticket_id = ? AND claude_session_id = '0199-old-conversation'",
+        "SELECT COUNT(*) FROM sessions WHERE ticket_id = ? AND tool_session_id = '0199-old-conversation'",
     )
     .bind(&t.id)
     .fetch_one(w.board.store().pool())

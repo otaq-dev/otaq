@@ -220,8 +220,12 @@ async fn a_gone_session_is_resumed_with_the_skill_in_the_same_click() {
         "{out}"
     );
     assert_eq!(
-        session.claude_session_id.as_deref(),
+        session.tool_session_id.as_deref(),
         Some("0199-old-conversation")
+    );
+    assert_eq!(
+        (session.tool, session.model.as_deref()),
+        (Some(otaq_core::agent_tools::Tool::Claude), None)
     );
     assert!(worktree.is_dir());
     // Kept until the agent shows the resumed conversation got it (a failed resume must send it again).

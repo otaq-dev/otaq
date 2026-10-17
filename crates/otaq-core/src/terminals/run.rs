@@ -283,7 +283,9 @@ impl Runs {
                 cwd: worktree,
                 env,
                 size: RUN_SIZE,
-                claude_session_id: None,
+                tool: None,
+                tool_session_id: None,
+                model: None,
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;

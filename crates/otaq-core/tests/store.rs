@@ -267,12 +267,13 @@ async fn one_row_round_trips_through_every_table() {
             .unwrap();
     assert_eq!(aliased, t19.id);
 
-    // Every Claude session ID is kept: two sessions for one ticket (d0045).
+    // Every tool session id is kept: two sessions for one ticket (d0045).
     let session_id = new_id();
     for (id, claude_id) in [(session_id.clone(), "c-1"), (new_id(), "c-2")] {
         sqlx::query(
-            "INSERT INTO sessions (id, project_id, ticket_id, kind, pty_id, claude_session_id, state, \
-             started_at, ended_at, end_reason) VALUES (?, ?, ?, 'agent', 'pty-1', ?, 'ended', ?, ?, 'restart')",
+            "INSERT INTO sessions (id, project_id, ticket_id, kind, pty_id, tool, tool_session_id, state, \
+             started_at, ended_at, end_reason) VALUES (?, ?, ?, 'agent', 'pty-1', 'claude', ?, 'ended', ?, ?, \
+             'restart')",
         )
         .bind(id)
         .bind(&project.id)
@@ -285,7 +286,7 @@ async fn one_row_round_trips_through_every_table() {
         .unwrap();
     }
     let claude_ids: Vec<String> = sqlx::query_scalar(
-        "SELECT claude_session_id FROM sessions WHERE ticket_id = ? ORDER BY claude_session_id",
+        "SELECT tool_session_id FROM sessions WHERE ticket_id = ? ORDER BY tool_session_id",
     )
     .bind(&t18.id)
     .fetch_all(pool)
@@ -498,8 +499,9 @@ async fn one_row_round_trips_through_every_table() {
 
     // A Project agent (T-0199, d0068).
     sqlx::query(
-        "INSERT INTO project_agents (id, project_id, name, name_source, claude_session_id, state, first_request, \
-         created_at) VALUES (?, ?, 'Checkout slowness', 'agent', 'c-9', 'running', 'why is checkout slow?', ?)",
+        "INSERT INTO project_agents (id, project_id, name, name_source, tool, tool_session_id, state, \
+         first_request, created_at) VALUES (?, ?, 'Checkout slowness', 'agent', 'claude', 'c-9', 'running', \
+         'why is checkout slow?', ?)",
     )
     .bind(new_id())
     .bind(&project.id)

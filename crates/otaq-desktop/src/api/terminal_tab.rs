@@ -561,7 +561,9 @@ mod tests {
             started_at,
             ended_at: (state == SessionState::Ended).then_some(started_at + 41 * 60_000),
             end_reason: (state == SessionState::Ended).then(|| "exit 0".to_owned()),
-            claude_session_id: None,
+            tool: None,
+            tool_session_id: None,
+            model: None,
             size: None,
         }
     }
@@ -669,7 +671,8 @@ mod tests {
         assert!(matches!(loading.recovery, Some(Recovery::Loading { .. })));
         assert_eq!(strip(&loading, Phase::Ended, false).state.label, "Interrupted");
         let before = BeforeRestart::Available {
-            claude_session_id: "3be94c10-aaaa".into(),
+            tool: otaq_core::agent_tools::Tool::Claude,
+            tool_session_id: "3be94c10-aaaa".into(),
             entries: vec![TranscriptEntry::Action {
                 tool: "Bash".into(),
                 summary: "pnpm build".into(),
@@ -687,7 +690,8 @@ mod tests {
         assert_eq!(lines[0].who, "Bash");
         assert!(lines[0].action);
         let gone = BeforeRestart::NotAvailable {
-            claude_session_id: None,
+            tool: None,
+            tool_session_id: None,
         };
         assert!(matches!(
             view_of(&t, &ended, &[], "shop-web", Some(&gone)).recovery,
