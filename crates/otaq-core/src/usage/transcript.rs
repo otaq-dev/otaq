@@ -31,8 +31,6 @@ pub struct MessageUsage {
     pub at: Option<i64>,
     pub model: Option<String>,
     pub tokens: Tokens,
-    /// The part of the cache writes that went to the 1-hour cache (`usage.cache_creation`), for the estimate.
-    pub cache_write_1h: u64,
 }
 
 /// What one line of a transcript is.
@@ -77,11 +75,6 @@ pub fn parse_line(line: &str) -> Line {
             .and_then(Value::as_str)
             .and_then(iso_ms),
         model: text(message.and_then(|m| m.get("model"))),
-        cache_write_1h: usage
-            .get("cache_creation")
-            .and_then(|c| c.get("ephemeral_1h_input_tokens"))
-            .and_then(Value::as_u64)
-            .unwrap_or(0),
         tokens: Tokens {
             input: count("input_tokens"),
             output: count("output_tokens"),
@@ -229,7 +222,6 @@ mod tests {
                 id: "msg_1".into(),
                 at: Some(1000),
                 model: Some("claude-opus-5-5".into()),
-                cache_write_1h: 11524,
                 tokens: Tokens {
                     input: 2,
                     output: 226,

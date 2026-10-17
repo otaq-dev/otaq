@@ -22,7 +22,6 @@ async fn defaults() {
         ),
         (5, 3)
     );
-    assert!(!global.dollar_estimate);
     assert!(global.notifications);
     assert!(!global.description_source_mode);
     assert_eq!(global.theme, ThemeSetting::default());
@@ -99,6 +98,24 @@ async fn a_0069_mode_and_two_themes_become_one_theme() {
         Some("\"otaq-light\"")
     );
     assert_eq!(f.board.global_settings().await.unwrap(), global);
+}
+
+#[tokio::test]
+async fn a_stored_dollar_estimate_is_ignored() {
+    // The setting was removed (d0086); a database from before still has its row.
+    let f = Fixture::shop().await;
+    let store = f.board.store();
+    store.set_setting("dollar_estimate", "true").await.unwrap();
+    store.set_setting("notifications", "false").await.unwrap();
+    let global = f.board.global_settings().await.unwrap();
+    assert!(!global.notifications);
+    assert_eq!(
+        global,
+        GlobalSettings {
+            notifications: false,
+            ..Default::default()
+        }
+    );
 }
 
 #[tokio::test]

@@ -290,9 +290,7 @@ async fn counts_are_read_per_response_incrementally_and_read_only() {
     // Today's total across all projects (written now, so today).
     let today = w.usage.day_total(&local_day(now_ms())).await.unwrap();
     if local_day(t0 + 4000) == local_day(now_ms()) {
-        assert_eq!(today.tokens, tok(8, 361, 40_293, 118_134));
-        // The dollar estimate (Opus 5.5 prices, 1-hour cache writes): $0.353223.
-        assert_eq!(today.cost_micro_usd, 353_223);
+        assert_eq!(today, tok(8, 361, 40_293, 118_134));
     }
 
     // Read-only: the test's own appends aside, nothing in Claude Code's folder was created or removed.
@@ -423,6 +421,9 @@ async fn a_ticket_sums_its_sessions_and_a_resumed_conversation_is_split_between_
     // No status-line data and no limit here.
     assert_eq!(summary.plan, None);
     assert_eq!(summary.limit_waiting, 0);
+    // No dollar figure (d0086): the reply carries tokens only.
+    let json = serde_json::to_string(&summary).unwrap();
+    assert!(!json.contains("cost"), "{json}");
     if local_day(t0) == summary.day {
         assert_eq!(summary.today.output, 150);
     }
