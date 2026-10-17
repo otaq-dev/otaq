@@ -1,0 +1,22 @@
+// User settings belong in settings.json.
+// This file is managed automatically.
+{
+  "firstLaunchAt": "2026-10-17T07:30:12.066Z",
+  "banner": "always",
+  "lastLoggedInUser": {
+    "host": "https://github.com",
+    "login": "octo-me"
+  },
+  "loggedInUsers": [
+    {
+      "host": "https://github.com",
+      "login": "octo-me"
+    }
+  ],
+  "trustedFolders": [
+    "/Users/me/old-project"
+  ],
+  "recentModelIds": [
+    "auto"
+  ]
+}
