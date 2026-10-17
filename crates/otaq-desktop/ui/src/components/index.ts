@@ -4,6 +4,14 @@
 // moment of interaction (UIT-04). See the crate README, "Components"; the gallery shows each one.
 import "./components.css";
 
+export {
+  AgentBlock,
+  AgentRow,
+  shownRow,
+  type AgentBlockProps,
+  type AgentRowLook,
+  type AgentRowProps,
+} from "./AgentRow";
 export { Banner, type BannerAction, type BannerProps, type BannerTone } from "./Banner";
 export {
   Button,

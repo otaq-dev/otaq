@@ -356,3 +356,21 @@
   background: var(--bg-panel);
   color: var(--st-investigate);
 }
+
+/* 05/08 · Agent rows (T-0344): each sample at the panel's 620 px, the panel look over the form look. */
+.gallery-agent-rows {
+  box-sizing: border-box;
+  width: 620px;
+  align-self: flex-start;
+}
+
+.gallery-agent-rows-look {
+  padding: 4px 16px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+}
+
+.gallery-agent-rows-look[data-look="form"] {
+  padding: 16px;
+}

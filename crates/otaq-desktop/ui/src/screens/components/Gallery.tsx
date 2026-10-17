@@ -17,6 +17,7 @@ import {
   type ButtonVariant,
   Checkbox,
   CountBadge,
+  AgentBlock,
   DecisionItem,
   DecisionsList,
   Field,
@@ -64,6 +65,7 @@ import type { KeyMapGroup } from "../../generated/KeyMapGroup";
 import type { InboxLeadGallery } from "../../generated/InboxLeadGallery";
 import type { LeadGallery } from "../../generated/LeadGallery";
 import type { LeadTabGallery } from "../../generated/LeadTabGallery";
+import type { AgentRowsGallery } from "../../generated/AgentRowsGallery";
 import type { LegendTier } from "../../generated/LegendTier";
 import type { PaneGallery } from "../../generated/PaneGallery";
 import type { DrawerGallery } from "../../generated/DrawerGallery";
@@ -1255,6 +1257,47 @@ function LeadTabs() {
   );
 }
 
+const loadAgentRows = () => request("gallery.agent_rows") as Promise<AgentRowsGallery>;
+
+/** *05 → Column 1 · locked rows, Column 2, Row · Developer and Validator rows*, *08 → Row · Agents field* (T-0344):
+ * every row state from `gallery.agent_rows`, as the panel shows it (with its header's token line) and as the editor's
+ * form does; picks are only recorded. */
+function AgentRowsSection() {
+  const { view, error } = useServiceView(loadAgentRows, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  return (
+    <Section title="05/08 · Agent rows: every state, one agent, locked, moved on (T-0344)">
+      <Caption>Last pick: {picked ?? "—"}</Caption>
+      <div className="gallery-wrap gallery-wrap-wide">
+        {view.samples.map((sample) => (
+          <div key={sample.caption} className="gallery-stack-tight gallery-agent-rows">
+            <Caption>{sample.caption}</Caption>
+            {sample.token_line !== null && (
+              <div className="panel-split">
+                <Icon name="coins" size={11} />
+                <span>{sample.token_line}</span>
+              </div>
+            )}
+            {(["panel", "form"] as const).map((look) => (
+              <div key={look} className="gallery-agent-rows-look" data-look={look}>
+                <AgentBlock
+                  block={sample.block}
+                  look={look}
+                  onPick={(role, agent) => {
+                    setPicked(`${sample.caption}: ${role} → ${agent ?? "project default"}`);
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 const loadGallery = () => request("gallery.view") as Promise<GalleryView>;
 const loadCards = () => request("gallery.cards") as Promise<CardGallery>;
 const loadDecisions = () => request("gallery.decisions") as Promise<DecisionGallery>;
@@ -2061,6 +2104,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <Decisions />
         <DecisionChange />
         <LeadTabs />
+        <AgentRowsSection />
         <InboxLead />
         <EnvVarsSection />
         <AgentsGallerySection />
