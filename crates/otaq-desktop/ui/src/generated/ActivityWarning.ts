@@ -11,4 +11,8 @@ text: string,
 /**
  * Always [`WARNING_TOKEN`].
  */
-token: string, };
+token: string, 
+/**
+ * A limit is active: the whole button takes the amber edge (*Activity button · states → A tool hit its limit*).
+ */
+limit: boolean, };

@@ -82,7 +82,7 @@ describe("the fixed ids", () => {
       "quick_switcher",
       "processes",
       "terminals_agents",
-      "limits",
+      "activity",
       "all_clear",
     ]);
   });
@@ -107,7 +107,7 @@ describe("the fixed ids", () => {
       switch (id) {
         case "inbox":
         case "quick_switcher":
-        case "limits":
+        case "activity":
         case "all_clear":
           return "popover";
         case "terminals_agents":

@@ -201,6 +201,8 @@ pub struct Warning {
     pub text: String,
     /// Always [`WARNING_TOKEN`].
     pub token: &'static str,
+    /// A limit is active: the whole button takes the amber edge (*Activity button · states → A tool hit its limit*).
+    pub limit: bool,
 }
 
 /// The button's hover.
@@ -244,16 +246,17 @@ pub fn button(inputs: &Inputs<'_>, platform: Platform) -> Button {
 
 fn warning(inputs: &Inputs<'_>) -> Option<Warning> {
     let names = inputs.names_tools();
-    let warn = |text| {
+    let warn = |text, limit| {
         Some(Warning {
             text,
             token: WARNING_TOKEN,
+            limit,
         })
     };
     // A limit first: the tool's name, or with one tool the window it is on.
     if let Some((tool, data)) = inputs.tools.iter().find(|(_, t)| t.limit.is_some()) {
         if names {
-            return warn(format!("{} limit", tool.name()));
+            return warn(format!("{} limit", tool.name()), true);
         }
         let text = windows(data, inputs.now)
             .into_iter()
@@ -262,16 +265,16 @@ fn warning(inputs: &Inputs<'_>) -> Option<Warning> {
                 || "Usage limit".to_owned(),
                 |w| format!("{} limit", w.label),
             );
-        return warn(text);
+        return warn(text, true);
     }
     let (_, closest) = closest(inputs)?;
     if !closest.warns() {
         return None;
     }
     if names {
-        warn(closest.left_text())
+        warn(closest.left_text(), false)
     } else {
-        warn(format!("{} {}", closest.label, closest.left_text()))
+        warn(format!("{} {}", closest.label, closest.left_text()), false)
     }
 }
 
@@ -852,6 +855,7 @@ mod tests {
         assert_eq!(two.text, "18% left");
         assert_eq!(two.token, WARNING_TOKEN);
         assert_ne!(two.token, "st-attn", "never turquoise");
+        assert!(!one.limit && !two.limit, "no amber edge before a limit");
     }
 
     #[test]
@@ -883,6 +887,7 @@ mod tests {
         let one = mac_button(&f.limit_one).warning.unwrap();
         assert_eq!(one.text, "5h limit");
         assert_eq!(one.token, "st-paused");
+        assert!(one.limit && two.limit, "the amber edge at a limit");
         // The weekly limit is on the week window.
         let mut weekly = f.limit_one.tools[0].1.clone();
         weekly.limit.as_mut().unwrap().kind = LimitKind::Weekly;

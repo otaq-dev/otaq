@@ -3,13 +3,15 @@
  * the header has no outer padding (the title bar's ends give it, T-0214).
  */
 
+button.header-project-name,
 button.header-search,
-button.header-chip,
+button.header-activity,
 button.header-inbox,
 button.rail-item,
 button.rail-add,
 button.rail-broom,
-button.sidebar-row,
+button.rail-bottom,
+button.activity-link,
 .stepper button {
   margin: 0;
   padding: 0;
@@ -21,7 +23,7 @@ button.sidebar-row,
   cursor: pointer;
 }
 
-:is(.header, .rail, .sidebar, .quick, .limits) :focus-visible:not(input) {
+:is(.header, .rail, .quick, .activity) :focus-visible:not(input) {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
@@ -52,17 +54,17 @@ button.sidebar-row,
   overflow: hidden;
 }
 
-.header-project-name {
+button.header-project-name {
   overflow: hidden;
+  padding: 2px 4px;
+  margin: 0 -4px;
+  border-radius: var(--r-sm);
   font: 600 15px/19px var(--font-ui);
   text-overflow: ellipsis;
 }
 
-.header-project-path {
-  overflow: hidden;
-  color: var(--text-muted);
-  font: 400 11px/14px var(--font-mono);
-  text-overflow: ellipsis;
+button.header-project-name:hover {
+  background: var(--bg-hover);
 }
 
 /* 16 px of empty title bar on each side of the search, down to 6 px when the window is narrow. */
@@ -104,54 +106,45 @@ button.header-search:hover {
   font-family: var(--font-mono);
 }
 
-.header-mono[data-amber] {
-  color: var(--st-paused);
-  font-weight: 600;
-}
-
 .header-muted {
   color: var(--text-muted);
 }
 
-.header-usage {
+/* Activity (*Activity button · states*): a quiet outline; the warning is amber, and at a limit so is the edge. */
+button.header-activity {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 0 6px;
+  gap: 6px;
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
   color: var(--text-muted);
 }
 
-.header-plan,
-.header-chip {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  box-sizing: border-box;
-  height: 26px;
-  padding: 0 8px;
-  border-radius: 5px;
-}
-
-.header-plan {
-  border: 1px solid var(--border);
-}
-
-.header-plan:hover,
-button.header-chip:hover,
-.header-agents:not([data-control]):hover {
+button.header-activity:hover {
   background: var(--bg-hover);
 }
 
-button.header-chip {
-  color: var(--text-muted);
+button.header-activity[data-limit] {
+  border-color: var(--st-paused);
 }
 
-.header-agents[data-control] {
-  border: 1px solid var(--border-strong);
-}
-
-.header-agents[data-open] {
+button.header-activity[data-open] {
   border-color: var(--accent);
+}
+
+.header-processes,
+.header-warning {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.header-warning {
+  font-family: var(--font-mono);
+  font-weight: 600;
 }
 
 .header-dot {
@@ -163,12 +156,6 @@ button.header-chip {
 
 .header-dot[data-active] {
   background: var(--st-working);
-}
-
-.header-divider {
-  width: 1px;
-  height: 20px;
-  background: var(--border);
 }
 
 button.header-inbox {
@@ -208,15 +195,171 @@ button.header-inbox[data-active] {
   font-weight: 600;
 }
 
-/* ---- Limits popover ---- */
+/* ---- Activity popover (*Activity popover*, *Activity popover states*) ---- */
+
+.activity {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 360px;
+  margin: -12px;
+  font: 400 12px/1.4 var(--font-ui);
+}
+
+.activity-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.activity-head {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.activity-title {
+  color: var(--text-muted);
+  font: 400 10px/13px var(--font-mono);
+  letter-spacing: 0.06em;
+}
+
+.activity-aside {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.activity-empty,
+.activity-note {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.activity-note {
+  padding-left: 24px;
+  font-size: 11px;
+}
+
+.activity-tool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.activity-tool-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.activity-count,
+.activity-tokens {
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+}
+
+.activity-count {
+  color: var(--text-secondary);
+}
+
+.activity-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.activity-usage + .activity-usage {
+  margin-top: 6px;
+}
+
+.activity-window {
+  display: grid;
+  grid-template-columns: 52px 1fr auto 84px;
+  align-items: center;
+  gap: 8px;
+  padding-left: 24px;
+  color: var(--text-secondary);
+}
+
+.activity-bar {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--bg-column);
+}
+
+.activity-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--text-muted);
+}
+
+.activity-left {
+  color: var(--text-primary);
+  text-align: right;
+}
+
+.activity-reset {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.activity-window[data-amber] .activity-bar-fill {
+  background: var(--st-paused);
+}
+
+.activity-window[data-amber] .activity-left {
+  color: var(--st-paused);
+  font-weight: 600;
+}
+
+/* PROCESSES reuses the Run rows (`run.css`), inside the section's padding. */
+.activity .processes {
+  min-width: 0;
+  padding: 0;
+}
+
+.activity .processes-head,
+.activity .processes-row {
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.activity .processes-head {
+  gap: 12px;
+}
+
+.activity .processes-ticket .run-mono {
+  white-space: nowrap;
+}
+
+button.activity-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: 0 0 var(--r-lg) var(--r-lg);
+  color: var(--accent);
+}
+
+button.activity-link:hover {
+  background: var(--bg-hover);
+}
 
 .limits {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-sizing: border-box;
-  width: 300px;
-  padding: 4px;
   font: 400 12px/1.4 var(--font-ui);
 }
 
@@ -277,8 +420,7 @@ button.header-inbox[data-active] {
 
 /* ---- Rail (tiles) ---- */
 
-.rail,
-.sidebar {
+.rail {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -287,17 +429,13 @@ button.header-inbox[data-active] {
   border-right: 1px solid var(--border);
   background: var(--bg-panel);
   scrollbar-width: none;
-}
-
-.rail {
   align-items: center;
   gap: 12px;
   width: 64px;
   padding: 12px 0;
 }
 
-.rail .tooltip-anchor,
-.sidebar .tooltip-anchor {
+.rail .tooltip-anchor {
   display: flex;
   flex: none;
   align-self: stretch;
@@ -440,6 +578,23 @@ button.rail-broom:hover .rail-broom-icon {
   flex: 1;
 }
 
+/* Terminals and Settings under Cleanup (*Rail bottom: Terminals & Settings*): no dot. */
+button.rail-bottom {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-lg);
+  color: var(--text-muted);
+}
+
+button.rail-bottom:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
 button.rail-broom {
   display: flex;
   flex: none;
@@ -466,114 +621,6 @@ button.rail-broom {
   height: 7px;
   border-radius: 50%;
   background: var(--text-muted);
-}
-
-.rail-broom-label {
-  color: var(--text-secondary);
-  font: 400 13px/17px var(--font-ui);
-}
-
-/* ---- Sidebar (windows wider than 1600 px) ---- */
-
-.sidebar {
-  gap: 2px;
-  width: 232px;
-  padding: 12px 8px;
-}
-
-.sidebar-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 8px 8px;
-  color: var(--text-muted);
-  font: 400 10px/13px var(--font-mono);
-}
-
-button.sidebar-row {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: 9px;
-  min-width: 0;
-  padding: 6px 8px;
-  border-radius: var(--r-md);
-  color: var(--text-primary);
-  font: 400 13px/17px var(--font-ui);
-}
-
-button.sidebar-row:hover {
-  background: var(--bg-hover);
-}
-
-button.sidebar-row[data-selected] {
-  background: var(--accent-soft);
-  font-weight: 600;
-}
-
-button.sidebar-row[data-ringing] {
-  box-shadow: inset 0 0 0 1px var(--st-attn);
-}
-
-.sidebar-row[data-idle] .sidebar-name {
-  color: var(--text-muted);
-}
-
-.sidebar-tile {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
-  background: var(--bg-column);
-  color: var(--text-secondary);
-}
-
-.sidebar-row[data-selected] .sidebar-tile {
-  background: var(--accent);
-  color: var(--text-on-accent);
-}
-
-.sidebar-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-working {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--st-working);
-  font: 400 11px var(--font-mono);
-}
-
-.sidebar-needs {
-  display: flex;
-  align-items: center;
-  height: 16px;
-  padding: 0 5px;
-  border-radius: 8px;
-  background: var(--st-attn);
-  color: var(--text-on-accent);
-  font: 700 10px var(--font-mono);
-}
-
-.sidebar-idle {
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-button.sidebar-add {
-  flex: none;
-  color: var(--text-muted);
-}
-
-.sidebar .tooltip-anchor:has(.rail-broom) {
-  justify-content: flex-start;
 }
 
 /* ---- Quick switcher ---- */
@@ -726,4 +773,25 @@ button.sidebar-add {
   gap: 5px;
   color: var(--text-muted);
   font-size: 11px;
+}
+
+/* ---- Gallery: Activity's states (T-0329) ---- */
+
+.activity-gallery-buttons {
+  display: grid;
+  grid-template-columns: 220px auto;
+  align-items: center;
+  gap: 10px 16px;
+}
+
+.activity-gallery-row {
+  display: contents;
+}
+
+.activity-gallery-popovers {
+  align-items: flex-start;
+}
+
+.activity-gallery-popover {
+  position: static;
 }
