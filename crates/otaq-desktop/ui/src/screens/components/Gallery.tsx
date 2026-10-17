@@ -4,7 +4,10 @@
 // scale, icons, keyboard map, menus) is `gallery.view`; the rest are the frames' sample texts.
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
-import type { OverlayProps } from "../../app/registry";
+import { FrameBody } from "../../app/Frame";
+import { INITIAL_LAYOUT, layoutView, loadLayout } from "../../app/layout";
+import { createRegistries, type OverlayProps, RegistriesContext } from "../../app/registry";
+import { useStore } from "../../app/store";
 import { openOverlay } from "../../app/overlays";
 import { EpicCard, stateOfLook, TicketCard } from "../../cards";
 import {
@@ -92,6 +95,51 @@ import { LeadTabBody } from "../lead_tab/LeadTab";
 import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
 import "../onboarding/onboarding.css";
 import "./gallery.css";
+
+/** The frame's regions with their names, for the shell's frames below. */
+const SHELL_PREVIEW = (() => {
+  const app = createRegistries();
+  const named = (name: string) => () => <div className="frame-placeholder">{name}</div>;
+  app.slots.register("pane", { Component: named("Project agent pane") });
+  return app;
+})();
+
+/** The shell at the design's three windows, pane shown, and folded at 1440 (T-0327, SHL-01). Drawn at half size. */
+function ShellFrames() {
+  const view = useStore(layoutView);
+  useEffect(loadLayout, []);
+  if (!view) return null;
+  const frames: [number, number, boolean][] = [
+    [1280, 800, false],
+    [1440, 900, false],
+    [1920, 1080, false],
+    [1440, 900, true],
+  ];
+  return (
+    <div className="gallery-wrap gallery-wrap-wide">
+      {frames.map(([width, height, hidden]) => (
+        <figure key={`${String(width)}${String(hidden)}`} className="gallery-shell">
+          <figcaption>
+            {width} × {height}
+            {hidden ? " · pane hidden (⌘\\)" : ""}
+          </figcaption>
+          <div className="gallery-shell-box" style={{ width: width / 2, height: height / 2 }}>
+            <div className="frame gallery-shell-frame" style={{ width, height }}>
+              <RegistriesContext value={SHELL_PREVIEW}>
+                <FrameBody
+                  view={view}
+                  layout={{ ...INITIAL_LAYOUT, paneHidden: hidden }}
+                  windowWidth={width}
+                  ticketOpen={false}
+                />
+              </RegistriesContext>
+            </div>
+          </div>
+        </figure>
+      ))}
+    </div>
+  );
+}
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -1706,6 +1754,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         </Section>
         <Section title="08 · Ticket editor · d · Markdown source on (T-0251, d0078)">
           <SourceSample />
+        </Section>
+        <Section title="02 · The shell at 1280, 1440 and 1920 (T-0327)">
+          <ShellFrames />
         </Section>
         <Section title="Mark · Command tent (d0076; 15 · Settings → About)">
           <div className="gallery-wrap gallery-wrap-wide">

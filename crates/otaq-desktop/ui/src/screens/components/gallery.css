@@ -313,3 +313,23 @@
   position: static;
   max-height: none;
 }
+
+/* The shell's frames (T-0327): each window at its real size, drawn at half. */
+.gallery-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-muted);
+  font: 400 12px/normal var(--font-ui);
+}
+
+.gallery-shell-box {
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+}
+
+.gallery-shell-frame {
+  transform: scale(0.5);
+  transform-origin: 0 0;
+}
