@@ -1,6 +1,6 @@
 # Otaq local checks on Windows: the frontend steps (Node version, npm ci, ts-rs freshness, tsc, ESLint, Prettier,
-# Vitest, the page build), then fmt, clippy, tests. The same steps as scripts/check.sh, in the same order (decision
-# 0056, SDD section 23.2).
+# Vitest, the page build), then fmt, clippy, tests (cargo-nextest, then the doc examples). The same steps as
+# scripts/check.sh, in the same order (decision 0056, SDD section 23.2).
 #
 # Run this before every commit made from a Windows machine. Works from any folder inside the repository. Stops at
 # the first failing step and exits non-zero. Needs Node 24 (the version in crates\otaq-desktop\.nvmrc) and npm on
@@ -10,6 +10,12 @@
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     Write-Error 'check.ps1: git is required (core tests run against temporary git repositories)'
+    exit 1
+}
+
+cargo nextest --version *> $null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host 'check.ps1: cargo-nextest is required: cargo install cargo-nextest --locked'
     exit 1
 }
 
@@ -68,6 +74,8 @@ Invoke-Step 'page' @('npm.cmd', '--prefix', $desktop, 'run', 'build:page')
 
 Invoke-Step 'fmt' @('cargo', 'fmt', '--all', '--check')
 Invoke-Step 'clippy' @('cargo', 'clippy', '--workspace', '--all-targets', '--', '-D', 'warnings')
-Invoke-Step 'test' @('cargo', 'test', '--workspace')
+# Each test in its own process, in parallel, no retries (.config/nextest.toml); nextest skips doc examples.
+Invoke-Step 'test' @('cargo', 'nextest', 'run', '--workspace')
+Invoke-Step 'doctest' @('cargo', 'test', '--workspace', '--doc')
 
 Write-Host 'check.ps1: all checks passed'

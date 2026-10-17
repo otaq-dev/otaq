@@ -2,7 +2,7 @@
 
 One file per row of SDD §11.4, named `<event>-<case>.json` (`hook_event_name` is the event). The Claude Code
 adapter's tests (`src/agent_tools/claude/hooks.rs`) and `otaq hook --tool claude <event>`
-(`crates/otaq-cli/tests/hook.rs`) read them (decision 0088, testing).
+(`crates/otaq-cli/tests/suite/hook.rs`) read them (decision 0088, testing).
 
 **Shaped from the hooks reference, 2026-10-10** (code.claude.com/docs/en/hooks; Claude Code 2.1.296), not captured
 from a real session yet. The captured payloads replace these files as a small follow-up; record the Claude Code

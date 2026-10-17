@@ -2,7 +2,7 @@
 //!
 //! The product name spreads into the command, the plugin namespace (`/otaq:work-ticket`), branch names and
 //! environment variables (`OTAQ_TICKET`). Every crate builds these strings from the constants below, so a
-//! forced rename later means changing only this file. A test (`tests/naming_literals.rs`) fails if another source
+//! forced rename later means changing only this file. A test (`tests/suite/naming_literals.rs`) fails if another source
 //! file spells one of them out.
 
 /// The product name shown to people.

@@ -504,7 +504,9 @@ impl AgentShell {
     }
 
     /// Sends one raw protocol line to the service at `socket` from inside the session, with an ordinary
-    /// command (`nc -U`; on Windows a PowerShell pipe client), and returns what it printed: the answer line.
+    /// command (`nc -U`; on Windows a PowerShell pipe client), and returns what it printed: the answer line. `nc`
+    /// waits up to 5 s for it: the service closes the connection once it has answered, and under load (every test in
+    /// its own process, in parallel) an answer can take more than a second.
     pub async fn send_raw(&self, socket: &Path, line: &str) -> Ran {
         if cfg!(windows) {
             let n = self.next.load(Ordering::SeqCst);
@@ -532,7 +534,7 @@ impl AgentShell {
             .await
         } else {
             self.run(&format!(
-                "printf '%s\\n' '{line}' | nc -U -w 1 '{}'",
+                "printf '%s\\n' '{line}' | nc -U -w 5 '{}'",
                 socket.display()
             ))
             .await
