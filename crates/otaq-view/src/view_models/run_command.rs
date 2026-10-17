@@ -1,7 +1,7 @@
 //! The run-command dialog (RUN-02; *13 · Run & Shell → 1 · Empty … 5 · Saved*): the first Run in a project asks
-//! "What command runs shop-web?" (with an optional Open URL); **Ask Claude** is a click that has Claude suggest one
-//! with a short why; the user confirms or edits it; Save stores it in the project's settings (never in the repo,
-//! d0023) and starts the Run. Nothing is saved without Save.
+//! "What command runs shop-web?" (with an optional Open URL); **Ask the agent** is a click that has the Project
+//! agent's named agent suggest one with a short why (d0086); the user confirms or edits it; Save stores it in the
+//! project's settings (never in the repo, d0023) and starts the Run. Nothing is saved without Save.
 
 use otaq_core::domain::TicketKey;
 use otaq_core::terminals::run::RunInfo;
@@ -12,9 +12,9 @@ use otaq_core::terminals::suggest::Suggestion;
 pub enum Phase {
     /// 1 · Empty: no command yet.
     Empty,
-    /// 2 · Claude thinking: what it looked at so far ("Read(package.json)").
+    /// 2 · The agent thinking: what it looked at so far ("Read(package.json)").
     Thinking { lines: Vec<String> },
-    /// 3 · Suggestion: the fields hold Claude's answer; the why is shown.
+    /// 3 · Suggestion: the fields hold the agent's answer; the why is shown.
     Suggested { why: String },
     /// 4 · Editing: the user typed.
     Editing,
@@ -27,24 +27,29 @@ pub struct RunCommandModel {
     /// The project's key and name.
     pub project: String,
     pub project_name: String,
+    /// The named agent Ask the agent asks: the project's Project agent ("Strong").
+    pub agent: String,
     /// The ticket whose Run starts after Save, with its Run port.
     pub ticket: Option<(TicketKey, Option<u16>)>,
     pub phase: Phase,
-    /// Claude's failure (or a failed save), shown under the fields; the fields stay editable.
+    /// The agent's failure (or a failed save), shown under the fields; the fields stay editable.
     pub error: Option<String>,
 }
 
 impl RunCommandModel {
-    /// The dialog for a project, opened from a ticket's Run (or from project settings without one).
+    /// The dialog for a project, opened from a ticket's Run (or from project settings without one). `agent` is the
+    /// named agent the project's Project agent role resolves to.
     pub fn new(
         project: &str,
         project_name: &str,
+        agent: &str,
         run: Option<&RunInfo>,
         current_command: &str,
     ) -> Self {
         Self {
             project: project.to_owned(),
             project_name: project_name.to_owned(),
+            agent: agent.to_owned(),
             ticket: run.map(|r| (r.key.clone(), r.port)),
             phase: if current_command.trim().is_empty() {
                 Phase::Empty
@@ -63,7 +68,7 @@ impl RunCommandModel {
         matches!(self.phase, Phase::Thinking { .. })
     }
 
-    /// Ask Claude is offered while there is no command to keep (empty field, or after a failed suggestion).
+    /// Ask the agent is offered while there is no command to keep (empty field, or after a failed suggestion).
     pub fn offers_ask(&self, command: &str) -> bool {
         match self.phase {
             Phase::Empty => true,
@@ -72,7 +77,7 @@ impl RunCommandModel {
         }
     }
 
-    /// Ask Claude was clicked: `false` when one is already running.
+    /// Ask the agent was clicked: `false` when one is already running.
     pub fn ask(&mut self) -> bool {
         if self.thinking() || matches!(self.phase, Phase::Saved { .. }) {
             return false;
@@ -82,14 +87,14 @@ impl RunCommandModel {
         true
     }
 
-    /// Claude looked at something.
+    /// The agent looked at something.
     pub fn progress(&mut self, line: &str) {
         if let Phase::Thinking { lines } = &mut self.phase {
             lines.push(line.to_owned());
         }
     }
 
-    /// Claude answered: the fields take the suggestion (returned: command and Open URL).
+    /// The agent answered: the fields take the suggestion (returned: command and Open URL).
     pub fn suggested(&mut self, suggestion: &Suggestion) -> Option<(String, String)> {
         if !self.thinking() {
             return None;
@@ -100,7 +105,7 @@ impl RunCommandModel {
         Some((suggestion.command.clone(), suggestion.open_url.clone()))
     }
 
-    /// Claude gave no usable answer: an error, and the fields stay as they were.
+    /// The agent gave no usable answer: an error, and the fields stay as they were.
     pub fn failed(&mut self, message: &str, command: &str) {
         if !self.thinking() {
             return;
@@ -113,7 +118,7 @@ impl RunCommandModel {
         self.error = Some(message.to_owned());
     }
 
-    /// Cancel while Claude thinks: the process stops and the dialog stays.
+    /// Cancel while the agent thinks: the process stops and the dialog stays.
     pub fn cancel_ask(&mut self, command: &str) {
         if self.thinking() {
             self.phase = if command.trim().is_empty() {
@@ -131,7 +136,7 @@ impl RunCommandModel {
         }
     }
 
-    /// Save (& start) is enabled with a command, and not while Claude thinks.
+    /// Save (& start) is enabled with a command, and not while the agent thinks.
     pub fn can_save(&self, command: &str) -> bool {
         !command.trim().is_empty() && !self.thinking() && !matches!(self.phase, Phase::Saved { .. })
     }
@@ -195,14 +200,14 @@ mod tests {
     #[test]
     fn the_five_states() {
         // 1 · Empty
-        let mut m = RunCommandModel::new("SHOP", "shop-web", Some(&run()), "");
+        let mut m = RunCommandModel::new("SHOP", "shop-web", "Strong", Some(&run()), "");
         assert_eq!(m.title(), "What command runs shop-web?");
         assert_eq!(m.phase, Phase::Empty);
         assert!(m.offers_ask(""));
         assert!(!m.can_save(""));
         assert_eq!(m.save_label(), "Save & start");
 
-        // 2 · Claude thinking
+        // 2 · The agent thinking
         assert!(m.ask());
         assert!(!m.ask(), "one at a time");
         m.progress("Read(package.json)");
@@ -213,7 +218,7 @@ mod tests {
                 lines: vec!["Read(package.json)".into(), "Read(next.config.mjs)".into()]
             }
         );
-        assert!(!m.can_save("anything"), "not while Claude thinks");
+        assert!(!m.can_save("anything"), "not while the agent thinks");
         assert!(!m.offers_ask(""));
 
         // 3 · Suggestion
@@ -248,13 +253,13 @@ mod tests {
 
     #[test]
     fn a_failed_suggestion_leaves_the_fields_editable() {
-        let mut m = RunCommandModel::new("SHOP", "shop-web", Some(&run()), "");
+        let mut m = RunCommandModel::new("SHOP", "shop-web", "Strong", Some(&run()), "");
         m.ask();
-        m.failed("Claude couldn't suggest a command.", "");
+        m.failed("The agent couldn't suggest a command.", "");
         assert_eq!(m.phase, Phase::Empty);
         assert_eq!(
             m.error.as_deref(),
-            Some("Claude couldn't suggest a command.")
+            Some("The agent couldn't suggest a command.")
         );
         assert!(m.offers_ask(""));
         // A late answer after a failure changes nothing.
@@ -266,7 +271,7 @@ mod tests {
 
     #[test]
     fn cancel_stops_thinking_and_keeps_the_dialog() {
-        let mut m = RunCommandModel::new("SHOP", "shop-web", None, "cargo run");
+        let mut m = RunCommandModel::new("SHOP", "shop-web", "Strong", None, "cargo run");
         assert_eq!(m.phase, Phase::Editing, "a command exists already");
         assert_eq!(m.save_label(), "Save");
         assert!(!m.offers_ask("cargo run"));

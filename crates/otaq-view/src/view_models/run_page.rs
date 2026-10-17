@@ -257,7 +257,7 @@ pub fn processes_view(runs: &[RunInfo], now_ms: i64) -> ProcessesView {
     }
 }
 
-/// "Claude is reading the repo…" and what it looked at (*2 · Claude thinking*).
+/// "The agent is reading the repo…" and what it looked at (*2 · Claude thinking*).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "RunCommandThinking")]
 pub struct ThinkingView {
@@ -265,11 +265,21 @@ pub struct ThinkingView {
     pub lines: Vec<String>,
 }
 
-/// Ask Claude and the line next to it (*1 · Empty*).
+/// The label of Ask the agent, here and on project settings' Run command row (d0086; was "Ask Claude", d0035).
+pub const ASK_LABEL: &str = "Ask the agent";
+
+/// Ask the agent's tooltip: who is asked, the project's Project agent `agent` ("Strong").
+pub fn ask_tooltip(agent: &str) -> String {
+    format!("Asks {agent} (the Project agent\u{2019}s) to suggest a run command")
+}
+
+/// Ask the agent and the line next to it (*1 · Empty*).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "RunCommandAsk")]
 pub struct AskView {
     pub label: &'static str,
+    /// "Asks Strong (the Project agent's) to suggest a run command".
+    pub tooltip: String,
     pub note: &'static str,
 }
 
@@ -295,7 +305,7 @@ pub struct CommandView {
     pub url_hint: &'static str,
     pub ask: Option<AskView>,
     pub thinking: Option<ThinkingView>,
-    /// Claude's why, after a suggestion (*3 · Suggestion*).
+    /// The agent's why, after a suggestion (*3 · Suggestion*).
     pub why: Option<String>,
     /// "Saved for shop-web. Running SHOP-19 on :4020… Change it later in project settings."
     pub saved: Option<String>,
@@ -304,7 +314,7 @@ pub struct CommandView {
     pub can_save: bool,
     pub cancel: &'static str,
     pub done: &'static str,
-    /// Set once: the fields take Claude's suggestion.
+    /// Set once: the fields take the agent's suggestion.
     pub fill: Option<FillView>,
 }
 
@@ -319,13 +329,14 @@ pub fn command_view(model: &RunCommandModel, command: &str, fill: Option<FillVie
         optional: "optional",
         url_placeholder: "e.g. http://localhost:$PORT",
         url_hint: "Leave empty for backends, CLIs and libraries \u{2014} then there\u{2019}s no Open button.",
-        ask: model.offers_ask(command).then_some(AskView {
-            label: "Ask Claude",
-            note: "Claude looks at the repo and suggests a command.",
+        ask: model.offers_ask(command).then(|| AskView {
+            label: ASK_LABEL,
+            tooltip: ask_tooltip(&model.agent),
+            note: "The agent looks at the repo and suggests a command.",
         }),
         thinking: match &model.phase {
             Phase::Thinking { lines } => Some(ThinkingView {
-                title: "Claude is reading the repo\u{2026}",
+                title: "The agent is reading the repo\u{2026}",
                 lines: lines.iter().map(|l| format!("\u{b7} {l}")).collect(),
             }),
             _ => None,
@@ -530,16 +541,27 @@ mod tests {
     #[test]
     fn the_run_command_dialog_walks_its_five_steps() {
         let r = run(RunState::NotStarted);
-        let mut m = RunCommandModel::new("SHOP", "shop-web", Some(&r), "");
+        let mut m = RunCommandModel::new("SHOP", "shop-web", "Strong", Some(&r), "");
         let v = command_view(&m, "", None);
         assert_eq!(v.title, "What command runs shop-web?");
-        assert!(v.ask.is_some() && !v.can_save);
+        let ask = v.ask.as_ref().unwrap();
+        assert_eq!(
+            (ask.label, ask.tooltip.as_str(), ask.note),
+            (
+                "Ask the agent",
+                "Asks Strong (the Project agent\u{2019}s) to suggest a run command",
+                "The agent looks at the repo and suggests a command."
+            )
+        );
+        assert!(!v.can_save);
         assert_eq!(v.save, "Save & start");
         assert!(m.ask());
         m.progress("Read(package.json)");
         let v = command_view(&m, "", None);
         assert!(v.ask.is_none());
-        assert_eq!(v.thinking.unwrap().lines, ["\u{b7} Read(package.json)"]);
+        let thinking = v.thinking.unwrap();
+        assert_eq!(thinking.title, "The agent is reading the repo\u{2026}");
+        assert_eq!(thinking.lines, ["\u{b7} Read(package.json)"]);
         let fill = m.suggested(&Suggestion {
             command: "pnpm dev --port $PORT".into(),
             open_url: "http://localhost:$PORT".into(),

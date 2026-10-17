@@ -4,4 +4,8 @@ import type { IconName } from "./IconName";
 /**
  * A row's button and what it opens.
  */
-export type SettingsRowButton = { label: string, icon: IconName, };
+export type SettingsRowButton = { label: string, icon: IconName, 
+/**
+ * "Asks Strong (the Project agent's) to suggest a run command".
+ */
+tooltip: string | null, };

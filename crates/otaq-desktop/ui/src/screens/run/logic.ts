@@ -1,5 +1,5 @@
 // Run and Shell's interaction rules (UIT-04): what a Run click leads to, which button does what, and what Ask
-// Claude's events are for. Every text and state is Rust's (`run_page.rs`, `src/api/run.rs`).
+// the agent's events are for. Every text and state is Rust's (`run_page.rs`, `src/api/run.rs`).
 import { openOverlay } from "../../app/overlays";
 import type { PageEvent } from "../../generated/PageEvent";
 import type { RunButtonView } from "../../generated/RunButtonView";
@@ -51,7 +51,7 @@ export function startRun(ticket: string): Promise<RunStarted | null> {
   );
 }
 
-/** Ask Claude's progress or answer for `project`, from the page's event stream. */
+/** Ask the agent's progress or answer for `project`, from the page's event stream. */
 export function suggestionFor(event: PageEvent, project: string): unknown {
   if (event.kind !== "service" || event.name !== "run_suggestion") return undefined;
   return event.event.project === project ? event.event.update : undefined;

@@ -456,6 +456,10 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
         Some((info, p_settings, p_problems)) => {
             // The warm build switch (T-0301): whether the disk can clone, and the project's warm build.
             let warm = super::recovery::warm_list(app).await.ok();
+            // Run command's Ask the agent names the project's Project agent (T-0342).
+            let project_agent = otaq_view::view_models::agent_pane::new_agent_name(
+                super::pane::project_agent(app, &info.key).await?.as_ref(),
+            );
             page::project_page(&ProjectInputs {
                 info: &info,
                 settings: &p_settings,
@@ -465,6 +469,7 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
                     list,
                     now: otaq_core::store::now_ms(),
                 }),
+                project_agent: &project_agent,
             })
         }
         None => {

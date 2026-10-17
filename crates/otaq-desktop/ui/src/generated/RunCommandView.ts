@@ -8,7 +8,7 @@ import type { RunCommandThinking } from "./RunCommandThinking";
  */
 export type RunCommandView = { project: string, title: string, intro: string, command_placeholder: string, url_label: string, optional: string, url_placeholder: string, url_hint: string, ask: RunCommandAsk | null, thinking: RunCommandThinking | null, 
 /**
- * Claude's why, after a suggestion (*3 · Suggestion*).
+ * The agent's why, after a suggestion (*3 · Suggestion*).
  */
 why: string | null, 
 /**
@@ -16,6 +16,6 @@ why: string | null,
  */
 saved: string | null, error: string | null, save: string, can_save: boolean, cancel: string, done: string, 
 /**
- * Set once: the fields take Claude's suggestion.
+ * Set once: the fields take the agent's suggestion.
  */
 fill: RunCommandFill | null, };

@@ -1,11 +1,11 @@
 // The run-command dialog (RUN-02; *13 · Run & Shell → 1 · Empty, 2 · Claude thinking, 3 · Suggestion, 4 · Editing,
-// 5 · Saved*): a project's first Run asks for the command that starts it, with an optional Open URL. Ask Claude is a
-// click (P1); its progress arrives as `run_suggestion` events, which go back to Rust for the dialog's state. Save
+// 5 · Saved*): a project's first Run asks for the command that starts it, with an optional Open URL. Ask the agent is
+// a click (P1) that asks the project's Project agent (d0086); its progress arrives as `run_suggestion` events, which go back to Rust for the dialog's state. Save
 // stores both in the project's settings (never the repo) and starts the ticket's Run.
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { OverlayProps } from "../../app/registry";
-import { Button, Dialog, TextInput } from "../../components";
+import { Button, Dialog, TextInput, Tooltip } from "../../components";
 import type { RunCommandOpened } from "../../generated/RunCommandOpened";
 import type { RunCommandView } from "../../generated/RunCommandView";
 import { pageEvents } from "../../service";
@@ -63,7 +63,9 @@ export function RunCommandBody({
       <span className="run-hint">{view.url_hint}</span>
       {view.ask !== null && (
         <div className="run-ask">
-          <Button variant="secondary" icon="sparkles" label={view.ask.label} onClick={onAsk} />
+          <Tooltip text={view.ask.tooltip}>
+            <Button variant="secondary" icon="sparkles" label={view.ask.label} onClick={onAsk} />
+          </Tooltip>
           <span className="run-muted">{view.ask.note}</span>
         </div>
       )}
@@ -131,11 +133,11 @@ export function RunCommandDialog({ params, close }: OverlayProps<"run_command">)
       setCommand(o.command);
       setOpenUrl(o.open_url);
       setView(o.view);
-      // Settings' Ask Claude was the click (P1).
+      // Settings' Ask the agent was the click (P1).
       if (params.ask === true) ask();
     }, close);
   }, [project, params.ticket, params.ask, ask, close]);
-  // Ask Claude's progress and answer go back to Rust, which keeps the dialog's state.
+  // Ask the agent's progress and answer go back to Rust, which keeps the dialog's state.
   useEffect(() => {
     const listening = pageEvents.listen((event) => {
       const update = suggestionFor(event, project);

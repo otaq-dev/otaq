@@ -17,6 +17,7 @@ dimmed: boolean,
  */
 reset: string | null, 
 /**
- * A button after the control: Run command's **Ask Claude** (T-0232), which opens the run-command dialog.
+ * A button after the control: Run command's **Ask the agent** (T-0232, T-0342), which opens the run-command
+ * dialog.
  */
 button: SettingsRowButton | null, };

@@ -87,12 +87,12 @@ function HeaderButton({
   );
 }
 
-/** The line under the header: the tool avatar (hidden with one tool), the tool, the tokens or "starts when you send". */
+/** The line under the header: the tool avatar (hidden with one tool), the named agent, the tokens or "starts when you send". */
 function AgentLine({ line, onRename }: { line: PaneAgentLine; onRename?: () => void }) {
   return (
     <div className="pane-line">
       {line.avatar !== null && <ToolAvatar avatar={line.avatar} />}
-      <span className="pane-line-tool">{line.tool}</span>
+      <span className="pane-line-tool">{line.agent}</span>
       <span className="pane-line-note" data-tokens={line.rename !== null || undefined}>
         {line.note}
       </span>
@@ -395,7 +395,7 @@ function RunningAgent({
             <Terminal
               key={agent.session}
               session={agent.session}
-              label={`${name} · ${agent.line.tool}`}
+              label={`${name} · ${agent.line.agent}`}
               readOnly={agent.ended}
               ref={terminal}
             />

@@ -3,8 +3,10 @@
 //! pane draws for a project and the agent it shows (`agent_pane.rs`); the others are its clicks: Send (the first
 //! message starts the agent, d0087), Rename, End agent (asks first mid-turn), Close ended agents and Resume. Which
 //! agent each project shows, + and the empty pane are the page's own state: nothing here starts without a message
-//! or a click.
+//! or a click. The empty pane names the named agent the project's Project agent role resolves to (T-0342), which
+//! [`project_agent`] finds for Ask the agent too.
 
+use otaq_core::named_agents::{self, NamedAgent, Role};
 use otaq_core::project_agents::{CreatedAndChanged, ProjectAgent, ProjectAgentList};
 use otaq_core::protocol::{
     IdParams, KeyParams, ProjectAgentCloseParams, ProjectAgentOpenParams, ProjectAgentRenameParams,
@@ -94,6 +96,36 @@ async fn edited_of(app: &App, created: &CreatedAndChanged) -> Vec<EditedTicket> 
     edited
 }
 
+/// The named agent the Project agent role resolves to for `project` now (AGT-05): the project's default, else the app
+/// default. `None` before any named agent exists.
+pub(super) async fn project_agent(
+    app: &App,
+    project: &str,
+) -> Result<Option<NamedAgent>, RequestError> {
+    let list = match app.service.send(Request::AgentsList).await? {
+        Reply::Agents(list) => *list,
+        other => return Err(unexpected("agents.list", &other)),
+    };
+    let own = match app
+        .service
+        .send(Request::ProjectAgentDefaults(ProjectParams {
+            project: project.to_owned(),
+        }))
+        .await?
+    {
+        Reply::AgentDefaults(own) => *own,
+        other => return Err(unexpected("project.agent_defaults", &other)),
+    };
+    Ok(named_agents::resolve(
+        Role::ProjectAgent,
+        None,
+        &own,
+        &list.defaults,
+        &list.agents,
+    )
+    .map(|resolved| resolved.agent))
+}
+
 async fn project_name(app: &App, project: &str) -> Result<String, RequestError> {
     match app.service.send(Request::ProjectList).await? {
         Reply::Projects(list) => Ok(list
@@ -119,6 +151,7 @@ pub struct Params {
 pub async fn view(app: &App, params: Params) -> Result<PaneView, RequestError> {
     let agents = agents(app, &params.project).await?;
     let name = project_name(app, &params.project).await?;
+    let new_agent = project_agent(app, &params.project).await?;
     let shown = params
         .agent
         .as_deref()
@@ -137,6 +170,7 @@ pub async fn view(app: &App, params: Params) -> Result<PaneView, RequestError> {
         created: created.as_ref(),
         edited: &edited,
         project_name: &name,
+        new_agent: new_agent.as_ref(),
         window_width: params.window_width,
         now_ms: otaq_core::store::now_ms(),
         platform: Platform::current(),
@@ -340,6 +374,7 @@ mod tests {
         assert_eq!(view["opens_on"], Value::Null);
         assert_eq!(view["empty"]["title"], "Ask the Project agent");
         assert_eq!(view["empty"]["hint"], "Enter starts Claude Code");
+        assert_eq!(view["empty"]["line"]["agent"], "Claude Code");
         assert!(
             view["empty"]["text"]
                 .as_str()
@@ -357,6 +392,39 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(gone["agent"], Value::Null);
+
+        // The project's Project agent default is Strong: the empty pane says so.
+        let Reply::Agent(strong) = h
+            .app
+            .service
+            .send(Request::AgentsAdd(otaq_core::named_agents::AgentFields {
+                name: "Strong".into(),
+                tool: otaq_core::agent_tools::Tool::ALL[0],
+                model: None,
+                use_for: String::new(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("no agent");
+        };
+        h.app
+            .service
+            .send(Request::ProjectSetAgentDefault(
+                otaq_core::protocol::ProjectAgentDefaultParams {
+                    project: project.clone(),
+                    role: Role::ProjectAgent,
+                    agent: Some(strong.id.clone()),
+                },
+            ))
+            .await
+            .unwrap();
+        let view = table(&h.app, "pane.view", json!({ "project": project }))
+            .await
+            .unwrap();
+        assert_eq!(view["empty"]["line"]["agent"], "Strong");
+        assert_eq!(view["empty"]["line"]["note"], "\u{b7} starts when you send");
+        assert_eq!(view["empty"]["hint"], "Enter starts Strong");
 
         // Send without words is refused; nothing was started.
         assert!(

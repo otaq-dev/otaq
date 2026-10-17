@@ -1,13 +1,14 @@
-//! Ask Claude for the run command (RUN-02; d0026, d0035, d0023): on the user's click only, `claude` runs
-//! non-interactively in the project's folder, takes a short read-only look at the repository and suggests a run
-//! command, an Open URL and a short why. The user confirms or edits it; nothing is saved without their Save. There
-//! are no detection rules.
+//! Ask the agent for the run command (RUN-02; d0026, d0035, d0023, d0086): on the user's click only, the Project
+//! agent's named agent (T-0334's resolution of the Project agent role for the project) answers a one-off read-only
+//! question in the project's folder: it takes a short look at the repository and suggests a run command, an Open URL
+//! and a short why. The question is not shown in the pane and keeps no conversation. The user confirms or edits the
+//! answer; nothing is saved without their Save. There are no detection rules.
 //!
-//! Implementation choices (SDD §26): `claude -p --output-format stream-json --verbose --tools Read,Glob,Grep
-//! <prompt>` (only reading tools exist in that conversation); the prompt is the Markdown file
-//! `prompts/suggest-run-command.md`; the answer is a JSON object in the final result. Progress ("Read(package.json)")
-//! and the outcome arrive as `run_suggestion` events, so the request itself returns at once. One suggestion per
-//! project at a time; Cancel kills the process; three minutes at most.
+//! Implementation choices (SDD §26): the command is the tool adapter's one-off question
+//! ([`crate::agent_tools::AgentTool::one_off`]) with the named agent's model (none for the tool default); the
+//! prompt is the Markdown file `prompts/suggest-run-command.md`; the answer is a JSON object in the final result.
+//! Progress ("Read(package.json)") and the outcome arrive as `run_suggestion` events, so the request itself returns
+//! at once. One suggestion per project at a time; Cancel kills the process; three minutes at most.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -21,17 +22,19 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::sync::oneshot;
 
+use crate::agent_tools::{Adapters, OneOffRequest};
 use crate::board::{Board, BoardError, Refusal};
+use crate::named_agents::{Role, RunsOn, resolve_project_role};
 use crate::protocol::Event;
 use crate::service::EventBus;
 
-/// What Claude is asked (a Markdown file, not a Rust string, so it reads like the plugin's skills).
+/// What the agent is asked (a Markdown file, not a Rust string, so it reads like the plugin's skills).
 pub const PROMPT: &str = include_str!("../../prompts/suggest-run-command.md");
 
 /// The longest a suggestion may take.
 const TIME_LIMIT: Duration = Duration::from_secs(180);
 
-/// Claude's suggestion.
+/// The agent's suggestion.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Suggestion {
     pub command: String,
@@ -45,7 +48,7 @@ pub struct Suggestion {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum SuggestUpdate {
-    /// Claude used a tool: "Read(package.json)".
+    /// The agent used a tool: "Read(package.json)".
     Progress {
         line: String,
     },
@@ -58,7 +61,7 @@ pub enum SuggestUpdate {
     },
 }
 
-/// Runs Ask Claude. Cheap to clone.
+/// Runs Ask the agent. Cheap to clone.
 #[derive(Clone)]
 pub struct Suggester {
     inner: Arc<Inner>,
@@ -67,20 +70,20 @@ pub struct Suggester {
 struct Inner {
     board: Board,
     events: EventBus,
-    /// `claude` and any leading arguments; `None`: not available (tests use an ordinary command instead).
-    claude: Option<Vec<String>>,
+    /// The tools' adapters, which build the one-off question (tests launch an ordinary command instead).
+    adapters: Adapters,
     /// Running suggestions by project key: their number and how to cancel them.
     running: Mutex<HashMap<String, (u64, oneshot::Sender<()>)>>,
     next: AtomicU64,
 }
 
 impl Suggester {
-    pub fn new(board: Board, events: EventBus, claude: Option<Vec<String>>) -> Self {
+    pub fn new(board: Board, events: EventBus, adapters: Adapters) -> Self {
         Self {
             inner: Arc::new(Inner {
                 board,
                 events,
-                claude,
+                adapters,
                 running: Mutex::new(HashMap::new()),
                 next: AtomicU64::new(1),
             }),
@@ -90,31 +93,25 @@ impl Suggester {
     /// Starts a suggestion for the project (the user's click). One already running is replaced.
     pub async fn start(&self, project: &str) -> Result<(), BoardError> {
         let project = self.inner.board.project(project).await?;
-        let Some((program, leading)) = self
-            .inner
-            .claude
-            .as_ref()
-            .and_then(|c| c.split_first())
-            .map(|(p, rest)| (p.clone(), rest.to_vec()))
-        else {
-            return Err(BoardError::refused(
-                Refusal::NotAvailableYet,
-                "Claude Code isn't available to the background service",
-            ));
-        };
+        // The Project agent role's named agent for the project, as a new Project agent would start (AGT-05).
+        let runs_on = RunsOn::resolved(
+            resolve_project_role(&self.inner.board, &project, Role::ProjectAgent)
+                .await?
+                .as_ref(),
+        );
+        let adapter = self.inner.adapters.of_session(runs_on.tool);
+        let question = adapter
+            .one_off(&OneOffRequest {
+                cwd: project.repo_path.clone().into(),
+                prompt: PROMPT.to_owned(),
+                model: runs_on.model,
+            })
+            .map_err(|e| BoardError::refused(Refusal::NotAvailableYet, e.0))?;
+        let program = question.program;
         let mut command = tokio::process::Command::new(&program);
         command
-            .args(leading)
-            .args([
-                "-p",
-                "--output-format",
-                "stream-json",
-                "--verbose",
-                "--tools",
-                "Read,Glob,Grep",
-                PROMPT,
-            ])
-            .current_dir(&project.repo_path)
+            .args(&question.args)
+            .current_dir(&question.cwd)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -134,7 +131,11 @@ impl Suggester {
             .expect("suggestions")
             .insert(project.key.clone(), (number, cancel));
         drop(replaced);
-        tracing::info!(project = %project.key, "asking Claude for the run command");
+        tracing::info!(
+            project = %project.key,
+            agent = runs_on.agent.as_ref().map(|a| a.name.as_str()),
+            "asking the agent for the run command"
+        );
         tokio::spawn(self.clone().follow(
             project.key.clone(),
             project.repo_path.clone(),
@@ -145,7 +146,7 @@ impl Suggester {
         Ok(())
     }
 
-    /// Cancel: the `claude` process ends. `true` when one was running.
+    /// Cancel: the agent's process ends. `true` when one was running.
     pub fn cancel(&self, project: &str) -> bool {
         let running = self
             .inner
@@ -186,7 +187,7 @@ impl Suggester {
                 _ = &mut deadline => {
                     let _ = child.kill().await;
                     outcome = Some(SuggestUpdate::Failed {
-                        message: "Claude took too long. Type the command yourself.".to_owned(),
+                        message: "The agent took too long. Type the command yourself.".to_owned(),
                     });
                     break;
                 }
@@ -212,9 +213,9 @@ impl Suggester {
             SuggestUpdate::Failed {
                 message: match status.and_then(|s| s.code()) {
                     Some(code) => {
-                        format!("Claude stopped without a suggestion (exit {code}){last}.")
+                        format!("The agent stopped without a suggestion (exit {code}){last}.")
                     }
-                    None => format!("Claude stopped without a suggestion{last}."),
+                    None => format!("The agent stopped without a suggestion{last}."),
                 },
             }
         });
@@ -248,7 +249,7 @@ impl Suggester {
     }
 }
 
-/// One line of `--output-format stream-json`: a tool Claude used becomes progress; the final result becomes the
+/// One line of the question's stream-json output: a tool the agent used becomes progress; the final result becomes the
 /// suggestion (or a failure). Anything else is ignored.
 pub fn read_line(line: &str, repo: &Path) -> Option<SuggestUpdate> {
     let value: Value = serde_json::from_str(line.trim()).ok()?;
@@ -273,16 +274,16 @@ pub fn read_line(line: &str, repo: &Path) -> Option<SuggestUpdate> {
             if is_error {
                 return Some(SuggestUpdate::Failed {
                     message: if text.trim().is_empty() {
-                        "Claude couldn't suggest a command.".to_owned()
+                        "The agent couldn't suggest a command.".to_owned()
                     } else {
-                        format!("Claude couldn't suggest a command: {}", text.trim())
+                        format!("The agent couldn't suggest a command: {}", text.trim())
                     },
                 });
             }
             Some(match parse_suggestion(text) {
                 Some(suggestion) => SuggestUpdate::Done { suggestion },
                 None => SuggestUpdate::Failed {
-                    message: "Claude's answer had no command. Type it yourself, or ask again."
+                    message: "The agent's answer had no command. Type it yourself, or ask again."
                         .to_owned(),
                 },
             })
@@ -311,7 +312,7 @@ fn tool_line(block: &Value, repo: &Path) -> Option<String> {
     })
 }
 
-/// The JSON object in Claude's answer (it may be wrapped in a code fence or a sentence).
+/// The JSON object in the agent's answer (it may be wrapped in a code fence or a sentence).
 pub fn parse_suggestion(text: &str) -> Option<Suggestion> {
     let start = text.find('{')?;
     let end = text.rfind('}')?;
@@ -364,7 +365,7 @@ mod tests {
         assert_eq!(
             read_line(error, Path::new("/r")),
             Some(SuggestUpdate::Failed {
-                message: "Claude couldn't suggest a command: Credit balance is too low".into()
+                message: "The agent couldn't suggest a command: Credit balance is too low".into()
             })
         );
     }

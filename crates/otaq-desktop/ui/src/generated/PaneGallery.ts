@@ -2,8 +2,9 @@
 import type { PaneGalleryState } from "./PaneGalleryState";
 
 /**
- * The gallery's pane section (T-0330; *18 → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row · More
- * pane states (0086 · V)*, *Row · Switching agents, attention (0086 · V)*): the empty pane, a running agent, one
- * waiting, one ended, one ended by restart, at the 1440 class; the switcher and the … menu are the running view's.
+ * The gallery's pane section (T-0330, T-0342; *18 → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row ·
+ * More pane states (0086 · V)*, *Row · Switching agents, attention (0086 · V)*): the empty pane on the starter
+ * entry and on a project's own Project agent (Strong), a running agent on Strong, one waiting, one ended, one ended
+ * by restart, at the 1440 class; the switcher and the … menu are the running view's.
  */
 export type PaneGallery = { states: Array<PaneGalleryState>, };

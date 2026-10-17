@@ -1,4 +1,5 @@
-//! The Project agent pane (T-0326; SHL-04, PAG-01, PAG-05, PAG-06, TKT-08; d0087, d0068, d0060, d0077, d0018;
+//! The Project agent pane (T-0326, T-0342; SHL-04, PAG-01, PAG-05, PAG-06, PAG-07, TKT-08; d0087, d0086, d0068,
+//! d0060, d0077, d0018;
 //! *18 · Project agents & terminals → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row · More pane
 //! states (0086 · V)*, *Row · Switching agents, attention (0086 · V)*): everything the pane between the rail and the
 //! main area draws, for one project and the agent it shows.
@@ -8,9 +9,15 @@
 //! go-ahead for its tokens (d0087). A running agent has its header (switcher, state pill, Recently ended, +, …), the
 //! agent line, Created and changed, its terminal and the footer. The page only draws; which agent it shows is page
 //! state, and [`PaneView::opens_on`] says where a project opens the first time.
+//!
+//! The agent line names the named agent (M22): on the empty pane the one the Project agent role resolves to for the
+//! project, which the first message starts ("Strong · starts when you send"); on a running agent the one its
+//! session started on ("Strong · 52k"). The tool follows the name only once two tools are connected and differs
+//! from it ("Standard · Codex"); with one tool the line is the name alone.
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::domain::{Status, TicketKey};
+use otaq_core::named_agents::NamedAgent;
 use otaq_core::project_agents::{AgentState, CreatedAndChanged, ProjectAgent, ProjectAgentList};
 use serde::Serialize;
 use ts_rs::TS;
@@ -82,14 +89,15 @@ pub struct Header {
     pub more: Button,
 }
 
-/// The line under the header: the tool avatar (hidden while one tool is connected), the tool, then the tokens or
-/// "· starts when you send", and Rename on a running agent.
+/// The line under the header: the tool avatar (hidden while one tool is connected), the named agent, then the tokens
+/// or "· starts when you send", and Rename on a running agent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "PaneAgentLine")]
 pub struct AgentLine {
     pub avatar: Option<ToolAvatarView>,
-    /// "Claude Code" (M22 puts the named agent before it: "Standard · Claude Code").
-    pub tool: String,
+    /// The named agent: "Strong", "Claude Code" (the starter entry); "Standard · Codex" once two tools are
+    /// connected and the tool isn't the name.
+    pub agent: String,
     /// "· 52k", "· starts when you send".
     pub note: String,
     pub rename: Option<&'static str>,
@@ -97,6 +105,44 @@ pub struct AgentLine {
 
 fn avatar(tool: Tool, model: Option<&str>) -> Option<ToolAvatarView> {
     tool_avatar::shown().then(|| ToolAvatarView::of(tool, model))
+}
+
+/// The agent line's name: the named agent, with its tool after it only while two or more tools are connected and
+/// the tool isn't the name (0086: no tool name while one tool is connected or when it equals the agent's name).
+pub fn agent_name(name: &str, tool: Tool) -> String {
+    let tool_name = AvatarTool::from(tool).name();
+    if tool_avatar::shown() && !name.eq_ignore_ascii_case(tool_name) {
+        format!("{name} \u{b7} {tool_name}")
+    } else {
+        name.to_owned()
+    }
+}
+
+/// What a new Project agent starts on: the named agent the role resolves to for the project, else (no named agents
+/// yet) the new-session tool under its own name.
+fn starts_on(new_agent: Option<&NamedAgent>) -> (String, Tool, Option<&str>) {
+    match new_agent {
+        Some(agent) => (agent.name.clone(), agent.tool, agent.model.as_deref()),
+        None => {
+            let tool = new_agent_tool();
+            (AvatarTool::from(tool).name().to_owned(), tool, None)
+        }
+    }
+}
+
+/// The name of what a new Project agent starts on ([`starts_on`]): "Strong", or "Claude Code" before any named agent
+/// exists. Ask the agent's tooltip names it too.
+pub fn new_agent_name(new_agent: Option<&NamedAgent>) -> String {
+    starts_on(new_agent).0
+}
+
+/// A Project agent's named agent, as its session saved it at start (T-0336); the tool's name for a session from
+/// before named agents.
+fn ran_on(agent: &ProjectAgent) -> String {
+    match agent.session.as_ref().and_then(|s| s.named_agent.as_ref()) {
+        Some(named) => agent_name(&named.name, agent.tool),
+        None => AvatarTool::from(agent.tool).name().to_owned(),
+    }
 }
 
 /// An example prompt: its label, and what a click puts in the box (an ending "…" is left for the user to write).
@@ -126,23 +172,26 @@ pub struct Empty {
     /// Above [`PaneView::recent`]'s rows ("name · yesterday · Resume"); hidden with none.
     pub recent_title: &'static str,
     pub placeholder: String,
-    /// "Enter starts Claude Code".
+    /// "Enter starts Strong" (with the tool once two are connected: "Enter starts Standard · Codex").
     pub hint: String,
     pub send: &'static str,
 }
 
-/// The project agent tool a new agent starts on. Until named agents (M22) and other tools (M23), the first tool.
+/// The tool a new agent starts on while there are no named agents (before the starter entry exists): the first.
 fn new_agent_tool() -> Tool {
     Tool::ALL[0]
 }
 
-pub fn empty(project_name: &str) -> Empty {
-    let tool = new_agent_tool();
-    let name = AvatarTool::from(tool).name();
+/// The empty pane, naming what the first message starts: `new_agent`, the Project agent role's named agent for the
+/// project (`None` before any named agent exists).
+pub fn empty(project_name: &str, new_agent: Option<&NamedAgent>) -> Empty {
+    let (name, tool, model) = starts_on(new_agent);
+    // "Strong"; "Standard · Codex" once two tools are connected, in the line and the hint alike (`SbFln`).
+    let name = agent_name(&name, tool);
     Empty {
         line: AgentLine {
-            avatar: avatar(tool, None),
-            tool: name.to_owned(),
+            avatar: avatar(tool, model),
+            agent: name.clone(),
             note: "\u{b7} starts when you send".to_owned(),
             rename: None,
         },
@@ -409,6 +458,9 @@ pub struct Facts<'a> {
     pub created: Option<&'a CreatedAndChanged>,
     pub edited: &'a [EditedTicket],
     pub project_name: &'a str,
+    /// The named agent the Project agent role resolves to for the project (`named_agents::resolve`), which the
+    /// empty pane's first message starts; `None` before any named agent exists.
+    pub new_agent: Option<&'a NamedAgent>,
     pub window_width: Option<f32>,
     pub now_ms: i64,
     pub platform: Platform,
@@ -442,7 +494,7 @@ pub fn view(f: &Facts) -> PaneView {
     let running = shown.map(|a| Running {
         line: AgentLine {
             avatar: avatar(a.tool, a.model.as_deref()),
-            tool: AvatarTool::from(a.tool).name().to_owned(),
+            agent: ran_on(a),
             note: format!("\u{b7} {}", tokens_label(a.tokens.shown())),
             rename: Some("Rename"),
         },
@@ -457,7 +509,7 @@ pub fn view(f: &Facts) -> PaneView {
         agent: shown.map(|a| a.id.clone()),
         opens_on: opens_on(open),
         header,
-        empty: shown.is_none().then(|| empty(f.project_name)),
+        empty: shown.is_none().then(|| empty(f.project_name, f.new_agent)),
         running,
         switcher: switcher(open, shown.map(|a| a.id.as_str()), f.platform),
         menu: menu(shown, open),
@@ -479,9 +531,10 @@ pub struct GalleryState {
     pub view: PaneView,
 }
 
-/// The gallery's pane section (T-0330; *18 → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row · More
-/// pane states (0086 · V)*, *Row · Switching agents, attention (0086 · V)*): the empty pane, a running agent, one
-/// waiting, one ended, one ended by restart, at the 1440 class; the switcher and the … menu are the running view's.
+/// The gallery's pane section (T-0330, T-0342; *18 → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row ·
+/// More pane states (0086 · V)*, *Row · Switching agents, attention (0086 · V)*): the empty pane on the starter
+/// entry and on a project's own Project agent (Strong), a running agent on Strong, one waiting, one ended, one ended
+/// by restart, at the 1440 class; the switcher and the … menu are the running view's.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "PaneGallery")]
 pub struct Gallery {
@@ -518,7 +571,8 @@ pub fn gallery() -> Gallery {
         session: None,
         epic: None,
     };
-    let working = agent("a1", "Search slowness", 3);
+    let mut working = agent("a1", "Search slowness", 3);
+    working.session = Some(session_on("Strong"));
     let mut asks = agent("a2", "Import GitHub issues", 2);
     asks.needs_you = Some("permission: npm run bench".into());
     let mut idle = agent("a3", "Sync conflicts", 1);
@@ -561,6 +615,7 @@ pub fn gallery() -> Gallery {
         title: "Sync conflicts".into(),
         status: Status::Backlog,
     }];
+    let strong = sample_agent("Strong", Some("opus"));
     let state = |name: &'static str, shown: Option<&str>, width: f32| GalleryState {
         name,
         view: view(&Facts {
@@ -569,6 +624,7 @@ pub fn gallery() -> Gallery {
             created: shown.is_some().then_some(&changed),
             edited: &edited,
             project_name: "pocket-notes",
+            new_agent: None,
             window_width: Some(width),
             now_ms: NOW,
             platform: Platform::Mac,
@@ -577,6 +633,20 @@ pub fn gallery() -> Gallery {
     Gallery {
         states: vec![
             state("Empty · Ask the Project agent", None, 1440.),
+            GalleryState {
+                name: "Empty · the project's Project agent is Strong",
+                view: view(&Facts {
+                    agents: &agents,
+                    shown: None,
+                    created: None,
+                    edited: &edited,
+                    project_name: "pocket-notes",
+                    new_agent: Some(&strong),
+                    window_width: Some(1440.),
+                    now_ms: NOW,
+                    platform: Platform::Mac,
+                }),
+            },
             state(
                 "Running · Created and changed open (1440)",
                 Some("a1"),
@@ -587,6 +657,43 @@ pub fn gallery() -> Gallery {
             state("Ended", Some("a4"), 1440.),
             state("Ended by restart", Some("a5"), 1440.),
         ],
+    }
+}
+
+/// A named agent for the gallery and tests.
+fn sample_agent(name: &str, model: Option<&str>) -> NamedAgent {
+    NamedAgent {
+        id: name.to_lowercase(),
+        name: name.to_owned(),
+        tool: Tool::ALL[0],
+        model: model.map(str::to_owned),
+        use_for: String::new(),
+        mark: None,
+        created_at: 0,
+        updated_at: 0,
+    }
+}
+
+/// A Project agent's session started on the named agent `name`, for the gallery and tests.
+fn session_on(name: &str) -> otaq_core::session::SessionInfo {
+    otaq_core::session::SessionInfo {
+        id: "s1".into(),
+        kind: otaq_core::session::SessionKind::ProjectAgent,
+        project: "NOTE".into(),
+        ticket: None,
+        state: otaq_core::session::SessionState::Running,
+        started_at: 0,
+        ended_at: None,
+        end_reason: None,
+        tool: Some(Tool::ALL[0]),
+        tool_session_id: None,
+        model: None,
+        named_agent: Some(otaq_core::session::SessionAgent {
+            id: name.to_lowercase(),
+            name: name.to_owned(),
+        }),
+        model_ran: None,
+        size: None,
     }
 }
 
@@ -676,7 +783,7 @@ mod tests {
         assert!(!v.header.switcher, "nothing to switch to");
         assert!(v.running.is_none());
         let e = v.empty.unwrap();
-        assert_eq!(e.line.tool, "Claude Code");
+        assert_eq!(e.line.agent, "Claude Code");
         assert_eq!(e.line.note, "\u{b7} starts when you send");
         assert_eq!(e.line.avatar, None, "one tool: avatars hidden");
         assert_eq!(e.line.rename, None);
@@ -710,9 +817,40 @@ mod tests {
         assert_eq!(e.hint, "Enter starts Claude Code");
         assert_eq!(e.recent_title, "RECENTLY ENDED");
         assert_eq!(
-            empty("notes-api").examples,
+            empty("notes-api", None).examples,
             e.examples,
             "the same for every project"
+        );
+    }
+
+    #[test]
+    fn the_empty_pane_names_the_project_agents_named_agent() {
+        // A fresh install: the starter entry, named after its tool, and no tool part.
+        let starter = sample_agent("Claude Code", None);
+        let e = empty("shop-web", Some(&starter));
+        assert_eq!(
+            (e.line.agent.as_str(), e.line.note.as_str()),
+            ("Claude Code", "\u{b7} starts when you send")
+        );
+        assert_eq!(e.hint, "Enter starts Claude Code");
+        // shop-web's Project agent default is Strong.
+        let strong = sample_agent("Strong", Some("opus"));
+        let agents = list(Vec::new());
+        let v = view(&Facts {
+            new_agent: Some(&strong),
+            ..facts(&agents, None)
+        });
+        let e = v.empty.unwrap();
+        assert_eq!(
+            (e.line.agent.as_str(), e.line.note.as_str()),
+            ("Strong", "\u{b7} starts when you send")
+        );
+        assert_eq!(e.line.avatar, None, "one tool: no avatar");
+        assert_eq!(e.hint, "Enter starts Strong");
+        assert_eq!(
+            agent_name("Strong", Tool::ALL[0]),
+            "Strong",
+            "one tool: no tool part"
         );
     }
 
@@ -747,6 +885,7 @@ mod tests {
             created: None,
             edited: &[],
             project_name: "pocket-notes",
+            new_agent: None,
             window_width: Some(1440.),
             now_ms: 0,
             platform: Platform::Mac,
@@ -831,14 +970,37 @@ mod tests {
     }
 
     #[test]
-    fn the_agent_line_has_the_tool_and_tokens() {
-        let agents = list(vec![agent("a1", "Search slowness", 1)]);
-        let line = view_of(&agents, Some("a1")).running.unwrap().line;
+    fn the_agent_line_has_the_sessions_named_agent_and_tokens() {
+        let mut a = agent("a1", "Search slowness", 1);
+        a.session = Some(session_on("Strong"));
+        let agents = list(vec![a.clone()]);
+        let strong = sample_agent("Light", Some("haiku"));
+        let line = view(&Facts {
+            // What the role resolves to now doesn't change a running agent's line.
+            new_agent: Some(&strong),
+            ..facts(&agents, Some("a1"))
+        })
+        .running
+        .unwrap()
+        .line;
         assert_eq!(
-            (line.tool.as_str(), line.note.as_str(), line.rename),
-            ("Claude Code", "\u{b7} 52k", Some("Rename"))
+            (line.agent.as_str(), line.note.as_str(), line.rename),
+            ("Strong", "\u{b7} 52k", Some("Rename"))
         );
         assert_eq!(line.avatar, None);
+        // The starter entry.
+        a.session = Some(session_on("Claude Code"));
+        let agents = list(vec![a.clone()]);
+        let line = view_of(&agents, Some("a1")).running.unwrap().line;
+        assert_eq!(
+            (line.agent.as_str(), line.note.as_str()),
+            ("Claude Code", "\u{b7} 52k")
+        );
+        // A session that saved no named agent: the tool's name.
+        a.session = None;
+        let agents = list(vec![a]);
+        let line = view_of(&agents, Some("a1")).running.unwrap().line;
+        assert_eq!(line.agent, "Claude Code");
     }
 
     #[test]
@@ -1055,6 +1217,7 @@ mod tests {
             shown,
             [
                 (None, None),
+                (None, None),
                 (Some("a1"), Some("Working")),
                 (Some("a1"), Some("Working")),
                 (Some("a2"), Some("Waiting for you")),
@@ -1070,7 +1233,29 @@ mod tests {
                 .and_then(|r| r.created.as_ref())
                 .map(|c| c.folded)
         };
-        assert_eq!((folded(1), folded(2)), (Some(false), Some(true)));
+        assert_eq!((folded(2), folded(3)), (Some(false), Some(true)));
+        let line = |i: usize| {
+            g.states[i]
+                .view
+                .empty
+                .as_ref()
+                .map(|e| e.line.agent.clone())
+                .or_else(|| {
+                    g.states[i]
+                        .view
+                        .running
+                        .as_ref()
+                        .map(|r| r.line.agent.clone())
+                })
+        };
+        assert_eq!(
+            (line(0), line(1), line(2)),
+            (
+                Some("Claude Code".to_owned()),
+                Some("Strong".to_owned()),
+                Some("Strong".to_owned())
+            )
+        );
         assert!(g.states[0].view.agent_waits, "the strip's dot");
     }
 }
