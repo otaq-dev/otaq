@@ -406,6 +406,11 @@ stored_enum! {
         /// schema-path glob) and `files` (what `other` adds under it). Recorded once per new overlap; files are never
         /// touched. History reads "Schema path shared with SHOP-21" · "db/migrations/**".
         SchemaOverlap = "schema_overlap",
+        /// A ticket's or an epic's agent row changed (AGT-04, d0086): payload `role`, `agent` (the name now; null
+        /// = emptied, "Let agents pick again"), `from` (the name before), `set_by` (`user` / `agent` with
+        /// `picked_by` and `reason`) and, logged on an epic for a child, `child` (`named_agents::rows::row_event`).
+        /// History reads "Developer: Strong (set by you)", "Wishlist lead re-picked SHOP-40.3: Strong → Light".
+        AgentRowSet = "agent_row_set",
     }
 }
 

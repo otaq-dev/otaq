@@ -266,7 +266,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::ProjectAgentDefaults(_)
         | Request::AgentsSetDefault(_)
         | Request::ProjectSetAgentDefault(_)
-        | Request::TicketAgentRow(_) => false,
+        | Request::TicketAgentRow(_)
+        | Request::TicketAgents(_) => false,
     }
 }
 

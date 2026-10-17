@@ -104,6 +104,8 @@ const VIEW: PanelView = {
   ],
   live_agent: true,
   sizes: SIZES,
+  agents: null,
+  focus_agent_row: null,
 };
 
 function render(view: PanelView, opts: { tab?: PanelTab; expanded?: boolean; width?: number } = {}) {

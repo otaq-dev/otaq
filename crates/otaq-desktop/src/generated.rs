@@ -182,6 +182,10 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::EditorCompareParams::export_all(&cfg)?;
     crate::api::EditorCompareEntry::export_all(&cfg)?;
     crate::api::EditorSourceModeParams::export_all(&cfg)?;
+    // The agent rows (T-0341): a pick and how it went; `AgentBlock` comes with the editor and panel views.
+    crate::api::AgentRowRequest::export_all(&cfg)?;
+    crate::api::AgentRowOutcome::export_all(&cfg)?;
+    otaq_view::view_models::agent_rows::Gallery::export_all(&cfg)?;
     // The Diff tab (T-0225): the tab, a file's lines and the comments; then the requests' own types.
     crate::api::DiffLoad::export_all(&cfg)?;
     otaq_view::view_models::diff_page::FileView::export_all(&cfg)?;

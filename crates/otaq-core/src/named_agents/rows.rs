@@ -1,0 +1,228 @@
+//! A ticket's or an epic's agent rows with what the screens need around them (AGT-04, AGT-05, VAL-14; d0086,
+//! d0088): each row as stored, what it resolves to, what "Project default (…)" names, its lock, the sessions that
+//! ran (with the named agent and the exact model of each), and for an epic its children's Developer rows. The
+//! wording is the view models' (`otaq-view`'s `agent_rows.rs`); this is only the facts, answered by
+//! `ticket.agents`.
+//!
+//! A row change is logged on the ticket as [`EventKind::AgentRowSet`] with [`row_event`]'s payload, so History can
+//! say "Developer: Strong (set by you)".
+
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+
+use super::{
+    AgentRow, NamedAgent, NamedAgents, Resolved, Role, RowLock, RowSetBy, resolve, row_lock,
+};
+use crate::board::BoardError;
+use crate::board::tickets::EventKind;
+use crate::domain::{Actor, Kind, Status, TicketKey};
+pub use crate::store::named_agents::SessionAgentRun;
+use crate::usage::AgentTokens;
+
+/// One row of a ticket (Developer, Validator) or an epic (Epic lead).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RowFacts {
+    pub role: Role,
+    /// As stored; `None` = empty.
+    pub row: Option<AgentRow>,
+    /// What the role runs on now (the row, else the project default, else the app default).
+    pub resolved: Option<Resolved>,
+    /// What an empty row runs on: "Project default (Claude Code)".
+    pub default: Option<NamedAgent>,
+    pub lock: Option<RowLock>,
+}
+
+/// An epic's child with its Developer row, listed read-only in the epic panel (d0086).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChildAgents {
+    pub key: TicketKey,
+    pub title: String,
+    pub status: Status,
+    pub developer: Option<Resolved>,
+}
+
+/// The answer to `ticket.agents`: a ticket's or an epic's rows, or (no key) a new one's in a project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketAgents {
+    /// `None` for a ticket not created yet (the ⌘N form).
+    pub key: Option<TicketKey>,
+    pub kind: Kind,
+    pub status: Option<Status>,
+    /// Every named agent (the pickers' items; one entry = read-only rows).
+    pub agents: Vec<NamedAgent>,
+    /// The kind's rows: Developer and Validator, or Epic lead.
+    pub rows: Vec<RowFacts>,
+    /// Oldest first.
+    pub sessions: Vec<SessionAgentRun>,
+    /// Tokens by role and named agent ([`crate::usage::Usage::agents_of`]); filled by the service.
+    #[serde(default)]
+    pub tokens: Vec<AgentTokens>,
+    /// An epic's children, by key; empty for a ticket.
+    pub children: Vec<ChildAgents>,
+}
+
+/// The payload of an [`EventKind::AgentRowSet`] event: the role, the agent's name now (`None`: emptied, "Let
+/// agents pick again") and before, who set it, and on an epic the child it was for (an epic lead's pick, T-0338).
+pub fn row_event(
+    role: Role,
+    agent: Option<&str>,
+    from: Option<&str>,
+    set_by: &RowSetBy,
+    child: Option<&TicketKey>,
+) -> Value {
+    let mut payload = json!({ "role": role.as_str(), "agent": agent, "from": from });
+    match set_by {
+        RowSetBy::User => payload["set_by"] = json!("user"),
+        RowSetBy::Agent { picked_by, reason } => {
+            payload["set_by"] = json!("agent");
+            payload["picked_by"] = json!(picked_by);
+            payload["reason"] = json!(reason);
+        }
+    }
+    if let Some(child) = child {
+        payload["child"] = json!(child.to_string());
+    }
+    payload
+}
+
+fn roles_of(kind: Kind) -> &'static [Role] {
+    match kind {
+        Kind::Ticket => &[Role::Developer, Role::Validator],
+        Kind::Epic => &[Role::EpicLead],
+    }
+}
+
+impl NamedAgents {
+    /// The rows of a ticket of `kind` not created yet in `project`: empty, unlocked, nothing ran.
+    pub async fn new_ticket_agents(
+        &self,
+        project: &str,
+        kind: Kind,
+    ) -> Result<TicketAgents, BoardError> {
+        let project = self.board.project(project).await?;
+        let store = self.board.store();
+        let agents = store.named_agents().await?;
+        let app = store.agent_defaults().await?;
+        let defaults = project.agent_defaults();
+        let rows = roles_of(kind)
+            .iter()
+            .map(|&role| {
+                let resolved = resolve(role, None, &defaults, &app, &agents);
+                RowFacts {
+                    role,
+                    default: resolved.as_ref().map(|r| r.agent.clone()),
+                    resolved,
+                    lock: None,
+                    row: None,
+                }
+            })
+            .collect();
+        Ok(TicketAgents {
+            key: None,
+            kind,
+            status: None,
+            agents,
+            rows,
+            sessions: Vec::new(),
+            tokens: Vec::new(),
+            children: Vec::new(),
+        })
+    }
+
+    /// Everything the rows of `key` show ([`TicketAgents`]).
+    pub async fn ticket_agents(&self, key: &str) -> Result<TicketAgents, BoardError> {
+        let ticket = self.board.ticket(key).await?;
+        let project_key = ticket.key.project.to_string();
+        let project = self.board.project(&project_key).await?;
+        let store = self.board.store();
+        let agents = store.named_agents().await?;
+        let app = store.agent_defaults().await?;
+        let defaults = project.agent_defaults();
+        let stored = store.ticket_agent_rows(&ticket.id).await?;
+        let facts = self.lock_facts(&ticket.id).await?;
+        let rows = roles_of(ticket.kind)
+            .iter()
+            .map(|&role| {
+                let row = stored.iter().find(|r| r.role == role).cloned();
+                RowFacts {
+                    role,
+                    resolved: resolve(role, row.as_ref(), &defaults, &app, &agents),
+                    default: resolve(role, None, &defaults, &app, &agents).map(|r| r.agent),
+                    lock: row_lock(role, facts),
+                    row,
+                }
+            })
+            .collect();
+        let mut children = Vec::new();
+        if ticket.kind == Kind::Epic {
+            for child in self.board.tickets(&project_key).await? {
+                if child.epic.as_ref() != Some(&ticket.key) {
+                    continue;
+                }
+                let rows = store.ticket_agent_rows(&child.id).await?;
+                children.push(ChildAgents {
+                    developer: resolve(
+                        Role::Developer,
+                        rows.iter().find(|r| r.role == Role::Developer),
+                        &defaults,
+                        &app,
+                        &agents,
+                    ),
+                    key: child.key,
+                    title: child.title,
+                    status: child.status,
+                });
+            }
+        }
+        let mut sessions = store.session_agents(&ticket.id).await?;
+        for session in &mut sessions {
+            session.moved_on = crate::session::moved_on(store.pool(), &session.id).await?;
+        }
+        Ok(TicketAgents {
+            sessions,
+            tokens: Vec::new(),
+            key: Some(ticket.key),
+            kind: ticket.kind,
+            status: Some(ticket.status),
+            agents,
+            rows,
+            children,
+        })
+    }
+
+    /// Logs a row change on the ticket ([`row_event`]).
+    pub(super) async fn record_row_change(
+        &self,
+        ticket_id: &str,
+        role: Role,
+        before: Option<&str>,
+        after: Option<&str>,
+        set_by: &RowSetBy,
+    ) -> Result<(), BoardError> {
+        let store = self.board.store();
+        let name = async |id: Option<&str>| -> Result<Option<String>, BoardError> {
+            Ok(match id {
+                Some(id) => store.named_agent(id).await?.map(|a| a.name),
+                None => None,
+            })
+        };
+        let payload = row_event(
+            role,
+            name(after).await?.as_deref(),
+            name(before).await?.as_deref(),
+            set_by,
+            None,
+        );
+        let mut tx = store.begin_write().await?;
+        crate::board::tickets::record_event(
+            &mut tx,
+            ticket_id,
+            EventKind::AgentRowSet,
+            &Actor::current_user(),
+            payload,
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+}

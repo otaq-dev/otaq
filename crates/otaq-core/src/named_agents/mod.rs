@@ -22,6 +22,7 @@
 
 pub mod in_use;
 pub mod mark;
+pub mod rows;
 pub mod starter;
 
 use std::sync::Arc;
@@ -667,11 +668,18 @@ impl NamedAgents {
         if let Some(agent) = agent {
             self.agent(agent).await?;
         }
-        self.board
-            .store()
+        let store = self.board.store();
+        let before = store
+            .ticket_agent_rows(&ticket.id)
+            .await?
+            .into_iter()
+            .find(|row| row.role == role)
+            .and_then(|row| row.agent);
+        store
             .set_ticket_agent_row(&ticket.id, role, agent.map(|id| (id, &RowSetBy::User)))
             .await?;
-        Ok(())
+        self.record_row_change(&ticket.id, role, before.as_deref(), agent, &RowSetBy::User)
+            .await
     }
 
     /// What the lock rule reads for a ticket or an epic.

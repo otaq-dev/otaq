@@ -770,6 +770,10 @@ pub enum Request {
     /// null = "Let agents pick again". Refused on a locked row and on a row the ticket doesn't have.
     #[serde(rename = "ticket.agent_row")]
     TicketAgentRow(AgentRowParams),
+    /// `{"key": "SHOP-19"}`, or `{"project": "SHOP", "new_epic": true}` for the ⌘N form: the ticket's or epic's rows with what they resolve to, their locks, the sessions with
+    /// their named agents, an epic's children's rows. Answered with [`Reply::TicketAgents`].
+    #[serde(rename = "ticket.agents")]
+    TicketAgents(TicketAgentsParams),
 }
 
 /// `agents.edit`: the entry's id and its whole form.
@@ -794,6 +798,17 @@ pub struct ProjectAgentDefaultParams {
     pub role: crate::named_agents::Role,
     #[serde(default)]
     pub agent: Option<String>,
+}
+
+/// `ticket.agents`: an existing ticket by `key`, else a new one in `project` (an epic when `new_epic`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketAgentsParams {
+    #[serde(default)]
+    pub key: Option<String>,
+    #[serde(default)]
+    pub project: Option<String>,
+    #[serde(default)]
+    pub new_epic: bool,
 }
 
 /// `ticket.agent_row`: `agent` `None` empties the row.
@@ -1572,6 +1587,7 @@ impl Request {
             Self::ProjectSetAgentDefault(_) => "project.set_agent_default",
             Self::ProjectAgentDefaults(_) => "project.agent_defaults",
             Self::TicketAgentRow(_) => "ticket.agent_row",
+            Self::TicketAgents(_) => "ticket.agents",
         }
     }
 }
@@ -1679,6 +1695,7 @@ pub enum Reply {
     Agents(Box<crate::named_agents::AgentList>),
     Agent(Box<crate::named_agents::NamedAgent>),
     AgentDraft(Box<crate::named_agents::AgentFields>),
+    TicketAgents(Box<crate::named_agents::rows::TicketAgents>),
     AgentDefaults(Box<crate::named_agents::RoleDefaults>),
     AgentInUse(Box<crate::named_agents::InUse>),
 }
