@@ -35,7 +35,7 @@ const items = (selected: string | null) =>
     { agent: "cc", label: "Claude Code", detail: "tool default" },
     { agent: "strong", label: "Strong", detail: "Opus · always the newest" },
     { agent: "fable", label: "Fable test", detail: "Fable · always the newest" },
-  ].map((i) => ({ ...i, selected: i.agent === selected }));
+  ].map((i) => ({ ...i, selected: i.agent === selected, avatar: null }));
 
 const row = (over: Partial<AgentRowView>): AgentRowView => ({
   role: "developer",
@@ -49,6 +49,9 @@ const row = (over: Partial<AgentRowView>): AgentRowView => ({
   change: "Change",
   moved_on: null,
   next_lead: null,
+  avatar: null,
+  swap: null,
+  moved: null,
   ...over,
 });
 

@@ -3,6 +3,7 @@ import type { AgentRowsSample } from "./AgentRowsSample";
 
 /**
  * Every row state of the frames: one agent, set by you, picked by an agent, locked while started and while a
- * round runs, moved on, edited and deleted after the start, the Validator after a failed round, the epic lead.
+ * round runs, moved on, edited and deleted after the start, the Validator after a failed round, the epic lead; and
+ * with several tools (M23): the tool in locked rows, the tool as the name, the swap, a move, Model unavailable.
  */
 export type AgentRowsGallery = { samples: Array<AgentRowsSample>, };

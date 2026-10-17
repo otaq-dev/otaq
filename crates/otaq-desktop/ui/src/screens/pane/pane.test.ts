@@ -60,6 +60,8 @@ const EMPTY: PaneView = {
     placeholder: "Ask about pocket-notes, or describe work…",
     hint: "Enter starts Claude Code",
     send: "Send",
+    notice: null,
+    starts_on: null,
   },
   running: null,
   switcher: { rows: [], new_label: "New Project agent (empty)", new_keys: "⇧⌘A" },
@@ -98,6 +100,7 @@ const RUNNING: PaneView = {
       ],
     },
     session: "s1",
+    notice: null,
     ended: false,
     footer: {
       text: "Typing goes to the agent",

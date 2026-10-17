@@ -578,8 +578,8 @@ pub async fn history_view(app: &App, params: Params) -> Result<Option<HistoryVie
     // The named agents each session ran on (AGT-05): left out when the rows can't be read.
     let rows = match super::editor::agent_facts(app, super::editor::of_ticket(&params.key)).await {
         Some(agents) => {
-            let models = super::editor::model_list(app).await;
-            history::with_named_agents(rows, &agent_rows::history_lines(&agents, models.as_ref()))
+            let tools = super::editor::agent_tools(app).await;
+            history::with_named_agents(rows, &agent_rows::history_lines(&agents, &tools))
         }
         None => rows,
     };

@@ -94,6 +94,7 @@ pub mod theme_credits;
 pub mod theme_picker;
 pub mod toasts;
 pub mod tool_avatar;
+pub mod tool_problems;
 pub mod usage;
 pub mod usage_data;
 pub mod validation_panel;

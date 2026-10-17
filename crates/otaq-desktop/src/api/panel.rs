@@ -17,7 +17,6 @@ use otaq_core::board::questions::Choice;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{TicketKey, ValidationAction};
 use otaq_core::project_agents::lead::{Lead, LeadStatus};
-use otaq_core::agent_tools::models::ModelList;
 use otaq_core::named_agents::rows::TicketAgents;
 use otaq_core::usage::TicketUsage;
 use otaq_core::protocol::{
@@ -33,6 +32,7 @@ use otaq_view::keymap::{KeyAction, Platform};
 use otaq_view::view_models::answer::{self, AnswerOutcome};
 use otaq_view::view_models::answer_options::AnswerOptions;
 use otaq_view::view_models::agent_rows::{self, Block};
+use otaq_view::view_models::tool_problems::{Callout, Tools};
 use otaq_view::view_models::named_agents::RoleId;
 use otaq_view::view_models::approve;
 use otaq_view::view_models::card::{
@@ -351,6 +351,9 @@ pub struct View {
     pub start_problem: Option<StartProblem>,
     /// The tool refused a model (Start failed, No result): its callout above the bar, in place of `start_problem`.
     pub refusal: Option<Refusal>,
+    /// The held roles (§7.2, SCH-04 `[M23]`): "Model unavailable", "Codex isn't available · logged out", "Claude
+    /// Code limit reached · resets 3:45 pm", with Use fallback, Change agent / Change validator, Sign in….
+    pub holds: Vec<Callout>,
     pub mark_closed: Option<Confirm>,
     /// The compact running pill next to the tokens while the Run is up (*13 → Card & panel-header controls*).
     pub run: Option<RunPill>,
@@ -402,9 +405,9 @@ pub struct Facts<'a> {
     pub decisions: u32,
     /// An epic's lead (T-0290): the Lead tab's dot, its question bar and Resume lead.
     pub lead: Option<&'a Lead>,
-    /// The rows and the sessions' named agents (`ticket.agents`), with the tool's model list.
+    /// The rows and the sessions' named agents (`ticket.agents`), with the agent tools and their model lists.
     pub agents: Option<&'a TicketAgents>,
-    pub models: Option<&'a ModelList>,
+    pub tools: &'a Tools,
 }
 
 fn running_agent(sessions: &[SessionInfo]) -> bool {
@@ -592,7 +595,7 @@ pub fn view_of(f: &Facts) -> View {
         signal,
         tokens,
         token_split: match f.agents {
-            Some(agents) => agent_rows::token_line(agents),
+            Some(agents) => agent_rows::token_line(agents, f.tools),
             None => f.usage.and_then(|u| validation_panel::token_split(ticket, u)),
         },
         previous: vm::neighbour(f.tickets, &ticket.key, -1).map(|k| k.to_string()),
@@ -636,6 +639,10 @@ pub fn view_of(f: &Facts) -> View {
             }),
         start_problem,
         refusal,
+        holds: f
+            .agents
+            .map(|t| agent_rows::callouts(t, f.tools))
+            .unwrap_or_default(),
         mark_closed,
         run: otaq_view::view_models::run::header_pill(f.run).map(|(port, url)| RunPill {
             port: format!(":{port}"),
@@ -663,7 +670,7 @@ pub fn view_of(f: &Facts) -> View {
             .collect(),
         live_agent: live,
         sizes: SIZES,
-        agents: f.agents.map(|t| agent_rows::block(t, f.models)),
+        agents: f.agents.map(|t| agent_rows::block(t, f.tools)),
         focus_agent_row: None,
     }
 }
@@ -793,7 +800,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         None
     };
     let agents = super::editor::agent_facts(app, super::editor::of_ticket(&params.key)).await;
-    let models = super::editor::model_list(app).await;
+    let tools = super::editor::agent_tools(app).await;
     let view = view_of(&Facts {
         ticket: &ticket,
         tickets: &all,
@@ -808,7 +815,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         decisions,
         lead: lead.as_ref(),
         agents: agents.as_ref(),
-        models: models.as_ref(),
+        tools: &tools,
     });
     Ok(Load {
         view: Some(View {
@@ -1541,8 +1548,13 @@ mod tests {
             decisions: 0,
             lead: None,
             agents: None,
-            models: None,
+            tools: one_tool(),
         }
+    }
+
+    fn one_tool() -> &'static Tools {
+        static ONE: std::sync::OnceLock<Tools> = std::sync::OnceLock::new();
+        ONE.get_or_init(|| Tools::one(None))
     }
 
     fn labels(view: &View) -> Vec<&str> {
@@ -1869,6 +1881,39 @@ mod tests {
             ["Change validator", "Retry validation", "Move to Review anyway"]
         );
         assert!(!view.refusal.unwrap().error, "turquoise, not red");
+    }
+
+    /// M23: the held rows' callouts above the bar, the rows with their tools and the token line by agent and tool.
+    #[test]
+    fn several_tools_show_the_holds_and_the_tools() {
+        use otaq_view::view_models::agent_rows::fixtures::{
+            several_tools, shop_29_swapped, shop_49_model_unavailable,
+        };
+        let tools = several_tools();
+        let held = shop_49_model_unavailable();
+        let t = fixture("SHOP-49", "Export orders as CSV", Status::Queued);
+        let view = view_of(&Facts {
+            agents: Some(&held),
+            tools: &tools,
+            ..facts(&t, std::slice::from_ref(&t), &[])
+        });
+        assert_eq!(view.holds.len(), 1);
+        assert_eq!(view.holds[0].heading, "Model unavailable");
+        assert_eq!(view.holds[0].buttons[0].label, "Change agent");
+        let swapped = shop_29_swapped();
+        let t = fixture("SHOP-29", "Coupon field", Status::Validating);
+        let view = view_of(&Facts {
+            agents: Some(&swapped),
+            tools: &tools,
+            ..facts(&t, std::slice::from_ref(&t), &[])
+        });
+        assert!(view.holds.is_empty());
+        assert_eq!(
+            view.token_split.as_deref(),
+            Some("Strong \u{b7} Claude Code 61k \u{b7} Verifier \u{b7} Copilot 23k (1 round)")
+        );
+        let rows = view.agents.unwrap().rows;
+        assert_eq!(rows[1].swap.as_deref(), Some("asked for gpt-5.5, ran on auto"));
     }
 
     #[test]

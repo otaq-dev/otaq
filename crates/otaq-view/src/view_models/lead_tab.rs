@@ -15,9 +15,14 @@
 //! - **The body:** the live terminal; "Open lead" when the epic has none; "Before the restart" (REC-02, from
 //!   Claude's saved conversation) with Resume after a restart; the last terminal, read-only, with "Ended · epic in
 //!   review" once the epic reached Ready for Review; the last terminal with Resume when its agent tool exited.
+//! - **Waiting on its tool** (d0086, *08 → Epic lead · its tool isn't available / is at its limit*): a lead held
+//!   before its start says "Codex isn't available · logged out" (Sign in…), "Waiting for Codex's limit reset" or
+//!   "Model unavailable" (Change agent); a running or ended lead on a tool that can't run now waits too, since its
+//!   conversation never moves tools.
 
 use otaq_core::board::tickets::{EventKind, HistoryEvent, Ticket};
 use otaq_core::domain::{Status, TicketKey};
+use otaq_core::named_agents::{AgentHold, NamedAgent, Role};
 use otaq_core::project_agents::lead::{Lead, LeadStatus};
 use otaq_core::recovery::{BeforeRestart, TranscriptEntry};
 use serde::Serialize;
@@ -28,6 +33,7 @@ use crate::view_models::card::tokens_label;
 use crate::view_models::clock::local_hhmm;
 use crate::view_models::lead_status::{self, ActionKind, LeadStatusView};
 use crate::view_models::recovery;
+use crate::view_models::tool_problems::{self, Callout, Tools};
 
 pub const READ_ONLY: &str = "read-only";
 pub const CHANGES_TITLE: &str = "Changes by the lead";
@@ -137,6 +143,8 @@ pub struct LeadTabView {
     pub body: Body,
     /// The lead asks you: the panel header shows its question bar (as for a ticket's Asks you).
     pub asks_you: bool,
+    /// The lead waits on its tool or its model (M23): the notice above the body.
+    pub waiting: Option<Callout>,
 }
 
 /// The unsent-text question before an answer to the lead's own question (d0048): (title, body).
@@ -182,6 +190,11 @@ pub struct Facts<'a> {
     pub lead: Option<&'a Lead>,
     pub events: &'a [HistoryEvent],
     pub before: Option<&'a BeforeRestart>,
+    /// The epic's holds (`ticket.agents`): its lead's, held before its start.
+    pub holds: &'a [AgentHold],
+    /// Every named agent (the held one's name).
+    pub named_agents: &'a [NamedAgent],
+    pub tools: &'a Tools,
 }
 
 pub fn view(f: &Facts) -> LeadTabView {
@@ -203,6 +216,13 @@ pub fn view(f: &Facts) -> LeadTabView {
             Some(l) => body(epic, l, f.before),
         },
         asks_you: lead.is_some_and(|l| l.status == LeadStatus::AsksYou),
+        waiting: tool_problems::lead_notice(
+            f.holds.iter().find(|h| h.role == Role::EpicLead),
+            lead.filter(|l| l.status != LeadStatus::EndedInReview)
+                .map(|l| l.agent.tool),
+            f.named_agents,
+            f.tools,
+        ),
     }
 }
 
@@ -690,6 +710,9 @@ pub fn gallery() -> Gallery {
                 lead,
                 events,
                 before,
+                holds: &[],
+                named_agents: &[],
+                tools: &Tools::default(),
             }),
         }
     };
@@ -725,8 +748,77 @@ pub fn gallery() -> Gallery {
                 None,
             ),
             tab("Lead tab · no lead", &epic, None, &[], None),
-        ],
+        ]
+        .into_iter()
+        .chain(waiting_tabs(&epic, &tickets, &events))
+        .collect(),
     }
+}
+
+/// The gallery's waiting leads (M23, *08 → Epic lead · its tool isn't available / is at its limit*).
+fn waiting_tabs(epic: &Ticket, tickets: &[Ticket], events: &[HistoryEvent]) -> Vec<GalleryTab> {
+    use otaq_core::named_agents::HoldReason;
+    use tool_problems::fixtures::{self as tf, CLAUDE, CODEX};
+    let idle = fixtures::lead(LeadStatus::Idle);
+    let mut logged_out = tf::several();
+    logged_out.statuses[0] = tf::status(
+        CLAUDE,
+        otaq_core::agent_tools::connected::AgentToolState::FoundNotSignedIn { version: None },
+    );
+    let held = |reason| {
+        [tf::hold(
+            Role::EpicLead,
+            reason,
+            CODEX,
+            "standard",
+            Some("gpt-5.4"),
+        )]
+    };
+    let tab = |name: &str, lead: Option<&Lead>, holds: &[AgentHold], tools: &Tools| GalleryTab {
+        name: name.to_owned(),
+        view: view(&Facts {
+            epic,
+            tickets,
+            lead,
+            events,
+            before: None,
+            holds,
+            named_agents: &[],
+            tools,
+        }),
+    };
+    vec![
+        tab(
+            "Lead tab \u{b7} its tool isn't available",
+            Some(&idle),
+            &[],
+            &logged_out,
+        ),
+        tab(
+            "Lead tab \u{b7} its tool is at its limit",
+            Some(&idle),
+            &[],
+            &tf::at_limit(CLAUDE, None),
+        ),
+        tab(
+            "No lead \u{b7} held: Codex isn't available",
+            None,
+            &held(HoldReason::ToolUnavailable),
+            &tf::codex_logged_out(),
+        ),
+        tab(
+            "No lead \u{b7} held: Codex's limit",
+            None,
+            &held(HoldReason::ToolLimit),
+            &tf::at_limit(CODEX, None),
+        ),
+        tab(
+            "No lead \u{b7} held: Model unavailable",
+            None,
+            &held(HoldReason::ModelUnavailable),
+            &tf::several(),
+        ),
+    ]
 }
 
 #[cfg(test)]
@@ -745,6 +837,9 @@ mod tests {
             lead,
             events,
             before,
+            holds: &[],
+            named_agents: &[],
+            tools: &Tools::default(),
         })
     }
 
@@ -985,8 +1080,70 @@ mod tests {
     #[test]
     fn the_gallery_has_every_state() {
         let g = gallery();
-        assert_eq!(g.tabs.len(), 6);
+        assert_eq!(g.tabs.len(), 11);
         assert!(g.tabs[2].view.asks_you);
         assert!(matches!(g.tabs[3].view.body, Body::BeforeRestart { .. }));
+    }
+
+    /// *08 → Epic lead*: the three waiting states of a held lead, a running lead's tool, and none by default.
+    #[test]
+    fn a_waiting_lead_says_what_it_waits_for() {
+        let g = gallery();
+        let waiting: Vec<(String, Option<String>)> = g
+            .tabs
+            .iter()
+            .map(|t| {
+                (
+                    t.name.clone(),
+                    t.view.waiting.as_ref().map(|w| w.heading.clone()),
+                )
+            })
+            .collect();
+        assert!(waiting[..6].iter().all(|(_, w)| w.is_none()), "{waiting:?}");
+        assert_eq!(
+            waiting[6].1.as_deref(),
+            Some(
+                "Claude Code isn\u{2019}t available \u{b7} logged out. The lead waits; children on Claude Code wait too."
+            )
+        );
+        assert_eq!(
+            waiting[7].1.as_deref(),
+            Some("Claude Code limit reached. The lead continues after the reset.")
+        );
+        assert_eq!(
+            waiting[8].1.as_deref(),
+            Some("Codex isn\u{2019}t available \u{b7} logged out")
+        );
+        assert_eq!(
+            waiting[9].1.as_deref(),
+            Some("Waiting for Codex\u{2019}s limit reset")
+        );
+        assert_eq!(waiting[10].1.as_deref(), Some("Model unavailable"));
+        let labels = |i: usize| -> Vec<String> {
+            g.tabs[i]
+                .view
+                .waiting
+                .as_ref()
+                .unwrap()
+                .buttons
+                .iter()
+                .map(|b| b.label.clone())
+                .collect()
+        };
+        assert_eq!(labels(8), ["Sign in\u{2026}"]);
+        assert_eq!(labels(10), ["Change agent"]);
+        // An ended-in-review lead doesn't wait on its tool.
+        let tools = tool_problems::fixtures::at_limit(tool_problems::fixtures::CLAUDE, None);
+        let t = view(&Facts {
+            epic: &epic(),
+            tickets: &tickets(),
+            lead: Some(&lead(LeadStatus::EndedInReview)),
+            events: &[],
+            before: None,
+            holds: &[],
+            named_agents: &[],
+            tools: &tools,
+        });
+        assert_eq!(t.waiting, None);
     }
 }

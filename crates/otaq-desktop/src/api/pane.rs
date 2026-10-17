@@ -102,6 +102,14 @@ pub(super) async fn project_agent(
     app: &App,
     project: &str,
 ) -> Result<Option<NamedAgent>, RequestError> {
+    Ok(project_agent_and_list(app, project).await?.0)
+}
+
+/// [`project_agent`] and every named agent.
+async fn project_agent_and_list(
+    app: &App,
+    project: &str,
+) -> Result<(Option<NamedAgent>, Vec<NamedAgent>), RequestError> {
     let list = match app.service.send(Request::AgentsList).await? {
         Reply::Agents(list) => *list,
         other => return Err(unexpected("agents.list", &other)),
@@ -116,14 +124,15 @@ pub(super) async fn project_agent(
         Reply::AgentDefaults(own) => *own,
         other => return Err(unexpected("project.agent_defaults", &other)),
     };
-    Ok(named_agents::resolve(
+    let default = named_agents::resolve(
         Role::ProjectAgent,
         None,
         &own,
         &list.defaults,
         &list.agents,
     )
-    .map(|resolved| resolved.agent))
+    .map(|resolved| resolved.agent);
+    Ok((default, list.agents))
 }
 
 async fn project_name(app: &App, project: &str) -> Result<String, RequestError> {
@@ -146,12 +155,21 @@ pub struct Params {
     pub agent: Option<String>,
     #[serde(default)]
     pub window_width: Option<f32>,
+    /// The empty pane after "New agent on …" (M23): the named agent its first message starts.
+    #[serde(default)]
+    #[ts(optional)]
+    pub start_on: Option<String>,
 }
 
 pub async fn view(app: &App, params: Params) -> Result<PaneView, RequestError> {
     let agents = agents(app, &params.project).await?;
     let name = project_name(app, &params.project).await?;
-    let new_agent = project_agent(app, &params.project).await?;
+    let (new_agent, named) = project_agent_and_list(app, &params.project).await?;
+    let start_on = params
+        .start_on
+        .as_deref()
+        .and_then(|id| named.iter().find(|a| a.id == id));
+    let tools = super::editor::agent_tools(app).await;
     let shown = params
         .agent
         .as_deref()
@@ -174,6 +192,10 @@ pub async fn view(app: &App, params: Params) -> Result<PaneView, RequestError> {
         window_width: params.window_width,
         now_ms: otaq_core::store::now_ms(),
         platform: Platform::current(),
+        tools: &tools,
+        named_agents: &named,
+        start_on,
+        project: &params.project,
     }))
 }
 
@@ -183,6 +205,10 @@ pub async fn view(app: &App, params: Params) -> Result<PaneView, RequestError> {
 pub struct SendParams {
     pub project: String,
     pub message: String,
+    /// The empty pane's `starts_on` after "New agent on …" (M23); `None` for the Project agent default.
+    #[serde(default)]
+    #[ts(optional)]
+    pub agent: Option<String>,
 }
 
 /// Send in the empty pane: the message is the go-ahead, and the new agent starts with it as its first prompt
@@ -193,6 +219,7 @@ pub async fn send(app: &App, params: SendParams) -> Result<String, RequestError>
         .send(Request::ProjectAgentOpen(ProjectAgentOpenParams {
             project: params.project,
             message: params.message,
+            agent: params.agent,
         }))
         .await
     {

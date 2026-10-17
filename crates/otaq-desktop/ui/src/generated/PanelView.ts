@@ -19,6 +19,7 @@ import type { PanelTabView } from "./PanelTabView";
 import type { PanelTokens } from "./PanelTokens";
 import type { PillView } from "./PillView";
 import type { PriorityView } from "./PriorityView";
+import type { ToolProblemCallout } from "./ToolProblemCallout";
 
 /**
  * The open ticket's panel.
@@ -60,7 +61,12 @@ attach_command: string, answer: PanelAnswer | null, notice: PanelNotice | null, 
 /**
  * The tool refused a model (Start failed, No result): its callout above the bar, in place of `start_problem`.
  */
-refusal: PanelRefusal | null, mark_closed: PanelConfirm | null, 
+refusal: PanelRefusal | null, 
+/**
+ * The held roles (§7.2, SCH-04 `[M23]`): "Model unavailable", "Codex isn't available · logged out", "Claude
+ * Code limit reached · resets 3:45 pm", with Use fallback, Change agent / Change validator, Sign in….
+ */
+holds: Array<ToolProblemCallout>, mark_closed: PanelConfirm | null, 
 /**
  * The compact running pill next to the tokens while the Run is up (*13 → Card & panel-header controls*).
  */

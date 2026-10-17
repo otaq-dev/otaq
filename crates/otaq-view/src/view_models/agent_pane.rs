@@ -14,6 +14,12 @@
 //! project, which the first message starts ("Strong · starts when you send"); on a running agent the one its
 //! session started on ("Strong · 52k"). The tool follows the name only once two tools are connected and differs
 //! from it ("Standard · Codex"); with one tool the line is the name alone.
+//!
+//! **Tool problems** (SHL-04, d0087; *Its tool isn't available*, *Its tool is at its limit*): a running or ended
+//! agent whose tool can't run now shows the notice "Codex isn't available · logged out. This agent continues after
+//! you sign in." with Sign in… and "New agent on Sonnet" (its named agent's fallback, else the project default, on
+//! another tool), since a conversation never moves tools; a first message held before its start shows its notice in
+//! the empty pane (Model unavailable · Change agent opens Settings → Agents at the Project agent default, Q-O).
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::domain::{Status, TicketKey};
@@ -29,7 +35,8 @@ use crate::view_models::menu::MenuItem;
 use crate::view_models::project_agent_page::{
     self as agent_page, Recent, ResumeButton, column_name,
 };
-use crate::view_models::tool_avatar::{self, AvatarTool, ToolAvatarView};
+use crate::view_models::tool_avatar::{AvatarTool, ToolAvatarView};
+use crate::view_models::tool_problems::{self, Callout, Tools};
 
 /// A Project agent waits for you (a permission prompt or a question) while its terminal doesn't have your focus.
 pub fn agent_waits(agent: &ProjectAgent) -> bool {
@@ -103,15 +110,18 @@ pub struct AgentLine {
     pub rename: Option<&'static str>,
 }
 
-fn avatar(tool: Tool, model: Option<&str>) -> Option<ToolAvatarView> {
-    tool_avatar::shown().then(|| ToolAvatarView::of(tool, model))
+fn avatar(tools: &Tools, tool: Tool, model: Option<&str>) -> Option<ToolAvatarView> {
+    tools.avatar(tool, model)
 }
 
 /// The agent line's name: the named agent, with its tool after it only while two or more tools are connected and
 /// the tool isn't the name (0086: no tool name while one tool is connected or when it equals the agent's name).
-pub fn agent_name(name: &str, tool: Tool) -> String {
-    let tool_name = AvatarTool::from(tool).name();
-    if tool_avatar::shown() && !name.eq_ignore_ascii_case(tool_name) {
+pub fn agent_name(name: &str, tool: Tool, tools: &Tools) -> String {
+    let tool_name = tool_problems::tool_word(tool);
+    if tools.several()
+        && !name.eq_ignore_ascii_case(tool_name)
+        && !name.eq_ignore_ascii_case(tool.display_name())
+    {
         format!("{name} \u{b7} {tool_name}")
     } else {
         name.to_owned()
@@ -138,9 +148,9 @@ pub fn new_agent_name(new_agent: Option<&NamedAgent>) -> String {
 
 /// A Project agent's named agent, as its session saved it at start (T-0336); the tool's name for a session from
 /// before named agents.
-fn ran_on(agent: &ProjectAgent) -> String {
+fn ran_on(agent: &ProjectAgent, tools: &Tools) -> String {
     match agent.session.as_ref().and_then(|s| s.named_agent.as_ref()) {
-        Some(named) => agent_name(&named.name, agent.tool),
+        Some(named) => agent_name(&named.name, agent.tool, tools),
         None => AvatarTool::from(agent.tool).name().to_owned(),
     }
 }
@@ -175,6 +185,11 @@ pub struct Empty {
     /// "Enter starts Strong" (with the tool once two are connected: "Enter starts Standard · Codex").
     pub hint: String,
     pub send: &'static str,
+    /// A first message held before its start (§7.2, SCH-04 `[M23]`): its notice above the box.
+    pub notice: Option<Callout>,
+    /// The named agent the first message starts (the page passes it back as `pane.send`'s `agent` after "New agent
+    /// on …"); `None` for the Project agent default.
+    pub starts_on: Option<String>,
 }
 
 /// The tool a new agent starts on while there are no named agents (before the starter entry exists): the first.
@@ -184,13 +199,13 @@ fn new_agent_tool() -> Tool {
 
 /// The empty pane, naming what the first message starts: `new_agent`, the Project agent role's named agent for the
 /// project (`None` before any named agent exists).
-pub fn empty(project_name: &str, new_agent: Option<&NamedAgent>) -> Empty {
+pub fn empty(project_name: &str, new_agent: Option<&NamedAgent>, tools: &Tools) -> Empty {
     let (name, tool, model) = starts_on(new_agent);
     // "Strong"; "Standard · Codex" once two tools are connected, in the line and the hint alike (`SbFln`).
-    let name = agent_name(&name, tool);
+    let name = agent_name(&name, tool, tools);
     Empty {
         line: AgentLine {
-            avatar: avatar(tool, model),
+            avatar: avatar(tools, tool, model),
             agent: name.clone(),
             note: "\u{b7} starts when you send".to_owned(),
             rename: None,
@@ -205,6 +220,8 @@ pub fn empty(project_name: &str, new_agent: Option<&NamedAgent>) -> Empty {
         placeholder: format!("Ask about {project_name}, or describe work\u{2026}"),
         hint: format!("Enter starts {name}"),
         send: "Send",
+        notice: None,
+        starts_on: None,
     }
 }
 
@@ -350,6 +367,8 @@ pub struct Running {
     /// It ended: the terminal keeps its scrollback, read-only.
     pub ended: bool,
     pub footer: Footer,
+    /// Its tool isn't available or is at its limit: the amber (or neutral) notice above the terminal.
+    pub notice: Option<Callout>,
 }
 
 /// One row of the switcher: a Project agent of the project (not an epic lead), with its state.
@@ -375,7 +394,12 @@ pub struct Switcher {
 }
 
 /// Newest first; closed agents aren't in `open`, so they aren't listed.
-pub fn switcher(agents: &[ProjectAgent], shown: Option<&str>, platform: Platform) -> Switcher {
+pub fn switcher(
+    agents: &[ProjectAgent],
+    shown: Option<&str>,
+    platform: Platform,
+    tools: &Tools,
+) -> Switcher {
     let mut newest: Vec<&ProjectAgent> = agents.iter().collect();
     newest.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(b.id.cmp(&a.id)));
     Switcher {
@@ -386,7 +410,7 @@ pub fn switcher(agents: &[ProjectAgent], shown: Option<&str>, platform: Platform
                 name: a.name.clone(),
                 unnamed: a.name_source.is_none(),
                 pill: agent_page::state_pill(a),
-                avatar: avatar(a.tool, a.model.as_deref()),
+                avatar: avatar(tools, a.tool, a.model.as_deref()),
                 selected: shown == Some(a.id.as_str()),
             })
             .collect(),
@@ -464,6 +488,20 @@ pub struct Facts<'a> {
     pub window_width: Option<f32>,
     pub now_ms: i64,
     pub platform: Platform,
+    /// The agent tools (several: the tool in the lines, avatars; their problems: the notices).
+    pub tools: &'a Tools,
+    /// Every named agent (where "New agent on …" starts, a held message's agent).
+    pub named_agents: &'a [NamedAgent],
+    /// The empty pane after "New agent on …": the named agent it starts instead of the default.
+    pub start_on: Option<&'a NamedAgent>,
+    /// The project's key (Settings → Agents for its Project agent default, Q-O).
+    pub project: &'a str,
+}
+
+/// The named agent a Project agent's session started on, from the list.
+fn named_of<'a>(agent: &ProjectAgent, named: &'a [NamedAgent]) -> Option<&'a NamedAgent> {
+    let id = agent.session.as_ref()?.named_agent.as_ref()?.id.as_str();
+    named.iter().find(|a| a.id == id)
 }
 
 pub fn view(f: &Facts) -> PaneView {
@@ -492,9 +530,20 @@ pub fn view(f: &Facts) -> PaneView {
         },
     };
     let running = shown.map(|a| Running {
+        notice: tool_problems::agent_notice(
+            a.tool,
+            f.tools,
+            tool_problems::new_agent_on(
+                a.tool,
+                named_of(a, f.named_agents),
+                f.new_agent,
+                f.named_agents,
+                f.tools,
+            ),
+        ),
         line: AgentLine {
-            avatar: avatar(a.tool, a.model.as_deref()),
-            agent: ran_on(a),
+            avatar: avatar(f.tools, a.tool, a.model.as_deref()),
+            agent: ran_on(a, f.tools),
             note: format!("\u{b7} {}", tokens_label(a.tokens.shown())),
             rename: Some("Rename"),
         },
@@ -509,9 +558,9 @@ pub fn view(f: &Facts) -> PaneView {
         agent: shown.map(|a| a.id.clone()),
         opens_on: opens_on(open),
         header,
-        empty: shown.is_none().then(|| empty(f.project_name, f.new_agent)),
+        empty: shown.is_none().then(|| empty_of(f)),
         running,
-        switcher: switcher(open, shown.map(|a| a.id.as_str()), f.platform),
+        switcher: switcher(open, shown.map(|a| a.id.as_str()), f.platform, f.tools),
         menu: menu(shown, open),
         recent: agent_page::recent(&f.agents.recent, f.project_name, f.now_ms),
         agent_waits: open.iter().any(agent_waits),
@@ -520,6 +569,35 @@ pub fn view(f: &Facts) -> PaneView {
             label: "Show the Project agent",
             keys: KeyAction::TogglePane.keys(f.platform),
         },
+    }
+}
+
+/// The empty pane of `f`: on the agent "New agent on …" picked, else on the default with a held first message's
+/// notice.
+fn empty_of(f: &Facts) -> Empty {
+    if let Some(on) = f.start_on {
+        return Empty {
+            starts_on: Some(on.id.clone()),
+            ..empty(f.project_name, Some(on), f.tools)
+        };
+    }
+    let notice = f
+        .agents
+        .holds
+        .iter()
+        .find(|h| h.role == otaq_core::named_agents::Role::ProjectAgent)
+        .map(|hold| {
+            let held = f
+                .named_agents
+                .iter()
+                .find(|a| Some(a.id.as_str()) == hold.named_agent_id.as_deref());
+            let on =
+                tool_problems::new_agent_on(hold.tool, held, f.new_agent, f.named_agents, f.tools);
+            tool_problems::first_message_notice(hold, f.project, f.named_agents, f.tools, on)
+        });
+    Empty {
+        notice,
+        ..empty(f.project_name, f.new_agent, f.tools)
     }
 }
 
@@ -590,6 +668,7 @@ pub fn gallery() -> Gallery {
     let agents = ProjectAgentList {
         open: vec![working, asks, idle, ended, restarted],
         recent: vec![gone],
+        holds: Vec::new(),
     };
     let changed = CreatedAndChanged {
         created: vec![
@@ -616,6 +695,7 @@ pub fn gallery() -> Gallery {
         status: Status::Backlog,
     }];
     let strong = sample_agent("Strong", Some("opus"));
+    let one = Tools::one(None);
     let state = |name: &'static str, shown: Option<&str>, width: f32| GalleryState {
         name,
         view: view(&Facts {
@@ -628,6 +708,10 @@ pub fn gallery() -> Gallery {
             window_width: Some(width),
             now_ms: NOW,
             platform: Platform::Mac,
+            tools: &one,
+            named_agents: &[],
+            start_on: None,
+            project: "NOTE",
         }),
     };
     Gallery {
@@ -645,6 +729,10 @@ pub fn gallery() -> Gallery {
                     window_width: Some(1440.),
                     now_ms: NOW,
                     platform: Platform::Mac,
+                    tools: &one,
+                    named_agents: &[],
+                    start_on: None,
+                    project: "NOTE",
                 }),
             },
             state(
@@ -656,7 +744,129 @@ pub fn gallery() -> Gallery {
             state("Waiting for you", Some("a2"), 1440.),
             state("Ended", Some("a4"), 1440.),
             state("Ended by restart", Some("a5"), 1440.),
-        ],
+        ]
+        .into_iter()
+        .chain(several_tools_states(NOW))
+        .collect(),
+    }
+}
+
+/// The gallery's M23 pane states (18 `VDJkG`): Standard · Codex on the empty pane, its tool logged out and at its
+/// limit, and a first message held for Model unavailable.
+fn several_tools_states(now: i64) -> Vec<GalleryState> {
+    use otaq_core::named_agents::{HoldReason, Role};
+    use tool_problems::fixtures::{self as tf, CODEX};
+
+    let mut standard = sample_agent("Standard", None);
+    standard.tool = CODEX;
+    standard.fallback = Some("sonnet".into());
+    let sonnet = sample_agent("Sonnet", Some("sonnet"));
+    let named = vec![standard.clone(), sonnet];
+    let mut checkout = otaq_core::project_agents::ProjectAgent {
+        tool: CODEX,
+        session: Some(session_on("Standard")),
+        ..gallery_agent("c1", "Checkout slowness")
+    };
+    checkout.session.as_mut().expect("a session").tool = Some(CODEX);
+    let agents = ProjectAgentList {
+        open: vec![checkout],
+        recent: Vec::new(),
+        holds: Vec::new(),
+    };
+    let mut held = ProjectAgentList::default();
+    let mut hold = tf::hold(
+        Role::ProjectAgent,
+        HoldReason::ModelUnavailable,
+        CODEX,
+        "standard",
+        Some("gpt-5.4"),
+    );
+    hold.ticket_id = None;
+    hold.project_id = Some("p".into());
+    held.holds = vec![hold];
+    let several = tf::several();
+    let logged_out = tf::codex_logged_out();
+    let limit = tf::at_limit(CODEX, None);
+    let state = |name: &'static str,
+                 agents: &ProjectAgentList,
+                 shown: Option<&str>,
+                 tools: &Tools| GalleryState {
+        name,
+        view: view(&Facts {
+            agents,
+            shown,
+            created: None,
+            edited: &[],
+            project_name: "shop-web",
+            new_agent: Some(&standard),
+            window_width: Some(1440.),
+            now_ms: now,
+            platform: Platform::Mac,
+            tools,
+            named_agents: &named,
+            start_on: None,
+            project: "SHOP",
+        }),
+    };
+    vec![
+        state(
+            "Several tools \u{b7} empty, Standard \u{b7} Codex",
+            &held_none(),
+            None,
+            &several,
+        ),
+        state(
+            "Several tools \u{b7} its tool isn't available",
+            &agents,
+            Some("c1"),
+            &logged_out,
+        ),
+        state(
+            "Several tools \u{b7} its tool is at its limit",
+            &agents,
+            Some("c1"),
+            &limit,
+        ),
+        state(
+            "Several tools \u{b7} first message held: Model unavailable",
+            &held,
+            None,
+            &several,
+        ),
+    ]
+}
+
+fn held_none() -> ProjectAgentList {
+    ProjectAgentList::default()
+}
+
+/// A running Project agent for the gallery.
+fn gallery_agent(id: &str, name: &str) -> ProjectAgent {
+    ProjectAgent {
+        id: id.into(),
+        project: "SHOP".into(),
+        name: name.into(),
+        name_source: Some(otaq_core::project_agents::NameSource::Agent),
+        state: AgentState::Running,
+        tool: Tool::ALL[0],
+        tool_session_id: None,
+        model: None,
+        got_request: true,
+        mid_turn: false,
+        limit_stopped: false,
+        created_at: 0,
+        ended_at: None,
+        closed: false,
+        question: None,
+        needs_you: None,
+        focused: false,
+        tokens: otaq_core::usage::Tokens {
+            input: 44_000,
+            output: 8_000,
+            ..Default::default()
+        },
+        session: None,
+        epic: None,
     }
 }
 
@@ -738,6 +948,7 @@ mod tests {
         ProjectAgentList {
             open,
             recent: Vec::new(),
+            holds: Vec::new(),
         }
     }
 
@@ -818,7 +1029,7 @@ mod tests {
         assert_eq!(e.hint, "Enter starts Claude Code");
         assert_eq!(e.recent_title, "RECENTLY ENDED");
         assert_eq!(
-            empty("notes-api", None).examples,
+            empty("notes-api", None, &Tools::one(None)).examples,
             e.examples,
             "the same for every project"
         );
@@ -828,7 +1039,7 @@ mod tests {
     fn the_empty_pane_names_the_project_agents_named_agent() {
         // A fresh install: the starter entry, named after its tool, and no tool part.
         let starter = sample_agent("Claude Code", None);
-        let e = empty("shop-web", Some(&starter));
+        let e = empty("shop-web", Some(&starter), &Tools::one(None));
         assert_eq!(
             (e.line.agent.as_str(), e.line.note.as_str()),
             ("Claude Code", "\u{b7} starts when you send")
@@ -849,7 +1060,7 @@ mod tests {
         assert_eq!(e.line.avatar, None, "one tool: no avatar");
         assert_eq!(e.hint, "Enter starts Strong");
         assert_eq!(
-            agent_name("Strong", Tool::ALL[0]),
+            agent_name("Strong", Tool::ALL[0], &Tools::one(None)),
             "Strong",
             "one tool: no tool part"
         );
@@ -890,7 +1101,16 @@ mod tests {
             window_width: Some(1440.),
             now_ms: 0,
             platform: Platform::Mac,
+            tools: one_tool(),
+            named_agents: &[],
+            start_on: None,
+            project: "NOTE",
         }
+    }
+
+    fn one_tool() -> &'static Tools {
+        static ONE: std::sync::OnceLock<Tools> = std::sync::OnceLock::new();
+        ONE.get_or_init(|| Tools::one(None))
     }
 
     #[test]
@@ -1224,6 +1444,10 @@ mod tests {
                 (Some("a2"), Some("Waiting for you")),
                 (Some("a4"), Some("Ended")),
                 (Some("a5"), Some("Ended by restart")),
+                (None, None),
+                (Some("c1"), Some("Idle")),
+                (Some("c1"), Some("Idle")),
+                (None, None),
             ]
         );
         let folded = |i: usize| {
@@ -1258,5 +1482,121 @@ mod tests {
             )
         );
         assert!(g.states[0].view.agent_waits, "the strip's dot");
+    }
+
+    // -----------------------------------------------------------------------------------------------------------
+    // Several tools (M23, 18 `VDJkG`)
+
+    fn codex_agent() -> ProjectAgent {
+        let mut a = agent("c1", "Checkout slowness", 1);
+        a.tool = tool_problems::fixtures::CODEX;
+        a.session = Some(session_on("Standard"));
+        a
+    }
+
+    fn named() -> Vec<NamedAgent> {
+        let mut standard = sample_agent("Standard", None);
+        standard.tool = tool_problems::fixtures::CODEX;
+        standard.fallback = Some("sonnet".into());
+        vec![standard, sample_agent("Sonnet", Some("sonnet"))]
+    }
+
+    #[test]
+    fn several_tools_name_the_tool_in_the_line_and_hint() {
+        let tools = tool_problems::fixtures::several();
+        let named = named();
+        let agents = list(Vec::new());
+        let e = view(&Facts {
+            tools: &tools,
+            named_agents: &named,
+            new_agent: Some(&named[0]),
+            ..facts(&agents, None)
+        })
+        .empty
+        .unwrap();
+        assert_eq!(e.line.agent, "Standard \u{b7} Codex");
+        assert_eq!(e.hint, "Enter starts Standard \u{b7} Codex");
+        assert_eq!(e.line.avatar.as_ref().unwrap().letters, "CX");
+        assert_eq!((e.notice, e.starts_on), (None, None));
+    }
+
+    /// Its tool isn't available: the amber notice with Sign in… and New agent on Sonnet; at its limit, neutral with
+    /// Resume after reset; the agent never moves tools.
+    #[test]
+    fn a_running_agents_tool_problem_shows_the_notice() {
+        use tool_problems::Tone;
+        let named = named();
+        let agents = list(vec![codex_agent()]);
+        let notice = |tools: &Tools| {
+            view(&Facts {
+                tools,
+                named_agents: &named,
+                new_agent: Some(&named[0]),
+                ..facts(&agents, Some("c1"))
+            })
+            .running
+            .unwrap()
+            .notice
+        };
+        let n = notice(&tool_problems::fixtures::codex_logged_out()).unwrap();
+        assert_eq!(n.tone, Tone::Amber);
+        assert_eq!(
+            n.heading,
+            "Codex isn\u{2019}t available \u{b7} logged out. This agent continues after you sign in."
+        );
+        let labels: Vec<_> = n.buttons.iter().map(|b| b.label.as_str()).collect();
+        assert_eq!(labels, ["Sign in\u{2026}", "New agent on Sonnet"]);
+        let n = notice(&tool_problems::fixtures::at_limit(
+            tool_problems::fixtures::CODEX,
+            None,
+        ))
+        .unwrap();
+        assert_eq!(n.tone, Tone::Neutral);
+        assert_eq!(n.buttons[0].label, "Resume after reset");
+        assert_eq!(notice(&tool_problems::fixtures::several()), None);
+    }
+
+    /// Q-O: the held first message's notice, and the empty pane after "New agent on Sonnet".
+    #[test]
+    fn a_held_first_message_and_new_agent_on() {
+        use otaq_core::named_agents::{HoldReason, Role};
+        let tools = tool_problems::fixtures::several();
+        let named = named();
+        let mut agents = list(Vec::new());
+        let mut hold = tool_problems::fixtures::hold(
+            Role::ProjectAgent,
+            HoldReason::ModelUnavailable,
+            tool_problems::fixtures::CODEX,
+            "standard",
+            Some("gpt-5.4"),
+        );
+        hold.ticket_id = None;
+        agents.holds = vec![hold];
+        let base = Facts {
+            tools: &tools,
+            named_agents: &named,
+            new_agent: Some(&named[0]),
+            project: "SHOP",
+            ..facts(&agents, None)
+        };
+        let e = view(&base).empty.unwrap();
+        let n = e.notice.unwrap();
+        assert_eq!(n.heading, "Model unavailable");
+        assert_eq!(
+            n.buttons[0].action,
+            tool_problems::Action::AgentSettings {
+                project: "SHOP".into(),
+                agent: Some("standard".into())
+            }
+        );
+        let e = view(&Facts {
+            start_on: Some(&named[1]),
+            ..base
+        })
+        .empty
+        .unwrap();
+        assert_eq!(e.line.agent, "Sonnet \u{b7} Claude Code");
+        assert_eq!(e.starts_on.as_deref(), Some("sonnet"));
+        assert_eq!(e.notice, None);
     }
 }

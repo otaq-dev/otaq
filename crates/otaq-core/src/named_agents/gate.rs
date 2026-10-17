@@ -587,10 +587,9 @@ impl LaunchGate {
         record_event(
             &mut tx,
             ticket_id,
-            EventKind::Updated,
+            EventKind::AgentRowSet,
             &Actor::current_user(),
-            json!({ "agent_row": role, "moved_to": agent.name, "moved_from": moved.from_name,
-                    "reason": moved.reason, "tool": moved.tool }),
+            super::rows::row_move_event(role, &agent.name, agent.tool, moved, &set_by, !automatic),
         )
         .await?;
         tx.commit().await?;

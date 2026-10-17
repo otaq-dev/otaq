@@ -34,6 +34,8 @@ pub struct RunCommandModel {
     pub phase: Phase,
     /// The agent's failure (or a failed save), shown under the fields; the fields stay editable.
     pub error: Option<String>,
+    /// An agent tool is connected: Ask the agent is hidden only without one (RUN-02, d0086).
+    pub tool_connected: bool,
 }
 
 impl RunCommandModel {
@@ -57,7 +59,14 @@ impl RunCommandModel {
                 Phase::Editing
             },
             error: None,
+            tool_connected: true,
         }
+    }
+
+    /// The dialog with no agent tool connected: no Ask the agent.
+    pub fn with_tool_connected(mut self, connected: bool) -> Self {
+        self.tool_connected = connected;
+        self
     }
 
     pub fn title(&self) -> String {
@@ -70,6 +79,9 @@ impl RunCommandModel {
 
     /// Ask the agent is offered while there is no command to keep (empty field, or after a failed suggestion).
     pub fn offers_ask(&self, command: &str) -> bool {
+        if !self.tool_connected {
+            return false;
+        }
         match self.phase {
             Phase::Empty => true,
             Phase::Editing => command.trim().is_empty(),
@@ -79,7 +91,7 @@ impl RunCommandModel {
 
     /// Ask the agent was clicked: `false` when one is already running.
     pub fn ask(&mut self) -> bool {
-        if self.thinking() || matches!(self.phase, Phase::Saved { .. }) {
+        if !self.tool_connected || self.thinking() || matches!(self.phase, Phase::Saved { .. }) {
             return false;
         }
         self.phase = Phase::Thinking { lines: Vec::new() };
@@ -285,5 +297,18 @@ mod tests {
                 message: "Saved for shop-web. Change it later in project settings.".into()
             }
         );
+    }
+
+    /// RUN-02 (d0086): "Ask the agent" is hidden only when no agent tool is connected.
+    #[test]
+    fn ask_the_agent_is_hidden_only_with_no_tool() {
+        let m = RunCommandModel::new("SHOP", "shop-web", "Strong", None, "");
+        assert!(m.offers_ask(""));
+        let mut none = m.with_tool_connected(false);
+        assert!(!none.offers_ask(""));
+        assert!(!none.ask(), "nothing to ask");
+        assert_eq!(none.phase, Phase::Empty);
+        let v = crate::view_models::run_page::command_view(&none, "", None);
+        assert!(v.ask.is_none());
     }
 }

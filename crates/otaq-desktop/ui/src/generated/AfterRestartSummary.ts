@@ -22,4 +22,8 @@ resume_selected: string,
 /**
  * What Resume selected resumes, in order.
  */
-selected: Array<string>, };
+selected: Array<string>, 
+/**
+ * "Resume selected skips the 2 Codex sessions until you sign in".
+ */
+skipped: Array<string>, };

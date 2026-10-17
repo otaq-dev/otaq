@@ -32,6 +32,10 @@ pub struct RowFacts {
     /// What an empty row runs on: "Project default (Claude Code)".
     pub default: Option<NamedAgent>,
     pub lock: Option<RowLock>,
+    /// Where the row moved from, and why (AGT-08): "moved from Strong: Claude Code limit"; `None` when it didn't
+    /// move or was changed since.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved: Option<RowMove>,
 }
 
 /// An epic's child with its Developer row, listed read-only in the epic panel (d0086).
@@ -61,6 +65,10 @@ pub struct TicketAgents {
     pub tokens: Vec<AgentTokens>,
     /// An epic's children, by key; empty for a ticket.
     pub children: Vec<ChildAgents>,
+    /// The roles held before their start (SCH-04 `[M23]`, §7.2): a tool at its limit or not available, a model no
+    /// longer listed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holds: Vec<AgentHold>,
 }
 
 /// What a project's board cards say about their agents (SHL-07's footer, AGT-04; T-0345), answered by
@@ -173,6 +181,26 @@ pub fn row_event(
     payload
 }
 
+/// The payload of the [`EventKind::AgentRowSet`] event a move writes (AGT-08): [`row_event`]'s, with the tool the
+/// row's agent runs on, where it moved from and why, and whether the user moved it (Use fallback, Move waiting to…)
+/// or the automatic fallback did, so History can say "Moved to Strong GPT (Codex): Claude Code limit" or
+/// "Developer: Strong GPT (moved by you from Strong · Claude Code limit)".
+pub fn row_move_event(
+    role: Role,
+    agent: &str,
+    agent_tool: Tool,
+    moved: &RowMove,
+    set_by: &RowSetBy,
+    by_user: bool,
+) -> Value {
+    let mut payload = row_event(role, Some(agent), Some(&moved.from_name), set_by, None);
+    payload["tool"] = json!(agent_tool.as_str());
+    payload["moved_reason"] = json!(moved.reason.as_str());
+    payload["moved_tool"] = json!(moved.tool.map(Tool::as_str));
+    payload["moved_by_user"] = json!(by_user);
+    payload
+}
+
 fn roles_of(kind: Kind) -> &'static [Role] {
     match kind {
         Kind::Ticket => &[Role::Developer, Role::Validator],
@@ -202,6 +230,7 @@ impl NamedAgents {
                     resolved,
                     lock: None,
                     row: None,
+                    moved: None,
                 }
             })
             .collect();
@@ -214,6 +243,7 @@ impl NamedAgents {
             sessions: Vec::new(),
             tokens: Vec::new(),
             children: Vec::new(),
+            holds: Vec::new(),
         })
     }
 
@@ -228,19 +258,19 @@ impl NamedAgents {
         let defaults = project.agent_defaults();
         let stored = store.ticket_agent_rows(&ticket.id).await?;
         let facts = self.lock_facts(&ticket.id).await?;
-        let rows = roles_of(ticket.kind)
-            .iter()
-            .map(|&role| {
-                let row = stored.iter().find(|r| r.role == role).cloned();
-                RowFacts {
-                    role,
-                    resolved: resolve(role, row.as_ref(), &defaults, &app, &agents),
-                    default: resolve(role, None, &defaults, &app, &agents).map(|r| r.agent),
-                    lock: row_lock(role, facts),
-                    row,
-                }
-            })
-            .collect();
+        let mut rows = Vec::new();
+        for &role in roles_of(ticket.kind) {
+            let row = stored.iter().find(|r| r.role == role).cloned();
+            rows.push(RowFacts {
+                role,
+                resolved: resolve(role, row.as_ref(), &defaults, &app, &agents),
+                default: resolve(role, None, &defaults, &app, &agents).map(|r| r.agent),
+                lock: row_lock(role, facts),
+                moved: store.ticket_row_move(&ticket.id, role).await?,
+                row,
+            });
+        }
+        let holds = store.ticket_holds(&ticket.id).await?;
         let mut children = Vec::new();
         if ticket.kind == Kind::Epic {
             for child in self.board.tickets(&project_key).await? {
@@ -275,6 +305,7 @@ impl NamedAgents {
             agents,
             rows,
             children,
+            holds,
         })
     }
 

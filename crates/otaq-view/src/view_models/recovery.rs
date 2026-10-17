@@ -248,4 +248,54 @@ mod tests {
         );
         assert!(c.note.contains("Started from scratch (resume failed)"));
     }
+
+    /// "Before the restart" and Resume failed per tool (REC-02, REC-03, d0086): the tool's own name and resume
+    /// command; each tool's action names as its adapter gives them (OpenCode's "shell", Claude Code's "Bash").
+    #[test]
+    fn recovery_texts_per_tool() {
+        let t = ticket(Status::Interrupted);
+        for &tool in &Tool::ALL[1..] {
+            let before = BeforeRestart::Available {
+                tool,
+                tool_session_id: "01a147a1-0000-7000-8000-000000000000".into(),
+                entries: vec![
+                    TranscriptEntry::Assistant {
+                        text: "Done.".into(),
+                        at: None,
+                    },
+                    TranscriptEntry::Action {
+                        tool: "shell".into(),
+                        summary: "npm test".into(),
+                        at: None,
+                    },
+                ],
+            };
+            let RecoveryView::BeforeRestart { lines, ended, .. } = view(&t, &before) else {
+                panic!("available")
+            };
+            assert_eq!(lines[0].who, tool.short_name());
+            assert_eq!((lines[1].who.as_str(), lines[1].action), ("shell", true));
+            assert!(
+                ended.ends_with(&format!("({}).", tool.resume_hint("01a147a1"))),
+                "{ended}"
+            );
+            let gone = view(
+                &t,
+                &BeforeRestart::NotAvailable {
+                    tool: Some(tool),
+                    tool_session_id: Some("01a147a1-0000".into()),
+                },
+            );
+            let RecoveryView::NotAvailable { text } = gone else {
+                panic!("not available")
+            };
+            assert!(
+                text.starts_with(&format!(
+                    "{}\u{2019}s saved conversation for session 01a147a1",
+                    tool.short_name()
+                )),
+                "{text}"
+            );
+        }
+    }
 }

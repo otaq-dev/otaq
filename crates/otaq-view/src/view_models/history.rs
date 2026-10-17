@@ -629,17 +629,29 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
 }
 
 /// The named agents in History (AGT-05, d0086): each session's row titled "Session started on Sonnet ·
-/// claude-sonnet-5-6" (with "(Sonnet → claude-sonnet-5-6)" when it moved on), and its end and a Done ticket's agents
-/// as lines of their own, newest first like the rest.
+/// claude-sonnet-5-6" (with "(Sonnet → claude-sonnet-5-6)" when it moved on; with several tools "Session started on
+/// Verifier · Copilot · auto", the swap note before its session id), and its end and a Done ticket's agents as lines
+/// of their own, newest first like the rest.
 pub fn with_named_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<HistoryRow> {
     for line in lines {
         match line {
-            HistoryLine::Start { session, title } => {
+            HistoryLine::Start {
+                session,
+                title,
+                note,
+            } => {
                 if let Some(row) = rows
                     .iter_mut()
                     .find(|r| r.session.as_ref() == Some(session))
                 {
                     row.title = title.clone();
+                    // "asked for gpt-5.5, ran on auto · copilot c7f1d0…" (AGT-05).
+                    if let Some(note) = note {
+                        row.detail = Some(match row.detail.take() {
+                            Some(detail) => format!("{note} \u{b7} {detail}"),
+                            None => note.clone(),
+                        });
+                    }
                 }
             }
             HistoryLine::Line { at, title, tokens } => rows.push(HistoryRow {

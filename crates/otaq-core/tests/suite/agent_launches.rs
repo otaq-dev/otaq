@@ -442,6 +442,37 @@ async fn a_lead_and_a_project_agent_launch_with_their_agents_model() {
     world.w.stop().await;
 }
 
+/// "New agent on Sonnet" (M23, CHANGES-v §4): a Project agent opened on a named agent other than the project's
+/// default starts on that agent and stores it; an unknown one is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_project_agent_opens_on_the_named_agent_asked_for() {
+    let world = world().await;
+    let w = &world.w;
+    let sonnet = world.agent("Sonnet").await;
+    let agent = w
+        .project_agents
+        .open_on("SHOP", "Why is checkout slow?", Some(&sonnet.id))
+        .await
+        .unwrap();
+    let session = agent.session.clone().unwrap();
+    let id = session.tool_session_id.clone().unwrap();
+    assert_eq!(
+        launched(w, &session.id).await,
+        format!(
+            "--session-id {id} --model sonnet {} Why is checkout slow?",
+            naming::skill("project-agent")
+        )
+    );
+    assert_eq!(stored_on(w, &session.id).await.2, named(&sonnet));
+    assert!(
+        w.project_agents
+            .open_on("SHOP", "Hello", Some("no-such-agent"))
+            .await
+            .is_err()
+    );
+    world.w.stop().await;
+}
+
 /// With no row, a Developer runs on the project's override of the Developer default (the same resolution Delivery
 /// uses, Q-D).
 #[tokio::test(flavor = "multi_thread")]

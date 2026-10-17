@@ -157,6 +157,9 @@ pub struct ProjectAgentList {
     pub open: Vec<ProjectAgent>,
     /// The [`RECENT`] most recently ended ones that got a request, newest first.
     pub recent: Vec<ProjectAgent>,
+    /// A first message held before its start (SCH-04 `[M23]`, §7.2): the pane's notice.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holds: Vec<crate::named_agents::AgentHold>,
 }
 
 /// What the startup reconcile did (REC-01, REC-06).
@@ -378,14 +381,39 @@ impl ProjectAgents {
     /// go-ahead. The session starts with the skill and the message as one first prompt, and the message is its
     /// first request. Refused without words, and when the check before the launch holds it.
     pub async fn open(&self, project: &str, message: &str) -> Result<ProjectAgent, BoardError> {
+        self.open_on(project, message, None).await
+    }
+
+    /// [`Self::open`] on the named agent `agent` instead of the project's Project agent default (the pane's "New agent
+    /// on Sonnet", M23).
+    pub async fn open_on(
+        &self,
+        project: &str,
+        message: &str,
+        agent: Option<&str>,
+    ) -> Result<ProjectAgent, BoardError> {
         let project = self.inner.board.project(project).await?;
         let message = message.trim();
         if message.is_empty() {
             return Err(BoardError::refused(Refusal::EmptyField, EMPTY_MESSAGE));
         }
-        // The project's Project agent default, else the app default (AGT-03, AGT-05): a Project agent has no row.
-        let resolved =
-            resolve_project_role(&self.inner.board, &project, Role::ProjectAgent).await?;
+        // The named agent asked for ("New agent on Sonnet", the user's pick), else the project's Project agent
+        // default, else the app default (AGT-03, AGT-05): a Project agent has no row.
+        let resolved = match agent {
+            Some(id) => Some(crate::named_agents::Resolved {
+                agent: self
+                    .inner
+                    .board
+                    .store()
+                    .named_agent(id)
+                    .await?
+                    .ok_or_else(|| BoardError::NotFound(format!("no named agent {id}")))?,
+                came_from: crate::named_agents::CameFrom::Row {
+                    set_by: crate::named_agents::RowSetBy::User,
+                },
+            }),
+            None => resolve_project_role(&self.inner.board, &project, Role::ProjectAgent).await?,
+        };
         let runs_on = self
             .checked(
                 Role::ProjectAgent,
@@ -965,6 +993,7 @@ impl ProjectAgents {
         for row in recent {
             list.recent.push(self.agent(row).await?);
         }
+        list.holds = self.inner.board.store().project_holds(&project.id).await?;
         Ok(list)
     }
 

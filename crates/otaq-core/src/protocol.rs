@@ -991,6 +991,10 @@ pub struct ProjectAgentAnswerParams {
 pub struct ProjectAgentOpenParams {
     pub project: String,
     pub message: String,
+    /// The named agent to start on instead of the project's Project agent default: the pane's "New agent on
+    /// Sonnet" when the default's tool can't run (M23, CHANGES-v §4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 
 /// `{"id": "…", "confirm": true}`: close a Project agent, stopping it mid-turn when confirmed.
