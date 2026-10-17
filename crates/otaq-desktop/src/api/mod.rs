@@ -110,6 +110,8 @@ pub use terminal_tab::{
 };
 #[cfg(test)]
 pub use theme::{ActiveTheme, ThemeParams, ThemePick};
+#[cfg(test)]
+pub use usage::{Ask as UsageDataAsk, UsageChoice};
 
 /// Declares each area's module and its arm of [`request`]: one line per area.
 macro_rules! areas {
@@ -117,10 +119,17 @@ macro_rules! areas {
         $(mod $area;)*
 
         pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
-            match method.split_once('.').map_or(method, |(area, _)| area) {
+            // Counted only when the user agreed to send usage data (d0085); the params are looked at, never kept.
+            app.usage.record(method, &params);
+            let answer = match method.split_once('.').map_or(method, |(area, _)| area) {
                 $(stringify!($area) => $area::request(app, method, params).await,)*
                 _ => Err(unknown(method)),
+            };
+            // The dialog's answer or Settings' switch: the sender follows at once.
+            if answer.is_ok() && matches!(method, "usage.choose" | "settings.edit") {
+                let _ = usage::sync(app).await;
             }
+            answer
         }
     };
 }
@@ -149,6 +158,20 @@ areas! {
     recovery,
     run,
     lead,
+    usage,
+}
+
+/// Reads the user's answer once the service answers, then sends the counts every [`crate::usage::FLUSH_EVERY`]
+/// (nothing while the answer isn't yes).
+pub async fn usage_loop(app: std::sync::Arc<App>) {
+    while usage::sync(&app).await.is_err() {
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
+    loop {
+        tokio::time::sleep(crate::usage::FLUSH_EVERY).await;
+        let _ = usage::sync(&app).await;
+        app.usage.flush().await;
+    }
 }
 
 /// The answer to a method no area knows.

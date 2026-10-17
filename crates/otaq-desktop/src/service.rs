@@ -599,6 +599,7 @@ pub(crate) mod testing {
                 pr_dialogs: Default::default(),
                 cleanup: Default::default(),
                 run_commands: Default::default(),
+                usage: crate::usage::Usage::new(tokio::runtime::Handle::current()),
             };
             Self {
                 _tmp: tmp,

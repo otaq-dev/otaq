@@ -7,6 +7,7 @@ import { registerScreens } from "../../app/registry";
 import type { AddProjectView } from "../../generated/AddProjectView";
 import type { OnboardingTools } from "../../generated/OnboardingTools";
 import type { ServiceConnection } from "../../generated/ServiceConnection";
+import type { UsageDataDialog } from "../../generated/UsageDataDialog";
 import { droppedFolder, folderDropped } from "./drops";
 import { onboarding, openOnboardingWhenNeeded } from ".";
 import {
@@ -21,6 +22,7 @@ import {
 } from "./logic";
 import { AddButton, AddProjectFields, staticAddProject } from "./AddProjectForm";
 import { ToolsList } from "./Tools";
+import { askUsageDataWhenNeeded } from "./UsageData";
 
 afterEach(() => {
   overlays.store.set([]);
@@ -55,9 +57,9 @@ const TOOLS: OnboardingTools = {
 };
 
 describe("the onboarding screen", () => {
-  it("registers onboarding and Add project", () => {
+  it("registers onboarding, Add project and Help improve Otaq", () => {
     const app = registerScreens({ onboarding });
-    expect(app.overlays.ids().toSorted()).toEqual(["add_project", "onboarding"]);
+    expect(app.overlays.ids().toSorted()).toEqual(["add_project", "onboarding", "usage_data"]);
   });
 
   it("opens once, after the first connection, when no project is stored", async () => {
@@ -99,6 +101,37 @@ describe("the onboarding screen", () => {
     push({ state: "connected" } as ServiceConnection);
     await flush();
     expect(overlays.store.get()).toEqual([]);
+  });
+
+  it("asks about usage data once a user with projects starts, until answered (d0085)", async () => {
+    const dialog = { title: "Help improve Otaq" } as UsageDataDialog;
+    let push: (c: ServiceConnection) => void = () => undefined;
+    const asked: string[] = [];
+    openOnboardingWhenNeeded(
+      (method) => {
+        asked.push(method);
+        return Promise.resolve(method === "usage.dialog" ? { show: true, dialog } : { show: false });
+      },
+      (onChange) => {
+        push = onChange;
+        return () => undefined;
+      },
+    );
+    push({ state: "connected" } as ServiceConnection);
+    await flush();
+    await flush();
+    expect(asked).toEqual(["onboarding.start", "usage.dialog"]);
+    expect(overlays.store.get()).toEqual([{ id: "usage_data", params: dialog }]);
+
+    // Answered: it doesn't open again.
+    overlays.store.set([]);
+    const opened = await askUsageDataWhenNeeded(
+      () => Promise.resolve({ show: false, dialog }),
+      () => {
+        throw new Error("must not open");
+      },
+    );
+    expect(opened).toBe(false);
   });
 
   it("a dropped folder opens Add project, or goes to onboarding's project step", () => {

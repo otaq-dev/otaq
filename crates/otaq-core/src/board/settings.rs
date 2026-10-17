@@ -309,6 +309,8 @@ pub struct GlobalSettings {
     /// The description editor shows the raw Markdown source instead of formatted text (d0078 D9): every editor opens
     /// in the mode last chosen with its "Markdown" toggle. Off by default; not a row of the Settings page.
     pub description_source_mode: bool,
+    /// Anonymous usage data (d0085): asked once, after first run; nothing is ever sent unless the answer was yes.
+    pub usage_data: UsageData,
 }
 
 /// The terminal font size when none is set.
@@ -332,7 +334,26 @@ impl Default for GlobalSettings {
             terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,
             terminal_renderer: TerminalRenderer::default(),
             description_source_mode: false,
+            usage_data: UsageData::NotAsked,
         }
+    }
+}
+
+/// Whether the app may send anonymous usage data (d0085). Until the user answers, it never sends anything.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UsageData {
+    /// Not asked yet: the "Help improve Otaq" dialog shows once; nothing is sent meanwhile.
+    #[default]
+    NotAsked,
+    On,
+    Off,
+}
+
+impl UsageData {
+    /// Only an explicit yes sends anything.
+    pub fn sends(self) -> bool {
+        self == Self::On
     }
 }
 
@@ -1118,6 +1139,23 @@ mod tests {
         let settings: GlobalSettings =
             read_or_default(serde_json::json!({"description_source_mode": true}));
         assert!(settings.description_source_mode);
+    }
+
+    #[test]
+    fn usage_data_is_not_asked_and_never_sends_until_the_user_says_yes() {
+        let fresh = GlobalSettings::default();
+        assert_eq!(fresh.usage_data, UsageData::NotAsked);
+        assert!(!fresh.usage_data.sends());
+        // Settings stored before the field existed load as not asked.
+        let old: GlobalSettings = read_or_default(serde_json::json!({"terminal_font_size": 15}));
+        assert_eq!(old.usage_data, UsageData::NotAsked);
+        let on: GlobalSettings = read_or_default(serde_json::json!({"usage_data": "on"}));
+        assert!(on.usage_data.sends());
+        let off: GlobalSettings = read_or_default(serde_json::json!({"usage_data": "off"}));
+        assert!(!off.usage_data.sends());
+        // A value this version doesn't know never turns sending on.
+        let odd: GlobalSettings = read_or_default(serde_json::json!({"usage_data": "maybe"}));
+        assert!(!odd.usage_data.sends());
     }
 
     #[test]
