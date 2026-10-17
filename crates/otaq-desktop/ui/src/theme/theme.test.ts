@@ -75,8 +75,8 @@ describe("the page's theme", () => {
 });
 
 describe("the tokens", () => {
-  it("list the 39 colours and the 15 themes", () => {
-    expect(COLOR_TOKENS).toHaveLength(39);
+  it("list the 47 colours and the 15 themes", () => {
+    expect(COLOR_TOKENS).toHaveLength(47);
     expect(THEME_KEYS).toHaveLength(15);
     expect(THEME_KEYS).toContain(FIRST_LAUNCH.dark);
     expect(THEME_KEYS).toContain(FIRST_LAUNCH.light);

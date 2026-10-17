@@ -113,6 +113,11 @@ const EXCEPTIONS: &[Exception] = &[
         reason: "Claude Code's status line reports Claude Code's limit windows",
     },
     Exception {
+        path: "otaq-view/src/view_models/tool_avatar.rs",
+        pattern: "Tool::Claude",
+        reason: "the tool avatar (d0087): the stored tool to its letters and colour token, one arm per tool",
+    },
+    Exception {
         path: "otaq-view/src/view_models/plan_meter.rs",
         pattern: "Tool::Claude",
         reason: "the header's plan meter shows Claude Code's windows until M21's Activity lists every tool's",

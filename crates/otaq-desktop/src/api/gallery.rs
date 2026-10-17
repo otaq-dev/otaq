@@ -7,7 +7,7 @@ use std::ffi::OsStr;
 use otaq_core::naming;
 use otaq_view::view_models::{
     card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
-    onboarding_page, settings_page,
+    onboarding_page, settings_page, tool_avatar,
 };
 use serde_json::Value;
 
@@ -38,6 +38,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.cleanup_warm" => reply(&cleanup::warm_gallery()),
         // The add-project form's folder trust line and failed state, the note and the failed warning (T-0306).
         "gallery.trust" => reply(&onboarding_page::trust_gallery()),
+        // The four tool avatars and the line saying they are hidden while one tool is connected (T-0321).
+        "gallery.tool_avatars" => reply(&tool_avatar::gallery()),
         _ => Err(unknown(method)),
     }
 }
@@ -105,6 +107,11 @@ mod tests {
             .unwrap();
         assert_eq!(trust["banners"][0]["banners"][0]["kind"], "trust_note");
         assert!(trust["forms"][2]["form"]["trust_error"].is_string());
+        let avatars = crate::api::request(&h.app, "gallery.tool_avatars", Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(avatars["avatars"][1]["background"], "tool-cx");
+        assert_eq!(avatars["shown"], false);
         h.service.stop_all().await;
     }
 }

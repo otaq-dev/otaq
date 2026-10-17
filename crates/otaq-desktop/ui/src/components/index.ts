@@ -29,4 +29,5 @@ export { StackList, StackRow, type StackListProps, type StackRowProps } from "./
 export { Segmented, Tabs, Toggle, type TabIndicator, type TabItem, type TabsProps } from "./Tabs";
 export { pickTheme, ThemePicker, useThemePicker, type ThemePickerProps } from "./ThemePicker";
 export { Toast, type ToastIconTone, type ToastKind, type ToastProps } from "./Toast";
+export { ToolAvatar, type ToolAvatarProps } from "./ToolAvatar";
 export { Tooltip, type TooltipProps } from "./Tooltip";
