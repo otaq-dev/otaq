@@ -43,7 +43,11 @@ async fn world() -> TestService {
 }
 
 async fn open(w: &TestService) -> (ProjectAgent, AgentShell) {
-    let agent = w.project_agents.open("SHOP").await.unwrap();
+    let agent = w
+        .project_agents
+        .open("SHOP", "Look around the checkout code")
+        .await
+        .unwrap();
     let shell = w.shell_in(&agent.session.as_ref().unwrap().id);
     (agent, shell)
 }
@@ -138,7 +142,10 @@ async fn a_project_agent_changes_backlog_tickets_only_and_its_tickets_name_it() 
             "ticket.local_merge",
             json!({"key": "SHOP-18", "message": "m"}),
         ),
-        ("project_agent.open", json!({"project": "SHOP"})),
+        (
+            "project_agent.open",
+            json!({"project": "SHOP", "message": "m"}),
+        ),
     ] {
         let answer = send(&w, &shell, method, params).await;
         assert_eq!(refused(&answer), BACKLOG_ONLY, "{method}");

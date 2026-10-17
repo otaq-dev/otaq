@@ -969,6 +969,7 @@ pub(super) async fn handle(
         | Request::ProjectAgentOpen(_)
         | Request::ProjectAgentList(_)
         | Request::ProjectAgentClose(_)
+        | Request::ProjectAgentCloseEnded(_)
         | Request::ProjectAgentResume(_)
         | Request::ProjectAgentRename(_)
         | Request::AgentName(_)

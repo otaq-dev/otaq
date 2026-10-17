@@ -1,7 +1,8 @@
-//! Project agents (T-0199; PAG-01, PAG-04, PAG-06, PAG-07, SCH-03, SCH-04, REC-01; d0068): opening one starts
-//! `claude` with the role and the skill in the project's folder; naming (the agent's own once, the fallback after
-//! the first turn, the user's rename wins); close, discard, Ended by restart · Resume and the recent list; never
-//! counted toward the agent limit; none opens during the usage limit, and limit-stopped ones continue on Resume all.
+//! Project agents (T-0199, T-0318; PAG-01, PAG-04, PAG-06, PAG-07, SCH-03, SCH-04, REC-01; d0068, d0087): opening
+//! one with the user's first message starts `claude` with the role, the skill and the message in the project's
+//! folder; naming (the agent's own once, the fallback after the first turn, the user's rename wins); close (End
+//! agent), Close ended agents, Ended by restart · Resume and the recent list; never counted toward the agent limit;
+//! none opens during the usage limit, and limit-stopped ones continue on Resume all.
 //! `claude` stands in as `sh` printing its arguments and environment, then `cat` echoing what is typed into it: no
 //! test starts claude. (On Windows Git's `sh` prints the folder with `pwd -W`, as Windows writes it, and the console
 //! echoes only what a program reads, hence `cat` rather than `sleep`.)
@@ -13,7 +14,9 @@ use otaq_core::board::Refusal;
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::naming;
-use otaq_core::project_agents::{AgentState, LIMIT_REFUSAL, NEW_AGENT, NameSource, ProjectAgent};
+use otaq_core::project_agents::{
+    AgentState, EMPTY_MESSAGE, LIMIT_REFUSAL, NEW_AGENT, NameSource, ProjectAgent,
+};
 use otaq_core::protocol::{Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
@@ -102,19 +105,52 @@ fn refusal(e: otaq_core::board::BoardError) -> (Option<Refusal>, String) {
     (e.refusal(), e.to_string())
 }
 
+/// Opens a Project agent with the user's first message.
+async fn open(w: &TestService, message: &str) -> ProjectAgent {
+    w.project_agents.open("SHOP", message).await.unwrap()
+}
+
+/// The first request stored for the agent `id`.
+async fn first_request(w: &TestService, id: &str) -> Option<String> {
+    sqlx::query_scalar("SELECT first_request FROM project_agents WHERE id = ?")
+        .bind(id)
+        .fetch_one(w.board.store().pool())
+        .await
+        .unwrap()
+}
+
+async fn wait_for_state(w: &TestService, id: &str, state: AgentState) -> ProjectAgent {
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let a = w.project_agents.get(id).await.unwrap();
+            if a.state == state {
+                return a;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("the agent became {state:?}"))
+}
+
 #[tokio::test(flavor = "multi_thread")]
-async fn opening_starts_claude_with_the_role_and_the_skill_several_at_once() {
+async fn opening_starts_claude_with_the_role_the_skill_and_the_message_several_at_once() {
     let w = world().await;
     let repo = folder_text(
         &std::fs::canonicalize(w.board.project("SHOP").await.unwrap().repo_path).unwrap(),
     );
-    let a = w.project_agents.open("SHOP").await.unwrap();
-    let b = w.project_agents.open("SHOP").await.unwrap();
-    for agent in [&a, &b] {
-        assert_eq!(agent.name, NEW_AGENT);
+    let a = open(&w, "  List the tickets that wait on NOTE-5 ").await;
+    let b = open(&w, "Why is checkout slow?").await;
+    for (agent, message) in [
+        (&a, "List the tickets that wait on NOTE-5"),
+        (&b, "Why is checkout slow?"),
+    ] {
+        assert_eq!(agent.name, NEW_AGENT, "named only after its first turn");
         assert_eq!(agent.name_source, None);
         assert_eq!(agent.state, AgentState::Running);
-        assert!(!agent.got_request);
+        // The message is its first request from the start (d0087).
+        assert!(agent.got_request);
+        assert_eq!(first_request(&w, &agent.id).await.as_deref(), Some(message));
         let session = agent.session.as_ref().unwrap();
         assert_eq!(session.kind, SessionKind::ProjectAgent);
         assert_eq!(session.ticket, None);
@@ -131,9 +167,15 @@ async fn opening_starts_claude_with_the_role_and_the_skill_several_at_once() {
             (otaq_core::agent_tools::Tool::Claude, None)
         );
         let out = w.wait_for_output(&session.id, "CWD=").await;
+        // The skill and the message are one first prompt: the last argument.
+        let args = out
+            .lines()
+            .find(|l| l.starts_with("ARGS "))
+            .unwrap_or_default()
+            .trim_end();
         assert!(
-            out.contains(&format!(
-                "--session-id {} /{}:project-agent",
+            args.ends_with(&format!(
+                "--session-id {} /{}:project-agent {message}",
                 agent.tool_session_id.as_deref().unwrap(),
                 naming::PLUGIN_NAMESPACE
             )),
@@ -168,10 +210,44 @@ async fn opening_starts_claude_with_the_role_and_the_skill_several_at_once() {
     w.stop().await;
 }
 
+/// d0087: no empty session. A message without words is refused and nothing is stored or started.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_empty_message_opens_nothing() {
+    let w = world().await;
+    for message in ["", "   \n\t "] {
+        let (code, text) = refusal(w.project_agents.open("SHOP", message).await.unwrap_err());
+        assert_eq!(code, Some(Refusal::EmptyField));
+        assert_eq!(text, EMPTY_MESSAGE);
+    }
+    let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM project_agents")
+        .fetch_one(w.board.store().pool())
+        .await
+        .unwrap();
+    assert_eq!(rows, 0);
+    let sessions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+        .fetch_one(w.board.store().pool())
+        .await
+        .unwrap();
+    assert_eq!(sessions, 0);
+    // The same over the socket.
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let e = client
+        .request(Request::ProjectAgentOpen(
+            otaq_core::protocol::ProjectAgentOpenParams {
+                project: "SHOP".into(),
+                message: " ".into(),
+            },
+        ))
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains(EMPTY_MESSAGE), "{e}");
+    w.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn the_agent_names_itself_once_and_the_users_rename_wins() {
     let w = world().await;
-    let a = w.project_agents.open("SHOP").await.unwrap();
+    let a = open(&w, "why is checkout slow?").await;
     let named = w
         .project_agents
         .name_by_agent(&a.id, "Checkout slowness", false)
@@ -232,22 +308,18 @@ async fn the_agent_names_itself_once_and_the_users_rename_wins() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn without_a_name_the_first_words_of_the_request_name_it_after_its_first_turn() {
+async fn without_a_name_the_first_words_of_the_message_name_it_after_its_first_turn() {
     let w = world().await;
-    let a = w.project_agents.open("SHOP").await.unwrap();
-    // The skill's own turn: no request yet.
-    prompt(&w, &a, &naming::skill("project-agent")).await;
-    stop(&w, &a).await;
-    let a = w.project_agents.get(&a.id).await.unwrap();
-    assert_eq!(a.name, NEW_AGENT);
-    assert!(!a.got_request);
-
+    let message = "Why is checkout so slow? Make tickets for what you find";
+    let a = open(&w, message).await;
+    // Its first turn is the skill with the message (the launch's first prompt).
     prompt(
         &w,
         &a,
-        "Why is checkout so slow? Make tickets for what you find",
+        &format!("{} {message}", naming::skill("project-agent")),
     )
     .await;
+    assert_eq!(first_request(&w, &a.id).await.as_deref(), Some(message));
     let a = w.project_agents.get(&a.id).await.unwrap();
     assert!(a.got_request);
     assert!(a.mid_turn);
@@ -275,19 +347,35 @@ async fn without_a_name_the_first_words_of_the_request_name_it_after_its_first_t
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn close_discards_an_unused_agent_and_asks_first_mid_turn() {
+async fn end_agent_ends_it_into_recently_ended_and_asks_first_mid_turn() {
     let w = world().await;
-    // A "New agent" that never got a request: discarded, no confirmation, not listed.
-    let unused = w.project_agents.open("SHOP").await.unwrap();
-    w.project_agents.close(&unused.id, false).await.unwrap();
-    assert!(w.project_agents.get(&unused.id).await.is_err());
-    let session = unused.session.as_ref().unwrap();
-    assert!(!w.sessions.info(&session.id).unwrap().is_running());
+    // Opened with its message, it works on it from the start: closing asks first, then it ends and is listed in
+    // Recently ended (never discarded).
+    let first = open(&w, "Audit the footer").await;
+    let (code, _) = refusal(w.project_agents.close(&first.id, false).await.unwrap_err());
+    assert_eq!(code, Some(Refusal::NeedsConfirmation));
+    w.project_agents.close(&first.id, true).await.unwrap();
+    let first = w.project_agents.get(&first.id).await.unwrap();
+    assert_eq!(first.state, AgentState::Ended);
+    assert!(first.closed);
+    assert!(
+        !w.sessions
+            .info(&first.session.as_ref().unwrap().id)
+            .unwrap()
+            .is_running()
+    );
     let list = w.project_agents.list("SHOP").await.unwrap();
-    assert!(list.open.is_empty() && list.recent.is_empty());
+    assert!(list.open.is_empty());
+    assert_eq!(
+        list.recent
+            .iter()
+            .map(|a| a.id.as_str())
+            .collect::<Vec<_>>(),
+        [first.id.as_str()]
+    );
 
     // Mid-turn: needs the user's "Stop and close".
-    let busy = w.project_agents.open("SHOP").await.unwrap();
+    let busy = open(&w, "Find slow queries").await;
     prompt(&w, &busy, "Find slow queries").await;
     let (code, text) = refusal(w.project_agents.close(&busy.id, false).await.unwrap_err());
     assert_eq!(code, Some(Refusal::NeedsConfirmation));
@@ -302,10 +390,10 @@ async fn close_discards_an_unused_agent_and_asks_first_mid_turn() {
     assert!(!busy.session.as_ref().unwrap().is_running());
     let list = w.project_agents.list("SHOP").await.unwrap();
     assert!(list.open.is_empty());
-    assert_eq!(list.recent.len(), 1);
+    assert_eq!(list.recent.len(), 2);
 
     // Between turns it closes without asking.
-    let idle = w.project_agents.open("SHOP").await.unwrap();
+    let idle = open(&w, "Audit the footer").await;
     prompt(&w, &idle, "Audit the footer").await;
     stop(&w, &idle).await;
     w.project_agents.close(&idle.id, false).await.unwrap();
@@ -319,21 +407,10 @@ async fn close_discards_an_unused_agent_and_asks_first_mid_turn() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_that_exits_ends_and_resume_continues_its_conversation() {
     let w = world().await;
-    let a = w.project_agents.open("SHOP").await.unwrap();
-    prompt(&w, &a, "Footer audit").await;
+    let a = open(&w, "Footer audit").await;
     let first = a.session.clone().unwrap();
     w.sessions.stop(&first.id).await.unwrap();
-    let ended = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        loop {
-            let a = w.project_agents.get(&a.id).await.unwrap();
-            if a.state == AgentState::Ended {
-                return a;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .expect("the agent ended");
+    let ended = wait_for_state(&w, &a.id, AgentState::Ended).await;
     assert!(!ended.closed, "its tab stays until closed");
     assert!(ended.ended_at.is_some());
 
@@ -368,21 +445,32 @@ async fn an_agent_that_exits_ends_and_resume_continues_its_conversation() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn after_a_restart_agents_are_ended_by_restart_and_unused_ones_are_gone() {
+async fn after_a_restart_agents_are_ended_by_restart_and_resume() {
     let w = world().await;
-    let used = w.project_agents.open("SHOP").await.unwrap();
-    prompt(&w, &used, "Import the GitHub issues labelled ready").await;
-    let unused = w.project_agents.open("SHOP").await.unwrap();
+    let used = open(&w, "Import the GitHub issues labelled ready").await;
+    prompt(
+        &w,
+        &used,
+        &format!(
+            "{} Import the GitHub issues labelled ready",
+            naming::skill("project-agent")
+        ),
+    )
+    .await;
+    // Opened with its message, no hook seen yet: still a request, so not dropped.
+    let fresh = open(&w, "Audit the footer").await;
     let w = w.restart_with(with_fake_claude).await;
 
-    assert!(w.project_agents.get(&unused.id).await.is_err());
     let list = w.project_agents.list("SHOP").await.unwrap();
-    assert_eq!(list.open.len(), 1);
-    let after = &list.open[0];
-    assert_eq!(after.id, used.id);
-    assert_eq!(after.state, AgentState::EndedByRestart);
-    assert!(!after.mid_turn);
-    assert_eq!(list.recent.len(), 1);
+    assert_eq!(
+        list.open.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+        [used.id.as_str(), fresh.id.as_str()]
+    );
+    for after in &list.open {
+        assert_eq!(after.state, AgentState::EndedByRestart);
+        assert!(!after.mid_turn);
+    }
+    assert_eq!(list.recent.len(), 2);
 
     let resumed = w.project_agents.resume(&used.id).await.unwrap();
     assert_eq!(resumed.state, AgentState::Running);
@@ -445,8 +533,8 @@ async fn the_recent_list_holds_the_ten_newest_ended_agents() {
 #[tokio::test(flavor = "multi_thread")]
 async fn agents_never_count_toward_the_limit_and_none_opens_during_the_usage_limit() {
     let w = world().await;
-    let a = w.project_agents.open("SHOP").await.unwrap();
-    w.project_agents.open("SHOP").await.unwrap();
+    let a = open(&w, "Find slow queries").await;
+    open(&w, "Audit the footer").await;
     let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
     match client.request(Request::SchedulerStatus).await.unwrap() {
         Reply::SchedulerStatus(s) => assert_eq!(s.holding, 0),
@@ -475,11 +563,25 @@ async fn agents_never_count_toward_the_limit_and_none_opens_during_the_usage_lim
         .await
         .unwrap();
     assert!(w.project_agents.get(&a.id).await.unwrap().limit_stopped);
-    let (code, text) = refusal(w.project_agents.open("SHOP").await.unwrap_err());
+    let agents_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM project_agents")
+        .fetch_one(w.board.store().pool())
+        .await
+        .unwrap();
+    let (code, text) = refusal(
+        w.project_agents
+            .open("SHOP", "Why is checkout slow?")
+            .await
+            .unwrap_err(),
+    );
     assert_eq!(code, Some(Refusal::MoveRefused));
     assert_eq!(text, LIMIT_REFUSAL);
-    let other = w.project_agents.open("SHOP").await;
+    let other = w.project_agents.open("SHOP", "Audit the footer").await;
     assert!(other.is_err());
+    let agents_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM project_agents")
+        .fetch_one(w.board.store().pool())
+        .await
+        .unwrap();
+    assert_eq!(agents_before, agents_after, "nothing stored");
 
     // Resume all: "continue" is typed into its session (its turn has ended), and new agents open again.
     w.plan_limit.resume_all().await.unwrap();
@@ -499,7 +601,7 @@ async fn agents_never_count_toward_the_limit_and_none_opens_during_the_usage_lim
     assert!(delivered == 1 || typed, "continue queued or typed");
     prompt(&w, &a, "continue").await;
     assert!(!w.project_agents.get(&a.id).await.unwrap().limit_stopped);
-    w.project_agents.open("SHOP").await.unwrap();
+    open(&w, "Why is checkout slow?").await;
     w.stop().await;
 }
 
@@ -507,8 +609,8 @@ async fn agents_never_count_toward_the_limit_and_none_opens_during_the_usage_lim
 #[tokio::test(flavor = "multi_thread")]
 async fn tokens_count_per_agent_and_in_todays_total() {
     let w = world().await;
-    let a = w.project_agents.open("SHOP").await.unwrap();
-    let b = w.project_agents.open("SHOP").await.unwrap();
+    let a = open(&w, "Find slow queries").await;
+    let b = open(&w, "Audit the footer").await;
     let day = w.usage.summary(None).await.unwrap().day;
     for (agent, n) in [(&a, 1000), (&b, 10)] {
         sqlx::query(
@@ -534,14 +636,14 @@ async fn tokens_count_per_agent_and_in_todays_total() {
 }
 
 /// T-0205 (REC-01, REC-06; d0063, d0068): what the after-restart summary reads (`service.startup_report`): the
-/// Project agents the restart ended (each resumable), how many unused "New agent"s are gone, and which interrupted
-/// tickets were validating (their Resume starts a fresh validation: `tests/suite/validation.rs`).
+/// Project agents the restart ended (each resumable; since d0087 every one opened with a request, so none is
+/// discarded), and which interrupted tickets were validating (their Resume starts a fresh validation:
+/// `tests/suite/validation.rs`).
 #[tokio::test(flavor = "multi_thread")]
 async fn the_startup_report_names_ended_agents_and_validating_tickets() {
     let w = world().await;
-    let used = w.project_agents.open("SHOP").await.unwrap();
-    prompt(&w, &used, "Audit the footer").await;
-    w.project_agents.open("SHOP").await.unwrap();
+    let used = open(&w, "Audit the footer").await;
+    let other = open(&w, "Find slow queries").await;
     let validating = w.create("SHOP", "Cart totals").await;
     w.force_status(&validating, otaq_core::domain::Status::Validating)
         .await;
@@ -552,8 +654,12 @@ async fn the_startup_report_names_ended_agents_and_validating_tickets() {
         Reply::StartupReport(r) => *r,
         other => panic!("{other:?}"),
     };
-    assert_eq!(report.project_agents_ended, std::slice::from_ref(&used.id));
-    assert_eq!(report.new_agents_discarded, 1);
+    let mut ended = report.project_agents_ended.clone();
+    ended.sort();
+    let mut expected = vec![used.id.clone(), other.id.clone()];
+    expected.sort();
+    assert_eq!(ended, expected);
+    assert_eq!(report.new_agents_discarded, 0);
     assert_eq!(report.was_validating, std::slice::from_ref(&validating.key));
     assert!(report.interrupted.contains(&validating.key));
     let after = w.project_agents.get(&used.id).await.unwrap();
@@ -561,5 +667,85 @@ async fn the_startup_report_names_ended_agents_and_validating_tickets() {
     // Resume from the summary continues its conversation.
     let resumed = w.project_agents.resume(&used.id).await.unwrap();
     assert_eq!(resumed.state, AgentState::Running);
+    w.stop().await;
+}
+
+/// T-0318 (SHL-04, d0087): **Close ended agents** closes every ended (Ended, Ended by restart), not yet closed Project
+/// agent of the project; they stay in Recently ended. Running agents, epic leads and other projects are left alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn close_ended_closes_only_the_projects_ended_agents() {
+    let w = world().await;
+    let running = open(&w, "Find slow queries").await;
+    let exited = open(&w, "Audit the footer").await;
+    w.sessions
+        .stop(&exited.session.as_ref().unwrap().id)
+        .await
+        .unwrap();
+    wait_for_state(&w, &exited.id, AgentState::Ended).await;
+    let project = w.board.project("SHOP").await.unwrap();
+    let epic = w.create("SHOP", "Wishlist").await;
+    let other = w.add_project("notes-api").await;
+    for (id, project_id, state, epic_id) in [
+        ("by-restart", &project.id, "ended_by_restart", None),
+        ("lead", &project.id, "ended", Some(&epic.id)),
+        ("elsewhere", &other.id, "ended", None),
+    ] {
+        sqlx::query(
+            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, first_request, created_at,
+                                         ended_at, epic_id)
+             VALUES (?, ?, 'claude', ?, ?, 'r', 1, 2, ?)",
+        )
+        .bind(id)
+        .bind(project_id)
+        .bind(format!("c-{id}"))
+        .bind(state)
+        .bind(epic_id)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+    }
+
+    let list = w.project_agents.close_ended("SHOP").await.unwrap();
+    assert_eq!(
+        list.open.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+        [running.id.as_str()]
+    );
+    let closed = |id: &str| {
+        let w = &w;
+        let id = id.to_owned();
+        async move { w.project_agents.get(&id).await.unwrap().closed }
+    };
+    assert!(closed(&exited.id).await);
+    assert!(closed("by-restart").await);
+    assert!(!closed(&running.id).await, "a running agent stays");
+    assert!(!closed("lead").await, "epic leads are left alone");
+    assert!(!closed("elsewhere").await, "another project's stay");
+    let running = w.project_agents.get(&running.id).await.unwrap();
+    assert_eq!(running.state, AgentState::Running);
+    assert!(running.session.unwrap().is_running());
+    // Both stay in Recently ended, each resumable.
+    let mut recent: Vec<&str> = list.recent.iter().map(|a| a.id.as_str()).collect();
+    recent.sort_unstable();
+    let mut expected = vec![exited.id.as_str(), "by-restart"];
+    expected.sort_unstable();
+    assert_eq!(recent, expected);
+    let resumed = w.project_agents.resume("by-restart").await.unwrap();
+    assert_eq!(resumed.state, AgentState::Running);
+    assert!(!resumed.closed);
+
+    // Over the socket, as the pane's menu sends it: nothing more to close.
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    match client
+        .request(Request::ProjectAgentCloseEnded(
+            otaq_core::protocol::ProjectParams {
+                project: "SHOP".into(),
+            },
+        ))
+        .await
+        .unwrap()
+    {
+        Reply::ProjectAgents(list) => assert_eq!(list.open.len(), 2, "running and resumed"),
+        other => panic!("{other:?}"),
+    }
     w.stop().await;
 }

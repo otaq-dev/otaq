@@ -372,7 +372,11 @@ async fn processes_inside_a_project_agent_session_are_that_project_agent() {
     })
     .await;
     w.add_project("shop-web").await;
-    let agent = w.project_agents.open("SHOP").await.unwrap();
+    let agent = w
+        .project_agents
+        .open("SHOP", "Look around the checkout code")
+        .await
+        .unwrap();
     let session = agent.session.as_ref().expect("a session").id.clone();
     let pid: u32 = read_when_written(&out).await.parse().unwrap();
     match caller::resolve(Some(pid), &w.sessions) {

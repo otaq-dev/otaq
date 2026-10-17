@@ -24,7 +24,7 @@ pub(super) async fn handle(
             .map_err(|e| error_body(&e))
     };
     match request {
-        Request::ProjectAgentOpen(p) => agent(agents.open(&p.project).await),
+        Request::ProjectAgentOpen(p) => agent(agents.open(&p.project, &p.message).await),
         Request::ProjectAgentList(p) => agents
             .list(&p.project)
             .await
@@ -34,6 +34,11 @@ pub(super) async fn handle(
             .close(&p.id, p.confirm)
             .await
             .map(|()| Reply::Ok)
+            .map_err(|e| error_body(&e)),
+        Request::ProjectAgentCloseEnded(p) => agents
+            .close_ended(&p.project)
+            .await
+            .map(|l| Reply::ProjectAgents(Box::new(l)))
             .map_err(|e| error_body(&e)),
         Request::ProjectAgentResume(p) => agent(agents.resume(&p.id).await),
         Request::ProjectAgentRename(p) => agent(agents.rename(&p.id, &p.name).await),
