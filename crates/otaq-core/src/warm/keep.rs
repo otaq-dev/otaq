@@ -6,7 +6,8 @@
 //!   ([`Stock::add`]).
 //! - The gitignored paths come from `git ls-files --others --ignored --exclude-standard --directory`: a folder is one
 //!   entry, so a folder of a hundred thousand files is one rename. Every gitignored file is treated the same.
-//! - The project's env files are left out: they are copied fresh at each start (SES-01 step 4).
+//! - The project's env files are left out, and stay in the worktree (a folder holding one moves around it): they are
+//!   copied fresh at each start (SES-01 step 4).
 //! - The record: built at (`HEAD`), base (`merge-base HEAD <base branch>`, for "forward only"), from (the ticket)
 //!   and the time. The stock decides whether it is kept.
 //! - The times file ([`TrackedTimes`]): every tracked file's modified time in the worktree (a symlink's own), so a
@@ -45,7 +46,7 @@ fn failed(e: impl fmt::Display) -> KeepError {
 pub(crate) struct Collected {
     /// The gitignored paths to move (relative; a folder is one), without the env files.
     pub(crate) paths: Vec<PathBuf>,
-    /// The project's env files (relative): one inside a moved folder doesn't stay.
+    /// The project's env files (relative): they stay in the worktree, also inside a moved folder.
     pub(crate) env_files: Vec<PathBuf>,
     /// The tracked files, whose times are recorded.
     pub(crate) tracked: Vec<String>,
@@ -184,15 +185,7 @@ pub(crate) async fn move_to_stock(
     let incoming = warm.incoming(project).await.map_err(failed)?;
     let (from, to) = (worktree.to_owned(), incoming.path().to_owned());
     tokio::task::spawn_blocking(move || -> Result<(), KeepError> {
-        move_tree_or_back(&from, &to, Some(&paths)).map_err(failed)?;
-        // An env file inside a moved folder came along: it doesn't stay.
-        for file in &env_files {
-            let moved = to.join(file);
-            if std::fs::symlink_metadata(&moved).is_ok() {
-                std::fs::remove_file(&moved)
-                    .map_err(|e| KeepError(format!("{}: {e}", moved.display())))?;
-            }
-        }
+        move_out(&from, &to, &paths, &env_files)?;
         TrackedTimes::measure(&from, &tracked)
             .write(&to)
             .map_err(|e| KeepError(format!("{}: {e}", to.display())))
@@ -207,6 +200,69 @@ pub(crate) async fn move_to_stock(
         project: String::new(),
     };
     stock.add(project, incoming, record).await.map_err(failed)
+}
+
+/// Renames the `collected` paths of `worktree` into the project's `.incoming` and deletes them there (dropping the
+/// [`Incoming`](super::store::Incoming) does that in the background): the Free of a ticket whose project has warm
+/// builds off (d0086). A rename that fails moves back what it moved. The env files stay in the worktree.
+pub(crate) async fn move_to_trash(
+    warm: &WarmBuilds,
+    project: &Project,
+    worktree: &Path,
+    collected: Collected,
+) -> Result<(), KeepError> {
+    let incoming = warm.incoming(project).await.map_err(failed)?;
+    let (from, to) = (worktree.to_owned(), incoming.path().to_owned());
+    let Collected {
+        paths, env_files, ..
+    } = collected;
+    tokio::task::spawn_blocking(move || move_out(&from, &to, &paths, &env_files))
+        .await
+        .map_err(failed)??;
+    drop(incoming);
+    Ok(())
+}
+
+/// Renames `paths` (relative) from `from` into `to`, all or nothing, leaving the env files where they are: a folder
+/// holding one is moved part by part around it ([`around_env_files`]).
+fn move_out(
+    from: &Path,
+    to: &Path,
+    paths: &[PathBuf],
+    env_files: &[PathBuf],
+) -> Result<(), KeepError> {
+    let paths = around_env_files(paths, env_files, |dir| {
+        std::fs::read_dir(from.join(dir))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| dir.join(e.file_name()))
+            .collect()
+    });
+    move_tree_or_back(from, to, Some(&paths)).map_err(failed)
+}
+
+/// `paths` without the env files: a path that is an env file is left out, and a folder holding one is replaced by
+/// what `children` lists in it (relative paths), the same way down to the env file. Sorted.
+fn around_env_files(
+    paths: &[PathBuf],
+    env_files: &[PathBuf],
+    children: impl Fn(&Path) -> Vec<PathBuf>,
+) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut todo: Vec<PathBuf> = paths.to_vec();
+    while let Some(path) = todo.pop() {
+        if env_files.contains(&path) {
+            continue;
+        }
+        if env_files.iter().any(|e| e.starts_with(&path)) {
+            todo.extend(children(&path));
+        } else {
+            out.push(path);
+        }
+    }
+    out.sort();
+    out
 }
 
 /// The paths of `git ls-files -z --others --ignored --directory` output, relative to the worktree: folders (listed
@@ -251,6 +307,37 @@ mod tests {
                 .map(PathBuf::from)
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn a_folder_holding_an_env_file_moves_around_it() {
+        let tree = |dir: &Path| -> Vec<PathBuf> {
+            match dir.to_str().unwrap() {
+                "config" => vec![
+                    "config/.env".into(),
+                    "config/cache.json".into(),
+                    "config/sub".into(),
+                ],
+                _ => vec![],
+            }
+        };
+        let paths: Vec<PathBuf> = ["out", "config", ".env.local"]
+            .iter()
+            .map(PathBuf::from)
+            .collect();
+        let env = [PathBuf::from(".env.local"), PathBuf::from("config/.env")];
+        assert_eq!(
+            around_env_files(&paths, &env, tree),
+            ["config/cache.json", "config/sub", "out"]
+                .iter()
+                .map(PathBuf::from)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(around_env_files(&paths, &[], tree), {
+            let mut sorted = paths.clone();
+            sorted.sort();
+            sorted
+        });
     }
 
     #[test]

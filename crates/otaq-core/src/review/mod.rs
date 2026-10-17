@@ -36,7 +36,7 @@ use crate::scheduler::Scheduler;
 use crate::session::deliveries::{Deliveries, Delivery};
 use crate::session::{SessionKind, Sessions};
 use crate::start::{StartOutcome, Starter};
-use crate::warm::store::WarmBuilds;
+use crate::ticket_env::TicketEnv;
 
 /// The skill Send back runs (REV-04).
 pub const ADDRESS_REVIEW_SKILL: &str = "address-review";
@@ -98,8 +98,8 @@ struct Inner {
     /// One Local merge at a time: they share the scratch worktree and move base branches.
     merging: tokio::sync::Mutex<()>,
     ports: PortPool,
-    /// Done keeps a clean worktree's build as the project's warm build (WRM-03).
-    warm: WarmBuilds,
+    /// Done releases a clean worktree's build into the stock (WRM-03), unless it was freed at Review (M19-c).
+    ticket_env: TicketEnv,
     finished_hooks: Mutex<Vec<finish::FinishedHook>>,
     /// Run for every parked ticket before its ports are freed (Q30: Park stops Run).
     parked_hooks: Mutex<Vec<finish::FinishedHook>>,
@@ -117,7 +117,7 @@ impl Review {
         starter: Starter,
         scheduler: Scheduler,
         ports: PortPool,
-        warm: WarmBuilds,
+        ticket_env: TicketEnv,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -125,7 +125,7 @@ impl Review {
                 data,
                 merging: tokio::sync::Mutex::new(()),
                 ports,
-                warm,
+                ticket_env,
                 finished_hooks: Mutex::new(Vec::new()),
                 parked_hooks: Mutex::new(Vec::new()),
                 validation_resume: Mutex::new(None),
