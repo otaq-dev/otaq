@@ -6,6 +6,7 @@
 //! - [`free`]: the Free at Review entry (M19-c, d0086).
 //! - [`fetch`]: bringing the build back for Send back, Fix, a Run, a Shell or a resuming start (M19-c, d0086).
 //! - [`resources`]: the ticket's own resources, their variables and the Create command (M19-d, d0087).
+//! - [`schema_watch`]: the warning when two Review tickets add files under one schema path (M19-e, d0087).
 //!
 //! [`TicketEnv`] holds a lock per ticket, so a Free and a Release (Done) of the same ticket never both move its
 //! build, nor a Free and a bring-back: whichever comes second reads the ticket again and sees what the first did.
@@ -13,16 +14,19 @@
 //!
 //! [`TicketEnv::run`] listens to the service's events: a ticket entering [`free::FREED_IN`] is freed; a Run or
 //! Shell closing frees its ticket's build if it was held for it; a ticket entering or leaving Ready for Dev changes
-//! the stock limit. A slow tick (and once at startup) frees what no event announced ([`TicketEnv::sweep`]).
+//! the stock limit; a ticket entering or leaving [`free::FREED_IN`] has its project's schema paths scanned again. A
+//! slow tick (and once at startup) frees what no event announced and scans every project ([`TicketEnv::sweep`]).
 
 pub mod fetch;
 pub mod free;
 pub mod handoff;
 pub mod resources;
+pub mod schema_watch;
 pub mod stock;
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -67,6 +71,10 @@ struct Inner {
     resources: Resources,
     /// One lock per ticket id: Free, bring-back and Release never run at once for a ticket.
     locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// Schema-path scans run one at a time ([`schema_watch`]).
+    schema_scan: tokio::sync::Mutex<()>,
+    /// How many tickets' added files were read from git for the schema-path warning (for tests and logs).
+    schema_scans: AtomicU64,
 }
 
 impl std::fmt::Debug for TicketEnv {
@@ -97,6 +105,8 @@ impl TicketEnv {
             events,
             resources: Resources::default(),
             locks: Mutex::new(HashMap::new()),
+            schema_scan: tokio::sync::Mutex::new(()),
+            schema_scans: AtomicU64::new(0),
         }))
     }
 
@@ -267,8 +277,30 @@ impl TicketEnv {
             .await
     }
 
+    /// Scans `project`'s Review tickets for files added under one schema path and stores the warnings (M19-e,
+    /// [`schema_watch`]). Runs no `git` when the project names no schema paths. Never touches a file.
+    pub async fn rescan_schema(&self, project: &str) {
+        let Ok(project) = self.0.board.project(project).await else {
+            return;
+        };
+        let _one = self.0.schema_scan.lock().await;
+        if let Err(e) = schema_watch::rescan(self, &project).await {
+            tracing::warn!(project = %project.key, error = %e, "can't scan the schema paths");
+        }
+    }
+
+    /// How many tickets' added files were read from git for the schema-path warning so far.
+    pub fn schema_scans(&self) -> u64 {
+        self.0.schema_scans.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn counted_schema_scan(&self) {
+        self.0.schema_scans.fetch_add(1, Ordering::Relaxed);
+    }
+
     /// Frees every ticket in [`FREED_IN`] whose build is still in its worktree and whose last Free didn't fail
-    /// (Cleanup's "could not free" retries those): what no event announced.
+    /// (Cleanup's "could not free" retries those): what no event announced. Then scans every project's schema
+    /// paths.
     pub async fn sweep(&self) {
         let projects = match self.0.board.projects().await {
             Ok(projects) => projects,
@@ -294,6 +326,7 @@ impl TicketEnv {
                     self.free(&ticket.key).await;
                 }
             }
+            self.rescan_schema(&project.key).await;
         }
     }
 
@@ -311,23 +344,18 @@ impl TicketEnv {
         }
     }
 
-    /// The ids of the tickets in Ready for Dev now.
-    async fn in_ready_for_dev(&self) -> HashSet<String> {
-        let mut ready = HashSet::new();
+    /// The ids of the tickets whose status is `is` now.
+    async fn ids_in(&self, is: impl Fn(Status) -> bool) -> HashSet<String> {
+        let mut ids = HashSet::new();
         let Ok(projects) = self.0.board.projects().await else {
-            return ready;
+            return ids;
         };
         for project in projects {
             if let Ok(tickets) = self.0.board.tickets(&project.key).await {
-                ready.extend(
-                    tickets
-                        .into_iter()
-                        .filter(|t| t.status.column() == Column::ReadyForDev)
-                        .map(|t| t.id),
-                );
+                ids.extend(tickets.into_iter().filter(|t| is(t.status)).map(|t| t.id));
             }
         }
-        ready
+        ids
     }
 
     /// Listens to the service's events until `stop` is set, and sweeps at once and then on a slow tick
@@ -338,7 +366,9 @@ impl TicketEnv {
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut tasks = JoinSet::new();
         // The tickets last seen in Ready for Dev (those there at startup too): leaving it changes the stock limit.
-        let mut ready = self.in_ready_for_dev().await;
+        let mut ready = self.ids_in(|s| s.column() == Column::ReadyForDev).await;
+        // The tickets last seen in [`FREED_IN`]: entering or leaving it scans their project's schema paths again.
+        let mut in_review = self.ids_in(|s| FREED_IN.contains(&s)).await;
         loop {
             tokio::select! {
                 _ = stop.wait_for(|s| *s) => break,
@@ -349,11 +379,20 @@ impl TicketEnv {
                 Some(_) = tasks.join_next(), if !tasks.is_empty() => {}
                 event = listener.receiver.recv() => match event {
                     Ok(Event::CardStatusChanged { id, key, status, .. }) => {
-                        if FREED_IN.contains(&status) {
+                        let reviewed = FREED_IN.contains(&status);
+                        if reviewed {
                             let (env, key) = (self.clone(), key.clone());
                             tasks.spawn(async move {
                                 env.free(&key).await;
                             });
+                        }
+                        let out_of_review = !reviewed && in_review.remove(&id);
+                        if reviewed {
+                            in_review.insert(id.clone());
+                        }
+                        if reviewed || out_of_review {
+                            let (env, project) = (self.clone(), key.project.to_string());
+                            tasks.spawn(async move { env.rescan_schema(&project).await });
                         }
                         let entered = status.column() == Column::ReadyForDev;
                         let left = !entered && ready.remove(&id);

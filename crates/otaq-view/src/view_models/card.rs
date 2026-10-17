@@ -1388,6 +1388,15 @@ fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaI
     if let Some(text) = decisions_label(ticket) {
         meta.push(item(IconName::Signpost, text, Tone::Muted));
     }
+    // M19-e: another Review ticket adds files under the same schema path; the files on hover.
+    if let Some(work) = &ticket.work
+        && let Some(text) = schema_overlap_text(&work.schema_overlap)
+    {
+        meta.push(MetaItem {
+            hover: schema_overlap_hover(&work.schema_overlap),
+            ..item(IconName::Database, text, Tone::Warning)
+        });
+    }
     if x.your_turn {
         meta.push(item(
             IconName::Terminal,
@@ -1428,6 +1437,47 @@ fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaI
     }
     meta
 }
+
+/// "adds migrations next to SHOP-21 (db/migrations/**)", "… next to SHOP-21 +1 (…)" (M19-e): another Review ticket
+/// adds files under one of the project's schema paths too.
+pub fn schema_overlap_text(overlap: &[otaq_core::domain::SchemaOverlap]) -> Option<String> {
+    let first = overlap.first()?;
+    let more = match overlap.len() {
+        1 => String::new(),
+        n => format!(" +{}", n - 1),
+    };
+    Some(format!(
+        "adds migrations next to {}{more} ({})",
+        first.other, first.path
+    ))
+}
+
+/// The hover of "adds migrations next to …": per other ticket and schema path, the files it adds.
+pub fn schema_overlap_hover(overlap: &[otaq_core::domain::SchemaOverlap]) -> Option<Hover> {
+    let title = schema_overlap_text(overlap)?;
+    let mut sections: Vec<HoverSection> = overlap
+        .iter()
+        .map(|o| HoverSection {
+            label: Some(format!("{} \u{b7} {}", o.other, o.path)),
+            text: o.files.join("\n"),
+            muted: false,
+        })
+        .collect();
+    sections.push(HoverSection {
+        label: None,
+        text: SCHEMA_OVERLAP_HINT.to_owned(),
+        muted: true,
+    });
+    Some(Hover {
+        icon: IconName::Database,
+        tone: Tone::Warning,
+        title,
+        sections,
+    })
+}
+
+/// Under the schema-path warning's files: nothing was changed, the merge order is the user's call.
+pub const SCHEMA_OVERLAP_HINT: &str = "Whichever merges second may need its migration renumbered or regenerated. No files were changed.";
 
 /// "N decisions" (DEC-03, d0084): the open recorded decisions of a card in Ready for Review; nothing in other columns
 /// or after approval.
@@ -2236,6 +2286,55 @@ mod tests {
         assert_eq!(vm.meta[0].tone, Tone::Warning, "amber after 3 min");
         assert_eq!(vm.meta[1].text, "205k");
         assert_eq!(vm.pill, None, "the pill waits until 5 min");
+    }
+
+    /// M19-e: a Review ticket adding files under a schema path another Review ticket adds to shows one warning
+    /// line in the meta row, the other's files on hover; without an overlap there is none.
+    #[test]
+    fn a_schema_overlap_is_one_warning_line_with_the_files_on_hover() {
+        use otaq_core::domain::SchemaOverlap;
+        let mut t = ticket("SHOP-18", "Add orders table", Status::ReadyForReview);
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert!(!vm.meta.iter().any(|m| m.icon == IconName::Database));
+        let overlap = |other: &str, file: &str| SchemaOverlap {
+            other: other.parse().unwrap(),
+            path: "db/migrations/**".into(),
+            files: vec![file.into()],
+        };
+        t.work = Some(otaq_core::board::tickets::Work {
+            schema_overlap: vec![overlap("SHOP-21", "db/migrations/0042_coupons.sql")],
+            ..Default::default()
+        });
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        let item = vm
+            .meta
+            .iter()
+            .find(|m| m.icon == IconName::Database)
+            .unwrap();
+        assert_eq!(
+            item.text,
+            "adds migrations next to SHOP-21 (db/migrations/**)"
+        );
+        assert_eq!(item.tone, Tone::Warning);
+        let hover = item.hover.as_ref().unwrap();
+        assert_eq!(
+            hover.sections[0].label.as_deref(),
+            Some("SHOP-21 \u{b7} db/migrations/**")
+        );
+        assert_eq!(hover.sections[0].text, "db/migrations/0042_coupons.sql");
+        assert_eq!(hover.sections[1].text, SCHEMA_OVERLAP_HINT);
+
+        t.work
+            .as_mut()
+            .unwrap()
+            .schema_overlap
+            .push(overlap("SHOP-22", "db/migrations/0042_x.sql"));
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert!(
+            vm.meta
+                .iter()
+                .any(|m| m.text == "adds migrations next to SHOP-21 +1 (db/migrations/**)")
+        );
     }
 
     /// *04 → "1 decision"*: a neutral count in the meta row, only in Ready for Review (DEC-03).

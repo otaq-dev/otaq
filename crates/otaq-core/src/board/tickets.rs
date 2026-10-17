@@ -402,6 +402,10 @@ stored_enum! {
         /// The project's Template refresh command failed at this ticket's Done (M19-d, d0087): payload `message`.
         /// Done went on. History reads "Template refresh failed" · its first line.
         TemplateRefreshFailed = "template_refresh_failed",
+        /// Another Review ticket adds files under the same schema path (M19-e): payload `other`, `path` (the
+        /// schema-path glob) and `files` (what `other` adds under it). Recorded once per new overlap; files are never
+        /// touched. History reads "Schema path shared with SHOP-21" · "db/migrations/**".
+        SchemaOverlap = "schema_overlap",
     }
 }
 
