@@ -154,7 +154,7 @@ function PaneColumn({
   return (
     <div className="frame-pane" data-slot="pane" data-shows={shows}>
       <div className="frame-pane-body" style={{ width }} hidden={shows !== "pane"}>
-        <Slot id="pane" placeholder={<div className="frame-pane-empty" />} />
+        <Slot id="pane" />
         <PaneEdge view={view} width={width} resize={resize} />
       </div>
       {shows === "strip" && (

@@ -610,6 +610,7 @@
   font-size: 11px;
 }
 
+/* Mid-turn is "not you, but soon": amber, never the needs-you turquoise (0077). */
 .pane-close-turn {
   display: flex;
   align-items: flex-start;
@@ -617,7 +618,7 @@
   margin: 0 0 12px;
   padding: 10px 12px;
   border-radius: 6px;
-  background: var(--st-attn-bg);
+  background: var(--st-paused-bg);
   color: var(--text-primary);
   font-size: 13px;
 }
@@ -625,7 +626,7 @@
 .pane-close-turn .icon {
   flex: none;
   margin-top: 2px;
-  color: var(--st-attn);
+  color: var(--st-paused);
 }
 
 /* The strip's waiting dot under its bot icon (`AjHOL`). */

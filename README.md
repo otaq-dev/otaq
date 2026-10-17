@@ -99,9 +99,10 @@ come, and flags children that touch the same files. It never edits code or merge
 
 ### Project agents and terminals
 
-From **Terminals & agents** you can open a plain terminal in the project, or a **Project agent**: a Claude Code session
-that investigates the codebase and writes Backlog tickets for you, including importing them from your team's tracker
-with your own skills. It reads code but never edits it.
+The **Project agent** sits in the pane left of the board: type a message and a Claude Code session starts on it,
+investigates the codebase and writes Backlog tickets for you, including importing them from your team's tracker with
+your own skills. It reads code but never edits it. **Terminals** on the left rail (⇧⌘T) opens plain terminals in the
+project.
 
 ## A tour of the app
 
@@ -112,7 +113,7 @@ with your own skills. It reads code but never edits it.
 
 ![The board in the Daylight theme](docs/images/board-light.png)
 
-Six columns: Backlog, Ready for Dev, Dev, Ready for Review, Approved and Done. Above them, **Epics in flight** shows one
+Five columns: Backlog, Ready for Dev, Dev, Review (with its Ready for Review and Approved sections) and Done. Above them, **Epics in flight** shows one
 track per active epic, with a stop for each child under the column it's in. Cards show status, priority, what they
 wait for (`waits for NOTE-8 to merge`), validation rounds, recorded decisions and conflicts with the base branch.
 Hover a card to highlight its dependency chain. Turquoise means "needs you", magenta means "in review".

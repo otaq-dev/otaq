@@ -83,8 +83,6 @@ describe("the frame", () => {
     const closed = render(app);
     expect(slots(closed)).toEqual(["header", "rail", "banners", "pane", "board", "overlays", "toasts"]);
     for (const name of ["Header", "Rail", "Board"]) expect(closed).toContain(`>${name}</div>`);
-    // The pane is a quiet empty surface until its screen (T-0330).
-    expect(closed).toContain('<div class="frame-pane-empty"></div>');
     expect(closed).toContain('aria-selected="true"><span class="icon"');
     expect(closed).toContain('<span class="frame-tab-label">Board</span>');
     expect(closed).toContain('<span class="frame-tabs-keys">⇧⌘B · ⇧⌘O</span>');
