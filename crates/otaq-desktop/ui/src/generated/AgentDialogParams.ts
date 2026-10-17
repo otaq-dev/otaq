@@ -3,6 +3,7 @@ import type { AgentDraft } from "./AgentDraft";
 
 /**
  * `settings.agent_dialog`: Edit agent for `id`, Add agent prefilled from `duplicate` ("<name> copy"), else Add
- * agent; `draft` is what the fields hold now (the page sends it on each change for the live checks).
+ * agent; `draft` is what the fields hold now (the page sends it on each change for the live checks). `tool`: the
+ * Tool picker changed to it (`codex`): the model goes back to the tool default and a fallback on that tool goes.
  */
-export type AgentDialogParams = { id: string | null, duplicate: string | null, draft: AgentDraft | null, };
+export type AgentDialogParams = { id: string | null, duplicate: string | null, draft: AgentDraft | null, tool: string | null, };

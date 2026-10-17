@@ -9,8 +9,8 @@
 //! Auto-merge and the Project agent instructions (VAL-13, AMG-01, PAG-03; d0063, d0064, d0068): a project's empty
 //! value uses the global one and says so ("Use global (3)"), and a set one offers "Use global" to empty it again.
 
+use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::connected::SkillUse;
-use otaq_core::agent_tools::{ModelList, Tool};
 use otaq_core::board::projects::ProjectUpdate;
 use otaq_core::board::settings::{
     AutoMerge, EnvVar, GlobalSettings, ProjectSettings, SettingProblem, TERMINAL_FONT_SIZES,
@@ -434,6 +434,8 @@ pub struct ProjectInputs<'a> {
     pub warm: Option<WarmInputs<'a>>,
     /// The name of the project's Project agent (its role's named agent), which Ask the agent asks.
     pub project_agent: &'a str,
+    /// An agent tool is connected: Run command's Ask the agent is hidden only without one (RUN-02, d0086).
+    pub tool_connected: bool,
 }
 
 /// What the warm build switch is drawn from.
@@ -1215,7 +1217,7 @@ pub fn project_page(input: &ProjectInputs) -> Page {
                 ),
             ),
             Row {
-                button: Some(RowButton {
+                button: input.tool_connected.then(|| RowButton {
                     label: crate::view_models::run_page::ASK_LABEL.into(),
                     icon: IconName::Sparkles,
                     tooltip: Some(crate::view_models::run_page::ask_tooltip(
@@ -1306,10 +1308,11 @@ pub fn project_page(input: &ProjectInputs) -> Page {
     }
 }
 
-/// The project's Agents block (AGT-03, d0086; *15 → Project settings → Agents* `mQijC` / `w6fVf`, one-tool form):
-/// collapsed "Uses app defaults · Change" while it overrides nothing; expanded, the four roles, each a picker with
-/// "Use app default (<name>)" first, then the named agents with their model as Settings shows it. A project with an
-/// override opens expanded; Change expands it (the page keeps that).
+/// The project's Agents block (AGT-03, d0086; *15 → Project settings → Agents* `mQijC` / `w6fVf`): collapsed "Uses
+/// app defaults · Change" while it overrides nothing; expanded, the four roles, each a picker with "Use app default
+/// (<name>)" first, then the named agents with their model as Settings shows it, and with several tools connected
+/// their tool too ("Strong · Claude Code · Opus · always the newest", with its avatar). A project with an override
+/// opens expanded; Change expands it (the page keeps that).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ProjectAgentsBlock")]
 pub struct ProjectAgentsBlock {
@@ -1335,21 +1338,21 @@ pub struct ProjectAgentRow {
     pub picker: named_agents::AgentPicker,
 }
 
-/// The block for `project` from `agents.list`, the project's overrides (`project.agent_defaults`) and the cached
-/// model list.
+/// The block for `project` from `agents.list`, the project's overrides (`project.agent_defaults`), the agent tools
+/// and their cached model lists.
 pub fn project_agents_block(
     project: &str,
     agents: &[NamedAgent],
     app: &RoleDefaults,
     own: &RoleDefaults,
-    list: Option<&ModelList>,
+    tools: &named_agents::AgentTools,
 ) -> ProjectAgentsBlock {
     let rows: Vec<ProjectAgentRow> = named_agents::ROLES
         .iter()
         .map(|&role| ProjectAgentRow {
             role: role.into(),
             label: role.label().to_owned(),
-            picker: named_agents::project_picker(agents, app, own, role, list),
+            picker: named_agents::project_picker(agents, app, own, role, tools),
         })
         .collect();
     ProjectAgentsBlock {
@@ -2369,9 +2372,9 @@ mod tests {
         use crate::view_models::named_agents::{RoleId, fixtures};
         use otaq_core::named_agents::Role;
 
-        let list = fixtures::claude_list();
+        let list = named_agents::AgentTools::one(Some(fixtures::claude_list()));
         let (agents, app) = fixtures::made();
-        let b = project_agents_block("BILL", &agents, &app, &RoleDefaults::default(), Some(&list));
+        let b = project_agents_block("BILL", &agents, &app, &RoleDefaults::default(), &list);
         assert!(!b.expanded, "overrides nothing: collapsed");
         assert_eq!(
             (
@@ -2415,7 +2418,7 @@ mod tests {
         // shop-web overrides Developer → Strong: opens expanded, the rest on the app default.
         let mut own = RoleDefaults::default();
         own.set(Role::Developer, Some("strong".into()));
-        let b = project_agents_block("SHOP", &agents, &app, &own, Some(&list));
+        let b = project_agents_block("SHOP", &agents, &app, &own, &list);
         assert!(b.expanded);
         assert_eq!(b.rows[0].role, RoleId::Developer);
         let value = &b.rows[0].picker.value;
@@ -2428,13 +2431,69 @@ mod tests {
 
         // An override on a deleted entry counts as none.
         own.set(Role::Developer, Some("gone".into()));
-        let b = project_agents_block("SHOP", &agents, &app, &own, Some(&list));
+        let b = project_agents_block("SHOP", &agents, &app, &own, &list);
         assert!(!b.expanded);
 
         // One named agent: nothing offers a choice.
         let (fresh, app) = fixtures::fresh();
-        let b = project_agents_block("BILL", &fresh, &app, &RoleDefaults::default(), Some(&list));
+        let b = project_agents_block("BILL", &fresh, &app, &RoleDefaults::default(), &list);
         assert!(b.rows.iter().all(|r| r.picker.read_only));
+        assert!(
+            b.rows
+                .iter()
+                .all(|r| r.picker.options.iter().all(|o| o.tool.is_none())),
+            "no avatars with one tool"
+        );
+    }
+
+    /// The project's Agents block with several tools (`mQijC`): every picker names the agent's tool, with its
+    /// avatar; "Use app default (Verifier)" carries the app default's.
+    #[test]
+    fn the_project_agents_block_names_the_tool_with_several_tools() {
+        use crate::view_models::named_agents::fixtures;
+        use otaq_core::named_agents::Role;
+
+        let (agents, app) = fixtures::several();
+        let mut own = RoleDefaults::default();
+        own.set(Role::Developer, Some("strong".into()));
+        let b = project_agents_block("SHOP", &agents, &app, &own, &fixtures::tools(Tool::ALL));
+        let developer = &b.rows[0].picker;
+        assert_eq!(
+            (
+                developer.value.name.as_str(),
+                developer.value.model.as_deref(),
+                developer.value.tool.as_ref().map(|t| t.letters.as_str())
+            ),
+            (
+                "Strong",
+                Some("Claude Code · Opus · always the newest"),
+                Some("CC")
+            )
+        );
+        let validator = &b.rows[1].picker.value;
+        assert_eq!(validator.name, "Use app default (Verifier)");
+        assert_eq!(
+            validator.tool.as_ref().map(|t| t.letters.as_str()),
+            Some("CP")
+        );
+        let models: Vec<Option<&str>> = developer
+            .options
+            .iter()
+            .map(|o| o.model.as_deref())
+            .collect();
+        assert_eq!(
+            models,
+            [
+                None,
+                Some("Claude Code · Opus · always the newest"),
+                Some("Codex · gpt-5.5"),
+                Some("Claude Code · Haiku · always the newest"),
+                Some("GitHub Copilot · gpt-5.5"),
+                Some("Codex · gpt-5.5-pro"),
+                Some("Claude Code · Sonnet · always the newest"),
+                Some("OpenCode · google/gemini-3-pro"),
+            ]
+        );
     }
 
     /// The Usage section has only the token count: the dollar estimate is gone (d0086).
@@ -2538,6 +2597,7 @@ mod tests {
             global,
             warm: None,
             project_agent: "Claude Code",
+            tool_connected: true,
         }) else {
             panic!()
         };
@@ -2872,6 +2932,7 @@ mod tests {
             global: &GlobalSettings::default(),
             warm: None,
             project_agent: "Strong",
+            tool_connected: true,
         });
         let Page::Project {
             title, sections, ..
@@ -2893,6 +2954,25 @@ mod tests {
             }),
             "the Project agent's named agent is asked (d0086)"
         );
+        // With no agent tool connected there is nobody to ask (RUN-02, d0086).
+        let page = project_page(&ProjectInputs {
+            info: &info(),
+            settings: &s,
+            problems: &problems,
+            global: &GlobalSettings::default(),
+            warm: None,
+            project_agent: "Strong",
+            tool_connected: false,
+        });
+        let Page::Project { sections, .. } = page else {
+            panic!()
+        };
+        let run = sections
+            .iter()
+            .flat_map(|s| &s.rows)
+            .find(|r| r.field == "run_command")
+            .unwrap();
+        assert_eq!(run.button, None);
         let url = rows.iter().find(|r| r.field == "open_url").unwrap();
         assert!(
             matches!(&url.control, Control::Text { problem: Some(p), .. } if p == "localhost isn't a URL")
@@ -2978,6 +3058,7 @@ mod tests {
             global: &GlobalSettings::default(),
             warm: None,
             project_agent: "Claude Code",
+            tool_connected: true,
         }) else {
             panic!()
         };
@@ -3253,6 +3334,7 @@ mod tests {
                 now: NOW,
             }),
             project_agent: "Claude Code",
+            tool_connected: true,
         }) else {
             panic!()
         };

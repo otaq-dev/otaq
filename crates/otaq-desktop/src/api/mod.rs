@@ -106,9 +106,9 @@ pub use sections::{
 };
 #[cfg(test)]
 pub use settings::{
-    AgentDefaultSet, AgentDeleteOutcome, AgentDialogParams, AgentIdParams, AgentSaveOutcome,
-    AgentSaveParams, AgentsOpen, ProjectAgentDefaultSet, SettingsEdit, SettingsLink, SettingsOpen,
-    SettingsProject, SettingsRevealParams,
+    AgentDefaultSet, AgentDeleteOutcome, AgentDialogParams, AgentIdParams, AgentModelsRetry,
+    AgentSaveOutcome, AgentSaveParams, AgentsOpen, AutoFallbackSet, ProjectAgentDefaultSet,
+    SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams,
 };
 #[cfg(test)]
 pub use shell::{

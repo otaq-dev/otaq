@@ -5,11 +5,11 @@
 
 use otaq_core::board::settings::{GlobalSettings, ProjectSettings, SettingProblem, WorkflowStep};
 use otaq_core::board::snapshot::ProjectInfo;
-use otaq_core::agent_tools::ModelList;
+use otaq_core::agent_tools::Tool;
 use otaq_core::board::Refusal;
-use otaq_core::named_agents::{AgentFields, AgentList};
+use otaq_core::named_agents::AgentList;
 use otaq_core::protocol::{
-    AgentDefaultParams, AgentEditParams, IdParams, KeyParams, ModelsParams,
+    AgentDefaultParams, AgentEditParams, AutoFallbackParams, IdParams, KeyParams, ModelsParams,
     ProjectAgentDefaultParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply,
     Request, WorkflowSkillsParams,
 };
@@ -66,6 +66,28 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             reply(&agents_section(app, p.refresh).await?)
         }
         "settings.agent_dialog" => reply(&agent_dialog(app, parse(params)?).await?),
+        // The picker's Retry (`GTuGI`): reads the tool's list again, then the dialog as it was (T-0361).
+        "settings.agent_models_retry" => {
+            let p: AgentModelsRetry = parse(params)?;
+            let copy = match app
+                .service
+                .send(Request::AgentsModelsRetry(ModelsParams { tool: p.tool }))
+                .await?
+            {
+                Reply::Models(copy) => copy,
+                other => return Err(unexpected("agents.models_retry", &other)),
+            };
+            visit(app).read(p.tool, copy.is_some());
+            reply(&agent_dialog(app, p.dialog).await?)
+        }
+        // "Use fallback agents automatically" (AGT-08; T-0361).
+        "settings.auto_fallback" => {
+            let p: AutoFallbackSet = parse(params)?;
+            app.service
+                .send(Request::SettingsAutoFallback(AutoFallbackParams { on: p.on }))
+                .await?;
+            reply(&agents_section(app, false).await?)
+        }
         "settings.agent_save" => reply(&agent_save(app, parse(params)?).await?),
         "settings.agent_delete_dialog" => {
             let p: AgentIdParams = parse(params)?;
@@ -173,7 +195,8 @@ pub struct AgentsOpen {
 }
 
 /// `settings.agent_dialog`: Edit agent for `id`, Add agent prefilled from `duplicate` ("<name> copy"), else Add
-/// agent; `draft` is what the fields hold now (the page sends it on each change for the live checks).
+/// agent; `draft` is what the fields hold now (the page sends it on each change for the live checks). `tool`: the
+/// Tool picker changed to it (`codex`): the model goes back to the tool default and a fallback on that tool goes.
 #[derive(Debug, Clone, Default, Deserialize, TS)]
 pub struct AgentDialogParams {
     #[serde(default)]
@@ -182,6 +205,24 @@ pub struct AgentDialogParams {
     pub duplicate: Option<String>,
     #[serde(default)]
     pub draft: Option<named_agents::Draft>,
+    #[serde(default)]
+    #[ts(type = "string | null")]
+    pub tool: Option<Tool>,
+}
+
+/// `settings.agent_models_retry`: the picker's Retry for `tool`, then the dialog of `dialog`.
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct AgentModelsRetry {
+    #[ts(type = "string")]
+    pub tool: Tool,
+    #[serde(default)]
+    pub dialog: AgentDialogParams,
+}
+
+/// `settings.auto_fallback`: the Fallbacks block's checkbox.
+#[derive(Debug, Clone, Copy, Deserialize, TS)]
+pub struct AutoFallbackSet {
+    pub on: bool,
 }
 
 /// `settings.agent_save`: Add agent (`id` none) or Save.
@@ -247,30 +288,62 @@ async fn agent_list(app: &App) -> Result<AgentList, RequestError> {
     }
 }
 
-/// Otaq's copy of the tool's model list (T-0335), read again first when `refresh`. `None` before the first read.
-async fn model_list(app: &App, refresh: bool) -> Result<Option<ModelList>, RequestError> {
-    let params = ModelsParams {
-        tool: named_agents::new_entry_tool(),
-    };
-    let request = if refresh {
-        Request::AgentsModelsRefresh(params)
-    } else {
-        Request::AgentsModels(params)
-    };
-    match app.service.send(request).await? {
-        Reply::Models(copy) => Ok(copy.map(|c| c.list)),
-        other => Err(unexpected("agents.models", &other)),
-    }
+/// What the page keeps while Settings → Agents is open.
+fn visit(app: &App) -> std::sync::MutexGuard<'_, named_agents::Visit> {
+    app.agents_visit.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// The agent tools (`agent_tools.list`; the avatars follow it), each tool's cached model list (T-0335), the connected
+/// ones read again first when `refresh`, and the tools whose read gave none. When the tools can't be listed, the
+/// first one counts as connected, as before M23.
+async fn agent_tools(app: &App, refresh: bool) -> Result<named_agents::AgentTools, RequestError> {
+    let connected: Vec<Tool> = match super::agent_tools::list(app, Request::AgentToolsList).await {
+        Ok(list) => list
+            .tools
+            .iter()
+            .filter(|t| t.state.is_connected())
+            .map(|t| t.tool)
+            .collect(),
+        Err(_) => vec![named_agents::new_entry_tool()],
+    };
+    let mut lists = Vec::new();
+    for &tool in Tool::ALL {
+        let read = refresh && connected.contains(&tool);
+        let params = ModelsParams { tool };
+        let request = if read {
+            Request::AgentsModelsRefresh(params)
+        } else {
+            Request::AgentsModels(params)
+        };
+        let copy = match app.service.send(request).await? {
+            Reply::Models(copy) => copy.map(|c| c.list),
+            other => return Err(unexpected("agents.models", &other)),
+        };
+        if read {
+            visit(app).read(tool, copy.is_some());
+        }
+        lists.extend(copy.map(|list| (tool, list)));
+    }
+    Ok(named_agents::AgentTools {
+        connected,
+        lists,
+        failed: visit(app).failed(),
+    })
+}
+
+/// The section; `refresh` is the page opening: it notes the entries there are and reads the connected tools' lists.
 async fn agents_section(app: &App, refresh: bool) -> Result<named_agents::Section, RequestError> {
-    let models = model_list(app, refresh).await?;
     let list = agent_list(app).await?;
-    Ok(named_agents::section(&list.agents, &list.defaults, models.as_ref()))
+    if refresh {
+        visit(app).open(&list.agents);
+    }
+    let tools = agent_tools(app, refresh).await?;
+    let page = visit(app).page(&list.agents, list.auto_fallback);
+    Ok(named_agents::section(&list.agents, &list.defaults, &tools, &page))
 }
 
 async fn agent_dialog(app: &App, p: AgentDialogParams) -> Result<named_agents::Dialog, RequestError> {
-    let models = model_list(app, false).await?;
+    let tools = agent_tools(app, false).await?;
     let list = agent_list(app).await?;
     let draft = match (p.draft, &p.id, p.duplicate) {
         (Some(draft), _, _) => draft,
@@ -287,53 +360,47 @@ async fn agent_dialog(app: &App, p: AgentDialogParams) -> Result<named_agents::D
         {
             Reply::AgentDraft(fields) => named_agents::Draft {
                 name: fields.name,
+                tool: Some(fields.tool),
                 model: fields.model,
                 use_for: fields.use_for,
+                fallback: fields.fallback,
             },
             other => return Err(unexpected("agents.duplicate", &other)),
         },
         (None, None, None) => named_agents::Draft::default(),
     };
+    let draft = match p.tool {
+        Some(tool) => named_agents::change_tool(draft, tool, &list.agents, p.id.as_deref()),
+        None => draft,
+    };
     Ok(named_agents::dialog(
         &list.agents,
         p.id.as_deref(),
         draft,
-        models.as_ref(),
+        &tools,
         None,
     ))
 }
 
 async fn agent_save(app: &App, p: AgentSaveParams) -> Result<AgentSaveOutcome, RequestError> {
     let list = agent_list(app).await?;
-    let models = model_list(app, false).await?;
+    let tools = agent_tools(app, false).await?;
     let refused = |e: Option<(&str, &str)>, draft| {
         AgentSaveOutcome::Refused {
             dialog: Box::new(named_agents::dialog(
                 &list.agents,
                 p.id.as_deref(),
                 draft,
-                models.as_ref(),
+                &tools,
                 e,
             )),
         }
     };
-    let checked = named_agents::dialog(&list.agents, p.id.as_deref(), p.draft.clone(), models.as_ref(), None);
+    let checked = named_agents::dialog(&list.agents, p.id.as_deref(), p.draft.clone(), &tools, None);
     if !checked.save_enabled {
         return Ok(refused(None, p.draft));
     }
-    let editing = p
-        .id
-        .as_ref()
-        .and_then(|id| list.agents.iter().find(|a| a.id == *id));
-    let tool = editing.map_or_else(named_agents::new_entry_tool, |a| a.tool);
-    let fields = AgentFields {
-        name: p.draft.name.trim().to_owned(),
-        tool,
-        model: p.draft.model.clone(),
-        use_for: p.draft.use_for.clone(),
-        // The dialog has no Fallback field yet (T-0361): an edit keeps the entry's.
-        fallback: editing.and_then(|a| a.fallback.clone()),
-    };
+    let fields = named_agents::fields(&p.draft, &list.agents, p.id.as_deref(), &tools);
     let request = match &p.id {
         Some(id) => Request::AgentsEdit(AgentEditParams {
             id: id.clone(),
@@ -342,9 +409,17 @@ async fn agent_save(app: &App, p: AgentSaveParams) -> Result<AgentSaveOutcome, R
         None => Request::AgentsAdd(fields),
     };
     match app.service.send(request).await {
-        Ok(_) => Ok(AgentSaveOutcome::Saved {
-            section: Box::new(agents_section(app, false).await?),
-        }),
+        Ok(answer) => {
+            // The user's own new entry is never marked "added".
+            if let Reply::Agent(agent) = &answer
+                && p.id.is_none()
+            {
+                visit(app).added_by_user(&agent.id);
+            }
+            Ok(AgentSaveOutcome::Saved {
+                section: Box::new(agents_section(app, false).await?),
+            })
+        }
         Err(e) => {
             match e.refusal.as_deref() {
                 Some(code) => Ok(refused(Some((code, &e.message)), p.draft)),
@@ -389,7 +464,7 @@ async fn agent_delete(app: &App, id: &str) -> Result<AgentDeleteOutcome, Request
 }
 
 async fn project_agents(app: &App, project: &str) -> Result<page::ProjectAgentsBlock, RequestError> {
-    let models = model_list(app, false).await?;
+    let tools = agent_tools(app, false).await?;
     let list = agent_list(app).await?;
     let request = Request::ProjectAgentDefaults(ProjectParams {
         project: project.to_owned(),
@@ -403,7 +478,7 @@ async fn project_agents(app: &App, project: &str) -> Result<page::ProjectAgentsB
         &list.agents,
         &list.defaults,
         &own,
-        models.as_ref(),
+        &tools,
     ))
 }
 
@@ -475,6 +550,11 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
             let project_agent = otaq_view::view_models::agent_pane::new_agent_name(
                 super::pane::project_agent(app, &info.key).await?.as_ref(),
             );
+            // Ask the agent is hidden only when no agent tool is connected (RUN-02, d0086).
+            let tool_connected = match super::agent_tools::list(app, Request::AgentToolsList).await {
+                Ok(list) => list.tools.iter().any(|t| t.state.is_connected()),
+                Err(_) => true,
+            };
             page::project_page(&ProjectInputs {
                 info: &info,
                 settings: &p_settings,
@@ -485,6 +565,7 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
                     now: otaq_core::store::now_ms(),
                 }),
                 project_agent: &project_agent,
+                tool_connected,
             })
         }
         None => {
@@ -803,6 +884,16 @@ mod tests {
                 .clone()
         };
         let view = open().await.unwrap();
+        // No agent tool is connected in the test service: Run command has no Ask the agent (RUN-02, d0086).
+        let run = view["page"]["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|s| s["rows"].as_array().unwrap())
+            .find(|r| r["field"] == "run_command")
+            .unwrap()
+            .clone();
+        assert_eq!(run["button"], Value::Null);
         let control = switch(&view);
         assert_eq!(control["kind"], "warm_build");
         // On every disk (M19-b): where it can't clone, the build is handed over instead.
@@ -860,9 +951,22 @@ mod tests {
                 json!({ "draft": { "name": name, "model": null, "use_for": "Everything" } }),
             )
         };
+        // No tool is connected in the test service: one-tool columns, the checkbox disabled with its reason.
+        assert_eq!(section["fallbacks"]["enabled"], false);
+        assert_eq!(section["fallbacks"]["on"], false);
+        assert_eq!(
+            section["fallbacks"]["note"],
+            "Disabled: a fallback must be on another tool. Connect a second agent tool to use fallbacks."
+        );
         let saved = add("Claude Code").await.unwrap();
         assert_eq!(saved["outcome"], "saved");
         assert_eq!(saved["section"]["rows"][0]["model"], "Tool default");
+        assert_eq!(
+            saved["section"]["rows"][0]["tool_problem"],
+            "Claude Code isn't connected · its tickets wait"
+        );
+        // The user's own entry isn't "added" (a tool connecting adds those).
+        assert_eq!(saved["section"]["rows"][0]["added"], Value::Null);
         assert_eq!(saved["section"]["fresh_note"]["title"], "One agent, so nothing picks yet");
         let cc = saved["section"]["rows"][0]["id"].as_str().unwrap().to_owned();
         assert_eq!(saved["section"]["rows"][0]["menu"][2]["enabled"], false, "the last agent");
@@ -880,6 +984,31 @@ mod tests {
         assert_eq!(live["save_enabled"], false);
         assert_eq!(live["title"], "Add agent");
         assert_eq!(live["tool"], "Claude Code");
+        assert_eq!(live["fallback"], Value::Null, "no Fallback field with one tool");
+        // The Tool picker's change: the model goes back to the tool default.
+        let moved = ask(
+            "settings.agent_dialog",
+            json!({ "draft": { "name": "X", "model": "opus" }, "tool": "codex" }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(moved["draft"]["tool"], "codex");
+        assert_eq!(moved["draft"]["model"], Value::Null);
+        assert_eq!(moved["tool"], "Codex");
+        // Retry: the test service reads no list, so the picker says it couldn't load it.
+        let retried = ask(
+            "settings.agent_models_retry",
+            json!({ "tool": "codex", "dialog": { "draft": { "name": "X", "tool": "codex" } } }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(retried["picker"]["status"]["text"], "Couldn't load Codex's models");
+        assert_eq!(retried["picker"]["status"]["retry_tool"], "codex");
+        // The checkbox is stored (the service, d0086) and comes back on the section.
+        let on = ask("settings.auto_fallback", json!({ "on": true })).await.unwrap();
+        assert_eq!(on["fallbacks"]["on"], true);
+        let off = ask("settings.auto_fallback", json!({ "on": false })).await.unwrap();
+        assert_eq!(off["fallbacks"]["on"], false);
 
         let light = add("Light").await.unwrap()["section"]["rows"][1]["id"]
             .as_str()

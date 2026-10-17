@@ -5,6 +5,14 @@
  */
 export type AgentDraft = { name: string, 
 /**
+ * The tool, as stored (`codex`); `None` = the entry's own, or the first connected tool for a new one.
+ */
+tool: string | null, 
+/**
  * `None` = tool default.
  */
-model: string | null, use_for: string, };
+model: string | null, use_for: string, 
+/**
+ * The fallback entry's id; `None` = none.
+ */
+fallback: string | null, };

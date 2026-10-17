@@ -566,11 +566,14 @@ pub struct AgentFields {
     pub fallback: Option<String>,
 }
 
-/// The answer to `agents.list`: every entry (oldest first, the starter entry first) and the app-wide defaults.
+/// The answer to `agents.list`: every entry (oldest first, the starter entry first), the app-wide defaults, and
+/// "Use fallback agents automatically" (AGT-08, off by default; Settings → Agents shows it).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentList {
     pub agents: Vec<NamedAgent>,
     pub defaults: RoleDefaults,
+    #[serde(default)]
+    pub auto_fallback: bool,
 }
 
 /// What `agents.delete` did: deleted, or refused because the entry is in use (the parts for the dialog, `O7UTA`).
@@ -602,6 +605,10 @@ impl NamedAgents {
         Ok(AgentList {
             agents: store.named_agents().await?,
             defaults: store.agent_defaults().await?,
+            auto_fallback: store
+                .setting(crate::store::settings::AUTO_FALLBACK)
+                .await?
+                .is_some_and(|v| v.trim() == "true"),
         })
     }
 

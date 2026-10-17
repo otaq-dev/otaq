@@ -254,6 +254,26 @@ const EXCEPTIONS: &[Exception] = &[
         reason: "`tool_variants`, the M23 cards' sample tools for tests and the design gallery (T-0362)",
     },
     Exception {
+        path: "otaq-view/src/view_models/named_agents.rs",
+        pattern: "Tool::Claude",
+        reason: "`fixtures`, Settings → Agents' sample entries and model lists on every tool for tests and the design gallery (T-0361)",
+    },
+    Exception {
+        path: "otaq-view/src/view_models/named_agents.rs",
+        pattern: "Tool::Codex",
+        reason: "`fixtures`, Settings → Agents' sample entries and model lists on every tool for tests and the design gallery (T-0361)",
+    },
+    Exception {
+        path: "otaq-view/src/view_models/named_agents.rs",
+        pattern: "Tool::Copilot",
+        reason: "`fixtures`, Settings → Agents' sample entries and model lists on every tool for tests and the design gallery (T-0361)",
+    },
+    Exception {
+        path: "otaq-view/src/view_models/named_agents.rs",
+        pattern: "Tool::OpenCode",
+        reason: "`fixtures`, Settings → Agents' sample entries and model lists on every tool for tests and the design gallery (T-0361)",
+    },
+    Exception {
         path: "otaq-view/src/view_models/lead_tab.rs",
         pattern: "Tool::Claude",
         reason: "the lead tab's fixtures, for tests and the design gallery",

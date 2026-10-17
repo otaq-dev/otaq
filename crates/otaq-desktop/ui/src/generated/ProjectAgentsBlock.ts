@@ -2,10 +2,11 @@
 import type { ProjectAgentRow } from "./ProjectAgentRow";
 
 /**
- * The project's Agents block (AGT-03, d0086; *15 → Project settings → Agents* `mQijC` / `w6fVf`, one-tool form):
- * collapsed "Uses app defaults · Change" while it overrides nothing; expanded, the four roles, each a picker with
- * "Use app default (<name>)" first, then the named agents with their model as Settings shows it. A project with an
- * override opens expanded; Change expands it (the page keeps that).
+ * The project's Agents block (AGT-03, d0086; *15 → Project settings → Agents* `mQijC` / `w6fVf`): collapsed "Uses
+ * app defaults · Change" while it overrides nothing; expanded, the four roles, each a picker with "Use app default
+ * (<name>)" first, then the named agents with their model as Settings shows it, and with several tools connected
+ * their tool too ("Strong · Claude Code · Opus · always the newest", with its avatar). A project with an override
+ * opens expanded; Change expands it (the page keeps that).
  */
 export type ProjectAgentsBlock = { project: string, 
 /**
