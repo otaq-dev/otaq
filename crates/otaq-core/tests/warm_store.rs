@@ -135,7 +135,7 @@ fn changed(project: &str) -> Event {
 }
 
 #[tokio::test]
-async fn warm_builds_are_on_by_default_where_the_disk_can_clone() {
+async fn warm_builds_are_on_by_default_on_any_disk() {
     let w = world(true).await;
     let shop = w.add_project("shop-web").await;
     assert!(w.warm.enabled("SHOP").await.unwrap());
@@ -153,14 +153,22 @@ async fn warm_builds_are_on_by_default_where_the_disk_can_clone() {
     );
     w.stop().await;
 
-    // A disk that can't clone: off whatever the switch says, and the reason is in `warm.list`.
+    // A disk that can't clone (M19-b): the switch decides there too; builds are renamed, and `warm.list` says so.
     let w = world(false).await;
     w.add_project("shop-web").await;
     assert!(w.board.project_settings("SHOP").await.unwrap().warm_builds);
+    assert!(w.warm.enabled("SHOP").await.unwrap());
+    let mut settings = w.board.project_settings("SHOP").await.unwrap();
+    settings.warm_builds = false;
+    w.board
+        .set_project_settings("SHOP", &settings)
+        .await
+        .unwrap();
     assert!(!w.warm.enabled("SHOP").await.unwrap());
     let c = client(&w).await;
     let listed = list(&c).await;
     assert_eq!(listed.support, support(false));
+    assert_eq!(listed.mode, HandoffMode::Move);
     assert!(listed.builds.is_empty());
     w.stop().await;
 }

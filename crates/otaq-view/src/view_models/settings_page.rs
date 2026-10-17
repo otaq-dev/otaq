@@ -271,7 +271,8 @@ pub enum Control {
     /// toggle; turning it off first asks `confirm` when there is one (only when it would delete a warm build).
     WarmBuild {
         on: bool,
-        /// The data folder's disk can't clone: drawn off and disabled, `reason` under it and in its tooltip.
+        /// Drawn off and disabled, `reason` under it and in its tooltip. Never set since M19-b: the switch works on
+        /// every disk (where the disk can't clone, the build is handed over).
         disabled: bool,
         reason: Option<String>,
         /// "Clearing… (waiting for SHOP-21’s copy)" while the cleared warm build waits for a seed.
@@ -1238,74 +1239,46 @@ pub fn env_vars_row(s: &ProjectSettings, problems: &[SettingProblem]) -> Row {
 }
 
 /// The warm build switch (WRM-05, WRM-06; d0082; *15 → Row · Start new worktrees from a warm build (0082)*), on by
-/// default. Where the data folder's disk can't clone it is drawn off and disabled with the reason, and the stored
-/// setting stays as it is. Turning it off asks only when it would delete the project's warm build; while that Clear
-/// waits for a seed, the row says so. It names no build tool.
+/// default, on every disk (M19-b, d0085). Where the data folder's disk can't clone, the description says the build is
+/// handed over (renamed) to the next ticket instead. Turning it off asks only when it would delete the project's warm
+/// build; while that Clear waits for a seed, the row says so. It names no build tool.
 pub fn warm_builds_row(info: &ProjectInfo, s: &ProjectSettings, warm: Option<WarmInputs>) -> Row {
-    let control = match warm {
-        Some(w) if !w.list.support.available => Control::WarmBuild {
-            on: false,
-            disabled: true,
-            reason: Some(unavailable_reason(&w.list.support)),
-            clearing: None,
-            confirm: None,
-        },
+    let build = warm.and_then(|w| {
+        w.list
+            .builds
+            .iter()
+            .find(|b| b.project.as_deref() == Some(info.key.as_str()))
+            .map(|b| (b, w.now))
+    });
+    let clearing = build
+        .filter(|(b, _)| b.status.clearing)
+        .map(|(b, _)| warm_build::waiting(&b.status.copying));
+    let control = Control::WarmBuild {
+        on: s.warm_builds,
+        disabled: false,
+        reason: None,
+        confirm: build
+            .filter(|_| s.warm_builds && clearing.is_none())
+            .map(|(b, now)| turn_off_confirm(&info.name, b, now)),
+        clearing,
+    };
+    let description = match warm {
+        Some(w) if !w.list.support.available => HANDED_OVER,
         _ => {
-            let build = warm.and_then(|w| {
-                w.list
-                    .builds
-                    .iter()
-                    .find(|b| b.project.as_deref() == Some(info.key.as_str()))
-                    .map(|b| (b, w.now))
-            });
-            let clearing = build
-                .filter(|(b, _)| b.status.clearing)
-                .map(|(b, _)| warm_build::waiting(&b.status.copying));
-            Control::WarmBuild {
-                on: s.warm_builds,
-                disabled: false,
-                reason: None,
-                confirm: build
-                    .filter(|_| s.warm_builds && clearing.is_none())
-                    .map(|(b, now)| turn_off_confirm(&info.name, b, now)),
-                clearing,
-            }
+            "New tickets start from the last finished ticket’s build, so their first build only redoes what changed."
         }
     };
     row(
         "warm_builds",
         "Start new worktrees from a warm build",
-        "New tickets start from the last finished ticket’s build, so their first build only redoes what changed.",
+        description,
         control,
     )
 }
 
-/// "Unavailable on this disk: C: (NTFS) can’t make copy-on-write copies, so new worktrees build from nothing."
-pub fn unavailable_reason(support: &CloneSupport) -> String {
-    let fs = file_system_name(&support.file_system);
-    let disk = match (support.volume.as_str(), fs.as_str()) {
-        ("", "") => "it".to_owned(),
-        (volume, "") => volume.to_owned(),
-        ("", fs) => fs.to_owned(),
-        (volume, fs) => format!("{volume} ({fs})"),
-    };
-    format!(
-        "Unavailable on this disk: {disk} can’t make copy-on-write copies, so new worktrees build from nothing."
-    )
-}
-
-/// The file system as people write it: macOS names them in lower case (`exfat`, `apfs`).
-fn file_system_name(name: &str) -> String {
-    match name {
-        "apfs" => "APFS",
-        "exfat" => "exFAT",
-        "msdos" => "FAT",
-        "hfs" => "HFS+",
-        "ntfs" => "NTFS",
-        other => other,
-    }
-    .to_owned()
-}
+/// The warm build switch's description where the disk can't clone (plan §4.3): builds are renamed, not cloned.
+pub const HANDED_OVER: &str =
+    "This disk can’t copy-on-write; the build is handed over to the next ticket.";
 
 /// *Warm build · turning off · confirm (0082)*: the same shape as Cleanup's Clear… confirmation.
 fn turn_off_confirm(name: &str, b: &WarmBuildInfo, now: i64) -> WarmConfirmPage {
@@ -1403,21 +1376,21 @@ pub fn warm_switch_gallery() -> WarmSwitchGallery {
             Some(build(copying)),
         ),
         (
-            "unavailable · Windows",
+            "handed over · Windows NTFS",
             "shop-web",
             true,
             support(false, "NTFS", "C:"),
             None,
         ),
         (
-            "unavailable · Linux",
+            "handed over · Linux ext4",
             COMMAND_NAME,
             true,
             support(false, "ext4", "/home"),
             None,
         ),
         (
-            "unavailable · macOS exFAT disk",
+            "handed over, off · macOS exFAT disk",
             "shop-web",
             false,
             support(false, "exfat", "/Volumes/Untitled"),
@@ -1441,8 +1414,8 @@ pub fn warm_switch_gallery() -> WarmSwitchGallery {
                     ..ProjectSettings::default()
                 };
                 let list = WarmList {
+                    mode: otaq_core::ticket_env::handoff::HandoffMode::of(&support),
                     support,
-                    mode: Default::default(),
                     builds: build.into_iter().collect(),
                 };
                 WarmSwitchCell {
@@ -2823,38 +2796,47 @@ mod tests {
     }
 
     #[test]
-    fn the_warm_build_switch_is_unavailable_where_the_disk_cant_clone() {
-        let unavailable = |file_system: &str, volume: &str| CloneSupport {
+    fn where_the_disk_cant_clone_the_switch_works_and_the_build_is_handed_over() {
+        let cannot = |file_system: &str, volume: &str| CloneSupport {
             available: false,
             file_system: file_system.into(),
             volume: volume.into(),
         };
-        for (support, disk) in [
-            (unavailable("NTFS", "C:"), "C: (NTFS)"),
-            (unavailable("ext4", "/home"), "/home (ext4)"),
-            (
-                unavailable("exfat", "/Volumes/Untitled"),
-                "/Volumes/Untitled (exFAT)",
-            ),
-            (unavailable("", "C:"), "C:"),
-            (unavailable("ext4", ""), "ext4"),
-            (unavailable("", ""), "it"),
+        for support in [
+            cannot("NTFS", "C:"),
+            cannot("ext4", "/home"),
+            cannot("exfat", "/Volumes/Untitled"),
+            cannot("", ""),
         ] {
-            // The stored setting stays on; it is drawn off and disabled, never hidden.
-            let row = warm_row(true, support, Vec::new());
+            // The switch is the stored setting, enabled; the description says the build is renamed (M19-b).
+            let row = warm_row(true, support.clone(), Vec::new());
+            assert_eq!(
+                row.description,
+                "This disk can’t copy-on-write; the build is handed over to the next ticket."
+            );
             assert_eq!(
                 row.control,
                 Control::WarmBuild {
-                    on: false,
-                    disabled: true,
-                    reason: Some(format!(
-                        "Unavailable on this disk: {disk} can’t make copy-on-write copies, so new worktrees build \
-                         from nothing."
-                    )),
+                    on: true,
+                    disabled: false,
+                    reason: None,
                     clearing: None,
                     confirm: None,
                 }
             );
+            let Control::WarmBuild { on, .. } =
+                warm_row(false, support.clone(), Vec::new()).control
+            else {
+                panic!()
+            };
+            assert!(!on);
+            // Turning it off with a build in the stock asks first, as where the disk can clone.
+            let Control::WarmBuild { confirm, .. } =
+                warm_row(true, support, vec![shop_build(&[], false)]).control
+            else {
+                panic!()
+            };
+            assert!(confirm.is_some());
         }
     }
 

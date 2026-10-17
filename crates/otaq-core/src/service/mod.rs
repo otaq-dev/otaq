@@ -403,7 +403,9 @@ impl Service {
         starter.set_deliveries(deliveries.clone());
         starter.set_seeder(crate::warm::seed::Seeder::new(
             warm.clone(),
+            crate::ticket_env::stock::Stock::new(warm.clone(), board.clone()),
             Arc::new(crate::warm::clone::FsCloner),
+            Arc::new(crate::ticket_env::handoff::FsMover),
         ));
         // A child going idle with the lead's unread note gets it typed in instead (LEAD-10); else its first Idle
         // stop goes to its live lead once (LEAD-07).

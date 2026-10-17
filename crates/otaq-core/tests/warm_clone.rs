@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use otaq_core::data_dir::DataDir;
-use otaq_core::warm::clone::{CloneError, CloneProbe, CloneSupport, clone_tree, move_tree, probe};
+use otaq_core::warm::clone::{
+    CloneError, CloneProbe, CloneSupport, clone_tree, move_tree, move_tree_or_back, probe,
+};
 
 /// 2001-09-09, well before any file the test writes.
 fn old_time() -> SystemTime {
@@ -319,6 +321,80 @@ fn move_tree_renames_the_listed_paths() {
 }
 
 #[test]
+fn move_tree_or_back_moves_everything_or_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let worktree = tmp.path().join("worktree");
+    build_tree(&worktree);
+    let incoming = tmp.path().join("warm/shop-web.incoming");
+    // The second path's destination is there already: the first, moved by then, goes back.
+    write(&incoming.join("tools/run.sh"), "in the way");
+    let only = [PathBuf::from("out/deep/nested"), PathBuf::from("tools")];
+    let before = fs::symlink_metadata(worktree.join("out/deep/nested/obj.bin")).unwrap();
+
+    let err = move_tree_or_back(&worktree, &incoming, Some(&only)).unwrap_err();
+
+    assert!(
+        matches!(&err, CloneError::Io { error, .. } if error.kind() == std::io::ErrorKind::AlreadyExists),
+        "{err}"
+    );
+    let back = fs::symlink_metadata(worktree.join("out/deep/nested/obj.bin")).unwrap();
+    assert_eq!(before.modified().unwrap(), back.modified().unwrap());
+    assert!(worktree.join("tools/run.sh").exists());
+    // The parent folders it made for the first path are gone again; what was there stays.
+    assert!(!incoming.join("out").exists());
+    assert_eq!(
+        fs::read_to_string(incoming.join("tools/run.sh")).unwrap(),
+        "in the way"
+    );
+
+    // Out of the way, everything moves.
+    fs::remove_dir_all(incoming.join("tools")).unwrap();
+    move_tree_or_back(&worktree, &incoming, Some(&only)).unwrap();
+    assert!(!worktree.join("out/deep/nested").exists() && !worktree.join("tools").exists());
+    assert!(incoming.join("out/deep/nested/obj.bin").exists());
+    assert!(incoming.join("tools/run.sh").exists());
+    // A path outside the folder is refused before anything moves.
+    let outside = [PathBuf::from("out/deep/info.txt"), PathBuf::from("../x")];
+    assert!(move_tree_or_back(&worktree, &incoming, Some(&outside)).is_err());
+    assert!(worktree.join("out/deep/info.txt").exists());
+}
+
+/// Another disk: `CLONE_PROBE_DIR` when set, else the build's temporary folder, which is on another disk than the
+/// system's temporary folder on some machines (the test says so and passes where it isn't).
+#[test]
+fn a_move_to_another_disk_is_unsupported_and_leaves_the_source() {
+    let other = std::env::var_os("CLONE_PROBE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_TARGET_TMPDIR")));
+    fs::create_dir_all(&other).unwrap();
+    let there = tempfile::tempdir_in(&other).unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let marker = tmp.path().join("same-disk");
+    write(&marker, "x");
+    if fs::rename(&marker, there.path().join("same-disk")).is_ok() {
+        eprintln!(
+            "skipped: {} and {} are on the same disk",
+            tmp.path().display(),
+            other.display()
+        );
+        return;
+    }
+    let from = tmp.path().join("from");
+    build_tree(&from);
+    let to = there.path().join("moved");
+    let only = [PathBuf::from("tools"), PathBuf::from("out")];
+
+    let moved = move_tree_or_back(&from, &to, Some(&only));
+
+    assert!(
+        matches!(moved, Err(CloneError::Unsupported { .. })),
+        "{moved:?}"
+    );
+    assert!(from.join("tools/run.sh").exists() && from.join("out/deep/info.txt").exists());
+    assert!(!to.exists(), "nothing is left on the other disk");
+}
+
+#[test]
 fn the_probe_answers_for_the_test_disk_and_cleans_up() {
     let tmp = tempfile::tempdir().unwrap();
     let data = DataDir::new(tmp.path().join("data"));
@@ -389,5 +465,13 @@ fn probe_and_refusals_on_another_disk() {
     println!("move into it: {moved:?}");
     assert!(matches!(moved, Err(CloneError::Unsupported { .. })));
     assert!(from.join("out").exists());
+    let moved = move_tree_or_back(
+        &from,
+        &dir.join("moved"),
+        Some(&[PathBuf::from("tools"), PathBuf::from("out")]),
+    );
+    println!("move all or nothing into it: {moved:?}");
+    assert!(matches!(moved, Err(CloneError::Unsupported { .. })));
+    assert!(from.join("tools").exists() && from.join("out").exists());
     let _ = fs::remove_dir_all(dir.join("data"));
 }

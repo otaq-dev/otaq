@@ -9,6 +9,7 @@
 //!   removed, and [`CloneError::Unsupported`] comes back. Another disk (`EXDEV`) is unsupported too. Hard links are
 //!   never made: build tools write into their outputs.
 //! - [`move_tree`] renames paths from one folder into another on the same disk; another disk is an error, never a copy.
+//!   [`move_tree_or_back`] does the same all or nothing: a failure moves back what was moved.
 //! - [`probe`] clones a small file inside `<app-data>/warm/.probe` to learn whether the data folder's disk can clone.
 //!   It decides alone whether warm builds are available; [`CloneProbe`] keeps its answer for the life of the service.
 
@@ -148,6 +149,47 @@ pub fn move_tree(from: &Path, to: &Path, only: Option<&[PathBuf]>) -> Result<(),
     for rel in paths {
         let rel = relative(rel)?;
         move_one(&from.join(rel), &to.join(rel))?;
+    }
+    Ok(())
+}
+
+/// [`move_tree`], all or nothing: on a failure every path already moved is renamed back, last first, and the parent
+/// folders made for them are removed, so `from` and `to` are as they were. Returns the first error. Another disk is
+/// [`CloneError::Unsupported`]; a file held open (Windows) is [`CloneError::Io`].
+pub fn move_tree_or_back(
+    from: &Path,
+    to: &Path,
+    only: Option<&[PathBuf]>,
+) -> Result<(), CloneError> {
+    let Some(paths) = only else {
+        return move_one(from, to);
+    };
+    let mut moved: Vec<(PathBuf, PathBuf)> = Vec::new();
+    let mut made: Vec<PathBuf> = Vec::new();
+    for rel in paths {
+        let result = relative(rel).and_then(|rel| {
+            let (src, dst) = (from.join(rel), to.join(rel));
+            refuse_existing(&dst)?;
+            create_parents(&dst, &mut made)?;
+            rename(&src, &dst)?;
+            moved.push((src, dst));
+            Ok(())
+        });
+        if let Err(error) = result {
+            for (src, dst) in moved.iter().rev() {
+                if let Err(back) = fs::rename(dst, src) {
+                    tracing::warn!(
+                        path = %dst.display(),
+                        error = %back,
+                        "a moved path can't be moved back"
+                    );
+                }
+            }
+            for dir in made.iter().rev() {
+                let _ = fs::remove_dir(dir);
+            }
+            return Err(error);
+        }
     }
     Ok(())
 }

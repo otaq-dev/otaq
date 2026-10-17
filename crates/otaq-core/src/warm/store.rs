@@ -8,13 +8,15 @@
 //!   ([`times_file_name`], [`TrackedTimes`]): the tracked files' modified times in the kept worktree (Q71). Seeding
 //!   skips both. They move with the entry. Entry numbers only grow ([`WarmBuilds::next_entry`]). On a disk that can
 //!   clone the stock holds one entry (M19-a: behaviour as before).
-//! - **Warm builds on** for a project ([`WarmBuilds::enabled`]): its switch is on and the data folder's disk can clone.
+//! - **Warm builds on** for a project ([`WarmBuilds::enabled`]): its switch is on. The data folder's disk decides only
+//!   how a build is handed over ([`WarmBuilds::mode`]): cloned where it can clone, renamed where it can't (M19-b).
 //! - **The lock**, one per stock: a seed holds a **reader** slot, named by its ticket, while it clones the newest
 //!   entry ([`WarmBuilds::read`]). Replace and Clear take the **writer** slot and wait for the readers; while a writer
 //!   waits, no new reader starts, so a Clear never waits for more than the copies already running.
 //!   [`WarmBuilds::status`] says who is copying, for "Clearing… (waiting for SHOP-21's copy)".
 //! - **Claims** ([`WarmBuilds::claim`]): a ticket that takes an entry claims it first, so two tickets never share one.
-//!   A Clear waits for the claims too.
+//!   A Clear waits for the claims too. Once its build is renamed into the worktree, the rest of the entry goes to the
+//!   trash ([`WarmBuilds::taken`]).
 //! - **Replace** ([`WarmBuilds::replace`]): the caller moves the new files into `<repo-name>.incoming/`
 //!   ([`WarmBuilds::incoming`], one keep at a time per stock), then, under the writer slot, an older build is dropped
 //!   and a newer one is renamed in as the next entry; the entries before it go to the trash.
@@ -596,16 +598,15 @@ impl WarmBuilds {
         HandoffMode::of(self.support())
     }
 
-    /// Warm builds on for the project (key): its switch is on and the disk can clone. Off for either reason means
-    /// no seeding, no keeping, and Done deletes as before.
+    /// Warm builds on for the project (key): its switch is on, whatever the disk (M19-b). Off means no seeding, no
+    /// keeping, and Done deletes as before. How a build is handed over is [`mode`](Self::mode).
     pub async fn enabled(&self, project: &str) -> Result<bool, BoardError> {
-        Ok(self.support().available
-            && self
-                .inner
-                .board
-                .project_settings(project)
-                .await?
-                .warm_builds)
+        Ok(self
+            .inner
+            .board
+            .project_settings(project)
+            .await?
+            .warm_builds)
     }
 
     /// The project's stock folder, `warm/<repo-name>` (it may not exist). Its entries are numbered folders in it.
@@ -670,6 +671,19 @@ impl WarmBuilds {
         };
         // Checked after claiming: from here on nothing moves it, so it is either still there or already gone.
         claim.path.is_dir().then_some(claim)
+    }
+
+    /// The project's entry under `claim` was taken (its build renamed into a worktree, M19-b): what is left of it
+    /// (its record, its times, the env files left out) goes to the trash, then the claim is let go.
+    pub(crate) fn taken(&self, claim: Claim, project: &Project) {
+        let repo = claim.repo.clone();
+        if let Err(e) = self.to_trash(&repo, &claim.path) {
+            tracing::warn!(warm_build = %repo, entry = claim.n, error = %e, "can't move what is left of a taken build to the trash");
+        }
+        self.changed_folder(&repo);
+        drop(claim);
+        self.measure_later(&repo);
+        self.publish(&repo, Some(project));
     }
 
     /// The next entry number of `warm/<repo>`: higher than every one on disk and every one handed out before.
