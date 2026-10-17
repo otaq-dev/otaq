@@ -5,6 +5,7 @@
 
 pub mod hooks;
 mod launch;
+pub mod limits;
 pub mod statusline;
 pub mod transcript;
 pub mod trust;
@@ -27,17 +28,11 @@ use crate::data_dir::DataDir;
 use crate::naming;
 use crate::tools::{self, CheckEnv};
 use crate::usage::limit::LimitKind;
-use crate::usage::plan::RateLimits;
 use transcript::{Transcript, find_transcript, read_transcript};
 
 /// What clears Claude Code's input line before Otaq types (SES-07 "Clear it and send"): Ctrl+E (end of line) then
 /// Ctrl+U (delete to the start of the line). Implementation choice; verified by hand against the real `claude`.
 const CLEAR_LINE: &[u8] = b"\x05\x15";
-
-/// The status line's 5-hour window, in minutes.
-const FIVE_HOUR_MINUTES: u32 = 5 * 60;
-/// The status line's weekly window, in minutes.
-const SEVEN_DAY_MINUTES: u32 = 7 * 24 * 60;
 
 /// Where Claude Code and Otaq's files are on this machine.
 #[derive(Debug, Clone)]
@@ -348,34 +343,18 @@ impl AgentTool for ClaudeCode {
         WindowsSource::Report
     }
 
+    /// The status line's windows ([`limits`]).
     fn windows_from_report(&self, report: &Value) -> Option<Vec<LimitWindow>> {
-        let limits = RateLimits::from_status_line(report)?;
-        let window = |key: &str, minutes: u32, w: Option<crate::usage::plan::Window>| {
-            w.map(|w| LimitWindow {
-                key: key.to_owned(),
-                length_minutes: Some(minutes),
-                used_percent: w.used_percentage,
-                resets_at: Some(w.resets_at),
-                credits: None,
-            })
-        };
-        Some(
-            [
-                window("five_hour", FIVE_HOUR_MINUTES, limits.five_hour),
-                window("seven_day", SEVEN_DAY_MINUTES, limits.seven_day),
-            ]
-            .into_iter()
-            .flatten()
-            .collect(),
-        )
+        limits::windows_from_status_line(report)
     }
 
     fn limit_window_key(&self, kind: LimitKind) -> Option<&'static str> {
-        match kind {
-            LimitKind::Session => Some("five_hour"),
-            LimitKind::Weekly => Some("seven_day"),
-            LimitKind::Other => None,
-        }
+        limits::window_key(kind)
+    }
+
+    /// The time in Claude Code's limit text ([`limits`]).
+    fn limit_reset_from_text(&self, text: &str, now: i64) -> Option<i64> {
+        limits::reset_from_text(text, now)
     }
 
     fn input(&self) -> InputQuirks {

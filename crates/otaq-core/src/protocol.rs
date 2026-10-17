@@ -512,9 +512,9 @@ pub enum Request {
     /// The tokens of each session of a ticket (the History tab, USG-01).
     #[serde(rename = "usage.sessions")]
     UsageSessions(KeyParams),
-    /// The plan windows from an agent's status line (`otaq statusline`, USG-04).
+    /// A tool's usage windows (USG-04, USG-09; Claude Code's from `otaq statusline`): they replace the tool's set.
     #[serde(rename = "usage.record_limits")]
-    UsageRecordLimits(crate::usage::plan::RateLimits),
+    UsageRecordLimits(RecordLimitsParams),
     /// Resume all after the usage limit (USG-06): "continue" for every agent still waiting for the reset; clears
     /// the banner. Replies with the tickets that got it.
     #[serde(rename = "usage.resume_all")]
@@ -814,6 +814,13 @@ pub struct HookParams {
     /// (d0063, d0068). The service still tells sessions apart by their processes (CLI-01).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+}
+
+/// `usage.record_limits`: a tool's current usage windows, as its adapter read them from its report.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecordLimitsParams {
+    pub tool: Tool,
+    pub windows: Vec<crate::agent_tools::LimitWindow>,
 }
 
 /// `{"key": "SHOP-23", "question": "…", "options": ["Postmark", "SES"], "recommended": 1}` (d0061).

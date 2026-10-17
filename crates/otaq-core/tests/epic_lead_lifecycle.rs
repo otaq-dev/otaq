@@ -522,7 +522,10 @@ async fn wake_ups_wait_during_the_usage_limit_and_resume_all_types_them() {
         kind: LimitKind::Session,
         text: "You've hit your session limit · resets 3:45pm".into(),
     };
-    w.plan_limit.record_hit(&hit, now_ms()).await.unwrap();
+    w.plan_limit
+        .record_hit(Tool::Claude, &hit, now_ms())
+        .await
+        .unwrap();
     let leads = w.project_agents.leads();
     assert!(
         leads

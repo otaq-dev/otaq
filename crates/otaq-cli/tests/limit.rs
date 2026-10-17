@@ -3,11 +3,13 @@
 //! session (an ordinary `sh`), for the session limit, the weekly limit, a limit with no readable time and a failure
 //! that isn't the limit.
 
+use otaq_core::agent_tools::claude::limits::{self, FIVE_HOUR_MINUTES, SEVEN_DAY_MINUTES};
+use otaq_core::agent_tools::{LimitWindow, Tool};
 use otaq_core::domain::Status;
 use otaq_core::service::testing::{AgentShell, TestService};
 use otaq_core::store::now_ms;
 use otaq_core::usage::limit::{LimitKind, ResetSource};
-use otaq_core::usage::plan::{self, RateLimits, Window};
+use otaq_core::usage::plan;
 use serde_json::{Value, json};
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
@@ -29,6 +31,20 @@ fn stop_failure(error: &str, message: &str) -> Value {
            "cwd": "/Users/me/.otaq/wt/shop-web/SHOP-1", "permission_mode": "default",
            "hook_event_name": "StopFailure", "error": error, "error_details": "429 Too Many Requests",
            "last_assistant_message": message})
+}
+
+/// Claude Code's window for `kind`, as its status line reports it.
+fn window(kind: LimitKind, used_percent: f64, resets_at: i64) -> LimitWindow {
+    LimitWindow {
+        key: limits::window_key(kind).unwrap().to_owned(),
+        length_minutes: Some(match kind {
+            LimitKind::Weekly => SEVEN_DAY_MINUTES,
+            _ => FIVE_HOUR_MINUTES,
+        }),
+        used_percent,
+        resets_at: Some(resets_at),
+        credits: None,
+    }
 }
 
 /// Waits for the limit to be recorded (the service records it right after the hook answers).
@@ -55,16 +71,11 @@ async fn the_session_limit_waits_for_its_reset_from_the_status_line() {
     let resets = now_ms() + 80 * 60_000;
     w.plan_limit
         .record_windows(
-            &RateLimits {
-                five_hour: Some(Window {
-                    used_percentage: 100.0,
-                    resets_at: resets,
-                }),
-                seven_day: Some(Window {
-                    used_percentage: 40.0,
-                    resets_at: now_ms() + 3 * 86_400_000,
-                }),
-            },
+            Tool::Claude,
+            &[
+                window(LimitKind::Session, 100.0, resets),
+                window(LimitKind::Weekly, 40.0, now_ms() + 3 * 86_400_000),
+            ],
             now_ms(),
         )
         .await
@@ -84,7 +95,9 @@ async fn the_session_limit_waits_for_its_reset_from_the_status_line() {
     assert_eq!(active.kind, LimitKind::Session);
     assert_eq!(active.resets_at, Some(resets));
     assert_eq!(active.reset_source, Some(ResetSource::StatusLine));
-    assert_eq!(state.observed_at, active.hit_at);
+    assert_eq!(active.tool, Tool::Claude);
+    // The hit leaves the windows as they were.
+    assert!(state.windows.iter().all(|w| w.observed_at <= active.hit_at));
     // Neutral: no inbox item for it.
     assert!(w.inbox.list().await.unwrap().items.is_empty());
 
@@ -92,13 +105,8 @@ async fn the_session_limit_waits_for_its_reset_from_the_status_line() {
     assert!(!w.plan_limit.check_reset(resets - 1).await.unwrap());
     w.plan_limit
         .record_windows(
-            &RateLimits {
-                five_hour: Some(Window {
-                    used_percentage: 3.0,
-                    resets_at: resets + 5 * 3_600_000,
-                }),
-                seven_day: None,
-            },
+            Tool::Claude,
+            &[window(LimitKind::Session, 3.0, resets + 5 * 3_600_000)],
             resets + 1000,
         )
         .await

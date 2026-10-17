@@ -136,8 +136,8 @@ pub struct UsageSummary {
     pub today: Tokens,
     /// The requested project's tickets that ran a conversation.
     pub tickets: Vec<TicketUsage>,
-    /// The plan windows and the usage limit, from the status line and the limit hook (USG-04, USG-05); `None`
-    /// when nothing was ever recorded (API-key users).
+    /// Every tool's limit windows and the usage limit, from the tools' reports and limit signals (USG-04, USG-05,
+    /// USG-09); `None` when no tool has windows and no limit is active (API-key users).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<plan::PlanLimits>,
     /// Agents waiting for the limit reset, across all projects (the banner's "8 agents stopped", USG-06).

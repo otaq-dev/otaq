@@ -70,7 +70,7 @@ pub fn map_hook(event: &str, payload: &Value) -> Vec<ToolEvent> {
             let hit = [message.as_deref(), details.as_deref()]
                 .into_iter()
                 .flatten()
-                .find_map(|m| crate::usage::limit::recognise(&error, m));
+                .find_map(|m| super::limits::recognise(&error, m));
             match hit {
                 // The reset time comes from the status line's window or the limit text (USG-04).
                 Some(hit) => ToolEvent::LimitReached {

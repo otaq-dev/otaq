@@ -347,7 +347,10 @@ async fn open_and_resume_are_refused_during_the_usage_limit() {
         kind: LimitKind::Session,
         text: "You've hit your session limit · resets 3:45pm".into(),
     };
-    w.plan_limit.record_hit(&hit, now_ms()).await.unwrap();
+    w.plan_limit
+        .record_hit(Tool::Claude, &hit, now_ms())
+        .await
+        .unwrap();
     for result in [
         leads.open(&key(&wishlist)).await,
         leads.open(&key(&search)).await,

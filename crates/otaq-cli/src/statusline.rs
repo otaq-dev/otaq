@@ -2,22 +2,23 @@
 //!
 //! Claude Code runs it with the status-line JSON on stdin. It starts the **user's own** status-line command (found
 //! read-only in their settings, [`statusline::user_command`]) with the same input, its output going straight to
-//! Claude Code, so the user's status line looks exactly as without Otaq. Meanwhile it hands the plan windows
-//! (`rate_limits`, Pro/Max only) to the service. It never gets in the way: it never starts the service, gives the
-//! service at most [`RECORD_TIMEOUT`], and exits with the user's command's status (0 when there is none, printing
-//! nothing).
+//! Claude Code, so the user's status line looks exactly as without Otaq. Meanwhile the Claude Code adapter reads
+//! the usage windows from the payload (Pro/Max only, [`limits`]) and they go to the service as Claude Code's
+//! (`usage.record_limits`, USG-09). Otaq runs no other tool's status line (d0088). It never gets in the way: it
+//! never starts the service, gives the service at most [`RECORD_TIMEOUT`], and exits with the user's command's
+//! status (0 when there is none, printing nothing).
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use otaq_core::agent_tools::claude::statusline;
+use otaq_core::agent_tools::claude::{limits, statusline};
+use otaq_core::agent_tools::{LimitWindow, Tool};
 use otaq_core::client::request_once;
 use otaq_core::data_dir::DataDir;
-use otaq_core::protocol::Request;
+use otaq_core::protocol::{RecordLimitsParams, Request};
 use otaq_core::tools::CheckEnv;
-use otaq_core::usage::plan::RateLimits;
 use serde_json::Value;
 
 /// The longest the service may take to take the windows.
@@ -43,8 +44,8 @@ pub fn run() -> i32 {
         .flatten()
         .and_then(|command| spawn(&command, &raw));
 
-    if let Some(limits) = RateLimits::from_status_line(&payload) {
-        record(limits);
+    if let Some(windows) = limits::windows_from_status_line(&payload) {
+        record(windows);
     }
 
     match child {
@@ -88,7 +89,7 @@ fn spawn(command: &str, input: &[u8]) -> Option<std::process::Child> {
 }
 
 /// Hands the windows to the service, if it is running; never waits longer than [`RECORD_TIMEOUT`].
-fn record(limits: RateLimits) {
+fn record(windows: Vec<LimitWindow>) {
     let Ok(data) = DataDir::from_env() else {
         return;
     };
@@ -98,7 +99,10 @@ fn record(limits: RateLimits) {
     else {
         return;
     };
-    let request = Request::UsageRecordLimits(limits);
+    let request = Request::UsageRecordLimits(RecordLimitsParams {
+        tool: Tool::Claude,
+        windows,
+    });
     let _ = runtime.block_on(async {
         tokio::time::timeout(RECORD_TIMEOUT, request_once(&data.socket_path(), request)).await
     });
