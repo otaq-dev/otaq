@@ -224,8 +224,7 @@ If you agree, Otaq sends to [Aptabase](https://aptabase.com) (EU region) which f
 the Otaq version and your OS. It never sends ticket text, code, diffs, prompts, project, file or branch names, paths,
 or any ID that follows you across launches: each launch gets a new random session, and nothing is stored on disk. The
 full list of what counts as a feature is in [`crates/otaq-desktop/src/usage.rs`](crates/otaq-desktop/src/usage.rs).
-Builds from source send nothing at all: the Aptabase App Key is only built into release builds
-(`OTAQ_APTABASE_APP_KEY`).
+Debug builds (`npm run tauri dev`) send nothing at all: the Aptabase App Key is only built into release builds.
 
 ## The `otaq` command
 

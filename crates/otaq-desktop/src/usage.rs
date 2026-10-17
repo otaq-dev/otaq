@@ -3,8 +3,8 @@
 //!
 //! - **Nothing without a yes.** Until the stored answer is "on", [`Usage::record`] drops everything: nothing is counted,
 //!   kept or sent. Turning it off empties what was counted and not sent yet.
-//! - **Nothing without an App Key.** The key is built in from `OTAQ_APTABASE_APP_KEY` at compile time; a build without
-//!   it (every developer build) never opens a connection.
+//! - **Nothing without an App Key.** Release builds have Otaq's key built in (`build.rs`); debug builds have none and
+//!   never open a connection.
 //! - **Only feature names.** A feature is a page request on the [`feature`] list (`board.drop`, `review.approve`…);
 //!   loads, polls and keystrokes aren't on it. The few that carry a property carry a fixed word picked by the app (the
 //!   column, the button, the setting's name), never text the user typed, a ticket, a project or a path.
@@ -29,8 +29,8 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 /// Aptabase takes at most 25 events per request.
 const BATCH: usize = 25;
 
-/// The App Key built into release builds (`A-EU-…`, `A-US-…`, or `A-SH-…` with `OTAQ_APTABASE_HOST`); `build.rs`
-/// passes them on.
+/// The App Key built into release builds (`A-EU-…`, `A-US-…`, or `A-SH-…` with `OTAQ_APTABASE_HOST`), from
+/// `build.rs`; none in debug builds.
 const APP_KEY: Option<&str> = option_env!("USAGE_APP_KEY");
 const SELF_HOSTED: Option<&str> = option_env!("USAGE_HOST");
 
