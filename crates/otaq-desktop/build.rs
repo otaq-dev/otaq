@@ -1,6 +1,9 @@
 use std::path::Path;
 use std::process::Command;
 
+/// Otaq's Aptabase app (EU region), d0085.
+const APTABASE_APP_KEY: &str = "A-EU-5140360391";
+
 fn main() {
     // The commit Settings → About shows (d0071): the short hash of HEAD, `unknown` outside a git checkout.
     let commit = Command::new("git")
@@ -29,14 +32,20 @@ fn main() {
             );
         }
     }
-    // Anonymous usage data (d0085): the Aptabase App Key, and the host of a self-hosted one, built into release builds
-    // only. Without a key the app never sends anything.
-    for (from, to) in [
-        ("OTAQ_APTABASE_APP_KEY", "USAGE_APP_KEY"),
-        ("OTAQ_APTABASE_HOST", "USAGE_HOST"),
+    // Anonymous usage data (d0085): the Aptabase App Key, and the host of a self-hosted one. Release builds get Otaq's
+    // own key (App Keys ship inside every client, so it isn't a secret); debug builds get none and never send anything.
+    // `OTAQ_APTABASE_APP_KEY` / `OTAQ_APTABASE_HOST` override them.
+    let release = std::env::var("PROFILE").is_ok_and(|p| p == "release");
+    for (from, to, default) in [
+        (
+            "OTAQ_APTABASE_APP_KEY",
+            "USAGE_APP_KEY",
+            release.then_some(APTABASE_APP_KEY),
+        ),
+        ("OTAQ_APTABASE_HOST", "USAGE_HOST", None),
     ] {
         println!("cargo:rerun-if-env-changed={from}");
-        if let Ok(value) = std::env::var(from) {
+        if let Some(value) = std::env::var(from).ok().or(default.map(str::to_owned)) {
             println!("cargo:rustc-env={to}={value}");
         }
     }
