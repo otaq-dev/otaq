@@ -63,10 +63,13 @@ async fn a_missing_env_file_fails_the_step() {
     let err = copy_env_files(&e.repo, &e.worktree, &[".env.local".to_owned()]).unwrap_err();
     let message = err.to_string();
     assert!(
-        message.starts_with("`.env.local` not found in "),
+        message.starts_with("Can\u{2019}t find .env.local in "),
         "{message}"
     );
-    assert!(message.ends_with("shop-web"), "{message}");
+    assert!(
+        message.ends_with("shop-web. Add it to the repo root, or remove it from this list."),
+        "{message}"
+    );
 
     let err = copy_env_files(&e.repo, &e.worktree, &["../secret".to_owned()]).unwrap_err();
     assert!(err.to_string().contains("inside the repository"), "{err}");

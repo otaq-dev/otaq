@@ -15,7 +15,7 @@ const VIEW: PrDialogView = {
   stage: { kind: "proposed" },
   proposed_by: "Proposed by /otaq:open-pr · edit anything",
   provider: "GitHub · acme/shop-web",
-  login: "gh: logged in",
+  login: "gh: signed in",
   branch_label: "Branch name",
   branch: "feature/SHOP-18-checkout-api",
   branch_locked: false,
@@ -66,7 +66,7 @@ describe("the PR screen", () => {
     for (const text of [
       "Proposed by /otaq:open-pr · edit anything",
       "GitHub · acme/shop-web",
-      "gh: logged in",
+      "gh: signed in",
       "feature/SHOP-18-checkout-api",
       "Valid name · not taken on origin",
       "Commit messages (2 commits)",
@@ -95,7 +95,7 @@ describe("the PR screen", () => {
     expect(html).not.toContain("PR title");
     const bad = renderToStaticMarkup(
       createElement(Proposed, {
-        view: { ...VIEW, branch_hint: { text: "Not a valid branch name: no spaces", error: true } },
+        view: { ...VIEW, branch_hint: { text: "Use hyphens instead of spaces", error: true } },
         fields: fieldsOf(VIEW),
         onEdit: () => undefined,
       }),

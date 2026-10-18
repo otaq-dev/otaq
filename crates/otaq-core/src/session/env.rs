@@ -211,13 +211,13 @@ mod tests {
         assert_eq!(ENV_VAR_EMPTY_NAME, "Add a name, or remove the row");
         assert_eq!(
             env_var_equals_message("MAX=JOBS"),
-            "“MAX=JOBS” can’t be a name: a name can’t contain “=”. This row isn’t set until it’s fixed."
+            "Remove “=” from the name. This row isn’t set until then."
         );
         assert_eq!(
             env_var_duplicate_message("NODE_OPTIONS"),
             "NODE_OPTIONS is already set above. Only the first row applies; remove one of them."
         );
-        assert!(env_var_null_message("A\0B").starts_with("“A\\0B” can’t be a name"));
+        assert!(env_var_null_message("A\0B").starts_with("Remove the null character"));
     }
 
     #[test]

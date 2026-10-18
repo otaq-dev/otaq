@@ -1257,7 +1257,10 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(retried["picker"]["status"]["text"], "Couldn't load Codex's models");
+        assert_eq!(
+            retried["picker"]["status"]["text"],
+            "Couldn\u{2019}t load Codex\u{2019}s models. Check your connection, then try again."
+        );
         assert_eq!(retried["picker"]["status"]["retry_tool"], "codex");
         // The checkbox is stored (the service, d0086) and comes back on the section.
         let on = ask("settings.auto_fallback", json!({ "on": true })).await.unwrap();

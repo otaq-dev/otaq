@@ -168,7 +168,7 @@ pub fn variants() -> Vec<Variant> {
     ));
 
     out.push(v(
-        "Start interrupted (0018)",
+        "Start failed (0018)",
         ticket("SHOP-28", "Cart badge count", Status::StartInterrupted),
         CardExtras {
             start_failure: Some("setup command failed".into()),

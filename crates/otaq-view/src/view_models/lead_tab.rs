@@ -1160,7 +1160,7 @@ mod tests {
         assert_eq!(
             waiting[6].1.as_deref(),
             Some(
-                "Claude Code isn\u{2019}t available \u{b7} logged out. The lead waits; children on Claude Code wait too."
+                "Claude Code isn\u{2019}t available \u{b7} signed out. The lead waits; children on Claude Code wait too."
             )
         );
         assert_eq!(
@@ -1169,7 +1169,7 @@ mod tests {
         );
         assert_eq!(
             waiting[8].1.as_deref(),
-            Some("Codex isn\u{2019}t available \u{b7} logged out")
+            Some("Codex isn\u{2019}t available \u{b7} signed out")
         );
         assert_eq!(
             waiting[9].1.as_deref(),

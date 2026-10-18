@@ -341,7 +341,7 @@ describe("drawn", () => {
           toast({
             id: 2,
             level: "error",
-            title: "gh is not logged in",
+            title: "gh is not signed in",
             text: "Run gh auth login, then retry Open PR",
             link: { kind: "copy", label: "Copy command", text: "gh auth login" },
           }),
@@ -351,7 +351,7 @@ describe("drawn", () => {
     expect(html).toContain(
       '<button type="button" class="toast-title toast-open">Local merge done · SHOP-18</button>',
     );
-    expect(html).toContain('<span class="toast-title">gh is not logged in</span>');
+    expect(html).toContain('<span class="toast-title">gh is not signed in</span>');
     expect(html).toContain("Copy command");
     expect(html).toContain('role="alert"');
   });
@@ -453,7 +453,7 @@ const codexLine: LimitLine = {
   tone: "warning",
   icon: "triangle-alert",
   title: "Codex isn’t available",
-  text: "logged out · 5 tickets moved to Sonnet",
+  text: "signed out · 5 tickets moved to Sonnet",
   buttons: [
     {
       label: "Sign in…",

@@ -70,7 +70,7 @@ const priority = (number: number, word: string): PriorityView => ({
 const TEXTS: EditorTexts = {
   title: "Title",
   title_placeholder: "Short, imperative title",
-  title_required: "A title is required",
+  title_required: "Add a title",
   priority: "Priority",
   priority_hint: "3 Normal by default · decides start order among ready tickets",
   kind: "Type",
@@ -167,7 +167,7 @@ const VIEW: EditorView = {
       shortcut: null,
       danger: false,
       disabled: false,
-      hint: "1 / 3 merged",
+      hint: "1 of 3 merged",
       separated: false,
       checked: false,
       header: false,
@@ -334,7 +334,7 @@ describe("the editor", () => {
     const out = html(createElement(EditorFields, props));
     for (const text of [
       "Title",
-      "A title is required",
+      "Add a title",
       "P3 Normal",
       "Ticket",
       "No epic",

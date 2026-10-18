@@ -206,14 +206,20 @@ async fn invalid_values_are_stored_and_flagged_and_the_repo_is_untouched() {
         "stored as given"
     );
     let problems = f.board.project_setting_problems("SHOP").await.unwrap();
+    let missing = &problems[0].message;
+    assert!(
+        missing.starts_with("Can\u{2019}t find .env.missing in ")
+            && missing.ends_with(". Add it to the repo root, or remove it from this list."),
+        "{missing}"
+    );
     let fields: Vec<_> = problems
         .iter()
+        .skip(1)
         .map(|p| (p.field.as_str(), p.message.as_str()))
         .collect();
     assert_eq!(
         fields,
         [
-            ("env_files", ".env.missing doesn't exist in the repository"),
             (
                 "env_files",
                 "../secrets must be a path inside the repository, like .env.local"

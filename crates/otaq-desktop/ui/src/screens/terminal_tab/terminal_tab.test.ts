@@ -218,7 +218,7 @@ describe("the Terminal tab's markup", () => {
   it("marks an ended session and shows how far it is scrolled", () => {
     const ended = {
       ...VIEW,
-      ended: { title: "Session ended · 11:02 · 41 min", text: "The agent's session finished." },
+      ended: { title: "Session ended · 11:02 · 41 min", text: "The agent’s session finished." },
     };
     expect(render(ended, { ...LIVE, phase: "ended" })).toContain("Session ended · 11:02 · 41 min");
     expect(render(ended, LIVE)).not.toContain("Session ended");

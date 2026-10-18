@@ -96,7 +96,7 @@ mod tests {
                 assert_eq!(tier, Tier::NeedsYou, "{status} must stand out");
             }
         }
-        assert_eq!(pill(Core::Working), (Legend::AgentWorking, "Agent Working"));
+        assert_eq!(pill(Core::Working), (Legend::AgentWorking, "Working"));
         assert_eq!(pill(Core::Held).1, "Held");
         assert_eq!(pill(Core::ResumeFailed).1, "Resume failed");
         assert_eq!(
@@ -112,13 +112,13 @@ mod tests {
             PillView {
                 palette: Palette::Working,
                 icon: IconName::Activity,
-                label: "Agent Working".into(),
+                label: "Working".into(),
             }
         );
-        let running = PillView::legend(Legend::Running, Some("Running :4020"));
+        let running = PillView::legend(Legend::Running, Some("Serving :4020"));
         assert_eq!(
             (running.palette, running.label.as_str()),
-            (Palette::Approved, "Running :4020")
+            (Palette::Approved, "Serving :4020")
         );
         assert_eq!(
             serde_json::to_value(PillView::of(Core::NeedsYou)).unwrap(),

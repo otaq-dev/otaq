@@ -34,7 +34,7 @@ function row(key: string, extra: Partial<AfterRestartRow> = {}): AfterRestartRow
     title: "Upgrade to Next.js 15",
     state: "interrupted",
     headline: null,
-    detail: "was Agent Working · 311k",
+    detail: "was Working · 311k",
     checked: true,
     resuming: `${key} · Resuming…`,
     resuming_detail: "Reattaching claude --resume in ~/.otaq/wt/shop-web/" + key,
@@ -50,7 +50,7 @@ const SUMMARY: AfterRestartSummary = {
   text: "Only Dev tickets that were working become Interrupted.",
   rows: [
     row("SHOP-25"),
-    row("SHOP-19", { state: "resumed", headline: "SHOP-19 · Resumed", detail: "Agent Working again" }),
+    row("SHOP-19", { state: "resumed", headline: "SHOP-19 · Resumed", detail: "Working again" }),
     row("BILL-4", {
       state: "failed",
       headline: "BILL-4 · Couldn’t resume",
@@ -87,7 +87,7 @@ const SUMMARY: AfterRestartSummary = {
   retry: "Retry",
   scratch: "Start from scratch",
   foot: "They stay in your inbox if you close this.",
-  later: "Later",
+  later: "Not now",
   resume_selected: "Resume selected (4)",
   selected: ["SHOP-25", "SHOP-30", "SHOP-40.4", "SHOP-40.2"],
   skipped: [],
@@ -216,7 +216,7 @@ describe("the after-restart sheet", () => {
       "Ended by restart · same conversation",
       "is discarded, not listed",
       "Resume selected (4)",
-      "Later",
+      "Not now",
     ]) {
       expect(html).toContain(text);
     }
@@ -230,7 +230,7 @@ describe("the after-restart sheet", () => {
         row("SHOP-25", { agent: "Strong · Claude Code" }),
         row("SHOP-19", {
           agent: "Standard · Codex",
-          problem: "Codex isn't available (logged out)",
+          problem: "Codex isn't available (signed out)",
           checked: false,
           sign_in: { label: "Sign in…", action: { kind: "sign_in", tool: "codex" }, primary: true },
         }),
@@ -251,7 +251,7 @@ describe("the after-restart sheet", () => {
       }),
     );
     expect(html).toContain("Strong · Claude Code");
-    expect(html).toContain('data-problem="true">Standard · Codex · Codex isn&#x27;t available (logged out)');
+    expect(html).toContain('data-problem="true">Standard · Codex · Codex isn&#x27;t available (signed out)');
     expect(html).toContain("Sign in…");
     expect(html).toContain("Resume selected skips the Codex session until you sign in");
     const signInRow = html.slice(html.indexOf("SHOP-19"));

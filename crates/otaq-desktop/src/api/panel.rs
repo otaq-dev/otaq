@@ -160,6 +160,8 @@ pub struct Tokens {
 pub struct Button {
     pub action: Action,
     pub label: String,
+    /// "Moves to Ready for Dev" on Start.
+    pub tooltip: Option<&'static str>,
     pub icon: Option<IconName>,
     pub look: Look,
 }
@@ -521,6 +523,7 @@ pub fn view_of(f: &Facts) -> View {
                 ),
                 _ => action.label().to_owned(),
             },
+            tooltip: action.tooltip(),
             icon: action.icon(),
             look,
         })
@@ -1732,7 +1735,7 @@ mod tests {
         let mut unknown = fixture("SHOP-30", "New", Status::Backlog);
         unknown.flags.tokens_unknown = true;
         let view = view_of(&facts(&unknown, std::slice::from_ref(&unknown), &[]));
-        assert_eq!(labels(&view), ["Start (to Dev)", "Edit"]);
+        assert_eq!(labels(&view), ["Start", "Edit"]);
         assert_eq!(view.tokens.unwrap().tooltip, Some(TOKENS_UNKNOWN));
         assert_eq!(view.branch, None);
         assert!(!view.live_agent);

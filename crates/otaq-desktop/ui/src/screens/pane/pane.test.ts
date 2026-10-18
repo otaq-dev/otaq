@@ -311,16 +311,16 @@ describe("a running agent", () => {
     const close = renderToStaticMarkup(
       createElement(CloseAgentDialog, {
         dialog: {
-          title: "Close “Checkout slowness” while it’s working?",
-          mid_turn: "It’s mid-turn. Closing stops it now.",
+          title: "End “Checkout slowness” while it’s working?",
+          mid_turn: "It’s mid-turn. Ending stops it now.",
           text: "You can resume the conversation from Recently ended.",
-          confirm: "Stop and close",
+          confirm: "Stop and end",
         },
         onConfirm: () => undefined,
         onCancel: () => undefined,
       }),
     );
-    expect(close).toContain("Stop and close");
+    expect(close).toContain("Stop and end");
     expect(close).toContain("mid-turn");
     const recent = renderToStaticMarkup(
       createElement(RecentList, {
@@ -350,7 +350,7 @@ const CODEX_OUT: NonNullable<PaneView["running"]>["notice"] = {
   role: null,
   tone: "amber",
   avatar: null,
-  heading: "Codex isn't available · logged out. This agent continues after you sign in.",
+  heading: "Codex isn't available · signed out. This agent continues after you sign in.",
   text: null,
   model: null,
   buttons: [

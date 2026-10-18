@@ -739,7 +739,7 @@ mod tests {
         let tab = tab_view(&s, &memory);
         assert_eq!(tab.base, "main at a1b2c3d");
         assert_eq!(tab.rest, "· 4 files · +320 \u{2212}14");
-        assert_eq!(tab.viewed, "1 / 4 viewed");
+        assert_eq!(tab.viewed, "1 of 4 viewed");
         assert_eq!(tab.modes, ["Unified", "Side-by-side"]);
         assert!(tab.groups.is_none(), "short lists aren't grouped");
         let summary = tab.summary.unwrap();

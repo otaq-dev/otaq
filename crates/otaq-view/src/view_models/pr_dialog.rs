@@ -140,8 +140,8 @@ impl PrDialog {
             login: provider.and_then(|p| {
                 let cli = p.provider?.tool().command();
                 Some(match p.logged_in {
-                    Some(true) => format!("{cli}: logged in"),
-                    Some(false) => format!("{cli}: not logged in"),
+                    Some(true) => format!("{cli}: signed in"),
+                    Some(false) => format!("{cli}: not signed in"),
                     None => format!("{cli}: login unknown"),
                 })
             }),
@@ -444,7 +444,7 @@ mod tests {
         assert_eq!(d.stage, Stage::Preparing);
         assert_eq!(d.heading(), "Open PR for SHOP-18 Checkout API");
         assert_eq!(d.provider.as_deref(), Some("GitHub \u{b7} acme/shop-web"));
-        assert_eq!(d.login.as_deref(), Some("gh: logged in"));
+        assert_eq!(d.login.as_deref(), Some("gh: signed in"));
         assert!(!d.can_confirm());
         d.update(&view(FlowState::Proposed, false));
         assert_eq!(d.stage, Stage::Proposed);
@@ -469,13 +469,14 @@ mod tests {
         d.checked(
             second,
             &BranchCheck::Problem {
-                message: "Already taken: a branch with this name exists on origin".into(),
+                message: "A branch with this name already exists on origin. Choose another name."
+                    .into(),
             },
         );
         assert_eq!(
             d.branch_hint(),
             (
-                "Already taken: a branch with this name exists on origin".to_owned(),
+                "A branch with this name already exists on origin. Choose another name.".to_owned(),
                 true
             )
         );

@@ -396,7 +396,7 @@ async fn a_new_worktree_is_seeded_from_the_warm_build_with_the_timestamp_trick()
             &built_at[..7]
         );
         assert!(log.starts_with(&first), "{mode:?}: {log}");
-        assert!(log.contains(" s.\n$ echo setup ran\nsetup ran"), "{log}");
+        assert!(log.contains("s.\n$ echo setup ran\nsetup ran"), "{log}");
         assert!(
             w.warm.status("shop-web").copying.is_empty(),
             "slot or claim released"

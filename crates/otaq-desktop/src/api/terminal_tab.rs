@@ -660,7 +660,7 @@ mod tests {
         );
         let ended = view.ended.unwrap();
         assert!(ended.title.ends_with("41 min"), "{}", ended.title);
-        assert_eq!(ended.text, "The agent's session finished.");
+        assert_eq!(ended.text, "The agent’s session finished.");
 
         let mut t = ticket(Status::WorkingInBackground);
         t.signal = Some(AgentSignal {

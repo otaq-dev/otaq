@@ -621,7 +621,7 @@ mod tests {
             Some("These keep waiting until SHOP-18 is merged")
         );
         assert_eq!(view.waiting[0].key, "SHOP-20");
-        assert_eq!(view.waiting[0].text, "Checkout page \u{b7} Queued");
+        assert_eq!(view.waiting[0].text, "Checkout page \u{b7} Ready for Dev");
         assert_eq!(view.pr, None);
         let alone = send_back_view(&t, &[], std::slice::from_ref(&t));
         assert!(alone.comments.is_empty() && alone.waiting_title.is_none());

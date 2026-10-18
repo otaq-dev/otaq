@@ -33,7 +33,7 @@ const button = (kind: RunButtonView["kind"], extra: Partial<RunButtonView> = {})
 });
 
 const RUNNING: RunCardView = {
-  title: "Running",
+  title: "Serving",
   tone: "success",
   icon: "dot",
   port: ":4020",
@@ -99,7 +99,7 @@ describe("the Run & Shell screen", () => {
 
   it("draws the Running card with Open and Stop", () => {
     const html = renderToStaticMarkup(createElement(RunCard, { card: RUNNING, busy: false, onPress: noop }));
-    for (const text of ["Running", ":4020", "pnpm dev --port $PORT", "Open localhost:4020", "Stop"]) {
+    for (const text of ["Serving", ":4020", "pnpm dev --port $PORT", "Open localhost:4020", "Stop"]) {
       expect(html).toContain(text);
     }
     expect(html).toContain('data-tone="success"');
@@ -188,7 +188,7 @@ describe("the Run & Shell screen", () => {
 
   it("lists every running process with Stop all", () => {
     const view: ProcessesView = {
-      title: "Running processes",
+      title: "Run processes",
       stop_all: "Stop all",
       stop: "Stop",
       empty: "Nothing runs.",
@@ -214,7 +214,7 @@ describe("the Run & Shell screen", () => {
       ],
     };
     const html = renderToStaticMarkup(createElement(ProcessesBody, { view, onOpenTicket: noop }));
-    for (const text of ["Running processes", "Stop all", "billing-api", "BILL-4", ":4004", "Open :4020"]) {
+    for (const text of ["Run processes", "Stop all", "billing-api", "BILL-4", ":4004", "Open :4020"]) {
       expect(html).toContain(text);
     }
     expect(html.match(/Open :4020/g)).toHaveLength(1);

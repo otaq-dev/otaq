@@ -96,7 +96,7 @@ async fn github_origin_with_gh_logged_in_then_other_remotes() {
     assert_eq!(gh.remote.as_deref(), Some("github.com/acme/shop-web"));
     assert_eq!(
         gh.summary(),
-        "GitHub (detected from origin) \u{b7} gh: logged in"
+        "GitHub (detected from origin) \u{b7} gh: signed in"
     );
     assert_eq!(gh.open_pr_blocked(), None);
 
@@ -113,7 +113,7 @@ async fn github_origin_with_gh_logged_in_then_other_remotes() {
     assert_eq!(az.provider, Some(Provider::AzureDevOps));
     assert_eq!(
         az.summary(),
-        "Azure DevOps (detected from origin) \u{b7} az: not logged in"
+        "Azure DevOps (detected from origin) \u{b7} az: not signed in"
     );
 
     git(

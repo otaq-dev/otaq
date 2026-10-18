@@ -357,8 +357,8 @@ pub fn end_marker(started_at: i64, ended_at: i64, reason: Option<&str>) -> EndMa
             clock::duration(ended_at - started_at)
         ),
         text: match reason {
-            Some("exit 0") | None => "The agent's session finished.".to_owned(),
-            Some(reason) => format!("The agent's session ended ({reason})."),
+            Some("exit 0") | None => "The agent’s session finished.".to_owned(),
+            Some(reason) => format!("The agent’s session ended ({reason})."),
         },
     }
 }
@@ -726,10 +726,10 @@ mod tests {
         let marker = end_marker(0, 41 * 60_000, Some("exit 0"));
         assert!(marker.title.starts_with("Session ended · "));
         assert!(marker.title.ends_with(" · 41 min"));
-        assert_eq!(marker.text, "The agent's session finished.");
+        assert_eq!(marker.text, "The agent’s session finished.");
         assert_eq!(
             end_marker(0, 0, Some("killed")).text,
-            "The agent's session ended (killed)."
+            "The agent’s session ended (killed)."
         );
         assert_eq!(
             no_session(&key()),

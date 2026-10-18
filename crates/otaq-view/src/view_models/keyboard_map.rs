@@ -33,21 +33,20 @@ pub const COLUMNS: &str = "macOS · Win/Linux · in terminal";
 
 /// The notes under the map, as in the frame.
 pub const NOTES: [&str; 5] = [
-    "No shortcut appears twice across the three columns (0058). OS system shortcuts such as ⌘` are off-limits. \
+    "No shortcut appears twice across the three columns. OS system shortcuts such as ⌘` are off-limits. \
      Find in terminal scrollback: ⌘F / Ctrl+Shift+F.",
     "While the terminal has focus every key goes to the CLI (Esc, Ctrl+C, Ctrl+J, Ctrl+T…). App shortcuts keep \
      working on macOS (⌘ isn’t used by the terminal). On Windows and Linux they move to Ctrl+Shift+…, like VS Code \
      and Windows Terminal: that’s the “in terminal” column. Leave the terminal with ⌘⇧` / Ctrl+Shift+`, a click \
      outside, or the inbox shortcut.",
-    "Update V (0087): Terminals and Settings moved to the bottom of the project rail; ⇧⌘T opens the Terminals \
-     drawer (Project terminals only), ⇧⌘A an empty Project agent in the pane. ⌘1–9 stay Project 1–9 and ⌘P Switch \
-     project; the Board and Files views are ⇧⌘B / ⇧⌘O, Go to file ⌥⌘P, the pane ⌘L (focus) and ⌘\\ (hide / \
-     show), Activity ⇧⌘U. Windows/Linux and in-terminal versions follow 0058's table (the in-terminal column is the \
-     proposal for 0058).",
+    "Terminals and Settings are at the bottom of the project rail; ⇧⌘T opens the Terminals drawer (Project \
+     terminals only), ⇧⌘A an empty Project agent in the pane. ⌘1–9 stay Project 1–9 and ⌘P Switch project; the \
+     Board and Files views are ⇧⌘B / ⇧⌘O, Go to file ⌥⌘P, the pane ⌘L (focus) and ⌘\\ (hide / show), Activity \
+     ⇧⌘U. The other two columns give the Windows/Linux and in-terminal keys.",
     "⌘K in the description: Link. While the description editor has focus, ⌘K / Ctrl+K adds or edits a link; \
-     everywhere else it stays Search / filter (0078, 0058 refined 2026-10-15).",
+     everywhere else it stays Search / filter.",
     "⌘⌥C in the description: Code block. While the description editor’s text has focus, ⌘⌥C / Ctrl+Alt+C adds or \
-     removes a code block; everywhere else ⌘⌥C does nothing (the webview’s inspector stays closed) (0078, Q51).",
+     removes a code block; everywhere else ⌘⌥C does nothing (the webview’s inspector stays closed).",
 ];
 
 /// How a row's actions are shown.
@@ -68,7 +67,7 @@ const GROUPS: [(&str, &[(&str, Keys)]); 3] = [
                 "Next inbox item (terminal focused)",
                 Keys::One(KeyAction::NextInboxItem),
             ),
-            ("Open inbox", Keys::One(KeyAction::OpenInbox)),
+            ("Inbox", Keys::One(KeyAction::OpenInbox)),
             (
                 "Previous / next ticket in panel",
                 Keys::Pair(KeyAction::PreviousTicket, KeyAction::NextTicket, "  "),
@@ -118,7 +117,7 @@ const GROUPS: [(&str, &[(&str, Keys)]); 3] = [
             ("Switch tab", Keys::Range(KeyAction::SwitchTab(1), "1–6")),
             ("Approve ▾", Keys::One(KeyAction::Approve)),
             ("Send back", Keys::One(KeyAction::SendBack)),
-            ("Start (to Ready for Dev)", Keys::One(KeyAction::StartDev)),
+            ("Start", Keys::One(KeyAction::StartDev)),
         ],
     ),
 ];
@@ -312,7 +311,7 @@ mod tests {
                 ("Settings", some("⌘,"), some("Ctrl+,"), some("Ctrl+Shift+,")),
             ]
         );
-        assert!(NOTES[2].starts_with("Update V (0087)"));
+        assert!(NOTES[2].starts_with("Terminals and Settings are at the bottom"));
     }
 
     /// Every action of the keymap has a row, except Find in terminal, which the notes name.

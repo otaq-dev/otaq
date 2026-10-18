@@ -188,7 +188,7 @@ async fn run(
         } else {
             "az login"
         };
-        return Err(format!("`{program}` isn't logged in (`{login}`)"));
+        return Err(format!("`{program}` isn't signed in (`{login}`)"));
     }
     let first = String::from_utf8_lossy(&output.stderr)
         .lines()

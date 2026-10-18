@@ -13,7 +13,7 @@ use otaq_core::naming::PRODUCT_NAME;
 use crate::view_models::theme_credits;
 
 /// The line under the name (0071).
-pub const TAGLINE: &str = "The board where you run your crew of agents";
+pub const TAGLINE: &str = "Run your coding agents from one board";
 
 /// What the build and the machine say about this copy of the app.
 #[derive(Debug, Clone, PartialEq, Eq)]

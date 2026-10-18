@@ -409,7 +409,7 @@ mod tests {
         let id = request(
             &h.app,
             "notices.toast",
-            json!({"level": "error", "title": "gh is not logged in",
+            json!({"level": "error", "title": "gh is not signed in",
                    "link": {"kind": "copy", "label": "Copy command", "text": "gh auth login"}}),
         )
         .await
@@ -418,7 +418,7 @@ mod tests {
             e["kind"] == "notices"
                 && e["notices"]["toasts"]
                     .as_array()
-                    .is_some_and(|t| t.iter().any(|t| t["title"] == "gh is not logged in"))
+                    .is_some_and(|t| t.iter().any(|t| t["title"] == "gh is not signed in"))
         })
         .await;
         request(&h.app, "notices.hold_toast", json!({"id": id, "held": true}))

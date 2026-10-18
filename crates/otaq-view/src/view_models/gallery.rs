@@ -85,9 +85,9 @@ pub struct GalleryView {
 fn live_label(status: Status) -> Option<&'static str> {
     match status {
         Status::Conflicts => Some("Conflicts with main"),
-        Status::Running => Some("Running :4020"),
+        Status::Running => Some("Serving :4020"),
         Status::Asked => Some("Asked SHOP-40.1"),
-        Status::Epic => Some("Epic · 1 / 3 merged"),
+        Status::Epic => Some("Epic · 1 of 3 merged"),
         Status::ValidationFailed => Some("Validation failed 3 times"),
         Status::AutoMergeStopped => Some("Keeps conflicting"),
         Status::Validated => Some("Validated · round 2"),
@@ -120,7 +120,7 @@ fn legend() -> Vec<LegendTier> {
                 // After the merge-conflict marker: the Queued entry with the slot count (d0066).
                 m12.push(PillView::legend(
                     Status::Queued,
-                    Some("Waiting for a slot · 5 / 5"),
+                    Some("Waiting for a slot · 5/5"),
                 ));
             }
             LegendTier {
@@ -164,10 +164,10 @@ fn type_scale() -> Vec<TypeRow> {
     let samples: [(&str, &str); 8] = [
         ("Display / dialog title", "Approve SHOP-18 Checkout API"),
         ("Header · project", "shop-web"),
-        ("Column title", "Agent Working  3"),
+        ("Column title", "Working  3"),
         ("Card title", "Fix flaky login redirect"),
         ("Body", "Colors are hard-coded in 14 files."),
-        ("Metadata", "active 40 s ago · 182k tokens"),
+        ("Metadata", "active 40s ago · 182k tokens"),
         ("Code / IDs", &code),
         ("Terminal", "● Read(src/app/checkout/page.tsx)"),
     ];
@@ -216,7 +216,7 @@ fn context_menu() -> Vec<MenuItem> {
             .icon(IconName::Trash2)
             .danger()
             .disabled(true)
-            .hint("Only for tickets that never started (0060)"),
+            .hint("Only for tickets that never started"),
     ]
 }
 
@@ -298,11 +298,11 @@ mod tests {
             view.legend[2]
                 .pills
                 .iter()
-                .any(|p| p.label == "Running :4020")
+                .any(|p| p.label == "Serving :4020")
         );
         assert_eq!(
             view.legend[2].m12.last().unwrap().label,
-            "Waiting for a slot · 5 / 5"
+            "Waiting for a slot · 5/5"
         );
         assert_eq!(view.priority.chips.len(), 4);
     }

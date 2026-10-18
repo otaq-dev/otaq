@@ -18,7 +18,7 @@ use otaq_core::board::settings::{
 };
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::named_agents::{NamedAgent, RoleDefaults};
-use otaq_core::naming::{self, COMMAND_NAME, PRODUCT_NAME};
+use otaq_core::naming::{self, PRODUCT_NAME};
 use otaq_core::pr::provider::PrProvider;
 use otaq_core::scheduler::SchedulerStatus;
 use otaq_core::tools::ToolsReport;
@@ -879,9 +879,7 @@ pub fn global_page(input: &GlobalInputs) -> Page {
         vec![row(
             "agent_instructions",
             "Default instructions",
-            format!(
-                "Given to every agent in every project through {COMMAND_NAME} prime (0040). A project can override it in its own settings."
-            ),
+            "Given to every agent in every project. A project can override it.",
             multiline(
                 &s.agent_instructions,
                 "Your rules for every agent, e.g. “Ask before coding.”",
@@ -1165,7 +1163,7 @@ pub fn global_page(input: &GlobalInputs) -> Page {
     }
 }
 
-const ROUNDS_DESCRIPTION: &str = "How many times the validator may send work back before the card turns turquoise (\u{201c}Validation failed N times\u{201d}). 1\u{2013}5.";
+const ROUNDS_DESCRIPTION: &str = "How many times the validator may send work back before the ticket comes to you (\u{201c}Validation failed N times\u{201d}). 1\u{2013}5.";
 const AUTO_MERGE_DESCRIPTION: &str = "Lets validated tickets land without your click. Only ever a Local merge, never pushed; epics and tickets that skipped or failed validation never auto-merge.";
 const USE_GLOBAL: &str = "Use global";
 
@@ -1718,9 +1716,7 @@ pub fn project_page(input: &ProjectInputs) -> Page {
         vec![row(
             "agent_instructions",
             "Agent instructions",
-            format!(
-                "Per-project override, given to every agent in this project through {COMMAND_NAME} prime. Empty = the global default is used."
-            ),
+            "Per-project override, given to every agent in this project. Empty = the global default is used.",
             multiline(
                 &s.agent_instructions,
                 &instructions_placeholder(input.global),
@@ -4777,7 +4773,8 @@ mod tests {
         let problems = vec![
             SettingProblem {
                 field: "env_files".into(),
-                message: ".env.local doesn't exist in the repository".into(),
+                message: "Can\u{2019}t find .env.local in ~/code/shop-web. Add it to the repo root, or remove it from this list."
+                    .into(),
             },
             SettingProblem {
                 field: "open_url".into(),
@@ -5029,9 +5026,7 @@ mod tests {
         assert_eq!(rows[0].problem, None, "the first NODE_OPTIONS applies");
         assert_eq!(
             rows[1].problem.as_deref(),
-            Some(
-                "“MAX=JOBS” can’t be a name: a name can’t contain “=”. This row isn’t set until it’s fixed."
-            )
+            Some("Remove “=” from the name. This row isn’t set until then.")
         );
         assert_eq!(
             rows[2].problem.as_deref(),
@@ -5040,9 +5035,7 @@ mod tests {
         assert_eq!(rows[2].remove_label, "Remove variable");
         assert_eq!(
             rows[3].problem.as_deref(),
-            Some(
-                "“BAD\\0NAME” can’t be a name: a name can’t contain a null character. This row isn’t set until it’s fixed."
-            )
+            Some("Remove the null character from the name. This row isn’t set until then.")
         );
         assert_eq!(
             rows[4].problem.as_deref(),

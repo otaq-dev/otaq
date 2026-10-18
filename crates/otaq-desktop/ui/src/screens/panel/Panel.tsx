@@ -227,17 +227,20 @@ function ActionButton({
   onPress: (button: PanelButton) => void;
 }) {
   const attention = button.look === "attention";
+  const pressable = (
+    <Button
+      label={button.label}
+      variant={LOOK_VARIANT[button.look]}
+      icon={attention ? "corner-down-right" : (button.icon ?? undefined)}
+      loading={busy}
+      onClick={() => {
+        onPress(button);
+      }}
+    />
+  );
   return (
     <span className="panel-action" data-look={button.look}>
-      <Button
-        label={button.label}
-        variant={LOOK_VARIANT[button.look]}
-        icon={attention ? "corner-down-right" : (button.icon ?? undefined)}
-        loading={busy}
-        onClick={() => {
-          onPress(button);
-        }}
-      />
+      {button.tooltip === null ? pressable : <Tooltip text={button.tooltip}>{pressable}</Tooltip>}
     </span>
   );
 }

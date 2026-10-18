@@ -138,7 +138,11 @@ pub fn env_file_problem(problems: &[SettingProblem], file: &str) -> Option<Strin
     problems
         .iter()
         .filter(|p| p.field == "env_files")
-        .find(|p| p.message.starts_with(&format!("{file} ")))
+        .find(|p| {
+            p.message.starts_with(&format!("{file} "))
+                || p.message
+                    .starts_with(&format!("Can\u{2019}t find {file} in "))
+        })
         .map(|p| p.message.clone())
 }
 
@@ -303,7 +307,7 @@ mod tests {
         let row = provider_row(Some(&p));
         assert_eq!(
             row.status,
-            "Azure DevOps (detected from origin) \u{b7} az: logged in"
+            "Azure DevOps (detected from origin) \u{b7} az: signed in"
         );
         assert_eq!(row.tone, ProviderTone::Ready);
         assert!(
@@ -340,7 +344,7 @@ mod tests {
         let problems = vec![
             SettingProblem {
                 field: "env_files".into(),
-                message: ".env.local doesn't exist in the repository".into(),
+                message: "Can’t find .env.local in ~/code/shop-web. Add it to the repo root, or remove it from this list.".into(),
             },
             SettingProblem {
                 field: "open_url".into(),
@@ -349,7 +353,9 @@ mod tests {
         ];
         assert_eq!(
             env_file_problem(&problems, ".env.local").as_deref(),
-            Some(".env.local doesn't exist in the repository")
+            Some(
+                "Can’t find .env.local in ~/code/shop-web. Add it to the repo root, or remove it from this list."
+            )
         );
         assert_eq!(env_file_problem(&problems, "appsettings.json"), None);
         assert_eq!(

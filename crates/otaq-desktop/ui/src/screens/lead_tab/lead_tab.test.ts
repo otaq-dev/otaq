@@ -208,7 +208,7 @@ describe("a lead that waits on its tool (M23)", () => {
         tone: "amber",
         avatar: null,
         heading:
-          "Claude Code isn't available · logged out. The lead waits; children on Claude Code wait too.",
+          "Claude Code isn't available · signed out. The lead waits; children on Claude Code wait too.",
         text: null,
         model: null,
         buttons: [{ label: "Sign in…", action: { kind: "sign_in", tool: "claude" }, primary: true }],

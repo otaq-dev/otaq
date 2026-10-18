@@ -718,20 +718,15 @@ pub fn env_var_field(index: usize) -> String {
 /// The problem of a row with an empty name (*15 · Settings → Row · Environment variables · edit, remove, errors*).
 pub const ENV_VAR_EMPTY_NAME: &str = "Add a name, or remove the row";
 
-/// The problem of a name containing `=`: "“MAX=JOBS” can’t be a name: a name can’t contain “=”. This row isn’t
-/// set until it’s fixed."
-pub fn env_var_equals_message(name: &str) -> String {
-    format!(
-        "“{name}” can’t be a name: a name can’t contain “=”. This row isn’t set until it’s fixed."
-    )
+/// The problem of a name containing `=`, ending with the fix (d0093): "Remove “=” from the name. This row isn’t set
+/// until then." The name itself is in the row's field.
+pub fn env_var_equals_message(_name: &str) -> String {
+    "Remove \u{201c}=\u{201d} from the name. This row isn\u{2019}t set until then.".to_owned()
 }
 
-/// The problem of a name containing a null character, shown as `\0`.
-pub fn env_var_null_message(name: &str) -> String {
-    format!(
-        "“{}” can’t be a name: a name can’t contain a null character. This row isn’t set until it’s fixed.",
-        name.replace('\0', "\\0")
-    )
+/// The problem of a name containing a null character.
+pub fn env_var_null_message(_name: &str) -> String {
+    "Remove the null character from the name. This row isn\u{2019}t set until then.".to_owned()
 }
 
 /// The problem of a row repeating an earlier row's name: "NODE_OPTIONS is already set above. Only the first row
@@ -1094,10 +1089,19 @@ fn env_file_problem(repo: &Path, file: &str) -> Option<String> {
             "{file} must be a path inside the repository, like .env.local"
         ))
     } else if !repo.join(path).is_file() {
-        Some(format!("{file} doesn't exist in the repository"))
+        Some(missing_env_file(file.trim(), repo))
     } else {
         None
     }
+}
+
+/// An env file that isn't in the repository, with the fix (d0093: one wording on every surface): "Can’t find
+/// .env.local in ~/code/billing-api. Add it to the repo root, or remove it from this list."
+pub fn missing_env_file(file: &str, repo: &Path) -> String {
+    format!(
+        "Can\u{2019}t find {file} in {}. Add it to the repo root, or remove it from this list.",
+        crate::start::setup::home_relative(repo)
+    )
 }
 
 /// The message on a Remove or Template refresh command set without a Create command.

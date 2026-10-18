@@ -83,7 +83,7 @@ const VIEW: PanelView = {
   },
   priority_hint: "Priority",
   priority_menu: [],
-  pill: { palette: "working", icon: "loader", label: "Agent Working" },
+  pill: { palette: "working", icon: "loader", label: "Working" },
   branch: { shown: "otaq/SHOP-19", full: "otaq/SHOP-19" },
   copy_branch: "Copy branch name",
   base: "main",
@@ -99,7 +99,15 @@ const VIEW: PanelView = {
   close_hint: hint("Close", "Esc"),
   more_hint: "More",
   resize_hint: "Panel width",
-  buttons: [{ action: "open_terminal", label: "Open terminal", icon: "square-terminal", look: "secondary" }],
+  buttons: [
+    {
+      action: "open_terminal",
+      label: "Open terminal",
+      tooltip: null,
+      icon: "square-terminal",
+      look: "secondary",
+    },
+  ],
   approve_more: null,
   approve_opens_menu: false,
   stop_message: null,
@@ -355,15 +363,7 @@ describe("answer options", () => {
 describe("the panel", () => {
   it("draws the header, the bar, the registered section and the tab strip", () => {
     const html = render(VIEW);
-    for (const text of [
-      "SHOP-19",
-      "Price table",
-      "Agent Working",
-      "otaq/SHOP-19",
-      "main",
-      "40s ago",
-      "182k",
-    ]) {
+    for (const text of ["SHOP-19", "Price table", "Working", "otaq/SHOP-19", "main", "40s ago", "182k"]) {
       expect(html).toContain(text);
     }
     expect(html).toContain("Open terminal");
@@ -390,7 +390,7 @@ describe("the panel", () => {
       notice: { text: "Waits for SHOP-18 to merge.", parent_closed: false, choices: [] },
       conflict: { line: "Conflicts with main · 1 file (a.ts)", fix: "Send to agent to fix" },
       start_problem: {
-        heading: "The start didn’t finish",
+        heading: "Start failed",
         message: "SHOP-19 stopped before its agent session started.",
         has_log: false,
         show_log: "View the setup log",
@@ -415,7 +415,9 @@ describe("the panel", () => {
       ...VIEW,
       token_split: "agent 58k · validation 9k (1 round)",
       stop_message: "Keeps conflicting with otaq/SHOP-40 (3 tries in a row).",
-      buttons: [{ action: "approve", label: "Approve · Local merge", icon: null, look: "primary" }],
+      buttons: [
+        { action: "approve", label: "Approve · Local merge", tooltip: null, icon: null, look: "primary" },
+      ],
       approve_more: "Approve choices",
     });
     expect(html).toContain("agent 58k · validation 9k (1 round)");

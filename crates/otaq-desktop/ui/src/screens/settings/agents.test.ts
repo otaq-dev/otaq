@@ -556,7 +556,7 @@ const FAILED: ModelPickerView = {
   ],
   status: {
     loading: false,
-    text: "Couldn't load Copilot's models",
+    text: "Couldn’t load Copilot’s models. Check your connection, then try again.",
     retry_label: "Retry",
     retry_tool: "copilot",
     note: "Verifier keeps gpt-5.5 as saved. Tickets still start on it; the check before each launch uses the last copy of the list.",
@@ -636,7 +636,7 @@ describe("several tools", () => {
     expect(document.body.textContent).toContain("Verifier keeps gpt-5.5 as saved.");
     click(modelField());
     expect(document.querySelector(".settings-model-status")?.textContent).toBe(
-      "Couldn't load Copilot's models·Retry",
+      "Couldn’t load Copilot’s models. Check your connection, then try again.·Retry",
     );
     click(byText(".settings-model-status button", "Retry") as Element);
     await settle();

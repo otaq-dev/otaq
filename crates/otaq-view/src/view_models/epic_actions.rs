@@ -38,7 +38,7 @@ pub fn epic_choices(tickets: &[Ticket]) -> Vec<EpicChoice> {
             EpicChoice {
                 key: e.key.clone(),
                 title: e.title.clone(),
-                progress: format!("{} / {} merged", p.merged, p.total),
+                progress: format!("{} of {} merged", p.merged, p.total),
                 new_key: TicketKey::child(
                     e.key.project.clone(),
                     e.key.number,
@@ -212,7 +212,7 @@ mod tests {
         let tickets = wishlist();
         let choices = epic_choices(&tickets);
         assert_eq!(choices.len(), 1);
-        assert_eq!(choices[0].progress, "1 / 3 merged");
+        assert_eq!(choices[0].progress, "1 of 3 merged");
         assert_eq!(choices[0].new_key, key("SHOP-40.4"));
         let p = move_preview(&tickets[4], &choices[0], &tickets);
         assert_eq!(p.title, "Move SHOP-51 Wishlist share link to an epic");

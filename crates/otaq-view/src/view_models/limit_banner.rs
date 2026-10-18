@@ -208,6 +208,24 @@ fn plural(n: u32, one: &str, many: &str) -> String {
     }
 }
 
+/// A banner's text as sentences (d0093: the middle dot joins metadata only): the first part, then the rest joined by
+/// semicolons: "Resets at 3:45 pm. 8 agents stopped; no new tickets will start."
+fn sentences(parts: &[String]) -> String {
+    let Some((first, rest)) = parts.split_first() else {
+        return String::new();
+    };
+    if rest.is_empty() {
+        return format!("{first}.");
+    }
+    let rest = rest.join("; ");
+    let mut chars = rest.chars();
+    let rest = match chars.next() {
+        Some(c) => c.to_uppercase().chain(chars).collect::<String>(),
+        None => rest,
+    };
+    format!("{first}. {rest}.")
+}
+
 fn tickets_n(n: u32) -> String {
     plural(n, "ticket", "tickets")
 }
@@ -253,11 +271,11 @@ fn one_tool_line(stopped: u32, limit: &Limit, now: i64) -> Option<LimitBanner> {
         let are = if stopped == 1 { "is" } else { "are" };
         return Some(LimitBanner {
             title: "Usage limit reset".to_owned(),
-            text: format!(
-                "Your plan limit reset{} · {} {are} waiting · nothing resumes until you click",
-                reset_at(limit),
-                plural(stopped, "agent", "agents")
-            ),
+            text: sentences(&[
+                format!("Your plan limit reset{}", reset_at(limit)),
+                format!("{} {are} waiting", plural(stopped, "agent", "agents")),
+                "nothing resumes until you click".to_owned(),
+            ]),
             resume: Some(ResumeButton {
                 label: format!("Resume ({stopped})"),
                 enabled: true,
@@ -273,10 +291,11 @@ fn one_tool_line(stopped: u32, limit: &Limit, now: i64) -> Option<LimitBanner> {
     let Some(at) = limit.resets_at else {
         return Some(LimitBanner {
             title: "Usage limit reached".to_owned(),
-            text: format!(
-                "Reset time unknown · {} · no new tickets will start",
-                agents("waiting for limit reset")
-            ),
+            text: sentences(&[
+                "Reset time unknown".to_owned(),
+                agents("waiting for limit reset"),
+                "no new tickets will start".to_owned(),
+            ]),
             resume: Some(ResumeButton {
                 label: "Resume".to_owned(),
                 enabled: true,
@@ -296,13 +315,13 @@ fn one_tool_line(stopped: u32, limit: &Limit, now: i64) -> Option<LimitBanner> {
     };
     let (when, last_hour) = resets(at, now, "at ");
     let tail = if last_hour {
-        "queued tickets wait"
+        "tickets in Ready for Dev wait"
     } else {
         "no new tickets will start"
     };
     Some(LimitBanner {
         title: title.to_owned(),
-        text: format!("{when} · {} · {tail}", agents("stopped")),
+        text: sentences(&[when.clone(), agents("stopped"), tail.to_owned()]),
         resume: Some(ResumeButton {
             label: "Resume".to_owned(),
             enabled: false,
@@ -358,7 +377,7 @@ fn limit_line(l: &ToolLine, limit: &Limit, now: i64) -> Option<LimitBanner> {
         };
         return Some(LimitBanner {
             title: format!("{word} limit reset"),
-            text: parts.join(" \u{b7} "),
+            text: sentences(&parts),
             resume: Some(ResumeButton {
                 label,
                 enabled: true,
@@ -408,7 +427,7 @@ fn limit_line(l: &ToolLine, limit: &Limit, now: i64) -> Option<LimitBanner> {
     };
     Some(LimitBanner {
         title: title.clone(),
-        text: parts.join(" \u{b7} "),
+        text: sentences(&parts),
         resume: Some(ResumeButton {
             label: resume,
             enabled: l.resume_enabled,
@@ -653,7 +672,7 @@ pub fn gallery() -> Gallery {
             "A tool isn't available",
             several(vec![ToolLine {
                 targets: vec![target("sonnet", "Sonnet", Tool::Claude, Some("sonnet"))],
-                ..unavailable(Tool::Codex, "logged out", true, false)
+                ..unavailable(Tool::Codex, "signed out", true, false)
             }]),
         ),
         (
@@ -661,7 +680,7 @@ pub fn gallery() -> Gallery {
             several(vec![ToolLine {
                 waiting: 0,
                 moved: vec![moved("Sonnet", 5)],
-                ..unavailable(Tool::Codex, "logged out", true, false)
+                ..unavailable(Tool::Codex, "signed out", true, false)
             }]),
         ),
         (
@@ -762,7 +781,7 @@ mod tests {
         assert_eq!(
             b.text,
             format!(
-                "Resets at {} · 8 agents stopped · no new tickets will start",
+                "Resets at {}. 8 agents stopped; no new tickets will start.",
                 clock(at)
             )
         );
@@ -805,7 +824,7 @@ mod tests {
         assert_eq!(
             l.banner.text,
             format!(
-                "Resets in 42 min ({}) · 1 agent stopped · queued tickets wait",
+                "Resets in 42 min ({}). 1 agent stopped; tickets in Ready for Dev wait.",
                 clock(at)
             )
         );
@@ -823,7 +842,7 @@ mod tests {
         assert!(
             l.banner
                 .text
-                .ends_with(" · 8 agents stopped · no new tickets will start")
+                .ends_with(". 8 agents stopped; no new tickets will start.")
         );
     }
 
@@ -836,7 +855,7 @@ mod tests {
         assert_eq!(l.banner.title, "Usage limit reached");
         assert_eq!(
             l.banner.text,
-            "Reset time unknown · 2 agents waiting for limit reset · no new tickets will start"
+            "Reset time unknown. 2 agents waiting for limit reset; no new tickets will start."
         );
         let resume = l.banner.resume.unwrap();
         assert!(resume.enabled && !resume.primary);
@@ -857,7 +876,7 @@ mod tests {
         assert_eq!(
             l.banner.text,
             format!(
-                "Your plan limit reset at {} · 8 agents are waiting · nothing resumes until you click",
+                "Your plan limit reset at {}. 8 agents are waiting; nothing resumes until you click.",
                 clock(NOW - MINUTE)
             )
         );
@@ -901,13 +920,13 @@ mod tests {
         assert_eq!(cc.view.title, "Claude Code limit reached");
         assert_eq!(
             cc.view.text,
-            format!("Resets {} · 4 tickets waiting", clock(NOW + 4 * HOUR))
+            format!("Resets {}. 4 tickets waiting.", clock(NOW + 4 * HOUR))
         );
         assert_eq!(cx.view.title, "Codex limit reached");
         assert_eq!(
             cx.view.text,
             format!(
-                "Resets {} · 2 tickets waiting · 1 agent stopped mid-ticket",
+                "Resets {}. 2 tickets waiting; 1 agent stopped mid-ticket.",
                 clock(NOW + 5 * HOUR)
             )
         );
@@ -946,7 +965,7 @@ mod tests {
         assert_eq!(
             last.text,
             format!(
-                "Resets in 42 min ({}) · 4 tickets waiting",
+                "Resets in 42 min ({}). 4 tickets waiting.",
                 clock(NOW + 42 * MINUTE)
             )
         );
@@ -976,7 +995,7 @@ mod tests {
         assert_eq!(
             month.text,
             format!(
-                "Resets {} · 4 tickets waiting",
+                "Resets {}. 4 tickets waiting.",
                 reset_label(NOW + 20 * 24 * HOUR, NOW)
             )
         );
@@ -984,7 +1003,7 @@ mod tests {
         assert_eq!(unknown.title, "Codex limit reached");
         assert_eq!(
             unknown.text,
-            "Codex didn\u{2019}t say when it resets · 4 tickets waiting"
+            "Codex didn\u{2019}t say when it resets. 4 tickets waiting."
         );
         assert!(unknown.buttons[0].enabled, "always available when unknown");
         let after = one_line(&several(vec![stopped(
@@ -995,7 +1014,7 @@ mod tests {
         assert_eq!(
             after.view.text,
             format!(
-                "Claude Code\u{2019}s limit reset at {} · 8 agents are waiting · 4 tickets waiting · nothing resumes until you click",
+                "Claude Code\u{2019}s limit reset at {}. 8 agents are waiting; 4 tickets waiting; nothing resumes until you click.",
                 clock(NOW - HOUR)
             )
         );
@@ -1007,10 +1026,10 @@ mod tests {
     fn the_unavailable_line_offers_sign_in_or_show_in_agent_tools() {
         let l = one_line(&several(vec![ToolLine {
             targets: vec![target("sonnet", "Sonnet", Tool::Claude, Some("sonnet"))],
-            ..unavailable(Tool::Codex, "logged out", true, false)
+            ..unavailable(Tool::Codex, "signed out", true, false)
         }]));
         assert_eq!(l.view.title, "Codex isn\u{2019}t available");
-        assert_eq!(l.view.text, "logged out · 5 tickets waiting");
+        assert_eq!(l.view.text, "signed out · 5 tickets waiting");
         assert_eq!(
             (l.view.tone, l.view.icon),
             (BannerTone::Warning, IconName::TriangleAlert),
@@ -1035,7 +1054,7 @@ mod tests {
         assert_eq!(hidden.view.buttons[0].label, "Show in Agent tools");
         assert_eq!(hidden.view.buttons[0].action, Action::ShowInAgentTools);
         // One tool connected: the line still names the tool, but nothing to move to.
-        let only = one_line(&one(unavailable(Tool::Claude, "logged out", true, false)));
+        let only = one_line(&one(unavailable(Tool::Claude, "signed out", true, false)));
         assert_eq!(only.view.title, "Claude Code isn\u{2019}t available");
         assert_eq!(only.view.avatar, None);
         assert_eq!(only.view.move_waiting, None);
@@ -1046,21 +1065,21 @@ mod tests {
         let all_moved = one_line(&several(vec![ToolLine {
             waiting: 0,
             moved: vec![moved("Sonnet", 5)],
-            ..unavailable(Tool::Codex, "logged out", true, false)
+            ..unavailable(Tool::Codex, "signed out", true, false)
         }]));
         assert_eq!(
             all_moved.view.text,
-            "logged out · 5 tickets moved to Sonnet"
+            "signed out · 5 tickets moved to Sonnet"
         );
         assert_eq!(all_moved.view.move_waiting, None, "nothing left waiting");
         let some = one_line(&several(vec![ToolLine {
             waiting: 2,
             moved: vec![moved("Sonnet", 5)],
-            ..unavailable(Tool::Codex, "logged out", true, false)
+            ..unavailable(Tool::Codex, "signed out", true, false)
         }]));
         assert_eq!(
             some.view.text,
-            "logged out · 5 tickets moved to Sonnet · 2 waiting"
+            "signed out · 5 tickets moved to Sonnet · 2 waiting"
         );
         let limit = one_line(&several(vec![ToolLine {
             waiting: 3,
@@ -1070,7 +1089,7 @@ mod tests {
         assert_eq!(
             limit.view.text,
             format!(
-                "Resets {} · 1 ticket moved to Strong GPT · 3 waiting",
+                "Resets {}. 1 ticket moved to Strong GPT; 3 waiting.",
                 clock(NOW + 4 * HOUR)
             )
         );
@@ -1150,7 +1169,7 @@ mod tests {
         assert_eq!(n.body, "5 tickets waiting");
         let l = one_line(&several(vec![unavailable(
             Tool::Codex,
-            "logged out",
+            "signed out",
             true,
             false,
         )]));

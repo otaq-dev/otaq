@@ -401,7 +401,8 @@ pub struct ProjectFacts<'a> {
     pub agents: Option<&'a otaq_core::named_agents::rows::BoardAgents>,
 }
 
-pub const APPROVED_NOTE: &str = "doesn\u{2019}t watch PRs. Mark it when it lands.";
+pub const APPROVED_NOTE: &str =
+    "doesn\u{2019}t watch PRs. Mark it once it\u{2019}s merged on GitHub.";
 
 fn card(entry: CardEntry, tickets: &[Ticket]) -> Option<BoardCard> {
     Some(match entry {
@@ -1208,7 +1209,7 @@ mod tests {
         assert_eq!(
             approved.note.as_ref().unwrap().text,
             format!(
-                "{} doesn’t watch PRs. Mark it when it lands.",
+                "{} doesn’t watch PRs. Mark it once it’s merged on GitHub.",
                 otaq_core::naming::PRODUCT_NAME
             )
         );
@@ -1327,7 +1328,7 @@ mod tests {
             &facts(),
             &Params {
                 filter: FilterState {
-                    tokens: vec!["is:needs-me".into()],
+                    tokens: vec!["is:needs-you".into()],
                     text: String::new(),
                 },
                 ..params(1376.)
@@ -1766,7 +1767,7 @@ mod tests {
         assert_eq!(shown(&both), ["SHOP-24"]);
         let both = filtered(
             FilterState {
-                tokens: vec!["is:needs-me".into()],
+                tokens: vec!["is:needs-you".into()],
                 text: String::new(),
             },
             Some("a1"),

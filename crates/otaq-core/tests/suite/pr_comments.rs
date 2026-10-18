@@ -146,7 +146,7 @@ async fn fetched_on_demand_through_the_stand_in_cli() {
     assert!(feedback.comments.is_empty());
     assert_eq!(
         feedback.note.as_deref(),
-        Some("PR #481 comments weren't fetched: `gh` isn't logged in (`gh auth login`)")
+        Some("PR #481 comments weren't fetched: `gh` isn't signed in (`gh auth login`)")
     );
     // No PR, no fetch.
     let other = w.create("SHOP", "No PR").await;

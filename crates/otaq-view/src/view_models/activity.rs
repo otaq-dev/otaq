@@ -36,7 +36,7 @@ pub const WARNING_TOKEN: &str = "st-paused";
 
 /// The popover's line while no agent runs.
 pub const NOTHING_RUNNING: &str =
-    "Nothing running. Queued tickets start when a slot and their parents allow.";
+    "Nothing running. Tickets in Ready for Dev start when a slot and their parents allow.";
 
 /// A tool without limit windows now (an API-key login).
 pub const NO_PLAN: &str = "No plan limit · tokens only";
@@ -931,7 +931,7 @@ mod tests {
     #[test]
     fn with_limits_on_the_button_reads_slots_out_of_the_max() {
         let f = Fixtures::new();
-        assert_eq!(mac_button(&f.limits_on).agents.count, "3 / 5");
+        assert_eq!(mac_button(&f.limits_on).agents.count, "3/5");
         let status = SchedulerStatus {
             holding: 4,
             ..SchedulerStatus::default()
@@ -939,10 +939,7 @@ mod tests {
         let mut inputs = f.limits_on.inputs();
         inputs.scheduler = Some(&status);
         let b = button(&inputs, Platform::Mac);
-        assert_eq!(
-            (b.agents.count.as_str(), b.agents.label),
-            ("4 / 5", "agents")
-        );
+        assert_eq!((b.agents.count.as_str(), b.agents.label), ("4/5", "agents"));
         assert!(b.agents.control);
     }
 
@@ -1182,7 +1179,9 @@ mod tests {
         assert!(p.agents.rows.is_empty());
         assert_eq!(
             p.agents.empty,
-            Some("Nothing running. Queued tickets start when a slot and their parents allow.")
+            Some(
+                "Nothing running. Tickets in Ready for Dev start when a slot and their parents allow."
+            )
         );
         assert_eq!(p.usage.today, "Today 0 tokens");
         let cc = &p.usage.tools[0];

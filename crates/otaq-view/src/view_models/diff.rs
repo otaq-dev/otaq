@@ -356,7 +356,7 @@ pub fn tab_indicator(summary: Option<&DiffSummary>) -> Option<String> {
 
 /// "4 / 9 viewed".
 pub fn viewed_label(viewed: usize, total: usize) -> String {
-    format!("{viewed} / {total} viewed")
+    format!("{viewed} of {total} viewed")
 }
 
 /// The file list's status letter: A, M, D, R.
@@ -598,7 +598,7 @@ mod tests {
         ];
         assert_eq!(
             viewed_label(m.viewed_count(&key, 1, &files), files.len()),
-            "1 / 2 viewed"
+            "1 of 2 viewed"
         );
         assert!(!m.toggle_viewed(&key, 1, "a.ts"));
         assert_eq!(m.viewed_count(&key, 1, &files), 0);

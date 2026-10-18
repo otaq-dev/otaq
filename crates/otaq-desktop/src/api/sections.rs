@@ -177,13 +177,13 @@ pub fn stack_of(ticket: &Ticket, tickets: &[Ticket]) -> StackView {
         n => format!("{n} tickets"),
     };
     StackView {
-        title: "Stack",
+        title: "Dependencies",
         summary: stack::summary(&ticket.key, tickets),
         count,
         rows,
         add_dependency: "+ Add dependency",
-        show_hint: "Show the Stack",
-        hide_hint: "Hide the Stack",
+        show_hint: "Show dependencies",
+        hide_hint: "Hide dependencies",
     }
 }
 
@@ -1053,7 +1053,7 @@ mod tests {
 
         assert_eq!(epic_of(&share, &all), None, "a ticket has no epic panel");
         let view = epic_of(&epic, &all).unwrap();
-        assert_eq!(view.progress, "1 / 2 merged");
+        assert_eq!(view.progress, "1 of 2 merged");
         assert_eq!((view.merged, view.total), (1, 2));
         assert_eq!(view.heading, "TICKETS \u{b7} 2");
         assert_eq!(view.children[1].deps.as_deref(), Some("\u{26d3} SHOP-40.1"));
@@ -1115,7 +1115,7 @@ mod tests {
 
         let view = table(&h.app, "sections.epic", json!({ "key": epic })).await.unwrap();
         assert_eq!(view["children"][0]["key"], child.as_str());
-        assert_eq!(view["progress"], "0 / 1 merged");
+        assert_eq!(view["progress"], "0 of 1 merged");
         let none = table(&h.app, "sections.epic", json!({ "key": lone })).await.unwrap();
         assert_eq!(none, Value::Null);
 

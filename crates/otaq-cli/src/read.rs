@@ -542,11 +542,14 @@ fn status_of(key: &TicketKey, tickets: &[Ticket]) -> String {
 pub fn show_text(ticket: &Ticket, tickets: &[Ticket], agents: Option<&TicketAgents>) -> String {
     let mut text = format!("{} · {}\n", ticket.key, ticket.title);
     let kind = if ticket.is_epic() { "Epic · " } else { "" };
-    text.push_str(&format!(
-        "Status:      {kind}{} ({})\n",
-        ticket.status.label(),
-        ticket.column.label()
-    ));
+    let (status, column) = (ticket.status.label(), ticket.column.label());
+    // A status named like its column ("Ready for Dev") says it once.
+    let column = if status == column {
+        String::new()
+    } else {
+        format!(" ({column})")
+    };
+    text.push_str(&format!("Status:      {kind}{status}{column}\n"));
     if let Some(signal) = ticket.signal.as_ref().and_then(|s| s.text.as_deref()) {
         text.push_str(&format!("Waiting on:  {signal}\n"));
     }

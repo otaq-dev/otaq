@@ -27,7 +27,7 @@ pub struct EpicProgress {
 
 impl EpicProgress {
     pub fn label(&self) -> String {
-        format!("{} / {} merged", self.merged, self.total)
+        format!("{} of {} merged", self.merged, self.total)
     }
 }
 

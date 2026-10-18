@@ -285,8 +285,8 @@ fn reason(ticket: &Ticket, tickets: &[Ticket]) -> String {
             Some(problem) if problem.step == StartStep::Model => {
                 format!("start failed · {}", problem.step.failure_label())
             }
-            Some(problem) => format!("start interrupted · {}", problem.step.failure_label()),
-            None => "start interrupted".into(),
+            Some(problem) => format!("start failed · {}", problem.step.failure_label()),
+            None => "start failed".into(),
         },
         Status::ParentClosed => match readiness(ticket, tickets) {
             ReadyState::ParentClosed { parents } => match parents.as_slice() {

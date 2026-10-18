@@ -554,7 +554,7 @@ impl Status {
         }
     }
 
-    /// The legend's label. Labels with live parts ("Running :4020", "Asked SHOP-40.1", "Epic · 1 / 3 merged",
+    /// The legend's label. Labels with live parts ("Serving :4020", "Asked SHOP-40.1", "Epic · 1 / 3 merged",
     /// "Conflicts with main") are completed by the views that know those values.
     pub fn label(self) -> &'static str {
         match self {
@@ -562,17 +562,17 @@ impl Status {
             Self::AsksYou => "Asks you",
             Self::Idle => "Idle",
             Self::Interrupted => "Interrupted",
-            Self::StartInterrupted => "Start interrupted",
+            Self::StartInterrupted => "Start failed",
             Self::ParentClosed => "Parent closed",
             Self::ReadyForReview => "Ready for Review",
             Self::PrOpen => "PR open",
             Self::Conflicts => "Conflicts with",
             Self::ChangedSinceReview => "Changed since review",
-            Self::AgentWorking => "Agent Working",
+            Self::AgentWorking => "Working",
             Self::WorkingInBackground => "Working in background",
-            Self::Queued => "Queued",
+            Self::Queued => "Ready for Dev",
             Self::Parked => "Parked · has work",
-            Self::Running => "Running",
+            Self::Running => "Serving",
             Self::Asked => "Asked",
             Self::SentBack => "Sent back",
             Self::WaitingForLimitReset => "Waiting for limit reset",

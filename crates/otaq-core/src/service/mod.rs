@@ -486,7 +486,7 @@ impl Service {
             Ok(0) => {}
             Ok(cut) => tracing::warn!(
                 cut,
-                "starts cut short by the previous service: Start interrupted"
+                "starts cut short by the previous service: Start failed"
             ),
             Err(e) => tracing::warn!(error = %e, "can't check for starts cut short"),
         }

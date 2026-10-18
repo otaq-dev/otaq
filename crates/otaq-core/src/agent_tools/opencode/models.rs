@@ -208,7 +208,7 @@ pub(super) async fn read_list_with(
         poll(&url, &serve.password, deadline).await
     })
     .await
-    .unwrap_or_else(|_| Err(failed(format!("it took longer than {} s", limit.as_secs()))));
+    .unwrap_or_else(|_| Err(failed(format!("it took longer than {}s", limit.as_secs()))));
     group.0.hang_up();
     if tokio::time::timeout(END_WAIT, child.wait()).await.is_err() {
         let _ = child.start_kill();

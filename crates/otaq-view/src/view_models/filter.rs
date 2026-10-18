@@ -1,6 +1,6 @@
 //! Search and filter (UI-02, EPC-01; d0058 ⌘K; *03 · Board & columns → Search & filter · ⌘K*): one field does
 //! both. Free text matches the key (old keys from Move to epic too), the title and the epic's title; tokens
-//! filter by state (`is:needs-me`, `is:working`, …), by chain (`dep:SHOP-18`) or by epic (`epic:Wishlist`).
+//! filter by state (`is:needs-you`, `is:working`, `has:run`, …), by chain (`dep:SHOP-18`) or by epic (`epic:Wishlist`).
 //! Everything combines (all must match). Non-matching cards hide; columns show "shown/total".
 //!
 //! An `epic:` token is the same as focusing the epic (EPC-18, d0080, Q55): on the board it **dims** the other cards
@@ -25,7 +25,7 @@ pub enum Is {
     Validating,
     Queued,
     Parked,
-    /// A Run process is running.
+    /// A Run process is serving (`has:run`; d0093: "running" is for agents only).
     Running,
     Backlog,
     Review,
@@ -47,14 +47,22 @@ impl Is {
         Is::Done,
     ];
 
+    /// The word before the colon: `is`, or `has` for a Run process (`has:run`).
+    pub fn kind(self) -> &'static str {
+        match self {
+            Self::Running => "has",
+            _ => "is",
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
-            Self::NeedsMe => "needs-me",
+            Self::NeedsMe => "needs-you",
             Self::Working => "working",
             Self::Validating => "validating",
             Self::Queued => "queued",
             Self::Parked => "parked",
-            Self::Running => "running",
+            Self::Running => "run",
             Self::Backlog => "backlog",
             Self::Review => "review",
             Self::Approved => "approved",
@@ -69,7 +77,7 @@ impl Is {
             Self::Validating => "validating, or its validation needs you",
             Self::Queued => "waiting to start",
             Self::Parked => "parked in Backlog, has work",
-            Self::Running => "a run process is running",
+            Self::Running => "a Run process is serving",
             Self::Backlog => "not started",
             Self::Review => "ready for your review",
             Self::Approved => "approved, PR open",
@@ -115,13 +123,20 @@ pub enum Token {
 }
 
 impl Token {
-    /// Reads `is:needs-me`, `dep:SHOP-18`, `epic:Wishlist`.
+    /// Reads `is:needs-you`, `has:run`, `dep:SHOP-18`, `epic:Wishlist`. The old `is:needs-me` still reads as
+    /// `is:needs-you`, and `is:running` (agents only, d0093) as `is:working`.
     pub fn parse(word: &str) -> Option<Self> {
         let (kind, value) = word.split_once(':')?;
-        match kind.to_lowercase().as_str() {
-            "is" => Is::ALL
+        let (kind, value) = (kind.to_lowercase(), value.to_lowercase());
+        match (kind.as_str(), value.as_str()) {
+            ("is", "needs-me") => return Some(Self::Is(Is::NeedsMe)),
+            ("is", "running") => return Some(Self::Is(Is::Working)),
+            _ => {}
+        }
+        match kind.as_str() {
+            "is" | "has" => Is::ALL
                 .iter()
-                .find(|i| i.name() == value.to_lowercase())
+                .find(|i| i.kind() == kind && i.name() == value)
                 .map(|i| Self::Is(*i)),
             "dep" => value.to_uppercase().parse().ok().map(Self::Dep),
             "epic" if !value.is_empty() => Some(Self::Epic(value.to_owned())),
@@ -131,7 +146,7 @@ impl Token {
 
     pub fn label(&self) -> String {
         match self {
-            Self::Is(i) => format!("is:{}", i.name()),
+            Self::Is(i) => format!("{}:{}", i.kind(), i.name()),
             Self::Dep(k) => format!("dep:{k}"),
             Self::Epic(e) => format!("epic:{e}"),
         }
@@ -408,7 +423,7 @@ mod tests {
     fn tokens_and_combinations() {
         let all = sample();
         let mut f = Filter::default();
-        let rest = f.take_input("is:needs-me ");
+        let rest = f.take_input("is:needs-you ");
         assert_eq!(rest, "");
         assert_eq!(f.tokens, vec![Token::Is(Is::NeedsMe)]);
         assert_eq!(shown(&f, &all), ["SHOP-18", "SHOP-22"]);
@@ -421,14 +436,37 @@ mod tests {
         f.take_input("dep:shop-20 ");
         assert_eq!(shown(&f, &all), ["SHOP-18", "SHOP-20"]);
         let mut f = Filter::default();
-        f.take_input("is:running is:working ");
+        f.take_input("has:run is:working ");
         assert_eq!(shown(&f, &all), ["SHOP-19"]);
+        assert_eq!(f.tokens[0].label(), "has:run");
         f.remove(0);
         assert_eq!(f.tokens, vec![Token::Is(Is::Working)]);
         // An unfinished token stays text until a space follows.
         let mut f = Filter::default();
         assert_eq!(f.take_input("is:park"), "is:park");
         assert!(f.tokens.is_empty());
+    }
+
+    /// d0093: the old `is:needs-me` keeps working and becomes `is:needs-you`; `is:running` is agents only.
+    #[test]
+    fn old_and_agent_words_still_read() {
+        let all = sample();
+        let mut f = Filter::default();
+        assert_eq!(f.take_input("is:needs-me "), "");
+        assert_eq!(f.tokens, vec![Token::Is(Is::NeedsMe)]);
+        assert_eq!(f.tokens[0].label(), "is:needs-you");
+        assert_eq!(shown(&f, &all), ["SHOP-18", "SHOP-22"]);
+        f.take_input("is:needs-you ");
+        assert_eq!(
+            f.tokens.len(),
+            1,
+            "the alias and the new word are one token"
+        );
+        let mut f = Filter::default();
+        f.take_input("is:running ");
+        assert_eq!(f.tokens, vec![Token::Is(Is::Working)]);
+        assert_eq!(Token::parse("is:run"), None, "a Run process is has:run");
+        assert_eq!(Token::parse("has:running"), None);
     }
 
     #[test]
@@ -480,7 +518,7 @@ mod tests {
             shown(&f, &all)
         };
         assert_eq!(
-            only("is:needs-me"),
+            only("is:needs-you"),
             ["SHOP-33", "SHOP-32", "SHOP-34", "SHOP-41"]
         );
         assert_eq!(only("is:working"), ["SHOP-29", "SHOP-40.4"]);

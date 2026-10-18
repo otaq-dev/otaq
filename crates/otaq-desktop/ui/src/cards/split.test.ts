@@ -28,7 +28,7 @@ const SHARING: EpicCardView = {
   pill: { palette: "epic", icon: "layers", label: "Epic" },
   title: "Sharing",
   segments: [],
-  progress: "0 / 0 merged",
+  progress: "0 of 0 merged",
   branch: "otaq/NOTE-10 · on main",
   children: [],
   add: "Add ticket to epic",

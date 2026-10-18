@@ -237,9 +237,9 @@ pub const ROLES: [Role; 4] = [
 pub fn role_description(role: Role) -> &'static str {
     match role {
         Role::Developer => "Writes the ticket's code",
-        Role::Validator => "Checks the work before Review (0063)",
-        Role::EpicLead => "Plans and guides an epic's children (0083)",
-        Role::ProjectAgent => "Investigates and creates tickets (0068)",
+        Role::Validator => "Checks the work before Review",
+        Role::EpicLead => "Plans and guides an epic’s children",
+        Role::ProjectAgent => "Investigates and creates tickets",
     }
 }
 
@@ -1718,7 +1718,7 @@ pub fn gallery() -> Gallery {
                 edit(&several, "standard", &loading),
             ),
             cell(
-                "Couldn't load Copilot's models",
+                "Couldn’t load Copilot’s models. Check your connection, then try again.",
                 edit(&several, "verifier", &offline),
             ),
             cell(
@@ -1846,21 +1846,21 @@ mod tests {
                 ),
                 (
                     "Validator",
-                    "Checks the work before Review (0063)",
+                    "Checks the work before Review",
                     "Claude Code",
                     Some("tool default"),
                     true
                 ),
                 (
                     "Epic lead",
-                    "Plans and guides an epic's children (0083)",
+                    "Plans and guides an epic’s children",
                     "Claude Code",
                     Some("tool default"),
                     true
                 ),
                 (
                     "Project agent",
-                    "Investigates and creates tickets (0068)",
+                    "Investigates and creates tickets",
                     "Claude Code",
                     Some("tool default"),
                     true
@@ -2721,7 +2721,10 @@ mod tests {
         tools.failed.push(Tool::Copilot);
         let d = dialog(&agents, Some("verifier"), Draft::of(verifier), &tools, None);
         let status = d.picker.status.expect("couldn't load");
-        assert_eq!(status.text, "Couldn't load Copilot's models");
+        assert_eq!(
+            status.text,
+            "Couldn’t load Copilot’s models. Check your connection, then try again."
+        );
         assert_eq!(status.retry_tool, Some(Tool::Copilot));
         assert!(
             status

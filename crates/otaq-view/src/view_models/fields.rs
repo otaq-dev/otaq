@@ -96,10 +96,12 @@ mod tests {
     #[test]
     fn service_errors_show_at_once_and_clear_on_change() {
         let mut env = FieldState::new(".env.local");
-        env.server_error = Some("File not found in repo root: .env.local".into());
+        env.server_error = Some("Can\u{2019}t find .env.local in ~/code/billing-api. Add it to the repo root, or remove it from this list.".into());
         assert_eq!(
             env.shown_error(&[]).as_deref(),
-            Some("File not found in repo root: .env.local")
+            Some(
+                "Can\u{2019}t find .env.local in ~/code/billing-api. Add it to the repo root, or remove it from this list."
+            )
         );
         env.set(".env.local");
         assert!(env.server_error.is_some(), "same value, same error");

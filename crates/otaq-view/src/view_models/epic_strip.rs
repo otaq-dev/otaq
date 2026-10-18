@@ -39,7 +39,7 @@ use crate::view_models::board_page::ColumnId;
 use crate::view_models::lead_status::LeadStatusView;
 
 /// The strip header's hint.
-pub const HINT: &str = "hover a stop to find its card · click a name to focus";
+pub const HINT: &str = "Hover a ticket to find its card · Click an epic name to focus on it";
 
 /// A stop's or chip's state, and a mini-bar segment's. The page picks the colour from it; `needs_you` on the stop
 /// makes it turquoise. `EpicStopState` on the page.
@@ -400,7 +400,7 @@ fn stop_state(child: &Ticket, tickets: &[Ticket]) -> (StopState, IconName, Optio
             (
                 StopState::LeadNote,
                 IconName::Bot,
-                Some("lead's note".into()),
+                Some("lead’s note".into()),
             )
         }
         // Dev without a needs-you state: working, in background, validating; also Interrupted, Resume failed and
@@ -720,7 +720,7 @@ mod tests {
             (
                 StopState::LeadNote,
                 IconName::Bot,
-                "40.3 lead's note".into(),
+                "40.3 lead’s note".into(),
                 false
             )
         );
@@ -998,10 +998,7 @@ mod tests {
             (start.state, start.label.as_str()),
             (StopState::Waits, "40.2 waits")
         );
-        assert_eq!(
-            start.tooltip,
-            "SHOP-40.2 SHOP-40.2 title · Start interrupted"
-        );
+        assert_eq!(start.tooltip, "SHOP-40.2 SHOP-40.2 title · Start failed");
         assert_eq!(strip.needs_you, None);
     }
 

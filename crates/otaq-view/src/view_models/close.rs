@@ -145,7 +145,7 @@ pub fn submit_text(ticket: &Ticket, now: i64) -> SubmitText {
             crate::view_models::card::age_label(now - at)
         ),
         (_, None) => {
-            "The agent isn't working right now. Its session stays; Send back continues it."
+            "The agent isn’t working right now. Its session stays; Send back continues it."
                 .to_owned()
         }
     };

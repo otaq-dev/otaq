@@ -140,7 +140,7 @@ pub fn dialog_view(d: &PrDialog) -> DialogView {
     let push = d.kind == FlowKind::Push;
     let stage = match &d.stage {
         Stage::NotLoggedIn { cli, login } => StageView::NotLoggedIn {
-            title: format!("Can\u{2019}t open the PR \u{2014} {cli} is not logged in"),
+            title: format!("Can\u{2019}t open the PR \u{2014} {cli} is not signed in"),
             text: format!(
                 "Run this in any terminal, then click Retry. {} never logs in for you.",
                 otaq_core::naming::PRODUCT_NAME
@@ -165,7 +165,7 @@ pub fn dialog_view(d: &PrDialog) -> DialogView {
         Stage::Reported { message } => StageView::Reported {
             title: format!("The skill stopped: {} wasn\u{2019}t pushed", d.key),
             message: message.clone(),
-            text: "Fix it (for example log in), then Retry. Cancel discards the PR.",
+            text: "Fix it (for example sign in), then Retry. Cancel discards the PR.",
             retry: "Retry",
         },
     };
@@ -253,7 +253,7 @@ pub fn push_intro(ticket: &Ticket, flow: &PrFlowView) -> Option<PushIntro> {
             n => format!("{n} new commits since the PR was opened"),
         },
         note: format!(
-            "Pushes the branch to origin. {} doesn\u{2019}t watch the PR; use Mark merged or Mark closed when it lands.",
+            "Pushes the branch to origin. {} doesn\u{2019}t watch the PR; use Mark merged or Mark closed once the PR is merged or closed.",
             otaq_core::naming::PRODUCT_NAME
         ),
         confirm: format!("Push to PR #{n}"),
@@ -460,7 +460,7 @@ mod tests {
             format!("Proposed by {skill} \u{b7} edit anything")
         );
         assert_eq!(v.provider.as_deref(), Some("GitHub \u{b7} acme/shop-web"));
-        assert_eq!(v.login.as_deref(), Some("gh: logged in"));
+        assert_eq!(v.login.as_deref(), Some("gh: signed in"));
         assert_eq!(v.branch, "feature/SHOP-18-checkout-api");
         assert_eq!(v.commits_label, "Commit messages (2 commits)");
         assert_eq!(
@@ -494,7 +494,7 @@ mod tests {
         };
         assert_eq!(
             title,
-            "Can\u{2019}t open the PR \u{2014} gh is not logged in"
+            "Can\u{2019}t open the PR \u{2014} gh is not signed in"
         );
         assert_eq!(login, "$ gh auth login");
     }

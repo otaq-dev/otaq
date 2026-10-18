@@ -63,7 +63,7 @@ const WISHLIST: EpicCardView = {
   pill: { palette: "epic", icon: "layers", label: "Epic" },
   title: "Wishlist",
   segments: ["merged", "working", "not_started"],
-  progress: "1 / 3 merged",
+  progress: "1 of 3 merged",
   branch: "otaq/SHOP-40 · on main",
   children: [
     {
@@ -275,7 +275,7 @@ describe("the Epic Card draws its view", () => {
     const out = html(createElement(EpicCard, { card: WISHLIST }));
     expect(out).toContain('<span class="card-external-id">PAY-123</span>');
     expect(out.match(/class="epic-segment"/g)).toHaveLength(3);
-    expect(out).toContain("1 / 3 merged");
+    expect(out).toContain("1 of 3 merged");
     expect(out).toContain("SHOP-40.1");
     expect(out).toContain("<span>Add ticket to epic</span>");
   });

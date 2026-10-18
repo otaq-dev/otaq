@@ -78,7 +78,7 @@ const card = (key: string): BoardCard => {
     origin: null,
     options: [],
     footer: null,
-    hover: { status: "Queued", details: [] },
+    hover: { status: "Ready for Dev", details: [] },
     sleeve: null,
     outline: "normal",
     faded: null,

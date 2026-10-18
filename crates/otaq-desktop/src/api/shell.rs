@@ -214,7 +214,7 @@ fn header_view(
         search: Hint::new(search_page::PLACEHOLDER, KeyAction::Search),
         activity: activity::button(activity, Platform::current()),
         inbox: inbox::header_button(inbox_total),
-        inbox_hint: Hint::new("Needs you", KeyAction::OpenInbox),
+        inbox_hint: Hint::new("Inbox", KeyAction::OpenInbox),
     }
 }
 
@@ -434,8 +434,8 @@ mod tests {
         assert_eq!(view.activity.agents.count, "3");
         assert_eq!(view.activity.processes.as_deref(), Some("2"));
         assert_eq!(view.activity.warning.unwrap().text, "5h 18% left");
-        assert_eq!((view.inbox.label, view.inbox.count), ("Needs you", 7));
-        assert_eq!(view.inbox_hint.text, "Needs you");
+        assert_eq!((view.inbox.label, view.inbox.count), ("Inbox", 7));
+        assert_eq!(view.inbox_hint.text, "Inbox");
 
         // No project shown, nothing running, nothing waiting.
         let view = header_view(&projects, None, &fixtures.idle.inputs(), 0);
@@ -544,7 +544,7 @@ mod tests {
         assert_eq!(popover["agents"]["count"], "0");
         assert_eq!(
             popover["agents"]["empty"],
-            "Nothing running. Queued tickets start when a slot and their parents allow."
+            "Nothing running. Tickets in Ready for Dev start when a slot and their parents allow."
         );
         assert_eq!(popover["usage"]["tools"][0]["name"], "Claude Code");
         assert_eq!(popover["usage"]["tools"][0]["avatar"], Value::Null);
@@ -597,7 +597,7 @@ mod tests {
         let header = request(&h.app, "shell.header", json!({ "project": null }))
             .await
             .unwrap();
-        assert_eq!(header["activity"]["agents"]["count"], "0 / 6");
+        assert_eq!(header["activity"]["agents"]["count"], "0/6");
         let popover = request(&h.app, "shell.activity", Value::Null).await.unwrap();
         assert_eq!(popover["limits"]["max_agents"]["value"], 6);
         h.service.stop_all().await;

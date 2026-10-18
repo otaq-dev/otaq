@@ -136,7 +136,7 @@ mod tests {
         let (epic, tickets) = sample();
         let h = header(&epic, &tickets);
         assert_eq!(h.external_id.as_deref(), Some("PAY-123"));
-        assert_eq!(h.progress, "1 / 3 merged");
+        assert_eq!(h.progress, "1 of 3 merged");
         assert_eq!(
             h.branch,
             format!("{} \u{b7} local", otaq_core::naming::branch("SHOP-40"))

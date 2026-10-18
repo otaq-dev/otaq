@@ -454,7 +454,7 @@ mod tests {
         );
         assert_eq!(
             reason_of("SHOP-50", &board).unwrap(),
-            "waits for epic SHOP-40 to be merged (1 / 3 merged)"
+            "waits for epic SHOP-40 to be merged (1 of 3 merged)"
         );
         let board = epic_board(
             &[Status::Merged, Status::ClosedNotMerged],
@@ -529,7 +529,7 @@ mod tests {
         board[i].depends_on = vec!["SHOP-18".parse().unwrap(), "SHOP-40".parse().unwrap()];
         assert_eq!(
             reason_of("SHOP-50", &board).unwrap(),
-            "waits for SHOP-18, epic SHOP-40 to merge (SHOP-18 in Review, SHOP-40 · 1 / 2 merged)"
+            "waits for SHOP-18, epic SHOP-40 to merge (SHOP-18 in Review, SHOP-40 · 1 of 2 merged)"
         );
     }
 

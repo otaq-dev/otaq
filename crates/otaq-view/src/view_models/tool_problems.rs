@@ -771,8 +771,8 @@ mod tests {
         assert_eq!(tool_word(CLAUDE), "Claude Code");
         assert_eq!(tool_word(CODEX), "Codex");
         assert_eq!(
-            unavailable_text(CODEX, "logged out"),
-            "Codex isn\u{2019}t available \u{b7} logged out"
+            unavailable_text(CODEX, "signed out"),
+            "Codex isn\u{2019}t available \u{b7} signed out"
         );
         assert_eq!(limit_text(CODEX, None, 0), "Codex limit reached");
     }
@@ -838,7 +838,7 @@ mod tests {
         );
         hold.fallback_agent_id = Some("sonnet".into());
         let c = hold_callout(&hold, &agents(), &codex_logged_out());
-        assert_eq!(c.heading, "Codex isn\u{2019}t available \u{b7} logged out");
+        assert_eq!(c.heading, "Codex isn\u{2019}t available \u{b7} signed out");
         assert_eq!(c.tone, Tone::Amber);
         assert_eq!(
             labels(&c),
@@ -951,7 +951,7 @@ mod tests {
         let c = agent_notice(CODEX, &tools, on).unwrap();
         assert_eq!(
             c.heading,
-            "Codex isn\u{2019}t available \u{b7} logged out. This agent continues after you sign in."
+            "Codex isn\u{2019}t available \u{b7} signed out. This agent continues after you sign in."
         );
         assert_eq!(labels(&c), ["Sign in\u{2026}", "New agent on Sonnet"]);
         assert_eq!(
@@ -1011,7 +1011,7 @@ mod tests {
         );
         assert_eq!(
             c.heading,
-            "Codex isn\u{2019}t available \u{b7} logged out. Your message is kept: it starts after you sign in."
+            "Codex isn\u{2019}t available \u{b7} signed out. Your message is kept: it starts after you sign in."
         );
         assert_eq!(labels(&c), ["Sign in\u{2026}", "New agent on Sonnet"]);
     }
@@ -1039,7 +1039,7 @@ mod tests {
         assert_eq!(
             (c.heading.as_str(), labels(&c)),
             (
-                "Codex isn\u{2019}t available \u{b7} logged out",
+                "Codex isn\u{2019}t available \u{b7} signed out",
                 vec!["Sign in\u{2026}"]
             )
         );
@@ -1066,7 +1066,7 @@ mod tests {
         let c = lead_notice(None, Some(CLAUDE), &all, &tools).unwrap();
         assert_eq!(
             c.heading,
-            "Claude Code isn\u{2019}t available \u{b7} logged out. The lead waits; children on Claude Code wait too."
+            "Claude Code isn\u{2019}t available \u{b7} signed out. The lead waits; children on Claude Code wait too."
         );
         assert_eq!(labels(&c), ["Sign in\u{2026}"]);
         let c = lead_notice(None, Some(CLAUDE), &all, &at_limit(CLAUDE, None)).unwrap();
@@ -1080,7 +1080,7 @@ mod tests {
     #[test]
     fn recovery_rows_name_the_tools_problem() {
         let (text, button) = recovery_problem(CODEX, &codex_logged_out()).unwrap();
-        assert_eq!(text, "Codex isn\u{2019}t available (logged out)");
+        assert_eq!(text, "Codex isn\u{2019}t available (signed out)");
         assert_eq!(button.unwrap().label, "Sign in\u{2026}");
         assert_eq!(recovery_problem(CLAUDE, &several()), None);
     }

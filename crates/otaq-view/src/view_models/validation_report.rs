@@ -270,7 +270,7 @@ pub fn round_row(r: &ValidationRecord, rounds: u32) -> RoundRow {
                 r.round
             ),
             Some(format!(
-                "{} \u{b7} card turns turquoise",
+                "{} \u{b7} the ticket comes to you",
                 plural(findings_count(r), "finding")
             )),
         ),
@@ -658,7 +658,7 @@ mod tests {
         assert_eq!(last.title, "Round 3 · failed · not sent to the agent");
         assert_eq!(
             last.detail.as_deref(),
-            Some("1 finding · card turns turquoise")
+            Some("1 finding · the ticket comes to you")
         );
         let passed = round_row(&record(2, Some(ValidationOutcome::Pass), PASSED), 3);
         assert_eq!(passed.title, "Round 2 · passed");

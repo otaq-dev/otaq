@@ -36,10 +36,9 @@ pub fn copy_env_files(repo: &Path, worktree: &Path, files: &[String]) -> Result<
         }
         let source = repo.join(relative);
         if !source.is_file() {
-            return Err(StartError::Other(format!(
-                "`{}` not found in {}",
-                relative.display(),
-                home_relative(repo)
+            return Err(StartError::Other(crate::board::settings::missing_env_file(
+                &relative.display().to_string(),
+                repo,
             )));
         }
         let target = worktree.join(relative);

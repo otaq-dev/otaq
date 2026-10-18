@@ -234,7 +234,7 @@ pub struct ProcessesView {
 
 pub fn processes_view(runs: &[RunInfo], now_ms: i64) -> ProcessesView {
     ProcessesView {
-        title: "Running processes",
+        title: "Run processes",
         stop_all: "Stop all",
         stop: "Stop",
         empty: "Nothing runs.",
@@ -531,7 +531,7 @@ mod tests {
             &[run(RunState::Running), other, run(RunState::Stopped)],
             61_000,
         );
-        assert_eq!(view.title, "Running processes");
+        assert_eq!(view.title, "Run processes");
         assert_eq!(view.rows.len(), 2);
         assert_eq!(view.rows[0].key, "BILL-4");
         assert_eq!(view.rows[0].open, None, "no Open URL, no Open");

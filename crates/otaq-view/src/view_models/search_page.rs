@@ -13,7 +13,7 @@ use crate::keymap::{KeyAction, Platform};
 use crate::view_models::filter::{Filter, Token};
 
 /// The field's placeholder, in the header and in the field.
-pub const PLACEHOLDER: &str = "Search  ·  is:needs-me";
+pub const PLACEHOLDER: &str = "Search  ·  is:needs-you";
 
 /// The suggestion list's label.
 pub const SUGGESTIONS_HEADER: &str = "FILTERS";
@@ -21,7 +21,7 @@ pub const SUGGESTIONS_HEADER: &str = "FILTERS";
 /// What the field typed in ↵ opens Recovery and Cleanup (*16 → Where Cleanup lives*).
 pub const CLEANUP_WORD: &str = "cleanup";
 
-/// The filter as the page keeps it: the chips (`"is:needs-me"`, `"dep:SHOP-18"`) and what is typed in the field.
+/// The filter as the page keeps it: the chips (`"is:needs-you"`, `"dep:SHOP-18"`) and what is typed in the field.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(rename = "BoardFilter")]
 pub struct FilterState {
@@ -31,7 +31,7 @@ pub struct FilterState {
 
 impl FilterState {
     /// The filter it stands for. A finished token still in the text counts as a chip, so the board never shows a
-    /// moment where `is:needs-me ` is searched for as words.
+    /// moment where `is:needs-you ` is searched for as words.
     pub fn filter(&self) -> Filter {
         let mut filter = Filter {
             tokens: Vec::new(),
@@ -151,17 +151,17 @@ mod tests {
     #[test]
     fn a_finished_token_becomes_a_chip_and_the_rest_stays_typed() {
         let all = sample();
-        let v = view(&state(&[], "is:needs-me "), &all, None, Platform::Mac);
-        assert_eq!(v.filter, state(&["is:needs-me"], ""));
+        let v = view(&state(&[], "is:needs-you "), &all, None, Platform::Mac);
+        assert_eq!(v.filter, state(&["is:needs-you"], ""));
         assert_eq!(v.results.as_deref(), Some("2 results"));
         assert_eq!(v.keys, None, "the count takes ⌘K's place");
         let v = view(
-            &state(&["is:needs-me"], "checkout"),
+            &state(&["is:needs-you"], "checkout"),
             &all,
             None,
             Platform::Mac,
         );
-        assert_eq!(v.filter, state(&["is:needs-me"], "checkout"));
+        assert_eq!(v.filter, state(&["is:needs-you"], "checkout"));
         assert_eq!(v.results.as_deref(), Some("1 result"));
         let v = view(&state(&[], ""), &all, None, Platform::Mac);
         assert_eq!(v.results, None);
@@ -178,7 +178,7 @@ mod tests {
         assert_eq!(
             v.suggestions[0],
             Suggestion {
-                token: "is:needs-me".into(),
+                token: "is:needs-you".into(),
                 description: "needs you, asks, interrupted, review".into(),
                 count: "2".into(),
             }
@@ -220,8 +220,8 @@ mod tests {
                 .map(ToString::to_string)
                 .collect()
         };
-        assert_eq!(shown(state(&["is:needs-me"], "")), ["SHOP-18", "SHOP-22"]);
-        assert_eq!(shown(state(&[], "is:needs-me checkout")), ["SHOP-18"]);
+        assert_eq!(shown(state(&["is:needs-you"], "")), ["SHOP-18", "SHOP-22"]);
+        assert_eq!(shown(state(&[], "is:needs-you checkout")), ["SHOP-18"]);
         assert!(
             !state(&["not-a-token"], "").filter().is_active(),
             "an unknown chip is dropped, leaving no filter"

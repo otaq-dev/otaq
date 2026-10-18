@@ -207,11 +207,11 @@ pub fn start_problem(ticket: &Ticket) -> Option<StartProblem> {
     }
     Some(match &ticket.start_problem {
         Some(p) => StartProblem {
-            heading: format!("The start didn\u{2019}t finish: {}", p.step.failure_label()),
+            heading: format!("Start failed: {}", p.step.failure_label()),
             message: p.message.clone(),
         },
         None => StartProblem {
-            heading: "The start didn\u{2019}t finish".to_owned(),
+            heading: "Start failed".to_owned(),
             message: format!(
                 "{} stopped before its agent session started, so there is nothing to resume.",
                 ticket.key
@@ -462,14 +462,14 @@ mod tests {
     fn a_start_interrupted_ticket_says_which_step_failed() {
         let mut t = ticket("SHOP-28", "Cart badge count", Status::StartInterrupted);
         let p = start_problem(&t).unwrap();
-        assert_eq!(p.heading, "The start didn\u{2019}t finish");
+        assert_eq!(p.heading, "Start failed");
         assert!(p.message.starts_with("SHOP-28 stopped before"));
         t.start_problem = Some(otaq_core::board::tickets::StartProblem {
             step: otaq_core::domain::StartStep::SyncBase,
             message: "main has diverged".into(),
         });
         let p = start_problem(&t).unwrap();
-        assert!(p.heading.starts_with("The start didn\u{2019}t finish: "));
+        assert!(p.heading.starts_with("Start failed: "));
         assert_eq!(p.message, "main has diverged");
         assert_eq!(start_problem(&ticket("SHOP-1", "t", Status::Working)), None);
     }

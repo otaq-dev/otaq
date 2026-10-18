@@ -295,7 +295,7 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             // A child queued by its epic's drag (d0080): "Queued with the epic · by you".
             let title = match to {
                 Some(Status::Queued) if p.get("with_epic").is_some() => {
-                    "Queued with the epic".to_owned()
+                    "Ready for Dev with the epic".to_owned()
                 }
                 Some(s) => s.label().to_owned(),
                 None => "moved".to_owned(),
@@ -307,7 +307,7 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
                 .and_then(|s| s.parse::<StartStep>().ok())
                 .map_or("start stopped", StartStep::failure_label);
             (
-                "Start interrupted".to_owned(),
+                "Start failed".to_owned(),
                 Some(match text(p, "message") {
                     Some(m) => format!("{step}: {}", first_line(m)),
                     None => step.to_owned(),
@@ -1172,7 +1172,7 @@ mod tests {
             &[],
             &[],
         );
-        assert_eq!(rows[0].title, "Queued with the epic");
+        assert_eq!(rows[0].title, "Ready for Dev with the epic");
         assert_eq!(rows[0].detail.as_deref(), Some("by you"));
     }
 
@@ -1267,8 +1267,8 @@ mod tests {
             [
                 "Agent session",
                 "Agent session",
-                "Start interrupted",
-                "Queued",
+                "Start failed",
+                "Ready for Dev",
                 "Created"
             ]
         );
