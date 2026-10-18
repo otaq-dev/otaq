@@ -4,10 +4,10 @@
 // right side (SHL-05). ⌘\ folds the pane to a 28 px strip; the expanded panel (⇧⌘E) takes the pane's room too. The
 // overlay and toast hosts go over everything. Each slot is filled by the screen registered for it; an empty slot
 // shows its name so the layout can be checked before its screen exists.
-import { useCallback, useEffect, useRef, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, type PointerEvent, type ReactNode } from "react";
 
 import "./frame.css";
-import { Tooltip } from "../components";
+import { playLeave, playMotion, Tooltip, usePresence } from "../components";
 import type { LayoutView } from "../generated/LayoutView";
 import type { SizeClass } from "../generated/SizeClass";
 import { DRAG_REGION } from "../tauri";
@@ -77,6 +77,26 @@ function OverlayHost() {
           />
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * The ticket panel's layer: it slides in from the right edge when a ticket opens and back out when it closes, staying
+ * mounted until the slide ends (OT-6). Switching tickets keeps it mounted, so the slide doesn't play again; resizing
+ * changes only its width, so the drag stays instant.
+ */
+function PanelLayer({ open }: { open: boolean }) {
+  const layer = useRef<HTMLDivElement>(null);
+  const { mounted, leaving, done } = usePresence(open);
+  useLayoutEffect(() => {
+    if (mounted && layer.current) playMotion(layer.current, "panel", "in");
+  }, [mounted]);
+  useLayoutEffect(() => (leaving ? playLeave(layer.current, "panel", done) : undefined), [leaving, done]);
+  if (!mounted) return null;
+  return (
+    <div ref={layer} className="frame-panel" data-slot="panel">
+      <Slot id="panel" placeholder={<Placeholder name="Ticket panel" />} />
     </div>
   );
 }
@@ -275,11 +295,7 @@ export function FrameBody({
             <Slot id="board" placeholder={<Placeholder name="Board" />} />
           </div>
         )}
-        {ticketOpen && (
-          <div className="frame-panel" data-slot="panel">
-            <Slot id="panel" placeholder={<Placeholder name="Ticket panel" />} />
-          </div>
-        )}
+        <PanelLayer open={ticketOpen} />
       </div>
     </>
   );

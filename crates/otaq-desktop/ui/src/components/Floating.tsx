@@ -3,6 +3,7 @@
 import { type CSSProperties, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { placeFloating, type Rect } from "./logic";
+import { useEnterExit } from "./motion";
 
 /** What a floating layer sits next to: an element, or a point's rectangle (a context menu at the pointer). */
 export type Anchor = RefObject<HTMLElement | null> | Rect;
@@ -18,6 +19,8 @@ function isRef(anchor: Anchor): anchor is RefObject<HTMLElement | null> {
  * A scroll anywhere behind the layer moves its anchor: a layer that can close (`onScrollAway`: a menu, a dropdown, a
  * popover) closes then, like a press outside and like a native popup; one that can't (a tooltip) follows its anchor.
  * A scroll inside the layer itself (a long list) is its own and changes nothing.
+ *
+ * It fades in, dropping 4 px into place, and back out the same way when it closes (OT-6).
  */
 export function useFloatingStyle(
   anchor: Anchor,
@@ -25,6 +28,7 @@ export function useFloatingStyle(
   align: "start" | "end" = "start",
   onScrollAway?: () => void,
 ): CSSProperties {
+  useEnterExit(floating, "floating");
   const [position, setPosition] = useState<{ left: number; top: number }>();
   // A rectangle is a new object on each render: compare it by value.
   const ref = isRef(anchor) ? anchor : null;

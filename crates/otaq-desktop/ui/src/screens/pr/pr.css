@@ -83,6 +83,13 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .pr-preparing > .icon,
+  .pr-step[data-state="running"] > .icon {
+    animation: none;
+  }
+}
+
 .pr-provider {
   display: flex;
   align-items: center;

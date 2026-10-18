@@ -77,6 +77,13 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .run-card[data-tone="progress"] .run-card-head > .icon,
+  .run-thinking-title > .icon {
+    animation: none;
+  }
+}
+
 .run-card-title {
   flex: 1;
   min-width: 0;

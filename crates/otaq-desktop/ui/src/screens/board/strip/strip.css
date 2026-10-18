@@ -423,7 +423,7 @@
 
 .board[data-strip-preview] .board-card:not([data-strip-keep]) {
   opacity: 0.35;
-  transition: opacity 120ms ease;
+  transition: opacity var(--motion-fast) var(--ease-in-out);
 }
 
 /* A focused epic (EPC-18; *04 → Focus · click a track's name or ⇧⌘G*): its label outlined in the accent, the other
@@ -434,5 +434,5 @@
 
 .strip-track[data-dimmed] {
   opacity: 0.45;
-  transition: opacity 120ms ease;
+  transition: opacity var(--motion-fast) var(--ease-in-out);
 }

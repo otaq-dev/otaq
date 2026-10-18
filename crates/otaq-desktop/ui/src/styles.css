@@ -1,6 +1,7 @@
 /* The root stylesheet: the design tokens (generated from the Rust theme data), the fonts, and the page's base. */
 @import "./theme/generated/tokens.css";
 @import "./theme/fonts.css";
+@import "./theme/motion.css";
 
 html,
 body,

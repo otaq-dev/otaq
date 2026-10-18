@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { OverlayProps } from "../../app/registry";
-import { Button, ConfirmDialog, IconButton } from "../../components";
+import { Button, ConfirmDialog, IconButton, useEnterExit } from "../../components";
 import type { CleanupConfirm } from "../../generated/CleanupConfirm";
 import type { CleanupGroupPage } from "../../generated/CleanupGroupPage";
 import type { CleanupGroupParams } from "../../generated/CleanupGroupParams";
@@ -318,6 +318,8 @@ export function CleanupConfirmDialog({
   );
 }
 
+const CLEANUP_BOX = { selector: ".cleanup", preset: "dialog" } as const;
+
 export function Cleanup({ close }: OverlayProps<"cleanup">) {
   const [page, setPage] = useState<CleanupPage | null>(null);
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
@@ -327,6 +329,9 @@ export function Cleanup({ close }: OverlayProps<"cleanup">) {
   const [toClear, setToClear] = useState<CleanupWarmRow | null>(null);
   const [clearing, setClearing] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const backdrop = useRef<HTMLDivElement>(null);
+  // Comes and goes like a dialog (OT-6).
+  useEnterExit(backdrop, "backdrop", CLEANUP_BOX);
   const clearButtons = useRef(new Map<string, HTMLButtonElement>());
 
   useEffect(() => {
@@ -399,6 +404,7 @@ export function Cleanup({ close }: OverlayProps<"cleanup">) {
 
   return (
     <div
+      ref={backdrop}
       className="dialog-backdrop"
       role="presentation"
       onMouseDown={(e) => {

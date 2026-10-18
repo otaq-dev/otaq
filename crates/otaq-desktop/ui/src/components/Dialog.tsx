@@ -9,6 +9,7 @@ import type { IconName } from "../generated/IconName";
 import { inKeyLayer } from "../markdown/keys";
 import { Button } from "./Button";
 import { Kbd } from "./Kbd";
+import { useEnterExit } from "./motion";
 import { defaultOutcome, dialogKey, type DialogOutcome, trapFocus } from "./logic";
 
 const FOCUSABLE =
@@ -86,6 +87,8 @@ export interface DialogProps {
   initialFocus?: RefObject<HTMLElement | null>;
 }
 
+const DIALOG_BOX = { selector: ".dialog", preset: "dialog" } as const;
+
 /** The modal shell; `ConfirmDialog` is the common case. */
 export function Dialog({
   title,
@@ -103,6 +106,9 @@ export function Dialog({
 }: DialogProps) {
   const titleId = useId();
   const box = useRef<HTMLDivElement>(null);
+  const backdrop = useRef<HTMLDivElement>(null);
+  // The backdrop fades and the box scales, in and out (OT-6).
+  useEnterExit(backdrop, "backdrop", DIALOG_BOX);
   const onOutcome = useCallback(
     (outcome: DialogOutcome) => {
       if (outcome === "confirm") onConfirm?.();
@@ -116,6 +122,7 @@ export function Dialog({
   }, [initialFocus]);
   return (
     <div
+      ref={backdrop}
       className="dialog-backdrop"
       role="presentation"
       onMouseDown={(e) => {
