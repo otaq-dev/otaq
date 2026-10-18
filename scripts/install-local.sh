@@ -6,6 +6,8 @@
 #   scripts/install-local.sh --dest <folder>       <folder>/Otaq.app only, no link (tests, teammates, checks)
 #   scripts/install-local.sh --bundle-id <id>      another bundle ID (default io.otaq.desktop), for a check bundle
 #                                                  that asks macOS without using up the real ID's one question
+#                                                  (never in a temporary folder such as /tmp: macOS refuses
+#                                                  notifications for apps there)
 #   scripts/install-local.sh --from <folder>       take otaq and otaq-app from <folder> instead of building (tests)
 #
 # Otaq.app holds both programs in Contents/MacOS (otaq-app is the bundle's main program, otaq the command and the
@@ -27,7 +29,7 @@ while [ $# -gt 0 ]; do
         --dest) dest="${2:?--dest needs a folder}"; shift 2 ;;
         --bundle-id) bundle_id="${2:?--bundle-id needs an ID}"; shift 2 ;;
         --from) from="${2:?--from needs a folder}"; shift 2 ;;
-        -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "install-local.sh: unknown option $1 (see --help)" >&2; exit 2 ;;
     esac
 done

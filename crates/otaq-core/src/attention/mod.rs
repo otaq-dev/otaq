@@ -8,6 +8,7 @@ pub mod limit_stops;
 #[cfg(target_os = "macos")]
 pub mod notification_center;
 pub mod notify;
+pub mod notify_check;
 
 pub use focus::{ClientId, Focus, FocusChange, Released, Side};
 pub use inbox::Inbox;
