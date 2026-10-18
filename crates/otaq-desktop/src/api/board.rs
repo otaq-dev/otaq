@@ -995,7 +995,7 @@ mod tests {
         assert_eq!(outcome["kind"], "moved");
         assert_eq!(
             toasts().await,
-            ["Queued 1 ticket. Auto-merge is off for shop-web, so each one waits for your review."]
+            ["Moved 1 ticket to Ready for Dev. Auto-merge is off for shop-web, so each one waits for your review."]
         );
         let Reply::Ticket(second) = send(&h, Request::TicketGet(KeyParams { key: children[1].clone() })).await
         else {

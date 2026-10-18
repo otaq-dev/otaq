@@ -158,8 +158,8 @@ pub fn epic_place(epic: &Ticket, tickets: &[Ticket]) -> EpicPlace {
     }
 }
 
-/// What a queue did, for the queue toast (EPC-15): "Queued 2 children of SHOP-45 · Undo", and with Auto-merge Off
-/// "Queued 3 tickets. Auto-merge is off for shop-web, so each one waits for your review." Undo takes back
+/// What a queue did, for the queue toast (EPC-15): "Moved 2 children of SHOP-45 to Ready for Dev · Undo", and with Auto-merge Off
+/// "Moved 3 tickets to Ready for Dev. Auto-merge is off for shop-web, so each one waits for your review." Undo takes back
 /// `queued` and `resumed` (T-0264).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpicQueueOutcome {

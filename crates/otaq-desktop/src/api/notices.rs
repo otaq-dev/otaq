@@ -343,9 +343,9 @@ async fn epic_children_auto_merge(app: &App, project: &str) -> Result<(), Reques
     Ok(())
 }
 
-/// Shows the queue toast for an epic queue the user made (a drop, ⇧⌘D, the menu): "Queued 2 children of SHOP-45 ·
+/// Shows the queue toast for an epic queue the user made (a drop, ⇧⌘D, the menu): "Moved 2 children of SHOP-45 to Ready for Dev ·
 /// Undo", and with Auto-merge Off "… · Turn on for epic children · Undo" (EPC-15). The epic's name is looked up for
-/// the one-child wording ("Queued SHOP-45.1 of Search").
+/// the one-child wording ("Moved SHOP-45.1 of Search to Ready for Dev").
 pub(crate) async fn show_epic_queued(app: &App, outcome: &EpicQueueOutcome) {
     let get = Request::TicketGet(KeyParams {
         key: outcome.epic.to_string(),
@@ -573,7 +573,7 @@ mod tests {
         let view = request(&h.app, "notices.view", Value::Null).await.unwrap();
         assert_eq!(
             toast_titles(&view),
-            [format!("Queued {} of Search", child(1))]
+            [format!("Moved {} of Search to Ready for Dev", child(1))]
         );
 
         outcome.queued.push(child(2));
@@ -583,7 +583,7 @@ mod tests {
         let toast = &view["toasts"][1];
         assert_eq!(
             toast["title"],
-            "Queued 2 tickets. Auto-merge is off for shop-web, so each one waits for your review."
+            "Moved 2 tickets to Ready for Dev. Auto-merge is off for shop-web, so each one waits for your review."
         );
         let buttons = &toast["link"]["actions"];
         assert_eq!(buttons[0]["label"], "Turn on for epic children");

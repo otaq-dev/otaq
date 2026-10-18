@@ -362,7 +362,8 @@ describe("drawn", () => {
     const toast: Toast = {
       id: 7,
       level: "success",
-      title: "Queued 2 tickets. Auto-merge is off for shop-web, so each one waits for your review.",
+      title:
+        "Moved 2 tickets to Ready for Dev. Auto-merge is off for shop-web, so each one waits for your review.",
       text: null,
       icon: null,
       icon_tone: null,
@@ -380,7 +381,7 @@ describe("drawn", () => {
     };
     const html = renderToStaticMarkup(createElement(ToastStack, { toasts: [toast] }));
     expect(html).toMatch(
-      /toast-line.*toast-title">Queued 2 tickets.*toast-actions.*Turn on for epic children.*Undo/,
+      /toast-line.*toast-title">Moved 2 tickets to Ready for Dev.*toast-actions.*Turn on for epic children.*Undo/,
     );
     expect(html).not.toContain("toast-text");
     vi.mocked(request).mockResolvedValue(null);
