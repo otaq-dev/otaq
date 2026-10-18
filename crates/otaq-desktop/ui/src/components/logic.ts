@@ -140,12 +140,15 @@ export const MARK_OUTLINE = 6.5;
 export const MARK_COLUMNS = 4.6;
 /** The thinnest stroke the mark draws on screen, in px, so it still reads at 16–20 px. */
 export const MARK_MIN_STROKE = 1.1;
+/** How far the flag overlaps the pole, in viewBox units, so no seam shows between them. */
+export const MARK_FLAG_OVERLAP = 0.16;
 
 /**
  * The mark's stroke widths in viewBox units at `size` px: the design's widths, thickened below about 24 px so no
- * stroke drops under `MARK_MIN_STROKE` on screen.
+ * stroke drops under `MARK_MIN_STROKE` on screen. `flagShift` moves the flag right so it starts at the pole's edge.
  */
-export function markStrokes(size: number): { outline: number; columns: number } {
+export function markStrokes(size: number): { outline: number; columns: number; flagShift: number } {
   const min = (MARK_MIN_STROKE * MARK_VIEWBOX) / size;
-  return { outline: Math.max(MARK_OUTLINE, min), columns: Math.max(MARK_COLUMNS, min) };
+  const columns = Math.max(MARK_COLUMNS, min);
+  return { outline: Math.max(MARK_OUTLINE, min), columns, flagShift: columns / 2 - MARK_FLAG_OVERLAP };
 }

@@ -9,6 +9,7 @@ import {
   EDGE,
   FLOAT_GAP,
   MARK_COLUMNS,
+  MARK_FLAG_OVERLAP,
   MARK_MIN_STROKE,
   MARK_OUTLINE,
   MARK_VIEWBOX,
@@ -149,7 +150,14 @@ describe("markStrokes", () => {
   const onScreen = (units: number, size: number) => (units * size) / MARK_VIEWBOX;
 
   it("keeps the design's widths at the About size", () => {
-    expect(markStrokes(64)).toEqual({ outline: MARK_OUTLINE, columns: MARK_COLUMNS });
+    expect(markStrokes(64)).toMatchObject({ outline: MARK_OUTLINE, columns: MARK_COLUMNS });
+  });
+
+  it("starts the flag at the pole's edge", () => {
+    // The design moves the flag 15/7 units right of the pole's centre at full size.
+    expect(markStrokes(64).flagShift).toBeCloseTo(15 / 7);
+    const { columns, flagShift } = markStrokes(16);
+    expect(flagShift).toBeCloseTo(columns / 2 - MARK_FLAG_OVERLAP);
   });
 
   it("never draws a stroke thinner than the minimum at small sizes", () => {
