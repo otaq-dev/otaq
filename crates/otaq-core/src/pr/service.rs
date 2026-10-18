@@ -45,8 +45,12 @@ pub enum PrOutcome {
     /// The skill was started (or told to push); the dialog follows the flow.
     Started { ticket: Box<Ticket> },
     /// The session's input line has unsent text: ask "Keep it and cancel / Clear it and send" (d0048). Nothing
-    /// was changed.
-    NeedsConfirmation { ticket: TicketKey },
+    /// was changed. `unclearable_by` names the tool when the text is a multi-line draft it can't clear (SES-07).
+    NeedsConfirmation {
+        ticket: TicketKey,
+        #[serde(default)]
+        unclearable_by: Option<String>,
+    },
     /// "SHOP-19 has 2 uncommitted files" · View · Send back (REV-08).
     RefusedUncommitted { files: Vec<String>, message: String },
     /// New commits since the review (REV-06): approve again with `approve_anyway`, or Send back.
@@ -654,6 +658,11 @@ impl Prs {
         {
             return Ok(Some(PrOutcome::NeedsConfirmation {
                 ticket: ticket.key.clone(),
+                unclearable_by: self
+                    .inner
+                    .deliveries
+                    .unclearable_by(&session.id)
+                    .map_err(other)?,
             }));
         }
         Ok(None)

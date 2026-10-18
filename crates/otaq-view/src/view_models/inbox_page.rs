@@ -659,8 +659,10 @@ fn group(g: &InboxGroupView, next_keys: &str) -> Group {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "InboxLimitRow")]
 pub struct LimitRow {
-    /// The tool whose limit it is (its Resume is that tool's, `limits.resume_tool`).
+    /// The tool whose limit it is, for its avatar.
     pub tool: AvatarTool,
+    /// The same tool as stored (`codex`): its Resume sends `limits.resume_tool { tool }` (USG-10).
+    pub resume_tool: String,
     /// The tool's avatar before the row; `None` while only one tool is connected (SHL-08).
     pub avatar: Option<ToolAvatarView>,
     pub text: String,
@@ -684,6 +686,7 @@ impl LimitRow {
     pub fn of(limit: &ToolLimit) -> Self {
         Self {
             tool: limit.tool.into(),
+            resume_tool: limit.tool.as_str().to_owned(),
             avatar: limit.avatar.cloned(),
             button: limit.button.cloned(),
             text: limit.banner.inbox_row.clone(),
@@ -1749,12 +1752,12 @@ mod tests {
     /// limit at the top, in the order given, each with its tool and its Resume after the reset; none without a limit.
     #[test]
     fn one_limit_row_per_tool() {
-        use crate::view_models::limit_banner::{LimitBanner, ResumeAll};
+        use crate::view_models::limit_banner::{LimitBanner, ResumeButton};
         let banner = |text: &str, after_reset: bool| LimitBanner {
             title: String::new(),
             text: String::new(),
-            resume: Some(ResumeAll {
-                label: "Resume all (4)".into(),
+            resume: Some(ResumeButton {
+                label: "Resume (4)".into(),
                 enabled: after_reset,
                 primary: after_reset,
             }),
@@ -1806,9 +1809,15 @@ mod tests {
                 (
                     AvatarTool::Codex,
                     codex.inbox_row.as_str(),
-                    Some("Resume all (4)")
+                    Some("Resume (4)")
                 ),
             ]
+        );
+        let tools: Vec<&str> = v.limits.iter().map(|l| l.resume_tool.as_str()).collect();
+        assert_eq!(
+            tools,
+            ["claude", "codex"],
+            "each row's Resume is its own tool's"
         );
         assert!(
             view(&[], &[], &|_| None, 0, 0, &[], 3, "\u{2318}J")

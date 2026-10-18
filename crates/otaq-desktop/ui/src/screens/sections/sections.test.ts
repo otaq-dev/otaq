@@ -250,7 +250,7 @@ describe("the sections", () => {
   it("History: sessions with their copyable Claude session ID, events without", () => {
     const view: HistoryView = {
       columns: ["EVENT", "WHEN", "DURATION", "TOKENS"],
-      copy_hint: "Copy Claude session ID",
+      copy_hint: "Copy session ID",
       copied: "Copied",
       empty: "Nothing has happened to this ticket yet.",
       total: null,
@@ -286,14 +286,14 @@ describe("the sections", () => {
     for (const text of ["EVENT", "DURATION", "Agent session", "claude 9f1c-77", "38 min", "Created"]) {
       expect(out).toContain(text);
     }
-    expect(out.match(/Copy Claude session ID/g)).toHaveLength(1);
+    expect(out.match(/Copy session ID/g)).toHaveLength(1);
     expect(html(createElement(HistoryBody, { view: { ...view, rows: [] } }))).toContain(view.empty);
   });
 
   it("History: a validation round opens its report; the total sits under the rows", () => {
     const view: HistoryView = {
       columns: ["EVENT", "WHEN", "DURATION", "TOKENS"],
-      copy_hint: "Copy Claude session ID",
+      copy_hint: "Copy session ID",
       copied: "Copied",
       empty: "Nothing has happened to this ticket yet.",
       total: { label: "Validation total · 2 entries", tokens: "15k" },

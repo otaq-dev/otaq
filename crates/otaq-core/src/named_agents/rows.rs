@@ -136,6 +136,9 @@ pub struct CardHold {
     pub can_use_fallback: bool,
     /// The fallback is blocked as well: "Strong and its fallback Strong GPT are both at their limits".
     pub fallback_held: bool,
+    /// A limit's hold: when the tool's limit resets, when known ("Claude Code limit · resets 3:45 pm", Q154).
+    #[serde(default)]
+    pub resets_at: Option<i64>,
 }
 
 impl CardHold {
@@ -153,6 +156,7 @@ impl CardHold {
             can_use_fallback: hold.fallback_agent_id.is_some() && !hold.fallback_held,
             fallback: fallback.map(|a| a.name.clone()),
             fallback_held: hold.fallback_held,
+            resets_at: None,
         }
     }
 }
@@ -320,6 +324,15 @@ impl NamedAgents {
         let running = store.running_agent_names(&project.id).await?;
         let holds = store.project_ticket_holds(&project.id).await?;
         let moves = store.project_row_moves(&project.id).await?;
+        // The tools at their limits and when each resets (a limit's hold says it).
+        let limits = crate::usage::plan::limits(store).await?;
+        let resets_of = |hold: &super::AgentHold| {
+            limits
+                .iter()
+                .filter(|l| hold.reason == super::HoldReason::ToolLimit && l.tool == hold.tool)
+                .find(|l| l.reset_seen_at.is_none())
+                .and_then(|l| l.resets_at)
+        };
         let mut cards = Vec::new();
         for ticket in self.board.tickets(&project.key).await? {
             if ticket.kind != Kind::Ticket {
@@ -369,7 +382,10 @@ impl NamedAgents {
                 holds: holds
                     .iter()
                     .filter(|h| h.ticket_id.as_deref() == Some(ticket.id.as_str()))
-                    .map(|h| CardHold::of(h, &agents))
+                    .map(|h| CardHold {
+                        resets_at: resets_of(h),
+                        ..CardHold::of(h, &agents)
+                    })
                     .collect(),
                 developer_move: move_of(Role::Developer),
                 validator_move: move_of(Role::Validator),

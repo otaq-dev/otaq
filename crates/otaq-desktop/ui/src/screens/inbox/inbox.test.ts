@@ -462,9 +462,10 @@ describe("the inbox's markup", () => {
           limits: [
             {
               tool: "claude_code",
+              resume_tool: "claude",
               avatar: null,
               text: "Usage limit reached · 2 agents waiting",
-              resume: "Resume all (2)",
+              resume: "Resume (2)",
               button: null,
             },
           ],
@@ -478,7 +479,7 @@ describe("the inbox's markup", () => {
     );
     expect(html).toContain("Nothing needs you");
     expect(html).toContain("Usage limit reached · 2 agents waiting");
-    expect(html).toContain("Resume all (2)");
+    expect(html).toContain("Resume (2)");
     expect(html).not.toContain("next item");
   });
 
@@ -490,6 +491,7 @@ describe("the inbox's markup", () => {
           limits: [
             {
               tool: "codex",
+              resume_tool: "codex",
               avatar: {
                 tool: "codex",
                 letters: "CX",

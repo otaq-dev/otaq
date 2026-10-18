@@ -7,6 +7,6 @@ import type { IconName } from "./IconName";
  */
 export type BannerButton = { id: BannerButtonId, label: string, icon: IconName, enabled: boolean, 
 /**
- * Highlighted (the usage limit's Resume all after the reset).
+ * Highlighted (the usage limit's Resume after the reset).
  */
 primary: boolean, };

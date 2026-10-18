@@ -10,9 +10,13 @@ import type { ToolAvatarView } from "./ToolAvatarView";
  */
 export type InboxLimitRow = { 
 /**
- * The tool whose limit it is (its Resume is that tool's, `limits.resume_tool`).
+ * The tool whose limit it is, for its avatar.
  */
 tool: AvatarTool, 
+/**
+ * The same tool as stored (`codex`): its Resume sends `limits.resume_tool { tool }` (USG-10).
+ */
+resume_tool: string, 
 /**
  * The tool's avatar before the row; `None` while only one tool is connected (SHL-08).
  */

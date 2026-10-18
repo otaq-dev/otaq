@@ -17,7 +17,9 @@ export interface Confirmation {
   body: string;
   /** Lines under the body, each with its icon (Park: what is kept). */
   rows?: readonly ConfirmRow[];
-  confirmLabel: string;
+  /** `null`: only the cancel button (the unsent-text question for a draft the tool can't clear, Q-N). */
+  confirmLabel: string | null;
+  cancelLabel?: string;
   confirmIcon?: IconName;
   /** A destructive confirm button, with Cancel as the default (`dialog.rs`). */
   destructive: boolean;

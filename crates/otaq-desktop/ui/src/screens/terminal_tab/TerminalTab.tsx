@@ -83,6 +83,7 @@ function deliverNow(key: string, clear = false): Promise<unknown> {
       title: sent.title,
       body: sent.body,
       confirmLabel: sent.clear,
+      cancelLabel: sent.cancel,
       destructive: false,
       onConfirm: () => deliverNow(key, true),
     });

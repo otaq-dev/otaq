@@ -105,12 +105,12 @@ pub struct RecoveryLine {
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "TerminalTabRecovery")]
 pub enum Recovery {
-    /// Claude's saved conversation is still being read.
-    Loading { text: &'static str },
+    /// The tool's saved conversation is still being read.
+    Loading { text: String },
     /// The last messages and actions with Resume.
     BeforeRestart {
         title: &'static str,
-        source: &'static str,
+        source: String,
         session: String,
         lines: Vec<RecoveryLine>,
         ended: String,
@@ -278,12 +278,25 @@ const PHASES: [Phase; 5] = [
     Phase::Ended,
 ];
 
-fn recovery_of(ticket: &Ticket, before: Option<&BeforeRestart>) -> Recovery {
+/// `tool` is the agent session's, when known: "Reading Codex's saved conversation…".
+fn recovery_of(
+    ticket: &Ticket,
+    tool: Option<otaq_core::agent_tools::Tool>,
+    before: Option<&BeforeRestart>,
+) -> Recovery {
     let Some(before) = before else {
         return Recovery::Loading {
-            text: "Reading Claude’s saved conversation…",
+            text: format!(
+                "Reading {}\u{2019}s saved conversation\u{2026}",
+                tool.map_or("the agent", |t| t.short_name())
+            ),
         };
     };
+    let tool = match before {
+        BeforeRestart::Available { tool, .. } => Some(*tool),
+        BeforeRestart::NotAvailable { tool, .. } => *tool,
+    }
+    .or(tool);
     match recovery::view(ticket, before) {
         RecoveryView::BeforeRestart {
             session,
@@ -291,7 +304,10 @@ fn recovery_of(ticket: &Ticket, before: Option<&BeforeRestart>) -> Recovery {
             ended,
         } => Recovery::BeforeRestart {
             title: "Before the restart",
-            source: "from Claude’s saved conversation · read-only",
+            source: format!(
+                "from {}\u{2019}s saved conversation \u{b7} read-only",
+                tool.map_or("the agent", |t| t.short_name())
+            ),
             session,
             lines: lines
                 .into_iter()
@@ -315,7 +331,7 @@ fn recovery_of(ticket: &Ticket, before: Option<&BeforeRestart>) -> Recovery {
 }
 
 /// The view from what the service said: the ticket, its sessions, its validation rounds, its project's name and,
-/// for an Interrupted ticket whose session is gone, Claude's saved conversation.
+/// for an Interrupted ticket whose session is gone, its tool's saved conversation.
 pub fn view_of(
     ticket: &Ticket,
     sessions: &[SessionInfo],
@@ -410,7 +426,7 @@ pub fn view_of(
         background,
         narrow_below: ICON_TABS_BELOW,
         ended,
-        recovery: recovering.then(|| recovery_of(ticket, before)),
+        recovery: recovering.then(|| recovery_of(ticket, session.and_then(|s| s.tool), before)),
         agent_label: "Agent",
         agent_dot,
         validator,

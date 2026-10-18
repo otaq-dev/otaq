@@ -67,7 +67,7 @@ pub enum Situation {
     UsageLimit {
         title: String,
         text: String,
-        resume: Option<crate::view_models::limit_banner::ResumeAll>,
+        resume: Option<crate::view_models::limit_banner::ResumeButton>,
         lines: Vec<LineView>,
     },
     /// The projects whose folder trust couldn't be recorded, by key. One banner for all of them (P6).
@@ -142,8 +142,8 @@ pub struct BannerRow {
     /// A second button: "Review & resume" (opens the after-restart summary sheet).
     pub secondary: Option<&'static str>,
     pub dismissable: bool,
-    /// The usage limit's Resume all: its label, whether it can be pressed, and whether it is highlighted.
-    pub resume: Option<crate::view_models::limit_banner::ResumeAll>,
+    /// The usage limit's Resume: its label, whether it can be pressed, and whether it is highlighted.
+    pub resume: Option<crate::view_models::limit_banner::ResumeButton>,
     pub tooltip: Option<BannerTooltip>,
     /// The usage limit's lines, one per tool.
     pub lines: Vec<LineView>,
@@ -176,7 +176,7 @@ pub enum BannerButtonId {
     Action,
     /// Review & resume.
     Secondary,
-    /// The usage limit's Resume all.
+    /// The usage limit's Resume.
     Resume,
 }
 
@@ -187,7 +187,7 @@ pub struct BannerButton {
     pub label: String,
     pub icon: IconName,
     pub enabled: bool,
-    /// Highlighted (the usage limit's Resume all after the reset).
+    /// Highlighted (the usage limit's Resume after the reset).
     pub primary: bool,
 }
 
@@ -803,12 +803,12 @@ mod tests {
     }
 
     #[test]
-    fn the_usage_limit_draws_its_resume_all() {
+    fn the_usage_limit_draws_its_resume() {
         let limit = |enabled, primary| Situation::UsageLimit {
             title: "Usage limit reset".into(),
             text: "Your plan limit reset".into(),
-            resume: Some(crate::view_models::limit_banner::ResumeAll {
-                label: "Resume all (8)".into(),
+            resume: Some(crate::view_models::limit_banner::ResumeButton {
+                label: "Resume (8)".into(),
                 enabled,
                 primary,
             }),
@@ -820,7 +820,7 @@ mod tests {
             view.buttons,
             [BannerButton {
                 id: BannerButtonId::Resume,
-                label: "Resume all (8)".into(),
+                label: "Resume (8)".into(),
                 icon: IconName::Play,
                 enabled: true,
                 primary: true,

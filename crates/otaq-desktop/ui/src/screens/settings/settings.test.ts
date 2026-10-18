@@ -279,7 +279,7 @@ const ROWS = {
     },
     notes: ["Limits come from Codex’s session file."],
     added: {
-      text: "Otaq added: trust for your projects, its hooks, `otaq` pre-approved, its skills",
+      text: "Otaq added: trust for your projects, its hooks, otaq pre-approved, its skills",
       stays: "Trust for your projects stays when you disconnect.",
     },
     setup_failed: "Otaq couldn’t add its skills (the plugin folder couldn’t be written).",
@@ -420,7 +420,7 @@ describe("Settings → Agent tools", () => {
     const dialog = {
       tool: "codex",
       title: "Disconnect Codex?",
-      text: "Removes only what Otaq added (its hooks, `otaq` pre-approved, its skills).",
+      text: "Removes only what Otaq added (its hooks, otaq pre-approved, its skills).",
       stays: "Otaq added trust for your projects; it stays when you disconnect.",
       hidden: "Codex is then hidden: it doesn’t count until you show it again.",
       cancel: "Cancel",

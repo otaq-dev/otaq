@@ -113,7 +113,7 @@ export async function pressBanner(
 
 /**
  * The usage limit's lines to draw, one per tool (USG-10): with several tools connected, or when a line has a button
- * besides Resume (Sign in…). Otherwise none, and the banner stays the one-tool banner of M22 with its Resume all
+ * besides Resume (Sign in…). Otherwise none, and the banner stays the one-tool banner of M22 with its one Resume
  * (d0086).
  */
 export function limitLinesOf(banner: Banner): readonly LimitLine[] {

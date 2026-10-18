@@ -480,7 +480,7 @@ impl Signals {
 }
 
 /// The caller a running agent session's processes are (as [`crate::caller::resolve`] finds them).
-fn caller_of(sessions: &Sessions, session: &str) -> Option<Caller> {
+pub(super) fn caller_of(sessions: &Sessions, session: &str) -> Option<Caller> {
     if let Some(root) = sessions
         .project_agent_roots()
         .into_iter()

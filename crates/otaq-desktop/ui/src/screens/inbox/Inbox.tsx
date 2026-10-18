@@ -176,6 +176,7 @@ function AnswerBox({
           title: sent.title,
           body: sent.body,
           confirmLabel: sent.clear,
+          cancelLabel: sent.cancel,
           destructive: false,
           onConfirm: () => send(row, answer, draft, true).then(onSent, ignore),
         });
@@ -542,7 +543,7 @@ export function InboxBody({ view, selected, draft, onDraft, onSelect }: InboxBod
               icon="play"
               label={limit.resume}
               onClick={() => {
-                request("notices.resume_after_limit").catch(ignore);
+                request("limits.resume_tool", { tool: limit.resume_tool }).catch(ignore);
               }}
             />
           )}

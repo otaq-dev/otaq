@@ -28,8 +28,12 @@ pub enum ChangeOutcome {
         ticket: Box<Ticket>,
     },
     /// The session's input line has unsent text: ask "Keep it and cancel / Clear it and send" (d0048), then
-    /// repeat with `clear_first`. Nothing was changed.
-    NeedsConfirmation { ticket: TicketKey },
+    /// repeat with `clear_first`. Nothing was changed. `unclearable_by` as in [`ReturnOutcome::NeedsConfirmation`].
+    NeedsConfirmation {
+        ticket: TicketKey,
+        #[serde(default)]
+        unclearable_by: Option<String>,
+    },
     /// A fix child joined the epic: "Changed by you → SHOP-40.7".
     FixChild {
         decision: Box<Decision>,
@@ -228,8 +232,14 @@ pub async fn change_and_send_back(
     let note = change_message(&decision, text);
     let key = ticket.key.to_string();
     let ticket = match review.send_back(&key, &note, clear_first, actor).await? {
-        ReturnOutcome::NeedsConfirmation { ticket } => {
-            return Ok(ChangeOutcome::NeedsConfirmation { ticket });
+        ReturnOutcome::NeedsConfirmation {
+            ticket,
+            unclearable_by,
+        } => {
+            return Ok(ChangeOutcome::NeedsConfirmation {
+                ticket,
+                unclearable_by,
+            });
         }
         ReturnOutcome::Done { ticket } => ticket,
     };

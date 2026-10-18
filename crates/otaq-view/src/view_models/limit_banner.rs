@@ -9,7 +9,8 @@
 //! moved to Sonnet", Sign in…). Each says when the limit resets (a countdown in the last hour), how many agents it
 //! stopped and what waits. Resume is the user's click and never happens by itself: disabled until a known reset time,
 //! highlighted after the reset, always available when the reset time is unknown (USG-06). With one tool connected the
-//! banner reads as before M23: no tool name, Resume all, no Move waiting to… (d0086).
+//! banner reads as before M23 with its one Resume (no tool name, no Move waiting to…, d0086; USG-10: Resume all became
+//! per tool).
 //!
 //! Limit lines are neutral and a tool that isn't available is amber: never turquoise, which means needs you (d0077;
 //! the frames' turquoise lines predate the rule).
@@ -29,8 +30,11 @@ use crate::view_models::named_agents::model_label;
 use crate::view_models::tool_avatar::ToolAvatarView;
 use crate::view_models::tool_problems::{Action, SHOW_IN_AGENT_TOOLS, SIGN_IN, tool_word};
 
-/// The error toast when Resume failed.
-pub const RESUME_FAILED: &str = "Resume all failed";
+/// The error toast when a limit's Resume failed.
+pub const RESUME_FAILED: &str = "Resume failed";
+
+/// The error toast when Resume all of the interrupted sessions failed (REC-01, not a limit's).
+pub const RESUME_ALL_FAILED: &str = "Resume all failed";
 
 /// The error toast when Move waiting to… failed.
 pub const MOVE_FAILED: &str = "Move waiting failed";
@@ -55,10 +59,10 @@ pub fn moved_toast(tickets: usize, agent: &str) -> String {
     format!("{} moved to {agent}", tickets_n(tickets as u32))
 }
 
-/// The Resume button: "Resume all" with one tool, "Resume Claude Code" with several.
+/// The Resume button: "Resume" with one tool, "Resume Claude Code" with several.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResumeAll {
-    /// "Resume all", "Resume all (8)", "Resume Claude Code (8)".
+pub struct ResumeButton {
+    /// "Resume", "Resume (8)", "Resume Claude Code (8)".
     pub label: String,
     pub enabled: bool,
     /// Highlighted (primary) after the reset.
@@ -73,10 +77,10 @@ pub struct LimitBanner {
     /// "Resets at 3:45 pm · 8 agents stopped · no new tickets will start".
     pub text: String,
     /// Resume (a limit); `None` for a tool that isn't available.
-    pub resume: Option<ResumeAll>,
+    pub resume: Option<ResumeButton>,
     /// The reset has happened.
     pub after_reset: bool,
-    /// The inbox's row: "Usage limit reached · 8 agents waiting for limit reset · resets 3:00 pm. Resume all appears
+    /// The inbox's row: "Usage limit reached · 8 agents waiting for limit reset · resets 3:00 pm. Resume appears
     /// here after the reset."
     pub inbox_row: String,
 }
@@ -254,14 +258,14 @@ fn one_tool_line(stopped: u32, limit: &Limit, now: i64) -> Option<LimitBanner> {
                 reset_at(limit),
                 plural(stopped, "agent", "agents")
             ),
-            resume: Some(ResumeAll {
-                label: format!("Resume all ({stopped})"),
+            resume: Some(ResumeButton {
+                label: format!("Resume ({stopped})"),
                 enabled: true,
                 primary: true,
             }),
             after_reset: true,
             inbox_row: format!(
-                "Usage limit reset · {} · nothing resumes until you click Resume all.",
+                "Usage limit reset · {} · nothing resumes until you click Resume.",
                 agents("waiting for limit reset")
             ),
         });
@@ -273,14 +277,14 @@ fn one_tool_line(stopped: u32, limit: &Limit, now: i64) -> Option<LimitBanner> {
                 "Reset time unknown · {} · no new tickets will start",
                 agents("waiting for limit reset")
             ),
-            resume: Some(ResumeAll {
-                label: "Resume all".to_owned(),
+            resume: Some(ResumeButton {
+                label: "Resume".to_owned(),
                 enabled: true,
                 primary: false,
             }),
             after_reset: false,
             inbox_row: format!(
-                "Usage limit reached · {} · reset time unknown. Resume all when you know it has reset.",
+                "Usage limit reached · {} · reset time unknown. Resume when you know it has reset.",
                 agents("waiting for limit reset")
             ),
         });
@@ -299,14 +303,14 @@ fn one_tool_line(stopped: u32, limit: &Limit, now: i64) -> Option<LimitBanner> {
     Some(LimitBanner {
         title: title.to_owned(),
         text: format!("{when} · {} · {tail}", agents("stopped")),
-        resume: Some(ResumeAll {
-            label: "Resume all".to_owned(),
+        resume: Some(ResumeButton {
+            label: "Resume".to_owned(),
             enabled: false,
             primary: false,
         }),
         after_reset: false,
         inbox_row: format!(
-            "Usage limit reached · {} · {}. Resume all appears here after the reset.",
+            "Usage limit reached · {} · {}. Resume appears here after the reset.",
             agents("waiting for limit reset"),
             when.replacen("Resets", "resets", 1)
         ),
@@ -355,7 +359,7 @@ fn limit_line(l: &ToolLine, limit: &Limit, now: i64) -> Option<LimitBanner> {
         return Some(LimitBanner {
             title: format!("{word} limit reset"),
             text: parts.join(" \u{b7} "),
-            resume: Some(ResumeAll {
+            resume: Some(ResumeButton {
                 label,
                 enabled: true,
                 primary: true,
@@ -405,7 +409,7 @@ fn limit_line(l: &ToolLine, limit: &Limit, now: i64) -> Option<LimitBanner> {
     Some(LimitBanner {
         title: title.clone(),
         text: parts.join(" \u{b7} "),
-        resume: Some(ResumeAll {
+        resume: Some(ResumeButton {
             label: resume,
             enabled: l.resume_enabled,
             primary: false,
@@ -764,8 +768,8 @@ mod tests {
         );
         assert_eq!(
             b.resume,
-            Some(ResumeAll {
-                label: "Resume all".into(),
+            Some(ResumeButton {
+                label: "Resume".into(),
                 enabled: false,
                 primary: false
             })
@@ -776,7 +780,7 @@ mod tests {
         );
         assert!(
             b.inbox_row
-                .ends_with("Resume all appears here after the reset.")
+                .ends_with("Resume appears here after the reset.")
         );
         // One tool: no avatar, no tool name, no Move waiting to… (d0086).
         assert_eq!(l.view.avatar, None);
@@ -838,7 +842,7 @@ mod tests {
         assert!(resume.enabled && !resume.primary);
         assert_eq!(
             l.banner.inbox_row,
-            "Usage limit reached · 2 agents waiting for limit reset · reset time unknown. Resume all when you know it has reset."
+            "Usage limit reached · 2 agents waiting for limit reset · reset time unknown. Resume when you know it has reset."
         );
     }
 
@@ -859,8 +863,8 @@ mod tests {
         );
         assert_eq!(
             l.banner.resume,
-            Some(ResumeAll {
-                label: "Resume all (8)".into(),
+            Some(ResumeButton {
+                label: "Resume (8)".into(),
                 enabled: true,
                 primary: true
             })

@@ -341,9 +341,10 @@ export function AgentToolsPageBody({
       )}
       {page.rows.length > 0 && (
         <ul className="agent-tool-rows">
-          {page.rows.map((row) => (
+          {page.rows.map((row, index) => (
             <AgentToolRowView
-              key={row.tool}
+              // One row per tool in the app; the gallery's "every state" page repeats a tool.
+              key={`${row.tool}-${String(index)}`}
               row={row}
               menuLabel={page.menu_label}
               onAction={(action) => {

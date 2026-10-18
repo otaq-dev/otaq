@@ -51,6 +51,7 @@ function afterSend(key: string, sent: PanelSent, again: () => Promise<unknown>) 
     title: sent.title,
     body: sent.body,
     confirmLabel: sent.clear,
+    cancelLabel: sent.cancel,
     destructive: false,
     onConfirm: again,
   });

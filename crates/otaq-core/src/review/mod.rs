@@ -54,8 +54,13 @@ pub enum ReturnOutcome {
     /// limit is full (or Start interrupted if the resume couldn't start).
     Done { ticket: Box<Ticket> },
     /// The session's input line has unsent text: ask "Keep it and cancel / Clear it and send" (d0048). Nothing
-    /// was changed.
-    NeedsConfirmation { ticket: TicketKey },
+    /// was changed. `unclearable_by` names the tool when the text is a multi-line draft it can't clear: only Keep
+    /// it and cancel (SES-07, Q-N).
+    NeedsConfirmation {
+        ticket: TicketKey,
+        #[serde(default)]
+        unclearable_by: Option<String>,
+    },
 }
 
 /// The answer to a Local merge click (GIT-03, REV-08).
@@ -442,6 +447,10 @@ impl Review {
         {
             return Ok(ReturnOutcome::NeedsConfirmation {
                 ticket: ticket.key.clone(),
+                unclearable_by: inner
+                    .deliveries
+                    .unclearable_by(&session.id)
+                    .map_err(other)?,
             });
         }
         let key = ticket.key.to_string();
