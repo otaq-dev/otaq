@@ -1,6 +1,6 @@
 //! The empty board of a project with no tickets yet (UI-08, SHL-06; *14 · First run → 4 · Done · empty board*,
-//! *03 → Empty column & empty board*): when it shows, its buttons and what each asks of the shell. Since d0087 the
-//! Project agent pane is always beside the board, so the card points at it instead of offering a button for it.
+//! *03 → Empty column & empty board*): when it shows, its button and what it asks of the shell. Since d0087 the
+//! Project agent pane is always beside the board, so the card points at it (and at ⌘L) instead of offering a button.
 
 use otaq_core::board::settings::AutoMerge;
 use serde::Serialize;
@@ -17,7 +17,7 @@ pub fn shows(tickets: usize, quick_creating: bool) -> bool {
     tickets == 0 && !quick_creating
 }
 
-/// One of the empty board's buttons.
+/// The empty board's button.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Action {
     pub id: &'static str,
@@ -27,24 +27,15 @@ pub struct Action {
     pub request: ShellRequest,
 }
 
-/// "New ticket" (⌘N) and "Project terminal" (⇧⌘T, RUN-06): the same requests as the header's buttons.
-pub fn actions() -> [Action; 2] {
-    [
-        Action {
-            id: "empty-new-ticket",
-            label: "New ticket",
-            icon: IconName::Plus,
-            primary: true,
-            request: ShellRequest::NewTicket,
-        },
-        Action {
-            id: "empty-project-terminal",
-            label: "Project terminal",
-            icon: IconName::SquareTerminal,
-            primary: false,
-            request: ShellRequest::ProjectTerminal,
-        },
-    ]
+/// "New ticket" (⌘N): the same request as the header's button.
+pub fn actions() -> [Action; 1] {
+    [Action {
+        id: "empty-new-ticket",
+        label: "New ticket",
+        icon: IconName::Plus,
+        primary: true,
+        request: ShellRequest::NewTicket,
+    }]
 }
 
 /// A button of the empty board as the page draws it: its shortcut action is what a click runs, so the button and
@@ -58,7 +49,7 @@ pub struct Button {
     pub action: KeyAction,
 }
 
-/// "⌘N new ticket" under the buttons.
+/// "⌘N new ticket" under the button.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "EmptyBoardHint")]
 pub struct Hint {
@@ -66,9 +57,8 @@ pub struct Hint {
     pub label: &'static str,
 }
 
-/// The empty board's centred card (*14 → 4 · Done · empty board*; *03 → Empty column & empty board*): New ticket and
-/// the Project terminal, the text pointing at the pane's Project agent (d0068, d0087), and the line about Auto-merge
-/// (d0064).
+/// The empty board's centred card (*14 → 4 · Done · empty board*; *03 → Empty column & empty board*): New ticket, the
+/// text and a hint pointing at the pane's Project agent (d0068, d0087), and the line about Auto-merge (d0064).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "EmptyBoardView")]
 pub struct View {
@@ -100,41 +90,29 @@ pub fn auto_merge_line(value: AutoMerge, inactive: bool) -> String {
     .to_owned()
 }
 
-fn action_of(request: &ShellRequest) -> KeyAction {
-    match request {
-        ShellRequest::ProjectTerminal => KeyAction::ProjectTerminal,
-        _ => KeyAction::NewTicket,
-    }
-}
-
 /// "shop-web is ready" for the project `name`.
 pub fn view(name: &str, platform: Platform) -> View {
-    let new_ticket = KeyAction::NewTicket.keys(platform);
     View {
         title: format!("{name} is ready"),
-        text: match &new_ticket {
-            Some(keys) => format!(
-                "Write the first ticket (+ in Backlog or {keys}), or ask the Project agent on the left to investigate and create tickets."
-            ),
-            None => "Write the first ticket (+ in Backlog), or ask the Project agent on the left to investigate and create tickets.".to_owned(),
-        },
+        text: "Tell the Project agent on the left what you want: it reads the code and writes the tickets. Or write the first one yourself."
+            .to_owned(),
         buttons: actions()
             .iter()
             .map(|a| Button {
                 label: a.label,
                 icon: a.icon,
                 primary: a.primary,
-                action: action_of(&a.request),
+                action: KeyAction::NewTicket,
             })
             .collect(),
         hints: vec![
             Hint {
-                keys: new_ticket,
+                keys: KeyAction::NewTicket.keys(platform),
                 label: "new ticket",
             },
             Hint {
-                keys: KeyAction::ProjectTerminal.keys(platform),
-                label: "project terminal",
+                keys: KeyAction::FocusPane.keys(platform),
+                label: "ask the Project agent",
             },
         ],
         auto_merge: None,
@@ -153,28 +131,54 @@ mod tests {
         assert!(!shows(1, true));
     }
 
-    /// *03 → Empty column & empty board* (`kItEl`), *14 → 4 · Done · empty board* (`oVlcH`), d0087: the text points
-    /// at the pane; New ticket and Project terminal, no Project agent button.
+    fn hints(platform: Platform) -> Vec<(String, &'static str)> {
+        view("shop-web", platform)
+            .hints
+            .into_iter()
+            .map(|h| (h.keys.unwrap(), h.label))
+            .collect()
+    }
+
+    /// *03 → Empty column & empty board* (`kItEl`), *14 → 4 · Done · empty board → Board empty* (`ugHTD`), d0087: the
+    /// text and the ⌘L hint point at the pane; New ticket is the only button.
     #[test]
     fn the_page_view_names_the_project_and_runs_the_shortcuts() {
         let v = view("shop-web", Platform::Mac);
         assert_eq!(v.title, "shop-web is ready");
         assert_eq!(
             v.text,
-            "Write the first ticket (+ in Backlog or ⌘N), or ask the Project agent on the left to investigate and create tickets."
+            "Tell the Project agent on the left what you want: it reads the code and writes the tickets. Or write the first one yourself."
         );
         let actions: Vec<KeyAction> = v.buttons.iter().map(|b| b.action).collect();
-        assert_eq!(actions, [KeyAction::NewTicket, KeyAction::ProjectTerminal]);
+        assert_eq!(actions, [KeyAction::NewTicket]);
         let labels: Vec<&str> = v.buttons.iter().map(|b| b.label).collect();
-        assert_eq!(labels, ["New ticket", "Project terminal"]);
-        assert_eq!(v.hints[0].keys.as_deref(), Some("⌘N"));
-        let hints: Vec<(&str, &str)> = v
-            .hints
-            .iter()
-            .map(|h| (h.keys.as_deref().unwrap(), h.label))
-            .collect();
-        assert_eq!(hints, [("⌘N", "new ticket"), ("⇧⌘T", "project terminal")]);
-        assert!(v.buttons[0].primary && !v.buttons[1].primary);
+        assert_eq!(labels, ["New ticket"]);
+        assert!(v.buttons[0].primary);
+        assert_eq!(
+            hints(Platform::Mac),
+            [
+                ("⌘N".to_owned(), "new ticket"),
+                ("⌘L".to_owned(), "ask the Project agent")
+            ]
+        );
+    }
+
+    #[test]
+    fn the_hints_use_the_platforms_keys() {
+        assert_eq!(
+            hints(Platform::WinLinux),
+            [
+                ("Ctrl+N".to_owned(), "new ticket"),
+                ("Ctrl+L".to_owned(), "ask the Project agent")
+            ]
+        );
+        assert_eq!(
+            hints(Platform::WinLinuxTerminal),
+            [
+                ("Ctrl+Shift+N".to_owned(), "new ticket"),
+                ("Ctrl+Shift+L".to_owned(), "ask the Project agent")
+            ]
+        );
     }
 
     #[test]
@@ -188,11 +192,8 @@ mod tests {
     }
 
     #[test]
-    fn the_buttons_ask_for_a_ticket_and_the_project_terminal() {
+    fn the_button_asks_for_a_ticket() {
         let requests: Vec<ShellRequest> = actions().into_iter().map(|a| a.request).collect();
-        assert_eq!(
-            requests,
-            [ShellRequest::NewTicket, ShellRequest::ProjectTerminal]
-        );
+        assert_eq!(requests, [ShellRequest::NewTicket]);
     }
 }
