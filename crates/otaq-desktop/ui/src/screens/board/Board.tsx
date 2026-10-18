@@ -7,8 +7,9 @@
 // `board.drop`, whose answer may be the Park confirmation or the Approve choice (Ready for Review → Approved: nothing
 // moves until 1 or 2 is picked; Esc and the card stays). Esc cancels a drag. While the ticket panel is open over the
 // board (SHL-05) the board keeps its width, gets the panel's width of room after the columns and scrolls the selected
-// card's column into the part the panel leaves; a click on the open card closes the panel. The Board tab's count is
-// the view's (`tabCounts`, Q84). "Show on board" in a Project agent's pane filters the board to its tickets
+// card's column into the part the panel leaves; a click on the open card closes the panel, and so does a plain click on
+// the board's own background (`background.ts`: a column's empty area, the gaps, the room after the columns; OT-3),
+// unless that click closes an open menu or popover. The Board tab's count is the view's (`tabCounts`, Q84). "Show on board" in a Project agent's pane filters the board to its tickets
 // (`boardAgent`, d0087), with a chip whose ✕ (or Esc) clears it.
 // Hovering (or selecting) a linked card highlights its chain (`chain.ts`, `ChainLayer`; T-0229). While an epic is in
 // flight the "Epics in flight" strip sits above the columns (`strip/`, T-0269). The epic card, one of its rows and a
@@ -58,6 +59,7 @@ import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { ApproveChoice } from "./ApproveChoice";
+import { createBackgroundClick } from "./background";
 import { activeChain } from "./chain";
 import { ChainLayer } from "./ChainLayer";
 import { CardMenu, type OpenCardMenu } from "./CardMenu";
@@ -466,6 +468,14 @@ export function Board() {
     }
     if (done.kind === "drop") void dropCard(done.key, done.target, showApprove);
   }, [controller, showApprove]);
+  // A plain click on the board's background closes the panel too (OT-3).
+  const background = useMemo(
+    () =>
+      createBackgroundClick(() => {
+        closeTicket();
+      }),
+    [],
+  );
 
   // The pointer is followed on the window while pressed, so a drag keeps going over anything.
   useEffect(() => {
@@ -474,11 +484,13 @@ export function Board() {
       e.preventDefault();
       placeGhost(e.clientX, e.clientY);
     };
-    const up = () => {
+    const up = (e: globalThis.PointerEvent) => {
       release();
+      background.release(e);
     };
     const lost = () => {
       controller.cancel();
+      background.cancel();
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -490,7 +502,7 @@ export function Board() {
       window.removeEventListener("pointercancel", lost);
       window.removeEventListener("blur", lost);
     };
-  }, [controller, spans, release, placeGhost]);
+  }, [controller, spans, release, placeGhost, background]);
 
   // The focused epic (EPC-18): read by Esc without re-registering it.
   const focus = view?.focus ?? null;
@@ -803,6 +815,9 @@ export function Board() {
       // A card that moved away under the pointer never reports leaving; leaving the board ends its highlight.
       onPointerLeave={() => {
         setHovered(null);
+      }}
+      onPointerDown={(e) => {
+        background.press(e);
       }}
     >
       {view?.strip && (
