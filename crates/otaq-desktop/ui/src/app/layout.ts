@@ -93,6 +93,14 @@ export function withDrag(drags: ClassDrags, cls: SizeClass, width: number | null
     : { ...drags, [cls]: width };
 }
 
+/**
+ * The tab the main area shows: the stored one while the view has it, else the Board, as Rust's `MainTab::open` (a
+ * stored Files tab while the Files view is parked, d0087).
+ */
+export function shownTab(layout: ShellLayout, view: LayoutView): MainTab {
+  return view.tabs.some((t) => t.tab === layout.tab) ? layout.tab : "board";
+}
+
 export function showTab(tab: MainTab): void {
   shellLayout.update((l) => ({ ...l, tab }));
 }
@@ -105,7 +113,7 @@ export function toggleExpanded(): void {
   shellLayout.update((l) => ({ ...l, panelExpanded: !l.panelExpanded }));
 }
 
-/** ⇧⌘B, ⇧⌘O and ⌘\ (d0058, d0087). Returns their removal. */
+/** ⇧⌘B, ⇧⌘O and ⌘\ (d0058, d0087; ⇧⌘O is unbound while the Files view is parked). Returns their removal. */
 export function layoutShortcuts(app: Registries): () => void {
   const stops = [
     app.shortcuts.on("show_board", () => {

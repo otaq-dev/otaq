@@ -12,6 +12,7 @@ import {
   paneWidth,
   type ShellLayout,
   shellLayout,
+  shownTab,
   sizeClass,
   tabCounts,
   togglePane,
@@ -37,11 +38,20 @@ const VIEW: LayoutView = {
     { tab: "board", label: "Board", icon: "columns-3" },
     { tab: "files", label: "Files", icon: "folder-tree" },
   ],
+  tab_row: true,
   tab_keys: "⇧⌘B · ⇧⌘O",
   files_empty: "The Files view comes in a later update.",
   show_pane: "Show the pane",
   pane_resize: "Pane width",
   pane_keys: "⌘\\",
+};
+
+// `layout.view` while the Files view is parked (`layout::FILES_VIEW` off, d0087): the Board alone, no tab row.
+const PARKED: LayoutView = {
+  ...VIEW,
+  tabs: [{ tab: "board", label: "Board", icon: "columns-3" }],
+  tab_row: false,
+  tab_keys: "⇧⌘B",
 };
 
 // The frame renders without a DOM: React's server renderer gives its markup (no new test packages).
@@ -52,12 +62,12 @@ function render(app: Registries, bannerFallback?: ReactNode): string {
 }
 
 /** The frame's body at a window width, with `layout`. */
-function body(windowWidth: number, layout: ShellLayout, ticketOpen = false): string {
+function body(windowWidth: number, layout: ShellLayout, ticketOpen = false, view = VIEW): string {
   return renderToStaticMarkup(
     createElement(
       RegistriesContext,
       { value: createRegistries() },
-      createElement(FrameBody, { view: VIEW, layout, windowWidth, ticketOpen }),
+      createElement(FrameBody, { view, layout, windowWidth, ticketOpen }),
     ),
   );
 }
@@ -147,6 +157,20 @@ describe("the frame", () => {
     expect(html).toMatch(
       /aria-selected="true"><span class="icon"[^>]*><\/span><span class="frame-tab-label">Files/,
     );
+  });
+
+  it("while the Files view is parked: no tab row, the board right under the header, a stored Files tab on the board", () => {
+    tabCounts.set({ board: "26" });
+    const html = body(1440, INITIAL_LAYOUT, false, PARKED);
+    expect(slots(html)).toEqual(["header", "rail", "banners", "pane", "board"]);
+    expect(html).not.toContain("frame-tabs");
+    expect(html).not.toContain('role="tablist"');
+    expect(html).toContain('<div class="frame-main"><div class="frame-board" data-slot="board">');
+    const stored = body(1440, { ...INITIAL_LAYOUT, tab: "files" }, false, PARKED);
+    expect(slots(stored)).toEqual(["header", "rail", "banners", "pane", "board"]);
+    expect(stored).not.toContain("frame-files");
+    expect(shownTab({ ...INITIAL_LAYOUT, tab: "files" }, PARKED)).toBe("board");
+    expect(shownTab({ ...INITIAL_LAYOUT, tab: "files" }, VIEW)).toBe("files");
   });
 
   it("the pane is 320 / 400 / 460 px at 1280 / 1440 / 1920", () => {

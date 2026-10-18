@@ -9,6 +9,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, type PointerEvent, typ
 import "./frame.css";
 import { playLeave, playMotion, Tooltip, usePresence } from "../components";
 import type { LayoutView } from "../generated/LayoutView";
+import type { MainTab } from "../generated/MainTab";
 import type { SizeClass } from "../generated/SizeClass";
 import { DRAG_REGION } from "../tauri";
 import { Icon } from "../theme/Icon";
@@ -24,6 +25,7 @@ import {
   type ShellLayout,
   shellLayout,
   showTab,
+  shownTab,
   sizeClass,
   tabCounts,
   togglePane,
@@ -198,13 +200,16 @@ function PaneColumn({
   );
 }
 
-/** Board | Files at the main area's top, with ⇧⌘B · ⇧⌘O at the right end (*Main tabs*). */
-function MainTabs({ view, layout }: { view: LayoutView; layout: ShellLayout }) {
+/**
+ * Board | Files at the main area's top, with ⇧⌘B · ⇧⌘O at the right end (*Main tabs*); not drawn while the Files view
+ * is parked (`tab_row`).
+ */
+function MainTabs({ view, tab }: { view: LayoutView; tab: MainTab }) {
   const counts = useStore(tabCounts);
   return (
     <div className="frame-tabs" role="tablist">
       {view.tabs.map((t) => {
-        const selected = layout.tab === t.tab;
+        const selected = tab === t.tab;
         const count = counts[t.tab];
         return (
           <button
@@ -253,6 +258,7 @@ export function FrameBody({
   mainRef,
 }: FrameBodyProps) {
   const cls = view ? sizeClass(windowWidth, view.classes) : null;
+  const tab = view ? shownTab(layout, view) : layout.tab;
   const expanded = layout.panelExpanded && ticketOpen;
   return (
     <>
@@ -285,8 +291,8 @@ export function FrameBody({
         />
       )}
       <div className="frame-main" ref={mainRef} data-expanded={expanded || undefined}>
-        {view && <MainTabs view={view} layout={layout} />}
-        {layout.tab === "files" && view ? (
+        {view?.tab_row && <MainTabs view={view} tab={tab} />}
+        {tab === "files" && view ? (
           <div className="frame-files" data-slot="files">
             <Slot id="files" placeholder={<p className="frame-files-empty">{view.files_empty}</p>} />
           </div>

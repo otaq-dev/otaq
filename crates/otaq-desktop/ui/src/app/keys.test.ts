@@ -490,6 +490,36 @@ describe("the 0087 keys (T-0320, UIT-06)", () => {
     expect(dispatchKey(win.d, key("l", "KeyL", { ctrlKey: true }), BOARD).kind).toBe("ran");
     expect(win.ran).toEqual(["focus_pane", "toggle_pane", "go_to_file", "focus_pane"]);
   });
+
+  it("while the Files view is parked, ⇧⌘O and ⌥⌘P aren't in the map and run nothing; ⇧⌘B still does (d0087)", () => {
+    const files = new Set(["show_files", "go_to_file"]);
+    const parked = (map: Keymap): Keymap => ({
+      ...map,
+      bindings: map.bindings.filter((b) => !files.has(b.action.action)),
+    });
+    const actions = ["show_board", "show_files", "go_to_file"] as const;
+    const mac = setup(parked(V_MAC), [...actions]);
+    for (const k of [
+      key("O", "KeyO", { metaKey: true, shiftKey: true }),
+      key("π", "KeyP", { metaKey: true, altKey: true }),
+    ]) {
+      expect(dispatchKey(mac.d, k, BOARD).kind, keyName(k)).not.toBe("ran");
+      expect(dispatchKey(mac.d, k, TERMINAL).kind, keyName(k)).not.toBe("ran");
+    }
+    expect(dispatchKey(mac.d, key("B", "KeyB", { metaKey: true, shiftKey: true }), BOARD).kind).toBe("ran");
+    const win = setup(parked(V_WIN), [...actions]);
+    for (const k of [
+      key("O", "KeyO", { ctrlKey: true, shiftKey: true }),
+      key("p", "KeyP", { ctrlKey: true, altKey: true }),
+    ]) {
+      expect(dispatchKey(win.d, k, BOARD).kind, keyName(k)).not.toBe("ran");
+    }
+    expect(
+      dispatchKey(win.d, key("P", "KeyP", { ctrlKey: true, shiftKey: true, altKey: true }), TERMINAL).kind,
+    ).not.toBe("ran");
+    expect(mac.ran).toEqual(["show_board"]);
+    expect(win.ran).toEqual([]);
+  });
 });
 
 describe("keys a focused control keeps", () => {

@@ -7,6 +7,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::keymap::{KeyAction, Platform};
+use crate::view_models::layout::FILES_VIEW;
 
 /// One row: the action's name and its keys per column, one Kbd each; `None` where there is no shortcut ("—").
 /// `KeyMapRow` on the page.
@@ -140,12 +141,20 @@ fn column(keys: &Keys, platform: Platform) -> Option<String> {
 
 /// The three groups.
 pub fn groups() -> Vec<KeyGroup> {
+    groups_for(FILES_VIEW)
+}
+
+/// [`groups`] with the Files view on or off: off, its rows (Files view, Go to file) are left out.
+pub fn groups_for(files_view: bool) -> Vec<KeyGroup> {
     GROUPS
         .iter()
         .map(|(title, rows)| KeyGroup {
             title: (*title).to_owned(),
             rows: rows
                 .iter()
+                .filter(|(_, keys)| {
+                    files_view || !matches!(keys, Keys::One(action) if action.is_files_view())
+                })
                 .map(|(label, keys)| KeyRow {
                     label: (*label).to_owned(),
                     mac: column(keys, Platform::Mac),
@@ -203,7 +212,7 @@ mod tests {
     /// The frame's Board & navigation group (`SteSX`), in its order, with the 0087 rows.
     #[test]
     fn board_and_navigation_is_the_frames() {
-        let group = groups().into_iter().nth(1).unwrap();
+        let group = groups_for(true).into_iter().nth(1).unwrap();
         assert_eq!(group.title, "Board & navigation");
         type Shown<'a> = (&'a str, Option<&'a str>, Option<&'a str>, Option<&'a str>);
         let shown: Vec<Shown> = group
@@ -333,5 +342,42 @@ mod tests {
         assert!(NOTES[3].starts_with("⌘K in the description: Link"));
         assert!(NOTES[4].starts_with("⌘⌥C in the description: Code block"));
         assert_eq!(groups().len(), 3);
+    }
+
+    /// d0087 (parked 2026-10-18): with the Files view off its two rows leave the list, Board view stays, and every
+    /// other row is as with it on.
+    #[test]
+    fn a_parked_files_view_leaves_the_list() {
+        assert_eq!(groups(), groups_for(false));
+        let labels = |files_view| -> Vec<String> {
+            groups_for(files_view)
+                .into_iter()
+                .flat_map(|g| g.rows)
+                .map(|r| r.label)
+                .collect()
+        };
+        let (on, off) = (labels(true), labels(false));
+        assert!(off.contains(&"Board view".to_owned()));
+        let files = ["Files view", "Go to file (Files view)"];
+        assert!(files.iter().all(|f| on.iter().any(|l| l == f)));
+        let rest: Vec<String> = on
+            .into_iter()
+            .filter(|l| !files.contains(&l.as_str()))
+            .collect();
+        assert_eq!(off, rest);
+        let shown: Vec<Option<String>> = groups_for(false)
+            .into_iter()
+            .flat_map(|g| g.rows)
+            .flat_map(|r| [r.mac, r.win_linux, r.in_terminal])
+            .collect();
+        for keys in [
+            "⇧⌘O",
+            "⌥⌘P",
+            "Ctrl+Shift+O",
+            "Ctrl+Alt+P",
+            "Ctrl+Shift+Alt+P",
+        ] {
+            assert!(!shown.contains(&Some(keys.to_owned())), "{keys}");
+        }
     }
 }

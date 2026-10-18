@@ -86,13 +86,22 @@ mod tests {
         assert_eq!(search["text"], "Ctrl+Shift+K");
         assert_eq!(search["keystroke"]["key"], "k");
         assert_eq!(search["keystroke"]["code"], "KeyK");
-        let go_to_file = map["bindings"]
+        let tab = map["bindings"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|b| b["in_terminal"] == true && b["action"] == json!({ "action": "go_to_file" }))
+            .find(|b| b["in_terminal"] == true && b["action"] == json!({ "action": "switch_tab", "number": 2 }))
             .unwrap();
-        assert_eq!(go_to_file["text"], "Ctrl+Shift+Alt+P");
+        assert_eq!(tab["text"], "Ctrl+Shift+Alt+2");
+        // The parked Files view's keys aren't bound (d0087 changelog 2026-10-18).
+        assert!(
+            map["bindings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|b| b["action"] != json!({ "action": "go_to_file" })
+                    && b["action"] != json!({ "action": "show_files" }))
+        );
         assert_eq!(map["terminal_keys"][0]["key"], "copy");
         assert_eq!(map["terminal_keys"][0]["keystroke"]["code"], "KeyC");
 
