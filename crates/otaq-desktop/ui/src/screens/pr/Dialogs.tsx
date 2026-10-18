@@ -232,6 +232,7 @@ export function OpenPrDialog({ params, close }: OverlayProps<"open_pr">) {
             title: next.unsent.title,
             body: next.unsent.body,
             confirmLabel: next.unsent.clear,
+            cancelLabel: next.unsent.cancel,
             destructive: false,
             onConfirm: () =>
               (

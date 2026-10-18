@@ -935,7 +935,7 @@ mod tests {
         assert_eq!(view.banners[0].title, "Session limit reached");
         assert!(
             !view.banners[0].buttons[0].enabled,
-            "Resume all waits for the reset"
+            "Resume waits for the reset"
         );
         assert_eq!(view.banners[0].lines.len(), 1);
         assert_eq!(n.limited_tool(), Some(Tool::Claude));

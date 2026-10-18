@@ -2,7 +2,7 @@
 //! one with the user's first message starts `claude` with the role, the skill and the message in the project's
 //! folder; naming (the agent's own once, the fallback after the first turn, the user's rename wins); close (End
 //! agent), Close ended agents, Ended by restart · Resume and the recent list; never counted toward the agent limit;
-//! none opens during the usage limit, and limit-stopped ones continue on Resume all.
+//! none opens during the usage limit, and limit-stopped ones continue on their tool's Resume.
 //! `claude` stands in as `sh` printing its arguments and environment, then `cat` echoing what is typed into it: no
 //! test starts claude. (On Windows Git's `sh` prints the folder with `pwd -W`, as Windows writes it, and the console
 //! echoes only what a program reads, hence `cat` rather than `sleep`.)
@@ -544,7 +544,7 @@ async fn agents_never_count_toward_the_limit_and_none_opens_during_the_usage_lim
         other => panic!("{other:?}"),
     }
 
-    // The limit stops the agent: it waits for Resume all, and no new one opens meanwhile.
+    // The limit stops the agent: it waits for its tool's Resume, and no new one opens meanwhile.
     prompt(&w, &a, "Find slow queries").await;
     let hit = LimitHit {
         kind: LimitKind::Session,

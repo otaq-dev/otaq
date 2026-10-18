@@ -660,6 +660,7 @@ pub fn hold(
         fallback: fallback.map(str::to_owned),
         can_use_fallback,
         fallback_held,
+        resets_at: None,
     }
 }
 

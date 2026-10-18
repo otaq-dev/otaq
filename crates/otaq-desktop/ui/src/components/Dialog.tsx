@@ -155,7 +155,10 @@ export interface ConfirmDialogProps {
   title: string;
   /** The body: a paragraph, or anything else the dialog shows. */
   body: ReactNode;
-  confirmLabel: string;
+  /** `null`: no confirm button, only the cancel one ("Keep it and cancel" for a draft the tool can't clear). */
+  confirmLabel: string | null;
+  /** The cancel button's label; "Cancel" when not given. */
+  cancelLabel?: string;
   confirmIcon?: IconName;
   /** A destructive confirm button, with Cancel as the default. */
   destructive?: boolean;
@@ -175,6 +178,7 @@ export function ConfirmDialog({
   title,
   body,
   confirmLabel,
+  cancelLabel = "Cancel",
   confirmIcon,
   destructive = false,
   cancelDefault: cancelFirst = false,
@@ -187,16 +191,17 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const confirm = useRef<HTMLButtonElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
-  const cancelDefault = cancelFirst || defaultOutcome(destructive) === "cancel";
+  const only = confirmLabel === null;
+  const cancelDefault = only || cancelFirst || defaultOutcome(destructive) === "cancel";
   return (
     <Dialog
       title={title}
       hint={hint}
       width={width}
       // ↵ follows the default button.
-      destructive={destructive || cancelFirst}
+      destructive={destructive || cancelFirst || only}
       onConfirm={() => {
-        if (!confirmDisabled) onConfirm();
+        if (!confirmDisabled && !only) onConfirm();
       }}
       onCancel={onCancel}
       initialFocus={cancelDefault || confirmDisabled ? cancel : confirm}
@@ -207,19 +212,21 @@ export function ConfirmDialog({
           ) : (
             <Button
               ref={cancel}
-              variant={cancelDefault ? "secondary" : "ghost"}
-              label="Cancel"
+              variant={only ? "primary" : cancelDefault ? "secondary" : "ghost"}
+              label={cancelLabel}
               onClick={onCancel}
             />
           )}
-          <Button
-            ref={confirm}
-            variant={destructive ? "destructive" : "primary"}
-            label={confirmLabel}
-            icon={confirmIcon}
-            disabled={confirmDisabled}
-            onClick={onConfirm}
-          />
+          {only ? null : (
+            <Button
+              ref={confirm}
+              variant={destructive ? "destructive" : "primary"}
+              label={confirmLabel}
+              icon={confirmIcon}
+              disabled={confirmDisabled}
+              onClick={onConfirm}
+            />
+          )}
         </>
       }
     >

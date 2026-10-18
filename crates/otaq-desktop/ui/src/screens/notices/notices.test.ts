@@ -132,7 +132,7 @@ describe("banner buttons", () => {
     expect(r.ask).not.toHaveBeenCalled();
   });
 
-  it("Review & resume opens the summary sheet; the limit's Resume all and Read the docs are requests", async () => {
+  it("Review & resume opens the summary sheet; the limit's Resume and Read the docs are requests", async () => {
     const r = routes();
     await pressBanner("sessions_interrupted", "secondary", r.routes);
     expect(r.stack.store.get().map((o) => o.id)).toEqual(["after_restart"]);
@@ -206,7 +206,7 @@ describe("drawn", () => {
             kind: "usage_limit",
             tone: "attention",
             title: "Usage limit reset",
-            buttons: [{ id: "resume", label: "Resume all (8)", icon: "play", enabled: true, primary: true }],
+            buttons: [{ id: "resume", label: "Resume (8)", icon: "play", enabled: true, primary: true }],
             dismissable: false,
           }),
           banner({ buttons: [{ ...RESTART_NOW, label: "Restarting…", enabled: false }] }),
@@ -215,7 +215,7 @@ describe("drawn", () => {
     );
     expect(html.match(/class="banner"/g)).toHaveLength(2);
     expect(html).toContain('data-tone="attention"');
-    expect(html).toContain("Resume all (8)");
+    expect(html).toContain("Resume (8)");
     expect(html).toMatch(/<button[^>]*disabled[^>]*>.*Restarting…/);
     expect(html.match(/aria-label="Dismiss"/g)).toHaveLength(1);
     expect(renderToStaticMarkup(createElement(BannerRows, { banners: [] }))).toBe("");
@@ -404,7 +404,7 @@ const limitBanner = (lines: LimitLine[]): Banner =>
     icon: "gauge",
     title: lines[0]?.title ?? "",
     text: lines[0]?.text ?? "",
-    buttons: [{ id: "resume", label: "Resume all", icon: "play", enabled: false, primary: false }],
+    buttons: [{ id: "resume", label: "Resume", icon: "play", enabled: false, primary: false }],
     dismissable: false,
     lines,
   });
@@ -421,7 +421,7 @@ describe("the limit banner per tool", () => {
     expect(html).toMatch(/data-tone="warning" data-tool="codex".*Codex isn’t available.*Sign in…/);
     expect(html.match(/aria-haspopup="menu"/g)).toHaveLength(1);
     expect(html).toContain("Move waiting to…");
-    expect(html).not.toContain("Resume all");
+    expect(html).not.toContain(">Resume<");
     expect(html).not.toContain('data-tone="attention"');
   });
 
@@ -432,7 +432,7 @@ describe("the limit banner per tool", () => {
     expect(html).not.toContain("notices-line");
     expect(html).not.toContain("Move waiting to…");
     expect(html).not.toContain("tool-avatar");
-    expect(html).toContain("Resume all");
+    expect(html).toContain(">Resume<");
   });
 
   it("Resume <tool> calls limits.resume_tool with its tool; a picked agent calls limits.move_waiting", () => {

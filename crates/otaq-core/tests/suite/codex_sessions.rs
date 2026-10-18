@@ -194,12 +194,17 @@ async fn park_without_an_id_waits_then_stops_and_the_next_start_is_fresh() {
     w.stop().await;
 }
 
-/// The agent exits before Codex said its id: nothing to resume, so the start failed, with Retry start.
+/// The agent exits before Codex said its id: nothing to resume, so the start failed, with Retry start; it didn't
+/// start, so the Developer row stays editable (Q130).
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_dying_before_its_id_is_a_failed_start() {
     let World { w, _bin } = world(DIES).await;
-    started(&w).await;
+    let (ticket_id, _) = started(&w).await;
     until_status(&w, "SHOP-1", Status::StartInterrupted).await;
+    assert!(
+        !w.board.store().developer_started(&ticket_id).await.unwrap(),
+        "not started: the Developer row unlocks"
+    );
     let ticket = w.board.ticket("SHOP-1").await.unwrap();
     let problem = ticket.start_problem.unwrap();
     assert_eq!(problem.step, StartStep::Launch);

@@ -6,7 +6,7 @@
  */
 export type AgentToolDisconnectDialog = { tool: string, title: string, 
 /**
- * "Removes only what Otaq added (its hooks, `otaq` pre-approved, its skills)."
+ * "Removes only what Otaq added (its hooks, otaq pre-approved, its skills)."
  */
 text: string, 
 /**

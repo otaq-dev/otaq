@@ -9,7 +9,9 @@ use otaq_core::protocol::{
     Request, ResumeAllParams, ToolParams,
 };
 use otaq_view::view_models::banners::{PERMISSION_DOCS_URL, Situation, SituationKind};
-use otaq_view::view_models::limit_banner::{MOVE_FAILED, RESUME_FAILED, moved_toast, resumed};
+use otaq_view::view_models::limit_banner::{
+    MOVE_FAILED, RESUME_ALL_FAILED, RESUME_FAILED, moved_toast, resumed,
+};
 use otaq_view::view_models::restart::RestartDialog;
 use otaq_view::view_models::epic_toast;
 use otaq_view::view_models::toasts::{NewToast, ToastAction, ToastLevel};
@@ -219,7 +221,7 @@ async fn resume_all(app: &App) -> Result<Value, RequestError> {
     {
         app.notices.toast(NewToast::new(
             ToastLevel::Error,
-            RESUME_FAILED,
+            RESUME_ALL_FAILED,
             Some(e.message),
         ));
     }

@@ -279,6 +279,19 @@ fn model_text(hold: &AgentHold, tools: &Tools) -> String {
     model_label(hold.model.as_deref(), tools.list(hold.tool))
 }
 
+/// "its fallback Sonnet can't start either": a held role whose fallback is blocked too, on the card ("Codex not
+/// available · its fallback Sonnet can't start either · Change agent") and in the panel (Q155: one wording).
+pub fn fallback_blocked_too(fallback: &str) -> String {
+    format!("its fallback {fallback} can\u{2019}t start either")
+}
+
+fn capitalized(text: &str) -> String {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .map_or_else(String::new, |c| c.to_uppercase().chain(chars).collect())
+}
+
 /// The callout of a held role (§7.2, SCH-04 `[M23]`, AGT-08; *05 → Model unavailable (SHOP-49)*): `agents` is every
 /// named agent (the held one, its fallback).
 pub fn hold_callout(hold: &AgentHold, agents: &[NamedAgent], tools: &Tools) -> Callout {
@@ -312,10 +325,8 @@ pub fn hold_callout(hold: &AgentHold, agents: &[NamedAgent], tools: &Tools) -> C
                     fallback.name
                 )
             }
-            _ => format!(
-                "{name} and its fallback {} both can\u{2019}t start",
-                fallback.name
-            ),
+            // Under the heading that names the cause ("Codex isn't available · logged out").
+            _ => format!("{}.", capitalized(&fallback_blocked_too(&fallback.name))),
         });
     let (tone, heading, text) = match hold.reason {
         HoldReason::ModelUnavailable => {
@@ -854,6 +865,14 @@ mod tests {
         let c = hold_callout(&hold, &agents(), &codex_logged_out());
         assert_eq!(labels(&c), ["Change agent", "Sign in\u{2026}"]);
         assert!(c.buttons[0].primary);
+        // Its fallback is blocked too: the card's words (Q155).
+        hold.fallback_held = true;
+        let c = hold_callout(&hold, &agents(), &codex_logged_out());
+        assert_eq!(
+            c.text.as_deref(),
+            Some("Its fallback Sonnet can\u{2019}t start either.")
+        );
+        hold.fallback_held = false;
         // Hidden in Settings (Q-E): Show in Agent tools, no Sign in….
         let mut hidden = several();
         hidden.statuses[1] = status(CODEX, AgentToolState::Hidden { version: None });

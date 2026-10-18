@@ -592,7 +592,8 @@ fn capitalized(text: &str) -> String {
 }
 
 /// Why a token count shows "not reported" (USG-01): never an error, only a display that can't be filled.
-pub const TOKENS_UNKNOWN: &str = "Token count unknown: Claude Code's session file couldn't be read";
+pub const TOKENS_UNKNOWN: &str =
+    "Token count unknown: the agent tool's session file couldn't be read";
 /// The footer's words for it (d0086).
 pub const TOKENS_NOT_REPORTED: &str = "not reported";
 
@@ -1183,7 +1184,7 @@ impl CardViewModel {
             None => parts.extend(status_part(ticket, status, x, now_ms)),
         }
         if let Some(hold) = held(ticket, status, x) {
-            parts.push(hold_part(hold, x));
+            parts.push(hold_part(hold, x, now_ms));
         }
         parts.extend(moved_part(status, x));
         if let Some(base) = flags.conflicts_with.as_ref().filter(|_| {
@@ -1365,10 +1366,18 @@ pub fn hold_reason_text(reason: HoldReason, tool: &str) -> String {
 
 /// The flag and line of a held role (0086, SDD §7.2): Unavailable (amber) for a tool that isn't available or a model
 /// no longer listed, Limit (neutral) for a tool at its limit; the line names the cause and what helps.
-fn hold_part(h: &CardHold, x: &CardExtras) -> Part {
+fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
     let tool = AvatarTool::from(h.tool).name();
     let change = change_label(h.role);
-    let cause = hold_reason_text(h.reason, tool);
+    // A limit with its tool's reset: "Claude Code limit · resets 3:45 pm" (Q154).
+    let cause = match h.resets_at {
+        Some(at) if h.reason == HoldReason::ToolLimit => format!(
+            "{} \u{b7} resets {}",
+            hold_reason_text(h.reason, tool),
+            crate::view_models::clock::reset_label(at, now_ms)
+        ),
+        _ => hold_reason_text(h.reason, tool),
+    };
     let agent = h.agent.as_deref().unwrap_or(tool);
     let text = match (h.reason, &h.fallback) {
         (HoldReason::ModelUnavailable, _) => format!("{cause} \u{b7} {change}"),
@@ -1378,7 +1387,8 @@ fn hold_part(h: &CardHold, x: &CardExtras) -> Part {
         }
         (HoldReason::ToolUnavailable, Some(fallback)) if h.fallback_held => {
             format!(
-                "{cause} \u{b7} its fallback {fallback} can\u{2019}t start either \u{b7} {change}"
+                "{cause} \u{b7} {} \u{b7} {change}",
+                crate::view_models::tool_problems::fallback_blocked_too(fallback)
             )
         }
         (_, Some(fallback)) if h.can_use_fallback => {
@@ -4176,6 +4186,27 @@ mod tests {
                 v.name
             );
         }
+    }
+
+    /// A limit's hold says when its tool resets, when that is known (Q154): "Claude Code limit · resets 3:45 pm ·
+    /// Change agent".
+    #[test]
+    fn a_limits_hold_says_when_its_tool_resets() {
+        let v = card_fixtures::tool_variants()
+            .into_iter()
+            .find(|v| v.name == "Tool at its limit, no fallback (0086)")
+            .unwrap();
+        let at = NOW + 2 * 3_600_000;
+        let mut extras = v.extras.clone();
+        extras.agents.holds[0].resets_at = Some(at);
+        let vm = CardViewModel::from(&v.ticket, &extras, NOW);
+        assert_eq!(
+            vm.situation.unwrap().text,
+            format!(
+                "Claude Code limit \u{b7} resets {} \u{b7} Change agent",
+                crate::view_models::clock::reset_label(at, NOW)
+            )
+        );
     }
 
     /// What each M23 card says (*04 → Variants · several tools (M23)*, the fallback and limit cards of `SPy9r`):

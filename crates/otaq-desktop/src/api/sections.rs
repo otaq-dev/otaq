@@ -518,7 +518,7 @@ pub fn history_of(rows: Vec<HistoryRow>) -> HistoryView {
     HistoryView {
         columns: ["EVENT", "WHEN", "DURATION", "TOKENS"],
         rows: rows.into_iter().map(Into::into).collect(),
-        copy_hint: "Copy Claude session ID",
+        copy_hint: "Copy session ID",
         copied: "Copied",
         empty: "Nothing has happened to this ticket yet.",
         total: None,
@@ -925,7 +925,7 @@ mod tests {
         assert_eq!(view.threads[0].question.to_name.as_deref(), Some("Wishlist lead"));
         let history = history_of(Vec::new());
         assert_eq!(history.columns, ["EVENT", "WHEN", "DURATION", "TOKENS"]);
-        assert_eq!(history.copy_hint, "Copy Claude session ID");
+        assert_eq!(history.copy_hint, "Copy session ID");
     }
 
     /// A question the lead passed on, and one it handed back, are also answered `ask human` questions: each shows

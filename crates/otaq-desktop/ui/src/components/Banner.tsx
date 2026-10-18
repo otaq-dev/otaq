@@ -14,7 +14,7 @@ export interface BannerAction {
   label: string;
   icon?: IconName;
   disabled?: boolean;
-  /** The banner's call to action, highlighted (Resume all after the limit reset). */
+  /** The banner's call to action, highlighted (Resume after the limit reset). */
   primary?: boolean;
   onClick: () => void;
 }

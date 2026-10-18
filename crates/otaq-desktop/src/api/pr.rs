@@ -231,10 +231,16 @@ async fn answered(
             }
             view(app, Params { key: key.to_owned() }).await
         }
-        Ok(Reply::PrOutcome(PrOutcome::NeedsConfirmation { ticket })) => {
+        Ok(Reply::PrOutcome(PrOutcome::NeedsConfirmation {
+            ticket,
+            unclearable_by,
+        })) => {
             let sending = with(app, key, |d| d.skill.clone()).unwrap_or_default();
             Ok(Answer::Ask {
-                unsent: Unsent::of(&UnsentPrompt::for_click(ticket, None, sending, click)),
+                unsent: Unsent::of(
+                    &UnsentPrompt::for_click(ticket, None, sending, click)
+                        .unclearable_by(unclearable_by),
+                ),
             })
         }
         Ok(Reply::PrOutcome(PrOutcome::RefusedUncommitted { files, message })) => {

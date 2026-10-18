@@ -1206,18 +1206,37 @@ pub async fn mark_closed(app: &App, params: Params) -> Result<(), RequestError> 
 pub struct Unsent {
     pub title: String,
     pub body: String,
-    pub clear: &'static str,
+    /// "Clear it and send"; `None` for a multi-line draft the tool can't clear: only Keep it and cancel (Q-N).
+    pub clear: Option<&'static str>,
+    /// The other button: "Cancel", or "Keep it and cancel" when it is the only one.
+    pub cancel: &'static str,
 }
 
 impl Unsent {
     pub(super) fn of(prompt: &UnsentPrompt) -> Self {
-        Self {
-            title: prompt.title(),
-            // A multi-line draft the tool can't clear: the user clears it (SES-07, Q-N).
-            body: prompt
-                .note()
-                .unwrap_or_else(|| format!("{} {}.", prompt.explanation(), prompt.sending)),
-            clear: "Clear it and send",
+        Self::asking(
+            prompt.title(),
+            format!("{} {}.", prompt.explanation(), prompt.sending),
+            prompt.unclearable_by.as_deref(),
+        )
+    }
+
+    /// The question titled `title` with `body`; a multi-line draft `unclearable_by` can't clear replaces the body
+    /// with the note and drops Clear it and send: the user clears it (SES-07, Q-N).
+    pub(super) fn asking(title: String, body: String, unclearable_by: Option<&str>) -> Self {
+        match unclearable_by {
+            Some(tool) => Self {
+                title,
+                body: strip::unclearable_note(tool),
+                clear: None,
+                cancel: "Keep it and cancel",
+            },
+            None => Self {
+                title,
+                body,
+                clear: Some("Clear it and send"),
+                cancel: "Cancel",
+            },
         }
     }
 }
@@ -1310,13 +1329,13 @@ async fn answer_lead(app: &App, epic: &Ticket, params: &AnswerParams) -> Result<
         clear: params.clear,
     });
     match app.service.send(request).await {
-        Ok(Reply::Delivery(Delivery::NeedsConfirmation { .. })) => {
+        Ok(Reply::Delivery(Delivery::NeedsConfirmation { unclearable_by, .. })) => {
             let (title, body) = otaq_view::view_models::lead_tab::unsent(&name, &choice);
-            Ok(Sent::Ask(Unsent {
+            Ok(Sent::Ask(Unsent::asking(
                 title,
                 body,
-                clear: "Clear it and send",
-            }))
+                unclearable_by.as_deref(),
+            )))
         }
         Ok(_) => Ok(Sent::Done),
         Err(e) => {
@@ -1346,13 +1365,16 @@ pub async fn send_to_fix(app: &App, params: SendToFix) -> Result<Sent, RequestEr
         }))
         .await
     {
-        Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation { .. })) => {
-            Ok(Sent::Ask(Unsent::of(&UnsentPrompt::for_click(
-                key,
-                None,
-                "The restack skill (rebase and resolve the conflicts)".to_owned(),
-                Click::SendToFix,
-            ))))
+        Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. })) => {
+            Ok(Sent::Ask(Unsent::of(
+                &UnsentPrompt::for_click(
+                    key,
+                    None,
+                    "The restack skill (rebase and resolve the conflicts)".to_owned(),
+                    Click::SendToFix,
+                )
+                .unclearable_by(unclearable_by),
+            )))
         }
         Ok(_) => Ok(Sent::Done),
         Err(e) => {
@@ -1512,6 +1534,35 @@ mod tests {
     use super::*;
     use crate::api::request as table;
     use crate::service::testing::{Harness, connected};
+
+    /// SES-07, Q-N: a multi-line draft the tool can't clear offers only Keep it and cancel, with the tool's note;
+    /// otherwise both buttons and the explanation.
+    #[test]
+    fn the_unsent_question_drops_clear_for_a_draft_the_tool_cant_clear() {
+        let key: TicketKey = "SHOP-18".parse().unwrap();
+        let prompt = UnsentPrompt::for_click(
+            key,
+            None,
+            "The address-review skill".into(),
+            Click::SendBack {
+                note: String::new(),
+            },
+        );
+        let both = Unsent::of(&prompt);
+        assert_eq!(
+            (both.clear, both.cancel),
+            (Some("Clear it and send"), "Cancel")
+        );
+        assert!(both.body.ends_with("The address-review skill."), "{}", both.body);
+        let only = Unsent::of(&prompt.unclearable_by(Some("Codex".into())));
+        assert_eq!((only.clear, only.cancel), (None, "Keep it and cancel"));
+        assert_eq!(
+            only.body,
+            "Codex can\u{2019}t clear a multi-line draft. Clear it in the terminal, then send again."
+        );
+        let lead = Unsent::asking("Wishlist lead".into(), "…".into(), Some("Copilot"));
+        assert_eq!(lead.clear, None);
+    }
 
     fn agent(state: SessionState) -> SessionInfo {
         SessionInfo {

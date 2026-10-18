@@ -142,6 +142,23 @@ describe("overlays and feedback", () => {
     expect(primary).toMatch(/data-variant="primary"[^>]*><span>Delete<\/span>/);
   });
 
+  it("a confirm dialog without a confirm button: only its cancel, with its own label (Q-N)", () => {
+    const noop = () => undefined;
+    const only = html(
+      createElement(ConfirmDialog, {
+        title: "SHOP-18 has unsent text in its terminal",
+        body: "Codex can’t clear a multi-line draft. Clear it in the terminal, then send again.",
+        confirmLabel: null,
+        cancelLabel: "Keep it and cancel",
+        onConfirm: noop,
+        onCancel: noop,
+      }),
+    );
+    expect(only).toMatch(/data-variant="primary"[^>]*><span>Keep it and cancel<\/span>/);
+    expect(only.match(/<button/g)).toHaveLength(1);
+    expect(only).not.toContain("Clear it and send");
+  });
+
   it("banners and toasts", () => {
     const noop = () => undefined;
     const banner = html(
@@ -150,7 +167,7 @@ describe("overlays and feedback", () => {
         icon: "gauge",
         title: "Usage limit reached",
         text: "Resets at 3:00 pm",
-        actions: [{ label: "Resume all", disabled: true, onClick: noop }],
+        actions: [{ label: "Resume", disabled: true, onClick: noop }],
         onDismiss: noop,
       }),
     );

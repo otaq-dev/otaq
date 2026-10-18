@@ -445,11 +445,7 @@ impl UnsentPrompt {
     /// Why only Keep it and cancel is offered: "Codex can't clear a multi-line draft. Clear it in the terminal, then
     /// send again."
     pub fn note(&self) -> Option<String> {
-        self.unclearable_by.as_ref().map(|tool| {
-            format!(
-                "{tool} can\u{2019}t clear a multi-line draft. Clear it in the terminal, then send again."
-            )
-        })
+        self.unclearable_by.as_deref().map(unclearable_note)
     }
 
     pub fn title(&self) -> String {
@@ -463,6 +459,14 @@ impl UnsentPrompt {
     pub fn explanation(&self) -> &'static str {
         Self::EXPLANATION
     }
+}
+
+/// "Codex can't clear a multi-line draft. Clear it in the terminal, then send again." (SES-07, Q-N): the body of the
+/// unsent-text question that offers only Keep it and cancel, also for a lead's or Project agent's answer.
+pub fn unclearable_note(tool: &str) -> String {
+    format!(
+        "{tool} can\u{2019}t clear a multi-line draft. Clear it in the terminal, then send again."
+    )
 }
 
 /// The user's answer to the prompt.

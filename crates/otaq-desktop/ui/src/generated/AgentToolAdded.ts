@@ -5,7 +5,7 @@
  */
 export type AgentToolAdded = { 
 /**
- * "Otaq added: trust for your projects, its hooks, `otaq` pre-approved, its skills".
+ * "Otaq added: trust for your projects, its hooks, otaq pre-approved, its skills".
  */
 text: string, 
 /**

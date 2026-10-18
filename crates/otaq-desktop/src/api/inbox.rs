@@ -385,13 +385,13 @@ async fn answer_agent(
         clear: params.clear,
     });
     match app.service.send(request).await {
-        Ok(Reply::Delivery(Delivery::NeedsConfirmation { .. })) => {
+        Ok(Reply::Delivery(Delivery::NeedsConfirmation { unclearable_by, .. })) => {
             let ask = page::agent_unsent(&title, &choice);
-            Ok(Sent::Ask(Unsent {
-                title: ask.title,
-                body: ask.body,
-                clear: "Clear it and send",
-            }))
+            Ok(Sent::Ask(Unsent::asking(
+                ask.title,
+                ask.body,
+                unclearable_by.as_deref(),
+            )))
         }
         Ok(_) => Ok(Sent::Done),
         Err(e) => {

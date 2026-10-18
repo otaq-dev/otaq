@@ -8,10 +8,10 @@
 //!   runs does); once nothing is left the turn ends
 //!   as any other (Idle, or as a submit left it), unless a new turn started first.
 //! - **A key at the tool's own prompt.** Copilot sends nothing when its prompt is cancelled with Esc
-//!   ([`crate::agent_tools::AgentTool::typed_key_answers_prompt`]). A key the user types into such an agent's
-//!   terminal while its card shows Needs you counts as answering: the card shows Working, and if the tool sends
-//!   nothing within [`QuietTiming::answer_wait`] and nothing runs under it, the turn counts as ended. Only the
-//!   user's own keys count (the terminal's input), never Otaq's deliveries.
+//!   ([`crate::agent_tools::AgentTool::typed_key_answers_prompt`]). A key the user types into such a terminal while
+//!   it shows Needs you counts as answering (a ticket's agent, a validator, a Project agent or an epic lead): it shows
+//!   Working, and if the tool sends nothing within [`QuietTiming::answer_wait`] and nothing runs under it, the turn
+//!   counts as ended. Only the user's own keys count (the terminal's input), never Otaq's deliveries.
 //!
 //! Claude Code reports both itself: none of this runs for it.
 
@@ -26,7 +26,6 @@ use crate::agent_tools::{Tool, ToolEvent};
 use crate::caller::Caller;
 use crate::domain::Status;
 use crate::process::TreeProcess;
-use crate::session::SessionKind;
 
 /// How long Otaq waits before it looks at an agent's processes again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +61,9 @@ pub(super) struct Quiet {
     answer: u64,
     /// An answer wait is pending.
     answering: bool,
+    /// The tool's last status event was a prompt for the user (needs you or a question of its own): what a validator,
+    /// Project agent or lead shows as Needs you.
+    prompting: bool,
 }
 
 impl Signals {
@@ -94,6 +96,10 @@ impl Signals {
         if !self.checks_processes(tool) {
             return;
         }
+        let prompting = matches!(
+            event,
+            ToolEvent::NeedsYou { .. } | ToolEvent::AsksYou { .. }
+        );
         let status = matches!(
             event,
             ToolEvent::NeedsYou { .. }
@@ -121,6 +127,7 @@ impl Signals {
             quiet.turn += 1;
             quiet.answer += 1;
             quiet.answering = false;
+            quiet.prompting = prompting;
         }
         if let Some((root, processes)) = snapshot {
             quiet.helper_programs = processes
@@ -211,40 +218,50 @@ impl Signals {
         let Some(tool) = info.tool else {
             return Ok(());
         };
-        if info.kind != SessionKind::Agent
-            || !info.is_running()
-            || !self.inner.adapters.get(tool).typed_key_answers_prompt()
-        {
+        if !info.is_running() || !self.inner.adapters.get(tool).typed_key_answers_prompt() {
             return Ok(());
         }
-        let Some(key) = info.ticket else {
+        let Some(caller) = super::watch::caller_of(&self.inner.sessions, session) else {
             return Ok(());
         };
-        let ticket = self.inner.board.ticket(&key.to_string()).await?;
-        let answering = self
+        let (prompting, answering) = self
             .inner
             .quiet
             .lock()
             .expect("quiet")
             .get(session)
-            .is_some_and(|q| q.answering);
-        if ticket.status != Status::NeedsYou && !answering {
-            return Ok(());
-        }
-        if ticket.status == Status::NeedsYou {
-            self.answered(&ticket.id).await?;
+            .map_or((false, false), |q| (q.prompting, q.answering));
+        match &caller {
+            // A ticket's agent: its card says whether it waits.
+            Caller::Agent { ticket_id, .. } => {
+                let ticket = self.inner.board.ticket_by_id(ticket_id).await?;
+                if ticket.status != Status::NeedsYou && !answering {
+                    return Ok(());
+                }
+                if ticket.status == Status::NeedsYou {
+                    self.answered(&ticket.id).await?;
+                }
+            }
+            // A validator, Project agent or lead (0086: any Copilot terminal showing Needs you): its wait came from
+            // the tool's prompt event; the key moves it on as the tool's own new turn would.
+            Caller::Validator { .. } | Caller::ProjectAgent { .. } | Caller::EpicLead { .. } => {
+                if !prompting && !answering {
+                    return Ok(());
+                }
+                if prompting {
+                    self.apply_later(caller.clone(), tool, ToolEvent::NewTurn { prompt: None })
+                        .await;
+                }
+            }
+            Caller::User => return Ok(()),
         }
         let answer = {
             let mut all = self.inner.quiet.lock().expect("quiet");
             let quiet = all.entry(session.to_owned()).or_default();
             quiet.answer += 1;
             quiet.answering = true;
+            quiet.prompting = false;
             quiet.answer
-        };
-        let caller = Caller::Agent {
-            ticket: key,
-            ticket_id: ticket.id,
-            session: session.to_owned(),
         };
         let signals = self.clone();
         let session = session.to_owned();

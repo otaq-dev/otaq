@@ -16,11 +16,20 @@ use crate::named_agents::{
 };
 use crate::session::END_MODEL_REFUSED;
 
-/// The query's session didn't end refused on the model ("not started", T-0337); bind
-/// [`END_MODEL_REFUSED`] for its `?`.
-macro_rules! not_refused {
-    () => {
-        "COALESCE(end_reason, '') <> ?"
+/// The query's session (its columns prefixed with the literal, `"s."`) started: it didn't end "not started", that is
+/// refused on the model (T-0337) or before its tool reported the conversation's id (a failed start, nothing to resume:
+/// T-0349, Q130). Bind [`END_MODEL_REFUSED`] for its `?`.
+macro_rules! started {
+    ($t:literal) => {
+        concat!(
+            "COALESCE(",
+            $t,
+            "end_reason, '') <> ? AND NOT (",
+            $t,
+            "ended_at IS NOT NULL AND COALESCE(",
+            $t,
+            "tool_session_id, '') = '')"
+        )
     };
 }
 
@@ -485,12 +494,12 @@ impl Store {
     }
 
     /// Whether the ticket's agent has started (the Developer row locks): it has a developer session that didn't end
-    /// in "not started" (its first turn refused on the model, T-0337), when only Retry start or another agent
-    /// starts it again.
+    /// in "not started" (its first turn refused on the model, T-0337, or the tool ended before its conversation's id
+    /// arrived, T-0349), when only Retry start or another agent starts it again.
     pub async fn developer_started(&self, ticket_id: &str) -> Result<bool, StoreError> {
         Ok(sqlx::query_scalar(concat!(
             "SELECT EXISTS (SELECT 1 FROM sessions WHERE ticket_id = ? AND kind = 'agent' AND ",
-            not_refused!(),
+            started!(""),
             ")"
         ))
         .bind(ticket_id)
@@ -513,12 +522,12 @@ impl Store {
     }
 
     /// Whether the epic's lead has started (opened, or the epic dragged; d0083): the Epic lead row locks. A lead
-    /// whose only sessions ended in "not started" (refused on the model, Q-C) hasn't.
+    /// whose only sessions ended in "not started" (refused on the model, Q-C, or before its conversation's id) hasn't.
     pub async fn lead_started(&self, epic_id: &str) -> Result<bool, StoreError> {
         Ok(sqlx::query_scalar(concat!(
             "SELECT EXISTS (SELECT 1 FROM project_agents a JOIN sessions s ON s.project_agent_id = a.id
                             WHERE a.epic_id = ? AND ",
-            not_refused!(),
+            started!("s."),
             ")"
         ))
         .bind(epic_id)

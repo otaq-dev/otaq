@@ -79,7 +79,7 @@ pub struct CommandView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentToolAdded")]
 pub struct Added {
-    /// "Otaq added: trust for your projects, its hooks, `otaq` pre-approved, its skills".
+    /// "Otaq added: trust for your projects, its hooks, otaq pre-approved, its skills".
     pub text: String,
     /// "Trust for your projects stays when you disconnect."
     pub stays: Option<String>,
@@ -431,7 +431,7 @@ pub fn docs_url(tool: Tool) -> Option<&'static str> {
 pub struct DisconnectDialog {
     pub tool: String,
     pub title: String,
-    /// "Removes only what Otaq added (its hooks, `otaq` pre-approved, its skills)."
+    /// "Removes only what Otaq added (its hooks, otaq pre-approved, its skills)."
     pub text: String,
     /// "Otaq added trust for your projects; it stays when you disconnect."
     pub stays: Option<String>,
@@ -556,7 +556,7 @@ pub mod fixtures {
             &[
                 TRUST,
                 ("its hooks", true),
-                ("`{cmd}` pre-approved", true),
+                ("{cmd} pre-approved", true),
                 ("its skills", true),
             ],
             true,
@@ -867,7 +867,7 @@ mod tests {
         assert_eq!(
             codex.text,
             format!(
-                "{PRODUCT_NAME} added: trust for your projects, its hooks, `{COMMAND_NAME}` pre-approved, its skills"
+                "{PRODUCT_NAME} added: trust for your projects, its hooks, {COMMAND_NAME} pre-approved, its skills"
             )
         );
         assert_eq!(
@@ -958,7 +958,7 @@ mod tests {
         assert_eq!(
             d.text,
             format!(
-                "Removes only what {PRODUCT_NAME} added (its hooks, `{COMMAND_NAME}` pre-approved, its skills)."
+                "Removes only what {PRODUCT_NAME} added (its hooks, {COMMAND_NAME} pre-approved, its skills)."
             )
         );
         assert_eq!(

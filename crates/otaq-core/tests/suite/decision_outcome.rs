@@ -348,7 +348,8 @@ async fn change_asks_first_over_unsent_text() {
     assert_eq!(
         first,
         ChangeOutcome::NeedsConfirmation {
-            ticket: t.key.clone()
+            ticket: t.key.clone(),
+            unclearable_by: None,
         }
     );
     assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);

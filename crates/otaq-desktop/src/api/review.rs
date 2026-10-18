@@ -257,13 +257,16 @@ pub async fn send_back(app: &App, params: SendBackParams) -> Result<Sent, Reques
         .send(sb::request(&key, &params.note, params.clear))
         .await
     {
-        Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation { .. })) => {
-            Ok(Sent::Ask(Unsent::of(&UnsentPrompt::for_click(
-                key,
-                None,
-                sb::sending(params.comments as usize),
-                Click::SendBack { note: params.note },
-            ))))
+        Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. })) => {
+            Ok(Sent::Ask(Unsent::of(
+                &UnsentPrompt::for_click(
+                    key,
+                    None,
+                    sb::sending(params.comments as usize),
+                    Click::SendBack { note: params.note },
+                )
+                .unclearable_by(unclearable_by),
+            )))
         }
         Ok(_) => Ok(Sent::Done),
         Err(e) => {
@@ -428,16 +431,20 @@ pub async fn change(app: &App, params: ChangeParams) -> Result<Sent, RequestErro
         }))
         .await
     {
-        Ok(Reply::DecisionChanged(ChangeOutcome::NeedsConfirmation { ticket })) => {
-            Ok(Sent::Ask(Unsent::of(&UnsentPrompt::for_click(
+        Ok(Reply::DecisionChanged(ChangeOutcome::NeedsConfirmation {
+            ticket,
+            unclearable_by,
+        })) => Ok(Sent::Ask(Unsent::of(
+            &UnsentPrompt::for_click(
                 ticket,
                 None,
                 sb::sending(params.comments as usize),
                 Click::SendBack {
                     note: params.text.unwrap_or_default(),
                 },
-            ))))
-        }
+            )
+            .unclearable_by(unclearable_by),
+        ))),
         Ok(Reply::DecisionChanged(_)) => Ok(Sent::Done),
         Ok(other) => Err(unexpected("decision.change", &other)),
         Err(e) => {

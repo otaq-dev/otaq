@@ -736,7 +736,7 @@ function Banners() {
         title="Usage limit reached"
         text="Resets at 3:00 pm (in 1 h 12 min) · 8 agents stopped · no new tickets will start"
         actions={[
-          { label: "Resume all", icon: "play", disabled: true, onClick: noop },
+          { label: "Resume", icon: "play", disabled: true, onClick: noop },
           { label: "Retry", icon: "rotate-ccw", onClick: noop },
         ]}
         onDismiss={noop}

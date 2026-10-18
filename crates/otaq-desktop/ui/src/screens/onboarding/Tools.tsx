@@ -87,9 +87,10 @@ export function AgentToolsBlock({
       </div>
       {block.rows.length > 0 && (
         <ul className="tool-rows">
-          {block.rows.map((row) => (
+          {block.rows.map((row, index) => (
             <AgentRow
-              key={row.tool}
+              // One row per tool in the app; a gallery cell may repeat a tool.
+              key={`${row.tool}-${String(index)}`}
               row={row}
               menuLabel={block.menu_label}
               onAction={(action) => {

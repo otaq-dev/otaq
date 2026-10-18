@@ -1,6 +1,6 @@
 //! Validation before Review (T-0183; VAL-01, VAL-13, SCH-04; d0063): the agent's submit opens a round and
 //! starts a validator in the ticket's worktree; validation off keeps the old path; uncommitted files refuse it
-//! first; a project's Validate skill is the prompt; under the usage limit it waits for Resume all.
+//! first; a project's Validate skill is the prompt; under the usage limit it waits for its tool's Resume.
 //! `claude` stands in as `sh` printing its arguments and environment: no test starts claude. (On Windows Git's `sh`
 //! prints the folder with `pwd -W`, as Windows writes it.)
 
@@ -228,7 +228,7 @@ async fn a_projects_validate_skill_is_the_prompt() {
     w.stop().await;
 }
 
-/// SCH-04: while the usage limit holds, the round opens but no validator starts; Resume all starts it.
+/// SCH-04: while the usage limit holds, the round opens but no validator starts; its tool's Resume starts it.
 #[tokio::test(flavor = "multi_thread")]
 async fn under_the_usage_limit_the_validator_waits_for_resume_all() {
     let w = world().await;

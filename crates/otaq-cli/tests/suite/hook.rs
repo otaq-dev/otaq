@@ -418,7 +418,7 @@ async fn validator_and_agent_hooks_while_validating() {
     hook(&validator, "UserPromptSubmit.json").await;
     wait_status(&w, "SHOP-1", Status::Validating).await;
 
-    // The usage limit → Waiting for limit reset (the validation restarts on Resume all, T-0188).
+    // The usage limit → Waiting for limit reset (the validation restarts on its tool's Resume, T-0188).
     hook(&validator, "StopFailure-session_limit.json").await;
     wait_status(&w, "SHOP-1", Status::WaitingForLimitReset).await;
     w.force_status(&shop1, Status::Validating).await;
