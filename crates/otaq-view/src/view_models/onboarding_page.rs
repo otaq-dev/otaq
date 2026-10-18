@@ -113,9 +113,9 @@ pub struct Welcome {
 pub fn welcome(platform: Platform) -> Welcome {
     let inbox_key = KeyAction::NextInboxItem.keys(platform).unwrap_or_default();
     Welcome {
-        title: "Run Claude Code agents from a board".to_owned(),
+        title: "Run coding agents from a board".to_owned(),
         text: format!(
-            "{} turns tickets into real claude sessions \u{2014} one per ticket, each in its own git worktree. You watch and type into them from an embedded terminal, review the diff, and merge or open a PR.",
+            "{} turns tickets into real agent sessions (Claude Code, Codex, Copilot or OpenCode) \u{2014} one per ticket, each in its own git worktree. You watch and type into them from an embedded terminal, review the diff, and merge or open a PR.",
             naming::PRODUCT_NAME
         ),
         points: vec![
@@ -123,7 +123,7 @@ pub fn welcome(platform: Platform) -> Welcome {
                 icon: IconName::SquareTerminal,
                 title: "Real sessions".to_owned(),
                 text: format!(
-                    "Each agent is the normal claude CLI. Attach from any terminal with {} attach SHOP-18.",
+                    "Each agent is its tool's own CLI, not a wrapper. Attach from any terminal with {} attach SHOP-18.",
                     naming::COMMAND_NAME
                 ),
             },
@@ -863,9 +863,18 @@ mod tests {
     #[test]
     fn welcome_and_theme_words_match_the_frames() {
         let w = welcome(Platform::Mac);
-        assert_eq!(w.title, "Run Claude Code agents from a board");
+        assert_eq!(w.title, "Run coding agents from a board");
+        assert_eq!(
+            w.text,
+            "Otaq turns tickets into real agent sessions (Claude Code, Codex, Copilot or OpenCode) — one per ticket, each in its own git worktree. You watch and type into them from an embedded terminal, review the diff, and merge or open a PR."
+        );
         assert_eq!(w.points.len(), 3);
+        assert_eq!(
+            w.points[0].text,
+            "Each agent is its tool's own CLI, not a wrapper. Attach from any terminal with otaq attach SHOP-18."
+        );
         assert!(w.points[1].text.ends_with("⌘J opens the next."));
+        assert_eq!(w.foot, "Takes about a minute");
         assert_eq!(w.button, "Choose a theme");
         let t = theme_step();
         assert_eq!(t.title, "Pick a look");

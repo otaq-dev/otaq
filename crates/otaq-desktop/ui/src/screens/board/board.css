@@ -715,13 +715,13 @@
 }
 
 .board-empty-hints {
-  gap: 14px;
+  gap: 6px;
 }
 
 .board-empty-hint {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   color: var(--text-muted);
   font: var(--text-meta);
 }
