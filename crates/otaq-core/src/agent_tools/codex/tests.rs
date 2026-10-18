@@ -8,7 +8,7 @@ use serde_json::json;
 
 use super::*;
 use crate::agent_tools::SkillRef;
-use crate::agent_tools::test_support::{context, stand_in, write_skill};
+use crate::agent_tools::test_support::{context, follow_validate, stand_in, validate_folder};
 use crate::board::settings::WorkflowStep;
 use crate::naming::PLUGIN_NAMESPACE as NS;
 
@@ -55,45 +55,35 @@ fn skills() {
     let adapter = codex(bin.path(), None);
     assert_eq!(adapter.skill_reference("commit"), format!("${NS}:commit"));
     assert_eq!(adapter.skill_delivery(), SkillDelivery::OneTimeInstall);
-    assert!(!adapter.runs_skills_by_name());
 }
 
-/// d0086: a stored skill Codex can't find as a file becomes the step's built-in, with what it replaces; one it finds
-/// is followed by its path; Otaq's own is named in Codex's syntax.
+/// ADP-05, WSK-06 (d0092): Otaq's own workflow skills in this tool's syntax; an imported one by its copy in the
+/// worktree, worded the same on every tool.
 #[test]
-fn workflow_skills_fall_back_to_the_built_in() {
+fn workflow_skills_by_syntax_or_worktree_folder() {
     let bin = tempfile::tempdir().unwrap();
-    let home = tempfile::tempdir().unwrap();
-    let project = tempfile::tempdir().unwrap();
-    let adapter = codex(bin.path(), Some(home.path()));
-    let cwd = project.path();
+    let adapter = codex(bin.path(), None);
+    for step in WorkflowStep::ALL {
+        assert_eq!(
+            adapter.workflow_skill(step, false),
+            SkillRef::Own(adapter.skill_reference(step.own_skill()))
+        );
+    }
     assert_eq!(
-        adapter.workflow_skill(WorkflowStep::Commit, "/their-plugin:commit", cwd),
-        SkillRef::BuiltIn {
-            skill: format!("${NS}:commit"),
-            instead_of: "/their-plugin:commit".into()
+        adapter.workflow_skill(WorkflowStep::Push, false).prompt(),
+        format!("${NS}:push")
+    );
+    assert_eq!(
+        adapter.workflow_skill(WorkflowStep::Validate, true),
+        SkillRef::Folder {
+            folder: validate_folder()
         }
     );
     assert_eq!(
         adapter
-            .workflow_skill(WorkflowStep::OpenPr, "/my-pr", cwd)
+            .workflow_skill(WorkflowStep::Validate, true)
             .prompt(),
-        format!("${NS}:open-pr")
-    );
-    assert_eq!(
-        adapter.workflow_skill(WorkflowStep::Push, &format!("/{NS}:push"), cwd),
-        SkillRef::Named(format!("${NS}:push"))
-    );
-    let user = write_skill(&home.path().join(".agents"), "my-commit");
-    assert_eq!(
-        adapter.workflow_skill(WorkflowStep::Commit, "/my-commit", cwd),
-        SkillRef::File { file: user }
-    );
-    let own = write_skill(&cwd.join(".agents"), "my-commit");
-    assert_eq!(
-        adapter.workflow_skill(WorkflowStep::Commit, "/my-commit", cwd),
-        SkillRef::File { file: own },
-        "the project's wins"
+        follow_validate()
     );
 }
 

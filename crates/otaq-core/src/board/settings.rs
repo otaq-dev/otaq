@@ -1295,16 +1295,8 @@ mod tests {
                 "{id}"
             );
         }
-        // The value today's naming takes: Otaq's default, or the copy's SKILL.md.
-        assert_eq!(built_in(WorkflowStep::Push).stored(), naming::skill("push"));
-        assert_eq!(
-            at("g").stored(),
-            data.skill_path("g")
-                .unwrap()
-                .join("SKILL.md")
-                .display()
-                .to_string()
-        );
+        // How Settings and the Open PR flow name it.
+        assert_eq!(built_in(WorkflowStep::Push).label(), naming::skill("push"));
         assert_eq!(at("g").label(), "my-commit");
     }
 

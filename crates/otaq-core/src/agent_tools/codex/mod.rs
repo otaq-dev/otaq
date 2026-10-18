@@ -253,25 +253,6 @@ impl AgentTool for Codex {
         SkillDelivery::OneTimeInstall
     }
 
-    /// The repo's `.agents/skills` and `.codex/skills` (in `cwd`), then `$CODEX_HOME/skills` and `~/.agents/skills`.
-    fn user_skill_file(&self, name: &str, cwd: &Path) -> Option<PathBuf> {
-        let home = self.context.tool.home.as_deref();
-        [
-            Some(cwd.join(".agents")),
-            Some(cwd.join(".codex")),
-            self.context.codex_home.clone(),
-            home.map(|home| home.join(".agents")),
-        ]
-        .into_iter()
-        .flatten()
-        .map(|dir| dir.join("skills").join(name).join("SKILL.md"))
-        .find(|file| file.is_file())
-    }
-
-    fn runs_skills_by_name(&self) -> bool {
-        false
-    }
-
     /// Codex's ids are models.dev's `openai` ids exactly (d0086).
     fn family_source(&self) -> Option<super::catalog::FamilySource> {
         Some(super::catalog::FamilySource::ModelsDev { provider: "openai" })

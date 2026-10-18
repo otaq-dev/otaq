@@ -956,12 +956,13 @@ impl Validation {
                     format!("{} has no worktree to validate", ticket.key),
                 )
             })?;
-        let skill = board
-            .effective_settings(ticket.key.project.as_str())
+        // The Validate skill in force, written into the worktree first (WSK-05): only ignored paths change, so the
+        // round's recorded head and tracked files stay as they were (VAL-02).
+        let validate = crate::board::settings::WorkflowStep::Validate;
+        let imported = board
+            .copy_skills_into(ticket.key.project.as_str(), &worktree, &[validate])
             .await?
-            .workflow_skills
-            .validate
-            .stored();
+            .copied(validate);
         let launched = inner.adapters.launch(
             runs_on.tool,
             &LaunchRequest {
@@ -972,8 +973,8 @@ impl Validation {
                 epic: None,
                 port: 0,
                 first_prompt: Some(FirstPrompt::WorkflowSkill {
-                    step: crate::board::settings::WorkflowStep::Validate,
-                    stored: skill.clone(),
+                    step: validate,
+                    imported,
                 }),
                 resume: None,
                 model: runs_on.model,
@@ -1005,7 +1006,7 @@ impl Validation {
             .await
             .map_err(other)?;
         board.validator_started(&ticket.id, &session.id).await?;
-        tracing::info!(key = %ticket.key, session = %session.id, %skill, "validator started");
+        tracing::info!(key = %ticket.key, session = %session.id, imported, "validator started");
         Ok(session)
     }
 

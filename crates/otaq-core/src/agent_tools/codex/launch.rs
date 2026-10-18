@@ -45,7 +45,7 @@ pub(super) fn launch(codex: &Codex, request: &LaunchRequest) -> Result<LaunchPla
     let prompt = request
         .first_prompt
         .as_ref()
-        .map(|prompt| prompt_text(codex, prompt, &request.cwd));
+        .map(|prompt| prompt_text(codex, prompt));
     let mut args: Vec<String> = COMMON_FLAGS.map(str::to_owned).to_vec();
     let tool_id = match &request.resume {
         Some(id) => {
@@ -78,8 +78,9 @@ pub(super) fn launch(codex: &Codex, request: &LaunchRequest) -> Result<LaunchPla
     })
 }
 
-/// The first prompt as typed: `$otaq:epic-lead <message>`, a workflow skill named for `cwd`, or the text.
-fn prompt_text(codex: &Codex, prompt: &FirstPrompt, cwd: &Path) -> String {
+/// The first prompt as typed: `$otaq:epic-lead <message>`, a workflow skill (Otaq's own, or its worktree
+/// folder), or the text.
+fn prompt_text(codex: &Codex, prompt: &FirstPrompt) -> String {
     match prompt {
         FirstPrompt::OtaqSkill { name, message } => {
             let skill = codex.skill_reference(name);
@@ -88,8 +89,8 @@ fn prompt_text(codex: &Codex, prompt: &FirstPrompt, cwd: &Path) -> String {
                 None => skill,
             }
         }
-        FirstPrompt::WorkflowSkill { step, stored } => {
-            codex.workflow_skill(*step, stored, cwd).prompt()
+        FirstPrompt::WorkflowSkill { step, imported } => {
+            codex.workflow_skill(*step, *imported).prompt()
         }
         FirstPrompt::Text(text) => text.clone(),
     }
@@ -222,9 +223,11 @@ mod tests {
 
     use super::*;
     use crate::agent_tools::claude::ClaudeLaunch;
+    use crate::agent_tools::test_support::{follow_validate, only_the_prompt_differs};
     use crate::agent_tools::{
         Adapters, LaunchContext, OneOffRequest, Tool, ToolContext, WORK_TICKET_SKILL,
     };
+    use crate::board::settings::WorkflowStep;
     use crate::naming::PLUGIN_NAMESPACE as NS;
 
     /// What Codex is never given (d0011, ADP-07): an approval mode, a sandbox, a bypass of either or of hook trust.
@@ -547,5 +550,28 @@ mod tests {
                        01a147a1-0000-7000-8000-000000000000 (code -32600)\n";
         assert!(codex().conversation_not_found(output));
         assert!(!codex().conversation_not_found(b"Working (12s)"));
+    }
+
+    /// A workflow skill as a first prompt (WSK-06, d0092): Otaq's own in Codex's syntax, an imported one by its
+    /// worktree folder; the launch is otherwise the same, with no flag of [`FORBIDDEN`] and no added folder (d0011).
+    #[test]
+    fn a_workflow_skill_first_prompt() {
+        let mut req = request(LaunchRole::Validator);
+        req.first_prompt = Some(FirstPrompt::WorkflowSkill {
+            step: WorkflowStep::Validate,
+            imported: false,
+        });
+        let built_in = codex().launch(&req).unwrap();
+        assert_eq!(built_in.args.last().unwrap(), &format!("${NS}:validate"));
+        req.first_prompt = Some(FirstPrompt::WorkflowSkill {
+            step: WorkflowStep::Validate,
+            imported: true,
+        });
+        let imported = codex().launch(&req).unwrap();
+        assert_eq!(imported.args.last(), Some(&follow_validate()));
+        only_the_prompt_differs(&built_in, &imported);
+        for flag in FORBIDDEN.iter().chain(&["--add-dir"]) {
+            assert!(!imported.args.iter().any(|a| a == flag), "{flag}");
+        }
     }
 }

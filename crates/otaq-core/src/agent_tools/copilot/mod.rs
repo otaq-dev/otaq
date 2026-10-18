@@ -244,27 +244,6 @@ impl AgentTool for Copilot {
     fn skill_delivery(&self) -> SkillDelivery {
         SkillDelivery::PluginFolderAtLaunch
     }
-
-    /// The project's `.github/skills`, `.agents/skills` and `.claude/skills` (in `cwd`), then the user's
-    /// `$COPILOT_HOME/skills` and `~/.agents/skills` (not `~/.claude/skills`).
-    fn user_skill_file(&self, name: &str, cwd: &Path) -> Option<PathBuf> {
-        let home = self.context.tool.home.as_deref();
-        [
-            Some(cwd.join(".github")),
-            Some(cwd.join(".agents")),
-            Some(cwd.join(".claude")),
-            self.context.copilot_home.clone(),
-            home.map(|home| home.join(".agents")),
-        ]
-        .into_iter()
-        .flatten()
-        .map(|dir| dir.join("skills").join(name).join("SKILL.md"))
-        .find(|file| file.is_file())
-    }
-
-    fn runs_skills_by_name(&self) -> bool {
-        false
-    }
 }
 
 #[cfg(test)]

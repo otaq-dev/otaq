@@ -170,6 +170,21 @@ fn copy_whole(from: &Path, to: &Path) -> io::Result<Vec<String>> {
     Ok(warnings)
 }
 
+/// Copies what is in `from` into the existing folder `to`, as the import does (modes kept, links inside followed,
+/// links that leave it skipped): the worktree copy of Otaq's copy (WSK-05).
+pub(super) fn copy_into(from: &Path, to: &Path) -> io::Result<()> {
+    let root = crate::paths::canonical(from)?;
+    let mut walking = vec![root.clone()];
+    copy_dir(
+        &root,
+        from,
+        to,
+        Path::new(""),
+        &mut walking,
+        &mut Vec::new(),
+    )
+}
+
 fn copy_dir(
     root: &Path,
     from: &Path,

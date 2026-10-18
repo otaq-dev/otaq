@@ -195,11 +195,13 @@ impl Seeder {
                 return None;
             }
         };
+        // The workflow skills' worktree copies are never seeded (d0082): each launch writes its own (WSK-05).
         let leave_out: Vec<PathBuf> = env_files
             .iter()
             .map(|f| f.trim())
             .filter(|f| !f.is_empty())
             .map(PathBuf::from)
+            .chain(crate::workflow_skills::worktree::all_folders())
             .collect();
         let started = Instant::now();
         let result = match self.warm.mode() {

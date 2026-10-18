@@ -570,10 +570,10 @@ mod tests {
                 login: "gh auth login".into()
             }
         );
-        // A custom skill handles logins itself.
+        // An imported skill (shown by its name) handles logins itself (REV-11, WSK-08).
         let mut custom = github(false);
-        custom.open_pr_skill = "/my-pr".into();
-        let d = PrDialog::opening(&shop18(), "/my-pr", Some(&custom));
+        custom.open_pr_skill = "my-pr".into();
+        let d = PrDialog::opening(&shop18(), "my-pr", Some(&custom));
         assert_eq!(d.stage, Stage::Preparing);
         assert_eq!(success_toast(FlowKind::Open, 481), "PR opened #481");
     }

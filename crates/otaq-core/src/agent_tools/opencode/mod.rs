@@ -250,27 +250,6 @@ impl AgentTool for OpenCode {
         SkillDelivery::LaunchConfig
     }
 
-    /// The project's `.claude/skills`, `.agents/skills` and `.opencode/skills` (in `cwd`), then the user's
-    /// `~/.claude/skills` and `~/.agents/skills`.
-    fn user_skill_file(&self, name: &str, cwd: &Path) -> Option<PathBuf> {
-        let home = self.context.tool.home.as_deref();
-        [
-            Some(cwd.join(".claude")),
-            Some(cwd.join(".agents")),
-            Some(cwd.join(".opencode")),
-            home.map(|home| home.join(".claude")),
-            home.map(|home| home.join(".agents")),
-        ]
-        .into_iter()
-        .flatten()
-        .map(|dir| dir.join("skills").join(name).join("SKILL.md"))
-        .find(|file| file.is_file())
-    }
-
-    fn runs_skills_by_name(&self) -> bool {
-        false
-    }
-
     fn family_source(&self) -> Option<FamilySource> {
         Some(models::family_source())
     }

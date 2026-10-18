@@ -411,6 +411,30 @@ mod tests {
         }
     }
 
+    /// WSK-08, REV-11: an imported Open PR skill is shown by its name, and it handles a provider's login itself.
+    #[test]
+    fn an_imported_skill_is_shown_by_its_name() {
+        let mut provider = github(false);
+        provider.open_pr_skill = "my-pr".into();
+        let mut d = PrDialog::opening(&shop18(), "my-pr", Some(&provider));
+        let v = dialog_view(&d);
+        assert_eq!(
+            v.stage,
+            StageView::Preparing {
+                line: "Open PR skill is preparing\u{2026}".into(),
+                detail: "my-pr \u{b7} reading the commits".into(),
+            }
+        );
+        d.update(&PrFlowView {
+            skill: "my-pr".into(),
+            ..flow(FlowState::Proposed, None)
+        });
+        assert_eq!(
+            dialog_view(&d).proposed_by,
+            "Proposed by my-pr \u{b7} edit anything"
+        );
+    }
+
     #[test]
     fn every_stage_reads_like_its_frame() {
         let skill = otaq_core::naming::skill("open-pr");

@@ -60,7 +60,7 @@ pub(super) fn launch(
     let prompt = request
         .first_prompt
         .as_ref()
-        .map(|p| prompt_text(adapter, p, request));
+        .map(|p| prompt_text(adapter, p));
     let (id, tool_id) = match &request.resume {
         Some(id) => (id.clone(), ToolIdMode::ChosenUpFront(id.clone())),
         None => {
@@ -141,7 +141,7 @@ pub(super) fn session_title(request: &LaunchRequest, ticket_title: Option<&str>)
 
 /// The prompt as sent: an Otaq skill by name (with the epic lead's message after it), a workflow skill named
 /// for the working folder, or the text.
-fn prompt_text(adapter: &OpenCode, prompt: &FirstPrompt, request: &LaunchRequest) -> String {
+fn prompt_text(adapter: &OpenCode, prompt: &FirstPrompt) -> String {
     match prompt {
         FirstPrompt::OtaqSkill { name, message } => {
             let skill = skill_reference(name);
@@ -150,8 +150,8 @@ fn prompt_text(adapter: &OpenCode, prompt: &FirstPrompt, request: &LaunchRequest
                 None => skill,
             }
         }
-        FirstPrompt::WorkflowSkill { step, stored } => {
-            adapter.workflow_skill(*step, stored, &request.cwd).prompt()
+        FirstPrompt::WorkflowSkill { step, imported } => {
+            adapter.workflow_skill(*step, *imported).prompt()
         }
         FirstPrompt::Text(text) => text.clone(),
     }
@@ -219,8 +219,9 @@ mod tests {
 
     use super::*;
     use crate::agent_tools::claude::ClaudeLaunch;
-    use crate::agent_tools::test_support::context;
+    use crate::agent_tools::test_support::{context, follow_validate, only_the_prompt_differs};
     use crate::agent_tools::{PrepareStep, WORK_TICKET_SKILL};
+    use crate::board::settings::WorkflowStep;
 
     fn adapter() -> OpenCode {
         let mut tools = context(Path::new("/nowhere"), None);
@@ -504,5 +505,26 @@ mod tests {
         assert_ne!(a, b);
         assert!(later < a && later < b);
         assert_eq!(&a[..10], "ses_eb4534");
+    }
+
+    /// A workflow skill as a first prompt (WSK-06, d0092): Otaq's own by its name, an imported one by its worktree
+    /// folder; the launch and its config are otherwise the same, with no `external_directory` rule (d0011).
+    #[test]
+    fn a_workflow_skill_first_prompt() {
+        let mut req = request(LaunchRole::Validator, None);
+        req.first_prompt = Some(FirstPrompt::WorkflowSkill {
+            step: WorkflowStep::Validate,
+            imported: false,
+        });
+        let built_in = launch(&adapter(), &req).unwrap();
+        assert_eq!(built_in.args.last().unwrap(), "validate");
+        req.first_prompt = Some(FirstPrompt::WorkflowSkill {
+            step: WorkflowStep::Validate,
+            imported: true,
+        });
+        let imported = launch(&adapter(), &req).unwrap();
+        assert_eq!(imported.args.last(), Some(&follow_validate()));
+        only_the_prompt_differs(&built_in, &imported);
+        assert!(!config(&imported).to_string().contains("external_directory"));
     }
 }

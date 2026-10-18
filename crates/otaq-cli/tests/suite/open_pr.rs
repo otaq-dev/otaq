@@ -105,8 +105,14 @@ async fn open_pr_proposes_confirms_rewords_renames_and_reports() {
     // The click types the Open PR skill into the live session; the ticket stays in Ready for Review.
     let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-    // An imported skill: its copy's SKILL.md (d0092).
-    w.wait_for_output(&s.agent.session, "/SKILL.md`").await;
+    // An imported skill: its copy in the worktree (WSK-05, WSK-06; d0092).
+    w.wait_for_output(&s.agent.session, "`.agents/skills/otaq-custom-open-pr/`")
+        .await;
+    assert!(
+        s.worktree
+            .join(".agents/skills/otaq-custom-open-pr/SKILL.md")
+            .is_file()
+    );
     assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
     let flow = w.board.pr_flow(&s.ticket.id).await.unwrap().unwrap();
     assert_eq!(flow.state, FlowState::Preparing);

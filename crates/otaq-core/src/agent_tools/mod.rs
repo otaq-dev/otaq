@@ -34,7 +34,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::board::settings::{WorkflowSkills, WorkflowStep};
+use crate::board::settings::WorkflowStep;
 use crate::domain::{TicketKey, stored_enum};
 pub use crate::recovery::TranscriptEntry;
 pub use crate::tools::Os;
@@ -238,49 +238,42 @@ pub enum FirstPrompt {
         name: String,
         message: Option<String>,
     },
-    /// A workflow skill of `step` as Settings stores it (Validate, Open PR, Push; REV-09), named by the adapter for
-    /// the launch's folder ([`AgentTool::workflow_skill`]): Otaq's own in the tool's syntax, the user's by its
-    /// SKILL.md path ("Follow `<path>`") when found, else as stored, or the step's built-in on a tool that can't
-    /// run it by name.
-    WorkflowSkill { step: WorkflowStep, stored: String },
+    /// A workflow skill of `step` (Validate, Open PR, Push; REV-09), named by the adapter
+    /// ([`AgentTool::workflow_skill`]): Otaq's own in the tool's syntax, or, when `imported`, the copy Otaq wrote into
+    /// the launch's worktree just before (WSK-05), by its folder.
+    WorkflowSkill { step: WorkflowStep, imported: bool },
     /// Text passed as it is (the PR resume's "push now").
     Text(String),
 }
 
-/// A workflow skill (Commit, Push, Open PR, Validate; REV-09) as named to one agent (ADP-05, d0086). Serialised
-/// as the name itself, `{"file": "<path>"}`, or `{"skill": "$otaq:commit", "instead_of": "/their-plugin:commit"}`.
+/// A workflow skill (Commit, Push, Open PR, Validate; REV-09) as named to one agent (ADP-05, WSK-06; d0092).
+/// Serialised as the name itself, or `{"folder": ".agents/skills/otaq-custom-commit/"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SkillRef {
-    /// Run by name: Otaq's own in the tool's syntax (`/otaq:commit`), or the user's as stored when no SKILL.md
-    /// was found for it and the tool runs skills by name (`/my-commit`, `/their-plugin:commit` on Claude Code).
-    Named(String),
-    /// The user's skill, found as a file: the agent follows its SKILL.md. Otaq copies nothing.
-    File { file: PathBuf },
-    /// Otaq's built-in for the step (`skill`, in the tool's syntax) instead of the stored `instead_of`, which this
-    /// tool can't run: not Otaq's, not found as a file, and the tool doesn't run skills by name (d0086: "my-commit:
-    /// Claude Code only, other tools use the built-in").
-    BuiltIn { skill: String, instead_of: String },
+    /// Otaq's own, in the tool's syntax: `/otaq:commit`, `$otaq:commit`.
+    Own(String),
+    /// An imported skill, by its copy in the worktree, relative to it (the same on every tool):
+    /// `.agents/skills/otaq-custom-commit/` ([`crate::workflow_skills::worktree::named_folder`]).
+    Folder { folder: String },
 }
 
 impl SkillRef {
-    /// How a first prompt or a typed delivery runs it: the name, or "Follow `<path>`".
+    /// How a first prompt or a typed Open PR / Push runs it: the name, or "Follow the skill in `<folder>` …".
     pub fn prompt(&self) -> String {
         match self {
-            Self::Named(name) | Self::BuiltIn { skill: name, .. } => name.clone(),
-            Self::File { file } => format!("Follow `{}`", file.display()),
+            Self::Own(name) => name.clone(),
+            Self::Folder { folder } => format!("Follow the skill in {}.", Self::follow(folder)),
         }
     }
-}
 
-/// The folder name a user's skill would have, from its stored value (`/my-commit` → `my-commit`); `None` for a
-/// value that can't be one folder (`/their-plugin:commit`, a plugin's skill).
-fn skill_folder_name(stored: &str) -> Option<&str> {
-    let name = stored.trim().trim_start_matches('/');
-    let plain = name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
-    (plain && name.starts_with(|c: char| c.is_ascii_alphanumeric())).then_some(name)
+    /// "`.agents/skills/otaq-custom-commit/` (start with its SKILL.md; paths in it are relative to that folder)".
+    pub fn follow(folder: &str) -> String {
+        format!(
+            "`{folder}` (start with its {}; paths in it are relative to that folder)",
+            crate::workflow_skills::folder::SKILL_FILE
+        )
+    }
 }
 
 /// One launch: everything a tool needs to start or resume an agent. Nothing in it is tool-specific.
@@ -763,52 +756,16 @@ pub trait AgentTool: Send + Sync {
     /// How Otaq's skills reach the tool.
     fn skill_delivery(&self) -> SkillDelivery;
 
-    /// The SKILL.md of the user's skill `name` (a folder name, `my-commit`) where this tool would find it for an
-    /// agent working in `cwd`, the first that exists; `None` when there is none. Read-only (d0088: Otaq copies
-    /// nothing). From the hands-on check's row 6:
-    /// - Claude Code: the project's `.claude/skills/<name>/SKILL.md` (in `cwd`), then the user's
-    ///   `<Claude config folder>/skills/<name>/SKILL.md` (`$CLAUDE_CONFIG_DIR` or `~/.claude`).
-    /// - Codex: `$CODEX_HOME/skills`, `~/.agents/skills`, the repo's `.agents/skills` and `.codex/skills`.
-    /// - Copilot: the project's `.github/skills`, `.agents/skills` and `.claude/skills`; the user's
-    ///   `~/.copilot/skills` and `~/.agents/skills` (not `~/.claude/skills`).
-    /// - OpenCode: the project's `.claude/skills`, `.agents/skills` and `.opencode/skills`; the user's
-    ///   `~/.claude/skills` and `~/.agents/skills`.
-    fn user_skill_file(&self, name: &str, cwd: &Path) -> Option<PathBuf>;
-
-    /// Whether the tool runs a skill it can't find as a file by its name (`/their-plugin:commit`, a skill of
-    /// another plugin; d0086). Claude Code only.
-    fn runs_skills_by_name(&self) -> bool {
-        true
-    }
-
-    /// How the workflow skill `stored` of `step` (as Settings stores it) is named to an agent of this tool working
-    /// in `cwd` (ADP-05, d0086): Otaq's own (today's defaults, `/otaq:commit`) by [`Self::skill_reference`]; the
-    /// user's by its SKILL.md path when [`Self::user_skill_file`] finds it; else by name as stored where the tool
-    /// runs skills by name ([`Self::runs_skills_by_name`], Claude Code), and the step's built-in on the others.
-    fn workflow_skill(&self, step: WorkflowStep, stored: &str, cwd: &Path) -> SkillRef {
-        if let Some(own) = WorkflowSkills::own_skill_of(stored) {
-            return SkillRef::Named(self.skill_reference(own));
-        }
-        // An imported skill comes as its copy's SKILL.md path (`ResolvedSkill::stored`, d0092).
-        let path = Path::new(stored.trim());
-        if path.is_absolute() && path.is_file() {
-            return SkillRef::File {
-                file: path.to_owned(),
-            };
-        }
-        if let Some(file) =
-            skill_folder_name(stored).and_then(|name| self.user_skill_file(name, cwd))
-        {
-            return SkillRef::File { file };
-        }
-        let stored = stored.trim().to_owned();
-        if self.runs_skills_by_name() {
-            SkillRef::Named(stored)
-        } else {
-            SkillRef::BuiltIn {
-                skill: self.skill_reference(step.own_skill()),
-                instead_of: stored,
+    /// How the workflow skill of `step` is named to an agent of this tool (ADP-05, WSK-06; d0092): Otaq's own by
+    /// [`Self::skill_reference`]; an `imported` one, already copied into the worktree, by that folder, the same on
+    /// every tool. No permission flag goes with either (d0011).
+    fn workflow_skill(&self, step: WorkflowStep, imported: bool) -> SkillRef {
+        if imported {
+            SkillRef::Folder {
+                folder: crate::workflow_skills::worktree::named_folder(step),
             }
+        } else {
+            SkillRef::Own(self.skill_reference(step.own_skill()))
         }
     }
 
@@ -959,12 +916,38 @@ mod test_support {
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
-    /// A SKILL.md at `<root>/skills/<name>/`.
-    pub fn write_skill(root: &Path, name: &str) -> std::path::PathBuf {
-        let file = root.join("skills").join(name).join("SKILL.md");
-        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-        std::fs::write(&file, "---\nname: x\ndescription: x\n---\n").unwrap();
-        file
+    /// An imported Validate skill's copy, as agents are pointed at it: `.agents/skills/otaq-custom-validate/`.
+    pub fn validate_folder() -> String {
+        format!(
+            ".agents/skills/{}/",
+            crate::naming::custom_skill("validate")
+        )
+    }
+
+    /// An imported Validate skill as every tool's first prompt names it (WSK-06, d0092).
+    pub fn follow_validate() -> String {
+        format!(
+            "Follow the skill in `{}` (start with its SKILL.md; paths in it are relative to that folder).",
+            validate_folder()
+        )
+    }
+
+    /// Two launches of the same request but its first prompt: they differ only in the prompt (the last argument)
+    /// and in an id chosen up front (`--session-id <id>`, `--session <id>`), never in a flag or the environment
+    /// (d0011).
+    pub fn only_the_prompt_differs(a: &super::LaunchPlan, b: &super::LaunchPlan) {
+        assert_eq!(a.program, b.program);
+        assert_eq!(a.env, b.env);
+        assert_eq!(a.args.len(), b.args.len(), "{:?} / {:?}", a.args, b.args);
+        let last = a.args.len() - 1;
+        for (n, (x, y)) in a.args.iter().zip(&b.args).enumerate() {
+            let chosen_id = n > 0 && matches!(a.args[n - 1].as_str(), "--session-id" | "--session");
+            assert!(
+                x == y || n == last || chosen_id,
+                "{x} / {y} in {:?}",
+                b.args
+            );
+        }
     }
 }
 

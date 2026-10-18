@@ -85,6 +85,12 @@ pub fn skill(name: &str) -> String {
     format!("/{PLUGIN_NAMESPACE}:{name}")
 }
 
+/// The folder (and `name:`) of an imported workflow skill's copy in a worktree (WSK-05, d0092):
+/// `custom_skill("commit")` → `otaq-custom-commit`.
+pub fn custom_skill(step: &str) -> String {
+    format!("{COMMAND_NAME}-custom-{step}")
+}
+
 /// The prefix of branches Otaq creates: `otaq/`.
 pub fn branch_prefix() -> String {
     format!("{COMMAND_NAME}/")
