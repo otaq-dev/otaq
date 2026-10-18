@@ -154,7 +154,9 @@ function AnchoredList({
   ...list
 }: MoveWaitingListProps & { anchor: RefObject<HTMLButtonElement | null> }) {
   const floating = useRef<HTMLDivElement>(null);
-  const style = useFloatingStyle(anchor, floating, "end");
+  const style = useFloatingStyle(anchor, floating, "end", () => {
+    list.onClose("outside");
+  });
   return (
     <div ref={floating} className="floating" style={style}>
       <MoveWaitingList {...list} />

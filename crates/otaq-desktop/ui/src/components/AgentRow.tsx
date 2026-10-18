@@ -70,7 +70,9 @@ function Picker({
 }) {
   const id = useId();
   const list = useRef<HTMLDivElement>(null);
-  const style = useFloatingStyle(anchor, list);
+  const style = useFloatingStyle(anchor, list, "start", () => {
+    onClose(false);
+  });
   const [lit, setLit] = useState(() => current(items));
   useDismiss(list, anchor, () => {
     onClose(true);

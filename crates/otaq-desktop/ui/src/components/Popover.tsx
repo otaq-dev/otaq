@@ -44,7 +44,7 @@ export function useDismiss(
 
 export function Popover({ label, anchor, align, onClose, children }: PopoverProps) {
   const floating = useRef<HTMLDivElement>(null);
-  const style = useFloatingStyle(anchor, floating, align);
+  const style = useFloatingStyle(anchor, floating, align, onClose);
   useDismiss(floating, anchor, onClose);
   return (
     <div ref={floating} className="popover" role="dialog" aria-label={label} style={style}>

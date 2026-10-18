@@ -1,0 +1,94 @@
+// @vitest-environment happy-dom
+// A floating layer and a scroll behind it: mounted in a DOM, inside a scrolling container.
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+import type { MenuItem } from "../generated/MenuItem";
+import { Select } from "./Select";
+
+beforeAll(() => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+});
+
+let unmount = (): void => undefined;
+
+afterEach(() => {
+  unmount();
+});
+
+function item(id: string, checked = false): MenuItem {
+  return {
+    id,
+    label: id,
+    icon: null,
+    shortcut: null,
+    danger: false,
+    disabled: false,
+    hint: null,
+    checked,
+    separated: false,
+    header: false,
+  };
+}
+
+/** Mounts a Select inside a scrolling container, opens it and returns the container. */
+function openSelect(onChange: (id: string) => void): HTMLElement {
+  unmount();
+  const host = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(host);
+  act(() => {
+    root.render(
+      createElement(
+        "div",
+        { className: "scroller", style: { overflow: "auto", height: "100px" } },
+        createElement(Select, {
+          label: "Developer",
+          value: "Claude Code",
+          items: [item("claude", true), item("codex")],
+          onChange,
+        }),
+      ),
+    );
+  });
+  unmount = () => {
+    act(() => {
+      root.unmount();
+    });
+    host.remove();
+  };
+  act(() => {
+    host.querySelector<HTMLButtonElement>(".select")?.click();
+  });
+  expect(host.querySelector('[role="menu"]')).not.toBeNull();
+  return host;
+}
+
+function scroll(target: EventTarget) {
+  act(() => {
+    target.dispatchEvent(new Event("scroll"));
+  });
+}
+
+describe("A floating layer and a scroll", () => {
+  it("closes a Select's list when its scrolling container scrolls, changing nothing", () => {
+    const onChange = vi.fn();
+    const host = openSelect(onChange);
+    scroll(host.querySelector(".scroller") as HTMLElement);
+    expect(host.querySelector('[role="menu"]')).toBeNull();
+    expect(host.querySelector(".select")?.getAttribute("aria-expanded")).toBe("false");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("closes it when the page itself scrolls", () => {
+    const host = openSelect(vi.fn());
+    scroll(document);
+    expect(host.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it("keeps it open when the list itself scrolls", () => {
+    const host = openSelect(vi.fn());
+    scroll(host.querySelector('[role="menu"]') as HTMLElement);
+    expect(host.querySelector('[role="menu"]')).not.toBeNull();
+  });
+});
