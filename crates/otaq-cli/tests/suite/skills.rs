@@ -42,7 +42,11 @@ fn every_command_a_skill_names_exists() {
         .join("skills");
     let mut checked = 0;
     for entry in std::fs::read_dir(&skills).unwrap() {
-        let file = entry.unwrap().path().join("SKILL.md");
+        let folder = entry.unwrap().path();
+        if !folder.is_dir() {
+            continue;
+        }
+        let file = folder.join("SKILL.md");
         let text = std::fs::read_to_string(&file).unwrap();
         for words in commands(&text) {
             let ok = Command::new(CB)
