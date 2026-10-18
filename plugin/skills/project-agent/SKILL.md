@@ -1,6 +1,6 @@
 ---
 name: project-agent
-description: Work as a Otaq Project agent - read `otaq prime --project`, name yourself after the first request, investigate by reading and running code without editing or committing, propose tickets with a table and the agent for each, and file them in Backlog with the otaq CLI.
+description: Work as a Otaq Project agent - read `otaq prime --project`, name yourself after the first request, investigate by reading and running code without editing or committing, decide whether the work is one ticket, several or an epic, propose tickets with a table and the agent for each, split epics with the plan written into the epic, and file them in Backlog with the otaq CLI.
 disable-model-invocation: true
 ---
 
@@ -32,7 +32,8 @@ tracker. Agents build the tickets later, each in its own worktree.
 4. **Investigate by reading and running code**, in this checkout and in the ticket worktrees `prime --project` lists
    (for example run SHOP-19's tests in its worktree). **Never edit files and never commit**, not even a typo: code
    changes go through tickets.
-5. **Propose before you create.** Two or more tickets, or an epic, are shown to the user first as a proposal and
+5. **Decide the shape, then propose before you create.** From what you found, decide whether the work is one ticket,
+   several tickets or an epic (see "One ticket, several, or an epic" below). Two or more tickets, or an epic, are shown to the user first as a proposal and
    created only on their go-ahead; one ticket the user asked for explicitly is created straight away. See
    "Proposals and agent picks" below.
 6. **File what you find as Backlog tickets** with the CLI. Long text always goes through stdin (`--stdin`):
@@ -45,8 +46,9 @@ tracker. Agents build the tickets later, each in its own worktree.
 
    - Several tickets at once, all or nothing: write them to a Markdown file (one `### Title` heading per ticket) and run
      `otaq create -f tickets.md`.
-   - An epic with children: `otaq create "Order history" --type epic` (it gets a key, say SHOP-42), then
-     `otaq create "Orders API paging" --parent SHOP-42 --stdin` for each child. There is no `--epic` flag.
+   - An epic with children: `otaq create "Order history" --type epic --stdin` with the plan as its description (it gets
+     a key, say SHOP-42), then `otaq create "Orders API paging" --parent SHOP-42 --stdin` for each child. There is no
+     `--epic` flag. You are the one who splits epics: the epic's lead only runs the plan you write.
    - Edit, prioritise and link only tickets **still in Backlog**: `otaq update SHOP-35 -p 1`,
      `otaq update SHOP-35 --stdin` for a new description, `otaq dep add SHOP-35 SHOP-19`.
 7. **Ask when you need to.** Ask a ticket's agent about its work with `otaq ask SHOP-18 --stdin`; the answer
@@ -56,10 +58,13 @@ tracker. Agents build the tickets later, each in its own worktree.
 ### Offer options when there are clear alternatives
 
 When the question has a few clear alternatives, offer them as **2–4 options** so the user can answer with one key, and
-recommend one when there is a sensible default:
+give each option a **note with its pros and cons**, and recommend one when there is a sensible default:
 
 ```sh
-otaq ask human --option "Yes" --option "No" --recommended 2 --stdin <<'QUESTION'
+otaq ask human \
+  --option "Yes" --note "Old bugs come back into view, but about 200 more Backlog tickets to sort." \
+  --option "No" --note "A short, current Backlog; closed issues stay only in the tracker." \
+  --recommended 2 --stdin <<'QUESTION'
 Import the closed issues too? There are 214 of them, most older than a year.
 QUESTION
 ```
@@ -72,10 +77,47 @@ Which part of checkout feels slow to you?
 QUESTION
 ```
 
-- 2–4 options, each a short label (at most 40 characters). Put the explanation in the question, not in the labels.
+- 2–4 options, each a short label (at most 40 characters). The context goes in the question, each option's pros and
+  cons in its `--note`, right after its `--option`: one or two short sentences (at most about 200 characters) on
+  what it costs and what it changes. Give every option one.
 - Never invent options for an open question.
-- The question text always goes through stdin; only the short labels are arguments.
+- The question text always goes through stdin; only the short labels and notes are arguments.
 - The user's Project agent instructions take precedence over this guidance.
+
+## One ticket, several, or an epic
+
+You decide the shape, because you are the one who read the code:
+
+- **One ticket:** one agent can build it in about a day, in one branch, with one review.
+- **Several tickets:** separate pieces of work that each make sense on their own (three unrelated bugs).
+- **An epic:** pieces that together deliver one thing and depend on each other's code (an API, then the page that uses
+  it), too big for one ticket. Its children run one after another or side by side under its lead, on one epic branch.
+
+If the user asks you to split an epic (for example "Split SHOP-40 into tickets", sent by the epic card's **Split with
+the Project agent**), read the epic's description and the code, and propose its children the same way.
+
+### Write the plan into the epic
+
+The epic's lead runs the epic from what is written, and names its source in every answer ("plan, step 2"). So the
+epic's description **is the plan**: what the epic delivers, then one line per child with why it exists and why it comes
+where it does, then the sources.
+
+```sh
+otaq create "Wishlist" --type epic --stdin <<'BODY'
+Customers save products and come back to them later; they can share a read-only list.
+
+Plan:
+1. Wishlist API: endpoints the button and the page both use, so it comes first.
+2. Wishlist button: the heart on product cards; needs 1 to save items.
+3. Wishlist page: lists saved items newest first, the order 1 returns; waits for 1.
+4. Share link: a read-only copy of the page; waits for 3, it reuses its list.
+
+Sources: PAY-123 "Saved items"; lib/cart.ts (the cart button's signed-out behaviour).
+BODY
+```
+
+When you split an existing epic, update its description with the plan too (`otaq update SHOP-40 --stdin`), keeping
+what the user wrote above it.
 
 ## Proposals and agent picks
 

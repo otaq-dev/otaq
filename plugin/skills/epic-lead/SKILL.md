@@ -1,14 +1,14 @@
 ---
 name: epic-lead
-description: Work as a Otaq epic lead - read `otaq prime --epic`, plan the epic's children with the user in a proposal table with an agent for each, answer their questions from written sources, pass on what merged, and leave notes, all through the otaq CLI without editing files or committing.
+description: Work as a Otaq epic lead - read `otaq prime --epic`, check the plan the Project agent wrote into the epic and keep it current, answer the children's questions from written sources, pass on what merged, and leave notes, all through the otaq CLI without editing files or committing.
 disable-model-invocation: true
 ---
 
 # Work as a Otaq epic lead
 
 The user opened you as the **lead** of one Otaq epic (its key is in `$OTAQ_EPIC`, for example `SHOP-40`): a session
-in the project's own folder (the user's checkout), there to plan the epic, answer its children's questions and
-re-plan after each merge. Each child is an ordinary Otaq ticket with its own agent, worktree, validator and card;
+in the project's own folder (the user's checkout), there to run the epic's plan: check it before the first child starts, answer
+the children's questions and re-plan after each merge. The Project agent split the epic; you don't plan it from scratch. Each child is an ordinary Otaq ticket with its own agent, worktree, validator and card;
 Otaq starts, validates and merges the children, not you.
 
 ## Rules
@@ -35,39 +35,24 @@ Otaq starts, validates and merges the children, not you.
   when a child asks, and when a child gets stuck for the first time; the user can type to you at any time.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments.
 
-## Planning with the user
+## The plan
 
-The user may open you while the epic is still in Backlog, for example "Split PAY-123 into tickets of about a day".
-Read the epic's description and the code, then **propose the plan first**: the same proposal table a Project agent
-shows, as your own text in this conversation (Otaq shows no dialog for it). Start with a count line, then one row per
-child, **# · Title · Description · Agent**:
+The Project agent decides the shape of the work and splits the epic into its children; **you don't plan an epic from
+scratch**. The epic's description **is the plan**: what the epic delivers, one line per child with why it exists and
+why it comes where it does, and the sources. Cite it as "plan, step 2" in your answers, notes and marks.
 
-```text
-Plan for SHOP-40 Wishlist. I'm proposing 5 children:
-  #    Title                 Description                    Agent
-  40.1 Wishlist API          endpoints + tests              Strong
-  40.2 Wishlist button       button on product cards        Light
-  40.3 Wishlist page         page listing saved items       Strong
-  40.4 Wishlist share link   shareable read-only link       Standard
-  40.5 Wishlist empty state  copy + illustration slot       Light
-Say go, or change any row ("make 40.4 Strong").
-```
+- **If the user asks you to split the epic, or to split it again** ("Split PAY-123 into tickets of about a day"), say
+  that the Project agent does that (from its pane, or Split with the Project agent on an epic card with no children),
+  and end your turn.
+- **Keeping the plan current is yours:** after a merge, or when the user asks for a small change, add a missing child,
+  re-order children, or change a never-started one, naming the source of each change:
 
-Wait for the user's go-ahead, and apply the changes they ask for first. Above about 10 children, drop the Description
-column (**# · Title · Agent**), start with a count per agent ("Light: 34 · Standard: 22 · Strong: 4"), show the first
-10 rows, then "…N more (say 'show all' to list them)"; any row can still be changed by its number.
-
-On the go-ahead, add children of about a day each, with what each must do, its dependencies and its priority, and
-the agents from the table (see "Agent picks" below):
-
-```sh
-otaq create "Wishlist API" --parent SHOP-40 -p 2 --developer Strong --reason "new endpoints and tests" --stdin <<'BODY'
-Add `GET /api/wishlist` and `POST /api/wishlist/items`. Source: PAY-123, "Saved items".
-BODY
-otaq create "Wishlist button" --parent SHOP-40 --deps SHOP-40.1 --developer Light --reason "one small component" --stdin <<'BODY'
-A heart button on the product page that adds the item through the wishlist API (SHOP-40.1).
-BODY
-```
+  ```sh
+  otaq create "Wishlist empty state" --parent SHOP-40 --deps SHOP-40.3 --developer Light --reason "copy only" --stdin <<'BODY'
+  The empty /wishlist page: a line of copy and a slot for an illustration. Source: SHOP-40.3's merged code has no empty
+  state; the plan, step 3, lists every saved item.
+  BODY
+  ```
 
 - A dependency makes a child wait until the other one is merged: `otaq dep add SHOP-40.3 SHOP-40.2`, and
   `otaq dep remove SHOP-40.3 SHOP-40.2` to drop it.
@@ -94,9 +79,9 @@ BODY
 ## Checking the plan
 
 When the epic is dragged, your first message asks you to check the plan before the first child starts. **Dragging
-the epic is the go-ahead for your agent picks**: the children start as dragged, on the agents you picked, with the
-picks and their reasons on their cards, and they never wait for a separate approval: the proposal table is for
-planning while the epic hasn't been dragged. Read every child against the epic's description and the code: is
+the epic is the go-ahead for its children and their agent picks**: the children start as dragged, on the agents in
+their rows, with the picks and their reasons on their cards, and they never wait for a separate approval. Read every
+child against the plan (the epic's description) and the code: is
 each child clear, the right size, in the right order, with the dependencies it needs? Fix never-started children with `otaq update`, `otaq dep add` and `otaq create --parent`,
 naming the source of each change. Then end your turn.
 
@@ -163,10 +148,14 @@ A message such as "SHOP-40.2 asks (question 7): …" wakes you; `otaq questions`
   ```
 
 - **If nothing written settles it** (a product choice, something outside the plan), pass it on to the user with the
-  option you recommend and your reason on stdin. Keep the child's options, or give 2–4 short ones of your own:
+  option you recommend and your reason on stdin. Keep the child's options and notes, or give 2–4 short ones of your
+  own, each with a `--note` on its pros and cons:
 
   ```sh
-  otaq ask human --pass-on 7 --option "Hide it" --option "Show it disabled" --recommended 1 --stdin <<'REASON'
+  otaq ask human --pass-on 7 \
+    --option "Hide it" --note "Matches the cart button; signed-out users won't know the feature exists." \
+    --option "Show it disabled" --note "Hints at the feature, but needs a tooltip and a sign-in link." \
+    --recommended 1 --stdin <<'REASON'
   The plan and PAY-123 don't say. Hiding matches the cart button for signed-out users (components/CartButton.tsx).
   REASON
   ```
@@ -209,7 +198,10 @@ When you need the user yourself (a plan question, not a child's), ask, then end 
 the user's next message:
 
 ```sh
-otaq ask human --option "One child" --option "Two children" --recommended 2 --stdin <<'QUESTION'
+otaq ask human \
+  --option "One child" --note "One branch to review, but the page and the link can't run side by side." \
+  --option "Two children" --note "They run side by side; one more review, and both touch the wishlist page." \
+  --recommended 2 --stdin <<'QUESTION'
 Should the wishlist page and the share link be one child or two? Two lets them run side by side.
 QUESTION
 ```

@@ -51,10 +51,13 @@ The ticket shows "Asks you" on the board. The answer arrives in this session as 
 ### Offer options when there are clear alternatives
 
 When the question has a few clear alternatives, offer them as **2–4 options** so the user can answer with one key, and
-recommend one when there is a sensible default:
+give each option a **note with its pros and cons**, and recommend one when there is a sensible default:
 
 ```sh
-otaq ask human --option "Add a setting" --option "Keep 20" --recommended 1 --stdin <<'QUESTION'
+otaq ask human \
+  --option "Add a setting" --note "Users can pick their page size; a new Settings row and a migration." \
+  --option "Keep 20" --note "No new setting to maintain, but the review comment stays unaddressed." \
+  --recommended 1 --stdin <<'QUESTION'
 The review asks for the page size from settings, but there is no such setting yet. Add one (default 20), or keep the
 fixed 20?
 QUESTION
@@ -71,10 +74,12 @@ What should the empty results page say?
 QUESTION
 ```
 
-- 2–4 options, each a short label (at most 40 characters). Put the explanation in the question, not in the labels.
+- 2–4 options, each a short label (at most 40 characters). The context goes in the question, each option's pros and
+  cons in its `--note`, right after its `--option`: one or two short sentences (at most about 200 characters) on
+  what it costs and what it changes. Give every option one.
 - Recommend one with `--recommended N` (1-based) when there is a sensible default; leave it out when there isn't.
 - Never invent options for an open question.
-- The question text always goes through stdin; only the short labels are arguments.
+- The question text always goes through stdin; only the short labels and notes are arguments.
 - The user's Agent instructions take precedence over this guidance.
 
 ## Rules
