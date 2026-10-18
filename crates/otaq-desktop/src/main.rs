@@ -10,6 +10,7 @@ mod events;
 #[cfg(test)]
 mod generated;
 mod notices;
+mod notify_check;
 mod service;
 #[cfg(test)]
 mod stylesheet;
@@ -57,6 +58,10 @@ pub struct App {
 }
 
 fn main() {
+    // The bundle check (T-0370): no window, no service.
+    if notify_check::requested() {
+        std::process::exit(notify_check::run());
+    }
     // Before any other thread or the webview exists (Q39).
     let os = std::env::consts::OS;
     if let Some((name, value)) =

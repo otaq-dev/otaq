@@ -2,4 +2,5 @@
 //! crate is linked once rather than once per file. Run them with `cargo nextest run -p otaq-desktop`; one file with
 //! `cargo nextest run -p otaq-desktop -E 'test(/^<file>::/)'`.
 
+mod notify_check;
 mod one_door;

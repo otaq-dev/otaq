@@ -374,7 +374,7 @@ the bundle (macOS ties a process to its bundle by that path, which notifications
 | Option | What it does |
 |---|---|
 | `--dest <folder>` | installs `<folder>/Otaq.app` instead, without the link (tests, trying a build) |
-| `--bundle-id <id>` | another bundle ID, for a check bundle (`io.otaq.desktop.check`): macOS asks for notification permission only once per ID, so a check doesn't use up the real one |
+| `--bundle-id <id>` | another bundle ID, for a check bundle (`io.otaq.desktop.check`): macOS asks for notification permission only once per ID, so a check doesn't use up the real one. A check bundle must not live in a temporary folder (`/tmp`, `/var/folders`, `$TMPDIR`): LaunchServices marks an app there `in-temp-dir`, and macOS's notification service refuses it |
 | `--from <folder>` | takes `otaq` and `otaq-app` from `<folder>` instead of building |
 
 The layout, `Info.plist` and signature are checked by `crates/otaq-cli/tests/suite/install_local.rs` (part of the
