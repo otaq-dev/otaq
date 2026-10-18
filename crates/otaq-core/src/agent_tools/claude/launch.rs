@@ -46,8 +46,9 @@ impl ClaudeLaunch {
     }
 }
 
-/// The plugin folder: `<bin>/plugin`, `<bin>/../share/otaq/plugin`, or the repository's `plugin/` (dev
-/// builds run from `target/`). A folder counts when it has `.claude-plugin/plugin.json`.
+/// The plugin folder: `<bin>/plugin`, `<bin>/../share/otaq/plugin`, `<bin>/../Resources/plugin` (`Otaq.app`,
+/// d0072), or the repository's `plugin/` (dev builds run from `target/`). A folder counts when it has
+/// `.claude-plugin/plugin.json`. The repository comes last, so an installed build never uses it.
 pub fn find_plugin_dir(bin_dir: &Path) -> Option<PathBuf> {
     let repo_plugin = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -61,6 +62,9 @@ pub fn find_plugin_dir(bin_dir: &Path) -> Option<PathBuf> {
                 .join(naming::COMMAND_NAME)
                 .join("plugin")
         }),
+        bin_dir
+            .parent()
+            .map(|contents| contents.join("Resources").join("plugin")),
         repo_plugin,
     ]
     .into_iter()
@@ -617,6 +621,21 @@ mod tests {
         assert_eq!(cmd.args[..3], ["-c", "echo", "sh"]);
         assert_eq!(cmd.args[3], "--plugin-dir");
         assert_eq!(cmd.env[2].1, "/opt/cb/bin", "no trailing colon");
+    }
+
+    #[test]
+    fn the_plugin_is_found_in_the_bundle_before_the_repository() {
+        let dir = tempfile::tempdir().unwrap();
+        let contents = dir
+            .path()
+            .join(naming::bundle_folder_name())
+            .join("Contents");
+        let macos = contents.join("MacOS");
+        let plugin = contents.join("Resources").join("plugin");
+        std::fs::create_dir_all(&macos).unwrap();
+        std::fs::create_dir_all(plugin.join(".claude-plugin")).unwrap();
+        std::fs::write(plugin.join(".claude-plugin").join("plugin.json"), "{}").unwrap();
+        assert_eq!(find_plugin_dir(&macos), Some(plugin));
     }
 
     #[test]

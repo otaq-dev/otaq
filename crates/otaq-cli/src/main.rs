@@ -10,6 +10,7 @@ mod deps;
 mod hook;
 mod launch;
 mod lead;
+mod notify_check;
 mod output;
 mod pr;
 mod prime;
@@ -169,6 +170,7 @@ fn main() -> ExitCode {
             Ok(())
         }
         Some(Command::Statusline) => std::process::exit(statusline::run()),
+        Some(Command::NotifyCheck) => notify_check::run(),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

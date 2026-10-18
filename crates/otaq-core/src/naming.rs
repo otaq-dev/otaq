@@ -100,6 +100,14 @@ pub fn app_binary_name() -> String {
     format!("{COMMAND_NAME}-app{}", std::env::consts::EXE_SUFFIX)
 }
 
+/// The macOS bundle's ID (d0072), under which macOS shows its notifications (d0090).
+pub const BUNDLE_ID: &str = "io.otaq.desktop";
+
+/// The macOS bundle's folder name: `Otaq.app` (d0072).
+pub fn bundle_folder_name() -> String {
+    format!("{PRODUCT_NAME}.app")
+}
+
 /// A branch Otaq names: `branch("SHOP-40")` → `otaq/SHOP-40`.
 pub fn branch(name: &str) -> String {
     format!("{}{name}", branch_prefix())

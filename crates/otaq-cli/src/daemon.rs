@@ -2,7 +2,7 @@
 //! `start` launches this same binary as `daemon run` in the background, detached from the terminal.
 //! Nothing here installs a launch agent or login item: the service runs only when started (d0055).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -55,7 +55,7 @@ fn start(data: &DataDir, out: &Output) -> Result<(), ErrorBody> {
     }
     let exe =
         std::env::current_exe().map_err(|e| internal(format!("can't find this program: {e}")))?;
-    let mut command = Command::new(exe);
+    let mut command = Command::new(service_program(&exe));
     command
         .args(["daemon", "run"])
         .stdin(Stdio::null())
@@ -91,6 +91,13 @@ fn start(data: &DataDir, out: &Output) -> Result<(), ErrorBody> {
             )));
         }
     }
+}
+
+/// The program the service runs as: `exe` with links resolved, so a start through `~/.local/bin/otaq` runs
+/// `Otaq.app/Contents/MacOS/otaq` (macOS ties a process to its bundle by its real path, d0072, d0090). `exe` itself
+/// when it can't be resolved.
+pub(crate) fn service_program(exe: &Path) -> PathBuf {
+    exe.canonicalize().unwrap_or_else(|_| exe.to_path_buf())
 }
 
 fn print_started(out: &Output, status: &ServiceStatus, already: bool) {
@@ -250,6 +257,35 @@ fn spawn_detached(command: &mut Command) -> std::io::Result<std::process::Child>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_start_through_a_link_runs_the_real_program() {
+        let dir = tempfile::tempdir().unwrap();
+        let macos = dir
+            .path()
+            .join(otaq_core::naming::bundle_folder_name())
+            .join("Contents")
+            .join("MacOS");
+        std::fs::create_dir_all(&macos).unwrap();
+        let real = macos.join(otaq_core::naming::COMMAND_NAME);
+        std::fs::write(&real, "").unwrap();
+        let bin = dir.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let link = bin.join(otaq_core::naming::COMMAND_NAME);
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert_eq!(service_program(&link), real.canonicalize().unwrap());
+        assert!(
+            service_program(&link).starts_with(
+                dir.path()
+                    .canonicalize()
+                    .unwrap()
+                    .join(otaq_core::naming::bundle_folder_name())
+            )
+        );
+        let missing = bin.join("gone");
+        assert_eq!(service_program(&missing), missing);
+    }
 
     #[test]
     fn uptime_format() {
