@@ -254,6 +254,8 @@ pub struct OptionRow {
     pub other: bool,
     /// The recommended option of a passed-on question: the lead's reason, under the label.
     pub note: Option<String>,
+    /// The option's own note, its pros and cons (ATT-17), whole.
+    pub option_note: Option<String>,
 }
 
 fn option_rows(options: Option<AnswerOptions>) -> Vec<OptionRow> {
@@ -268,6 +270,7 @@ fn option_rows(options: Option<AnswerOptions>) -> Vec<OptionRow> {
                     picked: r.picked,
                     other: r.other,
                     note: r.note,
+                    option_note: r.option_note,
                 })
                 .collect()
         })
@@ -991,6 +994,7 @@ pub fn lead_gallery() -> LeadGallery {
             "Guests too, kept in the browser".into(),
         ],
         recommended: Some(1),
+        notes: Vec::new(),
         asked_at: 0,
         via_lead: Some(ViaLead {
             lead: "Wishlist lead".into(),
@@ -1149,6 +1153,7 @@ mod tests {
                 text: "Import closed issues too?".into(),
                 options: vec!["Yes".into(), "No".into()],
                 recommended: Some(2),
+                notes: Vec::new(),
                 asked_at: 1_000,
                 via_lead: None,
             }),
@@ -1225,6 +1230,7 @@ mod tests {
             text: "Which provider?".into(),
             options: vec!["Postmark".into(), "SES".into()],
             recommended: Some(1),
+            notes: Vec::new(),
             asked_at: 0,
             via_lead: None,
         });
@@ -1454,6 +1460,7 @@ mod tests {
                 "Guests too, kept in the browser".into(),
             ],
             recommended: Some(1),
+            notes: Vec::new(),
             asked_at: 0,
             via_lead: Some(ViaLead {
                 lead: "Wishlist lead".into(),
@@ -1489,6 +1496,7 @@ mod tests {
                 text: "Should the share link (40.4) expire? PAY-123 doesn't say.".into(),
                 options: vec!["Never".into(), "After 30 days".into()],
                 recommended: None,
+                notes: Vec::new(),
                 asked_at: 0,
                 via_lead: None,
             }),

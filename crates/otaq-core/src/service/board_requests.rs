@@ -1220,6 +1220,7 @@ async fn ask_human(
         ));
     }
     validate_options(&p.options, p.recommended)?;
+    crate::board::questions::validate_notes(&p.options, &p.notes)?;
     let board = &shared.board;
     let ticket = board.ticket(&p.key).await?;
     // During Open PR / Push to PR the skill reports what went wrong (a rejected push, a missing login) to the
@@ -1234,7 +1235,7 @@ async fn ask_human(
             .map(|t| Reply::Ticket(Box::new(t)));
     }
     let question = board
-        .store_question(&ticket.id, &p.question, &p.options, p.recommended)
+        .store_question(&ticket.id, &p.question, &p.options, &p.notes, p.recommended)
         .await?;
     // An epic child's question goes to its live lead first (LEAD-06); otherwise the ticket asks the user.
     if !lead_questions(shared)
@@ -1516,7 +1517,15 @@ async fn pass_on(
     actor: &Actor,
 ) -> Result<Reply, BoardError> {
     lead_questions(shared)
-        .pass_on(caller, &p.id, &p.options, p.recommended, &p.reason, actor)
+        .pass_on(
+            caller,
+            &p.id,
+            &p.options,
+            &p.notes,
+            p.recommended,
+            &p.reason,
+            actor,
+        )
         .await
         .map(|q| Reply::LeadQuestion(Box::new(q)))
 }

@@ -195,6 +195,8 @@ pub struct AnswerRow {
     pub recommended: bool,
     pub picked: bool,
     pub other: bool,
+    /// The option's own note, its pros and cons (ATT-17), whole.
+    pub option_note: Option<String>,
 }
 
 /// The question with its options in the header (*SHOP-21 · Asks you · answer options*).
@@ -463,6 +465,7 @@ fn question_bar(question: &otaq_core::board::questions::HumanQuestion) -> Option
                 recommended: r.recommended,
                 picked: r.picked,
                 other: r.other,
+                option_note: r.option_note,
             })
             .collect(),
         recommended_label: "Recommended",
@@ -1681,6 +1684,7 @@ mod tests {
             text: "Which email provider?".into(),
             options: vec!["Postmark".into(), "SES".into(), "Resend".into()],
             recommended: Some(1),
+            notes: Vec::new(),
             asked_at: 0,
             via_lead: None,
         });
@@ -1810,6 +1814,7 @@ mod tests {
             text: "Should the share link (40.4) expire?".into(),
             options: vec!["Never".into(), "After 30 days".into()],
             recommended: None,
+            notes: Vec::new(),
             asked_at: 0,
             via_lead: None,
         });

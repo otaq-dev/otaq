@@ -3,4 +3,8 @@
 /**
  * One answer option (ATT-12): the recommended one is picked when the list opens.
  */
-export type PanelAnswerRow = { number: number, label: string, recommended: boolean, picked: boolean, other: boolean, };
+export type PanelAnswerRow = { number: number, label: string, recommended: boolean, picked: boolean, other: boolean, 
+/**
+ * The option's own note, its pros and cons (ATT-17), whole.
+ */
+option_note: string | null, };

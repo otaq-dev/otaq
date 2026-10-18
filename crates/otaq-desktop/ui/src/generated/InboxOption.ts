@@ -7,4 +7,8 @@ export type InboxOption = { number: number, label: string, recommended: boolean,
 /**
  * The recommended option of a passed-on question: the lead's reason, under the label.
  */
-note: string | null, };
+note: string | null, 
+/**
+ * The option's own note, its pros and cons (ATT-17), whole.
+ */
+option_note: string | null, };

@@ -267,6 +267,7 @@ mod tests {
             text: "Import closed issues too?".into(),
             options: Vec::new(),
             recommended: None,
+            notes: Vec::new(),
             asked_at: 0,
             via_lead: None,
         });

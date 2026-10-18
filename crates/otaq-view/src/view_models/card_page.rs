@@ -45,6 +45,8 @@ pub struct OptionView {
     pub other: bool,
     /// What a click sends: the option's number (Other… is the last).
     pub action: CardActionKind,
+    /// The option's own note, its pros and cons (ATT-17), whole.
+    pub option_note: Option<String>,
 }
 
 /// A Ticket Card v2 for the page (SHL-07): head (avatar, key, pin, priority, flag), title, situation line, origin
@@ -101,6 +103,7 @@ impl TicketCardView {
                     picked: row.picked,
                     other: row.other,
                     action: CardActionKind::PickOption(row.number),
+                    option_note: row.option_note,
                 })
                 .collect()
         });
@@ -366,6 +369,7 @@ mod tests {
         t.question = Some(HumanQuestion {
             options: vec!["Only the profile form".into(), "Everywhere".into()],
             recommended: Some(1),
+            notes: Vec::new(),
             id: "q1".into(),
             text: "Split fullName everywhere?".into(),
             asked_at: NOW,

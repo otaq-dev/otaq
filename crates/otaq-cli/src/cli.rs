@@ -4,7 +4,7 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{ArgMatches, Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use otaq_core::domain::Priority;
 use otaq_core::naming;
 
@@ -231,6 +231,9 @@ pub enum Command {
         /// An answer option (repeatable, 2–4 short labels); without options the question is free text
         #[arg(long = "option", value_name = "LABEL")]
         options: Vec<String>,
+        /// The pros and cons of the --option right before it (optional, at most one per option)
+        #[arg(long = "note", value_name = "TEXT")]
+        notes: Vec<String>,
         /// The recommended option, 1-based
         #[arg(long, value_name = "N")]
         recommended: Option<u32>,
@@ -440,6 +443,54 @@ fn parse_priority(text: &str) -> Result<Priority, String> {
     text.parse()
 }
 
+/// Parses the arguments, keeping clap's matches: `ask`'s notes are paired with its options by where they stand on
+/// the command line ([`option_notes`]), which the derived struct loses.
+pub fn parse_from(args: &[OsString]) -> Result<(Cli, ArgMatches), clap::Error> {
+    let matches = Cli::command().try_get_matches_from(args)?;
+    let cli = Cli::from_arg_matches(&matches)?;
+    Ok((cli, matches))
+}
+
+/// `ask`'s notes (ATT-17), one entry per `--option` in order, `None` for an option without one: each `--note`
+/// belongs to the `--option` right before it on the command line (`--option A --option B --note x`: the note is
+/// B's). Refused, naming the rule: a `--note` with no `--option` before it, two for one option.
+pub fn option_notes(matches: &ArgMatches) -> Result<Vec<Option<String>>, String> {
+    let Some(ask) = matches.subcommand_matches("ask") else {
+        return Ok(Vec::new());
+    };
+    let at = |id: &str| -> Vec<usize> {
+        ask.indices_of(id)
+            .map(Iterator::collect)
+            .unwrap_or_default()
+    };
+    let options: Vec<&String> = ask
+        .get_many("options")
+        .map(Iterator::collect)
+        .unwrap_or_default();
+    let notes: Vec<&String> = ask
+        .get_many("notes")
+        .map(Iterator::collect)
+        .unwrap_or_default();
+    let (option_at, note_at) = (at("options"), at("notes"));
+    let mut paired: Vec<Option<String>> = vec![None; options.len()];
+    for (note, index) in notes.into_iter().zip(note_at) {
+        let Some(n) = option_at.iter().rposition(|&o| o < index) else {
+            return Err(NOTE_AFTER_OPTION.to_owned());
+        };
+        if paired[n].is_some() {
+            return Err(format!(
+                "Give at most one --note per --option: \"{}\" has two",
+                options[n]
+            ));
+        }
+        paired[n] = Some(note.clone());
+    }
+    Ok(paired)
+}
+
+/// The refusal of a `--note` with no `--option` before it.
+pub const NOTE_AFTER_OPTION: &str = "--note must follow the --option it describes";
+
 pub fn wants_json(args: &[OsString]) -> bool {
     args.iter()
         .skip(1)
@@ -455,6 +506,116 @@ mod tests {
 
     fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
         Cli::try_parse_from(std::iter::once(naming::COMMAND_NAME).chain(args.iter().copied()))
+    }
+
+    fn notes(args: &[&str]) -> Result<Vec<Option<String>>, String> {
+        let args: Vec<OsString> = std::iter::once(naming::COMMAND_NAME)
+            .chain(args.iter().copied())
+            .map(OsString::from)
+            .collect();
+        option_notes(&parse_from(&args).unwrap().1)
+    }
+
+    fn some(text: &str) -> Option<String> {
+        Some(text.to_owned())
+    }
+
+    const MD: &str = "Opens in any editor; one file per note, no attachments.";
+    const ZIP: &str = "One download with everything, but needs a ZIP library and an import later.";
+
+    /// ATT-17: a `--note` belongs to the `--option` right before it on the command line, not by count.
+    #[test]
+    fn notes_pair_with_the_option_before_them() {
+        let ask = ["ask", "human", "--stdin"];
+        let with = |rest: &[&str]| notes(&[&ask[..], rest].concat());
+        assert_eq!(
+            with(&[
+                "--option",
+                "Markdown files",
+                "--note",
+                MD,
+                "--option",
+                "One ZIP",
+                "--note",
+                ZIP,
+                "--recommended",
+                "1"
+            ]),
+            Ok(vec![some(MD), some(ZIP)])
+        );
+        assert_eq!(
+            with(&[
+                "--option", "A", "--note", "a", "--option", "B", "--option", "C", "--note", "c"
+            ]),
+            Ok(vec![some("a"), None, some("c")])
+        );
+        assert_eq!(
+            with(&["--option", "A", "--option", "B", "--option", "C"]),
+            Ok(vec![None, None, None])
+        );
+        assert_eq!(
+            with(&[
+                "--option", "A", "--note", "a", "--option", "B", "--note", "b", "--option", "C",
+                "--note", "c"
+            ]),
+            Ok(vec![some("a"), some("b"), some("c")])
+        );
+        assert_eq!(
+            with(&["--option", "A", "--option", "B", "--note", "x"]),
+            Ok(vec![None, some("x")])
+        );
+        assert_eq!(
+            with(&["--option=A", "--note=a", "--option=B"]),
+            Ok(vec![some("a"), None])
+        );
+        assert_eq!(with(&[]), Ok(vec![]));
+        let long = "x".repeat(600);
+        assert_eq!(
+            with(&["--option", "A", "--note", &long, "--option", "B"]),
+            Ok(vec![Some(long.clone()), None])
+        );
+        assert!(
+            notes(&["list"]).unwrap().is_empty(),
+            "other commands have none"
+        );
+    }
+
+    #[test]
+    fn a_note_out_of_place_is_refused_naming_the_rule() {
+        let ask = ["ask", "human", "--stdin"];
+        let with = |rest: &[&str]| notes(&[&ask[..], rest].concat());
+        assert_eq!(
+            with(&["--note", "a", "--option", "A", "--option", "B"]).unwrap_err(),
+            "--note must follow the --option it describes"
+        );
+        assert_eq!(with(&["--note", "a"]).unwrap_err(), NOTE_AFTER_OPTION);
+        assert_eq!(
+            with(&[
+                "--option", "A", "--note", "a", "--note", "b", "--option", "B"
+            ])
+            .unwrap_err(),
+            "Give at most one --note per --option: \"A\" has two"
+        );
+    }
+
+    #[test]
+    fn the_help_of_ask_describes_note_in_one_line() {
+        let mut command = Cli::command();
+        let help = command
+            .find_subcommand_mut("ask")
+            .unwrap()
+            .render_help()
+            .to_string();
+        let line = help
+            .lines()
+            .find(|l| l.trim_start().starts_with("--note <TEXT>"))
+            .unwrap_or_else(|| panic!("{help}"));
+        assert_eq!(
+            line.trim_start_matches([' '])
+                .trim_start_matches("--note <TEXT>")
+                .trim(),
+            "The pros and cons of the --option right before it (optional, at most one per option)"
+        );
     }
 
     #[test]

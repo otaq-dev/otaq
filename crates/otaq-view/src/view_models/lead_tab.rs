@@ -701,6 +701,7 @@ pub fn gallery() -> Gallery {
         text: "Should the share link (40.4) expire? PAY-123 doesn\u{2019}t say.".into(),
         options: vec!["Never".into(), "After 30 days".into()],
         recommended: None,
+        notes: Vec::new(),
         asked_at: T0,
         via_lead: None,
     });

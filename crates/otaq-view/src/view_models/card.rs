@@ -3491,6 +3491,7 @@ mod tests {
             text: "Which email provider should the order confirmation use?".into(),
             options: vec!["Postmark".into(), "SES".into(), "Resend".into()],
             recommended: Some(1),
+            notes: Vec::new(),
             asked_at: 0,
             via_lead: None,
         });

@@ -1402,3 +1402,44 @@ async fn agent_rows_take_the_move_columns_and_holds_start_empty() {
             .unwrap();
     assert!(!fallback_held);
 }
+
+/// T-0374 (ATT-17, d0061): migration 0045 adds `option_notes_json`; a question asked before it reads as no notes,
+/// for its ticket and for the lead.
+#[tokio::test]
+async fn questions_asked_before_notes_read_as_no_notes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 44).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, kind, title, board_column, state, created_by, created_at,
+                              updated_at)
+         VALUES ('t31', 'p', 31, 'ticket', 'Order confirmation email', 'dev', 'asks_you', 'me', 0, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO human_questions (id, ticket_id, question, options_json, recommended, asked_at)
+         VALUES ('h1', 't31', 'Postmark or SES?', '[\"Postmark\",\"SES\"]', 1, 4)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT option_notes_json FROM human_questions WHERE id = 'h1'")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(stored, None);
+    let board = otaq_core::board::Board::new(store, None);
+    let question = board.open_question("t31").await.unwrap().expect("open");
+    assert_eq!(question.options, ["Postmark", "SES"]);
+    assert!(question.notes.is_empty());
+}

@@ -4,6 +4,9 @@
 //! options it is free text. The UI always adds "Other…" (M7). Options apply only to questions to the human; a
 //! question to another ticket (`ask <KEY>`, M10) stays free text. The answer is typed into the session as
 //! [`format_answer`] words it.
+//!
+//! Each option may carry a **note**, its pros and cons (`--note` after its `--option`, ATT-17, d0061): stored whole,
+//! never refused for its length or cut. The delivered answer doesn't name it.
 
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +29,10 @@ pub struct HumanQuestion {
     /// The recommended option, 1-based.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recommended: Option<u32>,
+    /// Each option's note (ATT-17), in the options' order, `None` for an option without one; empty when no option
+    /// has one.
+    #[serde(default, skip_serializing_if = "no_notes")]
+    pub notes: Vec<Option<String>>,
     pub asked_at: i64,
     /// Passed on by the epic's lead (LEAD-06): `recommended` is the lead's choice, and this names the lead and
     /// its reason ("SHOP-40.2 asks · passed on by Wishlist lead").
@@ -101,6 +108,56 @@ pub fn validate_options(options: &[String], recommended: Option<u32>) -> Result<
     }
 }
 
+/// No option has a note.
+pub fn no_notes(notes: &[Option<String>]) -> bool {
+    notes.iter().all(Option::is_none)
+}
+
+/// Checks the notes of a question's options (ATT-17): none, or one entry per option (`None` for an option without
+/// a note). Never refused for length.
+pub fn validate_notes(options: &[String], notes: &[Option<String>]) -> Result<(), BoardError> {
+    if no_notes(notes) {
+        return Ok(());
+    }
+    let refuse = |message: &str| Err(BoardError::refused(Refusal::BadQuestion, message));
+    if options.is_empty() {
+        return refuse(
+            "A free-text question takes no --note: a --note describes the --option before it",
+        );
+    }
+    if notes.len() != options.len() {
+        return refuse("Give the notes one per option, in the options' order");
+    }
+    Ok(())
+}
+
+/// The notes as stored: surrounding whitespace trimmed, an empty note none, and empty when no option has one.
+pub fn clean_notes(notes: &[Option<String>]) -> Vec<Option<String>> {
+    let notes: Vec<Option<String>> = notes
+        .iter()
+        .map(|n| {
+            n.as_deref()
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .map(str::to_owned)
+        })
+        .collect();
+    if no_notes(&notes) { Vec::new() } else { notes }
+}
+
+/// `option_notes_json`: NULL when no option has a note.
+pub(crate) fn notes_json(notes: &[Option<String>]) -> Option<String> {
+    (!no_notes(notes)).then(|| serde_json::to_string(notes).expect("strings serialize"))
+}
+
+/// Reads `option_notes_json`; NULL (every question asked before M26) or unreadable is no notes.
+pub(crate) fn notes_from_json(json: Option<&str>) -> Vec<Option<String>> {
+    let notes: Vec<Option<String>> = json
+        .and_then(|j| serde_json::from_str(j).ok())
+        .unwrap_or_default();
+    if no_notes(&notes) { Vec::new() } else { notes }
+}
+
 /// The text typed into the agent's session: "Answer to your question: Postmark (option 1)." for an option,
 /// "Answer to your question: <text>" for "Other…".
 pub fn format_answer(question: &HumanQuestion, choice: &Choice) -> String {
@@ -122,6 +179,7 @@ struct QuestionRow {
     question: String,
     options_json: String,
     recommended: Option<i64>,
+    option_notes_json: Option<String>,
     asked_at: i64,
     lead_state: Option<String>,
     lead_reason: Option<String>,
@@ -131,8 +189,8 @@ struct QuestionRow {
 
 /// The columns of [`QuestionRow`], and where they come from (`human_questions q` and the epic `e` it was routed
 /// through).
-const QUESTION_COLUMNS: &str = "q.id, q.question, q.options_json, q.recommended, q.asked_at, q.lead_state, \
-     q.lead_reason, e.title AS epic_title";
+const QUESTION_COLUMNS: &str = "q.id, q.question, q.options_json, q.recommended, q.option_notes_json, q.asked_at, \
+     q.lead_state, q.lead_reason, e.title AS epic_title";
 const QUESTION_FROM: &str = "human_questions q LEFT JOIN tickets e ON e.id = q.lead_epic_id";
 
 impl QuestionRow {
@@ -157,6 +215,7 @@ impl From<QuestionRow> for HumanQuestion {
             text: row.question,
             options: serde_json::from_str(&row.options_json).unwrap_or_default(),
             recommended: row.recommended.and_then(|n| u32::try_from(n).ok()),
+            notes: notes_from_json(row.option_notes_json.as_deref()),
             asked_at: row.asked_at,
             via_lead,
         }
@@ -170,9 +229,10 @@ impl Board {
         ticket_id: &str,
         text: &str,
         options: &[String],
+        notes: &[Option<String>],
         recommended: Option<u32>,
     ) -> Result<HumanQuestion, BoardError> {
-        self.insert_question("ticket_id", ticket_id, text, options, recommended)
+        self.insert_question("ticket_id", ticket_id, text, options, notes, recommended)
             .await
     }
 
@@ -182,9 +242,10 @@ impl Board {
         agent: &str,
         text: &str,
         options: &[String],
+        notes: &[Option<String>],
         recommended: Option<u32>,
     ) -> Result<HumanQuestion, BoardError> {
-        self.insert_question("project_agent_id", agent, text, options, recommended)
+        self.insert_question("project_agent_id", agent, text, options, notes, recommended)
             .await
     }
 
@@ -209,26 +270,31 @@ impl Board {
         owner: &str,
         text: &str,
         options: &[String],
+        notes: &[Option<String>],
         recommended: Option<u32>,
     ) -> Result<HumanQuestion, BoardError> {
         validate_options(options, recommended)?;
+        validate_notes(options, notes)?;
         let question = HumanQuestion {
             id: new_id(),
             text: text.trim().to_owned(),
             options: options.iter().map(|o| o.trim().to_owned()).collect(),
             recommended,
+            notes: clean_notes(notes),
             asked_at: now_ms(),
             via_lead: None,
         };
         sqlx::query(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO human_questions (id, {owner_column}, question, options_json, recommended, asked_at)
-             VALUES (?, ?, ?, ?, ?, ?)"
+            "INSERT INTO human_questions (id, {owner_column}, question, options_json, recommended, option_notes_json,
+                                          asked_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)"
         )))
         .bind(&question.id)
         .bind(owner)
         .bind(&question.text)
         .bind(serde_json::to_string(&question.options).expect("strings serialize"))
         .bind(question.recommended.map(i64::from))
+        .bind(notes_json(&question.notes))
         .bind(question.asked_at)
         .execute(self.store().pool())
         .await?;
@@ -367,6 +433,52 @@ mod tests {
         );
     }
 
+    /// ATT-17: notes are none, or one per option; never refused for length; stored trimmed, an empty one none.
+    #[test]
+    fn notes_pair_with_the_options() {
+        let two = opts(&["Markdown files", "One ZIP"]);
+        assert!(validate_notes(&two, &[]).is_ok());
+        assert!(validate_notes(&two, &[None, None]).is_ok());
+        assert!(validate_notes(&[], &[None]).is_ok(), "no notes at all");
+        let long = "x".repeat(600);
+        assert!(validate_notes(&two, &[Some(long.clone()), None]).is_ok());
+        assert_eq!(
+            validate_notes(&[], &[Some("a".into())])
+                .unwrap_err()
+                .to_string(),
+            "A free-text question takes no --note: a --note describes the --option before it"
+        );
+        assert_eq!(
+            validate_notes(&two, &[Some("a".into())])
+                .unwrap_err()
+                .to_string(),
+            "Give the notes one per option, in the options' order"
+        );
+        assert_eq!(
+            clean_notes(&[Some("  Opens anywhere. \n".into()), Some(" ".into())]),
+            [Some("Opens anywhere.".to_owned()), None]
+        );
+        assert!(clean_notes(&[None, Some(String::new())]).is_empty());
+        assert_eq!(
+            clean_notes(&[Some(long.clone()), None])[0].as_deref(),
+            Some(long.as_str())
+        );
+        assert_eq!(notes_json(&[None, None]), None);
+        assert_eq!(
+            notes_json(&[Some("a".into()), None]).as_deref(),
+            Some(r#"["a",null]"#)
+        );
+        assert_eq!(notes_from_json(None), Vec::<Option<String>>::new());
+        assert_eq!(
+            notes_from_json(Some("[null,null]")),
+            Vec::<Option<String>>::new()
+        );
+        assert_eq!(
+            notes_from_json(Some(r#"["a",null]"#)),
+            [Some("a".to_owned()), None]
+        );
+    }
+
     #[test]
     fn answers_name_the_choice() {
         let q = HumanQuestion {
@@ -374,6 +486,7 @@ mod tests {
             text: "Which email provider?".into(),
             options: opts(&["Postmark", "SES", "Resend"]),
             recommended: Some(1),
+            notes: vec![Some("One small library.".into()), None, None],
             asked_at: 0,
             via_lead: None,
         };

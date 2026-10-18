@@ -8,4 +8,8 @@ export type CardOption = { number: number, label: string, recommended: string | 
 /**
  * What a click sends: the option's number (Other… is the last).
  */
-action: CardActionKind, };
+action: CardActionKind, 
+/**
+ * The option's own note, its pros and cons (ATT-17), whole.
+ */
+option_note: string | null, };

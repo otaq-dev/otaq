@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::board::epic_flight::{EpicPlace, EpicQueueMode, been_to_dev, epic_place};
 use crate::board::order::start_order;
-use crate::board::questions::HumanQuestion;
+use crate::board::questions::{HumanQuestion, no_notes};
 use crate::board::tickets::{Base, Ticket};
 use crate::board::{Board, BoardError, Refusal};
 use crate::decisions::{self, Decision};
@@ -280,16 +280,34 @@ fn quote(out: &mut String, indent: &str, text: &str) {
     }
 }
 
-fn options_text(options: &[String], recommended: Option<u32>) -> String {
+/// " Options: 1. A (recommended) 2. B" on the question's line; when an option has a note (ATT-17), one option per
+/// line with its note whole under it, so the lead weighs them.
+fn options_text(options: &[String], notes: &[Option<String>], recommended: Option<u32>) -> String {
+    let label = |n: usize, o: &str| match recommended == Some(n as u32 + 1) {
+        true => format!("{}. {o} (recommended)", n + 1),
+        false => format!("{}. {o}", n + 1),
+    };
+    if no_notes(notes) {
+        let listed: Vec<String> = options
+            .iter()
+            .enumerate()
+            .map(|(n, o)| label(n, o))
+            .collect();
+        return format!(" Options: {}", listed.join(" "));
+    }
     let listed: Vec<String> = options
         .iter()
         .enumerate()
-        .map(|(n, o)| match recommended == Some(n as u32 + 1) {
-            true => format!("{}. {o} (recommended)", n + 1),
-            false => format!("{}. {o}", n + 1),
+        .map(|(n, o)| match notes.get(n).cloned().flatten() {
+            Some(note) => format!(
+                "\n  {}\n     {}",
+                label(n, o),
+                note.trim().replace('\n', "\n     ")
+            ),
+            None => format!("\n  {}", label(n, o)),
         })
         .collect();
-    listed.join(" ")
+    format!(" Options:{}", listed.concat())
 }
 
 /// The Markdown the lead reads.
@@ -389,10 +407,7 @@ pub fn render(ctx: &EpicPrime) -> String {
     for q in &ctx.lead_questions {
         out.push_str(&format!("- {} from {}: {}", q.id, q.child, q.question));
         if !q.options.is_empty() {
-            out.push_str(&format!(
-                " Options: {}",
-                options_text(&q.options, q.recommended)
-            ));
+            out.push_str(&options_text(&q.options, &q.notes, q.recommended));
         }
         out.push('\n');
     }
@@ -408,13 +423,20 @@ pub fn render(ctx: &EpicPrime) -> String {
             q.question.id, q.child, q.question.text
         ));
         if !q.question.options.is_empty() {
-            out.push_str(&format!(
-                " Options: {}",
-                options_text(&q.question.options, q.question.recommended)
+            out.push_str(&options_text(
+                &q.question.options,
+                &q.question.notes,
+                q.question.recommended,
             ));
         }
         if let Some(via) = &q.question.via_lead {
-            out.push_str(&format!(" (passed on by {}: {})", via.lead, via.reason));
+            // Under the listed options when they carry notes, else on the question's line.
+            let gap = if no_notes(&q.question.notes) {
+                " "
+            } else {
+                "\n  "
+            };
+            out.push_str(&format!("{gap}(passed on by {}: {})", via.lead, via.reason));
         }
         out.push('\n');
     }

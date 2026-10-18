@@ -22,17 +22,16 @@ mod write;
 
 use std::process::ExitCode;
 
-use clap::Parser;
 use clap::error::ErrorKind as ClapErrorKind;
 use otaq_core::protocol::{ErrorBody, ErrorKind};
 
-use cli::{Cli, Command};
+use cli::Command;
 use output::{EXIT_ERROR, EXIT_USAGE, Mode, Output};
 
 fn main() -> ExitCode {
     let args: Vec<_> = std::env::args_os().collect();
-    let cli = match Cli::try_parse_from(&args) {
-        Ok(cli) => cli,
+    let (cli, matches) = match cli::parse_from(&args) {
+        Ok(parsed) => parsed,
         Err(e) => return usage_error(e, cli::wants_json(&args)),
     };
     let out = Output::new(cli.global.mode());
@@ -134,6 +133,7 @@ fn main() -> ExitCode {
             target,
             stdin,
             options,
+            notes: _,
             recommended,
             pass_on,
         }) => agent::ask(
@@ -141,6 +141,7 @@ fn main() -> ExitCode {
                 target,
                 stdin,
                 options,
+                notes: cli::option_notes(&matches),
                 recommended,
                 pass_on,
             },

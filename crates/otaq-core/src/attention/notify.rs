@@ -1066,6 +1066,7 @@ mod tests {
                 text: "Profile in production too?".into(),
                 options: Vec::new(),
                 recommended: None,
+                notes: Vec::new(),
                 asked_at: since,
                 via_lead: None,
             }),
@@ -1146,6 +1147,7 @@ mod tests {
             text: "Can guests save items without logging in?".into(),
             options: vec!["Logged-in users only".into()],
             recommended: Some(1),
+            notes: Vec::new(),
             asked_at: 1,
             via_lead: Some(crate::board::questions::ViaLead {
                 lead: "Wishlist lead".into(),
