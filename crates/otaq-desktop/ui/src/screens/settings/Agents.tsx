@@ -1,13 +1,16 @@
-// Settings → Agents (T-0343; AGT-01…AGT-03, AGT-05's mark; d0086, d0077; *15 · Settings* `bVdGw`, `FYvzM`, `cnRA5`,
-// `XlyOa`, `Z4gQQQ` in their one-tool form): the Named agents table (NAME · MODEL · USE FOR, no tool column), each
-// row's ⋯ menu (Edit…, Duplicate, Delete…), the amber mark (`st-paused`), the fresh-install note while one entry
-// exists, Add agent, and the four role defaults; and the project's Agents block (`mQijC`), collapsed at "Uses app
-// defaults · Change" until the project overrides a role. Everything comes from T-0340's views (`settings.agents`,
+// Settings → Agents (T-0343, T-0366; AGT-01…AGT-03, AGT-05's marks, AGT-08; d0086, d0077; *15 · Settings* `bVdGw`,
+// `FYvzM`, `cnRA5`, `soGMU`, `t1sI3`, `OCna6`, `XlyOa`, `Z4gQQQ`): the Named agents table (NAME · MODEL · USE FOR with
+// one tool; NAME · TOOL · MODEL · USE FOR · FALLBACK with several, each tool with its avatar), each row's ⋯ menu
+// (Edit…, Duplicate, Delete…), the amber marks (`st-paused`: a model that can't run, a tool that isn't connected), a
+// row a tool connecting added ("added") with "DEFAULTS · UNCHANGED" under the table, the fresh-install note while one
+// entry exists, Add agent, the four role defaults, and the Fallbacks block ("Use fallback agents automatically",
+// disabled with its reason while one tool is connected); and the project's Agents block (`mQijC`), collapsed at "Uses
+// app defaults · Change" until the project overrides a role. Everything comes from the views (`settings.agents`,
 // `settings.project_agents` and the answers of the calls below); this keeps the open menu and dialog.
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { closeOverlay } from "../../app/overlays";
-import { AnchoredMenu, Button, IconButton } from "../../components";
+import { AnchoredMenu, Button, Checkbox, IconButton, ToolAvatar, Tooltip } from "../../components";
 import type { AgentDeleteDialog } from "../../generated/AgentDeleteDialog";
 import type { AgentDeleteOutcome } from "../../generated/AgentDeleteOutcome";
 import type { AgentDialog as AgentDialogView } from "../../generated/AgentDialog";
@@ -16,6 +19,7 @@ import type { AgentMenuAction } from "../../generated/AgentMenuAction";
 import type { AgentMenuItem } from "../../generated/AgentMenuItem";
 import type { AgentRole } from "../../generated/AgentRole";
 import type { AgentSaveOutcome } from "../../generated/AgentSaveOutcome";
+import type { AgentsFallbacks } from "../../generated/AgentsFallbacks";
 import type { AgentsSection as AgentsSectionView } from "../../generated/AgentsSection";
 import type { AgentTableRow } from "../../generated/AgentTableRow";
 import type { MenuItem } from "../../generated/MenuItem";
@@ -49,13 +53,20 @@ export interface AgentsActions {
   onAdd: () => void;
   onMenu: (row: AgentTableRow, action: AgentMenuAction) => void;
   onDefault: (role: AgentRole, agent: string) => void;
+  /** "Use fallback agents automatically" (`settings.auto_fallback`). */
+  onAutoFallback: (on: boolean) => void;
 }
 
 function TableRow({ row, onMenu }: { row: AgentTableRow; onMenu: AgentsActions["onMenu"] }) {
   const more = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   return (
-    <div className="settings-agents-row" role="row" data-open={open || undefined}>
+    <div
+      className="settings-agents-row"
+      role="row"
+      data-open={open || undefined}
+      data-added={row.added !== null || undefined}
+    >
       <span className="settings-agents-name" role="cell">
         <span>{row.name}</span>
         {row.mark && (
@@ -65,18 +76,36 @@ function TableRow({ row, onMenu }: { row: AgentTableRow; onMenu: AgentsActions["
             label={row.mark.before + (row.mark.model ?? "") + row.mark.after}
           />
         )}
+        {row.added !== null && row.fallback === null && (
+          <span className="settings-agents-added">{row.added}</span>
+        )}
       </span>
-      <span
-        className="settings-agents-model"
-        role="cell"
-        data-mono={row.model_mono || undefined}
-        data-marked={row.mark ? true : undefined}
-      >
-        {row.model}
+      <span className="settings-agents-tool-model" role="cell">
+        {row.tool && <ToolAvatar avatar={row.tool} />}
+        {row.tool_name !== null && <span className="settings-agents-tool">{row.tool_name} ·</span>}
+        <span
+          className="settings-agents-model"
+          data-mono={row.model_mono || undefined}
+          data-marked={row.mark ? true : undefined}
+        >
+          {row.model}
+        </span>
       </span>
       <span className="settings-agents-use" role="cell">
         {row.use_for}
       </span>
+      {row.fallback !== null && (
+        <span
+          className="settings-agents-fallback"
+          role="cell"
+          data-none={row.fallback === "none" || undefined}
+        >
+          {row.fallback !== "none" && <Icon name="corner-down-right" size={12} />}
+          <span>{row.fallback}</span>
+          {/* At the row's end, as `t1sI3` draws it. */}
+          {row.added !== null && <span className="settings-agents-added">{row.added}</span>}
+        </span>
+      )}
       <span className="settings-agents-more" role="cell">
         <IconButton
           ref={more}
@@ -87,6 +116,14 @@ function TableRow({ row, onMenu }: { row: AgentTableRow; onMenu: AgentsActions["
           }}
         />
       </span>
+      {row.tool_problem !== null && (
+        <span className="settings-agents-mark">
+          <span className="settings-agent-mark-line">
+            <Icon name="triangle-alert" size={12} />
+            <span>{row.tool_problem}</span>
+          </span>
+        </span>
+      )}
       {row.mark && (
         <span className="settings-agents-mark">
           <MarkLine mark={row.mark} />
@@ -128,13 +165,19 @@ export function AgentsSectionBody({
   onAdd,
   onMenu,
   onDefault,
+  onAutoFallback,
 }: { section: AgentsSectionView } & AgentsActions) {
   return (
     <section className="settings-section settings-agents" data-section="agents" aria-label={section.title}>
       <h3 className="settings-section-title">{section.title}</h3>
       <p className="settings-intro">{section.intro}</p>
       <h4 className="settings-agents-heading">{section.table_title}</h4>
-      <div className="settings-agents-table" role="table" aria-label={section.table_title}>
+      <div
+        className="settings-agents-table"
+        role="table"
+        aria-label={section.table_title}
+        data-columns={section.columns.length}
+      >
         <div className="settings-agents-row settings-agents-head" role="row">
           {section.columns.map((column) => (
             <span key={column} role="columnheader">
@@ -150,6 +193,12 @@ export function AgentsSectionBody({
       <span className="settings-agents-add">
         <Button variant="secondary" icon="plus" label={section.add_label} onClick={onAdd} />
       </span>
+      {section.defaults_unchanged && (
+        <div className="settings-agents-unchanged" role="note">
+          <span className="settings-agents-unchanged-heading">{section.defaults_unchanged.heading}</span>
+          <span>{section.defaults_unchanged.text}</span>
+        </div>
+      )}
       {section.fresh_note && (
         <div className="settings-agents-note" role="note">
           <Icon name="lightbulb" size={14} />
@@ -181,7 +230,39 @@ export function AgentsSectionBody({
         </div>
       ))}
       <p className="settings-agents-defaults-note">{section.defaults_note}</p>
+      <Fallbacks block={section.fallbacks} onChange={onAutoFallback} />
     </section>
+  );
+}
+
+/** The Fallbacks block (AGT-08, `cnRA5`, `bVdGw`): the check box with its help, and the note under it; while one tool
+ * is connected the box is disabled and hovering it says why. */
+function Fallbacks({ block, onChange }: { block: AgentsFallbacks; onChange: (on: boolean) => void }) {
+  const box = (
+    <span className="settings-agents-fallbacks-box">
+      <Checkbox
+        checked={block.on}
+        disabled={!block.enabled}
+        label={
+          <span className="settings-agents-fallbacks-text">
+            <span className="settings-row-label">{block.label}</span>
+            <span className="settings-row-description">{block.help}</span>
+          </span>
+        }
+        onChange={onChange}
+      />
+    </span>
+  );
+  return (
+    <>
+      <h4 className="settings-agents-heading" data-ruled>
+        {block.title}
+      </h4>
+      <div className="settings-agents-fallbacks" data-disabled={!block.enabled || undefined}>
+        {block.enabled ? box : <Tooltip text={block.note}>{box}</Tooltip>}
+        <p className="settings-agents-defaults-note">{block.note}</p>
+      </div>
+    </>
   );
 }
 
@@ -250,18 +331,28 @@ export function useAgentDialogs(
   let dialog = null;
   if (open?.kind === "edit") {
     const id = open.dialog.id;
+    // The newest call's answer replaces the dialog (typing, a Tool change, Retry).
+    const ask = (method: string, params: unknown) => {
+      const mine = ++asked.current;
+      request(method, params).then((d) => {
+        if (mine !== asked.current) return;
+        setOpen((o) =>
+          o?.kind === "edit" && o.key === open.key ? { ...o, dialog: d as AgentDialogView } : o,
+        );
+      }, fail);
+    };
     dialog = (
       <AgentDialog
         key={open.key}
         dialog={open.dialog}
         onDraft={(draft: AgentDraft) => {
-          const mine = ++asked.current;
-          request("settings.agent_dialog", { id, draft }).then((d) => {
-            if (mine !== asked.current) return;
-            setOpen((o) =>
-              o?.kind === "edit" && o.key === open.key ? { ...o, dialog: d as AgentDialogView } : o,
-            );
-          }, fail);
+          ask("settings.agent_dialog", { id, draft });
+        }}
+        onTool={(tool, draft) => {
+          ask("settings.agent_dialog", { id, draft, tool });
+        }}
+        onRetry={(tool, draft) => {
+          ask("settings.agent_models_retry", { tool, dialog: { id, duplicate: null, draft, tool: null } });
         }}
         onSave={(draft) => {
           asked.current += 1;
@@ -317,7 +408,8 @@ export function AgentsSection() {
     () =>
       watchView(
         () => request("settings.agents", { refresh: false }) as Promise<AgentsSectionView>,
-        ["agents_changed"],
+        // A tool connected or hidden in Agent tools changes the columns, the pickers and the Fallbacks block.
+        ["agents_changed", "agent_tools_changed"],
         (state) => {
           if (state.view) setSection(state.view);
           setError(state.error ?? null);
@@ -349,6 +441,16 @@ export function AgentsSection() {
       },
     );
   };
+  const onAutoFallback = (on: boolean) => {
+    request("settings.auto_fallback", { on }).then(
+      (s) => {
+        setSection(s as AgentsSectionView);
+      },
+      (e: unknown) => {
+        setError(asRequestError(e));
+      },
+    );
+  };
   return (
     <>
       {error && (
@@ -356,7 +458,15 @@ export function AgentsSection() {
           {error.message}
         </p>
       )}
-      {section && <AgentsSectionBody section={section} onAdd={onAdd} onMenu={onMenu} onDefault={onDefault} />}
+      {section && (
+        <AgentsSectionBody
+          section={section}
+          onAdd={onAdd}
+          onMenu={onMenu}
+          onDefault={onDefault}
+          onAutoFallback={onAutoFallback}
+        />
+      )}
       {dialog}
     </>
   );

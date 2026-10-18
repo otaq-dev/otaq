@@ -1190,7 +1190,8 @@
   color: var(--st-error);
 }
 
-/* ---- Agents (T-0343; *15* `bVdGw`, `XlyOa`, `Z4gQQQ`, `k8WyHN`, `WFHlh`, `O7UTA`, `Wjp2r`, `mQijC`) ---- */
+/* ---- Agents (T-0343, T-0366; *15* `bVdGw`, `cnRA5`, `soGMU`, `t1sI3`, `OCna6`, `XlyOa`, `Z4gQQQ`, `k8WyHN`, `ObF25`,
+ * `GTuGI`, `WFHlh`, `O7UTA`, `Wjp2r`, `mQijC`) ---- */
 
 .settings-agents > .settings-section-title {
   padding: 16px 0 4px;
@@ -1217,7 +1218,8 @@
   background: var(--bg-card);
 }
 
-/* NAME 130 · MODEL 230 · USE FOR 294 · ⋯ 32 at the frame's 746 px, shared out as the page widens. */
+/* NAME 130 · MODEL 230 · USE FOR 294 · ⋯ 32 at the frame's 746 px, shared out as the page widens; with several tools
+ * NAME 110 · TOOL · MODEL 250 · USE FOR 160 · FALLBACK 118 · ⋯ 32 (`cnRA5`). */
 .settings-agents-row {
   display: grid;
   grid-template-columns: minmax(0, 130fr) minmax(0, 230fr) minmax(0, 294fr) 32px;
@@ -1228,8 +1230,23 @@
   font: 400 12px var(--font-ui);
 }
 
+.settings-agents-table[data-columns="4"] .settings-agents-row {
+  grid-template-columns: minmax(0, 110fr) minmax(0, 250fr) minmax(0, 160fr) minmax(0, 118fr) 32px;
+}
+
 .settings-agents-row[data-open] {
   background: var(--bg-column);
+}
+
+/* The entry a tool connecting added (`t1sI3`): the accent's tint until the page is left. */
+.settings-agents-row[data-added] {
+  background: var(--accent-soft);
+}
+
+.settings-agents-added {
+  margin-left: auto;
+  color: var(--accent);
+  font: 400 11.5px var(--font-ui);
 }
 
 .settings-agents-head {
@@ -1260,6 +1277,43 @@
 .settings-agents-model,
 .settings-agents-use {
   color: var(--text-secondary);
+}
+
+/* "CC Claude Code · Opus · always the newest": the tool muted, the model after it in the primary colour. */
+.settings-agents-tool-model {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-agents-tool {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.settings-agents-tool + .settings-agents-model {
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-agents-fallback {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-primary);
+}
+
+.settings-agents-fallback > .icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.settings-agents-fallback[data-none] {
+  color: var(--text-muted);
 }
 
 .settings-agents-model[data-marked] {
@@ -1375,6 +1429,54 @@
   font: 400 11.5px/1.4 var(--font-ui);
 }
 
+/* "DEFAULTS · UNCHANGED" under the table after a tool connected (`t1sI3`). */
+.settings-agents-unchanged {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 12px;
+  color: var(--text-secondary);
+  font: 400 12px var(--font-ui);
+}
+
+.settings-agents-unchanged-heading {
+  color: var(--text-muted);
+  font: 400 10px var(--font-mono);
+  letter-spacing: 0.8px;
+}
+
+/* The Fallbacks block (`cnRA5`, `bVdGw`): the box at the left of its label and help; dimmed while disabled. */
+.settings-agents-fallbacks {
+  padding: 12px 0 0;
+}
+
+.settings-agents-fallbacks-box {
+  display: inline-flex;
+}
+
+.settings-agents-fallbacks .choice {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.settings-agents-fallbacks .choice > .checkbox {
+  margin-top: 12px;
+}
+
+.settings-agents-fallbacks-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-agents-fallbacks-text .settings-row-label {
+  font-weight: 500;
+}
+
+.settings-agents-fallbacks[data-disabled] .settings-agents-fallbacks-text {
+  opacity: 0.55;
+}
+
 /* The agent and model pickers (closed: 28 px, the picked name or model, what it means muted). */
 .settings-agent-picker,
 .settings-model-field,
@@ -1384,7 +1486,7 @@
 }
 
 .settings-agent-picker[data-read-only],
-.settings-agent-tool {
+.settings-agent-tool[data-read-only] {
   cursor: default;
 }
 
@@ -1415,6 +1517,72 @@
 .settings-model-detail {
   margin-left: auto;
   font-size: 11px;
+}
+
+/* "no longer listed" on the field (`OCna6`). */
+.settings-model-detail.settings-model-gone {
+  color: var(--st-paused);
+}
+
+/* The open list while the tool's list isn't there (`GTuGI`): the line, and three grey bars while it loads. */
+.settings-model-status {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 8px 10px;
+  border-top: 1px solid var(--border);
+  font: 400 12px var(--font-ui);
+}
+
+.settings-model-status-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+}
+
+.settings-model-status[data-loading] .settings-model-status-line {
+  color: var(--text-secondary);
+}
+
+.settings-model-status-line > .icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.settings-model-status[data-loading] .settings-model-status-line > .icon {
+  animation: settings-warm-spin 1s linear infinite;
+}
+
+.settings-model-status .settings-link {
+  font-size: 12px;
+}
+
+.settings-model-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-model-skeleton > span {
+  width: 60%;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg-pressed);
+}
+
+.settings-model-skeleton > span:nth-child(2) {
+  width: 45%;
+}
+
+.settings-model-skeleton > span:nth-child(3) {
+  width: 54%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-model-status[data-loading] .settings-model-status-line > .icon {
+    animation: none;
+  }
 }
 
 .settings-model-field .select-value,
@@ -1532,6 +1700,11 @@
   gap: 6px;
   color: var(--text-primary);
   font: 500 12px var(--font-ui);
+}
+
+.settings-agent-tool-problem {
+  margin-top: 4px;
+  font: 400 11.5px var(--font-ui);
 }
 
 .settings-agent-mark-quote {

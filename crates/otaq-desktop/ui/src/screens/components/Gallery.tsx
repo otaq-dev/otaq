@@ -1401,11 +1401,13 @@ function EnvVarsSection() {
 
 const loadAgents = () => request("gallery.agents") as Promise<AgentsGallery>;
 
-/** *15 · Settings → Agents* in its one-tool form (T-0343, d0086): the section on a fresh install, a list you made and
- * with Fable test marked (open a ⋯ menu, a default's picker), each dialog (Add agent with the model picker, Edit with
- * the mark, Duplicate's "Strong copy", a taken name, the only agent) and both Deletes, and the project block
- * collapsed and expanded, from `gallery.agents`. Calls are only recorded; nothing is sent. */
-function AgentsGallerySection() {
+/** *15 · Settings → Agents* from `gallery.agents`, in its one-tool form (T-0343, d0086: the section on a fresh
+ * install, a list you made and with Fable test marked, each dialog — Add agent with the model picker, Edit with the
+ * mark, Duplicate's "Strong copy", a taken name, the only agent — both Deletes, and the project block collapsed and
+ * expanded) or with several tools (T-0366: `soGMU`, `t1sI3`, `cnRA5`, `OCna6`; Edit agent with Tool and Fallback
+ * `ObF25`, Copilot's Auto tiers, the list loading and couldn't load `GTuGI`, "no longer listed", the project block
+ * `mQijC`). Calls are only recorded; nothing is sent. */
+function AgentsGallerySection({ several }: { several: boolean }) {
   const { view, error } = useServiceView(loadAgents, []);
   const [picked, setPicked] = useState<string | null>(null);
   const [open, setOpen] = useState<{ kind: "dialog" | "delete"; index: number } | null>(null);
@@ -1414,13 +1416,28 @@ function AgentsGallerySection() {
   const close = () => {
     setOpen(null);
   };
+  // Several tools: the Fallbacks block is enabled, the dialog has a Fallback field, the pickers carry avatars.
+  const sections = view.sections.filter((cell) => cell.view.fallbacks.enabled === several);
+  const dialogs = view.dialogs.flatMap((cell, index) =>
+    (cell.view.fallback !== null) === several ? [{ cell, index }] : [],
+  );
+  const deletes = several ? [] : view.deletes;
+  const projects = view.projects.filter(
+    (cell) => cell.view.rows.some((row) => row.picker.value.tool !== null) === several,
+  );
   const dialog = open?.kind === "dialog" ? view.dialogs[open.index] : undefined;
   const remove = open?.kind === "delete" ? view.deletes[open.index] : undefined;
   return (
-    <Section title="15 · Settings → Agents: fresh install, a list you made, the picker, the mark, ⋯ and Delete, project block (T-0343)">
+    <Section
+      title={
+        several
+          ? "15 · Settings → Agents, several tools: table, Fallbacks, pickers per tool, list states, marks (T-0366)"
+          : "15 · Settings → Agents: fresh install, a list you made, the picker, the mark, ⋯ and Delete, project block (T-0343)"
+      }
+    >
       <Caption>Last call: {picked ?? "—"}</Caption>
       <div className="gallery-wrap">
-        {view.sections.map((cell) => (
+        {sections.map((cell) => (
           <div key={cell.label} className="gallery-stack" style={{ width: 762 }}>
             <Caption>{cell.label.toUpperCase()}</Caption>
             <AgentsSectionBody
@@ -1434,10 +1451,13 @@ function AgentsGallerySection() {
               onDefault={(role, agent) => {
                 setPicked(`${role} → ${agent}`);
               }}
+              onAutoFallback={(on) => {
+                setPicked(`auto fallback ${on ? "on" : "off"}`);
+              }}
             />
           </div>
         ))}
-        {view.projects.map((cell) => (
+        {projects.map((cell) => (
           <div key={cell.label} className="gallery-stack" style={{ width: 762 }}>
             <Caption>{cell.label.toUpperCase()}</Caption>
             <ProjectAgentsBody
@@ -1450,7 +1470,7 @@ function AgentsGallerySection() {
         ))}
       </div>
       <div className="gallery-wrap">
-        {view.dialogs.map((cell, index) => (
+        {dialogs.map(({ cell, index }) => (
           <Button
             key={cell.label}
             variant="secondary"
@@ -1460,7 +1480,7 @@ function AgentsGallerySection() {
             }}
           />
         ))}
-        {view.deletes.map((cell, index) => (
+        {deletes.map((cell, index) => (
           <Button
             key={cell.label}
             variant="secondary"
@@ -1476,6 +1496,12 @@ function AgentsGallerySection() {
         <AgentDialog
           dialog={dialog.view}
           onDraft={() => undefined}
+          onTool={(tool) => {
+            setPicked(`tool ${tool}`);
+          }}
+          onRetry={(tool) => {
+            setPicked(`retry ${tool}`);
+          }}
           onSave={(draft) => {
             setPicked(`save ${JSON.stringify(draft)}`);
             close();
@@ -2256,7 +2282,8 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <AgentRowsSection />
         <InboxLead />
         <EnvVarsSection />
-        <AgentsGallerySection />
+        <AgentsGallerySection several={false} />
+        <AgentsGallerySection several />
         <WarmSwitchSection />
         <CleanupWarmGallery />
         <ReviewColumnSection />

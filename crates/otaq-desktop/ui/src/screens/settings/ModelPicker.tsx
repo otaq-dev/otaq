@@ -1,18 +1,31 @@
-// The pickers of Settings → Agents (T-0343; AGT-02, AGT-03, d0086): the model field of the Add / Edit agent dialog
-// (*15 → Add agent · model picker open* `k8WyHN` / `L1mzD`), a list under the field with only what the tool's own
-// list has, nothing typed; and the agent pickers of the role defaults and the project's block, a dropdown of named
-// agents (`mQijC` in its one-tool form), read-only with one agent (no chevron). Every row comes from the Rust view
-// (`model_picker.rs`, `named_agents.rs`); this keeps only whether the list is open and which row is highlighted. The
-// keys are the menus' (`menuKey`): ↑/↓ move, Home/End, ↵ or Space picks, Esc or Tab closes.
-import { type KeyboardEvent, type RefObject, useEffect, useId, useRef, useState } from "react";
+// The pickers of Settings → Agents (T-0343, T-0366; AGT-02, AGT-03, AGT-08, d0086): the model field of the Add / Edit
+// agent dialog (*15 → Add agent · model picker open* `k8WyHN` / `L1mzD`, with several tools `ObF25`), a list under the
+// field with only what the tool's own list has, nothing typed, or while that list isn't there its loading or
+// couldn't-load line with Retry (`GTuGI`), and "no longer listed" on the field (`OCna6`); and the dropdowns of named
+// agents (role defaults, the project's block, the dialog's Fallback: `mQijC`, `ObF25`) and of the dialog's Tool, read-only
+// with one choice (no chevron), each with the tool's avatar when several tools are connected. Every row comes from the
+// Rust view (`model_picker.rs`, `named_agents.rs`); this keeps only whether the list is open and which row is
+// highlighted. The keys are the menus' (`menuKey`): ↑/↓ move, Home/End, ↵ or Space picks, Esc or Tab closes.
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 
-import { useFloatingStyle } from "../../components";
+import { ToolAvatar, useFloatingStyle } from "../../components";
 import { menuKey } from "../../components/logic";
 import type { AgentOption } from "../../generated/AgentOption";
 import type { AgentPicker } from "../../generated/AgentPicker";
+import type { AgentToolOption } from "../../generated/AgentToolOption";
 import type { IconName } from "../../generated/IconName";
 import type { MenuItem } from "../../generated/MenuItem";
+import type { ModelPickerStatus } from "../../generated/ModelPickerStatus";
 import type { ModelPickerView } from "../../generated/ModelPickerView";
+import type { ToolAvatarView } from "../../generated/ToolAvatarView";
 import { Icon } from "../../theme/Icon";
 
 /** One line of a list: a choice, a group's heading, or a muted note in place of a group's choices. */
@@ -27,6 +40,8 @@ export interface Choice {
   detailMono: boolean;
   checked: boolean;
   icon: IconName | null;
+  /** With several tools: the tool's avatar before the label. */
+  avatar: ToolAvatarView | null;
 }
 
 /** The id the model picker uses for the tool default (its value is none: Otaq passes no model). */
@@ -47,6 +62,7 @@ export function modelChoices(picker: ModelPickerView): Choice[] {
             detailMono: false,
             checked: false,
             icon: null,
+            avatar: null,
           },
         ]),
     ...group.items.map((item) => ({
@@ -59,6 +75,7 @@ export function modelChoices(picker: ModelPickerView): Choice[] {
       detailMono: item.value !== null,
       checked: item.selected,
       icon: null,
+      avatar: null,
     })),
     ...(group.empty === null
       ? []
@@ -72,6 +89,7 @@ export function modelChoices(picker: ModelPickerView): Choice[] {
             detailMono: false,
             checked: false,
             icon: null,
+            avatar: null,
           },
         ]),
   ]);
@@ -80,8 +98,9 @@ export function modelChoices(picker: ModelPickerView): Choice[] {
 /** What an agent option sends back: its entry, or none for "Use app default". */
 export const USE_APP_DEFAULT_ID = "";
 
-/** An agent picker's lines: the name, its model muted; "Use app default (…)" with its icon. */
-export function agentChoices(picker: AgentPicker): Choice[] {
+/** An agent picker's lines: the name, its model muted, with several tools the tool's avatar before it; "Use app
+ * default (…)" with its icon (`mQijC`), unless the option without an agent is a Fallback's "None" (`none`). */
+export function agentChoices(picker: AgentPicker, none = false): Choice[] {
   return picker.options.map((option) => ({
     kind: "option",
     id: option.agent ?? USE_APP_DEFAULT_ID,
@@ -90,7 +109,23 @@ export function agentChoices(picker: AgentPicker): Choice[] {
     mono: false,
     detailMono: false,
     checked: option.selected,
-    icon: option.agent === null ? "rotate-ccw" : null,
+    icon: option.agent === null && !none ? "rotate-ccw" : null,
+    avatar: option.agent === null ? null : option.tool,
+  }));
+}
+
+/** The dialog's Tool picker's lines: each connected tool with its avatar. */
+export function toolChoices(options: readonly AgentToolOption[]): Choice[] {
+  return options.map((option) => ({
+    kind: "option",
+    id: option.tool,
+    label: option.name,
+    detail: null,
+    mono: false,
+    detailMono: false,
+    checked: option.selected,
+    icon: null,
+    avatar: option.avatar,
   }));
 }
 
@@ -119,12 +154,15 @@ export function ChoiceList({
   className,
   onChoose,
   onClose,
+  children,
 }: {
   label: string;
   choices: readonly Choice[];
   className: string;
   onChoose: (id: string) => void;
   onClose: (how: ListClose) => void;
+  /** Drawn after the choices: the list's loading or couldn't-load line. */
+  children?: ReactNode;
 }) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
@@ -206,6 +244,7 @@ export function ChoiceList({
           >
             <span className="menu-item-line">
               {c.icon !== null && <Icon name={c.icon} size={13} />}
+              {c.avatar !== null && <ToolAvatar avatar={c.avatar} />}
               <span className="settings-choice-label" data-mono={c.mono || undefined}>
                 {c.label}
               </span>
@@ -219,6 +258,7 @@ export function ChoiceList({
           </button>
         );
       })}
+      {children}
     </div>
   );
 }
@@ -228,18 +268,60 @@ function opensList(key: string): boolean {
   return key === "ArrowDown" || key === "ArrowUp";
 }
 
-/** The dialog's Model field: a button with the picked model and what it runs today, and the list under it. Nothing
- * in it takes text. */
+/** The open list's line while the tool's list isn't there (`GTuGI`): a spinner and "Loading Codex's models…" over
+ * three grey bars, or "Couldn't load Copilot's models · Retry". */
+function ListStatus({ status, onRetry }: { status: ModelPickerStatus; onRetry: (tool: string) => void }) {
+  const tool = status.retry_tool;
+  return (
+    <div className="settings-model-status" role="status" data-loading={status.loading || undefined}>
+      <span className="settings-model-status-line">
+        <Icon name={status.loading ? "loader" : "server-off"} size={13} />
+        <span>{status.text}</span>
+        {status.retry_label !== null && tool !== null && (
+          <>
+            <span className="settings-agents-dot">·</span>
+            <button
+              type="button"
+              className="settings-link"
+              // Keeps focus in the list, so it stays open while the list is read again.
+              onMouseDown={(e) => {
+                e.preventDefault();
+              }}
+              onClick={() => {
+                onRetry(tool);
+              }}
+            >
+              {status.retry_label}
+            </button>
+          </>
+        )}
+      </span>
+      {status.loading && (
+        <span className="settings-model-skeleton" aria-hidden>
+          <span />
+          <span />
+          <span />
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** The dialog's Model field: a button with the picked model and what it runs today ("no longer listed" in amber when
+ * the tool's list dropped it), and the list under it. Nothing in it takes text. `onRetry` reads the tool's list again
+ * (`settings.agent_models_retry`). */
 export function ModelPicker({
   id,
   label,
   picker,
   onPick,
+  onRetry,
 }: {
   id?: string;
   label: string;
   picker: ModelPickerView;
   onPick: (model: string | null) => void;
+  onRetry: (tool: string) => void;
 }) {
   const button = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -270,7 +352,11 @@ export function ModelPicker({
         <span className="select-value" data-mono={value.mono || undefined}>
           <span>{value.label}</span>
         </span>
-        {!open && value.detail !== null && <span className="settings-model-detail">{value.detail}</span>}
+        {value.no_longer_listed !== null ? (
+          <span className="settings-model-detail settings-model-gone">{value.no_longer_listed}</span>
+        ) : (
+          !open && value.detail !== null && <span className="settings-model-detail">{value.detail}</span>
+        )}
         <Icon name="chevron-down" size={12} />
       </button>
       {open && (
@@ -285,17 +371,24 @@ export function ModelPicker({
             setOpen(false);
             if (how === "key") button.current?.focus();
           }}
-        />
+        >
+          {picker.status && <ListStatus status={picker.status} onRetry={onRetry} />}
+        </ChoiceList>
       )}
     </div>
   );
 }
 
-/** The closed picker's text: the name, and its model muted. */
-function OptionValue({ option }: { option: AgentOption }) {
+/** The closed picker's text: the tool's avatar with several tools ("Use app default"'s icon with one; a Fallback's
+ * "None" has neither), the name, and its model muted. */
+function OptionValue({ option, none }: { option: AgentOption; none: boolean }) {
   return (
     <span className="select-value settings-agent-value">
-      {option.agent === null && option.name !== "" && <Icon name="rotate-ccw" size={13} />}
+      {option.tool !== null ? (
+        <ToolAvatar avatar={option.tool} />
+      ) : (
+        option.agent === null && !none && option.name !== "" && <Icon name="rotate-ccw" size={13} />
+      )}
       <span className="settings-agent-name">{option.name}</span>
       {option.model !== null && <span className="settings-agent-model">{option.model}</span>}
     </span>
@@ -324,32 +417,41 @@ function FloatingList({
   );
 }
 
-/** A role's agent: the picked name and its model; with one named agent only that, read-only. `agent` is the entry
- * picked, `null` for "Use app default". */
-export function AgentPickerField({
+/** A closed field showing `value` that opens `choices` in a dropdown as wide as it; read-only (no chevron) when there
+ * is nothing to choose. */
+function Dropdown({
+  id,
   label,
-  picker,
-  onPick,
+  value,
+  choices,
+  readOnly,
+  className,
+  onChoose,
 }: {
+  id?: string;
   label: string;
-  picker: AgentPicker;
-  onPick: (agent: string | null) => void;
+  value: ReactNode;
+  choices: () => Choice[];
+  readOnly: boolean;
+  className: string;
+  onChoose: (id: string) => void;
 }) {
   const button = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [width, setWidth] = useState<number>();
-  if (picker.read_only)
+  if (readOnly)
     return (
-      <span className="select settings-agent-picker" data-read-only aria-label={label} role="note">
-        <OptionValue option={picker.value} />
+      <span id={id} className={`select ${className}`} data-read-only aria-label={label} role="note">
+        {value}
       </span>
     );
   return (
     <>
       <button
         ref={button}
+        id={id}
         type="button"
-        className="select settings-agent-picker"
+        className={`select ${className}`}
         aria-label={label}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -368,7 +470,7 @@ export function AgentPickerField({
           setOpen(true);
         }}
       >
-        <OptionValue option={picker.value} />
+        {value}
         <Icon name="chevron-down" size={12} />
       </button>
       {open && (
@@ -376,10 +478,8 @@ export function AgentPickerField({
           anchor={button}
           width={width}
           label={label}
-          choices={agentChoices(picker)}
-          onChoose={(picked) => {
-            onPick(picked === USE_APP_DEFAULT_ID ? null : picked);
-          }}
+          choices={choices()}
+          onChoose={onChoose}
           onClose={(how) => {
             setOpen(false);
             if (how === "key") button.current?.focus();
@@ -387,5 +487,73 @@ export function AgentPickerField({
         />
       )}
     </>
+  );
+}
+
+/** A role's agent, or the dialog's Fallback (`none`: its option without an agent is "None"): the picked name and its
+ * model; with one named agent only that, read-only. `agent` is the entry picked, `null` for "Use app default" or
+ * "None". */
+export function AgentPickerField({
+  id,
+  label,
+  picker,
+  none = false,
+  onPick,
+}: {
+  id?: string;
+  label: string;
+  picker: AgentPicker;
+  none?: boolean;
+  onPick: (agent: string | null) => void;
+}) {
+  return (
+    <Dropdown
+      id={id}
+      label={label}
+      value={<OptionValue option={picker.value} none={none} />}
+      choices={() => agentChoices(picker, none)}
+      readOnly={picker.read_only}
+      className="settings-agent-picker"
+      onChoose={(picked) => {
+        onPick(picked === USE_APP_DEFAULT_ID ? null : picked);
+      }}
+    />
+  );
+}
+
+/** The dialog's Tool with several tools connected (`ObF25`): the picked tool with its avatar, a dropdown of the
+ * connected ones. With one tool the dialog shows it read-only instead. */
+export function ToolPickerField({
+  id,
+  label,
+  tool,
+  avatar,
+  options,
+  onPick,
+}: {
+  id?: string;
+  label: string;
+  tool: string;
+  avatar: ToolAvatarView | null;
+  options: readonly AgentToolOption[];
+  onPick: (tool: string) => void;
+}) {
+  return (
+    <Dropdown
+      id={id}
+      label={label}
+      value={
+        <span className="select-value settings-agent-value">
+          {avatar !== null && <ToolAvatar avatar={avatar} />}
+          <span>{tool}</span>
+        </span>
+      }
+      choices={() => toolChoices(options)}
+      readOnly={options.length === 0}
+      className="settings-agent-tool"
+      onChoose={(picked) => {
+        if (!options.find((o) => o.tool === picked)?.selected) onPick(picked);
+      }}
+    />
   );
 }
