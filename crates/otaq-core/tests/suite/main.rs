@@ -74,6 +74,7 @@ mod naming_literals;
 mod needs_you;
 mod no_ui_dependency;
 mod notifications;
+mod option_notes;
 mod order;
 mod parent_merged;
 mod park;

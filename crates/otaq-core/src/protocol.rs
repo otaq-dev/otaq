@@ -931,13 +931,18 @@ pub struct AgentRowParams {
     pub agent: Option<String>,
 }
 
-/// `{"id": "<question id>", "options": ["Logged-in users only", "Guests too"], "recommended": 1, "reason": "PAY-123
-/// only mentions signed-in users."}`; without `options` the child's stay.
+/// `{"id": "<question id>", "options": ["Logged-in users only", "Guests too"], "notes": [null, "Kept in the
+/// browser."], "recommended": 1, "reason": "PAY-123 only mentions signed-in users."}`; without `options` the child's
+/// options and notes stay.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PassOnParams {
     pub id: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<String>,
+    /// Each option's note (ATT-17), in the options' order, `null` for an option without one; omitted when none has
+    /// one.
+    #[serde(default, skip_serializing_if = "crate::board::questions::no_notes")]
+    pub notes: Vec<Option<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recommended: Option<u32>,
     pub reason: String,
@@ -988,6 +993,10 @@ pub struct AgentAskHumanParams {
     pub question: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<String>,
+    /// Each option's note (ATT-17), in the options' order, `null` for an option without one; omitted when none has
+    /// one.
+    #[serde(default, skip_serializing_if = "crate::board::questions::no_notes")]
+    pub notes: Vec<Option<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recommended: Option<u32>,
 }
@@ -1070,6 +1079,10 @@ pub struct AskHumanParams {
     /// 2–4 answer options, or none for a free-text question.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<String>,
+    /// Each option's note (ATT-17), in the options' order, `null` for an option without one; omitted when none has
+    /// one.
+    #[serde(default, skip_serializing_if = "crate::board::questions::no_notes")]
+    pub notes: Vec<Option<String>>,
     /// The recommended option, 1-based.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recommended: Option<u32>,

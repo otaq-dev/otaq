@@ -14,6 +14,7 @@ async fn answered_questions_are_listed_oldest_first() {
             &t.id,
             "Which email provider?",
             &["Postmark".into(), "SES".into()],
+            &[],
             Some(1),
         )
         .await
@@ -23,7 +24,7 @@ async fn answered_questions_are_listed_oldest_first() {
         .await
         .unwrap();
     w.board
-        .store_question(&t.id, "Still open?", &[], None)
+        .store_question(&t.id, "Still open?", &[], &[], None)
         .await
         .unwrap();
     let answered = w.board.answered_human_questions(&t.id).await.unwrap();

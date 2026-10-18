@@ -609,6 +609,7 @@ mod tests {
             text: "Which?".into(),
             options: vec!["Postmark".into(), "SES".into()],
             recommended: Some(1),
+            notes: Vec::new(),
             asked_at: 0,
             via_lead: None,
         };

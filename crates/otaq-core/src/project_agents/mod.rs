@@ -770,6 +770,7 @@ impl ProjectAgents {
         id: &str,
         question: &str,
         options: &[String],
+        notes: &[Option<String>],
         recommended: Option<u32>,
     ) -> Result<ProjectAgent, BoardError> {
         let question = question.trim();
@@ -782,7 +783,7 @@ impl ProjectAgents {
         let agent = self.get(id).await?;
         self.inner
             .board
-            .store_agent_question(id, question, options, recommended)
+            .store_agent_question(id, question, options, notes, recommended)
             .await?;
         tracing::info!(agent = id, "project agent asks the user");
         self.changed(&agent.project, id);

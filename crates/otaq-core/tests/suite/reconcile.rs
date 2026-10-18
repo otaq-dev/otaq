@@ -104,6 +104,7 @@ async fn a_restart_interrupts_tickets_at_work_and_notes_review_tickets() {
             &asks.id,
             "Which email provider should I use?",
             &["Postmark".into(), "SES".into()],
+            &[],
             Some(1),
         )
         .await

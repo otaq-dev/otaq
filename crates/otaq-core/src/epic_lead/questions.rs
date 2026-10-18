@@ -11,7 +11,8 @@
 //! - **`otaq ask human --pass-on <QUESTION-ID> [--option …] [--recommended N] --stdin`** by the lead
 //!   ([`LeadQuestions::pass_on`]): the question becomes the child's "Asks you" item "SHOP-40.2 asks · passed on by
 //!   Wishlist lead", with the lead's options (the child's by default), its recommended option (d0061) and its reason
-//!   ([`crate::board::questions::ViaLead`]). The child turns turquoise with an OS notification, as for any Asks you;
+//!   ([`crate::board::questions::ViaLead`]). The options' notes (ATT-17) go with them: the lead's own with its own
+//!   options (none if it gave none), the child's with the child's. The child turns turquoise with an OS notification, as for any Asks you;
 //!   the user's answer reaches it as today (ATT-12).
 //! - **Hand-back** ([`hand_back`]): the lead's turn ended without either, or the lead ended: the question becomes a
 //!   plain "Asks you", as if no lead were live. Handovers live in memory, so on startup every question still waiting
@@ -23,7 +24,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::board::questions::{HumanQuestion, validate_options};
+use crate::board::questions::{
+    HumanQuestion, clean_notes, no_notes, notes_from_json, notes_json, validate_notes,
+    validate_options,
+};
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::caller::Caller;
@@ -88,6 +92,10 @@ pub struct LeadQuestion {
     /// The recommended option, 1-based: the child's, or the lead's after a pass-on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recommended: Option<u32>,
+    /// Each option's note (ATT-17), in the options' order: the child's, or the lead's with its own options. Empty
+    /// when no option has one.
+    #[serde(default, skip_serializing_if = "no_notes")]
+    pub notes: Vec<Option<String>>,
     pub state: LeadQuestionState,
     /// The lead's reason, after a pass-on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -166,6 +174,7 @@ struct Row {
     question: String,
     options_json: String,
     recommended: Option<i64>,
+    option_notes_json: Option<String>,
     asked_at: i64,
     answer: Option<String>,
     answered_at: Option<i64>,
@@ -174,8 +183,8 @@ struct Row {
     lead_at: Option<i64>,
 }
 
-const SELECT: &str = "SELECT id, ticket_id, lead_epic_id, lead_id, question, options_json, recommended, asked_at, \
-     answer, answered_at, lead_state, lead_reason, lead_at FROM human_questions";
+const SELECT: &str = "SELECT id, ticket_id, lead_epic_id, lead_id, question, options_json, recommended, \
+     option_notes_json, asked_at, answer, answered_at, lead_state, lead_reason, lead_at FROM human_questions";
 
 async fn rows(board: &Board, filter: &str, binds: &[&str]) -> Result<Vec<Row>, BoardError> {
     let sql = format!(
@@ -202,6 +211,7 @@ async fn view(board: &Board, row: Row) -> Result<LeadQuestion, BoardError> {
         question: row.question,
         options: serde_json::from_str(&row.options_json).unwrap_or_default(),
         recommended: row.recommended.and_then(|n| u32::try_from(n).ok()),
+        notes: notes_from_json(row.option_notes_json.as_deref()),
         state: row
             .lead_state
             .parse()
@@ -510,13 +520,16 @@ impl LeadQuestions {
         self.reread(&q.id).await
     }
 
-    /// `otaq ask human --pass-on <QUESTION-ID> [--option …] [--recommended N] --stdin` from the lead: the child's
-    /// "Asks you", with the lead's options (the child's when none are given), recommendation and reason.
+    /// `otaq ask human --pass-on <QUESTION-ID> [--option … [--note …]] [--recommended N] --stdin` from the lead: the
+    /// child's "Asks you", with the lead's options and their notes (the child's when no options are given),
+    /// recommendation and reason.
+    #[allow(clippy::too_many_arguments)]
     pub async fn pass_on(
         &self,
         caller: &Caller,
         id: &str,
         options: &[String],
+        notes: &[Option<String>],
         recommended: Option<u32>,
         reason: &str,
         actor: &Actor,
@@ -529,17 +542,31 @@ impl LeadQuestions {
             ));
         }
         let q = self.waiting_for(caller, id, ONLY_A_LEAD_PASSES_ON).await?;
-        let options: Vec<String> = if options.is_empty() {
-            q.options.clone()
+        // Its own options take its own notes (none if it gave none); without options the child's both stay.
+        let (options, notes): (Vec<String>, Vec<Option<String>>) = if options.is_empty() {
+            if !no_notes(notes) {
+                return Err(BoardError::refused(
+                    Refusal::BadQuestion,
+                    "--note must follow the --option it describes: without --option the child's options and \
+                     notes stay",
+                ));
+            }
+            (q.options.clone(), q.notes.clone())
         } else {
-            options.iter().map(|o| o.trim().to_owned()).collect()
+            validate_notes(options, notes)?;
+            (
+                options.iter().map(|o| o.trim().to_owned()).collect(),
+                clean_notes(notes),
+            )
         };
         validate_options(&options, recommended)?;
         let done = sqlx::query(
-            "UPDATE human_questions SET options_json = ?, recommended = ?, lead_reason = ?, lead_state = ?, lead_at = ?
+            "UPDATE human_questions SET options_json = ?, option_notes_json = ?, recommended = ?, lead_reason = ?,
+                    lead_state = ?, lead_at = ?
              WHERE id = ? AND lead_state = ? AND answered_at IS NULL",
         )
         .bind(serde_json::to_string(&options).expect("strings serialize"))
+        .bind(notes_json(&notes))
         .bind(recommended.map(i64::from))
         .bind(reason)
         .bind(PASSED_ON)
@@ -635,6 +662,7 @@ mod tests {
             text: "Can guests save items without logging in?".into(),
             options: options.iter().map(|o| (*o).to_owned()).collect(),
             recommended: None,
+            notes: Vec::new(),
             asked_at: 0,
             via_lead: None,
         }
@@ -683,6 +711,7 @@ mod tests {
             question: "Can guests save items?".into(),
             options: vec!["Logged-in users only".into(), "Guests too".into()],
             recommended: Some(1),
+            notes: Vec::new(),
             state: LeadQuestionState::PassedOn,
             reason: Some("PAY-123 only mentions signed-in users.".into()),
             answer: None,

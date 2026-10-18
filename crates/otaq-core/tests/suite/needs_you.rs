@@ -83,6 +83,7 @@ fn shop_web() -> Vec<Ticket> {
         text: "Should fullName be split everywhere, or only in the profile form?".into(),
         options: Vec::new(),
         recommended: None,
+        notes: Vec::new(),
         asked_at: NOW - 6 * MIN,
         via_lead: None,
     });

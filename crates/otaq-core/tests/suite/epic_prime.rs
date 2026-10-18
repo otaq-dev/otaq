@@ -171,7 +171,7 @@ async fn world() -> World {
         .expect("a question waits for the lead")
         .id;
     w.board
-        .store_question(&share.id, EXPIRY, &[], None)
+        .store_question(&share.id, EXPIRY, &[], &[], None)
         .await
         .unwrap();
 

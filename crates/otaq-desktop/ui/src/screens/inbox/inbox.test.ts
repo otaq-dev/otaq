@@ -35,8 +35,16 @@ import { ResumeAllBody } from "./ResumeAll";
 import { RunBarBody } from "./RunBar";
 
 const OPTIONS: InboxOption[] = [
-  { number: 1, label: "Postmark", recommended: true, picked: true, other: false, note: null },
-  { number: 2, label: "SES", recommended: false, picked: false, other: false, note: null },
+  {
+    number: 1,
+    label: "Postmark",
+    recommended: true,
+    picked: true,
+    other: false,
+    note: null,
+    option_note: null,
+  },
+  { number: 2, label: "SES", recommended: false, picked: false, other: false, note: null, option_note: null },
   {
     number: 3,
     label: "Other… type your own answer",
@@ -44,6 +52,7 @@ const OPTIONS: InboxOption[] = [
     picked: false,
     other: true,
     note: null,
+    option_note: null,
   },
 ];
 
@@ -581,6 +590,7 @@ const PASSED_ON = row("SHOP-40.2", {
         picked: true,
         other: false,
         note: "PAY-123 only mentions signed-in users.",
+        option_note: null,
       },
       {
         number: 2,
@@ -589,6 +599,7 @@ const PASSED_ON = row("SHOP-40.2", {
         picked: false,
         other: false,
         note: null,
+        option_note: null,
       },
       {
         number: 3,
@@ -597,6 +608,7 @@ const PASSED_ON = row("SHOP-40.2", {
         picked: false,
         other: true,
         note: null,
+        option_note: null,
       },
     ],
   },

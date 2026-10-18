@@ -283,9 +283,16 @@ describe("a board card's button", () => {
 
 describe("answer options", () => {
   const rows: PanelAnswerRow[] = [
-    { number: 1, label: "Postmark", recommended: true, picked: true, other: false },
-    { number: 2, label: "SES", recommended: false, picked: false, other: false },
-    { number: 3, label: "Other… type your own answer", recommended: false, picked: false, other: true },
+    { number: 1, label: "Postmark", recommended: true, picked: true, other: false, option_note: null },
+    { number: 2, label: "SES", recommended: false, picked: false, other: false, option_note: null },
+    {
+      number: 3,
+      label: "Other… type your own answer",
+      recommended: false,
+      picked: false,
+      other: true,
+      option_note: null,
+    },
   ];
 
   it("starts on the recommendation; number keys pick; Other… needs text", () => {

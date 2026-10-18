@@ -59,6 +59,7 @@ async fn asks(w: &TestService, ticket: &Ticket, session: &str, options: &[&str])
             &ticket.id,
             "Which email provider should I use?",
             &options,
+            &[],
             (!options.is_empty()).then_some(1),
         )
         .await

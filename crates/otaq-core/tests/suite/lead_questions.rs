@@ -709,6 +709,7 @@ async fn only_the_lead_of_that_epic_answers_or_passes_on() {
             id: q.id.clone(),
             options: Vec::new(),
             recommended: None,
+            notes: Vec::new(),
             reason: "r".into(),
         }),
     )

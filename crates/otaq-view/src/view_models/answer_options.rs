@@ -4,6 +4,8 @@
 //! recommendation nothing is preselected and Send stays disabled until the user picks. The answer is typed as
 //! [`otaq_core::board::questions::format_answer`] words it. One model for all three places.
 //!
+//! Each option's note (ATT-17, d0061), its pros and cons, rides on its row whole ([`OptionRow::option_note`]).
+//!
 //! A question an epic's lead passed on (LEAD-06, d0083; *10 → Row · Epic lead items (0083)*): the lead's option is the
 //! recommended one, marked "Recommended by the lead" with the lead's reason under it.
 
@@ -29,6 +31,9 @@ pub struct OptionRow {
     pub other: bool,
     /// The recommended row of a passed-on question: the lead's reason ("PAY-123 only mentions signed-in users.").
     pub note: Option<String>,
+    /// The option's own note, its pros and cons (ATT-17): "Opens in any editor; one file per note, no attachments.".
+    /// Whole, never cut. `None` for Other… and an option without one.
+    pub option_note: Option<String>,
 }
 
 /// The mark on the recommended option.
@@ -38,7 +43,8 @@ pub const RECOMMENDED_BY_LEAD: &str = "Recommended by the lead";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnswerOptions {
-    options: Vec<String>,
+    /// Each option's label with its note (ATT-17), in order.
+    options: Vec<(String, Option<String>)>,
     recommended: Option<u32>,
     /// The lead's reason for the recommended option, when the lead passed the question on.
     lead_reason: Option<String>,
@@ -52,7 +58,12 @@ impl AnswerOptions {
             return None;
         }
         Some(Self {
-            options: question.options.clone(),
+            options: question
+                .options
+                .iter()
+                .enumerate()
+                .map(|(i, label)| (label.clone(), question.notes.get(i).cloned().flatten()))
+                .collect(),
             recommended: question.recommended,
             lead_reason: question
                 .via_lead
@@ -95,7 +106,7 @@ impl AnswerOptions {
             .options
             .iter()
             .enumerate()
-            .map(|(i, label)| {
+            .map(|(i, (label, option_note))| {
                 let n = i as u32 + 1;
                 OptionRow {
                     number: n,
@@ -107,6 +118,7 @@ impl AnswerOptions {
                         .lead_reason
                         .clone()
                         .filter(|_| self.recommended == Some(n)),
+                    option_note: option_note.clone(),
                 }
             })
             .collect();
@@ -117,6 +129,7 @@ impl AnswerOptions {
             picked: self.pick == Some(Pick::Other),
             other: true,
             note: None,
+            option_note: None,
         });
         rows
     }
@@ -154,6 +167,7 @@ mod tests {
             text: "Which email provider should the order confirmation use?".into(),
             options: options.iter().map(|o| (*o).to_owned()).collect(),
             recommended,
+            notes: Vec::new(),
             asked_at: 0,
             via_lead: None,
         }
@@ -248,6 +262,41 @@ mod tests {
         assert_eq!(
             (rows[2].number, rows[2].label.as_str()),
             (3, "Other… type your own answer")
+        );
+    }
+
+    /// ATT-17: each row carries its option's note whole; Other… and an option without one have none.
+    #[test]
+    fn each_row_carries_its_options_note() {
+        let mut q = question(&["Markdown files", "One ZIP", "PDF"], Some(1));
+        let long = "z".repeat(600);
+        q.notes = vec![
+            Some("Opens in any editor; one file per note, no attachments.".into()),
+            None,
+            Some(long.clone()),
+        ];
+        let rows = AnswerOptions::of(&q).unwrap().rows();
+        let notes: Vec<Option<&str>> = rows.iter().map(|r| r.option_note.as_deref()).collect();
+        assert_eq!(
+            notes,
+            [
+                Some("Opens in any editor; one file per note, no attachments."),
+                None,
+                Some(long.as_str()),
+                None
+            ]
+        );
+        assert!(
+            rows.iter().all(|r| r.note.is_none()),
+            "the lead's reason stays apart"
+        );
+        q.notes = Vec::new();
+        assert!(
+            AnswerOptions::of(&q)
+                .unwrap()
+                .rows()
+                .iter()
+                .all(|r| r.option_note.is_none())
         );
     }
 
