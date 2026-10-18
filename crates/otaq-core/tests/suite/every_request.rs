@@ -122,6 +122,9 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::OnboardingState
         | Request::DismissPermissionWarning
         | Request::DismissTrustNote
+        | Request::NotificationsState
+        | Request::NotificationsAskAnswered
+        | Request::NotificationsDismissBlocked
         | Request::ProjectList
         | Request::ProjectProbe(_)
         | Request::ProjectAdd(_)

@@ -59,6 +59,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.onboarding_tools" => reply(&onboarding_page::tools_gallery()),
         // 11 · The usage-limit banner's line per tool, Move waiting to…, a tool that isn't available (T-0364).
         "gallery.limit_lines" => reply(&limit_banner::gallery()),
+        // The notification banners and Settings → Notifications in every state (T-0372).
+        "gallery.notifications" => reply(&settings_page::notifications_gallery()),
         _ => Err(unknown(method)),
     }
 }
@@ -139,6 +141,14 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(rows["samples"][3]["block"]["rows"][0]["value"], "Strong");
+        let notifications = crate::api::request(&h.app, "gallery.notifications", Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(
+            notifications["banners"][0]["banners"][0]["kind"],
+            "notifications_ask"
+        );
+        assert_eq!(notifications["pages"].as_array().map(Vec::len), Some(6));
         let lines = crate::api::request(&h.app, "gallery.limit_lines", Value::Null)
             .await
             .unwrap();

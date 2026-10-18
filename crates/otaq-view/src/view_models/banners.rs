@@ -3,7 +3,11 @@
 //! failed › permission warning › folder trust note › service update ready › reconnecting; reconnecting folds into
 //! another banner as a suffix instead of taking a row of its own. The two folder-trust banners (PRJ-08, d0085; *11 →
 //! 4c*): the warning for the projects whose trust couldn't be recorded sits above the permission warning, the
-//! one-time note below it.
+//! one-time note below it. The two notification banners (ATT-13, ATT-14, d0090): "macOS is blocking Otaq's
+//! notifications" (amber) right below the folder trust warning, above the permission warning; Otaq's calm "Allow
+//! notifications?" ask right below the folder trust note. The whole order: error › restart required › usage limit ›
+//! folder trust failed › notifications blocked › permission warning › folder trust note › notifications ask › service
+//! update ready › reconnecting.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -32,9 +36,13 @@ pub enum SituationKind {
     UsageLimit,
     /// Amber: Claude Code's trust couldn't be recorded for some projects (PRJ-08).
     TrustFailed,
+    /// Amber: macOS blocked a notification that mattered (ATT-14, d0090).
+    NotificationsBlocked,
     PermissionWarning,
     /// Calm: the one-time note that Otaq recorded Claude Code's trust for projects added earlier (PRJ-08).
     TrustNote,
+    /// Calm: Otaq's own "Allow notifications?" before macOS's question (ATT-13, d0090).
+    NotificationsAsk,
     ServiceUpdateReady,
     Reconnecting,
 }
@@ -79,6 +87,10 @@ pub enum Situation {
     TrustNote {
         tools: Vec<Tool>,
     },
+    /// macOS has Otaq's notifications turned off and one would have gone out (ATT-14).
+    NotificationsBlocked,
+    /// The first agent started while macOS hasn't been asked (ATT-13).
+    NotificationsAsk,
     ServiceUpdateReady {
         working: u32,
         waiting: u32,
@@ -105,6 +117,8 @@ impl Situation {
             Self::TrustFailed { .. } => SituationKind::TrustFailed,
             Self::PermissionWarning => SituationKind::PermissionWarning,
             Self::TrustNote { .. } => SituationKind::TrustNote,
+            Self::NotificationsBlocked => SituationKind::NotificationsBlocked,
+            Self::NotificationsAsk => SituationKind::NotificationsAsk,
             Self::ServiceUpdateReady { .. } => SituationKind::ServiceUpdateReady,
             Self::Reconnecting => SituationKind::Reconnecting,
         }
@@ -113,11 +127,12 @@ impl Situation {
 
 impl SituationKind {
     /// Whether the user can close it. Reconnecting goes away by itself; stopped, restart required, the usage limit
-    /// and the folder trust warning stay until the situation ends.
+    /// and the folder trust warning stay until the situation ends; the notifications ask goes with Allow or Not now.
     pub fn dismissable(self) -> bool {
         matches!(
             self,
             Self::PermissionWarning
+                | Self::NotificationsBlocked
                 | Self::TrustNote
                 | Self::ServiceUpdateReady
                 | Self::SessionsInterrupted
@@ -172,9 +187,10 @@ pub enum BannerTone {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum BannerButtonId {
-    /// Restart now, Start service, Resume all (after interrupted sessions) or Read the docs.
+    /// Restart now, Start service, Resume all (after interrupted sessions), Read the docs, Allow (the notifications
+    /// ask) or Open System Settings (notifications blocked).
     Action,
-    /// Review & resume.
+    /// Review & resume, or the notifications ask's Not now.
     Secondary,
     /// The usage limit's Resume.
     Resume,
@@ -222,6 +238,8 @@ impl BannerRow {
             SituationKind::TrustFailed => (BannerTone::Warning, IconName::ShieldX),
             SituationKind::PermissionWarning => (BannerTone::Warning, IconName::ShieldAlert),
             SituationKind::TrustNote => (BannerTone::Info, IconName::ShieldCheck),
+            SituationKind::NotificationsBlocked => (BannerTone::Warning, IconName::TriangleAlert),
+            SituationKind::NotificationsAsk => (BannerTone::Info, IconName::Bell),
             SituationKind::ServiceUpdateReady => (BannerTone::Info, IconName::RefreshCw),
             SituationKind::Reconnecting => (BannerTone::Neutral, IconName::RefreshCw),
         };
@@ -239,7 +257,10 @@ impl BannerRow {
                 (SituationKind::ServiceStopped | SituationKind::SessionsInterrupted, false) => {
                     (label, IconName::Play)
                 }
-                (SituationKind::PermissionWarning, false) => (label, IconName::ExternalLink),
+                (SituationKind::PermissionWarning | SituationKind::NotificationsBlocked, false) => {
+                    (label, IconName::ExternalLink)
+                }
+                (SituationKind::NotificationsAsk, false) => (label, IconName::Bell),
                 (_, false) => (label, IconName::RotateCw),
             };
             buttons.push(BannerButton {
@@ -251,10 +272,16 @@ impl BannerRow {
             });
         }
         if let Some(label) = self.secondary {
+            // The ask's Not now closes it; Review & resume opens the summary.
+            let icon = if self.kind == SituationKind::NotificationsAsk {
+                IconName::X
+            } else {
+                IconName::ArrowRight
+            };
             buttons.push(BannerButton {
                 id: BannerButtonId::Secondary,
                 label: label.to_owned(),
-                icon: IconName::ArrowRight,
+                icon,
                 enabled: true,
                 primary: false,
             });
@@ -329,6 +356,21 @@ impl BannerModel {
             self.clear(SituationKind::TrustFailed);
         } else {
             self.raise(Situation::TrustFailed { projects: failed });
+        }
+    }
+
+    /// The notification banners from `notifications.state` (ATT-13, ATT-14): the ask while pending, the blocked
+    /// banner while the service shows it (the service keeps its closing).
+    pub fn set_notifications(&mut self, ask: bool, blocked: bool) {
+        if ask {
+            self.raise(Situation::NotificationsAsk);
+        } else {
+            self.clear(SituationKind::NotificationsAsk);
+        }
+        if blocked {
+            self.raise(Situation::NotificationsBlocked);
+        } else {
+            self.clear(SituationKind::NotificationsBlocked);
         }
     }
 
@@ -470,6 +512,16 @@ fn row(situation: &Situation) -> BannerRow {
         },
         // The note is one sentence: no title.
         Situation::TrustNote { tools } => (String::new(), trust_note(tools), None),
+        // One sentence each: no title (ATT-13, ATT-14; d0090, *CHANGES-2026-10-18-aa* §3, §5).
+        Situation::NotificationsAsk => {
+            secondary = Some(NOT_NOW);
+            (String::new(), notifications_ask(), Some(ALLOW))
+        }
+        Situation::NotificationsBlocked => (
+            String::new(),
+            notifications_blocked(),
+            Some(OPEN_SYSTEM_SETTINGS),
+        ),
         Situation::PermissionWarning => (
             "Permission prompts are on".to_owned(),
             "With 5–10 agents, permission prompts will stop agents often. See allowlists · auto mode in the Claude Code docs".to_owned(),
@@ -502,6 +554,27 @@ fn row(situation: &Situation) -> BannerRow {
         lines,
     }
 }
+
+/// Otaq's ask before macOS's own question (ATT-13, d0090).
+pub fn notifications_ask() -> String {
+    format!(
+        "{} tells you when an agent needs permission or asks a question. Allow notifications?",
+        otaq_core::naming::PRODUCT_NAME
+    )
+}
+pub const ALLOW: &str = "Allow";
+pub const NOT_NOW: &str = "Not now";
+
+/// The banner when macOS blocked a notification that mattered (ATT-14, d0090).
+pub fn notifications_blocked() -> String {
+    format!(
+        "macOS is blocking {}\u{2019}s notifications, so you won\u{2019}t hear when an agent needs you.",
+        otaq_core::naming::PRODUCT_NAME
+    )
+}
+
+/// Opens Otaq's entry in System Settings → Notifications (the blocked banner, the Settings status line).
+pub const OPEN_SYSTEM_SETTINGS: &str = "Open System Settings";
 
 /// The one-time folder trust note (PRJ-08, d0085), naming the tools whose trust Otaq recorded ("Claude Code and
 /// Codex"); Claude Code when none is named.
@@ -998,6 +1071,145 @@ mod tests {
         );
         assert!(rows[0].text.ends_with(RECONNECTING_SUFFIX));
         assert!(!rows[1].text.ends_with(RECONNECTING_SUFFIX));
+    }
+
+    /// T-0372 (ATT-13): Otaq's calm ask with Allow and Not now, no close button.
+    #[test]
+    fn the_notifications_ask_is_calm_with_allow_and_not_now() {
+        let mut m = BannerModel::default();
+        m.set_notifications(true, false);
+        let rows = m.rows();
+        assert_eq!(rows.len(), 1);
+        let view = rows[0].view(false);
+        assert_eq!(view.kind, SituationKind::NotificationsAsk);
+        assert_eq!(view.title, "");
+        assert_eq!(
+            view.text,
+            format!(
+                "{} tells you when an agent needs permission or asks a question. Allow notifications?",
+                otaq_core::naming::PRODUCT_NAME
+            )
+        );
+        assert_eq!((view.tone, view.icon), (BannerTone::Info, IconName::Bell));
+        assert_eq!(
+            view.buttons
+                .iter()
+                .map(|b| (b.id, b.label.as_str(), b.icon, b.primary))
+                .collect::<Vec<_>>(),
+            [
+                (BannerButtonId::Action, "Allow", IconName::Bell, false),
+                (BannerButtonId::Secondary, "Not now", IconName::X, false),
+            ]
+        );
+        assert!(!view.dismissable, "Not now closes it");
+        m.dismiss(SituationKind::NotificationsAsk);
+        assert_eq!(m.rows().len(), 1);
+        // Answered: the service says it isn't pending any more.
+        m.set_notifications(false, false);
+        assert!(m.rows().is_empty());
+    }
+
+    /// T-0372 (ATT-14): the amber "macOS is blocking" banner with Open System Settings and a close button.
+    #[test]
+    fn the_notifications_blocked_banner_is_amber_and_closes() {
+        let mut m = BannerModel::default();
+        m.set_notifications(false, true);
+        let view = m.rows()[0].view(false);
+        assert_eq!(view.kind, SituationKind::NotificationsBlocked);
+        assert_eq!(view.title, "");
+        assert_eq!(
+            view.text,
+            format!(
+                "macOS is blocking {}’s notifications, so you won’t hear when an agent needs you.",
+                otaq_core::naming::PRODUCT_NAME
+            )
+        );
+        assert_eq!(
+            (view.tone, view.icon),
+            (BannerTone::Warning, IconName::TriangleAlert)
+        );
+        assert_eq!(
+            view.buttons
+                .iter()
+                .map(|b| (b.id, b.label.as_str(), b.icon))
+                .collect::<Vec<_>>(),
+            [(
+                BannerButtonId::Action,
+                "Open System Settings",
+                IconName::ExternalLink
+            )]
+        );
+        assert!(view.dismissable);
+        m.dismiss(SituationKind::NotificationsBlocked);
+        assert!(m.rows().is_empty());
+        // The service keeps the closing; a banner it raises again (after allowed, then off) shows.
+        m.set_notifications(false, false);
+        m.set_notifications(false, true);
+        assert_eq!(kinds(&m), [SituationKind::NotificationsBlocked]);
+    }
+
+    /// T-0372: blocked right below the folder trust warning, above the permission warning; the ask right below the
+    /// folder trust note; the usage limit stays on top and reconnecting folds into the top row.
+    #[test]
+    fn the_notification_banners_stack_with_the_others() {
+        let limit = || Situation::UsageLimit {
+            title: "Session limit reached".into(),
+            text: "Resets at 3:00 pm".into(),
+            resume: None,
+            lines: Vec::new(),
+        };
+        let mut m = BannerModel::default();
+        m.set_notifications(true, true);
+        assert_eq!(
+            kinds(&m),
+            [
+                SituationKind::NotificationsBlocked,
+                SituationKind::NotificationsAsk
+            ]
+        );
+        m.raise(Situation::PermissionWarning);
+        assert_eq!(
+            kinds(&m),
+            [
+                SituationKind::NotificationsBlocked,
+                SituationKind::PermissionWarning
+            ],
+            "blocked above the permission warning"
+        );
+        m.set_trust(false, Vec::new(), vec![failure("NOTE", "why")]);
+        assert_eq!(
+            kinds(&m),
+            [
+                SituationKind::TrustFailed,
+                SituationKind::NotificationsBlocked
+            ],
+            "below the folder trust warning"
+        );
+        m.raise(limit());
+        assert_eq!(
+            kinds(&m),
+            [SituationKind::UsageLimit, SituationKind::TrustFailed],
+            "the usage limit stays on top"
+        );
+        m.clear(SituationKind::UsageLimit);
+        m.clear(SituationKind::PermissionWarning);
+        m.set_trust(true, Vec::new(), Vec::new());
+        m.set_notifications(true, false);
+        assert_eq!(
+            kinds(&m),
+            [SituationKind::TrustNote, SituationKind::NotificationsAsk],
+            "the ask below the folder trust note"
+        );
+        m.raise(Situation::Reconnecting);
+        let rows = m.rows();
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0].text.ends_with(RECONNECTING_SUFFIX));
+        assert!(!rows[1].text.ends_with(RECONNECTING_SUFFIX));
+        m.set_trust(false, Vec::new(), Vec::new());
+        let rows = m.rows();
+        assert_eq!(rows.len(), 1, "reconnecting folds into the ask");
+        assert_eq!(rows[0].kind, SituationKind::NotificationsAsk);
+        assert!(rows[0].text.ends_with(RECONNECTING_SUFFIX));
     }
 
     #[test]

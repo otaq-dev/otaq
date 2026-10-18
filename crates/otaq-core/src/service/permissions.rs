@@ -167,6 +167,7 @@ async fn action_for(
         | R::Subscribe
         | R::ToolsCheck
         | R::OnboardingState
+        | R::NotificationsState
         | R::ProjectList
         | R::ProjectProbe(_)
         | R::ProjectBranches(_)
@@ -341,6 +342,8 @@ async fn action_for(
         R::ServiceStop => Action::UserOnly("stop the background service"),
         R::DismissPermissionWarning => Action::UserOnly("change onboarding"),
         R::DismissTrustNote => Action::UserOnly("dismiss notices"),
+        R::NotificationsAskAnswered => Action::UserOnly("answer the notifications ask"),
+        R::NotificationsDismissBlocked => Action::UserOnly("dismiss notices"),
         R::ProjectAdd(_) | R::ProjectUpdate(_) | R::ProjectRemove(_) => {
             Action::UserOnly("change projects")
         }

@@ -11,6 +11,7 @@
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::connected::SkillUse;
+use otaq_core::attention::notify::{Kind, PermissionState};
 use otaq_core::board::projects::ProjectUpdate;
 use otaq_core::board::settings::{
     AutoMerge, EnvVar, GlobalSettings, ProjectSettings, SettingProblem, TERMINAL_FONT_SIZES,
@@ -223,6 +224,19 @@ pub enum Control {
     Toggle {
         on: bool,
     },
+    /// The main notifications switch with macOS's answer under the row's text (ATT-14, d0090): sent like a toggle.
+    /// `status` is `None` where the OS state isn't known (no line).
+    NotificationsSwitch {
+        on: bool,
+        status: Option<OsStatus>,
+    },
+    /// A checkbox row: a notification kind or Play a sound (ATT-16), indented under the main switch and disabled
+    /// (not hidden) while it is off.
+    Checkbox {
+        on: bool,
+        disabled: bool,
+        indented: bool,
+    },
     Stepper {
         value: u32,
         min: u32,
@@ -329,6 +343,91 @@ pub enum Control {
     About,
 }
 
+/// What the OS allows Otaq's notifications, as one line with the one action that fits (ATT-14, d0090).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SettingsOsStatus")]
+pub struct OsStatus {
+    pub text: String,
+    /// "Allow notifications" or "Open System Settings".
+    pub action: Option<OsStatusAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SettingsOsStatusAction")]
+pub struct OsStatusAction {
+    pub label: String,
+    pub action: ButtonAction,
+}
+
+/// The status line under the main switch, by macOS's permission (ATT-14, d0090; *CHANGES-2026-10-18-aa* §4). Shown
+/// whatever the switch's state; none where the state isn't read (Windows and Linux for now).
+pub fn os_status(permission: PermissionState) -> Option<OsStatus> {
+    let action = |label: &str, action| {
+        Some(OsStatusAction {
+            label: label.to_owned(),
+            action,
+        })
+    };
+    let (text, action) = match permission {
+        PermissionState::NotAsked => (
+            "macOS hasn\u{2019}t been asked yet.".to_owned(),
+            action("Allow notifications", ButtonAction::AllowNotifications),
+        ),
+        PermissionState::Allowed => ("Allowed in macOS.".to_owned(), None),
+        PermissionState::TurnedOff => (
+            format!("Turned off in macOS, so {PRODUCT_NAME} can\u{2019}t notify you."),
+            action(
+                crate::view_models::banners::OPEN_SYSTEM_SETTINGS,
+                ButtonAction::OpenSystemSettings,
+            ),
+        ),
+        PermissionState::OutsideBundle => (
+            format!(
+                "Running outside {}: notifications appear as Script Editor, and {PRODUCT_NAME} can\u{2019}t check \
+                 whether macOS allows them.",
+                naming::bundle_folder_name()
+            ),
+            None,
+        ),
+        PermissionState::Unknown => return None,
+    };
+    Some(OsStatus { text, action })
+}
+
+/// The checkbox of each notification kind (ATT-16, d0090), in d0090's order: its field, label and who it covers
+/// (d0090's parentheses; none where d0090 gives none).
+pub fn notification_kind_row(kind: Kind) -> (&'static str, &'static str, &'static str) {
+    match kind {
+        Kind::Permission => (
+            "notification_kinds.permission",
+            "Permission prompts",
+            "Agents, validators, Project agents and epic leads.",
+        ),
+        Kind::Question => (
+            "notification_kinds.question",
+            "Questions",
+            "Agents, Project agents and epic leads.",
+        ),
+        Kind::TurnEnded => ("notification_kinds.turn_ended", "Agent ended its turn", ""),
+        Kind::Interrupted => ("notification_kinds.interrupted", "Session interrupted", ""),
+        Kind::ValidationDecision => (
+            "notification_kinds.validation_decision",
+            "Validation needs a decision",
+            "Failed N times, or no result.",
+        ),
+        Kind::AutoMergeStopped => (
+            "notification_kinds.auto_merge_stopped",
+            "Auto-merge stopped",
+            "",
+        ),
+        Kind::ToolUnavailable => (
+            "notification_kinds.tool_unavailable",
+            "Agent tool not available",
+            "",
+        ),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "SettingsReveal")]
@@ -337,7 +436,7 @@ pub enum Reveal {
     Logs,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "SettingsButtonAction")]
 pub enum ButtonAction {
@@ -347,6 +446,10 @@ pub enum ButtonAction {
     Credits,
     /// Asks before removing the project.
     RemoveProject,
+    /// Brings up macOS's notifications question (in the app's process) and answers Otaq's ask (ATT-13, ATT-14).
+    AllowNotifications,
+    /// Opens Otaq's entry in System Settings → Notifications (ATT-14).
+    OpenSystemSettings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -428,6 +531,8 @@ pub struct GlobalInputs<'a> {
     pub data: Option<(String, String)>,
     pub cleanup_count: usize,
     pub os: Os,
+    /// What the OS allows Otaq's notifications (`notifications.state`); `Unknown` when it couldn't be read.
+    pub notification_permission: PermissionState,
 }
 
 /// What a project page is built from.
@@ -765,17 +870,49 @@ pub fn global_page(input: &GlobalInputs) -> Page {
         )],
     );
 
+    // The main switch with macOS's answer under it, then a checkbox per kind and Play a sound, disabled (not hidden)
+    // while the switch is off (ATT-14, ATT-16; d0090).
+    let mut notification_rows = vec![row(
+        "notifications",
+        "OS notifications for blocking items",
+        "Permission prompts, agent questions and interrupted sessions. Nothing else ever notifies.",
+        Control::NotificationsSwitch {
+            on: s.notifications,
+            status: os_status(input.notification_permission),
+        },
+    )];
+    let checkbox = |field: &str, label: &str, description: &str, on: bool| Row {
+        dimmed: !s.notifications,
+        ..row(
+            field,
+            label,
+            description,
+            Control::Checkbox {
+                on,
+                disabled: !s.notifications,
+                indented: true,
+            },
+        )
+    };
+    for kind in Kind::ALL {
+        let (field, label, description) = notification_kind_row(kind);
+        notification_rows.push(checkbox(
+            field,
+            label,
+            description,
+            s.notification_kinds.allows(kind),
+        ));
+    }
+    notification_rows.push(checkbox(
+        "notification_sound",
+        "Play a sound",
+        "The OS\u{2019}s default notification sound.",
+        s.notification_sound,
+    ));
     let notifications = section(
         GlobalSection::Notifications,
         Some("Notifications"),
-        vec![row(
-            "notifications",
-            "OS notifications for blocking items",
-            "Permission prompts, agent questions and interrupted sessions. Nothing else ever notifies.",
-            Control::Toggle {
-                on: s.notifications,
-            },
-        )],
+        notification_rows,
     );
 
     let reveal = reveal_label(input.os);
@@ -1595,6 +1732,151 @@ pub struct WarmSwitchCell {
     pub row: Row,
 }
 
+/// The notification banners and Settings → Notifications in the component gallery (T-0372; ATT-13, ATT-14, ATT-16;
+/// no frames, d0090): the ask, the blocked banner and their stacking with the folder trust banners, the permission
+/// warning, the usage limit and Reconnecting; the section in every status-line state, and with the switch off.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "NotificationsGallery")]
+pub struct NotificationsGallery {
+    pub banners: Vec<NotificationsBannerCell>,
+    pub pages: Vec<NotificationsPageCell>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "NotificationsBannerCell")]
+pub struct NotificationsBannerCell {
+    pub name: String,
+    pub banners: Vec<crate::view_models::banners::BannerView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "NotificationsPageCell")]
+pub struct NotificationsPageCell {
+    pub name: String,
+    pub section: Section<GlobalSection>,
+}
+
+pub fn notifications_gallery() -> NotificationsGallery {
+    use crate::view_models::banners::{BannerModel, Situation, SituationKind, TrustFailure};
+    fn limit() -> Situation {
+        Situation::UsageLimit {
+            title: "Session limit reached".into(),
+            text: "Resets at 3:00 pm \u{b7} 8 agents stopped".into(),
+            resume: None,
+            lines: Vec::new(),
+        }
+    }
+    fn failed() -> Vec<TrustFailure> {
+        vec![TrustFailure {
+            project: "NOTE".into(),
+            reason: "Claude Code\u{2019}s config file couldn\u{2019}t be written".into(),
+        }]
+    }
+    type Raise = fn(&mut BannerModel);
+    let banner_cells: [(&str, Raise); 6] = [
+        ("the ask · the first agent started, macOS not asked", |m| {
+            m.set_notifications(true, false)
+        }),
+        ("macOS blocked a notification", |m| {
+            m.set_notifications(false, true)
+        }),
+        (
+            "stacking · blocked below the folder trust warning, above the permission warning",
+            |m| {
+                m.raise(Situation::PermissionWarning);
+                m.set_trust(false, Vec::new(), failed());
+                m.set_notifications(false, true);
+            },
+        ),
+        ("stacking · blocked above the permission warning", |m| {
+            m.raise(Situation::PermissionWarning);
+            m.set_notifications(true, true);
+        }),
+        ("stacking · the usage limit on top, reconnecting", |m| {
+            m.raise(limit());
+            m.raise(Situation::Reconnecting);
+            m.set_notifications(true, true);
+        }),
+        (
+            "stacking · the ask below the folder trust note, reconnecting",
+            |m| {
+                m.set_trust(true, Vec::new(), Vec::new());
+                m.set_notifications(true, false);
+                m.raise(Situation::Reconnecting);
+            },
+        ),
+    ];
+    let banners = banner_cells
+        .into_iter()
+        .map(|(name, set)| {
+            let mut model = BannerModel::default();
+            set(&mut model);
+            debug_assert!(
+                model.is_active(SituationKind::NotificationsAsk)
+                    || model.is_active(SituationKind::NotificationsBlocked)
+            );
+            NotificationsBannerCell {
+                name: name.to_owned(),
+                banners: model.rows().iter().map(|r| r.view(false)).collect(),
+            }
+        })
+        .collect();
+    let mut off = GlobalSettings {
+        notifications: false,
+        ..GlobalSettings::default()
+    };
+    off.notification_kinds.set(Kind::TurnEnded, false);
+    let mut some = GlobalSettings::default();
+    some.notification_kinds.set(Kind::Question, false);
+    some.notification_sound = false;
+    let on = GlobalSettings::default();
+    let page_cells = [
+        ("macOS not asked yet", &on, PermissionState::NotAsked),
+        (
+            "allowed · Questions and Play a sound unticked",
+            &some,
+            PermissionState::Allowed,
+        ),
+        ("turned off in macOS", &on, PermissionState::TurnedOff),
+        (
+            "running outside the app bundle",
+            &on,
+            PermissionState::OutsideBundle,
+        ),
+        ("state unknown · no line", &on, PermissionState::Unknown),
+        (
+            "the switch off · turned off in macOS",
+            &off,
+            PermissionState::TurnedOff,
+        ),
+    ];
+    let pages = page_cells
+        .into_iter()
+        .map(|(name, settings, permission)| {
+            let input = GlobalInputs {
+                settings,
+                problems: &[],
+                scheduler: None,
+                data: None,
+                cleanup_count: 0,
+                os: Os::Mac,
+                notification_permission: permission,
+            };
+            let Page::Global { sections, .. } = global_page(&input) else {
+                unreachable!("the global page")
+            };
+            NotificationsPageCell {
+                name: name.to_owned(),
+                section: sections
+                    .into_iter()
+                    .find(|s| s.id == GlobalSection::Notifications)
+                    .expect("the Notifications section"),
+            }
+        })
+        .collect();
+    NotificationsGallery { banners, pages }
+}
+
 /// *15 → Row · Start new worktrees from a warm build (0082)* and the dark frame's Linux state for the gallery
 /// (T-0301): the frames' samples (shop-web 4.2 GB at 3e1f9a2, 2 h; SHOP-21 copying).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -2096,6 +2378,14 @@ pub fn edit_global(s: &mut GlobalSettings, field: &str, value: &Value) -> Result
         "auto_merge" => s.auto_merge = auto_merge_of(value.text()?)?,
         "project_agent_instructions" => s.project_agent_instructions = value.text()?.to_owned(),
         "notifications" => s.notifications = value.flag()?,
+        "notification_sound" => s.notification_sound = value.flag()?,
+        kind if kind.starts_with("notification_kinds.") => {
+            let kind = Kind::ALL
+                .into_iter()
+                .find(|k| notification_kind_row(*k).0 == kind)
+                .ok_or_else(|| format!("unknown setting: {kind}"))?;
+            s.notification_kinds.set(kind, value.flag()?);
+        }
         "usage_data" => {
             s.usage_data = if value.flag()? {
                 UsageData::On
@@ -2275,10 +2565,159 @@ mod tests {
             data: Some(("~/x/data.db".into(), "~/x/logs/".into())),
             cleanup_count: 0,
             os: Os::Mac,
+            notification_permission: PermissionState::Unknown,
         };
         match global_page(&input) {
             Page::Global { sections, .. } => sections,
             Page::Project { .. } => unreachable!(),
+        }
+    }
+
+    /// The Notifications section with macOS's permission `permission`.
+    fn notifications_rows(settings: &GlobalSettings, permission: PermissionState) -> Vec<Row> {
+        let input = GlobalInputs {
+            settings,
+            problems: &[],
+            scheduler: None,
+            data: None,
+            cleanup_count: 0,
+            os: Os::Mac,
+            notification_permission: permission,
+        };
+        let Page::Global { sections, .. } = global_page(&input) else {
+            unreachable!()
+        };
+        sections
+            .into_iter()
+            .find(|s| s.id == GlobalSection::Notifications)
+            .expect("the Notifications section")
+            .rows
+    }
+
+    /// T-0372 (ATT-14, d0090): the status line under the main switch in every macOS state, with its one action;
+    /// none where the state isn't read; the same whatever the switch's state.
+    #[test]
+    fn the_notifications_status_line_follows_macos() {
+        let product = PRODUCT_NAME;
+        type Line = Option<(String, Option<(&'static str, ButtonAction)>)>;
+        let cases: [(PermissionState, Line); 5] = [
+            (
+                PermissionState::NotAsked,
+                Some((
+                    "macOS hasn’t been asked yet.".into(),
+                    Some(("Allow notifications", ButtonAction::AllowNotifications)),
+                )),
+            ),
+            (
+                PermissionState::Allowed,
+                Some(("Allowed in macOS.".into(), None)),
+            ),
+            (
+                PermissionState::TurnedOff,
+                Some((
+                    format!("Turned off in macOS, so {product} can’t notify you."),
+                    Some(("Open System Settings", ButtonAction::OpenSystemSettings)),
+                )),
+            ),
+            (
+                PermissionState::OutsideBundle,
+                Some((
+                    format!(
+                        "Running outside {product}.app: notifications appear as Script Editor, and {product} can’t \
+                         check whether macOS allows them."
+                    ),
+                    None,
+                )),
+            ),
+            (PermissionState::Unknown, None),
+        ];
+        for (permission, wanted) in cases {
+            for on in [true, false] {
+                let settings = GlobalSettings {
+                    notifications: on,
+                    ..GlobalSettings::default()
+                };
+                let rows = notifications_rows(&settings, permission);
+                let Control::NotificationsSwitch { on: shown, status } = &rows[0].control else {
+                    panic!("{:?}", rows[0].control)
+                };
+                assert_eq!(*shown, on);
+                assert_eq!(rows[0].field, "notifications");
+                let status = status.as_ref().map(|s| {
+                    (
+                        s.text.clone(),
+                        s.action.as_ref().map(|a| (a.label.as_str(), a.action)),
+                    )
+                });
+                assert_eq!(status, wanted, "{permission:?}, switch on = {on}");
+            }
+        }
+    }
+
+    /// T-0372 (ATT-16, d0090): the seven kinds then Play a sound, indented under the main switch, disabled and dimmed
+    /// (not hidden) while it is off; ticking one edits its kind.
+    #[test]
+    fn the_notification_checkboxes_follow_the_switch() {
+        let mut s = GlobalSettings::default();
+        let rows = notifications_rows(&s, PermissionState::Allowed);
+        let labels: Vec<(&str, &str)> = rows[1..]
+            .iter()
+            .map(|r| (r.label.as_str(), r.description.as_str()))
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                (
+                    "Permission prompts",
+                    "Agents, validators, Project agents and epic leads."
+                ),
+                ("Questions", "Agents, Project agents and epic leads."),
+                ("Agent ended its turn", ""),
+                ("Session interrupted", ""),
+                (
+                    "Validation needs a decision",
+                    "Failed N times, or no result."
+                ),
+                ("Auto-merge stopped", ""),
+                ("Agent tool not available", ""),
+                ("Play a sound", "The OS’s default notification sound."),
+            ]
+        );
+        for row in &rows[1..] {
+            assert_eq!(
+                row.control,
+                Control::Checkbox {
+                    on: true,
+                    disabled: false,
+                    indented: true
+                },
+                "{}",
+                row.label
+            );
+            assert!(!row.dimmed);
+        }
+
+        edit_global(&mut s, "notification_kinds.question", &Value::Flag(false)).unwrap();
+        edit_global(&mut s, "notification_sound", &Value::Flag(false)).unwrap();
+        assert!(!s.notification_kinds.allows(Kind::Question));
+        assert!(s.notification_kinds.allows(Kind::Permission));
+        assert!(!s.notification_sound);
+        assert!(edit_global(&mut s, "notification_kinds.nothing", &Value::Flag(false)).is_err());
+        assert!(edit_global(&mut s, "notification_sound", &Value::Text("no".into())).is_err());
+        for kind in Kind::ALL {
+            let field = notification_kind_row(kind).0;
+            edit_global(&mut s, field, &Value::Flag(false)).unwrap();
+            assert!(!s.notification_kinds.allows(kind), "{field}");
+        }
+
+        s.notifications = false;
+        let rows = notifications_rows(&s, PermissionState::Allowed);
+        assert_eq!(rows.len(), 9, "not hidden");
+        for row in &rows[1..] {
+            let Control::Checkbox { disabled, .. } = row.control else {
+                panic!()
+            };
+            assert!(disabled && row.dimmed, "{}", row.label);
         }
     }
 
@@ -2878,6 +3317,7 @@ mod tests {
             data: None,
             cleanup_count: 2,
             os: Os::Linux,
+            notification_permission: PermissionState::Unknown,
         };
         let Page::Global { sections, .. } = global_page(&input) else {
             unreachable!()

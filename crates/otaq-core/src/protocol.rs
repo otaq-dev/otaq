@@ -170,6 +170,19 @@ pub enum Request {
     /// The user dismissed the one-time folder trust note (PRJ-08); it never comes back. Answered with [`Reply::Ok`].
     #[serde(rename = "notices.dismiss_trust_note")]
     DismissTrustNote,
+    /// What macOS allows Otaq's notifications, Otaq's ask and the blocked banner (ATT-13, ATT-14; d0090). Answered
+    /// with [`Reply::NotificationsState`].
+    #[serde(rename = "notifications.state")]
+    NotificationsState,
+    /// The user answered Otaq's ask (Allow, Not now) or pressed Settings' Allow notifications: the ask is never set
+    /// pending again, and the permission is read again (the app sends it once more when macOS answered its
+    /// question). Answered with [`Reply::Ok`].
+    #[serde(rename = "notifications.ask_answered")]
+    NotificationsAskAnswered,
+    /// The user closed the "macOS is blocking Otaq's notifications" banner: closed until the permission changes.
+    /// Answered with [`Reply::Ok`].
+    #[serde(rename = "notifications.dismiss_blocked")]
+    NotificationsDismissBlocked,
 
     // Projects (PRJ-01…04). Answered with [`Reply::Projects`], [`Reply::FolderProbe`] or [`Reply::Project`]
     // ([`Reply::ProjectAdded`] for `project.add`).
@@ -1537,6 +1550,9 @@ impl Request {
             Self::OnboardingState => "onboarding.state",
             Self::DismissPermissionWarning => "onboarding.dismiss_permission_warning",
             Self::DismissTrustNote => "notices.dismiss_trust_note",
+            Self::NotificationsState => "notifications.state",
+            Self::NotificationsAskAnswered => "notifications.ask_answered",
+            Self::NotificationsDismissBlocked => "notifications.dismiss_blocked",
             Self::ProjectList => "project.list",
             Self::ProjectProbe(_) => "project.probe",
             Self::ProjectAdd(_) => "project.add",
@@ -1723,6 +1739,7 @@ pub enum Reply {
     StartupReport(Box<crate::recovery::StartupReport>),
     ToolsCheck(ToolsReport),
     OnboardingState(OnboardingState),
+    NotificationsState(crate::attention::os_permission::NotificationsState),
     Projects(Vec<ProjectInfo>),
     Project(ProjectInfo),
     /// The answer to `project.add`: the project, and whether the agent tools' trust was recorded for its folder
@@ -2012,6 +2029,10 @@ pub enum Event {
     /// The folder trust notices changed (the one-time note, the projects whose trust couldn't be recorded;
     /// PRJ-08): refetch `onboarding.state`.
     TrustChanged,
+    /// What macOS allows, the ask or the blocked banner changed (ATT-13, ATT-14): the new `notifications.state`.
+    NotificationsChanged {
+        state: crate::attention::os_permission::NotificationsState,
+    },
     /// An agent tool's row on Settings → Agent tools changed (a recheck, Hidden, a setup, Sign in… ended, a note):
     /// refetch `agent_tools.list`.
     AgentToolsChanged,
@@ -2287,6 +2308,16 @@ mod tests {
             }),
             Message::event(Event::ProjectsChanged),
             Message::event(Event::TrustChanged),
+            Message::request(13, Request::NotificationsState),
+            Message::request(13, Request::NotificationsAskAnswered),
+            Message::request(13, Request::NotificationsDismissBlocked),
+            Message::event(Event::NotificationsChanged {
+                state: crate::attention::os_permission::NotificationsState {
+                    permission: crate::attention::notify::PermissionState::TurnedOff,
+                    ask_pending: false,
+                    blocked_banner: true,
+                },
+            }),
             Message::error(
                 Some(4),
                 ErrorBody::new(ErrorKind::BadRequest, "unknown method"),

@@ -50,15 +50,19 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
   const body = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLDivElement>(null);
 
-  // The view, again on every settings or project change (a theme picked elsewhere, a project added) and every warm
-  // build change (the switch's "Clearing… (waiting for …)" line).
+  // The view, again on every settings or project change (a theme picked elsewhere, a project added), every warm
+  // build change (the switch's "Clearing… (waiting for …)" line) and every change of what macOS allows (ATT-14).
   const load = useCallback(() => request("settings.view", { project }) as Promise<SettingsView>, [project]);
   useEffect(
     () =>
-      watchView(load, ["settings_changed", "projects_changed", "warm_build_changed"], (state) => {
-        if (state.view) setView(state.view);
-        setError(state.error ?? null);
-      }),
+      watchView(
+        load,
+        ["settings_changed", "projects_changed", "warm_build_changed", "notifications_changed"],
+        (state) => {
+          if (state.view) setView(state.view);
+          setError(state.error ?? null);
+        },
+      ),
     [load],
   );
 
@@ -87,6 +91,17 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
         case "credits":
           void request("settings.credits").then((d) => {
             setDialog({ kind: "credits", dialog: d as ThemeCreditsDialog });
+          });
+          return;
+        // What macOS allows (ATT-14): its question, in the app's process, or Otaq's entry in System Settings.
+        case "allow_notifications":
+          request("notices.notifications_allow").catch((e: unknown) => {
+            setError(asRequestError(e));
+          });
+          return;
+        case "open_system_settings":
+          request("notices.open_notification_settings").catch((e: unknown) => {
+            setError(asRequestError(e));
           });
           return;
         case "remove_project":

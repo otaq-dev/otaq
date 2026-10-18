@@ -35,6 +35,17 @@ pub const TRUST_NOTE_RAISED: &str = "trust.note_raised";
 /// "Use fallback agents automatically" (AGT-08, d0086): `true` or `false`; absent = off.
 pub const AUTO_FALLBACK: &str = "agents.auto_fallback";
 
+/// Otaq's own "Allow notifications?" line is up (ATT-13, d0090): `true`, set when the first agent session starts while
+/// macOS hasn't been asked; removed once answered.
+pub const NOTIFICATIONS_ASK_PENDING: &str = "notifications.ask_pending";
+
+/// The user answered the ask (Allow, Not now, or Settings' Allow notifications): `true`. It is never set pending again.
+pub const NOTIFICATIONS_ASK_ANSWERED: &str = "notifications.ask_answered";
+
+/// The user closed the "macOS is blocking Otaq's notifications" banner (ATT-14): the permission it was closed for
+/// (`"turned_off"`). Removed when the permission becomes allowed, so a later turn-off can show it once more.
+pub const NOTIFICATIONS_BLOCKED_DISMISSED: &str = "notifications.blocked_dismissed";
+
 impl Store {
     /// The stored JSON value of a global setting.
     pub async fn setting(&self, key: &str) -> Result<Option<String>, StoreError> {
@@ -57,6 +68,15 @@ impl Store {
         .bind(now_ms())
         .execute(self.pool())
         .await?;
+        Ok(())
+    }
+
+    /// Removes a global setting; nothing happens when it isn't stored.
+    pub async fn remove_setting(&self, key: &str) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM settings WHERE key = ?")
+            .bind(key)
+            .execute(self.pool())
+            .await?;
         Ok(())
     }
 

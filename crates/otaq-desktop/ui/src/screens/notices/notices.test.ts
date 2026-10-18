@@ -146,6 +146,19 @@ describe("banner buttons", () => {
     await pressBanner("trust_note", "action", r.routes);
     expect(r.ask.mock.calls.map((c) => c[0])).toEqual(["notices.resume_after_limit", "notices.open_docs"]);
   });
+
+  it("the notifications ask's Allow and Not now, and the blocked banner's Open System Settings, are requests", async () => {
+    const r = routes();
+    await pressBanner("notifications_ask", "action", r.routes);
+    await pressBanner("notifications_ask", "secondary", r.routes);
+    await pressBanner("notifications_blocked", "action", r.routes);
+    expect(r.ask.mock.calls.map((c) => c[0])).toEqual([
+      "notices.notifications_allow",
+      "notices.notifications_not_now",
+      "notices.open_notification_settings",
+    ]);
+    expect(r.stack.store.get()).toEqual([]);
+  });
 });
 
 describe("notification clicks", () => {

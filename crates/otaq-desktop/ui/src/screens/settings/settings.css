@@ -189,6 +189,41 @@
   font: 400 12px/1.4 var(--font-ui);
 }
 
+/* What macOS allows Otaq's notifications, under the main switch's text, with its one action (ATT-14). */
+.settings-os-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font: 400 12px/1.4 var(--font-ui);
+}
+
+/* A notification kind or Play a sound, indented under the main switch (ATT-16). */
+.settings-checkbox-row {
+  padding: 8px 0;
+}
+
+.settings-checkbox-row[data-indented] {
+  padding-left: 24px;
+}
+
+.settings-checkbox-row .choice {
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.settings-checkbox-row .choice > .checkbox {
+  margin-top: 1px;
+}
+
+.settings-checkbox-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .settings-row-control {
   display: flex;
   flex: 1;

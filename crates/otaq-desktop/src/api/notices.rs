@@ -1,5 +1,7 @@
 //! `notices.*`: the banner area and the toasts (T-0231, [`crate::notices`]), what their buttons do on the user's
-//! click, and what a notification click opens.
+//! click, and what a notification click opens. Notifications (ATT-13, ATT-14; d0090): the ask's Allow brings up
+//! macOS's question in this process (the app, under the bundle's ID), never in the service; Not now only answers the
+//! ask; Open System Settings opens Otaq's entry there.
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::board::epic_flight::EpicQueueOutcome;
@@ -57,6 +59,12 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         }
         "notices.open_at_start" => reply(&app.notices.take_open_at_start()),
         "notices.open_target" => open_target(parse(params)?),
+        "notices.notifications_allow" => allow_notifications(app).await,
+        "notices.notifications_not_now" => {
+            app.service.send(Request::NotificationsAskAnswered).await?;
+            Ok(Value::Null)
+        }
+        "notices.open_notification_settings" => open_notification_settings(),
         _ => Err(unknown(method)),
     }
 }
@@ -121,9 +129,69 @@ async fn dismiss_banner(app: &App, params: DismissBanner) -> Result<Value, Reque
         SituationKind::TrustNote => {
             app.service.send(Request::DismissTrustNote).await?;
         }
+        SituationKind::NotificationsBlocked => {
+            app.service
+                .send(Request::NotificationsDismissBlocked)
+                .await?;
+        }
         _ => {}
     }
     Ok(Value::Null)
+}
+
+/// How long the app waits for the user's answer to macOS's question before reading the permission anyway. macOS's
+/// question stays up meanwhile (it goes with the asking process, so never ask from a short-lived one); an answer
+/// after this is read when the window next gains focus.
+#[cfg(target_os = "macos")]
+const MACOS_ANSWER_WAIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// Allow (the ask) and Allow notifications (Settings): macOS's question, from this process under the bundle's ID,
+/// then `notifications.ask_answered` at once (the ask goes) and again once macOS answered, so the service reads the
+/// permission again. Outside the bundle nothing is asked (the API would end the process there).
+pub(super) async fn allow_notifications(app: &App) -> Result<Value, RequestError> {
+    #[cfg(target_os = "macos")]
+    if let Some(in_bundle) = otaq_core::attention::notification_center::in_bundle() {
+        let clients = app.service.clients();
+        tokio::spawn(async move {
+            let answer = tokio::task::spawn_blocking(move || {
+                otaq_core::attention::notification_center::request_permission(
+                    &in_bundle,
+                    MACOS_ANSWER_WAIT,
+                )
+            })
+            .await;
+            if let Ok(Err(e)) = answer {
+                eprintln!("macOS didn't answer the notifications question: {e}");
+            }
+            // Not connected: the next app focus reads the permission again.
+            let client = clients.borrow().clone();
+            if let Some(client) = client {
+                let _ = client.request(Request::NotificationsAskAnswered).await;
+            }
+        });
+    }
+    app.service.send(Request::NotificationsAskAnswered).await?;
+    Ok(Value::Null)
+}
+
+/// Otaq's entry in System Settings → Notifications (the blocked banner, the Settings status line). Where the URL
+/// doesn't select the app, macOS opens the Notifications pane.
+fn open_notification_settings() -> Result<Value, RequestError> {
+    let url = notification_settings_url();
+    open::that_detached(&url)
+        .map_err(|e| RequestError::plain(format!("couldn't open System Settings: {e}")))?;
+    Ok(Value::Null)
+}
+
+/// `x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=<bundle ID>`, with the running bundle's
+/// ID (Otaq's when outside one).
+fn notification_settings_url() -> String {
+    #[cfg(target_os = "macos")]
+    let id = otaq_core::attention::notification_center::main_bundle_id()
+        .unwrap_or_else(|| otaq_core::naming::BUNDLE_ID.to_owned());
+    #[cfg(not(target_os = "macos"))]
+    let id = otaq_core::naming::BUNDLE_ID.to_owned();
+    format!("x-apple.systempreferences:com.apple.Notifications-Settings.extension?id={id}")
 }
 
 /// Restarts the service with this build, or starts it when stopped. Sent only after the user's click (confirmed
@@ -300,6 +368,34 @@ mod tests {
     use super::*;
     use crate::api::request;
     use crate::service::testing::{Harness, connected};
+
+    /// T-0372: Not now and Allow answer the ask (outside the bundle Allow asks macOS nothing); the blocked banner's
+    /// close is the service's; Open System Settings names the app's entry.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_notification_buttons_answer_the_service() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        for method in ["notices.notifications_not_now", "notices.notifications_allow"] {
+            assert_eq!(request(&h.app, method, Value::Null).await.unwrap(), Value::Null);
+        }
+        request(
+            &h.app,
+            "notices.dismiss_banner",
+            json!({"kind": "notifications_blocked"}),
+        )
+        .await
+        .unwrap();
+        let state = h.app.service.send(Request::NotificationsState).await.unwrap();
+        let Reply::NotificationsState(state) = state else {
+            panic!("{state:?}")
+        };
+        assert!(!state.ask_pending && !state.blocked_banner);
+        assert!(
+            notification_settings_url().starts_with(
+                "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id="
+            )
+        );
+    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn the_banner_area_and_the_toasts_through_the_table() {

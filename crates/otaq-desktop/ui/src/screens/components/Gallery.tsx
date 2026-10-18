@@ -75,6 +75,7 @@ import type { DrawerGallery } from "../../generated/DrawerGallery";
 import type { PillView } from "../../generated/PillView";
 import type { ToolAvatarGallery } from "../../generated/ToolAvatarGallery";
 import type { TrustGallery } from "../../generated/TrustGallery";
+import type { NotificationsGallery } from "../../generated/NotificationsGallery";
 import {
   MarkdownEditor,
   MarkdownSurface,
@@ -107,7 +108,7 @@ import { EnvVarsRow } from "../settings/EnvVars";
 import { AgentsSectionBody, ProjectAgentsBody } from "../settings/Agents";
 import { AgentDeleteDialogView, AgentDialog } from "../settings/AgentDialog";
 import { AgentToolsPageBody, DisconnectDialogView } from "../settings/AgentTools";
-import { WarmBuildRow } from "../settings/Rows";
+import { Section as SettingsSectionRows, WarmBuildRow } from "../settings/Rows";
 import "../settings/settings.css";
 import { ActivityGallery } from "../shell/ActivityGallery";
 import { LimitLinesGallery } from "../notices/LimitLinesGallery";
@@ -2025,6 +2026,80 @@ function ReviewColumnSection() {
   );
 }
 
+const loadNotifications = () => request("gallery.notifications") as Promise<NotificationsGallery>;
+
+/** T-0372 (ATT-13, ATT-14, ATT-16; d0090, no frames): the notifications ask and the blocked banner with their
+ * stacking, then Settings → Notifications in every status-line state and with the switch off, from
+ * `gallery.notifications`, in Otaq Light and Dark. Clicks are only recorded; nothing is sent. */
+function NotificationsGallerySection() {
+  const { view, error } = useServiceView(loadNotifications, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const settings: SettingsContextValue = {
+    page: { page: "global", title: "Notifications", sections: [] },
+    project: null,
+    edit: (field, value) => {
+      setPicked(`${field} = ${JSON.stringify(value)}`);
+    },
+    act: (action) => {
+      setPicked(action);
+    },
+  };
+  return (
+    <Section title="11 · Notifications ask and blocked banner · 15 · Settings → Notifications (T-0372)">
+      <Caption>Last click: {picked ?? "—"}</Caption>
+      <SettingsContext.Provider value={settings}>
+        <div className="gallery-two">
+          {THEMES.map((theme) => (
+            <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+              <Caption>{theme.toUpperCase()}</Caption>
+              {view.banners.map((cell) => (
+                <div key={cell.name} className="gallery-stack-tight">
+                  <Caption>{cell.name.toUpperCase()}</Caption>
+                  {cell.banners.map((b) => (
+                    <Banner
+                      key={b.kind}
+                      tone={b.tone}
+                      icon={b.icon}
+                      title={b.title}
+                      text={b.text}
+                      actions={b.buttons.map((button) => ({
+                        label: button.label,
+                        icon: button.icon,
+                        onClick: () => {
+                          setPicked(`${b.kind} · ${button.label}`);
+                        },
+                      }))}
+                      onDismiss={
+                        b.dismissable
+                          ? () => {
+                              setPicked(`${b.kind} · dismiss`);
+                            }
+                          : undefined
+                      }
+                    />
+                  ))}
+                </div>
+              ))}
+              {view.pages.map((cell) => (
+                <div
+                  key={cell.name}
+                  className="gallery-stack-tight"
+                  style={{ padding: "0 16px 16px", borderRadius: 8, background: "var(--bg-panel)" }}
+                >
+                  <Caption>{cell.name.toUpperCase()}</Caption>
+                  <SettingsSectionRows section={cell.section} />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </SettingsContext.Provider>
+    </Section>
+  );
+}
+
 function TrustSection() {
   const { view, error } = useServiceView(loadTrust, []);
   if (error) return <p role="alert">{error.message}</p>;
@@ -2288,6 +2363,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <CleanupWarmGallery />
         <ReviewColumnSection />
         <TrustSection />
+        <NotificationsGallerySection />
         <AgentToolsGallerySection />
         <OnboardingToolsGallerySection />
         <BoardReviewSection />

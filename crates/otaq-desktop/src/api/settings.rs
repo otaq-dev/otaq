@@ -577,6 +577,11 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
                 Ok(Reply::CleanupScan(items)) => items.len(),
                 _ => 0,
             };
+            // What macOS allows, for the status line under the notifications switch (ATT-14).
+            let notification_permission = match app.service.send(Request::NotificationsState).await {
+                Ok(Reply::NotificationsState(state)) => state.permission,
+                _ => otaq_core::attention::notify::PermissionState::Unknown,
+            };
             page::global_page(&GlobalInputs {
                 settings: &settings,
                 problems: &problems,
@@ -584,6 +589,7 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
                 data: app.service.data().map(|d| data_paths(&d)),
                 cleanup_count,
                 os: Os::current(),
+                notification_permission,
             })
         }
     };

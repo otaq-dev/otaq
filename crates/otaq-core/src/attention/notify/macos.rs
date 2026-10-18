@@ -11,7 +11,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 
-use super::{Notifier, OnClick, OpenTarget, OsNotification, PermissionState, Target};
+use super::{
+    Notifier, OnClick, OpenTarget, OsNotification, PermissionChanged, PermissionState, Target,
+};
 use crate::attention::notification_center::{
     self as center, Clicked, Content, InBundle, Permission,
 };
@@ -27,6 +29,8 @@ pub struct NativeNotifier {
     posts: Mutex<Option<Sender<OsNotification>>>,
     /// What a click opens, once the service set it.
     open: Arc<Mutex<Option<OpenTarget>>>,
+    /// Told when a read finds the permission changed, once the service set it.
+    changed: Arc<Mutex<Option<PermissionChanged>>>,
 }
 
 impl NativeNotifier {
@@ -53,6 +57,7 @@ impl NativeNotifier {
             permission: Arc::new(Mutex::new(PermissionState::Unknown)),
             reading: Arc::default(),
             open,
+            changed: Arc::default(),
         };
         notifier.refresh_permission();
         notifier
@@ -122,20 +127,29 @@ impl Notifier for NativeNotifier {
         if self.reading.swap(true, Ordering::SeqCst) {
             return;
         }
-        let (in_bundle, permission, reading) = (
+        let (in_bundle, permission, reading, changed) = (
             self.in_bundle.clone(),
             self.permission.clone(),
             self.reading.clone(),
+            self.changed.clone(),
         );
         let spawned = std::thread::Builder::new()
             .name("notification permission".into())
             .spawn(move || {
                 if let Some(read) = center::permission(&in_bundle) {
-                    *permission.lock().expect("permission") = match read {
+                    let read = match read {
                         Permission::NotAsked => PermissionState::NotAsked,
                         Permission::Allowed => PermissionState::Allowed,
                         Permission::TurnedOff => PermissionState::TurnedOff,
                     };
+                    let before =
+                        std::mem::replace(&mut *permission.lock().expect("permission"), read);
+                    let tell = changed.lock().expect("permission listener").clone();
+                    if before != read
+                        && let Some(tell) = tell
+                    {
+                        tell();
+                    }
                 }
                 reading.store(false, Ordering::SeqCst);
             });
@@ -143,6 +157,10 @@ impl Notifier for NativeNotifier {
             self.reading.store(false, Ordering::SeqCst);
             tracing::warn!(error = %e, "can't read the notification permission");
         }
+    }
+
+    fn on_permission(&self, changed: PermissionChanged) {
+        *self.changed.lock().expect("permission listener") = Some(changed);
     }
 
     fn on_clicks(&self, open: OpenTarget) {
