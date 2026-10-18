@@ -14,9 +14,14 @@ use ts_rs::TS;
 pub const MIN_SIZE: (f64, f64) = (1280.0, 800.0);
 /// The first launch's window, centered.
 pub const FIRST_SIZE: (f64, f64) = (1440.0, 900.0);
-/// Where the traffic lights sit: 14 px from the left edge, centered in the 44 px header.
+/// Where the traffic lights sit: 14 px from the left edge, centered on the 44 px header's middle line (22 px).
+///
+/// The y isn't the buttons' top edge: tao makes the title bar `button height (16) + y` tall and leaves the buttons
+/// 10 px above its bottom, so their center lands at `y − 2`. Measured in the running app (OT-1, tao 0.37.1, macOS
+/// 27): y = 16 put the centers at 14 px; y = 24 puts the 16 px button frames at 14–30 and the drawn circles' center
+/// on 22, through leaving full screen, resizing and focus changes (tao re-applies the inset itself on those).
 #[cfg(target_os = "macos")]
-pub const TRAFFIC_LIGHTS: (f64, f64) = (14.0, 16.0);
+pub const TRAFFIC_LIGHTS: (f64, f64) = (14.0, 24.0);
 /// The header's height (`density::HEADER`): the part of the window that must stay on a screen.
 const HEADER_HEIGHT: f64 = 44.0;
 
