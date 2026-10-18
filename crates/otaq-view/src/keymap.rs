@@ -6,6 +6,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::view_models::layout::FILES_VIEW;
+
 /// Which column of the keyboard map applies. `KeyPlatform` on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -119,6 +121,11 @@ impl KeyAction {
         all.extend((1..=9).map(Self::Project));
         all.extend((1..=6).map(Self::SwitchTab));
         all
+    }
+
+    /// The Files view's own actions (⇧⌘O, ⌥⌘P): unbound and unlisted while it's parked ([`FILES_VIEW`]).
+    pub fn is_files_view(self) -> bool {
+        matches!(self, Self::ShowFiles | Self::GoToFile)
     }
 
     /// The shortcut as shown in a Kbd, or `None` where the action has none.
@@ -343,9 +350,17 @@ pub struct Binding {
 
 /// Every shortcut bound on `platform`, from [`KeyAction::keys`] over [`bound_columns`]: the page's whole map.
 pub fn bindings(platform: Platform) -> Vec<Binding> {
+    bindings_for(platform, FILES_VIEW)
+}
+
+/// [`bindings`] with the Files view on or off: off, its actions aren't bound.
+pub fn bindings_for(platform: Platform, files_view: bool) -> Vec<Binding> {
     let mut all = Vec::new();
     for &(column, in_terminal) in bound_columns(platform) {
         for action in KeyAction::all() {
+            if !files_view && action.is_files_view() {
+                continue;
+            }
             let Some(text) = action.keys(column) else {
                 continue;
             };
@@ -535,7 +550,7 @@ mod tests {
         if in_terminal && route(platform, true, &stroke.modifiers) == KeyRoute::Terminal {
             return None;
         }
-        bindings(platform)
+        bindings_for(platform, true)
             .into_iter()
             .find(|b| (in_terminal || !b.in_terminal) && &b.keystroke == stroke)
             .map(|b| b.action)
@@ -676,7 +691,7 @@ mod tests {
                 };
                 assert_eq!(route(platform, true, &b.keystroke.modifiers), to);
                 assert!(
-                    !bindings(platform)
+                    !bindings_for(platform, true)
                         .iter()
                         .any(|a| a.keystroke == b.keystroke),
                     "{:?} clashes with the map on {platform:?}",
@@ -830,7 +845,7 @@ mod tests {
             ]
         );
         for platform in [Platform::Mac, Platform::WinLinux] {
-            let focus: Vec<_> = bindings(platform)
+            let focus: Vec<_> = bindings_for(platform, true)
                 .into_iter()
                 .filter(|b| b.keystroke.key == "g" && b.keystroke.modifiers.shift)
                 .collect();
@@ -1017,7 +1032,7 @@ mod tests {
     /// The page's map (T-0215): each action once per column, and the "in terminal" column only on Windows/Linux.
     #[test]
     fn the_bindings_are_the_table() {
-        let mac = bindings(Platform::Mac);
+        let mac = bindings_for(Platform::Mac, true);
         let with_keys = |p| {
             KeyAction::all()
                 .into_iter()
@@ -1030,7 +1045,7 @@ mod tests {
         assert_eq!(search.text, "⌘K");
         assert_eq!(search.keystroke, Keystroke::parse("⌘K").unwrap());
 
-        let win = bindings(Platform::WinLinux);
+        let win = bindings_for(Platform::WinLinux, true);
         assert_eq!(
             win.len(),
             with_keys(Platform::WinLinux) + with_keys(Platform::WinLinuxTerminal)
@@ -1041,7 +1056,7 @@ mod tests {
             .map(|b| (b.text.as_str(), b.in_terminal))
             .collect();
         assert_eq!(find, [("Ctrl+Shift+F", true)]);
-        assert_eq!(bindings(Platform::WinLinuxTerminal), win);
+        assert_eq!(bindings_for(Platform::WinLinuxTerminal, true), win);
     }
 
     /// Where the page looks a key up, one keystroke means one action: outside a terminal among the bindings that
@@ -1049,7 +1064,7 @@ mod tests {
     #[test]
     fn a_keystroke_finds_at_most_one_action() {
         for platform in [Platform::Mac, Platform::WinLinux] {
-            let all = bindings(platform);
+            let all = bindings_for(platform, true);
             for in_terminal in [false, true] {
                 let mut seen: HashMap<String, KeyAction> = HashMap::new();
                 for b in all.iter().filter(|b| {
@@ -1084,7 +1099,7 @@ mod tests {
             "⌘Q", "⌘W", "⌘H", "⌥⌘H", "⌘M", "⌃⌘F", "⌘Z", "⇧⌘Z", "⌘X", "⌘C", "⌘V", "⌘A",
         ];
         let menu: Vec<Keystroke> = menu.iter().map(|t| Keystroke::parse(t).unwrap()).collect();
-        for b in bindings(Platform::Mac) {
+        for b in bindings_for(Platform::Mac, true) {
             assert!(!menu.contains(&b.keystroke), "{} is a menu key", b.text);
         }
     }
@@ -1101,5 +1116,35 @@ mod tests {
         };
         assert!(held.holds(&terminal_app_modifiers(Platform::WinLinux)[0]));
         assert!(!Modifiers::default().holds(&terminal_app_modifiers(Platform::WinLinux)[0]));
+    }
+
+    /// d0087 (parked 2026-10-18): with the Files view off, ⇧⌘O and ⌥⌘P aren't bound in any column, ⇧⌘B stays, and
+    /// the rest of the map is as with it on.
+    #[test]
+    fn a_parked_files_view_binds_neither_of_its_keys() {
+        for platform in [Platform::Mac, Platform::WinLinux] {
+            let on = bindings_for(platform, true);
+            let off = bindings_for(platform, false);
+            assert_eq!(off, bindings(platform));
+            assert!(
+                off.iter().all(|b| !b.action.is_files_view()),
+                "{platform:?}"
+            );
+            assert!(off.iter().any(|b| b.action == KeyAction::ShowBoard));
+            let rest: Vec<_> = on
+                .into_iter()
+                .filter(|b| !b.action.is_files_view())
+                .collect();
+            assert_eq!(off, rest, "{platform:?}");
+        }
+        for text in ["⇧⌘O", "⌥⌘P"] {
+            let stroke = Keystroke::parse(text).unwrap();
+            assert!(
+                !bindings_for(Platform::Mac, false)
+                    .iter()
+                    .any(|b| b.keystroke == stroke),
+                "{text}"
+            );
+        }
     }
 }

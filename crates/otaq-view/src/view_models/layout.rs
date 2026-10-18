@@ -1,5 +1,5 @@
 //! The window's layout (SHL-01, d0087, *02 → Row · Window 1440 × 900 (0086 · V)*): project rail | Project agent pane
-//! | main area with the **Board | Files** tabs. The pane's widths per window size class, its drag range and its
+//! | main area with the **Board | Files** tabs, while [`FILES_VIEW`] is on. The pane's widths per window size class, its drag range and its
 //! hidden strip; the tabs' texts. The page asks once at start (`layout.view`); only the drag of a width, which tab
 //! shows and whether the pane is hidden stay on the page, per window.
 //!
@@ -95,6 +95,11 @@ pub fn pane_width(class: SizeClass, dragged: Option<f32>) -> f32 {
     dragged.map_or(PANE_DEFAULTS.get(class), clamp_pane)
 }
 
+/// Whether the main area has its Files tab. Off while the Files view is parked (d0087 changelog 2026-10-18, d0090):
+/// the shell's tabs are the Board alone, with no tab row, and ⇧⌘O / ⌥⌘P are neither bound nor listed. The code
+/// stays; the `_for` functions take the switch so the tests run both ways.
+pub const FILES_VIEW: bool = false;
+
 /// The main area's tabs (*Main tabs*), each with its ⇧⌘B / ⇧⌘O.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -105,6 +110,24 @@ pub enum MainTab {
 
 impl MainTab {
     pub const ALL: [MainTab; 2] = [MainTab::Board, MainTab::Files];
+
+    /// The tabs the shell has: the Board alone while the Files view is off.
+    pub fn shown(files_view: bool) -> &'static [MainTab] {
+        if files_view {
+            &Self::ALL
+        } else {
+            &Self::ALL[..1]
+        }
+    }
+
+    /// The tab a stored layout opens on: one the shell no longer has (Files while it's off) opens on the Board.
+    pub fn open(self, files_view: bool) -> MainTab {
+        if Self::shown(files_view).contains(&self) {
+            self
+        } else {
+            Self::Board
+        }
+    }
 
     pub fn label(self) -> &'static str {
         match self {
@@ -146,6 +169,8 @@ pub struct View {
     pub pane_max: f32,
     pub strip: f32,
     pub tabs: Vec<TabView>,
+    /// Whether the tab row is drawn: not for one tab, which would switch nothing.
+    pub tab_row: bool,
     /// "⇧⌘B · ⇧⌘O" at the tabs' right end.
     pub tab_keys: String,
     /// The Files tab until M24 (Q-F).
@@ -158,7 +183,13 @@ pub struct View {
 }
 
 pub fn view(platform: Platform) -> View {
-    let keys: Vec<String> = MainTab::ALL
+    view_for(platform, FILES_VIEW)
+}
+
+/// [`view`] with the Files view on or off.
+pub fn view_for(platform: Platform, files_view: bool) -> View {
+    let tabs = MainTab::shown(files_view);
+    let keys: Vec<String> = tabs
         .iter()
         .filter_map(|t| t.action().keys(platform))
         .collect();
@@ -168,7 +199,7 @@ pub fn view(platform: Platform) -> View {
         pane_min: PANE_MIN,
         pane_max: PANE_MAX,
         strip: PANE_STRIP,
-        tabs: MainTab::ALL
+        tabs: tabs
             .iter()
             .map(|&tab| TabView {
                 tab,
@@ -176,6 +207,7 @@ pub fn view(platform: Platform) -> View {
                 icon: tab.icon(),
             })
             .collect(),
+        tab_row: tabs.len() > 1,
         tab_keys: keys.join(" \u{b7} "),
         files_empty: "The Files view comes in a later update.",
         show_pane: "Show the pane",
@@ -219,7 +251,8 @@ mod tests {
 
     #[test]
     fn the_page_gets_the_tabs_and_their_keys() {
-        let mac = view(Platform::Mac);
+        let mac = view_for(Platform::Mac, true);
+        assert!(mac.tab_row);
         assert_eq!(mac.tab_keys, "\u{21e7}\u{2318}B \u{b7} \u{21e7}\u{2318}O");
         assert_eq!(
             mac.tabs.iter().map(|t| t.label).collect::<Vec<_>>(),
@@ -227,11 +260,38 @@ mod tests {
         );
         assert_eq!(mac.pane_keys.as_deref(), Some("\u{2318}\\"));
         assert_eq!(
-            view(Platform::WinLinux).tab_keys,
+            view_for(Platform::WinLinux, true).tab_keys,
             "Ctrl+Shift+B \u{b7} Ctrl+Shift+O"
         );
         assert_eq!(mac.files_empty, "The Files view comes in a later update.");
         assert_eq!(mac.classes.len(), 3);
         assert_eq!(mac.strip, 28.);
+    }
+
+    /// d0087 (parked 2026-10-18): with the switch off the shell has the Board alone and draws no tab row.
+    #[test]
+    fn a_parked_files_view_leaves_the_board_alone_without_a_tab_row() {
+        // Parked until M24: the app gets the switch off.
+        assert_eq!(view(Platform::Mac), view_for(Platform::Mac, false));
+        for platform in [Platform::Mac, Platform::WinLinux] {
+            let off = view_for(platform, false);
+            assert_eq!(
+                off.tabs.iter().map(|t| t.tab).collect::<Vec<_>>(),
+                [MainTab::Board]
+            );
+            assert!(!off.tab_row);
+        }
+        assert_eq!(view_for(Platform::Mac, false).tab_keys, "\u{21e7}\u{2318}B");
+        assert_eq!(MainTab::shown(false), [MainTab::Board]);
+        assert_eq!(MainTab::shown(true), MainTab::ALL);
+    }
+
+    /// A stored Files tab opens on the Board while the Files view is off, and as itself while it's on.
+    #[test]
+    fn a_stored_files_tab_reads_as_the_board_while_parked() {
+        assert_eq!(MainTab::Files.open(false), MainTab::Board);
+        assert_eq!(MainTab::Board.open(false), MainTab::Board);
+        assert_eq!(MainTab::Files.open(true), MainTab::Files);
+        assert_eq!(MainTab::Board.open(true), MainTab::Board);
     }
 }

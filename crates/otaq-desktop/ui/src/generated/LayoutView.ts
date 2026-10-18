@@ -8,6 +8,10 @@ import type { SizeClassBound } from "./SizeClassBound";
  */
 export type LayoutView = { classes: Array<SizeClassBound>, pane_defaults: ClassWidths, pane_min: number, pane_max: number, strip: number, tabs: Array<MainTabView>, 
 /**
+ * Whether the tab row is drawn: not for one tab, which would switch nothing.
+ */
+tab_row: boolean, 
+/**
  * "⇧⌘B · ⇧⌘O" at the tabs' right end.
  */
 tab_keys: string, 
