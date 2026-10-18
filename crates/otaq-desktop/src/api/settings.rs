@@ -3,7 +3,7 @@
 //! `otaq_view::view_models::settings_page`) and gets the fresh view back. The slow parts load on their own: the
 //! tools check, the PR provider, the branches. Everything is stored by the service, never in a repository.
 
-use otaq_core::board::settings::{GlobalSettings, ProjectSettings, SettingProblem, WorkflowStep};
+use otaq_core::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::agent_tools::Tool;
 use otaq_core::board::Refusal;
@@ -11,7 +11,7 @@ use otaq_core::named_agents::AgentList;
 use otaq_core::protocol::{
     AgentDefaultParams, AgentEditParams, AutoFallbackParams, IdParams, KeyParams, ModelsParams,
     ProjectAgentDefaultParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply,
-    Request, WorkflowSkillsParams,
+    Request, SkillScopeParams,
 };
 use otaq_view::view_models::about;
 use otaq_view::view_models::editor_fields::base_choices;
@@ -146,6 +146,15 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             let folder = match p.target {
                 Reveal::Database => data.database_path().parent().map(ToOwned::to_owned),
                 Reveal::Logs => Some(data.logs_dir()),
+                // Otaq's copy of an imported workflow skill (WSK-04).
+                Reveal::Skill { project, step } => {
+                    match app.service.send(Request::WorkflowSkillsStatus(SkillScopeParams { project })).await? {
+                        Reply::WorkflowSkills(list) => {
+                            list.into_iter().find(|s| s.step == step).and_then(|s| s.copy).filter(|c| c.is_dir())
+                        }
+                        other => return Err(unexpected("workflow_skills.status", &other)),
+                    }
+                }
             }
             .ok_or_else(|| RequestError::plain("no folder to show"))?;
             open::that_detached(&folder).map_err(|e| RequestError::plain(e.to_string()))?;
@@ -181,7 +190,7 @@ pub struct SettingsLink {
     pub url: String,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, TS)]
+#[derive(Debug, Clone, Deserialize, TS)]
 pub struct SettingsRevealParams {
     pub target: Reveal,
 }
@@ -529,21 +538,8 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
             open = Some((info.clone(), p_settings, p_problems));
         }
     }
-    // The skills in force, for the Workflow skills note: a project's own, else the global one (T-0360).
-    let mut skills: Vec<String> = WorkflowStep::ALL
-        .into_iter()
-        .map(|step| settings.workflow_skills.get(step).to_owned())
-        .collect();
-    let mut skills_project = None;
-    let mut shown = match open {
+    let shown = match open {
         Some((info, p_settings, p_problems)) => {
-            for (skill, step) in skills.iter_mut().zip(WorkflowStep::ALL) {
-                let own = p_settings.workflow_skills.get(step);
-                if !own.trim().is_empty() {
-                    *skill = own.to_owned();
-                }
-            }
-            skills_project = Some(info.key.clone());
             // The warm build switch (T-0301): whether the disk can clone, and the project's warm build.
             let warm = super::recovery::warm_list(app).await.ok();
             // Run command's Ask the agent names the project's Project agent (T-0342).
@@ -593,16 +589,6 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
             })
         }
     };
-    if let Ok(Reply::SkillUses(uses)) = app
-        .service
-        .send(Request::AgentToolsWorkflowSkills(WorkflowSkillsParams {
-            skills,
-            project: skills_project,
-        }))
-        .await
-    {
-        page::with_skill_notes(&mut shown, &uses);
-    }
     Ok(page::view(shown, &list, &alerts))
 }
 
@@ -733,8 +719,11 @@ mod tests {
         assert_eq!(view["nav"][1]["label"], "Agents");
         // Agent limits and Agent instructions are on the Agents page, not rows of their own.
         assert_eq!(view["nav"][2]["label"], "Workflow skills");
-        // No agent tool is connected in the test service: no Workflow skills note.
-        assert_eq!(view["page"]["sections"][4]["rows"][0]["control"]["notes"], json!([]));
+        // The Workflow skills rows: Otaq's own by name, read-only (d0092).
+        let skills = &view["page"]["sections"][4]["rows"][0]["control"];
+        assert_eq!(skills["rows"][0]["label"], "Commit");
+        assert_eq!(skills["rows"][0]["value"], "");
+        assert!(skills.get("notes").is_none());
         let data = &view["page"]["sections"][9];
         assert_eq!(data["id"], "data");
         assert_eq!(data["rows"][0]["control"]["kind"], "path");

@@ -198,12 +198,35 @@ pub(super) async fn handle(
             shared.connected.disconnect(p.tool).await?;
             Ok(Reply::AgentTools(Box::new(shared.connected.list())))
         }),
-        Request::AgentToolsWorkflowSkills(p) => boxed(move || async move {
-            let uses = shared
-                .connected
-                .workflow_skills(&p.skills, p.project.as_deref())
+        // Imported workflow skills (d0092). A change is a settings change: windows refetch.
+        Request::WorkflowSkillsStatus(p) => boxed(move || async move {
+            board
+                .workflow_skills_status(p.project.as_deref())
+                .await
+                .map(Reply::WorkflowSkills)
+        }),
+        Request::WorkflowSkillsImport(p) => boxed(move || async move {
+            let s = &p.setting;
+            let status = board
+                .import_workflow_skill(s.project.as_deref(), s.step, &p.folder)
                 .await?;
-            Ok(Reply::SkillUses(uses))
+            publish_skill_change(shared, s.project.as_deref());
+            Ok(Reply::WorkflowSkill(Box::new(status)))
+        }),
+        Request::WorkflowSkillsReimport(p) => boxed(move || async move {
+            let status = board
+                .reimport_workflow_skill(p.project.as_deref(), p.step)
+                .await?;
+            publish_skill_change(shared, p.project.as_deref());
+            Ok(Reply::WorkflowSkill(Box::new(status)))
+        }),
+        Request::WorkflowSkillsReset(p) => boxed(move || async move {
+            let s = &p.setting;
+            let status = board
+                .reset_workflow_skill(s.project.as_deref(), s.step, p.confirmed)
+                .await?;
+            publish_skill_change(shared, s.project.as_deref());
+            Ok(Reply::WorkflowSkill(Box::new(status)))
         }),
         Request::LimitsResumeTool(p) => boxed(move || async move {
             let resumed = crate::named_agents::moves::resume_tool(
@@ -1063,7 +1086,7 @@ pub(super) async fn handle(
 
         Request::SettingsGet => boxed(move || async move { global_settings(board).await }),
         Request::SettingsSet(settings) => boxed(move || async move {
-            match board.set_global_settings(&settings).await {
+            match board.save_global_settings(&settings).await {
                 Ok(()) => {
                     // The agent limits apply at once (SCH-03).
                     shared.scheduler.wake();
@@ -1077,7 +1100,7 @@ pub(super) async fn handle(
             boxed(move || async move { project_settings(board, &p.project).await })
         }
         Request::ProjectSettingsSet(p) => boxed(move || async move {
-            match board.set_project_settings(&p.project, &p.settings).await {
+            match board.save_project_settings(&p.project, &p.settings).await {
                 Ok(()) => {
                     // Turning the switch off clears the warm build, after saving (WRM-05); the confirmation is
                     // the app's. A Clear that waits for a copy goes on in the background.
@@ -1163,6 +1186,14 @@ where
     F: Future<Output = Result<Reply, BoardError>> + Send + 'a,
 {
     Box::pin(make())
+}
+
+/// A workflow skill setting changed: the global one is a settings change (`settings_changed`); a project's needs
+/// no event (its page refetches what it changed).
+fn publish_skill_change(shared: &Shared, project: Option<&str>) {
+    if project.is_none() {
+        shared.events.publish(Event::SettingsChanged);
+    }
 }
 
 async fn global_settings(board: &Board) -> Result<Reply, BoardError> {

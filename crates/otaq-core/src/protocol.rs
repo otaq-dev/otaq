@@ -817,11 +817,6 @@ pub enum Request {
     /// `{"tool": "codex"}`: **Disconnect…**, removing Otaq's own entries from the tool's config (T-0348).
     #[serde(rename = "agent_tools.disconnect")]
     AgentToolsDisconnect(ToolParams),
-    /// `{"skills": ["/my-commit", …], "project": "SHOP"}`: how each connected tool runs the workflow skills
-    /// (Commit, Push, Open PR, Validate, in that order) in the project's folder, or app-wide without `project`
-    /// (the Workflow skills note; T-0360). Answered with [`Reply::SkillUses`].
-    #[serde(rename = "agent_tools.workflow_skills")]
-    AgentToolsWorkflowSkills(WorkflowSkillsParams),
     /// `{"tool": "claude"}`: Resume for one tool's agents waiting on its limit (USG-10; T-0358): "continue" for each,
     /// the tool's limit cleared, its holds lifted. Replies with [`Reply::Resumed`].
     #[serde(rename = "limits.resume_tool")]
@@ -836,6 +831,24 @@ pub enum Request {
     /// `{"on": true}`: "Use fallback agents automatically", off by default (AGT-08; T-0357).
     #[serde(rename = "settings.auto_fallback")]
     SettingsAutoFallback(AutoFallbackParams),
+
+    // Imported workflow skills (M27; d0092). The user's requests.
+    /// `{"project": "NOTE"}` or `{}`: the four workflow skill settings of a project or the global page (WSK-01,
+    /// WSK-04), answered with [`Reply::WorkflowSkills`].
+    #[serde(rename = "workflow_skills.status")]
+    WorkflowSkillsStatus(SkillScopeParams),
+    /// `{"project": "NOTE", "step": "commit", "folder": "/abs/my-commit"}`: Import skill folder… and Import a
+    /// different folder… (WSK-01–WSK-03). Answered with [`Reply::WorkflowSkill`] (its warnings), or refused
+    /// (`bad_skill_folder`) with nothing changed.
+    #[serde(rename = "workflow_skills.import")]
+    WorkflowSkillsImport(SkillImportParams),
+    /// `{"step": "commit"}`: Re-import from the remembered original (WSK-04); `original_not_found` when it is gone.
+    #[serde(rename = "workflow_skills.reimport")]
+    WorkflowSkillsReimport(SkillSettingParams),
+    /// `{"step": "commit", "confirmed": false}`: Use built-in / Use global, deleting the copy (WSK-04);
+    /// `needs_confirmation` when the copy was edited since its import.
+    #[serde(rename = "workflow_skills.reset")]
+    WorkflowSkillsReset(SkillResetParams),
 }
 
 /// A request about one agent tool.
@@ -851,13 +864,36 @@ pub struct RecheckParams {
     pub tool: Option<Tool>,
 }
 
-/// `agent_tools.workflow_skills`: the stored skills in [`crate::board::settings::WorkflowStep::ALL`]'s order.
+/// A workflow skill setting (d0092): `step` of the global settings, or of `project`'s when it is set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WorkflowSkillsParams {
-    #[serde(default)]
-    pub skills: Vec<String>,
+pub struct SkillSettingParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+    pub step: crate::board::settings::WorkflowStep,
+}
+
+/// `workflow_skills.status`: the global settings, or `project`'s.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkillScopeParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+}
+
+/// `workflow_skills.import`: the picked folder (absolute).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkillImportParams {
+    #[serde(flatten)]
+    pub setting: SkillSettingParams,
+    pub folder: std::path::PathBuf,
+}
+
+/// `workflow_skills.reset`: `confirmed` once the user agreed to lose the copy's edits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkillResetParams {
+    #[serde(flatten)]
+    pub setting: SkillSettingParams,
+    #[serde(default)]
+    pub confirmed: bool,
 }
 
 /// `agent_tools.set_hidden`.
@@ -1734,11 +1770,14 @@ impl Request {
             Self::AgentToolsSetHidden(_) => "agent_tools.set_hidden",
             Self::AgentToolsSignIn(_) => "agent_tools.sign_in",
             Self::AgentToolsDisconnect(_) => "agent_tools.disconnect",
-            Self::AgentToolsWorkflowSkills(_) => "agent_tools.workflow_skills",
             Self::LimitsResumeTool(_) => "limits.resume_tool",
             Self::LimitsMoveWaiting(_) => "limits.move_waiting",
             Self::TicketUseFallback(_) => "ticket.use_fallback",
             Self::SettingsAutoFallback(_) => "settings.auto_fallback",
+            Self::WorkflowSkillsStatus(_) => "workflow_skills.status",
+            Self::WorkflowSkillsImport(_) => "workflow_skills.import",
+            Self::WorkflowSkillsReimport(_) => "workflow_skills.reimport",
+            Self::WorkflowSkillsReset(_) => "workflow_skills.reset",
         }
     }
 }
@@ -1855,8 +1894,10 @@ pub enum Reply {
     AgentInUse(Box<crate::named_agents::InUse>),
     /// Every agent tool's row (`agent_tools.list`, `agent_tools.set_hidden`).
     AgentTools(Box<crate::agent_tools::connected::AgentToolsList>),
-    /// How the connected tools run each workflow skill (`agent_tools.workflow_skills`).
-    SkillUses(Vec<crate::agent_tools::connected::SkillUse>),
+    /// The four workflow skill settings of a scope (`workflow_skills.status`).
+    WorkflowSkills(Vec<crate::workflow_skills::SkillStatus>),
+    /// One workflow skill setting after an import, Re-import or reset.
+    WorkflowSkill(Box<crate::workflow_skills::SkillStatus>),
 }
 
 /// The global settings with any values flagged as invalid.

@@ -25,8 +25,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
 use super::setup::Trust;
-use super::{Adapters, Detection, Os, SetupReport, SkillRef, Tool, WindowsSource};
-use crate::board::settings::WorkflowStep;
+use super::{Adapters, Detection, Os, SetupReport, Tool, WindowsSource};
 use crate::board::{BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::named_agents::starter::{self, ConnectedTool};
@@ -219,18 +218,6 @@ impl NotAvailable {
             self.reason
         )
     }
-}
-
-/// How the connected tools run one workflow skill as Settings stores it (`agent_tools.workflow_skills`; ADP-05,
-/// d0086), for the Workflow skills note ("my-commit: Claude Code only, other tools use the built-in").
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SkillUse {
-    /// The value as stored ("/my-commit").
-    pub stored: String,
-    /// The connected tools that run it: Otaq's own, the user's SKILL.md found, or by name.
-    pub runs: Vec<Tool>,
-    /// The connected tools that use the step's built-in instead ([`super::SkillRef::BuiltIn`]).
-    pub built_in: Vec<Tool>,
 }
 
 /// The answer to `agent_tools.list` and `agent_tools.set_hidden`: every tool, in [`Tool::ALL`] order.
@@ -584,57 +571,6 @@ impl ConnectedTools {
         Ok(())
     }
 
-    /// How each connected tool runs `skills` (Commit, Push, Open PR, Validate, in [`WorkflowStep::ALL`]'s order) for
-    /// an agent in `project`'s folder, or in the home folder for the app-wide settings. Reads only whether the
-    /// user's SKILL.md files exist. Before the service wires the adapters in, no tool is named.
-    pub async fn workflow_skills(
-        &self,
-        skills: &[String],
-        project: Option<&str>,
-    ) -> Result<Vec<SkillUse>, BoardError> {
-        let Some(wired) = self.wired.get() else {
-            return Ok(skills
-                .iter()
-                .map(|stored| SkillUse::unused(stored))
-                .collect());
-        };
-        let w = &wired.wiring;
-        let cwd = match project {
-            Some(key) => PathBuf::from(
-                w.store
-                    .project_by_key(key)
-                    .await
-                    .map_err(BoardError::Store)?
-                    .ok_or_else(|| BoardError::NotFound(format!("no project {key}")))?
-                    .repo_path,
-            ),
-            None => w
-                .home
-                .clone()
-                .unwrap_or_else(|| w.data.root().to_path_buf()),
-        };
-        let connected = self.connected();
-        let (adapters, skills) = (w.adapters.clone(), skills.to_vec());
-        tokio::task::spawn_blocking(move || {
-            WorkflowStep::ALL
-                .into_iter()
-                .zip(skills)
-                .map(|(step, stored)| {
-                    let mut usage = SkillUse::unused(&stored);
-                    for &tool in &connected {
-                        match adapters.get(tool).workflow_skill(step, &stored, &cwd) {
-                            SkillRef::BuiltIn { .. } => usage.built_in.push(tool),
-                            SkillRef::Named(_) | SkillRef::File { .. } => usage.runs.push(tool),
-                        }
-                    }
-                    usage
-                })
-                .collect()
-        })
-        .await
-        .map_err(|e| BoardError::refused(Refusal::NotAvailableYet, e.to_string()))
-    }
-
     /// Every row, sent again whenever one changes (once per change).
     pub fn subscribe(&self) -> watch::Receiver<Vec<ToolStatus>> {
         self.changes.subscribe()
@@ -769,16 +705,6 @@ impl ConnectedTools {
         });
         if changed && let Some(wired) = self.wired.get() {
             wired.wiring.events.publish(Event::AgentToolsChanged);
-        }
-    }
-}
-
-impl SkillUse {
-    fn unused(stored: &str) -> Self {
-        Self {
-            stored: stored.to_owned(),
-            runs: Vec::new(),
-            built_in: Vec::new(),
         }
     }
 }

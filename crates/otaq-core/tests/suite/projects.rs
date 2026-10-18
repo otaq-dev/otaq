@@ -18,13 +18,12 @@ struct Fixture {
 
 async fn fixture() -> Fixture {
     let home = tempfile::tempdir().unwrap();
-    let store = Store::open_in(&DataDir::new(home.path().join("home")))
-        .await
-        .unwrap();
+    let data = DataDir::new(home.path().join("home"));
+    let store = Store::open_in(&data).await.unwrap();
     Fixture {
         _home: home,
         repos: TempRepos::new(),
-        board: Board::with_path_git(store),
+        board: Board::with_path_git(store, data),
     }
 }
 

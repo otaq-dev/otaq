@@ -789,6 +789,13 @@ pub trait AgentTool: Send + Sync {
         if let Some(own) = WorkflowSkills::own_skill_of(stored) {
             return SkillRef::Named(self.skill_reference(own));
         }
+        // An imported skill comes as its copy's SKILL.md path (`ResolvedSkill::stored`, d0092).
+        let path = Path::new(stored.trim());
+        if path.is_absolute() && path.is_file() {
+            return SkillRef::File {
+                file: path.to_owned(),
+            };
+        }
         if let Some(file) =
             skill_folder_name(stored).and_then(|name| self.user_skill_file(name, cwd))
         {

@@ -323,7 +323,7 @@ impl Board {
             review_feedback: Vec::new(),
             pending_questions,
             decisions,
-            commit_skill: SkillRef::Named(settings.workflow_skills.commit),
+            commit_skill: SkillRef::Named(settings.workflow_skills.commit.stored()),
             restack_skill: String::new(),
             instructions,
             pull_request,

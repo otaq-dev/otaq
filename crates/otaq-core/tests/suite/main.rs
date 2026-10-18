@@ -124,5 +124,6 @@ mod warm_clone;
 mod warm_keep;
 mod warm_seed;
 mod warm_store;
+mod workflow_skills;
 mod worktree_prep;
 mod worktrees;

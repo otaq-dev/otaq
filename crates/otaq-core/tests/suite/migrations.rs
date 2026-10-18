@@ -1438,7 +1438,8 @@ async fn questions_asked_before_notes_read_as_no_notes() {
             .await
             .unwrap();
     assert_eq!(stored, None);
-    let board = otaq_core::board::Board::new(store, None);
+    let data = otaq_core::data_dir::DataDir::new(path.parent().unwrap().join("home"));
+    let board = otaq_core::board::Board::new(store, None, data);
     let question = board.open_question("t31").await.unwrap().expect("open");
     assert_eq!(question.options, ["Postmark", "SES"]);
     assert!(question.notes.is_empty());

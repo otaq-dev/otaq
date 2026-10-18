@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::{ClaudeLaunch, find_plugin_dir};
 use otaq_core::board::projects::AddProject;
+use otaq_core::board::settings::WorkflowStep;
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::domain::{Actor, Kind, Status};
 use otaq_core::git::testing::{commit, git};
@@ -15,6 +16,7 @@ use otaq_core::pr::proposal::Proposal;
 use otaq_core::pr::service::PrOutcome;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
+use otaq_core::workflow_skills::testing::skill_folder;
 use serde_json::json;
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
@@ -64,10 +66,9 @@ async fn setup() -> Setup {
         .await
         .unwrap();
     // origin is a local folder: the project uses its own Open PR skill (REV-11).
-    let mut settings = w.board.project_settings("SHOP").await.unwrap();
-    settings.workflow_skills.open_pr = "/my-pr".into();
+    let folder = skill_folder(w.data.root(), "my-pr");
     w.board
-        .set_project_settings("SHOP", &settings)
+        .import_workflow_skill(Some("SHOP"), WorkflowStep::OpenPr, &folder)
         .await
         .unwrap();
     let epic = w
@@ -142,7 +143,12 @@ async fn open_pr_on_an_epic_runs_a_delivery_session_and_ends_it() {
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
     let session = delivery(w, &s.epic).expect("a delivery session");
     let printed = w.wait_for_output(&session, "delivery:").await;
-    assert!(printed.contains("/my-pr"), "{printed}");
+    let printed = if printed.contains("/SKILL.md`") {
+        printed
+    } else {
+        w.wait_for_output(&session, "/SKILL.md`").await
+    };
+    assert!(printed.contains("/SKILL.md`"), "{printed}");
     let epic = w.board.ticket("SHOP-1").await.unwrap();
     let worktree = PathBuf::from(epic.work.as_ref().unwrap().worktree.clone().unwrap());
     assert_eq!(

@@ -24,7 +24,6 @@ import type { SettingsProvider } from "../../generated/SettingsProvider";
 import type { SettingsRow } from "../../generated/SettingsRow";
 import type { SettingsRowButton } from "../../generated/SettingsRowButton";
 import type { SettingsSection } from "../../generated/SettingsSection";
-import type { SettingsSkillNote } from "../../generated/SettingsSkillNote";
 import type { SettingsTools } from "../../generated/SettingsTools";
 import { asRequestError } from "../../service";
 import { request } from "../../tauri";
@@ -149,46 +148,25 @@ function Radio({ field, label, control }: { field: string; label: string; contro
   );
 }
 
+/** Each step's skill by name, read-only until the import rows (d0092): a typed name can't be entered any more. */
 function Skills({ control }: { control: Of<"skills"> }) {
   return (
     <div className="settings-skills">
       {control.rows.map((row) => (
         <div key={row.field} className="settings-skill">
-          <label className="settings-skill-label" htmlFor={fieldId(row.field)}>
-            {row.label}
-          </label>
-          <TextControl
-            field={row.field}
-            control={{
-              kind: "text",
-              value: row.value,
-              placeholder: row.placeholder,
-              mono: true,
-              multiline: false,
-              problem: row.problem,
-            }}
-          />
+          <span className="settings-skill-label">{row.label}</span>
+          <span
+            id={fieldId(row.field)}
+            className={
+              row.value === "" ? "settings-skill-value settings-skill-value-empty" : "settings-skill-value"
+            }
+          >
+            {row.value === "" ? row.placeholder : row.value}
+          </span>
+          {row.problem !== null && <span className="settings-problem">{row.problem}</span>}
         </div>
       ))}
-      {control.notes.map((note) => (
-        <SkillNote key={note.text} note={note} />
-      ))}
     </div>
-  );
-}
-
-/** A skill some connected tools can't run, quiet, with Why?'s tooltip (ADP-05, d0086; *15* `U6rgGu`). */
-export function SkillNote({ note }: { note: SettingsSkillNote }) {
-  return (
-    <p className="settings-skill-note">
-      <span>{note.text}</span>
-      <span aria-hidden="true">·</span>
-      <Tooltip text={note.tooltip}>
-        <button type="button" className="settings-skill-why" aria-label={`${note.why} ${note.tooltip}`}>
-          {note.why}
-        </button>
-      </Tooltip>
-    </p>
   );
 }
 

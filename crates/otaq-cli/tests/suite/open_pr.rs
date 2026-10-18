@@ -6,6 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use otaq_core::board::projects::AddProject;
+use otaq_core::board::settings::WorkflowStep;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Actor, Status};
 use otaq_core::git::testing::{commit, git};
@@ -14,6 +15,7 @@ use otaq_core::pr::flow::{BranchCheck, FlowState};
 use otaq_core::pr::proposal::{CommitMessage, Proposal};
 use otaq_core::pr::service::PrOutcome;
 use otaq_core::service::testing::{AgentShell, TestService};
+use otaq_core::workflow_skills::testing::skill_folder;
 use serde_json::{Value, json};
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
@@ -44,10 +46,9 @@ async fn setup() -> Setup {
         .await
         .unwrap();
     // origin is a local folder, not GitHub or Azure DevOps: the project uses its own Open PR skill.
-    let mut settings = w.board.project_settings("SHOP").await.unwrap();
-    settings.workflow_skills.open_pr = "/my-pr".into();
+    let folder = skill_folder(w.data.root(), "my-pr");
     w.board
-        .set_project_settings("SHOP", &settings)
+        .import_workflow_skill(Some("SHOP"), WorkflowStep::OpenPr, &folder)
         .await
         .unwrap();
     let ticket = w.create("SHOP", "Login redirect").await;
@@ -104,7 +105,8 @@ async fn open_pr_proposes_confirms_rewords_renames_and_reports() {
     // The click types the Open PR skill into the live session; the ticket stays in Ready for Review.
     let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-    w.wait_for_output(&s.agent.session, "/my-pr").await;
+    // An imported skill: its copy's SKILL.md (d0092).
+    w.wait_for_output(&s.agent.session, "/SKILL.md`").await;
     assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
     let flow = w.board.pr_flow(&s.ticket.id).await.unwrap().unwrap();
     assert_eq!(flow.state, FlowState::Preparing);
@@ -243,10 +245,8 @@ async fn cancel_and_refusals_leave_the_ticket_in_review() {
     let w = &s.w;
 
     // With the built-in Open PR skill, a remote that isn't GitHub or Azure DevOps refuses (REV-11).
-    let mut settings = w.board.project_settings("SHOP").await.unwrap();
-    settings.workflow_skills.open_pr = String::new();
     w.board
-        .set_project_settings("SHOP", &settings)
+        .reset_workflow_skill(Some("SHOP"), WorkflowStep::OpenPr, true)
         .await
         .unwrap();
     let refused = w.prs.open("SHOP-1", false, false, &me()).await.unwrap_err();
@@ -254,9 +254,9 @@ async fn cancel_and_refusals_leave_the_ticket_in_review() {
         refused.to_string().contains("PR provider not detected"),
         "{refused}"
     );
-    settings.workflow_skills.open_pr = "/my-pr".into();
+    let folder = skill_folder(w.data.root(), "my-pr");
     w.board
-        .set_project_settings("SHOP", &settings)
+        .import_workflow_skill(Some("SHOP"), WorkflowStep::OpenPr, &folder)
         .await
         .unwrap();
 

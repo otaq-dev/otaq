@@ -41,3 +41,4 @@ pub mod tools;
 pub mod usage;
 pub mod validation;
 pub mod warm;
+pub mod workflow_skills;

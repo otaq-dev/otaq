@@ -7,7 +7,7 @@
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agent_tools::{LaunchContext, Tool};
 use otaq_core::board::Refusal;
-use otaq_core::board::settings::{ProjectSettings, WorkflowSkillOverrides};
+use otaq_core::board::settings::{ProjectSettings, WorkflowStep};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::{Actor, Status, ValidationTrigger};
@@ -199,19 +199,14 @@ async fn uncommitted_files_refuse_before_any_validator() {
 async fn a_projects_validate_skill_is_the_prompt() {
     let w = world().await;
     w.add_project("shop-web").await;
-    w.board
-        .set_project_settings(
-            "SHOP",
-            &ProjectSettings {
-                workflow_skills: WorkflowSkillOverrides {
-                    validate: "/my-validate".into(),
-                    ..WorkflowSkillOverrides::default()
-                },
-                ..ProjectSettings::default()
-            },
-        )
+    // An imported skill is named by its copy's SKILL.md (d0092).
+    let folder = otaq_core::workflow_skills::testing::skill_folder(w.data.root(), "my-validate");
+    let status = w
+        .board
+        .import_workflow_skill(Some("SHOP"), WorkflowStep::Validate, &folder)
         .await
         .unwrap();
+    let copy = status.copy.unwrap().join("SKILL.md").display().to_string();
     let t = working(&w, "Cart totals").await;
     submit(&w, &t).await.unwrap();
     let validator = w
@@ -219,10 +214,10 @@ async fn a_projects_validate_skill_is_the_prompt() {
         .running_of(&t.id, SessionKind::Validator)
         .unwrap();
     let out = w.wait_for_output(&validator.id, "ARGS").await;
-    let out = if out.contains("/my-validate") {
+    let out = if out.contains(&copy) {
         out
     } else {
-        w.wait_for_output(&validator.id, "/my-validate").await
+        w.wait_for_output(&validator.id, &copy).await
     };
     assert!(!out.contains(&naming::skill("validate")), "{out}");
     w.stop().await;

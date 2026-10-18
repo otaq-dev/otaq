@@ -32,6 +32,7 @@ use std::fmt;
 
 use crate::agent_tools::setup::Trust;
 use crate::attention::{Focus, LimitStops};
+use crate::data_dir::DataDir;
 use crate::domain::stored_enum;
 use crate::epic_lead::overlap::Overlaps;
 use crate::epic_lead::wake::LeadLink;
@@ -57,10 +58,15 @@ pub struct Board {
     leads: LeadLink,
     /// The agent tools' folder trust, recorded when a project is added (PRJ-06); the service sets the registry.
     trust: Trust,
+    /// The data folder: where Otaq's copies of imported workflow skills live (`skills/<id>`, WSK-03).
+    data: DataDir,
+    /// Held while a workflow skill setting changes (an import, Re-import, a reset, a settings save), so two
+    /// changes never interleave and leave a copy no setting holds.
+    skill_changes: std::sync::Arc<tokio::sync::Mutex<()>>,
 }
 
 impl Board {
-    pub fn new(store: Store, git: Option<Git>) -> Self {
+    pub fn new(store: Store, git: Option<Git>, data: DataDir) -> Self {
         Self {
             store,
             git,
@@ -70,12 +76,24 @@ impl Board {
             overlaps: Overlaps::default(),
             leads: LeadLink::default(),
             trust: Trust::default(),
+            data,
+            skill_changes: Default::default(),
         }
     }
 
     /// A board using the `git` found on `PATH`, if any.
-    pub fn with_path_git(store: Store) -> Self {
-        Self::new(store, Git::find().ok())
+    pub fn with_path_git(store: Store, data: DataDir) -> Self {
+        Self::new(store, Git::find().ok(), data)
+    }
+
+    /// The data folder.
+    pub fn data(&self) -> &DataDir {
+        &self.data
+    }
+
+    /// The lock every workflow skill setting change holds ([`Self::skill_changes`]).
+    pub(crate) async fn lock_skill_changes(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.skill_changes.lock().await
     }
 
     pub fn store(&self) -> &Store {
@@ -209,6 +227,15 @@ stored_enum! {
         /// A named agent's fallback is itself or on the same tool: "A fallback must be on another tool" (AGT-08,
         /// d0086).
         BadFallback = "bad_fallback",
+        /// A workflow skill folder can't be imported (WSK-02): no SKILL.md, front matter that doesn't read, or a
+        /// copy that failed. Nothing changed.
+        BadSkillFolder = "bad_skill_folder",
+        /// Re-import's remembered original folder is gone (WSK-04); Otaq's copy stays.
+        OriginalNotFound = "original_not_found",
+        /// The step has no imported skill to re-import.
+        NotImported = "not_imported",
+        /// A settings save brought a typed workflow skill name (WSK-01: skills are imported folders now).
+        TypedSkillName = "typed_skill_name",
     }
 }
 

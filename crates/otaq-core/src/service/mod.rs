@@ -455,7 +455,7 @@ impl Service {
                 "sessions of the previous service recorded as ended"
             );
         }
-        let board = Board::with_path_git(store.clone());
+        let board = Board::with_path_git(store.clone(), data.clone());
         let adapters = Adapters::new(
             ClaudeCode::new(ClaudeContext {
                 launch: config.launch.clone(),
@@ -475,6 +475,12 @@ impl Service {
             .await
             .map_err(ServiceError::Store)?;
         board.trust().set_adapters(adapters.clone());
+        // Copies of imported workflow skills that no setting holds (d0092).
+        match board.remove_unreferenced_skill_copies().await {
+            Ok(0) => {}
+            Ok(removed) => tracing::info!(removed, "unused workflow skill copies removed"),
+            Err(e) => tracing::warn!(error = %e, "can't check the workflow skill copies"),
+        }
         // Starts cut short by the previous service stopping are shown, never re-run silently (SES-02).
         match Starter::interrupt_cut_short(&board).await {
             Ok(0) => {}

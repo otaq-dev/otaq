@@ -960,7 +960,8 @@ impl Validation {
             .effective_settings(ticket.key.project.as_str())
             .await?
             .workflow_skills
-            .validate;
+            .validate
+            .stored();
         let launched = inner.adapters.launch(
             runs_on.tool,
             &LaunchRequest {

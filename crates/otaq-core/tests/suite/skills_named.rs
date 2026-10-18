@@ -1,13 +1,14 @@
-//! Skills named through the adapter (T-0315; ADP-05, PLG-03, REV-09; d0088, d0086): `prime` names Otaq's skills in
-//! the caller's tool's syntax (Claude Code's by hand), and a workflow skill the user chose goes by its SKILL.md path
-//! when Claude Code would find it: the project's `.claude/skills` first, then the user's Claude folder. Only
-//! temporary folders: the Claude folder is the service's launch setting, never the real one; no test starts
-//! claude (its stand-in is `sh` printing its arguments).
+//! Skills named through the adapter (T-0315; ADP-05, PLG-03, REV-09; d0088, d0086, d0092): `prime` names Otaq's
+//! skills in the caller's tool's syntax (Claude Code's by hand), and an imported workflow skill goes by its copy's
+//! SKILL.md path. A typed name from before d0092 isn't run, even where Claude Code would find it: the step uses the
+//! built-in (WSK-07). Only temporary folders: the Claude folder is the service's launch setting, never the real one;
+//! no test starts claude (its stand-in is `sh` printing its arguments).
 
 use std::path::{Path, PathBuf};
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
+use otaq_core::board::settings::{SkillSetting, WorkflowStep};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::{Actor, Status, ValidationTrigger};
@@ -18,6 +19,7 @@ use otaq_core::protocol::{Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService};
 use otaq_core::session::SessionKind;
+use otaq_core::workflow_skills::testing::skill_folder;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -66,6 +68,17 @@ async fn set_skill(
         .set_project_settings("SHOP", &settings)
         .await
         .unwrap();
+}
+
+/// Imports a skill folder `name` as the project's `step`: the copy's SKILL.md.
+async fn import(w: &TestService, step: WorkflowStep, name: &str) -> PathBuf {
+    let folder = skill_folder(w.data.root(), name);
+    let status = w
+        .board
+        .import_workflow_skill(Some("SHOP"), step, &folder)
+        .await
+        .unwrap();
+    status.copy.unwrap().join("SKILL.md")
 }
 
 /// `ticket.prime` from inside `shell`'s session: the context as JSON.
@@ -129,44 +142,43 @@ async fn prime_names_claudes_skills_and_the_users_commit_skill_by_path() {
     );
     assert_eq!(by_hand.restack_skill, naming::skill("restack"));
 
-    // The user's, not found: by name as stored.
-    set_skill(&w, |s| s.workflow_skills.commit = "/my-commit".into()).await;
+    // A typed name from before d0092, even where Claude Code would find it: the built-in (WSK-07).
+    set_skill(&w, |s| {
+        s.workflow_skills.commit = SkillSetting::Legacy("/my-commit".into())
+    })
+    .await;
+    write_skill(claude.path(), "my-commit");
+    write_skill(&worktree.join(".claude"), "my-commit");
     let primed = prime_as(&w, &agent, &key).await;
-    assert_eq!(primed["commit_skill"], "/my-commit");
+    assert_eq!(primed["commit_skill"], json!(naming::skill("commit")));
 
-    // Found in the user's Claude folder: by its path.
-    let user = write_skill(claude.path(), "my-commit");
+    // Imported: by its copy's path, also by hand.
+    let copy = import(&w, WorkflowStep::Commit, "my-commit").await;
     let primed = prime_as(&w, &agent, &key).await;
-    assert_eq!(primed["commit_skill"], json!({"file": user}));
+    assert_eq!(primed["commit_skill"], json!({"file": copy}));
     assert_eq!(
         commit_rule(&primed),
         format!(
             "2. Commit everything by following `{}` before you submit. Never push and never open a PR: the user \
              does that.",
-            user.display()
+            copy.display()
         )
     );
-
-    // Found in the project too (the ticket's worktree): the project's wins, also by hand.
-    let own = write_skill(&worktree.join(".claude"), "my-commit");
-    let primed = prime_as(&w, &agent, &key).await;
-    assert_eq!(primed["commit_skill"], json!({"file": own}));
     let by_hand = prime_by_hand(&w, &key).await;
     assert_eq!(
         serde_json::to_value(&by_hand.commit_skill).unwrap(),
-        json!({"file": own})
+        json!({"file": copy})
     );
     w.stop().await;
 }
 
-/// A found Validate skill is the validator's first prompt by path; a not-found one by name (VAL-13, d0086).
+/// An imported Validate skill is the validator's first prompt by its copy's path (VAL-13, d0092).
 #[tokio::test(flavor = "multi_thread")]
-async fn the_validator_follows_a_found_validate_skill() {
+async fn the_validator_follows_an_imported_validate_skill() {
     let claude = TempDir::new().unwrap();
     let w = world(claude.path()).await;
     let (t, _) = working(&w).await;
-    set_skill(&w, |s| s.workflow_skills.validate = "/my-validate".into()).await;
-    let file = write_skill(claude.path(), "my-validate");
+    let file = import(&w, WorkflowStep::Validate, "my-validate").await;
     w.validation
         .submit(
             &t.key.to_string(),
@@ -187,9 +199,9 @@ async fn the_validator_follows_a_found_validate_skill() {
     w.stop().await;
 }
 
-/// Open PR types a found Open PR skill into the live session by path; Push's not-found skill by name (REV-10).
+/// Open PR types an imported Open PR skill into the live session by its copy's path (REV-10, d0092).
 #[tokio::test(flavor = "multi_thread")]
-async fn open_pr_types_a_found_skill_by_path_and_a_missing_one_by_name() {
+async fn open_pr_types_an_imported_skill_by_path() {
     let claude = TempDir::new().unwrap();
     let w = world(claude.path()).await;
     let repo = w.repos.clone_with_origin("shop-web", "main", 1);
@@ -200,8 +212,7 @@ async fn open_pr_types_a_found_skill_by_path_and_a_missing_one_by_name() {
         })
         .await
         .unwrap();
-    set_skill(&w, |s| s.workflow_skills.open_pr = "/my-pr".into()).await;
-    let file = write_skill(claude.path(), "my-pr");
+    let file = import(&w, WorkflowStep::OpenPr, "my-pr").await;
     let ticket = w.create("SHOP", "Login redirect").await;
     let worktree = w.start_worktree(&ticket).await;
     commit(&worktree, "login.ts", "redirect\n");
@@ -218,11 +229,5 @@ async fn open_pr_types_a_found_skill_by_path_and_a_missing_one_by_name() {
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
     w.wait_for_output(&agent.session, &format!("Follow `{}`", file.display()))
         .await;
-
-    // The same skill, gone: Retry types it by name as stored.
-    std::fs::remove_file(&file).unwrap();
-    let outcome = w.prs.retry("SHOP-1", false).await.unwrap();
-    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-    w.wait_for_output(&agent.session, "/my-pr: ").await;
     w.stop().await;
 }

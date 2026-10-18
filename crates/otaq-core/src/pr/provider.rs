@@ -7,7 +7,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::board::settings::WorkflowSkills;
+use crate::board::settings::WorkflowStep;
 use crate::git::Git;
 use crate::tools::{self, CheckEnv, Tool};
 
@@ -107,7 +107,7 @@ pub struct PrProvider {
 impl PrProvider {
     /// Whether the project uses Otaq's own Open PR skill.
     pub fn built_in_open_pr(&self) -> bool {
-        self.open_pr_skill == WorkflowSkills::default().open_pr
+        self.open_pr_skill == WorkflowStep::OpenPr.own_default()
     }
 
     /// Why Open PR can't be offered: the built-in skill needs a detected provider.
@@ -177,7 +177,8 @@ impl crate::board::Board {
             .effective_settings(project)
             .await?
             .workflow_skills
-            .open_pr;
+            .open_pr
+            .label();
         Ok(detect(self.git()?, Path::new(&repo), skill, env).await)
     }
 
@@ -191,7 +192,8 @@ impl crate::board::Board {
             .effective_settings(project)
             .await?
             .workflow_skills
-            .open_pr;
+            .open_pr
+            .label();
         Ok(detect_from_remote(self.git()?, Path::new(&repo), skill).await)
     }
 }
@@ -267,7 +269,7 @@ mod tests {
             provider: Some(Provider::GitHub),
             logged_in: Some(true),
             cli_found: true,
-            open_pr_skill: WorkflowSkills::default().open_pr,
+            open_pr_skill: WorkflowStep::OpenPr.own_default(),
         };
         assert_eq!(
             p.summary(),

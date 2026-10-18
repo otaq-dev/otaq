@@ -10,7 +10,7 @@ import type { SettingsPage } from "../../generated/SettingsPage";
 import type { SettingsSection } from "../../generated/SettingsSection";
 import { settings } from ".";
 import { SettingsContext, sectionOf, topicRow } from "./context";
-import { Section, sectionComponent, SkillNote } from "./Rows";
+import { Section, sectionComponent } from "./Rows";
 import type { AgentToolRow } from "../../generated/AgentToolRow";
 import type { AgentToolsPage } from "../../generated/AgentToolsPage";
 import { agentToolMenu, AgentToolsPageBody, DisconnectDialogView, markOf, stepOf } from "./AgentTools";
@@ -451,18 +451,5 @@ describe("Settings → Agent tools", () => {
     );
     expect(refused).toContain("Codex has 2 agents running. End them first.");
     expect(refused).toMatch(/<button[^>]*disabled=""[^>]*>/);
-  });
-
-  it("the Workflow skills note says Why? with its tooltip", () => {
-    const note = {
-      text: "my-commit: Claude Code only, other tools use the built-in",
-      why: "Why?",
-      tooltip: "Codex runs its own skills; my-commit is a Claude Code skill.",
-    };
-    const out = html(createElement(SkillNote, { note }));
-    expect(out).toContain("my-commit: Claude Code only, other tools use the built-in");
-    expect(out).toContain(">Why?</button>");
-    expect(out).toContain('aria-label="Why? Codex runs its own skills; my-commit is a Claude Code skill."');
-    expect(out).toContain('class="tooltip-anchor"');
   });
 });
