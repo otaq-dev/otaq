@@ -36,6 +36,7 @@ use serde::{Deserialize, Serialize};
 use crate::agent_tools::Tool;
 use crate::board::needs_you::{NeedsYouGroup, NeedsYouItem};
 use crate::board::settings::{GlobalSettings, NotificationKinds};
+use crate::data_dir::DataDir;
 use crate::domain::{Status, TicketKey, validation};
 use crate::naming;
 
@@ -895,8 +896,14 @@ pub fn open_env_var() -> String {
 
 /// The command that starts the app at `app` on `target` when no app is connected: `open -a <Otaq.app> --env
 /// OTAQ_OPEN=<target>` when `app` is a bundle's program (macOS then brings it forward as an app), else `app` itself
-/// with the variable set.
-pub fn launch_command(app: &std::path::Path, target: &Target) -> std::process::Command {
+/// with the variable set. An app started through LaunchServices doesn't inherit the service's environment, so
+/// `data_home` (the service's own `OTAQ_HOME`, when set) is passed the same way: the app then reaches this service's
+/// data folder, not the default one. It is the only variable the app reads to find its service.
+pub fn launch_command(
+    app: &std::path::Path,
+    target: &Target,
+    data_home: Option<&std::ffi::OsStr>,
+) -> std::process::Command {
     let value = target.to_open_value();
     match super::bundle::bundle_of(app) {
         Some(bundle) if cfg!(target_os = "macos") => {
@@ -906,6 +913,11 @@ pub fn launch_command(app: &std::path::Path, target: &Target) -> std::process::C
                 .arg(&bundle.root)
                 .arg("--env")
                 .arg(format!("{}={value}", open_env_var()));
+            if let Some(home) = data_home.filter(|h| !h.is_empty()) {
+                let mut pair = std::ffi::OsString::from(format!("{}=", DataDir::env_var()));
+                pair.push(home);
+                command.arg("--env").arg(pair);
+            }
             command
         }
         _ => {
@@ -941,7 +953,8 @@ impl Opener {
         let Some(app) = &self.app else {
             return;
         };
-        let mut command = launch_command(app, &target);
+        let data_home = std::env::var_os(DataDir::env_var());
+        let mut command = launch_command(app, &target, data_home.as_deref());
         command
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -1742,7 +1755,7 @@ mod tests {
         let target = Target::Validator {
             key: "SHOP-33".parse().unwrap(),
         };
-        let command = launch_command(&plain, &target);
+        let command = launch_command(&plain, &target, Some(std::ffi::OsStr::new("/tmp/m25")));
         assert_eq!(command.get_program(), plain.as_os_str());
         let env: Vec<_> = command.get_envs().collect();
         assert_eq!(
@@ -1768,13 +1781,16 @@ mod tests {
         .unwrap();
         let in_bundle = contents.join("MacOS").join(naming::app_binary_name());
         std::fs::write(&in_bundle, "").unwrap();
-        let command = launch_command(&in_bundle, &target);
-        if cfg!(target_os = "macos") {
-            assert_eq!(command.get_program(), "open");
-            let args: Vec<String> = command
+        let args_of = |command: &std::process::Command| -> Vec<String> {
+            command
                 .get_args()
                 .map(|a| a.to_string_lossy().into_owned())
-                .collect();
+                .collect()
+        };
+        let command = launch_command(&in_bundle, &target, None);
+        if cfg!(target_os = "macos") {
+            assert_eq!(command.get_program(), "open");
+            let args = args_of(&command);
             let root = dir
                 .path()
                 .canonicalize()
@@ -1789,6 +1805,22 @@ mod tests {
                     format!("{}=validator:SHOP-33", open_env_var())
                 ]
             );
+            // The service's data folder goes along: LaunchServices doesn't pass the service's environment on.
+            let with_home = args_of(&launch_command(
+                &in_bundle,
+                &target,
+                Some(std::ffi::OsStr::new("/tmp/m25")),
+            ));
+            assert_eq!(
+                with_home[4..],
+                [
+                    "--env".to_owned(),
+                    format!("{}=/tmp/m25", DataDir::env_var())
+                ]
+            );
+            assert_eq!(with_home[..4], args[..]);
+            let empty = launch_command(&in_bundle, &target, Some(std::ffi::OsStr::new("")));
+            assert_eq!(args_of(&empty), args, "an empty variable isn't passed");
         } else {
             assert_eq!(command.get_program(), in_bundle.as_os_str());
         }
