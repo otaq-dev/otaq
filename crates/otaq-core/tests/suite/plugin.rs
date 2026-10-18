@@ -58,7 +58,9 @@ fn front_matter(name: &str) -> Vec<(String, String)> {
 fn skill_names() -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(plugin().join("skills"))
         .unwrap()
-        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .map(|e| e.unwrap())
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
     names.sort();
     names

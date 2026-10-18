@@ -866,12 +866,18 @@ mod tests {
         assert_eq!(w.title, "Run coding agents from a board");
         assert_eq!(
             w.text,
-            "Otaq turns tickets into real agent sessions (Claude Code, Codex, Copilot or OpenCode) — one per ticket, each in its own git worktree. You watch and type into them from an embedded terminal, review the diff, and merge or open a PR."
+            format!(
+                "{} turns tickets into real agent sessions (Claude Code, Codex, Copilot or OpenCode) — one per ticket, each in its own git worktree. You watch and type into them from an embedded terminal, review the diff, and merge or open a PR.",
+                naming::PRODUCT_NAME
+            )
         );
         assert_eq!(w.points.len(), 3);
         assert_eq!(
             w.points[0].text,
-            "Each agent is its tool's own CLI, not a wrapper. Attach from any terminal with otaq attach SHOP-18."
+            format!(
+                "Each agent is its tool's own CLI, not a wrapper. Attach from any terminal with {} attach SHOP-18.",
+                naming::COMMAND_NAME
+            )
         );
         assert!(w.points[1].text.ends_with("⌘J opens the next."));
         assert_eq!(w.foot, "Takes about a minute");
