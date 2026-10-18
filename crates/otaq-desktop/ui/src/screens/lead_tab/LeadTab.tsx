@@ -1,7 +1,8 @@
 // The epic panel's Lead tab (*05 → Row · Epic panel · Lead tab (0083)*, *Row · Lead tab · ended (0083)*, *16 → Lead tab
 // · ended by restart · Before the restart*; LEAD-11, LEAD-12; d0083, d0045, d0048). The header holds the Lead Status,
 // "read-only" and the tokens today; "Changes by the lead" lists the lead's changes by turn, each line opening its
-// ticket; the body is the live terminal (typing as in a ticket's Terminal tab), Open lead, "Before the restart" with
+// ticket; the body is the live terminal (typing as in a ticket's Terminal tab), Open lead (Split with the Project
+// agent while the epic has no children, LEAD-13, d0091: the Project agent pane gets its first message), "Before the restart" with
 // Resume, or the last terminal read-only with the ended bar. The lead's own question is the panel header's question
 // bar (`panel.view`). A lead that waits on its tool or its model (M23) says so above the body, amber (neutral for a
 // limit), with Sign in… or Change agent (*08 → Epic lead · its tool isn't available / at its limit*). Everything it
@@ -13,6 +14,7 @@ import type { TicketProps } from "../../app/registry/panel";
 import { useStore } from "../../app/store";
 import { Button, LeadStatus, leadAction, ToolProblemCallout } from "../../components";
 import type { LeadActionKind } from "../../generated/LeadActionKind";
+import type { LeadSplit } from "../../generated/LeadSplit";
 import type { LeadChanges } from "../../generated/LeadChanges";
 import type { LeadTabBody } from "../../generated/LeadTabBody";
 import type { LeadTabLoad } from "../../generated/LeadTabLoad";
@@ -22,6 +24,7 @@ import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
 import { Icon } from "../../theme/Icon";
+import { splitWithProjectAgent } from "../pane/logic";
 import { toolProblemAction } from "../panel/toolProblemRunner";
 import { BeforeRestart } from "../terminal_tab/TerminalTab";
 
@@ -82,15 +85,23 @@ export interface LeadTabBodyProps {
   terminal?: React.RefObject<TerminalHandle | null>;
   /** Open lead and Resume (the markup tests pass a stub). */
   onAction?: (kind: LeadActionKind, epic: string) => Promise<void>;
+  /** Split with the Project agent on an epic with no children (the markup tests pass a stub). */
+  onSplit?: (split: LeadSplit) => Promise<unknown>;
   /** A button of the waiting notice (the gallery records it; the app carries it out). */
   onToolProblem?: (action: ToolProblemAction) => void;
 }
 
-function Body({ view, body, terminal, onAction }: LeadTabBodyProps & { body: LeadTabBody }) {
+function Body({ view, body, terminal, onAction, onSplit }: LeadTabBodyProps & { body: LeadTabBody }) {
   const [busy, setBusy] = useState(false);
   const act = (kind: LeadActionKind) => {
     setBusy(true);
     void (onAction ?? leadAction)(kind, view.epic).finally(() => {
+      setBusy(false);
+    });
+  };
+  const split = (s: LeadSplit) => {
+    setBusy(true);
+    void (onSplit ?? ((x: LeadSplit) => splitWithProjectAgent(x, request)))(s).finally(() => {
       setBusy(false);
     });
   };
@@ -108,13 +119,14 @@ function Body({ view, body, terminal, onAction }: LeadTabBodyProps & { body: Lea
         <div className="lead-tab-open">
           <Icon name="bot" size={20} />
           <strong>{body.title}</strong>
-          <p>{body.text}</p>
+          {body.text !== null && <p>{body.text}</p>}
           <Button
             icon={body.button.icon}
             label={body.button.label}
             loading={busy}
             onClick={() => {
-              act(body.button.kind);
+              if (body.button.split) split(body.button.split);
+              else act(body.button.kind);
             }}
           />
         </div>
@@ -185,7 +197,7 @@ function Body({ view, body, terminal, onAction }: LeadTabBodyProps & { body: Lea
 }
 
 /** The tab for a loaded view (also what the markup tests render). */
-export function LeadTabBody({ view, terminal, onAction, onToolProblem }: LeadTabBodyProps) {
+export function LeadTabBody({ view, terminal, onAction, onSplit, onToolProblem }: LeadTabBodyProps) {
   return (
     <div className="lead-tab" data-asks={view.asks_you || undefined}>
       <div className="lead-tab-head">
@@ -196,6 +208,11 @@ export function LeadTabBody({ view, terminal, onAction, onToolProblem }: LeadTab
           onAction={(kind, epic) => {
             void (onAction ?? leadAction)(kind, epic);
           }}
+          {...(onSplit && {
+            onSplit: (split: LeadSplit) => {
+              void onSplit(split);
+            },
+          })}
         />
         {view.status.name !== null && <span className="lead-tab-muted">{view.read_only}</span>}
         <span className="lead-tab-spacer" />
@@ -219,7 +236,13 @@ export function LeadTabBody({ view, terminal, onAction, onToolProblem }: LeadTab
         </div>
       )}
       {view.changes && <Changes changes={view.changes} />}
-      <Body view={view} body={view.body} terminal={terminal} onAction={onAction} />
+      <Body
+        view={view}
+        body={view.body}
+        {...(terminal && { terminal })}
+        {...(onAction && { onAction })}
+        {...(onSplit && { onSplit })}
+      />
     </div>
   );
 }

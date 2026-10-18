@@ -67,6 +67,7 @@ import type { IconName } from "../../generated/IconName";
 import type { KeyMapGroup } from "../../generated/KeyMapGroup";
 import type { InboxLeadGallery } from "../../generated/InboxLeadGallery";
 import type { LeadGallery } from "../../generated/LeadGallery";
+import type { LeadSplit } from "../../generated/LeadSplit";
 import type { LeadTabGallery } from "../../generated/LeadTabGallery";
 import type { AgentRowsGallery } from "../../generated/AgentRowsGallery";
 import type { LegendTier } from "../../generated/LegendTier";
@@ -1189,6 +1190,10 @@ function Leads() {
   const onAction = (kind: string, epic: string) => {
     setPicked(`${epic}: ${kind}`);
   };
+  // Split with the Project agent (T-0377): what it would send the Project agent pane.
+  const onSplit = (split: LeadSplit) => {
+    setPicked(`${split.project}: ${split.message}`);
+  };
   return (
     <>
       <Section title="01 · Epics on the board · Row · Lead Status (0083) · full and short (T-0289)">
@@ -1200,7 +1205,13 @@ function Leads() {
                 <Caption>
                   {form.toUpperCase()} · {cell.name.toUpperCase()}
                 </Caption>
-                <LeadStatus lead={cell.view} form={form} onOpen={onOpen} onAction={onAction} />
+                <LeadStatus
+                  lead={cell.view}
+                  form={form}
+                  onOpen={onOpen}
+                  onAction={onAction}
+                  onSplit={onSplit}
+                />
               </div>
             ))}
           </div>
@@ -1237,7 +1248,7 @@ function Leads() {
           {view.epics.map((cell) => (
             <div key={cell.name} className="gallery-card-cell">
               <Caption>{cell.name.toUpperCase()}</Caption>
-              <EpicCard card={cell.card} onLead={onOpen} onLeadAction={onAction} />
+              <EpicCard card={cell.card} onLead={onOpen} onLeadAction={onAction} onSplit={onSplit} />
             </div>
           ))}
         </div>
@@ -1266,6 +1277,10 @@ function LeadTabs() {
               view={cell.view}
               onAction={(kind, epic) => {
                 setPicked(`${epic}: ${kind}`);
+                return Promise.resolve();
+              }}
+              onSplit={(split) => {
+                setPicked(`${split.project}: ${split.message}`);
                 return Promise.resolve();
               }}
               onToolProblem={(action) => {

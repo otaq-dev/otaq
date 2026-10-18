@@ -103,7 +103,7 @@ describe("the Lead tab renders each state (T-0290)", () => {
         name: null,
         full: "Open lead",
         tone: "none",
-        action: { kind: "open", label: "Open lead", icon: "bot" },
+        action: { kind: "open", label: "Open lead", icon: "bot", split: null },
       }),
       tokens: null,
       changes: null,
@@ -111,7 +111,7 @@ describe("the Lead tab renders each state (T-0290)", () => {
         kind: "open_lead",
         title: "SHOP-40 has no lead",
         text: "Open lead starts a read-only agent…",
-        button: { kind: "open", label: "Open lead", icon: "bot" },
+        button: { kind: "open", label: "Open lead", icon: "bot", split: null },
       },
     });
     expect(out).toContain("SHOP-40 has no lead");
@@ -120,13 +120,34 @@ describe("the Lead tab renders each state (T-0290)", () => {
     expect(out).not.toContain("Changes by the lead");
   });
 
+  it("no lead, no children: Split with the Project agent, no text (T-0377)", () => {
+    const split = { project: "SHOP", message: "Split SHOP-40 into tickets" };
+    const button = { kind: "split", label: "Split with the Project agent", icon: "bot", split } as const;
+    const out = html({
+      ...IDLE,
+      status: status({
+        name: null,
+        full: "Split with the Project agent",
+        tone: "none",
+        action: button,
+      }),
+      tokens: null,
+      changes: null,
+      body: { kind: "open_lead", title: "SHOP-40 has no lead", text: null, button },
+    });
+    expect(out).toContain("SHOP-40 has no lead");
+    expect(out).toContain("<span>Split with the Project agent</span>");
+    expect(out).not.toContain("Open lead");
+    expect(out).not.toContain("<p>");
+  });
+
   it("ended by restart: Before the restart with Resume", () => {
     const out = html({
       ...IDLE,
       status: status({
         state: "ended by restart",
         tone: "ended",
-        action: { kind: "resume", label: "Resume", icon: "rotate-ccw" },
+        action: { kind: "resume", label: "Resume", icon: "rotate-ccw", split: null },
       }),
       body: {
         kind: "before_restart",

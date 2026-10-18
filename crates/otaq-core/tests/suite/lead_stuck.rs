@@ -180,7 +180,7 @@ async fn pending(w: &TestService, session: &str) -> Vec<String> {
         .collect()
 }
 
-/// The lead is busy planning, so its wake-ups wait.
+/// The lead is busy with a turn the user typed, so its wake-ups wait.
 async fn busy_lead(w: &TestService) -> (Lead, AgentShell) {
     let (lead, shell) = open_lead(w, "SHOP-40").await;
     lead_prompt(w, &lead, "Plan it").await;

@@ -44,7 +44,7 @@ pub const NAMED_AFTER_EPIC: &str = "The lead is named after its epic";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TurnReason {
-    /// The user typed to it: "planning".
+    /// The user typed to it: "re-planning", as a wake-up (the lead never plans an epic from scratch, d0091).
     UserTyped,
     /// The first turn after a drag started it: "checking the plan".
     CheckPlan,
@@ -74,9 +74,7 @@ pub enum LeadStatus {
     Idle,
     /// Its first turn after a drag started it.
     CheckingPlan,
-    /// A turn the user started by typing.
-    Planning,
-    /// A merge, close or stuck wake-up.
+    /// A turn the user started by typing, or a merge, close or stuck wake-up.
     Replanning,
     /// A question wake-up: "answering SHOP-40.2".
     Answering {
@@ -130,11 +128,13 @@ pub fn lead_status(facts: &LeadFacts) -> LeadStatus {
     }
     match &facts.turn {
         None => LeadStatus::Idle,
-        Some(TurnReason::UserTyped) => LeadStatus::Planning,
         Some(TurnReason::CheckPlan) => LeadStatus::CheckingPlan,
-        Some(TurnReason::Wake {
-            wake: Wake::Merge | Wake::Close | Wake::Stuck,
-        }) => LeadStatus::Replanning,
+        Some(
+            TurnReason::UserTyped
+            | TurnReason::Wake {
+                wake: Wake::Merge | Wake::Close | Wake::Stuck,
+            },
+        ) => LeadStatus::Replanning,
         Some(TurnReason::Wake {
             wake: Wake::Question { ticket },
         }) => LeadStatus::Answering {
@@ -941,7 +941,8 @@ mod tests {
         );
         assert_eq!(
             lead_status(&live(Some(TurnReason::UserTyped))),
-            LeadStatus::Planning
+            LeadStatus::Replanning,
+            "a turn the user typed reads re-planning (d0091)"
         );
         for wake in [Wake::Merge, Wake::Close, Wake::Stuck] {
             assert_eq!(

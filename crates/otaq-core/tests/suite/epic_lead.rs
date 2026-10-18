@@ -390,10 +390,10 @@ async fn a_queue_start_checks_the_plan_and_every_status_follows_the_turns() {
     stop(&w, &lead).await;
     assert_eq!(status(&w, &wishlist).await, LeadStatus::Idle);
 
-    // The user types in the Lead tab: planning.
+    // The user types in the Lead tab: re-planning, as a wake-up (d0091: the lead never plans from scratch).
     w.project_agents.enter(&session(&lead.agent)).await.unwrap();
     prompt(&w, &lead, "Split this into tickets of about a day").await;
-    assert_eq!(status(&w, &wishlist).await, LeadStatus::Planning);
+    assert_eq!(status(&w, &wishlist).await, LeadStatus::Replanning);
     stop(&w, &lead).await;
 
     // Wake-ups: re-planning, answering SHOP-1.2.
@@ -429,13 +429,25 @@ async fn a_queue_start_checks_the_plan_and_every_status_follows_the_turns() {
     // A reason set mid-turn waits for the next turn.
     prompt(&w, &lead, "Look at the cart too").await;
     leads
-        .set_turn_reason(&key(&wishlist), TurnReason::Wake { wake: Wake::Merge })
+        .set_turn_reason(
+            &key(&wishlist),
+            TurnReason::Wake {
+                wake: Wake::Question {
+                    ticket: child.clone(),
+                },
+            },
+        )
         .await
         .unwrap();
-    assert_eq!(status(&w, &wishlist).await, LeadStatus::Planning);
-    stop(&w, &lead).await;
-    prompt(&w, &lead, "SHOP-1.1 merged: Wishlist API").await;
     assert_eq!(status(&w, &wishlist).await, LeadStatus::Replanning);
+    stop(&w, &lead).await;
+    prompt(&w, &lead, "SHOP-1.2 asks: Can guests save?").await;
+    assert_eq!(
+        status(&w, &wishlist).await,
+        LeadStatus::Answering {
+            ticket: child.clone()
+        }
+    );
 
     // Its own question: asks you, a group 1 item naming the epic.
     w.project_agents

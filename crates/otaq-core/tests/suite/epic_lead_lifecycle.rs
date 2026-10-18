@@ -271,7 +271,7 @@ async fn a_merge_and_a_close_wake_the_lead_once_each_typed_only_when_idle() {
             .status(&key(&wishlist))
             .await
             .unwrap(),
-        LeadStatus::Planning
+        LeadStatus::Replanning
     );
     // Its turn ends: typed, and the next turn is a re-plan.
     stop(&w, &open).await;

@@ -149,7 +149,7 @@ mod tests {
     use crate::service::testing::{Harness, connected};
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn the_lead_tab_of_a_real_epic_without_a_lead_offers_open_lead() {
+    async fn the_lead_tab_of_a_real_epic_without_a_lead_offers_split_then_open_lead() {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let repos = TempRepos::new();
@@ -187,6 +187,34 @@ mod tests {
             Reply::Ticket(t) => t.key.to_string(),
             other => panic!("{other:?}"),
         };
+        // No children (LEAD-13, d0091): Split with the Project agent, with the pane's first message.
+        let load = request(&h.app, "lead.view", json!({ "key": epic }))
+            .await
+            .unwrap();
+        assert_eq!(
+            load["view"]["status"]["full"],
+            "Split with the Project agent"
+        );
+        assert_eq!(
+            load["view"]["body"]["button"]["split"],
+            json!({ "project": project, "message": format!("Split {epic} into tickets") })
+        );
+        // A child: Open lead.
+        let child = NewTicketInput {
+            project: project.clone(),
+            kind: Kind::Ticket,
+            title: "Wishlist API".into(),
+            body: String::new(),
+            priority: None,
+            epic: Some(epic.clone()),
+            base_branch: None,
+            external_id: None,
+        };
+        h.app
+            .service
+            .send(Request::TicketCreate(child))
+            .await
+            .unwrap();
         let load = request(&h.app, "lead.view", json!({ "key": epic }))
             .await
             .unwrap();

@@ -25,11 +25,11 @@ state: string,
  */
 short: string, 
 /**
- * "Wishlist lead · re-planning", or "Open lead".
+ * "Wishlist lead · re-planning", "Open lead" or "Split with the Project agent".
  */
 full: string, tone: LeadTone, icon: IconName, 
 /**
- * Resume (ended by restart, ended) or Open lead (no lead).
+ * Resume (ended by restart, ended), Open lead (no lead) or Split with the Project agent (no lead, no children).
  */
 action: LeadButton | null, tooltip: LeadTooltip, 
 /**
