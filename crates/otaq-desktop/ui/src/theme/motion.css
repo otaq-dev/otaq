@@ -1,0 +1,28 @@
+/*
+ * Motion (OT-6): the shared durations and easings. Motion is the same in every theme, so it lives here and not in
+ * the generated tokens. The side panel, dialogs, floating layers and toasts read these from the page in
+ * `components/motion.ts`, which plays their enter and leave animations; hover and pressed states use
+ * `--motion-colors`.
+ */
+:root {
+  /* Hover and pressed colours, tabs, menus, popovers and tooltips. */
+  --motion-fast: 120ms;
+  /* The side panel, dialogs and toasts. */
+  --motion-base: 200ms;
+  /* Things arriving: quick out of the gate, settling gently. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Things leaving, and colour changes. */
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  /* What hover, pressed and selected states transition. */
+  --motion-colors:
+    background-color var(--motion-fast) var(--ease-in-out),
+    border-color var(--motion-fast) var(--ease-in-out), color var(--motion-fast) var(--ease-in-out),
+    box-shadow var(--motion-fast) var(--ease-in-out);
+}
+
+/* Reduced motion: colours swap at once (and `motion.ts` turns slides and scales into short fades). */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-colors: none;
+  }
+}

@@ -184,6 +184,7 @@
   font: 500 12px/16px var(--font-ui);
   white-space: nowrap;
   cursor: pointer;
+  transition: var(--motion-colors);
 }
 
 .button {
@@ -281,6 +282,12 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  [data-loading] > .icon {
+    animation: none;
+  }
+}
+
 /* The focus ring: 2 px of `focus` outside the element, never moving the layout. */
 .button:focus-visible,
 .icon-button:focus-visible,
@@ -321,6 +328,7 @@
   color: var(--text-secondary);
   font: 400 12px var(--font-ui);
   cursor: pointer;
+  transition: var(--motion-colors);
 }
 
 .tab > .icon {
@@ -379,6 +387,7 @@
   color: var(--text-secondary);
   font: 400 12px var(--font-ui);
   cursor: pointer;
+  transition: var(--motion-colors);
 }
 
 .segment:hover {
@@ -418,6 +427,7 @@
   padding: 2px;
   border-radius: 8px;
   background: var(--border-strong);
+  transition: var(--motion-colors);
 }
 
 .toggle[aria-checked="true"] > .toggle-track {
@@ -508,6 +518,7 @@
   color: var(--text-muted);
   text-align: left;
   cursor: pointer;
+  transition: var(--motion-colors);
 }
 
 .select[data-open] {

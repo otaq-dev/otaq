@@ -1,12 +1,12 @@
 // Area 11 · Banners, toasts & OS notifications (T-0231): the banner area above board and panel (at most two rows,
 // one per situation), the toast host bottom-right, Restart now's confirmation, and notification clicks. What shows,
 // its wording and its buttons come from Rust (`src/notices.rs`); OS notifications are posted by the service.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { OverlayProps, Screen } from "../../app/registry";
 import { openTicket } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { Banner, ConfirmDialog, Toast } from "../../components";
+import { Banner, ConfirmDialog, Toast, useEnterExit } from "../../components";
 import type { Banner as BannerView } from "../../generated/Banner";
 import type { RestartDialog } from "../../generated/RestartDialog";
 import type { Toast as ToastView } from "../../generated/Toast";
@@ -144,49 +144,56 @@ export function actionsOf(toast: ToastView) {
   }));
 }
 
+/** One toast in the stack: it rises in and fades out (OT-6); hovering it holds its time-out. */
+function StackedToast({ toast: t }: { toast: ToastView }) {
+  const root = useRef<HTMLDivElement>(null);
+  useEnterExit(root, "toast");
+  const ticket = t.ticket;
+  return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- hovering only pauses the time-out; the toast's own buttons stay the interactive parts
+    <div
+      ref={root}
+      className="notices-toast"
+      role="group"
+      aria-label={t.title}
+      onMouseEnter={() => {
+        request("notices.hold_toast", { id: t.id, held: true }).catch(warnOnFailure("Hold"));
+      }}
+      onMouseLeave={() => {
+        request("notices.hold_toast", { id: t.id, held: false }).catch(warnOnFailure("Hold"));
+      }}
+    >
+      <Toast
+        kind={t.level}
+        title={t.title}
+        text={t.text}
+        icon={t.icon ?? undefined}
+        iconTone={t.icon_tone ?? undefined}
+        action={linkOf(t)}
+        actions={actionsOf(t)}
+        onOpen={
+          ticket === null
+            ? undefined
+            : () => {
+                openTicket(ticket);
+              }
+        }
+        onClose={() => {
+          request("notices.dismiss_toast", { id: t.id }).catch(warnOnFailure("Close"));
+        }}
+      />
+    </div>
+  );
+}
+
 /** The toasts, oldest at the top; hovering one pauses its time-out, clicking a ticket's opens the ticket. */
 export function ToastStack({ toasts }: { toasts: readonly ToastView[] }) {
-  if (toasts.length === 0) return null;
+  // Drawn even when empty, so the last toast's fade-out has somewhere to play.
   return (
     <div className="notices-toasts">
-      {toasts.map((t) => {
-        const ticket = t.ticket;
-        return (
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- hovering only pauses the time-out; the toast's own buttons stay the interactive parts
-          <div
-            key={t.id}
-            className="notices-toast"
-            role="group"
-            aria-label={t.title}
-            onMouseEnter={() => {
-              request("notices.hold_toast", { id: t.id, held: true }).catch(warnOnFailure("Hold"));
-            }}
-            onMouseLeave={() => {
-              request("notices.hold_toast", { id: t.id, held: false }).catch(warnOnFailure("Hold"));
-            }}
-          >
-            <Toast
-              kind={t.level}
-              title={t.title}
-              text={t.text}
-              icon={t.icon ?? undefined}
-              iconTone={t.icon_tone ?? undefined}
-              action={linkOf(t)}
-              actions={actionsOf(t)}
-              onOpen={
-                ticket === null
-                  ? undefined
-                  : () => {
-                      openTicket(ticket);
-                    }
-              }
-              onClose={() => {
-                request("notices.dismiss_toast", { id: t.id }).catch(warnOnFailure("Close"));
-              }}
-            />
-          </div>
-        );
-      })}
+      {toasts.map((t) => (
+        <StackedToast key={t.id} toast={t} />
+      ))}
     </div>
   );
 }

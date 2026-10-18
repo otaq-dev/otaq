@@ -1051,7 +1051,11 @@ const lastSizes = createStore<PanelSizes | null>(null);
 
 /** The panel slot's component: the open ticket's panel, with its keys while it shows. */
 export function SidePanel() {
-  const { ticket, tab } = useSelection();
+  const { ticket: selected, tab } = useSelection();
+  // While the panel slides out (the frame keeps it mounted, OT-6) it goes on showing the ticket that was open.
+  const [last, setLast] = useState(selected);
+  if (selected !== null && selected !== last) setLast(selected);
+  const ticket = selected ?? last;
   const layout = useStore(shellLayout);
   const cls = useSizeClass();
   const main = useStore(mainWidth);

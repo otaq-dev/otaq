@@ -28,6 +28,15 @@ export { type Anchor, useFloatingStyle } from "./Floating";
 export { Kbd } from "./Kbd";
 export { LeadStatus, leadAction, openLeadTab, type LeadStatusProps } from "./LeadStatus";
 export { AnchoredMenu, Menu, type AnchoredMenuProps, type MenuClose, type MenuProps } from "./Menu";
+export {
+  type InnerMotion,
+  type MotionPreset,
+  playLeave,
+  playMotion,
+  reducedMotion,
+  useEnterExit,
+  usePresence,
+} from "./motion";
 export { OtaqMark } from "./OtaqMark";
 export { CountBadge, MetaChip, StatusPill, type ChipTone, type CountTone, type MetaChipProps } from "./Pill";
 export { Popover, useDismiss, type PopoverProps } from "./Popover";
