@@ -20,6 +20,7 @@
 pub mod background;
 pub mod hooks;
 pub mod model_refused;
+pub mod quiet;
 pub mod state;
 pub mod watch;
 
@@ -87,6 +88,9 @@ struct Inner {
     applying: tokio::sync::Mutex<()>,
     /// What watches a tool's own file while its agent runs (set once at service start).
     watcher: OnceLock<watch::Watcher>,
+    /// Each session's processes and pending looks, for turn ends the tool doesn't report (ADP-12).
+    quiet: Mutex<HashMap<String, quiet::Quiet>>,
+    quiet_timing: Mutex<quiet::QuietTiming>,
 }
 
 /// One session's current turn.
@@ -112,6 +116,8 @@ impl Signals {
                 turned: Mutex::new(HashSet::new()),
                 applying: tokio::sync::Mutex::new(()),
                 watcher: OnceLock::new(),
+                quiet: Mutex::new(HashMap::new()),
+                quiet_timing: Mutex::new(quiet::QuietTiming::default()),
             }),
         }
     }
@@ -161,6 +167,9 @@ impl Signals {
     ) -> Result<Vec<Signal>, BoardError> {
         tracing::debug!(%tool, event, payload = %payload, agent = ?caller.ticket(), "hook");
         let session = session_of(caller);
+        if let Some(session) = session {
+            self.hook_came(session);
+        }
         let stored = match session {
             Some(session) => self.stored_session(session).await?,
             None => StoredSession::default(),
@@ -202,6 +211,21 @@ impl Signals {
         let session = session_of(caller);
         let mut signals = Vec::new();
         for event in events {
+            // A turn end without background info: Otaq's own look at the processes (ADP-12).
+            let found;
+            let event = match session {
+                Some(session) => {
+                    self.quiet_event(tool, session, event);
+                    match self.left_running(caller, tool, session, event) {
+                        Some(with_work) => {
+                            found = with_work;
+                            &found
+                        }
+                        None => event,
+                    }
+                }
+                None => event,
+            };
             match event {
                 // Stored, kept on a Project agent's or lead's row, and the session's file watched (ADP-07).
                 ToolEvent::ToolIdKnown { tool_id } => {

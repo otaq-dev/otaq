@@ -1213,7 +1213,10 @@ impl Unsent {
     pub(super) fn of(prompt: &UnsentPrompt) -> Self {
         Self {
             title: prompt.title(),
-            body: format!("{} {}.", prompt.explanation(), prompt.sending),
+            // A multi-line draft the tool can't clear: the user clears it (SES-07, Q-N).
+            body: prompt
+                .note()
+                .unwrap_or_else(|| format!("{} {}.", prompt.explanation(), prompt.sending)),
             clear: "Clear it and send",
         }
     }
@@ -1431,13 +1434,13 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
         }
     };
     match app.service.send(request).await {
-        Ok(Reply::Delivery(Delivery::NeedsConfirmation { .. })) => {
+        Ok(Reply::Delivery(Delivery::NeedsConfirmation { unclearable_by, .. })) => {
             let waiting = ticket(app, &params.key)
                 .await?
                 .map_or(1, |t| t.flags.messages_waiting);
-            Ok(Sent::Ask(Unsent::of(&UnsentPrompt::deliver_now(
-                key, None, waiting,
-            ))))
+            Ok(Sent::Ask(Unsent::of(
+                &UnsentPrompt::deliver_now(key, None, waiting).unclearable_by(unclearable_by),
+            )))
         }
         Ok(_) => Ok(Sent::Done),
         Err(e) => {

@@ -7,7 +7,9 @@
 //! **The user's own clicks** (Deliver now, Send back, an inbox answer) are never held: if the input line has
 //! unsent text the request answers [`Delivery::NeedsConfirmation`] instead, and the client asks *"SHOP-23 has
 //! unsent text in its terminal"* → **Keep it and cancel** (nothing is sent) / **Clear it and send**
-//! ([`Deliveries::clear_and_send`]). Otaq never clears the user's text silently.
+//! ([`Deliveries::clear_and_send`]). Otaq never clears the user's text silently. A tool whose clear-line keys
+//! clear only the current line of a multi-line draft (Codex, OpenCode; ADP-06) can't clear one: the question then
+//! names the tool ([`Delivery::NeedsConfirmation::unclearable_by`]) and offers only Keep it and cancel (SES-07).
 //!
 //! "Idle between turns" comes from hook signals (T-0067): the service passes its [`crate::signals::Signals`],
 //! whose answer is "the agent's last hook ended its turn". [`NeverIdle`] stays for tests.
@@ -75,6 +77,10 @@ pub enum Delivery {
     NeedsConfirmation {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ticket: Option<TicketKey>,
+        /// The text is a multi-line draft the session's tool can't clear (its display name, "Codex"): only Keep it
+        /// and cancel is offered.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        unclearable_by: Option<String>,
     },
 }
 
@@ -236,9 +242,9 @@ impl Deliveries {
         text: Option<&str>,
     ) -> Result<Delivery, SessionError> {
         let input = self.input(session);
-        // A tool whose clear-line keys leave the rest of a multi-line draft (M23) can't clear it safely; the
-        // tracker can't tell a multi-line draft, so any draft is the user's to clear (SES-07, ADP-06).
-        if !input.multi_line_clearable && self.sessions.has_unsent_input(session)? {
+        // A tool whose clear-line keys leave the rest of a multi-line draft can't clear it: the user clears it in
+        // the terminal (SES-07, ADP-06). Never Ctrl+C.
+        if self.unclearable_by(session)?.is_some() {
             return Ok(self.needs_confirmation(session));
         }
         self.sessions.clear_line(session, input.clear_line)?;
@@ -338,9 +344,20 @@ impl Deliveries {
         self.adapters.of_session(tool).input()
     }
 
+    /// The session's tool's name when its input line holds a multi-line draft that tool can't clear (ADP-06).
+    pub fn unclearable_by(&self, session: &str) -> Result<Option<String>, SessionError> {
+        let tool = self.sessions.info(session).ok().and_then(|info| info.tool);
+        let adapter = self.adapters.of_session(tool);
+        let unclearable = !adapter.input().multi_line_clearable
+            && self.sessions.has_unsent_input(session)?
+            && self.sessions.has_multi_line_input(session)?;
+        Ok(unclearable.then(|| adapter.display_name().to_owned()))
+    }
+
     fn needs_confirmation(&self, session: &str) -> Delivery {
         Delivery::NeedsConfirmation {
             ticket: self.sessions.info(session).ok().and_then(|i| i.ticket),
+            unclearable_by: self.unclearable_by(session).ok().flatten(),
         }
     }
 

@@ -513,7 +513,7 @@ impl Recovery {
                     &ticket.id,
                     ticket.status,
                     keep_label,
-                    json!({ "reason": reason, "session": info.id }),
+                    json!({ "reason": reason, "session": info.id, "tool": info.tool }),
                 )
                 .await
             }
@@ -559,7 +559,7 @@ impl Recovery {
                 self.interrupt_validation(
                     &ticket.id,
                     ticket.status,
-                    json!({ "reason": reason, "session": info.id }),
+                    json!({ "reason": reason, "session": info.id, "tool": info.tool }),
                 )
                 .await
             }

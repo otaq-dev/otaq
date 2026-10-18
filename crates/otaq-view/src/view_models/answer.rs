@@ -96,14 +96,17 @@ pub fn sending(choice: &Choice) -> String {
 pub fn outcome(key: &TicketKey, choice: &Choice, delivery: &Delivery) -> AnswerOutcome {
     match delivery {
         Delivery::Sent { .. } => AnswerOutcome::Sent,
-        Delivery::NeedsConfirmation { .. } => AnswerOutcome::Ask(UnsentPrompt::for_click(
-            key.clone(),
-            None,
-            sending(choice),
-            Click::Answer {
-                choice: choice.clone(),
-            },
-        )),
+        Delivery::NeedsConfirmation { unclearable_by, .. } => AnswerOutcome::Ask(
+            UnsentPrompt::for_click(
+                key.clone(),
+                None,
+                sending(choice),
+                Click::Answer {
+                    choice: choice.clone(),
+                },
+            )
+            .unclearable_by(unclearable_by.clone()),
+        ),
     }
 }
 
@@ -172,9 +175,14 @@ mod tests {
             outcome(&key, &choice, &Delivery::Sent { count: 1 }),
             AnswerOutcome::Sent
         );
-        let AnswerOutcome::Ask(prompt) =
-            outcome(&key, &choice, &Delivery::NeedsConfirmation { ticket: None })
-        else {
+        let AnswerOutcome::Ask(prompt) = outcome(
+            &key,
+            &choice,
+            &Delivery::NeedsConfirmation {
+                ticket: None,
+                unclearable_by: None,
+            },
+        ) else {
             panic!("asks")
         };
         assert_eq!(prompt.title(), "SHOP-23 has unsent text in its terminal");

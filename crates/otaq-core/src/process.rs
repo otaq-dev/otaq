@@ -30,9 +30,103 @@ pub fn ancestry(pid: u32) -> Vec<u32> {
     chain
 }
 
+/// A process running inside an agent's tree ([`tree`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeProcess {
+    pub pid: u32,
+    pub parent: u32,
+    /// Its program's file (`/bin/sleep`), when it can be read.
+    pub program: Option<std::path::PathBuf>,
+    /// Its command line (`sleep 30`), when it can be read; on Windows only the program's name.
+    pub args: Vec<String>,
+}
+
+/// One row of the process table.
+#[derive(Debug, Clone, Copy)]
+struct Row {
+    pid: u32,
+    parent: u32,
+    /// The session it runs in (macOS and Linux).
+    session: Option<u32>,
+    /// Ended, not yet reaped by its parent.
+    zombie: bool,
+}
+
+/// Every process running inside `root`'s tree (ADP-12): its children, theirs and so on, and, when `root` leads its
+/// own session (a PTY's program does), every other process of that session too: a command a shell put in the
+/// background is handed to `launchd` or `init` once that shell ends, but it stays in the session. Not `root`
+/// itself, and not processes that ended and wait to be reaped. Windows has no sessions to read; there it is the
+/// children's tree only.
+pub fn tree(root: u32) -> Vec<TreeProcess> {
+    let rows = os::table();
+    let mut inside: std::collections::HashSet<u32> = std::collections::HashSet::from([root]);
+    if rows
+        .iter()
+        .any(|r| r.pid == root && r.session == Some(root))
+    {
+        inside.extend(
+            rows.iter()
+                .filter(|r| r.session == Some(root))
+                .map(|r| r.pid),
+        );
+    }
+    // Children of what is inside, until nothing new joins (the table isn't in any order).
+    for _ in 0..MAX_DEPTH {
+        let before = inside.len();
+        for row in &rows {
+            if inside.contains(&row.parent) {
+                inside.insert(row.pid);
+            }
+        }
+        if inside.len() == before {
+            break;
+        }
+    }
+    rows.iter()
+        .filter(|r| r.pid != root && !r.zombie && inside.contains(&r.pid))
+        .map(|r| TreeProcess {
+            pid: r.pid,
+            parent: r.parent,
+            program: os::program_of(r.pid),
+            args: os::command_line(r.pid).unwrap_or_default(),
+        })
+        .collect()
+}
+
 #[cfg(target_os = "macos")]
 mod os {
-    pub fn parent_of(pid: u32) -> Option<u32> {
+    use std::path::PathBuf;
+
+    use super::Row;
+
+    /// Every process: `proc_listallpids`, then each one's parent, state and session.
+    pub fn table() -> Vec<Row> {
+        // SAFETY: a null buffer asks only for the count.
+        let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
+        let capacity = usize::try_from(count).unwrap_or(0) + 64;
+        let mut pids = vec![0 as libc::pid_t; capacity];
+        let bytes =
+            i32::try_from(capacity * std::mem::size_of::<libc::pid_t>()).unwrap_or(i32::MAX);
+        // SAFETY: the buffer holds `capacity` pids, `bytes` long; the call writes at most that.
+        let listed = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), bytes) };
+        pids.truncate(usize::try_from(listed).unwrap_or(0).min(capacity));
+        pids.into_iter()
+            .filter_map(|pid| {
+                let pid = u32::try_from(pid).ok().filter(|p| *p != 0)?;
+                let info = bsd_info(pid)?;
+                // SAFETY: plain call on a process ID; -1 when it can't be read.
+                let session = unsafe { libc::getsid(pid as libc::pid_t) };
+                Some(Row {
+                    pid,
+                    parent: info.pbi_ppid,
+                    session: u32::try_from(session).ok(),
+                    zombie: info.pbi_status == libc::SZOMB,
+                })
+            })
+            .collect()
+    }
+
+    fn bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
         let pid = i32::try_from(pid).ok()?;
         let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
         let size = i32::try_from(std::mem::size_of::<libc::proc_bsdinfo>()).ok()?;
@@ -50,17 +144,132 @@ mod os {
             return None;
         }
         // SAFETY: the kernel filled the whole structure (checked above).
-        Some(unsafe { info.assume_init() }.pbi_ppid)
+        Some(unsafe { info.assume_init() })
+    }
+
+    pub fn parent_of(pid: u32) -> Option<u32> {
+        Some(bsd_info(pid)?.pbi_ppid)
+    }
+
+    pub fn program_of(pid: u32) -> Option<PathBuf> {
+        let mut buffer = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+        // SAFETY: the buffer is PROC_PIDPATHINFO_MAXSIZE bytes, as the call requires.
+        let written = unsafe {
+            libc::proc_pidpath(
+                i32::try_from(pid).ok()?,
+                buffer.as_mut_ptr().cast(),
+                u32::try_from(buffer.len()).ok()?,
+            )
+        };
+        buffer.truncate(usize::try_from(written).ok().filter(|n| *n > 0)?);
+        Some(PathBuf::from(String::from_utf8_lossy(&buffer).into_owned()))
+    }
+
+    /// `KERN_PROCARGS2`: the argument count, the program's path, padding, then the arguments, each ending in NUL.
+    pub fn command_line(pid: u32) -> Option<Vec<String>> {
+        let mut max: libc::c_int = 0;
+        let mut size = std::mem::size_of::<libc::c_int>();
+        let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
+        // SAFETY: `max` is a c_int and `size` its size.
+        let ok = unsafe {
+            libc::sysctl(
+                mib.as_mut_ptr(),
+                2,
+                (&raw mut max).cast(),
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if ok != 0 || max <= 0 {
+            return None;
+        }
+        let mut buffer = vec![0u8; usize::try_from(max).ok()?];
+        let mut size = buffer.len();
+        let mut mib = [
+            libc::CTL_KERN,
+            libc::KERN_PROCARGS2,
+            i32::try_from(pid).ok()?,
+        ];
+        // SAFETY: the buffer is `size` bytes; the kernel writes at most that and says how much it wrote.
+        let ok = unsafe {
+            libc::sysctl(
+                mib.as_mut_ptr(),
+                3,
+                buffer.as_mut_ptr().cast(),
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if ok != 0 || size < 4 {
+            return None;
+        }
+        buffer.truncate(size);
+        let argc = usize::try_from(i32::from_ne_bytes(buffer[..4].try_into().ok()?)).ok()?;
+        let rest = &buffer[4..];
+        // The program's path, then NUL padding up to the first argument.
+        let mut at = rest.iter().position(|b| *b == 0)?;
+        while at < rest.len() && rest[at] == 0 {
+            at += 1;
+        }
+        let args = rest[at..]
+            .split(|b| *b == 0)
+            .take(argc)
+            .map(|a| String::from_utf8_lossy(a).into_owned())
+            .collect();
+        Some(args)
     }
 }
 
 #[cfg(target_os = "linux")]
 mod os {
-    pub fn parent_of(pid: u32) -> Option<u32> {
+    use std::path::PathBuf;
+
+    use super::Row;
+
+    /// The fields after the command name in `/proc/<pid>/stat`: state, parent, group, session, …
+    fn stat_fields(pid: u32) -> Option<Vec<String>> {
         let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
         // "pid (comm) state ppid …": the command name may hold spaces and parentheses, so read after the last ')'.
         let rest = &stat[stat.rfind(')')? + 1..];
-        rest.split_whitespace().nth(1)?.parse().ok()
+        Some(rest.split_whitespace().map(str::to_owned).collect())
+    }
+
+    pub fn table() -> Vec<Row> {
+        let Ok(entries) = std::fs::read_dir("/proc") else {
+            return Vec::new();
+        };
+        entries
+            .filter_map(|e| {
+                let pid: u32 = e.ok()?.file_name().to_str()?.parse().ok()?;
+                let fields = stat_fields(pid)?;
+                Some(Row {
+                    pid,
+                    parent: fields.get(1)?.parse().ok()?,
+                    session: fields.get(3).and_then(|s| s.parse().ok()),
+                    zombie: fields.first().is_some_and(|s| s == "Z"),
+                })
+            })
+            .collect()
+    }
+
+    pub fn parent_of(pid: u32) -> Option<u32> {
+        stat_fields(pid)?.get(1)?.parse().ok()
+    }
+
+    pub fn program_of(pid: u32) -> Option<PathBuf> {
+        std::fs::read_link(format!("/proc/{pid}/exe")).ok()
+    }
+
+    pub fn command_line(pid: u32) -> Option<Vec<String>> {
+        let raw = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+        Some(
+            raw.split(|b| *b == 0)
+                .filter(|a| !a.is_empty())
+                .map(|a| String::from_utf8_lossy(a).into_owned())
+                .collect(),
+        )
     }
 }
 
@@ -77,6 +286,58 @@ mod os {
     use windows_sys::Win32::System::Threading::{
         GetExitCodeProcess, GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
     };
+
+    /// Every process of a ToolHelp snapshot, with its program's name (Windows has no sessions to read here).
+    pub fn table() -> Vec<super::Row> {
+        snapshot()
+            .into_iter()
+            .map(|(pid, parent, _)| super::Row {
+                pid,
+                parent,
+                session: None,
+                zombie: false,
+            })
+            .collect()
+    }
+
+    pub fn program_of(_pid: u32) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    /// Only the program's name, from the snapshot.
+    pub fn command_line(pid: u32) -> Option<Vec<String>> {
+        snapshot()
+            .into_iter()
+            .find(|(p, _, _)| *p == pid)
+            .map(|(_, _, name)| vec![name])
+    }
+
+    fn snapshot() -> Vec<(u32, u32, String)> {
+        // SAFETY: the snapshot handle is closed below.
+        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+        if snapshot == INVALID_HANDLE_VALUE {
+            return Vec::new();
+        }
+        let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+        entry.dwSize = u32::try_from(std::mem::size_of::<PROCESSENTRY32W>()).expect("small");
+        let mut all = Vec::new();
+        // SAFETY: `entry` has its size set, as the API requires.
+        let mut more = unsafe { Process32FirstW(snapshot, &mut entry) } != 0;
+        while more {
+            let name = &entry.szExeFile;
+            let end = name.iter().position(|c| *c == 0).unwrap_or(name.len());
+            all.push((
+                entry.th32ProcessID,
+                entry.th32ParentProcessID,
+                String::from_utf16_lossy(&name[..end]),
+            ));
+            // SAFETY: as above.
+            more = unsafe { Process32NextW(snapshot, &mut entry) } != 0;
+        }
+        // SAFETY: the handle came from CreateToolhelp32Snapshot.
+        unsafe { CloseHandle(snapshot) };
+        all
+    }
 
     pub fn parent_of(pid: u32) -> Option<u32> {
         let parent = snapshot_parent(pid)?;
@@ -462,5 +723,56 @@ mod tests {
     fn a_missing_process_has_no_parent() {
         assert_eq!(parent_of(u32::MAX - 7), None);
         assert_eq!(ancestry(u32::MAX - 7), [u32::MAX - 7]);
+        assert!(tree(u32::MAX - 7).is_empty());
+    }
+
+    /// A session leader's tree: its child, with its command line, and a command whose shell ended (handed to
+    /// `launchd` or `init`, still in the session).
+    #[cfg(unix)]
+    #[test]
+    fn a_tree_holds_children_and_what_left_them_in_the_session() {
+        use std::os::unix::process::CommandExt;
+        let mut leader = std::process::Command::new("sh");
+        leader.args(["-c", "sh -c 'sleep 7 &'; sleep 6 & exec sleep 8"]);
+        // SAFETY: setsid is async-signal-safe; nothing else runs between fork and exec.
+        unsafe {
+            leader.pre_exec(|| {
+                rustix::process::setsid()?;
+                Ok(())
+            });
+        }
+        let mut child = leader.spawn().unwrap();
+        let root = child.id();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut found = Vec::new();
+        while std::time::Instant::now() < deadline {
+            found = tree(root);
+            if found.len() >= 2 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        if let Some(group) = rustix::process::Pid::from_raw(root as i32) {
+            let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+        }
+        let _ = child.wait();
+        let mut commands: Vec<(Vec<String>, bool)> = found
+            .iter()
+            .map(|p| (p.args.clone(), p.parent == root))
+            .collect();
+        commands.sort();
+        assert_eq!(
+            commands,
+            [
+                (vec!["sleep".to_owned(), "6".to_owned()], true),
+                (vec!["sleep".to_owned(), "7".to_owned()], false),
+            ],
+            "{found:?}"
+        );
+        assert!(
+            found
+                .iter()
+                .all(|p| p.program.as_ref().is_some_and(|p| p.ends_with("sleep")))
+        );
     }
 }

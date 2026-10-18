@@ -129,6 +129,11 @@ impl Watcher {
         }
     }
 
+    /// Applies events Otaq made itself (a quiet turn's end, [`super::quiet`]) the way a read's are.
+    pub async fn apply(&self, watched: Watched) {
+        (self.inner.on_watched)(watched).await;
+    }
+
     /// Changes the waits (tests); watches already running take them on their next read.
     pub fn set_timing(&self, timing: Timing) {
         *self.inner.timing.lock().expect("watch timing") = timing;

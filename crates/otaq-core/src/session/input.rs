@@ -11,6 +11,9 @@
 //!   count is exact**. Moving the cursor (←/→/Home/End, Ctrl+A/E/B/F, Alt+B/F) makes it inexact, because a
 //!   backspace at the start of the line deletes nothing. Up/down (history, menus) may fill the line, so they
 //!   set the flag with an inexact count.
+//! - A line break (`\n`, ESC + Enter, or one inside pasted text) makes the draft **multi-line**, as does a
+//!   history entry, which may hold several lines. Some tools' clear-line keys clear only the current line of such a
+//!   draft (ADP-06), so it is the user's to clear (SES-07).
 //! - Keys that delete in other ways (Ctrl+U/K/W, Alt+Backspace, Ctrl+C, Esc) leave the flag as it is: the
 //!   tracker can't know what they removed. The next Enter or Otaq's [`clear_line`](InputTracker::clear_line)
 //!   resets it.
@@ -32,6 +35,8 @@ enum Line {
         count: usize,
         /// Whether the count can be trusted for backspacing to empty.
         exact: bool,
+        /// The draft may run over several lines.
+        multi_line: bool,
     },
 }
 
@@ -78,6 +83,17 @@ impl InputTracker {
         self.line != Line::Empty
     }
 
+    /// Whether the unsent text may run over several lines.
+    pub fn has_multi_line_text(&self) -> bool {
+        matches!(
+            self.line,
+            Line::Text {
+                multi_line: true,
+                ..
+            }
+        )
+    }
+
     /// Otaq cleared the line itself (with the bytes of the session's agent tool, ADP-06).
     pub fn clear_line(&mut self) {
         self.line = Line::Empty;
@@ -104,7 +120,7 @@ impl InputTracker {
                     effect.enters += 1;
                 }
                 0x1b => self.parse = Parse::Escape,
-                b'\n' => self.add_text(),
+                b'\n' => self.add_line_break(),
                 0x7f | 0x08 => self.backspace(),
                 // Ctrl+A, Ctrl+E, Ctrl+B, Ctrl+F: cursor movement.
                 0x01 | 0x05 | 0x02 | 0x06 => self.cursor_moved(),
@@ -124,7 +140,7 @@ impl InputTracker {
                 b'O' => self.parse = Parse::Ss3,
                 b'\r' => {
                     // Alt/Option+Enter: a line break inside the input.
-                    self.add_text();
+                    self.add_line_break();
                     self.parse = Parse::Ground;
                 }
                 b'b' | b'f' => {
@@ -162,6 +178,7 @@ impl InputTracker {
             Parse::Paste => match b {
                 0x1b => self.parse = Parse::PasteEscape,
                 0x80..=0xbf => {}
+                b'\r' | b'\n' => self.add_line_break(),
                 _ => self.add_text(),
             },
             Parse::PasteEscape => {
@@ -188,36 +205,61 @@ impl InputTracker {
     }
 
     fn add_text(&mut self) {
+        self.add(false);
+    }
+
+    fn add_line_break(&mut self) {
+        self.add(true);
+    }
+
+    fn add(&mut self, line_break: bool) {
         self.line = match self.line {
             Line::Empty => Line::Text {
                 count: 1,
                 exact: true,
+                multi_line: line_break,
             },
-            Line::Text { count, exact } => Line::Text {
+            Line::Text {
+                count,
+                exact,
+                multi_line,
+            } => Line::Text {
                 count: count + 1,
                 exact,
+                multi_line: multi_line || line_break,
             },
         };
     }
 
     fn backspace(&mut self) {
-        if let Line::Text { count, exact: true } = self.line {
+        if let Line::Text {
+            count,
+            exact: true,
+            multi_line,
+        } = self.line
+        {
             self.line = if count <= 1 {
                 Line::Empty
             } else {
+                // The count can't tell which character went, so a line break once typed stays counted.
                 Line::Text {
                     count: count - 1,
                     exact: true,
+                    multi_line,
                 }
             };
         }
     }
 
     fn cursor_moved(&mut self) {
-        if let Line::Text { count, .. } = self.line {
+        if let Line::Text {
+            count, multi_line, ..
+        } = self.line
+        {
             self.line = Line::Text {
                 count,
                 exact: false,
+                multi_line,
             };
         }
     }
@@ -230,6 +272,7 @@ impl InputTracker {
         self.line = Line::Text {
             count,
             exact: false,
+            multi_line: true,
         };
     }
 }
@@ -345,6 +388,23 @@ mod tests {
             t.has_unsent_text(),
             "the split arrow still made the count inexact"
         );
+    }
+
+    #[test]
+    fn line_breaks_make_a_multi_line_draft() {
+        let (t, _) = after(&[b"one line"]);
+        assert!(!t.has_multi_line_text());
+        for keys in [
+            &b"first\nsecond"[..],
+            b"first\x1b\rsecond",
+            b"\x1b[200~line 1\rline 2\x1b[201~",
+            b"\x1b[A",
+        ] {
+            let (t, _) = after(&[keys]);
+            assert!(t.has_multi_line_text(), "{keys:?}");
+        }
+        let (t, _) = after(&[b"first\nsecond", b"\r"]);
+        assert!(!t.has_multi_line_text(), "sent");
     }
 
     #[test]

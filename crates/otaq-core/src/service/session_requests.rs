@@ -88,6 +88,12 @@ pub(super) async fn handle(
             {
                 tracing::warn!(session = p.session, error = %e, "can't clear the Project agent's wait");
             }
+            // Any key may answer a tool's own prompt without a signal (Copilot's Esc, ADP-08).
+            if !bytes.is_empty()
+                && let Err(e) = shared.signals.typed(&p.session).await
+            {
+                tracing::warn!(session = p.session, error = %e, "can't check the typed key");
+            }
             // An Enter or a backspace may have emptied the line: waiting messages may go now.
             if !sessions.has_unsent_input(&p.session).unwrap_or(true) {
                 let deliveries = shared.deliveries.clone();
