@@ -233,6 +233,22 @@ pub(super) async fn handle(
             shared.gate.use_fallback(&p.key, p.role).await?;
             Ok(Reply::Ok)
         }),
+        // What macOS allows Otaq's notifications, the ask and the blocked banner (ATT-13, ATT-14; d0090).
+        Request::NotificationsState => boxed(move || async move {
+            shared
+                .notifications
+                .state()
+                .await
+                .map(Reply::NotificationsState)
+        }),
+        Request::NotificationsAskAnswered => boxed(move || async move {
+            shared.notifications.answered().await?;
+            Ok(Reply::Ok)
+        }),
+        Request::NotificationsDismissBlocked => boxed(move || async move {
+            shared.notifications.dismiss_blocked().await?;
+            Ok(Reply::Ok)
+        }),
         Request::SettingsAutoFallback(p) => boxed(move || async move {
             shared.gate.set_automatic(p.on).await?;
             Ok(Reply::Ok)

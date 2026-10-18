@@ -375,6 +375,10 @@ async fn respond(
         // The app window's focus (d0090), per connection like a terminal's.
         Request::AppFocus(p) => {
             shared.inbox.set_looking(client, p.focused);
+            // The user may have changed System Settings meanwhile: read macOS's permission again (T-0372).
+            if p.focused {
+                shared.notifications.refresh();
+            }
             (Reply::Ok, Then::Continue)
         }
         Request::Hook(p) => match shared.signals.hook(who, p.tool, &p.event, &p.payload).await {

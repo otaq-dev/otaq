@@ -159,6 +159,8 @@ struct Inner {
     looking: Looking,
     /// A notification would have gone out while macOS has Otaq's notifications turned off (d0090's banner trigger).
     blocked: std::sync::atomic::AtomicBool,
+    /// Woken when `blocked` becomes set (the banner's state follows, T-0372).
+    blocked_wake: std::sync::OnceLock<Arc<Notify>>,
     /// The Project agents that wait for the user (set by the service).
     project_agents: Mutex<Option<crate::project_agents::ProjectAgents>>,
     /// The tools that aren't available while tickets wait on them or moved off them, since when (USG-10):
@@ -204,6 +206,7 @@ impl Inbox {
                 clock,
                 looking: Looking::default(),
                 blocked: std::sync::atomic::AtomicBool::new(false),
+                blocked_wake: std::sync::OnceLock::new(),
                 project_agents: Mutex::new(None),
                 unavailable: Mutex::new(HashMap::new()),
                 available_at: Mutex::new(HashMap::new()),
@@ -233,6 +236,18 @@ impl Inbox {
     /// banner).
     pub fn notification_blocked(&self) -> bool {
         self.inner.blocked.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Forgets a blocked notification: macOS allowed notifications again, so only a new one shows the banner (d0090).
+    pub fn clear_notification_blocked(&self) {
+        self.inner
+            .blocked
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// What to wake when a notification is first blocked (set before [`Self::run`]).
+    pub fn on_notification_blocked(&self, wake: Arc<Notify>) {
+        let _ = self.inner.blocked_wake.set(wake);
     }
 
     /// The notifier's permission state as last read (d0090); never waits for the OS.
@@ -447,6 +462,11 @@ impl Inbox {
             .chain(agents.iter().map(notify::agent_presence))
             .chain(tools_waiting)
             .collect();
+        // Something may go out: read macOS's permission again for the next time (this time uses the last read; the
+        // read never waits, T-0372).
+        if !fresh.is_empty() {
+            self.inner.notifier.refresh_permission();
+        }
         let decided = {
             let mut pace = self.inner.pace.lock().expect("quiet period");
             decide(
@@ -461,10 +481,14 @@ impl Inbox {
                 fresh,
             )
         };
-        if decided.blocked {
-            self.inner
+        if decided.blocked
+            && !self
+                .inner
                 .blocked
-                .store(true, std::sync::atomic::Ordering::SeqCst);
+                .swap(true, std::sync::atomic::Ordering::SeqCst)
+            && let Some(wake) = self.inner.blocked_wake.get()
+        {
+            wake.notify_one();
         }
         for notification in &decided.posts {
             tracing::info!(title = %notification.title, "notification");

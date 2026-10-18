@@ -3,7 +3,8 @@
 //! after-restart summary, "Reconnected"), the plan limit (`usage.summary` on `usage_changed`, `ticket_changed` and
 //! resyncs), the folder trust note and warning (`onboarding.state` on [`TRUST_EVENTS`] and resyncs; PRJ-08) and the
 //! service events that show a toast ([`EVENT_TOASTS`]). A one-second tick times the success toasts out and counts the
-//! usage limit down.
+//! usage limit down. The notification ask and the blocked banner follow `notifications.state` (on connect and resyncs)
+//! and `notifications_changed` (ATT-13, ATT-14).
 //!
 //! The page draws what [`Notices::view`] returns: it loads it with `notices.view` and gets every change as a
 //! `notices` event. Nothing here restarts the service or resumes an agent on its own: those are the page's requests,
@@ -15,6 +16,7 @@ use std::time::{Duration, Instant};
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::models::ModelList;
 use otaq_core::attention::notify::{Target, open_env_var};
+use otaq_core::attention::os_permission::NotificationsState;
 use otaq_core::client::{Client, Compatibility};
 use otaq_core::domain::TicketKey;
 use otaq_core::named_agents::moves::ToolLines;
@@ -381,6 +383,15 @@ impl Notices {
         self.publish();
     }
 
+    /// The notification banners from the service's `notifications.state` (ATT-13, ATT-14): the ask while pending, the
+    /// blocked banner while the service shows it.
+    pub fn on_notifications(&self, state: &NotificationsState) {
+        self.lock()
+            .banners
+            .set_notifications(state.ask_pending, state.blocked_banner);
+        self.publish();
+    }
+
     /// The target `OTAQ_OPEN` named when the app started, once.
     /// The startup report was read: the summary banner counts the Project agents the restart ended too
     /// ("8 sessions were interrupted · 2 Project agents ended", T-0244), and the epic leads it ended, counted on
@@ -601,6 +612,7 @@ async fn follow(
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut usage_due = true;
     let mut trust_due = true;
+    let mut notifications_due = true;
     // After the summary: the startup report names the Project agents the restart ended (T-0244).
     let mut report_due = false;
     let first = states.borrow_and_update().clone();
@@ -618,6 +630,7 @@ async fn follow(
                 if matches!(state, LinkState::Connected(_)) {
                     usage_due = true;
                     trust_due = true;
+                    notifications_due = true;
                 }
                 report_due |= notices.on_link(&state);
             }
@@ -628,12 +641,16 @@ async fn follow(
                     Some("resync") => {
                         usage_due = true;
                         trust_due = true;
+                        notifications_due = true;
                     }
                     Some("service") => {
                         let name = event["name"].as_str().unwrap_or_default();
                         usage_due |= USAGE_EVENTS.contains(&name);
                         trust_due |= TRUST_EVENTS.contains(&name);
                         if let Ok(event) = serde_json::from_value::<Event>(event["event"].clone()) {
+                            if let Event::NotificationsChanged { state } = &event {
+                                notices.on_notifications(state);
+                            }
                             for toast in EVENT_TOASTS.iter().filter_map(|to_toast| to_toast(&event)) {
                                 notices.toast(toast);
                             }
@@ -674,6 +691,15 @@ async fn follow(
                         tokio::time::timeout(USAGE_TIMEOUT, client.request(Request::OnboardingState)).await;
                     if let Ok(Ok(Reply::OnboardingState(state))) = state {
                         notices.on_trust(&state);
+                    }
+                }
+                let client = clients.borrow().clone();
+                if notifications_due && let Some(client) = client {
+                    notifications_due = false;
+                    let state =
+                        tokio::time::timeout(USAGE_TIMEOUT, client.request(Request::NotificationsState)).await;
+                    if let Ok(Ok(Reply::NotificationsState(state))) = state {
+                        notices.on_notifications(&state);
                     }
                 }
                 let client = clients.borrow().clone();
@@ -738,6 +764,31 @@ mod tests {
 
     fn toasts(view: &NoticesView) -> Vec<&str> {
         view.toasts.iter().map(|t| t.title.as_str()).collect()
+    }
+
+    #[test]
+    fn the_notification_banners_follow_the_notifications_state() {
+        use otaq_core::attention::notify::PermissionState;
+        let n = notices();
+        let state = |ask_pending: bool, blocked_banner: bool| NotificationsState {
+            permission: PermissionState::TurnedOff,
+            ask_pending,
+            blocked_banner,
+        };
+        n.on_notifications(&state(true, true));
+        let kinds: Vec<SituationKind> = n.view().banners.iter().map(|b| b.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                SituationKind::NotificationsBlocked,
+                SituationKind::NotificationsAsk
+            ]
+        );
+        n.dismiss_banner(SituationKind::NotificationsBlocked);
+        n.on_notifications(&state(false, false));
+        assert!(n.view().banners.is_empty());
+        n.on_notifications(&state(false, true));
+        assert_eq!(n.view().banners.len(), 1, "raised again by the service");
     }
 
     #[test]

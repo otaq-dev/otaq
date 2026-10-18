@@ -5,6 +5,7 @@ import type { SettingsButtonAction } from "./SettingsButtonAction";
 import type { SettingsChoice } from "./SettingsChoice";
 import type { SettingsEnvFile } from "./SettingsEnvFile";
 import type { SettingsEnvVar } from "./SettingsEnvVar";
+import type { SettingsOsStatus } from "./SettingsOsStatus";
 import type { SettingsRadioChoice } from "./SettingsRadioChoice";
 import type { SettingsReveal } from "./SettingsReveal";
 import type { SettingsSkillNote } from "./SettingsSkillNote";
@@ -13,7 +14,7 @@ import type { SettingsSkillRow } from "./SettingsSkillRow";
 /**
  * What a row edits or shows.
  */
-export type SettingsControl = { "kind": "text", value: string, placeholder: string, mono: boolean, multiline: boolean, problem: string | null, } | { "kind": "toggle", on: boolean, } | { "kind": "stepper", value: number, min: number, max: number, 
+export type SettingsControl = { "kind": "text", value: string, placeholder: string, mono: boolean, multiline: boolean, problem: string | null, } | { "kind": "toggle", on: boolean, } | { "kind": "notifications_switch", on: boolean, status: SettingsOsStatus | null, } | { "kind": "checkbox", on: boolean, disabled: boolean, indented: boolean, } | { "kind": "stepper", value: number, min: number, max: number, 
 /**
  * " px" after the number.
  */

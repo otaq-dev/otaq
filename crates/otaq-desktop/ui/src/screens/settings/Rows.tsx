@@ -7,6 +7,7 @@ import { openOverlay } from "../../app/overlays";
 import {
   AnchoredMenu,
   Button,
+  Checkbox,
   IconButton,
   pickTheme,
   Segmented,
@@ -408,6 +409,10 @@ function Control({ row }: { row: SettingsRow }) {
   switch (c.kind) {
     case "text":
       return <TextControl field={row.field} control={c} />;
+    case "notifications_switch":
+      return null;
+    case "checkbox":
+      return null;
     case "toggle":
       return (
         <Toggle
@@ -518,6 +523,9 @@ function Row({ row }: { row: SettingsRow }) {
   if (row.control.kind === "tools") return <Control row={row} />;
   if (row.control.kind === "env_vars") return <EnvVarsRow row={row} />;
   if (row.control.kind === "warm_build") return <WarmBuildRow row={row} control={row.control} />;
+  if (row.control.kind === "notifications_switch")
+    return <NotificationsSwitchRow row={row} control={row.control} />;
+  if (row.control.kind === "checkbox") return <CheckboxRow row={row} control={row.control} />;
   // *Theme*: the row's text, then the picker across the whole width.
   if (row.control.kind === "themes")
     return (
@@ -603,6 +611,81 @@ export function WarmBuildRow({ row, control }: { row: SettingsRow; control: Of<"
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** "OS notifications for blocking items" with what macOS allows under the row's text and the one action that fits
+ * (ATT-14, d0090): Allow notifications brings up macOS's question, Open System Settings opens Otaq's entry. The line
+ * shows whatever the switch's state. */
+export function NotificationsSwitchRow({
+  row,
+  control,
+}: {
+  row: SettingsRow;
+  control: Of<"notifications_switch">;
+}) {
+  const { edit, act } = useSettings();
+  const status = control.status;
+  return (
+    <div className="settings-row">
+      <div className="settings-row-text">
+        <span className="settings-row-label">{row.label}</span>
+        <span className="settings-row-description">{row.description}</span>
+        {status !== null && (
+          <span className="settings-os-status">
+            <span>{status.text}</span>
+            {status.action !== null && (
+              <button
+                type="button"
+                className="settings-link"
+                onClick={() => {
+                  if (status.action) act(status.action.action);
+                }}
+              >
+                {status.action.label}
+              </button>
+            )}
+          </span>
+        )}
+      </div>
+      <div className="settings-row-control">
+        <Toggle
+          on={control.on}
+          label={row.label}
+          showLabel={false}
+          onChange={(on) => {
+            edit(row.field, on);
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** A checkbox row: a notification kind or Play a sound (ATT-16), indented under the main switch; disabled and dimmed,
+ * not hidden, while the switch is off. */
+export function CheckboxRow({ row, control }: { row: SettingsRow; control: Of<"checkbox"> }) {
+  const { edit } = useSettings();
+  return (
+    <div
+      className="settings-row settings-checkbox-row"
+      data-indented={control.indented || undefined}
+      data-dimmed={row.dimmed || undefined}
+    >
+      <Checkbox
+        checked={control.on}
+        disabled={control.disabled}
+        label={
+          <span className="settings-checkbox-text">
+            <span className="settings-row-label">{row.label}</span>
+            {row.description !== "" && <span className="settings-row-description">{row.description}</span>}
+          </span>
+        }
+        onChange={(on) => {
+          edit(row.field, on);
+        }}
+      />
     </div>
   );
 }

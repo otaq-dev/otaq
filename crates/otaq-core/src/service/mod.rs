@@ -194,6 +194,8 @@ struct Shared {
     signals: Signals,
     recovery: Recovery,
     inbox: Inbox,
+    /// What macOS allows Otaq's notifications, the ask and the blocked banner (ATT-13, ATT-14).
+    notifications: crate::attention::os_permission::OsPermission,
     cleanup: Cleanup,
     usage: Usage,
     plan_limit: PlanLimit,
@@ -723,6 +725,13 @@ impl Service {
                 clock: config.clock.clone(),
             },
         );
+        let notifications = crate::attention::os_permission::OsPermission::new(
+            store.clone(),
+            board.clone(),
+            inbox.clone(),
+            config.notifier.clone(),
+            events.clone(),
+        );
         let usage = Usage::new(
             store.clone(),
             events.clone(),
@@ -956,6 +965,7 @@ impl Service {
             usage,
             cleanup,
             inbox,
+            notifications,
             recovery,
             run,
             review,
@@ -1132,6 +1142,7 @@ impl Service {
         let scheduler = tokio::spawn(shared.scheduler.clone().run(shared.stop.subscribe()));
         let recovery = tokio::spawn(shared.recovery.clone().run(shared.stop.subscribe()));
         let inbox = tokio::spawn(shared.inbox.clone().run(shared.stop.subscribe()));
+        let notifications = tokio::spawn(shared.notifications.clone().run(shared.stop.subscribe()));
         let usage = tokio::spawn(shared.usage.clone().run(shared.stop.subscribe()));
         let plan_limit = tokio::spawn(shared.plan_limit.clone().run(shared.stop.subscribe()));
         let messages = tokio::spawn(shared.messages.clone().run(shared.stop.subscribe()));
@@ -1163,6 +1174,7 @@ impl Service {
         let _ = scheduler.await;
         let _ = recovery.await;
         let _ = inbox.await;
+        let _ = notifications.await;
         let _ = usage.await;
         let _ = plan_limit.await;
         let _ = messages.await;

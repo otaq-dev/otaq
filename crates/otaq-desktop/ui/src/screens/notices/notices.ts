@@ -76,6 +76,11 @@ export async function pressBanner(
   button: BannerButtonId,
   { ask, overlays: stack }: BannerRoutes = ROUTES,
 ): Promise<void> {
+  // The notifications ask (ATT-13): Allow brings up macOS's question in the app; Not now only answers the ask.
+  if (kind === "notifications_ask") {
+    await ask(button === "secondary" ? "notices.notifications_not_now" : "notices.notifications_allow");
+    return;
+  }
   // "Review & resume": the after-restart summary sheet, where each ticket resumes on its own (T-0235).
   if (button === "secondary") {
     stack.open("after_restart");
@@ -103,6 +108,10 @@ export async function pressBanner(
       return;
     case "usage_limit":
       await ask("notices.resume_after_limit");
+      return;
+    // macOS blocks the notifications (ATT-14): Otaq's entry in System Settings.
+    case "notifications_blocked":
+      await ask("notices.open_notification_settings");
       return;
     // The folder trust note and warning have no button (PRJ-08).
     case "trust_failed":

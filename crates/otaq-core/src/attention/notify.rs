@@ -590,6 +590,10 @@ pub type OnClick = Box<dyn FnOnce() + Send>;
 /// ([`Notifier::on_clicks`]).
 pub type OpenTarget = std::sync::Arc<dyn Fn(Target) + Send + Sync>;
 
+/// Called, from any thread, when a read of the OS's permission found it changed (T-0372: the Settings line and the
+/// banners follow).
+pub type PermissionChanged = std::sync::Arc<dyn Fn() + Send + Sync>;
+
 /// Posts OS notifications.
 pub trait Notifier: Send + Sync {
     fn post(&self, notification: &OsNotification, on_click: OnClick);
@@ -601,6 +605,9 @@ pub trait Notifier: Send + Sync {
 
     /// Reads the OS's permission again, off the caller's thread.
     fn refresh_permission(&self) {}
+
+    /// What to call when a read finds the permission changed.
+    fn on_permission(&self, _changed: PermissionChanged) {}
 
     /// For a notifier whose clicks arrive by themselves (macOS's delegate, also for notifications posted by an
     /// earlier run): what a click opens. Others call each notification's [`OnClick`].
