@@ -681,7 +681,7 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 4px 0 22px;
+  padding: 16px 0 22px;
 }
 
 /* The app icon's tile: the Command tent on midnight-indigo glass, the same in every theme (d0076). */
