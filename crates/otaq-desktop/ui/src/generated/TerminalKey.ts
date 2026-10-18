@@ -3,6 +3,7 @@
 /**
  * A focused terminal's own keys, outside the d0058 table (as the GPUI terminal bound them): copy and paste, and ⌘+ /
  * ⌘− for the font size. On Windows and Linux Ctrl+letter belongs to the program in the terminal, so they are on
- * Ctrl+Shift there, as in Windows Terminal and Linux terminals. `TerminalKey` on the page.
+ * Ctrl+Shift there, as in Windows Terminal and Linux terminals. ⇧↵ is a new line in the prompt: xterm.js sends the
+ * same `\r` as ↵, so the terminal sends ESC + CR instead (OT-5). `TerminalKey` on the page.
  */
-export type TerminalKey = "copy" | "paste" | "font_bigger" | "font_smaller";
+export type TerminalKey = "copy" | "paste" | "font_bigger" | "font_smaller" | "new_line";

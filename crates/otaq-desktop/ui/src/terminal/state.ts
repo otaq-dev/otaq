@@ -69,10 +69,14 @@ export function rendererFor(setting: TerminalRenderer, webglFailed: boolean): Te
   return setting === "webgl" && !webglFailed ? "webgl" : "dom";
 }
 
-/** The terminal's own key `e` presses (copy, paste, font size), from the Rust map. */
+/** The terminal's own key `e` presses (copy, paste, font size, new line), from the Rust map. */
 export function terminalKey(map: Keymap | undefined, e: KeyLike): TerminalKey | undefined {
   return map?.terminal_keys.find((b) => strokeMatches(b.keystroke, e))?.key;
 }
+
+/** What ⇧↵ (`new_line`) sends: ESC + CR, as ⌥↵, a new line in the prompt for every agent tool; xterm.js would send
+ * `\r` (↵, which sends the prompt). */
+export const NEW_LINE = "\x1b\r";
 
 /** A theme colour as xterm.js's match decorations take it: `#RRGGBB`, without alpha. */
 export function opaqueHex(color: string): string {
