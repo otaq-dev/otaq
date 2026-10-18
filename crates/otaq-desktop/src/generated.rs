@@ -149,6 +149,13 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::SettingsRevealParams::export_all(&cfg)?;
     // The notification banners and Settings → Notifications for the gallery (T-0372).
     otaq_view::view_models::settings_page::NotificationsGallery::export_all(&cfg)?;
+    // Settings → Workflow skills (T-0380): the gallery (it writes the rows, menu items and dialogs too), the
+    // actions' params and their outcome.
+    otaq_view::view_models::settings_page::WorkflowSkillsGallery::export_all(&cfg)?;
+    crate::api::SkillImport::export_all(&cfg)?;
+    crate::api::SkillStep::export_all(&cfg)?;
+    crate::api::SkillReset::export_all(&cfg)?;
+    crate::api::SkillOutcome::export_all(&cfg)?;
     // Settings → Agents and the project's Agents block (T-0340); each also writes the rows, pickers, mark and menu
     // it is made of.
     otaq_view::view_models::named_agents::Section::export_all(&cfg)?;

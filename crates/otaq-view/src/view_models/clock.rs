@@ -50,6 +50,15 @@ const MONTHS: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
+/// A day as the frames write it: "Oct 12" (local time).
+pub fn month_day(t: &otaq_core::local_time::LocalTime) -> String {
+    format!(
+        "{} {}",
+        MONTHS[(t.month as usize).saturating_sub(1) % 12],
+        t.day
+    )
+}
+
 /// When a limit window resets, as short as the frames say it: "3:45 pm" within a day, "Mon" within a week,
 /// else "Nov 1".
 pub fn reset_label(at: i64, now: i64) -> String {
@@ -62,11 +71,7 @@ pub fn reset_label(at: i64, now: i64) -> String {
     } else if ahead < 7 * 24 * 3_600_000 {
         WEEKDAYS[t.weekday as usize].to_owned()
     } else {
-        format!(
-            "{} {}",
-            MONTHS[(t.month as usize).saturating_sub(1) % 12],
-            t.day
-        )
+        month_day(&t)
     }
 }
 

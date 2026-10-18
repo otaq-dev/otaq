@@ -111,8 +111,10 @@ icons! {
     Folder = "folder";
     FolderTree = "folder-tree";
     FolderGit2 = "folder-git-2";
+    FolderInput = "folder-input";
     FolderOpen = "folder-open";
     FolderPlus = "folder-plus";
+    FolderX = "folder-x";
     Gauge = "gauge";
     GitBranch = "git-branch";
     GitCommitHorizontal = "git-commit-horizontal";
