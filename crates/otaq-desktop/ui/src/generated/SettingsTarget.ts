@@ -2,6 +2,7 @@
 import type { GlobalSectionId } from "./GlobalSectionId";
 
 /**
- * Where a nav row goes: the global page at one of its sections, or a project's page.
+ * Where a nav row goes: one topic of the global page, or a project's page. A global topic is its own page: the
+ * window shows only its `sections` (the first is `section`), never the whole global page scrolling.
  */
-export type SettingsTarget = { "page": "global", section: GlobalSectionId, } | { "page": "project", key: string, };
+export type SettingsTarget = { "page": "global", section: GlobalSectionId, sections: Array<GlobalSectionId>, } | { "page": "project", key: string, };

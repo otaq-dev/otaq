@@ -4,10 +4,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { overlays } from "../../app/overlays";
 import { registerScreens } from "../../app/registry";
+import type { GlobalSectionId } from "../../generated/GlobalSectionId";
+import type { SettingsNavRow } from "../../generated/SettingsNavRow";
 import type { SettingsPage } from "../../generated/SettingsPage";
 import type { SettingsSection } from "../../generated/SettingsSection";
 import { settings } from ".";
-import { SettingsContext, sectionInView, sectionOf } from "./context";
+import { SettingsContext, sectionOf, topicRow } from "./context";
 import { Section, sectionComponent, SkillNote } from "./Rows";
 import type { AgentToolRow } from "../../generated/AgentToolRow";
 import type { AgentToolsPage } from "../../generated/AgentToolsPage";
@@ -231,13 +233,21 @@ describe("the Settings screen", () => {
     expect(out).not.toContain(' checked=""');
   });
 
-  it("the nav follows the section in view", () => {
-    const tops = [0, 300, 520, 900];
-    expect(sectionInView(tops, 0, false)).toBe(0);
-    expect(sectionInView(tops, 310, false)).toBe(1);
-    expect(sectionInView(tops, 600, false)).toBe(2);
-    expect(sectionInView(tops, 600, true)).toBe(3);
-    expect(sectionInView([], 10, false)).toBe(0);
+  it("opens the topic that holds a section, else the first", () => {
+    const row = (label: string, sections: GlobalSectionId[]): SettingsNavRow => ({
+      label,
+      icon: "bot",
+      target: { page: "global", section: sections[0] ?? "about", sections },
+      alert: false,
+    });
+    const rows = [
+      row("Agent tools", ["agent_tools"]),
+      row("Agents", ["agents", "agent_limits", "agent_instructions"]),
+    ];
+    expect(topicRow(rows, "agent_instructions")?.label).toBe("Agents");
+    expect(topicRow(rows, "agents")?.label).toBe("Agents");
+    expect(topicRow(rows, null)?.label).toBe("Agent tools");
+    expect(topicRow([], null)).toBeUndefined();
   });
 });
 

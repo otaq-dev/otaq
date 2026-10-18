@@ -725,7 +725,8 @@ mod tests {
         assert_eq!(view["page"]["title"], "General");
         assert_eq!(view["nav"][0]["label"], "Agent tools");
         assert_eq!(view["nav"][1]["label"], "Agents");
-        assert_eq!(view["nav"][2]["label"], "Agent limits");
+        // Agent limits and Agent instructions are on the Agents page, not rows of their own.
+        assert_eq!(view["nav"][2]["label"], "Workflow skills");
         // No agent tool is connected in the test service: no Workflow skills note.
         assert_eq!(view["page"]["sections"][4]["rows"][0]["control"]["notes"], json!([]));
         let data = &view["page"]["sections"][9];

@@ -123,13 +123,19 @@ pub enum ProjectSection {
     RemoveProject,
 }
 
-/// Where a nav row goes: the global page at one of its sections, or a project's page.
+/// Where a nav row goes: one topic of the global page, or a project's page. A global topic is its own page: the
+/// window shows only its `sections` (the first is `section`), never the whole global page scrolling.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "page", rename_all = "snake_case")]
 #[ts(rename = "SettingsTarget")]
 pub enum Target {
-    Global { section: GlobalSection },
-    Project { key: String },
+    Global {
+        section: GlobalSection,
+        sections: Vec<GlobalSection>,
+    },
+    Project {
+        key: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -383,7 +389,7 @@ pub struct Section<Id> {
     pub note: Option<String>,
 }
 
-/// The page on the right: "General" (the global sections, one scrolling page) or a project.
+/// The page on the right: "General" (the global sections; the window shows one nav topic's at a time) or a project.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "page", rename_all = "snake_case")]
 #[ts(rename = "SettingsPage")]
@@ -462,17 +468,36 @@ const DRAWN: [GlobalSection; 13] = [
     GlobalSection::About,
 ];
 
-/// The nav: every global section the page has, then every project.
+/// The nav row a global section is drawn under: Agent limits and Agent instructions sit on the Agents page, every
+/// other section is a topic of its own.
+pub fn topic_of(id: GlobalSection) -> GlobalSection {
+    match id {
+        GlobalSection::AgentLimits | GlobalSection::AgentInstructions => GlobalSection::Agents,
+        other => other,
+    }
+}
+
+/// The nav: one row per global topic the page has, then every project.
 pub fn nav(sections: &[GlobalSection], projects: &[ProjectInfo], alerts: &[String]) -> Vec<NavRow> {
-    let globals = sections.iter().map(|id| {
-        let (label, icon) = nav_label(*id);
-        NavRow {
-            label: label.to_owned(),
-            icon,
-            target: Target::Global { section: *id },
-            alert: false,
-        }
-    });
+    let globals = sections
+        .iter()
+        .filter(|id| topic_of(**id) == **id)
+        .map(|id| {
+            let (label, icon) = nav_label(*id);
+            NavRow {
+                label: label.to_owned(),
+                icon,
+                target: Target::Global {
+                    section: *id,
+                    sections: sections
+                        .iter()
+                        .copied()
+                        .filter(|s| topic_of(*s) == *id)
+                        .collect(),
+                },
+                alert: false,
+            }
+        });
     let projects = projects.iter().map(|p| NavRow {
         label: p.name.clone(),
         icon: PROJECT_ICON,
@@ -2279,7 +2304,7 @@ mod tests {
             &["BILL".into()],
         )
         .nav;
-        assert_eq!(nav.len(), 14);
+        assert_eq!(nav.len(), 12);
         // Agent tools first, then Agents (M22, `bVdGw`; M23, `bGHVl`).
         assert_eq!(
             (nav[0].label.as_str(), nav[0].icon),
@@ -2289,23 +2314,42 @@ mod tests {
             (nav[1].label.as_str(), nav[1].icon),
             ("Agents", IconName::Bot)
         );
-        assert_eq!(nav[2].label, "Agent limits");
+        // The Agents page holds Agent limits and Agent instructions; every other topic is its own page.
         assert_eq!(
-            (nav[5].label.as_str(), nav[5].icon),
+            nav[1].target,
+            Target::Global {
+                section: GlobalSection::Agents,
+                sections: vec![
+                    GlobalSection::Agents,
+                    GlobalSection::AgentLimits,
+                    GlobalSection::AgentInstructions
+                ],
+            }
+        );
+        assert_eq!(
+            nav[0].target,
+            Target::Global {
+                section: GlobalSection::AgentTools,
+                sections: vec![GlobalSection::AgentTools],
+            }
+        );
+        assert_eq!(nav[2].label, "Workflow skills");
+        assert_eq!(
+            (nav[3].label.as_str(), nav[3].icon),
             ("Validation & Auto-merge", IconName::ShieldCheck)
         );
         assert_eq!(
-            (nav[6].label.as_str(), nav[6].icon),
+            (nav[4].label.as_str(), nav[4].icon),
             ("Project agents", IconName::Bot)
         );
-        assert_eq!(nav[7].label, "Usage");
+        assert_eq!(nav[5].label, "Usage");
         // About is the last global row (d0071).
         assert_eq!(
-            (nav[12].label.as_str(), nav[12].icon),
+            (nav[10].label.as_str(), nav[10].icon),
             ("About", IconName::Info)
         );
-        assert_eq!(nav[13].target, Target::Project { key: "BILL".into() });
-        assert!(nav[13].alert);
+        assert_eq!(nav[11].target, Target::Project { key: "BILL".into() });
+        assert!(nav[11].alert);
     }
 
     /// The Workflow skills note (ADP-05, d0086; *15* `U6rgGu`) and its Why?.
@@ -3042,7 +3086,7 @@ mod tests {
         );
         assert_eq!(
             json["nav"][0]["target"],
-            serde_json::json!({ "page": "global", "section": "agent_tools" })
+            serde_json::json!({ "page": "global", "section": "agent_tools", "sections": ["agent_tools"] })
         );
         let v: Value = serde_json::from_value(serde_json::json!(true)).unwrap();
         assert_eq!(v, Value::Flag(true));
