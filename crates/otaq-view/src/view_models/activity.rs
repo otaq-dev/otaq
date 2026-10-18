@@ -55,7 +55,11 @@ pub type ToolEntry<'a> = (AvatarTool, &'a ToolActivity);
 
 /// The connected tools' parts of the activity summary, in its order. With one tool connected (M21), Claude Code's.
 pub fn connected(activity: &Activity) -> Vec<ToolEntry<'_>> {
-    let connected = tool_avatar::connected();
+    connected_among(activity, &tool_avatar::connected())
+}
+
+/// The parts of the activity summary for the tools in `connected`, in the summary's order.
+pub fn connected_among<'a>(activity: &'a Activity, connected: &[AvatarTool]) -> Vec<ToolEntry<'a>> {
     activity
         .tools
         .iter()

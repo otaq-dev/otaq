@@ -21,6 +21,7 @@ use otaq_view::view_models::inbox::{self, HeaderButton};
 use otaq_view::view_models::limits::{self, Field, Popover};
 use otaq_view::view_models::search_page;
 use otaq_view::view_models::switcher::{self, QuickRow, RAIL_WIDTH, RailBottom, RailItem};
+use otaq_view::view_models::tool_avatar::{self, AvatarTool};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -157,12 +158,13 @@ impl ActivityData {
         })
     }
 
-    fn inputs(&self, now: i64) -> Inputs<'_> {
+    /// The inputs with `connected` as the connected tools (the app passes `tool_avatar::connected()`).
+    fn inputs(&self, now: i64, connected: &[AvatarTool]) -> Inputs<'_> {
         Inputs {
             tools: self
                 .activity
                 .as_ref()
-                .map(activity::connected)
+                .map(|a| activity::connected_among(a, connected))
                 .unwrap_or_default(),
             tokens_today: self.activity.as_ref().map_or(0, |a| a.tokens_today),
             limits: &self.limits,
@@ -186,7 +188,7 @@ pub async fn header(app: &App, params: Params) -> Result<Header, RequestError> {
     Ok(header_view(
         &projects,
         params.project.as_deref(),
-        &data.inputs(otaq_core::store::now_ms()),
+        &data.inputs(otaq_core::store::now_ms(), &tool_avatar::connected()),
         inbox.unwrap_or(0),
     ))
 }
@@ -218,9 +220,14 @@ fn header_view(
 
 /// The Activity popover (⇧⌘U or a click on Activity).
 pub async fn activity_popover(app: &App) -> Result<activity::Popover, RequestError> {
+    popover_with(app, &tool_avatar::connected()).await
+}
+
+/// The Activity popover with `connected` as the connected tools.
+async fn popover_with(app: &App, connected: &[AvatarTool]) -> Result<activity::Popover, RequestError> {
     let data = ActivityData::fetch(app).await?;
     Ok(activity::popover(
-        &data.inputs(otaq_core::store::now_ms()),
+        &data.inputs(otaq_core::store::now_ms(), connected),
         Platform::current(),
     ))
 }
@@ -529,8 +536,10 @@ mod tests {
         assert_eq!(header["activity"]["warning"], Value::Null);
         assert_eq!(header["inbox"]["label"], "Inbox");
 
-        // The popover: Claude Code's block with no windows yet, nothing running, no processes.
-        let popover = request(&h.app, "shell.activity", Value::Null).await.unwrap();
+        // The popover: Claude Code's block with no windows yet, nothing running, no processes. The connected tools are
+        // passed in: the app's list is one global that the other tests in this binary set from their own services.
+        let popover =
+            serde_json::to_value(popover_with(&h.app, &[AvatarTool::ClaudeCode]).await.unwrap()).unwrap();
         assert_eq!(popover["limits"], Value::Null);
         assert_eq!(popover["agents"]["count"], "0");
         assert_eq!(
