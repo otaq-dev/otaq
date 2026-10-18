@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 // Settings → Agents (T-0343): the model picker takes no typed text, Esc closes the dialog without saving, ⋯ →
 // Duplicate opens Add agent with "<name> copy", and Delete… opens the refused or the plain dialog as the view says.
+// With several tools (T-0366): changing the Tool clears the model, Fallback lists only what the view offers (agents on
+// other tools), Retry asks for the list again, and the Fallbacks check box is disabled while one tool is connected.
 import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,10 +14,11 @@ import type { AgentMenuItem } from "../../generated/AgentMenuItem";
 import type { AgentsSection as AgentsSectionView } from "../../generated/AgentsSection";
 import type { AgentTableRow } from "../../generated/AgentTableRow";
 import type { ModelPickerView } from "../../generated/ModelPickerView";
+import type { ToolAvatarView } from "../../generated/ToolAvatarView";
 import { request } from "../../tauri";
 import { AgentDialog } from "./AgentDialog";
 import { AgentsSection } from "./Agents";
-import { agentChoices, modelChoices } from "./ModelPicker";
+import { agentChoices, modelChoices, toolChoices } from "./ModelPicker";
 
 vi.mock("../../tauri", () => ({
   request: vi.fn(),
@@ -247,19 +250,31 @@ function modelField(): HTMLButtonElement {
   return field;
 }
 
+interface DialogCalls {
+  drafts: AgentDraft[];
+  tools: [string, AgentDraft][];
+  retries: [string, AgentDraft][];
+  saves: AgentDraft[];
+  cancels: number;
+}
+
+function dialogElement(view: AgentDialogView, calls: DialogCalls) {
+  return createElement(AgentDialog, {
+    dialog: view,
+    onDraft: (d) => calls.drafts.push(d),
+    onTool: (tool, d) => calls.tools.push([tool, d]),
+    onRetry: (tool, d) => calls.retries.push([tool, d]),
+    onSave: (d) => calls.saves.push(d),
+    onCancel: () => {
+      calls.cancels += 1;
+    },
+    onDelete: () => undefined,
+  });
+}
+
 function showDialog(over: Partial<AgentDialogView> = {}) {
-  const calls = { drafts: [] as AgentDraft[], saves: [] as AgentDraft[], cancels: 0 };
-  show(
-    createElement(AgentDialog, {
-      dialog: dialogView(over),
-      onDraft: (d) => calls.drafts.push(d),
-      onSave: (d) => calls.saves.push(d),
-      onCancel: () => {
-        calls.cancels += 1;
-      },
-      onDelete: () => undefined,
-    }),
-  );
+  const calls: DialogCalls = { drafts: [], tools: [], retries: [], saves: [], cancels: 0 };
+  show(dialogElement(dialogView(over), calls));
   return calls;
 }
 
@@ -472,5 +487,260 @@ describe("the Agents section", () => {
     expect(calls).toContainEqual(["settings.agent_delete", { id: "strong" }]);
     expect(document.querySelector(".dialog")).toBeNull();
     expect(document.querySelectorAll(".settings-agents-row[role=row]")).toHaveLength(2);
+  });
+});
+
+const avatar = (tool: ToolAvatarView["tool"], letters: string, hover: string): ToolAvatarView => ({
+  tool,
+  letters,
+  background: `tool-${letters.toLowerCase()}`,
+  foreground: `tool-${letters.toLowerCase()}-fg`,
+  hover,
+});
+const CC = avatar("claude_code", "CC", "Claude Code");
+const CX = avatar("codex", "CX", "Codex");
+
+/** Edit agent · Standard on Claude Code with Codex connected too (`ObF25`): Tool and Fallback pickers. */
+function severalDialog(over: Partial<AgentDialogView> = {}): AgentDialogView {
+  return dialogView({
+    id: "standard",
+    title: "Edit agent · Standard",
+    draft: {
+      name: "Standard",
+      tool: null,
+      model: "fable",
+      use_for: "Normal tickets",
+      fallback: "strong-gpt",
+    },
+    tool: "Claude Code",
+    tool_avatar: CC,
+    tool_options: [
+      { tool: "claude", avatar: CC, name: "Claude Code", selected: true },
+      { tool: "codex", avatar: CX, name: "Codex", selected: false },
+    ],
+    tool_note: null,
+    fallback: {
+      label: "Fallback",
+      hint: "Another named agent on a different tool. Used when Claude Code hits its limit or isn't available.",
+      problem: null,
+      picker: {
+        value: {
+          agent: "strong-gpt",
+          tool: CX,
+          name: "Strong GPT",
+          model: "Codex · gpt-5.5-pro",
+          selected: true,
+        },
+        options: [
+          { agent: null, tool: null, name: "None", model: null, selected: false },
+          { agent: "strong-gpt", tool: CX, name: "Strong GPT", model: "Codex · gpt-5.5-pro", selected: true },
+        ],
+        read_only: false,
+      },
+    },
+    save_label: "Save",
+    ...over,
+  });
+}
+
+const FAILED: ModelPickerView = {
+  value: { label: "gpt-5.5", detail: null, mono: true, no_longer_listed: null },
+  groups: [
+    {
+      heading: null,
+      items: [
+        { value: null, label: "Tool default", detail: "Otaq passes no model", mono: false, selected: false },
+      ],
+      empty: null,
+    },
+  ],
+  status: {
+    loading: false,
+    text: "Couldn't load Copilot's models",
+    retry_label: "Retry",
+    retry_tool: "copilot",
+    note: "Verifier keeps gpt-5.5 as saved. Tickets still start on it; the check before each launch uses the last copy of the list.",
+  },
+  hint: "From Copilot's own list.",
+};
+
+describe("several tools", () => {
+  it("changing the Tool clears the model, and the answer's fallback wins", () => {
+    const calls = showDialog(severalDialog());
+    const tool = document.querySelector('[aria-label="Tool"]');
+    expect(tool?.textContent).toContain("Claude Code");
+    click(tool as Element);
+    expect(toolChoices(severalDialog().tool_options).map((c) => [c.id, c.label, c.avatar?.letters])).toEqual([
+      ["claude", "Claude Code", "CC"],
+      ["codex", "Codex", "CX"],
+    ]);
+    click(byText('[role="option"]', "CXCodex") as Element);
+    expect(calls.tools).toEqual([
+      [
+        "codex",
+        { name: "Standard", tool: "codex", model: null, use_for: "Normal tickets", fallback: "strong-gpt" },
+      ],
+    ]);
+    // The answer: on Codex, Strong GPT (a Codex agent) can't be the fallback any more.
+    const answer = severalDialog({
+      draft: { name: "Standard", tool: "codex", model: null, use_for: "Normal tickets", fallback: null },
+    });
+    act(() => {
+      root.render(dialogElement(answer, calls));
+    });
+    key(document.querySelector(".settings-agent-dialog input") as Element, "Enter");
+    expect(calls.saves).toEqual([
+      { name: "Standard", tool: "codex", model: null, use_for: "Normal tickets", fallback: null },
+    ]);
+  });
+
+  it("Fallback offers only what the view lists: None, then agents on other tools", () => {
+    const calls = showDialog(severalDialog());
+    const field = document.querySelector('[aria-label="Fallback"]');
+    expect(field?.textContent).toContain("Strong GPT");
+    click(field as Element);
+    const options = [...document.querySelectorAll('[role="option"]')].map((o) => o.textContent);
+    expect(options).toEqual(["None", "CXStrong GPTCodex · gpt-5.5-pro"]);
+    // "None" is no agent and has no "Use app default" icon.
+    const picker = severalDialog().fallback?.picker;
+    expect(picker && agentChoices(picker, true)[0]?.icon).toBeNull();
+    click(byText('[role="option"]', "None") as Element);
+    expect(calls.drafts.at(-1)?.fallback).toBeNull();
+  });
+
+  it("a Fallback of None shows no icon, unlike Use app default", () => {
+    const none = { agent: null, tool: null, name: "None", model: null, selected: true };
+    showDialog(
+      severalDialog({
+        fallback: {
+          label: "Fallback",
+          hint: "",
+          problem: null,
+          picker: { value: none, options: [none], read_only: false },
+        },
+      }),
+    );
+    expect(document.querySelector('[aria-label="Fallback"] .settings-agent-value .icon')).toBeNull();
+  });
+
+  it("Retry in a list that couldn't load asks for it again with the fields as they are", async () => {
+    const calls = answer({
+      "settings.agents": () => SECTION,
+      "settings.agent_dialog": () => dialogView({ picker: FAILED }),
+      "settings.agent_models_retry": () => dialogView(),
+    });
+    show(createElement(AgentsSection));
+    await settle();
+    click(byText("button", "Add agent") as Element);
+    await settle();
+    expect(document.body.textContent).toContain("Verifier keeps gpt-5.5 as saved.");
+    click(modelField());
+    expect(document.querySelector(".settings-model-status")?.textContent).toBe(
+      "Couldn't load Copilot's models·Retry",
+    );
+    click(byText(".settings-model-status button", "Retry") as Element);
+    await settle();
+    expect(calls).toContainEqual([
+      "settings.agent_models_retry",
+      {
+        tool: "copilot",
+        dialog: {
+          id: null,
+          duplicate: null,
+          draft: {
+            name: "Fable test",
+            tool: null,
+            model: "fable",
+            use_for: "Trying Fable on a few tickets",
+            fallback: null,
+          },
+          tool: null,
+        },
+      },
+    ]);
+    // The answer has the list: the picker shows its groups again.
+    expect(document.querySelector(".settings-model-status")).toBeNull();
+  });
+
+  it("the Fallbacks check box is disabled with one tool and sends the setting with several", async () => {
+    const calls = answer({
+      "settings.agents": () => SECTION,
+      "settings.auto_fallback": () => ({
+        ...SECTION,
+        fallbacks: { ...SECTION.fallbacks, enabled: true, on: true },
+      }),
+    });
+    show(createElement(AgentsSection));
+    await settle();
+    const box = () =>
+      document.querySelector<HTMLInputElement>(".settings-agents-fallbacks input[type=checkbox]");
+    expect(box()?.disabled).toBe(true);
+    expect(document.querySelector(".settings-agents-fallbacks")?.textContent).toContain(
+      "Disabled: a fallback must be on another tool.",
+    );
+    act(() => {
+      root.render(createElement(AgentsSection, { key: "again" }));
+    });
+    vi.mocked(request).mockReset();
+    const several = { ...SECTION, fallbacks: { ...SECTION.fallbacks, enabled: true } };
+    const more = answer({
+      "settings.agents": () => several,
+      "settings.auto_fallback": () => ({ ...several, fallbacks: { ...several.fallbacks, on: true } }),
+    });
+    await settle();
+    expect(box()?.disabled).toBe(false);
+    click(box() as Element);
+    await settle();
+    expect(more).toContainEqual(["settings.auto_fallback", { on: true }]);
+    expect(box()?.checked).toBe(true);
+    expect(calls).not.toContainEqual(["settings.auto_fallback", { on: true }]);
+  });
+
+  it("draws the tool, the fallback, a tool that isn't connected and the added row", async () => {
+    const row = (over: Partial<AgentTableRow>): AgentTableRow => ({
+      ...tableRow("strong", "Strong", "Opus · always the newest", "Complex features, tricky bugs"),
+      tool: CC,
+      tool_name: "Claude Code",
+      fallback: "Strong GPT",
+      ...over,
+    });
+    answer({
+      "settings.agents": () => ({
+        ...SECTION,
+        columns: ["NAME", "TOOL · MODEL", "USE FOR", "FALLBACK"],
+        rows: [
+          row({}),
+          row({
+            id: "cp",
+            name: "GitHub Copilot",
+            tool_name: "GitHub Copilot",
+            model: "tool default",
+            fallback: "none",
+            tool_problem: "Copilot isn't connected · its tickets wait",
+            added: "added",
+          }),
+        ],
+        defaults_unchanged: {
+          heading: "DEFAULTS · UNCHANGED",
+          text: "Developer, Validator, Epic lead, Project agent → Claude Code",
+        },
+      }),
+    });
+    show(createElement(AgentsSection));
+    await settle();
+    const rows = [...document.querySelectorAll(".settings-agents-row[role=row]")].slice(1);
+    expect([...(rows[0]?.querySelectorAll("[role=cell]") ?? [])].map((c) => c.textContent)).toEqual([
+      "Strong",
+      "CCClaude Code ·Opus · always the newest",
+      "Complex features, tricky bugs",
+      "Strong GPT",
+      "",
+    ]);
+    expect(rows[1]?.getAttribute("data-added")).toBe("true");
+    expect(rows[1]?.querySelector(".settings-agents-fallback")?.getAttribute("data-none")).toBe("true");
+    expect(rows[1]?.textContent).toContain("Copilot isn't connected · its tickets wait");
+    expect(document.querySelector(".settings-agents-unchanged")?.textContent).toBe(
+      "DEFAULTS · UNCHANGEDDeveloper, Validator, Epic lead, Project agent → Claude Code",
+    );
   });
 });
