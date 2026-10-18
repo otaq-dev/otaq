@@ -10,9 +10,11 @@
 //!   `lead_suggestion` events of the suggestions the user settled.
 //!   - **Turns** aren't stored, so they are worked out from the wake-ups that start them: every child that merged
 //!     or was closed (its Done time) opens a group, and a change belongs to the newest one before it. Changes before
-//!     the first merge are the planning ("planning · 10:12"). While the lead works, the newest group is "this turn"
-//!     when nothing finished after it.
-//! - **The body:** the live terminal; "Open lead" when the epic has none; "Before the restart" (REC-02, from
+//!     the first merge are its first turn, which checks the plan ("checking the plan · 10:12"; the lead no longer
+//!     plans an epic from scratch, d0091). While the lead works, the newest group is "this turn" when nothing
+//!     finished after it.
+//! - **The body:** the live terminal; "Open lead" when the epic has none (**Split with the Project agent** while it
+//!   has no children either, LEAD-13, d0091); "Before the restart" (REC-02, from
 //!   Claude's saved conversation) with Resume after a restart; the last terminal, read-only, with "Ended · epic in
 //!   review" once the epic reached Ready for Review; the last terminal with Resume when its agent tool exited.
 //! - **Waiting on its tool** (d0086, *08 → Epic lead · its tool isn't available / is at its limit*): a lead held
@@ -31,7 +33,7 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::view_models::card::tokens_label;
 use crate::view_models::clock::local_hhmm;
-use crate::view_models::lead_status::{self, ActionKind, LeadStatusView};
+use crate::view_models::lead_status::{self, LeadStatusView};
 use crate::view_models::recovery;
 use crate::view_models::tool_problems::{self, Callout, Tools};
 
@@ -40,6 +42,8 @@ pub const CHANGES_TITLE: &str = "Changes by the lead";
 pub const NO_CHANGES: &str = "No changes yet";
 pub const THIS_TURN: &str = "this turn";
 pub const RESUME_LEAD: &str = "Resume lead";
+/// The changes before the first wake-up: the lead's first turn checks the plan (LEAD-02, LEAD-13).
+pub const FIRST_TURN: &str = "checking the plan";
 
 /// One change, linked to its ticket: "Edited" · SHOP-40.3 · "description". `LeadChangeLine` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -93,10 +97,11 @@ pub struct RecoveryLine {
 pub enum Body {
     /// The lead's live terminal: type to it as to a ticket's (§9.3).
     Live { session: String, label: String },
-    /// The epic has no lead: what Open lead does, and the button.
+    /// The epic has no lead: what Open lead does, and the button; Split with the Project agent with no children
+    /// (no text).
     OpenLead {
         title: String,
-        text: &'static str,
+        text: Option<&'static str>,
         button: lead_status::Button,
     },
     /// The agent tool's saved conversation is still being read, or the session is starting.
@@ -165,7 +170,6 @@ pub fn is_live(status: &LeadStatus) -> bool {
         status,
         LeadStatus::Idle
             | LeadStatus::CheckingPlan
-            | LeadStatus::Planning
             | LeadStatus::Replanning
             | LeadStatus::Answering { .. }
             | LeadStatus::AsksYou
@@ -175,10 +179,7 @@ pub fn is_live(status: &LeadStatus) -> bool {
 fn is_working(status: &LeadStatus) -> bool {
     matches!(
         status,
-        LeadStatus::CheckingPlan
-            | LeadStatus::Planning
-            | LeadStatus::Replanning
-            | LeadStatus::Answering { .. }
+        LeadStatus::CheckingPlan | LeadStatus::Replanning | LeadStatus::Answering { .. }
     )
 }
 
@@ -202,7 +203,7 @@ pub fn view(f: &Facts) -> LeadTabView {
     let lead = f.lead.filter(|l| l.status != LeadStatus::None);
     LeadTabView {
         epic: epic.key.to_string(),
-        status: LeadStatusView::of(epic, lead),
+        status: LeadStatusView::of_epic(epic, f.tickets, lead),
         read_only: READ_ONLY,
         tokens: lead.map(|l| {
             format!(
@@ -212,7 +213,7 @@ pub fn view(f: &Facts) -> LeadTabView {
         }),
         changes: lead.map(|l| changes(epic, f.tickets, l, f.events)),
         body: match lead {
-            None => open_lead(epic),
+            None => open_lead(epic, f.tickets),
             Some(l) => body(epic, l, f.before),
         },
         asks_you: lead.is_some_and(|l| l.status == LeadStatus::AsksYou),
@@ -231,16 +232,22 @@ pub fn needs_before_restart(lead: Option<&Lead>) -> bool {
     lead.is_some_and(|l| l.status == LeadStatus::EndedByRestart)
 }
 
-fn open_lead(epic: &Ticket) -> Body {
+fn open_lead(epic: &Ticket, tickets: &[Ticket]) -> Body {
+    if !lead_status::has_children(epic, tickets) {
+        // LEAD-13 (d0091): the Project agent splits it; the lead orchestrates once it has children.
+        return Body::OpenLead {
+            title: format!("{} has no lead", epic.key),
+            text: None,
+            button: lead_status::Button::split(epic),
+        };
+    }
     Body::OpenLead {
         title: format!("{} has no lead", epic.key),
-        text: "Open lead starts a read-only agent that plans this epic with you, answers its children\u{2019}s \
-               questions first and re-plans after each merge. It uses tokens; it never edits files or moves cards.",
-        button: lead_status::Button {
-            kind: ActionKind::Open,
-            label: lead_status::OPEN_LEAD.to_owned(),
-            icon: IconName::Bot,
-        },
+        text: Some(
+            "Open lead starts a read-only agent that plans this epic with you, answers its children\u{2019}s \
+             questions first and re-plans after each merge. It uses tokens; it never edits files or moves cards.",
+        ),
+        button: lead_status::Button::open_lead(),
     }
 }
 
@@ -497,7 +504,7 @@ pub fn changes(epic: &Ticket, tickets: &[Ticket], lead: &Lead, events: &[History
 }
 
 fn by_turn(lines: Vec<(i64, ChangeLine)>, wakes: &[Wake], working: bool) -> Vec<ChangeGroup> {
-    // (the wake's index or none for the planning, the first change's time, the lines), oldest first.
+    // (the wake's index or none for the first turn, the first change's time, the lines), oldest first.
     let mut groups: Vec<(Option<usize>, i64, Vec<ChangeLine>)> = Vec::new();
     for (at, line) in lines {
         let wake = wakes.iter().rposition(|w| w.at <= at);
@@ -517,7 +524,7 @@ fn by_turn(lines: Vec<(i64, ChangeLine)>, wakes: &[Wake], working: bool) -> Vec<
             } else {
                 match wake {
                     Some(w) => format!("{} \u{b7} {}", wakes[w].label, local_hhmm(wakes[w].at)),
-                    None => format!("planning \u{b7} {}", local_hhmm(first)),
+                    None => format!("{FIRST_TURN} \u{b7} {}", local_hhmm(first)),
                 }
             };
             ChangeGroup { label, lines }
@@ -751,6 +758,19 @@ pub fn gallery() -> Gallery {
         ]
         .into_iter()
         .chain(waiting_tabs(&epic, &tickets, &events))
+        .chain([GalleryTab {
+            name: "Lead tab · no lead, no children (0091)".to_owned(),
+            view: view(&Facts {
+                epic: &epic,
+                tickets: std::slice::from_ref(&epic),
+                lead: None,
+                events: &[],
+                before: None,
+                holds: &[],
+                named_agents: &[],
+                tools: &Tools::default(),
+            }),
+        }])
         .collect(),
     }
 }
@@ -825,6 +845,7 @@ fn waiting_tabs(epic: &Ticket, tickets: &[Ticket], events: &[HistoryEvent]) -> V
 mod tests {
     use super::fixtures::*;
     use super::*;
+    use crate::view_models::lead_status::ActionKind;
 
     fn tab(
         lead: Option<&Lead>,
@@ -898,12 +919,12 @@ mod tests {
         assert!(matches!(t.body, Body::Live { .. }));
     }
 
-    /// Turns follow the wake-ups: planning, then each merge; newest first. An older turn of a working lead keeps
+    /// Turns follow the wake-ups: the first turn (checking the plan), then each merge; newest first. An older turn of a working lead keeps
     /// its label.
     #[test]
     fn changes_group_by_turn_newest_first() {
         let mut events = events();
-        // A change while planning, before 40.1 merged.
+        // A change in its first turn, before 40.1 merged.
         events.insert(
             0,
             HistoryEvent {
@@ -934,7 +955,7 @@ mod tests {
                     local_hhmm(T0 + 52 * MIN)
                 )
                 .as_str(),
-                format!("planning \u{b7} {}", local_hhmm(T0 + 10 * MIN)).as_str(),
+                format!("checking the plan \u{b7} {}", local_hhmm(T0 + 10 * MIN)).as_str(),
             ],
             "the 10:53 turn isn't \u{201c}this turn\u{201d}: 40.6 closed after it"
         );
@@ -1052,6 +1073,40 @@ mod tests {
         assert!(matches!(asks.body, Body::Live { .. }));
     }
 
+    /// No lead and no children (LEAD-13, d0091): Split with the Project agent instead of Open lead, no text.
+    #[test]
+    fn an_empty_epic_offers_split_with_the_project_agent() {
+        let epic = epic();
+        let t = view(&Facts {
+            epic: &epic,
+            tickets: std::slice::from_ref(&epic),
+            lead: None,
+            events: &[],
+            before: None,
+            holds: &[],
+            named_agents: &[],
+            tools: &Tools::default(),
+        });
+        assert_eq!(t.status.full, "Split with the Project agent");
+        assert_eq!(t.changes, None);
+        let Body::OpenLead {
+            title,
+            text,
+            button,
+        } = t.body
+        else {
+            panic!("the button");
+        };
+        assert_eq!(title, "SHOP-40 has no lead");
+        assert_eq!(text, None);
+        assert_eq!(button.label, "Split with the Project agent");
+        assert_eq!(button.kind, ActionKind::Split);
+        assert_eq!(
+            button.split.map(|s| (s.project, s.message)),
+            Some(("SHOP".into(), "Split SHOP-40 into tickets".into()))
+        );
+    }
+
     /// No lead: Open lead, no tokens and no changes.
     #[test]
     fn no_lead_offers_open_lead() {
@@ -1080,7 +1135,8 @@ mod tests {
     #[test]
     fn the_gallery_has_every_state() {
         let g = gallery();
-        assert_eq!(g.tabs.len(), 11);
+        assert_eq!(g.tabs.len(), 12);
+        assert_eq!(g.tabs[11].view.status.full, "Split with the Project agent");
         assert!(g.tabs[2].view.asks_you);
         assert!(matches!(g.tabs[3].view.body, Body::BeforeRestart { .. }));
     }

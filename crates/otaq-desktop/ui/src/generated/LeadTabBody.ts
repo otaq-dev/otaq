@@ -6,7 +6,7 @@ import type { LeadRecoveryLine } from "./LeadRecoveryLine";
 /**
  * What the tab shows under the changes. `LeadTabBody` on the page.
  */
-export type LeadTabBody = { "kind": "live", session: string, label: string, } | { "kind": "open_lead", title: string, text: string, button: LeadButton, } | { "kind": "loading", text: string, } | { "kind": "before_restart", title: string, source: string, session: string, lines: Array<LeadRecoveryLine>, ended: string, resume: string, } | { "kind": "not_available", label: string, text: string, resume: string, } | { "kind": "ended", 
+export type LeadTabBody = { "kind": "live", session: string, label: string, } | { "kind": "open_lead", title: string, text: string | null, button: LeadButton, } | { "kind": "loading", text: string, } | { "kind": "before_restart", title: string, source: string, session: string, lines: Array<LeadRecoveryLine>, ended: string, resume: string, } | { "kind": "not_available", label: string, text: string, resume: string, } | { "kind": "ended", 
 /**
  * The ended session, replayed read-only while the service still has it.
  */

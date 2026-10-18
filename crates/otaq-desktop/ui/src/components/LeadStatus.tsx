@@ -2,14 +2,18 @@
 // the lead's name and its state. The full form ("Wishlist lead · re-planning") sits on the Backlog epic card; the
 // short form (icon + state) on the lead's own line in the track label. Working states are violet, idle is quiet,
 // "asks you" turquoise (a pill of its own, except inside a label that is already turquoise), ended is quiet with
-// Resume where Rust offers it; an epic with no lead shows only the labelled "Open lead" button. Hovering shows the
+// Resume where Rust offers it; an epic with no lead shows only the labelled "Open lead" button ("Split with the
+// Project agent" while it has no children either, LEAD-13: it sends the Project agent pane Rust's first message and
+// shows the pane, d0091). Hovering shows the
 // tooltip Rust wrote (*03 → Interactions (0083)*); a click, ↵ or a double click on the status opens the epic panel
 // on its Lead tab. The status is never a drag handle: a press on it doesn't reach the card or the track.
 import type { PointerEvent, SyntheticEvent } from "react";
 
 import type { LeadActionKind } from "../generated/LeadActionKind";
+import type { LeadSplit } from "../generated/LeadSplit";
 import type { LeadStatusView } from "../generated/LeadStatusView";
 import { openTicket } from "../app/selection";
+import { splitWithProjectAgent } from "../screens/pane/logic";
 import { asRequestError } from "../service";
 import { request } from "../tauri";
 import { Icon } from "../theme/Icon";
@@ -50,6 +54,8 @@ export interface LeadStatusProps {
   onOpen?: (epic: string) => void;
   /** Its button: Open lead or Resume. */
   onAction?: (kind: LeadActionKind, epic: string) => void;
+  /** Its button on an epic with no children: Split with the Project agent. */
+  onSplit?: (split: LeadSplit) => void;
 }
 
 /** Keeps a press or click on the status from reaching the card or the track (it is no drag handle). */
@@ -65,6 +71,9 @@ export function LeadStatus({
   onAction = (kind, epic) => {
     void leadAction(kind, epic);
   },
+  onSplit = (split) => {
+    void splitWithProjectAgent(split, request);
+  },
 }: LeadStatusProps) {
   const action = lead.action;
   const button = action && (
@@ -75,7 +84,8 @@ export function LeadStatus({
       onDoubleClick={keep}
       onClick={(e) => {
         keep(e);
-        onAction(action.kind, lead.epic);
+        if (action.split) onSplit(action.split);
+        else onAction(action.kind, lead.epic);
       }}
     >
       <Icon name={action.icon} size={10} />

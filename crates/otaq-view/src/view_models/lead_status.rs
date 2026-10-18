@@ -7,8 +7,11 @@
 //!
 //! The tone: working states are violet text, idle is quiet (its icon stays violet), "asks you" is turquoise, the
 //! ended states are quiet with a quiet icon. "ended by restart" and "ended" offer **Resume**; an epic with no lead
-//! offers the labelled button **Open lead** (its click is the go-ahead for the lead's tokens). "planning" isn't in
-//! the master row; frame 15 draws it with the same component.
+//! offers the labelled button **Open lead** (its click is the go-ahead for the lead's tokens). A turn the user typed
+//! reads "re-planning", as a wake-up does: the lead no longer plans an epic from scratch (LEAD-13, d0091).
+//! - **Split with the Project agent** (LEAD-13, d0091) takes Open lead's place, in the same style, on an epic with no
+//!   lead and no children ([`LeadStatusView::of_epic`]): its click sends the Project agent pane the first message
+//!   "Split SHOP-40 into tickets". Open lead shows once the epic has a child.
 //!
 //! The tooltip (*03 → Interactions (0083)*) holds the full form, what woke it ("SHOP-40.1 merged") and its tokens
 //! today; "ended by restart", "asks you" and "Open lead" say what a click does instead (frames 14, 26, *16 → Epic
@@ -24,6 +27,7 @@ use crate::icons::IconName;
 use crate::view_models::card::tokens_label;
 
 pub const OPEN_LEAD: &str = "Open lead";
+pub const SPLIT_WITH_PROJECT_AGENT: &str = "Split with the Project agent";
 pub const RESUME: &str = "Resume";
 /// The hint every live lead's tooltip ends with (frame 17).
 pub const CLICK_HINT: &str = "Click: open the epic panel on its Lead tab.";
@@ -33,7 +37,7 @@ pub const CLICK_HINT: &str = "Click: open the epic panel on its Lead tab.";
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "LeadTone")]
 pub enum Tone {
-    /// Checking the plan, planning, re-planning, answering: violet text.
+    /// Checking the plan, re-planning, answering: violet text.
     Working,
     /// Quiet text, violet icon.
     Idle,
@@ -41,7 +45,7 @@ pub enum Tone {
     AsksYou,
     /// Ended by restart, ended, ended · epic in review: quiet text and icon.
     Ended,
-    /// No lead yet: the "Open lead" button alone.
+    /// No lead yet: the "Open lead" (or "Split with the Project agent") button alone.
     None,
 }
 
@@ -54,6 +58,27 @@ pub enum ActionKind {
     Open,
     /// `lead.resume`: the same conversation.
     Resume,
+    /// `project_agent.open` with the button's [`Split`] (`pane.send`), then the Project agent pane shows the new agent.
+    Split,
+}
+
+/// What Split with the Project agent sends: the project and the pane's first message. `LeadSplit` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "LeadSplit")]
+pub struct Split {
+    pub project: String,
+    /// "Split SHOP-40 into tickets".
+    pub message: String,
+}
+
+/// The Project agent pane's first message for an epic with no children (LEAD-13): "Split SHOP-40 into tickets".
+pub fn split_message(epic: &TicketKey) -> String {
+    format!("Split {epic} into tickets")
+}
+
+/// Whether `epic` has a child among `tickets` (any status): Open lead shows, not Split with the Project agent.
+pub fn has_children(epic: &Ticket, tickets: &[Ticket]) -> bool {
+    tickets.iter().any(|t| t.epic.as_ref() == Some(&epic.key))
 }
 
 /// The button inside the status. `LeadButton` on the page.
@@ -63,6 +88,32 @@ pub struct Button {
     pub kind: ActionKind,
     pub label: String,
     pub icon: IconName,
+    /// Split with the Project agent: what it sends; `None` for Open lead and Resume.
+    pub split: Option<Split>,
+}
+
+impl Button {
+    pub fn open_lead() -> Self {
+        Self {
+            kind: ActionKind::Open,
+            label: OPEN_LEAD.to_owned(),
+            icon: IconName::Bot,
+            split: None,
+        }
+    }
+
+    /// Split with the Project agent for `epic`, in Open lead's style.
+    pub fn split(epic: &Ticket) -> Self {
+        Self {
+            kind: ActionKind::Split,
+            label: SPLIT_WITH_PROJECT_AGENT.to_owned(),
+            icon: IconName::Bot,
+            split: Some(Split {
+                project: epic.key.project.to_string(),
+                message: split_message(&epic.key),
+            }),
+        }
+    }
 }
 
 /// The status's tooltip: a title line and the lines under it. `LeadTooltip` on the page.
@@ -85,11 +136,11 @@ pub struct LeadStatusView {
     pub state: String,
     /// The short form's state: "answering 40.2", "ended · in review"; empty with no lead.
     pub short: String,
-    /// "Wishlist lead · re-planning", or "Open lead".
+    /// "Wishlist lead · re-planning", "Open lead" or "Split with the Project agent".
     pub full: String,
     pub tone: Tone,
     pub icon: IconName,
-    /// Resume (ended by restart, ended) or Open lead (no lead).
+    /// Resume (ended by restart, ended), Open lead (no lead) or Split with the Project agent (no lead, no children).
     pub action: Option<Button>,
     pub tooltip: Tooltip,
     /// A live lead: a click on the status opens the epic panel on its Lead tab.
@@ -109,6 +160,7 @@ impl LeadStatusView {
                 kind: ActionKind::Resume,
                 label: RESUME.to_owned(),
                 icon: IconName::RotateCcw,
+                split: None,
             });
         let full = format!("{} \u{b7} {state}", lead.name);
         Self {
@@ -125,6 +177,37 @@ impl LeadStatusView {
         }
     }
 
+    /// The status on `epic`'s card and Lead tab, among its project's `tickets`: with no lead and no children,
+    /// Split with the Project agent in Open lead's place (LEAD-13); otherwise as [`of`](Self::of).
+    pub fn of_epic(epic: &Ticket, tickets: &[Ticket], lead: Option<&Lead>) -> Self {
+        let no_lead = lead.is_none_or(|l| l.status == LeadStatus::None);
+        if no_lead && !has_children(epic, tickets) {
+            return Self::split(epic);
+        }
+        Self::of(epic, lead)
+    }
+
+    fn split(epic: &Ticket) -> Self {
+        Self {
+            epic: epic.key.to_string(),
+            name: None,
+            state: String::new(),
+            short: String::new(),
+            full: SPLIT_WITH_PROJECT_AGENT.to_owned(),
+            tone: Tone::None,
+            icon: IconName::Bot,
+            action: Some(Button::split(epic)),
+            tooltip: Tooltip {
+                title: SPLIT_WITH_PROJECT_AGENT.to_owned(),
+                lines: vec![format!(
+                    "Sends the Project agent pane the first message \u{201c}{}\u{201d}.",
+                    split_message(&epic.key)
+                )],
+            },
+            opens_tab: false,
+        }
+    }
+
     fn open_lead(epic: &Ticket) -> Self {
         Self {
             epic: epic.key.to_string(),
@@ -134,11 +217,7 @@ impl LeadStatusView {
             full: OPEN_LEAD.to_owned(),
             tone: Tone::None,
             icon: IconName::Bot,
-            action: Some(Button {
-                kind: ActionKind::Open,
-                label: OPEN_LEAD.to_owned(),
-                icon: IconName::Bot,
-            }),
+            action: Some(Button::open_lead()),
             tooltip: Tooltip {
                 title: OPEN_LEAD.to_owned(),
                 lines: vec![format!(
@@ -171,7 +250,6 @@ pub fn words(status: &LeadStatus) -> (String, String) {
         LeadStatus::None => (String::new(), String::new()),
         LeadStatus::Idle => both("idle"),
         LeadStatus::CheckingPlan => both("checking the plan"),
-        LeadStatus::Planning => both("planning"),
         LeadStatus::Replanning => both("re-planning"),
         LeadStatus::Answering { ticket } => (
             format!("answering {ticket}"),
@@ -191,10 +269,9 @@ pub fn tone(status: &LeadStatus) -> Tone {
     match status {
         LeadStatus::None => Tone::None,
         LeadStatus::Idle => Tone::Idle,
-        LeadStatus::CheckingPlan
-        | LeadStatus::Planning
-        | LeadStatus::Replanning
-        | LeadStatus::Answering { .. } => Tone::Working,
+        LeadStatus::CheckingPlan | LeadStatus::Replanning | LeadStatus::Answering { .. } => {
+            Tone::Working
+        }
         LeadStatus::AsksYou => Tone::AsksYou,
         LeadStatus::EndedByRestart | LeadStatus::EndedInReview | LeadStatus::Ended => Tone::Ended,
     }
@@ -371,7 +448,6 @@ pub fn gallery() -> Gallery {
             "Working · checking the plan",
             lead(LeadStatus::CheckingPlan),
         ),
-        ("Working · planning (frame 15)", lead(LeadStatus::Planning)),
         ("Working · re-planning", replanning.clone()),
         ("Working · answering", lead(answering.clone())),
         ("Waits for the user", asks.clone()),
@@ -389,6 +465,10 @@ pub fn gallery() -> Gallery {
     statuses.push(GalleryStatus {
         name: "None · no lead yet".to_owned(),
         view: LeadStatusView::of(&epic, None),
+    });
+    statuses.push(GalleryStatus {
+        name: "None · no children (0091)".to_owned(),
+        view: LeadStatusView::of_epic(&epic, std::slice::from_ref(&epic), None),
     });
 
     // The children: 40.1 merged, 40.2 working, 40.3 queued, 40.4 not queued (a track), or all in Backlog (a card).
@@ -450,6 +530,11 @@ pub fn gallery() -> Gallery {
         ),
     };
     let epics = vec![
+        card(
+            "No children · Split with the Project agent (0091)",
+            std::slice::from_ref(&epic),
+            None,
+        ),
         card("None · Open lead", &by_user, None),
         card("Idle · rows added by the lead", &backlog, Some(&idle)),
         card(
@@ -484,7 +569,7 @@ mod tests {
         LeadStatusView::of(&epic, Some(&sample(&epic, status, 212_000)))
     }
 
-    /// Every status in both forms and its tone (*Row · Lead Status (0083)*, frame 15 for planning).
+    /// Every status in both forms and its tone (*Row · Lead Status (0083)*).
     #[test]
     fn every_status_in_both_forms_and_tones() {
         let rows = [
@@ -493,12 +578,6 @@ mod tests {
                 LeadStatus::CheckingPlan,
                 "Wishlist lead · checking the plan",
                 "checking the plan",
-                Tone::Working,
-            ),
-            (
-                LeadStatus::Planning,
-                "Wishlist lead · planning",
-                "planning",
                 Tone::Working,
             ),
             (
@@ -639,23 +718,96 @@ mod tests {
     fn the_gallery_has_every_form_and_the_frames_rows() {
         let g = gallery();
         assert_eq!(g.statuses.len(), 10);
-        assert_eq!(g.statuses.last().unwrap().view.full, "Open lead");
+        let names: Vec<&str> = g.statuses.iter().map(|s| s.view.full.as_str()).collect();
+        assert_eq!(names[8..], ["Open lead", "Split with the Project agent"]);
+        assert!(
+            g.statuses
+                .iter()
+                .all(|s| s.view.state != "planning" && !s.name.contains(" planning")),
+            "no \"planning\" left (d0091)"
+        );
         assert_eq!(g.tracks.len(), 6);
         assert!(g.tracks[4].track.lead_asks);
         assert_eq!(
             g.tracks[3].track.lead.as_ref().unwrap().short,
             "answering 40.2"
         );
-        assert_eq!(g.epics.len(), 4);
-        assert!(g.epics[0].card.children.iter().all(|c| c.origin.is_none()));
+        assert_eq!(g.epics.len(), 5);
+        let empty = &g.epics[0].card;
+        assert!(empty.children.is_empty());
+        assert_eq!(
+            empty.lead.as_ref().unwrap().full,
+            "Split with the Project agent"
+        );
+        assert_eq!(g.epics[1].card.lead.as_ref().unwrap().full, "Open lead");
+        assert!(g.epics[1].card.children.iter().all(|c| c.origin.is_none()));
         assert!(
-            g.epics[1]
+            g.epics[2]
                 .card
                 .children
                 .iter()
                 .all(|c| c.origin.as_deref() == Some("added by Wishlist lead"))
         );
-        assert!(g.epics[3].card.lead_asks);
+        assert!(g.epics[4].card.lead_asks);
+    }
+
+    /// LEAD-13 (d0091): an epic with no lead and no children shows Split with the Project agent in Open lead's
+    /// place and style; once it has a child (any status), Open lead; a lead keeps its Lead Status either way.
+    #[test]
+    fn an_empty_epic_splits_with_the_project_agent() {
+        let epic = wishlist();
+        let v = LeadStatusView::of_epic(&epic, std::slice::from_ref(&epic), None);
+        assert_eq!(v.name, None);
+        assert_eq!(v.full, "Split with the Project agent");
+        assert_eq!(v.tone, Tone::None);
+        assert_eq!(v.icon, IconName::Bot);
+        assert!(!v.opens_tab);
+        let action = v.action.expect("the button");
+        assert_eq!(
+            (action.kind, action.label.as_str(), action.icon),
+            (
+                ActionKind::Split,
+                "Split with the Project agent",
+                IconName::Bot
+            )
+        );
+        assert_eq!(
+            action.split,
+            Some(Split {
+                project: "SHOP".into(),
+                message: "Split SHOP-40 into tickets".into(),
+            })
+        );
+        assert_eq!(v.tooltip.title, "Split with the Project agent");
+        assert_eq!(
+            v.tooltip.lines,
+            [
+                "Sends the Project agent pane the first message \u{201c}Split SHOP-40 into tickets\u{201d}."
+            ]
+        );
+        // A lead row with no lead behaves as none.
+        let none = sample(&epic, LeadStatus::None, 0);
+        assert_eq!(
+            LeadStatusView::of_epic(&epic, std::slice::from_ref(&epic), Some(&none)).full,
+            "Split with the Project agent"
+        );
+
+        // A child, even a closed one: Open lead.
+        let mut child = ticket("SHOP-40.1", "Wishlist API", Status::ClosedNotMerged);
+        child.epic = Some(epic.key.clone());
+        let tickets = [epic.clone(), child];
+        let v = LeadStatusView::of_epic(&epic, &tickets, None);
+        assert_eq!(v.full, "Open lead");
+        assert_eq!(v.action.unwrap().kind, ActionKind::Open);
+
+        // A lead: its Lead Status, children or not.
+        let idle = sample(&epic, LeadStatus::Idle, 0);
+        for tickets in [&tickets[..1], &tickets[..]] {
+            assert_eq!(
+                LeadStatusView::of_epic(&epic, tickets, Some(&idle)).full,
+                "Wishlist lead · idle"
+            );
+        }
     }
 
     #[test]

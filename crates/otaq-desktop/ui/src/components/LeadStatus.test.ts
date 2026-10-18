@@ -35,7 +35,7 @@ const ENDED = lead({
   state: "ended by restart",
   short: "ended by restart",
   tone: "ended",
-  action: { kind: "resume", label: "Resume", icon: "rotate-ccw" },
+  action: { kind: "resume", label: "Resume", icon: "rotate-ccw", split: null },
 });
 const NONE = lead({
   name: null,
@@ -43,7 +43,7 @@ const NONE = lead({
   short: "",
   full: "Open lead",
   tone: "none",
-  action: { kind: "open", label: "Open lead", icon: "bot" },
+  action: { kind: "open", label: "Open lead", icon: "bot", split: null },
   opens_tab: false,
 });
 

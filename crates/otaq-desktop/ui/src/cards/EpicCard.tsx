@@ -4,13 +4,15 @@
 // draws an `EpicCardView` and shares the Ticket Card's states; whether its list is folded is the page's own state.
 // A row Rust marks draggable shows a grip on hover and is dragged out on its own (EPC-12; *04 → Backlog · epic ·
 // drag one row out*, *03 → epic flows 3 → 8*). From M17 (d0083, T-0289) the Lead row sits under the branch line (the
-// Lead Status in its full form, or Open lead), rows the lead created carry "added by Wishlist lead", and a lead that
-// asks you turns the border turquoise (*01 → Row · Epic Card with a lead (0083)*).
+// Lead Status in its full form, or Open lead; Split with the Project agent with no children, LEAD-13), rows the lead
+// created carry "added by Wishlist lead", and a lead that asks you turns the border turquoise (*01 → Row · Epic Card
+// with a lead (0083)*).
 import { type CSSProperties, Fragment, type PointerEvent, useState } from "react";
 
 import { Button, LeadStatus, PriorityChip, StatusPill } from "../components";
 import type { CardActionKind } from "../generated/CardActionKind";
 import type { LeadActionKind } from "../generated/LeadActionKind";
+import type { LeadSplit } from "../generated/LeadSplit";
 import type { EpicCardView } from "../generated/EpicCardView";
 import { Icon } from "../theme/Icon";
 import { type CardState, childInk, RESTING, segmentFill } from "./look";
@@ -31,6 +33,8 @@ export interface EpicCardProps {
   onLead?: (epic: string) => void;
   /** Open lead or Resume (the default asks the service). */
   onLeadAction?: (kind: LeadActionKind, epic: string) => void;
+  /** Split with the Project agent (the default sends the Project agent pane its first message). */
+  onSplit?: (split: LeadSplit) => void;
 }
 
 /** Keeps a click inside the card from also selecting the card. */
@@ -50,6 +54,7 @@ export function EpicCard({
   onAction,
   onLead,
   onLeadAction,
+  onSplit,
 }: EpicCardProps) {
   const [collapsed, setCollapsed] = useState(initiallyCollapsed);
   return (
@@ -112,6 +117,7 @@ export function EpicCard({
             form="full"
             {...(onLead ? { onOpen: onLead } : {})}
             {...(onLeadAction ? { onAction: onLeadAction } : {})}
+            {...(onSplit ? { onSplit } : {})}
           />
         </div>
       )}

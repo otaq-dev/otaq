@@ -8,7 +8,8 @@
 //! Park all, its status "Parked · has work", EPC-14).
 //!
 //! From M17 (d0083, T-0289) a Backlog epic card has a **Lead** row under the branch line: its lead's
-//! [`LeadStatusView`] in the full form, or **Open lead** when it has none. A review card keeps the ended lead
+//! [`LeadStatusView`] in the full form, or **Open lead** when it has none (**Split with the Project agent** while it
+//! has no children either, LEAD-13, d0091). A review card keeps the ended lead
 //! ("Wishlist lead · ended · in review"). Child rows the lead created say "added by Wishlist lead", and a lead that
 //! asks you turns the card's border turquoise ([`EpicViewModel::with_lead`]).
 
@@ -202,7 +203,7 @@ impl EpicViewModel {
     /// [`with_lead`](Self::with_lead) in place.
     pub fn set_lead(&mut self, epic: &Ticket, tickets: &[Ticket], lead: Option<&Lead>) {
         self.lead = match epic.column {
-            Column::Backlog => Some(LeadStatusView::of(epic, lead)),
+            Column::Backlog => Some(LeadStatusView::of_epic(epic, tickets, lead)),
             Column::ReadyForReview | Column::Approved if epic.status != Status::ClosedNotMerged => {
                 lead.map(|l| LeadStatusView::of(epic, Some(l)).on_review_card())
             }
@@ -362,6 +363,18 @@ mod tests {
         assert_eq!(lead.action.as_ref().map(|a| a.kind), Some(ActionKind::Open));
         assert!(vm.children.iter().all(|c| c.origin.is_none()));
         assert!(!vm.lead_asks());
+
+        // No children (LEAD-13, d0091): Split with the Project agent in Open lead's place.
+        let alone = [epic.clone()];
+        let vm = EpicViewModel::from(&epic, &alone, None).with_lead(&epic, &alone, None);
+        let lead = vm.lead.as_ref().expect("a Lead row");
+        assert_eq!(lead.full, "Split with the Project agent");
+        let action = lead.action.as_ref().unwrap();
+        assert_eq!(action.kind, ActionKind::Split);
+        assert_eq!(
+            action.split.as_ref().map(|s| s.message.as_str()),
+            Some("Split SHOP-40 into tickets")
+        );
 
         let idle = lead_status::sample(&epic, LeadStatus::Idle, 0);
         tickets[1].created_by = Actor::ProjectAgent(idle.agent.id.clone());

@@ -3,4 +3,4 @@
 /**
  * What the status's button does. `LeadActionKind` on the page.
  */
-export type LeadActionKind = "open" | "resume";
+export type LeadActionKind = "open" | "resume" | "split";
