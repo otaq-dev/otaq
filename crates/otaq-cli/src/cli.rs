@@ -14,7 +14,7 @@ use crate::output::Mode;
 #[command(
     name = naming::COMMAND_NAME,
     version,
-    about = "Kanban board that drives Claude Code agents. Without a command, opens the app.",
+    about = "Kanban board that drives coding agents: Claude Code, Codex, Copilot and OpenCode. Without a command, opens the app.",
     disable_help_subcommand = true
 )]
 pub struct Cli {
