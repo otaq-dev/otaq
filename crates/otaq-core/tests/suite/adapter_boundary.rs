@@ -28,6 +28,10 @@ const PATTERNS: &[(&str, &str)] = &[
     ("notification_type", "a Claude Code hook payload field"),
     ("rate_limits", "Claude Code's status-line field"),
     (
+        "claude exited",
+        "a tool named in a History row; word it through `command_name` (Q77)",
+    ),
+    (
         "cache_creation_input_tokens",
         "a Claude Code transcript field",
     ),
@@ -56,6 +60,10 @@ const PATTERNS: &[(&str, &str)] = &[
     ),
     ("config.toml", "Codex's config file"),
     (
+        "codex exited",
+        "a tool named in a History row; word it through `command_name` (Q77)",
+    ),
+    (
         "Tool::Codex",
         "branching on the tool instead of asking its adapter",
     ),
@@ -72,6 +80,10 @@ const PATTERNS: &[(&str, &str)] = &[
         "Copilot's environment variables (`COPILOT_HOME`)",
     ),
     ("events.jsonl", "Copilot's session events file"),
+    (
+        "copilot exited",
+        "a tool named in a History row; word it through `command_name` (Q77)",
+    ),
     ("--allow-tool", "Copilot's launch flag"),
     (
         "Tool::Copilot",
@@ -89,6 +101,10 @@ const PATTERNS: &[(&str, &str)] = &[
         "OpenCode's environment variables (`OPENCODE_CONFIG_CONTENT`)",
     ),
     ("--standalone", "OpenCode's launch flag"),
+    (
+        "opencode exited",
+        "a tool named in a History row; word it through `command_name` (Q77)",
+    ),
     (
         "Tool::OpenCode",
         "branching on the tool instead of asking its adapter",

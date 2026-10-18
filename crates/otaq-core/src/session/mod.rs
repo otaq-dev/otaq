@@ -832,6 +832,16 @@ impl Sessions {
             .has_unsent_text())
     }
 
+    /// Whether the unsent text may run over several lines (SES-07, ADP-06).
+    pub fn has_multi_line_input(&self, id: &str) -> Result<bool, SessionError> {
+        Ok(self
+            .live(id)?
+            .input
+            .lock()
+            .expect("session input")
+            .has_multi_line_text())
+    }
+
     /// A client reports that its terminal for this session gained or lost keyboard focus (SES-10). Focus is kept
     /// per client: the session counts as focused while any client holds it, and `otaq attach` holds it while
     /// attached (ATT-03). Publishes `session_focus` when the session's focus changes, and `ticket_changed` when

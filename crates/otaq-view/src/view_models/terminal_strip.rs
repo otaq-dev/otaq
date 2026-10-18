@@ -373,6 +373,8 @@ pub struct UnsentPrompt {
     pub sending: String,
     /// The click that asked; "Clear it and send" repeats it with the line cleared first.
     pub click: Click,
+    /// The text is a multi-line draft this tool can't clear ("Codex"): only Keep it and cancel (SES-07, Q-N).
+    pub unclearable_by: Option<String>,
 }
 
 /// The user's click that stopped at the unsent-text question (SES-07, d0048).
@@ -410,6 +412,7 @@ impl UnsentPrompt {
             typed,
             sending,
             click,
+            unclearable_by: None,
         }
     }
 
@@ -424,7 +427,29 @@ impl UnsentPrompt {
             typed,
             sending,
             click: Click::DeliverNow,
+            unclearable_by: None,
         }
+    }
+
+    /// The same question for a multi-line draft `tool` can't clear, when it names one.
+    pub fn unclearable_by(mut self, tool: Option<String>) -> Self {
+        self.unclearable_by = tool;
+        self
+    }
+
+    /// Whether "Clear it and send" is offered.
+    pub fn can_clear(&self) -> bool {
+        self.unclearable_by.is_none()
+    }
+
+    /// Why only Keep it and cancel is offered: "Codex can't clear a multi-line draft. Clear it in the terminal, then
+    /// send again."
+    pub fn note(&self) -> Option<String> {
+        self.unclearable_by.as_ref().map(|tool| {
+            format!(
+                "{tool} can\u{2019}t clear a multi-line draft. Clear it in the terminal, then send again."
+            )
+        })
     }
 
     pub fn title(&self) -> String {
@@ -713,6 +738,22 @@ mod tests {
         assert_eq!(waiting_label(0), None);
         assert_eq!(waiting_label(1).as_deref(), Some("1 message waiting"));
         assert_eq!(waiting_label(3).as_deref(), Some("3 messages waiting"));
+    }
+
+    /// Q-N: a multi-line draft the tool can't clear offers only Keep it and cancel, and says why.
+    #[test]
+    fn a_draft_the_tool_cant_clear() {
+        let prompt = UnsentPrompt::deliver_now(key(), None, 1);
+        assert!(prompt.can_clear());
+        assert_eq!(prompt.note(), None);
+        let prompt = prompt.unclearable_by(Some("Codex".into()));
+        assert!(!prompt.can_clear());
+        assert_eq!(
+            prompt.note().as_deref(),
+            Some(
+                "Codex can\u{2019}t clear a multi-line draft. Clear it in the terminal, then send again."
+            )
+        );
     }
 
     #[test]

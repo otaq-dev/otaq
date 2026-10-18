@@ -391,10 +391,16 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
                 "Interrupted by restart".to_owned(),
                 Some("conversation saved".to_owned()),
             ),
-            Some(reason) => (
-                "Interrupted".to_owned(),
-                Some(format!("claude exited ({reason}) · conversation saved")),
-            ),
+            // "codex exited (crash) · conversation saved": the session's tool, by its command (Q77).
+            Some(reason) => {
+                let program = text(p, "tool")
+                    .and_then(|t| t.parse::<otaq_core::agent_tools::Tool>().ok())
+                    .map_or("the agent", |t| t.command_name());
+                (
+                    "Interrupted".to_owned(),
+                    Some(format!("{program} exited ({reason}) · conversation saved")),
+                )
+            }
         },
         EventKind::SessionEnded => ("Session ended (restart)".to_owned(), None),
         EventKind::Resumed => (
@@ -1168,6 +1174,28 @@ mod tests {
         );
         assert_eq!(rows[0].title, "Queued with the epic");
         assert_eq!(rows[0].detail.as_deref(), Some("by you"));
+    }
+
+    /// Q77: the exit row names the session's tool by its command.
+    #[test]
+    fn an_exit_names_the_tool() {
+        let exit = |payload| {
+            rows(&[event(EventKind::Interrupted, MIN, payload)], &[], &[])[0]
+                .detail
+                .clone()
+        };
+        assert_eq!(
+            exit(json!({"reason": "crash", "session": "s1", "tool": "codex", "from": "working"})),
+            Some("codex exited (crash) · conversation saved".to_owned())
+        );
+        assert_eq!(
+            exit(json!({"reason": "exit 1", "session": "s1", "tool": "claude"})),
+            Some("claude exited (exit 1) · conversation saved".to_owned())
+        );
+        assert_eq!(
+            exit(json!({"reason": "crash", "session": "s1"})),
+            Some("the agent exited (crash) · conversation saved".to_owned())
+        );
     }
 
     #[test]

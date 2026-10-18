@@ -91,6 +91,7 @@ mod project_agents;
 mod project_env;
 mod project_terminals;
 mod projects;
+mod quiet_turn_ends;
 mod reconcile;
 mod reopen;
 mod resume;

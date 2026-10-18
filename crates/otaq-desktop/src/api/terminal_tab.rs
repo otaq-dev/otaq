@@ -517,13 +517,13 @@ pub async fn deliver_now(app: &App, params: DeliverParams) -> Result<Sent, Reque
         return Ok(Sent::Done);
     };
     match app.service.send(request).await {
-        Ok(Reply::Delivery(Delivery::NeedsConfirmation { .. })) => {
+        Ok(Reply::Delivery(Delivery::NeedsConfirmation { unclearable_by, .. })) => {
             let waiting = ticket(app, &params.key)
                 .await?
                 .map_or(1, |t| t.flags.messages_waiting);
-            Ok(Sent::Ask(Unsent::of(&UnsentPrompt::deliver_now(
-                key, None, waiting,
-            ))))
+            Ok(Sent::Ask(Unsent::of(
+                &UnsentPrompt::deliver_now(key, None, waiting).unclearable_by(unclearable_by),
+            )))
         }
         Ok(_) => Ok(Sent::Done),
         Err(e) => {

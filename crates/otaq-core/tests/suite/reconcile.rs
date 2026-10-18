@@ -250,6 +250,8 @@ async fn an_agent_that_exits_on_its_own_interrupts_its_ticket() {
     until_status(&w, "SHOP-1", Status::Interrupted).await;
     let payload = &events_of(&w, "SHOP-1", EventKind::Interrupted).await[0];
     assert_eq!(payload["reason"], "exit 0");
+    // The History row names the session's tool by its command (Q77).
+    assert_eq!(payload["tool"], "claude");
 
     // A session Otaq stops itself (Park, Close, Done) doesn't interrupt.
     let t2 = w.create("SHOP", "Product images").await;
