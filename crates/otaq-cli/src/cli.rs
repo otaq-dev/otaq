@@ -618,6 +618,120 @@ mod tests {
         );
     }
 
+    /// The `otaq ask human …` commands in a skill's fenced code blocks, as argument lists: a `\` line end joins the
+    /// next line, quotes group words, and the command ends at its heredoc (`<<'QUESTION'`).
+    fn fenced_ask_examples(text: &str) -> Vec<Vec<String>> {
+        let lead = format!("{} ask human", naming::COMMAND_NAME);
+        let (mut fenced, mut found, mut command) = (false, Vec::new(), None::<String>);
+        for line in text.lines().map(str::trim) {
+            if line.starts_with("```") {
+                fenced = !fenced;
+                continue;
+            }
+            if !fenced {
+                continue;
+            }
+            let Some(mut so_far) = command
+                .take()
+                .or_else(|| line.starts_with(&lead).then(String::new))
+            else {
+                continue;
+            };
+            let (part, more) = match line.strip_suffix('\\') {
+                Some(part) => (part, true),
+                None => (line, false),
+            };
+            so_far.push_str(part);
+            so_far.push(' ');
+            if more {
+                command = Some(so_far);
+            } else {
+                found.push(shell_words(&so_far));
+            }
+        }
+        found
+    }
+
+    /// Words as a shell splits them, enough for the skills' examples: `"…"` and `'…'` group, `<<` ends the command.
+    fn shell_words(command: &str) -> Vec<String> {
+        let command = command.split("<<").next().unwrap_or_default();
+        let (mut words, mut word, mut quote, mut started) =
+            (Vec::new(), String::new(), None, false);
+        for c in command.chars() {
+            match (quote, c) {
+                (Some(q), c) if c == q => quote = None,
+                (Some(_), c) => word.push(c),
+                (None, '"' | '\'') => (quote, started) = (Some(c), true),
+                (None, c) if c.is_whitespace() => {
+                    if started {
+                        words.push(std::mem::take(&mut word));
+                    }
+                    started = false;
+                }
+                (None, c) => {
+                    word.push(c);
+                    started = true;
+                }
+            }
+        }
+        if started {
+            words.push(word);
+        }
+        words
+    }
+
+    /// The skills only teach `ask` flags the CLI has (ATT-17, DEC-07): every fenced `otaq ask human …` example in
+    /// plugin/skills/*/SKILL.md parses, and its notes pair with its options.
+    #[test]
+    fn every_ask_example_in_the_skills_parses() {
+        let skills =
+            otaq_core::agent_tools::claude::find_plugin_dir(std::path::Path::new("/nonexistent"))
+                .expect("the repository's plugin folder")
+                .join("skills");
+        let mut checked = 0;
+        for entry in std::fs::read_dir(&skills).unwrap() {
+            let file = entry.unwrap().path().join("SKILL.md");
+            let Ok(text) = std::fs::read_to_string(&file) else {
+                continue;
+            };
+            for example in fenced_ask_examples(&text) {
+                let args: Vec<OsString> = example.iter().map(OsString::from).collect();
+                let (_, matches) = parse_from(&args).unwrap_or_else(|e| {
+                    panic!("{}: {example:?} doesn't parse:\n{e}", file.display())
+                });
+                if let Err(e) = option_notes(&matches) {
+                    panic!("{}: {example:?}: {e}", file.display());
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked >= 10, "only {checked} examples found");
+    }
+
+    #[test]
+    fn ask_examples_are_found_in_fenced_blocks() {
+        let cmd = naming::COMMAND_NAME;
+        let text = format!(
+            "Run `{cmd} ask human --stdin` here.\n\n  ```sh\n  {cmd} ask human \\\n    --option \"Yes, two\" \
+             --note 'It''s fine' \\\n    --recommended 1 --stdin <<'QUESTION'\n  Which?\n  QUESTION\n  ```\n"
+        );
+        assert_eq!(
+            fenced_ask_examples(&text),
+            vec![vec![
+                cmd,
+                "ask",
+                "human",
+                "--option",
+                "Yes, two",
+                "--note",
+                "Its fine",
+                "--recommended",
+                "1",
+                "--stdin"
+            ]]
+        );
+    }
+
     #[test]
     fn definition_is_valid() {
         Cli::command().debug_assert();

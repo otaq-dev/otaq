@@ -150,14 +150,43 @@ fn the_commit_skill_commits_everything_and_never_pushes() {
     }
 }
 
-/// T-0164, T-0087 (PLG-06, d0061): a skill teaches both forms of a question to the user, with the rules for
-/// options, and keeps the question text on stdin (PLG-05).
+/// A skill's body with each command continued on the next line (a `\` line end) joined into one line.
+fn joined(body: &str) -> String {
+    let mut out = String::new();
+    let mut continued = false;
+    for line in body.lines() {
+        let line = if continued { line.trim_start() } else { line };
+        match line.strip_suffix('\\') {
+            Some(part) => out.push_str(part),
+            None => {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+        continued = line.ends_with('\\');
+    }
+    out
+}
+
+/// Every `ask human` command in a skill keeps the question on stdin (PLG-05), also when it continues over lines.
+fn assert_every_ask_human_reads_stdin(body: &str) {
+    let cmd = naming::COMMAND_NAME;
+    for line in joined(body).lines().filter(|l| l.contains("ask human")) {
+        assert!(
+            !line.contains(&format!("{cmd} ask human")) || line.contains("--stdin"),
+            "{line}"
+        );
+    }
+}
+
+/// T-0164, T-0087 (PLG-06, d0061), T-0376 (ATT-17): a skill teaches both forms of a question to the user, with the
+/// rules for options and a pros-and-cons note on each, and keeps the question text on stdin (PLG-05).
 fn assert_teaches_answer_options(skill_name: &str, options_example: &str, open_example: &str) {
     let (_, body) = skill(skill_name);
     let cmd = naming::COMMAND_NAME;
     let with_options = format!("{cmd} ask human {options_example} --stdin");
     assert!(
-        body.contains(&with_options),
+        joined(&body).contains(&with_options),
         "{skill_name}: the options example"
     );
     assert!(
@@ -173,25 +202,54 @@ fn assert_teaches_answer_options(skill_name: &str, options_example: &str, open_e
         "Never invent options for an open question",
         "The question text always goes through stdin",
         "Agent instructions take precedence",
+        "each option's pros and\n  cons in its `--note`, right after its `--option`",
+        "Give every option one",
+        "at most about 200 characters",
+        "only the short labels and notes are arguments",
     ] {
         assert!(body.contains(needle), "{skill_name} must say {needle:?}");
     }
-    // Every `ask human` example keeps the question on stdin.
-    for line in body.lines().filter(|l| l.contains("ask human")) {
-        assert!(
-            !line.contains(&format!("{cmd} ask human")) || line.contains("--stdin"),
-            "{line}"
-        );
-    }
+    assert_every_ask_human_reads_stdin(&body);
 }
 
 #[test]
 fn work_ticket_teaches_answer_options() {
     assert_teaches_answer_options(
         WORK_TICKET_SKILL,
-        "--option \"Postmark\" --option \"SES\" --option \"Resend\" --recommended 1",
+        "--option \"Postmark\" --note \"Already sends password resets: no new account or keys. Costs more per email.\" \
+         --option \"SES\" --note \"Cheapest at volume, but needs AWS setup and domain checks first.\" \
+         --option \"Resend\" --note \"Simple API, but a new account and a new vendor to manage.\" --recommended 1",
         "What should",
     );
+}
+
+/// T-0376 (DEC-07, d0084): work-ticket checks the ticket for gaps before any code, asks what changes what gets
+/// built one question at a time with a note on every option, and asks nothing about a clear ticket.
+#[test]
+fn work_ticket_checks_the_ticket_before_any_code() {
+    let (_, body) = skill(WORK_TICKET_SKILL);
+    let text = flat(&body);
+    let order = [
+        "3. **Check the ticket before you build**",
+        "4. **Plan, then implement**",
+        "## Check the ticket first",
+        "**It changes what gets built**",
+        "**It only changes how you build it**",
+        "**Most tickets are clear: then ask nothing and go straight on.**",
+        "**One question at a time, most important first.**",
+        "\"Question 1 of 3\"",
+        "**Offer options, each with its pros and cons**",
+        "**Write no code while a gap-check question is open.**",
+        "Question 1 of 2: SHOP-31 says",
+        "## Product questions while you work: record, or ask only if you can't go on",
+    ];
+    let mut at = 0;
+    for step in order {
+        let found = text[at..]
+            .find(step)
+            .unwrap_or_else(|| panic!("work-ticket must say {step:?} after the step before"));
+        at += found;
+    }
 }
 
 /// T-0087 (REV-05, PLG-02, PLG-03): address-review reads the feedback after prime, then commits and submits.
@@ -218,7 +276,9 @@ fn address_review_reads_the_feedback_fixes_commits_and_submits() {
     assert!(body.contains("Never push"));
     assert_teaches_answer_options(
         "address-review",
-        "--option \"Add a setting\" --option \"Keep 20\" --recommended 1",
+        "--option \"Add a setting\" --note \"Users can pick their page size; a new Settings row and a migration.\" \
+         --option \"Keep 20\" --note \"No new setting to maintain, but the review comment stays unaddressed.\" \
+         --recommended 1",
         "What should",
     );
 }
@@ -483,12 +543,7 @@ fn project_agent_investigates_and_files_backlog_tickets() {
     ] {
         assert!(body.contains(needle), "project-agent must say {needle:?}");
     }
-    for line in body.lines().filter(|l| l.contains("ask human")) {
-        assert!(
-            !line.contains(&format!("{cmd} ask human")) || line.contains("--stdin"),
-            "{line}"
-        );
-    }
+    assert_every_ask_human_reads_stdin(&body);
 }
 
 /// The text of the first `<<'TAG'` heredoc after `from` in a skill, with each line's indent removed.
@@ -573,8 +628,8 @@ fn epic_lead_directs_through_the_cli_and_never_edits_files() {
         "don't look for a way around it".to_owned(),
         "**End every turn idle.**".to_owned(),
         format!(
-            "{cmd} create \"Wishlist API\" --parent SHOP-40 -p 2 --developer Strong --reason \"new endpoints and \
-             tests\" --stdin"
+            "{cmd} create \"Wishlist empty state\" --parent SHOP-40 --deps SHOP-40.3 --developer Light --reason \
+             \"copy only\" --stdin"
         ),
         format!("`{cmd} dep add SHOP-40.3 SHOP-40.2`"),
         format!("`{cmd} update SHOP-40.3 --stdin`"),
@@ -597,7 +652,7 @@ fn epic_lead_directs_through_the_cli_and_never_edits_files() {
         format!("{cmd} suggest close SHOP-40.6 --stdin"),
         format!("`{cmd} suggest delete <KEY> --stdin`"),
         "dismissed by the user".to_owned(),
-        format!("{cmd} ask human --option"),
+        format!("{cmd} ask human \\\n  --option \"One child\" --note"),
     ];
     let mut at = 0;
     for step in &order {
@@ -633,19 +688,14 @@ fn epic_lead_directs_through_the_cli_and_never_edits_files() {
     ] {
         assert!(!lower.contains(banned), "epic-lead mentions {banned:?}");
     }
-    // Every command line in the examples (outside heredoc bodies) is an `otaq` command, with no redirection into a
-    // file. A `text` block is the lead's own words (the proposal table), not commands.
+    // Every command line in the examples (outside heredoc bodies, with `\` continuations joined) is an `otaq`
+    // command, with no redirection into a file.
     let mut in_block = false;
-    let mut in_text = false;
     let mut heredoc_end: Option<String> = None;
     let mut commands = 0;
-    for line in body.lines().map(str::trim) {
+    for line in joined(&body).lines().map(str::trim) {
         if line.starts_with("```") {
             in_block = !in_block;
-            in_text = in_block && line == "```text";
-            continue;
-        }
-        if in_text {
             continue;
         }
         if !in_block {
@@ -675,12 +725,7 @@ fn epic_lead_directs_through_the_cli_and_never_edits_files() {
     }
     assert!(heredoc_end.is_none() && !in_block);
     assert!(commands >= 8, "only {commands} example commands");
-    for line in body.lines().filter(|l| l.contains("ask human")) {
-        assert!(
-            !line.contains(&format!("{cmd} ask human")) || line.contains("--stdin"),
-            "{line}"
-        );
-    }
+    assert_every_ask_human_reads_stdin(&body);
 }
 
 /// A skill's body with every run of whitespace as one space, so a phrase reads the same wherever the text wraps.
@@ -691,7 +736,8 @@ fn flat(body: &str) -> String {
 /// T-0339 (AGT-07, PAG-03; d0086, d0087): the project-agent skill proposes two or more tickets, or an epic, with a
 /// table (# · Title · Description · Agent; the short table above about 10), creates one explicit ticket at once
 /// with the pick in the reply, picks by difficulty with a reason, tells *set by you* from its own pick, and makes no
-/// picks with one named agent. The real flags only.
+/// picks with one named agent. The real flags only. T-0376 (PAG-08, d0091): it decides the shape and writes the plan
+/// into the epic.
 #[test]
 fn project_agent_proposes_with_a_table_and_picks_agents() {
     let (_, body) = skill(otaq_core::agent_tools::PROJECT_AGENT_SKILL);
@@ -726,7 +772,17 @@ fn project_agent_proposes_with_a_table_and_picks_agents() {
         "a row the user set is never changed back by an agent",
         "**An agent the user named** (\"make 2 Standard\", \"use Strong for all of these\", \"keep these agents\") is the user's: add `--by-user`",
         "**A plain approval of your own suggestion** (\"yes\", \"go\") leaves it your pick",
-        &format!("`{cmd} create \"Order history\" --type epic`"),
+        &format!(
+            "`{cmd} create \"Order history\" --type epic --stdin` with the plan as its description"
+        ),
+        "You are the one who splits epics: the epic's lead only runs the plan you write",
+        "**Decide the shape, then propose before you create.**",
+        "## One ticket, several, or an epic",
+        "sent by the epic card's **Split with the Project agent**",
+        "### Write the plan into the epic",
+        "the epic's description **is the plan**: what the epic delivers, then one line per child with why it exists and why it comes where it does, then the sources",
+        &format!("{cmd} create \"Wishlist\" --type epic --stdin <<'BODY'"),
+        &format!("(`{cmd} update SHOP-40 --stdin`), keeping what the user wrote above it"),
         "--parent SHOP-42",
         "There is no `--epic` flag",
         "- **Developer:** Light · docs-only change",
@@ -744,22 +800,25 @@ fn project_agent_proposes_with_a_table_and_picks_agents() {
     assert!(!text.contains("create --epic"), "no --epic flag");
 }
 
-/// T-0339 (AGT-07, LEAD-03; d0086, d0087): the epic-lead skill shows the same proposal table while planning, takes
-/// the drag as the go-ahead for its picks, may re-pick a never-started child after a merge with a reason, never a
-/// row the user set or its own Epic lead row, and does none of this with one named agent.
+/// T-0339 (AGT-07, LEAD-03; d0086, d0087): the epic-lead skill takes the drag as the go-ahead for its children's
+/// picks, may re-pick a never-started child after a merge with a reason, never a row the user set or its own Epic lead
+/// row, and does none of this with one named agent. T-0376 (LEAD-13, d0091): it doesn't plan an epic from scratch
+/// (no proposal table); asked to split, it points to the Project agent.
 #[test]
-fn epic_lead_proposes_picks_and_re_picks_after_a_merge() {
+fn epic_lead_points_splits_to_the_project_agent_and_re_picks_after_a_merge() {
     let (_, body) = skill(otaq_core::agent_tools::EPIC_LEAD_SKILL);
     let text = flat(&body);
     let cmd = naming::COMMAND_NAME;
     let order = [
-        "**propose the plan first**: the same proposal table a Project agent shows",
-        "**# · Title · Description · Agent**",
-        "Say go, or change any row (\"make 40.4 Strong\")",
-        "Wait for the user's go-ahead",
+        "## The plan",
+        "**you don't plan an epic from scratch**",
+        "The epic's description **is the plan**",
+        "**If the user asks you to split the epic, or to split it again**",
+        "say that the Project agent does that (from its pane, or Split with the Project agent on an epic card with no children), and end your turn",
+        "**Keeping the plan current is yours:**",
         "## Agent picks",
         "## Checking the plan",
-        "**Dragging the epic is the go-ahead for your agent picks**",
+        "**Dragging the epic is the go-ahead for its children and their agent picks**",
         "## The merge turn",
         "**Re-pick a never-started child's agent**",
     ];
@@ -771,10 +830,6 @@ fn epic_lead_proposes_picks_and_re_picks_after_a_merge() {
         at += found;
     }
     for needle in [
-        "Above about 10 children, drop the Description column (**# · Title · Agent**)",
-        "\"Light: 34 · Standard: 22 · Strong: 4\"",
-        "show the first 10 rows, then \"…N more (say 'show all' to list them)\"",
-        "any row can still be changed by its number",
         "**Pick by how hard the work is**, using each named agent's \"Use for\" note",
         "the **Validator** row (`--validator <name>`) only when you have a reason",
         "leave the project default",
@@ -788,8 +843,14 @@ fn epic_lead_proposes_picks_and_re_picks_after_a_merge() {
         "(\"40.3 is only a config change: Strong → Light\")",
         "**A choice the user made themselves is never changed by you**",
         &format!("{cmd} update SHOP-40.3 --developer Light --reason \""),
-        "Otaq shows no dialog for it",
     ] {
         assert!(text.contains(needle), "epic-lead must say {needle:?}");
+    }
+    for gone in [
+        "Planning with the user",
+        "propose the plan first",
+        "**# · Title · Description · Agent**",
+    ] {
+        assert!(!text.contains(gone), "epic-lead still says {gone:?}");
     }
 }
