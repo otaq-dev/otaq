@@ -12,8 +12,13 @@ import {
   terminalFocusRequests,
 } from "../../app/selection";
 import { createStore, type Store } from "../../app/store";
+import type { Banner } from "../../generated/Banner";
 import type { BannerButtonId } from "../../generated/BannerButtonId";
 import type { BannerKind } from "../../generated/BannerKind";
+import type { LimitLine } from "../../generated/LimitLine";
+import type { LimitMoveWaiting } from "../../generated/LimitMoveWaiting";
+import type { MenuItem } from "../../generated/MenuItem";
+import type { MoveWaitingMenu } from "../../generated/MoveWaitingMenu";
 import type { Notices } from "../../generated/Notices";
 import type { NotificationTarget } from "../../generated/NotificationTarget";
 import { asRequestError, type PageEvents, pageEvents } from "../../service";
@@ -104,6 +109,45 @@ export async function pressBanner(
     case "reconnecting":
       return;
   }
+}
+
+/**
+ * The usage limit's lines to draw, one per tool (USG-10): with several tools connected, or when a line has a button
+ * besides Resume (Sign in…). Otherwise none, and the banner stays the one-tool banner of M22 with its Resume all
+ * (d0086).
+ */
+export function limitLinesOf(banner: Banner): readonly LimitLine[] {
+  const several = banner.lines.some((line) => line.avatar !== null);
+  const more = banner.lines.some((line) => line.buttons.some((b) => b.action.kind !== "resume_tool"));
+  return several || more ? banner.lines : [];
+}
+
+/** Move waiting to…'s list as menu rows, for the menu's keyboard (`menuKey`): its title, then one row per agent. */
+export function moveMenuItems(menu: MoveWaitingMenu): MenuItem[] {
+  const row = {
+    icon: null,
+    shortcut: null,
+    danger: false,
+    disabled: false,
+    separated: false,
+    checked: false,
+  };
+  return [
+    { ...row, id: "", label: menu.title, hint: null, header: true },
+    ...menu.items.map((item) => ({
+      ...row,
+      id: item.agent,
+      label: item.name,
+      hint: item.detail,
+      header: false,
+    })),
+  ];
+}
+
+/** An agent picked in Move waiting to…: the tool's waiting tickets move to it and start (AGT-08); Rust's toast says so. */
+export async function moveWaiting(tool: string, agent: string, ask: typeof request = request): Promise<void> {
+  const params: LimitMoveWaiting = { tool, agent };
+  await ask("limits.move_waiting", params);
 }
 
 /** Where opening a notification's target lands: the selection, the terminal focus requests and the overlays. */

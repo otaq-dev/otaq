@@ -110,6 +110,7 @@ import { AgentToolsPageBody, DisconnectDialogView } from "../settings/AgentTools
 import { WarmBuildRow } from "../settings/Rows";
 import "../settings/settings.css";
 import { ActivityGallery } from "../shell/ActivityGallery";
+import { LimitLinesGallery } from "../notices/LimitLinesGallery";
 import { LeadTabBody } from "../lead_tab/LeadTab";
 import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
 import { ToolsList } from "../onboarding/Tools";
@@ -2238,6 +2239,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <DrawerSection />
         <Section title="02 · Header v2, Activity states and popover (T-0329)">
           <ActivityGallery />
+        </Section>
+        <Section title="11 · Limit banner per tool; 02 · Activity with four tools (T-0368)">
+          <LimitLinesGallery />
         </Section>
         <Section title="Mark · Command tent (d0076; 15 · Settings → About)">
           <div className="gallery-wrap gallery-wrap-wide">

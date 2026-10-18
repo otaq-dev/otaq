@@ -13,7 +13,7 @@ import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from
 
 import { modalOpen, openOverlay, overlays } from "../../app/overlays";
 import type { OverlayProps } from "../../app/registry";
-import { Button, Kbd } from "../../components";
+import { Button, Kbd, ToolAvatar } from "../../components";
 import type { InboxAnswer } from "../../generated/InboxAnswer";
 import type { InboxGroup } from "../../generated/InboxGroup";
 import type { InboxLeadNote } from "../../generated/InboxLeadNote";
@@ -25,6 +25,7 @@ import type { PanelSent } from "../../generated/PanelSent";
 import { watchView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { toolProblemAction } from "../panel/toolProblemRunner";
 import {
   canSend,
   changeAgent,
@@ -522,8 +523,19 @@ export function InboxBody({ view, selected, draft, onDraft, onSelect }: InboxBod
       </div>
       {view.limits.map((limit) => (
         <div key={limit.tool} className="inbox-limit">
-          <Icon name="gauge" size={13} />
+          {limit.avatar ? <ToolAvatar avatar={limit.avatar} /> : <Icon name="gauge" size={13} />}
           <span>{limit.text}</span>
+          {limit.button !== null && (
+            <Button
+              compact
+              variant="secondary"
+              icon={limit.button.icon}
+              label={limit.button.label}
+              onClick={() => {
+                if (limit.button) toolProblemAction(limit.button.action, {});
+              }}
+            />
+          )}
           {limit.resume !== null && (
             <Button
               compact
