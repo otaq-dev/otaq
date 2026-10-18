@@ -46,7 +46,9 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
     "std",
     "NSBundle",
     "NSDate",
+    "NSDictionary",
     "NSError",
+    "NSObject",
     "NSRunLoop",
     "NSString",
 ] }
@@ -59,6 +61,7 @@ objc2-user-notifications = { version = "0.3.2", default-features = false, featur
     "UNNotificationRequest",
     "UNNotificationResponse",
     "UNNotificationSettings",
+    "UNNotificationSound",
     "UNNotificationTrigger",
     "UNUserNotificationCenter",
 ] }

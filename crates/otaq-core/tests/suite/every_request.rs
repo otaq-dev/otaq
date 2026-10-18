@@ -243,6 +243,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::SessionInput(_)
         | Request::SessionDeliverNow(_)
         | Request::SessionFocus(_)
+        | Request::AppFocus(_)
         | Request::SessionBeforeRestart(_)
         | Request::Hook(_)
         | Request::RunStart(_)

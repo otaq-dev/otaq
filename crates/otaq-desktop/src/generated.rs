@@ -73,7 +73,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::ToastId::export_all(&cfg)?;
     crate::api::HoldToast::export_all(&cfg)?;
     crate::api::ToastPress::export_all(&cfg)?;
-    crate::api::NotificationKey::export_all(&cfg)?;
+    crate::api::NotificationOpen::export_all(&cfg)?;
     // T-0364: Move waiting to… on the usage-limit banner's lines; their gallery.
     crate::api::LimitMoveWaiting::export_all(&cfg)?;
     otaq_view::view_models::limit_banner::Gallery::export_all(&cfg)?;

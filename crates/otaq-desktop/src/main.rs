@@ -55,6 +55,8 @@ pub struct App {
     usage: usage::Usage,
     /// Settings → Agents while it is open: the entries a tool connecting added, the lists that couldn't load (T-0361).
     agents_visit: std::sync::Mutex<otaq_view::view_models::named_agents::Visit>,
+    /// Whether the window has keyboard focus, told to every connection to the service (`app.focus`, d0090).
+    window_focus: api::WindowFocus,
 }
 
 fn main() {
@@ -109,9 +111,14 @@ fn main() {
         cleanup: Default::default(),
         run_commands: Default::default(),
         agents_visit: Default::default(),
+        window_focus: Default::default(),
         usage: usage::Usage::new(runtime.handle().clone()),
     });
     runtime.spawn(api::usage_loop(app.clone()));
+    {
+        let app = app.clone();
+        runtime.spawn(async move { api::follow_window_focus(&app).await });
+    }
     if let Err(e) = door::run(app, runtime.handle().clone(), placement) {
         eprintln!("{e}");
         std::process::exit(1);

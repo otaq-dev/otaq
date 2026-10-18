@@ -138,8 +138,9 @@ pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>)
         }
     }
     drop(subscribed);
-    // A client that went away isn't looking at any terminal any more (ATT-03).
+    // A client that went away isn't looking at any terminal (ATT-03) or window (d0090) any more.
     shared.sessions.client_gone(client);
+    shared.inbox.client_gone(client);
     for task in attached.into_values().chain(forwarder) {
         task.abort();
         let _ = task.await;
@@ -371,6 +372,11 @@ async fn respond(
             }
             Err(e) => return (store_error(id, &e), Then::Continue),
         },
+        // The app window's focus (d0090), per connection like a terminal's.
+        Request::AppFocus(p) => {
+            shared.inbox.set_looking(client, p.focused);
+            (Reply::Ok, Then::Continue)
+        }
         Request::Hook(p) => match shared.signals.hook(who, p.tool, &p.event, &p.payload).await {
             Ok(signals) => {
                 shared.after_signals(who, p.tool, &signals).await;

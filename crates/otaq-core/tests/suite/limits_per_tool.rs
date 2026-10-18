@@ -14,6 +14,7 @@ use std::time::Duration;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agent_tools::models::{ModelEntry, ModelKind, ModelList};
 use otaq_core::agent_tools::{LaunchContext, Tool};
+use otaq_core::attention::notify::pace::{FakeClock, QUIET};
 use otaq_core::attention::notify::{Notifier, OnClick, OsNotification};
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::tickets::{EventKind, NewTicketInput, Ticket};
@@ -67,6 +68,8 @@ struct World {
     w: TestService,
     rules: NamedAgents,
     recorder: Arc<Recorder>,
+    /// The notifications' quiet period counts in it (d0090).
+    clock: Arc<FakeClock>,
     _tools: TempDir,
 }
 
@@ -151,7 +154,10 @@ async fn world() -> World {
     let agent_path = std::env::join_paths([bin.clone(), "/usr/bin".into(), "/bin".into()]).unwrap();
     let recorder = Arc::new(Recorder::default());
     let notifier: Arc<dyn Notifier> = recorder.clone();
+    let clock = Arc::new(FakeClock::new());
+    let time = clock.clone();
     let w = TestService::start_with(move |mut config: ServiceConfig| {
+        config.clock = time;
         config.tools.path = bin.into_os_string();
         config.tools.claude_config_dir = Some(root.join("claude"));
         config.tools.managed_settings_dir = root.join("managed");
@@ -245,6 +251,7 @@ async fn world() -> World {
         w,
         rules,
         recorder,
+        clock,
         _tools: tools,
     }
 }
@@ -633,7 +640,8 @@ async fn a_tool_that_isnt_available_gets_its_line_and_one_notification() {
     })
     .await;
 
-    // Hidden again with a new waiting ticket: a new situation, a new notification.
+    // Hidden again with a new waiting ticket, after the quiet period: a new situation, a new notification.
+    world.clock.advance(QUIET);
     world.hide(B, true).await;
     queue(w, "SHOP-3").await;
     until_status(w, "SHOP-3", Status::Held).await;

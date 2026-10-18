@@ -9,20 +9,21 @@ use std::time::{Duration, Instant};
 
 use block2::{DynBlock, RcBlock};
 use objc2::rc::Retained;
-use objc2::runtime::{Bool, NSObject, NSObjectProtocol, ProtocolObject};
+use objc2::runtime::{AnyObject, Bool, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{AnyThread, DefinedClass, define_class, msg_send};
-use objc2_foundation::{NSBundle, NSDate, NSError, NSRunLoop, NSString};
+use objc2_foundation::{NSBundle, NSDate, NSDictionary, NSError, NSRunLoop, NSString};
 use objc2_user_notifications::{
     UNAuthorizationOptions, UNAuthorizationStatus, UNMutableNotificationContent, UNNotification,
     UNNotificationPresentationOptions, UNNotificationRequest, UNNotificationResponse,
-    UNNotificationSettings, UNUserNotificationCenter, UNUserNotificationCenterDelegate,
+    UNNotificationSettings, UNNotificationSound, UNUserNotificationCenter,
+    UNUserNotificationCenterDelegate,
 };
 
 use super::bundle::{self, Bundle};
 
 /// Proof that this process runs from `Otaq.app`: its real path is in the bundle ([`bundle::current`]) and macOS's
 /// main bundle has the same ID.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InBundle {
     bundle: Bundle,
 }
@@ -110,13 +111,63 @@ pub fn request_permission(_: &InBundle, wait: Duration) -> Result<bool, String> 
 }
 
 /// Posts one notification now, with `id` as its identifier (a click reports it back).
-pub fn post(_: &InBundle, id: &str, title: &str, body: &str) -> Result<(), String> {
-    let content = UNMutableNotificationContent::new();
-    content.setTitle(&NSString::from_str(title));
-    content.setBody(&NSString::from_str(body));
+pub fn post(in_bundle: &InBundle, id: &str, title: &str, body: &str) -> Result<(), String> {
+    post_content(
+        in_bundle,
+        &Content {
+            id,
+            title,
+            body,
+            ..Content::default()
+        },
+    )
+}
+
+/// A notification as macOS takes it (d0090): title, subtitle, body, the thread it is grouped in, the default sound or
+/// none, and the target a click opens (in `userInfo`, under [`USER_INFO_TARGET`]).
+#[derive(Debug, Default)]
+pub struct Content<'a> {
+    pub id: &'a str,
+    pub title: &'a str,
+    pub subtitle: &'a str,
+    pub body: &'a str,
+    pub thread: Option<&'a str>,
+    pub sound: bool,
+    pub target: Option<&'a str>,
+}
+
+/// The `userInfo` key of a notification's target.
+pub const USER_INFO_TARGET: &str = "target";
+
+/// Posts `content` now; waits up to [`REPLY_TIMEOUT`] for macOS to take it.
+pub fn post_content(_: &InBundle, content: &Content<'_>) -> Result<(), String> {
+    let notification = UNMutableNotificationContent::new();
+    notification.setTitle(&NSString::from_str(content.title));
+    if !content.subtitle.is_empty() {
+        notification.setSubtitle(&NSString::from_str(content.subtitle));
+    }
+    notification.setBody(&NSString::from_str(content.body));
+    if let Some(thread) = content.thread {
+        notification.setThreadIdentifier(&NSString::from_str(thread));
+    }
+    if content.sound {
+        notification.setSound(Some(&UNNotificationSound::defaultSound()));
+    }
+    if let Some(target) = content.target {
+        let key = NSString::from_str(USER_INFO_TARGET);
+        let value = NSString::from_str(target);
+        let info: Retained<NSDictionary<NSString, AnyObject>> =
+            NSDictionary::from_slices(&[&*key], &[value.as_ref()]);
+        // SAFETY: the keys and values are NSStrings, so the dictionary is one of objects, and it holds only
+        // property-list values, as `userInfo` requires.
+        unsafe {
+            let info: Retained<NSDictionary> = Retained::cast_unchecked(info);
+            notification.setUserInfo(&info);
+        }
+    }
     let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
-        &NSString::from_str(id),
-        &content,
+        &NSString::from_str(content.id),
+        &notification,
         None,
     );
     let (tx, rx) = mpsc::channel();
@@ -131,8 +182,15 @@ pub fn post(_: &InBundle, id: &str, title: &str, body: &str) -> Result<(), Strin
     }
 }
 
+/// A click on one of the bundle's notifications: its identifier and the target it carries, if any.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Clicked {
+    pub id: String,
+    pub target: Option<String>,
+}
+
 struct DelegateIvars {
-    clicks: mpsc::Sender<String>,
+    on_click: Box<dyn Fn(Clicked)>,
 }
 
 define_class!(
@@ -152,8 +210,17 @@ define_class!(
             response: &UNNotificationResponse,
             completion: &DynBlock<dyn Fn()>,
         ) {
-            let id = response.notification().request().identifier().to_string();
-            let _ = self.ivars().clicks.send(id);
+            let request = response.notification().request();
+            let key = NSString::from_str(USER_INFO_TARGET);
+            let target = request
+                .content()
+                .userInfo()
+                .objectForKey(&key)
+                .and_then(|value| value.downcast_ref::<NSString>().map(ToString::to_string));
+            (self.ivars().on_click)(Clicked {
+                id: request.identifier().to_string(),
+                target,
+            });
             completion.call(());
         }
 
@@ -173,8 +240,8 @@ define_class!(
 );
 
 impl OtaqNotificationDelegate {
-    fn new(clicks: mpsc::Sender<String>) -> Retained<Self> {
-        let this = Self::alloc().set_ivars(DelegateIvars { clicks });
+    fn new(on_click: Box<dyn Fn(Clicked)>) -> Retained<Self> {
+        let this = Self::alloc().set_ivars(DelegateIvars { on_click });
         // SAFETY: NSObject's init on a freshly allocated object.
         unsafe { msg_send![super(this), init] }
     }
@@ -190,7 +257,9 @@ pub struct ClickListener {
 impl ClickListener {
     pub fn new(_: &InBundle) -> Self {
         let (tx, clicks) = mpsc::channel();
-        let delegate = OtaqNotificationDelegate::new(tx);
+        let delegate = OtaqNotificationDelegate::new(Box::new(move |clicked: Clicked| {
+            let _ = tx.send(clicked.id);
+        }));
         center().setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
         Self { delegate, clicks }
     }
@@ -225,5 +294,37 @@ impl Drop for ClickListener {
         if ours {
             center.setDelegate(None);
         }
+    }
+}
+
+/// Makes this process the notification center's delegate for its whole life (the service, d0090): every click macOS
+/// delivers to it goes to `on_click`, also for notifications an earlier run posted. macOS keeps only a weak reference,
+/// so the delegate is never released.
+pub fn on_clicks(_: &InBundle, on_click: impl Fn(Clicked) + 'static) {
+    let delegate = OtaqNotificationDelegate::new(Box::new(on_click));
+    center().setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+    std::mem::forget(delegate);
+}
+
+/// Runs `work` on a thread of its own while this (the main) thread runs its run loop, until `work` ends; returns its
+/// result. macOS may deliver a notification click through the main queue, which only a running main run loop serves:
+/// the service runs this way inside the bundle.
+pub fn with_main_run_loop<R: Send + 'static>(work: impl FnOnce() -> R + Send + 'static) -> R {
+    let worker = std::thread::Builder::new()
+        .name("service".into())
+        .spawn(work)
+        .expect("a thread for the service");
+    let run_loop = NSRunLoop::currentRunLoop();
+    while !worker.is_finished() {
+        let started = Instant::now();
+        run_loop.runUntilDate(&NSDate::dateWithTimeIntervalSinceNow(0.5));
+        // A run loop without sources returns at once: don't spin.
+        if started.elapsed() < Duration::from_millis(10) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+    match worker.join() {
+        Ok(result) => result,
+        Err(panic) => std::panic::resume_unwind(panic),
     }
 }

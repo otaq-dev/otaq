@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use super::{Board, BoardError};
+use crate::attention::notify::Kind;
 use crate::domain::stored_enum;
 use crate::naming;
 use crate::store::now_ms;
@@ -321,6 +322,10 @@ pub struct GlobalSettings {
     pub project_agent_instructions: String,
     /// OS notifications for items that block an agent (d0016). On by default.
     pub notifications: bool,
+    /// One checkbox per kind of notification under the main switch (d0090): all on by default.
+    pub notification_kinds: NotificationKinds,
+    /// Notifications play the OS's default sound (d0090). On by default.
+    pub notification_sound: bool,
     /// One theme, used all the time (d0070).
     pub theme: ThemeSetting,
     pub terminal_font_size: u32,
@@ -349,12 +354,72 @@ impl Default for GlobalSettings {
             auto_merge: AutoMerge::Off,
             project_agent_instructions: String::new(),
             notifications: true,
+            notification_kinds: NotificationKinds::default(),
+            notification_sound: true,
             theme: ThemeSetting::default(),
             terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,
             terminal_renderer: TerminalRenderer::default(),
             description_source_mode: false,
             usage_data: UsageData::NotAsked,
         }
+    }
+}
+
+/// Which kinds of OS notification go out (d0090, one Settings checkbox each). An unticked kind still turns turquoise
+/// and lands in the inbox; only the OS notification is left out. All on by default, also for settings stored before
+/// the checkboxes existed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NotificationKinds {
+    pub permission: bool,
+    pub question: bool,
+    pub turn_ended: bool,
+    pub interrupted: bool,
+    pub validation_decision: bool,
+    pub auto_merge_stopped: bool,
+    pub tool_unavailable: bool,
+}
+
+impl Default for NotificationKinds {
+    fn default() -> Self {
+        Self {
+            permission: true,
+            question: true,
+            turn_ended: true,
+            interrupted: true,
+            validation_decision: true,
+            auto_merge_stopped: true,
+            tool_unavailable: true,
+        }
+    }
+}
+
+impl NotificationKinds {
+    /// The checkbox of `kind`.
+    pub fn allows(&self, kind: Kind) -> bool {
+        match kind {
+            Kind::Permission => self.permission,
+            Kind::Question => self.question,
+            Kind::TurnEnded => self.turn_ended,
+            Kind::Interrupted => self.interrupted,
+            Kind::ValidationDecision => self.validation_decision,
+            Kind::AutoMergeStopped => self.auto_merge_stopped,
+            Kind::ToolUnavailable => self.tool_unavailable,
+        }
+    }
+
+    /// Ticks or unticks the checkbox of `kind`.
+    pub fn set(&mut self, kind: Kind, on: bool) {
+        let slot = match kind {
+            Kind::Permission => &mut self.permission,
+            Kind::Question => &mut self.question,
+            Kind::TurnEnded => &mut self.turn_ended,
+            Kind::Interrupted => &mut self.interrupted,
+            Kind::ValidationDecision => &mut self.validation_decision,
+            Kind::AutoMergeStopped => &mut self.auto_merge_stopped,
+            Kind::ToolUnavailable => &mut self.tool_unavailable,
+        };
+        *slot = on;
     }
 }
 
@@ -1208,6 +1273,36 @@ mod tests {
         // A value this version doesn't know never turns sending on.
         let odd: GlobalSettings = read_or_default(serde_json::json!({"usage_data": "maybe"}));
         assert!(!odd.usage_data.sends());
+    }
+
+    /// T-0371 (d0090): settings stored before the per-kind checkboxes and the sound read with every kind and the
+    /// sound on; one kind turned off is kept, the others stay on.
+    #[test]
+    fn old_settings_read_with_every_kind_and_the_sound_on() {
+        let old: GlobalSettings =
+            read_or_default(serde_json::json!({"notifications": false, "terminal_font_size": 15}));
+        assert!(!old.notifications);
+        assert_eq!(old.notification_kinds, NotificationKinds::default());
+        assert!(Kind::ALL.iter().all(|k| old.notification_kinds.allows(*k)));
+        assert!(old.notification_sound);
+        let fresh = GlobalSettings::default();
+        assert!(fresh.notifications && fresh.notification_sound);
+        assert!(
+            Kind::ALL
+                .iter()
+                .all(|k| fresh.notification_kinds.allows(*k))
+        );
+
+        let one_off: GlobalSettings = read_or_default(serde_json::json!({
+            "notification_kinds": {"turn_ended": false},
+            "notification_sound": false,
+        }));
+        assert!(!one_off.notification_kinds.allows(Kind::TurnEnded));
+        assert!(one_off.notification_kinds.allows(Kind::Permission));
+        assert!(!one_off.notification_sound);
+        let mut kinds = NotificationKinds::default();
+        kinds.set(Kind::ToolUnavailable, false);
+        assert!(!kinds.allows(Kind::ToolUnavailable));
     }
 
     #[test]

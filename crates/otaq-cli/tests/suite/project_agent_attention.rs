@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
+use otaq_core::attention::notify::pace::{FakeClock, QUIET};
 use otaq_core::attention::notify::{Notifier, OnClick, OsNotification};
 use otaq_core::board::questions::Choice;
 use otaq_core::client::{Client, ClientConfig};
@@ -31,7 +32,7 @@ impl Notifier for Recorder {
     }
 }
 
-async fn world(recorder: Arc<Recorder>) -> TestService {
+async fn world(recorder: Arc<Recorder>, clock: Arc<FakeClock>) -> TestService {
     let home = tempfile::TempDir::new().unwrap();
     let data = home.path().join("h");
     let script = format!(
@@ -51,6 +52,7 @@ async fn world(recorder: Arc<Recorder>) -> TestService {
             },
         }),
         notifier,
+        clock,
         ..config
     })
     .await;
@@ -89,15 +91,15 @@ async fn agent_items(w: &TestService, want: &[Status]) -> otaq_core::attention::
     .unwrap_or_else(|_| panic!("the inbox never showed {want:?}"))
 }
 
-async fn titles(recorder: &Recorder, n: usize) -> Vec<(String, String)> {
+async fn titles(recorder: &Recorder, n: usize) -> Vec<(String, String, String)> {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            let got: Vec<(String, String)> = recorder
+            let got: Vec<(String, String, String)> = recorder
                 .0
                 .lock()
                 .unwrap()
                 .iter()
-                .map(|n| (n.title.clone(), n.body.clone()))
+                .map(|n| (n.title.clone(), n.subtitle.clone(), n.body.clone()))
                 .collect();
             if got.len() >= n {
                 return got;
@@ -112,7 +114,8 @@ async fn titles(recorder: &Recorder, n: usize) -> Vec<(String, String)> {
 #[tokio::test(flavor = "multi_thread")]
 async fn its_permission_prompt_and_question_are_group_one_items_with_its_name() {
     let recorder = Arc::new(Recorder::default());
-    let w = world(recorder.clone()).await;
+    let clock = Arc::new(FakeClock::new());
+    let w = world(recorder.clone(), clock.clone()).await;
     let opened = w
         .project_agents
         .open("SHOP", "Look around the checkout code")
@@ -159,8 +162,9 @@ async fn its_permission_prompt_and_question_are_group_one_items_with_its_name() 
     assert_eq!(
         titles(&recorder, 1).await,
         [(
-            "shop-web · Project agent needs permission".to_owned(),
-            "Allow gh issue list? — Import GitHub issues".to_owned()
+            "Project agent needs permission".to_owned(),
+            "shop-web · Import GitHub issues".to_owned(),
+            "Allow gh issue list?".to_owned()
         )]
     );
 
@@ -169,7 +173,9 @@ async fn its_permission_prompt_and_question_are_group_one_items_with_its_name() 
     assert_eq!(ran.status, 0, "{ran:?}");
     agent_items(&w, &[]).await;
 
-    // `ask human`: Asks you with the question; answered inline, typed into its session.
+    // `ask human` after the quiet period (d0090): Asks you with the question; answered inline, typed into its
+    // session.
+    clock.advance(QUIET);
     let ran = agent
         .run_with_stdin(
             &format!("'{CB}' ask human --stdin --option Yes --option No"),
@@ -190,8 +196,9 @@ async fn its_permission_prompt_and_question_are_group_one_items_with_its_name() 
     assert_eq!(
         all[1],
         (
-            "shop-web · Project agent asks a question".to_owned(),
-            "Import closed issues too? — Import GitHub issues".to_owned()
+            "Project agent asks a question".to_owned(),
+            "shop-web · Import GitHub issues".to_owned(),
+            "Import closed issues too?".to_owned()
         )
     );
     w.project_agents
@@ -215,7 +222,8 @@ async fn its_permission_prompt_and_question_are_group_one_items_with_its_name() 
 #[tokio::test(flavor = "multi_thread")]
 async fn focus_hides_its_items() {
     let recorder = Arc::new(Recorder::default());
-    let w = world(recorder.clone()).await;
+    let clock = Arc::new(FakeClock::new());
+    let w = world(recorder.clone(), clock.clone()).await;
     let opened = w
         .project_agents
         .open("SHOP", "Look around the checkout code")

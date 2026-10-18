@@ -10,6 +10,6 @@ pub mod notification_center;
 pub mod notify;
 pub mod notify_check;
 
-pub use focus::{ClientId, Focus, FocusChange, Released, Side};
+pub use focus::{ClientId, Focus, FocusChange, Looking, Released, Side};
 pub use inbox::Inbox;
 pub use limit_stops::{LimitStops, Suppression};

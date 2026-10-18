@@ -578,6 +578,10 @@ pub enum Request {
     /// [`Reply::Ok`].
     #[serde(rename = "session.focus")]
     SessionFocus(FocusParams),
+    /// The client's app window gained or lost focus (d0090): while any app window is focused, no OS notification
+    /// goes out. Per connection, like `session.focus`; a closed connection loses it. Answered with [`Reply::Ok`].
+    #[serde(rename = "app.focus")]
+    AppFocus(AppFocusParams),
     /// "Before the restart" (REC-02): the last messages and actions of the ticket's latest conversation, read
     /// from Claude Code's saved conversation. Answered with [`Reply::BeforeRestart`].
     #[serde(rename = "session.before_restart")]
@@ -1482,6 +1486,11 @@ pub struct FocusParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppFocusParams {
+    pub focused: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputParams {
     pub session: String,
     /// The bytes typed, base64 ([`encode_bytes`]).
@@ -1639,6 +1648,7 @@ impl Request {
             Self::SessionInput(_) => "session.input",
             Self::SessionDeliverNow(_) => "session.deliver_now",
             Self::SessionFocus(_) => "session.focus",
+            Self::AppFocus(_) => "app.focus",
             Self::SessionBeforeRestart(_) => "session.before_restart",
             Self::Hook(_) => "hook",
             Self::RunStart(_) => "run.start",
@@ -1938,11 +1948,10 @@ pub enum Event {
     InboxChanged {
         counts: crate::attention::inbox::InboxCounts,
     },
-    /// An OS notification was clicked (ATT-11): bring the app forward on this ticket with its terminal focused,
-    /// or on the inbox for a grouped notification (`key` absent).
+    /// An OS notification was clicked (ATT-11, d0090): bring the app forward on its target (a ticket's or a
+    /// validator's terminal, a Project agent, a lead, the inbox, the board).
     OpenFromNotification {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        key: Option<TicketKey>,
+        target: crate::attention::notify::Target,
     },
     /// Token counts changed (USG-01): refetch `usage.summary`.
     UsageChanged,

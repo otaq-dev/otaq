@@ -19,7 +19,9 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, broadcast, watch};
 
-use super::notify::{self, ItemId, Notifier};
+use super::focus::Looking;
+use super::notify::pace::{Clock, Pace};
+use super::notify::{self, ItemId, Kind, Notifier, OsNotification, PermissionState, Planned};
 use crate::agent_tools::Tool;
 use crate::agent_tools::connected::ConnectedTools;
 use crate::board::needs_you::{NeedsYouGroup, NeedsYouItem};
@@ -150,6 +152,13 @@ struct Inner {
     seen: Mutex<HashSet<ItemId>>,
     /// What a click on a notification opens.
     opener: notify::Opener,
+    /// The quiet period after a pop-up and what it holds (d0090), in `clock`'s time.
+    pace: Mutex<Pace>,
+    clock: Arc<dyn Clock>,
+    /// The app windows that are focused: while any is, nothing is posted (d0090).
+    looking: Looking,
+    /// A notification would have gone out while macOS has Otaq's notifications turned off (d0090's banner trigger).
+    blocked: std::sync::atomic::AtomicBool,
     /// The Project agents that wait for the user (set by the service).
     project_agents: Mutex<Option<crate::project_agents::ProjectAgents>>,
     /// The tools that aren't available while tickets wait on them or moved off them, since when (USG-10):
@@ -173,7 +182,11 @@ impl Inbox {
         events: EventBus,
         notifications: notify::Notifications,
     ) -> Self {
-        let notify::Notifications { notifier, opener } = notifications;
+        let notify::Notifications {
+            notifier,
+            opener,
+            clock,
+        } = notifications;
         Self {
             inner: Arc::new(Inner {
                 board,
@@ -187,6 +200,10 @@ impl Inbox {
                 notifier,
                 seen: Mutex::new(HashSet::new()),
                 opener,
+                pace: Mutex::new(Pace::default()),
+                clock,
+                looking: Looking::default(),
+                blocked: std::sync::atomic::AtomicBool::new(false),
                 project_agents: Mutex::new(None),
                 unavailable: Mutex::new(HashMap::new()),
                 available_at: Mutex::new(HashMap::new()),
@@ -194,6 +211,33 @@ impl Inbox {
                 tools: std::sync::OnceLock::new(),
             }),
         }
+    }
+
+    /// A client's app window gained or lost focus (`app.focus`, d0090): while any is focused, no OS notification goes
+    /// out, and what comes meanwhile never notifies later.
+    pub fn set_looking(&self, client: crate::attention::ClientId, focused: bool) {
+        self.inner.looking.set(client, focused);
+    }
+
+    /// A client disconnected: its window doesn't count as looking any more.
+    pub fn client_gone(&self, client: crate::attention::ClientId) {
+        self.inner.looking.client_gone(client);
+    }
+
+    /// Whether the user is looking at Otaq (any app window focused).
+    pub fn looking(&self) -> bool {
+        self.inner.looking.any()
+    }
+
+    /// Whether a notification was left out because macOS has Otaq's notifications turned off (d0090; read by the
+    /// banner).
+    pub fn notification_blocked(&self) -> bool {
+        self.inner.blocked.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// The notifier's permission state as last read (d0090); never waits for the OS.
+    pub fn notification_permission(&self) -> PermissionState {
+        self.inner.notifier.permission()
     }
 
     /// The Project agents whose waits are inbox items (d0068).
@@ -296,14 +340,15 @@ impl Inbox {
         Ok(changed)
     }
 
-    /// OS notifications for the blocking items not seen before (ATT-11); the setting is read every time.
+    /// OS notifications for the blocking items not seen before (ATT-11); the settings are read every time, and the
+    /// quiet period, the focus of the app's windows and macOS's permission decide what goes out now (d0090).
     async fn notify(
         &self,
         items: &[NeedsYouItem],
         agents: &[crate::project_agents::AgentNeedsYou],
     ) -> Result<(), BoardError> {
         let board = &self.inner.board;
-        let enabled = board.global_settings().await?.notifications;
+        let choices = notify::Choices::of(&board.global_settings().await?);
         let mut texts = HashMap::new();
         for item in items.iter().filter(|i| notify::should_notify(i)) {
             let ticket = board.ticket_by_id(&item.id).await?;
@@ -323,10 +368,22 @@ impl Inbox {
                 },
             );
         }
-        let out = {
+        // A lead's subtitle names its epic by title ("shop-web · Wishlist").
+        let mut epic_titles = HashMap::new();
+        for epic in agents.iter().filter_map(|a| a.epic.as_ref()) {
+            if let Ok(ticket) = board.ticket(&epic.to_string()).await {
+                epic_titles.insert(epic.to_string(), ticket.title);
+            }
+        }
+        let mut fresh = {
             let mut seen = self.inner.seen.lock().expect("notified items");
-            let mut out = notify::plan(items, &texts, &mut seen, enabled);
-            out.extend(notify::plan_agents(agents, &mut seen, enabled));
+            let mut out = notify::plan(items, &texts, &mut seen, &choices);
+            out.extend(notify::plan_agents(
+                agents,
+                &epic_titles,
+                &mut seen,
+                &choices,
+            ));
             out
         };
         // A tool that isn't available while tickets wait on it or moved off it: one notification when it first
@@ -344,15 +401,15 @@ impl Inbox {
                 }
             }
         }
-        let waiting =
+        let waiting_tools =
             crate::named_agents::moves::unavailable_situations(board, &unavailable, |tool| {
                 self.available_floor(tool)
             })
             .await?;
-        let fresh: Vec<&crate::named_agents::moves::UnavailableSituation> = {
+        let (new_tools, tools_waiting): (Vec<_>, Vec<String>) = {
             let mut known = self.inner.unavailable.lock().expect("unavailable tools");
-            known.retain(|tool, _| waiting.iter().any(|w| w.tool == *tool));
-            waiting
+            known.retain(|tool, _| waiting_tools.iter().any(|w| w.tool == *tool));
+            let new: Vec<&crate::named_agents::moves::UnavailableSituation> = waiting_tools
                 .iter()
                 .filter(|w| match known.entry(w.tool) {
                     std::collections::hash_map::Entry::Vacant(e) => {
@@ -361,24 +418,67 @@ impl Inbox {
                     }
                     std::collections::hash_map::Entry::Occupied(_) => false,
                 })
-                .collect()
+                .collect();
+            let still = known
+                .iter()
+                .map(|(tool, since)| notify::tool_presence(*tool, *since))
+                .collect();
+            (new, still)
         };
-        let mut out = out;
-        if enabled {
-            out.extend(
-                fresh
-                    .into_iter()
-                    .map(|w| notify::tool_unavailable(w.tool, w.tickets, &w.moved)),
-            );
+        if choices.allows(Kind::ToolUnavailable) {
+            fresh.extend(new_tools.into_iter().map(|w| {
+                let mut notification = notify::tool_unavailable(w.tool, w.tickets, &w.moved);
+                notification.sound = choices.sound;
+                Planned {
+                    notification,
+                    item: notify::Held {
+                        presence: notify::tool_presence(w.tool, w.since),
+                        project: None,
+                        label: w.tool.display_name().to_owned(),
+                        ticket: false,
+                    },
+                }
+            }));
         }
-        for notification in &out {
+        let waiting: HashSet<String> = items
+            .iter()
+            .filter(|i| notify::should_notify(i))
+            .map(notify::presence_of)
+            .chain(agents.iter().map(notify::agent_presence))
+            .chain(tools_waiting)
+            .collect();
+        let decided = {
+            let mut pace = self.inner.pace.lock().expect("quiet period");
+            decide(
+                &mut pace,
+                &Moment {
+                    now: self.inner.clock.now(),
+                    looking: self.inner.looking.any(),
+                    enabled: choices.enabled,
+                    permission: self.inner.notifier.permission(),
+                    waiting: &waiting,
+                },
+                fresh,
+            )
+        };
+        if decided.blocked {
+            self.inner
+                .blocked
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        for notification in &decided.posts {
             tracing::info!(title = %notification.title, "notification");
-            let (opener, key) = (self.inner.opener.clone(), notification.open.clone());
+            let (opener, target) = (self.inner.opener.clone(), notification.target.clone());
             self.inner
                 .notifier
-                .post(notification, Box::new(move || opener.open(key)));
+                .post(notification, Box::new(move || opener.open(target)));
         }
         Ok(())
+    }
+
+    /// When the quiet period ends with something held: the inbox derives again then.
+    fn wake_at(&self) -> Option<std::time::Instant> {
+        self.inner.pace.lock().expect("quiet period").wake_at()
     }
 
     /// Watches the changes that can change the set (tickets, projects, terminal focus) until the service stops.
@@ -389,9 +489,18 @@ impl Inbox {
             tracing::warn!(error = %e, "can't derive the inbox");
         }
         loop {
+            let wake = self.wake_at().map(|at| self.inner.clock.sleep_until(at));
             let relevant = tokio::select! {
+                biased;
                 _ = stop.wait_for(|s| *s) => return,
                 () = self.inner.changed.notified() => true,
+                // The quiet period ended with items held: post them now (d0090).
+                () = async {
+                    match wake {
+                        Some(wake) => wake.await,
+                        None => std::future::pending().await,
+                    }
+                } => true,
                 // A tool's state changed: a tool that isn't available any more, or again.
                 changed = async {
                     match tools.as_mut() {
@@ -413,10 +522,13 @@ impl Inbox {
             if !relevant {
                 continue;
             }
-            // Let the burst settle, then derive once.
+            // Let the burst settle, then derive once; a stopping service posts nothing more.
             tokio::time::sleep(SETTLE).await;
             while let Ok(event) = listener.receiver.try_recv() {
                 let _ = event;
+            }
+            if *stop.borrow() {
+                return;
             }
             if let Err(e) = self.refresh().await {
                 tracing::warn!(error = %e, "can't derive the inbox");
@@ -498,6 +610,51 @@ impl Inbox {
     }
 }
 
+/// What one derivation knows besides the new items (d0090).
+struct Moment<'a> {
+    now: std::time::Instant,
+    /// Any app window is focused.
+    looking: bool,
+    /// The main switch.
+    enabled: bool,
+    permission: PermissionState,
+    /// Every item that waits now ([`notify::Held::presence`]): a held item not among them was answered.
+    waiting: &'a HashSet<String>,
+}
+
+/// What one derivation posts.
+#[derive(Debug, Default)]
+struct Decided {
+    posts: Vec<OsNotification>,
+    /// Something would have been posted, but macOS has Otaq's notifications turned off.
+    blocked: bool,
+}
+
+/// What goes out now (d0090): nothing while the user looks at Otaq or the switch is off (the new items are only
+/// remembered, and anything held is let go: those never notify later); nothing while macOS has notifications turned
+/// off (that is recorded); otherwise what the quiet period lets through: the end of a period first, then the new
+/// items.
+fn decide(pace: &mut Pace, moment: &Moment<'_>, fresh: Vec<Planned>) -> Decided {
+    if moment.looking || !moment.enabled {
+        pace.drop_held();
+        return Decided::default();
+    }
+    if moment.permission == PermissionState::TurnedOff {
+        let blocked = !fresh.is_empty() || pace.holds();
+        pace.drop_held();
+        return Decided {
+            posts: Vec::new(),
+            blocked,
+        };
+    }
+    let mut posts = pace.due(moment.now, moment.waiting);
+    posts.extend(pace.offer(moment.now, fresh));
+    Decided {
+        posts,
+        blocked: false,
+    }
+}
+
 /// Whether an event can change the needs-you set.
 fn touches_inbox(event: &Event) -> bool {
     matches!(
@@ -561,4 +718,389 @@ pub fn answer_text(
         ));
     }
     Ok(text)
+}
+
+#[cfg(test)]
+mod tests {
+    //! The notifications' pace in the inbox (T-0371, d0090), table-driven: each case is a script of moments (seconds
+    //! on a fake clock) with what changed, and what was posted when. Every moment runs the inbox's own path: the
+    //! settings' kinds ([`notify::plan`]), then [`decide`] (looking, the switch, macOS's permission, the quiet
+    //! period, the 3-at-once rule).
+
+    use std::time::Duration;
+
+    use super::*;
+    use crate::attention::notify::pace::{Clock, FakeClock, QUIET};
+    use crate::attention::notify::{Choices, ItemText};
+
+    #[derive(Debug, Clone)]
+    enum Change {
+        /// New items wait (`KEY:status`, e.g. `SHOP-1:asks`).
+        Wait(&'static [&'static str]),
+        /// These items were answered.
+        Answer(&'static [&'static str]),
+        /// The app window gained (true) or lost focus.
+        Look(bool),
+        /// The kind's checkbox.
+        Kind(Kind, bool),
+        /// The main switch.
+        Switch(bool),
+        /// macOS's permission as last read.
+        Permission(PermissionState),
+        /// Nothing changed: the inbox looks again (the run loop woke at the period's end).
+        Tick,
+    }
+
+    struct Case {
+        name: &'static str,
+        script: &'static [(u64, Change)],
+        /// (second, title) of everything posted, in order.
+        posted: &'static [(u64, &'static str)],
+        /// For the summaries: (title, body).
+        bodies: &'static [(&'static str, &'static str)],
+        blocked: bool,
+    }
+
+    fn status(word: &str) -> Status {
+        match word {
+            "asks" => Status::AsksYou,
+            "perm" => Status::NeedsYou,
+            "idle" => Status::Idle,
+            "int" => Status::Interrupted,
+            other => panic!("{other}"),
+        }
+    }
+
+    fn item(spec: &str, since: i64) -> NeedsYouItem {
+        let (key, word) = spec.split_once(':').unwrap();
+        let project = key.split('-').next().unwrap();
+        NeedsYouItem {
+            group: NeedsYouGroup::Family,
+            project: project.into(),
+            project_name: if project == "BILL" {
+                "billing-api".into()
+            } else {
+                "shop-web".into()
+            },
+            id: key.into(),
+            key: key.parse().unwrap(),
+            title: "Add a search box".into(),
+            status: status(word),
+            interrupted_from: None,
+            question: None,
+            reason: String::new(),
+            since,
+            age_ms: 0,
+            blocked: 0,
+            message: None,
+            suggestion: None,
+            lead_note: None,
+            change_agent: None,
+        }
+    }
+
+    /// Runs a case's script; returns (second, notification) for everything posted and whether a post was blocked.
+    fn run(case: &Case) -> (Vec<(u64, OsNotification)>, bool) {
+        let clock = FakeClock::new();
+        let mut pace = Pace::default();
+        let mut seen = HashSet::new();
+        let mut choices = Choices::default();
+        let mut items: Vec<NeedsYouItem> = Vec::new();
+        let (mut looking, mut permission, mut blocked) = (false, PermissionState::Allowed, false);
+        let mut posted = Vec::new();
+        let mut at = 0;
+        for (second, change) in case.script {
+            clock.advance(Duration::from_secs(second - at));
+            at = *second;
+            match change {
+                Change::Wait(specs) => items.extend(
+                    specs
+                        .iter()
+                        .map(|s| item(s, i64::try_from(*second).unwrap())),
+                ),
+                Change::Answer(keys) => items.retain(|i| !keys.contains(&i.id.as_str())),
+                Change::Look(on) => looking = *on,
+                Change::Kind(kind, on) => choices.kinds.set(*kind, *on),
+                Change::Switch(on) => choices.enabled = *on,
+                Change::Permission(state) => permission = *state,
+                Change::Tick => {}
+            }
+            let texts: HashMap<String, ItemText> = HashMap::new();
+            let fresh = notify::plan(&items, &texts, &mut seen, &choices);
+            let waiting: HashSet<String> = items.iter().map(notify::presence_of).collect();
+            let decided = decide(
+                &mut pace,
+                &Moment {
+                    now: clock.now(),
+                    looking,
+                    enabled: choices.enabled,
+                    permission,
+                    waiting: &waiting,
+                },
+                fresh,
+            );
+            blocked |= decided.blocked;
+            posted.extend(decided.posts.into_iter().map(|n| (*second, n)));
+        }
+        (posted, blocked)
+    }
+
+    const TWO_MIN: u64 = QUIET.as_secs();
+
+    const CASES: &[Case] = &[
+        Case {
+            name: "the first notification goes out at once",
+            script: &[(0, Change::Wait(&["SHOP-1:perm"]))],
+            posted: &[(0, "SHOP-1 needs permission")],
+            bodies: &[],
+            blocked: false,
+        },
+        Case {
+            name: "looking at the app: nothing posted, and nothing later when the user switches away",
+            script: &[
+                (0, Change::Look(true)),
+                (5, Change::Wait(&["SHOP-1:perm", "SHOP-2:asks"])),
+                (10, Change::Look(false)),
+                (TWO_MIN + 10, Change::Tick),
+                (TWO_MIN + 20, Change::Wait(&["SHOP-3:asks"])),
+            ],
+            posted: &[(TWO_MIN + 20, "SHOP-3 asks a question")],
+            bodies: &[],
+            blocked: false,
+        },
+        Case {
+            name: "four items in 90 s: one pop-up at 0:00, one summary at 2:00 with three keys per project",
+            script: &[
+                (0, Change::Wait(&["SHOP-1:perm"])),
+                (30, Change::Wait(&["SHOP-2:asks"])),
+                (60, Change::Wait(&["BILL-6:perm"])),
+                (90, Change::Wait(&["SHOP-3:idle"])),
+                (TWO_MIN - 1, Change::Tick),
+                (TWO_MIN, Change::Tick),
+            ],
+            posted: &[
+                (0, "SHOP-1 needs permission"),
+                (TWO_MIN, "3 more agents need you"),
+            ],
+            bodies: &[(
+                "3 more agents need you",
+                "shop-web: SHOP-2, SHOP-3 · billing-api: BILL-6",
+            )],
+            blocked: false,
+        },
+        Case {
+            name: "one held item goes out as itself at the end",
+            script: &[
+                (0, Change::Wait(&["SHOP-1:perm"])),
+                (45, Change::Wait(&["BILL-6:asks"])),
+                (TWO_MIN, Change::Tick),
+            ],
+            posted: &[
+                (0, "SHOP-1 needs permission"),
+                (TWO_MIN, "BILL-6 asks a question"),
+            ],
+            bodies: &[],
+            blocked: false,
+        },
+        Case {
+            name: "a held item answered meanwhile is dropped; the summary never names it",
+            script: &[
+                (0, Change::Wait(&["SHOP-1:perm"])),
+                (
+                    20,
+                    Change::Wait(&["SHOP-2:asks", "SHOP-3:asks", "SHOP-4:idle"]),
+                ),
+                (50, Change::Answer(&["SHOP-2"])),
+                (TWO_MIN, Change::Tick),
+            ],
+            posted: &[
+                (0, "SHOP-1 needs permission"),
+                (TWO_MIN, "2 more agents need you"),
+            ],
+            bodies: &[("2 more agents need you", "shop-web: SHOP-3, SHOP-4")],
+            blocked: false,
+        },
+        Case {
+            name: "every held item answered: nothing at the end, and the next one goes out at once",
+            script: &[
+                (0, Change::Wait(&["SHOP-1:perm"])),
+                (20, Change::Wait(&["SHOP-2:asks"])),
+                (40, Change::Answer(&["SHOP-2"])),
+                (TWO_MIN, Change::Tick),
+                (TWO_MIN + 5, Change::Wait(&["SHOP-5:asks"])),
+            ],
+            posted: &[
+                (0, "SHOP-1 needs permission"),
+                (TWO_MIN + 5, "SHOP-5 asks a question"),
+            ],
+            bodies: &[],
+            blocked: false,
+        },
+        Case {
+            name: "nothing held: nothing at the end of the period",
+            script: &[
+                (0, Change::Wait(&["SHOP-1:perm"])),
+                (TWO_MIN, Change::Tick),
+                (3 * TWO_MIN, Change::Tick),
+            ],
+            posted: &[(0, "SHOP-1 needs permission")],
+            bodies: &[],
+            blocked: false,
+        },
+        Case {
+            name: "after a summary a new period starts: the next item waits for its end",
+            script: &[
+                (0, Change::Wait(&["SHOP-1:perm"])),
+                (10, Change::Wait(&["SHOP-2:asks", "SHOP-3:asks"])),
+                (TWO_MIN, Change::Tick),
+                (TWO_MIN + 30, Change::Wait(&["SHOP-4:asks"])),
+                (2 * TWO_MIN - 1, Change::Tick),
+                (2 * TWO_MIN, Change::Tick),
+            ],
+            posted: &[
+                (0, "SHOP-1 needs permission"),
+                (TWO_MIN, "2 more agents need you"),
+                (2 * TWO_MIN, "SHOP-4 asks a question"),
+            ],
+            bodies: &[],
+            blocked: false,
+        },
+        Case {
+            name: "the 3-at-once rule still groups what goes out at once",
+            script: &[
+                (
+                    0,
+                    Change::Wait(&[
+                        "SHOP-1:int",
+                        "SHOP-2:int",
+                        "SHOP-3:int",
+                        "SHOP-4:int",
+                        "BILL-6:perm",
+                    ]),
+                ),
+                (10, Change::Wait(&["SHOP-5:asks"])),
+                (TWO_MIN, Change::Tick),
+            ],
+            posted: &[
+                (0, "4 agents need you"),
+                (0, "BILL-6 needs permission"),
+                (TWO_MIN, "SHOP-5 asks a question"),
+            ],
+            bodies: &[("4 agents need you", "SHOP-1, SHOP-2, SHOP-3, SHOP-4")],
+            blocked: false,
+        },
+        Case {
+            name: "a kind turned off: never, and not later when it is turned on",
+            script: &[
+                (0, Change::Kind(Kind::TurnEnded, false)),
+                (1, Change::Wait(&["SHOP-1:idle"])),
+                (5, Change::Kind(Kind::TurnEnded, true)),
+                (TWO_MIN, Change::Tick),
+                (TWO_MIN + 1, Change::Wait(&["SHOP-2:idle"])),
+            ],
+            posted: &[(TWO_MIN + 1, "SHOP-2 ended its turn")],
+            bodies: &[],
+            blocked: false,
+        },
+        Case {
+            name: "the user looks at the app during the period: the held items never notify",
+            script: &[
+                (0, Change::Wait(&["SHOP-1:perm"])),
+                (30, Change::Wait(&["SHOP-2:asks", "SHOP-3:asks"])),
+                (60, Change::Look(true)),
+                (90, Change::Look(false)),
+                (TWO_MIN, Change::Tick),
+            ],
+            posted: &[(0, "SHOP-1 needs permission")],
+            bodies: &[],
+            blocked: false,
+        },
+        Case {
+            name: "the main switch off: nothing, and nothing later when it is on again",
+            script: &[
+                (0, Change::Switch(false)),
+                (1, Change::Wait(&["SHOP-1:perm"])),
+                (2, Change::Switch(true)),
+                (TWO_MIN, Change::Tick),
+            ],
+            posted: &[],
+            bodies: &[],
+            blocked: false,
+        },
+        Case {
+            name: "macOS has notifications turned off: nothing posted, and the block is recorded",
+            script: &[
+                (0, Change::Permission(PermissionState::TurnedOff)),
+                (1, Change::Wait(&["SHOP-1:perm"])),
+            ],
+            posted: &[],
+            bodies: &[],
+            blocked: true,
+        },
+        Case {
+            name: "turned off with nothing to post: no block recorded",
+            script: &[
+                (0, Change::Permission(PermissionState::TurnedOff)),
+                (1, Change::Tick),
+            ],
+            posted: &[],
+            bodies: &[],
+            blocked: false,
+        },
+    ];
+
+    #[test]
+    fn the_pace_of_notifications() {
+        for case in CASES {
+            let (posted, blocked) = run(case);
+            let titles: Vec<(u64, &str)> = posted
+                .iter()
+                .map(|(at, n)| (*at, n.title.as_str()))
+                .collect();
+            assert_eq!(titles, case.posted, "{}", case.name);
+            for (title, body) in case.bodies {
+                let n = posted
+                    .iter()
+                    .map(|(_, n)| n)
+                    .find(|n| n.title == *title)
+                    .unwrap_or_else(|| panic!("{}: no {title}", case.name));
+                assert_eq!(n.body, *body, "{}", case.name);
+                assert_eq!(n.target, notify::Target::Inbox, "{}", case.name);
+            }
+            assert_eq!(blocked, case.blocked, "{}", case.name);
+        }
+    }
+
+    /// The summary sits in no project's thread; one held item keeps its own.
+    #[test]
+    fn the_summary_has_no_thread() {
+        let (posted, _) = run(&CASES[2]);
+        assert_eq!(posted[0].1.thread.as_deref(), Some("SHOP"));
+        assert_eq!(posted[1].1.thread, None);
+        let (posted, _) = run(&CASES[3]);
+        assert_eq!(posted[1].1.thread.as_deref(), Some("BILL"));
+    }
+
+    /// The inbox's run loop wakes at the end of a period only while something is held.
+    #[test]
+    fn the_run_loop_wakes_only_for_held_items() {
+        let clock = FakeClock::new();
+        let mut pace = Pace::default();
+        let planned = |key: &str| {
+            notify::plan(
+                &[item(&format!("{key}:asks"), 1)],
+                &HashMap::new(),
+                &mut HashSet::new(),
+                &Choices::default(),
+            )
+        };
+        assert_eq!(pace.offer(clock.now(), planned("SHOP-1")).len(), 1);
+        assert_eq!(pace.wake_at(), None, "nothing held");
+        clock.advance(Duration::from_secs(5));
+        assert!(pace.offer(clock.now(), planned("SHOP-2")).is_empty());
+        let start = clock.now() - Duration::from_secs(5);
+        assert_eq!(pace.wake_at(), Some(start + QUIET));
+        pace.drop_held();
+        assert_eq!(pace.wake_at(), None);
+    }
 }

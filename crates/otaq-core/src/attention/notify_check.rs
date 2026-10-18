@@ -14,8 +14,7 @@ pub fn run(say: &mut dyn FnMut(&str)) -> Result<(), String> {
         Ok(exe) => {
             let real = exe.canonicalize().unwrap_or(exe);
             say(&format!("Program: {}", real.display()));
-            let tmpdir = std::env::var_os("TMPDIR").map(PathBuf::from);
-            if in_temp_folder(&real, tmpdir.as_deref()) {
+            if in_temp_folder_now(&real) {
                 say(
                     "This bundle is in a temporary folder; macOS refuses notifications for apps there.",
                 );
@@ -24,6 +23,12 @@ pub fn run(say: &mut dyn FnMut(&str)) -> Result<(), String> {
         Err(e) => say(&format!("Program: unknown ({e})")),
     }
     imp::run(say)
+}
+
+/// Whether `path` is in a temporary folder, with this process's `$TMPDIR` ([`in_temp_folder`]).
+pub(crate) fn in_temp_folder_now(path: &Path) -> bool {
+    let tmpdir = std::env::var_os("TMPDIR").map(PathBuf::from);
+    in_temp_folder(path, tmpdir.as_deref())
 }
 
 /// Whether `path` is in a temporary folder (`/tmp`, `/var/folders`, `$TMPDIR`): LaunchServices marks an app there
