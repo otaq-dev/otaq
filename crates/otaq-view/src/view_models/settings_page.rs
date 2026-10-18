@@ -24,6 +24,7 @@ use otaq_core::scheduler::SchedulerStatus;
 use otaq_core::tools::ToolsReport;
 use otaq_core::warm::clone::CloneSupport;
 use otaq_core::warm::store::{WarmBuildInfo, WarmList};
+use otaq_core::workflow_skills::{SkillKind, SkillStatus, copy_missing};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -163,15 +164,118 @@ pub struct RadioChoice {
     pub detail: String,
 }
 
-/// A workflow skill's field.
+/// One workflow step's row on Settings → Workflow skills (WSK-01, WSK-02, WSK-04, WSK-07; d0092; *15 → update AC*):
+/// the step, the skill's name with its tag, where it came from and when, the lines under it, the button and the ⋯
+/// menu. The page keeps only the menu's open state, the dialogs and the folder picker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SettingsSkillRow")]
 pub struct SkillRow {
+    /// `workflow_skills.open_pr`: the row's button carries its DOM id ("use your own Open PR skill" focuses it).
     pub field: String,
+    #[ts(type = "\"commit\" | \"push\" | \"open_pr\" | \"validate\"")]
+    pub step: WorkflowStep,
     pub label: String,
-    pub value: String,
-    pub placeholder: String,
-    pub problem: Option<String>,
+    /// `my-commit`, `otaq:commit`, a typed `/my-commit`.
+    pub name: String,
+    /// Drawn in the secondary colour: a step on "Use global", or a typed name.
+    pub name_muted: bool,
+    pub tag: SkillTag,
+    /// The original folder, in mono after the folder icon (an imported skill).
+    pub folder: Option<String>,
+    /// "· imported today, 10:42", "Otaq's default", "Global: imported from ~/team-skills/my-commit".
+    pub source: String,
+    pub lines: Vec<SkillLine>,
+    /// Import skill folder… or Re-import; none while the copy is missing (Import again is in its line).
+    pub button: Option<SkillButton>,
+    /// The ⋯ menu; empty: no ⋯.
+    pub menu: Vec<SkillMenuItem>,
+    /// "More for Commit".
+    pub menu_label: String,
+    /// The folder picker's title.
+    pub picker_title: String,
+    /// Asked before Re-import.
+    pub reimport: Option<SkillDialog>,
+    /// Asked before Use built-in / Use global, only when the service answers `needs_confirmation`.
+    pub reset: Option<SkillDialog>,
+}
+
+/// How a tag or a line under a skill looks: quiet, amber (`st-paused`) or red (`st-error`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "SettingsSkillLook")]
+pub enum SkillLook {
+    Quiet,
+    Warning,
+    Error,
+}
+
+/// Built-in, Imported, Use global, Not imported (amber), Skill missing (red).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SettingsSkillTag")]
+pub struct SkillTag {
+    pub label: String,
+    pub look: SkillLook,
+}
+
+/// A line under the skill: a refused import (red), a missing file (amber), the original gone, the copy note.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SettingsSkillLine")]
+pub struct SkillLine {
+    pub icon: IconName,
+    pub text: String,
+    pub look: SkillLook,
+    /// "Import again" after "Skill missing ·".
+    pub link: Option<SkillButton>,
+}
+
+/// What a skill row's button, link or menu item does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "SettingsSkillAction")]
+pub enum SkillAction {
+    /// The folder picker, then `settings.skill_import` (Import skill folder…, Import a different folder…, Import
+    /// again when the original is gone).
+    Import,
+    /// Asks [`SkillRow::reimport`], then `settings.skill_reimport`.
+    Reimport,
+    /// Import again with the original there: `settings.skill_reimport` at once (the copy is gone or broken).
+    ImportAgain,
+    /// Otaq's copy in the file manager (`settings.reveal`).
+    Reveal,
+    /// Use built-in / Use global: `settings.skill_reset`, asking [`SkillRow::reset`] when the service says so.
+    Reset,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SettingsSkillButton")]
+pub struct SkillButton {
+    pub label: String,
+    pub icon: Option<IconName>,
+    pub action: SkillAction,
+    /// Re-import with the original gone (the reason is a line under the skill).
+    pub disabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SettingsSkillMenuItem")]
+pub struct SkillMenuItem {
+    pub action: SkillAction,
+    pub label: String,
+    pub icon: IconName,
+    /// A separator above it.
+    pub separated: bool,
+}
+
+/// Re-import's question (accent button) or going back with an edited copy (red button).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SettingsSkillDialog")]
+pub struct SkillDialog {
+    pub title: String,
+    pub text: String,
+    /// The grey note with the history icon.
+    pub note: String,
+    pub confirm: String,
+    pub destructive: bool,
 }
 
 /// One env file, its field `env_files.<index>`.
@@ -271,9 +375,12 @@ pub enum Control {
         destructive: bool,
         action: ButtonAction,
     },
-    /// Read-only until the import rows (d0092): each step's skill by name.
+    /// The workflow skills (WSK-01; d0092), one row per step across the page's width under `heading`; `hint` is
+    /// the dot-folder line under them (macOS only).
     Skills {
+        heading: String,
         rows: Vec<SkillRow>,
+        hint: Option<String>,
     },
     /// ↵ in the last field adds a file (`env_files.add`); × removes one (`env_files.remove`).
     EnvFiles {
@@ -524,6 +631,8 @@ pub struct GlobalInputs<'a> {
     pub os: Os,
     /// What the OS allows Otaq's notifications (`notifications.state`); `Unknown` when it couldn't be read.
     pub notification_permission: PermissionState,
+    /// The Workflow skills rows' statuses (`workflow_skills.status`).
+    pub skills: SkillInputs<'a>,
 }
 
 /// What a project page is built from.
@@ -538,6 +647,8 @@ pub struct ProjectInputs<'a> {
     pub project_agent: &'a str,
     /// An agent tool is connected: Run command's Ask the agent is hidden only without one (RUN-02, d0086).
     pub tool_connected: bool,
+    /// The Workflow skills rows' statuses, the project's and the global page's (`workflow_skills.status`).
+    pub skills: SkillInputs<'a>,
 }
 
 /// What the warm build switch is drawn from.
@@ -778,28 +889,26 @@ pub fn global_page(input: &GlobalInputs) -> Page {
         )],
     );
 
-    let skills = section(
-        GlobalSection::WorkflowSkills,
-        Some("Workflow skills"),
-        vec![row(
-            "",
-            "Workflow skills",
-            "Default skills for Commit, Push, Open PR and Validate (0063). Projects can override each one.",
-            Control::Skills {
-                rows: WorkflowStep::ALL
-                    .into_iter()
-                    .map(|step| {
-                        skill_row(
-                            step,
-                            s.workflow_skills.get(step),
-                            &step.own_default(),
-                            input.problems,
-                        )
-                    })
-                    .collect(),
-            },
-        )],
-    );
+    let skill_statuses = statuses_of(input.skills.statuses, |step| {
+        status_of(step, s.workflow_skills.get(step))
+    });
+    let skills = Section {
+        intro: Some(
+            "Commit, Push, Open PR and Validate follow these skills. Import a skill folder (its SKILL.md and the files \
+             it uses) to replace one with your own. Projects can override each step."
+                .into(),
+        ),
+        ..section(
+            GlobalSection::WorkflowSkills,
+            None,
+            vec![row(
+                "",
+                "Workflow skills",
+                "",
+                skills_control("Steps", &skill_statuses, None, &input.skills),
+            )],
+        )
+    };
 
     let validation = section(
         GlobalSection::Validation,
@@ -1121,25 +1230,441 @@ fn auto_merge_radio(own: Option<AutoMerge>, global: AutoMerge, note: Option<Stri
     }
 }
 
-fn skill_row(
-    step: WorkflowStep,
-    setting: &SkillSetting,
-    placeholder: &str,
-    problems: &[SettingProblem],
-) -> SkillRow {
-    let field = format!("workflow_skills.{}", step.field());
-    let value = match setting {
-        SkillSetting::Imported(skill) => skill.name.clone(),
-        SkillSetting::Legacy(name) => name.clone(),
-        SkillSetting::BuiltIn | SkillSetting::UseGlobal => String::new(),
-    };
-    SkillRow {
-        problem: problem_for(problems, &field),
-        field,
-        label: step_label(step).to_owned(),
-        value,
-        placeholder: placeholder.to_owned(),
+/// What the Workflow skills rows are drawn from besides the settings (`workflow_skills.status`, WSK-01).
+#[derive(Clone, Copy)]
+pub struct SkillInputs<'a> {
+    /// The page's statuses in step order; empty when they couldn't be read (the rows then follow the settings).
+    pub statuses: &'a [SkillStatus],
+    /// On a project page, the global page's statuses: what "Use global" follows (empty: from the settings).
+    pub global: &'a [SkillStatus],
+    /// The last import or Re-import the service refused, written under its step (WSK-02).
+    pub refused: Option<&'a SkillRefusal>,
+    pub os: Os,
+    /// For "imported today, 10:42".
+    pub now: i64,
+}
+
+impl SkillInputs<'_> {
+    /// No statuses read: the rows follow the settings.
+    pub fn none(os: Os) -> SkillInputs<'static> {
+        SkillInputs {
+            statuses: &[],
+            global: &[],
+            refused: None,
+            os,
+            now: 0,
+        }
     }
+}
+
+/// An import or Re-import the service refused (`bad_skill_folder`, `original_not_found`…): nothing changed, and
+/// the reason is the red line under the step.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkillRefusal {
+    pub step: WorkflowStep,
+    /// The folder that was checked (the picked one, or the original on Re-import).
+    pub folder: Option<String>,
+    /// The service's text ("The folder has no SKILL.md").
+    pub message: String,
+}
+
+/// The built-in as the rows name it: `otaq:commit`.
+fn built_in_name(step: WorkflowStep) -> String {
+    step.own_default().trim_start_matches('/').to_owned()
+}
+
+/// A setting as a status, when the statuses couldn't be read: an imported skill counts as present and its
+/// original as there.
+fn status_of(step: WorkflowStep, setting: &SkillSetting) -> SkillStatus {
+    let mut status = SkillStatus {
+        step,
+        kind: SkillKind::BuiltIn,
+        name: None,
+        original: None,
+        original_exists: false,
+        imported_at: None,
+        copy: None,
+        copy_ok: false,
+        copy_problem: None,
+        edited: false,
+        warnings: Vec::new(),
+    };
+    match setting {
+        SkillSetting::BuiltIn => {}
+        SkillSetting::UseGlobal => status.kind = SkillKind::UseGlobal,
+        SkillSetting::Legacy(name) => {
+            status.kind = SkillKind::Legacy;
+            status.name = Some(name.clone());
+        }
+        SkillSetting::Imported(skill) => {
+            status.kind = SkillKind::Imported;
+            status.name = Some(skill.name.clone());
+            status.original = Some(skill.original.clone());
+            status.original_exists = true;
+            status.imported_at = Some(skill.imported_at);
+            status.copy_ok = true;
+            status.warnings.clone_from(&skill.warnings);
+        }
+    }
+    status
+}
+
+/// Each step's status: the one read, else the setting's.
+fn statuses_of(
+    read: &[SkillStatus],
+    settings: impl Fn(WorkflowStep) -> SkillStatus,
+) -> Vec<SkillStatus> {
+    WorkflowStep::ALL
+        .into_iter()
+        .map(|step| {
+            read.iter()
+                .find(|s| s.step == step)
+                .cloned()
+                .unwrap_or_else(|| settings(step))
+        })
+        .collect()
+}
+
+/// "today, 10:42" on the day it was imported, else "Oct 12".
+fn imported_when(at: i64, now: i64) -> String {
+    use crate::view_models::clock::{local_hhmm, month_day};
+    use otaq_core::local_time::local;
+    match (local(at), local(now)) {
+        (Some(t), Some(n)) if (t.year, t.month, t.day) == (n.year, n.month, n.day) => {
+            format!("today, {}", local_hhmm(at))
+        }
+        (Some(t), _) => month_day(&t),
+        (None, _) => "at an unknown time".to_owned(),
+    }
+}
+
+/// The red line of a refused import, in the frames' words (*Checks when importing (§2)*): "Not imported: ~/x has
+/// no SKILL.md.", "Not imported: the front matter at the top of ~/x/SKILL.md can't be read.", else the service's
+/// reason after "Not imported: ".
+pub fn refusal_line(refusal: &SkillRefusal) -> String {
+    let folder = refusal.folder.as_deref().map(tilde);
+    let message = refusal.message.trim_end_matches('.');
+    match folder {
+        Some(folder) if message == "The folder has no SKILL.md" => {
+            format!("Not imported: {folder} has no SKILL.md.")
+        }
+        Some(folder) if message.starts_with("SKILL.md's front matter can't be read") => {
+            format!("Not imported: the front matter at the top of {folder}/SKILL.md can't be read.")
+        }
+        _ if message.ends_with(':') => format!("Not imported: {message}"),
+        _ => format!("Not imported: {message}."),
+    }
+}
+
+/// "Show Otaq's copy in Finder", as each OS calls its file manager (*The ⋯ menu on an imported skill*).
+fn show_copy_label(os: Os) -> String {
+    let manager = match os {
+        Os::Mac => "Finder",
+        Os::Windows => "Explorer",
+        Os::Linux => "the file manager",
+    };
+    format!("Show {PRODUCT_NAME}\u{2019}s copy in {manager}")
+}
+
+/// The dot-folder hint under the list, macOS only (the macOS picker hides dot folders).
+pub fn dot_folder_hint(os: Os) -> Option<String> {
+    (os == Os::Mac).then(|| {
+        "Skill in a dot folder such as .claude? The macOS folder picker hides them: press \u{2318}\u{21e7}. in the \
+         picker to show them."
+            .to_owned()
+    })
+}
+
+/// The project page's Workflow skills intro (*Project · shop-web overrides Open PR*).
+const PROJECT_SKILLS_INTRO: &str = "Settings for this project only. A step on \u{201c}Use global\u{201d} follows Settings \u{2192} Workflow skills.";
+
+const IMPORT_FOLDER: &str = "Import skill folder\u{2026}";
+const IMPORT_DIFFERENT: &str = "Import a different folder\u{2026}";
+
+/// The Workflow skills control: one row per step. `global` is `Some` on a project page: the global page's
+/// statuses, which a step on "Use global" follows.
+fn skills_control(
+    heading: &str,
+    statuses: &[SkillStatus],
+    global: Option<&[SkillStatus]>,
+    input: &SkillInputs,
+) -> Control {
+    Control::Skills {
+        heading: heading.to_owned(),
+        rows: statuses
+            .iter()
+            .map(|status| {
+                let follows = global.and_then(|g| g.iter().find(|s| s.step == status.step));
+                skill_row(status, global.is_some(), follows, input)
+            })
+            .collect(),
+        hint: dot_folder_hint(input.os),
+    }
+}
+
+/// The skill a step on "Use global" runs, as the project's row names it: the global's imported name, else the
+/// built-in (a typed global name uses the built-in, WSK-07).
+fn global_name(step: WorkflowStep, global: Option<&SkillStatus>) -> (String, Option<String>) {
+    match global {
+        Some(g) if g.kind == SkillKind::Imported => (
+            g.name.clone().unwrap_or_default(),
+            g.original.as_deref().map(tilde),
+        ),
+        _ => (built_in_name(step), None),
+    }
+}
+
+/// One step's row (*15 → update AC §1–§3*).
+fn skill_row(
+    status: &SkillStatus,
+    project: bool,
+    global: Option<&SkillStatus>,
+    input: &SkillInputs,
+) -> SkillRow {
+    let step = status.step;
+    let label = step_label(step);
+    let built_in = built_in_name(step);
+    let tag = |label: &str, look| SkillTag {
+        label: label.to_owned(),
+        look,
+    };
+    let button = |label: &str, icon, action, disabled| SkillButton {
+        label: label.to_owned(),
+        icon: Some(icon),
+        action,
+        disabled,
+    };
+    let item = |action, label: String, icon, separated| SkillMenuItem {
+        action,
+        label,
+        icon,
+        separated,
+    };
+    let line = |icon, text: String, look| SkillLine {
+        icon,
+        text,
+        look,
+        link: None,
+    };
+    let back = if project {
+        "Use global".to_owned()
+    } else {
+        format!("Use built-in ({built_in})")
+    };
+    let mut lines = Vec::new();
+    if let Some(refused) = input.refused.filter(|r| r.step == step) {
+        lines.push(line(
+            IconName::CircleAlert,
+            refusal_line(refused),
+            SkillLook::Error,
+        ));
+    }
+    let import = button(
+        IMPORT_FOLDER,
+        IconName::FolderInput,
+        SkillAction::Import,
+        false,
+    );
+    let mut row = SkillRow {
+        field: format!("workflow_skills.{}", step.field()),
+        step,
+        label: label.to_owned(),
+        name: built_in.clone(),
+        name_muted: false,
+        tag: tag("Built-in", SkillLook::Quiet),
+        folder: None,
+        source: format!("{PRODUCT_NAME}\u{2019}s default"),
+        lines: Vec::new(),
+        button: Some(import.clone()),
+        menu: Vec::new(),
+        menu_label: format!("More for {label}"),
+        picker_title: IMPORT_FOLDER.trim_end_matches('\u{2026}').to_owned(),
+        reimport: None,
+        reset: None,
+    };
+    match status.kind {
+        // Q211: a project step stored as Otaq's own reads as the built-in; Use global takes it back to the global.
+        SkillKind::BuiltIn => {
+            if project {
+                row.menu = vec![item(SkillAction::Reset, back, IconName::RotateCcw, false)];
+            }
+        }
+        SkillKind::UseGlobal => {
+            let (name, original) = global_name(step, global);
+            row.name = name;
+            row.name_muted = true;
+            row.tag = tag("Use global", SkillLook::Quiet);
+            row.source = match original {
+                Some(original) => format!("Global: imported from {original}"),
+                None => format!("Global: {PRODUCT_NAME}\u{2019}s default"),
+            };
+        }
+        SkillKind::Legacy => {
+            row.name = status.name.clone().unwrap_or_default();
+            row.name_muted = true;
+            row.tag = tag("Not imported", SkillLook::Warning);
+            row.source = "Typed name from an earlier version".into();
+            let until = if project {
+                let (name, _) = global_name(step, global);
+                format!(
+                    "Import its folder, or pick Use global. Until then {label} uses the global skill ({name})."
+                )
+            } else {
+                format!(
+                    "Import its folder to use it. Until then {label} uses the built-in {built_in}."
+                )
+            };
+            lines.push(line(IconName::Info, until, SkillLook::Quiet));
+            if project {
+                row.menu = vec![item(SkillAction::Reset, back, IconName::RotateCcw, false)];
+            }
+        }
+        SkillKind::Imported => {
+            let name = status.name.clone().unwrap_or_default();
+            let original = status.original.as_deref().map(tilde).unwrap_or_default();
+            let copy = status
+                .copy
+                .as_deref()
+                .map(|c| tilde(&c.display().to_string()))
+                .unwrap_or_default();
+            row.name.clone_from(&name);
+            row.folder = Some(original.clone());
+            row.source = match status.imported_at {
+                Some(at) => format!("\u{b7} imported {}", imported_when(at, input.now)),
+                None => String::new(),
+            };
+            row.tag = tag("Imported", SkillLook::Quiet);
+            let copy_note = line(
+                IconName::Info,
+                format!(
+                    "{PRODUCT_NAME} uses its own copy. Changes to the original apply after Re-import."
+                ),
+                SkillLook::Quiet,
+            );
+            if status.copy_ok {
+                lines.extend(status.warnings.iter().map(|w| {
+                    line(
+                        IconName::TriangleAlert,
+                        format!("Imported, but {}.", w.trim_end_matches('.')),
+                        SkillLook::Warning,
+                    )
+                }));
+                if !status.original_exists {
+                    lines.push(line(
+                        IconName::FolderX,
+                        format!(
+                            "Original not found at {original}, so Re-import is unavailable. {PRODUCT_NAME}\u{2019}s \
+                             copy keeps working; {IMPORT_DIFFERENT} in the \u{22ef} menu points it at the new place."
+                        ),
+                        SkillLook::Quiet,
+                    ));
+                }
+                lines.push(copy_note);
+                row.button = Some(button(
+                    "Re-import",
+                    IconName::RefreshCw,
+                    SkillAction::Reimport,
+                    !status.original_exists,
+                ));
+            } else {
+                // WSK-04: the copy is missing or broken, so the step runs the built-in until Import again works.
+                row.tag = tag("Skill missing", SkillLook::Error);
+                let again = if status.original_exists {
+                    SkillAction::ImportAgain
+                } else {
+                    SkillAction::Import
+                };
+                lines.push(SkillLine {
+                    link: Some(SkillButton {
+                        label: "Import again".into(),
+                        icon: None,
+                        action: again,
+                        disabled: false,
+                    }),
+                    ..line(
+                        IconName::CircleAlert,
+                        "Skill missing \u{b7}".into(),
+                        SkillLook::Error,
+                    )
+                });
+                lines.push(line(
+                    IconName::Info,
+                    format!(
+                        "{PRODUCT_NAME}\u{2019}s copy in {copy} is missing or broken. Agents use the built-in \
+                         {built_in} meanwhile."
+                    ),
+                    SkillLook::Quiet,
+                ));
+                row.button = None;
+            }
+            // Show Otaq's copy only while there is a folder to show (a broken copy, not a missing one).
+            let copy_there = status.copy.is_some()
+                && status.copy_problem.as_deref() != Some(copy_missing().as_str());
+            row.menu = [
+                copy_there.then(|| {
+                    item(
+                        SkillAction::Reveal,
+                        show_copy_label(input.os),
+                        IconName::FolderOpen,
+                        false,
+                    )
+                }),
+                Some(item(
+                    SkillAction::Import,
+                    IMPORT_DIFFERENT.to_owned(),
+                    IconName::FolderInput,
+                    false,
+                )),
+                Some(item(SkillAction::Reset, back, IconName::RotateCcw, true)),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            row.reimport = Some(SkillDialog {
+                title: format!("Re-import {name}?"),
+                text: format!(
+                    "{PRODUCT_NAME} replaces its copy with the folder at {original}. Sessions already running keep \
+                     the copy they started with; the next launch uses the new one."
+                ),
+                note: format!("Edits made to {PRODUCT_NAME}\u{2019}s copy in {copy} are lost."),
+                confirm: "Re-import".into(),
+                destructive: false,
+            });
+            row.reset = Some(if project {
+                let (global, _) = global_name(step, global);
+                SkillDialog {
+                    title: format!("Use the global {global}?"),
+                    text: format!(
+                        "{label} goes back to the global skill and {PRODUCT_NAME}\u{2019}s copy of {name} is \
+                         deleted. The original at {original} isn\u{2019}t touched."
+                    ),
+                    note: format!(
+                        "{PRODUCT_NAME}\u{2019}s copy has edits that aren\u{2019}t in the original. Going back to \
+                         the global skill deletes them."
+                    ),
+                    confirm: "Use global".into(),
+                    destructive: true,
+                }
+            } else {
+                SkillDialog {
+                    title: format!("Use the built-in {built_in}?"),
+                    text: format!(
+                        "{label} goes back to {PRODUCT_NAME}\u{2019}s built-in skill and {PRODUCT_NAME}\u{2019}s \
+                         copy of {name} is deleted. The original at {original} isn\u{2019}t touched."
+                    ),
+                    note: format!(
+                        "{PRODUCT_NAME}\u{2019}s copy has edits that aren\u{2019}t in the original. Going back to \
+                         the built-in deletes them."
+                    ),
+                    confirm: "Use built-in".into(),
+                    destructive: true,
+                }
+            });
+        }
+    }
+    // A refused import on a row with an imported skill: its red line first, the skill's own lines after.
+    row.lines = lines;
+    row
 }
 
 pub fn project_page(input: &ProjectInputs) -> Page {
@@ -1202,21 +1727,30 @@ pub fn project_page(input: &ProjectInputs) -> Page {
             ),
         )],
     );
-    let skills = section(
-        ProjectSection::WorkflowSkills,
-        None,
-        vec![row(
-            "",
-            "Workflow skills",
-            "Commit, Push, Open PR and Validate run these skills. Replace one with your own (e.g. /my-pr). Empty = the global default.",
-            Control::Skills {
-                rows: WorkflowStep::ALL
-                    .into_iter()
-                    .map(|step| skill_row(step, s.workflow_skills.get(step), "Use global", p))
-                    .collect(),
-            },
-        )],
-    );
+    let skill_statuses = statuses_of(input.skills.statuses, |step| {
+        status_of(step, s.workflow_skills.get(step))
+    });
+    let global_statuses = statuses_of(input.skills.global, |step| {
+        status_of(step, input.global.workflow_skills.get(step))
+    });
+    let skills = Section {
+        intro: Some(PROJECT_SKILLS_INTRO.to_owned()),
+        ..section(
+            ProjectSection::WorkflowSkills,
+            None,
+            vec![row(
+                "",
+                "Workflow skills",
+                "",
+                skills_control(
+                    "Workflow skills",
+                    &skill_statuses,
+                    Some(&global_statuses),
+                    &input.skills,
+                ),
+            )],
+        )
+    };
     let project_agents = section(
         ProjectSection::ProjectAgentInstructions,
         None,
@@ -1793,6 +2327,7 @@ pub fn notifications_gallery() -> NotificationsGallery {
                 cleanup_count: 0,
                 os: Os::Mac,
                 notification_permission: permission,
+                skills: SkillInputs::none(Os::Mac),
             };
             let Page::Global { sections, .. } = global_page(&input) else {
                 unreachable!("the global page")
@@ -1807,6 +2342,239 @@ pub fn notifications_gallery() -> NotificationsGallery {
         })
         .collect();
     NotificationsGallery { banners, pages }
+}
+
+/// *15 → update AC* for the gallery (T-0380): Settings → Workflow skills, global and per project, in every state
+/// the frames draw, with the frames' samples (`~/team-skills/my-commit`, shop-web's `.claude/skills/my-pr`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "WorkflowSkillsGallery")]
+pub struct WorkflowSkillsGallery {
+    pub cells: Vec<WorkflowSkillsCell>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "WorkflowSkillsCell")]
+pub struct WorkflowSkillsCell {
+    pub name: String,
+    /// The section as its page draws it: the global page's, or a project's (`project`).
+    pub section: Section<String>,
+    pub project: Option<String>,
+}
+
+pub fn workflow_skills_gallery() -> WorkflowSkillsGallery {
+    use otaq_core::naming::data_dir_name;
+    let home = std::env::home_dir().unwrap_or_default();
+    let at = |rest: &str| home.join(rest).display().to_string();
+    let now = 1_760_000_000_000;
+    let blank = |step| status_of(step, &SkillSetting::BuiltIn);
+    let imported = |step, name: &str, original: &str, ago: i64| SkillStatus {
+        kind: SkillKind::Imported,
+        name: Some(name.to_owned()),
+        original: Some(at(original)),
+        original_exists: true,
+        imported_at: Some(now - ago),
+        copy: Some(home.join(format!("{}/skills/{name}", data_dir_name()))),
+        copy_ok: true,
+        ..blank(step)
+    };
+    let commit = || {
+        imported(
+            WorkflowStep::Commit,
+            "my-commit",
+            "team-skills/my-commit",
+            0,
+        )
+    };
+    let page = |statuses: Vec<SkillStatus>| -> Vec<SkillStatus> { statuses_of(&statuses, blank) };
+    let global_section = |statuses: Vec<SkillStatus>, refused: Option<SkillRefusal>| {
+        let statuses = page(statuses);
+        let input = SkillInputs {
+            statuses: &statuses,
+            global: &[],
+            refused: refused.as_ref(),
+            os: Os::Mac,
+            now,
+        };
+        let Page::Global { sections, .. } = global_page(&GlobalInputs {
+            settings: &GlobalSettings::default(),
+            problems: &[],
+            scheduler: None,
+            data: None,
+            cleanup_count: 0,
+            os: Os::Mac,
+            notification_permission: PermissionState::Unknown,
+            skills: input,
+        }) else {
+            unreachable!()
+        };
+        sections
+            .into_iter()
+            .find(|s| s.id == GlobalSection::WorkflowSkills)
+            .map(|s| Section {
+                id: "workflow_skills".to_owned(),
+                title: s.title,
+                intro: s.intro,
+                rows: s.rows,
+                note: s.note,
+            })
+            .expect("the Workflow skills section")
+    };
+    let project_section = |statuses: Vec<SkillStatus>, global: Vec<SkillStatus>| {
+        let (statuses, global) = (page(statuses), page(global));
+        let all_global = |step| status_of(step, &SkillSetting::UseGlobal);
+        let statuses = statuses
+            .into_iter()
+            .map(|s| {
+                if s.kind == SkillKind::BuiltIn {
+                    all_global(s.step)
+                } else {
+                    s
+                }
+            })
+            .collect::<Vec<_>>();
+        let input = SkillInputs {
+            statuses: &statuses,
+            global: &global,
+            refused: None,
+            os: Os::Mac,
+            now,
+        };
+        Section {
+            id: "workflow_skills".to_owned(),
+            title: None,
+            intro: Some(PROJECT_SKILLS_INTRO.to_owned()),
+            rows: vec![row(
+                "",
+                "Workflow skills",
+                "",
+                skills_control("Workflow skills", &statuses, Some(&global), &input),
+            )],
+            note: None,
+        }
+    };
+    let refused = |message: &str, folder: &str| SkillRefusal {
+        step: WorkflowStep::Commit,
+        folder: Some(at(folder)),
+        message: message.to_owned(),
+    };
+    let cell = |name: &str, section, project: Option<&str>| WorkflowSkillsCell {
+        name: name.to_owned(),
+        section,
+        project: project.map(str::to_owned),
+    };
+    WorkflowSkillsGallery {
+        cells: vec![
+            cell(
+                "Global · built-in (fresh install)",
+                global_section(Vec::new(), None),
+                None,
+            ),
+            cell(
+                "Global · Commit imported",
+                global_section(vec![commit()], None),
+                None,
+            ),
+            cell(
+                "Project · shop-web overrides Open PR",
+                project_section(
+                    vec![imported(
+                        WorkflowStep::OpenPr,
+                        "my-pr",
+                        "code/shop-web/.claude/skills/my-pr",
+                        9 * 60_000,
+                    )],
+                    vec![commit()],
+                ),
+                Some("SHOP"),
+            ),
+            cell(
+                "§2 A · the folder has no SKILL.md",
+                global_section(
+                    Vec::new(),
+                    Some(refused(
+                        "The folder has no SKILL.md",
+                        "team-skills/commit-helpers",
+                    )),
+                ),
+                None,
+            ),
+            cell(
+                "§2 B · the front matter can't be read",
+                global_section(
+                    Vec::new(),
+                    Some(refused(
+                        "SKILL.md's front matter can't be read: line 3 isn't key: value",
+                        "team-skills/my-commit",
+                    )),
+                ),
+                None,
+            ),
+            cell(
+                "§2 C · files it mentions are missing (warning, imported)",
+                global_section(
+                    vec![SkillStatus {
+                        warnings: vec![
+                            "SKILL.md mentions scripts/check-staged.sh, which isn't in the folder"
+                                .into(),
+                        ],
+                        ..commit()
+                    }],
+                    None,
+                ),
+                None,
+            ),
+            cell(
+                "§3 A · original moved or deleted",
+                global_section(
+                    vec![SkillStatus {
+                        original_exists: false,
+                        ..commit()
+                    }],
+                    None,
+                ),
+                None,
+            ),
+            cell(
+                &format!("§3 B · {PRODUCT_NAME}'s copy missing or broken"),
+                global_section(
+                    vec![SkillStatus {
+                        copy_ok: false,
+                        copy_problem: Some(copy_missing()),
+                        ..imported(
+                            WorkflowStep::Commit,
+                            "my-commit",
+                            "team-skills/my-commit",
+                            6 * 24 * 3_600_000,
+                        )
+                    }],
+                    None,
+                ),
+                None,
+            ),
+            cell(
+                "§3 C · a setting from before 0092 (a typed name)",
+                global_section(
+                    vec![status_of(
+                        WorkflowStep::Commit,
+                        &SkillSetting::Legacy("/my-commit".into()),
+                    )],
+                    None,
+                ),
+                None,
+            ),
+            cell(
+                "§3 D · project: a typed override from before 0092",
+                project_section(
+                    vec![status_of(
+                        WorkflowStep::OpenPr,
+                        &SkillSetting::Legacy("/my-pr".into()),
+                    )],
+                    Vec::new(),
+                ),
+                Some("SHOP"),
+            ),
+        ],
+    }
 }
 
 /// *15 → Row · Start new worktrees from a warm build (0082)* and the dark frame's Linux state for the gallery
@@ -2488,6 +3256,7 @@ mod tests {
             cleanup_count: 0,
             os: Os::Mac,
             notification_permission: PermissionState::Unknown,
+            skills: SkillInputs::none(Os::Mac),
         };
         match global_page(&input) {
             Page::Global { sections, .. } => sections,
@@ -2505,6 +3274,7 @@ mod tests {
             cleanup_count: 0,
             os: Os::Mac,
             notification_permission: permission,
+            skills: SkillInputs::none(Os::Mac),
         };
         let Page::Global { sections, .. } = global_page(&input) else {
             unreachable!()
@@ -2713,48 +3483,740 @@ mod tests {
         assert!(nav[11].alert);
     }
 
-    /// Until the import rows (d0092): each step's skill read-only, an imported one by its `name:`, a typed name
-    /// from before as typed, the built-in as Otaq's own.
-    #[test]
-    fn workflow_skill_rows_name_the_skill() {
-        let mut s = GlobalSettings::default();
-        s.workflow_skills.commit = SkillSetting::Legacy("/my-commit".into());
-        s.workflow_skills.push =
-            SkillSetting::Imported(Box::new(otaq_core::workflow_skills::ImportedSkill {
-                id: "0199".into(),
-                name: "team-push".into(),
-                original: "/tmp/m27/team-skills/team-push".into(),
-                imported_at: 1,
-                fingerprint: String::new(),
-                warnings: Vec::new(),
-            }));
-        let sections = global(&s);
-        let skills = sections
-            .iter()
+    // ---- Settings → Workflow skills (T-0380; WSK-01, WSK-02, WSK-04, WSK-07; *15 → update AC*) ----
+
+    const SKILL_NOW: i64 = 1_760_000_000_000;
+
+    /// A text with Otaq's names written as `<P>` (the product), `<N>` (the plugin namespace) and `<D>` (the data
+    /// folder), so the expected texts below name nothing outside `naming` (d0028).
+    fn unfill(text: &str) -> String {
+        text.replace(&naming::data_dir_name(), "<D>")
+            .replace(PRODUCT_NAME, "<P>")
+            .replace(&format!("{}:", naming::PLUGIN_NAMESPACE), "<N>:")
+    }
+
+    /// Every text of a row, through [`unfill`].
+    fn unfill_row(mut row: SkillRow) -> SkillRow {
+        let dialog = |d: &mut SkillDialog| {
+            for t in [&mut d.title, &mut d.text, &mut d.note, &mut d.confirm] {
+                *t = unfill(t);
+            }
+        };
+        row.name = unfill(&row.name);
+        row.source = unfill(&row.source);
+        row.folder = row.folder.as_deref().map(unfill);
+        for line in &mut row.lines {
+            line.text = unfill(&line.text);
+        }
+        for item in &mut row.menu {
+            item.label = unfill(&item.label);
+        }
+        row.reimport.as_mut().map(dialog);
+        row.reset.as_mut().map(dialog);
+        row
+    }
+
+    fn home(rest: &str) -> String {
+        std::env::home_dir()
+            .unwrap_or_default()
+            .join(rest)
+            .display()
+            .to_string()
+    }
+
+    fn built(step: WorkflowStep) -> SkillStatus {
+        status_of(step, &SkillSetting::BuiltIn)
+    }
+
+    /// `my-commit` imported from `~/team-skills/my-commit` at SKILL_NOW, its copy in `~/.otaq/skills/c1`.
+    fn my_commit() -> SkillStatus {
+        SkillStatus {
+            kind: SkillKind::Imported,
+            name: Some("my-commit".into()),
+            original: Some(home("team-skills/my-commit")),
+            original_exists: true,
+            imported_at: Some(SKILL_NOW),
+            copy: Some(home(&format!("{}/skills/c1", naming::data_dir_name())).into()),
+            copy_ok: true,
+            ..built(WorkflowStep::Commit)
+        }
+    }
+
+    fn skill_inputs<'a>(
+        statuses: &'a [SkillStatus],
+        global: &'a [SkillStatus],
+        refused: Option<&'a SkillRefusal>,
+        os: Os,
+    ) -> SkillInputs<'a> {
+        SkillInputs {
+            statuses,
+            global,
+            refused,
+            os,
+            now: SKILL_NOW,
+        }
+    }
+
+    /// The global page's Workflow skills section with `statuses` (the other steps built-in).
+    fn skills_section(
+        statuses: Vec<SkillStatus>,
+        refused: Option<&SkillRefusal>,
+        os: Os,
+    ) -> Section<GlobalSection> {
+        let statuses = statuses_of(&statuses, built);
+        let Page::Global { sections, .. } = global_page(&GlobalInputs {
+            settings: &GlobalSettings::default(),
+            problems: &[],
+            scheduler: None,
+            data: None,
+            cleanup_count: 0,
+            os,
+            notification_permission: PermissionState::Unknown,
+            skills: skill_inputs(&statuses, &[], refused, os),
+        }) else {
+            unreachable!()
+        };
+        sections
+            .into_iter()
             .find(|s| s.id == GlobalSection::WorkflowSkills)
-            .unwrap();
-        let Control::Skills { rows } = &skills.rows[0].control else {
+            .expect("the Workflow skills section")
+    }
+
+    fn skills_of(control: &Control) -> (&str, &[SkillRow], Option<&str>) {
+        let Control::Skills {
+            heading,
+            rows,
+            hint,
+        } = control
+        else {
             panic!("the skills control")
         };
-        let shown: Vec<(&str, &str, &str)> = rows
+        (heading, rows, hint.as_deref())
+    }
+
+    fn global_rows(statuses: Vec<SkillStatus>, refused: Option<&SkillRefusal>) -> Vec<SkillRow> {
+        skills_of(&skills_section(statuses, refused, Os::Mac).rows[0].control)
+            .1
             .iter()
-            .map(|r| (r.label.as_str(), r.value.as_str(), r.placeholder.as_str()))
-            .collect();
-        let open_pr = WorkflowStep::OpenPr.own_default();
-        let validate = WorkflowStep::Validate.own_default();
-        let (commit, push) = (
-            WorkflowStep::Commit.own_default(),
-            WorkflowStep::Push.own_default(),
+            .cloned()
+            .map(unfill_row)
+            .collect()
+    }
+
+    /// shop-web's page with `own` (the other steps on Use global) and the global page's `global`.
+    fn skill_project_rows(own: Vec<SkillStatus>, global: Vec<SkillStatus>) -> Vec<SkillRow> {
+        let own = statuses_of(&own, |step| status_of(step, &SkillSetting::UseGlobal));
+        let global = statuses_of(&global, built);
+        let Page::Project { sections, .. } = project_page(&ProjectInputs {
+            info: &info(),
+            settings: &ProjectSettings::default(),
+            problems: &[],
+            global: &GlobalSettings::default(),
+            warm: None,
+            project_agent: "Strong",
+            tool_connected: true,
+            skills: skill_inputs(&own, &global, None, Os::Mac),
+        }) else {
+            unreachable!()
+        };
+        let section = sections
+            .into_iter()
+            .find(|s| s.id == ProjectSection::WorkflowSkills)
+            .unwrap();
+        assert_eq!(section.intro.as_deref(), Some(PROJECT_SKILLS_INTRO));
+        let (heading, rows, _) = skills_of(&section.rows[0].control);
+        assert_eq!(heading, "Workflow skills");
+        rows.iter().cloned().map(unfill_row).collect()
+    }
+
+    fn texts(row: &SkillRow) -> Vec<(SkillLook, &str)> {
+        row.lines
+            .iter()
+            .map(|l| (l.look, l.text.as_str()))
+            .collect()
+    }
+
+    fn menu_of(row: &SkillRow) -> Vec<(SkillAction, &str, bool)> {
+        row.menu
+            .iter()
+            .map(|m| (m.action, m.label.as_str(), m.separated))
+            .collect()
+    }
+
+    const COPY_NOTE: &str = "<P> uses its own copy. Changes to the original apply after Re-import.";
+
+    /// *Global · built-in (fresh install)*: the intro, "Steps", a row per step on the built-in with Import skill
+    /// folder… and no ⋯, and the dot-folder hint on macOS only; the rows follow the settings when no status was read.
+    #[test]
+    fn workflow_skills_fresh_install_rows_are_built_in() {
+        let section = skills_section(Vec::new(), None, Os::Mac);
+        assert_eq!(section.title, None);
+        assert_eq!(
+            section.intro.as_deref(),
+            Some(
+                "Commit, Push, Open PR and Validate follow these skills. Import a skill folder (its SKILL.md and the \
+                 files it uses) to replace one with your own. Projects can override each step."
+            )
         );
+        let (heading, rows, hint) = skills_of(&section.rows[0].control);
+        assert_eq!(heading, "Steps");
+        assert_eq!(
+            hint,
+            Some(
+                "Skill in a dot folder such as .claude? The macOS folder picker hides them: press \u{2318}\u{21e7}. \
+                 in the picker to show them."
+            )
+        );
+        let unfilled: Vec<SkillRow> = rows.iter().cloned().map(unfill_row).collect();
+        let shown: Vec<_> = unfilled
+            .iter()
+            .map(|r| {
+                (
+                    r.label.as_str(),
+                    r.name.as_str(),
+                    r.tag.label.as_str(),
+                    r.source.as_str(),
+                )
+            })
+            .collect();
         assert_eq!(
             shown,
             [
-                ("Commit", "/my-commit", commit.as_str()),
-                ("Push", "team-push", push.as_str()),
-                ("Open PR", "", open_pr.as_str()),
-                ("Validate", "", validate.as_str()),
+                ("Commit", "<N>:commit", "Built-in", "<P>\u{2019}s default"),
+                ("Push", "<N>:push", "Built-in", "<P>\u{2019}s default"),
+                ("Open PR", "<N>:open-pr", "Built-in", "<P>\u{2019}s default"),
+                (
+                    "Validate",
+                    "<N>:validate",
+                    "Built-in",
+                    "<P>\u{2019}s default"
+                ),
             ]
         );
+        for row in rows {
+            let button = row.button.as_ref().unwrap();
+            assert_eq!(
+                (
+                    button.label.as_str(),
+                    button.icon,
+                    button.action,
+                    button.disabled
+                ),
+                (
+                    "Import skill folder\u{2026}",
+                    Some(IconName::FolderInput),
+                    SkillAction::Import,
+                    false
+                )
+            );
+            assert!(row.menu.is_empty() && row.lines.is_empty() && row.folder.is_none());
+            assert!(row.reimport.is_none() && row.reset.is_none());
+        }
+        assert_eq!(rows[2].field, "workflow_skills.open_pr");
+        // The same page from the settings alone (no status read).
+        let from_settings = global(&GlobalSettings::default());
+        let ws = from_settings
+            .iter()
+            .find(|s| s.id == GlobalSection::WorkflowSkills)
+            .unwrap();
+        assert_eq!(skills_of(&ws.rows[0].control).1, rows);
+    }
+
+    /// The dot-folder hint is macOS only.
+    #[test]
+    fn workflow_skills_dot_folder_hint_is_macos_only() {
+        for (os, shown) in [(Os::Mac, true), (Os::Windows, false), (Os::Linux, false)] {
+            let section = skills_section(Vec::new(), None, os);
+            assert_eq!(
+                skills_of(&section.rows[0].control).2.is_some(),
+                shown,
+                "{os:?}"
+            );
+        }
+    }
+
+    /// *Global · Commit imported*: the name with Imported, the original and when, the copy note, Re-import and
+    /// the ⋯ menu (Show Otaq's copy in Finder, Import a different folder…, a separator, Use built-in (otaq:commit)).
+    #[test]
+    fn workflow_skills_imported_row() {
+        let rows = global_rows(vec![my_commit()], None);
+        let r = &rows[0];
+        assert_eq!((r.name.as_str(), r.name_muted), ("my-commit", false));
+        assert_eq!(
+            r.tag,
+            SkillTag {
+                label: "Imported".into(),
+                look: SkillLook::Quiet
+            }
+        );
+        assert_eq!(
+            r.folder.as_deref(),
+            Some(tilde(&home("team-skills/my-commit")).as_str())
+        );
+        assert_eq!(
+            r.source,
+            format!(
+                "\u{b7} imported today, {}",
+                crate::view_models::clock::local_hhmm(SKILL_NOW)
+            )
+        );
+        assert_eq!(texts(r), [(SkillLook::Quiet, COPY_NOTE)]);
+        assert_eq!(r.lines[0].icon, IconName::Info);
+        let button = r.button.as_ref().unwrap();
+        assert_eq!(
+            (
+                button.label.as_str(),
+                button.icon,
+                button.action,
+                button.disabled
+            ),
+            (
+                "Re-import",
+                Some(IconName::RefreshCw),
+                SkillAction::Reimport,
+                false
+            )
+        );
+        assert_eq!(r.menu_label, "More for Commit");
+        assert_eq!(
+            menu_of(r),
+            [
+                (
+                    SkillAction::Reveal,
+                    "Show <P>\u{2019}s copy in Finder",
+                    false
+                ),
+                (
+                    SkillAction::Import,
+                    "Import a different folder\u{2026}",
+                    false
+                ),
+                (SkillAction::Reset, "Use built-in (<N>:commit)", true),
+            ]
+        );
+        assert_eq!(
+            r.menu.iter().map(|m| m.icon).collect::<Vec<_>>(),
+            [
+                IconName::FolderOpen,
+                IconName::FolderInput,
+                IconName::RotateCcw
+            ]
+        );
+        // The other steps stay on the built-in.
+        assert_eq!(rows[1].tag.label, "Built-in");
+    }
+
+    /// Both dialogs' texts (*Re-import asks first*, *Going back to the built-in*): the accent Re-import, the red Use
+    /// built-in; a project's reset goes back to the global skill.
+    #[test]
+    fn workflow_skills_dialogs() {
+        let rows = global_rows(vec![my_commit()], None);
+        let (original, copy) = (
+            tilde(&home("team-skills/my-commit")),
+            tilde(&home("<D>/skills/c1")),
+        );
+        assert_eq!(
+            rows[0].reimport,
+            Some(SkillDialog {
+                title: "Re-import my-commit?".into(),
+                text: format!(
+                    "<P> replaces its copy with the folder at {original}. Sessions already running keep the copy \
+                     they started with; the next launch uses the new one."
+                ),
+                note: format!("Edits made to <P>\u{2019}s copy in {copy} are lost."),
+                confirm: "Re-import".into(),
+                destructive: false,
+            })
+        );
+        assert_eq!(
+            rows[0].reset,
+            Some(SkillDialog {
+                title: "Use the built-in <N>:commit?".into(),
+                text: format!(
+                    "Commit goes back to <P>\u{2019}s built-in skill and <P>\u{2019}s copy of my-commit is deleted. \
+                     The original at {original} isn\u{2019}t touched."
+                ),
+                note: "<P>\u{2019}s copy has edits that aren\u{2019}t in the original. Going back to the built-in \
+                       deletes them."
+                    .into(),
+                confirm: "Use built-in".into(),
+                destructive: true,
+            })
+        );
+        let project = skill_project_rows(vec![my_commit()], Vec::new());
+        let reset = project[0].reset.as_ref().unwrap();
+        assert_eq!(reset.title, "Use the global <N>:commit?");
+        assert_eq!(reset.confirm, "Use global");
+        assert!(reset.destructive);
+        assert!(
+            reset
+                .note
+                .ends_with("Going back to the global skill deletes them.")
+        );
+    }
+
+    /// §2 C: files the SKILL.md mentions that aren't in the folder are an amber line on the imported row, above the
+    /// copy note.
+    #[test]
+    fn workflow_skills_imported_with_a_warning() {
+        let rows = global_rows(
+            vec![SkillStatus {
+                warnings: vec![
+                    "SKILL.md mentions scripts/check-staged.sh, which isn't in the folder".into(),
+                ],
+                ..my_commit()
+            }],
+            None,
+        );
+        assert_eq!(
+            texts(&rows[0]),
+            [
+                (
+                    SkillLook::Warning,
+                    "Imported, but SKILL.md mentions scripts/check-staged.sh, which isn't in the folder."
+                ),
+                (SkillLook::Quiet, COPY_NOTE),
+            ]
+        );
+        assert_eq!(rows[0].lines[0].icon, IconName::TriangleAlert);
+        assert_eq!(rows[0].tag.label, "Imported");
+    }
+
+    /// §3 A: the original moved or deleted: Re-import disabled with the reason under the skill, pointing to Import a
+    /// different folder…; the copy keeps working.
+    #[test]
+    fn workflow_skills_original_gone() {
+        let rows = global_rows(
+            vec![SkillStatus {
+                original_exists: false,
+                ..my_commit()
+            }],
+            None,
+        );
+        let r = &rows[0];
+        let original = tilde(&home("team-skills/my-commit"));
+        assert_eq!(
+            texts(r),
+            [
+                (
+                    SkillLook::Quiet,
+                    format!(
+                        "Original not found at {original}, so Re-import is unavailable. <P>\u{2019}s copy keeps \
+                         working; Import a different folder\u{2026} in the \u{22ef} menu points it at the new place."
+                    )
+                    .as_str()
+                ),
+                (SkillLook::Quiet, COPY_NOTE),
+            ]
+        );
+        assert_eq!(r.lines[0].icon, IconName::FolderX);
+        let button = r.button.as_ref().unwrap();
+        assert_eq!(
+            (button.action, button.disabled),
+            (SkillAction::Reimport, true)
+        );
+        assert_eq!(r.tag.label, "Imported");
+        assert_eq!(menu_of(r)[1].0, SkillAction::Import);
+    }
+
+    /// §3 B: Otaq's copy missing or broken: the red tag and line with Import again (Re-import from the original, or
+    /// the picker when the original is gone too), no button; Show Otaq's copy only while its folder is there.
+    #[test]
+    fn workflow_skills_skill_missing() {
+        let missing = SkillStatus {
+            copy_ok: false,
+            copy_problem: Some(copy_missing()),
+            ..my_commit()
+        };
+        let rows = global_rows(vec![missing.clone()], None);
+        let r = &rows[0];
+        assert_eq!(
+            r.tag,
+            SkillTag {
+                label: "Skill missing".into(),
+                look: SkillLook::Error
+            }
+        );
+        assert!(r.button.is_none());
+        let copy = tilde(&home("<D>/skills/c1"));
+        assert_eq!(
+            texts(r),
+            [
+                (SkillLook::Error, "Skill missing \u{b7}"),
+                (
+                    SkillLook::Quiet,
+                    format!(
+                        "<P>\u{2019}s copy in {copy} is missing or broken. Agents use the built-in <N>:commit \
+                         meanwhile."
+                    )
+                    .as_str()
+                ),
+            ]
+        );
+        let link = r.lines[0].link.as_ref().unwrap();
+        assert_eq!(
+            (link.label.as_str(), link.action),
+            ("Import again", SkillAction::ImportAgain)
+        );
+        assert_eq!(
+            menu_of(r).iter().map(|m| m.0).collect::<Vec<_>>(),
+            [SkillAction::Import, SkillAction::Reset]
+        );
+        // The original gone too: Import again opens the picker.
+        let rows = global_rows(
+            vec![SkillStatus {
+                original_exists: false,
+                ..missing
+            }],
+            None,
+        );
+        assert_eq!(
+            rows[0].lines[0].link.as_ref().unwrap().action,
+            SkillAction::Import
+        );
+        // A broken copy (its folder is there): Show Otaq's copy stays.
+        let rows = global_rows(
+            vec![SkillStatus {
+                copy_ok: false,
+                copy_problem: Some("SKILL.md's front matter has no name:".into()),
+                ..my_commit()
+            }],
+            None,
+        );
+        assert_eq!(rows[0].tag.label, "Skill missing");
+        assert_eq!(rows[0].menu[0].action, SkillAction::Reveal);
+    }
+
+    /// §3 C: a global typed name from before 0092: "Not imported" in amber, Import skill folder…, and the step uses
+    /// the built-in until then.
+    #[test]
+    fn workflow_skills_legacy_global() {
+        let rows = global_rows(
+            vec![status_of(
+                WorkflowStep::Commit,
+                &SkillSetting::Legacy("/my-commit".into()),
+            )],
+            None,
+        );
+        let r = &rows[0];
+        assert_eq!((r.name.as_str(), r.name_muted), ("/my-commit", true));
+        assert_eq!(
+            r.tag,
+            SkillTag {
+                label: "Not imported".into(),
+                look: SkillLook::Warning
+            }
+        );
+        assert_eq!(r.source, "Typed name from an earlier version");
+        assert_eq!(
+            texts(r),
+            [(
+                SkillLook::Quiet,
+                "Import its folder to use it. Until then Commit uses the built-in <N>:commit."
+            )]
+        );
+        assert_eq!(r.button.as_ref().unwrap().action, SkillAction::Import);
+        assert!(r.menu.is_empty());
+    }
+
+    /// §3 D: a project's typed name follows the global skill, named (the built-in, or the global's import); its ⋯
+    /// offers Use global.
+    #[test]
+    fn workflow_skills_legacy_project() {
+        let legacy = || status_of(WorkflowStep::OpenPr, &SkillSetting::Legacy("/my-pr".into()));
+        let rows = skill_project_rows(vec![legacy()], Vec::new());
+        let r = &rows[2];
+        assert_eq!(
+            (r.name.as_str(), r.tag.label.as_str()),
+            ("/my-pr", "Not imported")
+        );
+        assert_eq!(
+            texts(r),
+            [(
+                SkillLook::Quiet,
+                "Import its folder, or pick Use global. Until then Open PR uses the global skill (<N>:open-pr)."
+            )]
+        );
+        assert_eq!(menu_of(r), [(SkillAction::Reset, "Use global", false)]);
+        let team_pr = SkillStatus {
+            step: WorkflowStep::OpenPr,
+            name: Some("team-pr".into()),
+            ..my_commit()
+        };
+        let rows = skill_project_rows(vec![legacy()], vec![team_pr]);
+        assert!(
+            rows[2].lines[0]
+                .text
+                .ends_with("Until then Open PR uses the global skill (team-pr).")
+        );
+    }
+
+    /// *Project · shop-web overrides Open PR*: steps on Use global name what the global runs (its import, or Otaq's
+    /// default); the project's own import offers Use global last in its ⋯.
+    #[test]
+    fn workflow_skills_project_page() {
+        let my_pr = SkillStatus {
+            step: WorkflowStep::OpenPr,
+            name: Some("my-pr".into()),
+            original: Some(home("code/shop-web/.claude/skills/my-pr")),
+            ..my_commit()
+        };
+        let rows = skill_project_rows(vec![my_pr], vec![my_commit()]);
+        let shown: Vec<_> = rows
+            .iter()
+            .map(|r| {
+                (
+                    r.name.as_str(),
+                    r.name_muted,
+                    r.tag.label.as_str(),
+                    r.source.as_str(),
+                )
+            })
+            .collect();
+        let global_source = format!(
+            "Global: imported from {}",
+            tilde(&home("team-skills/my-commit"))
+        );
+        assert_eq!(
+            shown[0],
+            ("my-commit", true, "Use global", global_source.as_str())
+        );
+        assert_eq!(
+            shown[1],
+            (
+                "<N>:push",
+                true,
+                "Use global",
+                "Global: <P>\u{2019}s default"
+            )
+        );
+        assert_eq!(shown[2].0, "my-pr");
+        assert_eq!(shown[2].2, "Imported");
+        assert_eq!(rows[0].button.as_ref().unwrap().action, SkillAction::Import);
+        assert!(rows[0].menu.is_empty());
+        assert_eq!(
+            menu_of(&rows[2]).last(),
+            Some(&(SkillAction::Reset, "Use global", true))
+        );
+        // A global typed name: Use global follows the built-in (WSK-07).
+        let rows = skill_project_rows(
+            Vec::new(),
+            vec![status_of(
+                WorkflowStep::Commit,
+                &SkillSetting::Legacy("/my-commit".into()),
+            )],
+        );
+        assert_eq!(rows[0].name, "<N>:commit");
+        // Q211: a project step stored as Otaq's own reads as the built-in; its ⋯ goes back to Use global.
+        let rows = skill_project_rows(vec![built(WorkflowStep::Push)], Vec::new());
+        assert_eq!(rows[1].tag.label, "Built-in");
+        assert_eq!(
+            menu_of(&rows[1]),
+            [(SkillAction::Reset, "Use global", false)]
+        );
+    }
+
+    /// §2 A/B: a refused import is the red line under its step in the frames' words; the step keeps what it had.
+    #[test]
+    fn workflow_skills_refusals() {
+        let refused = |message: &str| SkillRefusal {
+            step: WorkflowStep::Commit,
+            folder: Some(home("team-skills/commit-helpers")),
+            message: message.into(),
+        };
+        let helpers = tilde(&home("team-skills/commit-helpers"));
+        assert_eq!(
+            refusal_line(&refused("The folder has no SKILL.md")),
+            format!("Not imported: {helpers} has no SKILL.md.")
+        );
+        assert_eq!(
+            refusal_line(&refused(
+                "SKILL.md's front matter can't be read: line 3 isn't key: value"
+            )),
+            format!(
+                "Not imported: the front matter at the top of {helpers}/SKILL.md can't be read."
+            )
+        );
+        assert_eq!(
+            refusal_line(&refused("SKILL.md's front matter has no name:")),
+            "Not imported: SKILL.md's front matter has no name:"
+        );
+        assert_eq!(
+            refusal_line(&refused("Original not found: /x")),
+            "Not imported: Original not found: /x."
+        );
+        let no_skill = refused("The folder has no SKILL.md");
+        let rows = global_rows(Vec::new(), Some(&no_skill));
+        assert_eq!(rows[0].tag.label, "Built-in");
+        assert_eq!(
+            texts(&rows[0]),
+            [(
+                SkillLook::Error,
+                format!("Not imported: {helpers} has no SKILL.md.").as_str()
+            )]
+        );
+        assert_eq!(rows[0].lines[0].icon, IconName::CircleAlert);
+        assert!(rows[1].lines.is_empty());
+        // On an imported skill (Import a different folder… refused): the red line first, the skill unchanged.
+        let rows = global_rows(vec![my_commit()], Some(&no_skill));
+        assert_eq!(rows[0].name, "my-commit");
+        assert_eq!(rows[0].lines[0].look, SkillLook::Error);
+        assert_eq!(rows[0].lines[1].text, COPY_NOTE);
+    }
+
+    /// The file manager's name per OS in the ⋯ menu.
+    #[test]
+    fn workflow_skills_show_copy_per_os() {
+        assert_eq!(
+            unfill(&show_copy_label(Os::Windows)),
+            "Show <P>\u{2019}s copy in Explorer"
+        );
+        assert_eq!(
+            unfill(&show_copy_label(Os::Linux)),
+            "Show <P>\u{2019}s copy in the file manager"
+        );
+    }
+
+    /// "today, 10:42" on the import's day, else the day: "Oct 12".
+    #[test]
+    fn workflow_skills_import_time() {
+        let day = 24 * 3_600_000;
+        assert_eq!(
+            imported_when(SKILL_NOW, SKILL_NOW),
+            format!(
+                "today, {}",
+                crate::view_models::clock::local_hhmm(SKILL_NOW)
+            )
+        );
+        let earlier = otaq_core::local_time::local(SKILL_NOW - 6 * day).unwrap();
+        assert_eq!(
+            imported_when(SKILL_NOW - 6 * day, SKILL_NOW),
+            crate::view_models::clock::month_day(&earlier)
+        );
+    }
+
+    /// The gallery has every state of update AC.
+    #[test]
+    fn workflow_skills_gallery_has_every_state() {
+        let gallery = workflow_skills_gallery();
+        assert_eq!(gallery.cells.len(), 10);
+        let tags: Vec<String> = gallery
+            .cells
+            .iter()
+            .flat_map(|c| match &c.section.rows[0].control {
+                Control::Skills { rows, .. } => rows.iter().map(|r| r.tag.label.clone()).collect(),
+                _ => Vec::new(),
+            })
+            .collect();
+        for tag in [
+            "Built-in",
+            "Imported",
+            "Use global",
+            "Not imported",
+            "Skill missing",
+        ] {
+            assert!(tags.iter().any(|t| t == tag), "{tag}");
+        }
     }
 
     /// The project's Agents block (AGT-03, `mQijC` in its one-tool form).
@@ -2989,6 +4451,7 @@ mod tests {
             warm: None,
             project_agent: "Claude Code",
             tool_connected: true,
+            skills: SkillInputs::none(Os::Mac),
         }) else {
             panic!()
         };
@@ -3226,6 +4689,7 @@ mod tests {
             cleanup_count: 2,
             os: Os::Linux,
             notification_permission: PermissionState::Unknown,
+            skills: SkillInputs::none(Os::Mac),
         };
         let Page::Global { sections, .. } = global_page(&input) else {
             unreachable!()
@@ -3328,6 +4792,7 @@ mod tests {
             warm: None,
             project_agent: "Strong",
             tool_connected: true,
+            skills: SkillInputs::none(Os::Mac),
         });
         let Page::Project {
             title, sections, ..
@@ -3358,6 +4823,7 @@ mod tests {
             warm: None,
             project_agent: "Strong",
             tool_connected: false,
+            skills: SkillInputs::none(Os::Mac),
         });
         let Page::Project { sections, .. } = page else {
             panic!()
@@ -3454,6 +4920,7 @@ mod tests {
             warm: None,
             project_agent: "Claude Code",
             tool_connected: true,
+            skills: SkillInputs::none(Os::Mac),
         }) else {
             panic!()
         };
@@ -3730,6 +5197,7 @@ mod tests {
             }),
             project_agent: "Claude Code",
             tool_connected: true,
+            skills: SkillInputs::none(Os::Mac),
         }) else {
             panic!()
         };

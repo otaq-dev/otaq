@@ -3,7 +3,7 @@
 //! `otaq_view::view_models::settings_page`) and gets the fresh view back. The slow parts load on their own: the
 //! tools check, the PR provider, the branches. Everything is stored by the service, never in a repository.
 
-use otaq_core::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
+use otaq_core::board::settings::{GlobalSettings, ProjectSettings, SettingProblem, WorkflowStep};
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::agent_tools::Tool;
 use otaq_core::board::Refusal;
@@ -11,8 +11,9 @@ use otaq_core::named_agents::AgentList;
 use otaq_core::protocol::{
     AgentDefaultParams, AgentEditParams, AutoFallbackParams, IdParams, KeyParams, ModelsParams,
     ProjectAgentDefaultParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply,
-    Request, SkillScopeParams,
+    Request, SkillImportParams, SkillResetParams, SkillScopeParams, SkillSettingParams,
 };
+use otaq_core::workflow_skills::SkillStatus;
 use otaq_view::view_models::about;
 use otaq_view::view_models::editor_fields::base_choices;
 use otaq_view::view_models::licenses;
@@ -20,7 +21,8 @@ use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::named_agents;
 use otaq_view::view_models::settings::data_paths;
 use otaq_view::view_models::settings_page::{
-    self as page, GlobalInputs, Os, ProjectChange, ProjectInputs, Reveal, WarmInputs,
+    self as page, GlobalInputs, Os, ProjectChange, ProjectInputs, Reveal, SkillInputs, SkillRefusal,
+    WarmInputs,
 };
 use otaq_view::view_models::warm_build;
 use otaq_view::icons::IconName;
@@ -35,7 +37,45 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
     match method {
         "settings.view" => {
             let p: SettingsOpen = parse(params)?;
-            reply(&view(app, p.project.as_deref()).await?)
+            reply(&view(app, p.project.as_deref(), None).await?)
+        }
+        // Settings → Workflow skills (T-0380; WSK-01, WSK-02, WSK-04): each answers with the fresh view, a refusal
+        // written under its step, or asks first.
+        "settings.skill_import" => {
+            let p: SkillImport = parse(params)?;
+            let folder = p.folder.clone();
+            let request = Request::WorkflowSkillsImport(SkillImportParams {
+                setting: SkillSettingParams {
+                    project: p.project.clone(),
+                    step: p.step,
+                },
+                folder: folder.clone().into(),
+            });
+            reply(&skill_outcome(app, p.project.as_deref(), p.step, Some(folder), request).await?)
+        }
+        "settings.skill_reimport" => {
+            let p: SkillStep = parse(params)?;
+            let request = Request::WorkflowSkillsReimport(SkillSettingParams {
+                project: p.project.clone(),
+                step: p.step,
+            });
+            let original = skill_statuses(app, p.project.as_deref())
+                .await
+                .into_iter()
+                .find(|s| s.step == p.step)
+                .and_then(|s| s.original);
+            reply(&skill_outcome(app, p.project.as_deref(), p.step, original, request).await?)
+        }
+        "settings.skill_reset" => {
+            let p: SkillReset = parse(params)?;
+            let request = Request::WorkflowSkillsReset(SkillResetParams {
+                setting: SkillSettingParams {
+                    project: p.project.clone(),
+                    step: p.step,
+                },
+                confirmed: p.confirmed,
+            });
+            reply(&skill_outcome(app, p.project.as_deref(), p.step, None, request).await?)
         }
         "settings.edit" => edit(app, parse(params)?).await,
         "settings.tools" => reply(&page::tools(match app.service.send(Request::ToolsCheck).await {
@@ -58,7 +98,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             app.service
                 .send(Request::ProjectRemove(KeyParams { key: p.project }))
                 .await?;
-            reply(&view(app, None).await?)
+            reply(&view(app, None, None).await?)
         }
         // Settings → Agents and the project's Agents block (T-0340; AGT-01…AGT-03).
         "settings.agents" => {
@@ -188,6 +228,46 @@ pub struct SettingsProject {
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct SettingsLink {
     pub url: String,
+}
+
+/// `settings.skill_import`: the folder the picker chose for `step` (WSK-01).
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct SkillImport {
+    #[serde(default)]
+    pub project: Option<String>,
+    #[ts(type = "\"commit\" | \"push\" | \"open_pr\" | \"validate\"")]
+    pub step: WorkflowStep,
+    pub folder: String,
+}
+
+/// `settings.skill_reimport`: Re-import, or Import again with the original there (WSK-04).
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct SkillStep {
+    #[serde(default)]
+    pub project: Option<String>,
+    #[ts(type = "\"commit\" | \"push\" | \"open_pr\" | \"validate\"")]
+    pub step: WorkflowStep,
+}
+
+/// `settings.skill_reset`: Use built-in / Use global; `confirmed` once the page asked (WSK-04).
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct SkillReset {
+    #[serde(default)]
+    pub project: Option<String>,
+    #[ts(type = "\"commit\" | \"push\" | \"open_pr\" | \"validate\"")]
+    pub step: WorkflowStep,
+    #[serde(default)]
+    pub confirmed: bool,
+}
+
+/// How a Workflow skills action went: the fresh view (with a refusal under its step, if any), or "ask first"
+/// (Otaq's copy has edits: the row's reset dialog).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+#[ts(rename = "SkillOutcome")]
+pub enum SkillOutcome {
+    Done { view: Box<page::View> },
+    Confirm,
 }
 
 #[derive(Debug, Clone, Deserialize, TS)]
@@ -522,8 +602,53 @@ async fn project_settings(
     }
 }
 
-/// The nav and the page: the global page, or `project`'s page.
-async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestError> {
+/// The workflow skills' statuses of the global page (`project` none) or a project's; none when they can't be read
+/// (the rows then follow the settings).
+async fn skill_statuses(app: &App, project: Option<&str>) -> Vec<SkillStatus> {
+    let request = Request::WorkflowSkillsStatus(SkillScopeParams {
+        project: project.map(str::to_owned),
+    });
+    match app.service.send(request).await {
+        Ok(Reply::WorkflowSkills(list)) => list,
+        _ => Vec::new(),
+    }
+}
+
+/// Sends an import, a Re-import or a reset and answers with the fresh view. A refusal (`bad_skill_folder`,
+/// `original_not_found`…) changed nothing: the view with its reason under the step (`folder`: what was checked).
+/// `needs_confirmation`: the page asks first, with the row's dialog.
+async fn skill_outcome(
+    app: &App,
+    project: Option<&str>,
+    step: WorkflowStep,
+    folder: Option<String>,
+    request: Request,
+) -> Result<SkillOutcome, RequestError> {
+    let refused = match app.service.send(request).await {
+        Ok(_) => None,
+        Err(e) if e.refusal.as_deref() == Some(Refusal::NeedsConfirmation.as_str()) => {
+            return Ok(SkillOutcome::Confirm);
+        }
+        Err(e) if e.refusal.is_some() => Some(SkillRefusal {
+            step,
+            folder,
+            message: e.message,
+        }),
+        Err(e) => return Err(e),
+    };
+    let view = view(app, project, refused.as_ref()).await?;
+    Ok(SkillOutcome::Done {
+        view: Box::new(view),
+    })
+}
+
+/// The nav and the page: the global page, or `project`'s page; `refused` is a refused skill import to write under
+/// its step.
+async fn view(
+    app: &App,
+    project: Option<&str>,
+    refused: Option<&SkillRefusal>,
+) -> Result<page::View, RequestError> {
     let (settings, problems) = global(app).await?;
     let list = projects(app).await?;
     // The nav marks the projects with a flagged value.
@@ -551,6 +676,9 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
                 Ok(list) => list.tools.iter().any(|t| t.state.is_connected()),
                 Err(_) => true,
             };
+            // Settings → Workflow skills: the project's steps and the global ones they may follow (WSK-07).
+            let skills = skill_statuses(app, Some(&info.key)).await;
+            let global_skills = skill_statuses(app, None).await;
             page::project_page(&ProjectInputs {
                 info: &info,
                 settings: &p_settings,
@@ -562,6 +690,13 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
                 }),
                 project_agent: &project_agent,
                 tool_connected,
+                skills: SkillInputs {
+                    statuses: &skills,
+                    global: &global_skills,
+                    refused,
+                    os: Os::current(),
+                    now: otaq_core::store::now_ms(),
+                },
             })
         }
         None => {
@@ -578,6 +713,7 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
                 Ok(Reply::NotificationsState(state)) => state.permission,
                 _ => otaq_core::attention::notify::PermissionState::Unknown,
             };
+            let skills = skill_statuses(app, None).await;
             page::global_page(&GlobalInputs {
                 settings: &settings,
                 problems: &problems,
@@ -586,6 +722,13 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
                 cleanup_count,
                 os: Os::current(),
                 notification_permission,
+                skills: SkillInputs {
+                    statuses: &skills,
+                    global: &[],
+                    refused,
+                    os: Os::current(),
+                    now: otaq_core::store::now_ms(),
+                },
             })
         }
     };
@@ -636,7 +779,7 @@ async fn edit(app: &App, edit: SettingsEdit) -> Result<Value, RequestError> {
             }
         }
     }
-    reply(&view(app, edit.project.as_deref()).await?)
+    reply(&view(app, edit.project.as_deref(), None).await?)
 }
 
 /// The project's own warm build, by its folder, and the project's name; `None` when it has none.
@@ -719,10 +862,14 @@ mod tests {
         assert_eq!(view["nav"][1]["label"], "Agents");
         // Agent limits and Agent instructions are on the Agents page, not rows of their own.
         assert_eq!(view["nav"][2]["label"], "Workflow skills");
-        // The Workflow skills rows: Otaq's own by name, read-only (d0092).
+        // The Workflow skills rows: Otaq's own built-in on a fresh install (d0092).
         let skills = &view["page"]["sections"][4]["rows"][0]["control"];
         assert_eq!(skills["rows"][0]["label"], "Commit");
-        assert_eq!(skills["rows"][0]["value"], "");
+        assert_eq!(
+            skills["rows"][0]["name"],
+            otaq_core::board::settings::WorkflowStep::Commit.own_default().trim_start_matches('/')
+        );
+        assert_eq!(skills["rows"][0]["tag"]["label"], "Built-in");
         assert!(skills.get("notes").is_none());
         let data = &view["page"]["sections"][9];
         assert_eq!(data["id"], "data");
@@ -766,6 +913,118 @@ mod tests {
         assert_eq!(license["title"], "MIT License");
         let notices = request(&h.app, "settings.licenses", Value::Null).await.unwrap();
         assert!(notices["rust"].as_array().unwrap().len() > 3);
+        h.service.stop_all().await;
+    }
+
+    /// Settings → Workflow skills (T-0380; WSK-01, WSK-02, WSK-04): an import answers with the fresh view, a refused
+    /// one with its reason under the step and nothing changed, Re-import replaces the copy, and Use built-in asks
+    /// first (`confirm`) only once the copy was edited; a project's import stays on its page.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn workflow_skills_import_refuse_reimport_and_reset() {
+        use otaq_core::board::projects::AddProject;
+        use otaq_core::git::testing::TempRepos;
+        use otaq_core::workflow_skills::testing::skill_folder;
+
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let temp = tempfile::tempdir().unwrap();
+        let my_commit = skill_folder(temp.path(), "my-commit");
+        let helpers = temp.path().join("team-skills/commit-helpers");
+        std::fs::create_dir_all(&helpers).unwrap();
+        let commit_row = |answer: &Value| -> Value {
+            assert_eq!(answer["outcome"], "done", "{answer}");
+            answer["view"]["page"]["sections"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|s| s["rows"].as_array().unwrap())
+                .find(|r| r["control"]["kind"] == "skills")
+                .unwrap()["control"]["rows"][0]
+                .clone()
+        };
+        let send = |method: &'static str, params: Value| request(&h.app, method, params);
+
+        let imported = send(
+            "settings.skill_import",
+            json!({ "step": "commit", "folder": my_commit.display().to_string() }),
+        )
+        .await
+        .unwrap();
+        let row = commit_row(&imported);
+        assert_eq!(row["name"], "my-commit");
+        assert_eq!(row["tag"]["label"], "Imported");
+        assert_eq!(row["button"]["action"], "reimport");
+
+        // Import a different folder… refused: the red line, the skill unchanged.
+        let refused = send(
+            "settings.skill_import",
+            json!({ "step": "commit", "folder": helpers.display().to_string() }),
+        )
+        .await
+        .unwrap();
+        let row = commit_row(&refused);
+        assert_eq!(row["name"], "my-commit");
+        assert_eq!(row["lines"][0]["look"], "error");
+        assert!(
+            row["lines"][0]["text"].as_str().unwrap().ends_with("commit-helpers has no SKILL.md."),
+            "{row}"
+        );
+        let statuses = skill_statuses(&h.app, None).await;
+        assert_eq!(statuses[0].original.as_deref(), Some(my_commit.to_str().unwrap()));
+
+        let again = send("settings.skill_reimport", json!({ "step": "commit" })).await.unwrap();
+        assert_eq!(commit_row(&again)["tag"]["label"], "Imported");
+
+        // An edited copy: Use built-in asks first, then goes back once confirmed.
+        let copy = skill_statuses(&h.app, None).await[0].copy.clone().unwrap();
+        std::fs::write(copy.join("notes.md"), "mine").unwrap();
+        let asks = send("settings.skill_reset", json!({ "step": "commit", "confirmed": false }))
+            .await
+            .unwrap();
+        assert_eq!(asks, json!({ "outcome": "confirm" }));
+        assert!(copy.is_dir());
+        let back = send("settings.skill_reset", json!({ "step": "commit", "confirmed": true }))
+            .await
+            .unwrap();
+        assert_eq!(commit_row(&back)["tag"]["label"], "Built-in");
+        assert!(!copy.exists());
+
+        // A project's own import, on the project's page.
+        let repos = TempRepos::new();
+        let path = repos.repo("pocket-notes", 1);
+        let project = match h
+            .app
+            .service
+            .send(Request::ProjectAdd(AddProject {
+                path: path.display().to_string(),
+                key: None,
+                base_branch: None,
+            }))
+            .await
+            .unwrap()
+        {
+            Reply::ProjectAdded { project: p, .. } => p.key,
+            other => panic!("{other:?}"),
+        };
+        let my_pr = skill_folder(temp.path(), "my-pr");
+        let answer = send(
+            "settings.skill_import",
+            json!({ "project": project, "step": "open_pr", "folder": my_pr.display().to_string() }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(answer["view"]["page"]["page"], "project");
+        let rows = answer["view"]["page"]["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|s| s["rows"].as_array().unwrap())
+            .find(|r| r["control"]["kind"] == "skills")
+            .unwrap()["control"]["rows"]
+            .clone();
+        assert_eq!(rows[0]["tag"]["label"], "Use global");
+        assert_eq!(rows[2]["name"], "my-pr");
+        assert_eq!(rows[2]["menu"].as_array().unwrap().last().unwrap()["label"], "Use global");
         h.service.stop_all().await;
     }
 

@@ -77,6 +77,8 @@ import type { PillView } from "../../generated/PillView";
 import type { ToolAvatarGallery } from "../../generated/ToolAvatarGallery";
 import type { TrustGallery } from "../../generated/TrustGallery";
 import type { NotificationsGallery } from "../../generated/NotificationsGallery";
+import type { SettingsSkillDialog } from "../../generated/SettingsSkillDialog";
+import type { WorkflowSkillsGallery } from "../../generated/WorkflowSkillsGallery";
 import type { OptionNotesGallery } from "../../generated/OptionNotesGallery";
 import type { InboxView } from "../../generated/InboxView";
 import {
@@ -113,7 +115,12 @@ import { EnvVarsRow } from "../settings/EnvVars";
 import { AgentsSectionBody, ProjectAgentsBody } from "../settings/Agents";
 import { AgentDeleteDialogView, AgentDialog } from "../settings/AgentDialog";
 import { AgentToolsPageBody, DisconnectDialogView } from "../settings/AgentTools";
-import { Section as SettingsSectionRows, WarmBuildRow } from "../settings/Rows";
+import {
+  Section as SettingsSectionRows,
+  SkillDialogView,
+  SkillRowView,
+  WarmBuildRow,
+} from "../settings/Rows";
 import "../settings/settings.css";
 import { ActivityGallery } from "../shell/ActivityGallery";
 import { LimitLinesGallery } from "../notices/LimitLinesGallery";
@@ -2119,6 +2126,97 @@ function NotificationsGallerySection() {
   );
 }
 
+const loadWorkflowSkills = () => request("gallery.workflow_skills") as Promise<WorkflowSkillsGallery>;
+
+/** T-0380 (WSK-01, WSK-02, WSK-04, WSK-07; d0092; *15 → update AC* `G4P2FV`/`UQ0Ft`, `prAII`/`zzn80`,
+ * `D12DJ0`/`pL63n`): Settings → Workflow skills, global and per project, every §2/§3 state, the ⋯ menu open and both
+ * dialogs, from `gallery.workflow_skills`, in Otaq Light and Dark. Clicks are only recorded; Use built-in answers
+ * "ask first" so its dialog shows. */
+function WorkflowSkillsGallerySection() {
+  const { view, error } = useServiceView(loadWorkflowSkills, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [open, setOpen] = useState<{ theme: string; dialog: SettingsSkillDialog } | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const context = (project: string | null): SettingsContextValue => ({
+    page: { page: "global", title: "Workflow skills", sections: [] },
+    project,
+    edit: () => undefined,
+    act: () => undefined,
+    skill: (method, params) => {
+      setPicked(`${method} ${JSON.stringify(params)}`);
+      return Promise.resolve(
+        method === "settings.skill_reset" && params.confirmed !== true ? "confirm" : "done",
+      );
+    },
+  });
+  const imported = view.cells[1]?.section.rows[0]?.control;
+  const commit = imported?.kind === "skills" ? imported.rows[0] : undefined;
+  return (
+    <Section title="15 · Settings → Workflow skills: global, project, ⋯, Re-import, Use built-in, §2 and §3 (T-0380)">
+      <Caption>Last click: {picked ?? "—"}</Caption>
+      <div className="gallery-two">
+        {THEMES.map((theme) => (
+          <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+            <Caption>{theme.toUpperCase()}</Caption>
+            {view.cells.map((cell) => (
+              <SettingsContext.Provider key={cell.name} value={context(cell.project)}>
+                <div
+                  className="gallery-stack-tight"
+                  data-cell={cell.name}
+                  style={{ padding: "0 16px 16px", borderRadius: 8, background: "var(--bg-panel)" }}
+                >
+                  <Caption>{cell.name.toUpperCase()}</Caption>
+                  <SettingsSectionRows section={cell.section} />
+                </div>
+              </SettingsContext.Provider>
+            ))}
+            {commit && (
+              <SettingsContext.Provider value={context(null)}>
+                <div
+                  className="gallery-stack-tight"
+                  data-cell="menu"
+                  style={{ padding: "0 16px 120px", borderRadius: 8, background: "var(--bg-panel)" }}
+                >
+                  <Caption>THE ⋯ MENU ON AN IMPORTED SKILL</Caption>
+                  <SkillRowView row={commit} />
+                </div>
+                <div className="gallery-wrap">
+                  {[commit.reimport, commit.reset].map(
+                    (dialog) =>
+                      dialog && (
+                        <Button
+                          key={dialog.title}
+                          variant="secondary"
+                          label={`Open “${dialog.title}”`}
+                          onClick={() => {
+                            setOpen({ theme, dialog });
+                          }}
+                        />
+                      ),
+                  )}
+                </div>
+                {open?.theme === theme && (
+                  <SkillDialogView
+                    dialog={open.dialog}
+                    onConfirm={() => {
+                      setPicked(`${open.dialog.title} · ${open.dialog.confirm}`);
+                      setOpen(null);
+                    }}
+                    onCancel={() => {
+                      setOpen(null);
+                    }}
+                  />
+                )}
+              </SettingsContext.Provider>
+            )}
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 function TrustSection() {
   const { view, error } = useServiceView(loadTrust, []);
   if (error) return <p role="alert">{error.message}</p>;
@@ -2455,6 +2553,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <ReviewColumnSection />
         <TrustSection />
         <NotificationsGallerySection />
+        <WorkflowSkillsGallerySection />
         <AgentToolsGallerySection />
         <OnboardingToolsGallerySection />
         <BoardReviewSection />

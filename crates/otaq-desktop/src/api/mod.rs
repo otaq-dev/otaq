@@ -112,7 +112,8 @@ pub use sections::{
 pub use settings::{
     AgentDefaultSet, AgentDeleteOutcome, AgentDialogParams, AgentIdParams, AgentModelsRetry,
     AgentSaveOutcome, AgentSaveParams, AgentsOpen, AutoFallbackSet, ProjectAgentDefaultSet,
-    SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams,
+    SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams, SkillImport,
+    SkillOutcome, SkillReset, SkillStep,
 };
 #[cfg(test)]
 pub use shell::{
