@@ -715,25 +715,25 @@ function EpicQueueToasts() {
     <div className="gallery-toasts">
       <Toast
         kind="success"
-        title="Queued 2 children of SHOP-45"
+        title="Moved 2 children of SHOP-45 to Ready for Dev"
         actions={[press("Undo")]}
         onClose={() => undefined}
       />
       <Toast
         kind="success"
-        title="Queued 2 children of SHOP-45 · its lead started"
+        title="Moved 2 children of SHOP-45 to Ready for Dev · its lead started"
         actions={[press("Undo")]}
         onClose={() => undefined}
       />
       <Toast
         kind="success"
-        title="Queued SHOP-45.1 of Search"
+        title="Moved SHOP-45.1 of Search to Ready for Dev"
         actions={[press("Undo")]}
         onClose={() => undefined}
       />
       <Toast
         kind="success"
-        title="Queued 3 tickets. Auto-merge is off for shop-web, so each one waits for your review."
+        title="Moved 3 tickets to Ready for Dev. Auto-merge is off for shop-web, so each one waits for your review."
         actions={[press("Turn on for epic children"), press("Undo")]}
         onClose={() => undefined}
       />

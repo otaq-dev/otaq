@@ -1250,7 +1250,7 @@ impl CardViewModel {
             // A child that joined its whole-queued epic's queue on its own (EPC-13).
             parts.push(Part::quiet(
                 format!(
-                    "New \u{b7} added by {} \u{b7} queued",
+                    "New \u{b7} added by {} \u{b7} in Ready for Dev",
                     joined_by(by, ticket, x.agent_name.as_deref())
                 ),
                 Tone::Epic,
@@ -3747,10 +3747,16 @@ mod tests {
         assert_eq!(card(&t).situation, None);
         t.joined_queue_by = Some(Actor::Agent("SHOP-40.2".parse().unwrap()));
         let vm = card(&t);
-        assert_eq!(line(&vm), Some("New · added by SHOP-40.2 · queued"));
+        assert_eq!(
+            line(&vm),
+            Some("New · added by SHOP-40.2 · in Ready for Dev")
+        );
         assert_eq!(vm.situation.unwrap().edge, Tone::Epic);
         t.joined_queue_by = Some(Actor::User("me".into()));
-        assert_eq!(line(&card(&t)), Some("New · added by you · queued"));
+        assert_eq!(
+            line(&card(&t)),
+            Some("New · added by you · in Ready for Dev")
+        );
         let agent = Actor::ProjectAgent("pa-1".into());
         t.created_by = agent.clone();
         t.joined_queue_by = Some(agent);
@@ -3760,11 +3766,11 @@ mod tests {
         };
         assert_eq!(
             line(&CardViewModel::from(&t, &named, NOW)),
-            Some("New · added by Project agent “Checkout slowness” · queued")
+            Some("New · added by Project agent “Checkout slowness” · in Ready for Dev")
         );
         assert_eq!(
             line(&card(&t)),
-            Some("New · added by a Project agent · queued")
+            Some("New · added by a Project agent · in Ready for Dev")
         );
     }
 

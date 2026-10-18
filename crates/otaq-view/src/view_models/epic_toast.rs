@@ -15,13 +15,13 @@ pub const LEAD_STARTED: &str = " \u{b7} its lead started";
 
 /// The toast after an epic queue: `epic_title` is the epic's name ("Search"), for the one-child wording.
 ///
-/// - several children: "Queued 2 children of SHOP-45" · Undo (resumed parked children count as queued);
-/// - one child: "Queued SHOP-45.1 of Search" · Undo;
-/// - Auto-merge Off: "Queued 3 tickets. Auto-merge is off for shop-web, so each one waits for your review." ·
+/// - several children: "Moved 2 children of SHOP-45 to Ready for Dev" · Undo (resumed parked children count as queued);
+/// - one child: "Moved SHOP-45.1 of Search to Ready for Dev" · Undo;
+/// - Auto-merge Off: "Moved 3 tickets to Ready for Dev. Auto-merge is off for shop-web, so each one waits for your review." ·
 ///   Turn on for epic children · Undo.
 ///
-/// When the queue started the epic's lead, the first part says so: "Queued 2 children of SHOP-45 · its lead
-/// started" (frame 17), "Queued 3 tickets · its lead started. Auto-merge is off …".
+/// When the queue started the epic's lead, the first part says so: "Moved 2 children of SHOP-45 to Ready for Dev · its lead
+/// started" (frame 17), "Moved 3 tickets to Ready for Dev · its lead started. Auto-merge is off …".
 pub fn queue_toast(outcome: &EpicQueueOutcome, epic_title: &str) -> NewToast {
     let keys: Vec<&TicketKey> = outcome.keys().collect();
     let lead = if outcome.lead_started {
@@ -39,7 +39,7 @@ pub fn queue_toast(outcome: &EpicQueueOutcome, epic_title: &str) -> NewToast {
     let (title, actions) = if outcome.auto_merge_off {
         let noun = if keys.len() == 1 { "ticket" } else { "tickets" };
         let title = format!(
-            "Queued {} {noun}{lead}. Auto-merge is off for {}, so each one waits for your review.",
+            "Moved {} {noun} to Ready for Dev{lead}. Auto-merge is off for {}, so each one waits for your review.",
             keys.len(),
             outcome.project
         );
@@ -54,8 +54,12 @@ pub fn queue_toast(outcome: &EpicQueueOutcome, epic_title: &str) -> NewToast {
         (title, vec![turn_on, undo])
     } else {
         let title = match keys.as_slice() {
-            [one] => format!("Queued {one} of {epic_title}{lead}"),
-            many => format!("Queued {} children of {}{lead}", many.len(), outcome.epic),
+            [one] => format!("Moved {one} of {epic_title} to Ready for Dev{lead}"),
+            many => format!(
+                "Moved {} children of {} to Ready for Dev{lead}",
+                many.len(),
+                outcome.epic
+            ),
         };
         (title, vec![undo])
     };
@@ -150,7 +154,7 @@ mod tests {
     #[test]
     fn several_children_one_child_and_resumed_ones() {
         let toast = queue_toast(&outcome(&["SHOP-45.1", "SHOP-45.2"], &[], false), "Search");
-        assert_eq!(toast.title, "Queued 2 children of SHOP-45");
+        assert_eq!(toast.title, "Moved 2 children of SHOP-45 to Ready for Dev");
         assert_eq!(toast.level, ToastLevel::Success);
         assert_eq!(toast.text, None);
         assert_eq!(
@@ -159,12 +163,12 @@ mod tests {
         );
 
         let toast = queue_toast(&outcome(&["SHOP-45.1"], &[], false), "Search");
-        assert_eq!(toast.title, "Queued SHOP-45.1 of Search");
+        assert_eq!(toast.title, "Moved SHOP-45.1 of Search to Ready for Dev");
         assert_eq!(actions(&toast), [("Undo", &undo_of(&["SHOP-45.1"]))]);
 
         // Resumed parked children count as queued, and Undo takes them back too.
         let toast = queue_toast(&outcome(&["SHOP-45.2"], &["SHOP-45.1"], false), "Search");
-        assert_eq!(toast.title, "Queued 2 children of SHOP-45");
+        assert_eq!(toast.title, "Moved 2 children of SHOP-45 to Ready for Dev");
         assert_eq!(
             actions(&toast),
             [("Undo", &undo_of(&["SHOP-45.2", "SHOP-45.1"]))]
@@ -179,7 +183,7 @@ mod tests {
         let toast = queue_toast(&started, "Search");
         assert_eq!(
             toast.title,
-            "Queued 2 children of SHOP-45 · its lead started"
+            "Moved 2 children of SHOP-45 to Ready for Dev · its lead started"
         );
         assert_eq!(
             actions(&toast),
@@ -189,10 +193,13 @@ mod tests {
         one.lead_started = true;
         assert_eq!(
             queue_toast(&one, "Search").title,
-            "Queued 1 ticket · its lead started. Auto-merge is off for shop-web, so each one waits for your review."
+            "Moved 1 ticket to Ready for Dev · its lead started. Auto-merge is off for shop-web, so each one waits for your review."
         );
         let without = queue_toast(&outcome(&["SHOP-45.1", "SHOP-45.2"], &[], false), "Search");
-        assert_eq!(without.title, "Queued 2 children of SHOP-45");
+        assert_eq!(
+            without.title,
+            "Moved 2 children of SHOP-45 to Ready for Dev"
+        );
     }
 
     #[test]
@@ -203,7 +210,7 @@ mod tests {
         );
         assert_eq!(
             toast.title,
-            "Queued 3 tickets. Auto-merge is off for shop-web, so each one waits for your review."
+            "Moved 3 tickets to Ready for Dev. Auto-merge is off for shop-web, so each one waits for your review."
         );
         let undo = undo_of(&["SHOP-45.1", "SHOP-45.2", "SHOP-45.3"]);
         let turn_on = ToastAction::EpicChildrenAutoMerge {
@@ -219,7 +226,11 @@ mod tests {
             [("Turn on for epic children", &turn_on), ("Undo", &undo)]
         );
         let one = queue_toast(&outcome(&["SHOP-45.1"], &[], true), "Search");
-        assert!(one.title.starts_with("Queued 1 ticket. "), "{}", one.title);
+        assert!(
+            one.title.starts_with("Moved 1 ticket to Ready for Dev. "),
+            "{}",
+            one.title
+        );
 
         let on = auto_merge_on_toast(
             "shop-web",
