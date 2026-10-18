@@ -7,6 +7,7 @@ import {
   findCount,
   fontSizeOf,
   jumpLabel,
+  NEW_LINE,
   opaqueHex,
   rendererFor,
   takesInput,
@@ -86,6 +87,27 @@ describe("the terminal's state", () => {
     expect(terminalKey(map, key("c", "KeyC", { ctrlKey: true }))).toBeUndefined();
     expect(terminalKey(map, key("+", "Equal", { ctrlKey: true, shiftKey: true }))).toBe("font_bigger");
     expect(terminalKey(undefined, key("C", "KeyC", { ctrlKey: true, shiftKey: true }))).toBeUndefined();
+  });
+
+  it("sends a new line, not Enter, on Shift+Enter", () => {
+    const map: Keymap = {
+      platform: "mac",
+      log: false,
+      bindings: [],
+      terminal_app_modifiers: [],
+      terminal_keys: [
+        {
+          key: "new_line",
+          keystroke: { key: "Enter", code: "Enter", modifiers: { ...NONE, shift: true } },
+        },
+      ],
+    };
+    expect(terminalKey(map, key("Enter", "Enter", { shiftKey: true }))).toBe("new_line");
+    expect(NEW_LINE).toBe("\x1b\r");
+    // Enter, ⌥↵ and ⌘↵ stay xterm.js's (Enter sends; ⌥↵ is already ESC + CR).
+    expect(terminalKey(map, key("Enter", "Enter", {}))).toBeUndefined();
+    expect(terminalKey(map, key("Enter", "Enter", { altKey: true }))).toBeUndefined();
+    expect(terminalKey(map, key("Enter", "Enter", { metaKey: true, shiftKey: true }))).toBeUndefined();
   });
 
   it("drops the alpha of a theme colour for xterm.js's decorations", () => {

@@ -26,6 +26,7 @@ import {
   findCount,
   INITIAL_STATE,
   jumpLabel,
+  NEW_LINE,
   fontSizeOf,
   opaqueHex,
   type PickedSize,
@@ -244,7 +245,7 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
       const setting = settingSize.current;
       setPicked({ setting, size: clampFontSize((term.options.fontSize ?? setting) + delta) });
     };
-    // Its own keys: copy, paste and font size (from the Rust map); everything else is the session's.
+    // Its own keys: copy, paste, font size and new line (from the Rust map); everything else is the session's.
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
       const key = terminalKey(keymap.get(), e);
@@ -273,6 +274,10 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
           break;
         case "font_smaller":
           pickSize(-1);
+          break;
+        case "new_line":
+          // Typing, as if xterm.js had sent it: the same ordered path, not a reply.
+          sendInput(new TextEncoder().encode(NEW_LINE), false);
           break;
       }
       return false;

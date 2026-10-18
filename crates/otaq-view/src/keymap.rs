@@ -366,7 +366,8 @@ pub fn bindings(platform: Platform) -> Vec<Binding> {
 
 /// A focused terminal's own keys, outside the d0058 table (as the GPUI terminal bound them): copy and paste, and ⌘+ /
 /// ⌘− for the font size. On Windows and Linux Ctrl+letter belongs to the program in the terminal, so they are on
-/// Ctrl+Shift there, as in Windows Terminal and Linux terminals. `TerminalKey` on the page.
+/// Ctrl+Shift there, as in Windows Terminal and Linux terminals. ⇧↵ is a new line in the prompt: xterm.js sends the
+/// same `\r` as ↵, so the terminal sends ESC + CR instead (OT-5). `TerminalKey` on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum TerminalKey {
@@ -374,10 +375,20 @@ pub enum TerminalKey {
     Paste,
     FontBigger,
     FontSmaller,
+    /// A new line in the program's prompt instead of sending it: ESC + CR (⌥↵, what Claude Code's `/terminal-setup`
+    /// makes ⇧↵ send). Claude Code, Codex, Copilot CLI and OpenCode all take it as a new line; zsh adds a line to
+    /// the command and bash ignores it, so a Project terminal gets it too.
+    NewLine,
 }
 
 impl TerminalKey {
-    pub const ALL: [Self; 4] = [Self::Copy, Self::Paste, Self::FontBigger, Self::FontSmaller];
+    pub const ALL: [Self; 5] = [
+        Self::Copy,
+        Self::Paste,
+        Self::FontBigger,
+        Self::FontSmaller,
+        Self::NewLine,
+    ];
 
     /// Its shortcuts on `platform` (Windows/Linux in or out of the terminal alike). On macOS copy and paste have
     /// none here: the Edit menu's ⌘C / ⌘V reach the terminal's own copy and paste.
@@ -390,6 +401,8 @@ impl TerminalKey {
             (Self::FontBigger, _) => &["Ctrl+Shift+="],
             (Self::FontSmaller, Platform::Mac) => &["⌘-"],
             (Self::FontSmaller, _) => &["Ctrl+Shift+-"],
+            (Self::NewLine, Platform::Mac) => &["⇧↵"],
+            (Self::NewLine, _) => &["Shift+↵"],
         }
     }
 }
@@ -654,8 +667,14 @@ mod tests {
                 .sum();
             assert_eq!(own.len(), texts, "every text parses on {platform:?}");
             for b in &own {
-                // Taken from the program in the terminal, as the app's own keys are (SES-10).
-                assert_eq!(route(platform, true, &b.keystroke.modifiers), KeyRoute::App);
+                // Taken from the program in the terminal, as the app's own keys are (SES-10); ⇧↵ stays the
+                // program's, only its bytes change.
+                let to = if b.key == TerminalKey::NewLine {
+                    KeyRoute::Terminal
+                } else {
+                    KeyRoute::App
+                };
+                assert_eq!(route(platform, true, &b.keystroke.modifiers), to);
                 assert!(
                     !bindings(platform)
                         .iter()
@@ -675,6 +694,17 @@ mod tests {
         assert_eq!(win[0].key, TerminalKey::Copy);
         assert_eq!(win[0].keystroke.code, "KeyC");
         assert!(win[0].keystroke.modifiers.control && win[0].keystroke.modifiers.shift);
+        for own in [&mac, &win] {
+            let new_line = own.iter().find(|b| b.key == TerminalKey::NewLine).unwrap();
+            assert_eq!(new_line.keystroke.code, "Enter");
+            assert_eq!(
+                new_line.keystroke.modifiers,
+                Modifiers {
+                    shift: true,
+                    ..Modifiers::default()
+                }
+            );
+        }
     }
 
     #[test]

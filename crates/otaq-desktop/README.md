@@ -153,8 +153,10 @@ attach command, the hint line under it) are the host's, drawn from `onState` (`T
 - **Focus.** On focus it calls `focusTerminal(session)` and tells the service (`terminal.focus`, passed on for an
   agent's session only, ATT-03); on blur `focusTerminal(null)`. Keys go to xterm.js untouched except the app's own
   (T-0215) and the terminal's own from the Rust map (`keymap.map`'s `terminal_keys`): copy and paste on Ctrl+Shift+C /
-  V on Windows and Linux (on macOS the Edit menu's ⌘C / ⌘V reach xterm.js), and ⌘+ / ⌘− (Ctrl+Shift+= / −) for this
-  terminal's font size until the setting changes. ⌘F / Ctrl+Shift+F opens the find bar (`useShortcut`).
+  V on Windows and Linux (on macOS the Edit menu's ⌘C / ⌘V reach xterm.js), ⌘+ / ⌘− (Ctrl+Shift+= / −) for this
+  terminal's font size until the setting changes, and ⇧↵, which types ESC + CR (as ⌥↵) instead of xterm.js's `\r`, so
+  it starts a new line in the agent's prompt instead of sending it (OT-5). ⌘F / Ctrl+Shift+F opens the find bar
+  (`useShortcut`).
 - **Settings.** `terminal.settings` gives the font size (8–32) and the renderer, asked again on `settings_changed`. The
   renderer (`terminal_renderer` in the global settings: WebGL or DOM; DOM by default on Linux, WebGL on macOS and
   Windows, Q37) picks xterm.js's renderer for every terminal; only a WebGL context that fails to start falls back to
