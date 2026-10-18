@@ -13,7 +13,16 @@ import type { Toast as ToastView } from "../../generated/Toast";
 import type { ToastPress } from "../../generated/ToastPress";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { followNotifications, noticesStore, pressBanner, watchNotices } from "./notices";
+import { toolProblemAction } from "../panel/toolProblemRunner";
+import { type LimitLineHandlers, LimitLines } from "./LimitLines";
+import {
+  followNotifications,
+  limitLinesOf,
+  moveWaiting,
+  noticesStore,
+  pressBanner,
+  watchNotices,
+} from "./notices";
 import "./notices.css";
 
 export { noticesStore, onlyRestartAllowed } from "./notices";
@@ -27,37 +36,57 @@ function warnOnFailure(what: string) {
   };
 }
 
-/** The banner rows, top first. */
-export function BannerRows({ banners }: { banners: readonly BannerView[] }) {
+/** The limit lines' presses in the app: a line's button as its tool problem action, an agent picked in Move waiting to…. */
+export const LINE_HANDLERS: LimitLineHandlers = {
+  onAction: (action) => {
+    toolProblemAction(action, {});
+  },
+  onMove: (tool, agent) => {
+    moveWaiting(tool, agent).catch(warnOnFailure("Move waiting"));
+  },
+};
+
+/** The banner rows, top first; the usage limit with several tools as one line per tool. */
+export function BannerRows({
+  banners,
+  lineHandlers = LINE_HANDLERS,
+}: {
+  banners: readonly BannerView[];
+  lineHandlers?: LimitLineHandlers;
+}) {
   if (banners.length === 0) return null;
   return (
     <div className="notices-banners">
-      {banners.map((b) => (
-        <Banner
-          key={b.kind}
-          tone={b.tone}
-          icon={b.icon}
-          title={b.title}
-          text={b.text}
-          tooltip={b.tooltip ?? undefined}
-          actions={b.buttons.map((button) => ({
-            label: button.label,
-            icon: button.icon,
-            disabled: !button.enabled,
-            primary: button.primary,
-            onClick: () => {
-              pressBanner(b.kind, button.id).catch(warnOnFailure(button.label));
-            },
-          }))}
-          onDismiss={
-            b.dismissable
-              ? () => {
-                  request("notices.dismiss_banner", { kind: b.kind }).catch(warnOnFailure("Dismiss"));
-                }
-              : undefined
-          }
-        />
-      ))}
+      {banners.map((b) => {
+        const lines = limitLinesOf(b);
+        if (lines.length > 0) return <LimitLines key={b.kind} lines={lines} {...lineHandlers} />;
+        return (
+          <Banner
+            key={b.kind}
+            tone={b.tone}
+            icon={b.icon}
+            title={b.title}
+            text={b.text}
+            tooltip={b.tooltip ?? undefined}
+            actions={b.buttons.map((button) => ({
+              label: button.label,
+              icon: button.icon,
+              disabled: !button.enabled,
+              primary: button.primary,
+              onClick: () => {
+                pressBanner(b.kind, button.id).catch(warnOnFailure(button.label));
+              },
+            }))}
+            onDismiss={
+              b.dismissable
+                ? () => {
+                    request("notices.dismiss_banner", { kind: b.kind }).catch(warnOnFailure("Dismiss"));
+                  }
+                : undefined
+            }
+          />
+        );
+      })}
     </div>
   );
 }

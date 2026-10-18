@@ -482,6 +482,42 @@ describe("the inbox's markup", () => {
     expect(html).not.toContain("next item");
   });
 
+  it("a tool's limit row with several tools: its avatar, and Sign in… on a tool that isn't available", () => {
+    const html = render(
+      createElement(InboxBody, {
+        view: {
+          ...VIEW,
+          limits: [
+            {
+              tool: "codex",
+              avatar: {
+                tool: "codex",
+                letters: "CX",
+                background: "tool-cx",
+                foreground: "tool-cx-fg",
+                hover: "Codex",
+              },
+              text: "Codex isn’t available · logged out · 5 tickets waiting",
+              resume: null,
+              button: {
+                label: "Sign in…",
+                icon: "plug",
+                action: { kind: "sign_in", tool: "codex" },
+                enabled: true,
+                primary: false,
+              },
+            },
+          ],
+        },
+        selected: 0,
+        draft: null,
+        onDraft: () => undefined,
+        onSelect: () => undefined,
+      }),
+    );
+    expect(html).toMatch(/inbox-limit.*tool-avatar.*CX.*Codex isn’t available.*Sign in…/);
+  });
+
   it("the run bar, All clear and Resume all's ticket list", () => {
     const bar = render(
       createElement(RunBarBody, {

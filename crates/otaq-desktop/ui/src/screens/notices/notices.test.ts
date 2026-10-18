@@ -2,7 +2,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { actionsOf, BannerRows, RestartBody, ToastStack } from ".";
+import { actionsOf, BannerRows, LINE_HANDLERS, RestartBody, ToastStack } from ".";
+import { menuKey } from "../../components/logic";
+import type { LimitLine } from "../../generated/LimitLine";
+import type { MoveWaitingMenu } from "../../generated/MoveWaitingMenu";
+import type { ToolAvatarView } from "../../generated/ToolAvatarView";
+import { request } from "../../tauri";
+import { MoveWaitingList } from "./LimitLines";
 import { createOverlayStack } from "../../app/overlays";
 import { createSelection, type TerminalFocusRequest } from "../../app/selection";
 import { createStore } from "../../app/store";
@@ -12,7 +18,15 @@ import type { PageEvent } from "../../generated/PageEvent";
 import type { Toast } from "../../generated/Toast";
 import type { ToastAction } from "../../generated/ToastAction";
 import { createPageEvents } from "../../service";
-import { followNotifications, onlyRestartAllowed, openTarget, pressBanner, watchNotices } from "./notices";
+import {
+  followNotifications,
+  limitLinesOf,
+  moveMenuItems,
+  onlyRestartAllowed,
+  openTarget,
+  pressBanner,
+  watchNotices,
+} from "./notices";
 
 vi.mock("../../tauri", () => ({ request: vi.fn(), subscribeEvents: vi.fn(), windowAction: vi.fn() }));
 
@@ -323,5 +337,129 @@ describe("drawn", () => {
     expect(html).toMatch(
       /notices-restart-message.*3 working agents.*notices-restart-detail.*Waiting tickets/,
     );
+  });
+});
+
+const avatar = (tool: "claude_code" | "codex", letters: string): ToolAvatarView => ({
+  tool,
+  letters,
+  background: `tool-${letters.toLowerCase()}`,
+  foreground: `tool-${letters.toLowerCase()}-fg`,
+  hover: tool === "claude_code" ? "Claude Code" : "Codex",
+});
+
+const MOVE: MoveWaitingMenu = {
+  label: "Move waiting to…",
+  title: "MOVE 4 WAITING TICKETS TO",
+  tool: "claude",
+  items: [
+    { agent: "standard", name: "Standard", detail: "Codex · gpt-5.5", avatar: avatar("codex", "CX") },
+    { agent: "strong-gpt", name: "Strong GPT", detail: "Codex · gpt-5.5-pro", avatar: avatar("codex", "CX") },
+  ],
+};
+
+const claudeLine = (over: Partial<LimitLine> = {}): LimitLine => ({
+  tool: "claude",
+  avatar: avatar("claude_code", "CC"),
+  tone: "neutral",
+  icon: "gauge",
+  title: "Claude Code limit reached",
+  text: "Resets 3:45 pm · 4 tickets waiting",
+  buttons: [
+    {
+      label: "Resume Claude Code",
+      icon: "play",
+      action: { kind: "resume_tool", tool: "claude" },
+      enabled: false,
+      primary: false,
+    },
+  ],
+  move_waiting: MOVE,
+  ...over,
+});
+
+const codexLine: LimitLine = {
+  tool: "codex",
+  avatar: avatar("codex", "CX"),
+  tone: "warning",
+  icon: "triangle-alert",
+  title: "Codex isn’t available",
+  text: "logged out · 5 tickets moved to Sonnet",
+  buttons: [
+    {
+      label: "Sign in…",
+      icon: "plug",
+      action: { kind: "sign_in", tool: "codex" },
+      enabled: true,
+      primary: false,
+    },
+  ],
+  move_waiting: null,
+};
+
+const limitBanner = (lines: LimitLine[]): Banner =>
+  banner({
+    kind: "usage_limit",
+    tone: "neutral",
+    icon: "gauge",
+    title: lines[0]?.title ?? "",
+    text: lines[0]?.text ?? "",
+    buttons: [{ id: "resume", label: "Resume all", icon: "play", enabled: false, primary: false }],
+    dismissable: false,
+    lines,
+  });
+
+describe("the limit banner per tool", () => {
+  it("draws one line per tool with its avatar, Resume <tool>, Sign in… and Move waiting to…", () => {
+    const b = limitBanner([claudeLine(), codexLine]);
+    expect(limitLinesOf(b)).toHaveLength(2);
+    const html = renderToStaticMarkup(createElement(BannerRows, { banners: [b] }));
+    expect(html.match(/notices-line"/g)).toHaveLength(2);
+    expect(html).toMatch(
+      /data-tone="neutral" data-tool="claude".*Claude Code limit reached.*Resume Claude Code/,
+    );
+    expect(html).toMatch(/data-tone="warning" data-tool="codex".*Codex isn’t available.*Sign in…/);
+    expect(html.match(/aria-haspopup="menu"/g)).toHaveLength(1);
+    expect(html).toContain("Move waiting to…");
+    expect(html).not.toContain("Resume all");
+    expect(html).not.toContain('data-tone="attention"');
+  });
+
+  it("the one-tool banner stays M22's: no avatar, no lines, no Move waiting to…", () => {
+    const one = limitBanner([claudeLine({ avatar: null, move_waiting: null })]);
+    expect(limitLinesOf(one)).toEqual([]);
+    const html = renderToStaticMarkup(createElement(BannerRows, { banners: [one] }));
+    expect(html).not.toContain("notices-line");
+    expect(html).not.toContain("Move waiting to…");
+    expect(html).not.toContain("tool-avatar");
+    expect(html).toContain("Resume all");
+  });
+
+  it("Resume <tool> calls limits.resume_tool with its tool; a picked agent calls limits.move_waiting", () => {
+    const ask = vi.mocked(request);
+    ask.mockReset();
+    ask.mockResolvedValue(null);
+    LINE_HANDLERS.onAction({ kind: "resume_tool", tool: "claude" });
+    LINE_HANDLERS.onAction({ kind: "resume_tool", tool: "codex" });
+    LINE_HANDLERS.onMove("claude", "strong-gpt");
+    expect(ask.mock.calls).toEqual([
+      ["limits.resume_tool", { tool: "claude" }],
+      ["limits.resume_tool", { tool: "codex" }],
+      ["limits.move_waiting", { tool: "claude", agent: "strong-gpt" }],
+    ]);
+  });
+
+  it("Move waiting to…'s list: its title, the agents; arrows skip the title, Enter picks, Esc closes", () => {
+    const html = renderToStaticMarkup(
+      createElement(MoveWaitingList, { menu: MOVE, onChoose: () => undefined, onClose: () => undefined }),
+    );
+    expect(html).toMatch(/role="menu".*MOVE 4 WAITING TICKETS TO.*CX.*Standard.*Codex · gpt-5.5.*Strong GPT/);
+    const items = moveMenuItems(MOVE);
+    expect(items.map((i) => i.header)).toEqual([true, false, false]);
+    expect(menuKey(items, null, "ArrowDown")).toEqual({ kind: "highlight", index: 1 });
+    expect(menuKey(items, 2, "ArrowDown")).toEqual({ kind: "highlight", index: 1 });
+    expect(menuKey(items, 1, "ArrowUp")).toEqual({ kind: "highlight", index: 2 });
+    expect(menuKey(items, 2, "Enter")).toEqual({ kind: "choose", id: "strong-gpt" });
+    expect(menuKey(items, 1, "Escape")).toEqual({ kind: "close" });
   });
 });
