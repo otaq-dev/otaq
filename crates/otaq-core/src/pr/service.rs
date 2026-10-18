@@ -80,25 +80,13 @@ const INITIAL_SIZE: TerminalSize = TerminalSize {
     cols: 120,
 };
 
-/// What Otaq types after the user confirmed (the skills wait for it).
 /// What a PR step types into the ticket's session, or starts or resumes it with.
 enum PrStep<'a> {
-    /// The Open PR or Push skill as Settings stores it, named for the session's tool and folder (ADP-05).
-    Skill(WorkflowStep, &'a str),
+    /// The Open PR or Push skill in force, written into the worktree first when imported (WSK-05) and named for the
+    /// session's tool (ADP-05, WSK-06).
+    Skill(WorkflowStep),
     /// Otaq's own words: the confirmed push ([`confirmed_instruction`]).
     Words(&'a str),
-}
-
-impl PrStep<'_> {
-    fn first_prompt(&self) -> FirstPrompt {
-        match self {
-            Self::Skill(step, stored) => FirstPrompt::WorkflowSkill {
-                step: *step,
-                stored: (*stored).to_owned(),
-            },
-            Self::Words(text) => FirstPrompt::Text((*text).to_owned()),
-        }
-    }
 }
 
 pub fn confirmed_instruction(kind: FlowKind) -> String {
@@ -223,22 +211,17 @@ impl Prs {
             .await?
             .workflow_skills
             .get(step)
-            .stored();
+            .label();
         let live = self.live_session(&ticket);
         if let Some(outcome) = self.unsent_first(&ticket, live.as_ref(), clear_first)? {
             return Ok(outcome);
         }
         board.start_pr_flow(&ticket, kind).await?;
         let started = match (ticket.is_epic(), &live) {
-            (true, None) => self.start_delivery(&ticket, step, &skill).await.map(|_| ()),
+            (true, None) => self.start_delivery(&ticket, step).await.map(|_| ()),
             _ => {
-                self.run_in_session(
-                    &ticket,
-                    live.as_ref(),
-                    PrStep::Skill(step, &skill),
-                    clear_first,
-                )
-                .await
+                self.run_in_session(&ticket, live.as_ref(), PrStep::Skill(step), clear_first)
+                    .await
             }
         };
         if let Err(e) = started {
@@ -332,27 +315,23 @@ impl Prs {
             return Ok(outcome);
         }
         let pushing = flow.state == FlowState::Pushing;
-        let text = match pushing {
-            true => confirmed_instruction(flow.kind),
-            false => board.pr_flow_view(key).await?.skill,
-        };
+        let text = confirmed_instruction(flow.kind);
         let skill_step = match flow.kind {
             FlowKind::Open => WorkflowStep::OpenPr,
             FlowKind::Push => WorkflowStep::Push,
         };
         let step = match pushing {
             true => PrStep::Words(&text),
-            false => PrStep::Skill(skill_step, &text),
+            false => PrStep::Skill(skill_step),
         };
         sqlx::query("UPDATE pr_flows SET reported = NULL WHERE ticket_id = ?")
             .bind(&ticket.id)
             .execute(board.store().pool())
             .await?;
         match (ticket.is_epic(), &live) {
-            (true, None) if !pushing => self
-                .start_delivery(&ticket, skill_step, &text)
-                .await
-                .map(|_| ())?,
+            (true, None) if !pushing => {
+                self.start_delivery(&ticket, skill_step).await.map(|_| ())?
+            }
             _ => {
                 self.run_in_session(&ticket, live.as_ref(), step, clear_first)
                     .await?
@@ -472,17 +451,18 @@ impl Prs {
     }
 
     /// Starts the epic's short-lived delivery session: a new conversation in the delivery worktree with the skill
-    /// (as stored, named by the adapter) as its first prompt, `OTAQ_TICKET` the epic (EPC-08). The one agent
-    /// session an epic runs, on the project's Developer default (Q-D: an epic has no Developer row).
+    /// in force (written into it first when imported, named by the adapter) as its first prompt, `OTAQ_TICKET` the
+    /// epic (EPC-08). The one agent session an epic runs, on the project's Developer default (Q-D: an epic has no
+    /// Developer row).
     async fn start_delivery(
         &self,
         epic: &Ticket,
         step: WorkflowStep,
-        skill: &str,
     ) -> Result<SessionInfo, BoardError> {
         let runs_on = self.delivery_runs_on(epic).await?;
         self.inner.adapters.unavailable(runs_on.tool)?;
         let worktree = worktree_of(epic)?;
+        let imported = self.copy_skill(epic, &worktree, step).await?;
         let launched = self.inner.adapters.launch(
             runs_on.tool,
             &LaunchRequest {
@@ -492,10 +472,7 @@ impl Prs {
                 ticket: Some(epic.key.clone()),
                 epic: None,
                 port: 0,
-                first_prompt: Some(FirstPrompt::WorkflowSkill {
-                    step,
-                    stored: skill.to_owned(),
-                }),
+                first_prompt: Some(FirstPrompt::WorkflowSkill { step, imported }),
                 resume: None,
                 model: runs_on.model,
                 title: Some(epic.title.clone()),
@@ -668,8 +645,23 @@ impl Prs {
         Ok(None)
     }
 
+    /// Writes the skill in force for `step` into `worktree` (WSK-05): whether the session is pointed at that copy.
+    async fn copy_skill(
+        &self,
+        ticket: &Ticket,
+        worktree: &std::path::Path,
+        step: WorkflowStep,
+    ) -> Result<bool, BoardError> {
+        Ok(self
+            .inner
+            .board
+            .copy_skills_into(ticket.key.project.as_str(), worktree, &[step])
+            .await?
+            .copied(step))
+    }
+
     /// Types `step` into the live session through the user-click path, or resumes the stored conversation with it
-    /// as the first prompt.
+    /// as the first prompt. A skill is written into the worktree first.
     async fn run_in_session(
         &self,
         ticket: &Ticket,
@@ -681,12 +673,16 @@ impl Prs {
         match live {
             Some(session) => {
                 let text = match step {
-                    PrStep::Skill(skill_step, stored) => self
-                        .inner
-                        .adapters
-                        .of_session(session.tool)
-                        .workflow_skill(skill_step, stored, &worktree_of(ticket)?)
-                        .prompt(),
+                    PrStep::Skill(skill_step) => {
+                        let imported = self
+                            .copy_skill(ticket, &worktree_of(ticket)?, skill_step)
+                            .await?;
+                        self.inner
+                            .adapters
+                            .of_session(session.tool)
+                            .workflow_skill(skill_step, imported)
+                            .prompt()
+                    }
                     PrStep::Words(text) => text.to_owned(),
                 };
                 let typed = if clear_first {
@@ -729,6 +725,13 @@ impl Prs {
         let runs_on = RunsOn::resumed(&conversation);
         inner.adapters.unavailable(runs_on.tool)?;
         let worktree = worktree_of(ticket)?;
+        let first_prompt = match step {
+            PrStep::Skill(step) => FirstPrompt::WorkflowSkill {
+                step,
+                imported: self.copy_skill(ticket, &worktree, step).await?,
+            },
+            PrStep::Words(text) => FirstPrompt::Text(text.to_owned()),
+        };
         let port = ticket.work.as_ref().and_then(|w| w.agent_port).unwrap_or(0);
         let role = match kind {
             SessionKind::Delivery => LaunchRole::Delivery,
@@ -743,7 +746,7 @@ impl Prs {
                 ticket: Some(ticket.key.clone()),
                 epic: None,
                 port,
-                first_prompt: Some(step.first_prompt()),
+                first_prompt: Some(first_prompt),
                 resume: Some(conversation.id),
                 model: runs_on.model,
                 title: Some(ticket.title.clone()),

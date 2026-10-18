@@ -42,6 +42,7 @@ use serde_json::{Value, json};
 
 use super::{StartError, begin_setup_log, copy_env_files, prepare_worktree, run_setup};
 use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole, WORK_TICKET_SKILL};
+use crate::board::settings::WorkflowStep;
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
@@ -758,6 +759,12 @@ impl Starter {
         first_prompt: Option<FirstPrompt>,
     ) -> Result<SessionInfo, StartError> {
         let inner = &self.inner;
+        // The Commit skill in force, written into the worktree for `prime` to name (WSK-05, WSK-06); a copy that
+        // can't be written leaves the built-in.
+        inner
+            .board
+            .copy_skills_into(&project.key, cwd, &[WorkflowStep::Commit])
+            .await?;
         let launched = inner
             .adapters
             .launch(

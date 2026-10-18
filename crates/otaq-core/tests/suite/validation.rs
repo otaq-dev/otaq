@@ -199,26 +199,20 @@ async fn uncommitted_files_refuse_before_any_validator() {
 async fn a_projects_validate_skill_is_the_prompt() {
     let w = world().await;
     w.add_project("shop-web").await;
-    // An imported skill is named by its copy's SKILL.md (d0092).
+    // An imported skill is named by its copy in the worktree (WSK-06, d0092).
     let folder = otaq_core::workflow_skills::testing::skill_folder(w.data.root(), "my-validate");
-    let status = w
-        .board
+    w.board
         .import_workflow_skill(Some("SHOP"), WorkflowStep::Validate, &folder)
         .await
         .unwrap();
-    let copy = status.copy.unwrap().join("SKILL.md").display().to_string();
     let t = working(&w, "Cart totals").await;
     submit(&w, &t).await.unwrap();
     let validator = w
         .sessions
         .running_of(&t.id, SessionKind::Validator)
         .unwrap();
-    let out = w.wait_for_output(&validator.id, "ARGS").await;
-    let out = if out.contains(&copy) {
-        out
-    } else {
-        w.wait_for_output(&validator.id, &copy).await
-    };
+    let named = format!("`.agents/skills/{}/`", naming::custom_skill("validate"));
+    let out = w.wait_for_output(&validator.id, &named).await;
     assert!(!out.contains(&naming::skill("validate")), "{out}");
     w.stop().await;
 }

@@ -34,15 +34,8 @@ async fn defaults() {
         );
     }
     assert_eq!(
-        effective.workflow_skills.open_pr.stored(),
+        effective.workflow_skills.open_pr.label(),
         naming::skill("open-pr")
-    );
-    assert!(
-        effective
-            .workflow_skills
-            .open_pr
-            .stored()
-            .ends_with(":open-pr")
     );
 
     let project = f.board.project_settings("SHOP").await.unwrap();
@@ -263,8 +256,8 @@ async fn m12_defaults() {
     assert_eq!(effective.validation_rounds, 3);
     assert_eq!(effective.auto_merge, AutoMerge::Off);
     assert_eq!(
-        effective.workflow_skills.validate.stored(),
-        naming::skill("validate")
+        effective.workflow_skills.validate,
+        ResolvedSkill::BuiltIn(WorkflowStep::Validate)
     );
 }
 

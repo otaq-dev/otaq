@@ -4,7 +4,7 @@
 //! the named agent, the tool and the model as passed, then the exact model the tool reports. `claude` stands in as
 //! `sh` printing its arguments: no test starts claude.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -315,28 +315,10 @@ async fn a_validator_round_runs_on_its_own_agent() {
         .session()
         .unwrap();
     let id = validator.tool_session_id.clone().unwrap();
-    let skill = w
-        .board
-        .effective_settings("SHOP")
-        .await
-        .unwrap()
-        .workflow_skills
-        .validate
-        .stored();
-    let worktree = PathBuf::from(
-        w.board
-            .ticket("SHOP-1")
-            .await
-            .unwrap()
-            .work
-            .unwrap()
-            .worktree
-            .unwrap(),
-    );
     let prompt = w
         .adapters
         .get(Tool::Claude)
-        .workflow_skill(WorkflowStep::Validate, &skill, &worktree)
+        .workflow_skill(WorkflowStep::Validate, false)
         .prompt();
     assert_eq!(
         launched(w, &validator.id).await,
@@ -627,18 +609,16 @@ async fn resume(
                 .sessions
                 .running_of(&t.id, SessionKind::Agent)
                 .expect("resumed");
-            let skill = w
-                .board
-                .effective_settings("SHOP")
-                .await
-                .unwrap()
-                .workflow_skills
-                .open_pr
-                .stored();
+            // Written into the worktree before the resume, and named by that folder (WSK-05, WSK-06).
+            assert!(
+                worktree
+                    .join(".agents/skills/otaq-custom-open-pr/SKILL.md")
+                    .is_file()
+            );
             let prompt = w
                 .adapters
                 .get(Tool::Claude)
-                .workflow_skill(WorkflowStep::OpenPr, &skill, &worktree)
+                .workflow_skill(WorkflowStep::OpenPr, true)
                 .prompt();
             (s, format!("--resume {CONVERSATION}{flag} {prompt}"))
         }

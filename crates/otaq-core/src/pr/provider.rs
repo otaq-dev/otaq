@@ -284,7 +284,9 @@ mod tests {
         p.provider = None;
         assert_eq!(p.summary(), "Not detected: use your own Open PR skill");
         assert_eq!(p.open_pr_blocked(), Some("PR provider not detected"));
-        p.open_pr_skill = "/my-pr".into();
+        // An imported Open PR skill, shown by its name, is the user's own (REV-11, WSK-08).
+        p.open_pr_skill = "my-pr".into();
+        assert!(!p.built_in_open_pr());
         assert_eq!(
             p.open_pr_blocked(),
             None,

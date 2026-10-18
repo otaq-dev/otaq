@@ -289,6 +289,56 @@ async fn a_file_committed_after_the_last_build_is_newer_than_the_output_in_the_n
     }
 }
 
+/// WSK-05, d0082: the workflow skills' worktree copies (`otaq-custom-*`, gitignored by their own `.gitignore`) are
+/// neither kept at Done nor seeded into a later worktree, even from a stock that holds them; the build around them
+/// is.
+#[tokio::test]
+async fn workflow_skill_copies_are_neither_kept_nor_seeded() {
+    use otaq_core::board::settings::{ResolvedSkill, WorkflowStep};
+    use otaq_core::workflow_skills::worktree::{all_folders, write};
+    for available in BOTH {
+        let w = world(available).await;
+        let project = shop_web(&w).await;
+        let skill = ResolvedSkill::Imported {
+            name: "my-commit".into(),
+            folder: otaq_core::workflow_skills::testing::skill_folder(w.data.root(), "my-commit"),
+        };
+        let copies = |wt: &Path| {
+            for step in WorkflowStep::ALL {
+                write(wt, step, &skill).unwrap();
+            }
+        };
+        let (key, wt) = started(&w, "Checkout API", "api.ts").await;
+        build(&wt, "v1");
+        copies(&wt);
+        merge(&w, &key).await;
+
+        let folder = warm(&w, &project);
+        assert_eq!(built(&w, &project).as_deref(), Some("v1"), "the build kept");
+        for copy in all_folders() {
+            assert!(!folder.join(&copy).exists(), "{} kept", copy.display());
+        }
+
+        // A stock holding them anyway (kept before the guard) doesn't seed them.
+        copies(&folder);
+        let t = w.create("SHOP", "Receipts").await;
+        let next = w.start_worktree(&t).await;
+        let git = w.board.project_git("SHOP").await.unwrap();
+        seeder(&w)
+            .seed(&w.board, &git, &project, &t.key.to_string(), &next, false)
+            .await
+            .expect("seeded");
+        assert_eq!(
+            std::fs::read_to_string(next.join("out/deep/app.bin")).unwrap(),
+            "v1"
+        );
+        for copy in all_folders() {
+            assert!(!next.join(&copy).exists(), "{} seeded", copy.display());
+        }
+        w.stop().await;
+    }
+}
+
 #[tokio::test]
 async fn a_dirty_worktree_keeps_everything() {
     for available in BOTH {

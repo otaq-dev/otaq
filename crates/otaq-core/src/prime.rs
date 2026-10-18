@@ -39,8 +39,8 @@ pub struct PrimeContext {
     /// The epic lead's unread notes to this ticket (LEAD-10), at the top; its own agent's prime marks them read.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unread_notes: Vec<crate::epic_lead::notes::LeadNote>,
-    /// The Commit workflow skill to use (d0050), named for the caller's tool (ADP-05): `/otaq:commit` unless the
-    /// user set their own, which goes by its SKILL.md path when found.
+    /// The Commit workflow skill to use (d0050), named for the caller's tool (ADP-05, WSK-06): `/otaq:commit`, or
+    /// an imported skill by its copy in the worktree (`.agents/skills/otaq-custom-commit/`) once it is there.
     pub commit_skill: SkillRef,
     /// The restack skill in the caller's tool's syntax: `/otaq:restack`.
     pub restack_skill: String,
@@ -237,39 +237,39 @@ pub fn render_agents(agents: &[PrimeAgent], reader: AgentReader) -> String {
 
 impl Board {
     /// The prime context of a ticket, its skills named for an agent of `tool` (ADP-05): the caller's session's
-    /// tool, or a new session's for someone running `otaq prime` by hand. A user's workflow skill is looked for
-    /// from the ticket's worktree (the agent's folder), else the project's folder.
+    /// tool, or a new session's for someone running `otaq prime` by hand. An imported Commit skill is named by its
+    /// copy in the ticket's worktree when the launch wrote it there (WSK-05, WSK-06); else the built-in.
     pub async fn prime_context(
         &self,
         key: &str,
         tool: &dyn AgentTool,
     ) -> Result<PrimeContext, BoardError> {
         let mut context = self.unnamed_prime_context(key).await?;
-        let cwd = match context
-            .ticket
-            .work
-            .as_ref()
-            .and_then(|w| w.worktree.clone())
-        {
-            Some(worktree) => worktree,
-            None => {
-                self.project(context.ticket.key.project.as_str())
-                    .await?
-                    .repo_path
-            }
-        };
-        if let SkillRef::Named(stored) = &context.commit_skill {
-            context.commit_skill = tool.workflow_skill(
-                crate::board::settings::WorkflowStep::Commit,
-                stored,
-                std::path::Path::new(&cwd),
-            );
-        }
+        let commit = crate::board::settings::WorkflowStep::Commit;
+        let imported = !self
+            .effective_settings(context.ticket.key.project.as_str())
+            .await?
+            .workflow_skills
+            .commit
+            .is_built_in();
+        let copied = imported
+            && context
+                .ticket
+                .work
+                .as_ref()
+                .and_then(|w| w.worktree.as_deref())
+                .is_some_and(|worktree| {
+                    crate::workflow_skills::worktree::is_written(
+                        std::path::Path::new(worktree),
+                        commit,
+                    )
+                });
+        context.commit_skill = tool.workflow_skill(commit, copied);
         context.restack_skill = tool.skill_reference(crate::review::RESTACK_SKILL);
         Ok(context)
     }
 
-    /// The prime context with the Commit skill as stored and no restack skill named yet.
+    /// The prime context with Otaq's own Commit skill as stored and no restack skill named yet.
     async fn unnamed_prime_context(&self, key: &str) -> Result<PrimeContext, BoardError> {
         let ticket = self.ticket(key).await?;
         let project = ticket.key.project.to_string();
@@ -292,7 +292,6 @@ impl Board {
                 .find(|t| &t.key == e)
                 .map(|t| (t.key.clone(), t.title.clone()))
         });
-        let settings = self.effective_settings(&project).await?;
         let instructions = self.agent_instructions(&project).await?;
         let conflict = self.conflict(&ticket.id).await?;
         let pull_request = self.prime_pr(&ticket).await?;
@@ -323,7 +322,7 @@ impl Board {
             review_feedback: Vec::new(),
             pending_questions,
             decisions,
-            commit_skill: SkillRef::Named(settings.workflow_skills.commit.stored()),
+            commit_skill: SkillRef::Own(crate::board::settings::WorkflowStep::Commit.own_default()),
             restack_skill: String::new(),
             instructions,
             pull_request,
@@ -823,14 +822,14 @@ pub fn render(ctx: &PrimeContext) -> String {
          submitting for review."
             .to_owned(),
         match &ctx.commit_skill {
-            SkillRef::Named(name) | SkillRef::BuiltIn { skill: name, .. } => format!(
+            SkillRef::Own(name) => format!(
                 "Commit everything with `{name}` before you submit. Never push and never open a PR: the user does \
                  that."
             ),
-            SkillRef::File { file } => format!(
-                "Commit everything by following `{}` before you submit. Never push and never open a PR: the user \
-                 does that.",
-                file.display()
+            SkillRef::Folder { folder } => format!(
+                "Commit everything by following the skill in {} before you submit. Never push and never open a PR: \
+                 the user does that.",
+                SkillRef::follow(folder)
             ),
         },
         format!(

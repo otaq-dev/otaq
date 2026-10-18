@@ -143,14 +143,24 @@ async fn open_pr_on_an_epic_runs_a_delivery_session_and_ends_it() {
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
     let session = delivery(w, &s.epic).expect("a delivery session");
     let printed = w.wait_for_output(&session, "delivery:").await;
-    let printed = if printed.contains("/SKILL.md`") {
+    // The imported skill, written into the delivery worktree before the launch (WSK-05, WSK-06).
+    let named = "`.agents/skills/otaq-custom-open-pr/`";
+    let printed = if printed.contains(named) {
         printed
     } else {
-        w.wait_for_output(&session, "/SKILL.md`").await
+        w.wait_for_output(&session, named).await
     };
-    assert!(printed.contains("/SKILL.md`"), "{printed}");
+    assert!(printed.contains(named), "{printed}");
     let epic = w.board.ticket("SHOP-1").await.unwrap();
     let worktree = PathBuf::from(epic.work.as_ref().unwrap().worktree.clone().unwrap());
+    for root in [".agents", ".claude"] {
+        assert!(
+            worktree
+                .join(root)
+                .join("skills/otaq-custom-open-pr/SKILL.md")
+                .is_file()
+        );
+    }
     assert_eq!(
         git(&worktree, &["branch", "--show-current"]).trim(),
         "otaq/SHOP-1",

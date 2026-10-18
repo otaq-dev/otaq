@@ -143,7 +143,11 @@ async fn github_origin_with_gh_logged_in_then_other_remotes() {
         )
         .await
         .unwrap();
-    assert_eq!(provider(&w).await.open_pr_blocked(), None);
+    // It is the user's own, shown by its name (REV-11, WSK-08).
+    let custom = provider(&w).await;
+    assert_eq!(custom.open_pr_skill, "my-pr");
+    assert!(!custom.built_in_open_pr());
+    assert_eq!(custom.open_pr_blocked(), None);
 
     // Nothing Otaq stores holds what the CLI printed about its token (REV-12).
     let _ = provider(&w).await;

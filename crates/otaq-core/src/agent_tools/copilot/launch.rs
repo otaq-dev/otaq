@@ -69,7 +69,7 @@ pub(super) fn launch(
     let prompt = request
         .first_prompt
         .as_ref()
-        .map(|p| prompt_text(&adapter, p, &request.cwd));
+        .map(|p| prompt_text(&adapter, p));
     let (mut args, tool_id) = match &request.resume {
         Some(id) => (vec!["--resume".to_owned(), id.clone()], id.clone()),
         None => {
@@ -119,8 +119,9 @@ pub(super) fn model_flags(model: Option<&str>) -> Vec<String> {
     }
 }
 
-/// The first prompt as typed: `/otaq:epic-lead <message>`, a workflow skill named for `cwd`, or the text.
-fn prompt_text(adapter: &Copilot, prompt: &FirstPrompt, cwd: &Path) -> String {
+/// The first prompt as typed: `/otaq:epic-lead <message>`, a workflow skill (Otaq's own, or its worktree
+/// folder), or the text.
+fn prompt_text(adapter: &Copilot, prompt: &FirstPrompt) -> String {
     match prompt {
         FirstPrompt::OtaqSkill { name, message } => {
             let skill = adapter.skill_reference(name);
@@ -129,8 +130,8 @@ fn prompt_text(adapter: &Copilot, prompt: &FirstPrompt, cwd: &Path) -> String {
                 None => skill,
             }
         }
-        FirstPrompt::WorkflowSkill { step, stored } => {
-            adapter.workflow_skill(*step, stored, cwd).prompt()
+        FirstPrompt::WorkflowSkill { step, imported } => {
+            adapter.workflow_skill(*step, *imported).prompt()
         }
         FirstPrompt::Text(text) => text.clone(),
     }
@@ -212,6 +213,7 @@ mod tests {
 
     use super::*;
     use crate::agent_tools::test_support;
+    use crate::agent_tools::test_support::{follow_validate, only_the_prompt_differs};
     use crate::agent_tools::{Adapters, WORK_TICKET_SKILL};
     use crate::board::settings::WorkflowStep;
 
@@ -436,7 +438,7 @@ mod tests {
         let mut req = request(LaunchRole::Validator);
         req.first_prompt = Some(FirstPrompt::WorkflowSkill {
             step: WorkflowStep::Validate,
-            stored: "/my-validate".into(),
+            imported: false,
         });
         let plan = launch(&i.copilot, &req).unwrap();
         assert_eq!(
@@ -447,11 +449,19 @@ mod tests {
                 (naming::role_env_var(), naming::ROLE_VALIDATOR.to_owned()),
             ]
         );
-        // The user's skill isn't one Copilot finds: the built-in instead (d0086).
         assert_eq!(
             plan.args.last().unwrap(),
             &format!("/{}:validate", naming::PLUGIN_NAMESPACE)
         );
+        // An imported Validate skill: its worktree folder, and nothing else changes (WSK-06, d0011).
+        req.first_prompt = Some(FirstPrompt::WorkflowSkill {
+            step: WorkflowStep::Validate,
+            imported: true,
+        });
+        let imported = launch(&i.copilot, &req).unwrap();
+        assert_eq!(imported.args.last(), Some(&follow_validate()));
+        only_the_prompt_differs(&plan, &imported);
+        assert!(!imported.args.iter().any(|a| a == "--add-dir"));
 
         let mut req = request(LaunchRole::EpicLead);
         req.ticket = None;

@@ -7,7 +7,8 @@
 //! - The gitignored paths come from `git ls-files --others --ignored --exclude-standard --directory`: a folder is one
 //!   entry, so a folder of a hundred thousand files is one rename. Every gitignored file is treated the same.
 //! - The project's env files are left out, and stay in the worktree (a folder holding one moves around it): they are
-//!   copied fresh at each start (SES-01 step 4).
+//!   copied fresh at each start (SES-01 step 4). So are the worktree copies of workflow skills (`otaq-custom-*`,
+//!   WSK-05): they are written fresh before each session that runs one, and are never kept or seeded (d0082).
 //! - The record: built at (`HEAD`), base (`merge-base HEAD <base branch>`, for "forward only"), from (the ticket)
 //!   and the time. The stock decides whether it is kept.
 //! - The times file ([`TrackedTimes`]): every tracked file's modified time in the worktree (a symlink's own), so a
@@ -46,7 +47,8 @@ fn failed(e: impl fmt::Display) -> KeepError {
 pub(crate) struct Collected {
     /// The gitignored paths to move (relative; a folder is one), without the env files.
     pub(crate) paths: Vec<PathBuf>,
-    /// The project's env files (relative): they stay in the worktree, also inside a moved folder.
+    /// The project's env files and the workflow skills' worktree copies (relative): they stay in the worktree, also
+    /// inside a moved folder.
     pub(crate) env_files: Vec<PathBuf>,
     /// The tracked files, whose times are recorded.
     pub(crate) tracked: Vec<String>,
@@ -109,6 +111,7 @@ pub(crate) async fn collect(
         .iter()
         .map(|f| normal(Path::new(f.trim())))
         .filter(|f| !f.as_os_str().is_empty())
+        .chain(crate::workflow_skills::worktree::all_folders())
         .collect();
     let git = board.project_git(&project.key).await.map_err(failed)?;
     let listed = git

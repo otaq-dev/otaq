@@ -4,10 +4,12 @@
 //! fingerprint of the copy. Agents only ever use the copy; a missing or broken copy means the step's built-in.
 //!
 //! The setting itself is [`crate::board::settings::SkillSetting`]; the actions here are `workflow_skills.import`,
-//! `.reimport`, `.reset` and `.status`. Nothing is written into a repository (d0023).
+//! `.reimport`, `.reset` and `.status`. Before a session runs a workflow skill, the copy is written into its worktree
+//! as `otaq-custom-<step>` ([`worktree`], WSK-05); nothing else is written into a repository (d0023).
 
 pub mod folder;
 pub mod testing;
+pub mod worktree;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -59,16 +61,6 @@ impl ResolvedSkill {
         match self {
             Self::BuiltIn(step) => step.own_default(),
             Self::Imported { name, .. } => name.clone(),
-        }
-    }
-
-    /// The value the agent tools' naming takes (until the worktree copy of WSK-05 replaces it): the built-in as
-    /// Otaq's own skill (`/otaq:commit`), an imported one by its copy's SKILL.md path, which the tools follow as
-    /// a file.
-    pub fn stored(&self) -> String {
-        match self {
-            Self::BuiltIn(step) => step.own_default(),
-            Self::Imported { folder, .. } => folder.join(folder::SKILL_FILE).display().to_string(),
         }
     }
 }
