@@ -43,10 +43,7 @@ async fn show_reads_a_ticket_by_key_number_alias_and_variable() {
 
     let text = stdout(&cb(&w, &["show", "SHOP-20"]));
     assert!(text.starts_with("SHOP-20 · Checkout page\n"), "{text}");
-    assert!(
-        text.contains("Status:      Queued (Ready for Dev)"),
-        "{text}"
-    );
+    assert!(text.contains("Status:      Ready for Dev\n"), "{text}");
     assert!(
         text.contains("Depends on:  SHOP-18 (Ready for Review), SHOP-19 (Working)"),
         "{text}"

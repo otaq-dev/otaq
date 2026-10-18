@@ -1024,7 +1024,7 @@ mod tests {
         let n = notices();
         let codex = ToolLine {
             situation: moves::Situation::Unavailable {
-                reason: "logged out".into(),
+                reason: "signed out".into(),
                 sign_in: true,
                 hidden: false,
                 since: now_ms(),

@@ -22,7 +22,7 @@ import { StackBody } from "./Stack";
 const pill = (label: string): PillView => ({ palette: "queued", icon: "hourglass", label });
 
 const STACK: StackView = {
-  title: "Stack",
+  title: "Dependencies",
   summary: "Depends on SHOP-18",
   count: "2 tickets",
   rows: [
@@ -33,12 +33,12 @@ const STACK: StackView = {
       depth: 1,
       current: true,
       waits: "waits for SHOP-18 to merge",
-      pill: pill("Queued"),
+      pill: pill("Ready for Dev"),
     },
   ],
   add_dependency: "+ Add dependency",
-  show_hint: "Show the Stack",
-  hide_hint: "Hide the Stack",
+  show_hint: "Show dependencies",
+  hide_hint: "Hide dependencies",
 };
 
 const MOVE: MoveDialogView = {
@@ -48,7 +48,7 @@ const MOVE: MoveDialogView = {
     {
       key: "SHOP-40",
       title: "Wishlist",
-      progress: "1 / 4 merged",
+      progress: "1 of 4 merged",
       new_key: "SHOP-40.4",
       heading: "Move SHOP-51 Wishlist share link to an epic",
       alias_note: "· the old key SHOP-51 still works",
@@ -58,7 +58,7 @@ const MOVE: MoveDialogView = {
     {
       key: "SHOP-60",
       title: "Gift cards",
-      progress: "0 / 1 merged",
+      progress: "0 of 1 merged",
       new_key: "SHOP-60.2",
       heading: "Move SHOP-51 Wishlist share link to an epic",
       alias_note: "· the old key SHOP-51 still works",
@@ -133,7 +133,7 @@ describe("the sections", () => {
   it("Stack: rows with their waiting text, the open ticket marked", () => {
     const out = html(createElement(StackBody, { ticket: "SHOP-20", view: STACK }));
     for (const text of [
-      "Stack",
+      "Dependencies",
       "2 tickets",
       "Checkout API",
       "waits for SHOP-18 to merge",
@@ -342,7 +342,7 @@ describe("the sections", () => {
   it("the epic panel: progress, branch, children and Add ticket to epic", () => {
     const view: EpicView = {
       external_id: "PAY-123",
-      progress: "1 / 3 merged",
+      progress: "1 of 3 merged",
       merged: 1,
       total: 3,
       branch: "otaq/SHOP-40 · local",
@@ -364,7 +364,7 @@ describe("the sections", () => {
     const out = html(createElement(EpicBody, { ticket: "SHOP-40", view }));
     for (const text of [
       "PAY-123",
-      "1 / 3 merged",
+      "1 of 3 merged",
       "TICKETS · 3",
       "⛓ SHOP-40.1",
       "Add ticket to epic",

@@ -643,7 +643,7 @@ mod tests {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let load = table(&h.app, "inbox.view", Value::Null).await.unwrap();
-        assert_eq!(load["view"]["title"], "Needs you");
+        assert_eq!(load["view"]["title"], "Inbox");
         assert_eq!(load["view"]["total"], 0);
         assert_eq!(load["view"]["empty"]["title"], "Nothing needs you");
         assert_eq!(load["refresh_ms"], Value::Null);

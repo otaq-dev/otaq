@@ -101,7 +101,10 @@ pub fn loading_text(tool: Tool) -> String {
 
 /// "Couldn't load Copilot's models".
 pub fn failed_text(tool: Tool) -> String {
-    format!("Couldn't load {}'s models", tool_word(tool))
+    format!(
+        "Couldn\u{2019}t load {}\u{2019}s models. Check your connection, then try again.",
+        tool_word(tool)
+    )
 }
 
 /// A follow entry's detail: what it runs now, or (one that resolves per task, Copilot's Auto) the tool's own
@@ -535,7 +538,10 @@ mod tests {
         );
         let status = p.status.expect("couldn't load");
         assert!(!status.loading);
-        assert_eq!(status.text, "Couldn't load Copilot's models");
+        assert_eq!(
+            status.text,
+            "Couldn’t load Copilot’s models. Check your connection, then try again."
+        );
         assert_eq!(status.retry_label.as_deref(), Some("Retry"));
         assert_eq!(status.retry_tool, Some(Tool::Copilot));
         assert_eq!(

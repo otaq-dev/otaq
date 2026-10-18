@@ -54,7 +54,7 @@ pub fn plan(ticket: &Ticket, pending: &[ReviewComment], tickets: &[Ticket]) -> S
     SendBackPlan {
         title: format!("Send {} {} back", ticket.key, ticket.title),
         intro: format!(
-            "{} goes straight back to its agent in Dev (Agent Working) and continues in the same session.",
+            "{} goes straight back to its agent in Dev (Working) and continues in the same session.",
             ticket.key
         ),
         comments,
@@ -127,7 +127,7 @@ mod tests {
         assert_eq!(p.title, "Send SHOP-18 Checkout API back");
         assert_eq!(
             p.intro,
-            "SHOP-18 goes straight back to its agent in Dev (Agent Working) and continues in the same session."
+            "SHOP-18 goes straight back to its agent in Dev (Working) and continues in the same session."
         );
         assert_eq!(
             p.comments,
@@ -145,10 +145,13 @@ mod tests {
         assert_eq!(
             p.waiting,
             [
-                (shop20.key.clone(), "Checkout page \u{b7} Queued".to_owned()),
+                (
+                    shop20.key.clone(),
+                    "Checkout page \u{b7} Ready for Dev".to_owned()
+                ),
                 (
                     shop21.key.clone(),
-                    "Order confirmation email \u{b7} Queued".to_owned()
+                    "Order confirmation email \u{b7} Ready for Dev".to_owned()
                 ),
             ]
         );

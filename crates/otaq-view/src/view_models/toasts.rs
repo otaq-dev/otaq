@@ -296,7 +296,7 @@ mod tests {
         let mut m = ToastModel::default();
         m.push(ToastLevel::Success, "Reconnected", None, t0);
         let err = m.push_with_copy(
-            "gh is not logged in",
+            "gh is not signed in",
             None,
             "Copy command",
             "gh auth login",
@@ -327,7 +327,7 @@ mod tests {
     fn error_toasts_carry_their_command() {
         let mut m = ToastModel::default();
         m.push_with_copy(
-            "gh is not logged in",
+            "gh is not signed in",
             Some("Run gh auth login, then retry Open PR.".into()),
             "Copy command",
             "gh auth login",
@@ -378,7 +378,7 @@ mod tests {
             now,
         );
         m.push_with_copy(
-            "gh is not logged in",
+            "gh is not signed in",
             None,
             "Copy command",
             "gh auth login",

@@ -1,6 +1,6 @@
 // The header's search and filter field (*03 · Board & columns → Search & filter · ⌘K*; UI-02, EPC-01, d0058), drawn
 // by the header in place of its search entry (the `header_search` slot). ⌘K focuses it; typing filters the board as
-// you type; a finished token (`is:needs-me `) becomes a chip with its ×; the list under the field suggests filters
+// you type; a finished token (`is:needs-you `) becomes a chip with its ×; the list under the field suggests filters
 // with their counts (↑/↓ and ↵, or a click, add one); ↵ on a half-typed token adds the first suggestion, and on
 // "cleanup" opens Recovery and Cleanup; Esc clears the filter and leaves. What it says is `board.search`'s.
 import { type KeyboardEvent, type RefObject, useCallback, useEffect, useRef, useState } from "react";

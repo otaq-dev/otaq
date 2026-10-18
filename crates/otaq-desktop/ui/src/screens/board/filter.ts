@@ -53,7 +53,7 @@ export function removeToken(project: string, index: number, store: Store<KeptFil
 }
 
 /**
- * Rust's answer to what was `sent`: when it finished a token (`is:needs-me ` became a chip), the field takes its chips
+ * Rust's answer to what was `sent`: when it finished a token (`is:needs-you ` became a chip), the field takes its chips
  * and the rest of the text, unless the user typed on meanwhile. Otherwise the field stays as typed. `null`: no change.
  */
 export function finishedTokens(sent: BoardFilter, answer: BoardFilter, now: BoardFilter): BoardFilter | null {

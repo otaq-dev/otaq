@@ -27,8 +27,9 @@ use crate::view_models::panel::Tab;
 use crate::view_models::status::pill;
 use crate::view_models::tool_avatar::AvatarTool;
 
-/// The header's inbox button (ATT-10; *02 → Header states*): turquoise "Needs you" with the count while something
-/// waits, a quiet outlined "Inbox" with 0 when nothing does (*Header · inbox clear*).
+/// The header's inbox button (ATT-10; *02 → Header states*): "Inbox", turquoise with the count while something
+/// waits, quiet and outlined with 0 when nothing does (*Header · inbox clear*). d0093: the place is "Inbox"; "Needs
+/// you" is the state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "InboxButton")]
 pub struct HeaderButton {
@@ -40,7 +41,7 @@ pub struct HeaderButton {
 /// The button for the inbox's total (the sum of the rail badges).
 pub fn header_button(total: u32) -> HeaderButton {
     HeaderButton {
-        label: if total > 0 { "Needs you" } else { "Inbox" },
+        label: "Inbox",
         count: total,
         active: total > 0,
     }
@@ -1161,7 +1162,7 @@ mod tests {
         assert_eq!(
             header_button(7),
             HeaderButton {
-                label: "Needs you",
+                label: "Inbox",
                 count: 7,
                 active: true
             }

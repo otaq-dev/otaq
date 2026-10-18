@@ -178,7 +178,7 @@ const SEND_BACK: DecisionChangeView = {
   label: "SEND BACK TO THE AGENT WITH",
   text: "everywhere",
   help: "Prefilled with the other option. Edit it or write your own.",
-  note: "This is a Send back (0034): SHOP-23 goes back to Dev with this message and any line comments you’ve written, and its agent continues in the same session. Its next submit is validated again.",
+  note: "This is a Send back: SHOP-23 goes back to Dev with this message and any line comments you’ve written, and its agent continues in the same session. Its next submit is validated again.",
   comments: 0,
   confirm: "Send back to the agent",
   cancel: "Cancel",
@@ -202,7 +202,7 @@ const FIX_CHILD: DecisionChangeView = {
     "SHOP-40.1 built newest first for “Order of saved items?” (recorded decision). Change it to: in the order they were added.",
   description_label: "Description",
   help: "Prefilled from the decision; edit both before adding.",
-  note: "Creates SHOP-40.7, added by you. The epic becomes a track again and 40.7 joins the queue (0080); its lead resumes the same conversation.",
+  note: "Creates SHOP-40.7, added by you. The epic becomes a track again and 40.7 joins the queue; its lead resumes the same conversation.",
   confirm: "Add fix child",
   cancel: "Cancel",
   hint: "cancel",
@@ -221,7 +221,7 @@ describe("Change… on a recorded decision (DEC-06)", () => {
       "SEND BACK TO THE AGENT WITH",
       'value="everywhere"',
       "Prefilled with the other option.",
-      "This is a Send back (0034)",
+      "This is a Send back:",
       "Send back to the agent",
     ]) {
       expect(out).toContain(text);

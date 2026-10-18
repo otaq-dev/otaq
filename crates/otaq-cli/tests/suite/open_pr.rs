@@ -163,6 +163,22 @@ async fn open_pr_proposes_confirms_rewords_renames_and_reports() {
         let check = w.board.check_branch_name("SHOP-1", name).await.unwrap();
         assert_eq!(check == BranchCheck::Ok, ok, "{name}: {check:?}");
     }
+    // The hints end with the fix (d0093).
+    for (name, says) in [
+        ("feature/a b", "Use hyphens instead of spaces"),
+        (
+            "taken",
+            "A branch with this name already exists on origin. Choose another name.",
+        ),
+    ] {
+        let check = w.board.check_branch_name("SHOP-1", name).await.unwrap();
+        assert_eq!(
+            check,
+            BranchCheck::Problem {
+                message: says.to_owned()
+            }
+        );
+    }
 
     // A taken name is refused on confirm, and nothing changes.
     let mut edits: Proposal = flow.proposal.unwrap();

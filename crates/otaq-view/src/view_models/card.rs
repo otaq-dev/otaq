@@ -61,8 +61,10 @@ pub const SIGNAL_AMBER_MS: i64 = 3 * 60 * 1000;
 
 /// A head flag is at most this many characters at every width (designer decision B12)…
 pub const FLAG_MAX_CHARS: usize = 12;
-/// …except "Parent closed", the design's own label (13).
+/// …except "Parent closed", the design's own label (13)…
 pub const PARENT_CLOSED: &str = "Parent closed";
+/// …and "Validator asks" (14), the glossary's short flag for the validator's question (d0093).
+pub const VALIDATOR_ASKS: &str = "Validator asks";
 
 /// Facts about a ticket that aren't on [`Ticket`] yet or come from elsewhere on the board.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -783,7 +785,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         Status::ValidatorNeedsYou => Part::flag(
             flag(
                 R::NeedsYou,
-                "Validator",
+                VALIDATOR_ASKS,
                 validation::VALIDATOR_NEEDS_YOU,
                 Legend::ValidatorNeedsYou,
             ),
@@ -865,7 +867,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             flag(
                 R::Stopped,
                 "Start failed",
-                "Start interrupted",
+                "Start failed",
                 Legend::StartInterrupted,
             ),
             Some(match &x.start_failure {
@@ -971,7 +973,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         Status::WaitingForLimitReset => Part::flag(
             flag(
                 R::Limit,
-                "Limit",
+                "At limit",
                 "Waiting for limit reset",
                 Legend::WaitingForLimitReset,
             ),
@@ -981,7 +983,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         .lost("waiting for limit reset"),
         // Held by the plan's usage limit (SCH-04): neutral like the other limit waits.
         Status::Held if x.held_by_limit => Part::flag(
-            flag(R::Limit, "Limit", "Held", Legend::WaitingForLimitReset),
+            flag(R::Limit, "At limit", "Held", Legend::WaitingForLimitReset),
             Some(x.held_reason.clone().unwrap_or_else(|| "Held".into())),
             Tone::Muted,
         ),
@@ -1022,7 +1024,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             Tone::Muted,
         ),
         Status::Working => Part::flag(
-            flag(R::Working, "Working", "Agent Working", Legend::AgentWorking),
+            flag(R::Working, "Working", "Working", Legend::AgentWorking),
             None,
             Tone::Working,
         ),
@@ -1093,7 +1095,7 @@ pub const VALIDATOR_COULDNT_RUN_ITS_MODEL: &str = "Validator couldn\u{2019}t run
 /// *Approved · PR open*'s line: Otaq doesn't follow the PR (d0017).
 pub fn pr_not_watched() -> String {
     format!(
-        "{} doesn\u{2019}t watch PRs. Mark it when it lands.",
+        "{} doesn\u{2019}t watch PRs. Mark it once it\u{2019}s merged on GitHub.",
         otaq_core::naming::PRODUCT_NAME
     )
 }
@@ -1215,7 +1217,7 @@ impl CardViewModel {
                     HeadFlag::new(
                         Rank::Running,
                         format!(":{port}"),
-                        format!("Running :{port}"),
+                        format!("Serving :{port}"),
                         Legend::Running,
                     ),
                     None,
@@ -1405,7 +1407,7 @@ fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
     };
     match h.reason {
         HoldReason::ToolLimit => Part::flag(
-            flag("Limit", Palette::Queued, IconName::Hourglass),
+            flag("At limit", Palette::Queued, IconName::Hourglass),
             Some(text),
             Tone::Muted,
         ),
@@ -2394,7 +2396,7 @@ mod tests {
                 None,
             ),
             (
-                "Start interrupted (0018)",
+                "Start failed (0018)",
                 Some("Start failed"),
                 Some("Setup command failed · agent never started"),
                 Some("[Retry start]"),
@@ -2456,7 +2458,7 @@ mod tests {
             ),
             (
                 "Needs you · validator (0063)",
-                Some("Validator"),
+                Some("Validator asks"),
                 Some("validator: Allow Bash(pnpm test)?"),
                 Some("[Answer]"),
             ),
@@ -2620,7 +2622,7 @@ mod tests {
             "a joined line is never mono"
         );
         assert_eq!(
-            look("Start interrupted (0018)"),
+            look("Start failed (0018)"),
             (Tone::Error, Tone::Error, false)
         );
         assert_eq!(
@@ -2673,7 +2675,7 @@ mod tests {
             Status::WaitingForLimitReset,
         ));
         let f = limit.flag.unwrap();
-        assert_eq!((f.label.as_str(), f.palette), ("Limit", Palette::Queued));
+        assert_eq!((f.label.as_str(), f.palette), ("At limit", Palette::Queued));
         assert_eq!(f.rank, Rank::Limit);
         let palette = |name| variant(name).1.flag.unwrap().palette;
         assert_eq!(palette("Validating… (0063)"), Palette::Queued);
@@ -2758,7 +2760,7 @@ mod tests {
         assert_eq!(
             labels,
             [
-                "Validator",
+                "Validator asks",
                 "Needs you",
                 "Asks you",
                 "Idle",
@@ -2771,8 +2773,8 @@ mod tests {
                 "Dirty repo",
                 "Failed ×3",
                 "No result",
-                "Limit",
-                "Limit",
+                "At limit",
+                "At limit",
                 "Validating…",
                 "Conflict",
                 "Conflict",
@@ -2791,7 +2793,7 @@ mod tests {
         for (label, _) in &flags {
             let n = label.chars().count();
             assert!(
-                n <= FLAG_MAX_CHARS || label == PARENT_CLOSED,
+                n <= FLAG_MAX_CHARS || label == PARENT_CLOSED || label == VALIDATOR_ASKS,
                 "{label}: {n} characters"
             );
         }
@@ -2841,7 +2843,7 @@ mod tests {
         let mut t = ticket("SHOP-19", "Price table", Status::WaitingForLimitReset);
         t.flags.conflicts_with = Some("main".into());
         let vm = card(&t);
-        assert_eq!(flag_of(&vm), Some("Limit"));
+        assert_eq!(flag_of(&vm), Some("At limit"));
         assert_eq!(line(&vm), Some("conflicts with main"));
         // Conflict over the review outcome.
         let (mut t, _) = variant("Validated · round 2");
@@ -2864,7 +2866,7 @@ mod tests {
         // The port over Working.
         let (_, vm) = variant("Running (Run, 0035) · pinned (0047)");
         assert_eq!(flag_of(&vm), Some(":4020"));
-        assert_eq!(vm.hover.status, "Running :4020");
+        assert_eq!(vm.hover.status, "Serving :4020");
         // Needs you over the port (the frame's combined card).
         let (_, vm) = variant("Needs you + running + 2 dependencies");
         assert_eq!(flag_of(&vm), Some("Needs you"));
@@ -3077,7 +3079,7 @@ mod tests {
                 "held by limit",
                 Status::Held,
                 |_, x| x.held_by_limit = true,
-                "Limit",
+                "At limit",
             ),
             (
                 "parent closed",
@@ -3284,7 +3286,7 @@ mod tests {
                 "run",
                 Status::ReadyForReview,
                 |t, _| t.flags.run_port = Some(4020),
-                "Running :4020",
+                "Serving :4020",
             ),
             (
                 "answering",
@@ -3451,7 +3453,7 @@ mod tests {
             ..main_project()
         };
         let vm = CardViewModel::from(&held, &x, NOW);
-        assert_eq!(flag_of(&vm), Some("Limit"));
+        assert_eq!(flag_of(&vm), Some("At limit"));
         assert_eq!(line(&vm), Some("Claude Code limit reached"));
         assert_eq!(vm.footer, None, "no Retry: it starts by itself");
         let x = CardExtras {
@@ -4290,7 +4292,7 @@ mod tests {
             (
                 "Tool at its limit, no fallback (0086)",
                 "CC",
-                Some(("Limit", Palette::Queued)),
+                Some(("At limit", Palette::Queued)),
                 "Claude Code limit \u{b7} Change agent",
                 Tone::Muted,
                 None,
@@ -4300,7 +4302,7 @@ mod tests {
             (
                 "Tool at its limit \u{b7} fallback off",
                 "CC",
-                Some(("Limit", Palette::Queued)),
+                Some(("At limit", Palette::Queued)),
                 "Claude Code limit \u{b7} Use fallback (Strong GPT) \u{b7} Change agent",
                 Tone::Muted,
                 None,
@@ -4340,7 +4342,7 @@ mod tests {
             (
                 "Fallback also at its limit",
                 "CC",
-                Some(("Limit", Palette::Queued)),
+                Some(("At limit", Palette::Queued)),
                 "Strong and its fallback Strong GPT are both at their limits",
                 Tone::Muted,
                 None,
@@ -4511,7 +4513,7 @@ mod tests {
             &x,
             NOW,
         );
-        assert_eq!(flag_of(&vm), Some("Limit"));
+        assert_eq!(flag_of(&vm), Some("At limit"));
         assert_eq!(
             line(&vm),
             Some("GitHub Copilot limit \u{b7} Change validator")

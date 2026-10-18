@@ -1543,7 +1543,7 @@ mod tests {
         assert_eq!(n.tone, Tone::Amber);
         assert_eq!(
             n.heading,
-            "Codex isn\u{2019}t available \u{b7} logged out. This agent continues after you sign in."
+            "Codex isn\u{2019}t available \u{b7} signed out. This agent continues after you sign in."
         );
         let labels: Vec<_> = n.buttons.iter().map(|b| b.label.as_str()).collect();
         assert_eq!(labels, ["Sign in\u{2026}", "New agent on Sonnet"]);

@@ -80,7 +80,7 @@ pub fn card(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> RunCard {
             open(false).into_iter().chain([RunButton::Stop]).collect(),
         ),
         RunState::Running => (
-            "Running".to_owned(),
+            "Serving".to_owned(),
             Tone::Success,
             None,
             open(true).into_iter().chain([RunButton::Stop]).collect(),
@@ -106,7 +106,7 @@ pub fn card(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> RunCard {
                 .next()
                 .unwrap_or("The command");
             let after = match (run.started_at, run.ended_at) {
-                (Some(start), Some(end)) => format!(" after {} s", ((end - start) / 1000).max(0)),
+                (Some(start), Some(end)) => format!(" after {}s", ((end - start) / 1000).max(0)),
                 _ => String::new(),
             };
             let exit = run
@@ -261,7 +261,7 @@ mod tests {
         );
 
         let c = card(&run(RunState::Running), hhmm);
-        assert_eq!((c.title.as_str(), c.tone), ("Running", Tone::Success));
+        assert_eq!((c.title.as_str(), c.tone), ("Serving", Tone::Success));
         assert_eq!(
             c.buttons,
             [open("http://localhost:4020", true), RunButton::Stop]
@@ -296,7 +296,7 @@ mod tests {
         assert_eq!(
             c.message.as_deref(),
             Some(
-                "pnpm exited after 3 s. The command may be wrong for this project, or setup didn’t finish."
+                "pnpm exited after 3s. The command may be wrong for this project, or setup didn’t finish."
             )
         );
         assert_eq!(c.buttons, [RunButton::EditCommand, RunButton::Retry]);

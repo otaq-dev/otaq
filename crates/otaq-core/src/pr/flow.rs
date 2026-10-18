@@ -260,6 +260,12 @@ impl Board {
     ) -> Result<BranchCheck, BoardError> {
         let ticket = self.ticket(key).await?;
         let name = name.trim();
+        // The dialog's hint ends with the fix (d0093).
+        if name.contains(' ') {
+            return Ok(BranchCheck::Problem {
+                message: "Use hyphens instead of spaces".to_owned(),
+            });
+        }
         if let Some(message) = proposal::branch_name_problem(name) {
             return Ok(BranchCheck::Problem { message });
         }
@@ -275,7 +281,8 @@ impl Board {
             .is_some()
         {
             return Ok(BranchCheck::Problem {
-                message: format!("{name} is taken: a local branch has that name"),
+                message: "A local branch with this name already exists. Choose another name."
+                    .to_owned(),
             });
         }
         let heads = format!("refs/heads/{name}");
@@ -284,11 +291,12 @@ impl Board {
             .await
         {
             Ok(out) if !out.trim().is_empty() => Ok(BranchCheck::Problem {
-                message: format!("{name} is taken on origin"),
+                message: "A branch with this name already exists on origin. Choose another name."
+                    .to_owned(),
             }),
             Ok(_) => Ok(BranchCheck::Ok),
             Err(e) => Ok(BranchCheck::Problem {
-                message: format!("Can't check origin for {name}: {e}"),
+                message: format!("Can\u{2019}t check origin for {name}: {e}"),
             }),
         }
     }

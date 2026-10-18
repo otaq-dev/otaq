@@ -958,11 +958,11 @@ mod tests {
             number: 481,
             comments: Vec::new(),
             note: Some(
-                "PR #481 comments weren't fetched: `gh` isn't logged in (`gh auth login`)".into(),
+                "PR #481 comments weren't fetched: `gh` isn't signed in (`gh auth login`)".into(),
             ),
         })));
         assert!(
-            text.ends_with("`gh` isn't logged in (`gh auth login`)"),
+            text.ends_with("`gh` isn't signed in (`gh auth login`)"),
             "{text}"
         );
         assert!(!render_feedback(&feedback(None)).contains("PR #"));

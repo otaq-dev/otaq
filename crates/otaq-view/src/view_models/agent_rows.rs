@@ -620,7 +620,7 @@ pub fn token_line(t: &TicketAgents, tools: &Tools) -> Option<String> {
     }
     let developer = agent_part(t, Role::Developer, tools)?;
     let Some(validator) = agent_part(t, Role::Validator, tools) else {
-        return Some(format!("{developer} \u{b7} validation \u{2014}"));
+        return Some(format!("{developer} \u{b7} no validation yet"));
     };
     let rounds = counted_rounds(t);
     let suffix = if rounds == 0 {
@@ -1984,7 +1984,7 @@ mod tests {
     fn the_token_line_names_each_agent() {
         assert_eq!(
             token_line(&shop_19(), &tools()).as_deref(),
-            Some("Strong 182k \u{b7} validation \u{2014}")
+            Some("Strong 182k \u{b7} no validation yet")
         );
         assert_eq!(
             token_line(&shop_29_validating(), &tools()).as_deref(),
@@ -2045,7 +2045,7 @@ mod tests {
         );
         assert_eq!(
             token_line(&t, &tools()).as_deref(),
-            Some("Fable test 2k \u{2192} Claude Code 50k \u{b7} validation \u{2014}")
+            Some("Fable test 2k \u{2192} Claude Code 50k \u{b7} no validation yet")
         );
         assert_eq!(
             token_line(&shop_48_set_by_you(), &tools()),
@@ -2350,7 +2350,7 @@ mod tests {
         assert_eq!(rows[0].avatar.as_ref().unwrap().letters, "CX");
         assert_eq!(
             token_line(&shop_19_codex(), &several_tools()).as_deref(),
-            Some("Codex 182k \u{b7} validation \u{2014}")
+            Some("Codex 182k \u{b7} no validation yet")
         );
     }
 
@@ -2430,7 +2430,7 @@ mod tests {
         assert_eq!(
             token_line(&t, &several_tools()).as_deref(),
             Some(
-                "Strong \u{b7} Claude Code 120k \u{2192} Strong GPT \u{b7} Codex 80k \u{b7} validation \u{2014}"
+                "Strong \u{b7} Claude Code 120k \u{2192} Strong GPT \u{b7} Codex 80k \u{b7} no validation yet"
             )
         );
         let mut unavailable = t.rows[0].moved.clone().unwrap();

@@ -540,7 +540,7 @@ pub fn summary_with(
         retry: "Retry",
         scratch: "Start from scratch",
         foot: "They stay in your inbox if you close this.",
-        later: "Later",
+        later: "Not now",
         resume_selected: format!("Resume selected ({})", selected.len()),
         selected,
         skipped: skipped(&listed, runs),
@@ -646,7 +646,7 @@ mod tests {
             (r.project.as_str(), r.state, r.checked),
             ("shop-web", RowState::Interrupted, true)
         );
-        assert_eq!(r.detail, "was Agent Working · round 2 · 88k");
+        assert_eq!(r.detail, "was Working · round 2 · 88k");
         assert_eq!(page.resume_selected, "Resume selected (1)");
         assert_eq!(page.selected, ["SHOP-27"]);
         assert_eq!(
@@ -684,10 +684,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(page.rows[0].headline.as_deref(), Some("SHOP-19 · Resumed"));
-        assert_eq!(
-            page.rows[0].detail,
-            "Agent Working again · same conversation"
-        );
+        assert_eq!(page.rows[0].detail, "Working again · same conversation");
         assert_eq!(page.rows[1].state, RowState::Failed);
         assert_eq!(
             page.rows[1].headline.as_deref(),
@@ -919,7 +916,7 @@ mod tests {
         assert_eq!(cx.agent.as_deref(), Some("Standard \u{b7} Codex"));
         assert_eq!(
             cx.problem.as_deref(),
-            Some("Codex isn\u{2019}t available (logged out)")
+            Some("Codex isn\u{2019}t available (signed out)")
         );
         assert_eq!(cx.sign_in.as_ref().unwrap().label, "Sign in\u{2026}");
         assert!(!cx.checked);

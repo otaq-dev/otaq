@@ -95,7 +95,7 @@ const WISHLIST: EpicTrack = {
 const STRIP: EpicStrip = {
   title: "Epics in flight · 1",
   needs_you: "· 1 needs you",
-  hint: "hover a stop to find its card · click a name to focus",
+  hint: "Hover a ticket to find its card · Click an epic name to focus on it",
   folded: "Epics in flight 1 · 1 needs you",
   tracks: [WISHLIST],
 };

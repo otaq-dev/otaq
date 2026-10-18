@@ -96,7 +96,7 @@ impl AgentToolState {
     pub fn unavailable_reason(&self) -> Option<&'static str> {
         match self {
             Self::Connected { .. } => None,
-            Self::FoundNotSignedIn { .. } => Some("logged out"),
+            Self::FoundNotSignedIn { .. } => Some("signed out"),
             Self::UpdateNeeded { .. } => Some("update needed"),
             Self::NotInstalled => Some("not installed"),
             Self::Hidden { .. } => Some("hidden in Settings"),

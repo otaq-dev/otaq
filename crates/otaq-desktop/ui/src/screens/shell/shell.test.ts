@@ -33,7 +33,7 @@ const HEADER: HeaderView = {
     repo_path: "/code/shop-web",
     copy_path: "Copy path",
   },
-  search: hint("Search  ·  is:needs-me", "⌘K"),
+  search: hint("Search  ·  is:needs-you", "⌘K"),
   activity: {
     agents: { count: "3", label: "running", control: false, active: true },
     processes: "3",
@@ -45,8 +45,8 @@ const HEADER: HeaderView = {
     label: "Activity",
     keys: "⇧⌘U",
   },
-  inbox: { label: "Needs you", count: 7, active: true },
-  inbox_hint: hint("Needs you", "⇧⌘I"),
+  inbox: { label: "Inbox", count: 7, active: true },
+  inbox_hint: hint("Inbox", "⇧⌘I"),
 };
 
 /** Every element with a click handler in a tree of elements, walked without a DOM, by its label or class. */
@@ -169,7 +169,7 @@ describe("the rail", () => {
 describe("the header", () => {
   it("draws the four items, left to right, and nothing else", () => {
     const out = renderToStaticMarkup(createElement(HeaderBar, { view: HEADER, onSearch: () => undefined }));
-    const order = ["shop-web", "main", "Search  ·  is:needs-me", 'aria-label="Activity"', "Needs you"].map(
+    const order = ["shop-web", "main", "Search  ·  is:needs-you", 'aria-label="Activity"', "Inbox"].map(
       (text) => out.indexOf(text),
     );
     expect(order.every((at) => at >= 0)).toBe(true);
@@ -211,7 +211,7 @@ describe("the header", () => {
     expect(calm).not.toContain("18% left");
   });
 
-  it("search, Activity and Needs you open what they open", () => {
+  it("search, Activity and Inbox open what they open", () => {
     let searched = 0;
     const bar = clicksOf(HeaderBar({ view: HEADER, onSearch: () => (searched += 1) }));
     bar.get("header-search")?.();
@@ -227,7 +227,7 @@ describe("the header", () => {
       project: null,
       activity: {
         ...HEADER.activity,
-        agents: { count: "0 / 5", label: "agents", control: true, active: false },
+        agents: { count: "0/5", label: "agents", control: true, active: false },
         processes: null,
         warning: null,
       },
@@ -237,7 +237,7 @@ describe("the header", () => {
     expect(out).not.toContain("header-search");
     expect(out).not.toContain("▷");
     expect(out).not.toContain("header-warning");
-    expect(out).toContain("0 / 5");
+    expect(out).toContain("0/5");
     expect(out).toContain("<span>Inbox</span>");
   });
 });
@@ -251,7 +251,7 @@ const LIMITS = {
     can_lower: true,
     can_raise: true,
   },
-  note: "Queued tickets wait for a free slot.",
+  note: "Tickets in Ready for Dev wait for a free slot.",
 };
 
 const POPOVER: ActivityPopover = {
@@ -282,7 +282,7 @@ const POPOVER: ActivityPopover = {
     title: "PROCESSES",
     count: "1",
     list: {
-      title: "Running processes",
+      title: "Run processes",
       stop_all: "Stop all",
       stop: "Stop",
       empty: "Nothing running",
@@ -333,7 +333,7 @@ describe("the Activity popover", () => {
     expect(out).toContain('style="width:18%"');
     expect(out.match(/class="activity-window" data-amber="true"/g)).toHaveLength(1);
     // PROCESSES heads the reused rows in place of their own title.
-    expect(out).not.toContain("Running processes");
+    expect(out).not.toContain("Run processes");
     expect(out).not.toContain("$");
   });
 
@@ -344,12 +344,12 @@ describe("the Activity popover", () => {
       agents: {
         ...POPOVER.agents,
         count: "0",
-        empty: "Nothing running. Queued tickets start when a slot allows.",
+        empty: "Nothing running. Tickets in Ready for Dev start when a slot allows.",
       },
       processes: null,
     });
     expect(out.indexOf("Agent limits")).toBeLessThan(out.indexOf("AGENTS RUNNING"));
-    expect(out).toContain("Nothing running. Queued tickets start");
+    expect(out).toContain("Nothing running. Tickets in Ready for Dev start");
     expect(out).not.toContain("PROCESSES");
   });
 

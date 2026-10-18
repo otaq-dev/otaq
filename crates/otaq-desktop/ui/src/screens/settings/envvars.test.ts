@@ -169,13 +169,13 @@ describe("the Environment variables row", () => {
     show(
       envRow([
         { name: "NODE_OPTIONS", value: "a" },
-        { name: "MAX=JOBS", value: "2", problem: "“MAX=JOBS” can’t be a name" },
+        { name: "MAX=JOBS", value: "2", problem: "Remove “=” from the name" },
       ]),
     );
     const [first, , second] = inputs();
     expect(first?.getAttribute("aria-invalid")).toBeNull();
     expect(second?.getAttribute("aria-invalid")).toBe("true");
-    expect(box.textContent).toContain("“MAX=JOBS” can’t be a name");
+    expect(box.textContent).toContain("Remove “=” from the name");
     const remove = box.querySelector<HTMLButtonElement>('button[aria-label="Remove NODE_OPTIONS"]');
     act(() => {
       remove?.click();

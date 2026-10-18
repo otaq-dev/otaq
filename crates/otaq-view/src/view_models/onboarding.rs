@@ -204,9 +204,9 @@ fn tool_row(t: &ToolStatus) -> ToolRow {
     if let Some(logged_in) = t.logged_in {
         parts.push(
             if logged_in {
-                "logged in"
+                "signed in"
             } else {
-                "not logged in"
+                "not signed in"
             }
             .to_owned(),
         );
@@ -339,10 +339,10 @@ pub(crate) mod tests {
             statuses,
             [
                 ("git", "2.46.0".to_owned(), RowIcon::Found),
-                ("gh", "2.62.0 · logged in".to_owned(), RowIcon::Found),
+                ("gh", "2.62.0 · signed in".to_owned(), RowIcon::Found),
                 (
                     "az + azure-devops",
-                    "2.67.0 · extension installed · logged in".to_owned(),
+                    "2.67.0 · extension installed · signed in".to_owned(),
                     RowIcon::Found
                 ),
             ]
@@ -417,9 +417,9 @@ pub(crate) mod tests {
         tools[2].install_command = Some("az extension add --name azure-devops".into());
         let m = checked(tools, PermissionVerdict::NotPrompting);
         let rows = m.rows();
-        assert_eq!(rows[1].status, "2.62.0 · not logged in");
+        assert_eq!(rows[1].status, "2.62.0 · not signed in");
         assert_eq!(rows[1].command.as_deref(), Some("gh auth login"));
-        assert_eq!(rows[2].status, "2.67.0 · extension missing · logged in");
+        assert_eq!(rows[2].status, "2.67.0 · extension missing · signed in");
         assert_eq!(
             rows[2].command.as_deref(),
             Some("az extension add --name azure-devops")

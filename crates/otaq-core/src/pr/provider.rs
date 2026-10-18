@@ -123,8 +123,8 @@ impl PrProvider {
                 let cli = p.tool().command();
                 let login = match (self.cli_found, self.logged_in) {
                     (false, _) => format!("{cli}: not installed"),
-                    (true, Some(true)) => format!("{cli}: logged in"),
-                    (true, Some(false)) => format!("{cli}: not logged in"),
+                    (true, Some(true)) => format!("{cli}: signed in"),
+                    (true, Some(false)) => format!("{cli}: not signed in"),
                     (true, None) => format!("{cli}: login unknown"),
                 };
                 format!("{} (detected from origin) \u{b7} {login}", p.name())
@@ -273,13 +273,13 @@ mod tests {
         };
         assert_eq!(
             p.summary(),
-            "GitHub (detected from origin) \u{b7} gh: logged in"
+            "GitHub (detected from origin) \u{b7} gh: signed in"
         );
         assert_eq!(p.open_pr_blocked(), None);
         p.logged_in = Some(false);
         assert_eq!(
             p.summary(),
-            "GitHub (detected from origin) \u{b7} gh: not logged in"
+            "GitHub (detected from origin) \u{b7} gh: not signed in"
         );
         p.provider = None;
         assert_eq!(p.summary(), "Not detected: use your own Open PR skill");

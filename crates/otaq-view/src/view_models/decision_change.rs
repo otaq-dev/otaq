@@ -134,7 +134,7 @@ pub fn view(
             .unwrap_or_default(),
         help: "Prefilled with the other option. Edit it or write your own.",
         note: format!(
-            "This is a Send back (0034): {} goes back to Dev with this message and any line comments you\u{2019}ve \
+            "This is a Send back: {} goes back to Dev with this message and any line comments you\u{2019}ve \
              written, and its agent continues in the same session. Its next submit is validated again.",
             ticket.key
         ),
@@ -153,10 +153,10 @@ fn fix_child(decision: &Decision, epic: &Ticket, has_lead: bool) -> FixChildChan
                 .map(|c| format!("{}.{c}", key.number))
                 .unwrap_or_default();
             format!(
-                "Creates {key}, added by you. The epic becomes a track again and {short} joins the queue (0080)"
+                "Creates {key}, added by you. The epic becomes a track again and {short} joins the queue"
             )
         }
-        None => "Creates a new child, added by you. The epic becomes a track again and it joins the queue (0080)"
+        None => "Creates a new child, added by you. The epic becomes a track again and it joins the queue"
             .to_owned(),
     };
     let lead = if has_lead {
@@ -283,7 +283,7 @@ mod tests {
         );
         assert!(
             v.note
-                .starts_with("This is a Send back (0034): SHOP-23 goes back to Dev"),
+                .starts_with("This is a Send back: SHOP-23 goes back to Dev"),
             "{}",
             v.note
         );
@@ -319,7 +319,7 @@ mod tests {
         assert!(v.child_description.contains("Lead: "), "the mark goes in");
         assert_eq!(
             v.note,
-            "Creates SHOP-40.7, added by you. The epic becomes a track again and 40.7 joins the queue (0080); its \
+            "Creates SHOP-40.7, added by you. The epic becomes a track again and 40.7 joins the queue; its \
              lead resumes the same conversation."
         );
         assert_eq!(v.confirm, "Add fix child");
@@ -339,7 +339,7 @@ mod tests {
             "{}",
             v.child_description
         );
-        assert!(v.note.ends_with("joins the queue (0080)."), "{}", v.note);
+        assert!(v.note.ends_with("joins the queue."), "{}", v.note);
     }
 
     #[test]

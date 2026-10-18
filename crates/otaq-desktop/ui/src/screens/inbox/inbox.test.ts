@@ -99,7 +99,7 @@ const ANSWER = {
 };
 
 const VIEW: InboxView = {
-  title: "Needs you",
+  title: "Inbox",
   total: 3,
   scope: "· all projects",
   next: { keys: "⌘J", label: "Next" },
@@ -426,7 +426,7 @@ describe("the inbox's markup", () => {
       }),
     );
     for (const text of [
-      "Needs you",
+      "Inbox",
       "· all projects",
       "ASKS YOU · NEEDS YOU · IDLE",
       "Resume all (1)",
@@ -537,7 +537,7 @@ describe("the inbox's markup", () => {
                 foreground: "tool-cx-fg",
                 hover: "Codex",
               },
-              text: "Codex isn’t available · logged out · 5 tickets waiting",
+              text: "Codex isn’t available · signed out · 5 tickets waiting",
               resume: null,
               button: {
                 label: "Sign in…",

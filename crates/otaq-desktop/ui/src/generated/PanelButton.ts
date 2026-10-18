@@ -6,4 +6,8 @@ import type { PanelButtonLook } from "./PanelButtonLook";
 /**
  * A button of the action bar.
  */
-export type PanelButton = { action: PanelAction, label: string, icon: IconName | null, look: PanelButtonLook, };
+export type PanelButton = { action: PanelAction, label: string, 
+/**
+ * "Moves to Ready for Dev" on Start.
+ */
+tooltip: string | null, icon: IconName | null, look: PanelButtonLook, };

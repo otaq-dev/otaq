@@ -38,8 +38,8 @@ afterEach(() => {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const VIEW: SearchView = {
-  filter: { tokens: ["is:needs-me"], text: "checkout" },
-  placeholder: "Search  ·  is:needs-me",
+  filter: { tokens: ["is:needs-you"], text: "checkout" },
+  placeholder: "Search  ·  is:needs-you",
   keys: null,
   results: "4 results",
   suggestions_header: "FILTERS",
@@ -54,9 +54,9 @@ const VIEW: SearchView = {
 describe("the filter is kept per project while the app runs", () => {
   it("survives anything but switching projects", () => {
     setFilter("SHOP", { tokens: [], text: "checkout" });
-    addToken("SHOP", "is:needs-me");
-    expect(filterOf(boardFilter.get(), "SHOP")).toMatchObject({ tokens: ["is:needs-me"], text: "" });
-    addToken("SHOP", "is:needs-me");
+    addToken("SHOP", "is:needs-you");
+    expect(filterOf(boardFilter.get(), "SHOP")).toMatchObject({ tokens: ["is:needs-you"], text: "" });
+    addToken("SHOP", "is:needs-you");
     addToken("SHOP", "is:working");
     removeToken("SHOP", 0);
     expect(filterOf(boardFilter.get(), "SHOP").tokens).toEqual(["is:working"]);
@@ -70,10 +70,10 @@ describe("the filter is kept per project while the app runs", () => {
   });
 
   it("takes Rust's chips only when a token finished and the user didn't type on", () => {
-    const sent = { tokens: [], text: "is:needs-me " };
-    const answer = { tokens: ["is:needs-me"], text: "" };
+    const sent = { tokens: [], text: "is:needs-you " };
+    const answer = { tokens: ["is:needs-you"], text: "" };
     expect(finishedTokens(sent, answer, sent)).toEqual(answer);
-    expect(finishedTokens(sent, answer, { tokens: [], text: "is:needs-me c" })).toBeNull();
+    expect(finishedTokens(sent, answer, { tokens: [], text: "is:needs-you c" })).toBeNull();
     const words = { tokens: [], text: "checkout " };
     expect(finishedTokens(words, words, words)).toBeNull();
   });
@@ -107,8 +107,8 @@ describe("the search field", () => {
   it("draws the chips with their ×, what is typed and the count, as *Search & filter · ⌘K*", () => {
     const html = box();
     expect(html).toContain('data-tauri-drag-region="false"');
-    expect(html).toContain("is:needs-me");
-    expect(html).toContain('aria-label="Remove is:needs-me"');
+    expect(html).toContain("is:needs-you");
+    expect(html).toContain('aria-label="Remove is:needs-you"');
     expect(html).toContain('value="checkout"');
     expect(html).toContain("4 results");
     expect(html).not.toContain('placeholder="Search');
@@ -119,7 +119,7 @@ describe("the search field", () => {
       filter: NO_FILTER,
       view: { ...VIEW, filter: NO_FILTER, results: null, keys: "⌘K" },
     });
-    expect(html).toContain('placeholder="Search  ·  is:needs-me"');
+    expect(html).toContain('placeholder="Search  ·  is:needs-you"');
     expect(html).toContain("⌘K");
     expect(html).not.toContain("results");
   });
@@ -128,7 +128,7 @@ describe("the search field", () => {
     const header = { project: { key: "SHOP", name: "shop-web", base_branch: "main", path: "~/shop-web" } };
     const view = {
       ...header,
-      search: { text: "Search  ·  is:needs-me", keys: "⌘K" },
+      search: { text: "Search  ·  is:needs-you", keys: "⌘K" },
       activity: {
         agents: { count: "0", label: "running", active: false, control: false },
         processes: null,
@@ -138,7 +138,7 @@ describe("the search field", () => {
         keys: null,
       },
       inbox: { label: "Inbox", count: "0", active: false },
-      inbox_hint: { text: "Needs you", keys: null },
+      inbox_hint: { text: "Inbox", keys: null },
     } as unknown as HeaderView;
     const html = renderToStaticMarkup(
       createElement(HeaderBar, {

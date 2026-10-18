@@ -92,9 +92,17 @@ pub enum Look {
 }
 
 impl Action {
+    /// The button's tooltip, where the label alone doesn't say where it goes.
+    pub fn tooltip(self) -> Option<&'static str> {
+        match self {
+            Self::Start => Some("Moves to Ready for Dev"),
+            _ => None,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
-            Self::Start => "Start (to Dev)",
+            Self::Start => "Start",
             Self::Edit => "Edit",
             Self::OpenTerminal => "Open terminal",
             Self::Run => "Run",

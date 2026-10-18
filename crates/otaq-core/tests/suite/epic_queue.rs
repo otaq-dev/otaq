@@ -74,7 +74,7 @@ async fn queueing_the_epic_queues_every_never_started_child() {
         assert_eq!(
             moved.payload["with_epic"],
             key(&epic),
-            "Queued with the epic"
+            "Ready for Dev with the epic"
         );
         assert_eq!(moved.actor, me());
     }

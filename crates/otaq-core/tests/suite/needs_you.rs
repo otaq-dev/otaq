@@ -184,7 +184,7 @@ fn groups_in_inbox_order_across_projects() {
             "asks: Should fullName be split everywhere, or only in the profile form?",
             "permission: Allow rm -rf .next?",
             "session interrupted",
-            "start interrupted · setup command failed",
+            "start failed · setup command failed",
             "parent SHOP-26 was closed without merging",
             "ready for review",
             "ready for review",

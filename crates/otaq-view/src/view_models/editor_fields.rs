@@ -97,7 +97,7 @@ pub fn picker_rows(
             };
             let epic_progress = (t.kind == Kind::Epic).then(|| {
                 let p = progress_of(&t.key, tickets);
-                format!("Epic · {} / {}", p.merged, p.total)
+                format!("Epic · {}/{}", p.merged, p.total)
             });
             PickerRow {
                 key: t.key.clone(),
@@ -215,7 +215,7 @@ mod tests {
         assert_eq!(rows[1].note, "this ticket will wait for it");
         assert_eq!(rows[3].note, "waits until marked merged");
         let e = rows.iter().find(|r| r.kind == Kind::Epic).unwrap();
-        assert_eq!(e.epic_progress.as_deref(), Some("Epic · 1 / 1"));
+        assert_eq!(e.epic_progress.as_deref(), Some("Epic · 1/1"));
         assert_eq!(picker_rows(None, &[], "check", &tickets).len(), 2);
         assert_eq!(
             picker_rows(None, &[], "19", &tickets)[0].key,

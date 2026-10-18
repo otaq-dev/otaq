@@ -93,7 +93,7 @@ fn facts(reason: Reason, fallback: Fallback) -> Facts {
     let mut facts = Facts::default();
     match reason {
         Reason::Unavailable => {
-            facts.unavailable.insert(A, "logged out".into());
+            facts.unavailable.insert(A, "signed out".into());
         }
         Reason::Limit => {
             facts.at_limit.insert(A);

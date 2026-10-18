@@ -47,7 +47,7 @@ pub struct EditorModel {
 }
 
 /// The title error, under the field.
-pub const TITLE_REQUIRED: &str = "A title is required";
+pub const TITLE_REQUIRED: &str = "Add a title";
 
 impl EditorModel {
     /// A new ticket; `base` is the project's base branch (the default).

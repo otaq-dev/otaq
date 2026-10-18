@@ -194,7 +194,7 @@ fn button(action: &RowAction) -> Button {
         RowAction::ChangeAgent(_) => ("Change agent".to_owned(), IconName::Bot, true),
         RowAction::ReopenParent(_) => ("Reopen parent".to_owned(), IconName::RotateCcw, true),
         RowAction::RemoveDependency(_) => ("Remove dependency".to_owned(), IconName::Unlink, false),
-        RowAction::UsageLimit => ("This is the usage limit".to_owned(), IconName::Gauge, false),
+        RowAction::UsageLimit => ("Mark as usage limit".to_owned(), IconName::Gauge, false),
         RowAction::ResumeTarget { target, .. } => {
             (format!("Resume {target}"), IconName::Play, false)
         }
@@ -774,7 +774,7 @@ pub fn view(
         }
     });
     View {
-        title: "Needs you",
+        title: "Inbox",
         total,
         scope: "· all projects",
         next: (total > 0).then(|| KeyHint {
@@ -1304,7 +1304,7 @@ mod tests {
             item("SHOP-28", Status::StartInterrupted, NeedsYouGroup::Stopped),
         ]);
         let v = view(&m.groups(&|_| None), &[], &|_| None, 0, 3, &[], 3, "⌘J");
-        assert_eq!(v.title, "Needs you");
+        assert_eq!(v.title, "Inbox");
         assert_eq!(v.next.as_ref().unwrap().label, "Next");
         assert_eq!(v.groups.len(), 2);
         assert_eq!(v.groups[1].resume_all.as_deref(), Some("Resume all (1)"));

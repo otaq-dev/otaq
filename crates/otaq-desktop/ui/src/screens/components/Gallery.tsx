@@ -396,7 +396,7 @@ function MatrixRow({ name, children }: { name: string; children: ReactNode }) {
 function Primitives({ view }: { view: GalleryView }) {
   const sample = (label: string): PillView | undefined =>
     view.legend.flatMap((t) => [...t.pills, ...t.m12]).find((p) => p.label === label);
-  const working = sample("Agent Working");
+  const working = sample("Working");
   return (
     <div className="gallery-stack">
       <div className="gallery-wrap gallery-wrap-wide">
@@ -423,7 +423,7 @@ function Primitives({ view }: { view: GalleryView }) {
       </div>
       <Caption>LAST SIGNAL</Caption>
       <div className="gallery-wrap">
-        <MetaChip icon="activity" label="40 s ago" />
+        <MetaChip icon="activity" label="40s ago" />
         <MetaChip icon="activity" label="4 min ago" tone="warning" />
       </div>
       <Caption>KBD</Caption>
@@ -495,7 +495,10 @@ function Fields({ view }: { view: GalleryView }) {
       <Field label="Title" hint="Focused · 1.5 px focus ring">
         {(id) => <TextInput id={id} value={title} onChange={setTitle} />}
       </Field>
-      <Field label="Env file" error="File not found in repo root: .env.local">
+      <Field
+        label="Env file"
+        error="Can’t find .env.local in ~/code/billing-api. Add it to the repo root, or remove it from this list."
+      >
         {(id) => <TextInput id={id} value={env} mono invalid onChange={setEnv} />}
       </Field>
       <Field label="Priority">
@@ -636,7 +639,7 @@ function Overlays({ view }: { view: GalleryView }) {
             onClick={() => {
               openOverlay("confirm", {
                 title: "Send SHOP-18 Checkout API back?",
-                body: "SHOP-18 goes straight back to its agent in Dev (Agent Working) and continues in the same session.",
+                body: "SHOP-18 goes straight back to its agent in Dev (Working) and continues in the same session.",
                 confirmLabel: "Send back",
                 destructive: false,
                 onConfirm: () => {
@@ -688,7 +691,7 @@ function Overlays({ view }: { view: GalleryView }) {
           />
           <Toast
             kind="error"
-            title="gh is not logged in"
+            title="gh is not signed in"
             text="Run gh auth login, then retry Open PR."
             action={{ label: "Copy command", onClick: () => undefined }}
             onClose={() => undefined}
@@ -792,7 +795,7 @@ function Stack({ view }: { view: GalleryView }) {
     view.legend.flatMap((t) => [...t.pills, ...t.m12]).find((p) => p.label === label);
   const merged = find("Merged");
   const backlog = find("Backlog");
-  const queued = find("Queued");
+  const queued = find("Ready for Dev");
   const [current, setCurrent] = useState("SHOP-20");
   if (!merged || !backlog || !queued) return null;
   const rows = [
@@ -803,7 +806,7 @@ function Stack({ view }: { view: GalleryView }) {
   ];
   return (
     <div className="gallery-two">
-      <StackList title="Stack">
+      <StackList title="Dependencies">
         {rows.map((row) => (
           <StackRow
             key={row.key}
@@ -819,7 +822,7 @@ function Stack({ view }: { view: GalleryView }) {
           />
         ))}
       </StackList>
-      <StackList title="Stack" empty="SHOP-12 has no dependencies and nothing depends on it." />
+      <StackList title="Dependencies" empty="SHOP-12 has no dependencies and nothing depends on it." />
     </div>
   );
 }

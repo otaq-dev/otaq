@@ -53,7 +53,7 @@ async fn children_and_progress() {
     assert_eq!(f.ticket("SHOP-40").await.next_child_number, Some(4));
     assert_eq!(f.ticket("SHOP-40.1").await.next_child_number, None);
     let progress = f.board.epic_progress("SHOP-40").await.unwrap();
-    assert_eq!(progress.label(), "1 / 3 merged");
+    assert_eq!(progress.label(), "1 of 3 merged");
     assert!(f.board.epic_progress("SHOP-40.1").await.is_err());
 }
 
@@ -80,7 +80,7 @@ async fn move_to_epic_gives_a_child_key_and_keeps_the_old_one() {
     );
     assert_eq!(
         f.board.epic_progress("SHOP-40").await.unwrap().label(),
-        "1 / 4 merged"
+        "1 of 4 merged"
     );
     assert_eq!(
         f.create("next").await.key.to_string(),
@@ -232,6 +232,6 @@ async fn an_epic_with_nothing_merged_ends_closed_not_merged() {
             .await
             .unwrap()
             .label(),
-        "0 / 1 merged"
+        "0 of 1 merged"
     );
 }

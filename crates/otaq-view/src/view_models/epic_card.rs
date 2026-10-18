@@ -172,7 +172,7 @@ impl EpicViewModel {
             pill,
             title: epic.title.clone(),
             segments: children.iter().map(|c| ChildState::of(c.status)).collect(),
-            progress: format!("{} / {} merged", progress.merged, progress.total),
+            progress: format!("{} of {} merged", progress.merged, progress.total),
             branch,
             children: children
                 .iter()
@@ -253,7 +253,7 @@ mod tests {
     fn shop_40_wishlist() {
         let tickets = wishlist();
         let vm = EpicViewModel::from(&tickets[0], &tickets, None);
-        assert_eq!(vm.progress, "1 / 3 merged");
+        assert_eq!(vm.progress, "1 of 3 merged");
         assert_eq!(vm.external_id.as_deref(), Some("PAY-123"));
         assert_eq!(vm.pill.label, "Epic");
         assert_eq!(

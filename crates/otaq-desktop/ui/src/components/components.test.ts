@@ -100,7 +100,7 @@ describe("overlays and feedback", () => {
       shortcut: null,
       danger: true,
       disabled: true,
-      hint: "Only for tickets that never started (0060)",
+      hint: "Only for tickets that never started",
       separated: false,
       checked: false,
       header: false,
@@ -115,7 +115,7 @@ describe("overlays and feedback", () => {
     expect(out).toContain('role="separator"');
     expect(out).toContain('<div class="menu-header">PRIORITY</div>');
     expect(out).toMatch(/aria-disabled="true" class="menu-item" data-danger="true"/);
-    expect(out).toContain("Only for tickets that never started (0060)");
+    expect(out).toContain("Only for tickets that never started");
     expect(out).toContain('<span class="menu-item-keys">↵</span>');
     const list = html(
       createElement(Menu, { label: "Priority", items, list: true, onChoose: noop, onClose: noop }),
@@ -174,7 +174,7 @@ describe("overlays and feedback", () => {
     expect(banner).toContain('data-tone="attention" role="status"');
     expect(banner).toMatch(/data-compact="true"[^>]*disabled=""/);
     expect(banner).toContain('aria-label="Dismiss"');
-    const toast = html(createElement(Toast, { kind: "error", title: "gh is not logged in" }));
+    const toast = html(createElement(Toast, { kind: "error", title: "gh is not signed in" }));
     expect(toast).toContain('role="alert"');
     expect(toast).toContain("triangle-alert");
   });

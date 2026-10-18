@@ -106,8 +106,8 @@ pub struct Seeded {
 }
 
 impl Seeded {
-    /// "Started from shop-web's warm build of 3e1f9a2 (SHOP-21, 2 h ago) in 4 s.", "Took shop-web's build of 3e1f9a2
-    /// (SHOP-21, 2 h ago) in under 1 s." (renamed out of the stock) or "Started from your checkout of shop-web
+    /// "Started from shop-web's warm build of 3e1f9a2 (SHOP-21, 2 h ago) in 4s.", "Took shop-web's build of 3e1f9a2
+    /// (SHOP-21, 2 h ago) in under 1s." (renamed out of the stock) or "Started from your checkout of shop-web
     /// (9c41e7b).".
     pub fn log_line(&self) -> String {
         let project = &self.project;
@@ -751,11 +751,11 @@ fn age(ms: i64) -> String {
     }
 }
 
-/// "under 1 s", "4 s", "2 min".
+/// "under 1s", "4s", "2 min".
 fn took(d: Duration) -> String {
     match d.as_secs() {
-        0 => "under 1 s".to_owned(),
-        s @ 1..60 => format!("{s} s"),
+        0 => "under 1s".to_owned(),
+        s @ 1..60 => format!("{s}s"),
         s => format!("{} min", s / 60),
     }
 }
@@ -784,7 +784,7 @@ mod tests {
         };
         assert_eq!(
             seeded(warm, Duration::from_millis(4_300)).log_line(),
-            "Started from shop-web's warm build of 3e1f9a2 (SHOP-21, 2 h ago) in 4 s."
+            "Started from shop-web's warm build of 3e1f9a2 (SHOP-21, 2 h ago) in 4s."
         );
         // Renamed out of the stock (a disk that can't clone).
         let taken = SeededFrom::WarmBuild {
@@ -796,7 +796,7 @@ mod tests {
         };
         assert_eq!(
             seeded(taken, Duration::from_millis(100)).log_line(),
-            "Took shop-web's build of 3e1f9a2 (SHOP-21, 2 h ago) in under 1 s."
+            "Took shop-web's build of 3e1f9a2 (SHOP-21, 2 h ago) in under 1s."
         );
         let bare = SeededFrom::WarmBuild {
             built_at: None,
@@ -807,7 +807,7 @@ mod tests {
         };
         assert_eq!(
             seeded(bare, Duration::from_millis(200)).log_line(),
-            "Started from shop-web's warm build in under 1 s."
+            "Started from shop-web's warm build in under 1s."
         );
         let checkout = SeededFrom::Checkout {
             head: Some("9c41e7bdeadbeef".into()),

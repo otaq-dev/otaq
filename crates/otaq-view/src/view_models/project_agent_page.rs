@@ -110,12 +110,12 @@ pub fn close_dialog(agent: &ProjectAgent, created: &CreatedAndChanged) -> CloseD
     };
     CloseDialog {
         title: format!(
-            "Close \u{201c}{}\u{201d} while it\u{2019}s working?",
+            "End \u{201c}{}\u{201d} while it\u{2019}s working?",
             agent.name
         ),
-        mid_turn: "It\u{2019}s mid-turn. Closing stops it now.",
+        mid_turn: "It\u{2019}s mid-turn. Ending stops it now.",
         text,
-        confirm: "Stop and close",
+        confirm: "Stop and end",
     }
 }
 
@@ -296,14 +296,14 @@ mod tests {
         let d = close_dialog(&agent("Checkout slowness"), &changed());
         assert_eq!(
             d.title,
-            "Close \u{201c}Checkout slowness\u{201d} while it\u{2019}s working?"
+            "End \u{201c}Checkout slowness\u{201d} while it\u{2019}s working?"
         );
         assert_eq!(
             d.text,
             "The tickets it created stay where they are (SHOP-35 in Ready for Dev, SHOP-36 in Backlog). You can \
              resume the conversation from Recently ended."
         );
-        assert_eq!(d.confirm, "Stop and close");
+        assert_eq!(d.confirm, "Stop and end");
         let bare = close_dialog(&agent("x"), &CreatedAndChanged::default());
         assert_eq!(
             bare.text,

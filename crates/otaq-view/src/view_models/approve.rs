@@ -43,7 +43,7 @@ pub fn menu_title(ticket: &Ticket) -> String {
 pub fn menu_note(ticket: &Ticket) -> String {
     if ticket.flags.pr_number.is_some() {
         format!(
-            "Pushes the branch to origin. {} doesn\u{2019}t watch the PR; use Mark merged or Mark closed when it lands.",
+            "Pushes the branch to origin. {} doesn\u{2019}t watch the PR; use Mark merged or Mark closed once the PR is merged or closed.",
             otaq_core::naming::PRODUCT_NAME
         )
     } else if ticket.epic.is_some() {

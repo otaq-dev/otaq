@@ -73,7 +73,7 @@ pub fn popover(limits: &AgentLimits) -> Popover {
             limits.back_pressure,
             &BACK_PRESSURE_ITEMS,
         ),
-        note: "Queued tickets wait for a free slot. Nothing that is already running is stopped.",
+        note: "Tickets in Ready for Dev wait for a free slot. Nothing that is already running is stopped.",
     }
 }
 
@@ -110,7 +110,7 @@ pub fn agents_chip(
     if limits.enabled {
         let holding = status.map_or(running, |s| s.holding);
         AgentsChip {
-            count: format!("{holding} / {}", limits.max_concurrency.max(1)),
+            count: format!("{holding}/{}", limits.max_concurrency.max(1)),
             label: "agents",
             control: true,
             active: holding > 0,
@@ -178,18 +178,18 @@ pub fn settings_rows(limits: &AgentLimits) -> [LimitRow; 3] {
         LimitRow {
             label: "Limit agents",
             description: if on {
-                "Activity shows “3 / 5 agents”; adjust it in its popover."
+                "Activity shows “3/5 agents”; adjust it in its popover."
             } else {
-                "Off by default. When on, Activity shows “3 / 5 agents”."
+                "Off by default. When on, Activity shows “3/5 agents”."
             },
             enabled: true,
         },
         LimitRow {
             label: "Max agents running at once",
             description: if on {
-                "Queued tickets wait for a free slot."
+                "Tickets in Ready for Dev wait for a free slot."
             } else {
-                "Suggested 5. Queued tickets wait for a free slot."
+                "Suggested 5. Tickets in Ready for Dev wait for a free slot."
             },
             enabled: on,
         },
@@ -209,8 +209,8 @@ pub fn settings_rows(limits: &AgentLimits) -> [LimitRow; 3] {
 /// inbox 7 (new starts paused)".
 pub fn right_now(status: &SchedulerStatus) -> String {
     let waiting = match status.waiting_for_slot {
-        1 => "1 queued ticket waiting for a slot".to_owned(),
-        n => format!("{n} queued tickets waiting for a slot"),
+        1 => "1 ticket waiting for a slot".to_owned(),
+        n => format!("{n} tickets waiting for a slot"),
     };
     let paused = if status.starts_paused {
         " (new starts paused)"
@@ -269,11 +269,11 @@ mod tests {
             ..Default::default()
         };
         let chip = agents_chip(&on(5, 3), Some(&status), 2);
-        assert_eq!(chip.count, "3 / 5");
+        assert_eq!(chip.count, "3/5");
         assert_eq!(chip.label, "agents");
         assert!(chip.control);
         // Before the scheduler answered, the running count stands in.
-        assert_eq!(agents_chip(&on(5, 3), None, 2).count, "2 / 5");
+        assert_eq!(agents_chip(&on(5, 3), None, 2).count, "2/5");
     }
 
     #[test]
@@ -325,7 +325,7 @@ mod tests {
         assert!(off[0].enabled && !off[1].enabled && !off[2].enabled);
         assert_eq!(
             off[1].description,
-            "Suggested 5. Queued tickets wait for a free slot."
+            "Suggested 5. Tickets in Ready for Dev wait for a free slot."
         );
         let on_rows = settings_rows(&on(5, 3));
         assert!(on_rows.iter().all(|r| r.enabled));
@@ -343,7 +343,7 @@ mod tests {
         };
         assert_eq!(
             right_now(&status),
-            "Right now: 3 running · 2 queued tickets waiting for a slot · inbox 7 (new starts paused)"
+            "Right now: 3 running · 2 tickets waiting for a slot · inbox 7 (new starts paused)"
         );
         let calm = SchedulerStatus {
             waiting_for_slot: 1,
@@ -353,7 +353,7 @@ mod tests {
         };
         assert_eq!(
             right_now(&calm),
-            "Right now: 3 running · 1 queued ticket waiting for a slot · inbox 0"
+            "Right now: 3 running · 1 ticket waiting for a slot · inbox 0"
         );
     }
 
