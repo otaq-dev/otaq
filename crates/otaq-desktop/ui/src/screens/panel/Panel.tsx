@@ -14,6 +14,7 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -244,7 +245,8 @@ function ActionButton({
 /** A card's answer button handed to the answer list of `question`: an option to pick, or Send answer. */
 type CardAnswer = { question: string } & ({ kind: "pick"; number: number } | { kind: "send_answer" });
 
-function AnswerBox({
+/** The question bar with its options (ATT-12, ATT-17); the Gallery draws it too. */
+export function AnswerBox({
   view,
   answer,
   more,
@@ -257,6 +259,7 @@ function AnswerBox({
 }) {
   const [pick, setPick] = useState(() => initialPick(answer.rows));
   const options = useRef<HTMLDivElement>(null);
+  const noteId = useId();
   const [other, setOther] = useState("");
   const [sending, setSending] = useState(false);
   const send = (clear = false): Promise<unknown> => {
@@ -317,6 +320,7 @@ function AnswerBox({
               type="button"
               role="radio"
               aria-checked={pick === row.number}
+              aria-describedby={row.note === null ? undefined : `${noteId}-${String(row.number)}`}
               className="panel-answer-option"
               data-picked={pick === row.number || undefined}
               data-other={row.other || undefined}
@@ -325,7 +329,15 @@ function AnswerBox({
               }}
             >
               <span className="panel-answer-radio" />
-              <span className="panel-answer-label">{row.label}</span>
+              <span className="panel-answer-label">
+                {row.label}
+                {/* The option's note (ATT-17) in the inbox's note style, whole and wrapped: its description. */}
+                {row.note !== null && (
+                  <span id={`${noteId}-${String(row.number)}`} className="inbox-option-note" aria-hidden>
+                    {row.note}
+                  </span>
+                )}
+              </span>
               {row.recommended && (
                 <span className="panel-answer-rec">
                   <Icon name="star" size={10} />

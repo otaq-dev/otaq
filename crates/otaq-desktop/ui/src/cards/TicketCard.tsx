@@ -1,11 +1,20 @@
 // The Ticket Card v2 (*01 · Components → Ticket Card v2*, *04 · Ticket card variants → Ticket Card v2 · all
 // variants*; SHL-07): the head (tool avatar when shown, key, pin, priority, one short flag), the title on two lines
-// (the full title in a tooltip), the situation line with its coloured edge, the origin line, the answer options and
-// the footer (the agent, tokens, last signal, one action). An epic child wears the violet sleeve on top (*Epic Sleeve v2*,
-// EPC-09). Everything it says comes from a `TicketCardView` (`card_page.rs`); the board (or the gallery) decides the
-// moment of interaction: hovered, selected, chain, dragging (*Interaction states*). Resting on the head shows the full
-// status and what the card has no room for; the quick actions (open terminal, open panel) show on hover.
-import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
+// (the full title in a tooltip), the situation line with its coloured edge, the origin line, the answer options (an
+// option's note in its hover card, ATT-17) and the footer (the agent, tokens, last signal, one action). An epic child
+// wears the violet sleeve on top (*Epic Sleeve v2*, EPC-09). Everything it says comes from a `TicketCardView`
+// (`card_page.rs`); the board (or the gallery) decides the moment of interaction: hovered, selected, chain, dragging
+// (*Interaction states*). Resting on the head shows the full status and what the card has no room for; the quick
+// actions (open terminal, open panel) show on hover.
+import {
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 
 import { Button, PriorityChip, StatusPill, ToolAvatar, Tooltip, useFloatingStyle } from "../components";
 import { TOOLTIP_DELAY } from "../components/Tooltip";
@@ -13,6 +22,7 @@ import type { CardActionKind } from "../generated/CardActionKind";
 import type { CardAgent } from "../generated/CardAgent";
 import type { CardFooter } from "../generated/CardFooter";
 import type { CardHover } from "../generated/CardHover";
+import type { CardOption } from "../generated/CardOption";
 import type { CardSituation } from "../generated/CardSituation";
 import type { CardSleeve } from "../generated/CardSleeve";
 import type { CardStatusHover } from "../generated/CardStatusHover";
@@ -246,6 +256,42 @@ function SleeveBand({ sleeve }: { sleeve: CardSleeve }) {
   );
 }
 
+/** One option of the compact list (ATT-12). Its note (ATT-17) shows whole in the light hover card while the option
+ * is hovered or focused (Tab), never taking focus or changing the pick; it is the option's description. */
+function OptionButton({ option, onAction }: { option: CardOption; onAction?: TicketCardProps["onAction"] }) {
+  const noteId = useId();
+  const content = option.note === null ? null : <span className="card-hover-text">{option.note}</span>;
+  return (
+    <WithHover content={content}>
+      <button
+        type="button"
+        className="card-option"
+        data-picked={option.picked || undefined}
+        data-other={option.other || undefined}
+        aria-describedby={option.note === null ? undefined : noteId}
+        onClick={(e) => {
+          e.stopPropagation();
+          onAction?.(option.action);
+        }}
+      >
+        <span className="card-option-number">{option.number}</span>
+        <span className="card-option-label">{option.label}</span>
+        {option.recommended !== null && (
+          <span className="card-option-rec">
+            <Icon name="star" size={9} />
+            {option.recommended}
+          </span>
+        )}
+        {option.note !== null && (
+          <span id={noteId} hidden>
+            {option.note}
+          </span>
+        )}
+      </button>
+    </WithHover>
+  );
+}
+
 function Body({ card, onAction }: Pick<TicketCardProps, "card" | "onAction">) {
   return (
     <>
@@ -271,26 +317,7 @@ function Body({ card, onAction }: Pick<TicketCardProps, "card" | "onAction">) {
       {card.options.length > 0 && (
         <div className="card-options">
           {card.options.map((option) => (
-            <button
-              key={option.number}
-              type="button"
-              className="card-option"
-              data-picked={option.picked || undefined}
-              data-other={option.other || undefined}
-              onClick={(e) => {
-                e.stopPropagation();
-                onAction?.(option.action);
-              }}
-            >
-              <span className="card-option-number">{option.number}</span>
-              <span className="card-option-label">{option.label}</span>
-              {option.recommended !== null && (
-                <span className="card-option-rec">
-                  <Icon name="star" size={9} />
-                  {option.recommended}
-                </span>
-              )}
-            </button>
+            <OptionButton key={option.number} option={option} {...(onAction ? { onAction } : {})} />
           ))}
         </div>
       )}

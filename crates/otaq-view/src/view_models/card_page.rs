@@ -45,8 +45,8 @@ pub struct OptionView {
     pub other: bool,
     /// What a click sends: the option's number (Other… is the last).
     pub action: CardActionKind,
-    /// The option's own note, its pros and cons (ATT-17), whole.
-    pub option_note: Option<String>,
+    /// The option's own note, its pros and cons (ATT-17), whole: the option's hover card.
+    pub note: Option<String>,
 }
 
 /// A Ticket Card v2 for the page (SHL-07): head (avatar, key, pin, priority, flag), title, situation line, origin
@@ -103,7 +103,7 @@ impl TicketCardView {
                     picked: row.picked,
                     other: row.other,
                     action: CardActionKind::PickOption(row.number),
-                    option_note: row.option_note,
+                    note: row.note,
                 })
                 .collect()
         });
@@ -389,6 +389,38 @@ mod tests {
         assert_eq!(
             card.footer.unwrap().action.unwrap().kind,
             CardActionKind::SendAnswer
+        );
+    }
+
+    /// ATT-17: the compact list keeps its labels; each option carries its note whole for the hover card.
+    #[test]
+    fn each_option_carries_its_note_for_the_hover_card() {
+        use otaq_core::board::questions::HumanQuestion;
+        let long = "y".repeat(600);
+        let mut t =
+            card_fixtures::ticket("NOTE-1", "Add export", otaq_core::domain::Status::AsksYou);
+        t.question = Some(HumanQuestion {
+            options: vec!["Markdown files".into(), "One ZIP".into()],
+            recommended: Some(1),
+            notes: vec![None, Some(long.clone())],
+            id: "q1".into(),
+            text: "Question 1 of 2: Which export format?".into(),
+            asked_at: NOW,
+            via_lead: None,
+        });
+        let card = TicketCardView::of(&t, &CardExtras::default(), NOW);
+        let shown: Vec<(&str, Option<&str>)> = card
+            .options
+            .iter()
+            .map(|o| (o.label.as_str(), o.note.as_deref()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("Markdown files", None),
+                ("One ZIP", Some(long.as_str())),
+                (OTHER_SHORT, None)
+            ]
         );
     }
 }

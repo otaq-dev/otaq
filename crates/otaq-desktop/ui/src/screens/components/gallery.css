@@ -314,6 +314,15 @@
   max-height: none;
 }
 
+/* T-0375: the panel's question bar at the panel's default width, and a card's hover card drawn open in place. */
+.gallery-option-notes-panel {
+  width: 480px;
+}
+
+.gallery-option-notes-hover.card-hover {
+  position: static;
+}
+
 /* The shell's frames (T-0327): each window at its real size, drawn at half. */
 .gallery-shell {
   display: flex;

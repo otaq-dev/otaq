@@ -42,9 +42,9 @@ const OPTIONS: InboxOption[] = [
     picked: true,
     other: false,
     note: null,
-    option_note: null,
+    lead_reason: null,
   },
-  { number: 2, label: "SES", recommended: false, picked: false, other: false, note: null, option_note: null },
+  { number: 2, label: "SES", recommended: false, picked: false, other: false, note: null, lead_reason: null },
   {
     number: 3,
     label: "Other… type your own answer",
@@ -52,7 +52,7 @@ const OPTIONS: InboxOption[] = [
     picked: false,
     other: true,
     note: null,
-    option_note: null,
+    lead_reason: null,
   },
 ];
 
@@ -459,6 +459,35 @@ describe("the inbox's markup", () => {
     expect(html).toContain('aria-checked="true"');
   });
 
+  it("draws each option's note whole under its label, as the option's description (ATT-17)", () => {
+    const long = "Pros and cons, ".repeat(40).trim();
+    expect(long.length).toBeGreaterThan(590);
+    const notes = ["Opens in any editor; one file per note, no attachments.", long];
+    const options: InboxOption[] = OPTIONS.map((o) => ({ ...o, note: notes[o.number - 1] ?? null }));
+    const html = render(
+      createElement(InboxBody, {
+        view: {
+          ...VIEW,
+          groups: VIEW.groups
+            .slice(0, 1)
+            .map((g) => ({ ...g, rows: [row("SHOP-21", { answer: { ...ANSWER, options } })] })),
+        },
+        selected: 0,
+        draft: { key: "SHOP-21", pick: 1, text: "", sending: false },
+        onDraft: () => undefined,
+        onSelect: () => undefined,
+      }),
+    );
+    expect(html).toContain(">Opens in any editor; one file per note, no attachments.</span>");
+    expect(html).toContain(`>${long}</span>`);
+    expect(html.match(/class="inbox-option-note"/g)).toHaveLength(2);
+    // Each note is its option's description: the button points at the note's id.
+    const described = [...html.matchAll(/aria-describedby="([^"]+)"/g)].map((m) => m[1]);
+    expect(described).toHaveLength(2);
+    for (const id of described) expect(html).toContain(`id="${id ?? ""}" class="inbox-option-note"`);
+    expect(html).not.toContain("…</span>");
+  });
+
   it("an empty inbox and the usage-limit row", () => {
     const html = render(
       createElement(InboxBody, {
@@ -589,8 +618,8 @@ const PASSED_ON = row("SHOP-40.2", {
         recommended: true,
         picked: true,
         other: false,
-        note: "PAY-123 only mentions signed-in users.",
-        option_note: null,
+        note: null,
+        lead_reason: "PAY-123 only mentions signed-in users.",
       },
       {
         number: 2,
@@ -599,7 +628,7 @@ const PASSED_ON = row("SHOP-40.2", {
         picked: false,
         other: false,
         note: null,
-        option_note: null,
+        lead_reason: null,
       },
       {
         number: 3,
@@ -608,7 +637,7 @@ const PASSED_ON = row("SHOP-40.2", {
         picked: false,
         other: true,
         note: null,
-        option_note: null,
+        lead_reason: null,
       },
     ],
   },
@@ -727,6 +756,33 @@ describe("epic lead items", () => {
     expect(html).toContain("Recommended by the lead");
     expect(html).toContain('class="inbox-option-note">PAY-123 only mentions signed-in users.<');
     expect(html).toContain('aria-checked="true"');
+  });
+
+  it("a passed-on option shows its own note first, then the lead's reason (ATT-17)", () => {
+    const answer = PASSED_ON.answer;
+    if (answer === null) throw new Error("PASSED_ON has an answer");
+    const options = answer.options.map((o) =>
+      o.number === 1 ? { ...o, note: "Fewer accounts to support; guests can't save." } : o,
+    );
+    const html = render(
+      createElement(InboxBody, {
+        view: {
+          ...LEAD_VIEW,
+          groups: LEAD_VIEW.groups
+            .slice(0, 1)
+            .map((g) => ({ ...g, rows: [{ ...PASSED_ON, answer: { ...answer, options } }] })),
+        },
+        selected: 0,
+        draft: { key: "SHOP-40.2", pick: 1, text: "", sending: false },
+        onDraft: () => undefined,
+        onSelect: () => undefined,
+      }),
+    );
+    const note = html.indexOf("Fewer accounts to support; guests can&#x27;t save.");
+    const reason = html.indexOf("PAY-123 only mentions signed-in users.");
+    expect(note).toBeGreaterThan(-1);
+    expect(reason).toBeGreaterThan(note);
+    expect(html).toContain("Recommended by the lead");
   });
 
   it("the lead's item opens the epic panel on its Lead tab, the lead's terminal focused", () => {

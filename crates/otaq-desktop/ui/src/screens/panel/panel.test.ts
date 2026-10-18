@@ -283,15 +283,15 @@ describe("a board card's button", () => {
 
 describe("answer options", () => {
   const rows: PanelAnswerRow[] = [
-    { number: 1, label: "Postmark", recommended: true, picked: true, other: false, option_note: null },
-    { number: 2, label: "SES", recommended: false, picked: false, other: false, option_note: null },
+    { number: 1, label: "Postmark", recommended: true, picked: true, other: false, note: null },
+    { number: 2, label: "SES", recommended: false, picked: false, other: false, note: null },
     {
       number: 3,
       label: "Other… type your own answer",
       recommended: false,
       picked: false,
       other: true,
-      option_note: null,
+      note: null,
     },
   ];
 
@@ -327,6 +327,28 @@ describe("answer options", () => {
     expect(html).toContain('aria-checked="true"');
     expect(html).toContain("Send answer");
     expect(html).not.toContain("Open terminal");
+  });
+
+  it("draws each option's note whole under its label, as the option's description (ATT-17)", () => {
+    const long = "Pros and cons, ".repeat(40).trim();
+    const html = render({
+      ...VIEW,
+      answer: {
+        question: "q1",
+        text: "Which email provider?",
+        rows: rows.map((r) => (r.number === 1 ? { ...r, note: long } : r)),
+        recommended_label: "Recommended",
+        other_placeholder: "Type your answer",
+        hint: "1–4 pick · ↵ sends",
+        in_terminal: "Answer in terminal",
+        send: "Send answer",
+      },
+    });
+    expect(html).toContain(`>${long}</span>`);
+    expect(html.match(/class="inbox-option-note"/g)).toHaveLength(1);
+    const described = [...html.matchAll(/aria-describedby="([^"]+)"/g)].map((m) => m[1]);
+    expect(described).toHaveLength(1);
+    expect(html).toContain(`id="${described[0] ?? ""}" class="inbox-option-note"`);
   });
 });
 

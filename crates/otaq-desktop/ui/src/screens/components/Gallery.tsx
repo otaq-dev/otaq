@@ -77,6 +77,8 @@ import type { PillView } from "../../generated/PillView";
 import type { ToolAvatarGallery } from "../../generated/ToolAvatarGallery";
 import type { TrustGallery } from "../../generated/TrustGallery";
 import type { NotificationsGallery } from "../../generated/NotificationsGallery";
+import type { OptionNotesGallery } from "../../generated/OptionNotesGallery";
+import type { InboxView } from "../../generated/InboxView";
 import {
   MarkdownEditor,
   MarkdownSurface,
@@ -94,7 +96,9 @@ import { THEME_KEYS, type ThemeKey } from "../../theme/generated/tokens";
 import { TokenSwatches } from "../../theme/Swatches";
 import { Column, type ColumnProps } from "../board/Column";
 import { Strip } from "../board/strip/Strip";
-import { InboxBody } from "../inbox/Inbox";
+import { InboxBody, type InboxBodyProps } from "../inbox/Inbox";
+import { initialPick } from "../inbox/logic";
+import { AnswerBox as PanelAnswerBox } from "../panel/Panel";
 import { PaneBody, SwitcherList } from "../pane/Pane";
 import "../pane/pane.css";
 import { DrawerBody } from "../terminals/Drawer";
@@ -2205,6 +2209,77 @@ function InboxLead() {
   );
 }
 
+const loadOptionNotes = () => request("gallery.option_notes") as Promise<OptionNotesGallery>;
+
+/** One inbox with the answer box of `rowKey` open, its recommended option picked. */
+function DraftedInbox({ view, rowKey }: { view: InboxView; rowKey: string }) {
+  const row = view.groups.flatMap((g) => g.rows).find((r) => r.key === rowKey);
+  const [draft, setDraft] = useState<InboxBodyProps["draft"]>(() => ({
+    key: rowKey,
+    pick: initialPick(row?.answer?.options ?? []),
+    text: "",
+    sending: false,
+  }));
+  return (
+    <div className="inbox gallery-inbox">
+      <InboxBody view={view} selected={0} draft={draft} onDraft={setDraft} onSelect={() => undefined} />
+    </div>
+  );
+}
+
+/** ATT-17, d0061 (T-0375): answer options with notes, from `gallery.option_notes`: NOTE-1's four options (one note
+ * about 300 characters long, one option without a note) and a question the lead passed on, in the inbox, the panel
+ * and the card. The card's hover card shows on hover or Tab; each one is also drawn open beside its card. Nothing is
+ * sent. */
+function OptionNotes() {
+  const { view, error } = useServiceView(loadOptionNotes, []);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const keys = view.cards.map((card) => card.key);
+  return (
+    <Section title="10 · 05 · 04 · Answer options with notes (0061) · inbox, panel, card hover (T-0375)">
+      <div className="gallery-wrap gallery-wrap-wide">
+        {keys.map((key) => (
+          <DraftedInbox key={key} view={view.inbox} rowKey={key} />
+        ))}
+      </div>
+      <div className="gallery-wrap gallery-wrap-wide">
+        {view.panels.map(
+          (panel) =>
+            panel.answer && (
+              <div key={panel.key} className="gallery-option-notes-panel">
+                <PanelAnswerBox view={panel} answer={panel.answer} more={null} fromCard={null} />
+              </div>
+            ),
+        )}
+      </div>
+      <div className="gallery-wrap gallery-wrap-wide">
+        {view.cards.map((card) => (
+          <div key={card.key} className="gallery-wrap">
+            <div className="gallery-card-cell">
+              <Caption>{card.key} · hover or Tab to an option</Caption>
+              <TicketCard card={card} />
+            </div>
+            {card.options.map(
+              (option) =>
+                option.note !== null && (
+                  <div key={option.number} className="gallery-stack-tight">
+                    <Caption>
+                      Hover card · {option.number}. {option.label}
+                    </Caption>
+                    <div className="card-hover gallery-option-notes-hover">
+                      <span className="card-hover-text">{option.note}</span>
+                    </div>
+                  </div>
+                ),
+            )}
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 const loadDecisionChange = () => request("gallery.decision_change") as Promise<DecisionChangeGallery>;
 
 /** *07 → Change… on SHOP-23* and *Change… on 40.1's decision: add a fix child* (T-0288), from
@@ -2371,6 +2446,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <LeadTabs />
         <AgentRowsSection />
         <InboxLead />
+        <OptionNotes />
         <EnvVarsSection />
         <AgentsGallerySection several={false} />
         <AgentsGallerySection several />

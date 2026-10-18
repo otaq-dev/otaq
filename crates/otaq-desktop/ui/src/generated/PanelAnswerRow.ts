@@ -5,6 +5,6 @@
  */
 export type PanelAnswerRow = { number: number, label: string, recommended: boolean, picked: boolean, other: boolean, 
 /**
- * The option's own note, its pros and cons (ATT-17), whole.
+ * The option's own note, its pros and cons (ATT-17), under the label, whole.
  */
-option_note: string | null, };
+note: string | null, };

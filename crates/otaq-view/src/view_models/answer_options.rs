@@ -4,10 +4,11 @@
 //! recommendation nothing is preselected and Send stays disabled until the user picks. The answer is typed as
 //! [`otaq_core::board::questions::format_answer`] words it. One model for all three places.
 //!
-//! Each option's note (ATT-17, d0061), its pros and cons, rides on its row whole ([`OptionRow::option_note`]).
+//! Each option's note (ATT-17, d0061), its pros and cons, rides on its row whole ([`OptionRow::note`]): never cut,
+//! shown under the label in the inbox and the panel, in the light hover card on the card.
 //!
 //! A question an epic's lead passed on (LEAD-06, d0083; *10 → Row · Epic lead items (0083)*): the lead's option is the
-//! recommended one, marked "Recommended by the lead" with the lead's reason under it.
+//! recommended one, marked "Recommended by the lead" with the lead's reason under it, after the option's own note.
 
 use otaq_core::board::questions::{Choice, HumanQuestion};
 
@@ -29,11 +30,12 @@ pub struct OptionRow {
     pub recommended: bool,
     pub picked: bool,
     pub other: bool,
-    /// The recommended row of a passed-on question: the lead's reason ("PAY-123 only mentions signed-in users.").
-    pub note: Option<String>,
     /// The option's own note, its pros and cons (ATT-17): "Opens in any editor; one file per note, no attachments.".
     /// Whole, never cut. `None` for Other… and an option without one.
-    pub option_note: Option<String>,
+    pub note: Option<String>,
+    /// The recommended row of a passed-on question: the lead's reason ("PAY-123 only mentions signed-in users."),
+    /// shown after [`Self::note`].
+    pub lead_reason: Option<String>,
 }
 
 /// The mark on the recommended option.
@@ -106,7 +108,7 @@ impl AnswerOptions {
             .options
             .iter()
             .enumerate()
-            .map(|(i, (label, option_note))| {
+            .map(|(i, (label, note))| {
                 let n = i as u32 + 1;
                 OptionRow {
                     number: n,
@@ -114,11 +116,11 @@ impl AnswerOptions {
                     recommended: self.recommended == Some(n),
                     picked: self.pick == Some(Pick::Option(n)),
                     other: false,
-                    note: self
+                    note: note.clone(),
+                    lead_reason: self
                         .lead_reason
                         .clone()
                         .filter(|_| self.recommended == Some(n)),
-                    option_note: option_note.clone(),
                 }
             })
             .collect();
@@ -129,7 +131,7 @@ impl AnswerOptions {
             picked: self.pick == Some(Pick::Other),
             other: true,
             note: None,
-            option_note: None,
+            lead_reason: None,
         });
         rows
     }
@@ -154,6 +156,55 @@ impl AnswerOptions {
 /// "OPTIONS FROM SHOP-21’S AGENT".
 pub fn heading(key: &impl std::fmt::Display) -> String {
     format!("OPTIONS FROM {key}’S AGENT")
+}
+
+/// The Gallery's questions with notes (ATT-17; *m26-tickets.md → The example*): NOTE-1's four options, one note
+/// about 300 characters long and one option without a note; and a question an epic's lead passed on, with notes and
+/// the lead's reason (CHANGES-2026-10-18-ab §1).
+pub fn note_samples() -> [HumanQuestion; 2] {
+    use otaq_core::board::questions::ViaLead;
+    let note = |text: &str| Some(text.to_owned());
+    let asks = HumanQuestion {
+        id: "q-notes".into(),
+        text: "Question 1 of 2: Which export format?".into(),
+        options: vec![
+            "Markdown files".into(),
+            "One ZIP".into(),
+            "Plain text".into(),
+            "JSON".into(),
+        ],
+        recommended: Some(1),
+        notes: vec![
+            note("Opens in any editor; one file per note, no attachments."),
+            note("One download with everything, but needs a ZIP library and an import later."),
+            None,
+            note(
+                "Keeps every field (tags, dates, pinned state) so a later import can rebuild the notes exactly, \
+                 and other tools can read it. Not readable for most people without a viewer, the files are larger, \
+                 and the format becomes something we have to keep stable once users rely on it for backups.",
+            ),
+        ],
+        asked_at: 0,
+        via_lead: None,
+    };
+    let passed = HumanQuestion {
+        id: "q-notes-lead".into(),
+        text: "Which invoice export should the first version have?".into(),
+        options: vec!["CSV only".into(), "CSV and PDF".into()],
+        recommended: Some(1),
+        notes: vec![
+            note("One small library, about half a day. No printable copy for customers."),
+            note(
+                "Printable invoices too, but needs a page layout and a PDF library: about two days.",
+            ),
+        ],
+        asked_at: 0,
+        via_lead: Some(ViaLead {
+            lead: "Sharing lead".into(),
+            reason: "NOTE-10's description asks for a spreadsheet export only.".into(),
+        }),
+    };
+    [asks, passed]
 }
 
 #[cfg(test)]
@@ -255,10 +306,10 @@ mod tests {
         let rows = AnswerOptions::of(&q).unwrap().rows();
         assert!(rows[0].picked && rows[0].recommended);
         assert_eq!(
-            rows[0].note.as_deref(),
+            rows[0].lead_reason.as_deref(),
             Some("PAY-123 only mentions signed-in users.")
         );
-        assert_eq!(rows[1].note, None);
+        assert_eq!(rows[1].lead_reason, None);
         assert_eq!(
             (rows[2].number, rows[2].label.as_str()),
             (3, "Other… type your own answer")
@@ -276,7 +327,7 @@ mod tests {
             Some(long.clone()),
         ];
         let rows = AnswerOptions::of(&q).unwrap().rows();
-        let notes: Vec<Option<&str>> = rows.iter().map(|r| r.option_note.as_deref()).collect();
+        let notes: Vec<Option<&str>> = rows.iter().map(|r| r.note.as_deref()).collect();
         assert_eq!(
             notes,
             [
@@ -287,7 +338,7 @@ mod tests {
             ]
         );
         assert!(
-            rows.iter().all(|r| r.note.is_none()),
+            rows.iter().all(|r| r.lead_reason.is_none()),
             "the lead's reason stays apart"
         );
         q.notes = Vec::new();
@@ -296,7 +347,45 @@ mod tests {
                 .unwrap()
                 .rows()
                 .iter()
-                .all(|r| r.option_note.is_none())
+                .all(|r| r.note.is_none())
+        );
+    }
+
+    /// ATT-17 on a passed-on question (d0083): the option's note and the lead's reason are two fields on the
+    /// recommended row, the note first; the other rows keep their own notes.
+    #[test]
+    fn a_passed_on_question_keeps_the_note_and_the_leads_reason_apart() {
+        let mut q = question(&["Markdown files", "One ZIP"], Some(2));
+        q.notes = vec![
+            Some("Opens in any editor; one file per note, no attachments.".into()),
+            Some(
+                "One download with everything, but needs a ZIP library and an import later.".into(),
+            ),
+        ];
+        q.via_lead = Some(otaq_core::board::questions::ViaLead {
+            lead: "Sharing lead".into(),
+            reason: "  NOTE-12 imports a ZIP already.  ".into(),
+        });
+        let rows = AnswerOptions::of(&q).unwrap().rows();
+        let shown: Vec<(Option<&str>, Option<&str>)> = rows
+            .iter()
+            .map(|r| (r.note.as_deref(), r.lead_reason.as_deref()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (
+                    Some("Opens in any editor; one file per note, no attachments."),
+                    None
+                ),
+                (
+                    Some(
+                        "One download with everything, but needs a ZIP library and an import later."
+                    ),
+                    Some("NOTE-12 imports a ZIP already.")
+                ),
+                (None, None),
+            ]
         );
     }
 

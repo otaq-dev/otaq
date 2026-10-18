@@ -9,7 +9,7 @@
 // its Lead tab), and the foot's keys. ↑↓ move, ↵ opens,
 // 1–4 pick in an open answer box, Esc cancels the box or closes the inbox. Everything it says comes from
 // `inbox.view`; it keeps only the selected row and the open draft.
-import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 import { modalOpen, openOverlay, overlays } from "../../app/overlays";
 import type { OverlayProps } from "../../app/registry";
@@ -160,6 +160,7 @@ function AnswerBox({
 }) {
   const field = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  const noteId = useId();
   const options = answer.options;
   const showField = options.length === 0 || picksOther(draft.pick, options);
   useEffect(() => {
@@ -222,6 +223,7 @@ function AnswerBox({
               key={o.number}
               role="radio"
               aria-checked={draft.pick === o.number}
+              aria-describedby={o.note === null ? undefined : `${noteId}-${String(o.number)}`}
               className="inbox-option"
               data-picked={draft.pick === o.number || undefined}
               onClick={() => {
@@ -239,7 +241,13 @@ function AnswerBox({
                     </span>
                   )}
                 </span>
-                {o.note !== null && <span className="inbox-option-note">{o.note}</span>}
+                {/* The option's note (ATT-17), whole and wrapped: its description, not part of its name. */}
+                {o.note !== null && (
+                  <span id={`${noteId}-${String(o.number)}`} className="inbox-option-note" aria-hidden>
+                    {o.note}
+                  </span>
+                )}
+                {o.lead_reason !== null && <span className="inbox-option-note">{o.lead_reason}</span>}
               </span>
               <Kbd keys={String(o.number)} />
             </button>

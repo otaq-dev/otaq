@@ -378,8 +378,15 @@
 }
 
 .panel-answer-label {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
+}
+
+.panel-answer-label > .inbox-option-note {
+  font-weight: 400;
 }
 
 .panel-answer-rec {

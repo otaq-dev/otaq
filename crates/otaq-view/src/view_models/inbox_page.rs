@@ -252,10 +252,10 @@ pub struct OptionRow {
     pub recommended: bool,
     pub picked: bool,
     pub other: bool,
-    /// The recommended option of a passed-on question: the lead's reason, under the label.
+    /// The option's own note, its pros and cons (ATT-17), under the label, whole.
     pub note: Option<String>,
-    /// The option's own note, its pros and cons (ATT-17), whole.
-    pub option_note: Option<String>,
+    /// The recommended option of a passed-on question: the lead's reason, after the note.
+    pub lead_reason: Option<String>,
 }
 
 fn option_rows(options: Option<AnswerOptions>) -> Vec<OptionRow> {
@@ -270,7 +270,7 @@ fn option_rows(options: Option<AnswerOptions>) -> Vec<OptionRow> {
                     picked: r.picked,
                     other: r.other,
                     note: r.note,
-                    option_note: r.option_note,
+                    lead_reason: r.lead_reason,
                 })
                 .collect()
         })
@@ -1071,6 +1071,70 @@ pub fn lead_gallery() -> LeadGallery {
     }
 }
 
+/// The answer options with notes for the Gallery (`gallery.option_notes`, ATT-17): NOTE-1's question with four
+/// options, and a question the Sharing lead passed on, with notes and the lead's reason.
+pub fn notes_gallery() -> View {
+    use otaq_core::attention::inbox::{InboxCounts, InboxList};
+    use otaq_core::board::needs_you::NeedsYouItem;
+    use otaq_core::board::questions::HumanQuestion;
+    use otaq_core::domain::Status;
+    use std::time::Instant;
+
+    use crate::view_models::answer_options::note_samples;
+    use crate::view_models::inbox::InboxModel;
+
+    const MIN: i64 = 60_000;
+    let [asks, passed] = note_samples();
+    let item = |k: &str, title: &str, asks: &str, question: HumanQuestion, age: i64| NeedsYouItem {
+        group: NeedsYouGroup::Family,
+        project: "NOTE".into(),
+        project_name: "pocket-notes".into(),
+        id: k.into(),
+        key: k.parse().expect("key"),
+        title: title.into(),
+        status: Status::AsksYou,
+        interrupted_from: None,
+        reason: format!("{asks}{}", question.text),
+        question: Some(question),
+        since: 0,
+        age_ms: age,
+        blocked: 0,
+        message: None,
+        suggestion: None,
+        lead_note: None,
+        change_agent: None,
+    };
+    let items = vec![
+        item("NOTE-1", "Add export", "asks: ", asks, MIN),
+        item(
+            "NOTE-10.1",
+            "Invoice export",
+            "asks \u{b7} passed on by Sharing lead: ",
+            passed,
+            2 * MIN,
+        ),
+    ];
+    let mut model = InboxModel::default();
+    model.update(
+        InboxList {
+            counts: InboxCounts::of(&items, &["NOTE".into()]),
+            items,
+            project_agents: Vec::new(),
+        },
+        Instant::now(),
+    );
+    view(
+        &model.groups(&|_| None),
+        &[],
+        &|_| Some("Sharing".to_owned()),
+        MIN,
+        2,
+        &[],
+        1,
+        "\u{2318}J",
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Instant;
@@ -1542,7 +1606,14 @@ mod tests {
         let options: Vec<(u32, &str, bool, Option<&str>)> = answer
             .options
             .iter()
-            .map(|o| (o.number, o.label.as_str(), o.picked, o.note.as_deref()))
+            .map(|o| {
+                (
+                    o.number,
+                    o.label.as_str(),
+                    o.picked,
+                    o.lead_reason.as_deref(),
+                )
+            })
             .collect();
         assert_eq!(
             options,

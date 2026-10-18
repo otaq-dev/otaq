@@ -5,10 +5,10 @@
  */
 export type InboxOption = { number: number, label: string, recommended: boolean, picked: boolean, other: boolean, 
 /**
- * The recommended option of a passed-on question: the lead's reason, under the label.
+ * The option's own note, its pros and cons (ATT-17), under the label, whole.
  */
 note: string | null, 
 /**
- * The option's own note, its pros and cons (ATT-17), whole.
+ * The recommended option of a passed-on question: the lead's reason, after the note.
  */
-option_note: string | null, };
+lead_reason: string | null, };

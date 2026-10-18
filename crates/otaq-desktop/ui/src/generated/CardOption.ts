@@ -10,6 +10,6 @@ export type CardOption = { number: number, label: string, recommended: string | 
  */
 action: CardActionKind, 
 /**
- * The option's own note, its pros and cons (ATT-17), whole.
+ * The option's own note, its pros and cons (ATT-17), whole: the option's hover card.
  */
-option_note: string | null, };
+note: string | null, };

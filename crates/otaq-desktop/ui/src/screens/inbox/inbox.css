@@ -312,10 +312,13 @@
   min-width: 0;
 }
 
-/* The lead's reason under its recommended option (*10 → Row · Epic lead items (0083)*). */
+/* An option's note (ATT-17), and the lead's reason under its recommended option (*10 → Row · Epic lead items
+ * (0083)*): whole and wrapped, never cut (d0061). The panel's options use it too. */
 .inbox-option-note {
   color: var(--text-secondary);
   font-size: 12px;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .inbox-option-recommended {
