@@ -112,7 +112,7 @@ interface LanguagePickerProps {
 /** The short list under the label: a filter on top, ↑ ↓ to move, ↵ to choose, Esc or a press outside to close. */
 function LanguagePicker({ anchor, language, onChoose, onClose }: LanguagePickerProps) {
   const floating = useRef<HTMLDivElement>(null);
-  const style = useFloatingStyle(anchor, floating, "end");
+  const style = useFloatingStyle(anchor, floating, "end", onClose);
   useDismiss(floating, anchor, onClose);
   const [query, setQuery] = useState("");
   const rows = filterLanguages(query);

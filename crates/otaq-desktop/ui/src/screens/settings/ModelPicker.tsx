@@ -409,7 +409,9 @@ function FloatingList({
   onClose: (how: ListClose) => void;
 }) {
   const floating = useRef<HTMLDivElement>(null);
-  const style = useFloatingStyle(anchor, floating);
+  const style = useFloatingStyle(anchor, floating, "start", () => {
+    list.onClose("outside");
+  });
   return (
     <div ref={floating} className="floating" style={{ ...style, width }}>
       <ChoiceList {...list} className="menu" />

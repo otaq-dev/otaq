@@ -137,7 +137,9 @@ export interface AnchoredMenuProps extends MenuProps {
 /** A menu under its trigger, or at the pointer, kept inside the window. */
 export function AnchoredMenu({ anchor, align, ...menu }: AnchoredMenuProps) {
   const floating = useRef<HTMLDivElement>(null);
-  const style = useFloatingStyle(anchor, floating, align);
+  const style = useFloatingStyle(anchor, floating, align, () => {
+    menu.onClose("outside");
+  });
   return (
     <div ref={floating} className="floating" style={style}>
       <Menu {...menu} />
