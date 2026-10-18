@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::models::ModelList;
-use otaq_core::attention::notify::{OPEN_INBOX, open_env_var};
+use otaq_core::attention::notify::{Target, open_env_var};
 use otaq_core::client::{Client, Compatibility};
 use otaq_core::domain::TicketKey;
 use otaq_core::named_agents::moves::ToolLines;
@@ -114,38 +114,57 @@ pub struct NoticesView {
     pub summary_for: Option<i64>,
 }
 
-/// What a notification click opens (`OTAQ_OPEN`, or the `open_from_notification` event): a ticket with its
-/// terminal focused, or the inbox when both are absent (a grouped notification).
+/// What a notification click opens (`OTAQ_OPEN`, or the `open_from_notification` event; d0090 "What a click
+/// opens"), with the project to switch to: a ticket's or a validator's terminal, a Project agent in the pane, an
+/// epic's lead terminal, the inbox, or the board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "NotificationTarget")]
-pub struct OpenTarget {
-    pub project: Option<String>,
-    pub ticket: Option<String>,
+pub enum OpenTarget {
+    /// The ticket's panel on the Terminal tab, its terminal focused.
+    Ticket { project: String, ticket: String },
+    /// The ticket's panel on the Terminal tab, its validator's terminal focused.
+    Validator { project: String, ticket: String },
+    /// The agent in the Project agent pane, focused.
+    ProjectAgent { project: String, agent: String },
+    /// The epic's panel on its Lead tab, the lead's terminal focused.
+    Lead { project: String, epic: String },
+    /// The Needs-you inbox (a grouped notification or a summary).
+    Inbox,
+    /// The board, of `project` when one is named (a tool that isn't available: its limit banner explains it).
+    Board { project: Option<String> },
+}
+
+impl From<Target> for OpenTarget {
+    fn from(target: Target) -> Self {
+        match target {
+            Target::Ticket { key } => Self::ticket(&key),
+            Target::Validator { key } => Self::Validator {
+                project: key.project.to_string(),
+                ticket: key.to_string(),
+            },
+            Target::ProjectAgent { project, agent } => Self::ProjectAgent { project, agent },
+            Target::Lead { epic } => Self::Lead {
+                project: epic.project.to_string(),
+                epic: epic.to_string(),
+            },
+            Target::Inbox => Self::Inbox,
+            Target::Board { project } => Self::Board { project },
+        }
+    }
 }
 
 impl OpenTarget {
-    /// From a notification's value: a ticket key, or `inbox`. Anything else opens nothing.
+    /// From a notification's value ([`Target::to_open_value`]): a ticket key, `inbox`, `validator:<key>`… Anything
+    /// else opens nothing.
     pub fn parse(value: &str) -> Option<Self> {
-        if value == OPEN_INBOX {
-            return Some(Self::inbox());
-        }
-        value
-            .parse::<TicketKey>()
-            .ok()
-            .map(|key| Self::ticket(&key))
+        Target::parse_open_value(value).map(Self::from)
     }
 
     pub fn ticket(key: &TicketKey) -> Self {
-        Self {
-            project: Some(key.project.to_string()),
-            ticket: Some(key.to_string()),
-        }
-    }
-
-    pub fn inbox() -> Self {
-        Self {
-            project: None,
-            ticket: None,
+        Self::Ticket {
+            project: key.project.to_string(),
+            ticket: key.to_string(),
         }
     }
 }
@@ -1047,20 +1066,54 @@ mod tests {
         );
     }
 
+    /// T-0371 (d0090): every target a notification can carry, from `OTAQ_OPEN`; the values from before M25 (a key,
+    /// `inbox`) read as before.
     #[test]
     fn notification_targets() {
         assert_eq!(
             OpenTarget::parse("SHOP-22"),
-            Some(OpenTarget {
-                project: Some("SHOP".into()),
-                ticket: Some("SHOP-22".into())
+            Some(OpenTarget::Ticket {
+                project: "SHOP".into(),
+                ticket: "SHOP-22".into()
             })
         );
         assert_eq!(
-            OpenTarget::parse("SHOP-40.1").unwrap().ticket.as_deref(),
-            Some("SHOP-40.1")
+            OpenTarget::parse("SHOP-40.1"),
+            Some(OpenTarget::Ticket {
+                project: "SHOP".into(),
+                ticket: "SHOP-40.1".into()
+            })
         );
-        assert_eq!(OpenTarget::parse(OPEN_INBOX), Some(OpenTarget::inbox()));
+        assert_eq!(OpenTarget::parse("inbox"), Some(OpenTarget::Inbox));
+        assert_eq!(
+            OpenTarget::parse("validator:SHOP-33"),
+            Some(OpenTarget::Validator {
+                project: "SHOP".into(),
+                ticket: "SHOP-33".into()
+            })
+        );
+        assert_eq!(
+            OpenTarget::parse("agent:SHOP:pa7"),
+            Some(OpenTarget::ProjectAgent {
+                project: "SHOP".into(),
+                agent: "pa7".into()
+            })
+        );
+        assert_eq!(
+            OpenTarget::parse("lead:SHOP-40"),
+            Some(OpenTarget::Lead {
+                project: "SHOP".into(),
+                epic: "SHOP-40".into()
+            })
+        );
+        assert_eq!(
+            OpenTarget::parse("board"),
+            Some(OpenTarget::Board { project: None })
+        );
+        assert_eq!(
+            serde_json::to_value(OpenTarget::parse("board:SHOP").unwrap()).unwrap(),
+            serde_json::json!({"kind": "board", "project": "SHOP"})
+        );
         assert_eq!(OpenTarget::parse("not a key"), None);
         let n = Notices::new(
             Arc::new(EventHub::default()),

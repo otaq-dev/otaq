@@ -23,6 +23,7 @@ import type { Notices } from "../../generated/Notices";
 import type { NotificationTarget } from "../../generated/NotificationTarget";
 import { asRequestError, type PageEvents, pageEvents } from "../../service";
 import { request, windowAction } from "../../tauri";
+import { PANE_ROUTES, type PaneRoutes, showAgentInPane } from "../pane/logic";
 
 /** The banner rows and toasts as last heard; `undefined` until the first answer. */
 export const noticesStore: Store<Notices | undefined> = createStore<Notices | undefined>(undefined);
@@ -150,24 +151,50 @@ export async function moveWaiting(tool: string, agent: string, ask: typeof reque
   await ask("limits.move_waiting", params);
 }
 
-/** Where opening a notification's target lands: the selection, the terminal focus requests and the overlays. */
+/** Where opening a notification's target lands: the selection, the terminal focus requests, the overlays and the
+ * Project agent pane (its `selection` is the same store). */
 export interface OpenRoutes {
   selection: Store<Selection>;
   focus: Store<TerminalFocusRequest | null>;
   overlays: Pick<OverlayStack, "open">;
+  pane: PaneRoutes;
 }
 
-const OPEN_ROUTES: OpenRoutes = { selection, focus: terminalFocusRequests, overlays };
+const OPEN_ROUTES: OpenRoutes = { selection, focus: terminalFocusRequests, overlays, pane: PANE_ROUTES };
 
-/** Opens a ticket on its Terminal tab with the terminal focused, or the inbox for a grouped notification. */
+/**
+ * Opens what a notification names (d0090 "What a click opens"), its project on screen: a ticket on its Terminal tab
+ * with the terminal focused (the validator's for a validator's prompt), a Project agent in the pane, an epic's lead
+ * on its Lead tab with the lead's terminal focused, the inbox, or the board. An item answered meanwhile opens the
+ * same place.
+ */
 export function openTarget(target: NotificationTarget, routes: OpenRoutes = OPEN_ROUTES): void {
-  if (target.ticket === null) {
-    routes.overlays.open("inbox");
-    return;
+  switch (target.kind) {
+    case "ticket":
+    case "validator":
+      selectProject(target.project, routes.selection);
+      openTicket(target.ticket, "terminal", routes.selection);
+      requestTerminalFocus(
+        target.ticket,
+        routes.focus,
+        target.kind === "validator" ? "validator" : undefined,
+      );
+      break;
+    case "project_agent":
+      showAgentInPane(target.project, target.agent, routes.pane);
+      break;
+    case "lead":
+      selectProject(target.project, routes.selection);
+      openTicket(target.epic, "lead", routes.selection);
+      requestTerminalFocus(target.epic, routes.focus);
+      break;
+    case "inbox":
+      routes.overlays.open("inbox");
+      break;
+    case "board":
+      if (target.project !== null) selectProject(target.project, routes.selection);
+      break;
   }
-  if (target.project !== null) selectProject(target.project, routes.selection);
-  openTicket(target.ticket, "terminal", routes.selection);
-  requestTerminalFocus(target.ticket, routes.focus);
 }
 
 /**
@@ -183,14 +210,13 @@ export function followNotifications(
   let stopped = false;
   const listening = events.listen((event) => {
     if (stopped || event.kind !== "service" || event.name !== "open_from_notification") return;
-    const key = typeof event.event.key === "string" ? event.event.key : null;
     void bringForward().catch(() => undefined);
-    ask("notices.open_target", { key }).then(
+    ask("notices.open_target", { target: event.event.target }).then(
       (target) => {
         if (!stopped) open(target as NotificationTarget);
       },
       (error: unknown) => {
-        console.warn("can't open the notification's ticket:", asRequestError(error).message);
+        console.warn("can't open the notification's target:", asRequestError(error).message);
       },
     );
   });

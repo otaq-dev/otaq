@@ -1092,6 +1092,7 @@ pub(super) async fn handle(
         | Request::SessionInput(_)
         | Request::SessionDeliverNow(_)
         | Request::SessionFocus(_)
+        | Request::AppFocus(_)
         | Request::Hook(_)
         | Request::RunStart(_)
         | Request::RunStop(_)

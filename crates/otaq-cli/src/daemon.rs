@@ -201,7 +201,19 @@ fn foreground(data: DataDir) -> Result<(), ErrorBody> {
         .enable_all()
         .build()
         .map_err(|e| internal(e.to_string()))?;
-    match runtime.block_on(service::run_until_signal(ServiceConfig::for_daemon(data))) {
+    let serve =
+        move || runtime.block_on(service::run_until_signal(ServiceConfig::for_daemon(data)));
+    // Inside Otaq.app the service is the notification center's delegate (d0090): macOS may deliver a click through
+    // the main queue, so the main thread runs its run loop and the service runs beside it.
+    #[cfg(target_os = "macos")]
+    let served = if otaq_core::attention::notification_center::in_bundle().is_some() {
+        otaq_core::attention::notification_center::with_main_run_loop(serve)
+    } else {
+        serve()
+    };
+    #[cfg(not(target_os = "macos"))]
+    let served = serve();
+    match served {
         Ok(()) => Ok(()),
         Err(ServiceError::AlreadyRunning { pid }) => {
             tracing::info!(?pid, "another service is already running");

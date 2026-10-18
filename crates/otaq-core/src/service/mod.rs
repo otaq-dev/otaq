@@ -92,6 +92,8 @@ pub struct ServiceConfig {
     /// The app a click on a notification starts when no app is connected (T-0159). `None` (the default, and in
     /// tests) starts nothing; the daemon sets the app next to its binary.
     pub app: Option<std::path::PathBuf>,
+    /// The time the notifications' quiet period counts in (d0090): the system's; tests move a fake one.
+    pub clock: Arc<dyn crate::attention::notify::pace::Clock>,
     /// The token usage reader's slow tick (USG-01). It reads Claude Code's folder from [`Self::tools`].
     pub usage_tick: Duration,
     /// What Run, Shell and the Project terminal start with (the `otaq` folder, PATH, the user's shell).
@@ -135,6 +137,7 @@ impl ServiceConfig {
             scheduler_tick: scheduler::DEFAULT_TICK,
             notifier: Arc::new(NoNotifier),
             app: None,
+            clock: Arc::new(crate::attention::notify::pace::SystemClock),
             usage_tick: usage::DEFAULT_TICK,
             terminals: TerminalEnv::from_process(),
             clone_probe: Arc::new(crate::warm::clone::CloneProbe::new()),
@@ -700,6 +703,13 @@ impl Service {
             });
         }
         let opener = Opener::new(events.clone(), config.app.clone());
+        // A notifier whose clicks arrive by themselves (macOS's delegate) opens their targets here.
+        {
+            let opener = opener.clone();
+            config
+                .notifier
+                .on_clicks(Arc::new(move |target| opener.open(target)));
+        }
         let inbox = Inbox::new(
             board.clone(),
             sessions.clone(),
@@ -710,6 +720,7 @@ impl Service {
             crate::attention::notify::Notifications {
                 notifier: config.notifier.clone(),
                 opener: opener.clone(),
+                clock: config.clock.clone(),
             },
         );
         let usage = Usage::new(

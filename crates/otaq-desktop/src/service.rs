@@ -465,6 +465,7 @@ pub(crate) mod testing {
     pub struct Running {
         pub bus: EventBus,
         pub sessions: Sessions,
+        pub inbox: otaq_core::attention::Inbox,
         stopper: Stopper,
         task: tokio::task::JoinHandle<()>,
     }
@@ -497,10 +498,12 @@ pub(crate) mod testing {
             let service = Service::bind(config).await?;
             let (bus, sessions, stopper) =
                 (service.events(), service.sessions(), service.stopper());
+            let inbox = service.inbox();
             let task = tokio::spawn(service.serve());
             self.started.lock().unwrap().push(Running {
                 bus,
                 sessions,
+                inbox,
                 stopper,
                 task,
             });
@@ -515,6 +518,17 @@ pub(crate) mod testing {
                 .last()
                 .expect("a running service")
                 .sessions
+                .clone()
+        }
+
+        /// The inbox of the service started last.
+        pub fn inbox(&self) -> otaq_core::attention::Inbox {
+            self.started
+                .lock()
+                .unwrap()
+                .last()
+                .expect("a running service")
+                .inbox
                 .clone()
         }
 
@@ -600,6 +614,7 @@ pub(crate) mod testing {
                 cleanup: Default::default(),
                 run_commands: Default::default(),
                 agents_visit: Default::default(),
+                window_focus: Default::default(),
                 usage: crate::usage::Usage::new(tokio::runtime::Handle::current()),
             };
             Self {

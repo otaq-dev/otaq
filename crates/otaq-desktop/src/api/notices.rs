@@ -102,11 +102,12 @@ pub struct ToastPress {
     pub action: ToastAction,
 }
 
-/// `{"key": "SHOP-22"}` from an `open_from_notification` event; no key for a grouped notification.
+/// `{"target": {"kind": "ticket", "key": "SHOP-22"}}`: an `open_from_notification` event's target, as the service
+/// sent it.
 #[derive(Debug, Clone, Deserialize, TS)]
-pub struct NotificationKey {
-    #[serde(default)]
-    pub key: Option<String>,
+pub struct NotificationOpen {
+    #[ts(type = "unknown")]
+    pub target: otaq_core::attention::notify::Target,
 }
 
 /// Closing the permission-mode warning is remembered in the app's database (SET-01), and so is closing the folder
@@ -288,15 +289,8 @@ pub(crate) async fn show_epic_queued(app: &App, outcome: &EpicQueueOutcome) {
     app.notices.toast(epic_toast::queue_toast(outcome, &title));
 }
 
-fn open_target(params: NotificationKey) -> Result<Value, RequestError> {
-    let target = match params.key {
-        None => OpenTarget::inbox(),
-        Some(key) => key
-            .parse()
-            .map(|key| OpenTarget::ticket(&key))
-            .map_err(|_| RequestError::plain(format!("not a ticket key: {key}")))?,
-    };
-    reply(&target)
+fn open_target(params: NotificationOpen) -> Result<Value, RequestError> {
+    reply(&OpenTarget::from(params.target))
 }
 
 #[cfg(test)]
@@ -374,16 +368,39 @@ mod tests {
         assert_eq!(dialog["confirm"], "Restart service");
 
         assert_eq!(
-            request(&h.app, "notices.open_target", json!({"key": "SHOP-22"}))
-                .await
-                .unwrap(),
-            json!({"project": "SHOP", "ticket": "SHOP-22"})
+            request(
+                &h.app,
+                "notices.open_target",
+                json!({"target": {"kind": "ticket", "key": "SHOP-22"}})
+            )
+            .await
+            .unwrap(),
+            json!({"kind": "ticket", "project": "SHOP", "ticket": "SHOP-22"})
         );
         assert_eq!(
-            request(&h.app, "notices.open_target", json!({}))
+            request(
+                &h.app,
+                "notices.open_target",
+                json!({"target": {"kind": "project_agent", "project": "SHOP", "agent": "pa7"}})
+            )
+            .await
+            .unwrap(),
+            json!({"kind": "project_agent", "project": "SHOP", "agent": "pa7"})
+        );
+        assert_eq!(
+            request(
+                &h.app,
+                "notices.open_target",
+                json!({"target": {"kind": "inbox"}})
+            )
+            .await
+            .unwrap(),
+            json!({"kind": "inbox"})
+        );
+        assert!(
+            request(&h.app, "notices.open_target", json!({"key": "SHOP-22"}))
                 .await
-                .unwrap(),
-            json!({"project": null, "ticket": null})
+                .is_err()
         );
         assert_eq!(
             request(&h.app, "notices.open_at_start", Value::Null)

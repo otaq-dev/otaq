@@ -420,5 +420,6 @@ async fn action_for(
         R::SessionResize(_) | R::SessionInput(_) | R::SessionDeliverNow(_) | R::SessionFocus(_) => {
             Action::UserOnly("type into sessions")
         }
+        R::AppFocus(_) => Action::UserOnly("report the app's window focus"),
     })
 }

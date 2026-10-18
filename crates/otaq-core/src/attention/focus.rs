@@ -12,6 +12,10 @@
 //! The rule applies **per session** (d0063): a ticket's validator is a [`Side`] of its own. While the validator's
 //! terminal has focus, "Needs you · validator" stays calm; looking at the agent's terminal (or the Shell) doesn't
 //! calm it, and looking at the validator doesn't calm the agent's own waits ([`Focus::covers`]).
+//!
+//! **Looking at Otaq** (d0090) extends the rule from the focused terminal to the whole window, for OS notifications
+//! only: while any app's window is focused (`app.focus`, per client connection), no OS notification goes out
+//! ([`Looking`]). `otaq attach` doesn't report it, so it doesn't count.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -177,9 +181,54 @@ fn holds_session(all: &HashMap<String, HashSet<Holder>>, session: &str) -> bool 
     all.values().flatten().any(|h| h.session == session)
 }
 
+/// The app clients whose window is focused (in front, with keyboard focus): while any is, the user is looking at
+/// Otaq (d0090). A closed connection loses it. Cheap to clone; clones share the same state. Kept in memory only.
+#[derive(Debug, Clone, Default)]
+pub struct Looking {
+    clients: Arc<Mutex<HashSet<ClientId>>>,
+}
+
+impl Looking {
+    /// A client's window gained or lost focus. Returns whether anyone looking changed.
+    pub fn set(&self, client: ClientId, focused: bool) -> bool {
+        let mut clients = self.clients.lock().expect("looking");
+        let before = !clients.is_empty();
+        if focused {
+            clients.insert(client);
+        } else {
+            clients.remove(&client);
+        }
+        before != !clients.is_empty()
+    }
+
+    /// A client disconnected: its window doesn't count any more.
+    pub fn client_gone(&self, client: ClientId) {
+        self.set(client, false);
+    }
+
+    /// Whether any client's window is focused.
+    pub fn any(&self) -> bool {
+        !self.clients.lock().expect("looking").is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T-0371 (d0090): looking while any app window is focused; a closed connection stops looking.
+    #[test]
+    fn looking_while_any_window_is_focused() {
+        let looking = Looking::default();
+        assert!(!looking.any());
+        assert!(looking.set(1, true));
+        assert!(!looking.set(2, true), "already looking");
+        assert!(!looking.set(1, false));
+        assert!(looking.any());
+        looking.client_gone(2);
+        assert!(!looking.any());
+        assert!(!looking.set(3, false));
+    }
 
     #[test]
     fn a_ticket_stays_focused_while_any_client_holds_it() {

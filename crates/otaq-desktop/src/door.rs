@@ -207,6 +207,7 @@ pub fn run(
     });
     let (on_setup, on_window, on_exit) = (placement.clone(), placement.clone(), placement);
     let dropped_on = app.clone();
+    let focus_of = app.clone();
     let exiting = app.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -228,6 +229,13 @@ pub fn run(
                 note_placement(window, &on_window)
             }
             tauri::WindowEvent::CloseRequested { .. } => save_placement(&on_window),
+            // The window in front with the keyboard, or not (d0090: no OS notification while the user looks).
+            tauri::WindowEvent::Focused(focused) => {
+                let (app, focused) = (focus_of.clone(), *focused);
+                tauri::async_runtime::spawn(async move {
+                    crate::api::window_focused(&app, focused).await;
+                });
+            }
             // A folder dropped anywhere on the window opens Add project with it (*02 → No projects yet*).
             tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
                 if let Some(path) = paths.first() {

@@ -51,7 +51,7 @@ pub use keymap::Keymap;
 pub use lead::{Load as LeadTabLoad, Params as LeadTabParams};
 #[cfg(test)]
 pub use notices::{
-    DismissBanner, HoldToast, LimitMoveWaiting, NotificationKey, ToastId, ToastPress,
+    DismissBanner, HoldToast, LimitMoveWaiting, NotificationOpen, ToastId, ToastPress,
 };
 pub use onboarding::dropped as folder_dropped;
 #[cfg(test)]
@@ -129,6 +129,7 @@ pub use terminal_tab::{
 pub use theme::{ActiveTheme, ThemeParams, ThemePick};
 #[cfg(test)]
 pub use usage::{Ask as UsageDataAsk, UsageChoice};
+pub use window::{WindowFocus, follow_window_focus, window_focused};
 
 /// Declares each area's module and its arm of [`request`]: one line per area.
 macro_rules! areas {

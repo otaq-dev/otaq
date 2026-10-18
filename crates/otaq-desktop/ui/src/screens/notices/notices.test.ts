@@ -10,6 +10,7 @@ import type { ToolAvatarView } from "../../generated/ToolAvatarView";
 import { request } from "../../tauri";
 import { MoveWaitingList } from "./LimitLines";
 import { createOverlayStack } from "../../app/overlays";
+import { INITIAL_LAYOUT, type ShellLayout } from "../../app/layout";
 import { createSelection, type TerminalFocusRequest } from "../../app/selection";
 import { createStore } from "../../app/store";
 import type { Banner } from "../../generated/Banner";
@@ -17,7 +18,9 @@ import type { Notices } from "../../generated/Notices";
 import type { PageEvent } from "../../generated/PageEvent";
 import type { Toast } from "../../generated/Toast";
 import type { ToastAction } from "../../generated/ToastAction";
+import type { NotificationTarget } from "../../generated/NotificationTarget";
 import { createPageEvents } from "../../service";
+import type { PaneFocusRequest, ShownAgents } from "../pane/logic";
 import {
   followNotifications,
   limitLinesOf,
@@ -146,52 +149,105 @@ describe("banner buttons", () => {
 });
 
 describe("notification clicks", () => {
-  const routes = () => ({
-    selection: createSelection(),
-    focus: createStore<TerminalFocusRequest | null>(null),
-    overlays: createOverlayStack(),
-  });
+  const routes = () => {
+    const selection = createSelection();
+    return {
+      selection,
+      focus: createStore<TerminalFocusRequest | null>(null),
+      overlays: createOverlayStack(),
+      pane: {
+        selection,
+        layout: createStore<ShellLayout>({ ...INITIAL_LAYOUT, paneHidden: true }),
+        shown: createStore<ShownAgents>({}),
+        focus: createStore<PaneFocusRequest | null>(null),
+      },
+    };
+  };
 
-  it("open the ticket on its Terminal tab with the terminal focused, or the inbox", () => {
+  it("a ticket: its project, its Terminal tab, its terminal focused; again is a new focus request", () => {
     const r = routes();
-    openTarget({ project: "SHOP", ticket: "SHOP-22" }, r);
+    openTarget({ kind: "ticket", project: "SHOP", ticket: "SHOP-22" }, r);
     expect(r.selection.get()).toMatchObject({ project: "SHOP", ticket: "SHOP-22", tab: "terminal" });
     expect(r.focus.get()).toEqual({ ticket: "SHOP-22", seq: 1 });
-    openTarget({ project: "SHOP", ticket: "SHOP-22" }, r);
+    openTarget({ kind: "ticket", project: "SHOP", ticket: "SHOP-22" }, r);
     expect(r.focus.get()?.seq).toBe(2);
     expect(r.overlays.store.get()).toEqual([]);
-    openTarget({ project: null, ticket: null }, r);
+  });
+
+  it("a validator's prompt: the Terminal tab with the validator's terminal focused", () => {
+    const r = routes();
+    openTarget({ kind: "validator", project: "NOTE", ticket: "NOTE-3" }, r);
+    expect(r.selection.get()).toMatchObject({ project: "NOTE", ticket: "NOTE-3", tab: "terminal" });
+    expect(r.focus.get()).toEqual({ ticket: "NOTE-3", seq: 1, side: "validator" });
+  });
+
+  it("a Project agent: its project, the agent in the pane (shown if hidden), focused", () => {
+    const r = routes();
+    openTarget({ kind: "project_agent", project: "NOTE", agent: "pa7" }, r);
+    expect(r.selection.get().project).toBe("NOTE");
+    expect(r.pane.shown.get()).toEqual({ NOTE: "pa7" });
+    expect(r.pane.layout.get().paneHidden).toBe(false);
+    expect(r.pane.focus.get()).toEqual({ seq: 1, agent: "pa7" });
+    expect(r.focus.get()).toBeNull();
+  });
+
+  it("an epic lead: the epic's Lead tab with the lead's terminal focused", () => {
+    const r = routes();
+    openTarget({ kind: "lead", project: "NOTE", epic: "NOTE-40" }, r);
+    expect(r.selection.get()).toMatchObject({ project: "NOTE", ticket: "NOTE-40", tab: "lead" });
+    expect(r.focus.get()).toEqual({ ticket: "NOTE-40", seq: 1 });
+  });
+
+  it("the inbox for a summary; the board for a tool that isn't available", () => {
+    const r = routes();
+    openTarget({ kind: "inbox" }, r);
     expect(r.overlays.store.get().map((o) => o.id)).toEqual(["inbox"]);
+    const b = routes();
+    openTarget({ kind: "board", project: null }, b);
+    expect(b.selection.get()).toMatchObject({ project: null, ticket: null });
+    openTarget({ kind: "board", project: "NOTE" }, b);
+    expect(b.selection.get()).toMatchObject({ project: "NOTE", ticket: null });
+    expect(b.overlays.store.get()).toEqual([]);
+    expect(b.focus.get()).toBeNull();
   });
 
   it("open what the app was started with, then each clicked notification, bringing the window forward", async () => {
     const stream = fakeStream();
     const ask = vi.fn((method: string, params?: unknown): Promise<unknown> => {
-      if (method === "notices.open_at_start") return Promise.resolve({ project: "SHOP", ticket: "SHOP-9" });
-      const key = (params as { key: string | null }).key;
-      return Promise.resolve({ project: key ? "SHOP" : null, ticket: key });
+      if (method === "notices.open_at_start")
+        return Promise.resolve({ kind: "ticket", project: "SHOP", ticket: "SHOP-9" });
+      const target = (params as { target: { kind: string; key?: string } }).target;
+      return Promise.resolve(
+        target.kind === "ticket"
+          ? { kind: "ticket", project: "SHOP", ticket: target.key }
+          : { kind: "inbox" },
+      );
     });
-    const opened: unknown[] = [];
+    const opened: NotificationTarget[] = [];
     const forward = vi.fn(() => Promise.resolve());
-    const stop = followNotifications(stream.events, ask, (t) => opened.push(t.ticket), forward);
+    const stop = followNotifications(stream.events, ask, (t) => opened.push(t), forward);
     stream.open();
     await settle();
-    expect(opened).toEqual(["SHOP-9"]);
+    expect(opened.map((t) => t.kind)).toEqual(["ticket"]);
     expect(forward).not.toHaveBeenCalled();
     stream.send({
       kind: "service",
       name: "open_from_notification",
-      event: { kind: "open_from_notification", key: "SHOP-22" },
+      event: { kind: "open_from_notification", target: { kind: "ticket", key: "SHOP-22" } },
     });
     stream.send({
       kind: "service",
       name: "open_from_notification",
-      event: { kind: "open_from_notification" },
+      event: { kind: "open_from_notification", target: { kind: "inbox" } },
     });
     stream.send({ kind: "service", name: "ticket_changed", event: { kind: "ticket_changed" } });
     await settle();
-    expect(ask).toHaveBeenCalledWith("notices.open_target", { key: "SHOP-22" });
-    expect(opened).toEqual(["SHOP-9", "SHOP-22", null]);
+    expect(ask).toHaveBeenCalledWith("notices.open_target", { target: { kind: "ticket", key: "SHOP-22" } });
+    expect(opened).toEqual([
+      { kind: "ticket", project: "SHOP", ticket: "SHOP-9" },
+      { kind: "ticket", project: "SHOP", ticket: "SHOP-22" },
+      { kind: "inbox" },
+    ]);
     expect(forward).toHaveBeenCalledTimes(2);
     stop();
   });
