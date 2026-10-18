@@ -67,6 +67,8 @@ pub use pane::{
 #[cfg(test)]
 pub use panel::AnswerAgentParams as PanelAnswerAgentParams;
 #[cfg(test)]
+pub use panel::NotesGallery as OptionNotesGallery;
+#[cfg(test)]
 pub use panel::{
     ActionParams as PanelActionParams, AnswerParams as PanelAnswerParams,
     CardParams as PanelCardParams, CloseDialog as PanelCloseDialog, Load as PanelLoad,

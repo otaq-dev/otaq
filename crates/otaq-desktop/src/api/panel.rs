@@ -195,8 +195,8 @@ pub struct AnswerRow {
     pub recommended: bool,
     pub picked: bool,
     pub other: bool,
-    /// The option's own note, its pros and cons (ATT-17), whole.
-    pub option_note: Option<String>,
+    /// The option's own note, its pros and cons (ATT-17), under the label, whole.
+    pub note: Option<String>,
 }
 
 /// The question with its options in the header (*SHOP-21 · Asks you · answer options*).
@@ -465,7 +465,7 @@ fn question_bar(question: &otaq_core::board::questions::HumanQuestion) -> Option
                 recommended: r.recommended,
                 picked: r.picked,
                 other: r.other,
-                option_note: r.option_note,
+                note: r.note,
             })
             .collect(),
         recommended_label: "Recommended",
@@ -1523,6 +1523,67 @@ pub async fn remove_dependency(app: &App, params: ParentParams) -> Result<(), Re
     }
 }
 
+/// The answer options with notes for the Gallery (`gallery.option_notes`, ATT-17): the inbox, the panels and the
+/// cards of NOTE-1's question and of the question the Sharing lead passed on.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "OptionNotesGallery")]
+pub struct NotesGallery {
+    pub inbox: otaq_view::view_models::inbox_page::View,
+    pub panels: Vec<View>,
+    pub cards: Vec<otaq_view::view_models::card_page::TicketCardView>,
+}
+
+pub fn notes_gallery() -> NotesGallery {
+    use otaq_core::domain::Status;
+    use otaq_view::view_models::answer_options::note_samples;
+    use otaq_view::view_models::card::CardExtras;
+    use otaq_view::view_models::card_fixtures::{self, NOW};
+    use otaq_view::view_models::card_page::TicketCardView;
+
+    static TOOLS: std::sync::OnceLock<Tools> = std::sync::OnceLock::new();
+    let tools = TOOLS.get_or_init(|| Tools::one(None));
+    let [asks, passed] = note_samples();
+    let tickets: Vec<Ticket> = [
+        ("NOTE-1", "Add export", asks),
+        ("NOTE-10.1", "Invoice export", passed),
+    ]
+    .into_iter()
+    .map(|(key, title, question)| {
+        let mut t = card_fixtures::ticket(key, title, Status::AsksYou);
+        t.question = Some(question);
+        t
+    })
+    .collect();
+    NotesGallery {
+        inbox: otaq_view::view_models::inbox_page::notes_gallery(),
+        panels: tickets
+            .iter()
+            .map(|ticket| {
+                view_of(&Facts {
+                    ticket,
+                    tickets: &tickets,
+                    sessions: &[],
+                    conflict: None,
+                    has_log: false,
+                    pending: 0,
+                    usage: None,
+                    rounds: 3,
+                    now: NOW,
+                    run: None,
+                    decisions: 0,
+                    lead: None,
+                    agents: None,
+                    tools,
+                })
+            })
+            .collect(),
+        cards: tickets
+            .iter()
+            .map(|t| TicketCardView::of(t, &CardExtras::default(), NOW))
+            .collect(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use otaq_core::board::questions::HumanQuestion;
@@ -1612,6 +1673,32 @@ mod tests {
     fn one_tool() -> &'static Tools {
         static ONE: std::sync::OnceLock<Tools> = std::sync::OnceLock::new();
         ONE.get_or_init(|| Tools::one(None))
+    }
+
+    /// ATT-17 (T-0375): the panel's rows carry each option's note whole; the Gallery's long note is about 300
+    /// characters, one option has none, and the passed-on question keeps its notes.
+    #[test]
+    fn the_answer_rows_carry_each_options_note() {
+        let g = notes_gallery();
+        let notes = |v: &View| -> Vec<Option<usize>> {
+            v.answer
+                .as_ref()
+                .unwrap()
+                .rows
+                .iter()
+                .map(|r| r.note.as_ref().map(|n| n.chars().count()))
+                .collect()
+        };
+        let asks = notes(&g.panels[0]);
+        assert_eq!(asks.len(), 5, "four options and Other…");
+        assert!(asks[0].is_some() && asks[1].is_some());
+        assert_eq!((asks[2], asks[4]), (None, None));
+        assert!((250..=320).contains(&asks[3].unwrap()), "{asks:?}");
+        assert_eq!(notes(&g.panels[1]).iter().flatten().count(), 2);
+        let card_notes: Vec<bool> = g.cards[0].options.iter().map(|o| o.note.is_some()).collect();
+        assert_eq!(card_notes, [true, true, false, true, false]);
+        let inbox_rows: Vec<_> = g.inbox.groups.iter().flat_map(|g| &g.rows).collect();
+        assert_eq!(inbox_rows.len(), 2);
     }
 
     fn labels(view: &View) -> Vec<&str> {
