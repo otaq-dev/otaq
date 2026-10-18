@@ -1,7 +1,7 @@
-// Settings (⌘,; *15 · Settings*): one modal window, 1040 × 720, a section nav on the left (the global sections, then
-// every project) and one page on the right. The global page scrolls through all its sections and the nav follows
-// the one in view; a project has its own page. The nav, the page and every row come from `settings.view`; an edit
-// answers with the fresh view. Esc or × closes it.
+// Settings (⌘,; *15 · Settings*): one modal window, 1040 × 720, a nav on the left (the global topics, then every
+// project) and one page on the right. Each global topic is its own page, titled with its nav label, showing only that
+// topic's sections (Agents also holds Agent limits and Agent instructions); a project has its own page. The nav, the
+// page and every row come from `settings.view`; an edit answers with the fresh view. Esc or × closes it.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
@@ -17,7 +17,7 @@ import type { RequestError } from "../../generated/RequestError";
 import { asRequestError, watchView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { SettingsContext, type SettingsContextValue, sectionInView } from "./context";
+import { SettingsContext, type SettingsContextValue, topicRow } from "./context";
 import { CreditsDialog, RemoveDialog } from "./Dialogs";
 
 type Open =
@@ -43,13 +43,12 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
   const [view, setView] = useState<SettingsView | null>(null);
   const [error, setError] = useState<RequestError | null>(null);
   const [dialog, setDialog] = useState<Open>(null);
-  const [inView, setInView] = useState(0);
+  // The open global topic, as any of its sections: Settings opened on a section opens the topic that holds it.
+  const [topic, setTopic] = useState<string | null>(params?.section ?? null);
+  // The section Settings was opened on, scrolled to once its topic's page is drawn.
+  const scrollPending = useRef<string | null>(params?.section ?? null);
   const body = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLDivElement>(null);
-  // A click on a global nav row holds that row on until the wheel moves the page.
-  const clicked = useRef(false);
-  const pendingSection = useRef<string | null>(params?.section ?? null);
-  const held = useRef<string | null>(null);
 
   // The view, again on every settings or project change (a theme picked elsewhere, a project added) and every warm
   // build change (the switch's "Clearing… (waiting for …)" line).
@@ -112,71 +111,34 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
     [page, project, edit, act],
   );
 
-  // The sections this page has that a screen registered, in the page's order.
-  const sections = useMemo(() => {
-    if (!page) return [];
-    if (page.page === "global")
-      return page.sections.flatMap((s) => {
-        const entry = app.settings.global.get(s.id);
-        return entry ? [{ id: s.id, Component: entry.Component }] : [];
-      });
-    return page.sections.flatMap((s) => {
-      const entry = app.settings.project.get(s.id);
-      return entry ? [{ id: s.id, Component: entry.Component }] : [];
-    });
-  }, [page, app]);
+  const globalRows = view?.nav.filter((r) => r.target.page === "global") ?? [];
+  const projectRows = view?.nav.filter((r) => r.target.page === "project") ?? [];
+  const openRow = topicRow(globalRows, topic);
+  const topicSections: readonly string[] = openRow?.target.page === "global" ? openRow.target.sections : [];
 
-  const sectionElements = () => [
-    ...(body.current?.querySelectorAll<HTMLElement>(":scope > .settings-section-slot") ?? []),
-  ];
+  // The sections this page has that a screen registered, in the page's order; on the global page only the open topic's.
+  const sections = !page
+    ? []
+    : page.page === "global"
+      ? page.sections.flatMap((s) => {
+          const entry = app.settings.global.get(s.id);
+          return entry && topicSections.includes(s.id) ? [{ id: s.id, Component: entry.Component }] : [];
+        })
+      : page.sections.flatMap((s) => {
+          const entry = app.settings.project.get(s.id);
+          return entry ? [{ id: s.id, Component: entry.Component }] : [];
+        });
 
-  // Puts a section at the top of the global page and keeps it there while the parts that load later (the theme
-  // picker, the tools) grow the page, until the wheel moves it.
-  const scrollTo = useCallback(
-    (id: string) => {
-      const i = sections.findIndex((s) => s.id === id);
-      const element = sectionElements()[i];
-      if (!element || !body.current) return false;
-      body.current.scrollTop = element.offsetTop;
-      held.current = id;
-      clicked.current = true;
-      setInView(i);
-      return true;
-    },
-    [sections],
-  );
-
-  // Opened on a section, or a global nav row clicked from a project page: scroll once the page is drawn.
+  // Opened on a section further down its topic's page (Agent instructions on Agents): scroll to it once it's drawn.
   useLayoutEffect(() => {
-    const wanted = pendingSection.current;
-    if (wanted === null || !page || page.page !== "global") return;
-    if (scrollTo(wanted)) pendingSection.current = null;
-  }, [page, scrollTo]);
-
-  useEffect(() => {
-    const box = body.current;
-    if (!box) return;
-    const observer = new ResizeObserver(() => {
-      if (held.current !== null) scrollTo(held.current);
-    });
-    for (const element of sectionElements()) observer.observe(element);
-    return () => {
-      observer.disconnect();
-    };
-  }, [scrollTo]);
-
-  const onScroll = () => {
-    const box = body.current;
-    if (!box || clicked.current || page?.page !== "global") return;
-    const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 1;
-    setInView(
-      sectionInView(
-        sectionElements().map((e) => e.offsetTop),
-        box.scrollTop,
-        atBottom,
-      ),
-    );
-  };
+    const wanted = scrollPending.current;
+    if (wanted === null || page?.page !== "global") return;
+    const i = sections.findIndex((s) => s.id === wanted);
+    const element = body.current?.querySelectorAll<HTMLElement>(":scope > .settings-section-slot")[i];
+    if (!element || !body.current) return;
+    body.current.scrollTop = i === 0 ? 0 : element.offsetTop;
+    scrollPending.current = null;
+  });
 
   // Esc closes Settings, unless a menu or a dialog inside it takes it.
   useEffect(() => {
@@ -195,25 +157,14 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
   }, [close]);
 
   const go = (row: SettingsNavRow) => {
-    if (row.target.page === "project") {
-      setProject(row.target.key);
-      held.current = null;
-      body.current?.scrollTo({ top: 0 });
-      return;
-    }
-    const wanted = row.target.section;
-    if (project !== null) {
-      pendingSection.current = wanted;
+    scrollPending.current = null;
+    if (row.target.page === "project") setProject(row.target.key);
+    else {
+      setTopic(row.target.section);
       setProject(null);
-      return;
     }
-    // Already on the global page: scroll at once.
-    scrollTo(wanted);
+    body.current?.scrollTo({ top: 0 });
   };
-
-  const globalRows = view?.nav.filter((r) => r.target.page === "global") ?? [];
-  const projectRows = view?.nav.filter((r) => r.target.page === "project") ?? [];
-  const shownSections = page?.page === "global" ? sections.map((s) => s.id) : [];
 
   return (
     <div className="settings-backdrop" role="presentation">
@@ -228,19 +179,16 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
         <nav className="settings-nav" aria-label={view?.title}>
           <h2 className="settings-title">{view?.title}</h2>
           <h3 className="settings-nav-heading">{view?.global_heading}</h3>
-          {globalRows.map((row) => {
-            const section = row.target.page === "global" ? row.target.section : null;
-            return (
-              <NavItem
-                key={row.label}
-                row={row}
-                on={project === null && section !== null && shownSections[inView] === section}
-                onClick={() => {
-                  go(row);
-                }}
-              />
-            );
-          })}
+          {globalRows.map((row) => (
+            <NavItem
+              key={row.label}
+              row={row}
+              on={project === null && row === openRow}
+              onClick={() => {
+                go(row);
+              }}
+            />
+          ))}
           <h3 className="settings-nav-heading">{view?.projects_heading}</h3>
           {projectRows.map((row) => (
             <NavItem
@@ -255,7 +203,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
         </nav>
         <div className="settings-main">
           <header className="settings-header">
-            <h2>{page?.title}</h2>
+            <h2>{page?.page === "global" ? openRow?.label : page?.title}</h2>
             <IconButton icon="x" label={view?.close_label ?? ""} onClick={close} />
           </header>
           {error && (
@@ -263,15 +211,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
               {error.message}
             </p>
           )}
-          <div
-            ref={body}
-            className="settings-body"
-            onScroll={onScroll}
-            onWheel={() => {
-              clicked.current = false;
-              held.current = null;
-            }}
-          >
+          <div ref={body} className="settings-body">
             {page?.page === "project" && <p className="settings-intro settings-page-intro">{page.intro}</p>}
             {context && (
               <SettingsContext value={context}>

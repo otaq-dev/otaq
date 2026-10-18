@@ -4,6 +4,6 @@ import type { ProjectSectionId } from "./ProjectSectionId";
 import type { SettingsSection } from "./SettingsSection";
 
 /**
- * The page on the right: "General" (the global sections, one scrolling page) or a project.
+ * The page on the right: "General" (the global sections; the window shows one nav topic's at a time) or a project.
  */
 export type SettingsPage = { "page": "global", title: string, sections: Array<SettingsSection<GlobalSectionId>>, } | { "page": "project", key: string, title: string, intro: string, sections: Array<SettingsSection<ProjectSectionId>>, };
