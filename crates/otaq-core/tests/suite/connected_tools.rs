@@ -9,9 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use otaq_core::agent_tools::claude::trust::{ClaudeConfig, TRUST_FIELD, trust_key};
-use otaq_core::agent_tools::connected::{
-    AgentToolState, AgentToolsList, SetupAction, SkillUse, ToolStatus,
-};
+use otaq_core::agent_tools::connected::{AgentToolState, AgentToolsList, SetupAction, ToolStatus};
 use otaq_core::agent_tools::{Tool, WindowsSource};
 use otaq_core::client::{Client, ClientConfig, ClientError};
 use otaq_core::protocol::{ErrorKind, Event, OnboardingState, Reply, Request};
@@ -518,85 +516,5 @@ async fn opencode_with_free_models_only_is_connected_and_still_offers_sign_in() 
     );
     let signed_in = recheck(&client).await;
     assert!(!row(&signed_in, Tool::OpenCode).can_sign_in);
-    w.stop().await;
-}
-
-fn skill_uses(reply: Reply) -> Vec<SkillUse> {
-    match reply {
-        Reply::SkillUses(uses) => uses,
-        other => panic!("{other:?}"),
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn the_workflow_skills_name_the_tools_that_use_the_built_in() {
-    let tools = Tools::new();
-    tools.claude();
-    tools.codex();
-    let w = TestService::start_with(tools.with()).await;
-    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
-    recheck(&client).await;
-    let skills = json!([
-        "/my-commit",
-        "/otaq:push",
-        "/their-plugin:open-pr",
-        "/otaq:validate"
-    ]);
-
-    // App-wide: Otaq's own run everywhere; the user's skill, not found as a file, only on Claude Code.
-    let uses = skill_uses(
-        ask(
-            &client,
-            "agent_tools.workflow_skills",
-            json!({ "skills": skills }),
-        )
-        .await
-        .unwrap(),
-    );
-    let by_tool: Vec<(&str, Vec<Tool>, Vec<Tool>)> = uses
-        .iter()
-        .map(|u| (u.stored.as_str(), u.runs.clone(), u.built_in.clone()))
-        .collect();
-    assert_eq!(
-        by_tool,
-        [
-            ("/my-commit", vec![Tool::Claude], vec![Tool::Codex]),
-            ("/otaq:push", vec![Tool::Claude, Tool::Codex], vec![]),
-            (
-                "/their-plugin:open-pr",
-                vec![Tool::Claude],
-                vec![Tool::Codex]
-            ),
-            ("/otaq:validate", vec![Tool::Claude, Tool::Codex], vec![]),
-        ]
-    );
-
-    // In a project whose repo has the skill as a SKILL.md Codex finds: Codex runs it too.
-    let shop = w.add_project("shop-web").await;
-    let skill = Path::new(&shop.repo_path).join(".agents/skills/my-commit");
-    std::fs::create_dir_all(&skill).unwrap();
-    std::fs::write(skill.join("SKILL.md"), "---\nname: my-commit\n---\n").unwrap();
-    let uses = skill_uses(
-        ask(
-            &client,
-            "agent_tools.workflow_skills",
-            json!({ "skills": skills, "project": shop.key }),
-        )
-        .await
-        .unwrap(),
-    );
-    assert_eq!(uses[0].runs, [Tool::Claude, Tool::Codex]);
-    assert!(uses[0].built_in.is_empty());
-
-    let Err(ClientError::Service(e)) = ask(
-        &client,
-        "agent_tools.workflow_skills",
-        json!({ "skills": skills, "project": "NOPE" }),
-    )
-    .await
-    else {
-        panic!("no such project")
-    };
-    assert_eq!(e.kind, ErrorKind::NotFound);
     w.stop().await;
 }

@@ -188,8 +188,12 @@ impl Board {
     /// Removes a project from Otaq: its tickets, links, comments, sessions rows and settings are deleted
     /// from the database. The repository is never touched (PRJ-04).
     pub async fn remove_project(&self, key: &str) -> Result<(), BoardError> {
+        let _changing = self.lock_skill_changes().await;
         let project = self.project(key).await?;
+        let settings = self.project_settings(key).await?;
         self.store.delete_project(&project.id).await?;
+        // Its imported workflow skills' copies go with it (d0092).
+        self.remove_skill_copies_of(&settings).await;
         tracing::info!(key = %project.key, repo = %project.repo_path, "project removed");
         Ok(())
     }

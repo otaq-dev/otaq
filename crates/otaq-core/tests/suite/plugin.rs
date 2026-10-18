@@ -406,7 +406,10 @@ fn answer_question_changes_nothing_and_ends_with_answer() {
 fn validate_is_a_read_only_judge_that_ends_with_a_verdict() {
     let (name, body) = skill("validate");
     assert_eq!(name, "validate");
-    assert_eq!(WorkflowSkills::default().validate, naming::skill(&name));
+    assert_eq!(
+        serde_json::to_value(WorkflowSkills::default()).unwrap()["validate"],
+        naming::skill(&name)
+    );
     assert!(
         front_matter("validate")
             .contains(&("disable-model-invocation".to_owned(), "true".to_owned()))

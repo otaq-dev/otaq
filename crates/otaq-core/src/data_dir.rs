@@ -1,5 +1,5 @@
 //! The data folder, `~/.otaq/` on every platform (d0055): the database, `wt/<repo-name>/<KEY>` worktrees,
-//! `warm/<repo-name>` warm builds (d0082), `logs/` and the service socket. Nothing is ever written into the user's repositories (d0023).
+//! `warm/<repo-name>` warm builds (d0082), `skills/<id>` imported workflow skills (d0092), `logs/` and the service socket. Nothing is ever written into the user's repositories (d0023).
 //!
 //! `OTAQ_HOME` points the whole folder somewhere else. Tests always set it to a temporary directory, so
 //! they never read or write the real `~/.otaq/`.
@@ -107,6 +107,17 @@ impl DataDir {
     pub fn scratch_path(&self, repo_name: &str) -> Result<PathBuf, DataDirError> {
         let repo = path_component(repo_name)?;
         Ok(self.root.join("scratch").join(repo))
+    }
+
+    /// The folder holding Otaq's copies of imported workflow skills (WSK-03, d0092), one folder per setting.
+    pub fn skills_dir(&self) -> PathBuf {
+        self.root.join("skills")
+    }
+
+    /// Otaq's copy of one imported workflow skill: `skills/<id>`, the id being Otaq's own (never the skill's name).
+    pub fn skill_path(&self, id: &str) -> Result<PathBuf, DataDirError> {
+        let id = path_component(id)?;
+        Ok(self.skills_dir().join(id))
     }
 
     /// The log folder; files rotate daily (see [`crate::logging`]).

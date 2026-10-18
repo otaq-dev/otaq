@@ -958,10 +958,13 @@ async fn epic_ready(world: &World) -> Ticket {
         .await
         .unwrap();
     w.force_status(&epic, Status::ReadyForReview).await;
-    let mut settings = w.board.project_settings("SHOP").await.unwrap();
-    settings.workflow_skills.open_pr = "/my-pr".into();
+    let folder = otaq_core::workflow_skills::testing::skill_folder(w.data.root(), "my-pr");
     w.board
-        .set_project_settings("SHOP", &settings)
+        .import_workflow_skill(
+            Some("SHOP"),
+            otaq_core::board::settings::WorkflowStep::OpenPr,
+            &folder,
+        )
         .await
         .unwrap();
     epic

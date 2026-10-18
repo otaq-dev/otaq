@@ -223,7 +223,7 @@ impl Prs {
             .await?
             .workflow_skills
             .get(step)
-            .to_owned();
+            .stored();
         let live = self.live_session(&ticket);
         if let Some(outcome) = self.unsent_first(&ticket, live.as_ref(), clear_first)? {
             return Ok(outcome);

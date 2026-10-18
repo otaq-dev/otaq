@@ -3,8 +3,8 @@
 
 use crate::common::Fixture;
 use otaq_core::board::settings::{
-    AutoMerge, GlobalSettings, ProjectSettings, Theme, ThemeSetting, WorkflowSkillOverrides,
-    resource_without_create,
+    AutoMerge, GlobalSettings, ProjectSettings, ResolvedSkill, SkillSetting, Theme, ThemeSetting,
+    WorkflowSkillOverrides, WorkflowSkills, WorkflowStep, resource_without_create,
 };
 use otaq_core::git::testing::{git, snapshot};
 use otaq_core::naming;
@@ -24,10 +24,26 @@ async fn defaults() {
     assert!(global.notifications);
     assert!(!global.description_source_mode);
     assert_eq!(global.theme, ThemeSetting::default());
-    assert_eq!(global.workflow_skills.commit, naming::skill("commit"));
-    assert_eq!(global.workflow_skills.push, naming::skill("push"));
-    assert_eq!(global.workflow_skills.open_pr, naming::skill("open-pr"));
-    assert!(global.workflow_skills.open_pr.ends_with(":open-pr"));
+    assert_eq!(global.workflow_skills, WorkflowSkills::default());
+    let effective = f.board.effective_settings("SHOP").await.unwrap();
+    for step in WorkflowStep::ALL {
+        assert_eq!(global.workflow_skills.get(step), &SkillSetting::BuiltIn);
+        assert_eq!(
+            effective.workflow_skills.get(step),
+            &ResolvedSkill::BuiltIn(step)
+        );
+    }
+    assert_eq!(
+        effective.workflow_skills.open_pr.stored(),
+        naming::skill("open-pr")
+    );
+    assert!(
+        effective
+            .workflow_skills
+            .open_pr
+            .stored()
+            .ends_with(":open-pr")
+    );
 
     let project = f.board.project_settings("SHOP").await.unwrap();
     assert!(project.let_finished_tickets_answer);
@@ -147,14 +163,13 @@ async fn project_values_fall_back_to_global_when_empty() {
 
     let effective = f.board.effective_settings("SHOP").await.unwrap();
     assert_eq!(effective.agent_instructions, "Run tests before submitting.");
-    assert_eq!(effective.workflow_skills, global.workflow_skills);
+    assert_eq!(
+        effective.workflow_skills.commit,
+        ResolvedSkill::BuiltIn(WorkflowStep::Commit)
+    );
 
     let own = ProjectSettings {
         agent_instructions: "Use my /tdd skill.".into(),
-        workflow_skills: WorkflowSkillOverrides {
-            commit: "/my-commit".into(),
-            ..Default::default()
-        },
         let_finished_tickets_answer: false,
         ..Default::default()
     };
@@ -162,8 +177,10 @@ async fn project_values_fall_back_to_global_when_empty() {
     assert_eq!(f.board.project_settings("SHOP").await.unwrap(), own);
     let effective = f.board.effective_settings("SHOP").await.unwrap();
     assert_eq!(effective.agent_instructions, "Use my /tdd skill.");
-    assert_eq!(effective.workflow_skills.commit, "/my-commit");
-    assert_eq!(effective.workflow_skills.push, global.workflow_skills.push);
+    assert_eq!(
+        effective.workflow_skills.push,
+        ResolvedSkill::BuiltIn(WorkflowStep::Push)
+    );
 }
 
 #[tokio::test]
@@ -239,14 +256,14 @@ async fn m12_defaults() {
     assert!(global.validation);
     assert_eq!(global.validation_rounds, 3);
     assert_eq!(global.auto_merge, AutoMerge::Off);
-    assert_eq!(global.workflow_skills.validate, naming::skill("validate"));
+    assert_eq!(global.workflow_skills.validate, SkillSetting::BuiltIn);
     assert!(global.project_agent_instructions.is_empty());
     let effective = f.board.effective_settings("SHOP").await.unwrap();
     assert!(effective.validation && !effective.auto_merge_inactive);
     assert_eq!(effective.validation_rounds, 3);
     assert_eq!(effective.auto_merge, AutoMerge::Off);
     assert_eq!(
-        effective.workflow_skills.validate,
+        effective.workflow_skills.validate.stored(),
         naming::skill("validate")
     );
 }
@@ -279,7 +296,7 @@ async fn m12_overrides_and_resolution() {
         auto_merge: Some(AutoMerge::All),
         project_agent_instructions: "Split into tickets of about one day.".into(),
         workflow_skills: WorkflowSkillOverrides {
-            validate: "/my-validate".into(),
+            validate: SkillSetting::Legacy("/my-validate".into()),
             ..WorkflowSkillOverrides::default()
         },
         ..ProjectSettings::default()
@@ -294,7 +311,11 @@ async fn m12_overrides_and_resolution() {
         effective.auto_merge_inactive,
         "Auto-merge does nothing while validation is off"
     );
-    assert_eq!(effective.workflow_skills.validate, "/my-validate");
+    // A legacy value isn't run: the global setting (the built-in) is (WSK-07).
+    assert_eq!(
+        effective.workflow_skills.validate,
+        ResolvedSkill::BuiltIn(WorkflowStep::Validate)
+    );
     assert_eq!(
         effective.project_agent_instructions,
         "Split into tickets of about one day."

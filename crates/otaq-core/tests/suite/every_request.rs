@@ -81,6 +81,10 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "settings.auto_fallback" {
             params["on"] = json!(true);
         }
+        if method.starts_with("workflow_skills.") {
+            params["step"] = json!("commit");
+            params["folder"] = json!("/nonexistent");
+        }
         if method == "decision.mark" {
             params["source"] = json!("PAY-1");
             params["text"] = json!("t");
@@ -293,11 +297,14 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentToolsSetHidden(_)
         | Request::AgentToolsSignIn(_)
         | Request::AgentToolsDisconnect(_)
-        | Request::AgentToolsWorkflowSkills(_)
         | Request::LimitsResumeTool(_)
         | Request::LimitsMoveWaiting(_)
         | Request::TicketUseFallback(_)
-        | Request::SettingsAutoFallback(_) => false,
+        | Request::SettingsAutoFallback(_)
+        | Request::WorkflowSkillsStatus(_)
+        | Request::WorkflowSkillsImport(_)
+        | Request::WorkflowSkillsReimport(_)
+        | Request::WorkflowSkillsReset(_) => false,
     }
 }
 

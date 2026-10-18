@@ -134,10 +134,13 @@ async fn github_origin_with_gh_logged_in_then_other_remotes() {
     assert_eq!(other.summary(), "Not detected: use your own Open PR skill");
 
     // A custom Open PR skill works with any remote.
-    let mut settings = w.board.project_settings("SHOP").await.unwrap();
-    settings.workflow_skills.open_pr = "/my-pr".into();
+    let folder = otaq_core::workflow_skills::testing::skill_folder(w.data.root(), "my-pr");
     w.board
-        .set_project_settings("SHOP", &settings)
+        .import_workflow_skill(
+            Some("SHOP"),
+            otaq_core::board::settings::WorkflowStep::OpenPr,
+            &folder,
+        )
         .await
         .unwrap();
     assert_eq!(provider(&w).await.open_pr_blocked(), None);

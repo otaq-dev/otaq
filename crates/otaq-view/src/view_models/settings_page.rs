@@ -2,21 +2,19 @@
 //! UI-11; *15 · Settings*): the nav, the global page and each project page as sections of rows, every row with its
 //! label, description and control already worded, and the rules for applying an edit ([`edit_global`],
 //! [`edit_project`]). The page only lays the rows out and sends back `field` + value; the service still flags invalid
-//! values (a missing env file, a URL that isn't one, a skill that isn't `/name`), shown in red under their field.
+//! values (a missing env file, a URL that isn't one), shown in red under their field.
 //!
 //! Section ids are the page registry's (`ui/src/app/registry/settings.ts`): the Settings screen draws the sections
 //! it has registered, so a later ticket adds a section here and registers its id there. T-0240 added Validation &
 //! Auto-merge and the Project agent instructions (VAL-13, AMG-01, PAG-03; d0063, d0064, d0068): a project's empty
 //! value uses the global one and says so ("Use global (3)"), and a set one offers "Use global" to empty it again.
 
-use otaq_core::agent_tools::Tool;
-use otaq_core::agent_tools::connected::SkillUse;
 use otaq_core::attention::notify::{Kind, PermissionState};
 use otaq_core::board::projects::ProjectUpdate;
 use otaq_core::board::settings::{
-    AutoMerge, EnvVar, GlobalSettings, ProjectSettings, SettingProblem, TERMINAL_FONT_SIZES,
-    TerminalRenderer, UsageData, VALIDATION_ROUNDS, WorkflowSkills, WorkflowStep, env_var_field,
-    env_var_problems,
+    AutoMerge, EnvVar, GlobalSettings, ProjectSettings, SettingProblem, SkillSetting,
+    TERMINAL_FONT_SIZES, TerminalRenderer, UsageData, VALIDATION_ROUNDS, WorkflowStep,
+    env_var_field, env_var_problems,
 };
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::named_agents::{NamedAgent, RoleDefaults};
@@ -59,7 +57,6 @@ impl Os {
     }
 }
 use crate::shell::tilde;
-use crate::view_models::agent_tools_page::and_list;
 use crate::view_models::cleanup::{ConfirmLine, WarmConfirmPage};
 use crate::view_models::limits::{
     BACK_PRESSURE_ITEMS, MAX_AGENTS, right_now, settings_rows, toggled,
@@ -177,17 +174,6 @@ pub struct SkillRow {
     pub problem: Option<String>,
 }
 
-/// The Workflow skills note (ADP-05, d0086; *15* `U6rgGu`): "my-commit: Claude Code only, other tools use the
-/// built-in · Why?", quiet, with Why?'s tooltip.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "SettingsSkillNote")]
-pub struct SkillNote {
-    pub text: String,
-    /// "Why?", after " · ".
-    pub why: String,
-    pub tooltip: String,
-}
-
 /// One env file, its field `env_files.<index>`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SettingsEnvFile")]
@@ -285,10 +271,9 @@ pub enum Control {
         destructive: bool,
         action: ButtonAction,
     },
+    /// Read-only until the import rows (d0092): each step's skill by name.
     Skills {
         rows: Vec<SkillRow>,
-        /// Under the fields: a skill some connected tools can't run ([`with_skill_notes`]).
-        notes: Vec<SkillNote>,
     },
     /// ↵ in the last field adds a file (`env_files.add`); × removes one (`env_files.remove`).
     EnvFiles {
@@ -428,12 +413,18 @@ pub fn notification_kind_row(kind: Kind) -> (&'static str, &'static str, &'stati
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "SettingsReveal")]
 pub enum Reveal {
     Database,
     Logs,
+    /// Otaq's copy of an imported workflow skill (WSK-04): the global setting's, or `project`'s.
+    Skill {
+        project: Option<String>,
+        #[ts(type = "\"commit\" | \"push\" | \"open_pr\" | \"validate\"")]
+        step: WorkflowStep,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -787,7 +778,6 @@ pub fn global_page(input: &GlobalInputs) -> Page {
         )],
     );
 
-    let defaults = WorkflowSkills::default();
     let skills = section(
         GlobalSection::WorkflowSkills,
         Some("Workflow skills"),
@@ -802,12 +792,11 @@ pub fn global_page(input: &GlobalInputs) -> Page {
                         skill_row(
                             step,
                             s.workflow_skills.get(step),
-                            defaults.get(step),
+                            &step.own_default(),
                             input.problems,
                         )
                     })
                     .collect(),
-                notes: Vec::new(),
             },
         )],
     );
@@ -1132,79 +1121,23 @@ fn auto_merge_radio(own: Option<AutoMerge>, global: AutoMerge, note: Option<Stri
     }
 }
 
-/// Puts the Workflow skills note under the page's skill fields, from `agent_tools.workflow_skills`'s answer for the
-/// skills in force (in [`WorkflowStep::ALL`]'s order): one line per skill that a connected tool runs as its
-/// built-in instead.
-pub fn with_skill_notes(page: &mut Page, uses: &[SkillUse]) {
-    let notes: Vec<SkillNote> = uses.iter().filter_map(skill_note).collect();
-    let rows = match page {
-        Page::Global { sections, .. } => sections
-            .iter_mut()
-            .filter(|s| s.id == GlobalSection::WorkflowSkills)
-            .flat_map(|s| s.rows.iter_mut())
-            .collect::<Vec<_>>(),
-        Page::Project { sections, .. } => sections
-            .iter_mut()
-            .filter(|s| s.id == ProjectSection::WorkflowSkills)
-            .flat_map(|s| s.rows.iter_mut())
-            .collect(),
-    };
-    for row in rows {
-        if let Control::Skills { notes: n, .. } = &mut row.control {
-            n.clone_from(&notes);
-        }
-    }
-}
-
-/// "my-commit: Claude Code only, other tools use the built-in", when some connected tool uses the built-in.
-pub fn skill_note(usage: &SkillUse) -> Option<SkillNote> {
-    if usage.built_in.is_empty() {
-        return None;
-    }
-    let skill = usage.stored.trim().trim_start_matches('/');
-    let names = |tools: &[Tool]| -> String {
-        and_list(&tools.iter().map(|t| t.display_name()).collect::<Vec<_>>())
-    };
-    let (text, tooltip) = if usage.runs.is_empty() {
-        let verb = if usage.built_in.len() == 1 {
-            "uses"
-        } else {
-            "use"
-        };
-        (
-            format!("{skill}: {} {verb} the built-in", names(&usage.built_in)),
-            format!(
-                "{PRODUCT_NAME} can\u{2019}t find {skill} as a SKILL.md file, and no connected tool runs it by name."
-            ),
-        )
-    } else {
-        let runs = names(&usage.runs);
-        (
-            format!("{skill}: {runs} only, other tools use the built-in"),
-            format!(
-                "{PRODUCT_NAME} can\u{2019}t find {skill} as a SKILL.md file, so only {runs} can run it by name."
-            ),
-        )
-    };
-    Some(SkillNote {
-        text,
-        why: "Why?".to_owned(),
-        tooltip,
-    })
-}
-
 fn skill_row(
     step: WorkflowStep,
-    value: &str,
+    setting: &SkillSetting,
     placeholder: &str,
     problems: &[SettingProblem],
 ) -> SkillRow {
     let field = format!("workflow_skills.{}", step.field());
+    let value = match setting {
+        SkillSetting::Imported(skill) => skill.name.clone(),
+        SkillSetting::Legacy(name) => name.clone(),
+        SkillSetting::BuiltIn | SkillSetting::UseGlobal => String::new(),
+    };
     SkillRow {
         problem: problem_for(problems, &field),
         field,
         label: step_label(step).to_owned(),
-        value: value.to_owned(),
+        value,
         placeholder: placeholder.to_owned(),
     }
 }
@@ -1281,7 +1214,6 @@ pub fn project_page(input: &ProjectInputs) -> Page {
                     .into_iter()
                     .map(|step| skill_row(step, s.workflow_skills.get(step), "Use global", p))
                     .collect(),
-                notes: Vec::new(),
             },
         )],
     );
@@ -2356,6 +2288,11 @@ fn auto_merge_of(id: &str) -> Result<AutoMerge, String> {
         .map_err(|_| format!("unknown Auto-merge choice: {id}"))
 }
 
+/// A workflow skill field can't be typed into (WSK-01): skills are imported folders.
+fn typed_skill() -> String {
+    "A workflow skill is imported as a folder; it can't be typed".to_owned()
+}
+
 fn step_of(field: &str) -> Option<WorkflowStep> {
     let name = field.strip_prefix("workflow_skills.")?;
     WorkflowStep::ALL.into_iter().find(|s| s.field() == name)
@@ -2402,16 +2339,7 @@ pub fn edit_global(s: &mut GlobalSettings, field: &str, value: &Value) -> Result
             }
         }
         f => match step_of(f) {
-            Some(step) => {
-                let v = value.text()?.trim().to_owned();
-                let skills = &mut s.workflow_skills;
-                *match step {
-                    WorkflowStep::Commit => &mut skills.commit,
-                    WorkflowStep::Push => &mut skills.push,
-                    WorkflowStep::OpenPr => &mut skills.open_pr,
-                    WorkflowStep::Validate => &mut skills.validate,
-                } = v;
-            }
+            Some(_) => return Err(typed_skill()),
             None => return Err(format!("unknown setting: {f}")),
         },
     }
@@ -2525,15 +2453,8 @@ pub fn edit_project(
                 } else {
                     s.env_files[i] = file;
                 }
-            } else if let Some(step) = step_of(f) {
-                let v = value.text()?.trim().to_owned();
-                let skills = &mut s.workflow_skills;
-                *match step {
-                    WorkflowStep::Commit => &mut skills.commit,
-                    WorkflowStep::Push => &mut skills.push,
-                    WorkflowStep::OpenPr => &mut skills.open_pr,
-                    WorkflowStep::Validate => &mut skills.validate,
-                } = v;
+            } else if step_of(f).is_some() {
+                return Err(typed_skill());
             } else {
                 return Err(format!("unknown setting: {f}"));
             }
@@ -2545,6 +2466,7 @@ pub fn edit_project(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use otaq_core::agent_tools::Tool;
 
     fn info() -> ProjectInfo {
         ProjectInfo {
@@ -2791,62 +2713,48 @@ mod tests {
         assert!(nav[11].alert);
     }
 
-    /// The Workflow skills note (ADP-05, d0086; *15* `U6rgGu`) and its Why?.
+    /// Until the import rows (d0092): each step's skill read-only, an imported one by its `name:`, a typed name
+    /// from before as typed, the built-in as Otaq's own.
     #[test]
-    fn the_workflow_skills_note_names_who_runs_the_skill() {
-        let usage = |stored: &str, runs: Vec<Tool>, built_in: Vec<Tool>| SkillUse {
-            stored: stored.to_owned(),
-            runs,
-            built_in,
-        };
-        let uses = [
-            usage(
-                "/my-commit",
-                vec![Tool::Claude],
-                vec![Tool::Codex, Tool::Copilot],
-            ),
-            usage("/push", vec![Tool::Claude, Tool::Codex], vec![]),
-            usage("/their-plugin:open-pr", vec![], vec![Tool::Codex]),
-            usage("/validate", vec![Tool::Claude], vec![]),
-        ];
-        let mut page = Page::Global {
-            title: String::new(),
-            sections: global(&GlobalSettings::default()),
-        };
-        with_skill_notes(&mut page, &uses);
-        let Page::Global { sections, .. } = &page else {
-            unreachable!()
-        };
+    fn workflow_skill_rows_name_the_skill() {
+        let mut s = GlobalSettings::default();
+        s.workflow_skills.commit = SkillSetting::Legacy("/my-commit".into());
+        s.workflow_skills.push =
+            SkillSetting::Imported(Box::new(otaq_core::workflow_skills::ImportedSkill {
+                id: "0199".into(),
+                name: "team-push".into(),
+                original: "/tmp/m27/team-skills/team-push".into(),
+                imported_at: 1,
+                fingerprint: String::new(),
+                warnings: Vec::new(),
+            }));
+        let sections = global(&s);
         let skills = sections
             .iter()
             .find(|s| s.id == GlobalSection::WorkflowSkills)
             .unwrap();
-        let Control::Skills { notes, rows } = &skills.rows[0].control else {
+        let Control::Skills { rows } = &skills.rows[0].control else {
             panic!("the skills control")
         };
-        assert_eq!(rows.len(), 4);
-        let texts: Vec<(&str, &str, &str)> = notes
+        let shown: Vec<(&str, &str, &str)> = rows
             .iter()
-            .map(|n| (n.text.as_str(), n.why.as_str(), n.tooltip.as_str()))
+            .map(|r| (r.label.as_str(), r.value.as_str(), r.placeholder.as_str()))
             .collect();
-        let product = PRODUCT_NAME;
+        let open_pr = WorkflowStep::OpenPr.own_default();
+        let validate = WorkflowStep::Validate.own_default();
+        let (commit, push) = (
+            WorkflowStep::Commit.own_default(),
+            WorkflowStep::Push.own_default(),
+        );
         assert_eq!(
-            texts,
+            shown,
             [
-                (
-                    "my-commit: Claude Code only, other tools use the built-in",
-                    "Why?",
-                    format!("{product} can’t find my-commit as a SKILL.md file, so only Claude Code can run it by name.").as_str()
-                ),
-                (
-                    "their-plugin:open-pr: Codex uses the built-in",
-                    "Why?",
-                    format!("{product} can’t find their-plugin:open-pr as a SKILL.md file, and no connected tool runs it by name.").as_str()
-                ),
+                ("Commit", "/my-commit", commit.as_str()),
+                ("Push", "team-push", push.as_str()),
+                ("Open PR", "", open_pr.as_str()),
+                ("Validate", "", validate.as_str()),
             ]
         );
-        // Every tool runs them: no note.
-        assert!(skill_note(&uses[1]).is_none());
     }
 
     /// The project's Agents block (AGT-03, `mQijC` in its one-tool form).
@@ -3363,13 +3271,16 @@ mod tests {
         assert!(edit_global(&mut s, "terminal_renderer", &Value::Text("x".into())).is_err());
         edit_global(&mut s, "terminal_font_size", &Value::Number(3)).unwrap();
         assert_eq!(s.terminal_font_size, 8);
-        edit_global(
-            &mut s,
-            "workflow_skills.open_pr",
-            &Value::Text(" /my-pr ".into()),
-        )
-        .unwrap();
-        assert_eq!(s.workflow_skills.open_pr, "/my-pr");
+        // A typed name can't be entered any more (WSK-01).
+        assert!(
+            edit_global(
+                &mut s,
+                "workflow_skills.open_pr",
+                &Value::Text(" /my-pr ".into()),
+            )
+            .is_err()
+        );
+        assert_eq!(s.workflow_skills.open_pr, SkillSetting::BuiltIn);
         edit_global(&mut s, "usage_data", &Value::Flag(true)).unwrap();
         assert_eq!(s.usage_data, UsageData::On);
         edit_global(&mut s, "usage_data", &Value::Flag(false)).unwrap();
@@ -3485,8 +3396,8 @@ mod tests {
         assert_eq!(s.env_files, [".env"], "an emptied file is removed");
         edit_project(&mut s, "let_finished_tickets_answer", &Value::Flag(false)).unwrap();
         assert!(!s.let_finished_tickets_answer);
-        edit_project(&mut s, "workflow_skills.commit", &Value::Text("/c".into())).unwrap();
-        assert_eq!(s.workflow_skills.commit, "/c");
+        assert!(edit_project(&mut s, "workflow_skills.commit", &Value::Text("/c".into())).is_err());
+        assert_eq!(s.workflow_skills.commit, SkillSetting::UseGlobal);
         assert!(edit_project(&mut s, "env_files.9", &Value::Text("x".into())).is_err());
     }
 

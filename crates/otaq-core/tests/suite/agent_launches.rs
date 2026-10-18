@@ -321,7 +321,8 @@ async fn a_validator_round_runs_on_its_own_agent() {
         .await
         .unwrap()
         .workflow_skills
-        .validate;
+        .validate
+        .stored();
     let worktree = PathBuf::from(
         w.board
             .ticket("SHOP-1")
@@ -616,10 +617,9 @@ async fn resume(
             world.set_model(on, edited_to).await;
             w.force_status(&t, Status::ReadyForReview).await;
             // A local origin has no PR provider: the user's own Open PR skill runs instead.
-            let mut settings = w.board.project_settings("SHOP").await.unwrap();
-            settings.workflow_skills.open_pr = "/my-pr".into();
+            let folder = otaq_core::workflow_skills::testing::skill_folder(w.data.root(), "my-pr");
             w.board
-                .set_project_settings("SHOP", &settings)
+                .import_workflow_skill(Some("SHOP"), WorkflowStep::OpenPr, &folder)
                 .await
                 .unwrap();
             w.prs.open("SHOP-1", true, false, &me()).await.unwrap();
@@ -633,7 +633,8 @@ async fn resume(
                 .await
                 .unwrap()
                 .workflow_skills
-                .open_pr;
+                .open_pr
+                .stored();
             let prompt = w
                 .adapters
                 .get(Tool::Claude)

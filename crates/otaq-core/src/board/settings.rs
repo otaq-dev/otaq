@@ -17,10 +17,12 @@ use serde_json::{Map, Value};
 
 use super::{Board, BoardError};
 use crate::attention::notify::Kind;
+use crate::data_dir::DataDir;
 use crate::domain::stored_enum;
 use crate::naming;
 use crate::store::now_ms;
 use crate::tools::Os;
+pub use crate::workflow_skills::{ImportedSkill, ResolvedSkill, ResolvedSkills};
 
 /// The optional agent limit and back-pressure (d0016): off by default; when on, at most 5 agents, and new starts
 /// wait while 3 items need the user.
@@ -42,27 +44,130 @@ impl Default for AgentLimits {
     }
 }
 
-/// The Commit, Push, Open PR and Validate workflow skills (d0050, d0063).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct WorkflowSkills {
-    pub commit: String,
-    pub push: String,
-    pub open_pr: String,
-    /// What the validator runs (d0063).
-    pub validate: String,
+/// One workflow skill setting (WSK-01, d0092): the global default of a step, or one project's override of it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum SkillSetting {
+    /// Otaq's built-in for the step. Stored as Otaq's own default (`/otaq:commit`), as before d0092.
+    #[default]
+    BuiltIn,
+    /// A project's step that follows the global setting (stored empty). Read as the built-in in the global
+    /// settings.
+    UseGlobal,
+    /// An imported skill folder; agents use Otaq's copy of it (WSK-03). Boxed: the settings travel in requests.
+    Imported(Box<ImportedSkill>),
+    /// A typed name stored before d0092 that isn't Otaq's own (`/my-commit`): "Not imported" (WSK-07). Never
+    /// used to run anything, and never stored anew.
+    Legacy(String),
 }
 
-impl Default for WorkflowSkills {
-    /// Otaq's own skills: `/otaq:commit`, `/otaq:push`, `/otaq:open-pr`,
-    /// `/otaq:validate`.
-    fn default() -> Self {
-        Self {
-            commit: naming::skill(WorkflowStep::Commit.own_skill()),
-            push: naming::skill(WorkflowStep::Push.own_skill()),
-            open_pr: naming::skill(WorkflowStep::OpenPr.own_skill()),
-            validate: naming::skill(WorkflowStep::Validate.own_skill()),
+impl SkillSetting {
+    /// The imported skill, if this setting holds one.
+    pub fn imported(&self) -> Option<&ImportedSkill> {
+        match self {
+            Self::Imported(skill) => Some(skill),
+            _ => None,
         }
+    }
+
+    /// How a stored text reads for `step` (WSK-07): Otaq's own default (`/otaq:commit`) is the built-in, empty is
+    /// `empty`, anything else a legacy value.
+    fn from_text(text: &str, step: WorkflowStep, empty: Self) -> Self {
+        let text = text.trim();
+        if text.is_empty() {
+            empty
+        } else if text == step.own_default() {
+            Self::BuiltIn
+        } else {
+            Self::Legacy(text.to_owned())
+        }
+    }
+
+    fn into_stored(self, step: WorkflowStep) -> StoredSkill {
+        match self {
+            Self::BuiltIn => StoredSkill::Text(step.own_default()),
+            Self::UseGlobal => StoredSkill::Text(String::new()),
+            Self::Legacy(text) => StoredSkill::Text(text),
+            Self::Imported(skill) => StoredSkill::Imported(skill),
+        }
+    }
+}
+
+/// A workflow skill setting as stored in the settings JSON: a text (Otaq's own default, empty, or a typed name
+/// from before d0092) or an imported skill's record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+enum StoredSkill {
+    Imported(Box<ImportedSkill>),
+    Text(String),
+}
+
+impl Default for StoredSkill {
+    fn default() -> Self {
+        Self::Text(String::new())
+    }
+}
+
+/// The four settings as stored, for both the global and a project's.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+struct StoredSkills {
+    commit: StoredSkill,
+    push: StoredSkill,
+    open_pr: StoredSkill,
+    validate: StoredSkill,
+}
+
+impl StoredSkills {
+    fn read(self, empty: SkillSetting) -> [SkillSetting; 4] {
+        let read = |stored: StoredSkill, step| match stored {
+            StoredSkill::Imported(skill) => SkillSetting::Imported(skill),
+            StoredSkill::Text(text) => SkillSetting::from_text(&text, step, empty.clone()),
+        };
+        [
+            read(self.commit, WorkflowStep::Commit),
+            read(self.push, WorkflowStep::Push),
+            read(self.open_pr, WorkflowStep::OpenPr),
+            read(self.validate, WorkflowStep::Validate),
+        ]
+    }
+
+    fn write([commit, push, open_pr, validate]: [SkillSetting; 4]) -> Self {
+        Self {
+            commit: commit.into_stored(WorkflowStep::Commit),
+            push: push.into_stored(WorkflowStep::Push),
+            open_pr: open_pr.into_stored(WorkflowStep::OpenPr),
+            validate: validate.into_stored(WorkflowStep::Validate),
+        }
+    }
+}
+
+/// The global Commit, Push, Open PR and Validate workflow skills (d0050, d0063, d0092). A missing or empty value is
+/// the built-in.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "StoredSkills", into = "StoredSkills")]
+pub struct WorkflowSkills {
+    pub commit: SkillSetting,
+    pub push: SkillSetting,
+    pub open_pr: SkillSetting,
+    /// What the validator runs (d0063).
+    pub validate: SkillSetting,
+}
+
+impl From<StoredSkills> for WorkflowSkills {
+    fn from(stored: StoredSkills) -> Self {
+        let [commit, push, open_pr, validate] = stored.read(SkillSetting::BuiltIn);
+        Self {
+            commit,
+            push,
+            open_pr,
+            validate,
+        }
+    }
+}
+
+impl From<WorkflowSkills> for StoredSkills {
+    fn from(s: WorkflowSkills) -> Self {
+        Self::write([s.commit, s.push, s.open_pr, s.validate])
     }
 }
 
@@ -78,8 +183,9 @@ impl WorkflowSkills {
     }
 }
 
-/// A workflow step whose skill the user can replace (d0050, d0063).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A workflow step whose skill the user can replace (d0050, d0063). On the wire as its settings field (`open_pr`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WorkflowStep {
     Commit,
     Push,
@@ -100,6 +206,12 @@ impl WorkflowStep {
         }
     }
 
+    /// Otaq's own skill for the step as stored and as Settings shows it: `/otaq:commit` (the adapter names it to
+    /// the agent in its tool's syntax).
+    pub fn own_default(self) -> String {
+        naming::skill(self.own_skill())
+    }
+
     /// Otaq's own skill for the step, by its name in the plugin: `commit`, `push`, `open-pr`, `validate`.
     pub fn own_skill(self) -> &'static str {
         match self {
@@ -112,7 +224,7 @@ impl WorkflowStep {
 }
 
 impl WorkflowSkills {
-    pub fn get(&self, step: WorkflowStep) -> &str {
+    pub fn get(&self, step: WorkflowStep) -> &SkillSetting {
         match step {
             WorkflowStep::Commit => &self.commit,
             WorkflowStep::Push => &self.push,
@@ -120,15 +232,33 @@ impl WorkflowSkills {
             WorkflowStep::Validate => &self.validate,
         }
     }
+
+    pub fn get_mut(&mut self, step: WorkflowStep) -> &mut SkillSetting {
+        match step {
+            WorkflowStep::Commit => &mut self.commit,
+            WorkflowStep::Push => &mut self.push,
+            WorkflowStep::OpenPr => &mut self.open_pr,
+            WorkflowStep::Validate => &mut self.validate,
+        }
+    }
 }
 
 impl WorkflowSkillOverrides {
-    pub fn get(&self, step: WorkflowStep) -> &str {
+    pub fn get(&self, step: WorkflowStep) -> &SkillSetting {
         match step {
             WorkflowStep::Commit => &self.commit,
             WorkflowStep::Push => &self.push,
             WorkflowStep::OpenPr => &self.open_pr,
             WorkflowStep::Validate => &self.validate,
+        }
+    }
+
+    pub fn get_mut(&mut self, step: WorkflowStep) -> &mut SkillSetting {
+        match step {
+            WorkflowStep::Commit => &mut self.commit,
+            WorkflowStep::Push => &mut self.push,
+            WorkflowStep::OpenPr => &mut self.open_pr,
+            WorkflowStep::Validate => &mut self.validate,
         }
     }
 }
@@ -163,37 +293,40 @@ pub const VALIDATION_ROUNDS: std::ops::RangeInclusive<u32> = 1..=5;
 /// The rounds when none is set.
 pub const DEFAULT_VALIDATION_ROUNDS: u32 = 3;
 
-/// The skill a step runs (REV-09): the project's override, else the global value, else Otaq's own skill.
-/// Empty values fall through; values are trimmed.
+/// The imported skill in force for a step (WSK-07), before its copy is checked: the project's own import; for a
+/// project step that uses the global one or holds a legacy value, the global import; `None` for the built-in (a
+/// global built-in or legacy value, or a project's step set to Otaq's own default).
+pub fn skill_in_force<'a>(
+    global: &'a WorkflowSkills,
+    own: &'a WorkflowSkillOverrides,
+    step: WorkflowStep,
+) -> Option<&'a ImportedSkill> {
+    match own.get(step) {
+        SkillSetting::Imported(skill) => Some(skill),
+        SkillSetting::BuiltIn => None,
+        SkillSetting::UseGlobal | SkillSetting::Legacy(_) => global.get(step).imported(),
+    }
+}
+
+/// The skill a step runs (REV-09, WSK-07): [`skill_in_force`] when Otaq's copy of it (under `data`) is present and
+/// valid, else the step's built-in (WSK-04: a missing or broken copy means the built-in).
 pub fn resolve_skill(
     global: &WorkflowSkills,
     own: &WorkflowSkillOverrides,
     step: WorkflowStep,
-) -> String {
-    [own.get(step), global.get(step)]
-        .into_iter()
-        .map(str::trim)
-        .find(|v| !v.is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| WorkflowSkills::default().get(step).to_owned())
-}
-
-/// Why a workflow skill value isn't a skill name, if it isn't: a slash and a name such as `/my-pr` or
-/// `/otaq:open-pr`. Empty is fine (it falls back).
-pub fn skill_name_problem(value: &str) -> Option<String> {
-    let value = value.trim();
-    if value.is_empty() {
-        return None;
-    }
-    let ok = value.strip_prefix('/').is_some_and(|name| {
-        name.chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_alphanumeric())
-            && name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
-    });
-    (!ok).then(|| format!("{value} isn't a skill name; use something like /my-pr"))
+    data: &DataDir,
+) -> ResolvedSkill {
+    skill_in_force(global, own, step)
+        .and_then(|skill| {
+            let folder = data.skill_path(&skill.id).ok()?;
+            crate::workflow_skills::copy_problem(&folder)
+                .is_none()
+                .then(|| ResolvedSkill::Imported {
+                    name: skill.name.clone(),
+                    folder,
+                })
+        })
+        .unwrap_or(ResolvedSkill::BuiltIn(step))
 }
 
 stored_enum! {
@@ -463,14 +596,38 @@ impl Default for TerminalRenderer {
     }
 }
 
-/// Per-project workflow skill overrides; empty means "use the global one".
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
+/// Per-project workflow skill overrides (d0092); a missing or empty value means "use the global one".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "StoredSkills", into = "StoredSkills")]
 pub struct WorkflowSkillOverrides {
-    pub commit: String,
-    pub push: String,
-    pub open_pr: String,
-    pub validate: String,
+    pub commit: SkillSetting,
+    pub push: SkillSetting,
+    pub open_pr: SkillSetting,
+    pub validate: SkillSetting,
+}
+
+impl Default for WorkflowSkillOverrides {
+    fn default() -> Self {
+        StoredSkills::default().into()
+    }
+}
+
+impl From<StoredSkills> for WorkflowSkillOverrides {
+    fn from(stored: StoredSkills) -> Self {
+        let [commit, push, open_pr, validate] = stored.read(SkillSetting::UseGlobal);
+        Self {
+            commit,
+            push,
+            open_pr,
+            validate,
+        }
+    }
+}
+
+impl From<WorkflowSkillOverrides> for StoredSkills {
+    fn from(s: WorkflowSkillOverrides) -> Self {
+        Self::write([s.commit, s.push, s.open_pr, s.validate])
+    }
 }
 
 /// Settings of one project (SDD §20, right column). Name and base branch are project fields (`update_project`).
@@ -623,7 +780,8 @@ pub fn env_var_problems(env_vars: &[EnvVar], os: Os) -> Vec<Option<String>> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EffectiveSettings {
     pub agent_instructions: String,
-    pub workflow_skills: WorkflowSkills,
+    /// The skill each step runs ([`resolve_skill`]).
+    pub workflow_skills: ResolvedSkills,
     pub validation: bool,
     /// Always within 1–5: a flagged value falls back to the global one, then to 3.
     pub validation_rounds: u32,
@@ -800,7 +958,7 @@ impl Board {
     pub async fn effective_settings(&self, project: &str) -> Result<EffectiveSettings, BoardError> {
         let global = self.global_settings().await?;
         let own = self.project_settings(project).await?;
-        Ok(effective(&global, &own))
+        Ok(effective(&global, &own, &self.data))
     }
 
     /// Problems with the global settings' values.
@@ -818,14 +976,6 @@ impl Board {
                 "agent_limits.back_pressure",
                 "Back-pressure needs at least 1 item",
             ));
-        }
-        for step in WorkflowStep::ALL {
-            if let Some(message) = skill_name_problem(settings.workflow_skills.get(step)) {
-                problems.push(problem(
-                    &format!("workflow_skills.{}", step.field()),
-                    &message,
-                ));
-            }
         }
         problems.extend(rounds_problem(settings.validation_rounds));
         if !TERMINAL_FONT_SIZES.contains(&settings.terminal_font_size) {
@@ -855,14 +1005,6 @@ impl Board {
                 problems.push(problem("env_files", &message));
             }
         }
-        for step in WorkflowStep::ALL {
-            if let Some(message) = skill_name_problem(settings.workflow_skills.get(step)) {
-                problems.push(problem(
-                    &format!("workflow_skills.{}", step.field()),
-                    &message,
-                ));
-            }
-        }
         problems.extend(settings.validation_rounds.and_then(rounds_problem));
         for (index, message) in env_var_problems(&settings.env_vars, Os::current())
             .into_iter()
@@ -886,14 +1028,19 @@ impl Board {
     }
 }
 
-/// Resolves a project's settings against the global ones (pure; [`Board::effective_settings`] reads them).
-pub fn effective(global: &GlobalSettings, own: &ProjectSettings) -> EffectiveSettings {
-    let skill = |step| resolve_skill(&global.workflow_skills, &own.workflow_skills, step);
+/// Resolves a project's settings against the global ones ([`Board::effective_settings`] reads them). Reads only
+/// Otaq's skill copies under `data`, to tell a missing or broken one.
+pub fn effective(
+    global: &GlobalSettings,
+    own: &ProjectSettings,
+    data: &DataDir,
+) -> EffectiveSettings {
+    let skill = |step| resolve_skill(&global.workflow_skills, &own.workflow_skills, step, data);
     let validation = own.validation.unwrap_or(global.validation);
     let auto_merge = own.auto_merge.unwrap_or(global.auto_merge);
     EffectiveSettings {
         agent_instructions: own_or_global(&own.agent_instructions, &global.agent_instructions),
-        workflow_skills: WorkflowSkills {
+        workflow_skills: ResolvedSkills {
             commit: skill(WorkflowStep::Commit),
             push: skill(WorkflowStep::Push),
             open_pr: skill(WorkflowStep::OpenPr),
@@ -1021,44 +1168,152 @@ mod tests {
         }
     }
 
+    /// WSK-07: settings stored before d0092 keep reading. Otaq's own defaults are the built-in, empty is the built-in
+    /// (global) or "use global" (a project), any other text a legacy value; an imported record reads back as it is.
     #[test]
-    fn workflow_skills_resolve_project_then_global_then_built_in() {
+    fn old_workflow_skill_json_reads_as_built_in_legacy_or_use_global() {
+        let global: WorkflowSkills = serde_json::from_value(serde_json::json!({
+            "commit": "/my-commit",
+            "push": naming::skill("push"),
+            "open_pr": "",
+        }))
+        .unwrap();
+        assert_eq!(global.commit, SkillSetting::Legacy("/my-commit".into()));
+        assert_eq!(global.push, SkillSetting::BuiltIn);
+        assert_eq!(global.open_pr, SkillSetting::BuiltIn);
+        assert_eq!(global.validate, SkillSetting::BuiltIn, "missing");
+        assert_eq!(
+            global,
+            WorkflowSkills {
+                commit: SkillSetting::Legacy("/my-commit".into()),
+                ..Default::default()
+            }
+        );
+
+        let own: WorkflowSkillOverrides = serde_json::from_value(serde_json::json!({
+            "commit": "",
+            "push": naming::skill("push"),
+            "open_pr": " /my-pr ",
+        }))
+        .unwrap();
+        assert_eq!(own.commit, SkillSetting::UseGlobal);
+        assert_eq!(own.push, SkillSetting::BuiltIn);
+        assert_eq!(own.open_pr, SkillSetting::Legacy("/my-pr".into()));
+        assert_eq!(own.validate, SkillSetting::UseGlobal, "missing");
+        // Another step's own skill isn't this step's built-in.
+        let odd: WorkflowSkillOverrides =
+            serde_json::from_value(serde_json::json!({ "commit": naming::skill("push") })).unwrap();
+        assert_eq!(odd.commit, SkillSetting::Legacy(naming::skill("push")));
+
+        // Stored as before: the built-in as Otaq's default, "use global" empty, a legacy value as typed.
+        let mut own = WorkflowSkillOverrides {
+            push: SkillSetting::BuiltIn,
+            open_pr: SkillSetting::Legacy("/my-pr".into()),
+            ..Default::default()
+        };
+        own.commit = SkillSetting::Imported(Box::new(imported("abc")));
+        let json = serde_json::to_value(&own).unwrap();
+        assert_eq!(json["push"], naming::skill("push"));
+        assert_eq!(json["validate"], "");
+        assert_eq!(json["open_pr"], "/my-pr");
+        assert_eq!(json["commit"]["id"], "abc");
+        assert_eq!(json["commit"]["name"], "my-commit");
+        assert_eq!(
+            serde_json::from_value::<WorkflowSkillOverrides>(json).unwrap(),
+            own
+        );
+        assert_eq!(
+            serde_json::to_value(WorkflowSkills::default()).unwrap()["commit"],
+            naming::skill("commit")
+        );
+    }
+
+    fn imported(id: &str) -> ImportedSkill {
+        ImportedSkill {
+            id: id.to_owned(),
+            name: "my-commit".to_owned(),
+            original: "/tmp/team-skills/my-commit".to_owned(),
+            imported_at: 1,
+            fingerprint: String::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    /// A copy under `data` for `id`, valid or not.
+    fn copy(data: &DataDir, id: &str, skill_md: Option<&str>) {
+        let folder = data.skill_path(id).unwrap();
+        std::fs::create_dir_all(&folder).unwrap();
+        if let Some(text) = skill_md {
+            std::fs::write(folder.join("SKILL.md"), text).unwrap();
+        }
+    }
+
+    /// WSK-07: project imported → it; project "use global" or legacy → the global's; global imported → it; global
+    /// built-in or legacy → the built-in. A missing or broken copy → the built-in (WSK-04).
+    #[test]
+    fn workflow_skills_resolve_by_wsk_07() {
+        let home = tempfile::tempdir().unwrap();
+        let data = DataDir::new(home.path());
+        let good = "---\nname: my-commit\n---\nCommit.\n";
+        copy(&data, "g", Some(good));
+        copy(&data, "p", Some(good));
+        copy(&data, "broken", Some("no front matter"));
+        copy(&data, "empty", None);
+        let built_in = ResolvedSkill::BuiltIn;
+        let at = |id: &str| ResolvedSkill::Imported {
+            name: "my-commit".into(),
+            folder: data.skill_path(id).unwrap(),
+        };
+        let resolve = |global: &WorkflowSkills, own: &WorkflowSkillOverrides| {
+            resolve_skill(global, own, WorkflowStep::Commit, &data)
+        };
+
         let mut global = WorkflowSkills::default();
         let mut own = WorkflowSkillOverrides::default();
         for step in WorkflowStep::ALL {
+            assert_eq!(resolve_skill(&global, &own, step, &data), built_in(step));
+        }
+        // A global legacy value is the built-in, and a project following it too.
+        global.commit = SkillSetting::Legacy("/my-commit".into());
+        assert_eq!(resolve(&global, &own), built_in(WorkflowStep::Commit));
+        // A global import, followed by a project on "use global" and by a project's legacy value.
+        global.commit = SkillSetting::Imported(Box::new(imported("g")));
+        assert_eq!(resolve(&global, &own), at("g"));
+        own.commit = SkillSetting::Legacy("/my-pr".into());
+        assert_eq!(resolve(&global, &own), at("g"));
+        // A project's own import wins; a project's step on Otaq's own default is the built-in.
+        own.commit = SkillSetting::Imported(Box::new(imported("p")));
+        assert_eq!(resolve(&global, &own), at("p"));
+        own.commit = SkillSetting::BuiltIn;
+        assert_eq!(resolve(&global, &own), built_in(WorkflowStep::Commit));
+        // A broken, empty or missing copy is the built-in, and doesn't fall back to the global import.
+        for id in ["broken", "empty", "gone"] {
+            own.commit = SkillSetting::Imported(Box::new(imported(id)));
             assert_eq!(
-                resolve_skill(&global, &own, step),
-                WorkflowSkills::default().get(step)
+                resolve(&global, &own),
+                built_in(WorkflowStep::Commit),
+                "{id}"
             );
         }
-        global.push = "/team-push".into();
+        // The value today's naming takes: Otaq's default, or the copy's SKILL.md.
+        assert_eq!(built_in(WorkflowStep::Push).stored(), naming::skill("push"));
         assert_eq!(
-            resolve_skill(&global, &own, WorkflowStep::Push),
-            "/team-push"
+            at("g").stored(),
+            data.skill_path("g")
+                .unwrap()
+                .join("SKILL.md")
+                .display()
+                .to_string()
         );
-        own.push = " /my-push ".into();
-        own.open_pr = "/my-pr".into();
-        assert_eq!(resolve_skill(&global, &own, WorkflowStep::Push), "/my-push");
-        assert_eq!(resolve_skill(&global, &own, WorkflowStep::OpenPr), "/my-pr");
-        assert_eq!(
-            resolve_skill(&global, &own, WorkflowStep::Commit),
-            naming::skill("commit")
-        );
-        // An emptied global value falls back to Otaq's own skill.
-        global.commit = "  ".into();
-        assert_eq!(
-            resolve_skill(&global, &own, WorkflowStep::Commit),
-            naming::skill("commit")
-        );
+        assert_eq!(at("g").label(), "my-commit");
     }
 
     /// ADP-05: Otaq's own workflow skills are recognised by their stored value, whatever the step.
     #[test]
     fn own_workflow_skills_by_stored_value() {
-        let defaults = WorkflowSkills::default();
         for step in WorkflowStep::ALL {
             assert_eq!(
-                WorkflowSkills::own_skill_of(defaults.get(step)),
+                WorkflowSkills::own_skill_of(&naming::skill(step.own_skill())),
                 Some(step.own_skill())
             );
         }
@@ -1074,20 +1329,6 @@ mod tests {
         ] {
             assert_eq!(WorkflowSkills::own_skill_of(user), None, "{user}");
         }
-    }
-
-    #[test]
-    fn skill_names() {
-        for good in ["", "/my-pr", "/team:open-pr", "/tdd_2", "/a.b"] {
-            assert_eq!(skill_name_problem(good), None, "{good}");
-        }
-        for bad in ["my-pr", "/", "/my pr", "//x", "/-x", "open pr"] {
-            assert!(skill_name_problem(bad).is_some(), "{bad}");
-        }
-        assert_eq!(
-            skill_name_problem("my-pr").unwrap(),
-            "my-pr isn't a skill name; use something like /my-pr"
-        );
     }
 
     #[test]

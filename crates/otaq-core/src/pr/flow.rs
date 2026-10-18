@@ -226,7 +226,8 @@ impl Board {
         let skill = match row.pr_number {
             Some(_) => skills.push,
             None => skills.open_pr,
-        };
+        }
+        .label();
         Ok(PrFlowView {
             skill,
             flow: self.pr_flow(&ticket.id).await?,

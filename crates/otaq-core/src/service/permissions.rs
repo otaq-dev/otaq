@@ -401,13 +401,17 @@ async fn action_for(
         | R::AgentToolsRecheck(_)
         | R::AgentToolsSetHidden(_)
         | R::AgentToolsSignIn(_)
-        | R::AgentToolsDisconnect(_)
-        | R::AgentToolsWorkflowSkills(_) => Action::UserOnly("manage agent tools"),
+        | R::AgentToolsDisconnect(_) => Action::UserOnly("manage agent tools"),
         R::LimitsResumeTool(_) | R::LimitsMoveWaiting(_) => {
             Action::UserOnly("resume or move waiting work")
         }
         R::TicketUseFallback(_) => Action::UserOnly("use fallback agents"),
         R::SettingsAutoFallback(_) => Action::UserOnly("change settings"),
+        // Imported workflow skills are the user's (d0092).
+        R::WorkflowSkillsStatus(_)
+        | R::WorkflowSkillsImport(_)
+        | R::WorkflowSkillsReimport(_)
+        | R::WorkflowSkillsReset(_) => Action::UserOnly("change workflow skills"),
         R::ReviewCommentAdd(_)
         | R::ReviewCommentReply(_)
         | R::ReviewCommentEdit(_)
