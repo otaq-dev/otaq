@@ -1,5 +1,5 @@
 //! The visual language from *crewboard.pen → 01 · Foundations* and *01 · Theme palettes* (SDD §21.2, brief 01,
-//! d0069) as plain data: the 15 bundled themes (47 colour tokens and 16 terminal colours each, as RGBA hex), the
+//! d0069) as plain data: the 15 bundled themes (49 colour tokens and 16 terminal colours each, as RGBA hex), the
 //! status legend (tier, palette, icon and label; colour is never the only signal), the fonts, spacing, radius and
 //! density. Each UI turns the hex values into its own colour type; every screen reads its colours from the active
 //! theme, never from literals.
@@ -205,33 +205,35 @@ color_tokens! {
     bg_hover = "bg-hover": [0xEDEDEAFF, 0x262930FF, 0x414559FF, 0x363A4FFF, 0x313244FF, 0x292E42FF, 0x3A3D4EFF, 0x434C5EFF, 0x3C3836FF, 0x2A2740FF, 0x353B45FF, 0xE6E9EFFF, 0xF3F5F7FF, 0xF5EFDCFF, 0xF4EDE8FF];
     bg_pressed = "bg-pressed": [0xE4E4E0FF, 0x2E323AFF, 0x51576DFF, 0x494D64FF, 0x45475AFF, 0x343A55FF, 0x44475AFF, 0x4C566AFF, 0x504945FF, 0x403D52FF, 0x3E4451FF, 0xDCE0E8FF, 0xEAEEF2FF, 0xEEE8D5FF, 0xEFE6DEFF];
     border = "border": [0xE2E2DEFF, 0x272A31FF, 0x414559FF, 0x363A4FFF, 0x313244FF, 0x292E42FF, 0x343746FF, 0x3B4252FF, 0x3C3836FF, 0x2A2740FF, 0x3A3F4BFF, 0xCCD0DAFF, 0xD0D7DEFF, 0xE4DDC8FF, 0xDFDAD9FF];
-    border_strong = "border-strong": [0xCCCCC6FF, 0x3A3E47FF, 0x51576DFF, 0x494D64FF, 0x45475AFF, 0x3B4261FF, 0x565A70FF, 0x4C566AFF, 0x504945FF, 0x403D52FF, 0x4B5263FF, 0xBCC0CCFF, 0xAFB8C1FF, 0xD3CBB3FF, 0xCECACDFF];
+    border_strong = "border-strong": [0x959588FF, 0x686F7FFF, 0x51576DFF, 0x494D64FF, 0x45475AFF, 0x3B4261FF, 0x565A70FF, 0x4C566AFF, 0x504945FF, 0x403D52FF, 0x4B5263FF, 0xBCC0CCFF, 0xAFB8C1FF, 0xD3CBB3FF, 0xCECACDFF];
+    border_card = "border-card": [0x8A8A7AFF, 0x62697BFF, 0x414559FF, 0x363A4FFF, 0x313244FF, 0x292E42FF, 0x343746FF, 0x3B4252FF, 0x3C3836FF, 0x2A2740FF, 0x3A3F4BFF, 0xCCD0DAFF, 0xD0D7DEFF, 0xE4DDC8FF, 0xDFDAD9FF];
     text_primary = "text-primary": [0x1A1B1EFF, 0xECEDEFFF, 0xC6D0F5FF, 0xCAD3F5FF, 0xCDD6F4FF, 0xC0CAF5FF, 0xF8F8F2FF, 0xECEFF4FF, 0xEBDBB2FF, 0xE0DEF4FF, 0xD7DAE0FF, 0x4C4F69FF, 0x1F2328FF, 0x586E75FF, 0x575279FF];
     text_secondary = "text-secondary": [0x5B5F67FF, 0xA5A9B2FF, 0xA5ADCEFF, 0xA5ADCBFF, 0xA6ADC8FF, 0xA9B1D6FF, 0xC3C5D4FF, 0xD8DEE9FF, 0xBDAE93FF, 0x908CAAFF, 0xABB2BFFF, 0x6C6F85FF, 0x59636EFF, 0x657B83FF, 0x797593FF];
-    text_muted = "text-muted": [0x8C9099FF, 0x6C707AFF, 0x838BA7FF, 0x8087A2FF, 0x7F849CFF, 0x737AA2FF, 0x7B86B5FF, 0x7B88A1FF, 0x928374FF, 0x6E6A86FF, 0x7F848EFF, 0x8C8FA1FF, 0x818B98FF, 0x93A1A1FF, 0x9893A5FF];
-    text_on_accent = "text-on-accent": [0xFFFFFFFF, 0xFFFFFFFF, 0x232634FF, 0x181926FF, 0x11111BFF, 0x1A1B26FF, 0x282A36FF, 0x2E3440FF, 0x282828FF, 0x191724FF, 0x282C34FF, 0xEFF1F5FF, 0xFFFFFFFF, 0xFDF6E3FF, 0xFFFAF3FF];
-    accent = "accent": [0x4C57D6FF, 0x6E78F7FF, 0xCA9EE6FF, 0xC6A0F6FF, 0xCBA6F7FF, 0x7AA2F7FF, 0xBD93F9FF, 0x88C0D0FF, 0x83A598FF, 0xC4A7E7FF, 0x61AFEFFF, 0x8839EFFF, 0x0969DAFF, 0x268BD2FF, 0x907AA9FF];
+    text_muted = "text-muted": [0x676B74FF, 0x8C9099FF, 0x838BA7FF, 0x8087A2FF, 0x7F849CFF, 0x737AA2FF, 0x7B86B5FF, 0x7B88A1FF, 0x928374FF, 0x6E6A86FF, 0x7F848EFF, 0x8C8FA1FF, 0x818B98FF, 0x93A1A1FF, 0x9893A5FF];
+    text_on_accent = "text-on-accent": [0xFFFFFFFF, 0x0E0F11FF, 0x232634FF, 0x181926FF, 0x11111BFF, 0x1A1B26FF, 0x282A36FF, 0x2E3440FF, 0x282828FF, 0x191724FF, 0x282C34FF, 0xEFF1F5FF, 0xFFFFFFFF, 0xFDF6E3FF, 0xFFFAF3FF];
+    accent = "accent": [0x4C57D6FF, 0x757FF7FF, 0xCA9EE6FF, 0xC6A0F6FF, 0xCBA6F7FF, 0x7AA2F7FF, 0xBD93F9FF, 0x88C0D0FF, 0x83A598FF, 0xC4A7E7FF, 0x61AFEFFF, 0x8839EFFF, 0x0969DAFF, 0x268BD2FF, 0x907AA9FF];
     accent_hover = "accent-hover": [0x3F49C2FF, 0x828BFFFF, 0xD2ADEAFF, 0xCFAEF7FF, 0xD3B3F8FF, 0x8EB0F8FF, 0xC7A3FAFF, 0x9AC9D7FF, 0x96B3A7FF, 0xCDB4EBFF, 0x79BBF1FF, 0x7430CBFF, 0x0859B9FF, 0x2076B3FF, 0x7A6890FF];
     accent_soft = "accent-soft": [0xECEEFDFF, 0x1E2142FF, 0x4C4763FF, 0x413D5CFF, 0x3D3652FF, 0x2B334CFF, 0x433D59FF, 0x3E4D5AFF, 0x383F3CFF, 0x3D364FFF, 0x324456FF, 0xE5DFF4FF, 0xE6F0FBFF, 0xE8EBE1FF, 0xF4EDECFF];
     focus = "focus": [0x4C57D6FF, 0x8A93FFFF, 0xCA9EE6FF, 0xC6A0F6FF, 0xCBA6F7FF, 0x7AA2F7FF, 0xBD93F9FF, 0x88C0D0FF, 0x83A598FF, 0xC4A7E7FF, 0x61AFEFFF, 0x8839EFFF, 0x0969DAFF, 0x268BD2FF, 0x907AA9FF];
     selection = "selection": [0x4C57D633, 0x6E78F74D, 0xCA9EE64D, 0xC6A0F64D, 0xCBA6F74D, 0x7AA2F74D, 0xBD93F94D, 0x88C0D04D, 0x83A5984D, 0xC4A7E74D, 0x61AFEF4D, 0x8839EF33, 0x0969DA33, 0x268BD233, 0x907AA933];
-    st_attn = "st-attn": [0x087C71FF, 0x2DD4BFFF, 0x81C8BEFF, 0x8BD5CAFF, 0x94E2D5FF, 0x73DACAFF, 0x40E0D0FF, 0x8FBCBBFF, 0x8EC07CFF, 0x9CCFD8FF, 0x56B6C2FF, 0x179299FF, 0x1B7C83FF, 0x2AA198FF, 0x56949FFF];
+    st_attn = "st-attn": [0x087A6FFF, 0x2DD4BFFF, 0x81C8BEFF, 0x8BD5CAFF, 0x94E2D5FF, 0x73DACAFF, 0x40E0D0FF, 0x8FBCBBFF, 0x8EC07CFF, 0x9CCFD8FF, 0x56B6C2FF, 0x179299FF, 0x1B7C83FF, 0x2AA198FF, 0x56949FFF];
     st_attn_bg = "st-attn-bg": [0xE0F5F2FF, 0x0E2E2AFF, 0x3F4F5CFF, 0x374654FF, 0x33414CFF, 0x2A3D44FF, 0x2C4B52FF, 0x3F4C56FF, 0x3A4337FF, 0x363D4DFF, 0x30454EFF, 0xD9E8ECFF, 0xE8F2F3FF, 0xE8EEDCFF, 0xEEF0EBFF];
+    on_attn = "on-attn": [0xFFFFFFFF, 0x0E0F11FF, 0x232634FF, 0x181926FF, 0x11111BFF, 0x1A1B26FF, 0x282A36FF, 0x2E3440FF, 0x282828FF, 0x191724FF, 0x282C34FF, 0xEFF1F5FF, 0xFFFFFFFF, 0xFDF6E3FF, 0xFFFAF3FF];
     st_error = "st-error": [0xCC2F3BFF, 0xFF6670FF, 0xE78284FF, 0xED8796FF, 0xF38BA8FF, 0xF7768EFF, 0xFF5555FF, 0xBF616AFF, 0xFB4934FF, 0xEB6F92FF, 0xE06C75FF, 0xD20F39FF, 0xD1242FFF, 0xDC322FFF, 0xB4637AFF];
     st_error_bg = "st-error-bg": [0xFDEBEDFF, 0x3A191CFF, 0x514251FF, 0x48384BFF, 0x443244FF, 0x422B39FF, 0x4F323CFF, 0x483C48FF, 0x4E2E2AFF, 0x442C40FF, 0x493840FF, 0xECD8E0FF, 0xFAE7E8FF, 0xF9E0CFFF, 0xF7E9E6FF];
-    st_working = "st-working": [0x2C6AD6FF, 0x6AA6FFFF, 0x8CAAEEFF, 0x8AADF4FF, 0x89B4FAFF, 0x7DCFFFFF, 0x8BE9FDFF, 0x81A1C1FF, 0x83A598FF, 0x3E8FB0FF, 0x61AFEFFF, 0x1E66F5FF, 0x0969DAFF, 0x268BD2FF, 0x286983FF];
+    st_working = "st-working": [0x2A68D6FF, 0x6AA6FFFF, 0x8CAAEEFF, 0x8AADF4FF, 0x89B4FAFF, 0x7DCFFFFF, 0x8BE9FDFF, 0x81A1C1FF, 0x83A598FF, 0x3E8FB0FF, 0x61AFEFFF, 0x1E66F5FF, 0x0969DAFF, 0x268BD2FF, 0x286983FF];
     st_working_bg = "st-working-bg": [0xEAF1FDFF, 0x15233BFF, 0x414964FF, 0x363F5BFF, 0x313953FF, 0x2C3B4DFF, 0x3A4C5AFF, 0x3D4857FF, 0x383F3CFF, 0x253245FF, 0x324456FF, 0xD8E2F5FF, 0xE4EFFBFF, 0xE5EAE1FF, 0xE7EAE7FF];
     st_investigate = "st-investigate": [0x7650D2FF, 0xB196FFFF, 0xBABBF1FF, 0xB7BDF8FF, 0xB4BEFEFF, 0xBB9AF7FF, 0xD6ACFFFF, 0xB48EADFF, 0xA89ADBFF, 0xC4A7E7FF, 0xC678DDFF, 0x8839EFFF, 0x8250DFFF, 0x6C71C4FF, 0x907AA9FF];
     st_investigate_bg = "st-investigate-bg": [0xF2EEFCFF, 0x251C3BFF, 0x494C65FF, 0x3E425CFF, 0x393B53FF, 0x37324CFF, 0x47415AFF, 0x464454FF, 0x3F3D48FF, 0x3D364FFF, 0x443A52FF, 0xE5DFF4FF, 0xF1ECFBFF, 0xEDE7E0FF, 0xF3ECEBFF];
     st_queued = "st-queued": [0x646A75FF, 0x9AA0ABFF, 0x949CBBFF, 0x939AB7FF, 0x9399B2FF, 0x828BB8FF, 0x9AA3C4FF, 0x8E9AAFFF, 0xA89984FF, 0x908CAAFF, 0x9DA5B4FF, 0x7C7F93FF, 0x59636EFF, 0x839496FF, 0x797593FF];
     st_queued_bg = "st-queued-bg": [0xEFF0F2FF, 0x23262CFF, 0x3E4356FF, 0x34374CFF, 0x2E2F40FF, 0x292B3AFF, 0x383B4AFF, 0x3B4250FF, 0x3A3835FF, 0x2F2D3FFF, 0x383D46FF, 0xE4E6EBFF, 0xEEEFF1FF, 0xF1ECDBFF, 0xF2EDE9FF];
-    st_review = "st-review": [0xC03A8CFF, 0xF07CC4FF, 0xF4B8E4FF, 0xF5BDE6FF, 0xF5C2E7FF, 0xF77FD6FF, 0xFF79C6FF, 0xDC94BDFF, 0xD3869BFF, 0xEC9BD1FF, 0xE77FC0FF, 0xEA76CBFF, 0xBF3989FF, 0xD33682FF, 0xB85FA8FF];
+    st_review = "st-review": [0xBA3888FF, 0xF07CC4FF, 0xF4B8E4FF, 0xF5BDE6FF, 0xF5C2E7FF, 0xF77FD6FF, 0xFF79C6FF, 0xDC94BDFF, 0xD3869BFF, 0xEC9BD1FF, 0xE77FC0FF, 0xEA76CBFF, 0xBF3989FF, 0xD33682FF, 0xB85FA8FF];
     st_review_bg = "st-review-bg": [0xFBEAF4FF, 0x3A1830FF, 0x534C62FF, 0x4A4259FF, 0x453C4FFF, 0x422D46FF, 0x4F3850FF, 0x4D4557FF, 0x47393DFF, 0x44344BFF, 0x4A3B4DFF, 0xEFE5F1FF, 0xF9EBF3FF, 0xF9E3D9FF, 0xF8EBECFF];
-    st_paused = "st-paused": [0x9A6600FF, 0xF2BE4AFF, 0xE5C890FF, 0xEED49FFF, 0xF9E2AFFF, 0xE0AF68FF, 0xF1FA8CFF, 0xEBCB8BFF, 0xFABD2FFF, 0xEBBCBAFF, 0xE5C07BFF, 0xDF8E1DFF, 0x9A6700FF, 0xB58900FF, 0xD7827EFF];
+    st_paused = "st-paused": [0x976400FF, 0xF2BE4AFF, 0xE5C890FF, 0xEED49FFF, 0xF9E2AFFF, 0xE0AF68FF, 0xF1FA8CFF, 0xEBCB8BFF, 0xFABD2FFF, 0xEBBCBAFF, 0xE5C07BFF, 0xDF8E1DFF, 0x9A6700FF, 0xB58900FF, 0xD7827EFF];
     st_paused_bg = "st-paused-bg": [0xFAF2DAFF, 0x33290EFF, 0x514F53FF, 0x48464CFF, 0x454145FF, 0x3E3632FF, 0x4C4F45FF, 0x504F4EFF, 0x4E4329FF, 0x443A47FF, 0x4A4741FF, 0xEDE6DDFF, 0xF4EEE3FF, 0xF5EACAFF, 0xFBEDE6FF];
-    st_approved = "st-approved": [0x25854AFF, 0x4CC77AFF, 0xA6D189FF, 0xA6DA95FF, 0xA6E3A1FF, 0x9ECE6AFF, 0x50FA7BFF, 0xA3BE8CFF, 0xB8BB26FF, 0xA3C9A8FF, 0x98C379FF, 0x40A02BFF, 0x1A7F37FF, 0x859900FF, 0x5F8F6AFF];
+    st_approved = "st-approved": [0x237D46FF, 0x4CC77AFF, 0xA6D189FF, 0xA6DA95FF, 0xA6E3A1FF, 0x9ECE6AFF, 0x50FA7BFF, 0xA3BE8CFF, 0xB8BB26FF, 0xA3C9A8FF, 0x98C379FF, 0x40A02BFF, 0x1A7F37FF, 0x859900FF, 0x5F8F6AFF];
     st_approved_bg = "st-approved-bg": [0xE6F4EAFF, 0x12301CFF, 0x455052FF, 0x3B474AFF, 0x364143FF, 0x323B32FF, 0x2F4F42FF, 0x434D4EFF, 0x424228FF, 0x373C44FF, 0x3C4740FF, 0xDCE8DFFF, 0xE6F1E9FF, 0xF0ECCAFF, 0xEDEEE4FF];
-    st_done = "st-done": [0x9A9DA4FF, 0x5C6069FF, 0x737994FF, 0x6E738DFF, 0x6C7086FF, 0x565F89FF, 0x6272A4FF, 0x616E88FF, 0x7C6F64FF, 0x524F67FF, 0x5C6370FF, 0x9CA0B0FF, 0x8C959FFF, 0x93A1A1FF, 0x9893A5FF];
+    st_done = "st-done": [0x868992FF, 0x6A6F79FF, 0x737994FF, 0x6E738DFF, 0x6C7086FF, 0x565F89FF, 0x6272A4FF, 0x616E88FF, 0x7C6F64FF, 0x524F67FF, 0x5C6370FF, 0x9CA0B0FF, 0x8C959FFF, 0x93A1A1FF, 0x9893A5FF];
     term_bg = "term-bg": [0xFAFAF8FF, 0x0A0B0DFF, 0x303446FF, 0x24273AFF, 0x1E1E2EFF, 0x1A1B26FF, 0x282A36FF, 0x2E3440FF, 0x282828FF, 0x191724FF, 0x282C34FF, 0xEFF1F5FF, 0xF6F8FAFF, 0xFDF6E3FF, 0xFAF4EDFF];
     term_fg = "term-fg": [0x2A2C31FF, 0xD6D8DDFF, 0xC6D0F5FF, 0xCAD3F5FF, 0xCDD6F4FF, 0xC0CAF5FF, 0xF8F8F2FF, 0xD8DEE9FF, 0xEBDBB2FF, 0xE0DEF4FF, 0xABB2BFFF, 0x4C4F69FF, 0x1F2328FF, 0x657B83FF, 0x575279FF];
     diff_add_bg = "diff-add-bg": [0xE5F6EAFF, 0x11291AFF, 0x434D51FF, 0x394449FF, 0x343E40FF, 0x2F3831FF, 0x2E4B41FF, 0x414A4CFF, 0x3F4028FF, 0x2F3339FF, 0x3A443FFF, 0xDAE7DDFF, 0xDCE9E3FF, 0xEFEBC8FF, 0xE7E8DDFF];
@@ -614,7 +616,7 @@ mod tests {
 
     #[test]
     fn every_token_resolves_in_every_theme() {
-        assert_eq!(Colors::<u32>::NAMES.len(), 47);
+        assert_eq!(Colors::<u32>::NAMES.len(), 49);
         for id in ThemeId::ALL {
             let colors = Colors::new(id);
             for name in Colors::<u32>::NAMES {
@@ -625,7 +627,7 @@ mod tests {
     }
 
     /// Every colour variable of *crewboard.pen* (`GetVariables`, theme axes `palette` and, for Otaq, `mode`),
-    /// copied as the design writes them: the 47 tokens then `ansi-0` … `ansi-15`, one column per theme in the order
+    /// copied as the design writes them: the 49 tokens then `ansi-0` … `ansi-15`, one column per theme in the order
     /// of `ThemeId::ALL`. Changing a value here means the design changed; changing it only in `color_tokens!` or
     /// `ANSI` is drift, and fails this test.
     #[rustfmt::skip]
@@ -638,33 +640,35 @@ mod tests {
         ("bg-hover", ["#EDEDEA", "#262930", "#414559", "#363a4f", "#313244", "#292e42", "#3a3d4e", "#434c5e", "#3c3836", "#2a2740", "#353b45", "#e6e9ef", "#f3f5f7", "#f5efdc", "#f4ede8"]),
         ("bg-pressed", ["#E4E4E0", "#2E323A", "#51576d", "#494d64", "#45475a", "#343a55", "#44475a", "#4c566a", "#504945", "#403d52", "#3e4451", "#dce0e8", "#eaeef2", "#eee8d5", "#efe6de"]),
         ("border", ["#E2E2DE", "#272A31", "#414559", "#363a4f", "#313244", "#292e42", "#343746", "#3b4252", "#3c3836", "#2a2740", "#3a3f4b", "#ccd0da", "#d0d7de", "#e4ddc8", "#dfdad9"]),
-        ("border-strong", ["#CCCCC6", "#3A3E47", "#51576d", "#494d64", "#45475a", "#3b4261", "#565a70", "#4c566a", "#504945", "#403d52", "#4b5263", "#bcc0cc", "#afb8c1", "#d3cbb3", "#cecacd"]),
+        ("border-strong", ["#959588", "#686F7F", "#51576d", "#494d64", "#45475a", "#3b4261", "#565a70", "#4c566a", "#504945", "#403d52", "#4b5263", "#bcc0cc", "#afb8c1", "#d3cbb3", "#cecacd"]),
+        ("border-card", ["#8A8A7A", "#62697B", "#414559", "#363a4f", "#313244", "#292e42", "#343746", "#3b4252", "#3c3836", "#2a2740", "#3a3f4b", "#ccd0da", "#d0d7de", "#e4ddc8", "#dfdad9"]),
         ("text-primary", ["#1A1B1E", "#ECEDEF", "#c6d0f5", "#cad3f5", "#cdd6f4", "#c0caf5", "#f8f8f2", "#eceff4", "#ebdbb2", "#e0def4", "#d7dae0", "#4c4f69", "#1f2328", "#586e75", "#575279"]),
         ("text-secondary", ["#5B5F67", "#A5A9B2", "#a5adce", "#a5adcb", "#a6adc8", "#a9b1d6", "#c3c5d4", "#d8dee9", "#bdae93", "#908caa", "#abb2bf", "#6c6f85", "#59636e", "#657b83", "#797593"]),
-        ("text-muted", ["#8C9099", "#6C707A", "#838ba7", "#8087a2", "#7f849c", "#737aa2", "#7b86b5", "#7b88a1", "#928374", "#6e6a86", "#7f848e", "#8c8fa1", "#818b98", "#93a1a1", "#9893a5"]),
-        ("text-on-accent", ["#FFFFFF", "#FFFFFF", "#232634", "#181926", "#11111b", "#1a1b26", "#282a36", "#2e3440", "#282828", "#191724", "#282c34", "#eff1f5", "#ffffff", "#fdf6e3", "#fffaf3"]),
-        ("accent", ["#4C57D6", "#6E78F7", "#ca9ee6", "#c6a0f6", "#cba6f7", "#7aa2f7", "#bd93f9", "#88c0d0", "#83a598", "#c4a7e7", "#61afef", "#8839ef", "#0969da", "#268bd2", "#907aa9"]),
+        ("text-muted", ["#676B74", "#8C9099", "#838ba7", "#8087a2", "#7f849c", "#737aa2", "#7b86b5", "#7b88a1", "#928374", "#6e6a86", "#7f848e", "#8c8fa1", "#818b98", "#93a1a1", "#9893a5"]),
+        ("text-on-accent", ["#FFFFFF", "#0E0F11", "#232634", "#181926", "#11111b", "#1a1b26", "#282a36", "#2e3440", "#282828", "#191724", "#282c34", "#eff1f5", "#ffffff", "#fdf6e3", "#fffaf3"]),
+        ("accent", ["#4C57D6", "#757FF7", "#ca9ee6", "#c6a0f6", "#cba6f7", "#7aa2f7", "#bd93f9", "#88c0d0", "#83a598", "#c4a7e7", "#61afef", "#8839ef", "#0969da", "#268bd2", "#907aa9"]),
         ("accent-hover", ["#3F49C2", "#828BFF", "#D2ADEA", "#CFAEF7", "#D3B3F8", "#8EB0F8", "#C7A3FA", "#9AC9D7", "#96B3A7", "#CDB4EB", "#79BBF1", "#7430CB", "#0859B9", "#2076B3", "#7A6890"]),
         ("accent-soft", ["#ECEEFD", "#1E2142", "#4C4763", "#413D5C", "#3D3652", "#2B334C", "#433D59", "#3E4D5A", "#383F3C", "#3D364F", "#324456", "#E5DFF4", "#E6F0FB", "#E8EBE1", "#F4EDEC"]),
         ("focus", ["#4C57D6", "#8A93FF", "#ca9ee6", "#c6a0f6", "#cba6f7", "#7aa2f7", "#bd93f9", "#88c0d0", "#83a598", "#c4a7e7", "#61afef", "#8839ef", "#0969da", "#268bd2", "#907aa9"]),
         ("selection", ["#4C57D633", "#6E78F74D", "#ca9ee64D", "#c6a0f64D", "#cba6f74D", "#7aa2f74D", "#bd93f94D", "#88c0d04D", "#83a5984D", "#c4a7e74D", "#61afef4D", "#8839ef33", "#0969da33", "#268bd233", "#907aa933"]),
-        ("st-attn", ["#087C71", "#2DD4BF", "#81c8be", "#8bd5ca", "#94e2d5", "#73daca", "#40e0d0", "#8fbcbb", "#8ec07c", "#9ccfd8", "#56b6c2", "#179299", "#1b7c83", "#2aa198", "#56949f"]),
+        ("st-attn", ["#087A6F", "#2DD4BF", "#81c8be", "#8bd5ca", "#94e2d5", "#73daca", "#40e0d0", "#8fbcbb", "#8ec07c", "#9ccfd8", "#56b6c2", "#179299", "#1b7c83", "#2aa198", "#56949f"]),
         ("st-attn-bg", ["#E0F5F2", "#0E2E2A", "#3F4F5C", "#374654", "#33414C", "#2A3D44", "#2C4B52", "#3F4C56", "#3A4337", "#363D4D", "#30454E", "#D9E8EC", "#E8F2F3", "#E8EEDC", "#EEF0EB"]),
+        ("on-attn", ["#FFFFFF", "#0E0F11", "#232634", "#181926", "#11111b", "#1a1b26", "#282a36", "#2e3440", "#282828", "#191724", "#282c34", "#eff1f5", "#ffffff", "#fdf6e3", "#fffaf3"]),
         ("st-error", ["#CC2F3B", "#FF6670", "#e78284", "#ed8796", "#f38ba8", "#f7768e", "#ff5555", "#bf616a", "#fb4934", "#eb6f92", "#e06c75", "#d20f39", "#d1242f", "#dc322f", "#b4637a"]),
         ("st-error-bg", ["#FDEBED", "#3A191C", "#514251", "#48384B", "#443244", "#422B39", "#4F323C", "#483C48", "#4E2E2A", "#442C40", "#493840", "#ECD8E0", "#FAE7E8", "#F9E0CF", "#F7E9E6"]),
-        ("st-working", ["#2C6AD6", "#6AA6FF", "#8caaee", "#8aadf4", "#89b4fa", "#7dcfff", "#8be9fd", "#81a1c1", "#83a598", "#3e8fb0", "#61afef", "#1e66f5", "#0969da", "#268bd2", "#286983"]),
+        ("st-working", ["#2A68D6", "#6AA6FF", "#8caaee", "#8aadf4", "#89b4fa", "#7dcfff", "#8be9fd", "#81a1c1", "#83a598", "#3e8fb0", "#61afef", "#1e66f5", "#0969da", "#268bd2", "#286983"]),
         ("st-working-bg", ["#EAF1FD", "#15233B", "#414964", "#363F5B", "#313953", "#2C3B4D", "#3A4C5A", "#3D4857", "#383F3C", "#253245", "#324456", "#D8E2F5", "#E4EFFB", "#E5EAE1", "#E7EAE7"]),
         ("st-investigate", ["#7650D2", "#B196FF", "#babbf1", "#b7bdf8", "#b4befe", "#bb9af7", "#d6acff", "#b48ead", "#a89adb", "#c4a7e7", "#c678dd", "#8839ef", "#8250df", "#6c71c4", "#907aa9"]),
         ("st-investigate-bg", ["#F2EEFC", "#251C3B", "#494C65", "#3E425C", "#393B53", "#37324C", "#47415A", "#464454", "#3F3D48", "#3D364F", "#443A52", "#E5DFF4", "#F1ECFB", "#EDE7E0", "#F3ECEB"]),
         ("st-queued", ["#646A75", "#9AA0AB", "#949cbb", "#939ab7", "#9399b2", "#828bb8", "#9aa3c4", "#8e9aaf", "#a89984", "#908caa", "#9da5b4", "#7c7f93", "#59636e", "#839496", "#797593"]),
         ("st-queued-bg", ["#EFF0F2", "#23262C", "#3E4356", "#34374C", "#2E2F40", "#292B3A", "#383B4A", "#3B4250", "#3A3835", "#2F2D3F", "#383D46", "#E4E6EB", "#EEEFF1", "#F1ECDB", "#F2EDE9"]),
-        ("st-review", ["#C03A8C", "#F07CC4", "#f4b8e4", "#f5bde6", "#f5c2e7", "#f77fd6", "#ff79c6", "#dc94bd", "#d3869b", "#ec9bd1", "#e77fc0", "#ea76cb", "#bf3989", "#d33682", "#b85fa8"]),
+        ("st-review", ["#BA3888", "#F07CC4", "#f4b8e4", "#f5bde6", "#f5c2e7", "#f77fd6", "#ff79c6", "#dc94bd", "#d3869b", "#ec9bd1", "#e77fc0", "#ea76cb", "#bf3989", "#d33682", "#b85fa8"]),
         ("st-review-bg", ["#FBEAF4", "#3A1830", "#534C62", "#4A4259", "#453C4F", "#422D46", "#4F3850", "#4D4557", "#47393D", "#44344B", "#4A3B4D", "#EFE5F1", "#F9EBF3", "#F9E3D9", "#F8EBEC"]),
-        ("st-paused", ["#9A6600", "#F2BE4A", "#e5c890", "#eed49f", "#f9e2af", "#e0af68", "#f1fa8c", "#ebcb8b", "#fabd2f", "#ebbcba", "#e5c07b", "#df8e1d", "#9a6700", "#b58900", "#d7827e"]),
+        ("st-paused", ["#976400", "#F2BE4A", "#e5c890", "#eed49f", "#f9e2af", "#e0af68", "#f1fa8c", "#ebcb8b", "#fabd2f", "#ebbcba", "#e5c07b", "#df8e1d", "#9a6700", "#b58900", "#d7827e"]),
         ("st-paused-bg", ["#FAF2DA", "#33290E", "#514F53", "#48464C", "#454145", "#3E3632", "#4C4F45", "#504F4E", "#4E4329", "#443A47", "#4A4741", "#EDE6DD", "#F4EEE3", "#F5EACA", "#FBEDE6"]),
-        ("st-approved", ["#25854A", "#4CC77A", "#a6d189", "#a6da95", "#a6e3a1", "#9ece6a", "#50fa7b", "#a3be8c", "#b8bb26", "#a3c9a8", "#98c379", "#40a02b", "#1a7f37", "#859900", "#5f8f6a"]),
+        ("st-approved", ["#237D46", "#4CC77A", "#a6d189", "#a6da95", "#a6e3a1", "#9ece6a", "#50fa7b", "#a3be8c", "#b8bb26", "#a3c9a8", "#98c379", "#40a02b", "#1a7f37", "#859900", "#5f8f6a"]),
         ("st-approved-bg", ["#E6F4EA", "#12301C", "#455052", "#3B474A", "#364143", "#323B32", "#2F4F42", "#434D4E", "#424228", "#373C44", "#3C4740", "#DCE8DF", "#E6F1E9", "#F0ECCA", "#EDEEE4"]),
-        ("st-done", ["#9A9DA4", "#5C6069", "#737994", "#6e738d", "#6c7086", "#565f89", "#6272a4", "#616e88", "#7c6f64", "#524f67", "#5c6370", "#9ca0b0", "#8c959f", "#93a1a1", "#9893a5"]),
+        ("st-done", ["#868992", "#6A6F79", "#737994", "#6e738d", "#6c7086", "#565f89", "#6272a4", "#616e88", "#7c6f64", "#524f67", "#5c6370", "#9ca0b0", "#8c959f", "#93a1a1", "#9893a5"]),
         ("term-bg", ["#FAFAF8", "#0A0B0D", "#303446", "#24273a", "#1e1e2e", "#1a1b26", "#282a36", "#2e3440", "#282828", "#191724", "#282c34", "#eff1f5", "#f6f8fa", "#fdf6e3", "#faf4ed"]),
         ("term-fg", ["#2A2C31", "#D6D8DD", "#c6d0f5", "#cad3f5", "#cdd6f4", "#c0caf5", "#f8f8f2", "#d8dee9", "#ebdbb2", "#e0def4", "#abb2bf", "#4c4f69", "#1f2328", "#657b83", "#575279"]),
         ("diff-add-bg", ["#E5F6EA", "#11291A", "#434D51", "#394449", "#343E40", "#2F3831", "#2E4B41", "#414A4C", "#3F4028", "#2F3339", "#3A443F", "#DAE7DD", "#DCE9E3", "#EFEBC8", "#E7E8DD"]),
@@ -713,10 +717,10 @@ mod tests {
         }
         // The same tokens in the design's order, then the 16 terminal colours.
         let names: Vec<&str> = DESIGN.iter().map(|(name, _)| *name).collect();
-        assert_eq!(&names[..47], Colors::<u32>::NAMES);
+        assert_eq!(&names[..49], Colors::<u32>::NAMES);
         let ansi_names: Vec<String> = (0..16).map(|n| format!("ansi-{n}")).collect();
         let ansi_names: Vec<&str> = ansi_names.iter().map(String::as_str).collect();
-        assert_eq!(&names[47..], ansi_names.as_slice());
+        assert_eq!(&names[49..], ansi_names.as_slice());
     }
 
     #[test]

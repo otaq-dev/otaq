@@ -286,7 +286,7 @@
 .panel-action[data-look="attention"] .button {
   border-color: var(--st-attn);
   background: var(--st-attn);
-  color: var(--text-on-accent);
+  color: var(--on-attn);
 }
 
 .panel-conflict {

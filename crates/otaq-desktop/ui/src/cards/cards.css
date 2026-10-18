@@ -7,7 +7,7 @@
  */
 .ticket-card,
 .epic-card {
-  --card-outline: var(--border);
+  --card-outline: var(--border-card);
   --card-ring: 0px;
   --card-ring-color: transparent;
   position: relative;
