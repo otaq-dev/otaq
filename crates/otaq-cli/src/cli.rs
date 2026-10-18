@@ -292,6 +292,10 @@ pub enum Command {
     /// Internal: the status line agents run with (status-line JSON on stdin; runs your own status line)
     #[command(hide = true)]
     Statusline,
+    /// Internal: checks macOS notifications from Otaq.app (whether this runs in the bundle, its permission, one
+    /// test notification and where its click arrives)
+    #[command(hide = true)]
+    NotifyCheck,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]

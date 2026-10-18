@@ -21,7 +21,8 @@ pub fn app_path_next_to(cli_exe: &Path) -> PathBuf {
 
 pub fn launch_app() -> Result<(), ErrorBody> {
     let exe = std::env::current_exe().map_err(|e| internal(&e))?;
-    let app = app_path_next_to(&exe);
+    // Through a link such as `~/.local/bin/otaq`, the app sits next to the real program (`Otaq.app`, d0072).
+    let app = app_path_next_to(&crate::daemon::service_program(&exe));
     if !app.is_file() {
         return Err(ErrorBody::new(
             ErrorKind::Internal,

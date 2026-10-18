@@ -353,6 +353,39 @@ A value can use Otaq's own variables as `${OTAQ_…}`, such as `${OTAQ_DB_NAME}`
 where it is set, and by nothing where it isn't (in a git hook, for example). Only that exact form with an `OTAQ_`
 name is replaced; anything else, such as `$HOME` or `${HOME}`, is passed on as written.
 
+## Installing your own build (macOS)
+
+`scripts/install-local.sh` builds a release from this checkout and installs it the way users get it (decision 0072),
+so the author runs what users run. No admin rights:
+
+- `~/Applications/Otaq.app`: `Contents/MacOS/otaq-app` (the app, the bundle's main program) and
+  `Contents/MacOS/otaq` (the command and the background service), the agent tools' plugin folders in
+  `Contents/Resources` (`plugin/`, `plugin-copilot/`), the tent icon, an `Info.plist` with the bundle ID
+  `io.otaq.desktop` and the workspace's version, signed ad-hoc (decision 0021, no paid signing);
+- `~/.local/bin/otaq`, a link to `Otaq.app/Contents/MacOS/otaq`. When `~/.local/bin` isn't on `PATH` the script says
+  so; it never edits shell files.
+
+It needs Node 24 on `PATH` (it runs `npm run tauri build`, which puts the page inside the app, then
+`cargo build --release -p otaq-cli`). Before replacing an installed `Otaq.app` it stops the background service of the
+data folder in use (`OTAQ_HOME`, or `~/.otaq`) with the old bundle's `otaq` and says so; the app starts it again.
+`otaq daemon start` runs the service from the real path of the program, so a start through the link runs it from
+the bundle (macOS ties a process to its bundle by that path, which notifications need, decision 0090).
+
+| Option | What it does |
+|---|---|
+| `--dest <folder>` | installs `<folder>/Otaq.app` instead, without the link (tests, trying a build) |
+| `--bundle-id <id>` | another bundle ID, for a check bundle (`io.otaq.desktop.check`): macOS asks for notification permission only once per ID, so a check doesn't use up the real one |
+| `--from <folder>` | takes `otaq` and `otaq-app` from `<folder>` instead of building |
+
+The layout, `Info.plist` and signature are checked by `crates/otaq-cli/tests/suite/install_local.rs` (part of the
+`test` step, macOS only), on a fake build: copies of `/usr/bin/true` passed with `--from`, so no release build runs
+in the checks.
+
+`otaq notify-check` (hidden from `--help`) checks notifications from the bundle: it prints whether it runs inside
+`Otaq.app` and its bundle ID; inside, it shows macOS's permission state, asks once if macOS hasn't asked yet, posts
+one test notification and waits 60 seconds for a click, printing whether the click reached it. Outside the bundle it
+prints "outside Otaq.app" and calls nothing of macOS's notification API.
+
 ## Not covered by the checks
 
 The hand checks of each milestone (`tickets/review-M*.md`), for example the window chrome, keyboard shortcuts and

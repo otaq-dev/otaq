@@ -37,6 +37,32 @@ toml_edit = "0.25.17"
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.5", features = ["process"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# macOS's notification API under Otaq.app's bundle ID (d0090, `attention/notification_center.rs`). The objc2 family
+# Tauri already brings, at the same versions; only the parts used.
+objc2 = { version = "0.6.5", default-features = false, features = ["std"] }
+block2 = { version = "0.6.2", default-features = false, features = ["std"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "NSBundle",
+    "NSDate",
+    "NSError",
+    "NSRunLoop",
+    "NSString",
+] }
+objc2-user-notifications = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "block2",
+    "bitflags",
+    "UNNotification",
+    "UNNotificationContent",
+    "UNNotificationRequest",
+    "UNNotificationResponse",
+    "UNNotificationSettings",
+    "UNNotificationTrigger",
+    "UNUserNotificationCenter",
+] }
+
 
 [target.'cfg(windows)'.dependencies]
 # Named pipe security (owner-only ACL, client account), process ancestry and job objects on Windows (PLT-02).

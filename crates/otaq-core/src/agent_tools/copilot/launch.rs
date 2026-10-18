@@ -12,7 +12,7 @@
 //! Otaq's own `otaq` commands. Otaq doesn't touch the user's Copilot settings or status line (d0088).
 //!
 //! **Copilot's plugin folder** (ADP-03, ADP-05): `plugin-copilot/`, next to Otaq's Claude Code plugin folder (the
-//! same three places [`crate::agent_tools::claude::find_plugin_dir`] looks), holds a manifest, a `hooks/hooks.json`
+//! places [`crate::agent_tools::claude::find_plugin_dir`] looks, `Otaq.app/Contents/Resources` among them), holds a manifest, a `hooks/hooks.json`
 //! whose commands pass `--tool copilot`, and `skills`, a relative link to `../plugin/skills` (one copy of the
 //! skills). Checked with Copilot 1.0.98 on 2026-10-18: `copilot --plugin-dir plugin-copilot skill list` lists
 //! Otaq's ten skills and its hooks run `otaq hook --tool copilot <event>`; a manifest whose `skills` points at
@@ -535,6 +535,39 @@ mod tests {
             ..i.copilot.clone()
         };
         assert_eq!(unavailable(&none), Some(missing));
+    }
+
+    /// In `Otaq.app` (d0072), `plugin-copilot/` sits beside `plugin/` in `Contents/Resources`.
+    #[test]
+    fn the_bundle_plugin_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let contents = dir
+            .path()
+            .join(naming::bundle_folder_name())
+            .join("Contents");
+        let macos = contents.join("MacOS");
+        std::fs::create_dir_all(&macos).unwrap();
+        for folder in ["plugin", PLUGIN_FOLDER] {
+            let manifest = contents
+                .join("Resources")
+                .join(folder)
+                .join(".claude-plugin");
+            std::fs::create_dir_all(&manifest).unwrap();
+            std::fs::write(manifest.join("plugin.json"), "{}").unwrap();
+        }
+        let launch = LaunchContext {
+            bin_dir: macos.clone(),
+            plugin_dir: crate::agent_tools::claude::find_plugin_dir(&macos).unwrap(),
+            path: OsString::new(),
+            claude: crate::agent_tools::claude::ClaudeLaunch {
+                program: vec![],
+                config_dir: None,
+            },
+        };
+        assert_eq!(
+            find_plugin_dir(&launch),
+            Some(contents.join("Resources").join(PLUGIN_FOLDER))
+        );
     }
 
     /// The repository's `plugin-copilot/` is found beside `plugin/`, its skills are `plugin/skills` (one copy), and

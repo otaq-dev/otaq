@@ -4682,6 +4682,7 @@ Used by:
 - [objc2-exception-helper 0.1.1](https://github.com/madsmtm/objc2)
 - [objc2-foundation 0.3.2](https://github.com/madsmtm/objc2)
 - [objc2-quartz-core 0.3.2](https://github.com/madsmtm/objc2)
+- [objc2-user-notifications 0.3.2](https://github.com/madsmtm/objc2)
 - [objc2-web-kit 0.3.2](https://github.com/madsmtm/objc2)
 - [objc2 0.6.5](https://github.com/madsmtm/objc2)
 - [sqlx-core 0.9.0](https://github.com/launchbadge/sqlx)
