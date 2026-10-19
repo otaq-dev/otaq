@@ -1,0 +1,77 @@
+/*
+ * Otaq Dark, copied from the app's theme: crates/otaq-desktop/ui/src/theme/generated/tokens.css
+ * (the font stacks from its `:root`, the colours from its `[data-theme="otaq-dark"]` block).
+ * Don't edit the values here: when the app's theme changes, copy them again from that file (WEB-03).
+ */
+
+:root {
+  --font-ui: "Geist", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+
+  color-scheme: dark;
+  --bg-app: #0e0f11;
+  --bg-panel: #15161a;
+  --bg-column: #121316;
+  --bg-card: #1c1e23;
+  --bg-raised: #23262c;
+  --bg-hover: #262930;
+  --bg-pressed: #2e323a;
+  --border: #272a31;
+  --border-strong: #686f7f;
+  --border-card: #62697b;
+  --text-primary: #ecedef;
+  --text-secondary: #a5a9b2;
+  --text-muted: #8c9099;
+  --text-on-accent: #0e0f11;
+  --accent: #757ff7;
+  --accent-hover: #828bff;
+  --accent-soft: #1e2142;
+  --focus: #8a93ff;
+  --selection: #6e78f74d;
+  --st-attn: #2dd4bf;
+  --st-attn-bg: #0e2e2a;
+  --on-attn: #0e0f11;
+  --st-error: #ff6670;
+  --st-error-bg: #3a191c;
+  --st-working: #6aa6ff;
+  --st-working-bg: #15233b;
+  --st-investigate: #b196ff;
+  --st-investigate-bg: #251c3b;
+  --st-queued: #9aa0ab;
+  --st-queued-bg: #23262c;
+  --st-review: #f07cc4;
+  --st-review-bg: #3a1830;
+  --st-paused: #f2be4a;
+  --st-paused-bg: #33290e;
+  --st-approved: #4cc77a;
+  --st-approved-bg: #12301c;
+  --st-done: #6a6f79;
+  --term-bg: #0a0b0d;
+  --term-fg: #d6d8dd;
+  --diff-add-bg: #11291a;
+  --diff-del-bg: #2e1517;
+  --tool-cc: #3a4220;
+  --tool-cc-fg: #d3dfa0;
+  --tool-cx: #2b3647;
+  --tool-cx-fg: #bfd0e8;
+  --tool-cp: #43352a;
+  --tool-cp-fg: #e6cdb0;
+  --tool-oc: #3a3a3d;
+  --tool-oc-fg: #d6d6da;
+  --ansi-0: #1c1e23;
+  --ansi-1: #ff6670;
+  --ansi-2: #4cc77a;
+  --ansi-3: #f2be4a;
+  --ansi-4: #6aa6ff;
+  --ansi-5: #b196ff;
+  --ansi-6: #3cd3c0;
+  --ansi-7: #d6d8dd;
+  --ansi-8: #5c6069;
+  --ansi-9: #ff8a8f;
+  --ansi-10: #6fdb96;
+  --ansi-11: #ffd375;
+  --ansi-12: #8fbcff;
+  --ansi-13: #c7b3ff;
+  --ansi-14: #6be3d3;
+  --ansi-15: #ffffff;
+}
