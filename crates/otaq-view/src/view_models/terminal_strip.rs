@@ -37,7 +37,7 @@ pub fn state(phase: &Phase, status: Status, your_turn: bool) -> (&'static str, T
 }
 
 /// The terminal's focus as the service is told it (ATT-03): the keyboard is in the terminal and the Terminal tab is
-/// on screen. Panel close, a tab switch, a click outside and ⇧⌘` all make it false.
+/// on screen. Panel close, a tab switch, a click outside and ⌃` all make it false.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TerminalFocus {
     pub has_focus: bool,
@@ -508,11 +508,7 @@ mod tests {
         assert_eq!(f.apply(FocusChange::Hidden), Some(false), "another tab");
         assert_eq!(f.apply(FocusChange::Shown), Some(true));
         assert_eq!(f.apply(FocusChange::Gained), None, "no repeat");
-        assert_eq!(
-            f.apply(FocusChange::Lost),
-            Some(false),
-            "click outside, ⇧⌘`"
-        );
+        assert_eq!(f.apply(FocusChange::Lost), Some(false), "click outside, ⌃`");
         assert_eq!(f.apply(FocusChange::Hidden), None);
         assert_eq!(f.apply(FocusChange::Shown), None);
     }

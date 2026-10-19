@@ -334,8 +334,8 @@ impl KeyAction {
             .collect()
     }
 
-    /// The first default key as shown in a Kbd, or `None` where the action has none. The labels read this until
-    /// T-0392 moves them to the user's keys.
+    /// The base map's first key as shown in a Kbd, or `None` where the action has none. Only the gallery's keyboard
+    /// map reads it; every label shows the user's keys ([`crate::key_labels::KeyLabels`], KEY-08).
     pub fn keys(self, platform: Platform) -> Option<String> {
         self.default_keys(platform).into_iter().next()
     }
@@ -2124,9 +2124,9 @@ mod tests {
         );
     }
 
-    /// The labels read the first default key until T-0392 (⌘N, not `c`; `e` where there is only a letter).
+    /// The base map's first key (⌘N, not `c`; `e` where there is only a letter).
     #[test]
-    fn a_label_is_the_first_default_key() {
+    fn the_first_default_key() {
         assert_eq!(
             KeyAction::NewTicket.keys(Platform::Mac).as_deref(),
             Some("⌘N")

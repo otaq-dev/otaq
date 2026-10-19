@@ -133,8 +133,8 @@ describe("the drawer", () => {
   });
 });
 
-describe("⇧⌘T", () => {
-  it("registers the drawer and ⇧⌘T from its folder (⇧⌘A is the pane's)", () => {
+describe("Terminals", () => {
+  it("registers the drawer and Terminals from its folder (New Project agent is the pane's)", () => {
     const app = registerScreens({ terminals });
     expect(registered(app)).toMatchObject({ overlays: ["terminals"] });
     expect(app.shortcuts.names()).toEqual(["terminals"]);

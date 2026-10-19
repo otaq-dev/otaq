@@ -1,6 +1,6 @@
 //! The Terminals drawer (RUN-06, SHL-04, UI-09; d0068, d0019, d0087; *17 · Project terminals*): one tab per Project
 //! terminal of the project, by number, a terminal's header state, the path line, the hint in a new terminal's empty
-//! scrollback, the line under an ended one and which tab ⇧⌘T shows. Each terminal is a plain shell in the project's
+//! scrollback, the line under an ended one and which tab Terminals (⌃`) shows. Each terminal is a plain shell in the project's
 //! folder, owned by the service. Project agents live in the pane since d0087 (`agent_pane.rs`), never here.
 
 use otaq_core::session::{END_STOPPED_BY_RESTART, SessionInfo};
@@ -158,7 +158,7 @@ pub fn tabs(terminals: &[ProjectTerminal], facts: &HintFacts) -> Vec<Tab> {
         .collect()
 }
 
-/// What ⇧⌘T shows: the last-used terminal while it is open, else the newest open one, else a new one.
+/// What Terminals (⌃`) shows: the last-used terminal while it is open, else the newest open one, else a new one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LastUsed {
     Show(String),

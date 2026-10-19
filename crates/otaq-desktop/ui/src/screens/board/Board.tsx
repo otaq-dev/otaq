@@ -16,7 +16,7 @@
 // "not queued" chip on a track are dragged the same way (EPC-12, T-0270): Rust answers what each queues, and the drop
 // sends `epic.queue`, whose outcome is the queue toast; a row or a chip lifts as a small row. A track is dragged by
 // its name (EPC-14, T-0271): onto Backlog it takes back, at once or after the Park-all confirmation. Clicking a
-// track's name or ⇧⌘G on a selected epic, child or track focuses the epic (EPC-18, T-0274): its `epic:` token goes in
+// track's name or `g` `e` on a selected epic, child or track focuses the epic (EPC-18, T-0274): its `epic:` token goes in
 // the filter, the other cards, tracks and Done lines dim (Q55), the arrow keys walk only its cards, and Esc leaves.
 // A track's right click is its epic's menu.
 import {

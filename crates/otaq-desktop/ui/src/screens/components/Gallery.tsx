@@ -156,7 +156,7 @@ function ShellFrames() {
         <figure key={`${String(width)}${String(hidden)}`} className="gallery-shell">
           <figcaption>
             {width} × {height}
-            {hidden ? " · pane hidden (⌘\\)" : ""}
+            {hidden ? " · pane hidden (⌘B)" : ""}
           </figcaption>
           <div className="gallery-shell-box" style={{ width: width / 2, height: height / 2 }}>
             <div className="frame gallery-shell-frame" style={{ width, height }}>
@@ -444,12 +444,12 @@ function TabsAndToggles() {
   const [on, setOn] = useState(true);
   const [off, setOff] = useState(false);
   const tabs = [
-    { icon: "square-terminal", label: "Terminal", indicator: { kind: "live" }, keys: "⌘⌥1" },
-    { icon: "file-diff", label: "Diff", indicator: { kind: "note", text: "+412 −38" }, keys: "⌘⌥2" },
-    { icon: "play", label: "Run", indicator: { kind: "note", text: ":4020" }, keys: "⌘⌥3" },
-    { icon: "terminal", label: "Shell", keys: "⌘⌥4" },
-    { icon: "file-text", label: "Ticket", keys: "⌘⌥5" },
-    { icon: "history", label: "History", indicator: { kind: "live_attention" }, keys: "⌘⌥6" },
+    { icon: "square-terminal", label: "Terminal", indicator: { kind: "live" }, keys: "1" },
+    { icon: "file-diff", label: "Diff", indicator: { kind: "note", text: "+412 −38" }, keys: "2" },
+    { icon: "play", label: "Run", indicator: { kind: "note", text: ":4020" }, keys: "3" },
+    { icon: "terminal", label: "Shell", keys: "4" },
+    { icon: "file-text", label: "Ticket", keys: "5" },
+    { icon: "history", label: "History", indicator: { kind: "live_attention" }, keys: "6" },
   ] as const;
   return (
     <div className="gallery-stack">
@@ -602,7 +602,7 @@ function Overlays({ view }: { view: GalleryView }) {
         )}
         <Caption>TOOLTIP · POPOVER</Caption>
         <div className="gallery-wrap">
-          <Tooltip text="Open terminal" keys="⌘⌥1">
+          <Tooltip text="Open terminal" keys="1">
             <IconButton icon="square-terminal" label="Open terminal" />
           </Tooltip>
           <Tooltip
@@ -1872,7 +1872,7 @@ function PaneSection() {
               />
             </div>
             <div className="gallery-stack-tight">
-              <Caption>HIDDEN WITH ⌘\ · AN AGENT WAITS</Caption>
+              <Caption>HIDDEN WITH ⌘B · AN AGENT WAITS</Caption>
               <div className="gallery-pane-strip">
                 <Icon name="bot" size={15} />
                 {view.states[0]?.view.agent_waits && <span className="pane-strip-dot" />}

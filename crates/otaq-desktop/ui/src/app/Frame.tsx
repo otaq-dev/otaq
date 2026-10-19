@@ -1,7 +1,7 @@
 // The app frame (*02 → Row · Window 1440 × 900 (0086 · V)*, SHL-01): the header row (also the title bar), the banner
 // area across the window that pushes everything under it down, then **rail | Project agent pane | main area**. The
 // main area has the Board | Files tabs at its top, then the board or the Files view; the ticket panel opens over its
-// right side (SHL-05). ⌘\ folds the pane to a 28 px strip; the expanded panel (⇧⌘E) takes the pane's room too. The
+// right side (SHL-05). ⌘B folds the pane to a 28 px strip; the expanded panel (`e`) takes the pane's room too. The
 // overlay and toast hosts go over everything. Each slot is filled by the screen registered for it; an empty slot
 // shows its name so the layout can be checked before its screen exists.
 import { useCallback, useEffect, useLayoutEffect, useRef, type PointerEvent, type ReactNode } from "react";
@@ -157,7 +157,7 @@ function PaneEdge({
   /* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex -- the splitter ends here */
 }
 
-/** The pane's column: the pane at its width, its strip while hidden (⌘\), nothing under an expanded panel. */
+/** The pane's column: the pane at its width, its strip while hidden (⌘B), nothing under an expanded panel. */
 function PaneColumn({
   view,
   layout,

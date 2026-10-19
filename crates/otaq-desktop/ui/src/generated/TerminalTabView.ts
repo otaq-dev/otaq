@@ -42,7 +42,7 @@ port: string | null,
  */
 attach_command: string, attach_short: string, copy_attach: string, waiting: TerminalTabWaiting | null, instructions: TerminalTabInstructions, 
 /**
- * "leave terminal" with ⇧⌘`, while the terminal has the keyboard.
+ * "leave terminal" with the user's key for Terminals (⌃`), while the terminal has the keyboard.
  */
 leave: PanelHint, smaller: string, bigger: string, find: PanelHint, 
 /**

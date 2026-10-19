@@ -1,5 +1,5 @@
 // The pane's moment of interaction (T-0330; SHL-04, d0087): which agent each project shows, the requests to give the
-// pane the keyboard (⌘L, ⇧⌘A, an inbox row), and Send's guard against a second start. Everything the pane says, and
+// pane the keyboard (⌘L, ⇧⌘L, an inbox row), and Send's guard against a second start. Everything the pane says, and
 // where a project opens the first time (`opens_on`), is Rust's (`pane.view`, `otaq-view`'s `agent_pane.rs`). Nothing
 // here starts an agent except Send with words in the box, the user's go-ahead (d0087, d0018).
 import { type ShellLayout, shellLayout } from "../../app/layout";
@@ -10,7 +10,7 @@ import type { PaneSendParams } from "../../generated/PaneSendParams";
 import type { request } from "../../tauri";
 
 /**
- * What each project shows, by project key: an agent's id, or `null` for the empty pane ("+", ⇧⌘A). A project not in
+ * What each project shows, by project key: an agent's id, or `null` for the empty pane ("+", ⇧⌘L). A project not in
  * the map has no choice yet and opens on the view's `opens_on`.
  */
 export type ShownAgents = Readonly<Record<string, string | null>>;
@@ -100,7 +100,7 @@ export const PANE_ROUTES: PaneRoutes = {
   focus: paneFocusRequests,
 };
 
-/** A hidden pane (⌘\) shows again; the rest of the layout stays. */
+/** A hidden pane (⌘B) shows again; the rest of the layout stays. */
 export function showPane(routes: PaneRoutes = PANE_ROUTES): void {
   if (routes.layout.get().paneHidden) routes.layout.update((l) => ({ ...l, paneHidden: false }));
 }
@@ -113,7 +113,7 @@ export function focusPane(routes: PaneRoutes = PANE_ROUTES): boolean {
   return true;
 }
 
-/** ⇧⌘A and +: the empty pane, its box focused. Nothing is asked of the service, so nothing starts (d0087). */
+/** ⇧⌘L and +: the empty pane, its box focused. Nothing is asked of the service, so nothing starts (d0087). */
 export function newProjectAgent(routes: PaneRoutes = PANE_ROUTES, starts: Store<StartOn> = startOn): boolean {
   const { project } = routes.selection.get();
   if (project === null) return false;

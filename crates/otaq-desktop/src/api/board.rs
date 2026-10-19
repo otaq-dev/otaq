@@ -15,7 +15,7 @@
 //! never-started ticket, which the card menu, the panel's "…" menu and the Project agent's summary all open.
 //!
 //! T-0270 (EPC-12, EPC-14, EPC-15; d0080): an epic's drag answer counts what it queues ("Queue 2 children"), and a
-//! drop of the epic card, one of its rows or a "not queued" chip (or ⇧⌘D on the epic) sends `epic.queue`, then
+//! drop of the epic card, one of its rows or a "not queued" chip (or ⌘D on the epic) sends `epic.queue`, then
 //! shows the queue toast with its outcome.
 //!
 //! T-0271 (EPC-14; d0080, d0052, d0066): an epic's track dragged by its name onto Backlog takes back: `board.drop`
@@ -40,7 +40,6 @@ use otaq_core::protocol::{
     CloseParams, EpicQueueParams, IdParams, KeyParams, LeadParams, MoveParams, ProjectParams, Reply,
     Request,
 };
-use otaq_view::keymap::Platform;
 use otaq_view::view_models::board_page::{
     self, AgentFilter, BoardPage, DragAnswer, DropOutcome, DropStep, DropTargetId, Params, ProjectFacts,
 };
@@ -236,7 +235,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         },
         &params,
         otaq_core::store::now_ms(),
-        Platform::current(),
+        &super::keymap::labels(app).await,
     );
     // The empty board's Auto-merge line (T-0240) follows the project's settings.
     if let Some(empty) = page.empty.as_mut()
@@ -413,7 +412,7 @@ pub async fn search(app: &App, params: SearchParams) -> Result<SearchView, Reque
         &params.filter,
         &tickets,
         selected.as_ref(),
-        Platform::current(),
+        &super::keymap::labels(app).await,
     ))
 }
 
@@ -446,7 +445,7 @@ pub async fn menu(app: &App, params: TicketParams) -> Result<Vec<MenuItem>, Requ
         &ticket,
         &tickets,
         has_epics,
-        Platform::current(),
+        &super::keymap::labels(app).await,
     ))
 }
 
@@ -937,7 +936,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
-        // T-0274: the epic's menu counts what it queues; ⇧⌘G on a child focuses the epic, which dims the rest.
+        // T-0274: the epic's menu counts what it queues; Focus epic on a child focuses the epic, which dims the rest.
         let items = request(&h.app, "board.menu", json!({ "key": epic })).await.unwrap();
         let labels: Vec<&str> = items
             .as_array()
@@ -1003,7 +1002,7 @@ mod tests {
         };
         assert_eq!(second.column, otaq_core::domain::Column::Backlog, "the other waits");
 
-        // The epic (as ⇧⌘D sends it, on Dev): the rest.
+        // The epic (as ⌘D sends it, on Dev): the rest.
         let outcome = request(&h.app, "board.drop", json!({ "key": epic, "target": "dev" }))
             .await
             .unwrap();

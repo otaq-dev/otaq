@@ -3,6 +3,7 @@
 
 use otaq_core::naming;
 use otaq_core::board::settings::KeyboardSettings;
+use otaq_view::key_labels::KeyLabels;
 use otaq_view::keymap::{
     self, ActionInfo, Binding, CustomKeys, Modifiers, Platform, SequenceHint, TerminalBinding,
 };
@@ -16,17 +17,28 @@ use crate::App;
 
 pub async fn request(app: &App, method: &str, _params: Value) -> Result<Value, RequestError> {
     match method {
-        "keymap.map" => {
-            // The stored custom keys and letters switch (T-0390). Without the service the base map, letters on,
-            // until the page asks again on the reconnect's resync.
-            let keyboard = super::keyboard::global_settings(app)
-                .await
-                .map(|s| s.keyboard)
-                .unwrap_or_default();
-            reply(&Keymap::stored(Platform::current(), &keyboard, key_log()))
-        }
+        "keymap.map" => reply(&Keymap::stored(
+            Platform::current(),
+            &stored_keyboard(app).await,
+            key_log(),
+        )),
         _ => Err(unknown(method)),
     }
+}
+
+/// The stored custom keys and letters switch (T-0390). Without the service the base map, letters on, until the page
+/// asks again on the reconnect's resync.
+async fn stored_keyboard(app: &App) -> KeyboardSettings {
+    super::keyboard::global_settings(app)
+        .await
+        .map(|s| s.keyboard)
+        .unwrap_or_default()
+}
+
+/// The user's keys for a view's labels (KEY-08): every view that names a key builds them here, and the page asks for
+/// it again on `settings_changed`, as for the map.
+pub async fn labels(app: &App) -> KeyLabels {
+    KeyLabels::stored(Platform::current(), &stored_keyboard(app).await)
 }
 
 /// The map on this platform: the user's keys with their actions and where each works, every action's title and

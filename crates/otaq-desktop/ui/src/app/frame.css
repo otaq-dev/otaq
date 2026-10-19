@@ -58,7 +58,7 @@ body {
   min-width: 0;
 }
 
-/* The pane's column: the pane (its width inline), or the 28 px strip while ⌘\ hid it (*18 → Hidden with ⌘\*). */
+/* The pane's column: the pane (its width inline), or the 28 px strip while Hide / show the pane (⌘B) hid it (*18 → Hidden*). */
 .frame-pane {
   grid-area: pane;
   display: flex;
@@ -199,7 +199,7 @@ body {
 /*
  * The panel over the main area's right side (SHL-05, *05 → Row · Ticket open over the board (0086 · V)*): a shadow
  * edge, the board keeps its width underneath. Above the board's chain arrows and legend (fixed, z-index 5 and 6),
- * under the lifted card (30). Expanded (⇧⌘E) it fills the main area, which then takes the pane's room.
+ * under the lifted card (30). Expanded (`e`) it fills the main area, which then takes the pane's room.
  */
 .frame-panel {
   position: absolute;

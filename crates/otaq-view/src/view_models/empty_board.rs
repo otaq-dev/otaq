@@ -7,7 +7,8 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::keymap::{KeyAction, Platform};
+use crate::key_labels::KeyLabels;
+use crate::keymap::KeyAction;
 use crate::shell::ShellRequest;
 
 /// Whether the project's empty board shows instead of the board. New ticket's title field sits at the top of
@@ -90,8 +91,9 @@ pub fn auto_merge_line(value: AutoMerge, inactive: bool) -> String {
     .to_owned()
 }
 
-/// "shop-web is ready" for the project `name`.
-pub fn view(name: &str, platform: Platform) -> View {
+/// "shop-web is ready" for the project `name`. The hints name the user's keys; a hint whose action has no key is left
+/// out (KEY-08).
+pub fn view(name: &str, keys: &KeyLabels) -> View {
     View {
         title: format!("{name} is ready"),
         text: "Tell the Project agent on the left what you want: it reads the code and writes the tickets. Or write the first one yourself."
@@ -105,16 +107,18 @@ pub fn view(name: &str, platform: Platform) -> View {
                 action: KeyAction::NewTicket,
             })
             .collect(),
-        hints: vec![
-            Hint {
-                keys: KeyAction::NewTicket.keys(platform),
-                label: "new ticket",
-            },
-            Hint {
-                keys: KeyAction::FocusPane.keys(platform),
-                label: "ask the Project agent",
-            },
-        ],
+        hints: [
+            (KeyAction::NewTicket, "new ticket"),
+            (KeyAction::FocusPane, "ask the Project agent"),
+        ]
+        .into_iter()
+        .filter_map(|(action, label)| {
+            keys.label(action).map(|keys| Hint {
+                keys: Some(keys),
+                label,
+            })
+        })
+        .collect(),
         auto_merge: None,
     }
 }
@@ -122,6 +126,8 @@ pub fn view(name: &str, platform: Platform) -> View {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::key_labels::fixtures;
+    use crate::keymap::Platform;
 
     #[test]
     fn new_ticket_leaves_the_empty_board_while_its_title_field_is_open() {
@@ -131,8 +137,8 @@ mod tests {
         assert!(!shows(1, true));
     }
 
-    fn hints(platform: Platform) -> Vec<(String, &'static str)> {
-        view("shop-web", platform)
+    fn hints(keys: &KeyLabels) -> Vec<(String, &'static str)> {
+        view("shop-web", keys)
             .hints
             .into_iter()
             .map(|h| (h.keys.unwrap(), h.label))
@@ -143,7 +149,7 @@ mod tests {
     /// text and the ⌘L hint point at the pane; New ticket is the only button.
     #[test]
     fn the_page_view_names_the_project_and_runs_the_shortcuts() {
-        let v = view("shop-web", Platform::Mac);
+        let v = view("shop-web", &fixtures::base());
         assert_eq!(v.title, "shop-web is ready");
         assert_eq!(
             v.text,
@@ -155,7 +161,7 @@ mod tests {
         assert_eq!(labels, ["New ticket"]);
         assert!(v.buttons[0].primary);
         assert_eq!(
-            hints(Platform::Mac),
+            hints(&fixtures::base()),
             [
                 ("⌘N".to_owned(), "new ticket"),
                 ("⌘L".to_owned(), "ask the Project agent")
@@ -166,18 +172,41 @@ mod tests {
     #[test]
     fn the_hints_use_the_platforms_keys() {
         assert_eq!(
-            hints(Platform::WinLinux),
+            hints(&KeyLabels::base(Platform::WinLinux)),
             [
                 ("Ctrl+N".to_owned(), "new ticket"),
                 ("Ctrl+L".to_owned(), "ask the Project agent")
             ]
         );
+    }
+
+    /// KEY-08: the hints name the user's keys; New ticket's ⌘N removed leaves its `c`, and with letters off too the hint
+    /// goes.
+    #[test]
+    fn the_hints_use_the_users_keys() {
         assert_eq!(
-            hints(Platform::WinLinuxTerminal),
+            hints(&fixtures::replaced("focus_pane", None, 0, "⌥L")),
             [
-                ("Ctrl+Shift+N".to_owned(), "new ticket"),
-                ("Ctrl+Shift+L".to_owned(), "ask the Project agent")
+                ("⌘N".to_owned(), "new ticket"),
+                ("⌥L".to_owned(), "ask the Project agent")
             ]
+        );
+        assert_eq!(
+            hints(&fixtures::removed("new_ticket", None, 0)),
+            [
+                ("c".to_owned(), "new ticket"),
+                ("⌘L".to_owned(), "ask the Project agent")
+            ]
+        );
+        assert_eq!(hints(&fixtures::letters_off()), hints(&fixtures::base()));
+        let neither = fixtures::with(false, &[("new_ticket", None, 0, None)]);
+        assert_eq!(
+            hints(&neither),
+            [("⌘L".to_owned(), "ask the Project agent")]
+        );
+        assert_eq!(
+            hints(&fixtures::removed("focus_pane", None, 0)),
+            [("⌘N".to_owned(), "new ticket")]
         );
     }
 

@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
+use crate::key_labels::KeyLabels;
 use crate::keymap::Platform;
 use crate::view_models::approve::{self, ApproveChoice};
 use crate::view_models::board::{
@@ -540,7 +541,7 @@ pub fn page(
     project: &ProjectFacts,
     params: &Params,
     now_ms: i64,
-    platform: Platform,
+    keys: &KeyLabels,
 ) -> BoardPage {
     let filter = params.filter.filter();
     // An `epic:` token dims instead of hiding (Q55).
@@ -579,7 +580,7 @@ pub fn page(
             .map(|s| s.with_done_rail(done_collapsed)),
         columns: built.into_iter().map(|c| column_page(c, tickets)).collect(),
         empty: empty_board::shows(tickets.len(), false)
-            .then(|| empty_board::view(project.name, platform)),
+            .then(|| empty_board::view(project.name, keys)),
         scroll_chip: ScrollChip {
             above: SCROLL_CHIP_ABOVE.to_owned(),
             need_you: SCROLL_CHIP_NEED_YOU.to_owned(),
@@ -908,11 +909,17 @@ pub fn gallery() -> Gallery {
     ];
     let review_of = |name: &str, tickets: &[Ticket]| GalleryColumn {
         name: name.to_owned(),
-        column: page(tickets, &facts, &params, NOW, Platform::Mac)
-            .columns
-            .into_iter()
-            .find(|c| c.id == ColumnId::Review)
-            .expect("the Review column"),
+        column: page(
+            tickets,
+            &facts,
+            &params,
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        )
+        .columns
+        .into_iter()
+        .find(|c| c.id == ColumnId::Review)
+        .expect("the Review column"),
     };
     let drag_of = |t: &Ticket| GalleryDrag {
         from: format!("{} · {}", t.key, t.column.label()),
@@ -942,7 +949,7 @@ pub fn gallery() -> Gallery {
         .iter()
         .map(drag_of)
         .collect(),
-        empty: empty_board::view("shop-web", Platform::Mac),
+        empty: empty_board::view("shop-web", &KeyLabels::base(Platform::Mac)),
         agent_chip: AgentFilter {
             agent: "a1".into(),
             name: "Checkout slowness".into(),
@@ -1019,7 +1026,13 @@ mod tests {
             child("SHOP-45.1", Status::Backlog),
             child("SHOP-45.2", Status::Backlog),
         ];
-        let board = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        let board = page(
+            &tickets,
+            &facts(),
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         let backlog = &board.columns[0];
         assert_eq!(backlog.count, "1");
         let [BoardCard::Epic { card }] = backlog.cards.as_slice() else {
@@ -1034,7 +1047,13 @@ mod tests {
 
         tickets[1].status = Status::Queued;
         tickets[1].column = Column::ReadyForDev;
-        let board = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        let board = page(
+            &tickets,
+            &facts(),
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         assert!(board.columns[0].cards.is_empty());
         assert_eq!(board.columns[0].count, "0");
         let ready: Vec<&str> = board.columns[1].cards.iter().map(BoardCard::key).collect();
@@ -1055,7 +1074,13 @@ mod tests {
         let mut child = ticket("SHOP-45.1", "Search index API", Status::Backlog);
         child.epic = Some("SHOP-45".parse().unwrap());
         let mut tickets = vec![epic, child];
-        let board = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        let board = page(
+            &tickets,
+            &facts(),
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         let [BoardCard::Epic { card }] = board.columns[0].cards.as_slice() else {
             panic!("one epic card")
         };
@@ -1066,7 +1091,13 @@ mod tests {
             leads: &leads,
             ..facts()
         };
-        let board = page(&tickets, &with, &params(1376.), NOW, Platform::Mac);
+        let board = page(
+            &tickets,
+            &with,
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         let [BoardCard::Epic { card }] = board.columns[0].cards.as_slice() else {
             panic!("one epic card")
         };
@@ -1078,7 +1109,13 @@ mod tests {
         tickets[1].status = Status::Queued;
         tickets[1].column = Column::ReadyForDev;
         tickets[1].queued_at = Some(1);
-        let board = page(&tickets, &with, &params(1376.), NOW, Platform::Mac);
+        let board = page(
+            &tickets,
+            &with,
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         let track = &board.strip.expect("a track").tracks[0];
         assert_eq!(track.lead.as_ref().unwrap().short, "checking the plan");
     }
@@ -1098,13 +1135,25 @@ mod tests {
             child("SHOP-45.2", Status::Backlog),
             ticket("SHOP-51", "Fix checkout rounding", Status::Working),
         ];
-        let board = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        let board = page(
+            &tickets,
+            &facts(),
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         assert_eq!(board.strip, None);
 
         tickets[1].status = Status::Queued;
         tickets[1].column = Column::ReadyForDev;
         tickets[1].queued_at = Some(1_000);
-        let board = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        let board = page(
+            &tickets,
+            &facts(),
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         let strip = board.strip.clone().expect("a track");
         assert_eq!(strip.title, "Epics in flight · 1");
         let [track] = strip.tracks.as_slice() else {
@@ -1140,7 +1189,13 @@ mod tests {
     #[test]
     fn five_columns_reach_the_page_worded() {
         let tickets = sample();
-        let page = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        let page = page(
+            &tickets,
+            &facts(),
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         let ids: Vec<ColumnId> = page.columns.iter().map(|c| c.id).collect();
         assert_eq!(ids, ColumnId::ALL);
         let titles: Vec<&str> = page.columns.iter().map(|c| c.title.as_str()).collect();
@@ -1248,7 +1303,13 @@ mod tests {
             child("SHOP-40.5", Status::ClosedNotMerged),
             ticket("SHOP-17", "Add Stripe client", Status::Merged),
         ];
-        let board = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        let board = page(
+            &tickets,
+            &facts(),
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         let done = &board.columns[4];
         assert_eq!(
             done.folds,
@@ -1268,7 +1329,13 @@ mod tests {
         );
         assert_eq!(json["columns"][0]["folds"], serde_json::json!([]));
 
-        let rail = page(&tickets, &facts(), &params(1216.), NOW, Platform::Mac);
+        let rail = page(
+            &tickets,
+            &facts(),
+            &params(1216.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         assert!(rail.columns[4].collapsed);
         assert_eq!(rail.columns[4].count, "3");
     }
@@ -1276,7 +1343,13 @@ mod tests {
     #[test]
     fn done_folds_at_1280_and_the_user_choice_wins() {
         let tickets = sample();
-        let narrow = page(&tickets, &facts(), &params(1216.), NOW, Platform::Mac);
+        let narrow = page(
+            &tickets,
+            &facts(),
+            &params(1216.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         assert!(narrow.columns[4].collapsed);
         assert_eq!(narrow.columns[4].toggle.as_deref(), Some("Expand Done"));
         let opened = page(
@@ -1287,7 +1360,7 @@ mod tests {
                 ..params(1216.)
             },
             NOW,
-            Platform::Mac,
+            &KeyLabels::base(Platform::Mac),
         );
         assert!(!opened.columns[4].collapsed);
     }
@@ -1302,7 +1375,13 @@ mod tests {
             height: 400.,
             ..params(1376.)
         };
-        let folded = page(&tickets, &facts(), &short, NOW, Platform::Mac);
+        let folded = page(
+            &tickets,
+            &facts(),
+            &short,
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         let dev = folded.columns[2].dev.as_ref().unwrap();
         assert!(dev.fold.as_deref().unwrap().ends_with("more · working"));
         let open = page(
@@ -1313,7 +1392,7 @@ mod tests {
                 ..short
             },
             NOW,
-            Platform::Mac,
+            &KeyLabels::base(Platform::Mac),
         );
         assert_eq!(open.columns[2].dev.as_ref().unwrap().fold, None);
     }
@@ -1334,7 +1413,7 @@ mod tests {
                 ..params(1376.)
             },
             NOW,
-            Platform::Mac,
+            &KeyLabels::base(Platform::Mac),
         );
         let dev = &filtered.columns[2];
         let shown: Vec<&str> = dev
@@ -1360,11 +1439,17 @@ mod tests {
             .map(BoardCard::key)
             .collect();
         assert_eq!(review, ["SHOP-18"], "review needs you too");
-        let unfiltered = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        let unfiltered = page(
+            &tickets,
+            &facts(),
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         assert_eq!(unfiltered.columns[2].hidden, None);
     }
 
-    /// EPC-18, Q55: ⇧⌘G on SHOP-40.2 puts `epic:Wishlist` in the filter (another epic's token gives way, other
+    /// EPC-18, Q55: Focus epic (`g` `e`) on SHOP-40.2 puts `epic:Wishlist` in the filter (another epic's token gives way, other
     /// tokens stay); the board then keeps every card, dims the others and says which epic and cards stay; Esc
     /// takes the token out. A standalone ticket focuses nothing.
     #[test]
@@ -1402,7 +1487,7 @@ mod tests {
                 ..params(1376.)
             },
             NOW,
-            Platform::Mac,
+            &KeyLabels::base(Platform::Mac),
         );
         let focus = board.focus.unwrap();
         assert_eq!(focus.epics, ["SHOP-40"]);
@@ -1410,13 +1495,25 @@ mod tests {
         let dev = &board.columns[2];
         assert_eq!(dev.hidden, None, "dimmed, not hidden");
         assert_eq!(dev.count, "1/4");
-        let unfocused = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        let unfocused = page(
+            &tickets,
+            &facts(),
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         assert_eq!(unfocused.focus, None);
     }
 
     #[test]
     fn an_empty_project_shows_the_empty_board_over_its_columns() {
-        let page = page(&[], &facts(), &params(1376.), NOW, Platform::Mac);
+        let page = page(
+            &[],
+            &facts(),
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         let empty = page.empty.unwrap();
         assert_eq!(empty.title, "shop-web is ready");
         assert_eq!(
@@ -1629,7 +1726,13 @@ mod tests {
             child("SHOP-45.2", Status::ReadyForReview),
             child("SHOP-45.3", Status::Working),
         ];
-        let open = page(&tickets, &facts(), &params(1360.), NOW, Platform::Mac);
+        let open = page(
+            &tickets,
+            &facts(),
+            &params(1360.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         assert!(!open.columns[4].collapsed);
         let stations = |p: &BoardPage| -> Vec<(ColumnId, Option<IconName>, usize)> {
             p.strip.as_ref().unwrap().tracks[0]
@@ -1648,7 +1751,13 @@ mod tests {
             ],
             "one Review stop"
         );
-        let folded = page(&tickets, &facts(), &params(1359.), NOW, Platform::Mac);
+        let folded = page(
+            &tickets,
+            &facts(),
+            &params(1359.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         assert!(folded.columns[4].collapsed);
         assert_eq!(
             stations(&folded)[3],
@@ -1662,7 +1771,7 @@ mod tests {
                 ..params(1359.)
             },
             NOW,
-            Platform::Mac,
+            &KeyLabels::base(Platform::Mac),
         );
         assert!(!opened.columns[4].collapsed, "the user's choice wins");
         assert_eq!(stations(&opened)[3].1, None);
@@ -1726,7 +1835,7 @@ mod tests {
                     ..params(1376.)
                 },
                 NOW,
-                Platform::Mac,
+                &KeyLabels::base(Platform::Mac),
             )
         };
         let shown = |p: &BoardPage| -> Vec<String> {
@@ -1987,7 +2096,13 @@ mod tests {
         // What the service's unqueue leaves (d0066).
         tickets[2].status = Status::Backlog;
         tickets[2].column = Column::Backlog;
-        let board = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        let board = page(
+            &tickets,
+            &facts(),
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         assert!(board.columns[0].cards.is_empty(), "no Backlog card");
         let strip = board.strip.expect("the track stays");
         let chips: Vec<&str> = strip.tracks[0]
@@ -2093,7 +2208,13 @@ mod tests {
     fn the_storyboards_reach_the_page() {
         let at = |s18, s19, s20| {
             let tickets = storyboard(s18, s19, s20);
-            page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac)
+            page(
+                &tickets,
+                &facts(),
+                &params(1376.),
+                NOW,
+                &KeyLabels::base(Platform::Mac),
+            )
         };
         // 1 · Planning: the parents on the situation line.
         let planning = at(Status::Backlog, Status::Backlog, Status::Backlog);
@@ -2116,7 +2237,13 @@ mod tests {
         // 5 · PR variant.
         let mut tickets = storyboard(Status::PrOpen, Status::Merged, Status::Queued);
         tickets[1].flags.pr_number = Some(482);
-        let pr = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        let pr = page(
+            &tickets,
+            &facts(),
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
         assert!(card_text(&pr, "SHOP-20").contains("PR #482 open"));
         assert!(card_text(&pr, "SHOP-18").contains("Mark merged"));
         // 6 · Closed parent never counts as merged.

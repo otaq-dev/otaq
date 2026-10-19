@@ -147,7 +147,7 @@ export interface HeaderBarProps {
   view: HeaderView;
   /** Whether the Activity popover is open (the button's outline turns accent). */
   activityOpen?: boolean;
-  /** The search entry opens the board's filter (T-0221's ⌘K handler). */
+  /** The search entry opens the board's filter (Filter the board's handler, KEY-09). */
   onSearch: () => void;
   /** The board's search and filter field (the `header_search` slot, T-0221), drawn in place of the entry. */
   search?: ReactNode;

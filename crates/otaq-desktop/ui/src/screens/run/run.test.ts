@@ -82,7 +82,7 @@ const SHELL: ShellTabView = {
   stopped: { title: "Stopped by restart · was open at 08:24", note: "A restart ended this shell." },
   reopen: "Reopen",
   hint: "Typing goes to the shell, not the agent",
-  leave: { text: "leave terminal", keys: "⇧⌘`" },
+  leave: { text: "leave terminal", keys: "⌃`" },
   terminal_label: "BILL-4 · shell",
 };
 

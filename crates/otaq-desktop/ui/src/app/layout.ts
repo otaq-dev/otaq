@@ -8,6 +8,7 @@ import type { LayoutView } from "../generated/LayoutView";
 import type { MainTab } from "../generated/MainTab";
 import type { SizeClass } from "../generated/SizeClass";
 import type { SizeClassBound } from "../generated/SizeClassBound";
+import { type PageEvents, pageEvents } from "../service";
 import { request } from "../tauri";
 import type { Registries } from "./registry";
 import { createStore, useStore } from "./store";
@@ -17,11 +18,11 @@ export type ClassDrags = Partial<Record<SizeClass, number>>;
 
 export interface ShellLayout {
   tab: MainTab;
-  /** ⌘\ folded the pane to its strip. */
+  /** Hide / show the pane (⌘B) folded the pane to its strip. */
   paneHidden: boolean;
   paneWidths: ClassDrags;
   panelWidths: ClassDrags;
-  /** ⇧⌘E: the panel takes the main area and the pane's room. */
+  /** Expand (`e`): the panel takes the main area and the pane's room. */
   panelExpanded: boolean;
 }
 
@@ -48,11 +49,9 @@ export const mainWidth = createStore<number>(0);
 export const tabCounts = createStore<Partial<Record<MainTab, string>>>({});
 
 let loading = false;
+let following = false;
 
-/** Asks for `layout.view` once. */
-export function loadLayout(): void {
-  if (loading || layoutView.get() !== undefined) return;
-  loading = true;
+function fetchLayout(): void {
   request("layout.view").then(
     (view) => {
       layoutView.set(view as LayoutView);
@@ -62,6 +61,24 @@ export function loadLayout(): void {
       console.error("the layout couldn't load", error);
     },
   );
+}
+
+/**
+ * Asks for `layout.view` once, and again on every `settings_changed`: its strip and tabs name the user's keys
+ * (KEY-08).
+ */
+export function loadLayout(events: PageEvents = pageEvents): void {
+  if (!following) {
+    following = true;
+    events
+      .listen((event) => {
+        if (event.kind === "service" && event.name === "settings_changed") fetchLayout();
+      })
+      .ready.catch(() => undefined);
+  }
+  if (loading || layoutView.get() !== undefined) return;
+  loading = true;
+  fetchLayout();
 }
 
 /** The class of a window `width` px wide: the first in Rust's table it is narrower than (`layout::size_class`). */
@@ -80,7 +97,7 @@ export function clampPane(width: number, view: LayoutView): number {
   return Math.min(Math.max(width, view.pane_min), view.pane_max);
 }
 
-/** What the pane's column shows: the pane, its strip (⌘\), or nothing while an open panel is expanded. */
+/** What the pane's column shows: the pane, its strip (⌘B), or nothing while an open panel is expanded. */
 export function paneShows(layout: ShellLayout, ticketOpen: boolean): "pane" | "strip" | "none" {
   if (layout.panelExpanded && ticketOpen) return "none";
   return layout.paneHidden ? "strip" : "pane";

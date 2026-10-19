@@ -522,7 +522,7 @@ pub fn agent_unsent(title: &str, choice: &Choice) -> AgentUnsent {
     }
 }
 
-fn row(r: &InboxRow, next_keys: &str) -> Row {
+fn row(r: &InboxRow, next_keys: Option<&str>) -> Row {
     let mut buttons: Vec<Button> = r.actions.iter().map(button).collect();
     let validation = |b: &Button| b.action.validation().is_some();
     if let Some(first) = buttons.iter_mut().find(|b| validation(b)) {
@@ -553,7 +553,7 @@ fn row(r: &InboxRow, next_keys: &str) -> Row {
         .map(|o| o.other_number());
     let hint = if r.opens_validator {
         Some(KeyHint {
-            keys: format!("↵ / {next_keys}"),
+            keys: next_keys.map_or_else(|| "↵".to_owned(), |k| format!("↵ / {k}")),
             label: "open Terminal · Validator side".to_owned(),
         })
     } else if r.suggestion.is_some() {
@@ -565,15 +565,13 @@ fn row(r: &InboxRow, next_keys: &str) -> Row {
     } else if r.lead_note.is_some() {
         Some(note_hint("the lead isn\u{2019}t woken a second time"))
     } else if via.is_some() {
+        // Without a key for Next inbox item, the part about it is left out.
+        let opens = next_keys
+            .map(|k| format!(" \u{b7} {k} opens {} with its terminal focused", r.key))
+            .unwrap_or_default();
         Some(note_hint(match picks {
-            Some(n) => format!(
-                "1\u{2013}{n} pick \u{b7} \u{21b5} sends \u{b7} {next_keys} opens {} with its terminal focused",
-                r.key
-            ),
-            None => format!(
-                "\u{21b5} sends \u{b7} {next_keys} opens {} with its terminal focused",
-                r.key
-            ),
+            Some(n) => format!("1\u{2013}{n} pick \u{b7} \u{21b5} sends{opens}"),
+            None => format!("\u{21b5} sends{opens}"),
         }))
     } else {
         None
@@ -641,7 +639,7 @@ pub struct Group {
     pub rows: Vec<Row>,
 }
 
-fn group(g: &InboxGroupView, next_keys: &str) -> Group {
+fn group(g: &InboxGroupView, next_keys: Option<&str>) -> Group {
     Group {
         id: match g.group {
             NeedsYouGroup::Family => GroupId::Family,
@@ -739,7 +737,7 @@ pub fn view(
     total: u32,
     limits: &[ToolLimit],
     running: u32,
-    next_keys: &str,
+    next_keys: Option<&str>,
 ) -> View {
     let mut drawn: Vec<Group> = groups.iter().map(|g| group(g, next_keys)).collect();
     if !agents.is_empty() {
@@ -778,27 +776,30 @@ pub fn view(
         total,
         scope: "· all projects",
         next: (total > 0).then(|| KeyHint {
-            keys: next_keys.to_owned(),
+            keys: next_keys.unwrap_or_default().to_owned(),
             label: "Next".to_owned(),
         }),
         limits: limits.iter().map(LimitRow::of).collect(),
         foot: if drawn.is_empty() {
             Vec::new()
         } else {
-            vec![
-                KeyHint {
+            [
+                Some(KeyHint {
                     keys: "↑↓".to_owned(),
                     label: "move".to_owned(),
-                },
-                KeyHint {
+                }),
+                Some(KeyHint {
                     keys: "↵".to_owned(),
                     label: "open".to_owned(),
-                },
-                KeyHint {
-                    keys: next_keys.to_owned(),
+                }),
+                next_keys.map(|k| KeyHint {
+                    keys: k.to_owned(),
                     label: "next item".to_owned(),
-                },
+                }),
             ]
+            .into_iter()
+            .flatten()
+            .collect()
         },
         groups: drawn,
         empty,
@@ -839,7 +840,7 @@ pub struct RunBarView {
 }
 
 /// The bar while the run is on a step or answered; `None` for "All clear" (drawn over the board instead).
-pub fn run_bar(bar: &RunBar, next_keys: &str) -> Option<RunBarView> {
+pub fn run_bar(bar: &RunBar, next_keys: Option<&str>) -> Option<RunBarView> {
     let segments = |of: usize, done: usize, current: Option<usize>| {
         (0..of.min(24))
             .map(|i| {
@@ -859,7 +860,7 @@ pub fn run_bar(bar: &RunBar, next_keys: &str) -> Option<RunBarView> {
             title: bar_title(bar),
             segments: segments(*of, *done, Some(n - 1)),
             next: KeyHint {
-                keys: next_keys.to_owned(),
+                keys: next_keys.unwrap_or_default().to_owned(),
                 label: "Next".to_owned(),
             },
             exit: Some("Exit"),
@@ -869,7 +870,7 @@ pub fn run_bar(bar: &RunBar, next_keys: &str) -> Option<RunBarView> {
             title: bar_title(bar),
             segments: segments(*of, of - left, None),
             next: KeyHint {
-                keys: next_keys.to_owned(),
+                keys: next_keys.unwrap_or_default().to_owned(),
                 label: "next:".to_owned(),
             },
             exit: None,
@@ -1065,7 +1066,7 @@ pub fn lead_gallery() -> LeadGallery {
             4,
             &[],
             3,
-            "\u{2318}J",
+            Some("\u{2318}J"),
         ),
         suggested,
     }
@@ -1131,7 +1132,7 @@ pub fn notes_gallery() -> View {
         2,
         &[],
         1,
-        "\u{2318}J",
+        Some("\u{2318}J"),
     )
 }
 
@@ -1237,7 +1238,7 @@ mod tests {
             3,
             &[],
             3,
-            "⌘J",
+            Some("⌘J"),
         );
         let g = &v.groups[0];
         assert_eq!(g.count, 3);
@@ -1265,7 +1266,7 @@ mod tests {
         assert_eq!(v.foot.len(), 3);
 
         // Only Project agents waiting: group 1 is there with them, the inbox isn't empty.
-        let v = view(&[], &agents[1..], &|_| None, 1_000, 1, &[], 0, "⌘J");
+        let v = view(&[], &agents[1..], &|_| None, 1_000, 1, &[], 0, Some("⌘J"));
         assert_eq!(v.groups.len(), 1);
         assert_eq!(v.groups[0].id, GroupId::Family);
         assert_eq!(v.groups[0].count, 1);
@@ -1303,7 +1304,16 @@ mod tests {
             item("SHOP-25", Status::Interrupted, NeedsYouGroup::Stopped),
             item("SHOP-28", Status::StartInterrupted, NeedsYouGroup::Stopped),
         ]);
-        let v = view(&m.groups(&|_| None), &[], &|_| None, 0, 3, &[], 3, "⌘J");
+        let v = view(
+            &m.groups(&|_| None),
+            &[],
+            &|_| None,
+            0,
+            3,
+            &[],
+            3,
+            Some("⌘J"),
+        );
         assert_eq!(v.title, "Inbox");
         assert_eq!(v.next.as_ref().unwrap().label, "Next");
         assert_eq!(v.groups.len(), 2);
@@ -1326,6 +1336,45 @@ mod tests {
         assert_eq!(v.empty, None);
     }
 
+    /// KEY-08: Next, the foot and the validator's hint name the user's key for Next inbox item; with none (Activity
+    /// took ⌘J), Next shows no chip, the foot has no "next item" and the hint is "↵" alone.
+    #[test]
+    fn the_inbox_names_the_users_next_key() {
+        let m = model(vec![item(
+            "SHOP-33",
+            Status::ValidatorNeedsYou,
+            NeedsYouGroup::Family,
+        )]);
+        let v = view(
+            &m.groups(&|_| None),
+            &[],
+            &|_| None,
+            0,
+            1,
+            &[],
+            3,
+            Some("⇧⌘J"),
+        );
+        assert_eq!(v.next.unwrap().keys, "⇧⌘J");
+        assert_eq!(v.foot[2].keys, "⇧⌘J");
+        assert_eq!(v.groups[0].rows[0].hint.as_ref().unwrap().keys, "↵ / ⇧⌘J");
+        let v = view(&m.groups(&|_| None), &[], &|_| None, 0, 1, &[], 3, None);
+        assert_eq!(v.next.unwrap().keys, "");
+        let foot: Vec<&str> = v.foot.iter().map(|h| h.label.as_str()).collect();
+        assert_eq!(foot, ["move", "open"]);
+        assert_eq!(v.groups[0].rows[0].hint.as_ref().unwrap().keys, "↵");
+        let bar = run_bar(
+            &RunBar::Step {
+                n: 2,
+                of: 7,
+                done: 1,
+            },
+            None,
+        )
+        .unwrap();
+        assert_eq!(bar.next.keys, "");
+    }
+
     /// *10 → New item types · group 1 (M12)*: the group heading, each item's buttons (the first one filled), the
     /// validator's "↵ / ⌘J open Terminal · Validator side", Answer the agent…'s note box, and "validated · round 2"
     /// on a review item (the service's reason).
@@ -1340,7 +1389,16 @@ mod tests {
             item("SHOP-40.4", Status::AutoMergeStopped, NeedsYouGroup::Family),
             review,
         ]);
-        let v = view(&m.groups(&|_| None), &[], &|_| None, 0, 5, &[], 3, "⌘J");
+        let v = view(
+            &m.groups(&|_| None),
+            &[],
+            &|_| None,
+            0,
+            5,
+            &[],
+            3,
+            Some("⌘J"),
+        );
         assert_eq!(
             v.groups[0].title,
             "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS"
@@ -1416,7 +1474,7 @@ mod tests {
 
     #[test]
     fn an_empty_inbox_says_what_happens_next() {
-        let v = view(&[], &[], &|_| None, 0, 0, &[], 1, "⌘J");
+        let v = view(&[], &[], &|_| None, 0, 0, &[], 1, Some("⌘J"));
         assert_eq!(v.next, None);
         assert!(v.foot.is_empty());
         let empty = v.empty.unwrap();
@@ -1458,7 +1516,7 @@ mod tests {
                 of: 7,
                 done: 1,
             },
-            "⌘J",
+            Some("⌘J"),
         )
         .unwrap();
         assert_eq!(step.title, "Inbox · 2 of 7");
@@ -1466,7 +1524,7 @@ mod tests {
         assert_eq!(step.segments[1], Segment::Current);
         assert_eq!(step.segments[2], Segment::Waiting);
         assert_eq!(step.exit, Some("Exit"));
-        let done = run_bar(&RunBar::Done { left: 6, of: 7 }, "⌘J").unwrap();
+        let done = run_bar(&RunBar::Done { left: 6, of: 7 }, Some("⌘J")).unwrap();
         assert_eq!(done.title, "Done · 6 left");
         assert_eq!(done.tone, RunTone::Done);
         assert_eq!(
@@ -1482,7 +1540,7 @@ mod tests {
                     handled: 7,
                     minutes: 14
                 },
-                "⌘J"
+                Some("⌘J")
             ),
             None
         );
@@ -1577,7 +1635,7 @@ mod tests {
             4,
             &[],
             3,
-            "⌘J",
+            Some("⌘J"),
         );
         let titles: Vec<(GroupId, &str, u32)> =
             v.groups.iter().map(|g| (g.id, g.title, g.count)).collect();
@@ -1875,7 +1933,7 @@ mod tests {
                 button: Some(&sign_in),
             },
         ];
-        let v = view(&[], &[], &|_| None, 0, 0, &limits, 3, "\u{2318}J");
+        let v = view(&[], &[], &|_| None, 0, 0, &limits, 3, Some("\u{2318}J"));
         let rows: Vec<(AvatarTool, &str, Option<&str>)> = v
             .limits
             .iter()
@@ -1899,7 +1957,7 @@ mod tests {
             "each row's Resume is its own tool's"
         );
         assert!(
-            view(&[], &[], &|_| None, 0, 0, &[], 3, "\u{2318}J")
+            view(&[], &[], &|_| None, 0, 0, &[], 3, Some("\u{2318}J"))
                 .limits
                 .is_empty()
         );

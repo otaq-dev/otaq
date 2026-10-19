@@ -67,7 +67,7 @@ const tab = (t: PanelTab, label: string, n: number) => ({
   tab: t,
   label,
   icon: "file-text" as const,
-  keys: `⌘⌥${String(n)}`,
+  keys: String(n),
   mark: null,
 });
 
@@ -96,8 +96,8 @@ const VIEW: PanelView = {
   next: "SHOP-20",
   previous_hint: hint("Previous ticket", "⌘["),
   next_hint: hint("Next ticket", "⌘]"),
-  expand_hint: hint("Expand", "⇧⌘E"),
-  collapse_hint: hint("Back to the board", "⇧⌘E"),
+  expand_hint: hint("Expand", "e"),
+  collapse_hint: hint("Back to the board", "e"),
   close_hint: hint("Close", "Esc"),
   more_hint: "More",
   resize_hint: "Panel width",
@@ -192,7 +192,7 @@ describe("an epic's tabs (T-0290, d0083)", () => {
     expect(shownTab(["terminal", "diff"], "terminal")).toBe("terminal");
   });
 
-  it("numbers ⌘⌥N in the shown order", () => {
+  it("numbers the tabs in the shown order", () => {
     expect(numberedTab(EPIC, 2)).toBe("lead");
     expect(numberedTab(EPIC, 4)).toBeUndefined();
     expect(numberedTab(EPIC, 0)).toBeUndefined();
