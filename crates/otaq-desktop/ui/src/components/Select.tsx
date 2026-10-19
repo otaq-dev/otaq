@@ -4,8 +4,12 @@ import { useRef, useState } from "react";
 
 import type { IconName } from "../generated/IconName";
 import type { MenuItem } from "../generated/MenuItem";
+import type { MenuSearch } from "../generated/MenuSearch";
 import { Icon } from "../theme/Icon";
 import { AnchoredMenu } from "./Menu";
+
+/** The narrowest a searchable list opens. */
+const SEARCH_WIDTH = 260;
 
 export interface SelectProps {
   id?: string;
@@ -21,9 +25,22 @@ export interface SelectProps {
   disabled?: boolean;
   items: readonly MenuItem[];
   onChange: (id: string) => void;
+  /** A search field on top of the list that filters it. */
+  search?: MenuSearch;
 }
 
-export function Select({ id, label, value, icon, mono, trailing, disabled, items, onChange }: SelectProps) {
+export function Select({
+  id,
+  label,
+  value,
+  icon,
+  mono,
+  trailing,
+  disabled,
+  items,
+  onChange,
+  search,
+}: SelectProps) {
   const button = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   // The list is as wide as the button, measured when it opens.
@@ -61,7 +78,9 @@ export function Select({ id, label, value, icon, mono, trailing, disabled, items
           label={label ?? value}
           list
           items={items}
-          width={width}
+          // A searched list (branch names) gets room for long names even under a narrow button.
+          width={search ? Math.max(width ?? 0, SEARCH_WIDTH) : width}
+          {...(search ? { search } : {})}
           onChoose={onChange}
           onClose={(how) => {
             setOpen(false);

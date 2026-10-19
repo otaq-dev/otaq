@@ -18,6 +18,8 @@ use crate::shell::tilde;
 use crate::view_models::add_project::AddProjectModel;
 use crate::view_models::agent_tools_page::{self, Place};
 use crate::view_models::banners::{self, BannerModel, BannerView, TrustFailure};
+use crate::view_models::editor_fields::branch_items;
+use crate::view_models::menu::{MenuItem, MenuSearch};
 use crate::view_models::onboarding::{OnboardingModel, RowIcon, STEPS, Step};
 
 /// An onboarding step as the page names it.
@@ -393,19 +395,22 @@ pub struct KeyField {
     pub error: Option<String>,
 }
 
-/// The base-branch field: the detected branch, editable before adding (PRJ-03).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+/// The base-branch field: the detected branch, changed before adding by picking another of the repository's local
+/// or remote branches from a searchable dropdown (PRJ-03).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "AddProjectBase")]
 pub struct BaseField {
     pub icon: IconName,
     pub label: String,
     pub value: String,
-    pub placeholder: String,
+    /// The dropdown's rows: LOCAL, then REMOTE branches, the current one checked.
+    pub items: Vec<MenuItem>,
+    pub search: MenuSearch,
 }
 
 /// The Add project form: the onboarding card (*3 · Add project · valid*, *Not a git repo*, *Already added*) and the
 /// dialog of a later project (*Adding a second project later*).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "AddProjectView")]
 pub struct AddProjectPage {
     pub first_run: bool,
@@ -500,11 +505,12 @@ pub fn add_project(
             label: "Name".to_owned(),
             value: p.name.clone(),
         }),
-        base: probe.map(|_| BaseField {
+        base: probe.map(|p| BaseField {
             icon: IconName::GitBranch,
             label: "Base branch".to_owned(),
             value: model.base_branch.clone(),
-            placeholder: "main".to_owned(),
+            items: branch_items(&p.branches.local, &p.branches.remote, &model.base_branch),
+            search: MenuSearch::branches(),
         }),
         key: probe.map(|_| KeyField {
             label: "Project key".to_owned(),
@@ -530,7 +536,7 @@ pub fn add_project(
 }
 
 /// One form of the folder trust gallery.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "TrustFormCell")]
 pub struct TrustFormCell {
     pub name: String,
@@ -548,7 +554,7 @@ pub struct TrustBannerCell {
 /// The folder trust in the component gallery (T-0306; *14 → step 4*, *11 → 4c*): the form with the line (onboarding
 /// card and dialog), the form after a failed trust, the note and the failed warning for one and two projects, and
 /// the warning and the note around the permission warning.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "TrustGallery")]
 pub struct TrustGallery {
     pub forms: Vec<TrustFormCell>,
@@ -557,7 +563,7 @@ pub struct TrustGallery {
 
 pub fn trust_gallery() -> TrustGallery {
     use otaq_core::agent_tools::claude::trust::TrustError;
-    use otaq_core::board::projects::FolderProbe;
+    use otaq_core::board::projects::{Branches, FolderProbe};
     let [claude, codex, copilot, _] = super::agent_tools_page::fixtures::tools();
     let picked = || {
         let mut m = AddProjectModel {
@@ -571,6 +577,7 @@ pub fn trust_gallery() -> TrustGallery {
                 name: "pocket-notes".into(),
                 suggested_key: "NOTE".into(),
                 base_branch: "main".into(),
+                branches: Branches::default(),
             }),
             &[],
             Platform::current(),
@@ -799,7 +806,7 @@ pub fn texts(platform: Platform) -> Texts {
 
 #[cfg(test)]
 mod tests {
-    use otaq_core::board::projects::FolderProbe;
+    use otaq_core::board::projects::{Branches, FolderProbe};
     use otaq_core::tools::{PermissionCheck, PermissionVerdict, Tool, ToolStatus, ToolsReport};
 
     use super::*;
@@ -1018,6 +1025,10 @@ mod tests {
             name: "shop-web".into(),
             suggested_key: "SHOP".into(),
             base_branch: "main".into(),
+            branches: Branches {
+                local: vec!["main".into(), "release/2.3".into()],
+                remote: vec!["origin/main".into(), "origin/next".into()],
+            },
         }
     }
 
@@ -1035,7 +1046,24 @@ mod tests {
         let valid = add_project(&m, &[], true);
         assert_eq!(valid.folder_look, FolderLook::Valid);
         assert_eq!(valid.name.unwrap().value, "shop-web");
-        assert_eq!(valid.base.unwrap().value, "main");
+        let base = valid.base.unwrap();
+        assert_eq!(base.value, "main");
+        let rows: Vec<_> = base
+            .items
+            .iter()
+            .map(|i| (i.label.as_str(), i.checked))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("LOCAL", false),
+                ("main", true),
+                ("release/2.3", false),
+                ("REMOTE", false),
+                ("next", false)
+            ],
+            "local and remote branches, the detected one checked"
+        );
         let key = valid.key.unwrap();
         assert_eq!(key.value, "SHOP");
         assert_eq!(

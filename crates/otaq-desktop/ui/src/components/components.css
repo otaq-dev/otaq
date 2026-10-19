@@ -636,6 +636,42 @@
   padding: 12px;
 }
 
+.menu-search {
+  position: sticky;
+  top: -4px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -4px -4px 4px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text-muted);
+}
+
+.menu-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font: 400 12px var(--font-ui);
+  outline: none;
+}
+
+.menu-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.menu-empty {
+  padding: 6px 8px;
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+}
+
 .menu-separator {
   height: 1px;
   margin: 4px 0;

@@ -1,13 +1,16 @@
 // Menus (*01 · Components → Overlays & feedback → Context menu*) and dropdown lists: the rows come from Rust
 // (`MenuItem`, e.g. `priority.rs`'s `menu_items`), with an icon, a label, a shortcut, a danger tone, a disabled
 // state with a hint, separators and group headers. The menu takes focus when it opens: ↑/↓ move (skipping headers
-// and disabled rows, wrapping), Home/End jump, ↵ or Space chooses, Esc, Tab or a click outside closes.
-import { type CSSProperties, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+// and disabled rows, wrapping), Home/End jump, ↵ or Space chooses, Esc, Tab or a click outside closes. A list with
+// `search` (the base-branch dropdowns) puts a search field on top that takes focus and filters the rows as you type;
+// ↑/↓ and ↵ still work from the field.
+import { type CSSProperties, type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import type { MenuItem } from "../generated/MenuItem";
+import type { MenuSearch } from "../generated/MenuSearch";
 import { Icon } from "../theme/Icon";
 import { type Anchor, useFloatingStyle } from "./Floating";
-import { chooseMenu, menuKey, selectable } from "./logic";
+import { chooseMenu, filterMenu, firstMatch, menuKey, searchKey, selectable } from "./logic";
 
 export type MenuClose = "key" | "outside";
 
@@ -25,16 +28,38 @@ export interface MenuProps {
   list?: boolean;
   width?: number;
   style?: CSSProperties;
+  /** A search field on top that filters the rows. */
+  search?: MenuSearch;
 }
 
 /** The menu panel itself, where its owner puts it. Most owners want `AnchoredMenu`. */
-export function Menu({ label, items, onChoose, onClose, list = false, width = 260, style }: MenuProps) {
+export function Menu({
+  label,
+  items: all,
+  onChoose,
+  onClose,
+  list = false,
+  width = 260,
+  style,
+  search,
+}: MenuProps) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
-  const [highlighted, setHighlighted] = useState<number | null>(null);
+  const field = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
+  const items = useMemo(() => (search ? filterMenu(all, query) : all), [all, query, search]);
+  // A search list opens on the current row, and moves to the first match as the query changes.
+  const [highlighted, setHighlighted] = useState<number | null>(() => (search ? firstMatch(all) : null));
   useEffect(() => {
-    root.current?.focus();
+    (field.current ?? root.current)?.focus();
   }, []);
+  const row = (n: number) => `${id}-${String(n)}`;
+  /** Highlights row `index`, scrolled into sight in a long list. */
+  const highlight = (index: number | null) => {
+    setHighlighted(index);
+    const el = index === null ? null : document.getElementById(row(index));
+    if (el && "scrollIntoView" in el) el.scrollIntoView({ block: "nearest" });
+  };
   const choose = (index: number | null) => {
     const chosen = chooseMenu(items, index);
     if (chosen === null) return;
@@ -42,10 +67,10 @@ export function Menu({ label, items, onChoose, onClose, list = false, width = 26
     onClose("key");
   };
   const onKeyDown = (e: KeyboardEvent) => {
-    const result = menuKey(items, highlighted, e.key);
+    const result = (search ? searchKey : menuKey)(items, highlighted, e.key);
     switch (result.kind) {
       case "highlight":
-        setHighlighted(result.index);
+        highlight(result.index);
         break;
       case "choose":
         onChoose(result.id);
@@ -55,12 +80,13 @@ export function Menu({ label, items, onChoose, onClose, list = false, width = 26
         onClose("key");
         break;
       case "none":
+        // ↵ in the search field with no match stays in the list (a form around it must not submit).
+        if (search && e.key === "Enter") break;
         return;
     }
     e.preventDefault();
     e.stopPropagation();
   };
-  const row = (n: number) => `${id}-${String(n)}`;
   return (
     <div
       ref={root}
@@ -75,6 +101,25 @@ export function Menu({ label, items, onChoose, onClose, list = false, width = 26
         if (!e.currentTarget.contains(e.relatedTarget)) onClose("outside");
       }}
     >
+      {search && (
+        <div className="menu-search">
+          <Icon name="search" size={13} />
+          <input
+            ref={field}
+            className="menu-search-input"
+            type="text"
+            value={query}
+            placeholder={search.placeholder}
+            aria-label={search.placeholder}
+            spellCheck={false}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setHighlighted(firstMatch(filterMenu(all, e.target.value)));
+            }}
+          />
+        </div>
+      )}
+      {search && items.length === 0 && <div className="menu-empty">{search.empty}</div>}
       {items.map((item, i) => {
         const separator = item.separated && i > 0 && <div role="separator" className="menu-separator" />;
         if (item.header) {
@@ -140,6 +185,21 @@ export function AnchoredMenu({ anchor, align, ...menu }: AnchoredMenuProps) {
   const style = useFloatingStyle(anchor, floating, align, () => {
     menu.onClose("outside");
   });
+  // A press outside the menu (and outside its trigger, whose own click toggles) closes it. Focus leaving it does too,
+  // but a press on something that takes no focus doesn't always move focus in the webview.
+  const { onClose } = menu;
+  useEffect(() => {
+    const onPress = (e: PointerEvent) => {
+      const target = e.target as Node | null;
+      const trigger = "current" in anchor ? anchor.current : null;
+      if (floating.current?.contains(target) || trigger?.contains(target)) return;
+      onClose("outside");
+    };
+    document.addEventListener("pointerdown", onPress);
+    return () => {
+      document.removeEventListener("pointerdown", onPress);
+    };
+  }, [anchor, onClose]);
   return (
     <div ref={floating} className="floating" style={style}>
       <Menu {...menu} />

@@ -146,7 +146,7 @@ async fn form(
 /// The answer to `onboarding.add`: the new project's key, or the form with the reason under the key or the form.
 /// When the project was added but a tool's trust wasn't recorded, the form says which and why, and the page waits
 /// for its Continue before going on as after `Added` (PRJ-07).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "AddProjectOutcome")]
 pub enum AddOutcome {

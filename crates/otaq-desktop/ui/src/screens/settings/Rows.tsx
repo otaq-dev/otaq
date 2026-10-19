@@ -473,6 +473,7 @@ function Branch({ control }: { control: Of<"branch"> }) {
           items={items}
           list
           width={280}
+          search={control.search}
           onChoose={(id) => {
             edit("base_branch", id);
           }}

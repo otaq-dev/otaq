@@ -62,6 +62,7 @@ use crate::view_models::cleanup::{ConfirmLine, WarmConfirmPage};
 use crate::view_models::limits::{
     BACK_PRESSURE_ITEMS, MAX_AGENTS, right_now, settings_rows, toggled,
 };
+use crate::view_models::menu::MenuSearch;
 use crate::view_models::named_agents;
 use crate::view_models::onboarding::{OnboardingModel, RowIcon};
 use crate::view_models::settings::{
@@ -422,6 +423,8 @@ pub enum Control {
     /// The base branch: a dropdown of the repository's branches (`settings.branches`).
     Branch {
         value: String,
+        /// The dropdown's search field.
+        search: MenuSearch,
     },
     /// The 15 themes (`theme.picker`, `theme.pick`).
     Themes,
@@ -1706,6 +1709,7 @@ pub fn project_page(input: &ProjectInputs) -> Page {
                 "Prefilled from the remote’s default branch (origin/HEAD); editable. Tickets and epics branch from here, and Local merge squashes into it.",
                 Control::Branch {
                     value: info.base_branch.clone(),
+                    search: MenuSearch::branches(),
                 },
             ),
         ],

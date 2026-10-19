@@ -89,6 +89,24 @@ impl MenuItem {
     }
 }
 
+/// A dropdown list with a search field on top (the base-branch dropdowns): the field's placeholder and the line
+/// shown when nothing matches.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct MenuSearch {
+    pub placeholder: String,
+    pub empty: String,
+}
+
+impl MenuSearch {
+    /// The base-branch dropdowns' search (Add project, Settings, the editor).
+    pub fn branches() -> Self {
+        Self {
+            placeholder: "Search branches\u{2026}".to_owned(),
+            empty: "No matching branches".to_owned(),
+        }
+    }
+}
+
 /// A menu's items and its highlighted row.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct MenuModel {

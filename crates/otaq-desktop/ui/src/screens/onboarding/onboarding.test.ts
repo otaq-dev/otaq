@@ -14,6 +14,7 @@ import { onboarding, openOnboardingWhenNeeded } from ".";
 import {
   adoptKey,
   afterTools,
+  baseLabel,
   baseText,
   finishOnboarding,
   keyText,
@@ -304,6 +305,18 @@ describe("the Add project form", () => {
     expect(keyText(typed, view("SHOP"))).toBe("sh");
     expect(baseText(form, view("SHOP", "develop"))).toBe("develop");
     expect(baseText(typeBase(form, ""), view("SHOP", "develop"))).toBe("");
+  });
+
+  it("shows a picked remote branch by its short name", () => {
+    const row = (id: string, label: string) => ({ id, label, header: false });
+    const withItems = {
+      key: { value: "SHOP" },
+      base: { value: "main", items: [row("main", "main"), row("origin/next", "next")] },
+    } as unknown as AddProjectView;
+    const form = newForm(true, "/code/shop-web");
+    expect(baseLabel(form, withItems)).toBe("main");
+    expect(baseLabel(typeBase(form, "origin/next"), withItems)).toBe("next");
+    expect(baseLabel(typeBase(form, "gone"), withItems)).toBe("gone");
   });
 
   it("takes Rust's spelling of the key, unless the user typed on meanwhile", () => {

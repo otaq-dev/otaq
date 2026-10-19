@@ -55,6 +55,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::status::PillView::export_all(&cfg)?;
     otaq_view::view_models::priority::PriorityView::export_all(&cfg)?;
     otaq_view::view_models::menu::MenuItem::export_all(&cfg)?;
+    otaq_view::view_models::menu::MenuSearch::export_all(&cfg)?;
     // Also writes the legend, keyboard-map, type-scale and icon rows it is made of.
     otaq_view::view_models::gallery::GalleryView::export_all(&cfg)?;
     // The header, rail and quick switcher (T-0219); each also writes the view-model types it is made of.
