@@ -415,7 +415,7 @@ pub fn view_of(
         },
         leave: Tooltip {
             text: "leave terminal".to_owned(),
-            keys: KeyAction::LeaveTerminal.keys(Platform::current()),
+            keys: KeyAction::Terminals.keys(Platform::current()),
         },
         smaller: "Smaller text",
         bigger: "Larger text",

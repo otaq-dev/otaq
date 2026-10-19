@@ -67,7 +67,7 @@ export interface RailActions {
 
 export function railActions(app: Registries): RailActions {
   return {
-    onTerminals: () => app.shortcuts.run({ action: "project_terminal" }),
+    onTerminals: () => app.shortcuts.run({ action: "terminals" }),
     onSettings: () => app.shortcuts.run({ action: "settings" }),
   };
 }

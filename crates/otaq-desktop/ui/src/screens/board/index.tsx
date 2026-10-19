@@ -18,8 +18,8 @@ export const board: Screen = (app) => {
   app.shortcuts.on("new_ticket", () => {
     openOverlay("new_ticket");
   });
-  // ⌘K: the field takes the keyboard (only while a project is shown).
-  app.shortcuts.on("search", () => {
+  // `/` (Filter the board, d0097): the field takes the keyboard (only while a project is shown).
+  app.shortcuts.on("filter_board", () => {
     if (selection.get().project === null) return false;
     requestSearchFocus();
     return true;

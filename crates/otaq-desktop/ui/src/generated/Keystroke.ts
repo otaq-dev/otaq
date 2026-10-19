@@ -2,12 +2,12 @@
 import type { KeyModifiers } from "./KeyModifiers";
 
 /**
- * One shortcut as the page matches it against a key event (T-0215). `Keystroke` on the page.
+ * One modifier key as the page matches it against a key event (T-0215). `Keystroke` on the page.
  */
 export type Keystroke = { 
 /**
  * The key as the web's `KeyboardEvent.key` names it: a lowercase letter, a digit or a sign (`k`, `1`, `[`), or a
- * named key (`Enter`, `Backspace`, `Escape`).
+ * named key (`Enter`, `Backspace`, `Escape`, `Tab`).
  */
 key: string, 
 /**

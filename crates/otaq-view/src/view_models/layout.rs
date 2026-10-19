@@ -258,7 +258,7 @@ mod tests {
             mac.tabs.iter().map(|t| t.label).collect::<Vec<_>>(),
             ["Board", "Files"]
         );
-        assert_eq!(mac.pane_keys.as_deref(), Some("\u{2318}\\"));
+        assert_eq!(mac.pane_keys.as_deref(), Some("\u{2318}B"));
         assert_eq!(
             view_for(Platform::WinLinux, true).tab_keys,
             "Ctrl+Shift+B \u{b7} Ctrl+Shift+O"

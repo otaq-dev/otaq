@@ -6,7 +6,7 @@
 //!
 //! On an epic, its card or its track (EPC-12, EPC-14, EPC-17, EPC-18; d0080; *03 → Note · Interactions (0080) →
 //! Right-click*): Open epic · Queue never-started (n) / Unqueue never-started (n) · Add ticket to epic · Focus
-//! (⇧⌘G) · Pin epic / Unpin, then the existing items (the Priority group, Delete…, Close epic…). Queue and Unqueue
+//! (g e) · Pin epic / Unpin, then the existing items (the Priority group, Delete…, Close epic…). Queue and Unqueue
 //! are the drags they stand for (a drop on Ready for Dev, on Backlog), so they show the queue toast and, when every
 //! child started, the Park-all confirmation.
 
@@ -161,7 +161,7 @@ pub enum Choice {
     TakeBackEpic,
     /// Add ticket to epic: the New ticket dialog under the epic.
     AddToEpic,
-    /// Focus: the epic's filter (EPC-18), as ⇧⌘G.
+    /// Focus: the epic's filter (EPC-18), as g e.
     FocusEpic,
     /// Not an item of this menu.
     Nothing,
@@ -390,12 +390,12 @@ mod tests {
             ]
         );
         let focus = &items(&card[0], &card, false, Platform::Mac)[3];
-        assert_eq!(focus.shortcut.as_deref(), Some("⇧⌘G"));
+        assert_eq!(focus.shortcut.as_deref(), Some("g e"));
         assert_eq!(
             items(&card[0], &card, false, Platform::WinLinux)[3]
                 .shortcut
                 .as_deref(),
-            Some("Ctrl+Shift+G")
+            Some("g e")
         );
         // The track: 40.1 runs, 40.2 waits, 40.3 not queued.
         let mut track = wishlist([Status::Working, Status::Queued, Status::Backlog]);

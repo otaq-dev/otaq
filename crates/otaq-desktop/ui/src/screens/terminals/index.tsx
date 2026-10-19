@@ -35,7 +35,7 @@ export function openTerminals(): boolean {
 
 export const terminals: Screen = (app) => {
   app.overlays.register("terminals", { Component: TerminalsDrawer });
-  app.shortcuts.on("project_terminal", () => {
+  app.shortcuts.on("terminals", () => {
     if (selection.get().project !== null && drawerOpen()) {
       closeOverlay("terminals");
       return true;

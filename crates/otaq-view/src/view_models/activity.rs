@@ -413,7 +413,7 @@ pub struct Processes {
     pub list: ProcessesView,
 }
 
-/// The popover's last line: "Open Terminals ⇧⌘T".
+/// The popover's last line: "Open Terminals ⌃`".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ActivityLink")]
 pub struct Link {
@@ -512,7 +512,7 @@ pub fn popover(inputs: &Inputs<'_>, platform: Platform) -> Popover {
         processes,
         open_terminals: Link {
             label: "Open Terminals",
-            keys: KeyAction::ProjectTerminal.keys(platform),
+            keys: KeyAction::Terminals.keys(platform),
         },
     }
 }
@@ -1031,7 +1031,7 @@ mod tests {
         assert_eq!(processes.list.rows[0].open.as_deref(), Some("Open :4020"));
         assert_eq!(processes.list.stop_all, "Stop all");
         assert_eq!(p.open_terminals.label, "Open Terminals");
-        assert_eq!(p.open_terminals.keys.as_deref(), Some("⇧⌘T"));
+        assert_eq!(p.open_terminals.keys.as_deref(), Some("⌃`"));
     }
 
     #[test]

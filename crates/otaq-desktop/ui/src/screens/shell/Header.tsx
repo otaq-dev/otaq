@@ -218,7 +218,7 @@ export function ShellHeader() {
       activityOpen={activityOpen}
       search={Search && <Search />}
       onSearch={() => {
-        app.shortcuts.run({ action: "search" });
+        app.shortcuts.run({ action: "filter_board" });
       }}
     />
   );

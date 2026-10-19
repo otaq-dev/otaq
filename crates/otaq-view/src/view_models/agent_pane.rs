@@ -73,7 +73,7 @@ pub const RECENT: &str = "recent";
 pub struct Button {
     pub icon: IconName,
     pub label: &'static str,
-    /// "⇧⌘A".
+    /// "⇧⌘L".
     pub keys: Option<String>,
 }
 
@@ -91,7 +91,7 @@ pub struct Header {
     /// The shown agent's state; none on the empty pane.
     pub pill: Option<crate::view_models::status::PillView>,
     pub recent: Button,
-    /// + shows the empty pane (as ⇧⌘A does); nothing starts.
+    /// + shows the empty pane (as ⇧⌘L does); nothing starts.
     pub new: Button,
     pub more: Button,
 }
@@ -328,7 +328,7 @@ pub struct Footer {
     pub keys: Option<String>,
     pub keys_label: &'static str,
     pub resume: Option<ResumeButton>,
-    /// After Resume: "or ⇧⌘A for a new agent".
+    /// After Resume: "or ⇧⌘L for a new agent".
     pub resume_note: Option<String>,
 }
 
@@ -1183,7 +1183,7 @@ mod tests {
         );
         assert_eq!(
             (v.header.new.label, v.header.new.keys.as_deref()),
-            ("New Project agent", Some("\u{21e7}\u{2318}A"))
+            ("New Project agent", Some("\u{21e7}\u{2318}L"))
         );
         assert_eq!(
             (v.header.recent.icon, v.header.more.icon),
@@ -1243,7 +1243,7 @@ mod tests {
             ),
             (
                 Some(("Resume", false)),
-                Some("or \u{21e7}\u{2318}A for a new agent")
+                Some("or \u{21e7}\u{2318}L for a new agent")
             )
         );
         a.state = AgentState::EndedByRestart;
@@ -1348,7 +1348,7 @@ mod tests {
         assert!(v.switcher.rows[0].unnamed);
         assert!(v.switcher.rows.iter().all(|r| r.avatar.is_none()));
         assert_eq!(v.switcher.new_label, "New Project agent (empty)");
-        assert_eq!(v.switcher.new_keys.as_deref(), Some("\u{21e7}\u{2318}A"));
+        assert_eq!(v.switcher.new_keys.as_deref(), Some("\u{21e7}\u{2318}L"));
         assert_eq!(
             v.opens_on.as_deref(),
             Some("a3"),
@@ -1414,7 +1414,7 @@ mod tests {
         let agents = list(vec![a.clone()]);
         let v = view_of(&agents, None);
         assert!(v.agent_waits, "even while another one is shown");
-        assert_eq!(v.strip.keys.as_deref(), Some("\u{2318}\\"));
+        assert_eq!(v.strip.keys.as_deref(), Some("\u{2318}B"));
         a.focused = true;
         assert!(
             !view_of(&list(vec![a]), None).agent_waits,

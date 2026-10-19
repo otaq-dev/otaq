@@ -153,9 +153,9 @@ describe("the search field", () => {
 
   it("⌘K asks the field for the keyboard while a project is shown", () => {
     const app = registerScreens({ board });
-    expect(app.shortcuts.run({ action: "search" })).toBe(false);
+    expect(app.shortcuts.run({ action: "filter_board" })).toBe(false);
     selection.set({ ...NOTHING_SELECTED, project: "SHOP" });
-    expect(app.shortcuts.run({ action: "search" })).toBe(true);
+    expect(app.shortcuts.run({ action: "filter_board" })).toBe(true);
     expect(searchFocusRequests.get()).toBe(1);
   });
 });

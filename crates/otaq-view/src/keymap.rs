@@ -1,7 +1,13 @@
-//! The keyboard map of decision 0058 (SDD §21.3): every app action with its shortcut on macOS, on Windows/Linux,
-//! and on Windows/Linux while the terminal has focus (there app shortcuts move to Ctrl+Shift because Ctrl+letter
-//! belongs to the CLI). Shortcut texts are exactly the decision's, and each app makes its key bindings from them
-//! ([`KeyAction::keys`]), so the table is the one source for what is shown and what is bound.
+//! The keyboard map of decision 0097 (SDD §21.3, KEY-01…KEY-03): every app action with its title, its group and its
+//! keys. A key is a modifier key (⌘K, Ctrl+Shift+P, ⌃`), a single letter (`j`, `/`, `?`, `1`) or `g` then a letter
+//! (`g` `b`). The **base map** ([`KeyAction::base_keys`]) holds each action's default keys in three columns: macOS,
+//! Windows/Linux, and Windows/Linux while a terminal has focus. The **user's keys** ([`user_keys`]) are the base map
+//! with the user's changes applied ([`CustomKeys`], stored by T-0390); everything the app binds comes from them.
+//!
+//! Where a key works ([`KeyPlace`]): on macOS ⌘ keys and the base map's ⌃` / ⌃Tab / ⌃⇧Tab work in terminals too, every
+//! other key stays the terminal's there. On Windows/Linux only the terminal column applies inside a terminal (most keys
+//! get Shift there; Ctrl+1–9, Ctrl+`, Ctrl+, , Ctrl+Tab / Ctrl+Shift+Tab, Ctrl+K and Ctrl+P are let through). Single
+//! letters and sequences never work in a terminal. A custom key marked "Works inside terminals" is let through as it is.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -19,19 +25,6 @@ pub enum Platform {
     WinLinuxTerminal,
 }
 
-/// The columns bound on a platform, each with whether it applies only while a terminal has focus. On macOS one
-/// column serves everywhere (⌘ isn't the terminal's); on Windows and Linux the "in terminal" column is bound in
-/// the terminal's key context on top of the Windows/Linux one.
-pub fn bound_columns(platform: Platform) -> &'static [(Platform, bool)] {
-    match platform {
-        Platform::Mac => &[(Platform::Mac, false)],
-        Platform::WinLinux | Platform::WinLinuxTerminal => &[
-            (Platform::WinLinux, false),
-            (Platform::WinLinuxTerminal, true),
-        ],
-    }
-}
-
 impl Platform {
     /// The platform this build runs on (outside the terminal).
     pub fn current() -> Self {
@@ -41,85 +34,139 @@ impl Platform {
             Self::WinLinux
         }
     }
+
+    fn is_mac(self) -> bool {
+        self == Self::Mac
+    }
+}
+
+/// The groups the Settings page and the `?` list show the actions in (design `s15-46`). `KeyGroup` on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum KeyGroup {
+    MovingAround,
+    Views,
+    TheTicket,
+    TheTerminal,
+}
+
+impl KeyGroup {
+    pub const ALL: [Self; 4] = [
+        Self::MovingAround,
+        Self::Views,
+        Self::TheTicket,
+        Self::TheTerminal,
+    ];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::MovingAround => "Moving around",
+            Self::Views => "Views",
+            Self::TheTicket => "The ticket",
+            Self::TheTerminal => "The terminal",
+        }
+    }
 }
 
 /// An app action of the map. On the page it is `{ action: "open_inbox" }`, or with its number
 /// `{ action: "project", number: 3 }`; screens register their handlers by `action` (T-0212).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(tag = "action", content = "number", rename_all = "snake_case")]
 pub enum KeyAction {
-    NextInboxItem,
-    OpenInbox,
-    PreviousTicket,
-    NextTicket,
-    LeaveTerminal,
-    Search,
+    /// The command palette: actions, tickets and projects (KEY-06).
+    CommandPalette,
     SwitchProject,
     /// Project 1–9.
     Project(u8),
-    NewTicket,
+    NextInboxItem,
+    NextTicket,
+    PreviousTicket,
+    /// Focus the header's board filter (KEY-09).
+    FilterBoard,
+    /// Focus the epic of the selected card (EPC-18, d0080): the same as its `epic:` filter.
+    FocusEpic,
+    /// The `?` shortcut list (KEY-07).
+    ShowShortcuts,
     /// The Board view of the main area (d0087).
     ShowBoard,
-    /// The Files view of the main area (d0087).
-    ShowFiles,
-    /// Go to file in the Files view (d0087).
-    GoToFile,
-    /// Focus the Project agent pane (d0087).
-    FocusPane,
-    /// Hide the Project agent pane to its strip, or show it again (d0087).
-    TogglePane,
+    OpenInbox,
     /// The Activity popover (d0087).
     OpenActivity,
-    /// The Terminals drawer on the last-used Project terminal (d0068, d0087).
-    ProjectTerminal,
+    Settings,
+    /// Hide the Project agent pane to its strip, or show it again (d0087).
+    TogglePane,
+    /// Focus the Project agent pane (d0087).
+    FocusPane,
     /// The Project agent pane's empty state: nothing starts until the first message is sent (d0068, d0087, PAG-01).
     NewProjectAgent,
-    Settings,
+    NewTicket,
     OpenPanel,
     ClosePanel,
     ExpandPanel,
-    /// Switch tab 1–6.
+    /// Switch panel tab 1–6.
     SwitchTab(u8),
+    NextTab,
+    PreviousTab,
     Approve,
     SendBack,
+    /// Start / move to Dev (also queues an epic, d0080).
     StartDev,
+    /// No key in the base map (the palette runs it), as the four after it.
+    Park,
+    CloseTicket,
+    OpenPr,
+    RerunValidation,
+    OpenDiff,
+    /// The Terminals drawer: open it, close it, and leave a focused terminal (d0068, d0087).
+    Terminals,
     FindInTerminal,
-    /// Focus the epic of the selected card (EPC-18, d0080): the same as its `epic:` filter.
-    FocusEpic,
+    /// The Files view of the main area (d0087), parked (d0090).
+    ShowFiles,
+    /// Go to file in the Files view (d0087), parked (d0090).
+    GoToFile,
 }
 
 impl KeyAction {
-    /// Every action, with numbered ones expanded (Project 1–9, tabs 1–6).
+    /// Every action in the order Settings and the `?` list show them, numbered ones expanded (Project 1–9, tabs 1–6).
     pub fn all() -> Vec<KeyAction> {
-        let mut all = vec![
+        let mut all = vec![Self::CommandPalette, Self::SwitchProject];
+        all.extend((1..=9).map(Self::Project));
+        all.extend([
             Self::NextInboxItem,
-            Self::OpenInbox,
-            Self::PreviousTicket,
             Self::NextTicket,
-            Self::LeaveTerminal,
-            Self::Search,
-            Self::SwitchProject,
+            Self::PreviousTicket,
+            Self::FilterBoard,
+            Self::FocusEpic,
+            Self::ShowShortcuts,
             Self::ShowBoard,
-            Self::ShowFiles,
-            Self::GoToFile,
-            Self::FocusPane,
-            Self::TogglePane,
+            Self::OpenInbox,
             Self::OpenActivity,
-            Self::NewTicket,
-            Self::ProjectTerminal,
-            Self::NewProjectAgent,
             Self::Settings,
+            Self::TogglePane,
+            Self::FocusPane,
+            Self::NewProjectAgent,
+            Self::NewTicket,
             Self::OpenPanel,
             Self::ClosePanel,
             Self::ExpandPanel,
+        ]);
+        all.extend((1..=6).map(Self::SwitchTab));
+        all.extend([
+            Self::NextTab,
+            Self::PreviousTab,
             Self::Approve,
             Self::SendBack,
             Self::StartDev,
+            Self::Park,
+            Self::CloseTicket,
+            Self::OpenPr,
+            Self::RerunValidation,
+            Self::OpenDiff,
+            Self::Terminals,
             Self::FindInTerminal,
-            Self::FocusEpic,
-        ];
-        all.extend((1..=9).map(Self::Project));
-        all.extend((1..=6).map(Self::SwitchTab));
+            Self::ShowFiles,
+            Self::GoToFile,
+        ]);
         all
     }
 
@@ -128,65 +175,194 @@ impl KeyAction {
         matches!(self, Self::ShowFiles | Self::GoToFile)
     }
 
-    /// The shortcut as shown in a Kbd, or `None` where the action has none.
-    pub fn keys(self, platform: Platform) -> Option<String> {
-        use Platform::*;
-        let fixed = |mac: &str, win: &str, term: &str| -> Option<String> {
-            let s = match platform {
-                Mac => mac,
-                WinLinux => win,
-                WinLinuxTerminal => term,
-            };
-            (!s.is_empty()).then(|| s.to_owned())
-        };
+    /// The action's name in Settings, the `?` list and the palette (design `s15-46`). The two halves of a pair drawn
+    /// as one row (Next / previous ticket, Open / close the panel, Next / previous panel tab) and the numbered
+    /// actions share their row's title.
+    pub fn title(self) -> &'static str {
         match self {
-            Self::NextInboxItem => fixed("⌘J", "Ctrl+J", "Ctrl+Shift+J"),
-            Self::OpenInbox => fixed("⇧⌘I", "Ctrl+Shift+I", "Ctrl+Shift+I"),
-            Self::PreviousTicket => fixed("⌘[", "Ctrl+[", "Ctrl+Shift+["),
-            Self::NextTicket => fixed("⌘]", "Ctrl+]", "Ctrl+Shift+]"),
-            Self::LeaveTerminal => fixed("⇧⌘`", "Ctrl+Shift+`", "Ctrl+Shift+`"),
-            Self::Search => fixed("⌘K", "Ctrl+K", "Ctrl+Shift+K"),
-            Self::SwitchProject => fixed("⌘P", "Ctrl+P", "Ctrl+Shift+P"),
+            Self::CommandPalette => "Command palette",
+            Self::SwitchProject => "Switch project",
+            Self::Project(_) => "Project 1–9",
+            Self::NextInboxItem => "Next inbox item",
+            Self::NextTicket | Self::PreviousTicket => "Next / previous ticket",
+            Self::FilterBoard => "Filter the board",
+            Self::FocusEpic => "Focus the epic of the selected card",
+            Self::ShowShortcuts => "Show all shortcuts",
+            Self::ShowBoard => "Board",
+            Self::OpenInbox => "Inbox",
+            Self::OpenActivity => "Activity",
+            Self::Settings => "Settings",
+            Self::TogglePane => "Hide / show the Project agent pane",
+            Self::FocusPane => "Focus the Project agent pane",
+            Self::NewProjectAgent => "New Project agent",
+            Self::NewTicket => "New ticket",
+            Self::OpenPanel | Self::ClosePanel => "Open / close the panel",
+            Self::ExpandPanel => "Expand / shrink the panel",
+            Self::SwitchTab(_) => "Switch panel tab",
+            Self::NextTab | Self::PreviousTab => "Next / previous panel tab",
+            Self::Approve => "Approve ▾",
+            Self::SendBack => "Send back",
+            Self::StartDev => "Start / move to Dev",
+            Self::Park => "Park",
+            Self::CloseTicket => "Close ticket",
+            Self::OpenPr => "Open PR",
+            Self::RerunValidation => "Re-run validation",
+            Self::OpenDiff => "Open diff",
+            Self::Terminals => "Terminals: open, close, leave the terminal",
+            Self::FindInTerminal => "Find in terminal scrollback",
+            Self::ShowFiles => "Files view",
+            Self::GoToFile => "Go to file (Files view)",
+        }
+    }
+
+    /// The group it is listed in (design `s15-46`).
+    pub fn group(self) -> KeyGroup {
+        match self {
+            Self::CommandPalette
+            | Self::SwitchProject
+            | Self::Project(_)
+            | Self::NextInboxItem
+            | Self::NextTicket
+            | Self::PreviousTicket
+            | Self::FilterBoard
+            | Self::FocusEpic
+            | Self::ShowShortcuts => KeyGroup::MovingAround,
+            Self::ShowBoard
+            | Self::OpenInbox
+            | Self::OpenActivity
+            | Self::Settings
+            | Self::TogglePane
+            | Self::FocusPane
+            | Self::NewProjectAgent
+            | Self::ShowFiles
+            | Self::GoToFile => KeyGroup::Views,
+            Self::NewTicket
+            | Self::OpenPanel
+            | Self::ClosePanel
+            | Self::ExpandPanel
+            | Self::SwitchTab(_)
+            | Self::NextTab
+            | Self::PreviousTab
+            | Self::Approve
+            | Self::SendBack
+            | Self::StartDev
+            | Self::Park
+            | Self::CloseTicket
+            | Self::OpenPr
+            | Self::RerunValidation
+            | Self::OpenDiff => KeyGroup::TheTicket,
+            Self::Terminals | Self::FindInTerminal => KeyGroup::TheTerminal,
+        }
+    }
+
+    /// **The base map** (KEY-01, KEY-02): the action's default keys in order, each as its three texts (macOS,
+    /// Windows/Linux, Windows/Linux in a terminal), "" where that column has none. The index is the key's **slot**,
+    /// which a custom change names ([`CustomKey::slot`]).
+    pub fn base_keys(self) -> Vec<[String; 3]> {
+        let k =
+            |mac: &str, win: &str, term: &str| [mac.to_owned(), win.to_owned(), term.to_owned()];
+        // A single letter or a `g` sequence: the same on every platform, never in a terminal.
+        let letter = |l: &str| k(l, l, "");
+        match self {
+            Self::CommandPalette => vec![
+                k("⌘K", "Ctrl+K", "Ctrl+K"),
+                k("⇧⌘P", "Ctrl+Shift+P", "Ctrl+Shift+P"),
+            ],
+            Self::SwitchProject => vec![k("⌘P", "Ctrl+P", "Ctrl+P")],
             Self::Project(n) => {
                 let n = n.clamp(1, 9);
-                fixed(
+                vec![k(
                     &format!("⌘{n}"),
                     &format!("Ctrl+{n}"),
-                    &format!("Ctrl+Shift+{n}"),
-                )
+                    &format!("Ctrl+{n}"),
+                )]
             }
-            Self::ShowBoard => fixed("⇧⌘B", "Ctrl+Shift+B", "Ctrl+Shift+B"),
-            Self::ShowFiles => fixed("⇧⌘O", "Ctrl+Shift+O", "Ctrl+Shift+O"),
-            Self::GoToFile => fixed("⌥⌘P", "Ctrl+Alt+P", "Ctrl+Shift+Alt+P"),
-            Self::FocusPane => fixed("⌘L", "Ctrl+L", "Ctrl+Shift+L"),
-            Self::TogglePane => fixed("⌘\\", "Ctrl+\\", "Ctrl+Shift+\\"),
-            Self::OpenActivity => fixed("⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"),
-            Self::NewTicket => fixed("⌘N", "Ctrl+N", "Ctrl+Shift+N"),
-            Self::ProjectTerminal => fixed("⇧⌘T", "Ctrl+Shift+T", "Ctrl+Shift+T"),
-            Self::NewProjectAgent => fixed("⇧⌘A", "Ctrl+Shift+A", "Ctrl+Shift+A"),
-            Self::Settings => fixed("⌘,", "Ctrl+,", "Ctrl+Shift+,"),
-            Self::OpenPanel => fixed("↵", "↵", ""),
-            Self::ClosePanel => fixed("Esc", "Esc", ""),
-            Self::ExpandPanel => fixed("⇧⌘E", "Ctrl+Shift+E", "Ctrl+Shift+E"),
-            Self::SwitchTab(n) => {
-                let n = n.clamp(1, 6);
-                fixed(
-                    &format!("⌘⌥{n}"),
-                    &format!("Ctrl+Alt+{n}"),
-                    &format!("Ctrl+Shift+Alt+{n}"),
-                )
+            Self::NextInboxItem => vec![k("⌘J", "Ctrl+J", "Ctrl+Shift+J")],
+            Self::NextTicket => vec![k("⌘]", "Ctrl+]", "Ctrl+Shift+]"), letter("j")],
+            Self::PreviousTicket => vec![k("⌘[", "Ctrl+[", "Ctrl+Shift+["), letter("k")],
+            Self::FilterBoard => vec![letter("/")],
+            Self::FocusEpic => vec![letter("g e")],
+            Self::ShowShortcuts => vec![letter("?")],
+            Self::ShowBoard => vec![k("⇧⌘B", "Ctrl+Shift+B", ""), letter("g b")],
+            Self::OpenInbox => vec![k("⇧⌘I", "Ctrl+Shift+I", "Ctrl+Shift+I"), letter("g i")],
+            Self::OpenActivity => vec![k("⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"), letter("g a")],
+            Self::Settings => vec![k("⌘,", "Ctrl+,", "Ctrl+,")],
+            Self::TogglePane => vec![k("⌘B", "Ctrl+B", "Ctrl+Shift+B")],
+            Self::FocusPane => vec![k("⌘L", "Ctrl+L", "Ctrl+Shift+L")],
+            Self::NewProjectAgent => vec![k("⇧⌘L", "Ctrl+Shift+L", "")],
+            Self::NewTicket => vec![k("⌘N", "Ctrl+N", "Ctrl+Shift+N"), letter("c")],
+            Self::OpenPanel => vec![k("↵", "↵", "")],
+            Self::ClosePanel => vec![k("Esc", "Esc", "")],
+            Self::ExpandPanel => vec![letter("e")],
+            Self::SwitchTab(n) => vec![letter(&n.clamp(1, 6).to_string())],
+            Self::NextTab => vec![k("⌃Tab", "Ctrl+Tab", "Ctrl+Tab")],
+            Self::PreviousTab => vec![k("⌃⇧Tab", "Ctrl+Shift+Tab", "Ctrl+Shift+Tab")],
+            Self::Approve => vec![k("⌘↵", "Ctrl+↵", "Ctrl+Shift+↵")],
+            Self::SendBack => vec![k("⌘⌫", "Ctrl+⌫", "Ctrl+Shift+⌫")],
+            Self::StartDev => vec![k("⌘D", "Ctrl+D", "Ctrl+Shift+D")],
+            Self::Park
+            | Self::CloseTicket
+            | Self::OpenPr
+            | Self::RerunValidation
+            | Self::OpenDiff => {
+                vec![]
             }
-            Self::Approve => fixed("⌘↵", "Ctrl+↵", "Ctrl+Shift+↵"),
-            Self::SendBack => fixed("⌘⌫", "Ctrl+⌫", "Ctrl+Shift+⌫"),
-            Self::StartDev => fixed("⇧⌘D", "Ctrl+Shift+D", "Ctrl+Shift+D"),
-            Self::FindInTerminal => fixed("⌘F", "", "Ctrl+Shift+F"),
-            Self::FocusEpic => fixed("⇧⌘G", "Ctrl+Shift+G", "Ctrl+Shift+G"),
+            Self::Terminals => vec![k("⌃`", "Ctrl+`", "Ctrl+`"), letter("g t")],
+            Self::FindInTerminal => vec![k("⌘F", "", "Ctrl+Shift+F")],
+            Self::ShowFiles => vec![k("⇧⌘O", "Ctrl+Shift+O", "Ctrl+Shift+O")],
+            Self::GoToFile => vec![k("⌥⌘P", "Ctrl+Alt+P", "Ctrl+Shift+Alt+P")],
         }
+    }
+
+    /// The base map's keys in one column, in slot order, leaving out the slots that column has none for.
+    pub fn default_keys(self, platform: Platform) -> Vec<String> {
+        let column = column_index(platform);
+        self.base_keys()
+            .into_iter()
+            .map(|texts| texts[column].clone())
+            .filter(|t| !t.is_empty())
+            .collect()
+    }
+
+    /// The first default key as shown in a Kbd, or `None` where the action has none. The labels read this until
+    /// T-0392 moves them to the user's keys.
+    pub fn keys(self, platform: Platform) -> Option<String> {
+        self.default_keys(platform).into_iter().next()
     }
 }
 
+fn column_index(platform: Platform) -> usize {
+    match platform {
+        Platform::Mac => 0,
+        Platform::WinLinux => 1,
+        Platform::WinLinuxTerminal => 2,
+    }
+}
+
+/// An action's title and group as the page lists them. `KeyActionInfo` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "KeyActionInfo")]
+pub struct ActionInfo {
+    pub action: KeyAction,
+    pub title: &'static str,
+    pub group: KeyGroup,
+}
+
+/// Every listed action ([`KeyAction::all`]), with the parked Files view's left out while it's parked.
+pub fn action_infos() -> Vec<ActionInfo> {
+    KeyAction::all()
+        .into_iter()
+        .filter(|a| FILES_VIEW || !a.is_files_view())
+        .map(|action| ActionInfo {
+            action,
+            title: action.title(),
+            group: action.group(),
+        })
+        .collect()
+}
+
 /// The modifier keys held with a keystroke, as the UI toolkit reports them. `KeyModifiers` on the page.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(rename = "KeyModifiers")]
 pub struct Modifiers {
     pub control: bool,
@@ -195,15 +371,6 @@ pub struct Modifiers {
     /// ⌘ on macOS, the Windows key on Windows, Super on Linux.
     pub platform: bool,
     pub function: bool,
-}
-
-/// Where a keystroke goes (SES-10).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KeyRoute {
-    /// To the program in the focused terminal (Claude Code): Esc, Ctrl+C, Ctrl+J, arrows, Tab, letters…
-    Terminal,
-    /// To the app's shortcuts and views.
-    App,
 }
 
 impl Modifiers {
@@ -223,11 +390,29 @@ impl Modifiers {
             && (!other.platform || self.platform)
             && (!other.function || self.function)
     }
+
+    /// The same four modifiers held (Fn isn't compared: the toolkit doesn't report it on every platform).
+    fn same(&self, other: &Modifiers) -> bool {
+        self.control == other.control
+            && self.alt == other.alt
+            && self.shift == other.shift
+            && self.platform == other.platform
+    }
 }
 
-/// The modifier sets that take a key to the app while a terminal has focus: a key goes to the app when it holds
-/// every modifier of one of them. On macOS ⌘ (the terminal doesn't use ⌘, d0058); on Windows and Linux Ctrl+Shift
-/// (the "in terminal" column), or the Windows / Super key.
+/// Where a keystroke goes (SES-10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyRoute {
+    /// To the program in the focused terminal (Claude Code): Esc, Ctrl+C, Ctrl+J, arrows, Tab, letters…
+    Terminal,
+    /// To the app's shortcuts and views.
+    App,
+}
+
+/// The modifier sets that take every key holding them to the app while a terminal has focus, bound or not: on macOS
+/// ⌘ (the terminal doesn't use ⌘); on Windows and Linux Ctrl+Shift (the terminal column's form, and the terminal's own
+/// copy and paste, which it handles itself), or the Windows / Super key. Other keys reach the app only when a binding
+/// that works in terminals has them ([`route`]).
 pub fn terminal_app_modifiers(platform: Platform) -> &'static [Modifiers] {
     const PLATFORM: Modifiers = Modifiers {
         platform: true,
@@ -244,27 +429,63 @@ pub fn terminal_app_modifiers(platform: Platform) -> &'static [Modifiers] {
     }
 }
 
-/// Routes one keystroke. While a terminal has focus **every key goes to Claude Code, Esc included**, except
-/// the app's own shortcuts ([`terminal_app_modifiers`]). Without terminal focus everything is the app's.
-pub fn route(platform: Platform, terminal_focused: bool, modifiers: &Modifiers) -> KeyRoute {
+/// Routes one key press. While a terminal has focus **every key goes to the program in it, Esc included**, except
+/// keys holding [`terminal_app_modifiers`] and the keys of `bindings` that work in terminals ([`KeyPlace`]): on macOS
+/// the base map's ⌃` and ⌃Tab / ⌃⇧Tab, and a custom key marked "Works inside terminals". Without terminal focus
+/// everything is the app's.
+pub fn route(
+    platform: Platform,
+    terminal_focused: bool,
+    press: &KeyPress,
+    bindings: &[Binding],
+) -> KeyRoute {
     if !terminal_focused {
         return KeyRoute::App;
     }
-    if terminal_app_modifiers(platform)
+    let held = terminal_app_modifiers(platform)
         .iter()
-        .any(|m| modifiers.holds(m))
-    {
+        .any(|m| press.modifiers.holds(m));
+    let bound = bindings
+        .iter()
+        .any(|b| b.place.inside_terminals() && b.key.matches(press, false));
+    if held || bound {
         KeyRoute::App
     } else {
         KeyRoute::Terminal
     }
 }
 
-/// One shortcut as the page matches it against a key event (T-0215). `Keystroke` on the page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+/// One key event as the page gets it (`KeyboardEvent.key`, `.code` and the modifiers held): what [`Key::matches`]
+/// and [`route`] read. The page's dispatcher applies the same rules (`ui/src/app/keys.ts`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyPress {
+    pub key: String,
+    pub code: String,
+    pub modifiers: Modifiers,
+}
+
+impl KeyPress {
+    /// The letter the key types, or else its name: letters follow the keyboard layout (⌘K is K on a Dvorak keyboard
+    /// too); where the layout types no Latin letter (Cyrillic), the physical key's.
+    fn letter(&self) -> String {
+        let mut chars = self.key.chars();
+        if let (Some(c), None) = (chars.next(), chars.next())
+            && c.is_ascii_alphabetic()
+        {
+            return c.to_ascii_lowercase().to_string();
+        }
+        match self.code.strip_prefix("Key") {
+            Some(l) if l.len() == 1 => l.to_ascii_lowercase(),
+            _ => self.key.to_lowercase(),
+        }
+    }
+}
+
+/// One modifier key as the page matches it against a key event (T-0215). `Keystroke` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 pub struct Keystroke {
     /// The key as the web's `KeyboardEvent.key` names it: a lowercase letter, a digit or a sign (`k`, `1`, `[`), or a
-    /// named key (`Enter`, `Backspace`, `Escape`).
+    /// named key (`Enter`, `Backspace`, `Escape`, `Tab`).
     pub key: String,
     /// The physical key as `KeyboardEvent.code` names it (`KeyK`, `Digit1`, `BracketLeft`, `Enter`), for keys whose
     /// character depends on the keyboard layout or on the modifiers held (⌥1 types `¡` on a Mac).
@@ -273,7 +494,7 @@ pub struct Keystroke {
 }
 
 impl Keystroke {
-    /// A d0058 shortcut text as a keystroke: "⇧⌘I", "⌘⌥1", "Ctrl+Shift+↵", "Esc". `None` for text that isn't one
+    /// A shortcut text as a keystroke: "⇧⌘I", "⌃Tab", "⌃`", "Ctrl+Shift+↵", "Esc". `None` for text that isn't one
     /// shortcut.
     pub fn parse(text: &str) -> Option<Self> {
         let mut modifiers = Modifiers::default();
@@ -285,6 +506,7 @@ impl Keystroke {
                     "Ctrl" => modifiers.control = true,
                     "Shift" => modifiers.shift = true,
                     "Alt" => modifiers.alt = true,
+                    "Super" => modifiers.platform = true,
                     _ => return None,
                 }
             }
@@ -308,24 +530,13 @@ impl Keystroke {
             "↵" => ("Enter".to_owned(), "Enter".to_owned()),
             "⌫" => ("Backspace".to_owned(), "Backspace".to_owned()),
             "Esc" => ("Escape".to_owned(), "Escape".to_owned()),
+            "Tab" => ("Tab".to_owned(), "Tab".to_owned()),
             k => {
                 let mut chars = k.chars();
                 let (Some(c), None) = (chars.next(), chars.next()) else {
                     return None;
                 };
-                let code = match c {
-                    'a'..='z' | 'A'..='Z' => format!("Key{}", c.to_ascii_uppercase()),
-                    '0'..='9' => format!("Digit{c}"),
-                    '[' => "BracketLeft".to_owned(),
-                    ']' => "BracketRight".to_owned(),
-                    '`' => "Backquote".to_owned(),
-                    '\\' => "Backslash".to_owned(),
-                    ',' => "Comma".to_owned(),
-                    '=' => "Equal".to_owned(),
-                    '-' => "Minus".to_owned(),
-                    _ => return None,
-                };
-                (c.to_ascii_lowercase().to_string(), code)
+                (c.to_ascii_lowercase().to_string(), code_of(c)?)
             }
         };
         Some(Self {
@@ -334,52 +545,461 @@ impl Keystroke {
             modifiers,
         })
     }
+
+    /// Whether `press` is this keystroke: the same modifiers, and the same letter (by the layout), named key or (digits
+    /// and signs) physical key.
+    pub fn matches(&self, press: &KeyPress) -> bool {
+        if !press.modifiers.same(&self.modifiers) {
+            return false;
+        }
+        if self.key.chars().count() > 1 {
+            return press.key == self.key;
+        }
+        if self.key.chars().all(|c| c.is_ascii_lowercase()) {
+            return press.letter() == self.key;
+        }
+        press.code == self.code
+    }
+
+    /// As shown in a Kbd: "⇧⌘B" (⌃⌥⇧⌘ order) on macOS, "Ctrl+Shift+Alt+P" on Windows/Linux, as the base map writes them.
+    pub fn text(&self, platform: Platform) -> String {
+        let m = &self.modifiers;
+        let key = match self.key.as_str() {
+            "Enter" => "↵".to_owned(),
+            "Backspace" => "⌫".to_owned(),
+            "Escape" => "Esc".to_owned(),
+            k if k.chars().count() == 1 => k.to_uppercase(),
+            k => k.to_owned(),
+        };
+        if platform.is_mac() {
+            let mut s = String::new();
+            for (held, sign) in [
+                (m.control, '⌃'),
+                (m.alt, '⌥'),
+                (m.shift, '⇧'),
+                (m.platform, '⌘'),
+            ] {
+                if held {
+                    s.push(sign);
+                }
+            }
+            s + &key
+        } else {
+            let mut parts = Vec::new();
+            for (held, name) in [
+                (m.control, "Ctrl"),
+                (m.shift, "Shift"),
+                (m.alt, "Alt"),
+                (m.platform, "Super"),
+            ] {
+                if held {
+                    parts.push(name);
+                }
+            }
+            parts.push(&key);
+            parts.join("+")
+        }
+    }
 }
 
-/// One action's shortcut as the page binds it. `KeyBinding` on the page.
+/// The physical key of a character on a US keyboard, as `KeyboardEvent.code` names it.
+fn code_of(c: char) -> Option<String> {
+    Some(match c {
+        'a'..='z' | 'A'..='Z' => format!("Key{}", c.to_ascii_uppercase()),
+        '0'..='9' => format!("Digit{c}"),
+        '[' => "BracketLeft".to_owned(),
+        ']' => "BracketRight".to_owned(),
+        '`' => "Backquote".to_owned(),
+        '\\' => "Backslash".to_owned(),
+        ',' => "Comma".to_owned(),
+        '.' => "Period".to_owned(),
+        '/' => "Slash".to_owned(),
+        ';' => "Semicolon".to_owned(),
+        '\'' => "Quote".to_owned(),
+        '=' => "Equal".to_owned(),
+        '-' => "Minus".to_owned(),
+        _ => return None,
+    })
+}
+
+/// One key of an action (0097): a modifier key, a single letter, or `g` then a letter. Letters and sequences work
+/// only while nobody is typing and while the single-letter switch is on (KEY-02; the page's dispatcher checks both),
+/// never in a terminal. `Key` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Key {
+    /// A key with modifiers (⌘K, Ctrl+Shift+P, ⌃`), or ↵ / Esc alone (Open / close the panel, which stay keys of
+    /// the focused control as before, not single letters).
+    Stroke { stroke: Keystroke },
+    /// A single character with no modifier: `j`, `/`, `?`, `1`. Matched by the character it types, on any layout.
+    Letter { letter: String },
+    /// `g`, let go, then `then` (a single character, matched as a [`Key::Letter`]).
+    Sequence { then: String },
+}
+
+impl Key {
+    /// A key text of the map: "j", "/", "?", "1", "g b" (a sequence), or a modifier key ([`Keystroke::parse`]).
+    /// `None` for text that isn't one key.
+    pub fn parse(text: &str) -> Option<Self> {
+        if let Some(then) = text.strip_prefix("g ") {
+            return single_letter(then).map(|then| Self::Sequence { then });
+        }
+        if let Some(letter) = single_letter(text) {
+            return Some(Self::Letter { letter });
+        }
+        // A key alone is a letter (above) or a named key (↵, Esc); "J" is neither.
+        Keystroke::parse(text)
+            .filter(|s| s.modifiers != Modifiers::NONE || s.key.chars().count() > 1)
+            .map(|stroke| Self::Stroke { stroke })
+    }
+
+    /// As shown in a Kbd: "j", "g b", "⇧⌘L", "Ctrl+Shift+L".
+    pub fn text(&self, platform: Platform) -> String {
+        match self {
+            Self::Stroke { stroke } => stroke.text(platform),
+            Self::Letter { letter } => letter.clone(),
+            Self::Sequence { then } => format!("g {then}"),
+        }
+    }
+
+    /// A single letter or a `g` sequence (the kinds the letters switch and the "nobody is typing" rule apply to).
+    pub fn is_letter(&self) -> bool {
+        !matches!(self, Self::Stroke { .. })
+    }
+
+    /// The keystroke, for a modifier key.
+    pub fn stroke(&self) -> Option<&Keystroke> {
+        match self {
+            Self::Stroke { stroke } => Some(stroke),
+            _ => None,
+        }
+    }
+
+    /// Whether `press` presses this key. `after_g`: the press follows a lone `g` (only a sequence's second key matches
+    /// then; the dispatcher keeps that state, T-0391).
+    pub fn matches(&self, press: &KeyPress, after_g: bool) -> bool {
+        match self {
+            Self::Stroke { stroke } => !after_g && stroke.matches(press),
+            Self::Letter { letter } => !after_g && letter_matches(letter, press),
+            Self::Sequence { then } => after_g && letter_matches(then, press),
+        }
+    }
+}
+
+/// A single character a letter key may be: a lowercase Latin letter, a digit or a sign.
+fn single_letter(text: &str) -> Option<String> {
+    let mut chars = text.chars();
+    let (Some(c), None) = (chars.next(), chars.next()) else {
+        return None;
+    };
+    (c.is_ascii_lowercase() || c.is_ascii_digit() || c.is_ascii_punctuation())
+        .then(|| c.to_string())
+}
+
+/// A single letter by the character typed: a Latin letter by the layout's letter without Shift (`J` isn't `j`), any
+/// other character as typed, Shift or not (`?` is ⇧/ on a US keyboard, `/` is ⇧7 on a German one).
+fn letter_matches(letter: &str, press: &KeyPress) -> bool {
+    let m = &press.modifiers;
+    if m.control || m.alt || m.platform {
+        return false;
+    }
+    if letter.chars().all(|c| c.is_ascii_lowercase()) {
+        !m.shift && press.letter() == letter
+    } else {
+        press.key == letter
+    }
+}
+
+/// Where a binding works. `KeyPlace` on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum KeyPlace {
+    /// Outside terminals and inside them.
+    Everywhere,
+    /// Not while a terminal has focus (there the key is the terminal's).
+    OutsideTerminals,
+    /// Only while a terminal has focus (the Windows/Linux terminal column).
+    InsideTerminals,
+}
+
+impl KeyPlace {
+    pub fn inside_terminals(self) -> bool {
+        self != Self::OutsideTerminals
+    }
+
+    pub fn outside_terminals(self) -> bool {
+        self != Self::InsideTerminals
+    }
+}
+
+/// One key of an action as the page binds it. `KeyBinding` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "KeyBinding")]
 pub struct Binding {
     pub action: KeyAction,
-    /// The shortcut as shown in a Kbd (`⌘K`, `Ctrl+Shift+K`).
+    /// Which of the action's keys this is ([`KeyAction::base_keys`]' index, or past them for a key the user added).
+    /// On Windows/Linux one slot may give two bindings: its key outside terminals and its terminal form.
+    pub slot: u8,
+    /// The key as shown in a Kbd (`⌘K`, `Ctrl+Shift+K`, `j`, `g b`).
     pub text: String,
-    pub keystroke: Keystroke,
-    /// Bound only while a terminal has focus (the Windows/Linux "in terminal" column).
-    pub in_terminal: bool,
+    pub key: Key,
+    pub place: KeyPlace,
+    /// A key the user recorded ([`CustomKeys`]), not the base map's.
+    pub custom: bool,
 }
 
-/// Every shortcut bound on `platform`, from [`KeyAction::keys`] over [`bound_columns`]: the page's whole map.
-pub fn bindings(platform: Platform) -> Vec<Binding> {
-    bindings_for(platform, FILES_VIEW)
+/// The base map's macOS keys without ⌘ that work in terminals too (0097): Terminals (also how you leave one) and
+/// Next / previous panel tab. Every other macOS key without ⌘ stays the terminal's there.
+const MAC_TERMINAL_KEYS: [&str; 3] = ["⌃`", "⌃Tab", "⌃⇧Tab"];
+
+/// Keys an app shortcut never takes from a terminal, on Windows/Linux and on macOS (0097): stop, exit, suspend,
+/// Escape, force quit, and on Windows/Linux the terminal's copy and paste. T-0390 refuses "Works inside terminals"
+/// for them; [`user_keys`] never binds them there.
+pub fn never_in_terminals(platform: Platform) -> &'static [&'static str] {
+    if platform.is_mac() {
+        &["⌃C", "⌃D", "⌃Z", "⌃[", "⌃\\"]
+    } else {
+        &[
+            "Ctrl+C",
+            "Ctrl+D",
+            "Ctrl+Z",
+            "Ctrl+[",
+            "Ctrl+\\",
+            "Ctrl+Shift+C",
+            "Ctrl+Shift+V",
+        ]
+    }
 }
 
-/// [`bindings`] with the Files view on or off: off, its actions aren't bound.
-pub fn bindings_for(platform: Platform, files_view: bool) -> Vec<Binding> {
+fn is_never_in_terminals(platform: Platform, key: &Key) -> bool {
+    key.stroke().is_some_and(|stroke| {
+        never_in_terminals(platform)
+            .iter()
+            .any(|t| Keystroke::parse(t).as_ref() == Some(stroke))
+    })
+}
+
+/// The user's changes to the base map (KEY-04), one per changed key; empty means the base map. T-0390 stores them in
+/// the settings and converts them to this.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct CustomKeys(pub Vec<CustomKey>);
+
+/// One changed key: the action, which of its keys, and what became of it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct CustomKey {
+    pub action: KeyAction,
+    /// The key's slot: an index into the action's base keys ([`KeyAction::base_keys`]; New ticket's ⌘N is 0, its `c`
+    /// is 1). A slot past them is a key the user added (Park has none, so its first recorded key, `g` `p`, is slot 0).
+    pub slot: u8,
+    pub change: KeyChange,
+    /// "Works inside terminals" (Windows/Linux; on macOS for ⌃ keys): the key is let through to the app unchanged
+    /// while a terminal has focus, instead of getting Shift (Windows/Linux) or staying the terminal's (macOS). Ignored
+    /// for single letters, sequences, ⌘ keys and the keys of [`never_in_terminals`].
+    pub works_in_terminals: bool,
+}
+
+/// What became of a key. A removed key leaves its action with no key there (it stays in the palette).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "change", rename_all = "snake_case")]
+pub enum KeyChange {
+    /// Recorded anew, in this platform's form.
+    Replaced {
+        key: Key,
+    },
+    Removed,
+}
+
+impl CustomKeys {
+    fn get(&self, action: KeyAction, slot: u8) -> Option<&CustomKey> {
+        self.0
+            .iter()
+            .rev()
+            .find(|c| c.action == action && c.slot == slot)
+    }
+
+    /// One past the highest slot changed for `action`, so added keys are reached.
+    fn slots(&self, action: KeyAction) -> usize {
+        self.0
+            .iter()
+            .filter(|c| c.action == action)
+            .map(|c| usize::from(c.slot) + 1)
+            .max()
+            .unwrap_or(0)
+    }
+}
+
+/// **The user's keys** on `platform`: the base map with `custom` applied, every key with where it works. The page's
+/// whole map (`keymap.map`).
+pub fn user_keys(platform: Platform, custom: &CustomKeys) -> Vec<Binding> {
+    user_keys_for(platform, custom, FILES_VIEW)
+}
+
+/// [`user_keys`] with the Files view on or off: off, its actions aren't bound.
+pub fn user_keys_for(platform: Platform, custom: &CustomKeys, files_view: bool) -> Vec<Binding> {
     let mut all = Vec::new();
-    for &(column, in_terminal) in bound_columns(platform) {
-        for action in KeyAction::all() {
-            if !files_view && action.is_files_view() {
-                continue;
+    for action in KeyAction::all() {
+        if !files_view && action.is_files_view() {
+            continue;
+        }
+        let base = action.base_keys();
+        for slot in 0..base.len().max(custom.slots(action)) {
+            let Ok(slot_number) = u8::try_from(slot) else {
+                break;
+            };
+            match custom.get(action, slot_number) {
+                Some(CustomKey {
+                    change: KeyChange::Removed,
+                    ..
+                }) => {}
+                Some(CustomKey {
+                    change: KeyChange::Replaced { key },
+                    works_in_terminals,
+                    ..
+                }) => all.extend(custom_bindings(
+                    platform,
+                    action,
+                    slot_number,
+                    key,
+                    *works_in_terminals,
+                )),
+                None => {
+                    if let Some(texts) = base.get(slot) {
+                        all.extend(base_bindings(platform, action, slot_number, texts));
+                    }
+                }
             }
-            let Some(text) = action.keys(column) else {
-                continue;
-            };
-            // Every d0058 text parses (`every_shortcut_is_one_keystroke`).
-            let Some(keystroke) = Keystroke::parse(&text) else {
-                continue;
-            };
-            all.push(Binding {
-                action,
-                text,
-                keystroke,
-                in_terminal,
-            });
         }
     }
     all
 }
 
-/// A focused terminal's own keys, outside the d0058 table (as the GPUI terminal bound them): copy and paste, and ⌘+ /
+/// The base map's bindings: [`user_keys`] with no changes.
+pub fn bindings(platform: Platform) -> Vec<Binding> {
+    user_keys(platform, &CustomKeys::default())
+}
+
+/// [`bindings`] with the Files view on or off.
+pub fn bindings_for(platform: Platform, files_view: bool) -> Vec<Binding> {
+    user_keys_for(platform, &CustomKeys::default(), files_view)
+}
+
+fn binding(
+    action: KeyAction,
+    slot: u8,
+    platform: Platform,
+    key: Key,
+    place: KeyPlace,
+    custom: bool,
+) -> Binding {
+    Binding {
+        action,
+        slot,
+        text: key.text(platform),
+        key,
+        place,
+        custom,
+    }
+}
+
+/// One base slot: on macOS its one key, working in terminals when it holds ⌘ or is one of [`MAC_TERMINAL_KEYS`]; on
+/// Windows/Linux its key outside terminals and its terminal column's key inside them (one binding when they're equal).
+fn base_bindings(
+    platform: Platform,
+    action: KeyAction,
+    slot: u8,
+    texts: &[String; 3],
+) -> Vec<Binding> {
+    let parsed = |text: &str| (!text.is_empty()).then(|| Key::parse(text)).flatten();
+    if platform.is_mac() {
+        let Some(key) = parsed(&texts[0]) else {
+            return vec![];
+        };
+        let reaches = key.stroke().is_some_and(|s| s.modifiers.platform)
+            || MAC_TERMINAL_KEYS.contains(&texts[0].as_str());
+        let place = if reaches {
+            KeyPlace::Everywhere
+        } else {
+            KeyPlace::OutsideTerminals
+        };
+        return vec![binding(action, slot, platform, key, place, false)];
+    }
+    match (parsed(&texts[1]), parsed(&texts[2])) {
+        (Some(out), Some(inside)) if out == inside => {
+            vec![binding(
+                action,
+                slot,
+                platform,
+                out,
+                KeyPlace::Everywhere,
+                false,
+            )]
+        }
+        (out, inside) => out
+            .map(|k| binding(action, slot, platform, k, KeyPlace::OutsideTerminals, false))
+            .into_iter()
+            .chain(
+                inside
+                    .map(|k| binding(action, slot, platform, k, KeyPlace::InsideTerminals, false)),
+            )
+            .collect(),
+    }
+}
+
+/// A recorded key. Letters and sequences: outside terminals. Works inside terminals: everywhere, unchanged. Otherwise
+/// on macOS a ⌘ key works everywhere and any other stays the terminal's; on Windows/Linux a Ctrl key gets Shift inside
+/// terminals, as the base map's do (Ctrl+R → Ctrl+Shift+R), and a key without Ctrl stays the terminal's there. Keys of
+/// [`never_in_terminals`] are never bound inside them.
+fn custom_bindings(
+    platform: Platform,
+    action: KeyAction,
+    slot: u8,
+    key: &Key,
+    works_in_terminals: bool,
+) -> Vec<Binding> {
+    let make = |key: Key, place| binding(action, slot, platform, key, place, true);
+    let Some(stroke) = key.stroke() else {
+        return vec![make(key.clone(), KeyPlace::OutsideTerminals)];
+    };
+    let inside = if is_never_in_terminals(platform, key) {
+        None
+    } else if works_in_terminals || (platform.is_mac() && stroke.modifiers.platform) {
+        Some(key.clone())
+    } else if !platform.is_mac() && stroke.modifiers.control {
+        let shifted = Key::Stroke {
+            stroke: Keystroke {
+                modifiers: Modifiers {
+                    shift: true,
+                    ..stroke.modifiers
+                },
+                ..stroke.clone()
+            },
+        };
+        (!is_never_in_terminals(platform, &shifted)).then_some(shifted)
+    } else {
+        None
+    };
+    match inside {
+        Some(inside) if &inside == key => vec![make(inside, KeyPlace::Everywhere)],
+        Some(inside) => vec![
+            make(key.clone(), KeyPlace::OutsideTerminals),
+            make(inside, KeyPlace::InsideTerminals),
+        ],
+        None => vec![make(key.clone(), KeyPlace::OutsideTerminals)],
+    }
+}
+
+/// The description editor's own keys that are also app keys (0097, d0078): while its text has the focus, ⌘K /
+/// Ctrl+K inserts a link (not the palette) and ⌘B / Ctrl+B is Bold (not Hide / show the pane). The only keys allowed
+/// two meanings, by focus.
+pub fn description_editor_keys(platform: Platform) -> [&'static str; 2] {
+    if platform.is_mac() {
+        ["⌘K", "⌘B"]
+    } else {
+        ["Ctrl+K", "Ctrl+B"]
+    }
+}
+
+/// A focused terminal's own keys, outside the app's map (as the GPUI terminal bound them): copy and paste, and ⌘+ /
 /// ⌘− for the font size. On Windows and Linux Ctrl+letter belongs to the program in the terminal, so they are on
 /// Ctrl+Shift there, as in Windows Terminal and Linux terminals. ⇧↵ is a new line in the prompt: xterm.js sends the
 /// same `\r` as ↵, so the terminal sends ESC + CR instead (OT-5). `TerminalKey` on the page.
@@ -451,80 +1071,87 @@ mod tests {
 
     use super::*;
 
-    /// Decision 0058's table, one row per action (Previous / next ticket and Open / close panel split, Project 1–9
-    /// and Switch tab 1–6 expanded, Find in terminal from its note): action, macOS, Windows/Linux, in terminal; ""
-    /// where the decision has no shortcut ("—").
-    fn table_0058() -> Vec<(KeyAction, String, String, String)> {
-        let row = |a, mac: &str, win: &str, term: &str| {
-            (a, mac.to_owned(), win.to_owned(), term.to_owned())
-        };
+    type Row = (KeyAction, Vec<String>, Vec<String>, Vec<String>);
+
+    /// Decision 0097's base map (KEY-01) and its single letters (KEY-02), one row per action: macOS, Windows/Linux, in
+    /// a terminal (Windows/Linux). Pairs are split into their two actions, Project 1–9 and the panel tabs 1–6 expanded;
+    /// `[]` where the decision has no key ("—", and letters in a terminal).
+    fn table_0097() -> Vec<Row> {
+        use KeyAction::*;
+        let v = |keys: &[&str]| keys.iter().map(|k| (*k).to_owned()).collect::<Vec<_>>();
+        let row = |a, mac: &[&str], win: &[&str], term: &[&str]| (a, v(mac), v(win), v(term));
         let mut table = vec![
-            row(KeyAction::NextInboxItem, "⌘J", "Ctrl+J", "Ctrl+Shift+J"),
-            row(KeyAction::OpenInbox, "⇧⌘I", "Ctrl+Shift+I", "Ctrl+Shift+I"),
-            row(KeyAction::PreviousTicket, "⌘[", "Ctrl+[", "Ctrl+Shift+["),
-            row(KeyAction::NextTicket, "⌘]", "Ctrl+]", "Ctrl+Shift+]"),
             row(
-                KeyAction::LeaveTerminal,
-                "⇧⌘`",
-                "Ctrl+Shift+`",
-                "Ctrl+Shift+`",
+                CommandPalette,
+                &["⌘K", "⇧⌘P"],
+                &["Ctrl+K", "Ctrl+Shift+P"],
+                &["Ctrl+K", "Ctrl+Shift+P"],
             ),
-            row(KeyAction::Search, "⌘K", "Ctrl+K", "Ctrl+Shift+K"),
-            row(KeyAction::SwitchProject, "⌘P", "Ctrl+P", "Ctrl+Shift+P"),
-            row(KeyAction::NewTicket, "⌘N", "Ctrl+N", "Ctrl+Shift+N"),
+            row(SwitchProject, &["⌘P"], &["Ctrl+P"], &["Ctrl+P"]),
+            row(NextInboxItem, &["⌘J"], &["Ctrl+J"], &["Ctrl+Shift+J"]),
             row(
-                KeyAction::ProjectTerminal,
-                "⇧⌘T",
-                "Ctrl+Shift+T",
-                "Ctrl+Shift+T",
+                NextTicket,
+                &["⌘]", "j"],
+                &["Ctrl+]", "j"],
+                &["Ctrl+Shift+]"],
             ),
             row(
-                KeyAction::NewProjectAgent,
-                "⇧⌘A",
-                "Ctrl+Shift+A",
-                "Ctrl+Shift+A",
+                PreviousTicket,
+                &["⌘[", "k"],
+                &["Ctrl+[", "k"],
+                &["Ctrl+Shift+["],
             ),
-            row(KeyAction::ShowBoard, "⇧⌘B", "Ctrl+Shift+B", "Ctrl+Shift+B"),
-            row(KeyAction::ShowFiles, "⇧⌘O", "Ctrl+Shift+O", "Ctrl+Shift+O"),
-            row(KeyAction::GoToFile, "⌥⌘P", "Ctrl+Alt+P", "Ctrl+Shift+Alt+P"),
-            row(KeyAction::FocusPane, "⌘L", "Ctrl+L", "Ctrl+Shift+L"),
-            row(KeyAction::TogglePane, "⌘\\", "Ctrl+\\", "Ctrl+Shift+\\"),
+            row(FilterBoard, &["/"], &["/"], &[]),
+            row(FocusEpic, &["g e"], &["g e"], &[]),
+            row(ShowShortcuts, &["?"], &["?"], &[]),
+            row(ShowBoard, &["⇧⌘B", "g b"], &["Ctrl+Shift+B", "g b"], &[]),
             row(
-                KeyAction::OpenActivity,
-                "⇧⌘U",
-                "Ctrl+Shift+U",
-                "Ctrl+Shift+U",
+                OpenInbox,
+                &["⇧⌘I", "g i"],
+                &["Ctrl+Shift+I", "g i"],
+                &["Ctrl+Shift+I"],
             ),
-            row(KeyAction::Settings, "⌘,", "Ctrl+,", "Ctrl+Shift+,"),
-            row(KeyAction::OpenPanel, "↵", "↵", ""),
-            row(KeyAction::ClosePanel, "Esc", "Esc", ""),
             row(
-                KeyAction::ExpandPanel,
-                "⇧⌘E",
-                "Ctrl+Shift+E",
-                "Ctrl+Shift+E",
+                OpenActivity,
+                &["⇧⌘U", "g a"],
+                &["Ctrl+Shift+U", "g a"],
+                &["Ctrl+Shift+U"],
             ),
-            row(KeyAction::Approve, "⌘↵", "Ctrl+↵", "Ctrl+Shift+↵"),
-            row(KeyAction::SendBack, "⌘⌫", "Ctrl+⌫", "Ctrl+Shift+⌫"),
-            row(KeyAction::StartDev, "⇧⌘D", "Ctrl+Shift+D", "Ctrl+Shift+D"),
-            row(KeyAction::FocusEpic, "⇧⌘G", "Ctrl+Shift+G", "Ctrl+Shift+G"),
-            row(KeyAction::FindInTerminal, "⌘F", "", "Ctrl+Shift+F"),
+            row(Settings, &["⌘,"], &["Ctrl+,"], &["Ctrl+,"]),
+            row(TogglePane, &["⌘B"], &["Ctrl+B"], &["Ctrl+Shift+B"]),
+            row(FocusPane, &["⌘L"], &["Ctrl+L"], &["Ctrl+Shift+L"]),
+            row(NewProjectAgent, &["⇧⌘L"], &["Ctrl+Shift+L"], &[]),
+            row(NewTicket, &["⌘N", "c"], &["Ctrl+N", "c"], &["Ctrl+Shift+N"]),
+            row(OpenPanel, &["↵"], &["↵"], &[]),
+            row(ClosePanel, &["Esc"], &["Esc"], &[]),
+            row(ExpandPanel, &["e"], &["e"], &[]),
+            row(NextTab, &["⌃Tab"], &["Ctrl+Tab"], &["Ctrl+Tab"]),
+            row(
+                PreviousTab,
+                &["⌃⇧Tab"],
+                &["Ctrl+Shift+Tab"],
+                &["Ctrl+Shift+Tab"],
+            ),
+            row(Approve, &["⌘↵"], &["Ctrl+↵"], &["Ctrl+Shift+↵"]),
+            row(SendBack, &["⌘⌫"], &["Ctrl+⌫"], &["Ctrl+Shift+⌫"]),
+            row(StartDev, &["⌘D"], &["Ctrl+D"], &["Ctrl+Shift+D"]),
+            row(Park, &[], &[], &[]),
+            row(CloseTicket, &[], &[], &[]),
+            row(OpenPr, &[], &[], &[]),
+            row(RerunValidation, &[], &[], &[]),
+            row(OpenDiff, &[], &[], &[]),
+            row(Terminals, &["⌃`", "g t"], &["Ctrl+`", "g t"], &["Ctrl+`"]),
+            row(FindInTerminal, &["⌘F"], &[], &["Ctrl+Shift+F"]),
+            row(ShowFiles, &["⇧⌘O"], &["Ctrl+Shift+O"], &["Ctrl+Shift+O"]),
+            row(GoToFile, &["⌥⌘P"], &["Ctrl+Alt+P"], &["Ctrl+Shift+Alt+P"]),
         ];
         for n in 1..=9 {
-            table.push(row(
-                KeyAction::Project(n),
-                &format!("⌘{n}"),
-                &format!("Ctrl+{n}"),
-                &format!("Ctrl+Shift+{n}"),
-            ));
+            let (mac, win) = (format!("⌘{n}"), format!("Ctrl+{n}"));
+            table.push(row(Project(n), &[&mac], &[&win], &[&win]));
         }
         for n in 1..=6 {
-            table.push(row(
-                KeyAction::SwitchTab(n),
-                &format!("⌘⌥{n}"),
-                &format!("Ctrl+Alt+{n}"),
-                &format!("Ctrl+Shift+Alt+{n}"),
-            ));
+            let digit = n.to_string();
+            table.push(row(SwitchTab(n), &[&digit], &[&digit], &[]));
         }
         table
     }
@@ -535,38 +1162,90 @@ mod tests {
         Platform::WinLinuxTerminal,
     ];
 
-    fn text(row: &(KeyAction, String, String, String), column: Platform) -> &str {
-        match column {
+    fn column(row: &Row, platform: Platform) -> &[String] {
+        match platform {
             Platform::Mac => &row.1,
             Platform::WinLinux => &row.2,
             Platform::WinLinuxTerminal => &row.3,
         }
     }
 
-    /// The action a keystroke runs, as the page's dispatcher finds it (`ui/src/app/keys.ts`): a focused terminal
-    /// keeps what [`route`] gives it; otherwise the first binding of the keystroke, the "in terminal" column only
-    /// counting in a terminal.
-    fn action_for(platform: Platform, in_terminal: bool, stroke: &Keystroke) -> Option<KeyAction> {
-        if in_terminal && route(platform, true, &stroke.modifiers) == KeyRoute::Terminal {
+    /// The key event that presses `text` (a key of the map), as a US keyboard reports it.
+    fn press(text: &str) -> KeyPress {
+        match Key::parse(text).unwrap_or_else(|| panic!("{text} parses")) {
+            Key::Stroke { stroke } => KeyPress {
+                key: stroke.key,
+                code: stroke.code,
+                modifiers: stroke.modifiers,
+            },
+            Key::Letter { letter } | Key::Sequence { then: letter } => typed(&letter),
+        }
+    }
+
+    /// The key event of a typed character on a US keyboard (`?` is ⇧/).
+    fn typed(c: &str) -> KeyPress {
+        let shifted = c == "?";
+        KeyPress {
+            key: c.to_owned(),
+            code: if shifted {
+                "Slash".to_owned()
+            } else {
+                code_of(c.chars().next().unwrap()).unwrap_or_default()
+            },
+            modifiers: Modifiers {
+                shift: shifted,
+                ..Modifiers::default()
+            },
+        }
+    }
+
+    /// The action a key runs, as the page's dispatcher finds it (`ui/src/app/keys.ts`): a focused terminal keeps what
+    /// [`route`] gives it; otherwise the first binding of the key that works where it was pressed. `after_g`: pressed
+    /// after a lone `g`.
+    fn action_for(
+        platform: Platform,
+        in_terminal: bool,
+        press: &KeyPress,
+        after_g: bool,
+        bindings: &[Binding],
+    ) -> Option<KeyAction> {
+        if in_terminal && route(platform, true, press, bindings) == KeyRoute::Terminal {
             return None;
         }
-        bindings_for(platform, true)
-            .into_iter()
-            .find(|b| (in_terminal || !b.in_terminal) && &b.keystroke == stroke)
+        bindings
+            .iter()
+            .find(|b| {
+                let here = if in_terminal {
+                    b.place.inside_terminals() && !b.key.is_letter()
+                } else {
+                    b.place.outside_terminals()
+                };
+                here && b.key.matches(press, after_g)
+            })
             .map(|b| b.action)
     }
 
-    /// Every action has d0058's three texts, and `all()` lists exactly the table's actions.
+    /// Runs `text` (a sequence's second key after `g`).
+    fn runs(
+        platform: Platform,
+        in_terminal: bool,
+        text: &str,
+        bindings: &[Binding],
+    ) -> Option<KeyAction> {
+        let sequence = matches!(Key::parse(text), Some(Key::Sequence { .. }));
+        action_for(platform, in_terminal, &press(text), sequence, bindings)
+    }
+
+    /// Every action has 0097's keys in each column, and `all()` lists exactly the table's actions.
     #[test]
-    fn every_action_has_its_0058_texts() {
-        let table = table_0058();
+    fn every_action_has_its_0097_keys() {
+        let table = table_0097();
         for row in &table {
-            for column in COLUMNS {
-                let want = text(row, column);
+            for platform in COLUMNS {
                 assert_eq!(
-                    row.0.keys(column).as_deref(),
-                    (!want.is_empty()).then_some(want),
-                    "{:?} on {column:?}",
+                    row.0.default_keys(platform),
+                    column(row, platform),
+                    "{:?} on {platform:?}",
                     row.0
                 );
             }
@@ -579,413 +1258,501 @@ mod tests {
         assert_eq!(listed, tabled);
     }
 
-    /// Each text of the table, pressed where its column applies, runs its action: macOS on the board and in a
-    /// terminal; Windows/Linux on the board; the "in terminal" column in a Windows/Linux terminal, where the plain
-    /// Windows/Linux keys that lack Shift stay the CLI's.
+    /// Each key of the table, pressed where its column applies, runs its action: macOS on the board, and in a terminal
+    /// when it holds ⌘ or is ⌃` / ⌃Tab / ⌃⇧Tab; Windows/Linux on the board; the terminal column in a Windows/Linux
+    /// terminal, where a Windows/Linux key outside that column never runs its action.
     #[test]
-    fn each_0058_keystroke_runs_its_action() {
-        for row in table_0058() {
-            let (action, mac, win, term) = (row.0, &row.1, &row.2, &row.3);
-            if !mac.is_empty() {
-                let stroke = Keystroke::parse(mac).unwrap();
+    fn each_0097_key_runs_its_action_where_it_applies() {
+        let mac = bindings_for(Platform::Mac, true);
+        let win = bindings_for(Platform::WinLinux, true);
+        for row in table_0097() {
+            let action = row.0;
+            for text in &row.1 {
                 assert_eq!(
-                    action_for(Platform::Mac, false, &stroke),
+                    runs(Platform::Mac, false, text, &mac),
                     Some(action),
-                    "{mac}"
+                    "{text}"
                 );
-                if stroke.modifiers.platform {
-                    assert_eq!(
-                        action_for(Platform::Mac, true, &stroke),
+                let in_terminal =
+                    text.contains('⌘') || ["⌃`", "⌃Tab", "⌃⇧Tab"].contains(&text.as_str());
+                assert_eq!(
+                    runs(Platform::Mac, true, text, &mac),
+                    in_terminal.then_some(action),
+                    "{text} in a Mac terminal"
+                );
+            }
+            for text in &row.2 {
+                assert_eq!(
+                    runs(Platform::WinLinux, false, text, &win),
+                    Some(action),
+                    "{text}"
+                );
+                if !row.3.contains(text) {
+                    assert_ne!(
+                        runs(Platform::WinLinux, true, text, &win),
                         Some(action),
-                        "{mac}"
+                        "{text} isn't in the terminal column"
                     );
                 }
             }
-            if !win.is_empty() {
-                let stroke = Keystroke::parse(win).unwrap();
+            for text in &row.3 {
                 assert_eq!(
-                    action_for(Platform::WinLinux, false, &stroke),
+                    runs(Platform::WinLinux, true, text, &win),
                     Some(action),
-                    "{win}"
-                );
-                if !(stroke.modifiers.control && stroke.modifiers.shift) {
-                    assert_eq!(action_for(Platform::WinLinux, true, &stroke), None, "{win}");
-                }
-            }
-            if !term.is_empty() {
-                let stroke = Keystroke::parse(term).unwrap();
-                assert_eq!(
-                    action_for(Platform::WinLinux, true, &stroke),
-                    Some(action),
-                    "{term}"
+                    "{text} in a terminal"
                 );
             }
         }
     }
 
-    /// The 0087 rows parse into the web's key names, ⌘\ by its physical key.
+    /// KEY-03's examples in a Windows/Linux terminal.
     #[test]
-    fn the_0087_keys_parse() {
-        let parse = |text: &str| Keystroke::parse(text).unwrap();
-        let hide = parse("⌘\\");
-        assert_eq!((hide.key.as_str(), hide.code.as_str()), ("\\", "Backslash"));
-        assert_eq!(parse("Ctrl+Shift+\\").code, "Backslash");
-        let go = parse("Ctrl+Shift+Alt+P");
-        assert_eq!(go.code, "KeyP");
-        assert!(go.modifiers.control && go.modifiers.shift && go.modifiers.alt);
-        let go_mac = parse("⌥⌘P");
-        assert!(go_mac.modifiers.alt && go_mac.modifiers.platform && !go_mac.modifiers.shift);
-        assert_eq!(parse("⌘L").code, "KeyL");
-    }
-
-    /// d0058: no shortcut stands for two actions anywhere in the table, across its three columns.
-    #[test]
-    fn no_shortcut_appears_twice_across_the_table() {
-        let mut seen: HashMap<String, KeyAction> = HashMap::new();
-        for row in table_0058() {
-            for column in COLUMNS {
-                let t = text(&row, column);
-                if t.is_empty() {
-                    continue;
-                }
-                if let Some(other) = seen.insert(t.to_owned(), row.0) {
-                    assert_eq!(other, row.0, "{t} used by {other:?} and {:?}", row.0);
-                }
-            }
+    fn a_windows_and_linux_terminal_uses_the_terminal_column() {
+        let win = bindings(Platform::WinLinux);
+        let in_terminal = |text: &str| runs(Platform::WinLinux, true, text, &win);
+        assert_eq!(in_terminal("Ctrl+K"), Some(KeyAction::CommandPalette));
+        assert_eq!(in_terminal("Ctrl+`"), Some(KeyAction::Terminals));
+        assert_eq!(in_terminal("Ctrl+Shift+D"), Some(KeyAction::StartDev));
+        assert_eq!(in_terminal("Ctrl+D"), None);
+        assert_eq!(in_terminal("Ctrl+L"), None);
+        // Their Shift forms belong to the pane, so Board and New Project agent have no key there.
+        assert_eq!(in_terminal("Ctrl+Shift+B"), Some(KeyAction::TogglePane));
+        assert_eq!(in_terminal("Ctrl+Shift+L"), Some(KeyAction::FocusPane));
+        for action in [KeyAction::ShowBoard, KeyAction::NewProjectAgent] {
+            assert!(
+                win.iter()
+                    .all(|b| b.action != action || !b.place.inside_terminals()),
+                "{action:?}"
+            );
         }
-    }
-
-    /// ⌘1–9 stay Project 1–9 and ⌘P Switch project (d0087: design V's ⌘1 / ⌘2 / ⌘P aren't used).
-    #[test]
-    fn project_keys_keep_their_meaning() {
-        assert_eq!(
-            KeyAction::Project(1).keys(Platform::Mac).as_deref(),
-            Some("⌘1")
-        );
-        assert_eq!(
-            KeyAction::Project(2).keys(Platform::Mac).as_deref(),
-            Some("⌘2")
-        );
-        assert_eq!(
-            KeyAction::SwitchProject.keys(Platform::Mac).as_deref(),
-            Some("⌘P")
-        );
-    }
-
-    #[test]
-    fn a_terminals_own_keys_parse_and_stay_off_the_app_map() {
-        for platform in [Platform::Mac, Platform::WinLinux] {
-            let own = terminal_bindings(platform);
-            let texts: usize = TerminalKey::ALL
-                .iter()
-                .map(|k| k.keys(platform).len())
-                .sum();
-            assert_eq!(own.len(), texts, "every text parses on {platform:?}");
-            for b in &own {
-                // Taken from the program in the terminal, as the app's own keys are (SES-10); ⇧↵ stays the
-                // program's, only its bytes change.
-                let to = if b.key == TerminalKey::NewLine {
-                    KeyRoute::Terminal
-                } else {
-                    KeyRoute::App
-                };
-                assert_eq!(route(platform, true, &b.keystroke.modifiers), to);
-                assert!(
-                    !bindings_for(platform, true)
-                        .iter()
-                        .any(|a| a.keystroke == b.keystroke),
-                    "{:?} clashes with the map on {platform:?}",
-                    b.key
-                );
-            }
-        }
-        let mac = terminal_bindings(Platform::Mac);
+        // Single letters never work in a terminal.
         assert!(
-            mac.iter()
-                .all(|b| !matches!(b.key, TerminalKey::Copy | TerminalKey::Paste))
+            win.iter()
+                .all(|b| !b.key.is_letter() || b.place == KeyPlace::OutsideTerminals)
         );
-        assert_eq!(mac[0].keystroke.code, "Equal");
-        let win = terminal_bindings(Platform::WinLinux);
-        assert_eq!(win[0].key, TerminalKey::Copy);
-        assert_eq!(win[0].keystroke.code, "KeyC");
-        assert!(win[0].keystroke.modifiers.control && win[0].keystroke.modifiers.shift);
-        for own in [&mac, &win] {
-            let new_line = own.iter().find(|b| b.key == TerminalKey::NewLine).unwrap();
-            assert_eq!(new_line.keystroke.code, "Enter");
-            assert_eq!(
-                new_line.keystroke.modifiers,
-                Modifiers {
-                    shift: true,
-                    ..Modifiers::default()
-                }
-            );
-        }
+        assert_eq!(in_terminal("j"), None);
+        assert_eq!(
+            route(Platform::WinLinux, true, &typed("j"), &win),
+            KeyRoute::Terminal
+        );
     }
 
+    /// KEY-03: in a Windows/Linux terminal Ctrl+1–9, Ctrl+`, Ctrl+, , Ctrl+Tab / Ctrl+Shift+Tab, Ctrl+K and Ctrl+P
+    /// (with Ctrl+Shift+P, the palette's other key) work unchanged; every other key there is its Windows/Linux key with
+    /// Shift added. Find has no Windows/Linux key outside a terminal.
     #[test]
-    fn the_page_reads_an_action_by_its_name_and_number() {
-        let json = |a: KeyAction| serde_json::to_value(a).unwrap();
-        assert_eq!(
-            json(KeyAction::OpenInbox),
-            serde_json::json!({ "action": "open_inbox" })
-        );
-        assert_eq!(
-            json(KeyAction::SwitchTab(2)),
-            serde_json::json!({ "action": "switch_tab", "number": 2 })
-        );
-        for action in KeyAction::all() {
-            assert_eq!(
-                serde_json::from_value::<KeyAction>(json(action)).unwrap(),
-                action
-            );
-        }
-    }
-
-    #[test]
-    fn same_action_differs_by_platform() {
-        assert_eq!(
-            KeyAction::NextInboxItem.keys(Platform::Mac).as_deref(),
-            Some("⌘J")
-        );
-        assert_eq!(
-            KeyAction::NextInboxItem.keys(Platform::WinLinux).as_deref(),
-            Some("Ctrl+J")
-        );
-        assert_eq!(
-            KeyAction::NextInboxItem
-                .keys(Platform::WinLinuxTerminal)
-                .as_deref(),
-            Some("Ctrl+Shift+J")
-        );
-        assert_eq!(
-            KeyAction::Project(3).keys(Platform::Mac).as_deref(),
-            Some("⌘3")
-        );
-        assert_eq!(KeyAction::OpenPanel.keys(Platform::WinLinuxTerminal), None);
-    }
-
-    /// d0058: no shortcut may stand for two different actions within a column.
-    #[test]
-    fn no_duplicates_in_a_column() {
-        for columns in [
-            vec![Platform::Mac],
-            vec![Platform::WinLinux],
-            vec![Platform::WinLinuxTerminal],
+    fn the_terminal_lets_these_through_and_adds_shift_to_the_rest() {
+        let mut let_through: Vec<String> = (1..=9).map(|n| format!("Ctrl+{n}")).collect();
+        let_through.extend(["Ctrl+`", "Ctrl+,", "Ctrl+Tab", "Ctrl+K", "Ctrl+P"].map(String::from));
+        let_through.sort();
+        let win = bindings_for(Platform::WinLinux, true);
+        let everywhere = |shift: bool| -> Vec<String> {
+            let mut keys: Vec<String> = win
+                .iter()
+                .filter(|b| b.place == KeyPlace::Everywhere)
+                .filter(|b| b.key.stroke().unwrap().modifiers.shift == shift)
+                .map(|b| b.text.clone())
+                .collect();
+            keys.sort();
+            keys
+        };
+        // The Ctrl keys a terminal lets through; the rest that work in one already hold Shift.
+        assert_eq!(everywhere(false), let_through);
+        for text in [
+            "Ctrl+Shift+Tab",
+            "Ctrl+Shift+P",
+            "Ctrl+Shift+I",
+            "Ctrl+Shift+U",
         ] {
-            let mut seen: HashMap<String, KeyAction> = HashMap::new();
-            for action in KeyAction::all() {
-                for platform in &columns {
-                    if let Some(keys) = action.keys(*platform)
-                        && let Some(other) = seen.insert(keys.clone(), action)
-                    {
-                        panic!("{keys} used by {other:?} and {action:?} on {platform:?}");
+            assert!(everywhere(true).contains(&text.to_owned()), "{text}");
+        }
+        for b in win.iter().filter(|b| b.place == KeyPlace::InsideTerminals) {
+            let stroke = b.key.stroke().unwrap();
+            assert!(
+                stroke.modifiers.control && stroke.modifiers.shift,
+                "{}",
+                b.text
+            );
+            let outside = win.iter().find(|o| {
+                o.action == b.action && o.slot == b.slot && o.place == KeyPlace::OutsideTerminals
+            });
+            match outside {
+                Some(o) => {
+                    let mut shifted = o.key.stroke().unwrap().clone();
+                    shifted.modifiers.shift = true;
+                    assert_eq!(&shifted, stroke, "{} is {} with Shift", b.text, o.text);
+                }
+                None => assert_eq!(b.action, KeyAction::FindInTerminal),
+            }
+        }
+    }
+
+    /// KEY-03: Ctrl+[ and Ctrl+\ (Escape, force quit) are never taken in a terminal, and Ctrl+Shift+C / V stay the
+    /// terminal's copy and paste, not even by a custom key marked Works inside terminals.
+    #[test]
+    fn the_terminals_own_ctrl_keys_are_never_bound_there() {
+        let custom = CustomKeys(
+            ["Ctrl+C", "Ctrl+[", "Ctrl+\\", "Ctrl+Shift+V"]
+                .iter()
+                .enumerate()
+                .map(|(i, text)| CustomKey {
+                    action: [
+                        KeyAction::Park,
+                        KeyAction::CloseTicket,
+                        KeyAction::OpenPr,
+                        KeyAction::OpenDiff,
+                    ][i],
+                    slot: 0,
+                    change: KeyChange::Replaced {
+                        key: Key::parse(text).unwrap(),
+                    },
+                    works_in_terminals: true,
+                })
+                .collect(),
+        );
+        for keys in [
+            bindings_for(Platform::WinLinux, true),
+            user_keys(Platform::WinLinux, &custom),
+        ] {
+            for text in [
+                "Ctrl+[",
+                "Ctrl+\\",
+                "Ctrl+C",
+                "Ctrl+D",
+                "Ctrl+Shift+C",
+                "Ctrl+Shift+V",
+            ] {
+                let key = Key::parse(text).unwrap();
+                assert!(
+                    keys.iter()
+                        .all(|b| b.key != key || !b.place.inside_terminals()),
+                    "{text} bound in a terminal"
+                );
+            }
+            for text in ["Ctrl+[", "Ctrl+\\", "Ctrl+C"] {
+                assert_eq!(
+                    route(Platform::WinLinux, true, &press(text), &keys),
+                    KeyRoute::Terminal,
+                    "{text}"
+                );
+            }
+        }
+        let base = bindings_for(Platform::WinLinux, true);
+        for text in ["Ctrl+Shift+C", "Ctrl+Shift+V"] {
+            let key = Key::parse(text).unwrap();
+            assert!(base.iter().all(|b| b.key != key), "{text}");
+        }
+    }
+
+    /// The keys of one place: macOS or Windows/Linux, outside or inside a terminal.
+    fn place_keys(
+        platform: Platform,
+        inside: bool,
+        bindings: &[Binding],
+    ) -> Vec<(Key, KeyAction, String)> {
+        bindings
+            .iter()
+            .filter(|b| {
+                if inside {
+                    b.place.inside_terminals()
+                } else {
+                    b.place.outside_terminals()
+                }
+            })
+            .map(|b| {
+                (
+                    b.key.clone(),
+                    b.action,
+                    format!("{} on {platform:?}", b.text),
+                )
+            })
+            .collect()
+    }
+
+    /// 0097: no key means two things in the same place: macOS (outside and inside terminals), Windows/Linux, and
+    /// Windows/Linux while a terminal has focus.
+    #[test]
+    fn no_key_means_two_things_in_one_place() {
+        for platform in [Platform::Mac, Platform::WinLinux] {
+            let all = bindings_for(platform, true);
+            for inside in [false, true] {
+                let mut seen: HashMap<Key, KeyAction> = HashMap::new();
+                for (key, action, text) in place_keys(platform, inside, &all) {
+                    if let Some(other) = seen.insert(key, action) {
+                        assert_eq!(other, action, "{text} (inside: {inside})");
                     }
                 }
             }
         }
     }
 
-    /// With the terminal focused on Windows/Linux, the CLI's Ctrl keys reach the PTY and the Ctrl+Shift column
-    /// reaches the app (SES-10).
+    /// 0097, d0078: the description editor's toolbar keys share only ⌘K (Link) and ⌘B (Bold) with the map, which the
+    /// editor keeps while its text has the focus. ⇧⌘B is the editor's Blockquote too: Board takes it first, as under
+    /// 0058 (a deferred question of T-0389).
     #[test]
-    fn the_terminal_keeps_ctrl_keys_on_windows_and_linux() {
-        for key in [
-            "ctrl-j",
-            "ctrl-c",
-            "ctrl-t",
-            "ctrl-k",
-            "ctrl-p",
-            "ctrl-[",
-            "escape",
-            "alt-enter",
-        ] {
-            let k = keystroke(key);
-            assert_eq!(
-                route(Platform::WinLinux, true, &k.modifiers),
-                KeyRoute::Terminal,
-                "{key}"
-            );
-        }
-        for action in KeyAction::all() {
-            let Some(stroke) = action.keys(Platform::WinLinuxTerminal) else {
-                continue;
-            };
-            let k = keystroke(&stroke);
-            assert_eq!(
-                route(Platform::WinLinux, true, &k.modifiers),
-                KeyRoute::App,
-                "{stroke}"
-            );
-        }
-        assert_eq!(
-            bound_columns(Platform::WinLinux),
-            [
-                (Platform::WinLinux, false),
-                (Platform::WinLinuxTerminal, true)
-            ]
-        );
-        assert_eq!(bound_columns(Platform::Mac), [(Platform::Mac, false)]);
-    }
-
-    /// d0080: ⇧⌘G / Ctrl+Shift+G focuses the epic on all three rows, the terminal's included, and is no other
-    /// action's.
-    #[test]
-    fn focus_epic_is_on_every_row() {
-        assert_eq!(
-            [
-                Platform::Mac,
-                Platform::WinLinux,
-                Platform::WinLinuxTerminal
-            ]
-            .map(|p| KeyAction::FocusEpic.keys(p)),
-            [
-                Some("⇧⌘G".to_owned()),
-                Some("Ctrl+Shift+G".to_owned()),
-                Some("Ctrl+Shift+G".to_owned())
-            ]
-        );
+    fn only_link_and_bold_share_a_key_with_the_description_editor() {
+        // `ui/src/markdown/toolbar/buttons.ts`: Bold, Italic, Strikethrough, Code, Link, lists, Blockquote, Code block.
+        let editor = ["B", "I", "⇧X", "E", "K", "⇧8", "⇧7", "⇧9", "⇧B", "⌥C"];
         for platform in [Platform::Mac, Platform::WinLinux] {
-            let focus: Vec<_> = bindings_for(platform, true)
-                .into_iter()
-                .filter(|b| b.keystroke.key == "g" && b.keystroke.modifiers.shift)
+            let editor: Vec<Key> = editor
+                .iter()
+                .map(|k| {
+                    let mac = format!("⌘{k}").replace("⌘⇧", "⇧⌘").replace("⌘⌥", "⌥⌘");
+                    let mut stroke = Keystroke::parse(&mac).unwrap();
+                    if platform == Platform::WinLinux {
+                        stroke.modifiers.platform = false;
+                        stroke.modifiers.control = true;
+                    }
+                    Key::Stroke { stroke }
+                })
                 .collect();
-            assert!(focus.iter().all(|b| b.action == KeyAction::FocusEpic));
-            assert_eq!(focus.len(), if platform == Platform::Mac { 1 } else { 2 });
+            let mut shared: Vec<String> = bindings_for(platform, true)
+                .iter()
+                .filter(|b| b.place.outside_terminals() && editor.contains(&b.key))
+                .map(|b| b.text.clone())
+                .collect();
+            shared.sort();
+            let mut want: Vec<String> =
+                description_editor_keys(platform).map(String::from).to_vec();
+            want.push(
+                if platform == Platform::Mac {
+                    "⇧⌘B"
+                } else {
+                    "Ctrl+Shift+B"
+                }
+                .to_owned(),
+            );
+            want.sort();
+            assert_eq!(shared, want, "{platform:?}");
         }
-        let in_terminal = Keystroke::parse("Ctrl+Shift+G").unwrap();
+        let mac = bindings(Platform::Mac);
         assert_eq!(
-            route(Platform::WinLinux, true, &in_terminal.modifiers),
-            KeyRoute::App
+            runs(Platform::Mac, false, "⌘K", &mac),
+            Some(KeyAction::CommandPalette)
+        );
+        assert_eq!(
+            runs(Platform::Mac, false, "⌘B", &mac),
+            Some(KeyAction::TogglePane)
         );
     }
 
+    /// 0097 on macOS: ⌃`, ⌃Tab and ⌃⇧Tab reach the app from a focused terminal; ⌃C, ⌃D, ⌃R and a bare letter stay the
+    /// terminal's; ⌘ keys reach the app as before; a custom ⌃R stays the terminal's until marked Works inside
+    /// terminals.
     #[test]
-    fn decision_0058_collisions_stay_fixed() {
-        // Project terminal and Expand panel moved off Ctrl+Shift+P / Ctrl+Shift+Enter.
+    fn a_mac_terminal_gives_the_app_ctrl_backquote_and_ctrl_tab_only() {
+        let mac = bindings(Platform::Mac);
+        let to = |text: &str, keys: &[Binding]| route(Platform::Mac, true, &press(text), keys);
+        for text in ["⌃`", "⌃Tab", "⌃⇧Tab"] {
+            assert_eq!(to(text, &mac), KeyRoute::App, "{text}");
+        }
         assert_eq!(
-            KeyAction::ProjectTerminal
-                .keys(Platform::WinLinux)
-                .as_deref(),
-            Some("Ctrl+Shift+T")
+            runs(Platform::Mac, true, "⌃`", &mac),
+            Some(KeyAction::Terminals)
         );
         assert_eq!(
-            KeyAction::ExpandPanel.keys(Platform::WinLinux).as_deref(),
-            Some("Ctrl+Shift+E")
+            runs(Platform::Mac, true, "⌃Tab", &mac),
+            Some(KeyAction::NextTab)
         );
-        assert_ne!(
-            KeyAction::SwitchProject.keys(Platform::WinLinuxTerminal),
-            KeyAction::ProjectTerminal.keys(Platform::WinLinuxTerminal)
+        assert_eq!(
+            runs(Platform::Mac, true, "⌃⇧Tab", &mac),
+            Some(KeyAction::PreviousTab)
         );
-    }
-
-    struct Stroke {
-        modifiers: Modifiers,
-    }
-
-    /// A keystroke's modifiers, from gpui-style text ("ctrl-shift-k") or a d0058 text ("Ctrl+Shift+K").
-    fn keystroke(s: &str) -> Stroke {
-        let parts: Vec<&str> = if s.contains('+') && s.len() > 1 {
-            s.split('+').collect()
-        } else {
-            s.split('-').collect()
+        for text in ["⌃C", "⌃D", "⌃R", "⌃J", "⌃[", "j", "e", "?", "↵", "Esc"] {
+            assert_eq!(to(text, &mac), KeyRoute::Terminal, "{text}");
+        }
+        for text in ["⌘K", "⌘J", "⇧⌘I", "⌘D", "⌘F", "⌘B", "⌘X", "⇧⌘Z"] {
+            assert_eq!(to(text, &mac), KeyRoute::App, "{text}");
+        }
+        let custom = |works_in_terminals| {
+            CustomKeys(vec![CustomKey {
+                action: KeyAction::OpenActivity,
+                slot: 0,
+                change: KeyChange::Replaced {
+                    key: Key::parse("⌃R").unwrap(),
+                },
+                works_in_terminals,
+            }])
         };
-        let mut modifiers = Modifiers::default();
-        for part in &parts[..parts.len() - 1] {
-            match part.to_lowercase().as_str() {
-                "ctrl" => modifiers.control = true,
-                "alt" => modifiers.alt = true,
-                "shift" => modifiers.shift = true,
-                "cmd" => modifiers.platform = true,
-                other => panic!("{other} in {s}"),
-            }
-        }
-        Stroke { modifiers }
-    }
-
-    #[test]
-    fn a_focused_terminal_takes_every_key_but_command_shortcuts() {
-        for key in [
-            "escape",
-            "ctrl-c",
-            "ctrl-j",
-            "up",
-            "down",
-            "left",
-            "right",
-            "tab",
-            "shift-tab",
-            "enter",
-            "a",
-            "shift-a",
-            "alt-enter",
-            "ctrl-t",
-            "backspace",
-            "ctrl-[",
-        ] {
-            let k = keystroke(key);
-            assert_eq!(
-                route(Platform::Mac, true, &k.modifiers),
-                KeyRoute::Terminal,
-                "{key}"
-            );
-        }
-        // d0058's ⌘ shortcuts keep working while focused.
-        for key in [
-            "cmd-j",
-            "cmd-shift-i",
-            "cmd-[",
-            "cmd-]",
-            "cmd-k",
-            "cmd-p",
-            "cmd-n",
-            "cmd-shift-t",
-            "cmd-,",
-            "cmd-shift-e",
-            "cmd-alt-1",
-            "cmd-enter",
-            "cmd-backspace",
-            "cmd-shift-d",
-            "cmd-f",
-            "cmd-shift-`",
-        ] {
-            let k = keystroke(key);
-            assert_eq!(
-                route(Platform::Mac, true, &k.modifiers),
-                KeyRoute::App,
-                "{key}"
-            );
-        }
-    }
-
-    #[test]
-    fn without_terminal_focus_everything_is_the_apps() {
-        for key in ["escape", "enter", "a", "cmd-k"] {
-            let k = keystroke(key);
-            assert_eq!(route(Platform::Mac, false, &k.modifiers), KeyRoute::App);
-        }
-    }
-
-    #[test]
-    fn windows_and_linux_use_ctrl_shift_in_the_terminal() {
-        let k = keystroke("ctrl-shift-k");
-        assert_eq!(route(Platform::WinLinux, true, &k.modifiers), KeyRoute::App);
-        let k = keystroke("ctrl-k");
+        let mine = user_keys(Platform::Mac, &custom(false));
+        assert_eq!(to("⌃R", &mine), KeyRoute::Terminal);
         assert_eq!(
-            route(Platform::WinLinux, true, &k.modifiers),
+            runs(Platform::Mac, false, "⌃R", &mine),
+            Some(KeyAction::OpenActivity)
+        );
+        let through = user_keys(Platform::Mac, &custom(true));
+        assert_eq!(to("⌃R", &through), KeyRoute::App);
+        assert_eq!(
+            runs(Platform::Mac, true, "⌃R", &through),
+            Some(KeyAction::OpenActivity)
+        );
+        // ⌃D can't be let through (T-0390 refuses it; the map never binds it there).
+        let exit = CustomKeys(vec![CustomKey {
+            action: KeyAction::Park,
+            slot: 0,
+            change: KeyChange::Replaced {
+                key: Key::parse("⌃D").unwrap(),
+            },
+            works_in_terminals: true,
+        }]);
+        assert_eq!(
+            to("⌃D", &user_keys(Platform::Mac, &exit)),
             KeyRoute::Terminal
         );
     }
 
     #[test]
-    fn every_shortcut_is_one_keystroke() {
-        for platform in [
-            Platform::Mac,
-            Platform::WinLinux,
-            Platform::WinLinuxTerminal,
+    fn without_terminal_focus_everything_is_the_apps() {
+        let mac = bindings(Platform::Mac);
+        for text in ["Esc", "↵", "j", "⌘K", "⌃C"] {
+            assert_eq!(
+                route(Platform::Mac, false, &press(text), &mac),
+                KeyRoute::App
+            );
+        }
+    }
+
+    #[test]
+    fn the_terminal_app_modifiers_still_take_command_and_ctrl_shift_keys() {
+        assert_eq!(terminal_app_modifiers(Platform::Mac).len(), 1);
+        assert!(terminal_app_modifiers(Platform::Mac)[0].platform);
+        let held = Modifiers {
+            control: true,
+            shift: true,
+            alt: true,
+            ..Modifiers::default()
+        };
+        assert!(held.holds(&terminal_app_modifiers(Platform::WinLinux)[0]));
+        assert!(!Modifiers::default().holds(&terminal_app_modifiers(Platform::WinLinux)[0]));
+        // Unbound, they still leave the terminal's own keys (copy, paste) to the terminal's handler.
+        assert_eq!(
+            route(Platform::WinLinux, true, &press("Ctrl+Shift+C"), &[]),
+            KeyRoute::App
+        );
+        assert_eq!(
+            route(Platform::WinLinux, true, &press("Ctrl+R"), &[]),
+            KeyRoute::Terminal
+        );
+    }
+
+    /// The new kinds of key parse, and a letter is matched by the character typed, whatever the layout.
+    #[test]
+    fn letters_sequences_and_ctrl_keys_parse() {
+        let letter = |l: &str| {
+            Some(Key::Letter {
+                letter: l.to_owned(),
+            })
+        };
+        assert_eq!(Key::parse("j"), letter("j"));
+        assert_eq!(Key::parse("/"), letter("/"));
+        assert_eq!(Key::parse("?"), letter("?"));
+        assert_eq!(Key::parse("1"), letter("1"));
+        assert_eq!(
+            Key::parse("g b"),
+            Some(Key::Sequence {
+                then: "b".to_owned()
+            })
+        );
+        let stroke = |text| Key::parse(text).and_then(|k| k.stroke().cloned()).unwrap();
+        let tab = stroke("⌃Tab");
+        assert_eq!((tab.key.as_str(), tab.code.as_str()), ("Tab", "Tab"));
+        assert!(tab.modifiers.control && !tab.modifiers.platform && !tab.modifiers.shift);
+        let back = stroke("⌃`");
+        assert_eq!((back.key.as_str(), back.code.as_str()), ("`", "Backquote"));
+        assert!(back.modifiers.control);
+        let new_agent = stroke("⇧⌘L");
+        assert_eq!(new_agent.code, "KeyL");
+        assert!(
+            new_agent.modifiers.shift
+                && new_agent.modifiers.platform
+                && !new_agent.modifiers.control
+        );
+        assert!(stroke("⌃⇧Tab").modifiers.shift);
+        assert_eq!(stroke("Ctrl+Shift+Tab").key, "Tab");
+        for wrong in [
+            "",
+            "J",
+            "g",
+            "g bb",
+            "g ",
+            "Ctrl+",
+            "Meta+K",
+            "⌘",
+            "⌘KK",
+            "Ctrl+Shift+F5",
         ] {
-            for action in KeyAction::all() {
-                if let Some(text) = action.keys(platform) {
-                    assert!(Keystroke::parse(&text).is_some(), "{text} ({action:?})");
+            let parsed = Key::parse(wrong);
+            assert!(
+                parsed.is_none() || wrong == "g",
+                "{wrong} parsed as {parsed:?}"
+            );
+        }
+        // Plain `g` is a letter key (T-0390 refuses recording it: it starts every sequence).
+        assert_eq!(Key::parse("g"), letter("g"));
+
+        let at = |key: &str, code: &str, shift: bool| KeyPress {
+            key: key.to_owned(),
+            code: code.to_owned(),
+            modifiers: Modifiers {
+                shift,
+                ..Modifiers::default()
+            },
+        };
+        let j = Key::parse("j").unwrap();
+        // Dvorak types j where QWERTY has C; AZERTY types a where QWERTY has Q; a Cyrillic layout types о on J's key.
+        assert!(j.matches(&at("j", "KeyC", false), false));
+        assert!(!j.matches(&at("c", "KeyJ", false), false));
+        assert!(
+            Key::parse("a")
+                .unwrap()
+                .matches(&at("a", "KeyQ", false), false)
+        );
+        assert!(j.matches(&at("о", "KeyJ", false), false));
+        assert!(!j.matches(&at("J", "KeyJ", true), false), "⇧J isn't j");
+        assert!(
+            !j.matches(&at("j", "KeyJ", false), true),
+            "after g only a sequence matches"
+        );
+        // `/` is ⇧7 on a German keyboard, `?` ⇧/ on a US one: by the character, Shift or not.
+        assert!(
+            Key::parse("/")
+                .unwrap()
+                .matches(&at("/", "Digit7", true), false)
+        );
+        assert!(
+            Key::parse("?")
+                .unwrap()
+                .matches(&at("?", "Slash", true), false)
+        );
+        let gb = Key::parse("g b").unwrap();
+        assert!(
+            gb.matches(&at("b", "KeyN", false), true),
+            "Dvorak b after g"
+        );
+        assert!(
+            !gb.matches(&at("b", "KeyB", false), false),
+            "b alone isn't g b"
+        );
+        // Modifier keys match letters by the layout too: ⌘K on Dvorak.
+        let cmd_k = Key::parse("⌘K").unwrap();
+        let mut dvorak_k = at("k", "KeyV", false);
+        dvorak_k.modifiers.platform = true;
+        assert!(cmd_k.matches(&dvorak_k, false));
+    }
+
+    /// Every key of the table parses, and shows as the table writes it.
+    #[test]
+    fn every_key_parses_and_shows_as_written() {
+        for row in table_0097() {
+            for platform in COLUMNS {
+                for text in column(&row, platform) {
+                    let key = Key::parse(text).unwrap_or_else(|| panic!("{text}"));
+                    let shown = if platform == Platform::WinLinuxTerminal {
+                        Platform::WinLinux
+                    } else {
+                        platform
+                    };
+                    assert_eq!(&key.text(shown), text);
                 }
             }
         }
@@ -1007,9 +1774,6 @@ mod tests {
             ("i", "KeyI")
         );
         assert_eq!(open_inbox.modifiers, mods(false, false, true, true));
-        let tab = parse("⌘⌥1");
-        assert_eq!((tab.key.as_str(), tab.code.as_str()), ("1", "Digit1"));
-        assert_eq!(tab.modifiers, mods(false, true, false, true));
         let approve = parse("Ctrl+Shift+↵");
         assert_eq!(
             (approve.key.as_str(), approve.code.as_str()),
@@ -1019,103 +1783,396 @@ mod tests {
         assert_eq!(parse("Ctrl+⌫").key, "Backspace");
         assert_eq!(parse("Esc").modifiers, Modifiers::default());
         assert_eq!(parse("Esc").code, "Escape");
-        assert_eq!(parse("Ctrl+Shift+`").code, "Backquote");
+        assert_eq!(parse("Ctrl+`").code, "Backquote");
         assert_eq!(parse("⌘,").code, "Comma");
         assert_eq!(parse("Ctrl+Shift+[").code, "BracketLeft");
         assert_eq!(parse("⌘]").code, "BracketRight");
-        assert_eq!(parse("↵").key, "Enter");
-        for wrong in ["", "Ctrl+", "Meta+K", "⌘", "⌘KK", "Ctrl+Shift+F5"] {
-            assert_eq!(Keystroke::parse(wrong), None, "{wrong}");
+        let go = parse("Ctrl+Shift+Alt+P");
+        assert!(go.modifiers.control && go.modifiers.shift && go.modifiers.alt);
+        assert!(parse("⌥⌘P").modifiers.alt);
+    }
+
+    /// The user's keys: a replaced key, a removed key, a key added to an action with none, and Works inside terminals
+    /// on Windows/Linux.
+    #[test]
+    fn the_users_keys_apply_each_change_to_its_slot() {
+        let change = |action, slot, text: Option<&str>, works_in_terminals| CustomKey {
+            action,
+            slot,
+            change: match text {
+                Some(t) => KeyChange::Replaced {
+                    key: Key::parse(t).unwrap(),
+                },
+                None => KeyChange::Removed,
+            },
+            works_in_terminals,
+        };
+        // The example's custom keys (tickets/m29-tickets.md): Activity → ⌘J taking it from Next inbox item, New
+        // ticket's `c` → `n`, Park → `g` `p`.
+        let custom = CustomKeys(vec![
+            change(KeyAction::OpenActivity, 0, Some("⌘J"), false),
+            change(KeyAction::NextInboxItem, 0, None, false),
+            change(KeyAction::NewTicket, 1, Some("n"), false),
+            change(KeyAction::Park, 0, Some("g p"), false),
+        ]);
+        let mac = user_keys(Platform::Mac, &custom);
+        let keys_of = |action: KeyAction| -> Vec<(u8, String, bool)> {
+            mac.iter()
+                .filter(|b| b.action == action)
+                .map(|b| (b.slot, b.text.clone(), b.custom))
+                .collect()
+        };
+        assert_eq!(
+            keys_of(KeyAction::NewTicket),
+            [(0, "⌘N".to_owned(), false), (1, "n".to_owned(), true)]
+        );
+        assert_eq!(
+            keys_of(KeyAction::OpenActivity),
+            [(0, "⌘J".to_owned(), true), (1, "g a".to_owned(), false)]
+        );
+        assert_eq!(keys_of(KeyAction::NextInboxItem), []);
+        assert!(
+            action_infos()
+                .iter()
+                .any(|a| a.action == KeyAction::NextInboxItem),
+            "it stays listed"
+        );
+        assert_eq!(keys_of(KeyAction::Park), [(0, "g p".to_owned(), true)]);
+        assert_eq!(
+            runs(Platform::Mac, false, "⌘J", &mac),
+            Some(KeyAction::OpenActivity)
+        );
+        assert_eq!(
+            runs(Platform::Mac, false, "g p", &mac),
+            Some(KeyAction::Park)
+        );
+        assert_eq!(runs(Platform::Mac, false, "c", &mac), None);
+        assert_eq!(
+            runs(Platform::Mac, false, "n", &mac),
+            Some(KeyAction::NewTicket)
+        );
+        // Untouched actions keep the base map's keys.
+        let base = bindings(Platform::Mac);
+        let rest = |keys: &[Binding]| -> Vec<Binding> {
+            keys.iter()
+                .filter(|b| {
+                    ![
+                        KeyAction::OpenActivity,
+                        KeyAction::NextInboxItem,
+                        KeyAction::NewTicket,
+                        KeyAction::Park,
+                    ]
+                    .contains(&b.action)
+                })
+                .cloned()
+                .collect()
+        };
+        assert_eq!(rest(&mac), rest(&base));
+        assert_eq!(user_keys(Platform::Mac, &CustomKeys::default()), base);
+
+        // Windows/Linux: a custom Ctrl+R gets Shift in a terminal; marked Works inside terminals, it's let through.
+        let ctrl_r = |works| {
+            CustomKeys(vec![change(
+                KeyAction::OpenActivity,
+                0,
+                Some("Ctrl+R"),
+                works,
+            )])
+        };
+        let win = user_keys(Platform::WinLinux, &ctrl_r(false));
+        let activity: Vec<(String, KeyPlace)> = win
+            .iter()
+            .filter(|b| b.action == KeyAction::OpenActivity && b.slot == 0)
+            .map(|b| (b.text.clone(), b.place))
+            .collect();
+        assert_eq!(
+            activity,
+            [
+                ("Ctrl+R".to_owned(), KeyPlace::OutsideTerminals),
+                ("Ctrl+Shift+R".to_owned(), KeyPlace::InsideTerminals)
+            ]
+        );
+        assert_eq!(runs(Platform::WinLinux, true, "Ctrl+R", &win), None);
+        assert_eq!(
+            runs(Platform::WinLinux, true, "Ctrl+Shift+R", &win),
+            Some(KeyAction::OpenActivity)
+        );
+        let through = user_keys(Platform::WinLinux, &ctrl_r(true));
+        let activity: Vec<(String, KeyPlace)> = through
+            .iter()
+            .filter(|b| b.action == KeyAction::OpenActivity && b.slot == 0)
+            .map(|b| (b.text.clone(), b.place))
+            .collect();
+        assert_eq!(activity, [("Ctrl+R".to_owned(), KeyPlace::Everywhere)]);
+        assert_eq!(
+            route(Platform::WinLinux, true, &press("Ctrl+R"), &through),
+            KeyRoute::App
+        );
+        assert_eq!(
+            runs(Platform::WinLinux, true, "Ctrl+R", &through),
+            Some(KeyAction::OpenActivity)
+        );
+        // A custom letter never works in a terminal, marked or not.
+        let letter = user_keys(
+            Platform::WinLinux,
+            &CustomKeys(vec![change(KeyAction::Park, 0, Some("p"), true)]),
+        );
+        let park: Vec<KeyPlace> = letter
+            .iter()
+            .filter(|b| b.action == KeyAction::Park)
+            .map(|b| b.place)
+            .collect();
+        assert_eq!(park, [KeyPlace::OutsideTerminals]);
+    }
+
+    /// The stored changes read back as written (T-0390 keeps them in the settings).
+    #[test]
+    fn custom_keys_round_trip_through_json() {
+        let custom = CustomKeys(vec![
+            CustomKey {
+                action: KeyAction::Project(3),
+                slot: 0,
+                change: KeyChange::Replaced {
+                    key: Key::parse("⌥⌘3").unwrap(),
+                },
+                works_in_terminals: false,
+            },
+            CustomKey {
+                action: KeyAction::NextInboxItem,
+                slot: 0,
+                change: KeyChange::Removed,
+                works_in_terminals: false,
+            },
+        ]);
+        let json = serde_json::to_value(&custom).unwrap();
+        assert_eq!(
+            json[1]["change"],
+            serde_json::json!({ "change": "removed" })
+        );
+        assert_eq!(json[0]["change"]["key"]["kind"], "stroke");
+        assert_eq!(serde_json::from_value::<CustomKeys>(json).unwrap(), custom);
+    }
+
+    /// Tauri's default macOS menu keeps these keys (its app, File, Edit, View and Window menus), and the OS keeps ⌘`,
+    /// ⌘Tab and ⌘Space; none may be a key of the map.
+    #[test]
+    fn the_default_mac_menu_and_os_keys_are_not_in_the_map() {
+        let taken = [
+            "⌘Q", "⌘W", "⌘H", "⌥⌘H", "⌘M", "⌃⌘F", "⌘Z", "⇧⌘Z", "⌘X", "⌘C", "⌘V", "⌘A", "⌘`", "⌘Tab",
+        ];
+        let taken: Vec<Key> = taken.iter().map(|t| Key::parse(t).unwrap()).collect();
+        for b in bindings_for(Platform::Mac, true) {
+            assert!(!taken.contains(&b.key), "{} is a menu or OS key", b.text);
+            assert!(b.key.stroke().is_none_or(|s| s.key != " "), "{}", b.text);
         }
     }
 
-    /// The page's map (T-0215): each action once per column, and the "in terminal" column only on Windows/Linux.
     #[test]
-    fn the_bindings_are_the_table() {
-        let mac = bindings_for(Platform::Mac, true);
-        let with_keys = |p| {
-            KeyAction::all()
-                .into_iter()
-                .filter(|a| a.keys(p).is_some())
-                .count()
-        };
-        assert_eq!(mac.len(), with_keys(Platform::Mac));
-        assert!(mac.iter().all(|b| !b.in_terminal));
-        let search = mac.iter().find(|b| b.action == KeyAction::Search).unwrap();
-        assert_eq!(search.text, "⌘K");
-        assert_eq!(search.keystroke, Keystroke::parse("⌘K").unwrap());
-
-        let win = bindings_for(Platform::WinLinux, true);
-        assert_eq!(
-            win.len(),
-            with_keys(Platform::WinLinux) + with_keys(Platform::WinLinuxTerminal)
-        );
-        let find: Vec<_> = win
-            .iter()
-            .filter(|b| b.action == KeyAction::FindInTerminal)
-            .map(|b| (b.text.as_str(), b.in_terminal))
-            .collect();
-        assert_eq!(find, [("Ctrl+Shift+F", true)]);
-        assert_eq!(bindings_for(Platform::WinLinuxTerminal, true), win);
-    }
-
-    /// Where the page looks a key up, one keystroke means one action: outside a terminal among the bindings that
-    /// aren't terminal-only, inside one among every binding the router sends to the app.
-    #[test]
-    fn a_keystroke_finds_at_most_one_action() {
+    fn a_terminals_own_keys_parse_and_stay_off_the_app_map() {
         for platform in [Platform::Mac, Platform::WinLinux] {
-            let all = bindings_for(platform, true);
-            for in_terminal in [false, true] {
-                let mut seen: HashMap<String, KeyAction> = HashMap::new();
-                for b in all.iter().filter(|b| {
-                    if in_terminal {
-                        route(platform, true, &b.keystroke.modifiers) == KeyRoute::App
-                    } else {
-                        !b.in_terminal
-                    }
-                }) {
-                    let id = format!("{:?}", b.keystroke);
-                    if let Some(other) = seen.insert(id, b.action) {
-                        assert_eq!(other, b.action, "{} on {platform:?}", b.text);
-                    }
-                }
-            }
-            for b in all.iter().filter(|b| b.in_terminal) {
-                assert_eq!(
-                    route(platform, true, &b.keystroke.modifiers),
-                    KeyRoute::App,
-                    "{}",
-                    b.text
+            let own = terminal_bindings(platform);
+            let texts: usize = TerminalKey::ALL
+                .iter()
+                .map(|k| k.keys(platform).len())
+                .sum();
+            assert_eq!(own.len(), texts, "every text parses on {platform:?}");
+            let map = bindings_for(platform, true);
+            for b in &own {
+                // Taken from the program in the terminal, as the app's own keys are (SES-10); ⇧↵ stays the
+                // program's, only its bytes change.
+                let to = if b.key == TerminalKey::NewLine {
+                    KeyRoute::Terminal
+                } else {
+                    KeyRoute::App
+                };
+                let press = KeyPress {
+                    key: b.keystroke.key.clone(),
+                    code: b.keystroke.code.clone(),
+                    modifiers: b.keystroke.modifiers,
+                };
+                assert_eq!(route(platform, true, &press, &map), to, "{:?}", b.key);
+                assert!(
+                    !map.iter().any(|a| a.key.stroke() == Some(&b.keystroke)),
+                    "{:?} clashes with the map on {platform:?}",
+                    b.key
                 );
             }
         }
-    }
-
-    /// Tauri's default macOS menu keeps these keys (its app, File, Edit, View and Window menus); none may be a
-    /// §21.3 shortcut, or the menu would take it first.
-    #[test]
-    fn the_default_mac_menu_keys_are_not_in_the_map() {
-        let menu = [
-            "⌘Q", "⌘W", "⌘H", "⌥⌘H", "⌘M", "⌃⌘F", "⌘Z", "⇧⌘Z", "⌘X", "⌘C", "⌘V", "⌘A",
-        ];
-        let menu: Vec<Keystroke> = menu.iter().map(|t| Keystroke::parse(t).unwrap()).collect();
-        for b in bindings_for(Platform::Mac, true) {
-            assert!(!menu.contains(&b.keystroke), "{} is a menu key", b.text);
+        let mac = terminal_bindings(Platform::Mac);
+        assert!(
+            mac.iter()
+                .all(|b| !matches!(b.key, TerminalKey::Copy | TerminalKey::Paste))
+        );
+        assert_eq!(mac[0].keystroke.code, "Equal");
+        let win = terminal_bindings(Platform::WinLinux);
+        assert_eq!(win[0].key, TerminalKey::Copy);
+        assert_eq!(win[0].keystroke.code, "KeyC");
+        for own in [&mac, &win] {
+            let new_line = own.iter().find(|b| b.key == TerminalKey::NewLine).unwrap();
+            assert_eq!(new_line.keystroke.code, "Enter");
+            assert_eq!(
+                new_line.keystroke.modifiers,
+                Modifiers {
+                    shift: true,
+                    ..Modifiers::default()
+                }
+            );
         }
     }
 
     #[test]
-    fn the_terminal_app_modifiers_are_what_route_uses() {
-        assert_eq!(terminal_app_modifiers(Platform::Mac).len(), 1);
-        assert!(terminal_app_modifiers(Platform::Mac)[0].platform);
-        let held = Modifiers {
-            control: true,
-            shift: true,
-            alt: true,
-            ..Modifiers::default()
-        };
-        assert!(held.holds(&terminal_app_modifiers(Platform::WinLinux)[0]));
-        assert!(!Modifiers::default().holds(&terminal_app_modifiers(Platform::WinLinux)[0]));
+    fn the_page_reads_an_action_by_its_name_and_number() {
+        let json = |a: KeyAction| serde_json::to_value(a).unwrap();
+        assert_eq!(
+            json(KeyAction::OpenInbox),
+            serde_json::json!({ "action": "open_inbox" })
+        );
+        assert_eq!(
+            json(KeyAction::CommandPalette),
+            serde_json::json!({ "action": "command_palette" })
+        );
+        assert_eq!(
+            json(KeyAction::SwitchTab(2)),
+            serde_json::json!({ "action": "switch_tab", "number": 2 })
+        );
+        for action in KeyAction::all() {
+            assert_eq!(
+                serde_json::from_value::<KeyAction>(json(action)).unwrap(),
+                action
+            );
+        }
+        let b = serde_json::to_value(&bindings(Platform::Mac)[0]).unwrap();
+        assert_eq!(
+            b,
+            serde_json::json!({
+                "action": { "action": "command_palette" },
+                "slot": 0,
+                "text": "⌘K",
+                "key": { "kind": "stroke", "stroke": { "key": "k", "code": "KeyK", "modifiers": {
+                    "control": false, "alt": false, "shift": false, "platform": true, "function": false } } },
+                "place": "everywhere",
+                "custom": false,
+            })
+        );
+        let j = bindings(Platform::Mac)
+            .into_iter()
+            .find(|b| b.text == "j")
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&j.key).unwrap(),
+            serde_json::json!({ "kind": "letter", "letter": "j" })
+        );
+        let gb = bindings(Platform::Mac)
+            .into_iter()
+            .find(|b| b.text == "g b")
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&gb.key).unwrap(),
+            serde_json::json!({ "kind": "sequence", "then": "b" })
+        );
+    }
+
+    /// The labels read the first default key until T-0392 (⌘N, not `c`; `e` where there is only a letter).
+    #[test]
+    fn a_label_is_the_first_default_key() {
+        assert_eq!(
+            KeyAction::NewTicket.keys(Platform::Mac).as_deref(),
+            Some("⌘N")
+        );
+        assert_eq!(
+            KeyAction::ExpandPanel.keys(Platform::Mac).as_deref(),
+            Some("e")
+        );
+        assert_eq!(
+            KeyAction::Terminals.keys(Platform::WinLinux).as_deref(),
+            Some("Ctrl+`")
+        );
+        assert_eq!(KeyAction::FindInTerminal.keys(Platform::WinLinux), None);
+        assert_eq!(KeyAction::Park.keys(Platform::Mac), None);
+        assert_eq!(
+            KeyAction::SwitchTab(3).keys(Platform::Mac).as_deref(),
+            Some("3")
+        );
+        assert_eq!(
+            KeyAction::Project(2).keys(Platform::Mac).as_deref(),
+            Some("⌘2")
+        );
+    }
+
+    /// Each action's title and group as Settings draws them (`s15-46`, all defaults, macOS), the parked Files view
+    /// left out. Open diff isn't drawn there; it is listed last in The ticket.
+    #[test]
+    fn the_titles_and_groups_are_the_designs() {
+        let mut drawn: Vec<(&str, Vec<&str>)> = Vec::new();
+        for info in action_infos() {
+            let group = info.group.title();
+            if drawn.last().is_none_or(|(g, _)| *g != group) {
+                drawn.push((group, Vec::new()));
+            }
+            let titles = &mut drawn.last_mut().unwrap().1;
+            if titles.last() != Some(&info.title) {
+                titles.push(info.title);
+            }
+        }
+        assert_eq!(
+            drawn,
+            [
+                (
+                    "Moving around",
+                    vec![
+                        "Command palette",
+                        "Switch project",
+                        "Project 1–9",
+                        "Next inbox item",
+                        "Next / previous ticket",
+                        "Filter the board",
+                        "Focus the epic of the selected card",
+                        "Show all shortcuts",
+                    ]
+                ),
+                (
+                    "Views",
+                    vec![
+                        "Board",
+                        "Inbox",
+                        "Activity",
+                        "Settings",
+                        "Hide / show the Project agent pane",
+                        "Focus the Project agent pane",
+                        "New Project agent",
+                    ]
+                ),
+                (
+                    "The ticket",
+                    vec![
+                        "New ticket",
+                        "Open / close the panel",
+                        "Expand / shrink the panel",
+                        "Switch panel tab",
+                        "Next / previous panel tab",
+                        "Approve ▾",
+                        "Send back",
+                        "Start / move to Dev",
+                        "Park",
+                        "Close ticket",
+                        "Open PR",
+                        "Re-run validation",
+                        "Open diff",
+                    ]
+                ),
+                (
+                    "The terminal",
+                    vec![
+                        "Terminals: open, close, leave the terminal",
+                        "Find in terminal scrollback"
+                    ]
+                ),
+            ]
+        );
+        assert_eq!(
+            KeyGroup::ALL.map(KeyGroup::title),
+            ["Moving around", "Views", "The ticket", "The terminal"]
+        );
     }
 
     /// d0087 (parked 2026-10-18): with the Files view off, ⇧⌘O and ⌥⌘P aren't bound in any column, ⇧⌘B stays, and
@@ -1137,14 +2194,24 @@ mod tests {
                 .collect();
             assert_eq!(off, rest, "{platform:?}");
         }
+        assert!(action_infos().iter().all(|a| !a.action.is_files_view()));
+        let off = bindings_for(Platform::Mac, false);
         for text in ["⇧⌘O", "⌥⌘P"] {
-            let stroke = Keystroke::parse(text).unwrap();
-            assert!(
-                !bindings_for(Platform::Mac, false)
-                    .iter()
-                    .any(|b| b.keystroke == stroke),
-                "{text}"
-            );
+            assert_eq!(runs(Platform::Mac, false, text, &off), None, "{text}");
         }
+    }
+
+    /// Windows/Linux in or out of a terminal binds the same map (the place of each key says where it works).
+    #[test]
+    fn the_windows_and_linux_columns_make_one_map() {
+        assert_eq!(
+            bindings(Platform::WinLinuxTerminal),
+            bindings(Platform::WinLinux)
+        );
+        assert!(
+            bindings(Platform::Mac)
+                .iter()
+                .all(|b| b.place != KeyPlace::InsideTerminals)
+        );
     }
 }

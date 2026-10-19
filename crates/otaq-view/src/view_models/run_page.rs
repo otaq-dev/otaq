@@ -423,7 +423,7 @@ pub fn shell_view(f: ShellFacts, hhmm: impl Fn(i64) -> String) -> ShellView {
         hint: "Typing goes to the shell, not the agent",
         leave: LeaveView {
             text: "leave terminal",
-            keys: KeyAction::LeaveTerminal.keys(Platform::current()),
+            keys: KeyAction::Terminals.keys(Platform::current()),
         },
         terminal_label: format!("{} \u{b7} shell", f.key),
     }
