@@ -468,6 +468,7 @@ pub async fn shell(app: &App, params: ShellTabParams) -> Result<ShellView, Reque
             port: work.run_port,
             session: session.as_ref(),
             problem,
+            keys: &super::keymap::labels(app).await,
         },
         clock::local_hhmm,
     ))

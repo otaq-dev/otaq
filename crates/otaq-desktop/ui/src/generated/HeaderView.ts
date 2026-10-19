@@ -14,7 +14,8 @@ export type HeaderView = {
  */
 project: HeaderProject | null, 
 /**
- * The search entry's placeholder and ⌘K; it opens the board's filter (T-0221).
+ * The search entry's placeholder and the user's key for Filter the board (`/`): it stays the board's filter
+ * (T-0221, KEY-09).
  */
 search: HeaderHint, activity: ActivityButton, 
 /**

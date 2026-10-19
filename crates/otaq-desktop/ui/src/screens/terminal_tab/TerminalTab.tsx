@@ -42,6 +42,8 @@ export const TERMINAL_TAB_EVENTS = [
   "session_state",
   "projects_changed",
   "inbox_changed",
+  // The user's keys in its tooltips (KEY-08).
+  "settings_changed",
 ] as const;
 
 const ignore = () => undefined;

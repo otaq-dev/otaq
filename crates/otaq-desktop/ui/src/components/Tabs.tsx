@@ -14,7 +14,7 @@ export interface TabItem {
   icon: IconName;
   label: string;
   indicator?: TabIndicator;
-  /** The tab's shortcut (⌘⌥1…), shown in the tooltip of icon-only tabs. */
+  /** The tab's shortcut (the user's key, `1`…), shown in the tooltip of icon-only tabs. */
   keys?: string;
 }
 

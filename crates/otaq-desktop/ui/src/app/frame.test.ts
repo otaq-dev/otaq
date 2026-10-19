@@ -43,7 +43,7 @@ const VIEW: LayoutView = {
   files_empty: "The Files view comes in a later update.",
   show_pane: "Show the pane",
   pane_resize: "Pane width",
-  pane_keys: "⌘\\",
+  pane_keys: "⌘B",
 };
 
 // `layout.view` while the Files view is parked (`layout::FILES_VIEW` off, d0087): the Board alone, no tab row.
@@ -216,7 +216,7 @@ describe("the layout's state", () => {
     expect(sizeClass(1440, [])).toBeNull();
   });
 
-  it("⇧⌘B / ⇧⌘O switch the tabs and ⌘\\ hides and shows the pane", () => {
+  it("Board / Files switch the tabs and Hide / show the pane hides and shows it", () => {
     const app = createRegistries();
     const stop = layoutShortcuts(app);
     expect(app.shortcuts.run({ action: "show_files" })).toBe(true);

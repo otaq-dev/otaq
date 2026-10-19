@@ -343,7 +343,7 @@ async fn epic_children_auto_merge(app: &App, project: &str) -> Result<(), Reques
     Ok(())
 }
 
-/// Shows the queue toast for an epic queue the user made (a drop, ⇧⌘D, the menu): "Moved 2 children of SHOP-45 to Ready for Dev ·
+/// Shows the queue toast for an epic queue the user made (a drop, ⌘D, the menu): "Moved 2 children of SHOP-45 to Ready for Dev ·
 /// Undo", and with Auto-merge Off "… · Turn on for epic children · Undo" (EPC-15). The epic's name is looked up for
 /// the one-child wording ("Moved SHOP-45.1 of Search to Ready for Dev").
 pub(crate) async fn show_epic_queued(app: &App, outcome: &EpicQueueOutcome) {

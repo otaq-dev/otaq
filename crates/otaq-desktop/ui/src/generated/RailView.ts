@@ -19,7 +19,7 @@ width: number,
  */
 ring_ends_in_ms: number | null, 
 /**
- * ⌘P, the quick switcher.
+ * The user's key for the quick switcher (⌘P).
  */
 switch_keys: string | null, 
 /**

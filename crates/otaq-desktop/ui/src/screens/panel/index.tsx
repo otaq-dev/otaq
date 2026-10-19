@@ -1,5 +1,5 @@
 // Area 05 · Ticket side panel (T-0222): the panel slot, its Close ticket and Submit for review dialogs, and while it
-// shows its keys (Esc, ⇧⌘E, ⌘[ / ⌘], ⌘⌥1–6). Tabs and sections are filled by their own screens through the
+// shows its keys (Esc, `e`, ⌘[ / ⌘], `1`–`6`). Tabs and sections are filled by their own screens through the
 // registries. What it says is Rust's (`src/api/panel.rs`, the `otaq-view` panel view models).
 import type { Screen } from "../../app/registry";
 import { CloseTicketDialog, SubmitForReviewDialog } from "./Dialogs";

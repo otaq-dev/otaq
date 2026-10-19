@@ -18,8 +18,8 @@ import type { TerminalState } from "../../terminal/state";
 import { Icon } from "../../theme/Icon";
 import { requestTab, shownTab, showsHint, tabRequests } from "./logic";
 
-/** The service events that change the drawer's tabs. */
-export const DRAWER_EVENTS = ["session_state", "projects_changed"] as const;
+/** The service events that change the drawer's tabs (`settings_changed`: the hint's key for the pane, KEY-08). */
+export const DRAWER_EVENTS = ["session_state", "projects_changed", "settings_changed"] as const;
 
 const ignore = () => undefined;
 

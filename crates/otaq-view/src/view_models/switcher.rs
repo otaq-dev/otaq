@@ -12,7 +12,8 @@ use otaq_core::project_agents::AgentNeedsYou;
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::keymap::{KeyAction, Platform};
+use crate::key_labels::KeyLabels;
+use crate::keymap::KeyAction;
 use crate::shell::tilde;
 
 /// How long a project's tile rings after it newly needs you.
@@ -39,10 +40,10 @@ pub struct RailBottom {
     pub settings: RailButton,
 }
 
-pub fn bottom(platform: Platform) -> RailBottom {
+pub fn bottom(keys: &KeyLabels) -> RailBottom {
     let button = |label, action: KeyAction| RailButton {
         label,
-        keys: action.keys(platform),
+        keys: keys.label(action),
     };
     RailBottom {
         terminals: button("Terminals", KeyAction::Terminals),
@@ -116,6 +117,9 @@ pub struct SwitcherModel {
     projects: Vec<ProjectInfo>,
     pub selected: Option<String>,
     ring_until: Vec<(String, Instant)>,
+    /// The user's keys as the rail last read them, so the quick switcher's rows and hints show them without asking
+    /// the service while the user types.
+    pub keys: KeyLabels,
 }
 
 impl SwitcherModel {
@@ -185,13 +189,13 @@ impl SwitcherModel {
     }
 
     /// The rail, in the user's (stored) order.
-    pub fn rail(&self, now: Instant, platform: Platform) -> Vec<RailItem> {
+    pub fn rail(&self, now: Instant) -> Vec<RailItem> {
         self.projects
             .iter()
             .enumerate()
             .map(|(i, p)| {
                 let shortcut = (i < 9)
-                    .then(|| KeyAction::Project(i as u8 + 1).keys(platform))
+                    .then(|| self.keys.label(KeyAction::Project(i as u8 + 1)))
                     .flatten();
                 let mut detail = Vec::new();
                 if p.needs_you > 0 {
@@ -226,10 +230,10 @@ impl SwitcherModel {
     }
 
     /// The quick switcher's rows for `filter`: needs-you first, then working, then idle; rail order inside.
-    pub fn quick(&self, filter: &str, now: Instant, platform: Platform) -> Vec<RailItem> {
+    pub fn quick(&self, filter: &str, now: Instant) -> Vec<RailItem> {
         let needle = filter.trim().to_lowercase();
         let mut rows: Vec<RailItem> = self
-            .rail(now, platform)
+            .rail(now)
             .into_iter()
             .filter(|r| {
                 needle.is_empty()
@@ -280,6 +284,16 @@ impl QuickCursor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::key_labels::fixtures;
+    use crate::keymap::Platform;
+
+    /// A model with the base map's macOS keys.
+    fn model() -> SwitcherModel {
+        SwitcherModel {
+            keys: fixtures::base(),
+            ..SwitcherModel::default()
+        }
+    }
 
     fn project(key: &str, name: &str, working: u32, needs: u32) -> ProjectInfo {
         ProjectInfo {
@@ -303,16 +317,49 @@ mod tests {
 
     #[test]
     fn the_rail_ends_with_terminals_and_settings() {
-        let mac = bottom(Platform::Mac);
+        let mac = bottom(&fixtures::base());
         assert_eq!(mac.terminals.label, "Terminals");
         assert_eq!(mac.terminals.keys.as_deref(), Some("⌃`"));
         assert_eq!(mac.settings.label, "Settings");
         assert_eq!(mac.settings.keys.as_deref(), Some("⌘,"));
         assert_eq!(
-            bottom(Platform::WinLinux).settings.keys.as_deref(),
+            bottom(&KeyLabels::base(Platform::WinLinux))
+                .settings
+                .keys
+                .as_deref(),
             Some("Ctrl+,")
         );
         assert_eq!(RAIL_WIDTH, 64);
+    }
+
+    /// KEY-08: the rail's Terminals and Settings and the tiles' ⌘1–9 show the user's keys; a removed key shows none.
+    #[test]
+    fn the_rail_shows_the_users_keys() {
+        let custom = bottom(&fixtures::replaced("terminals", None, 0, "⌘T"));
+        assert_eq!(custom.terminals.keys.as_deref(), Some("⌘T"));
+        assert_eq!(
+            bottom(&fixtures::removed("settings", None, 0))
+                .settings
+                .keys,
+            None
+        );
+        // Terminals keeps its `g` `t` once ⌃` is removed; letters off leave its ⌃`.
+        let removed = fixtures::removed("terminals", None, 0);
+        assert_eq!(bottom(&removed).terminals.keys.as_deref(), Some("g t"));
+        assert_eq!(
+            bottom(&fixtures::letters_off()).terminals.keys.as_deref(),
+            Some("⌃`")
+        );
+        let now = Instant::now();
+        let mut m = model();
+        m.keys = fixtures::replaced("project", Some(2), 0, "⌥2");
+        m.set_projects(sample(), now);
+        let rail = m.rail(now);
+        assert_eq!(rail[1].shortcut.as_deref(), Some("⌥2"));
+        assert_eq!(rail[1].note.as_deref(), Some("⌥2 to switch"));
+        m.keys = fixtures::removed("project", Some(2), 0);
+        assert_eq!(m.rail(now)[1].shortcut, None);
+        assert_eq!(m.rail(now)[1].note, None);
     }
 
     #[test]
@@ -337,9 +384,9 @@ mod tests {
     #[test]
     fn rail_keeps_the_order_and_counts() {
         let now = Instant::now();
-        let mut m = SwitcherModel::default();
+        let mut m = model();
         m.set_projects(sample(), now);
-        let rail = m.rail(now, Platform::Mac);
+        let rail = m.rail(now);
         let keys: Vec<_> = rail.iter().map(|r| r.key.as_str()).collect();
         assert_eq!(keys, ["SHOP", "CREW", "BILL", "PORT"]);
         assert!(rail[0].selected, "the first project is selected");
@@ -351,22 +398,19 @@ mod tests {
     #[test]
     fn quick_switcher_sorts_and_filters() {
         let now = Instant::now();
-        let mut m = SwitcherModel::default();
+        let mut m = model();
         m.set_projects(sample(), now);
         let keys = |rows: Vec<RailItem>| rows.into_iter().map(|r| r.key).collect::<Vec<_>>();
-        assert_eq!(
-            keys(m.quick("", now, Platform::Mac)),
-            ["SHOP", "BILL", "PORT", "CREW"]
-        );
-        assert_eq!(keys(m.quick("bill", now, Platform::Mac)), ["BILL"]);
-        assert_eq!(keys(m.quick("PORT", now, Platform::Mac)), ["PORT"]);
-        assert!(m.quick("nothing", now, Platform::Mac).is_empty());
+        assert_eq!(keys(m.quick("", now)), ["SHOP", "BILL", "PORT", "CREW"]);
+        assert_eq!(keys(m.quick("bill", now)), ["BILL"]);
+        assert_eq!(keys(m.quick("PORT", now)), ["PORT"]);
+        assert!(m.quick("nothing", now).is_empty());
     }
 
     #[test]
     fn digits_and_selection() {
         let now = Instant::now();
-        let mut m = SwitcherModel::default();
+        let mut m = model();
         m.set_projects(sample(), now);
         assert_eq!(m.project_for_digit(3), Some("BILL"));
         assert_eq!(m.project_for_digit(5), None);
@@ -382,41 +426,33 @@ mod tests {
     #[test]
     fn another_project_needing_you_rings_for_ten_seconds() {
         let now = Instant::now();
-        let mut m = SwitcherModel::default();
+        let mut m = model();
         m.set_projects(sample(), now);
         let mut next = sample();
         next[2].needs_you = 2;
         next[0].needs_you = 7;
         m.set_projects(next, now);
-        let rail = m.rail(now, Platform::Mac);
+        let rail = m.rail(now);
         assert!(rail[2].ringing, "BILL isn't shown, so it rings");
         assert!(!rail[0].ringing, "the shown project doesn't ring");
         assert!(!m.expire(now + Duration::from_secs(5)));
         assert!(m.expire(now + RING + Duration::from_millis(1)));
-        assert!(!m.rail(now + RING, Platform::Mac)[2].ringing);
-        assert_eq!(
-            m.rail(now + RING, Platform::Mac)[2].needs_you,
-            2,
-            "the badge stays"
-        );
+        assert!(!m.rail(now + RING)[2].ringing);
+        assert_eq!(m.rail(now + RING)[2].needs_you, 2, "the badge stays");
     }
 
     #[test]
     fn tooltips_and_quick_rows_say_what_waits() {
         let now = Instant::now();
-        let mut m = SwitcherModel::default();
+        let mut m = model();
         m.set_projects(sample(), now);
-        let rail = m.rail(now, Platform::Mac);
+        let rail = m.rail(now);
         assert_eq!(rail[2].title, "billing-api · BILL");
         assert_eq!(rail[2].detail, ["1 needs you", "1 running"]);
         assert_eq!(rail[2].note.as_deref(), Some("⌘3 to switch"));
         assert_eq!(rail[1].detail, ["idle"]);
         assert_eq!(rail[2].path, "/code/billing-api");
-        let rows: Vec<QuickRow> = m
-            .quick("", now, Platform::Mac)
-            .into_iter()
-            .map(QuickRow::from)
-            .collect();
+        let rows: Vec<QuickRow> = m.quick("", now).into_iter().map(QuickRow::from).collect();
         assert_eq!(rows[0].label, "shop-web · SHOP · current");
         assert_eq!(rows[0].running.as_deref(), Some("2 running"));
         assert_eq!(rows[3].label, "crew · CREW");
@@ -426,7 +462,7 @@ mod tests {
     #[test]
     fn the_next_ring_end_is_reported_until_rings_are_over() {
         let now = Instant::now();
-        let mut m = SwitcherModel::default();
+        let mut m = model();
         m.set_projects(sample(), now);
         assert_eq!(m.next_ring_end(now), None);
         let mut next = sample();

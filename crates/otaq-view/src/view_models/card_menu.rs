@@ -17,7 +17,8 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::keymap::{KeyAction, Platform};
+use crate::key_labels::KeyLabels;
+use crate::keymap::KeyAction;
 use crate::view_models::epic_actions::{can_close_epic, can_move_to_epic};
 use crate::view_models::menu::MenuItem;
 use crate::view_models::priority;
@@ -38,10 +39,10 @@ pub fn items(
     ticket: &Ticket,
     tickets: &[Ticket],
     has_epics: bool,
-    platform: Platform,
+    keys: &KeyLabels,
 ) -> Vec<MenuItem> {
     let mut items = if ticket.is_epic() {
-        epic_items(ticket, tickets, platform)
+        epic_items(ticket, tickets, keys)
     } else {
         Vec::new()
     };
@@ -82,7 +83,7 @@ pub fn items(
 }
 
 /// An epic's own items, above Pin: Open epic, Queue / Unqueue never-started (n), Add ticket to epic, Focus.
-fn epic_items(epic: &Ticket, tickets: &[Ticket], platform: Platform) -> Vec<MenuItem> {
+fn epic_items(epic: &Ticket, tickets: &[Ticket], keys: &KeyLabels) -> Vec<MenuItem> {
     let mut items = vec![MenuItem::new(OPEN_EPIC, "Open epic").icon(IconName::PanelRight)];
     let open = can_close_epic(epic);
     // What a drop on Ready for Dev moves: never-started children are queued, parked ones (and reopened ones) resume.
@@ -129,7 +130,7 @@ fn epic_items(epic: &Ticket, tickets: &[Ticket], platform: Platform) -> Vec<Menu
         items.push(MenuItem::new(ADD_TO_EPIC, "Add ticket to epic").icon(IconName::Plus));
     }
     let mut focus = MenuItem::new(FOCUS_EPIC, "Focus").icon(IconName::ScanSearch);
-    if let Some(keys) = KeyAction::FocusEpic.keys(platform) {
+    if let Some(keys) = keys.label(KeyAction::FocusEpic) {
         focus = focus.shortcut(keys);
     }
     items.push(focus);
@@ -199,6 +200,8 @@ pub fn request(choice: &str, ticket: &Ticket) -> Option<Request> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::key_labels::fixtures;
+    use crate::keymap::Platform;
     use crate::view_models::board::{BoardInput, build};
     use crate::view_models::card_fixtures::{NOW, ticket};
     use otaq_core::domain::Status;
@@ -209,7 +212,7 @@ mod tests {
             ticket("SHOP-24", "Update footer links", Status::Backlog),
             ticket("SHOP-31", "Add order history page", Status::Backlog),
         ];
-        let menu = items(&tickets[1], &[], false, Platform::Mac);
+        let menu = items(&tickets[1], &[], false, &fixtures::base());
         assert_eq!(
             menu.len(),
             8,
@@ -222,7 +225,9 @@ mod tests {
             (PIN, "Pin to top")
         );
         assert_eq!(
-            items(&tickets[1], &[], true, Platform::Mac)[6].id.as_str(),
+            items(&tickets[1], &[], true, &fixtures::base())[6]
+                .id
+                .as_str(),
             MOVE_TO_EPIC
         );
         assert_eq!(
@@ -253,7 +258,7 @@ mod tests {
         // The service pinned it; the event brings the ticket back with pinned_at set.
         tickets[1].flags.pinned_at = Some(1);
         assert_eq!(order(&tickets), ["SHOP-31", "SHOP-24"]);
-        let menu = items(&tickets[1], &[], false, Platform::Mac);
+        let menu = items(&tickets[1], &[], false, &fixtures::base());
         assert_eq!(
             (menu[0].id.as_str(), menu[0].label.as_str()),
             (UNPIN, "Unpin")
@@ -267,7 +272,7 @@ mod tests {
         assert_eq!(request("nothing", &tickets[1]), None);
         let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
         epic.kind = otaq_core::domain::Kind::Epic;
-        let epic_menu = items(&epic, &[], true, Platform::Mac);
+        let epic_menu = items(&epic, &[], true, &fixtures::base());
         assert_eq!(
             epic_menu.len(),
             11,
@@ -280,7 +285,7 @@ mod tests {
     #[test]
     fn each_item_has_its_choice() {
         let t = ticket("SHOP-21", "Order confirmation email", Status::Backlog);
-        let choices: Vec<Choice> = items(&t, &[], true, Platform::Mac)
+        let choices: Vec<Choice> = items(&t, &[], true, &fixtures::base())
             .iter()
             .filter(|i| !i.header)
             .map(|i| choice(&i.id, &t))
@@ -318,7 +323,7 @@ mod tests {
 
         let mut t = ticket("SHOP-35", "Slow checkout query", Status::Queued);
         t.priority = Priority::High;
-        let menu = items(&t, &[], false, Platform::Mac);
+        let menu = items(&t, &[], false, &fixtures::base());
         assert!(menu[1].header && menu[1].label == priority::MENU_HEADER);
         let group: Vec<_> = menu[2..6]
             .iter()
@@ -347,7 +352,7 @@ mod tests {
         let mut child = ticket("SHOP-40.2", "Wishlist button", Status::Backlog);
         child.priority = Priority::High;
         child.priority_inherited = true;
-        assert!(items(&child, &[], false, Platform::Mac)[3].checked);
+        assert!(items(&child, &[], false, &fixtures::base())[3].checked);
         assert!(matches!(
             request(&priority::menu_id(Priority::High), &child),
             Some(Request::TicketUpdate(p)) if p.update.priority == Some(Priority::High)
@@ -371,7 +376,7 @@ mod tests {
             all
         };
         let labels = |all: &[Ticket]| -> Vec<String> {
-            items(&all[0], all, false, Platform::Mac)
+            items(&all[0], all, false, &fixtures::base())
                 .iter()
                 .take_while(|i| !i.header)
                 .map(|i| i.label.clone())
@@ -389,14 +394,22 @@ mod tests {
                 "Pin epic"
             ]
         );
-        let focus = &items(&card[0], &card, false, Platform::Mac)[3];
+        let focus = &items(&card[0], &card, false, &fixtures::base())[3];
         assert_eq!(focus.shortcut.as_deref(), Some("g e"));
         assert_eq!(
-            items(&card[0], &card, false, Platform::WinLinux)[3]
+            items(&card[0], &card, false, &KeyLabels::base(Platform::WinLinux))[3]
                 .shortcut
                 .as_deref(),
             Some("g e")
         );
+        // KEY-08: the user's key for Focus, none once removed or with letters off.
+        let focus_with = |keys: &KeyLabels| items(&card[0], &card, false, keys)[3].shortcut.clone();
+        assert_eq!(
+            focus_with(&fixtures::replaced("focus_epic", None, 0, "g f")).as_deref(),
+            Some("g f")
+        );
+        assert_eq!(focus_with(&fixtures::removed("focus_epic", None, 0)), None);
+        assert_eq!(focus_with(&fixtures::letters_off()), None);
         // The track: 40.1 runs, 40.2 waits, 40.3 not queued.
         let mut track = wishlist([Status::Working, Status::Queued, Status::Backlog]);
         assert_eq!(track[2].column, Column::ReadyForDev);
@@ -430,7 +443,7 @@ mod tests {
                 "Unpin"
             ]
         );
-        let menu = items(&track[0], &track, false, Platform::Mac);
+        let menu = items(&track[0], &track, false, &fixtures::base());
         let chosen: Vec<Choice> = menu
             .iter()
             .take(4)

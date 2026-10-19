@@ -1,4 +1,4 @@
-// The header's search and filter (T-0221; UI-02, EPC-01, d0058 ⌘K): what the user typed and the chips, kept for the
+// The header's search and filter (T-0221; UI-02, EPC-01, KEY-09): what the user typed and the chips, kept for the
 // project it was typed in while the app runs. Switching tabs keeps it; switching projects starts the other project
 // with no filter (as the GPUI app did). Rust reads it (`board.view` hides cards, `board.search` words the field); the
 // page only keeps it (UIT-04).
@@ -82,7 +82,7 @@ export function focusEpic(
   });
 }
 
-/** ⌘K asks the field for the keyboard: each request counts up, so pressing it twice is two requests. */
+/** Filter the board (`/`) asks the field for the keyboard: each request counts up, so pressing it twice is two requests. */
 export const searchFocusRequests: Store<number> = createStore(0);
 
 export function requestSearchFocus(store: Store<number> = searchFocusRequests): void {

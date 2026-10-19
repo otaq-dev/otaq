@@ -12,7 +12,6 @@ use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::agent_tools::SetupOutcome as Outcome;
 use otaq_core::agent_tools::Tool;
 use otaq_core::protocol::{OnboardingState, PathParams, Reply, Request};
-use otaq_view::keymap::Platform;
 use otaq_view::view_models::add_project::AddProjectModel;
 use otaq_view::view_models::onboarding::OnboardingModel;
 use otaq_view::view_models::onboarding_page::{self, AddProjectPage, Texts, Tools};
@@ -26,7 +25,7 @@ use crate::App;
 pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
     match method {
         "onboarding.start" => reply(&start(app).await?),
-        "onboarding.texts" => reply(&texts()),
+        "onboarding.texts" => reply(&texts(app).await),
         "onboarding.tools" => reply(&tools(app).await?),
         "onboarding.dismiss_warning" => {
             app.service.send(Request::DismissPermissionWarning).await?;
@@ -66,8 +65,8 @@ async fn start(app: &App) -> Result<Start, RequestError> {
     })
 }
 
-fn texts() -> Texts {
-    onboarding_page::texts(Platform::current())
+async fn texts(app: &App) -> Texts {
+    onboarding_page::texts(&super::keymap::labels(app).await)
 }
 
 /// Runs the service's tools check and answers the checklist (Re-check asks again).
@@ -128,7 +127,7 @@ async fn form(
             Ok(other) => Err((None, format!("unexpected answer: {other:?}"))),
             Err(e) => Err((e.refusal, e.message)),
         };
-        model.probed(result, &projects, Platform::current());
+        model.probed(result, &projects, &super::keymap::labels(app).await);
     }
     if params.key_edited {
         model.set_key(&params.key);

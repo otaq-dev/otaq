@@ -84,7 +84,8 @@ export function ShellTab({ ticket }: TicketProps) {
     () => request("run.shell", { key: ticket, tick }) as Promise<ShellTabView>,
     [ticket, tick],
   );
-  const { view, error } = useServiceView(load, ["session_state"]);
+  // `settings_changed`: "leave terminal" names the user's key (KEY-08).
+  const { view, error } = useServiceView(load, ["session_state", "settings_changed"]);
   const [state, setState] = useState<TerminalState>(INITIAL_STATE);
   if (!view || view.key !== ticket) return <p className="run-problem">{error?.message ?? ""}</p>;
   return (

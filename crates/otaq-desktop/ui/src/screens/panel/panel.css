@@ -16,7 +16,7 @@
   font: var(--text-body);
 }
 
-/* ⇧⌘E: the panel takes the main area and the pane's room; the rail and the header stay (*Expanded · ⇧⌘E*). */
+/* Expand (`e`): the panel takes the main area and the pane's room; the rail and the header stay (*Expanded*). */
 .frame-panel:has(> .panel[data-expanded]) {
   flex: 1;
 }

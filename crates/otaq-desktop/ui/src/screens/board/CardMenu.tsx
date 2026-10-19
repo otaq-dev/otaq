@@ -4,7 +4,7 @@
 // id, as do the epic dialogs (T-0223). A disabled item (Delete… on a started ticket) can't be chosen. An epic's own
 // items (its card's or its track's menu; T-0274, d0080) do what the board does: Open epic opens its panel, Queue and
 // Unqueue are the drops they stand for (on Ready for Dev, on Backlog: the queue toast, the Park-all confirmation),
-// Add ticket to epic opens New ticket under it, Focus is ⇧⌘G.
+// Add ticket to epic opens New ticket under it, Focus is `g` `e`.
 import { openTicket } from "../../app/selection";
 import { AnchoredMenu, type Anchor } from "../../components";
 import type { CardMenuChoice } from "../../generated/CardMenuChoice";
@@ -20,7 +20,7 @@ export interface OpenCardMenu {
   items: readonly MenuItem[];
 }
 
-/** What the board does for an epic's items: a drop, as a drag would end, and the focus (⇧⌘G). */
+/** What the board does for an epic's items: a drop, as a drag would end, and the focus (`g` `e`). */
 export interface MenuBoard {
   drop: (key: string, column: "ready_for_dev" | "backlog") => void;
   focus: (key: string) => void;

@@ -42,8 +42,14 @@ import {
 } from "./logic";
 import { ROUTES } from "./routes";
 
-/** The service events that change the inbox. */
-export const INBOX_EVENTS = ["inbox_changed", "ticket_changed", "ticket_deleted", "usage_changed"] as const;
+/** The service events that change the inbox (`settings_changed`: the user's key for Next, KEY-08). */
+export const INBOX_EVENTS = [
+  "inbox_changed",
+  "ticket_changed",
+  "ticket_deleted",
+  "usage_changed",
+  "settings_changed",
+] as const;
 
 const ignore = () => undefined;
 
@@ -526,7 +532,7 @@ export function InboxBody({ view, selected, draft, onDraft, onSelect }: InboxBod
                 void runNext();
               }}
             />
-            <Kbd keys={view.next.keys} />
+            {view.next.keys !== "" && <Kbd keys={view.next.keys} />}
           </>
         )}
       </div>

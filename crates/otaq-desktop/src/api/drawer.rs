@@ -1,12 +1,13 @@
 //! `drawer.*`: the Terminals drawer (SHL-04, RUN-06, UI-09; d0068, d0058, d0019, d0087; *17 · Project terminals*). The
 //! drawer holds the shown project's Project terminals only, one tab each, and + for a new one. The last-used tab of
-//! each project is kept here, so the rail's Terminals and ⇧⌘T find the last-used terminal (or open one). Project agents
+//! each project is kept here, so the rail's Terminals and its key (⌃`) find the last-used terminal (or open one). Project agents
 //! live in the pane since d0087 (`pane.*`): nothing here answers about them.
 
 use otaq_core::protocol::{ProjectParams, ProjectTerminalParams, Reply, Request, SessionIdParams};
 use otaq_core::session::{SessionInfo, SessionKind, SessionState};
 use otaq_core::terminals::shell::ProjectTerminal;
-use otaq_view::keymap::{KeyAction, Platform};
+use otaq_view::key_labels::KeyLabels;
+use otaq_view::keymap::KeyAction;
 use otaq_view::shell::tilde;
 use otaq_view::view_models::project_terminal::{
     self as vm, HintFacts, LastUsed, NEW_TERMINAL, Tab, terminal_tab_id,
@@ -82,11 +83,12 @@ pub struct Facts<'a> {
     pub remembered: Option<&'a str>,
     pub project_name: &'a str,
     pub short_repo: &'a str,
-    pub platform: Platform,
+    /// The user's keys: the hint names the pane's focus key as it works inside a terminal (KEY-08).
+    pub keys: KeyLabels,
 }
 
 pub fn view_of(f: &Facts) -> View {
-    let focus_keys = KeyAction::FocusPane.keys(f.platform);
+    let focus_keys = f.keys.in_terminal(KeyAction::FocusPane);
     let tabs = vm::tabs(
         f.terminals,
         &HintFacts {
@@ -143,7 +145,7 @@ pub async fn view(app: &App, params: Params) -> Result<View, RequestError> {
         remembered: remembered.as_deref(),
         project_name: &name,
         short_repo: &repo,
-        platform: Platform::current(),
+        keys: super::keymap::labels(app).await,
     }))
 }
 
@@ -186,7 +188,7 @@ fn toast_error(app: &App, title: &str, error: &RequestError) {
     ));
 }
 
-/// ⇧⌘T: the tab to show, the last-used terminal or a new one (`project_terminal.open {new}`).
+/// Terminals (⌃`): the tab to show, the last-used terminal or a new one (`project_terminal.open {new}`).
 pub async fn last_terminal(app: &App, params: Params) -> Result<String, RequestError> {
     let open = terminals(app, &params.project).await?;
     let tab = match vm::last_used(&open, remembered(app, &params.project).as_deref()) {
@@ -238,8 +240,9 @@ pub struct Gallery {
     pub states: Vec<GalleryState>,
 }
 
-pub fn gallery() -> Gallery {
-    let terminal = |number: u32, running: bool| ProjectTerminal {
+/// A Project terminal of the gallery: number `number`, its shell running or exited.
+fn gallery_terminal(number: u32, running: bool) -> ProjectTerminal {
+    ProjectTerminal {
         number,
         name: format!("Terminal {number}"),
         session: SessionInfo {
@@ -262,14 +265,18 @@ pub fn gallery() -> Gallery {
             model_ran: None,
             size: None,
         },
-    };
+    }
+}
+
+pub fn gallery() -> Gallery {
+    let terminal = gallery_terminal;
     let view = |terminals: &[ProjectTerminal], remembered: Option<&str>| {
         view_of(&Facts {
             terminals,
             remembered,
             project_name: "pocket-notes",
             short_repo: "~/code/pocket-notes",
-            platform: Platform::current(),
+            keys: KeyLabels::default(),
         })
     };
     let two = [terminal(1, true), terminal(2, false)];
@@ -308,7 +315,7 @@ mod tests {
             remembered,
             project_name: "shop-web",
             short_repo: "~/code/shop-web",
-            platform: Platform::Mac,
+            keys: KeyLabels::base(otaq_view::keymap::Platform::Mac),
         };
         let empty = view_of(&facts(Some("terminal:gone")));
         assert_eq!(empty.selected, None);
@@ -318,6 +325,41 @@ mod tests {
             ("Terminals", "New terminal", "Hide \u{b7} terminals keep running")
         );
         assert_eq!(empty.height, 380.);
+    }
+
+    /// KEY-08: the hint names the user's key for focusing the pane as it works inside a terminal (⌘L; Ctrl+Shift+L in
+    /// a Windows/Linux terminal), a recorded key that works there, and no key once removed.
+    #[test]
+    fn the_hint_names_the_users_pane_key() {
+        use otaq_view::key_labels::fixtures as keys;
+        use otaq_view::keymap::Platform;
+        let fresh = [gallery_terminal(1, true)];
+        let last = |labels: KeyLabels| {
+            let view = view_of(&Facts {
+                terminals: &fresh,
+                remembered: None,
+                project_name: "pocket-notes",
+                short_repo: "~/code/pocket-notes",
+                keys: labels,
+            });
+            view.tabs[0].hint.last().cloned().unwrap()
+        };
+        let ask = "Want an agent\u{2019}s help? Ask the Project agent in the pane";
+        assert_eq!(last(keys::base()), format!("{ask} (\u{2318}L)."));
+        assert_eq!(
+            last(KeyLabels::base(Platform::WinLinux)),
+            format!("{ask} (Ctrl+Shift+L).")
+        );
+        assert_eq!(
+            last(keys::replaced("focus_pane", None, 0, "⌥⌘L")),
+            format!("{ask} (⌥⌘L).")
+        );
+        // A recorded ⌥ key stays the terminal's there (d0097), so the hint names none.
+        assert_eq!(
+            last(keys::replaced("focus_pane", None, 0, "⌥L")),
+            format!("{ask}.")
+        );
+        assert_eq!(last(keys::removed("focus_pane", None, 0)), format!("{ask}."));
     }
 
     #[test]
@@ -364,7 +406,7 @@ mod tests {
             "no header button any more: the rail's Terminals is the shell's"
         );
 
-        // ⇧⌘T with nothing open: a new terminal, shown.
+        // Terminals with nothing open: a new terminal, shown.
         let first = table(&h.app, "drawer.last_terminal", p.clone())
             .await
             .unwrap();
@@ -392,7 +434,7 @@ mod tests {
         assert_eq!(hint[1], "Run project commands, or make tickets yourself:");
         assert_eq!(view["selected"], second, "the newest pick");
 
-        // Picking Terminal 1 makes it the last used: ⇧⌘T shows it.
+        // Picking Terminal 1 makes it the last used: Terminals shows it.
         table(
             &h.app,
             "drawer.select",

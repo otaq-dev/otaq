@@ -28,7 +28,8 @@ use otaq_core::review::ReturnOutcome;
 use otaq_core::session::deliveries::Delivery;
 use otaq_core::session::{SessionInfo, SessionKind};
 use otaq_view::icons::IconName;
-use otaq_view::keymap::{KeyAction, Platform};
+use otaq_view::key_labels::KeyLabels;
+use otaq_view::keymap::KeyAction;
 use otaq_view::view_models::answer::{self, AnswerOutcome};
 use otaq_view::view_models::answer_options::AnswerOptions;
 use otaq_view::view_models::agent_rows::{self, Block};
@@ -113,7 +114,7 @@ pub struct Params {
     pub focus_agent_row: Option<RoleId>,
 }
 
-/// A tooltip: its name and its shortcut on this platform.
+/// A tooltip: its name and the user's key for it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "PanelHint")]
 pub struct Hint {
@@ -122,10 +123,10 @@ pub struct Hint {
 }
 
 impl Hint {
-    fn new(text: impl Into<String>, action: KeyAction) -> Self {
+    fn new(text: impl Into<String>, action: KeyAction, keys: &KeyLabels) -> Self {
         Self {
             text: text.into(),
-            keys: action.keys(Platform::current()),
+            keys: keys.label(action),
         }
     }
 }
@@ -412,6 +413,8 @@ pub struct Facts<'a> {
     /// The rows and the sessions' named agents (`ticket.agents`), with the agent tools and their model lists.
     pub agents: Option<&'a TicketAgents>,
     pub tools: &'a Tools,
+    /// The user's keys: the tabs', Expand's and the arrows' tooltips (KEY-08).
+    pub keys: KeyLabels,
 }
 
 fn running_agent(sessions: &[SessionInfo]) -> bool {
@@ -504,7 +507,6 @@ fn notice_of(ticket: &Ticket, tickets: &[Ticket]) -> Option<Notice> {
 
 pub fn view_of(f: &Facts) -> View {
     let ticket = f.ticket;
-    let platform = Platform::current();
     let live = running_agent(f.sessions);
     // Run is built here (T-0232); `actions::buttons` leaves it out. Resume lead is the epic panel's (T-0290).
     let resume_lead = (ticket.is_epic() && resumes_lead(f.lead)).then_some((Action::ResumeLead, Look::Primary));
@@ -606,11 +608,11 @@ pub fn view_of(f: &Facts) -> View {
         },
         previous: vm::neighbour(f.tickets, &ticket.key, -1).map(|k| k.to_string()),
         next: vm::neighbour(f.tickets, &ticket.key, 1).map(|k| k.to_string()),
-        previous_hint: Hint::new("Previous ticket", KeyAction::PreviousTicket),
-        next_hint: Hint::new("Next ticket", KeyAction::NextTicket),
-        expand_hint: Hint::new("Expand", KeyAction::ExpandPanel),
-        collapse_hint: Hint::new("Back to the board", KeyAction::ExpandPanel),
-        close_hint: Hint::new("Close", KeyAction::ClosePanel),
+        previous_hint: Hint::new("Previous ticket", KeyAction::PreviousTicket, &f.keys),
+        next_hint: Hint::new("Next ticket", KeyAction::NextTicket, &f.keys),
+        expand_hint: Hint::new("Expand", KeyAction::ExpandPanel, &f.keys),
+        collapse_hint: Hint::new("Back to the board", KeyAction::ExpandPanel, &f.keys),
+        close_hint: Hint::new("Close", KeyAction::ClosePanel, &f.keys),
         more_hint: "More",
         resize_hint: "Panel width",
         approve_more: buttons
@@ -665,12 +667,12 @@ pub fn view_of(f: &Facts) -> View {
                 (Tab::Run, Some(run)) => (i, tab, otaq_view::view_models::run::tab_indicator(Some(run))),
                 _ => (i, tab, indicator),
             })
-            // ⌘⌥N follows the shown order (an epic's tabs too).
+            // Tab N's key follows the shown order (an epic's tabs too).
             .map(|(i, tab, indicator)| TabView {
                 tab,
                 label: tab.label(),
                 icon: tab.icon(),
-                keys: KeyAction::SwitchTab(i as u8 + 1).keys(platform),
+                keys: f.keys.label(KeyAction::SwitchTab(i as u8 + 1)),
                 mark: mark(indicator),
             })
             .collect(),
@@ -807,6 +809,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     };
     let agents = super::editor::agent_facts(app, super::editor::of_ticket(&params.key)).await;
     let tools = super::editor::agent_tools(app).await;
+    let keys = super::keymap::labels(app).await;
     let view = view_of(&Facts {
         ticket: &ticket,
         tickets: &all,
@@ -822,6 +825,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         lead: lead.as_ref(),
         agents: agents.as_ref(),
         tools: &tools,
+        keys,
     });
     Ok(Load {
         view: Some(View {
@@ -1577,6 +1581,7 @@ pub fn notes_gallery() -> NotesGallery {
                     lead: None,
                     agents: None,
                     tools,
+                    keys: KeyLabels::default(),
                 })
             })
             .collect(),
@@ -1670,6 +1675,7 @@ mod tests {
             lead: None,
             agents: None,
             tools: one_tool(),
+            keys: KeyLabels::base(otaq_view::keymap::Platform::Mac),
         }
     }
 
@@ -1706,6 +1712,37 @@ mod tests {
 
     fn labels(view: &View) -> Vec<&str> {
         view.buttons.iter().map(|b| b.label.as_str()).collect()
+    }
+
+    /// KEY-08: the tabs show `1`–`6` (the user's keys), Expand `e`, the arrows ⌘[ / ⌘]; a recorded key shows, a removed
+    /// one and letters off show none (the arrows keep their ⌘ keys).
+    #[test]
+    fn the_tabs_and_buttons_show_the_users_keys() {
+        use otaq_view::key_labels::fixtures as keys;
+        let working = fixture("SHOP-19", "Price table", Status::Working);
+        let all = vec![working.clone()];
+        let with = |labels: KeyLabels| view_of(&Facts { keys: labels, ..facts(&working, &all, &[]) });
+        let tab_keys = |view: &View| view.tabs.iter().map(|t| t.keys.clone()).collect::<Vec<_>>();
+        let base = with(keys::base());
+        assert_eq!(
+            tab_keys(&base)[..3],
+            [Some("1".to_owned()), Some("2".to_owned()), Some("3".to_owned())]
+        );
+        assert_eq!(base.expand_hint.keys.as_deref(), Some("e"));
+        assert_eq!(base.next_hint.keys.as_deref(), Some("\u{2318}]"));
+        let custom = with(keys::with(
+            true,
+            &[("switch_tab", Some(2), 0, Some("⌥2")), ("expand_panel", None, 0, Some("x"))],
+        ));
+        assert_eq!(custom.tabs[1].keys.as_deref(), Some("⌥2"));
+        assert_eq!(custom.expand_hint.keys.as_deref(), Some("x"));
+        let removed = with(keys::removed("switch_tab", Some(1), 0));
+        assert_eq!(removed.tabs[0].keys, None);
+        assert_eq!(removed.tabs[1].keys.as_deref(), Some("2"));
+        let off = with(keys::letters_off());
+        assert!(tab_keys(&off).iter().all(Option::is_none));
+        assert_eq!((off.expand_hint.keys, off.collapse_hint.keys), (None, None));
+        assert_eq!(off.previous_hint.keys.as_deref(), Some("\u{2318}["));
     }
 
     #[test]
@@ -1891,8 +1928,8 @@ mod tests {
         assert_eq!(tabs(&view), ["Ticket", "Lead", "History"]);
         assert_eq!(view.tabs[1].mark, Some(Mark::Live));
         assert_eq!(
-            view.tabs[1].keys,
-            KeyAction::SwitchTab(2).keys(Platform::current()),
+            view.tabs[1].keys.as_deref(),
+            Some("2"),
             "the Lead tab is the second shortcut on an epic"
         );
         assert_eq!(view.answer, None);

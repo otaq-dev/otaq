@@ -58,7 +58,7 @@ const VIEW: TerminalTabView = {
   copy_attach: "Copy attach command",
   waiting: null,
   instructions: { label: "Instructions: shop-web", project: "SHOP" },
-  leave: { text: "leave terminal", keys: "⇧⌘`" },
+  leave: { text: "leave terminal", keys: "⌃`" },
   smaller: "Smaller text",
   bigger: "Larger text",
   find: { text: "Find in scrollback", keys: "⌘F" },

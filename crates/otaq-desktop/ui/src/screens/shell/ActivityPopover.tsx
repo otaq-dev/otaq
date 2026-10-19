@@ -2,7 +2,7 @@
 // Header parts: Activity, rail (0086 · V) → Activity popover*, *Row · Activity popover states (0087)*), opened by a
 // click or ⇧⌘U. Top to bottom: the agent-limit stepper while limits are on (each press saves at once and reaches the
 // scheduler without restarting anything), AGENTS RUNNING, USAGE · WHAT'S LEFT with a bar per window, PROCESSES (the
-// Run rows of `Processes.tsx`; a row opens its ticket's Run tab) and "Open Terminals ⇧⌘T". Every word, number and
+// Run rows of `Processes.tsx`; a row opens its ticket's Run tab) and "Open Terminals ⌃`". Every word, number and
 // which bar is amber is Rust's (`activity.rs`, `limits.rs`); no dollar figure anywhere.
 import { useEffect, useState } from "react";
 

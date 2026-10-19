@@ -1,13 +1,13 @@
 // The ticket side panel (UI-04; *05 · Ticket side panel*): the header with key, title, priority, status, branch,
-// base, last signal and tokens; previous / next, expand (⇧⌘E) and close (Esc); the action bar of the ticket's state
+// base, last signal and tokens; previous / next, expand (`e`) and close (Esc); the action bar of the ticket's state
 // with its "…" menu, or the answer options of an Asks-you question; the queued notice, the conflict strip and the
-// Start interrupted callout; the registered sections (Stack, Messages); the tab strip with its indicators (⌘⌥1–6);
+// Start interrupted callout; the registered sections (Stack, Messages); the tab strip with its indicators (`1`–`6`);
 // and the registered tab's body. It opens over the main area's right side (SHL-05; the frame places it). Everything
 // it says comes from `panel.view`; it keeps only the dragged width (per window size class), the expanded view, open
 // menus and the picked answer. A board card's button lands here too (`cardActions`): the panel
 // runs it once it shows that ticket. The M12 rows (d0063, d0064): the validation buttons, the token split, the
 // Auto-merge stop message and Answer the agent's note box. An epic's panel (T-0290; d0083) shows Ticket · Lead ·
-// History (Diff first in review), numbered ⌘⌥1–4 in that order, with its Messages inside the Ticket tab.
+// History (Diff first in review), numbered `1`–`4` in that order, with its Messages inside the Ticket tab.
 import {
   type PointerEvent,
   type ReactNode,
@@ -103,6 +103,8 @@ export const PANEL_EVENTS = [
   "validation_cancelled",
   "lead_changed",
   "project_agent_changed",
+  // The user's keys in its tooltips (KEY-08).
+  "settings_changed",
 ] as const;
 
 const ignore = () => undefined;

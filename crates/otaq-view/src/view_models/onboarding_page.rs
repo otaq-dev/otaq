@@ -13,7 +13,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::keymap::{KeyAction, Platform};
+use crate::key_labels::KeyLabels;
+use crate::keymap::KeyAction;
 use crate::shell::tilde;
 use crate::view_models::add_project::AddProjectModel;
 use crate::view_models::agent_tools_page::{self, Place};
@@ -110,8 +111,12 @@ pub struct Welcome {
     pub button: String,
 }
 
-pub fn welcome(platform: Platform) -> Welcome {
-    let inbox_key = KeyAction::NextInboxItem.keys(platform).unwrap_or_default();
+pub fn welcome(keys: &KeyLabels) -> Welcome {
+    // Without a key for Next inbox item the sentence about it is left out.
+    let inbox_key = keys
+        .label(KeyAction::NextInboxItem)
+        .map(|k| format!(" {k} opens the next."))
+        .unwrap_or_default();
     Welcome {
         title: "Run coding agents from a board".to_owned(),
         text: format!(
@@ -131,7 +136,7 @@ pub fn welcome(platform: Platform) -> Welcome {
                 icon: IconName::Inbox,
                 title: "One inbox".to_owned(),
                 text: format!(
-                    "Permission prompts, questions and reviews from every project in one list. {inbox_key} opens the next."
+                    "Permission prompts, questions and reviews from every project in one list.{inbox_key}"
                 ),
             },
             Point {
@@ -573,7 +578,7 @@ pub fn trust_gallery() -> TrustGallery {
                 base_branch: "main".into(),
             }),
             &[],
-            Platform::current(),
+            &KeyLabels::default(),
         );
         m
     };
@@ -787,9 +792,9 @@ pub struct Texts {
     pub checking: String,
 }
 
-pub fn texts(platform: Platform) -> Texts {
+pub fn texts(keys: &KeyLabels) -> Texts {
     Texts {
-        welcome: welcome(platform),
+        welcome: welcome(keys),
         theme: theme_step(),
         title_bars: StepId::ALL.iter().map(|s| title_bar(*s)).collect(),
         no_projects: no_projects(),
@@ -803,6 +808,7 @@ mod tests {
     use otaq_core::tools::{PermissionCheck, PermissionVerdict, Tool, ToolStatus, ToolsReport};
 
     use super::*;
+    use crate::key_labels::fixtures;
 
     fn status(tool: Tool, found: bool) -> ToolStatus {
         ToolStatus {
@@ -857,12 +863,12 @@ mod tests {
             ]
         );
         assert_eq!(bar.steps[4].label, "Done");
-        assert_eq!(texts(Platform::Mac).title_bars.len(), 4);
+        assert_eq!(texts(&fixtures::base()).title_bars.len(), 4);
     }
 
     #[test]
     fn welcome_and_theme_words_match_the_frames() {
-        let w = welcome(Platform::Mac);
+        let w = welcome(&fixtures::base());
         assert_eq!(w.title, "Run coding agents from a board");
         assert_eq!(
             w.text,
@@ -879,7 +885,29 @@ mod tests {
                 naming::COMMAND_NAME
             )
         );
-        assert!(w.points[1].text.ends_with("⌘J opens the next."));
+        assert!(
+            w.points[1]
+                .text
+                .ends_with("in one list. ⌘J opens the next.")
+        );
+        // KEY-08: the user's key for Next inbox item, and no sentence about it without one.
+        let custom = fixtures::replaced("next_inbox_item", None, 0, "⇧⌘J");
+        assert!(
+            welcome(&custom).points[1]
+                .text
+                .ends_with(" ⇧⌘J opens the next.")
+        );
+        let moved = fixtures::mac(&fixtures::activity_on_cmd_j());
+        assert!(
+            welcome(&moved).points[1]
+                .text
+                .ends_with("from every project in one list.")
+        );
+        assert!(
+            welcome(&fixtures::letters_off()).points[1]
+                .text
+                .ends_with("⌘J opens the next.")
+        );
         assert_eq!(w.foot, "Takes about a minute");
         assert_eq!(w.button, "Choose a theme");
         let t = theme_step();
@@ -1031,7 +1059,7 @@ mod tests {
         assert!(!empty.can_add && empty.key.is_none());
         m.pick("/code/shop-web".into());
         assert_eq!(add_project(&m, &[], true).folder_look, FolderLook::Checking);
-        m.probed(Ok(probe()), &[], Platform::Mac);
+        m.probed(Ok(probe()), &[], &fixtures::base());
         let valid = add_project(&m, &[], true);
         assert_eq!(valid.folder_look, FolderLook::Valid);
         assert_eq!(valid.name.unwrap().value, "shop-web");
@@ -1062,7 +1090,7 @@ mod tests {
                 "not a git repository".into(),
             )),
             &[],
-            Platform::Mac,
+            &fixtures::base(),
         );
         let v = add_project(&m, &[], true);
         assert_eq!(v.folder_look, FolderLook::Refused);
@@ -1079,7 +1107,7 @@ mod tests {
         }
         m.pick("/code/shop-web".into());
         assert_eq!(add_project(&m, &[], true).trust_line.as_deref(), Some(line));
-        m.probed(Ok(probe()), &[], Platform::Mac);
+        m.probed(Ok(probe()), &[], &fixtures::base());
         for first_run in [true, false] {
             let v = add_project(&m, &[], first_run);
             assert_eq!(v.trust_line.as_deref(), Some(line), "trusted or not");
@@ -1136,7 +1164,7 @@ mod tests {
             ..AddProjectModel::default()
         };
         m.pick("/code/shop-web".into());
-        m.probed(Ok(probe()), &[], Platform::Mac);
+        m.probed(Ok(probe()), &[], &fixtures::base());
         m.added_untrusted(vec![(Tool::Codex, "its config isn’t writable".into())]);
         let v = add_project(&m, &[], true);
         assert_eq!(
@@ -1156,7 +1184,7 @@ mod tests {
     fn a_failed_trust_says_why_and_waits_for_continue() {
         let mut m = claude_trusts();
         m.pick("/code/shop-web".into());
-        m.probed(Ok(probe()), &[], Platform::Mac);
+        m.probed(Ok(probe()), &[], &fixtures::base());
         m.adding = true;
         m.added_untrusted(vec![(
             otaq_core::agent_tools::Tool::Claude,

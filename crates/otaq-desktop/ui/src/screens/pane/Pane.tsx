@@ -60,6 +60,8 @@ export const PANE_EVENTS = [
   "ticket_changed",
   "ticket_deleted",
   "projects_changed",
+  // The user's keys in its tooltips (KEY-08).
+  "settings_changed",
 ] as const;
 
 const ignore = () => undefined;
@@ -464,7 +466,7 @@ type Floating = "switcher" | "menu" | "recent" | null;
 export interface PaneBodyProps {
   view: PaneView;
   project: string;
-  /** Follows ⌘L, ⇧⌘A and the inbox's focus requests (the live pane; not the gallery's copies). */
+  /** Follows ⌘L, ⇧⌘L and the inbox's focus requests (the live pane; not the gallery's copies). */
   followFocus?: boolean;
 }
 
@@ -485,7 +487,7 @@ export function PaneBody({ view, project, followFocus = false }: PaneBodyProps) 
   const asked = useStore(paneFocusRequests);
   const target = focusTarget(view);
 
-  // ⌘L, ⇧⌘A, Send and the inbox ask for the keyboard: once per request, when the pane shows what it was asked for.
+  // ⌘L, ⇧⌘L, Send and the inbox ask for the keyboard: once per request, when the pane shows what it was asked for.
   useEffect(() => {
     if (!followFocus || !asked || asked === focusHandled.last || !focusFits(asked, view.agent)) return;
     if (target === "none") return;

@@ -50,7 +50,7 @@ pub enum DropFeedback {
 /// queued" chip) in Backlog: the epic's children still in Backlog, or that one child.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EpicQueue<'a> {
-    /// The epic card (or its track, ⇧⌘D): every child still in Backlog. Parked ones resume (d0052).
+    /// The epic card (or its track, ⌘D): every child still in Backlog. Parked ones resume (d0052).
     Whole {
         queued: Vec<&'a Ticket>,
         resumed: Vec<&'a Ticket>,

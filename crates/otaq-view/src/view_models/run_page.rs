@@ -8,7 +8,8 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::keymap::{KeyAction, Platform};
+use crate::key_labels::KeyLabels;
+use crate::keymap::KeyAction;
 use crate::view_models::processes;
 use crate::view_models::run::{self as vm, RunButton, Tone};
 use crate::view_models::run_command::{Phase, RunCommandModel};
@@ -358,7 +359,7 @@ pub fn command_view(model: &RunCommandModel, command: &str, fill: Option<FillVie
     }
 }
 
-/// "⇧⌘` leave terminal" while the shell has the keyboard.
+/// "⌃` leave terminal" while the shell has the keyboard: the user's key for Terminals inside a terminal.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ShellLeave")]
 pub struct LeaveView {
@@ -402,6 +403,7 @@ pub struct ShellFacts<'a> {
     pub port: Option<u16>,
     pub session: Option<&'a SessionInfo>,
     pub problem: Option<String>,
+    pub keys: &'a KeyLabels,
 }
 
 pub fn shell_view(f: ShellFacts, hhmm: impl Fn(i64) -> String) -> ShellView {
@@ -423,7 +425,7 @@ pub fn shell_view(f: ShellFacts, hhmm: impl Fn(i64) -> String) -> ShellView {
         hint: "Typing goes to the shell, not the agent",
         leave: LeaveView {
             text: "leave terminal",
-            keys: KeyAction::Terminals.keys(Platform::current()),
+            keys: f.keys.in_terminal(KeyAction::Terminals),
         },
         terminal_label: format!("{} \u{b7} shell", f.key),
     }
@@ -612,6 +614,7 @@ mod tests {
                 port: Some(4004),
                 session: Some(&session),
                 problem: None,
+                keys: &crate::key_labels::fixtures::base(),
             },
             |_| "08:24".to_owned(),
         );
@@ -623,6 +626,39 @@ mod tests {
             "Stopped by restart \u{b7} was open at 08:24"
         );
         assert_eq!(v.hint, "Typing goes to the shell, not the agent");
+        assert_eq!(v.leave.keys.as_deref(), Some("⌃`"));
+    }
+
+    /// KEY-08: "leave terminal" names the user's key for Terminals as it works inside a terminal: a recorded key,
+    /// none once removed (its `g` `t` doesn't work there), the Windows/Linux terminal column.
+    #[test]
+    fn leave_terminal_shows_the_users_key_in_a_terminal() {
+        use crate::key_labels::fixtures;
+        let leave = |keys: &KeyLabels| {
+            shell_view(
+                ShellFacts {
+                    key: "BILL-4",
+                    worktree: None,
+                    port: None,
+                    session: None,
+                    problem: None,
+                    keys,
+                },
+                |_| String::new(),
+            )
+            .leave
+            .keys
+        };
+        assert_eq!(
+            leave(&fixtures::replaced("terminals", None, 0, "⌘T")).as_deref(),
+            Some("⌘T")
+        );
+        assert_eq!(leave(&fixtures::removed("terminals", None, 0)), None);
+        assert_eq!(leave(&fixtures::letters_off()).as_deref(), Some("⌃`"));
+        assert_eq!(
+            leave(&KeyLabels::base(crate::keymap::Platform::WinLinux)).as_deref(),
+            Some("Ctrl+`")
+        );
     }
 
     #[test]

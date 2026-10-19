@@ -20,7 +20,7 @@ tab_keys: string,
  */
 files_empty: string, 
 /**
- * The strip's name and tooltip: "Show the pane" with ⌘\.
+ * The strip's name and tooltip: "Show the pane" with the user's key for it (⌘B).
  */
 show_pane: string, 
 /**

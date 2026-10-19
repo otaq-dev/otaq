@@ -1,11 +1,11 @@
-//! Search and filter (UI-02, EPC-01; d0058 ⌘K; *03 · Board & columns → Search & filter · ⌘K*): one field does
+//! Search and filter (UI-02, EPC-01; KEY-09: `/` focuses it; *03 · Board & columns → Search & filter*): one field does
 //! both. Free text matches the key (old keys from Move to epic too), the title and the epic's title; tokens
 //! filter by state (`is:needs-you`, `is:working`, `has:run`, …), by chain (`dep:SHOP-18`) or by epic (`epic:Wishlist`).
 //! Everything combines (all must match). Non-matching cards hide; columns show "shown/total".
 //!
 //! An `epic:` token is the same as focusing the epic (EPC-18, d0080, Q55): on the board it **dims** the other cards
 //! instead of hiding them, so the board keeps its shape ([`Filter::hiding`], [`Filter::strong`]); the other words
-//! still hide. Focusing an epic (its track's name, ⇧⌘G) puts its token in the filter ([`Filter::focus`]); Esc takes
+//! still hide. Focusing an epic (its track's name, `g` `e`) puts its token in the filter ([`Filter::focus`]); Esc takes
 //! it out ([`Filter::unfocus`]).
 
 use otaq_core::board::tickets::Ticket;
@@ -170,7 +170,7 @@ fn in_epic(name: &str, t: &Ticket, all: &[Ticket]) -> bool {
         .is_some_and(|e| names_epic(name, e))
 }
 
-/// The epic a focus on `key` focuses (⇧⌘G, EPC-18): the epic itself, or a child's epic. `None` for a standalone
+/// The epic a focus on `key` focuses (`g` `e`, EPC-18): the epic itself, or a child's epic. `None` for a standalone
 /// ticket, which has nothing to focus.
 pub fn epic_of<'a>(key: &TicketKey, all: &'a [Ticket]) -> Option<&'a Ticket> {
     let t = all.iter().find(|t| &t.key == key)?;
@@ -563,7 +563,7 @@ mod tests {
         assert_eq!(keys(f.strong(&all)), ["SHOP-40", "SHOP-40.4"]);
         assert_eq!(Filter::default().strong(&all), None);
 
-        // ⇧⌘G on SHOP-45.1: its epic by title replaces Wishlist; the typed text stays.
+        // `g` `e` on SHOP-45.1: its epic by title replaces Wishlist; the typed text stays.
         let epic = epic_of(&"SHOP-45.1".parse().unwrap(), &all).unwrap();
         assert_eq!(epic.key.to_string(), "SHOP-45");
         f.focus(epic);

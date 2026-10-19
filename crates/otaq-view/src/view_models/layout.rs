@@ -1,7 +1,8 @@
 //! The window's layout (SHL-01, d0087, *02 → Row · Window 1440 × 900 (0086 · V)*): project rail | Project agent pane
 //! | main area with the **Board | Files** tabs, while [`FILES_VIEW`] is on. The pane's widths per window size class, its drag range and its
-//! hidden strip; the tabs' texts. The page asks once at start (`layout.view`); only the drag of a width, which tab
-//! shows and whether the pane is hidden stay on the page, per window.
+//! hidden strip; the tabs' texts and the user's keys. The page asks at start (`layout.view`) and again on
+//! `settings_changed` (KEY-08: a key changed in Settings shows at once); only the drag of a width, which tab shows and
+//! whether the pane is hidden stay on the page, per window.
 //!
 //! The ticket panel's sizes are `panel.rs`'s; it opens over the main area (SHL-05) and uses [`SizeClass`] too.
 
@@ -9,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::keymap::{KeyAction, Platform};
+use crate::key_labels::KeyLabels;
+use crate::keymap::KeyAction;
 
 /// Which of the design's three windows a window is closest to (Q-C): the pane's default width and the panel's
 /// remembered width are kept per class.
@@ -82,7 +84,7 @@ pub const PANE_DEFAULTS: ClassWidths = ClassWidths {
 /// The pane's drag range (SHL-01 and CHANGES-v §1; the 02 notes' "340–560" is older).
 pub const PANE_MIN: f32 = 320.;
 pub const PANE_MAX: f32 = 560.;
-/// The hidden pane (⌘\): a strip this wide (*18 → Hidden with ⌘\*).
+/// The hidden pane (Hide / show the pane, ⌘B): a strip this wide (*18 → Hidden*).
 pub const PANE_STRIP: f32 = 28.;
 
 /// A dragged pane width kept within its range.
@@ -175,23 +177,23 @@ pub struct View {
     pub tab_keys: String,
     /// The Files tab until M24 (Q-F).
     pub files_empty: &'static str,
-    /// The strip's name and tooltip: "Show the pane" with ⌘\.
+    /// The strip's name and tooltip: "Show the pane" with the user's key for it (⌘B).
     pub show_pane: &'static str,
     /// The pane's right edge, for screen readers (←/→ resize it too).
     pub pane_resize: &'static str,
     pub pane_keys: Option<String>,
 }
 
-pub fn view(platform: Platform) -> View {
-    view_for(platform, FILES_VIEW)
+pub fn view(keys: &KeyLabels) -> View {
+    view_for(keys, FILES_VIEW)
 }
 
 /// [`view`] with the Files view on or off.
-pub fn view_for(platform: Platform, files_view: bool) -> View {
+pub fn view_for(labels: &KeyLabels, files_view: bool) -> View {
     let tabs = MainTab::shown(files_view);
     let keys: Vec<String> = tabs
         .iter()
-        .filter_map(|t| t.action().keys(platform))
+        .filter_map(|t| labels.label(t.action()))
         .collect();
     View {
         classes: CLASSES.to_vec(),
@@ -212,13 +214,15 @@ pub fn view_for(platform: Platform, files_view: bool) -> View {
         files_empty: "The Files view comes in a later update.",
         show_pane: "Show the pane",
         pane_resize: "Pane width",
-        pane_keys: KeyAction::TogglePane.keys(platform),
+        pane_keys: labels.label(KeyAction::TogglePane),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::key_labels::fixtures;
+    use crate::keymap::Platform;
 
     #[test]
     fn the_class_splits_at_the_midpoints() {
@@ -251,7 +255,7 @@ mod tests {
 
     #[test]
     fn the_page_gets_the_tabs_and_their_keys() {
-        let mac = view_for(Platform::Mac, true);
+        let mac = view_for(&fixtures::base(), true);
         assert!(mac.tab_row);
         assert_eq!(mac.tab_keys, "\u{21e7}\u{2318}B \u{b7} \u{21e7}\u{2318}O");
         assert_eq!(
@@ -260,7 +264,7 @@ mod tests {
         );
         assert_eq!(mac.pane_keys.as_deref(), Some("\u{2318}B"));
         assert_eq!(
-            view_for(Platform::WinLinux, true).tab_keys,
+            view_for(&KeyLabels::base(Platform::WinLinux), true).tab_keys,
             "Ctrl+Shift+B \u{b7} Ctrl+Shift+O"
         );
         assert_eq!(mac.files_empty, "The Files view comes in a later update.");
@@ -268,20 +272,44 @@ mod tests {
         assert_eq!(mac.strip, 28.);
     }
 
+    /// KEY-08: the strip's and the tabs' keys are the user's: a recorded key, none once removed.
+    #[test]
+    fn the_strip_and_the_tabs_show_the_users_keys() {
+        let custom = view(&fixtures::replaced("toggle_pane", None, 0, "⌥B"));
+        assert_eq!(custom.pane_keys.as_deref(), Some("⌥B"));
+        assert_eq!(
+            view(&fixtures::removed("toggle_pane", None, 0)).pane_keys,
+            None
+        );
+        assert_eq!(
+            view(&fixtures::letters_off()).pane_keys.as_deref(),
+            Some("⌘B")
+        );
+        // Board's ⇧⌘B removed: its `g` `b` shows; with letters off too, nothing.
+        let removed = fixtures::removed("show_board", None, 0);
+        assert_eq!(
+            view_for(&removed, true).tab_keys,
+            "g b \u{b7} \u{21e7}\u{2318}O"
+        );
+    }
+
     /// d0087 (parked 2026-10-18): with the switch off the shell has the Board alone and draws no tab row.
     #[test]
     fn a_parked_files_view_leaves_the_board_alone_without_a_tab_row() {
         // Parked until M24: the app gets the switch off.
-        assert_eq!(view(Platform::Mac), view_for(Platform::Mac, false));
+        assert_eq!(view(&fixtures::base()), view_for(&fixtures::base(), false));
         for platform in [Platform::Mac, Platform::WinLinux] {
-            let off = view_for(platform, false);
+            let off = view_for(&KeyLabels::base(platform), false);
             assert_eq!(
                 off.tabs.iter().map(|t| t.tab).collect::<Vec<_>>(),
                 [MainTab::Board]
             );
             assert!(!off.tab_row);
         }
-        assert_eq!(view_for(Platform::Mac, false).tab_keys, "\u{21e7}\u{2318}B");
+        assert_eq!(
+            view_for(&fixtures::base(), false).tab_keys,
+            "\u{21e7}\u{2318}B"
+        );
         assert_eq!(MainTab::shown(false), [MainTab::Board]);
         assert_eq!(MainTab::shown(true), MainTab::ALL);
     }

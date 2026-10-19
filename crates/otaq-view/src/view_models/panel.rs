@@ -2,7 +2,7 @@
 //! the column's order (⌘[ / ⌘]), its width over the main area (SHL-05), and the header's texts.
 //!
 //! An epic's panel shows **Ticket · Lead · History**, with **Diff** first once the epic is in review (d0083, d0059;
-//! *05 → Row · Epic panel · Lead tab (0083)*); it has no Terminal, Run or Shell tab. ⌘⌥N follows the shown order.
+//! *05 → Row · Epic panel · Lead tab (0083)*); it has no Terminal, Run or Shell tab. Tab N's key (`1`–`6`) follows the shown order.
 
 use otaq_core::board::order::sort_column;
 use otaq_core::board::tickets::Ticket;
@@ -15,7 +15,7 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::view_models::layout::{ClassWidths, SizeClass};
 
-/// The panel's tabs; a ticket shows the first six in this order, ⌘⌥1–6 switch to them (d0058). An epic shows
+/// The panel's tabs; a ticket shows the first six in this order, `1`–`6` switch to them (d0097). An epic shows
 /// [`epic_tabs`] (with Lead), numbered in that order. `PanelTab` on the page, where each tab's screen
 /// registers it (T-0212).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
@@ -42,7 +42,7 @@ impl Tab {
         Tab::History,
     ];
 
-    /// ⌘⌥1 is the Terminal tab (a ticket's tabs).
+    /// Tab 1 (`1`) is the Terminal tab (a ticket's tabs).
     pub fn from_number(n: u8) -> Option<Tab> {
         Self::ALL.get(usize::from(n).checked_sub(1)?).copied()
     }
@@ -169,7 +169,7 @@ pub const DEFAULT_WIDTHS: ClassWidths = ClassWidths {
 /// The narrowest panel (*Narrow panel · 480 px*).
 pub const MIN_WIDTH: f32 = 480.;
 /// The panel opens over the main area and leaves at least this much of it showing on its left (SHL-05: "480 to
-/// main area − 240"); ⇧⌘E takes all of it.
+/// main area − 240"); Expand (`e`) takes all of it.
 pub const MAIN_KEEPS: f32 = 240.;
 /// Below this width the tabs show icons only.
 pub const ICON_TABS_BELOW: f32 = 560.;
@@ -330,7 +330,7 @@ mod tests {
         );
     }
 
-    /// An epic shows Ticket · Lead · History, with Diff first in review; ⌘⌥N follows that order (d0083).
+    /// An epic shows Ticket · Lead · History, with Diff first in review; the tab keys follow that order (d0083).
     #[test]
     fn an_epics_tabs_per_column() {
         let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);

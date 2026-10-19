@@ -1,5 +1,5 @@
-//! The header's search and filter field as the Tauri page draws it (T-0221; UI-02, EPC-01, d0058 ⌘K; *03 · Board &
-//! columns → Search & filter · ⌘K*). The page keeps what the user typed and the chips per project ([`FilterState`]);
+//! The header's search and filter field as the Tauri page draws it (T-0221; UI-02, EPC-01, KEY-09: `/` focuses it,
+//! d0097; *03 · Board & columns → Search & filter*). The page keeps what the user typed and the chips per project ([`FilterState`]);
 //! [`view`] turns it into the field: finished tokens become chips, the rest stays in the field, the "4 results" count,
 //! and the suggestions under it with their counts. The board takes the same state with `board.view` and hides the
 //! cards that don't match ([`FilterState::filter`]).
@@ -9,7 +9,8 @@ use otaq_core::domain::TicketKey;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::keymap::{KeyAction, Platform};
+use crate::key_labels::KeyLabels;
+use crate::keymap::KeyAction;
 use crate::view_models::filter::{Filter, Token};
 
 /// The field's placeholder, in the header and in the field.
@@ -62,7 +63,7 @@ pub struct SearchView {
     /// The filter with finished tokens moved into the chips; `text` is what the field shows.
     pub filter: FilterState,
     pub placeholder: String,
-    /// ⌘K, shown while no filter is active.
+    /// The user's key for Filter the board (`/`), shown while no filter is active.
     pub keys: Option<String>,
     /// "4 results" while a filter is active.
     pub results: Option<String>,
@@ -79,7 +80,7 @@ pub fn view(
     state: &FilterState,
     tickets: &[Ticket],
     selected: Option<&TicketKey>,
-    platform: Platform,
+    keys: &KeyLabels,
 ) -> SearchView {
     let mut filter = Filter {
         tokens: Vec::new(),
@@ -117,7 +118,7 @@ pub fn view(
         placeholder: PLACEHOLDER.to_owned(),
         keys: results
             .is_none()
-            .then(|| KeyAction::FilterBoard.keys(platform))
+            .then(|| keys.label(KeyAction::FilterBoard))
             .flatten(),
         results,
         suggestions_header: SUGGESTIONS_HEADER.to_owned(),
@@ -129,8 +130,11 @@ pub fn view(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::key_labels::fixtures;
     use crate::view_models::card_fixtures::ticket;
     use otaq_core::domain::Status;
+
+    const MAC: fn() -> KeyLabels = fixtures::base;
 
     fn sample() -> Vec<Ticket> {
         vec![
@@ -151,29 +155,39 @@ mod tests {
     #[test]
     fn a_finished_token_becomes_a_chip_and_the_rest_stays_typed() {
         let all = sample();
-        let v = view(&state(&[], "is:needs-you "), &all, None, Platform::Mac);
+        let v = view(&state(&[], "is:needs-you "), &all, None, &MAC());
         assert_eq!(v.filter, state(&["is:needs-you"], ""));
         assert_eq!(v.results.as_deref(), Some("2 results"));
-        assert_eq!(v.keys, None, "the count takes ⌘K's place");
-        let v = view(
-            &state(&["is:needs-you"], "checkout"),
-            &all,
-            None,
-            Platform::Mac,
-        );
+        assert_eq!(v.keys, None, "the count takes the key's place");
+        let v = view(&state(&["is:needs-you"], "checkout"), &all, None, &MAC());
         assert_eq!(v.filter, state(&["is:needs-you"], "checkout"));
         assert_eq!(v.results.as_deref(), Some("1 result"));
-        let v = view(&state(&[], ""), &all, None, Platform::Mac);
+        let v = view(&state(&[], ""), &all, None, &MAC());
         assert_eq!(v.results, None);
         assert_eq!(v.keys.as_deref(), Some("/"));
         assert_eq!(v.placeholder, PLACEHOLDER);
+    }
+
+    /// KEY-08, KEY-09: the field shows the user's key for Filter the board (`/` by default), none once removed or with
+    /// letters off.
+    #[test]
+    fn the_field_shows_the_users_filter_key() {
+        let all = sample();
+        let keys = |labels: &KeyLabels| view(&state(&[], ""), &all, None, labels).keys;
+        assert_eq!(keys(&MAC()).as_deref(), Some("/"));
+        assert_eq!(
+            keys(&fixtures::replaced("filter_board", None, 0, "f")).as_deref(),
+            Some("f")
+        );
+        assert_eq!(keys(&fixtures::removed("filter_board", None, 0)), None);
+        assert_eq!(keys(&fixtures::letters_off()), None);
     }
 
     #[test]
     fn suggestions_carry_their_counts_and_enter_takes_the_first() {
         let all = sample();
         let key: TicketKey = "SHOP-18".parse().unwrap();
-        let v = view(&state(&[], ""), &all, Some(&key), Platform::Mac);
+        let v = view(&state(&[], ""), &all, Some(&key), &MAC());
         assert_eq!(v.suggestions_header, "FILTERS");
         assert_eq!(
             v.suggestions[0],
@@ -185,9 +199,9 @@ mod tests {
         );
         assert!(v.suggestions.iter().any(|s| s.token == "dep:SHOP-18"));
         assert_eq!(v.enter_adds, None, "nothing half typed");
-        let v = view(&state(&[], "is:wor"), &all, None, Platform::Mac);
+        let v = view(&state(&[], "is:wor"), &all, None, &MAC());
         assert_eq!(v.enter_adds.as_deref(), Some("is:working"));
-        let v = view(&state(&["is:working"], ""), &all, None, Platform::Mac);
+        let v = view(&state(&["is:working"], ""), &all, None, &MAC());
         assert!(
             v.suggestions.iter().all(|s| s.token != "is:working"),
             "a chip already there isn't suggested again"
@@ -197,16 +211,8 @@ mod tests {
     #[test]
     fn cleanup_opens_recovery_and_cleanup() {
         let all = sample();
-        assert!(view(&state(&[], "Cleanup"), &all, None, Platform::Mac).enter_opens_cleanup);
-        assert!(
-            !view(
-                &state(&["is:working"], "cleanup"),
-                &all,
-                None,
-                Platform::Mac
-            )
-            .enter_opens_cleanup
-        );
+        assert!(view(&state(&[], "Cleanup"), &all, None, &MAC()).enter_opens_cleanup);
+        assert!(!view(&state(&["is:working"], "cleanup"), &all, None, &MAC()).enter_opens_cleanup);
     }
 
     #[test]
