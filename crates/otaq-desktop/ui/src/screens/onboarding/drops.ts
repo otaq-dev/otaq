@@ -1,5 +1,6 @@
 // A folder dropped on the window (*02 → No projects yet*: "or drop a folder anywhere in this window"; the door's
-// `folder_dropped` event): onboarding's project step takes it when onboarding is open, else Add project opens with it.
+// `files_dropped` event, when it didn't land on a terminal, see `terminal/drops.ts`): onboarding's project step takes it
+// when onboarding is open, else Add project opens with it.
 import { openOverlay, overlays } from "../../app/overlays";
 import { createStore, type Store } from "../../app/store";
 

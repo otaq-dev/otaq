@@ -53,7 +53,6 @@ pub use lead::{Load as LeadTabLoad, Params as LeadTabParams};
 pub use notices::{
     DismissBanner, HoldToast, LimitMoveWaiting, NotificationOpen, ToastId, ToastPress,
 };
-pub use onboarding::dropped as folder_dropped;
 #[cfg(test)]
 pub use onboarding::{
     AddOutcome as AddProjectOutcome, FormParams as AddProjectParams, Start as OnboardingStart,

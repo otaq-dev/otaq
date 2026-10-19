@@ -236,11 +236,10 @@ pub fn run(
                     crate::api::window_focused(&app, focused).await;
                 });
             }
-            // A folder dropped anywhere on the window opens Add project with it (*02 → No projects yet*).
-            tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
-                if let Some(path) = paths.first() {
-                    crate::api::folder_dropped(&dropped_on, path);
-                }
+            // Files dropped on the window: pasted into the terminal under them, or Add project (d0099).
+            tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) => {
+                let scale = window.scale_factor().unwrap_or(1.0);
+                crate::drops::dropped(&dropped_on, paths, (position.x, position.y), scale);
             }
             _ => {}
         })

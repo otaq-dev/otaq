@@ -5,4 +5,4 @@ import type { ServiceConnection } from "./ServiceConnection";
 /**
  * One message of the page's event stream.
  */
-export type PageEvent = { "kind": "service", name: string, event: Record<string, unknown>, } | { "kind": "resync" } | { "kind": "connection", connection: ServiceConnection, } | { "kind": "notices", notices: Notices, } | { "kind": "folder_dropped", path: string, };
+export type PageEvent = { "kind": "service", name: string, event: Record<string, unknown>, } | { "kind": "resync" } | { "kind": "connection", connection: ServiceConnection, } | { "kind": "notices", notices: Notices, } | { "kind": "files_dropped", paths: Array<string>, paste: string, x: number, y: number, };

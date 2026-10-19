@@ -5,9 +5,7 @@
 //! detected values, the key's live check, the connected tools that keep folder trust); `onboarding.add` adds the
 //! project or says why not, and which tools' folder trust wasn't recorded and why (PRJ-07, d0085, d0086). The Tools
 //! step's agent tool rows act through `agent_tools.*` (Sign in…, Show, Hide). A folder dropped on the window reaches
-//! the page as a `folder_dropped` event ([`dropped`]).
-
-use std::path::Path;
+//! the page as a `files_dropped` event ([`crate::drops`]).
 
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::snapshot::ProjectInfo;
@@ -24,7 +22,6 @@ use ts_rs::TS;
 
 use super::{RequestError, reply, unknown};
 use crate::App;
-use crate::events::PageEvent;
 
 pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
     match method {
@@ -223,16 +220,10 @@ async fn failed_tools(app: &App, key: &str, reason: String) -> Vec<(Tool, String
     vec![(tool, reason)]
 }
 
-/// A folder dropped on the window (the door's drop event): the page opens Add project with it (*02 → No projects
-/// yet*: "or drop a folder anywhere in this window").
-pub fn dropped(app: &App, path: &Path) {
-    app.events.publish(&PageEvent::FolderDropped {
-        path: path.display().to_string(),
-    });
-}
-
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use otaq_core::git::testing::TempRepos;
     use serde_json::json;
 

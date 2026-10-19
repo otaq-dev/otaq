@@ -6,6 +6,7 @@
 mod about;
 mod api;
 mod door;
+mod drops;
 mod events;
 #[cfg(test)]
 mod generated;
