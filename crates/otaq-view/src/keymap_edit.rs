@@ -14,6 +14,7 @@
 //! ([`never_in_terminals`]) and otherwise warns what the shell or agent loses before it is ticked.
 
 use otaq_core::board::settings::{KeyboardChange, KeyboardSettings};
+use otaq_core::naming;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -163,13 +164,14 @@ pub fn taken_question(key: &str, by: KeyAction) -> String {
 /// Plain `g`'s refusal: it starts every sequence (d0097).
 pub const G_REFUSED: &str = "g starts the g shortcuts (g b Board, g i Inbox…). Press another key.";
 
-/// The keys the OS or text editing has on this platform, with what they do (d0097, KEY-04).
+/// The keys the OS or text editing has on this platform, with what they do (d0097, KEY-04); `{app}` is the product
+/// name (d0028).
 fn os_keys(platform: Platform) -> &'static [(&'static str, &'static str)] {
     if platform == Platform::Mac {
         &[
-            ("⌘Q", "quits Otaq"),
+            ("⌘Q", "quits {app}"),
             ("⌘W", "closes the window"),
-            ("⌘H", "hides Otaq"),
+            ("⌘H", "hides {app}"),
             ("⌘M", "minimizes the window"),
             ("⌘Tab", "switches apps"),
             ("⌘Space", "opens Spotlight"),
@@ -203,6 +205,7 @@ pub fn os_refusal(platform: Platform, text: &str) -> Option<String> {
         _ => a == b,
     };
     if let Some((key, does)) = os_keys(platform).iter().find(|(key, _)| same(key, text)) {
+        let does = does.replace("{app}", naming::PRODUCT_NAME);
         return Some(format!("{key} {does}. Press another key."));
     }
     let windows_key = text.split('+').any(|part| part == "Super");
@@ -788,8 +791,9 @@ mod tests {
     #[test]
     fn os_and_editing_keys_are_refused_with_the_reason() {
         let fresh = KeyboardSettings::default();
+        let quits = format!("⌘Q quits {}. Press another key.", naming::PRODUCT_NAME);
         for (key, reason) in [
-            ("⌘Q", "⌘Q quits Otaq. Press another key."),
+            ("⌘Q", quits.as_str()),
             ("⌘C", "⌘C copies text. Press another key."),
             ("⌘W", "⌘W closes the window. Press another key."),
             ("⌘Space", "⌘Space opens Spotlight. Press another key."),
