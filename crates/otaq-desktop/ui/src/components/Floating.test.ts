@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { MenuItem } from "../generated/MenuItem";
+import { AnchoredMenu } from "./Menu";
 import { Select } from "./Select";
 
 beforeAll(() => {
@@ -90,5 +91,42 @@ describe("A floating layer and a scroll", () => {
     const host = openSelect(vi.fn());
     scroll(host.querySelector('[role="menu"]') as HTMLElement);
     expect(host.querySelector('[role="menu"]')).not.toBeNull();
+  });
+});
+
+describe("A menu and a press outside it", () => {
+  it("closes on a press outside that moves no focus (the header's drag region)", () => {
+    unmount();
+    const host = document.body.appendChild(document.createElement("div"));
+    const outside = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const onClose = vi.fn();
+    const anchor = { current: null as HTMLElement | null };
+    act(() => {
+      root.render(
+        createElement(AnchoredMenu, {
+          anchor,
+          label: "Project",
+          items: [item("copy_path")],
+          onChoose: vi.fn(),
+          onClose,
+        }),
+      );
+    });
+    unmount = () => {
+      act(() => {
+        root.unmount();
+      });
+      host.remove();
+      outside.remove();
+    };
+    act(() => {
+      host.querySelector(".menu-item")?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    act(() => {
+      outside.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    });
+    expect(onClose).toHaveBeenCalledWith("outside");
   });
 });
