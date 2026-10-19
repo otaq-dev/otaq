@@ -217,8 +217,8 @@ pub fn os_refusal(platform: Platform, text: &str) -> Option<String> {
 fn terminal_meaning(text: &str) -> &'static str {
     let key = text.rsplit(['+', '⌃']).next().unwrap_or_default();
     match (text.contains("Shift"), key) {
-        (true, "C") => "is the terminal's copy",
-        (true, "V") => "is the terminal's paste",
+        (true, "C") => "is the terminal’s copy",
+        (true, "V") => "is the terminal’s paste",
         (_, "C") => "stops the running command in a terminal",
         (_, "D") => "ends the shell or agent in a terminal",
         (_, "Z") => "suspends the running command in a terminal",
@@ -236,7 +236,7 @@ pub fn terminal_refusal(platform: Platform, key: &Key) -> Option<String> {
         .iter()
         .find(|t| Key::parse(t).as_ref().and_then(Key::stroke) == Some(stroke))?;
     Some(format!(
-        "{text} {}, so it can't work inside terminals.",
+        "{text} {}, so it can’t work inside terminals.",
         terminal_meaning(text)
     ))
 }
@@ -259,32 +259,32 @@ pub fn terminal_warning(platform: Platform, key: &Key) -> Option<String> {
     }
     let text = key.text(platform);
     let loses = match letter {
-        'a' => "the shell's start-of-line key",
-        'b' => "the shell's back-one-character key",
-        'e' => "the shell's end-of-line key",
-        'f' => "the shell's forward-one-character key",
-        'h' => "the shell's backspace",
-        'i' => "the shell's Tab completion",
-        'j' => "the new line in an agent's prompt",
-        'k' => "the shell's delete to the end of the line",
-        'l' => "the shell's clear screen",
-        'm' => "the shell's Enter",
-        'n' => "the shell's next command",
-        'p' => "the shell's previous command",
-        'q' => "the shell's resume output",
-        'r' => "the shell's history search",
-        's' => "the shell's pause output",
-        't' => "the shell's swap characters",
-        'u' => "the shell's delete to the start of the line",
-        'w' => "the shell's delete the word before",
-        'y' => "the shell's paste of deleted text",
+        'a' => "the shell’s start-of-line key",
+        'b' => "the shell’s back-one-character key",
+        'e' => "the shell’s end-of-line key",
+        'f' => "the shell’s forward-one-character key",
+        'h' => "the shell’s backspace",
+        'i' => "the shell’s Tab completion",
+        'j' => "the new line in an agent’s prompt",
+        'k' => "the shell’s delete to the end of the line",
+        'l' => "the shell’s clear screen",
+        'm' => "the shell’s Enter",
+        'n' => "the shell’s next command",
+        'p' => "the shell’s previous command",
+        'q' => "the shell’s resume output",
+        'r' => "the shell’s history search",
+        's' => "the shell’s pause output",
+        't' => "the shell’s swap characters",
+        'u' => "the shell’s delete to the start of the line",
+        'w' => "the shell’s delete the word before",
+        'y' => "the shell’s paste of deleted text",
         _ => {
             return Some(format!(
-                "{text}: the shell or agent won't get this key in a terminal."
+                "{text}: the shell or agent won’t get this key in a terminal."
             ));
         }
     };
-    Some(format!("{text}: {loses} won't reach the terminal."))
+    Some(format!("{text}: {loses} won’t reach the terminal."))
 }
 
 /// Whether a key has the "Works inside terminals" option: on Windows/Linux any key with a modifier, on macOS a ⌃ key
@@ -957,31 +957,31 @@ mod tests {
         for (text, reason) in [
             (
                 "Ctrl+C",
-                "Ctrl+C stops the running command in a terminal, so it can't work inside terminals.",
+                "Ctrl+C stops the running command in a terminal, so it can’t work inside terminals.",
             ),
             (
                 "Ctrl+D",
-                "Ctrl+D ends the shell or agent in a terminal, so it can't work inside terminals.",
+                "Ctrl+D ends the shell or agent in a terminal, so it can’t work inside terminals.",
             ),
             (
                 "Ctrl+Z",
-                "Ctrl+Z suspends the running command in a terminal, so it can't work inside terminals.",
+                "Ctrl+Z suspends the running command in a terminal, so it can’t work inside terminals.",
             ),
             (
                 "Ctrl+[",
-                "Ctrl+[ is Escape in a terminal, so it can't work inside terminals.",
+                "Ctrl+[ is Escape in a terminal, so it can’t work inside terminals.",
             ),
             (
                 "Ctrl+\\",
-                "Ctrl+\\ force-quits the running command in a terminal, so it can't work inside terminals.",
+                "Ctrl+\\ force-quits the running command in a terminal, so it can’t work inside terminals.",
             ),
             (
                 "Ctrl+Shift+C",
-                "Ctrl+Shift+C is the terminal's copy, so it can't work inside terminals.",
+                "Ctrl+Shift+C is the terminal’s copy, so it can’t work inside terminals.",
             ),
             (
                 "Ctrl+Shift+V",
-                "Ctrl+Shift+V is the terminal's paste, so it can't work inside terminals.",
+                "Ctrl+Shift+V is the terminal’s paste, so it can’t work inside terminals.",
             ),
         ] {
             assert_eq!(
@@ -994,7 +994,7 @@ mod tests {
         assert_eq!(
             answer(WIN, &fresh, inside(KeyAction::StartDev, 0, true, true)),
             refused_with(
-                "Ctrl+D ends the shell or agent in a terminal, so it can't work inside terminals."
+                "Ctrl+D ends the shell or agent in a terminal, so it can’t work inside terminals."
             )
         );
         assert!(matches!(
@@ -1027,7 +1027,7 @@ mod tests {
         assert_eq!(
             answer(WIN, &r, inside(KeyAction::OpenActivity, 0, true, false)),
             KeyEditAnswer::Warn {
-                warning: "Ctrl+R: the shell's history search won't reach the terminal.".into()
+                warning: "Ctrl+R: the shell’s history search won’t reach the terminal.".into()
             }
         );
         let through = ok(WIN, &r, inside(KeyAction::OpenActivity, 0, true, true));
@@ -1107,7 +1107,7 @@ mod tests {
         assert_eq!(
             answer(MAC, &r, inside(KeyAction::OpenActivity, 0, true, false)),
             KeyEditAnswer::Warn {
-                warning: "⌃R: the shell's history search won't reach the terminal.".into()
+                warning: "⌃R: the shell’s history search won’t reach the terminal.".into()
             }
         );
         let through = ok(MAC, &r, inside(KeyAction::OpenActivity, 0, true, true));
@@ -1120,7 +1120,7 @@ mod tests {
         assert_eq!(
             answer(MAC, &d, inside(KeyAction::Park, 0, true, true)),
             refused_with(
-                "⌃D ends the shell or agent in a terminal, so it can't work inside terminals."
+                "⌃D ends the shell or agent in a terminal, so it can’t work inside terminals."
             )
         );
         // A ⌘ key has no such option (it works in terminals anyway).

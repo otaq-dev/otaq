@@ -85,6 +85,7 @@ describe("the Settings screen", () => {
       "notifications",
       "data",
       "appearance",
+      "keyboard_shortcuts",
       "tools",
       "about",
     ]);

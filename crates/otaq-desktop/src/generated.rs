@@ -161,6 +161,11 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // Settings → Workflow skills (T-0380): the gallery (it writes the rows, menu items and dialogs too), the
     // actions' params and their outcome.
     otaq_view::view_models::settings_page::WorkflowSkillsGallery::export_all(&cfg)?;
+    // Settings → Keyboard shortcuts (T-0395): the page, a recorded key and its answer, the gallery's frames.
+    otaq_view::view_models::keyboard_page::Page::export_all(&cfg)?;
+    otaq_view::view_models::keyboard_page::Press::export_all(&cfg)?;
+    otaq_view::view_models::keyboard_page::RecordAnswer::export_all(&cfg)?;
+    otaq_view::view_models::keyboard_page::Gallery::export_all(&cfg)?;
     crate::api::SkillImport::export_all(&cfg)?;
     crate::api::SkillStep::export_all(&cfg)?;
     crate::api::SkillReset::export_all(&cfg)?;
