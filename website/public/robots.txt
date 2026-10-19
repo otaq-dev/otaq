@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://otaq.io/sitemap.xml
