@@ -30,6 +30,8 @@ import type { SettingsSkillMenuItem } from "../../generated/SettingsSkillMenuIte
 import type { SettingsSkillRow } from "../../generated/SettingsSkillRow";
 import type { SettingsSection } from "../../generated/SettingsSection";
 import type { SettingsTools } from "../../generated/SettingsTools";
+import type { ToolTerminalOpened } from "../../generated/ToolTerminalOpened";
+import { RowTerminal, useRowTerminals } from "../onboarding/RowTerminal";
 import { asRequestError } from "../../service";
 import { pickFolder, request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
@@ -558,43 +560,95 @@ function ProviderRow({ row }: { row: SettingsRow }) {
 
 function Tools({ control }: { control: Of<"tools"> }) {
   const [tools, setTools] = useState<SettingsTools | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
-  const run = useCallback(() => {
-    void request("settings.tools").then(
-      (t) => {
-        setTools(t as SettingsTools);
-        setChecking(false);
-      },
-      (e: unknown) => {
-        setTools({ rows: [], error: asRequestError(e).message });
-        setChecking(false);
-      },
-    );
-  }, []);
-  useEffect(run, [run]);
-  const check = () => {
+  const run = useCallback(
+    () =>
+      request("settings.tools").then(
+        (t) => {
+          setTools(t as SettingsTools);
+          setFailure(null);
+          setChecking(false);
+        },
+        (e: unknown) => {
+          setFailure(asRequestError(e).message);
+          setChecking(false);
+        },
+      ),
+    [],
+  );
+  useEffect(() => {
+    void run();
+  }, [run]);
+  const check = useCallback(() => {
     setChecking(true);
-    run();
-  };
+    return run();
+  }, [run]);
+  const rows = tools?.rows;
+  const terminals = useRowTerminals(
+    (key) => (rows ?? []).some((r) => r.button !== null && `${r.button.tool}:${r.button.action}` === key),
+    check,
+  );
+  const error = failure ?? tools?.error ?? null;
   return (
     <div className="settings-tools">
-      {tools?.error != null && <p className="settings-problem">{tools.error}</p>}
-      {tools?.rows.map((row) => (
-        <div key={row.name} className="settings-tool" data-look={row.look}>
-          <Icon name={row.icon} />
-          <span className="settings-tool-name">{row.name}</span>
-          <span className="settings-tool-need">{row.need}</span>
-          <span className="settings-tool-status">{row.status}</span>
-          {row.command !== null && <code className="settings-tool-command">{row.command}</code>}
-        </div>
-      ))}
+      {error !== null && <p className="settings-problem">{error}</p>}
+      {tools?.rows.map((row) => {
+        const button = row.button;
+        return (
+          <div key={row.name} className="settings-tool" data-look={row.look}>
+            <Icon name={row.icon} />
+            <span className="settings-tool-name">{row.name}</span>
+            <span className="settings-tool-need">{row.need}</span>
+            <span className="settings-tool-status">{row.status}</span>
+            {row.command !== null && (
+              <span className="settings-tool-command">
+                <code>{row.command}</code>
+                <IconButton
+                  icon="copy"
+                  label={tools.copy}
+                  onClick={() => {
+                    if (row.command !== null)
+                      navigator.clipboard.writeText(row.command).catch(() => undefined);
+                  }}
+                />
+                {button !== null && (
+                  <Button
+                    compact
+                    variant="secondary"
+                    icon={button.action === "login" ? "square-terminal" : "arrow-down-to-line"}
+                    label={button.label}
+                    disabled={terminals.open?.row === row.tool}
+                    onClick={() => {
+                      terminals.start(row.tool, `${button.tool}:${button.action}`, () =>
+                        request("tools.terminal", { tool: button.tool, action: button.action }).then(
+                          (opened) => ({
+                            session: (opened as ToolTerminalOpened).session,
+                            title: button.running,
+                          }),
+                        ),
+                      );
+                    }}
+                  />
+                )}
+              </span>
+            )}
+            {row.note !== null && <span className="settings-tool-note">{row.note}</span>}
+            <span className="settings-tool-terminal">
+              <RowTerminal row={row.tool} texts={tools.terminal} terminals={terminals} />
+            </span>
+          </div>
+        );
+      })}
       <span className="settings-tools-recheck">
         <Button
           variant="secondary"
           icon="rotate-ccw"
           label={control.recheck_label}
           loading={checking}
-          onClick={check}
+          onClick={() => {
+            void check();
+          }}
         />
       </span>
     </div>

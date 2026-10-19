@@ -639,6 +639,8 @@ pub mod fixtures {
     pub fn status(tool: Tool, state: AgentToolState) -> ToolStatus {
         ToolStatus {
             can_sign_in: matches!(state, AgentToolState::FoundNotSignedIn { .. }),
+            can_install: false,
+            install_needs: None,
             tool,
             state,
             checked_at: Some(0),

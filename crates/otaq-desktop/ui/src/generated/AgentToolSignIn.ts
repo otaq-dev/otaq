@@ -5,6 +5,6 @@
  */
 export type AgentToolSignIn = { session: string, tab: string, 
 /**
- * "Codex sign in".
+ * "Codex sign in", "Installing Codex".
  */
 title: string, };

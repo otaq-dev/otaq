@@ -555,7 +555,7 @@ pub trait AgentTool: Send + Sync {
         None
     }
 
-    /// **How to install**: the copyable command for `os` (SET-02, d0086). Otaq never runs it.
+    /// **How to install**: the copyable command for `os` (SET-02, d0086), which **Install** runs on the user's click.
     fn install_command(&self, os: Os) -> &'static str;
 
     /// The permission warning for this tool (SET-02, d0011): `Some(the warning's title)` when the user's own

@@ -46,6 +46,7 @@ const TOOLS: OnboardingTools = {
   other_heading: "OTHER TOOLS",
   rows: [
     {
+      tool: "git",
       name: "claude",
       badge: "required",
       look: "missing_required",
@@ -53,6 +54,8 @@ const TOOLS: OnboardingTools = {
       status: "not found on PATH",
       explanation: "nothing can start without it.",
       command: "npm install -g @anthropic-ai/claude-code",
+      button: null,
+      note: null,
     },
   ],
   waiting: null,
@@ -63,6 +66,14 @@ const TOOLS: OnboardingTools = {
   continue_reason: "Install claude to continue",
   has_projects: false,
   copy: "Copy",
+  terminal: {
+    hide: "Hide",
+    close: "Close",
+    retry: "Retry",
+    checking: "Ended \u00b7 checking again\u2026",
+    not_done: "Not done yet \u2014 see the output above",
+    done: "Done",
+  },
   agents_line: null,
 };
 
@@ -202,6 +213,8 @@ const agentRow = (tool: string, name: string, more: Partial<AgentToolRow>): Agen
   sign_in: null,
   show: null,
   install: null,
+  install_button: null,
+  install_note: null,
   update: null,
   can_see: null,
   notes: [],

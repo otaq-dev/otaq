@@ -65,7 +65,7 @@ pub struct CanSee {
     pub chips: Vec<SeeChip>,
 }
 
-/// **How to install**: the command for this OS, copy only (Otaq never runs it).
+/// **How to install**: the command for this OS, to copy; the row's **Install** runs it on the user's click.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentToolCommand")]
 pub struct CommandView {
@@ -136,6 +136,10 @@ pub struct Row {
     /// **Show** for a hidden tool (`agent_tools.set_hidden {hidden: false}`).
     pub show: Option<String>,
     pub install: Option<CommandView>,
+    /// **Install** (`agent_tools.install`): runs `install`'s command in a terminal under the row, on the user's click.
+    pub install_button: Option<String>,
+    /// Why there is no Install: "Needs Node.js (npm) first…".
+    pub install_note: Option<String>,
     /// Found · update needed: the command that updates it (Q-G).
     pub update: Option<CommandView>,
     pub can_see: Option<CanSee>,
@@ -166,6 +170,8 @@ pub struct Page {
     pub not_shown: String,
     /// The last request failed (the service is unreachable).
     pub error: Option<String>,
+    /// The words of Sign in… and Install's terminal under a row.
+    pub terminal: super::onboarding_page::ToolTerminalTexts,
 }
 
 /// The rows of `agent_tools.list` as the page draws them; `now` (Unix ms) dates "Checked …".
@@ -174,7 +180,7 @@ pub fn page(statuses: &[ToolStatus], now: i64) -> Page {
     Page {
         title: "Agent tools".to_owned(),
         intro: format!(
-            "The AI tools already on your machine. {PRODUCT_NAME} never installs them, never asks for passwords or keys, and never changes their permission settings."
+            "The AI tools on your machine. {PRODUCT_NAME} never asks for passwords or keys and never changes their permission settings. Install and Sign in\u{2026} run the tool\u{2019}s own command in a terminal here, on your click."
         ),
         rows: statuses
             .iter()
@@ -186,6 +192,7 @@ pub fn page(statuses: &[ToolStatus], now: i64) -> Page {
         not_shown_title: "Not shown here".to_owned(),
         not_shown: "git, gh and az stay under Tools: they aren\u{2019}t agents.".to_owned(),
         error: None,
+        terminal: super::onboarding_page::tool_terminal_texts(),
     }
 }
 
@@ -258,6 +265,15 @@ pub fn row(s: &ToolStatus, place: Place, none_connected: bool) -> Row {
             command,
             copy: "Copy".to_owned(),
         });
+    let install_button = (install.is_some() && s.can_install).then(|| "Install".to_owned());
+    let install_note =
+        install
+            .as_ref()
+            .and(s.install_needs.as_deref())
+            .map(|manager| match manager {
+                "npm" => "Needs Node.js (npm) first. Install it, then Re-check.".to_owned(),
+                other => format!("Needs {other} first. Install it, then Re-check."),
+            });
     let update = matches!(s.state, AgentToolState::UpdateNeeded { .. })
         .then(|| s.install_command.clone())
         .flatten()
@@ -287,6 +303,8 @@ pub fn row(s: &ToolStatus, place: Place, none_connected: bool) -> Row {
         sign_in: s.can_sign_in.then(|| "Sign in\u{2026}".to_owned()),
         show: matches!(s.state, AgentToolState::Hidden { .. }).then(|| "Show".to_owned()),
         install,
+        install_button,
+        install_note,
         update,
         can_see: connected.then(|| can_see(s, place)),
         notes,
@@ -604,6 +622,8 @@ pub mod fixtures {
             setup: None,
             permission_warning: None,
             can_sign_in: matches!(state, AgentToolState::FoundNotSignedIn { .. }) && signs_in,
+            can_install: matches!(state, AgentToolState::NotInstalled),
+            install_needs: None,
             can_disconnect: connected,
             limits: found.then_some(limits),
             state,

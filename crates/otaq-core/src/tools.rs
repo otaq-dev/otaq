@@ -4,8 +4,13 @@
 //! Copilot or OpenCode, from [`crate::agent_tools::connected::ConnectedTools`], which the service adds to the
 //! report); `gh` and `az` (with the `azure-devops` extension) are optional and only matter for opening PRs. `claude`
 //! is no longer a row: it is an agent tool like the others, detected through its adapter. Every tool is looked up on `PATH` and asked for its version, for display only:
-//! Otaq never installs, updates or version-gates a tool (PLT-03). A missing tool comes with the command
-//! that installs it on the current OS, for the user to copy.
+//! Otaq never updates or version-gates a tool, and never installs one on its own (PLT-03, revised). A missing tool
+//! comes with the command that installs it on the current OS, and a logged-out `gh` / `az` with its login command:
+//! the user copies it, or clicks **Install** / **Log in**, which runs exactly that command in a visible terminal
+//! ([`crate::terminals::tool`]) where they answer its prompts.
+//!
+//! The daemon searches the user's full `PATH` ([`daemon_path`]): an app opened from Finder passes on launchd's
+//! short one, which misses `/opt/homebrew/bin` and `~/.local/bin`.
 //!
 //! The permission-mode check reads the user's Claude Code settings **read-only** and reports whether new sessions
 //! will stop on permission prompts. Source: Claude Code docs, "Choose a permission mode → Which mode a session
@@ -34,8 +39,12 @@ use serde_json::Value;
 
 /// How long one tool may take to answer (`az` is slow).
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
+/// How long the login shell may take to print its `PATH`.
+const LOGIN_PATH_TIMEOUT: Duration = Duration::from_secs(5);
+/// Printed before the login shell's `PATH`, so whatever the profile prints first is skipped.
+const PATH_MARKER: &str = "__login_path__";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Tool {
     Git,
@@ -62,24 +71,26 @@ impl Tool {
         matches!(self, Self::Git)
     }
 
-    /// The command that installs the tool on this OS, shown for copying (SET-02). Otaq never runs it.
+    /// The command that installs the tool on this OS, shown for copying (SET-02) and run by **Install**.
     pub fn install_command(self) -> &'static str {
         self.install_command_on(Os::current())
     }
 
-    /// The install command on `os`: Homebrew on macOS, winget on Windows (frame *14 → gh and az missing ·
-    /// non-blocking (Windows)*), apt on Linux (Debian and Ubuntu; a hint, other distributions use their own).
+    /// The install command on `os`: Homebrew on macOS (git too: Apple's own installer only opens a window),
+    /// winget on Windows (frame *14 → gh and az missing · non-blocking (Windows)*), apt on Linux (Debian and
+    /// Ubuntu; a hint, other distributions use their own). Claude Code uses its native installer
+    /// (code.claude.com/docs/en/setup, read 2026-10-17): no Node needed. On Windows each command runs in PowerShell,
+    /// which may have no `&&`, so az's extension is a second step (Install again once az is there).
     pub fn install_command_on(self, os: Os) -> &'static str {
         match (os, self) {
-            (_, Self::Claude) => "npm install -g @anthropic-ai/claude-code",
-            (Os::Mac, Self::Git) => "xcode-select --install",
+            (Os::Windows, Self::Claude) => "irm https://claude.ai/install.ps1 | iex",
+            (_, Self::Claude) => "curl -fsSL https://claude.ai/install.sh | bash",
+            (Os::Mac, Self::Git) => "brew install git",
             (Os::Mac, Self::Gh) => "brew install gh",
             (Os::Mac, Self::Az) => "brew install azure-cli && az extension add --name azure-devops",
             (Os::Windows, Self::Git) => "winget install Git.Git",
             (Os::Windows, Self::Gh) => "winget install GitHub.cli",
-            (Os::Windows, Self::Az) => {
-                "winget install Microsoft.AzureCLI  &&  az extension add --name azure-devops"
-            }
+            (Os::Windows, Self::Az) => "winget install Microsoft.AzureCLI",
             (Os::Linux, Self::Git) => "sudo apt install git",
             (Os::Linux, Self::Gh) => "sudo apt install gh",
             (Os::Linux, Self::Az) => {
@@ -87,6 +98,33 @@ impl Tool {
             }
         }
     }
+
+    /// The command that logs the tool in (`gh` and `az`; `git` and `claude` have none here).
+    pub fn login_command(self) -> Option<&'static str> {
+        match self {
+            Self::Gh => Some("gh auth login"),
+            Self::Az => Some("az login"),
+            Self::Git | Self::Claude => None,
+        }
+    }
+}
+
+/// The program an install command starts with when the user may not have it: Homebrew on macOS, `npm` for the
+/// agent tools installed with it. `None` for a self-contained command (`curl … | bash`, `winget`, `apt`).
+pub fn package_manager_of(command: &str) -> Option<&'static str> {
+    match command.split_whitespace().next()? {
+        "brew" => Some("brew"),
+        "npm" => Some("npm"),
+        _ => None,
+    }
+}
+
+/// What a checklist terminal runs for a tool: its install command or its login command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolAction {
+    Install,
+    Login,
 }
 
 /// The operating systems with their own install commands.
@@ -125,6 +163,23 @@ pub struct ToolStatus {
     pub install_command: Option<String>,
     /// What to run to log in, when the tool is found but not logged in.
     pub login_command: Option<String>,
+    /// The package manager `install_command` needs and `PATH` lacks (`brew`): Install isn't offered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub missing_package_manager: Option<String>,
+}
+
+impl ToolStatus {
+    /// The command `action` runs for this row now, if it applies: Install while something is missing and its
+    /// package manager is there, Log in while logged out.
+    pub fn command_for(&self, action: ToolAction) -> Option<&str> {
+        match action {
+            ToolAction::Install if self.missing_package_manager.is_none() => {
+                self.install_command.as_deref()
+            }
+            ToolAction::Install => None,
+            ToolAction::Login => self.login_command.as_deref(),
+        }
+    }
 }
 
 /// Whether new Claude Code sessions will stop on permission prompts.
@@ -193,6 +248,69 @@ impl CheckEnv {
             managed_settings_dir: managed_settings_dir(),
         }
     }
+}
+
+/// The `PATH` the daemon runs with: the user's login shell's (`.zprofile` and `.zshrc` both read), then the folders
+/// installers write to (`~/.local/bin` for Claude Code's native installer, Homebrew's), then `inherited`. Missing
+/// folders are harmless. Unchanged on Windows, where apps get the user's full `PATH`. Blocking: the daemon calls it
+/// once, before its runtime starts.
+pub fn daemon_path(inherited: &OsStr, shell: Option<&Path>, home: Option<&Path>) -> OsString {
+    if cfg!(windows) {
+        return inherited.to_owned();
+    }
+    let login = shell.and_then(login_path).unwrap_or_default();
+    let mut known: Vec<PathBuf> = Vec::new();
+    if let Some(home) = home {
+        known.push(home.join(".local").join("bin"));
+    }
+    known.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
+    let known = std::env::join_paths(known).unwrap_or_default();
+    merge_paths(&merge_paths(&login, &known), inherited)
+}
+
+/// The `PATH` an interactive login shell ends up with; `None` when it fails or takes longer than
+/// [`LOGIN_PATH_TIMEOUT`]. `printenv` prints it colon-separated whatever the shell (fish keeps `$PATH` as a list).
+fn login_path(shell: &Path) -> Option<OsString> {
+    let mut child = std::process::Command::new(shell)
+        .args([
+            "-l",
+            "-i",
+            "-c",
+            &format!("printf '{PATH_MARKER}'; printenv PATH"),
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let started = std::time::Instant::now();
+    while child.try_wait().ok()?.is_none() {
+        if started.elapsed() > LOGIN_PATH_TIMEOUT {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let output = child.wait_with_output().ok()?;
+    parse_login_path(&String::from_utf8_lossy(&output.stdout)).map(OsString::from)
+}
+
+/// The `PATH` after the marker, skipping whatever the profile printed before it.
+pub fn parse_login_path(output: &str) -> Option<String> {
+    let path = output.rsplit_once(PATH_MARKER)?.1.trim();
+    (!path.is_empty()).then(|| path.to_owned())
+}
+
+/// `first`'s folders, then those of `rest` it doesn't have, in order.
+pub fn merge_paths(first: &OsStr, rest: &OsStr) -> OsString {
+    let mut parts: Vec<PathBuf> = Vec::new();
+    for dir in std::env::split_paths(first).chain(std::env::split_paths(rest)) {
+        if !dir.as_os_str().is_empty() && !parts.contains(&dir) {
+            parts.push(dir);
+        }
+    }
+    std::env::join_paths(parts).unwrap_or_else(|_| first.to_owned())
 }
 
 /// Runs the checklist's rows (git, gh, az). Only ever reads: runs `--version`, `auth status`, `account show` and
@@ -294,8 +412,12 @@ async fn check_tool(tool: Tool, env: &CheckEnv) -> ToolStatus {
         extension_installed: None,
         install_command: Some(tool.install_command().to_owned()),
         login_command: None,
+        missing_package_manager: None,
     };
     let Some(program) = find_on_path(tool.command(), &env.path) else {
+        status.missing_package_manager = package_manager_of(tool.install_command())
+            .filter(|manager| find_on_path(manager, &env.path).is_none())
+            .map(str::to_owned);
         return status;
     };
     status.found = true;
@@ -322,12 +444,12 @@ async fn check_tool(tool: Tool, env: &CheckEnv) -> ToolStatus {
             }
         }
     }
-    let login = match tool {
-        Tool::Gh => Some((&["auth", "status"][..], "gh auth login")),
-        Tool::Az => Some((&["account", "show"][..], "az login")),
+    let status_args: Option<&[&str]> = match tool {
+        Tool::Gh => Some(&["auth", "status"]),
+        Tool::Az => Some(&["account", "show"]),
         Tool::Git | Tool::Claude => None,
     };
-    if let Some((args, login_command)) = login {
+    if let (Some(args), Some(login_command)) = (status_args, tool.login_command()) {
         let logged_in = run(&program, args, env).await.is_some_and(|o| o.success);
         status.logged_in = Some(logged_in);
         if !logged_in {

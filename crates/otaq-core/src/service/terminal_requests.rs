@@ -22,6 +22,12 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<Reply, E
             .await
             .map(|()| Reply::Ok)
             .map_err(|e| error_body(&e)),
+        Request::ToolTerminalOpen(p) => shared
+            .tool_terminals
+            .open(p.tool, p.action)
+            .await
+            .map(|s| Reply::Session(Box::new(s)))
+            .map_err(|e| error_body(&e)),
         Request::ShellOpen(p) => shared
             .shells
             .open_shell(&p.key, p.reopen)

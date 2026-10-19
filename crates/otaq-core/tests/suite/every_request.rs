@@ -69,6 +69,11 @@ fn sample(method: &str, unit: bool) -> Request {
         if method.starts_with("agent_tools.") || method.starts_with("limits.") {
             params["tool"] = json!("codex");
         }
+        // git has no login: refused, so the sample never runs an install or login command.
+        if method == "tools.terminal" {
+            params["tool"] = json!("git");
+            params["action"] = json!("login");
+        }
         if method == "agent_tools.set_hidden" {
             params["hidden"] = json!(true);
         }
@@ -260,6 +265,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::RunSuggest(_)
         | Request::RunSuggestCancel(_)
         | Request::ShellOpen(_)
+        | Request::ToolTerminalOpen(_)
         | Request::ProjectTerminalOpen(_)
         | Request::ProjectTerminalList(_)
         | Request::ProjectTerminalClose(_)
@@ -296,6 +302,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentToolsRecheck(_)
         | Request::AgentToolsSetHidden(_)
         | Request::AgentToolsSignIn(_)
+        | Request::AgentToolsInstall(_)
         | Request::AgentToolsDisconnect(_)
         | Request::LimitsResumeTool(_)
         | Request::LimitsMoveWaiting(_)
