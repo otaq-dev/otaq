@@ -416,9 +416,16 @@ mod tests {
 
         // A paste arrives as one piece (wrapped in bracketed-paste markers by xterm.js only when the program asks).
         type_text(&h, &session, "echo pasted-1\necho pasted-2\r", false).await;
+        // Each command's output is a line of its own, after the shell's prompt where it prints one first (dash on
+        // Linux shows "$ pasted-2").
+        let printed = |text: &str, word: &str| {
+            text.lines()
+                .any(|line| line.trim_end().ends_with(word) && !line.contains("echo "))
+        };
         screen
             .wait_for("the pasted commands", |s| {
-                s.text().contains("\npasted-1") && s.text().contains("\npasted-2")
+                let text = s.text();
+                printed(&text, "pasted-1") && printed(&text, "pasted-2")
             })
             .await;
 
