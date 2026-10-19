@@ -12,31 +12,31 @@
   display: none;
 }
 
-.shortcuts {
+.shortcut-settings {
   display: flex;
   flex-direction: column;
   padding-top: 16px;
 }
 
-.shortcuts-header {
+.shortcut-settings-header {
   display: flex;
   gap: 8px;
   align-items: center;
   padding-bottom: 8px;
 }
 
-.shortcuts-header h2 {
+.shortcut-settings-header h2 {
   flex: 1;
   margin: 0;
   font: 600 20px var(--font-ui);
 }
 
-.shortcuts .settings-intro {
+.shortcut-settings .settings-intro {
   padding-bottom: 14px;
   font-size: 13px;
 }
 
-.shortcuts-letters {
+.shortcut-settings-letters {
   display: flex;
   gap: 24px;
   align-items: center;
@@ -45,7 +45,7 @@
   border-bottom: 1px solid var(--border);
 }
 
-.shortcuts-letters-text {
+.shortcut-settings-letters-text {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -53,17 +53,17 @@
   min-width: 0;
 }
 
-.shortcuts-letters-label {
+.shortcut-settings-letters-label {
   color: var(--text-primary);
   font: 500 13px var(--font-ui);
 }
 
-.shortcuts-letters-description {
+.shortcut-settings-letters-description {
   color: var(--text-secondary);
   font: 400 12px/1.4 var(--font-ui);
 }
 
-.shortcuts-terminals-note {
+.shortcut-settings-terminals-note {
   display: flex;
   gap: 8px;
   align-items: center;
@@ -73,17 +73,17 @@
   font: 400 12px var(--font-ui);
 }
 
-.shortcuts-terminals-note .icon {
+.shortcut-settings-terminals-note .icon {
   flex: none;
   color: var(--text-muted);
 }
 
-.shortcuts-group {
+.shortcut-settings-group {
   display: flex;
   flex-direction: column;
 }
 
-.shortcuts-group-title {
+.shortcut-settings-group-title {
   margin: 0;
   padding: 18px 0 6px;
   color: var(--text-secondary);
@@ -123,22 +123,22 @@
   font: 400 11px var(--font-ui);
 }
 
+/* The drawn widths are each column's basis: in a narrower dialog they shrink down to their widest cell (the keys
+   wrap onto a second line, the names wrap), so the page never scrolls sideways. */
 .shortcut-keys {
   display: flex;
-  flex: none;
+  flex: 0 1 250px;
   flex-wrap: wrap;
   gap: 4px;
   align-items: center;
-  width: 250px;
 }
 
-.shortcuts[data-terminals-column] .shortcut-name {
-  flex: none;
-  width: 200px;
+.shortcut-settings[data-terminals-column] .shortcut-name {
+  flex: 0 1 200px;
 }
 
-.shortcuts[data-terminals-column] .shortcut-keys {
-  width: 210px;
+.shortcut-settings[data-terminals-column] .shortcut-keys {
+  flex-basis: 210px;
 }
 
 .shortcut-cell-slot,
@@ -219,12 +219,11 @@
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
-  min-width: 0;
   color: var(--text-secondary);
   font: 400 12px var(--font-ui);
 }
 
-.shortcuts:not([data-terminals-column]) .shortcut-terminals {
+.shortcut-settings:not([data-terminals-column]) .shortcut-terminals {
   flex: none;
 }
 
