@@ -3,6 +3,7 @@ import type { KeyActionInfo } from "./KeyActionInfo";
 import type { KeyBinding } from "./KeyBinding";
 import type { KeyModifiers } from "./KeyModifiers";
 import type { KeyPlatform } from "./KeyPlatform";
+import type { SequenceHint } from "./SequenceHint";
 import type { TerminalKeyBinding } from "./TerminalKeyBinding";
 
 /**
@@ -22,7 +23,11 @@ letters: boolean,
 /**
  * Every action in the order Settings and the `?` list show them, with its title and group.
  */
-actions: Array<KeyActionInfo>, terminal_app_modifiers: Array<KeyModifiers>, 
+actions: Array<KeyActionInfo>, 
+/**
+ * The `g` hint's second keys ([`keymap::sequence_hint`]), from the user's keys.
+ */
+sequences: Array<SequenceHint>, terminal_app_modifiers: Array<KeyModifiers>, 
 /**
  * A focused terminal's own keys (copy, paste, font size), which the terminal handles itself (T-0216).
  */

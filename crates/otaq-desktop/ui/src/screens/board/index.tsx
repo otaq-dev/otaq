@@ -1,5 +1,5 @@
-// Area 03 · Board (T-0220, T-0221): the board slot, ⌘N (a new Backlog ticket, as the GPUI board's) and, inside the
-// board, ⇧⌘D and Esc during a drag; the header's search and filter field and ⌘K; the card's right-click menu and the
+// Area 03 · Board (T-0220, T-0221): the board slot, New ticket (⌘N, `c`: a new Backlog ticket) and, inside the
+// board, ⌘D, Park and Esc during a drag; the header's search and filter field and `/`; the card's right-click menu and the
 // delete confirmation every place that deletes opens (`delete_ticket`). What it says is Rust's (`src/api/board.rs`,
 // the `otaq-view` board, filter, card-menu and delete view models).
 import { openOverlay } from "../../app/overlays";

@@ -4,7 +4,7 @@
 use otaq_core::naming;
 use otaq_core::board::settings::KeyboardSettings;
 use otaq_view::keymap::{
-    self, ActionInfo, Binding, CustomKeys, Modifiers, Platform, TerminalBinding,
+    self, ActionInfo, Binding, CustomKeys, Modifiers, Platform, SequenceHint, TerminalBinding,
 };
 use otaq_view::keymap_edit;
 use serde::Serialize;
@@ -41,6 +41,8 @@ pub struct Keymap {
     pub letters: bool,
     /// Every action in the order Settings and the `?` list show them, with its title and group.
     pub actions: Vec<ActionInfo>,
+    /// The `g` hint's second keys ([`keymap::sequence_hint`]), from the user's keys.
+    pub sequences: Vec<SequenceHint>,
     pub terminal_app_modifiers: Vec<Modifiers>,
     /// A focused terminal's own keys (copy, paste, font size), which the terminal handles itself (T-0216).
     pub terminal_keys: Vec<TerminalBinding>,
@@ -51,9 +53,11 @@ pub struct Keymap {
 
 impl Keymap {
     pub fn new(platform: Platform, custom: &CustomKeys, letters: bool, log: bool) -> Self {
+        let bindings = keymap::user_keys(platform, custom);
         Self {
             platform,
-            bindings: keymap::user_keys(platform, custom),
+            sequences: keymap::sequence_hint(&bindings),
+            bindings,
             letters,
             actions: keymap::action_infos(),
             terminal_app_modifiers: keymap::terminal_app_modifiers(platform).to_vec(),

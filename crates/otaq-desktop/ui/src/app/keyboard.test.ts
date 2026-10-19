@@ -4,7 +4,8 @@ import type { Keymap } from "../generated/Keymap";
 import type { PageEvent } from "../generated/PageEvent";
 import { createPageEvents } from "../service";
 import { request } from "../tauri";
-import { watchKeymap } from "./keyboard";
+import { createSequenceWait, SEQUENCE_WAIT_MS, watchKeymap } from "./keyboard";
+import { createStore } from "./store";
 
 vi.mock("../tauri", () => ({ request: vi.fn(), subscribeEvents: vi.fn() }));
 const requestMock = vi.mocked(request);
@@ -15,6 +16,7 @@ const map = (letters: boolean): Keymap => ({
   bindings: [],
   letters,
   actions: [],
+  sequences: [],
   terminal_app_modifiers: [],
   terminal_keys: [],
   log: false,
@@ -39,5 +41,28 @@ describe("the keyboard map", () => {
     expect(requestMock).toHaveBeenCalledTimes(2);
     expect(seen).toEqual([true, false]);
     stop();
+  });
+});
+
+describe("the wait after g", () => {
+  it("ends by itself after about a second, or when ended; starting again starts the second anew", () => {
+    vi.useFakeTimers();
+    const store = createStore(false);
+    const wait = createSequenceWait(store, globalThis);
+    wait(true);
+    expect(store.get()).toBe(true);
+    vi.advanceTimersByTime(SEQUENCE_WAIT_MS - 1);
+    expect(store.get()).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(store.get()).toBe(false);
+    wait(true);
+    vi.advanceTimersByTime(SEQUENCE_WAIT_MS / 2);
+    wait(true);
+    vi.advanceTimersByTime(SEQUENCE_WAIT_MS / 2);
+    expect(store.get()).toBe(true);
+    wait(false);
+    expect(store.get()).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
   });
 });

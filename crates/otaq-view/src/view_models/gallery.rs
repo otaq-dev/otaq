@@ -13,6 +13,9 @@ use super::menu::MenuItem;
 use super::priority::{self, PriorityView};
 use super::status::PillView;
 use crate::icons::IconName;
+use crate::keymap::{
+    self, CustomKey, CustomKeys, Key, KeyAction, KeyChange, Platform, SequenceHint,
+};
 use crate::theme::{Status, TextStyle, Tier, density, radius, space, text};
 
 /// One tier of the *Status Legend*: its pills, then its *Pills · M12 (0063–0066)* row. `LegendTier` on the page.
@@ -75,6 +78,8 @@ pub struct GalleryView {
     pub keyboard_map: Vec<KeyGroup>,
     pub keyboard_columns: String,
     pub keyboard_notes: Vec<String>,
+    /// The `g` hint (design `s02-30`): with the base map's sequences, and with a recorded `g` `p` Park.
+    pub g_hints: [Vec<SequenceHint>; 2],
     /// A card's context menu as in *Overlays & feedback → Context menu*.
     pub context_menu: Vec<MenuItem>,
     /// A dropdown's list: the priority menu with P2 checked.
@@ -258,9 +263,23 @@ pub fn view() -> GalleryView {
         keyboard_map: keyboard_map::groups(),
         keyboard_columns: keyboard_map::COLUMNS.to_owned(),
         keyboard_notes: keyboard_map::NOTES.map(str::to_owned).to_vec(),
+        g_hints: g_hints(),
         context_menu: context_menu(),
         priority_menu: priority::menu_items(Priority::High),
     }
+}
+
+fn g_hints() -> [Vec<SequenceHint>; 2] {
+    let park = CustomKeys(vec![CustomKey {
+        action: KeyAction::Park,
+        slot: 0,
+        change: KeyChange::Replaced {
+            key: Key::Sequence { then: "p".into() },
+        },
+        works_in_terminals: false,
+    }]);
+    [CustomKeys::default(), park]
+        .map(|custom| keymap::sequence_hint(&keymap::user_keys(Platform::Mac, &custom)))
 }
 
 #[cfg(test)]

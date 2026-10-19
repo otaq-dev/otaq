@@ -113,7 +113,8 @@ export function toggleExpanded(): void {
   shellLayout.update((l) => ({ ...l, panelExpanded: !l.panelExpanded }));
 }
 
-/** ⇧⌘B, ⇧⌘O and ⌘\ (d0058, d0087; ⇧⌘O is unbound while the Files view is parked). Returns their removal. */
+/** Board, Files view and Hide / show the pane (d0097, d0087; the Files view's key is unbound while it's parked).
+ * Returns their removal. */
 export function layoutShortcuts(app: Registries): () => void {
   const stops = [
     app.shortcuts.on("show_board", () => {

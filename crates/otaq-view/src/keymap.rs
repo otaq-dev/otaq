@@ -215,6 +215,16 @@ impl KeyAction {
         }
     }
 
+    /// The action's name in the `g` hint (design `s02-30`): the view in a word ("Board", "Epic"), else its title (a
+    /// custom `g` `p` shows "Park").
+    pub fn hint_name(self) -> &'static str {
+        match self {
+            Self::Terminals => "Terminals",
+            Self::FocusEpic => "Epic",
+            _ => self.title(),
+        }
+    }
+
     /// The group it is listed in (design `s15-46`).
     pub fn group(self) -> KeyGroup {
         match self {
@@ -359,6 +369,48 @@ pub fn action_infos() -> Vec<ActionInfo> {
             group: action.group(),
         })
         .collect()
+}
+
+/// One second key of the `g` hint (KEY-02, design `s02-30`): the letter after `g` and what it goes to.
+/// `SequenceHint` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct SequenceHint {
+    pub then: String,
+    pub name: &'static str,
+}
+
+/// The base map's sequences in the order the hint shows them ("g → b Board · i Inbox · a Activity · t Terminals · e
+/// Epic", 0097); the user's own sequences for other actions follow, in the map's order.
+const HINT_ORDER: [KeyAction; 5] = [
+    KeyAction::ShowBoard,
+    KeyAction::OpenInbox,
+    KeyAction::OpenActivity,
+    KeyAction::Terminals,
+    KeyAction::FocusEpic,
+];
+
+/// **The `g` hint** for the user's keys (`bindings`, [`user_keys`]): every `g` sequence with its action's hint name,
+/// custom ones included, removed ones left out.
+pub fn sequence_hint(bindings: &[Binding]) -> Vec<SequenceHint> {
+    let mut hint: Vec<(usize, SequenceHint)> = bindings
+        .iter()
+        .filter_map(|b| match &b.key {
+            Key::Sequence { then } => Some((
+                HINT_ORDER
+                    .iter()
+                    .position(|a| *a == b.action)
+                    .unwrap_or(HINT_ORDER.len()),
+                SequenceHint {
+                    then: then.clone(),
+                    name: b.action.hint_name(),
+                },
+            )),
+            _ => None,
+        })
+        .collect();
+    // Stable: the user's own sequences keep the map's order after the base ones.
+    hint.sort_by_key(|(order, _)| *order);
+    hint.into_iter().map(|(_, h)| h).collect()
 }
 
 /// The modifier keys held with a keystroke, as the UI toolkit reports them. `KeyModifiers` on the page.
@@ -2212,6 +2264,60 @@ mod tests {
             bindings(Platform::Mac)
                 .iter()
                 .all(|b| b.place != KeyPlace::InsideTerminals)
+        );
+    }
+
+    /// The `g` hint (design `s02-30`): the base map's sequences in the drawn order, a recorded `g` `p` Park at the
+    /// end, a removed `g` `a` left out, a replaced one in its action's place.
+    #[test]
+    fn the_g_hint_lists_the_users_sequences() {
+        let texts = |custom: &CustomKeys| -> String {
+            sequence_hint(&user_keys(Platform::Mac, custom))
+                .iter()
+                .map(|h| format!("{} {}", h.then, h.name))
+                .collect::<Vec<_>>()
+                .join(" · ")
+        };
+        assert_eq!(
+            texts(&CustomKeys::default()),
+            "b Board · i Inbox · a Activity · t Terminals · e Epic"
+        );
+        let change = |action, slot, change| CustomKey {
+            action,
+            slot,
+            change,
+            works_in_terminals: false,
+        };
+        let park = change(
+            KeyAction::Park,
+            0,
+            KeyChange::Replaced {
+                key: Key::parse("g p").unwrap(),
+            },
+        );
+        assert_eq!(
+            texts(&CustomKeys(vec![park.clone()])),
+            "b Board · i Inbox · a Activity · t Terminals · e Epic · p Park"
+        );
+        let custom = CustomKeys(vec![
+            park,
+            change(KeyAction::OpenActivity, 1, KeyChange::Removed),
+            change(
+                KeyAction::OpenInbox,
+                1,
+                KeyChange::Replaced {
+                    key: Key::parse("g n").unwrap(),
+                },
+            ),
+        ]);
+        assert_eq!(
+            texts(&custom),
+            "b Board · n Inbox · t Terminals · e Epic · p Park"
+        );
+        // Windows/Linux: the same letters (they never work in a terminal).
+        assert_eq!(
+            sequence_hint(&bindings(Platform::WinLinux)),
+            sequence_hint(&bindings(Platform::Mac))
         );
     }
 }

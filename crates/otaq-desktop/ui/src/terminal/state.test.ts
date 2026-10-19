@@ -71,6 +71,7 @@ describe("the terminal's state", () => {
       log: false,
       letters: true,
       actions: [],
+      sequences: [],
       bindings: [],
       terminal_app_modifiers: [],
       terminal_keys: [
@@ -97,6 +98,7 @@ describe("the terminal's state", () => {
       log: false,
       letters: true,
       actions: [],
+      sequences: [],
       bindings: [],
       terminal_app_modifiers: [],
       terminal_keys: [
