@@ -101,6 +101,21 @@ pub struct Starter {
     inner: Arc<Inner>,
 }
 
+/// Tickets [`Starter::hold`] keeps from starting; dropping it lets them start again.
+pub struct StartHold {
+    inner: Arc<Inner>,
+    ids: Vec<String>,
+}
+
+impl Drop for StartHold {
+    fn drop(&mut self) {
+        let mut running = self.inner.running.lock().expect("running starts");
+        for id in &self.ids {
+            running.remove(id);
+        }
+    }
+}
+
 struct Inner {
     board: Board,
     data: DataDir,
@@ -222,6 +237,25 @@ impl Starter {
     /// The ids of the tickets whose start sequence is running now.
     pub fn starting(&self) -> HashSet<String> {
         self.inner.running.lock().expect("running starts").clone()
+    }
+
+    /// Holds off new starts of `ids` until the hold drops, so taking an epic back (EPC-14) can't race one: a start
+    /// asked for meanwhile is skipped. The ids whose start already runs aren't held; they're returned.
+    pub fn hold(&self, ids: impl IntoIterator<Item = String>) -> (StartHold, HashSet<String>) {
+        let mut running = self.inner.running.lock().expect("running starts");
+        let (mut held, mut starting) = (Vec::new(), HashSet::new());
+        for id in ids {
+            if running.insert(id.clone()) {
+                held.push(id);
+            } else {
+                starting.insert(id);
+            }
+        }
+        let hold = StartHold {
+            inner: self.inner.clone(),
+            ids: held,
+        };
+        (hold, starting)
     }
 
     /// Marks the step a start is at, so a start cut short by the service stopping (or crashing) is found at the

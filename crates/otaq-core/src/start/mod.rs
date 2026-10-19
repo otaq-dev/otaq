@@ -11,7 +11,7 @@ use crate::data_dir::DataDirError;
 use crate::git::GitError;
 use crate::store::StoreError;
 
-pub use sequence::{StartOutcome, Starter};
+pub use sequence::{StartHold, StartOutcome, Starter};
 pub use setup::{Setup, begin_setup_log, copy_env_files, run_setup};
 pub use worktree::{Worktree, prepare_worktree};
 

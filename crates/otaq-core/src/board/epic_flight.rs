@@ -19,6 +19,8 @@
 //! child with the existing Park (d0052). [`Board::undo_epic_queue`] is the queue toast's Undo: it takes back only
 //! what is still waiting and never parks.
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Sqlite, Transaction};
@@ -323,29 +325,56 @@ pub fn nothing_to_take_back(epic: &TicketKey) -> String {
 /// Children waiting in Ready for Dev are unqueued and running ones keep going; when nothing waits, the running
 /// ones are parked after a confirmation; when nothing waits or runs, it is refused.
 pub fn take_back_plan(epic: &Ticket, tickets: &[Ticket]) -> TakeBackPlan {
+    take_back_plan_starting(epic, tickets, &HashSet::new())
+}
+
+/// [`take_back_plan`] knowing which tickets' start is running now (`starting`, ticket ids): such a child, still in
+/// Ready for Dev, isn't unqueued but keeps going as a running one does (d0080). It is never parked mid-start, so
+/// with nothing else to take back the drop is refused.
+pub fn take_back_plan_starting(
+    epic: &Ticket,
+    tickets: &[Ticket],
+    starting: &HashSet<String>,
+) -> TakeBackPlan {
     let mut children = children_of(epic, tickets);
     children.sort_by(|a, b| a.key.cmp(&b.key));
-    let keys = |f: fn(&Ticket) -> bool| -> Vec<TicketKey> {
+    let keys = |f: &dyn Fn(&Ticket) -> bool| -> Vec<TicketKey> {
         children
             .iter()
             .filter(|c| f(c))
             .map(|c| c.key.clone())
             .collect()
     };
-    let unqueue = keys(|c| c.column == Column::ReadyForDev);
-    let running = keys(is_running);
+    let is_starting = |c: &Ticket| c.column == Column::ReadyForDev && starting.contains(&c.id);
+    let waiting = |c: &Ticket| c.column == Column::ReadyForDev && !starting.contains(&c.id);
+    let unqueue = keys(&waiting);
+    let running = keys(&is_running);
+    let now_starting = keys(&is_starting);
     let epic = epic.key.clone();
     if !unqueue.is_empty() {
+        let mut keep_running = [running, now_starting].concat();
+        keep_running.sort();
         TakeBackPlan::Unqueue {
             epic,
-            never_started: keys(|c| c.column == Column::ReadyForDev && is_never_started(c)),
+            never_started: keys(&|c| waiting(c) && is_never_started(c)),
             unqueue,
-            keep_running: running,
+            keep_running,
         }
     } else if !running.is_empty() {
         TakeBackPlan::ParkAll {
             epic,
             park: running,
+        }
+    } else if !now_starting.is_empty() {
+        TakeBackPlan::Refused {
+            reason: format!(
+                "{} {} starting; take {} back once {} running",
+                and_list(&now_starting),
+                plural(now_starting.len(), "is", "are"),
+                plural(now_starting.len(), "it", "them"),
+                plural(now_starting.len(), "it's", "they're"),
+            ),
+            epic,
         }
     } else {
         TakeBackPlan::Refused {
