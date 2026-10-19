@@ -40,8 +40,9 @@ crate is linked once rather than once per file. To run one file, for example
 | Linux | `scripts/check.sh` (unchanged), on a copy | the local Ubuntu VM |
 | Windows | `powershell -ExecutionPolicy Bypass -File scripts\check.ps1` | the local Windows VM |
 
-Both scripts print each step's name and stop at the first failing step with a non-zero exit. There are no GitHub
-Actions yet, so these scripts are the CI; a macOS / Windows / Linux matrix that runs the same steps is planned (d0056).
+Both scripts print each step's name and stop at the first failing step with a non-zero exit. GitHub Actions runs
+`scripts/check.sh` on Linux for every pull request and every push to `main` (`.github/workflows/checks.yml`, d0056);
+macOS and Windows join it later, so until then they're checked locally.
 
 **Disk space on the Mac first.** The VMs' disk images live on the Mac and grow with every build inside them (a
 full check with its own target folder adds tens of GB per VM), and they don't shrink when the VM deletes files. Before

@@ -171,6 +171,67 @@ async fn unqueue_leaves_the_running_child_alone() {
     w.stop().await;
 }
 
+/// SHOP-45.1's start is running when the track is dropped on Backlog: it keeps going as a running child does, and
+/// only 45.2 is unqueued (taken back mid-start, the start would finish on a ticket back in Backlog). With only a
+/// start running, the drop is refused. (The test holds 45.1's start as a running start would.)
+#[tokio::test(flavor = "multi_thread")]
+async fn a_child_whose_start_runs_keeps_going() {
+    let w = world().await;
+    let (epic, api, page) = search(&w).await;
+    w.board.queue_epic(&key(&epic), &me()).await.unwrap();
+    let (start, _) = w.starter.hold([api.id.clone()]);
+
+    let done = w
+        .review
+        .take_back_epic(&key(&epic), false, &me())
+        .await
+        .unwrap();
+    assert_eq!(
+        done,
+        TakeBackPlan::Unqueue {
+            epic: epic.key.clone(),
+            unqueue: vec![page.key.clone()],
+            never_started: vec![page.key.clone()],
+            keep_running: vec![api.key.clone()],
+        }
+    );
+    assert_eq!(done.note().as_deref(), Some("SHOP-45.1 keeps running"));
+    assert_eq!(w.status(&key(&api)).await, Status::Queued);
+    assert_eq!(w.status(&key(&page)).await, Status::Backlog);
+
+    w.board.queue_epic(&key(&epic), &me()).await.unwrap();
+    w.force_status(&page, Status::Backlog).await;
+    let refused = w.review.take_back_epic(&key(&epic), false, &me()).await;
+    let Err(e) = refused else {
+        panic!("{refused:?}")
+    };
+    assert_eq!(e.refusal(), Some(Refusal::MoveRefused));
+    assert_eq!(
+        e.to_string(),
+        "SHOP-45.1 is starting; take it back once it's running"
+    );
+    drop(start);
+    w.stop().await;
+}
+
+/// While a take-back holds the children's starts, a start asked for is skipped; afterwards it runs again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_held_start_is_skipped() {
+    let w = world().await;
+    let (epic, api, _page) = search(&w).await;
+    w.board.queue_epic(&key(&epic), &me()).await.unwrap();
+    let (hold, starting) = w.starter.hold([api.id.clone()]);
+    assert!(starting.is_empty());
+    assert_eq!(
+        w.starter.start(&key(&api), &me()).await.unwrap(),
+        otaq_core::start::StartOutcome::Skipped
+    );
+    assert_eq!(w.status(&key(&api)).await, Status::Queued);
+    drop(hold);
+    assert!(w.starter.starting().is_empty());
+    w.stop().await;
+}
+
 /// Nothing had started: the track turns back into the card. Taking back again is refused.
 #[tokio::test(flavor = "multi_thread")]
 async fn unqueue_with_nothing_started_is_the_card_again() {

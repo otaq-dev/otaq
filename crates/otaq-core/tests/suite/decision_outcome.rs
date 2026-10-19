@@ -380,8 +380,12 @@ async fn change_in_an_epic_review_adds_a_fix_child_and_the_epic_is_a_track_again
     let page = new_ticket(&w, "Wishlist page", Kind::default(), Some(&epic)).await;
     w.board.queue_epic("SHOP-1", &me()).await.unwrap();
     let decision = record(&w, &api, &saved_order()).await;
+    // Both in review before either merges: a merge wakes the scheduler, which would start a child still queued (and
+    // fail it, as tests never launch) behind the test's back.
     for (child, file) in [(&api, "api.ts"), (&page, "page.ts")] {
         in_review(&w, child, file).await;
+    }
+    for child in [&api, &page] {
         w.review.auto_merge(&child.key.to_string()).await.unwrap();
     }
     assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
