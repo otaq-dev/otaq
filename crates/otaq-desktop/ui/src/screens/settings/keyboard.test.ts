@@ -367,3 +367,23 @@ describe("the page", () => {
     });
   });
 });
+
+describe("its classes", () => {
+  // Every stylesheet is loaded at once in the app: the ? list's `.shortcuts { width: 920px }` once landed on this
+  // page's section and made Settings scroll sideways. `shortcuts…` is the ? list's; this page's are `shortcut-…`.
+  it("never use the ? list's shortcuts… classes", () => {
+    const p = page();
+    const activity = p.groups[1]?.rows[0];
+    if (!activity) throw new Error("no row");
+    activity.terminals = {
+      slot: slot({ action: "open_activity" }, 0),
+      on: true,
+      fixed: false,
+      in_terminals: null,
+    };
+    show({ ...p, terminals_note: "A shortcut that works inside terminals…", terminals_column: true });
+    const classes = [...box.querySelectorAll("[class]")].flatMap((e) => [...e.classList]);
+    expect(classes).toContain("shortcut-settings");
+    expect(classes.filter((c) => c.startsWith("shortcuts"))).toEqual([]);
+  });
+});

@@ -543,13 +543,13 @@ export function ShortcutsView({
 
   return (
     <section
-      className="shortcuts"
+      className="shortcut-settings"
       aria-label={page.title}
       data-terminals-column={page.terminals_column || undefined}
     >
       {headerSlot ? createPortal(resetAll, headerSlot) : null}
       {headerSlot === undefined && header && (
-        <header className="shortcuts-header">
+        <header className="shortcut-settings-header">
           <h2>{page.title}</h2>
           {resetAll}
         </header>
@@ -557,10 +557,10 @@ export function ShortcutsView({
       {only === null ? (
         <>
           <p className="settings-intro">{page.intro}</p>
-          <div className="shortcuts-letters">
-            <div className="shortcuts-letters-text">
-              <span className="shortcuts-letters-label">{page.letters.label}</span>
-              <span className="shortcuts-letters-description">{page.letters.description}</span>
+          <div className="shortcut-settings-letters">
+            <div className="shortcut-settings-letters-text">
+              <span className="shortcut-settings-letters-label">{page.letters.label}</span>
+              <span className="shortcut-settings-letters-description">{page.letters.description}</span>
             </div>
             <Toggle
               on={page.letters.on}
@@ -573,14 +573,14 @@ export function ShortcutsView({
           </div>
           {page.terminals_note !== null && <TerminalsNote text={page.terminals_note} />}
           {page.groups.map((g) => (
-            <div key={g.title} className="shortcuts-group">
-              <h3 className="shortcuts-group-title">{g.title}</h3>
+            <div key={g.title} className="shortcut-settings-group">
+              <h3 className="shortcut-settings-group-title">{g.title}</h3>
               {g.rows.map(rowView)}
             </div>
           ))}
         </>
       ) : (
-        <div className="shortcuts-group">
+        <div className="shortcut-settings-group">
           {page.terminals_note !== null && <TerminalsNote text={page.terminals_note} />}
           {only.map((r) => r && rowView(r))}
         </div>
@@ -591,7 +591,7 @@ export function ShortcutsView({
 
 function TerminalsNote({ text }: { text: string }) {
   return (
-    <p className="shortcuts-terminals-note">
+    <p className="shortcut-settings-terminals-note">
       <Icon name="info" size={13} />
       <span>{text}</span>
     </p>
