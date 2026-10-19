@@ -719,7 +719,7 @@ mod tests {
         );
         assert_eq!(
             Tool::Az.install_command_on(Os::Windows),
-            "winget install Microsoft.AzureCLI  &&  az extension add --name azure-devops"
+            "winget install Microsoft.AzureCLI"
         );
         assert_eq!(
             Tool::Git.install_command_on(Os::Linux),
@@ -735,11 +735,12 @@ mod tests {
                     .iter()
                     .all(|t| !t.install_command_on(os).is_empty())
             );
-            // The extension az needs comes with every az command.
-            assert!(
+            // The extension az needs comes with az's install, except in PowerShell (maybe no `&&`): a second step.
+            assert_eq!(
                 Tool::Az
                     .install_command_on(os)
-                    .ends_with("az extension add --name azure-devops")
+                    .ends_with("az extension add --name azure-devops"),
+                os != Os::Windows
             );
         }
         assert_eq!(

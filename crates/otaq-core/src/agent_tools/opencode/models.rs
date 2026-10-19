@@ -203,12 +203,15 @@ pub(super) async fn read_list_with(
     let group = Server(crate::process::Group::of_leader(child.id()));
     let deadline = Instant::now() + limit;
     let stdout = child.stdout.take();
-    let answer = tokio::time::timeout_at(deadline, async {
-        let url = listening(stdout).await?;
+    // Only the wait for its address times out here: `poll` keeps to the same deadline itself and says why it stopped
+    // (a server that answers with no models isn't one that took too long).
+    let answer = async {
+        let url = tokio::time::timeout_at(deadline, listening(stdout))
+            .await
+            .unwrap_or_else(|_| Err(failed(format!("it took longer than {}s", limit.as_secs()))))?;
         poll(&url, &serve.password, deadline).await
-    })
-    .await
-    .unwrap_or_else(|_| Err(failed(format!("it took longer than {}s", limit.as_secs()))));
+    }
+    .await;
     group.0.hang_up();
     if tokio::time::timeout(END_WAIT, child.wait()).await.is_err() {
         let _ = child.start_kill();
@@ -244,7 +247,8 @@ async fn listening(stdout: Option<tokio::process::ChildStdout>) -> Result<String
 }
 
 /// Asks for the list every [`POLL_EVERY`] until two answers in a row list the same number of models (a catalog
-/// still loading may answer part of it), or until `deadline`, when the last list with models counts.
+/// still loading may answer part of it), or until `deadline`, when the last list with models counts. No request
+/// outlasts `deadline`.
 async fn poll(url: &str, password: &str, deadline: Instant) -> Result<ModelList, ModelListError> {
     let client = reqwest::Client::builder()
         .no_proxy()
@@ -267,14 +271,20 @@ async fn poll(url: &str, password: &str, deadline: Instant) -> Result<ModelList,
     };
     let mut last: Option<ModelList> = None;
     loop {
-        match get("/api/model").await {
+        let Ok(answer) = tokio::time::timeout_at(deadline, get("/api/model")).await else {
+            return last.ok_or_else(|| failed("it listed no models"));
+        };
+        match answer {
             Ok(answer) => {
                 tracing::debug!(answer = %answer, "opencode's /api/model");
                 let list = parse_list(&answer, None)
                     .ok_or_else(|| failed("its answer has no list of models"))?;
                 let loaded = models_in(&list);
                 if loaded > 0 && last.as_ref().is_some_and(|l| models_in(l) == loaded) {
-                    let default = get("/api/model/default").await.ok();
+                    let default = tokio::time::timeout_at(deadline, get("/api/model/default"))
+                        .await
+                        .ok()
+                        .and_then(Result::ok);
                     return parse_list(&answer, default.as_ref())
                         .ok_or_else(|| failed("its answer has no list of models"));
                 }
@@ -551,7 +561,9 @@ mod tests {
         let program = stand_in(bin.path(), port);
         let cwd = tempfile::tempdir().unwrap();
         let started = std::time::Instant::now();
-        let limit = Duration::from_millis(1600);
+        // Room for the stand-in to start: a new script can take over a second to start on macOS while other tests
+        // start processes too.
+        let limit = Duration::from_secs(4);
         let error = read_list_with(
             &program,
             bin.path().as_os_str(),
@@ -563,7 +575,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.message, "OpenCode didn't list its models");
         assert_eq!(error.reason, "it listed no models");
-        assert!(started.elapsed() < Duration::from_secs(4));
+        assert!(started.elapsed() < limit + END_WAIT);
         let ran = bin.path().join("ran");
         for _ in 0..50 {
             if !alive(&ran.join("self")) && !alive(&ran.join("child")) {
