@@ -1,0 +1,111 @@
+---
+import { BEAT_MS, LANES, STEP_LABELS, beatView } from "./flow";
+import Icon from "./Icon.astro";
+
+// The first beat, as the page loads; the script below moves the player on (flow.ts holds the beats).
+const v = beatView(0);
+const small = "width:18px;height:18px;font-size:8px";
+---
+
+<section class="sec" id="how">
+  <div class="wrap">
+    <div class="rv">
+      <div class="label">How it works</div>
+      <h2 class="h2">Follow one ticket from idea to merged.</h2>
+      <p class="sub">This is NOTE-14, from a GitHub issue to your main branch. You step in twice.</p>
+    </div>
+    <div class="flow rv" data-flow>
+      <div class="stage-scroll">
+        <div class="stage">
+          <div class="lanes">
+            {LANES.map((ln, i) => (
+              <div class:list={["lane", { on: v.lanesOn[i] }]} data-lane>
+                <div class="lane-h">
+                  <Icon icon={ln.icon} style={`color: ${ln.color}`} />
+                  {ln.title}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div class:list={["tk", { attn: v.card.attn }]} style={`left: ${v.card.left}`} data-card>
+            <div class="top">
+              NOTE-14<span style="flex:1"></span>
+              <span class={`av ${v.card.avClass}`} style={small} data-card-av>
+                {v.card.av}
+              </span>
+            </div>
+            <div class="ti">Show a hint when the notes file is missing</div>
+            <span class={`pill ${v.card.pillClass}`} data-card-pill>
+              <Icon icon={v.card.pillIcon} class={v.card.spin ? "spin" : undefined} />
+              <span data-text>{v.card.pillLabel}</span>
+            </span>
+            <div class:list={["meta", { inv: v.card.metaInv }]} data-card-meta>
+              <Icon icon={v.card.metaIcon} class="s12" />
+              <span data-text>{v.card.meta}</span>
+            </div>
+          </div>
+          <div class="tk ghost" style={`left: ${v.ghost.left}`} data-ghost>
+            <div class="top">
+              NOTE-15<span style="flex:1"></span>
+              <span class="av av-cx" style={small}>
+                CX
+              </span>
+            </div>
+            <div class="ti">Read notes from stdin</div>
+            <span class={`pill ${v.ghost.pillClass}`} data-ghost-pill>
+              <Icon icon={v.ghost.icon} />
+              <span data-text>{v.ghost.label}</span>
+            </span>
+          </div>
+          {v.bubble && (
+            <div class="bub" style={`left: ${v.bubble.left}`} data-bubble>
+              <span class={`av ${v.bubble.avClass}`} style="width:20px;height:20px;font-size:8px">
+                {v.bubble.initials}
+              </span>
+              <span>
+                <b>{v.bubble.who}</b> {v.bubble.text}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+      <div class="flow-f">
+        <div class="now">
+          <span class="n" data-now-n>
+            {v.n}
+          </span>
+          <h3 data-now-title>{v.title}</h3>
+          <p data-now-text>{v.text}</p>
+        </div>
+        <div>
+          <div class="steps" style={`--d: ${String(BEAT_MS)}ms`}>
+            {STEP_LABELS.map((label, i) => (
+              <button
+                class:list={["stp", v.steps[i]?.cls]}
+                type="button"
+                aria-current={v.steps[i]?.current ? "step" : "false"}
+                data-step={i}
+              >
+                {label}
+                <span class={`bar ${v.bar}`} />
+              </button>
+            ))}
+          </div>
+          <div class="ctl">
+            <button class="btn btn-s btn-sm" type="button" data-play>
+              <Icon icon="pause" class="s13" />
+              <span data-text>Pause</span>
+            </button>
+            <span>Click a step to jump to it.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  import { startPlayer } from "./player";
+
+  startPlayer();
+</script>

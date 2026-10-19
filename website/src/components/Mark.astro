@@ -1,0 +1,14 @@
+---
+// The Command tent mark with its waving flag, as drawn.
+interface Props {
+  size: number;
+}
+const { size } = Astro.props;
+---
+
+<svg class="mk" width={size} height={size} viewBox="0 0 120 120" aria-hidden="true">
+  <path class="o" d="M18 106 V70 Q42 60 60 30 Q78 60 102 70 V106 Z"></path>
+  <path class="c" d="M46 62 V106 M74 62 V106"></path>
+  <path class="c" d="M60 30 V4"></path>
+  <path class="f" d="M60 4 H80 Q83 4 81 7 L77 12 L81 17 Q83 20 80 20 H60 Z"></path>
+</svg>
