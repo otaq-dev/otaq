@@ -23,10 +23,12 @@ Astro asks to send anonymous usage data when it runs. To turn that off for a she
 ## Where things are
 
 - `src/pages/`: one `.astro` file per page (`index.astro` is `/`).
-- `src/layouts/Base.astro`: every page's `<html>` and `<head>` (title, description, favicon).
+- `src/layouts/Base.astro`: every page's `<html>` and `<head>` (title, description, canonical address, link-preview
+  tags, favicon).
 - `src/styles/tokens.css`: the Otaq Dark colours as CSS variables; `src/styles/fonts.css`: Geist and Geist Mono.
 - `public/`: copied to the site as they are: the fonts with their licence (`fonts/LICENSE-geist.txt`, SIL OFL 1.1) and
-  the favicon (the app icon).
+  the favicon (the app icon), `og.png` (the 1200×630 link-preview image, a screenshot of the hero), `robots.txt` and
+  `sitemap.xml` (by hand: add a `<url>` there for each new page).
 - Tests: `src/**/*.test.ts` and `src/**/*.test.tsx`, run by Vitest in Node. A test that needs a DOM chooses one in its
   own file (`// @vitest-environment …`).
 
