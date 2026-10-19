@@ -100,7 +100,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(view["legend"].as_array().map(Vec::len), Some(4));
-        assert_eq!(view["keyboard_map"][0]["title"], "Attention");
+        assert_eq!(view["keyboard_map"]["letters"][0]["label"], "Next / previous ticket (panel, inbox)");
+        assert_eq!(view["shortcut_lists"][1]["columns"][1][0]["rows"][1]["mark"], "changed");
         assert_eq!(view["priority"]["chips"][0]["short"], "P1");
         let cards = crate::api::request(&h.app, "gallery.cards", Value::Null)
             .await

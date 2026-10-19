@@ -244,6 +244,12 @@ export function goesToTerminal(map: Keymap, e: KeyLike): boolean {
 
 /** Whether a focused element keeping `kept` takes `stroke` from the app: a kept letter only without Shift (the
  * editor's ⌘B is Bold, its ⇧⌘B stays Board, Q221). */
+/** A key with no modifier held (↵, Esc): a single-letter key for the letters switch (KEY-02). */
+function withoutModifiers(stroke: Keystroke): boolean {
+  const m = stroke.modifiers;
+  return !m.control && !m.alt && !m.shift && !m.platform && !m.function;
+}
+
 function keeps(kept: ReadonlySet<string>, stroke: Keystroke): boolean {
   return kept.has(stroke.key) && !(stroke.key.length === 1 && stroke.modifiers.shift);
 }
@@ -374,6 +380,9 @@ export function dispatchKey(d: Dispatch, e: KeyLike, ctx: KeyContext): KeyOutcom
   let binding = map && bindingFor(map, e, ctx.inTerminal);
   const stroke = binding && strokeOf(binding);
   if (stroke && keeps(ctx.focusKeeps, stroke)) binding = undefined;
+  // ↵ / Esc (Open / close the panel) are in 0097's single-letter table: the switch turns them off too. The key then
+  // goes on to the page, so a focused control's own ↵ and Esc still work.
+  if (stroke && map && !map.letters && withoutModifiers(stroke)) binding = undefined;
   if (binding) return runBinding(d, binding, ctx);
   if (map && lettersRun(map, ctx)) {
     if (startsSequence(map, e)) {

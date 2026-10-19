@@ -18,6 +18,7 @@ export { run } from "./run";
 export { sections } from "./sections";
 export { settings } from "./settings";
 export { shell } from "./shell";
+export { shortcuts } from "./shortcuts";
 export { terminalTab } from "./terminal_tab";
 export { terminals } from "./terminals";
 export { titleBar } from "./title_bar";

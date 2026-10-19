@@ -160,6 +160,7 @@ areas! {
     window,
     keymap,
     keyboard,
+    shortcuts,
     layout,
     terminal,
     gallery,

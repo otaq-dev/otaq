@@ -40,6 +40,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // Custom shortcuts' edits and answers (T-0390, KEY-04).
     otaq_view::keymap_edit::KeyEdit::export_all(&cfg)?;
     otaq_view::keymap_edit::KeyEditAnswer::export_all(&cfg)?;
+    // The `?` shortcut list (T-0394, KEY-07); also writes its groups, rows and keys.
+    otaq_view::view_models::shortcut_list::ShortcutList::export_all(&cfg)?;
     // Also writes `SizeClass`, `SizeClassBound`, `ClassWidths`, `MainTab` and `MainTabView`.
     otaq_view::view_models::layout::View::export_all(&cfg)?;
     crate::terminal::Feed::export_all(&cfg)?;

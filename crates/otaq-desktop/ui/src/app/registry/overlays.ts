@@ -94,6 +94,8 @@ export interface OverlayParams {
   resume_all: undefined;
   /** "All clear" over the board after the last ⌘J item (T-0230). */
   all_clear: InboxAllClear;
+  /** The ? shortcut list (T-0394, KEY-07), from anywhere; Esc goes back. */
+  shortcuts: undefined;
   /** The developer-only design gallery, over the whole window (T-0217, `OTAQ_GALLERY=1`). */
   gallery: undefined;
   /** A description over the whole window (T-0260); `owner` is the form or Ticket tab that draws into it. */
@@ -135,6 +137,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   restart_service: true,
   resume_all: true,
   all_clear: false,
+  shortcuts: true,
   gallery: true,
   full_view: true,
 };
