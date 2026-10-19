@@ -1,0 +1,451 @@
+//! Reading and writing flow files (STG-01, d0108). Reading goes through serde (`serde-saphyr`); an unknown field is
+//! an error naming it, and a field that doesn't belong to the stage's kind is refused with the stage's name.
+//! Writing is Otaq's own, so every file it writes has one layout and reads back unchanged:
+//!
+//! ```yaml
+//! flow:
+//!   - id: dev
+//!     name: Dev
+//!     kind: agent
+//!     column: own
+//!     agent: Developer
+//!     skill: work-ticket
+//!     options: [Quick developer]
+//! ```
+//!
+//! Fields come in a fixed order (stages: `id name kind by column agent skill options rounds mode delivers`;
+//! agents: `name role instructions skills model`); a field with nothing in it is left out, except `column`.
+//! `agents:` is left out when the file defines none. Comments are not kept.
+
+use std::fmt;
+
+use serde::Deserialize;
+
+use super::model::{
+    CheckBy, Column, Delivers, Delivery, DeliveryMode, Flow, FlowAgent, FlowFile, Stage, StageKind,
+    StageOption,
+};
+
+/// Why a flow file can't be read: the YAML's own error (with the line), or a stage field that doesn't fit its kind.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormatError(pub String);
+
+impl fmt::Display for FormatError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for FormatError {}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawFile {
+    #[serde(default)]
+    agents: Vec<RawAgent>,
+    flow: Vec<RawStage>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawAgent {
+    name: String,
+    role: Option<String>,
+    #[serde(default)]
+    instructions: String,
+    #[serde(default)]
+    skills: Vec<String>,
+    model: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawStage {
+    id: Option<String>,
+    name: String,
+    kind: RawKind,
+    by: Option<CheckBy>,
+    column: Option<Column>,
+    agent: Option<String>,
+    skill: Option<String>,
+    #[serde(default)]
+    options: Vec<String>,
+    rounds: Option<u32>,
+    mode: Option<DeliveryMode>,
+    delivers: Option<Delivers>,
+}
+
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "kebab-case")]
+enum RawKind {
+    Agent,
+    Check,
+    Delivery,
+}
+
+/// Reads a flow file. The STG-02 rules are [`super::check`]'s; this only refuses what isn't a flow at all.
+pub fn read(text: &str) -> Result<FlowFile, FormatError> {
+    let raw: RawFile = serde_saphyr::from_str(text).map_err(|e| {
+        // The first line ("line 5 column 5: unknown field `colour`, expected one of id, name, …"); the source
+        // snippet under it is left out.
+        let text = e.to_string();
+        let first = text.lines().next().unwrap_or_default();
+        FormatError(first.strip_prefix("error: ").unwrap_or(first).to_owned())
+    })?;
+    let agents = raw
+        .agents
+        .into_iter()
+        .map(|a| FlowAgent {
+            name: a.name,
+            role: a.role,
+            instructions: a.instructions,
+            skills: a.skills,
+            model: a.model,
+        })
+        .collect();
+    let mut stages = Vec::with_capacity(raw.flow.len());
+    for raw in raw.flow {
+        stages.push(stage(raw)?);
+    }
+    give_ids(&mut stages);
+    Ok(FlowFile {
+        agents,
+        flow: Flow { stages },
+    })
+}
+
+/// Writes a flow file in Otaq's layout (above).
+pub fn write(file: &FlowFile) -> String {
+    let mut out = String::new();
+    if !file.agents.is_empty() {
+        out.push_str("agents:\n");
+        for agent in &file.agents {
+            let mut item = Item::new(&mut out);
+            item.field("name", &agent.name);
+            if let Some(role) = &agent.role {
+                item.field("role", role);
+            }
+            if !agent.instructions.is_empty() {
+                item.text("instructions", &agent.instructions);
+            }
+            item.list("skills", agent.skills.iter().map(String::as_str));
+            item.field("model", &agent.model);
+        }
+    }
+    out.push_str("flow:\n");
+    for stage in &file.flow.stages {
+        let mut item = Item::new(&mut out);
+        item.field("id", &stage.id);
+        item.field("name", &stage.name);
+        item.field("kind", stage.kind.as_str());
+        if let StageKind::Check { by } = stage.kind {
+            item.field("by", by.as_str());
+        }
+        item.field("column", stage.column.as_str());
+        if let Some(agent) = &stage.agent {
+            item.field("agent", agent);
+        }
+        if let Some(skill) = &stage.skill {
+            item.field("skill", skill);
+        }
+        item.list("options", stage.options.iter().map(StageOption::as_str));
+        if let Some(rounds) = stage.rounds {
+            item.number("rounds", rounds);
+        }
+        if let Some(delivery) = stage.delivery {
+            item.field("mode", delivery.mode.as_str());
+            item.field("delivers", delivery.delivers.as_str());
+        }
+    }
+    out
+}
+
+/// A stage from its raw fields: the kind's own fields must be there, and no other kind's.
+fn stage(raw: RawStage) -> Result<Stage, FormatError> {
+    let name = raw.name.trim().to_owned();
+    if name.is_empty() {
+        return Err(FormatError("A stage has no name".to_owned()));
+    }
+    let refuse = |what: &str, field: &str, belongs: &str| {
+        Err(FormatError(format!(
+            "{name} is {what}: `{field}` belongs to {belongs}"
+        )))
+    };
+    let kind = match (raw.kind, raw.by) {
+        (RawKind::Check, Some(by)) => StageKind::Check { by },
+        (RawKind::Check, None) => {
+            return Err(FormatError(format!(
+                "{name} is a check: say who does it with `by: agent` or `by: you`"
+            )));
+        }
+        (RawKind::Agent, Some(_)) => return refuse("an Agent stage", "by", "a check"),
+        (RawKind::Delivery, Some(_)) => return refuse("a Delivery stage", "by", "a check"),
+        (RawKind::Agent, None) => StageKind::Agent,
+        (RawKind::Delivery, None) => StageKind::Delivery,
+    };
+    let what = match kind {
+        StageKind::Agent => "an Agent stage",
+        StageKind::Check { by: CheckBy::Agent } => "an agent check",
+        StageKind::Check { by: CheckBy::You } => "a check by you",
+        StageKind::Delivery => "a Delivery stage",
+    };
+    if kind != StageKind::Delivery {
+        if raw.mode.is_some() {
+            return refuse(what, "mode", "the Delivery stage");
+        }
+        if raw.delivers.is_some() {
+            return refuse(what, "delivers", "the Delivery stage");
+        }
+    }
+    if kind != (StageKind::Check { by: CheckBy::Agent }) && raw.rounds.is_some() {
+        return refuse(what, "rounds", "an agent check");
+    }
+    let delivery = match kind {
+        StageKind::Delivery => {
+            let (Some(mode), Some(delivers)) = (raw.mode, raw.delivers) else {
+                return Err(FormatError(format!(
+                    "{name} is the Delivery stage: set its `mode` (click or automatic) and what it `delivers` \
+                     (local, pr or either)"
+                )));
+            };
+            Some(Delivery { mode, delivers })
+        }
+        _ => None,
+    };
+    // Who runs the stage: an agent for an Agent stage, an agent check and a Delivery that can open a PR.
+    let runs_agent = match kind {
+        StageKind::Agent | StageKind::Check { by: CheckBy::Agent } => true,
+        StageKind::Check { by: CheckBy::You } => false,
+        StageKind::Delivery => delivery.is_some_and(|d| d.delivers != Delivers::Local),
+    };
+    if runs_agent {
+        if raw.agent.is_none() {
+            return Err(FormatError(format!(
+                "{name} is {what}: name the agent that runs it with `agent:`"
+            )));
+        }
+        if raw.skill.is_none() && kind != StageKind::Delivery {
+            return Err(FormatError(format!(
+                "{name} is {what}: name the skill it runs with `skill:`"
+            )));
+        }
+    } else {
+        let belongs = "a stage an agent runs";
+        let what = if kind == StageKind::Delivery {
+            "a Local merge, which runs no agent"
+        } else {
+            what
+        };
+        if raw.agent.is_some() {
+            return refuse(what, "agent", belongs);
+        }
+        if raw.skill.is_some() {
+            return refuse(what, "skill", belongs);
+        }
+    }
+    if kind == (StageKind::Check { by: CheckBy::Agent }) && raw.rounds.is_none() {
+        return Err(FormatError(format!(
+            "{name} is an agent check: set its `rounds` (1 to 5)"
+        )));
+    }
+    let options: Vec<StageOption> = raw
+        .options
+        .into_iter()
+        .map(|o| {
+            if o == StageOption::SKIP {
+                StageOption::Skip
+            } else {
+                StageOption::Agent(o)
+            }
+        })
+        .collect();
+    if !runs_agent && options.iter().any(|o| matches!(o, StageOption::Agent(_))) {
+        return Err(FormatError(format!(
+            "{name} is {what}: no agent runs it, so its only option can be `skip`"
+        )));
+    }
+    Ok(Stage {
+        id: raw.id.map(|id| id.trim().to_owned()).unwrap_or_default(),
+        name,
+        kind,
+        column: raw.column.unwrap_or_default(),
+        agent: raw.agent,
+        skill: raw.skill,
+        options,
+        rounds: raw.rounds,
+        delivery,
+    })
+}
+
+/// Gives a stage written without an id one from its name (`Code review` → `code-review`), unique in the flow.
+/// Ids that were written are kept as they are.
+fn give_ids(stages: &mut [Stage]) {
+    for i in 0..stages.len() {
+        if !stages[i].id.is_empty() {
+            continue;
+        }
+        let base = slug(&stages[i].name);
+        let taken = |id: &str| stages.iter().any(|s| s.id == id);
+        let mut id = base.clone();
+        let mut n = 2;
+        while taken(&id) {
+            id = format!("{base}-{n}");
+            n += 1;
+        }
+        stages[i].id = id;
+    }
+}
+
+fn slug(name: &str) -> String {
+    let mut out = String::new();
+    for c in name.chars().flat_map(char::to_lowercase) {
+        if c.is_alphanumeric() {
+            out.push(c);
+        } else if !out.is_empty() && !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let out = out.trim_end_matches('-');
+    if out.is_empty() {
+        "stage".to_owned()
+    } else {
+        out.to_owned()
+    }
+}
+
+/// One `- ` item of a top-level list: the first field opens it, the others line up under it.
+struct Item<'a> {
+    out: &'a mut String,
+    first: bool,
+}
+
+impl<'a> Item<'a> {
+    fn new(out: &'a mut String) -> Self {
+        Self { out, first: true }
+    }
+
+    fn key(&mut self, key: &str) {
+        self.out.push_str(if self.first { "  - " } else { "    " });
+        self.first = false;
+        self.out.push_str(key);
+        self.out.push(':');
+    }
+
+    fn field(&mut self, key: &str, value: &str) {
+        self.key(key);
+        self.out.push(' ');
+        self.out.push_str(&scalar(value));
+        self.out.push('\n');
+    }
+
+    fn number(&mut self, key: &str, value: u32) {
+        self.key(key);
+        self.out.push_str(&format!(" {value}\n"));
+    }
+
+    /// A flow list, `[skip, Quick developer]`; left out when empty.
+    fn list<'v>(&mut self, key: &str, values: impl Iterator<Item = &'v str>) {
+        let values: Vec<String> = values.map(scalar).collect();
+        if values.is_empty() {
+            return;
+        }
+        self.key(key);
+        self.out.push_str(" [");
+        self.out.push_str(&values.join(", "));
+        self.out.push_str("]\n");
+    }
+
+    /// Text that may span lines: a literal block (`|`, or `|-` without a final newline) when it reads back the
+    /// same, else a quoted string.
+    fn text(&mut self, key: &str, value: &str) {
+        let body = value.strip_suffix('\n').unwrap_or(value);
+        let block = value.contains('\n')
+            && !body.ends_with('\n')
+            && !body.starts_with([' ', '\t'])
+            && !body.contains('\r')
+            && body.lines().all(|l| l == l.trim_end())
+            && body
+                .chars()
+                .all(|c| c == '\n' || c == '\t' || !c.is_control());
+        if !block {
+            return self.field(key, value);
+        }
+        self.key(key);
+        self.out.push_str(if value.ends_with('\n') {
+            " |\n"
+        } else {
+            " |-\n"
+        });
+        for line in body.split('\n') {
+            if !line.is_empty() {
+                self.out.push_str("      ");
+                self.out.push_str(line);
+            }
+            self.out.push('\n');
+        }
+    }
+}
+
+/// A scalar as written: plain when it can only read back as the same string, else double-quoted.
+fn scalar(value: &str) -> String {
+    let plain = value.chars().next().is_some_and(char::is_alphabetic)
+        && !value.ends_with(' ')
+        && value
+            .chars()
+            .all(|c| c.is_alphanumeric() || " -_./()·".contains(c))
+        && !matches!(
+            value.to_lowercase().as_str(),
+            "true" | "false" | "null" | "yes" | "no" | "on" | "off" | "y" | "n" | "inf" | "nan"
+        );
+    if plain {
+        return value.to_owned();
+    }
+    let mut out = String::from("\"");
+    for c in value.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scalars_read_back_as_written() {
+        for value in [
+            "Dev",
+            "Quick developer",
+            "work-ticket",
+            "yes",
+            "3",
+            "a: b",
+            "# not a comment",
+            "say \"hi\"",
+            "",
+            " leading",
+            "[x]",
+            "Claude Code · opus",
+        ] {
+            let text = format!("v: {}\n", scalar(value));
+            let read: std::collections::BTreeMap<String, String> =
+                serde_saphyr::from_str(&text).unwrap();
+            assert_eq!(read["v"], value, "{text}");
+        }
+    }
+
+    #[test]
+    fn ids_come_from_names_when_left_out() {
+        assert_eq!(slug("Code review"), "code-review");
+        assert_eq!(slug("QA!"), "qa");
+        assert_eq!(slug("··"), "stage");
+    }
+}

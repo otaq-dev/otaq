@@ -114,6 +114,11 @@ pub fn bundle_folder_name() -> String {
     format!("{PRODUCT_NAME}.app")
 }
 
+/// The default flow's file (STG-03, d0108), shipped embedded; its contents are [`DEFAULT_FLOW_YAML`].
+pub const DEFAULT_FLOW_FILE: &str = "otaq-default.yaml";
+/// The contents of [`DEFAULT_FLOW_FILE`], read by [`crate::flow::default`].
+pub const DEFAULT_FLOW_YAML: &str = include_str!("../flows/otaq-default.yaml");
+
 /// A branch Otaq names: `branch("SHOP-40")` → `otaq/SHOP-40`.
 pub fn branch(name: &str) -> String {
     format!("{}{name}", branch_prefix())

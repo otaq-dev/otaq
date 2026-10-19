@@ -1,0 +1,21 @@
+flow:
+  - id: grill
+    name: Grill
+    kind: agent
+    column: own
+    agent: Griller
+    skill: grill
+    options: [skip]
+  - id: dev
+    name: Dev
+    kind: agent
+    column: own
+    agent: Developer
+    skill: work-ticket
+    options: [Quick developer, skip]
+  - id: deliver
+    name: Done
+    kind: delivery
+    column: own
+    mode: click
+    delivers: local
