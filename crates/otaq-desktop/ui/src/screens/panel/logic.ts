@@ -59,6 +59,14 @@ export function numberedTab(tabs: readonly PanelTab[], n: number): PanelTab | un
   return n >= 1 ? tabs[n - 1] : undefined;
 }
 
+/** The tab ⌃Tab / ⌃⇧Tab shows (`step` 1 / -1): the next or previous of the shown tabs, round the end. */
+export function steppedTab(tabs: readonly PanelTab[], shown: PanelTab, step: 1 | -1): PanelTab | undefined {
+  if (tabs.length === 0) return undefined;
+  const at = tabs.indexOf(shown);
+  if (at < 0) return tabs[0];
+  return tabs[(at + step + tabs.length) % tabs.length];
+}
+
 /** The tab strip's marker, as the Tabs component draws it. */
 export function tabIndicator(mark: PanelTabMark | null): TabIndicator | undefined {
   return mark ?? undefined;
@@ -141,6 +149,9 @@ export type MenuRoute =
     }
   | { kind: "unknown" };
 
+/** The menu's Close ticket… item (`close.rs`'s `CLOSE_TICKET`). */
+export const CLOSE_TICKET = "close-ticket";
+
 export function menuRoute(item: string): MenuRoute {
   switch (item) {
     case "edit-ticket":
@@ -155,7 +166,7 @@ export function menuRoute(item: string): MenuRoute {
       return { kind: "copy", what: "branch" };
     case "copy-attach":
       return { kind: "copy", what: "attach" };
-    case "close-ticket":
+    case CLOSE_TICKET:
       return { kind: "overlay", id: "close_ticket" };
     case "submit-for-review":
       return { kind: "overlay", id: "submit_for_review" };

@@ -1,8 +1,9 @@
 // The page's one key dispatcher (T-0215, SES-10, UIT-06). The map is the Rust keymap (`keymap.map`, the user's keys
 // of d0097's §21.3 map), so nothing here lists a shortcut: a key either goes to the focused terminal, or runs the
 // screen handler of the action it is bound to (`app.shortcuts.run`), or, if it is a key the webview would act on
-// (reload, print, find, zoom, devtools, caret browsing, history), is swallowed without doing anything. Only modifier
-// keys (and ↵ / Esc) are dispatched here so far: single letters and `g` sequences come with T-0391.
+// (reload, print, find, zoom, devtools, caret browsing, history), is swallowed without doing anything. Single letters
+// and `g` sequences (KEY-02) run only while nobody is typing and the letters switch is on; after `g` the dispatcher
+// waits for the second key (`Dispatch.wait`, whose timer and hint are `keyboard.ts`'s).
 import type { KeyAction } from "../generated/KeyAction";
 import type { KeyBinding } from "../generated/KeyBinding";
 import type { Keymap } from "../generated/Keymap";
@@ -29,7 +30,25 @@ export interface KeyContext {
   modal: boolean;
   /** The description editor's text has the focus (`inEditorText`): ⌥⌘C is its Code block, not swallowed. */
   editorText: boolean;
+  /** The single letters the focus keeps from the app (`lettersKeptBy`; `"all"` while a menu or dialog is open). */
+  letters: LetterHold;
+  /** A Settings shortcut cell is recording (`KEY_RECORDER`): every key is the cell's. */
+  recording: boolean;
 }
+
+/** The element a Settings shortcut cell marks while it records a key (T-0395): the dispatcher leaves every key to it. */
+export const KEY_RECORDER = "[data-key-recorder]";
+
+/** Whether the focus is in a recording shortcut cell. */
+export function inKeyRecorder(element: FocusLike | null): boolean {
+  return Boolean(element?.closest?.(KEY_RECORDER));
+}
+
+/**
+ * Which single letters stay with the focused element (KEY-02, "nobody is typing"): all of them while somebody types
+ * or a menu or dialog has the keyboard; the digits in a radio group (the inbox's answer 1–4); none elsewhere.
+ */
+export type LetterHold = "all" | "digits" | "none";
 
 /** What became of a key. */
 export type KeyOutcome =
@@ -39,6 +58,10 @@ export type KeyOutcome =
   | { kind: "ran"; action: KeyAction }
   /** Bound, but no handler took it (or a modal held it back); swallowed outside a terminal. */
   | { kind: "unhandled"; action: KeyAction; swallowed: boolean }
+  /** `g`: Otaq waits for a sequence's second key. */
+  | { kind: "waiting" }
+  /** Pressed while Otaq waited after `g` and no sequence's: the wait ends and the key does nothing more. */
+  | { kind: "cancelled" }
   /** Not in the map, but the webview would act on it: swallowed. */
   | { kind: "swallowed" }
   /** Neither: the page's elements get it as usual. */
@@ -55,9 +78,16 @@ const CONTROL_ROLES = new Set(["button", "link", "menuitem", "option", "tab", "c
 const WIDGETS = '[role="menu"], [role="dialog"]';
 const WIDGET_KEYS: ReadonlySet<string> = new Set(["Enter", "Escape"]);
 /** The description editor (d0078 D2, d0097): while its text or one of its fields (the link popover's URL)
- * has the focus, ⌘K / Ctrl+K is its Link, not the command palette. Its read mode isn't a text field and keeps nothing. */
+ * has the focus, ⌘K / Ctrl+K is its Link, not the command palette, and ⌘B / Ctrl+B its Bold, not Hide / show the
+ * pane (`description_editor_keys`). Its read mode isn't a text field and keeps nothing. */
 const DESCRIPTION_EDITOR = ".md-editor";
-const EDITOR_KEYS: ReadonlySet<string> = new Set([...TEXT_FIELD_KEYS, "k"]);
+const EDITOR_KEYS: ReadonlySet<string> = new Set([...TEXT_FIELD_KEYS, "k", "b"]);
+/** Where the app's single letters don't run (KEY-02): a menu, a list or a dialog has its own keys, unless it's marked
+ * `data-letters` (the inbox, whose j / k are the app's Next / previous). */
+const LETTER_WIDGETS = '[role="menu"], [role="listbox"], [role="dialog"]:not([data-letters])';
+const RADIO_GROUP = '[role="radiogroup"]';
+/** A menu or dialog open anywhere on the page holds the letters back too; a leaving copy (`data-leaving`) doesn't. */
+const OPEN_WIDGETS = '[role="menu"], [role="dialog"]:not([data-letters])';
 
 /** What `keysKeptBy` reads of the focused element; an `HTMLElement` is one. */
 export interface FocusLike {
@@ -83,6 +113,27 @@ export function keysKeptBy(element: FocusLike | null): ReadonlySet<string> {
     own = TEXT_FIELD_KEYS;
   if (!element?.closest?.(WIDGETS)) return own;
   return new Set([...own, ...WIDGET_KEYS]);
+}
+
+/** Which single letters the focused element keeps (KEY-02). */
+export function lettersKeptBy(element: FocusLike | null): LetterHold {
+  if (element === null) return "none";
+  if (keptByElement(element) === TEXT_FIELD_KEYS || isSelect(element)) return "all";
+  if (element.closest?.(DESCRIPTION_EDITOR) || element.closest?.(LETTER_WIDGETS)) return "all";
+  return element.closest?.(RADIO_GROUP) ? "digits" : "none";
+}
+
+const isSelect = (element: FocusLike) => element.tagName.toLowerCase() === "select";
+
+/** What `widgetOpen` reads of the page; a `Document` is one. */
+export interface PageLike {
+  querySelectorAll: (selector: string) => Iterable<{ closest: (selector: string) => unknown }>;
+}
+
+/** Whether a menu or a dialog is open on the page (KEY-02: then no single letter runs). */
+export function widgetOpen(page: PageLike): boolean {
+  for (const el of page.querySelectorAll(OPEN_WIDGETS)) if (!el.closest("[data-leaving]")) return true;
+  return false;
 }
 
 /**
@@ -156,7 +207,16 @@ export function strokeMatches(stroke: Keystroke, e: KeyLike): boolean {
   return e.code === stroke.code;
 }
 
-/** The modifier key a binding has, or `undefined` for a single letter or a `g` sequence (T-0391 dispatches those). */
+/**
+ * Whether `e` types `letter` (a single letter or a sequence's second key), as `keymap::letter_matches`: a Latin letter
+ * by the layout's letter without Shift (`J` isn't `j`), any other character as typed, Shift or not (`?`).
+ */
+export function letterMatches(letter: string, e: KeyLike): boolean {
+  if (e.ctrlKey || e.altKey || e.metaKey) return false;
+  return /^[a-z]$/.test(letter) ? !e.shiftKey && letterOf(e) === letter : e.key === letter;
+}
+
+/** The modifier key a binding has, or `undefined` for a single letter or a `g` sequence. */
 function strokeOf(binding: KeyBinding): Keystroke | undefined {
   return binding.key.kind === "stroke" ? binding.key.stroke : undefined;
 }
@@ -180,6 +240,33 @@ export function goesToTerminal(map: Keymap, e: KeyLike): boolean {
       (!m.platform || held.platform),
   );
   return !app && bindingFor(map, e, true) === undefined;
+}
+
+/** Whether a focused element keeping `kept` takes `stroke` from the app: a kept letter only without Shift (the
+ * editor's ⌘B is Bold, its ⇧⌘B stays Board, Q221). */
+function keeps(kept: ReadonlySet<string>, stroke: Keystroke): boolean {
+  return kept.has(stroke.key) && !(stroke.key.length === 1 && stroke.modifiers.shift);
+}
+
+/** The single letter `e` presses, outside a terminal (`hold`: the letters the focus keeps). */
+export function letterFor(map: Keymap, e: KeyLike, hold: LetterHold): KeyBinding | undefined {
+  if (hold === "all") return undefined;
+  return map.bindings.find(
+    (b) =>
+      b.key.kind === "letter" &&
+      !(hold === "digits" && /^[0-9]$/.test(b.key.letter)) &&
+      letterMatches(b.key.letter, e),
+  );
+}
+
+/** The `g` sequence whose second key `e` is. */
+export function sequenceFor(map: Keymap, e: KeyLike): KeyBinding | undefined {
+  return map.bindings.find((b) => b.key.kind === "sequence" && letterMatches(b.key.then, e));
+}
+
+/** Whether `e` is the `g` that starts the sequences (when the map has any). */
+function startsSequence(map: Keymap, e: KeyLike): boolean {
+  return letterMatches("g", e) && map.bindings.some((b) => b.key.kind === "sequence");
 }
 
 /** The binding `e` presses where it was pressed (in a terminal only those that work there). */
@@ -232,26 +319,69 @@ export interface Dispatch {
   run: (action: KeyAction) => boolean;
   /** Leaves the focused terminal: Terminals (⌃`) pressed in one. */
   leaveTerminal: () => void;
+  /** Whether Otaq waits for a sequence's second key after `g`. */
+  waiting: () => boolean;
+  /** Starts the wait after `g` (its hint and its timer) or ends it. */
+  wait: (on: boolean) => void;
   /** Whether this is a Mac (only used before the map arrived). */
   mac: boolean;
 }
 
-/** Decides one key and does it (runs a handler, leaves the terminal); the caller stops the event for `ran` and swallowed keys. */
+/**
+ * The actions that still run while a modal is open (`view_models/modal.rs`): Find in a focused terminal, and Terminals
+ * only as leaving one (⌃`); opening the drawer behind a dialog doesn't.
+ */
+function runsOverModal(action: KeyAction, ctx: KeyContext): boolean {
+  return action.action === "find_in_terminal" || (action.action === "terminals" && ctx.inTerminal);
+}
+
+/** Runs a binding's action (or leaves the terminal for Terminals pressed in one). */
+function runBinding(d: Dispatch, binding: KeyBinding, ctx: KeyContext): KeyOutcome {
+  const { action } = binding;
+  const held = ctx.modal && !runsOverModal(action, ctx);
+  // Terminals in a terminal leaves it; elsewhere its screen opens or closes the drawer.
+  const leaves = !held && action.action === "terminals" && ctx.inTerminal;
+  if (leaves) d.leaveTerminal();
+  const ran = leaves || (!held && d.run(action));
+  if (ran) return { kind: "ran", action };
+  // A bound key does nothing else outside a terminal; in one it falls through to the terminal's own keys.
+  return { kind: "unhandled", action, swallowed: !ctx.inTerminal };
+}
+
+/** Whether single letters and sequences run here (KEY-02): letters on, nobody typing, no terminal, no dialog. */
+function lettersRun(map: Keymap, ctx: KeyContext): boolean {
+  return map.letters && !ctx.inTerminal && !ctx.modal && ctx.letters !== "all";
+}
+
+/** Decides one key and does it (runs a handler, leaves the terminal, waits after `g`); the caller stops the event for
+ * `ran`, `waiting`, `cancelled` and swallowed keys. */
 export function dispatchKey(d: Dispatch, e: KeyLike, ctx: KeyContext): KeyOutcome {
   const map = d.keymap();
+  if (ctx.recording) {
+    d.wait(false);
+    return { kind: "passed" };
+  }
+  if (d.waiting()) {
+    d.wait(false);
+    // Somebody typing now (the focus moved meanwhile) gets the key as usual.
+    if (map && lettersRun(map, ctx)) {
+      const second = sequenceFor(map, e);
+      return second ? runBinding(d, second, ctx) : { kind: "cancelled" };
+    }
+  }
   if (ctx.inTerminal && (map === undefined || goesToTerminal(map, e))) return { kind: "terminal" };
   const mac = map ? map.platform === "mac" : d.mac;
   let binding = map && bindingFor(map, e, ctx.inTerminal);
-  if (binding && ctx.focusKeeps.has(strokeOf(binding)?.key ?? "")) binding = undefined;
-  if (binding) {
-    const { action } = binding;
-    // Terminals in a terminal leaves it (as Leave terminal did); elsewhere its screen opens or closes the drawer.
-    const leaves = !ctx.modal && action.action === "terminals" && ctx.inTerminal;
-    if (leaves) d.leaveTerminal();
-    const ran = leaves || (!ctx.modal && d.run(action));
-    if (ran) return { kind: "ran", action };
-    // A bound key does nothing else outside a terminal; in one it falls through to the terminal's own keys.
-    return { kind: "unhandled", action, swallowed: !ctx.inTerminal };
+  const stroke = binding && strokeOf(binding);
+  if (stroke && keeps(ctx.focusKeeps, stroke)) binding = undefined;
+  if (binding) return runBinding(d, binding, ctx);
+  if (map && lettersRun(map, ctx)) {
+    if (startsSequence(map, e)) {
+      d.wait(true);
+      return { kind: "waiting" };
+    }
+    const letter = letterFor(map, e, ctx.letters);
+    if (letter) return runBinding(d, letter, ctx);
   }
   // In a terminal the key is the terminal's (its copy and paste on Windows and Linux are Ctrl+Shift+C / V).
   // ⌥⌘C reaches the editor's text, whose Code block takes it and stops it (`ToolbarShortcuts`); it's swallowed elsewhere.
@@ -265,6 +395,8 @@ export function dispatchKey(d: Dispatch, e: KeyLike, ctx: KeyContext): KeyOutcom
 export function stopsEvent(outcome: KeyOutcome): boolean {
   switch (outcome.kind) {
     case "ran":
+    case "waiting":
+    case "cancelled":
     case "swallowed":
       return true;
     case "unhandled":
@@ -290,6 +422,10 @@ export function logLine(e: KeyLike, outcome: KeyOutcome): string {
       return `${name} → ${action(outcome.action)}`;
     case "unhandled":
       return `${name} → ${action(outcome.action)} (no handler${outcome.swallowed ? ", swallowed" : ""})`;
+    case "waiting":
+      return `${name} → waiting for the second key`;
+    case "cancelled":
+      return `${name} → cancelled the g wait`;
     case "swallowed":
       return `${name} → swallowed (webview key)`;
     case "passed":

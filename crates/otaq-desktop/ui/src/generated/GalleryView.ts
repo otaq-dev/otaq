@@ -5,12 +5,17 @@ import type { KeyMapGroup } from "./KeyMapGroup";
 import type { LegendPriority } from "./LegendPriority";
 import type { LegendTier } from "./LegendTier";
 import type { MenuItem } from "./MenuItem";
+import type { SequenceHint } from "./SequenceHint";
 import type { TypeScaleRow } from "./TypeScaleRow";
 
 /**
  * Everything the gallery draws from the Rust side. `GalleryView` on the page.
  */
 export type GalleryView = { legend: Array<LegendTier>, priority: LegendPriority, type_scale: Array<TypeScaleRow>, spacing: Array<GalleryMeasure>, radii: Array<GalleryMeasure>, density: string, icons: Array<GalleryIcon>, keyboard_map: Array<KeyMapGroup>, keyboard_columns: string, keyboard_notes: Array<string>, 
+/**
+ * The `g` hint (design `s02-30`): with the base map's sequences, and with a recorded `g` `p` Park.
+ */
+g_hints: [Array<SequenceHint>, Array<SequenceHint>], 
 /**
  * A card's context menu as in *Overlays & feedback → Context menu*.
  */

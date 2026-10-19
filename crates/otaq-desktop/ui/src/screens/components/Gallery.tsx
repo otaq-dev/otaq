@@ -7,6 +7,7 @@ import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef, use
 import { FrameBody } from "../../app/Frame";
 import { INITIAL_LAYOUT, layoutView, loadLayout } from "../../app/layout";
 import { createRegistries, type OverlayProps, RegistriesContext } from "../../app/registry";
+import { SequenceHintLine } from "../../app/SequenceHint";
 import { useStore } from "../../app/store";
 import { openOverlay } from "../../app/overlays";
 import { EpicCard, stateOfLook, TicketCard } from "../../cards";
@@ -2604,6 +2605,19 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
                 columns={view.keyboard_columns}
                 notes={view.keyboard_notes}
               />
+            </Section>
+            <Section title="02 · The g hint, close up and with a recorded g p (update AF §7, s02-30 / s02-31, T-0391)">
+              <div className="gallery-two">
+                {THEMES.map((theme) => (
+                  <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+                    <Caption>{theme.toUpperCase()}</Caption>
+                    <Caption>The hint, close up</Caption>
+                    <SequenceHintLine hint={view.g_hints[0]} />
+                    <Caption>With a sequence you recorded</Caption>
+                    <SequenceHintLine hint={view.g_hints[1]} />
+                  </div>
+                ))}
+              </div>
             </Section>
           </>
         )}

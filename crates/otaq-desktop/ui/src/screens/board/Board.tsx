@@ -543,8 +543,8 @@ export function Board() {
   }, [controller, focusOn, project]);
   useShortcut("close_panel", cancelDrag);
 
-  // ⇧⌘G / Ctrl+Shift+G (also from the terminal column): focus the epic of the track name with the keyboard, else of
-  // the selected card. A standalone ticket has none: Rust answers nothing and the filter stays.
+  // `g` `e`: focus the epic of the track name with the keyboard, else of the selected card. A standalone ticket has
+  // none: Rust answers nothing and the filter stays.
   const focusSelected = useCallback(() => {
     const name = document.activeElement?.closest<HTMLElement>(".strip-name[data-epic]");
     const key = name?.dataset.epic ?? selected;
@@ -656,7 +656,7 @@ export function Board() {
     [controller, release, placeGhost, openMenu],
   );
 
-  // ⇧⌘D: start the selected ticket, as if it was dropped on Dev. On an epic (its card, or its track's name) it queues
+  // ⌘D: start the selected ticket, as if it was dropped on Dev. On an epic (its card, or its track's name) it queues
   // the children still in Backlog; on a child row only that child (EPC-12, d0058).
   const startSelected = useCallback(() => {
     if (selected === null) return false;
@@ -664,6 +664,14 @@ export function Board() {
     return true;
   }, [selected, showApprove]);
   useShortcut("start_dev", startSelected);
+  // Park (0097, palette only unless the user gives it a key): the selected ticket as if dropped on Backlog, which
+  // asks the Park confirmation (CLS-06).
+  const parkSelected = useCallback(() => {
+    if (selected === null) return false;
+    void dropCard(selected, "backlog", showApprove);
+    return true;
+  }, [selected, showApprove]);
+  useShortcut("park", parkSelected);
 
   const element$ = useCallback((id: BoardDropTarget, el: HTMLElement | null) => {
     if (el) columns.current.set(id, el);

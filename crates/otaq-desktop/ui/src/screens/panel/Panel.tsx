@@ -15,6 +15,7 @@ import {
   useEffect,
   useEffectEvent,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -31,6 +32,7 @@ import {
   requestAgentRowFocus,
   requestTerminalFocus,
   requestTicketEdit,
+  selection,
   showTab,
   takeAgentRowFocus,
   terminalFocusRequests,
@@ -75,6 +77,7 @@ import {
   actionRoute,
   canSend,
   cardRoute,
+  CLOSE_TICKET,
   clampWidth,
   draggedWidth,
   iconTabs,
@@ -85,6 +88,7 @@ import {
   picksOther,
   shownTab,
   shownWidth,
+  steppedTab,
   tabIndicator,
 } from "./logic";
 import { toolProblemAction } from "./toolProblemRunner";
@@ -740,6 +744,30 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
         return;
     }
   };
+  // Close ticket and Re-run validation (0097: palette only unless the user gives them a key) do what this panel's
+  // menu item and button do, while it offers them.
+  const latest = useRef({ view, press, choose });
+  useLayoutEffect(() => {
+    latest.current = { view, press, choose };
+  });
+  useShortcut(
+    "close_ticket",
+    useCallback(() => {
+      const item = latest.current.view.menu.find((i) => i.id === CLOSE_TICKET && !i.disabled);
+      if (!item) return false;
+      latest.current.choose(item.id);
+      return true;
+    }, []),
+  );
+  useShortcut(
+    "rerun_validation",
+    useCallback(() => {
+      const button = latest.current.view.buttons.find((b) => b.action === "retry_validation");
+      if (!button) return false;
+      latest.current.press(button);
+      return true;
+    }, []),
+  );
   const [fixing, setFixing] = useState(false);
   const sendToFix = (clear = false): Promise<unknown> => {
     setFixing(true);
@@ -1124,6 +1152,30 @@ export function SidePanel() {
       const next = tabs ? numberedTab(tabs, number) : panelTabNumbered(number);
       if (next === undefined) return false;
       showTab(next);
+      return true;
+    }, []),
+  );
+  const stepTab = useCallback((step: 1 | -1) => {
+    const tabs = current.current?.tabs.map((t) => t.tab);
+    const next = tabs && steppedTab(tabs, shownTab(tabs, selection.get().tab), step);
+    if (next === undefined) return false;
+    showTab(next);
+    return true;
+  }, []);
+  useShortcut(
+    "next_tab",
+    useCallback(() => stepTab(1), [stepTab]),
+  );
+  useShortcut(
+    "previous_tab",
+    useCallback(() => stepTab(-1), [stepTab]),
+  );
+  // Open diff (0097, palette only unless the user gives it a key): the Diff tab, where the ticket has one.
+  useShortcut(
+    "open_diff",
+    useCallback(() => {
+      if (!current.current?.tabs.some((t) => t.tab === "diff")) return false;
+      showTab("diff");
       return true;
     }, []),
   );
