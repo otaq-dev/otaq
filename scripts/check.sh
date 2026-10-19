@@ -3,7 +3,7 @@
 # the page build), then fmt, clippy, tests (cargo-nextest, then the doc examples).
 #
 # Run this before every commit. A green run is the definition of done for every ticket (decision 0056,
-# SDD §23.2). There are no GitHub Actions yet: this script is the CI.
+# SDD §23.2). GitHub Actions runs it on Linux for every pull request (.github/workflows/checks.yml).
 #
 # Works from any folder inside the repository. Stops at the first failing step and exits non-zero. Needs Node 24 (the
 # version in crates/otaq-desktop/.nvmrc) and npm on PATH; setup: scripts/README.md.
