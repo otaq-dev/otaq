@@ -1071,6 +1071,35 @@ mod tests {
             };
             children.push(t.key.to_string());
         }
+        // Both children wait on a closed child, so the scheduler never starts them: a child whose start runs isn't
+        // taken back, and the test is about never-started ones.
+        let Reply::Ticket(closed) = send(
+            &h,
+            create(Default::default(), "Search schema", Some(epic.clone())),
+        )
+        .await
+        else {
+            panic!("no closed child");
+        };
+        let closed = closed.key.to_string();
+        for child in &children {
+            send(
+                &h,
+                Request::DepAdd(otaq_core::protocol::DepParams {
+                    child: child.clone(),
+                    parent: closed.clone(),
+                }),
+            )
+            .await;
+        }
+        send(
+            &h,
+            Request::TicketClose(otaq_core::protocol::CloseParams {
+                key: closed,
+                confirm: true,
+            }),
+        )
+        .await;
         let column = |key: String| {
             let h = &h;
             async move {
