@@ -7,6 +7,7 @@ import type { OnboardingStart } from "../../generated/OnboardingStart";
 import type { ServiceConnection } from "../../generated/ServiceConnection";
 import { pageEvents, watchConnection } from "../../service";
 import { request } from "../../tauri";
+import { filesDropped } from "../../terminal/drops";
 import { AddProjectDialog } from "./AddProjectDialog";
 import { folderDropped } from "./drops";
 import { OnboardingOverlay } from "./Onboarding";
@@ -48,6 +49,7 @@ export const onboarding: Screen = (app) => {
   app.overlays.register("usage_data", { Component: UsageDataOverlay });
   openOnboardingWhenNeeded();
   pageEvents.listen((event) => {
-    if (event.kind === "folder_dropped") folderDropped(event.path);
+    // On a terminal the paths are pasted into it (d0099); elsewhere the first one is a folder for Add project.
+    if (event.kind === "files_dropped") filesDropped(event, folderDropped);
   });
 };

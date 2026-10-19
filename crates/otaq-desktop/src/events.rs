@@ -33,8 +33,15 @@ pub enum PageEvent {
     Connection { connection: Connection },
     /// The banner rows or the toasts changed (T-0231).
     Notices { notices: NoticesView },
-    /// A folder was dropped on the window: Add project opens with it (T-0233).
-    FolderDropped { path: String },
+    /// Files were dropped on the window at `x`, `y` (CSS pixels, from the page's top left; T-0233, T-0388, d0099).
+    /// Over a terminal that takes typing it gets `paste` (the paths quoted as Terminal.app does); over one that
+    /// doesn't nothing happens; anywhere else Add project opens with the first path.
+    FilesDropped {
+        paths: Vec<String>,
+        paste: String,
+        x: f64,
+        y: f64,
+    },
 }
 
 impl PageEvent {
@@ -104,6 +111,21 @@ mod tests {
                 "second \"service\"",
                 "first \"connection\""
             ]
+        );
+    }
+
+    #[test]
+    fn dropped_files_carry_their_paths_the_paste_and_the_point() {
+        let event = PageEvent::FilesDropped {
+            paths: vec!["/tmp/a b.png".into(), "/tmp/c".into()],
+            paste: r"/tmp/a\ b.png /tmp/c ".into(),
+            x: 120.5,
+            y: 48.0,
+        };
+        assert_eq!(
+            serde_json::to_value(event).unwrap(),
+            json!({"kind": "files_dropped", "paths": ["/tmp/a b.png", "/tmp/c"],
+                   "paste": r"/tmp/a\ b.png /tmp/c ", "x": 120.5, "y": 48.0})
         );
     }
 
