@@ -1,0 +1,35 @@
+---
+import "../styles/fonts.css";
+import "../styles/tokens.css";
+
+// Every page's <head>: the title and description as drawn on the canvas (Main.dc.html), the app icon as favicon.
+const title = "Otaq — Run your coding agents from one board";
+const description =
+  "Tell the Project agent what you need, or have it import your issues with your own skill. It plans the tickets, coding agents work them in their own git worktrees, and a second agent checks every change. You answer questions and approve diffs. Nothing merges until you say so.";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>
+
+<style is:global>
+  html,
+  body {
+    background: var(--bg-app);
+  }
+  body {
+    margin: 0;
+  }
+</style>

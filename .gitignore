@@ -4,3 +4,8 @@
 
 # macOS
 .DS_Store
+
+# Website (website/)
+website/node_modules/
+website/dist/
+website/.astro/
