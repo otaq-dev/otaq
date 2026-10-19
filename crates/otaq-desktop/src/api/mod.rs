@@ -159,6 +159,7 @@ areas! {
     theme,
     window,
     keymap,
+    keyboard,
     layout,
     terminal,
     gallery,

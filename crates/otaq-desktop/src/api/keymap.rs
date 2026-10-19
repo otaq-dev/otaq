@@ -2,9 +2,11 @@
 //! again on every `settings_changed` event (as the theme is), so a key changed in Settings applies at once.
 
 use otaq_core::naming;
+use otaq_core::board::settings::KeyboardSettings;
 use otaq_view::keymap::{
     self, ActionInfo, Binding, CustomKeys, Modifiers, Platform, TerminalBinding,
 };
+use otaq_view::keymap_edit;
 use serde::Serialize;
 use serde_json::Value;
 use ts_rs::TS;
@@ -12,16 +14,17 @@ use ts_rs::TS;
 use super::{RequestError, reply, unknown};
 use crate::App;
 
-pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, RequestError> {
+pub async fn request(app: &App, method: &str, _params: Value) -> Result<Value, RequestError> {
     match method {
-        // The custom keys and the letters switch come from the settings with T-0390; until then the base map,
-        // letters on.
-        "keymap.map" => reply(&Keymap::new(
-            Platform::current(),
-            &CustomKeys::default(),
-            true,
-            key_log(),
-        )),
+        "keymap.map" => {
+            // The stored custom keys and letters switch (T-0390). Without the service the base map, letters on,
+            // until the page asks again on the reconnect's resync.
+            let keyboard = super::keyboard::global_settings(app)
+                .await
+                .map(|s| s.keyboard)
+                .unwrap_or_default();
+            reply(&Keymap::stored(Platform::current(), &keyboard, key_log()))
+        }
         _ => Err(unknown(method)),
     }
 }
@@ -57,6 +60,16 @@ impl Keymap {
             terminal_keys: keymap::terminal_bindings(platform),
             log,
         }
+    }
+
+    /// The map for the stored keyboard settings.
+    pub fn stored(platform: Platform, keyboard: &KeyboardSettings, log: bool) -> Self {
+        Self::new(
+            platform,
+            &keymap_edit::custom_keys(keyboard),
+            keyboard.letters,
+            log,
+        )
     }
 }
 

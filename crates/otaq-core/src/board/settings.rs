@@ -469,6 +469,8 @@ pub struct GlobalSettings {
     pub description_source_mode: bool,
     /// Anonymous usage data (d0085): asked once, after first run; nothing is ever sent unless the answer was yes.
     pub usage_data: UsageData,
+    /// The single-letter switch and the user's custom shortcuts (d0097, KEY-02, KEY-04): global, not per project.
+    pub keyboard: KeyboardSettings,
 }
 
 /// The terminal font size when none is set.
@@ -494,6 +496,7 @@ impl Default for GlobalSettings {
             terminal_renderer: TerminalRenderer::default(),
             description_source_mode: false,
             usage_data: UsageData::NotAsked,
+            keyboard: KeyboardSettings::default(),
         }
     }
 }
@@ -572,6 +575,56 @@ impl UsageData {
     pub fn sends(self) -> bool {
         self == Self::On
     }
+}
+
+/// The keyboard settings (d0097): the single-letter switch (KEY-02) and the user's changes to the base map (KEY-04).
+/// The core only stores them; the map, and the checks an edit goes through before it is stored, are `otaq-view`'s
+/// (`keymap_edit`), which also drops a change naming an action or key it doesn't know.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct KeyboardSettings {
+    /// Single letters and `g` sequences, built-in and custom, run (KEY-02). On by default.
+    pub letters: bool,
+    /// One per changed key, in the order they were made. A change that can't be read is left out, keeping the others.
+    #[serde(deserialize_with = "readable_changes")]
+    pub changes: Vec<KeyboardChange>,
+}
+
+impl Default for KeyboardSettings {
+    fn default() -> Self {
+        Self {
+            letters: true,
+            changes: Vec::new(),
+        }
+    }
+}
+
+/// One changed key of an action (d0097: each key is changed on its own).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyboardChange {
+    /// The action's name as the map writes it (`new_ticket`, `project`).
+    pub action: String,
+    /// Project 1–9's and Switch panel tab 1–6's number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<u8>,
+    /// Which of the action's keys: its index in the base map, or past them for a key the user added.
+    pub slot: u8,
+    /// The new key as the map writes it ("⌘J", "Ctrl+R", "n", "g p"); `None`: the key was removed.
+    pub key: Option<String>,
+    /// "Works inside terminals" (d0097).
+    #[serde(default)]
+    pub works_in_terminals: bool,
+}
+
+/// The stored changes, skipping any entry that isn't a change.
+fn readable_changes<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<KeyboardChange>, D::Error> {
+    let values = Vec::<Value>::deserialize(deserializer)?;
+    Ok(values
+        .into_iter()
+        .filter_map(|v| serde_json::from_value(v).ok())
+        .collect())
 }
 
 /// The terminal renderer: xterm.js's two (UIT-05). WebGL draws on the GPU and keeps the CPU low; DOM draws with the
@@ -1493,6 +1546,63 @@ mod tests {
         let settings: GlobalSettings =
             read_or_default(serde_json::json!({"description_source_mode": true}));
         assert!(settings.description_source_mode);
+    }
+
+    /// KEY-02, KEY-04: letters on and no changes by default, also for settings stored before the field existed; a
+    /// stored change that can't be read is left out, keeping the others and the switch.
+    #[test]
+    fn the_keyboard_has_letters_on_and_no_changes_until_changed() {
+        let fresh = GlobalSettings::default().keyboard;
+        assert!(fresh.letters);
+        assert!(fresh.changes.is_empty());
+        let old: GlobalSettings = read_or_default(serde_json::json!({"terminal_font_size": 15}));
+        assert_eq!(old.keyboard, KeyboardSettings::default());
+        assert_eq!(old.terminal_font_size, 15);
+
+        let stored: GlobalSettings = read_or_default(serde_json::json!({"keyboard": {
+            "letters": false,
+            "changes": [
+                {"action": "open_activity", "slot": 0, "key": "⌘J"},
+                {"action": "new_ticket", "slot": "one", "key": "n"},
+                "nonsense",
+                {"action": "next_inbox_item", "slot": 0, "key": null, "works_in_terminals": false},
+                {"action": "project", "number": 3, "slot": 0, "key": "⌃3", "works_in_terminals": true},
+            ],
+        }}));
+        let keyboard = stored.keyboard;
+        assert!(!keyboard.letters);
+        assert_eq!(
+            keyboard.changes,
+            [
+                KeyboardChange {
+                    action: "open_activity".into(),
+                    number: None,
+                    slot: 0,
+                    key: Some("⌘J".into()),
+                    works_in_terminals: false,
+                },
+                KeyboardChange {
+                    action: "next_inbox_item".into(),
+                    number: None,
+                    slot: 0,
+                    key: None,
+                    works_in_terminals: false,
+                },
+                KeyboardChange {
+                    action: "project".into(),
+                    number: Some(3),
+                    slot: 0,
+                    key: Some("⌃3".into()),
+                    works_in_terminals: true,
+                },
+            ]
+        );
+        // A keyboard value that isn't one keeps the defaults; the round trip keeps everything.
+        let broken: GlobalSettings = read_or_default(serde_json::json!({"keyboard": 7}));
+        assert_eq!(broken.keyboard, KeyboardSettings::default());
+        let back: KeyboardSettings =
+            serde_json::from_value(serde_json::to_value(&keyboard).unwrap()).unwrap();
+        assert_eq!(back, keyboard);
     }
 
     #[test]

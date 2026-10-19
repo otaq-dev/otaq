@@ -37,6 +37,9 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::window::Action::export_all(&cfg)?;
     // Also writes `KeyBinding`, `Key`, `Keystroke`, `KeyPlace`, `KeyPlatform`, `KeyActionInfo` and `KeyGroup`.
     crate::api::Keymap::export_all(&cfg)?;
+    // Custom shortcuts' edits and answers (T-0390, KEY-04).
+    otaq_view::keymap_edit::KeyEdit::export_all(&cfg)?;
+    otaq_view::keymap_edit::KeyEditAnswer::export_all(&cfg)?;
     // Also writes `SizeClass`, `SizeClassBound`, `ClassWidths`, `MainTab` and `MainTabView`.
     otaq_view::view_models::layout::View::export_all(&cfg)?;
     crate::terminal::Feed::export_all(&cfg)?;
