@@ -2,11 +2,16 @@
 //! edit, checks it (`otaq_view::keymap_edit`: taken, refused, the warning) and stores it only when it is done; the
 //! service then announces `settings_changed`, on which the page asks for `keymap.map` again. The answer says what
 //! the Settings page shows in place: done (with how many keys are changed), the question, the reason or the warning.
+//! Settings → Keyboard shortcuts (T-0395) also asks for its page (`keyboard.view`), records a pressed key as the
+//! map's text (`keyboard.record`, so the page never formats one) and resets a row's keys at once
+//! (`keyboard.reset_row`); each stores only when done, as `keyboard.edit` does.
 
 use otaq_core::board::settings::GlobalSettings;
 use otaq_core::protocol::{Reply, Request};
 use otaq_view::keymap::Platform;
 use otaq_view::keymap_edit::{self, KeyEdit, KeyEditAnswer};
+use otaq_view::view_models::keyboard_page::{self, KeySlot, Press, RecordAnswer};
+use serde::Deserialize;
 use serde_json::Value;
 
 use super::{RequestError, reply, unknown};
@@ -18,6 +23,18 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             let edit: KeyEdit =
                 serde_json::from_value(params).map_err(|e| RequestError::plain(e.to_string()))?;
             reply(&edit_keys(app, Platform::current(), &edit).await?)
+        }
+        "keyboard.view" => reply(&keyboard_page::page(
+            Platform::current(),
+            &global_settings(app).await?.keyboard,
+        )),
+        "keyboard.record" => {
+            let p: RecordParams = parse(params)?;
+            reply(&record(app, Platform::current(), &p).await?)
+        }
+        "keyboard.reset_row" => {
+            let p: ResetRowParams = parse(params)?;
+            reply(&reset_row(app, Platform::current(), &p).await?)
         }
         _ => Err(unknown(method)),
     }
@@ -32,6 +49,53 @@ pub async fn global_settings(app: &App) -> Result<GlobalSettings, RequestError> 
             "unexpected answer to settings.get: {other:?}"
         ))),
     }
+}
+
+fn parse<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, RequestError> {
+    serde_json::from_value(params).map_err(|e| RequestError::plain(e.to_string()))
+}
+
+/// `keyboard.record`: a key pressed while a cell records, `after_g` when it follows a lone `g`.
+#[derive(Deserialize)]
+struct RecordParams {
+    #[serde(flatten)]
+    slot: KeySlot,
+    #[serde(flatten)]
+    press: Press,
+    #[serde(default)]
+    after_g: bool,
+}
+
+/// `keyboard.reset_row`: the row's changed keys; `confirmed` once the user said "Use here".
+#[derive(Deserialize)]
+struct ResetRowParams {
+    keys: Vec<KeySlot>,
+    #[serde(default)]
+    confirmed: bool,
+}
+
+async fn store(app: &App, keyboard: Option<otaq_core::board::settings::KeyboardSettings>) -> Result<(), RequestError> {
+    if let Some(keyboard) = keyboard {
+        let mut settings = global_settings(app).await?;
+        settings.keyboard = keyboard;
+        app.service.send(Request::SettingsSet(settings)).await?;
+    }
+    Ok(())
+}
+
+async fn record(app: &App, platform: Platform, p: &RecordParams) -> Result<RecordAnswer, RequestError> {
+    let stored = global_settings(app).await?.keyboard;
+    let (answer, keyboard) = keyboard_page::record(platform, &stored, p.slot, &p.press, p.after_g)
+        .map_err(RequestError::plain)?;
+    store(app, keyboard).await?;
+    Ok(answer)
+}
+
+async fn reset_row(app: &App, platform: Platform, p: &ResetRowParams) -> Result<KeyEditAnswer, RequestError> {
+    let stored = global_settings(app).await?.keyboard;
+    let edited = keyboard_page::reset_row(platform, &stored, &p.keys, p.confirmed).map_err(RequestError::plain)?;
+    store(app, edited.store).await?;
+    Ok(edited.answer)
 }
 
 async fn edit_keys(
@@ -163,6 +227,80 @@ mod tests {
             .is_err()
         );
         assert!(request(&h.app, "keyboard.nothing", Value::Null).await.is_err());
+        h.service.stop_all().await;
+    }
+
+    /// The Settings page's own requests (T-0395): the page, a pressed key recorded as the map's text (a lone `g`
+    /// waits, `g` then `p` is stored), a taken key asks, a row's reset gives the key back.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_page_records_a_pressed_key_and_resets_a_row() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let mac = Platform::current() == Platform::Mac;
+        let page = request(&h.app, "keyboard.view", Value::Null).await.unwrap();
+        assert_eq!(page["reset_all"]["enabled"], false);
+        assert_eq!(page["letters"]["on"], true);
+
+        let park = json!({ "action": { "action": "park" }, "slot": 0 });
+        let press = |key: &str, code: &str, platform: bool, after_g: bool| {
+            let mut p = park.clone();
+            p["key"] = json!(key);
+            p["code"] = json!(code);
+            p["modifiers"] = json!({
+                "control": false, "alt": false, "shift": false, "platform": platform, "function": false,
+            });
+            p["after_g"] = json!(after_g);
+            p
+        };
+        let g = request(&h.app, "keyboard.record", press("g", "KeyG", false, false))
+            .await
+            .unwrap();
+        assert_eq!(g, json!({ "outcome": "then_letter" }));
+        let gp = request(&h.app, "keyboard.record", press("p", "KeyP", false, true))
+            .await
+            .unwrap();
+        assert_eq!(
+            gp,
+            json!({ "outcome": "edited", "key": "g p", "answer": { "outcome": "done", "changed": 1 } })
+        );
+        h.wait_for_event("settings_changed", settings_changed).await;
+        let page = request(&h.app, "keyboard.view", Value::Null).await.unwrap();
+        assert_eq!(page["reset_all"]["enabled"], true);
+
+        // Activity ⌘J / Ctrl+J: the question; Use here through `keyboard.edit`; Next inbox item's reset asks back.
+        let mut activity = press("j", "KeyJ", mac, false);
+        activity["action"] = json!({ "action": "open_activity" });
+        if !mac {
+            activity["modifiers"]["control"] = json!(true);
+        }
+        let asked = request(&h.app, "keyboard.record", activity).await.unwrap();
+        assert_eq!(asked["outcome"], "edited");
+        assert_eq!(asked["answer"]["outcome"], "taken");
+        let key = asked["key"].clone();
+        request(
+            &h.app,
+            "keyboard.edit",
+            json!({ "edit": "record", "action": { "action": "open_activity" }, "slot": 0, "key": key, "confirmed": true }),
+        )
+        .await
+        .unwrap();
+        let back = json!({ "keys": [{ "action": { "action": "next_inbox_item" }, "slot": 0 }] });
+        let taken = request(&h.app, "keyboard.reset_row", back.clone()).await.unwrap();
+        assert_eq!(taken["outcome"], "taken");
+        let mut confirmed = back;
+        confirmed["confirmed"] = json!(true);
+        let done = request(&h.app, "keyboard.reset_row", confirmed).await.unwrap();
+        assert_eq!(done["outcome"], "done");
+        let map = request(&h.app, "keymap.map", Value::Null).await.unwrap();
+        assert_eq!(
+            texts(&map, json!({ "action": "next_inbox_item" })),
+            [key.as_str().unwrap()]
+        );
+        assert!(
+            request(&h.app, "keyboard.reset_row", json!({ "keys": [] }))
+                .await
+                .is_err()
+        );
         h.service.stop_all().await;
     }
 }

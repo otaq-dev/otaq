@@ -92,6 +92,8 @@ pub enum GlobalSection {
     Notifications,
     Data,
     Appearance,
+    /// M29, T-0395: custom shortcuts and the single-letter switch, drawn from `keyboard.view` ([`super::keyboard_page`]).
+    KeyboardShortcuts,
     Tools,
     /// The last one: the mark, version, licenses and credits (d0071).
     About,
@@ -659,7 +661,7 @@ pub struct WarmInputs<'a> {
 }
 
 /// The global sections, in nav order.
-const DRAWN: [GlobalSection; 13] = [
+const DRAWN: [GlobalSection; 14] = [
     GlobalSection::AgentTools,
     GlobalSection::Agents,
     GlobalSection::AgentLimits,
@@ -671,6 +673,7 @@ const DRAWN: [GlobalSection; 13] = [
     GlobalSection::Notifications,
     GlobalSection::Data,
     GlobalSection::Appearance,
+    GlobalSection::KeyboardShortcuts,
     GlobalSection::Tools,
     GlobalSection::About,
 ];
@@ -729,6 +732,7 @@ fn nav_label(id: GlobalSection) -> (&'static str, IconName) {
         GlobalSection::Notifications => shared(4),
         GlobalSection::Data => shared(5),
         GlobalSection::Appearance => shared(6),
+        GlobalSection::KeyboardShortcuts => ("Keyboard shortcuts", IconName::Keyboard),
         GlobalSection::Tools => shared(7),
         GlobalSection::About => ("About", IconName::Info),
     }
@@ -1153,6 +1157,12 @@ pub fn global_page(input: &GlobalInputs) -> Page {
             notifications,
             data,
             appearance,
+            // Its own view: the switch and every action's keys ([`super::keyboard_page`]).
+            section(
+                GlobalSection::KeyboardShortcuts,
+                Some("Keyboard shortcuts"),
+                Vec::new(),
+            ),
             tools,
             section(
                 GlobalSection::About,
@@ -3431,7 +3441,7 @@ mod tests {
             &["BILL".into()],
         )
         .nav;
-        assert_eq!(nav.len(), 12);
+        assert_eq!(nav.len(), 13);
         // Agent tools first, then Agents (M22, `bVdGw`; M23, `bGHVl`).
         assert_eq!(
             (nav[0].label.as_str(), nav[0].icon),
@@ -3470,13 +3480,19 @@ mod tests {
             ("Project agents", IconName::Bot)
         );
         assert_eq!(nav[5].label, "Usage");
+        // Keyboard shortcuts after Appearance (M29, T-0395; design `s15-46`).
+        assert_eq!(nav[8].label, "Appearance");
+        assert_eq!(
+            (nav[9].label.as_str(), nav[9].icon),
+            ("Keyboard shortcuts", IconName::Keyboard)
+        );
         // About is the last global row (d0071).
         assert_eq!(
-            (nav[10].label.as_str(), nav[10].icon),
+            (nav[11].label.as_str(), nav[11].icon),
             ("About", IconName::Info)
         );
-        assert_eq!(nav[11].target, Target::Project { key: "BILL".into() });
-        assert!(nav[11].alert);
+        assert_eq!(nav[12].target, Target::Project { key: "BILL".into() });
+        assert!(nav[12].alert);
     }
 
     // ---- Settings → Workflow skills (T-0380; WSK-01, WSK-02, WSK-04, WSK-07; *15 → update AC*) ----

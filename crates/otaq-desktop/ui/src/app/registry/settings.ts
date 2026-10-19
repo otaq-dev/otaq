@@ -30,6 +30,8 @@ export const GLOBAL_SECTIONS = every<GlobalSectionId>()([
   "notifications",
   "data",
   "appearance",
+  /** M29: custom shortcuts and the single-letter switch (T-0395). */
+  "keyboard_shortcuts",
   "tools",
   /** The last one: Settings → About (d0071). */
   "about",

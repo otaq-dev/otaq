@@ -90,6 +90,7 @@ import type { TrustGallery } from "../../generated/TrustGallery";
 import type { NotificationsGallery } from "../../generated/NotificationsGallery";
 import type { SettingsSkillDialog } from "../../generated/SettingsSkillDialog";
 import type { WorkflowSkillsGallery } from "../../generated/WorkflowSkillsGallery";
+import type { ShortcutsGallery } from "../../generated/ShortcutsGallery";
 import type { OptionNotesGallery } from "../../generated/OptionNotesGallery";
 import type { InboxView } from "../../generated/InboxView";
 import {
@@ -128,6 +129,7 @@ import { EnvVarsRow } from "../settings/EnvVars";
 import { AgentsSectionBody, ProjectAgentsBody } from "../settings/Agents";
 import { AgentDeleteDialogView, AgentDialog } from "../settings/AgentDialog";
 import { AgentToolsPageBody, DisconnectDialogView } from "../settings/AgentTools";
+import { type ShortcutsCalls, ShortcutsView } from "../settings/Keyboard";
 import {
   Section as SettingsSectionRows,
   SkillDialogView,
@@ -2267,6 +2269,63 @@ function WorkflowSkillsGallerySection() {
   );
 }
 
+const loadShortcuts = () => request("gallery.keyboard_page") as Promise<ShortcutsGallery>;
+
+/** T-0395 (KEY-05, KEY-04; d0097; *15 · Keyboard shortcuts* `s15-46`…`s15-55`): Settings → Keyboard shortcuts in
+ * every frame, macOS and Windows / Linux, from `gallery.keyboard_page`, in Otaq Light and Dark. Clicks and pressed
+ * keys are only recorded; nothing is saved. */
+function ShortcutsGallerySection() {
+  const { view, error } = useServiceView(loadShortcuts, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const calls: ShortcutsCalls = {
+    record: (slot, press) => {
+      setPicked(`record ${JSON.stringify(slot.action)} ${String(slot.slot)} ${press.key}`);
+      return Promise.resolve({ outcome: "ignored" });
+    },
+    edit: (edit) => {
+      setPicked(JSON.stringify(edit));
+      return Promise.resolve({ outcome: "done", changed: 0 });
+    },
+    resetRow: (keys) => {
+      setPicked(`reset ${JSON.stringify(keys)}`);
+      return Promise.resolve({ outcome: "done", changed: 0 });
+    },
+  };
+  return (
+    <Section title="15 · Settings → Keyboard shortcuts: defaults, changed, letters off, recording, taken, refused, Windows / Linux (T-0395)">
+      <Caption>Last click: {picked ?? "—"}</Caption>
+      <div className="gallery-two">
+        {THEMES.map((theme) => (
+          <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+            <Caption>{theme.toUpperCase()}</Caption>
+            {view.cells.map((cell) => (
+              <div
+                key={cell.name}
+                className="gallery-stack-tight"
+                data-cell={cell.name}
+                style={{ padding: "0 24px 14px", borderRadius: 10, background: "var(--bg-panel)" }}
+              >
+                <Caption>
+                  {cell.name.toUpperCase()} · {cell.note}
+                </Caption>
+                <ShortcutsView
+                  page={cell.page}
+                  calls={calls}
+                  moment={cell.moment}
+                  rows={cell.rows.length === 0 ? undefined : cell.rows}
+                  header={cell.header}
+                />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 function TrustSection() {
   const { view, error } = useServiceView(loadTrust, []);
   if (error) return <p role="alert">{error.message}</p>;
@@ -2604,6 +2663,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <TrustSection />
         <NotificationsGallerySection />
         <WorkflowSkillsGallerySection />
+        <ShortcutsGallerySection />
         <AgentToolsGallerySection />
         <OnboardingToolsGallerySection />
         <BoardReviewSection />

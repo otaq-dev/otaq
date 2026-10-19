@@ -1,12 +1,13 @@
 // Area 15 · Settings (T-0234): the Settings overlay (⌘,), and the global and project sections it draws, one
 // registered component per section id (T-0240 registered Validation & Auto-merge and the Project agent instructions;
-// T-0365 Agent tools).
+// T-0365 Agent tools; T-0395 Keyboard shortcuts).
 import { openOverlay } from "../../app/overlays";
 import type { Screen } from "../../app/registry";
 import type { GlobalSection, ProjectSection } from "../../app/registry";
 import { AboutSection } from "./About";
 import { AgentsSection, ProjectAgents } from "./Agents";
 import { AgentToolsSection } from "./AgentTools";
+import { KeyboardSection } from "./Keyboard";
 import { sectionComponent } from "./Rows";
 import { Settings } from "./Settings";
 import "./settings.css";
@@ -24,6 +25,7 @@ export const GLOBAL: readonly GlobalSection[] = [
   "notifications",
   "data",
   "appearance",
+  "keyboard_shortcuts",
   "tools",
   "about",
 ];
@@ -50,7 +52,9 @@ export const settings: Screen = (app) => {
         ? AgentsSection
         : id === "agent_tools"
           ? AgentToolsSection
-          : sectionComponent(id);
+          : id === "keyboard_shortcuts"
+            ? KeyboardSection
+            : sectionComponent(id);
   for (const id of GLOBAL) app.settings.global.register(id, { Component: globalComponent(id) });
   for (const id of PROJECT)
     app.settings.project.register(id, { Component: id === "agents" ? ProjectAgents : sectionComponent(id) });
