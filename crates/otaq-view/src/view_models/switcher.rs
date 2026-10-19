@@ -26,11 +26,11 @@ pub const RAIL_WIDTH: u32 = 64;
 #[ts(rename = "RailButton")]
 pub struct RailButton {
     pub label: &'static str,
-    /// "⇧⌘T" on this platform.
+    /// "⌃`" on this platform.
     pub keys: Option<String>,
 }
 
-/// The rail's bottom after Cleanup (which keeps its own view, `shell.cleanup`): Terminals (⇧⌘T, the drawer on the
+/// The rail's bottom after Cleanup (which keeps its own view, `shell.cleanup`): Terminals (⌃`, the drawer on the
 /// last-used Project terminal; no dot: agents that wait show in the pane and the inbox) and Settings (⌘,).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "RailBottom")]
@@ -45,7 +45,7 @@ pub fn bottom(platform: Platform) -> RailBottom {
         keys: action.keys(platform),
     };
     RailBottom {
-        terminals: button("Terminals", KeyAction::ProjectTerminal),
+        terminals: button("Terminals", KeyAction::Terminals),
         settings: button("Settings", KeyAction::Settings),
     }
 }
@@ -305,7 +305,7 @@ mod tests {
     fn the_rail_ends_with_terminals_and_settings() {
         let mac = bottom(Platform::Mac);
         assert_eq!(mac.terminals.label, "Terminals");
-        assert_eq!(mac.terminals.keys.as_deref(), Some("⇧⌘T"));
+        assert_eq!(mac.terminals.keys.as_deref(), Some("⌃`"));
         assert_eq!(mac.settings.label, "Settings");
         assert_eq!(mac.settings.keys.as_deref(), Some("⌘,"));
         assert_eq!(

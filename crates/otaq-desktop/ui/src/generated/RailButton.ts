@@ -5,6 +5,6 @@
  */
 export type RailButton = { label: string, 
 /**
- * "⇧⌘T" on this platform.
+ * "⌃`" on this platform.
  */
 keys: string | null, };

@@ -211,7 +211,7 @@ fn header_view(
                 repo_path: p.repo_path.clone(),
                 copy_path: "Copy path",
             }),
-        search: Hint::new(search_page::PLACEHOLDER, KeyAction::Search),
+        search: Hint::new(search_page::PLACEHOLDER, KeyAction::FilterBoard),
         activity: activity::button(activity, Platform::current()),
         inbox: inbox::header_button(inbox_total),
         inbox_hint: Hint::new("Inbox", KeyAction::OpenInbox),

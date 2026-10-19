@@ -69,6 +69,8 @@ describe("the terminal's state", () => {
     const map: Keymap = {
       platform: "win_linux",
       log: false,
+      letters: true,
+      actions: [],
       bindings: [],
       terminal_app_modifiers: [],
       terminal_keys: [
@@ -93,6 +95,8 @@ describe("the terminal's state", () => {
     const map: Keymap = {
       platform: "mac",
       log: false,
+      letters: true,
+      actions: [],
       bindings: [],
       terminal_app_modifiers: [],
       terminal_keys: [

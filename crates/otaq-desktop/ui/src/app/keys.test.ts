@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { KeyAction } from "../generated/KeyAction";
 import type { KeyBinding } from "../generated/KeyBinding";
+import type { KeyPlace } from "../generated/KeyPlace";
 import type { Keymap } from "../generated/Keymap";
 import type { KeyModifiers } from "../generated/KeyModifiers";
 import {
@@ -28,41 +29,65 @@ function bind(
   key: string,
   code: string,
   modifiers: KeyModifiers,
-  inTerminal = false,
+  place: KeyPlace = "outside_terminals",
 ) {
-  return { action, text, keystroke: { key, code, modifiers }, in_terminal: inTerminal } satisfies KeyBinding;
+  return {
+    action,
+    slot: 0,
+    text,
+    key: { kind: "stroke", stroke: { key, code, modifiers } },
+    place,
+    custom: false,
+  } satisfies KeyBinding;
 }
+
+const EVERYWHERE = "everywhere";
+const INSIDE = "inside_terminals";
 
 const MAC: Keymap = {
   platform: "mac",
   log: false,
+  letters: true,
+  actions: [],
   terminal_keys: [],
   terminal_app_modifiers: [CMD],
   bindings: [
-    bind({ action: "search" }, "⌘K", "k", "KeyK", CMD),
-    bind({ action: "switch_project" }, "⌘P", "p", "KeyP", CMD),
-    bind({ action: "open_inbox" }, "⇧⌘I", "i", "KeyI", { ...CMD, shift: true }),
-    bind({ action: "leave_terminal" }, "⇧⌘`", "`", "Backquote", { ...CMD, shift: true }),
-    bind({ action: "switch_tab", number: 1 }, "⌘⌥1", "1", "Digit1", { ...CMD, alt: true }),
+    bind({ action: "command_palette" }, "⌘K", "k", "KeyK", CMD, EVERYWHERE),
+    bind({ action: "switch_project" }, "⌘P", "p", "KeyP", CMD, EVERYWHERE),
+    bind({ action: "open_inbox" }, "⇧⌘I", "i", "KeyI", { ...CMD, shift: true }, EVERYWHERE),
+    bind({ action: "terminals" }, "⌃`", "`", "Backquote", CTRL, EVERYWHERE),
+    bind({ action: "next_tab" }, "⌃Tab", "Tab", "Tab", CTRL, EVERYWHERE),
+    bind({ action: "project", number: 1 }, "⌘1", "1", "Digit1", CMD, EVERYWHERE),
     bind({ action: "open_panel" }, "↵", "Enter", "Enter", NONE),
     bind({ action: "close_panel" }, "Esc", "Escape", "Escape", NONE),
-    bind({ action: "send_back" }, "⌘⌫", "Backspace", "Backspace", CMD),
-    bind({ action: "find_in_terminal" }, "⌘F", "f", "KeyF", CMD),
+    bind({ action: "send_back" }, "⌘⌫", "Backspace", "Backspace", CMD, EVERYWHERE),
+    bind({ action: "find_in_terminal" }, "⌘F", "f", "KeyF", CMD, EVERYWHERE),
+    // A single letter: the dispatcher leaves it alone until T-0391.
+    {
+      action: { action: "next_ticket" },
+      slot: 1,
+      text: "j",
+      key: { kind: "letter", letter: "j" },
+      place: "outside_terminals",
+      custom: false,
+    },
   ],
 };
 
 const WIN: Keymap = {
   platform: "win_linux",
   log: false,
+  letters: true,
+  actions: [],
   terminal_keys: [],
   terminal_app_modifiers: [CTRL_SHIFT, { ...NONE, platform: true }],
   bindings: [
-    bind({ action: "search" }, "Ctrl+K", "k", "KeyK", CTRL),
-    bind({ action: "switch_project" }, "Ctrl+P", "p", "KeyP", CTRL),
-    bind({ action: "leave_terminal" }, "Ctrl+Shift+`", "`", "Backquote", CTRL_SHIFT),
-    bind({ action: "search" }, "Ctrl+Shift+K", "k", "KeyK", CTRL_SHIFT, true),
-    bind({ action: "leave_terminal" }, "Ctrl+Shift+`", "`", "Backquote", CTRL_SHIFT, true),
-    bind({ action: "find_in_terminal" }, "Ctrl+Shift+F", "f", "KeyF", CTRL_SHIFT, true),
+    bind({ action: "command_palette" }, "Ctrl+K", "k", "KeyK", CTRL, EVERYWHERE),
+    bind({ action: "switch_project" }, "Ctrl+P", "p", "KeyP", CTRL, EVERYWHERE),
+    bind({ action: "terminals" }, "Ctrl+`", "`", "Backquote", CTRL, EVERYWHERE),
+    bind({ action: "new_ticket" }, "Ctrl+N", "n", "KeyN", CTRL),
+    bind({ action: "new_ticket" }, "Ctrl+Shift+N", "n", "KeyN", CTRL_SHIFT, INSIDE),
+    bind({ action: "find_in_terminal" }, "Ctrl+Shift+F", "f", "KeyF", CTRL_SHIFT, INSIDE),
   ],
 };
 
@@ -92,27 +117,33 @@ function setup(map: Keymap | undefined, handled: KeyAction["action"][] = []) {
 
 describe("the key dispatcher on the board", () => {
   it("runs the handler of the bound action and stops the key", () => {
-    const { d, ran } = setup(MAC, ["search"]);
+    const { d, ran } = setup(MAC, ["command_palette"]);
     const outcome = dispatchKey(d, key("k", "KeyK", { metaKey: true }), BOARD);
-    expect(outcome).toEqual({ kind: "ran", action: { action: "search" } });
+    expect(outcome).toEqual({ kind: "ran", action: { action: "command_palette" } });
     expect(stopsEvent(outcome)).toBe(true);
-    expect(ran).toEqual(["search"]);
+    expect(ran).toEqual(["command_palette"]);
   });
 
   it("matches letters by layout and digits by physical key", () => {
-    const { d, ran } = setup(MAC, ["search", "switch_tab"]);
+    const { d, ran } = setup(MAC, ["command_palette", "project"]);
     // Dvorak: the key that types k is where QWERTY has V.
     dispatchKey(d, key("k", "KeyV", { metaKey: true }), BOARD);
-    // ⌘⌥1 types ¡.
-    const tab = dispatchKey(d, key("¡", "Digit1", { metaKey: true, altKey: true }), BOARD);
-    expect(tab).toEqual({ kind: "ran", action: { action: "switch_tab", number: 1 } });
+    // AZERTY types & on the 1 key.
+    const project = dispatchKey(d, key("&", "Digit1", { metaKey: true }), BOARD);
+    expect(project).toEqual({ kind: "ran", action: { action: "project", number: 1 } });
     // A Cyrillic layout types л on K's key.
     dispatchKey(d, key("л", "KeyK", { metaKey: true }), BOARD);
-    expect(ran).toEqual(["search", "switch_tab", "search"]);
+    expect(ran).toEqual(["command_palette", "project", "command_palette"]);
+  });
+
+  it("leaves single letters alone until T-0391 dispatches them", () => {
+    const { d, ran } = setup(MAC, ["next_ticket"]);
+    expect(dispatchKey(d, key("j", "KeyJ"), BOARD)).toEqual({ kind: "passed" });
+    expect(ran).toEqual([]);
   });
 
   it("needs the exact modifiers", () => {
-    const { d, ran } = setup(MAC, ["search", "open_inbox"]);
+    const { d, ran } = setup(MAC, ["command_palette", "open_inbox"]);
     expect(dispatchKey(d, key("K", "KeyK", { metaKey: true, shiftKey: true }), BOARD).kind).toBe("passed");
     expect(dispatchKey(d, key("I", "KeyI", { metaKey: true, shiftKey: true }), BOARD).kind).toBe("ran");
     expect(dispatchKey(d, key("k", "KeyK", { ctrlKey: true }), BOARD).kind).toBe("passed");
@@ -173,7 +204,7 @@ describe("the key dispatcher on the board", () => {
   });
 
   it("lets a text field keep Enter, Backspace and Esc", () => {
-    const { d, ran } = setup(MAC, ["open_panel", "close_panel", "send_back", "search"]);
+    const { d, ran } = setup(MAC, ["open_panel", "close_panel", "send_back", "command_palette"]);
     const field = {
       ...BOARD,
       focusKeeps: keysKeptBy({ tagName: "INPUT", isContentEditable: false, getAttribute: () => null }),
@@ -183,7 +214,7 @@ describe("the key dispatcher on the board", () => {
     expect(dispatchKey(d, key("Backspace", "Backspace", { metaKey: true }), field).kind).toBe("passed");
     expect(dispatchKey(d, key("k", "KeyK", { metaKey: true }), field).kind).toBe("ran");
     expect(dispatchKey(d, key("Enter", "Enter"), BOARD).kind).toBe("ran");
-    expect(ran).toEqual(["search", "open_panel"]);
+    expect(ran).toEqual(["command_palette", "open_panel"]);
   });
 
   it("leaves ⌘K / Ctrl+K to the description editor while it has the focus (d0078 D2)", () => {
@@ -200,15 +231,15 @@ describe("the key dispatcher on the board", () => {
       [MAC, { metaKey: true }],
       [WIN, { ctrlKey: true }],
     ] as const) {
-      const { d, ran } = setup(map, ["search", "switch_project"]);
+      const { d, ran } = setup(map, ["command_palette", "switch_project"]);
       const cmdK = key("k", "KeyK", mods);
       expect(dispatchKey(d, cmdK, text)).toEqual({ kind: "passed" });
       expect(dispatchKey(d, cmdK, popoverField)).toEqual({ kind: "passed" });
-      // The editor's other keys are the app's as before; read mode and the board keep ⌘K as Search.
+      // The editor's other keys are the app's as before; read mode and the board keep ⌘K as the palette.
       expect(dispatchKey(d, key("p", "KeyP", mods), text).kind).toBe("ran");
       expect(dispatchKey(d, cmdK, readMode).kind).toBe("ran");
       expect(dispatchKey(d, cmdK, BOARD).kind).toBe("ran");
-      expect(ran).toEqual(["switch_project", "search", "search"]);
+      expect(ran).toEqual(["switch_project", "command_palette", "command_palette"]);
     }
   });
 
@@ -270,7 +301,7 @@ describe("the key dispatcher on the board", () => {
   });
 
   it("holds the shortcuts back while a modal is open", () => {
-    const { d, ran } = setup(MAC, ["search"]);
+    const { d, ran } = setup(MAC, ["command_palette"]);
     const outcome = dispatchKey(d, key("k", "KeyK", { metaKey: true }), { ...BOARD, modal: true });
     expect(outcome.kind).toBe("unhandled");
     expect(stopsEvent(outcome)).toBe(true);
@@ -303,43 +334,60 @@ describe("the key dispatcher in a focused terminal", () => {
   });
 
   it("still runs the ⌘ shortcuts on a Mac, Find among them", () => {
-    const { d, ran } = setup(MAC, ["search", "switch_project", "open_inbox", "find_in_terminal"]);
+    const { d, ran } = setup(MAC, ["command_palette", "switch_project", "open_inbox", "find_in_terminal"]);
     dispatchKey(d, key("k", "KeyK", { metaKey: true }), TERMINAL);
     dispatchKey(d, key("p", "KeyP", { metaKey: true }), TERMINAL);
     dispatchKey(d, key("I", "KeyI", { metaKey: true, shiftKey: true }), TERMINAL);
     expect(dispatchKey(d, key("f", "KeyF", { metaKey: true }), TERMINAL).kind).toBe("ran");
-    expect(ran).toEqual(["search", "switch_project", "open_inbox", "find_in_terminal"]);
+    expect(ran).toEqual(["command_palette", "switch_project", "open_inbox", "find_in_terminal"]);
   });
 
-  it("leaves the terminal on ⇧⌘` when no screen handles it", () => {
-    const { d, left } = setup(MAC);
-    const outcome = dispatchKey(d, key("~", "Backquote", { metaKey: true, shiftKey: true }), TERMINAL);
-    expect(outcome).toEqual({ kind: "ran", action: { action: "leave_terminal" } });
+  it("leaves the terminal on ⌃` (Terminals), which a Mac terminal gives the app (d0097)", () => {
+    const { d, ran, left } = setup(MAC, ["terminals"]);
+    const outcome = dispatchKey(d, key("`", "Backquote", { ctrlKey: true }), TERMINAL);
+    expect(outcome).toEqual({ kind: "ran", action: { action: "terminals" } });
     expect(left()).toBe(1);
-    // Outside a terminal there's nothing to leave.
-    dispatchKey(d, key("~", "Backquote", { metaKey: true, shiftKey: true }), BOARD);
+    expect(ran).toEqual([]);
+    // Outside a terminal there's nothing to leave: its screen opens or closes the drawer.
+    dispatchKey(d, key("`", "Backquote", { ctrlKey: true }), BOARD);
     expect(left()).toBe(1);
+    expect(ran).toEqual(["terminals"]);
   });
 
-  it("gives plain Ctrl keys to the session on Windows and Linux and takes the Ctrl+Shift column", () => {
-    const { d, ran, left } = setup(WIN, ["search", "switch_project", "find_in_terminal"]);
+  it("gives the app ⌃Tab from a Mac terminal, and keeps every other ⌃ key the terminal's", () => {
+    const { d, ran } = setup(MAC, ["next_tab"]);
+    expect(dispatchKey(d, key("Tab", "Tab", { ctrlKey: true }), TERMINAL).kind).toBe("ran");
     for (const k of [
-      key("k", "KeyK", { ctrlKey: true }),
-      key("p", "KeyP", { ctrlKey: true }),
+      key("c", "KeyC", { ctrlKey: true }),
+      key("r", "KeyR", { ctrlKey: true }),
+      key("Tab", "Tab"),
+    ]) {
+      expect(dispatchKey(d, k, TERMINAL).kind, keyName(k)).toBe("terminal");
+    }
+    expect(ran).toEqual(["next_tab"]);
+  });
+
+  it("gives plain Ctrl keys to the session on Windows and Linux and takes the terminal column (d0097)", () => {
+    const { d, ran, left } = setup(WIN, ["command_palette", "new_ticket", "find_in_terminal"]);
+    for (const k of [
+      key("n", "KeyN", { ctrlKey: true }),
       key("r", "KeyR", { ctrlKey: true }),
       key("f", "KeyF", { ctrlKey: true }),
       key("Escape", "Escape"),
     ]) {
       expect(dispatchKey(d, k, TERMINAL).kind).toBe("terminal");
     }
-    dispatchKey(d, key("K", "KeyK", { ctrlKey: true, shiftKey: true }), TERMINAL);
+    // Ctrl+K and Ctrl+` are let through; the rest is the Ctrl+Shift column.
+    dispatchKey(d, key("k", "KeyK", { ctrlKey: true }), TERMINAL);
+    dispatchKey(d, key("N", "KeyN", { ctrlKey: true, shiftKey: true }), TERMINAL);
     dispatchKey(d, key("F", "KeyF", { ctrlKey: true, shiftKey: true }), TERMINAL);
-    dispatchKey(d, key("~", "Backquote", { ctrlKey: true, shiftKey: true }), TERMINAL);
-    expect(ran).toEqual(["search", "find_in_terminal"]);
+    dispatchKey(d, key("`", "Backquote", { ctrlKey: true }), TERMINAL);
+    expect(ran).toEqual(["command_palette", "new_ticket", "find_in_terminal"]);
     expect(left()).toBe(1);
-    // Outside the terminal the Ctrl+Shift column means nothing and Ctrl+K is Search.
+    // Outside the terminal the terminal column means nothing and Ctrl+N is New ticket.
     expect(dispatchKey(d, key("F", "KeyF", { ctrlKey: true, shiftKey: true }), BOARD).kind).not.toBe("ran");
-    expect(dispatchKey(d, key("k", "KeyK", { ctrlKey: true }), BOARD).kind).toBe("ran");
+    expect(dispatchKey(d, key("N", "KeyN", { ctrlKey: true, shiftKey: true }), BOARD).kind).not.toBe("ran");
+    expect(dispatchKey(d, key("n", "KeyN", { ctrlKey: true }), BOARD).kind).toBe("ran");
   });
 
   it("leaves unbound Ctrl+Shift keys to the terminal (its copy and paste)", () => {
@@ -355,17 +403,21 @@ describe("the key dispatcher in a focused terminal", () => {
   });
 });
 
+// The dispatcher with a few d0058 keys as fixtures (T-0391 moves these to 0097's).
 describe("⇧⌘G / Ctrl+Shift+G (d0080, T-0274)", () => {
   const G_MAC: Keymap = {
     ...MAC,
-    bindings: [...MAC.bindings, bind({ action: "focus_epic" }, "⇧⌘G", "g", "KeyG", { ...CMD, shift: true })],
+    bindings: [
+      ...MAC.bindings,
+      bind({ action: "focus_epic" }, "⇧⌘G", "g", "KeyG", { ...CMD, shift: true }, EVERYWHERE),
+    ],
   };
   const G_WIN: Keymap = {
     ...WIN,
     bindings: [
       ...WIN.bindings,
       bind({ action: "focus_epic" }, "Ctrl+Shift+G", "g", "KeyG", CTRL_SHIFT),
-      bind({ action: "focus_epic" }, "Ctrl+Shift+G", "g", "KeyG", CTRL_SHIFT, true),
+      bind({ action: "focus_epic" }, "Ctrl+Shift+G", "g", "KeyG", CTRL_SHIFT, INSIDE),
     ],
   };
 
@@ -397,12 +449,12 @@ describe("the 0087 keys (T-0320, UIT-06)", () => {
     ...MAC,
     bindings: [
       ...MAC.bindings,
-      bind({ action: "show_board" }, "⇧⌘B", "b", "KeyB", SHIFT_CMD),
-      bind({ action: "show_files" }, "⇧⌘O", "o", "KeyO", SHIFT_CMD),
-      bind({ action: "go_to_file" }, "⌥⌘P", "p", "KeyP", { ...CMD, alt: true }),
-      bind({ action: "focus_pane" }, "⌘L", "l", "KeyL", CMD),
-      bind({ action: "toggle_pane" }, "⌘\\", "\\", "Backslash", CMD),
-      bind({ action: "open_activity" }, "⇧⌘U", "u", "KeyU", SHIFT_CMD),
+      bind({ action: "show_board" }, "⇧⌘B", "b", "KeyB", SHIFT_CMD, EVERYWHERE),
+      bind({ action: "show_files" }, "⇧⌘O", "o", "KeyO", SHIFT_CMD, EVERYWHERE),
+      bind({ action: "go_to_file" }, "⌥⌘P", "p", "KeyP", { ...CMD, alt: true }, EVERYWHERE),
+      bind({ action: "focus_pane" }, "⌘L", "l", "KeyL", CMD, EVERYWHERE),
+      bind({ action: "toggle_pane" }, "⌘\\", "\\", "Backslash", CMD, EVERYWHERE),
+      bind({ action: "open_activity" }, "⇧⌘U", "u", "KeyU", SHIFT_CMD, EVERYWHERE),
     ],
   };
   const CTRL_ALT = { ...CTRL, alt: true };
@@ -416,12 +468,12 @@ describe("the 0087 keys (T-0320, UIT-06)", () => {
       bind({ action: "focus_pane" }, "Ctrl+L", "l", "KeyL", CTRL),
       bind({ action: "toggle_pane" }, "Ctrl+\\", "\\", "Backslash", CTRL),
       bind({ action: "open_activity" }, "Ctrl+Shift+U", "u", "KeyU", CTRL_SHIFT),
-      bind({ action: "show_board" }, "Ctrl+Shift+B", "b", "KeyB", CTRL_SHIFT, true),
-      bind({ action: "show_files" }, "Ctrl+Shift+O", "o", "KeyO", CTRL_SHIFT, true),
-      bind({ action: "go_to_file" }, "Ctrl+Shift+Alt+P", "p", "KeyP", { ...CTRL_SHIFT, alt: true }, true),
-      bind({ action: "focus_pane" }, "Ctrl+Shift+L", "l", "KeyL", CTRL_SHIFT, true),
-      bind({ action: "toggle_pane" }, "Ctrl+Shift+\\", "|", "Backslash", CTRL_SHIFT, true),
-      bind({ action: "open_activity" }, "Ctrl+Shift+U", "u", "KeyU", CTRL_SHIFT, true),
+      bind({ action: "show_board" }, "Ctrl+Shift+B", "b", "KeyB", CTRL_SHIFT, INSIDE),
+      bind({ action: "show_files" }, "Ctrl+Shift+O", "o", "KeyO", CTRL_SHIFT, INSIDE),
+      bind({ action: "go_to_file" }, "Ctrl+Shift+Alt+P", "p", "KeyP", { ...CTRL_SHIFT, alt: true }, INSIDE),
+      bind({ action: "focus_pane" }, "Ctrl+Shift+L", "l", "KeyL", CTRL_SHIFT, INSIDE),
+      bind({ action: "toggle_pane" }, "Ctrl+Shift+\\", "|", "Backslash", CTRL_SHIFT, INSIDE),
+      bind({ action: "open_activity" }, "Ctrl+Shift+U", "u", "KeyU", CTRL_SHIFT, INSIDE),
     ],
   };
 
@@ -559,7 +611,9 @@ describe("keys a focused control keeps", () => {
 describe("the key log", () => {
   it("says where a key went", () => {
     const k = key("k", "KeyK", { metaKey: true });
-    expect(logLine(k, { kind: "ran", action: { action: "search" } })).toBe("Meta+K (KeyK) → search");
+    expect(logLine(k, { kind: "ran", action: { action: "command_palette" } })).toBe(
+      "Meta+K (KeyK) → command_palette",
+    );
     expect(logLine(key("F5", "F5"), { kind: "swallowed" })).toBe("F5 (F5) → swallowed (webview key)");
     expect(logLine(k, { kind: "unhandled", action: { action: "project", number: 3 }, swallowed: true })).toBe(
       "Meta+K (KeyK) → project 3 (no handler, swallowed)",

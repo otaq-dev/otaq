@@ -148,7 +148,7 @@ describe("the rail", () => {
 
     const app = createRegistries();
     const ran: string[] = [];
-    app.shortcuts.on("project_terminal", () => {
+    app.shortcuts.on("terminals", () => {
       ran.push("terminals");
     });
     app.shortcuts.on("settings", () => {

@@ -117,7 +117,7 @@ pub fn view(
         placeholder: PLACEHOLDER.to_owned(),
         keys: results
             .is_none()
-            .then(|| KeyAction::Search.keys(platform))
+            .then(|| KeyAction::FilterBoard.keys(platform))
             .flatten(),
         results,
         suggestions_header: SUGGESTIONS_HEADER.to_owned(),
@@ -165,7 +165,7 @@ mod tests {
         assert_eq!(v.results.as_deref(), Some("1 result"));
         let v = view(&state(&[], ""), &all, None, Platform::Mac);
         assert_eq!(v.results, None);
-        assert_eq!(v.keys.as_deref(), Some("⌘K"));
+        assert_eq!(v.keys.as_deref(), Some("/"));
         assert_eq!(v.placeholder, PLACEHOLDER);
     }
 

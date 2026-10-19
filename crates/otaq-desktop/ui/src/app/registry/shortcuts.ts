@@ -1,8 +1,8 @@
 // The shortcut handlers: `KeyAction` → handler, filled by screens. The key map and the dispatcher that turns a key
 // into a `KeyAction` are T-0215's (the Rust keymap stays the only map); it calls `run`.
 //
-// ⌘K in the description: Link. While the description editor has focus, ⌘K / Ctrl+K never reaches the `search`
-// handlers: the dispatcher leaves it to the editor (`keysKeptBy`, d0078 D2); everywhere else it is Search / filter.
+// ⌘K in the description: Link. While the description editor has focus, ⌘K / Ctrl+K never reaches the `command_palette`
+// handlers: the dispatcher leaves it to the editor (`keysKeptBy`, d0078 D2); everywhere else it is the palette (d0097).
 import type { KeyAction } from "../../generated/KeyAction";
 
 export type KeyActionName = KeyAction["action"];

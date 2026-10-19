@@ -72,13 +72,13 @@ const GROUPS: [(&str, &[(&str, Keys)]); 3] = [
                 "Previous / next ticket in panel",
                 Keys::Pair(KeyAction::PreviousTicket, KeyAction::NextTicket, "  "),
             ),
-            ("Leave terminal focus", Keys::One(KeyAction::LeaveTerminal)),
+            ("Leave terminal focus", Keys::One(KeyAction::Terminals)),
         ],
     ),
     (
         "Board & navigation",
         &[
-            ("Search / filter", Keys::One(KeyAction::Search)),
+            ("Search / filter", Keys::One(KeyAction::FilterBoard)),
             (
                 "Focus the selected card's epic",
                 Keys::One(KeyAction::FocusEpic),
@@ -97,7 +97,7 @@ const GROUPS: [(&str, &[(&str, Keys)]); 3] = [
             ("New ticket", Keys::One(KeyAction::NewTicket)),
             (
                 "Terminals drawer (last-used Project terminal)",
-                Keys::One(KeyAction::ProjectTerminal),
+                Keys::One(KeyAction::Terminals),
             ),
             (
                 "New Project agent (empty pane, starts on the first message)",
@@ -187,8 +187,8 @@ mod tests {
         );
         let project = row("Project 1–9");
         assert_eq!(project.mac, some("⌘1–9"));
-        assert_eq!(project.in_terminal, some("Ctrl+Shift+1–9"));
-        assert_eq!(row("Switch tab").win_linux, some("Ctrl+Alt+1–6"));
+        assert_eq!(project.in_terminal, some("Ctrl+1–9"));
+        assert_eq!(row("Switch tab").win_linux, some("1–6"));
         let panel = row("Open / close panel");
         assert_eq!(panel.mac, some("↵ / Esc"));
         assert_eq!(panel.in_terminal, None, "no shortcut in a terminal");
@@ -199,12 +199,12 @@ mod tests {
         let focus = row("Focus the selected card's epic");
         assert_eq!(
             (focus.mac, focus.win_linux, focus.in_terminal),
-            (some("⇧⌘G"), some("Ctrl+Shift+G"), some("Ctrl+Shift+G"))
+            (some("g e"), some("g e"), None)
         );
         let agent = row("New Project agent (empty pane, starts on the first message)");
         assert_eq!(
             (agent.mac, agent.win_linux, agent.in_terminal),
-            (some("⇧⌘A"), some("Ctrl+Shift+A"), some("Ctrl+Shift+A"))
+            (some("⇧⌘L"), some("Ctrl+Shift+L"), None)
         );
     }
 
@@ -230,36 +230,21 @@ mod tests {
         assert_eq!(
             shown,
             [
-                (
-                    "Search / filter",
-                    some("⌘K"),
-                    some("Ctrl+K"),
-                    some("Ctrl+Shift+K")
-                ),
+                ("Search / filter", some("/"), some("/"), None),
                 (
                     "Focus the selected card's epic",
-                    some("⇧⌘G"),
-                    some("Ctrl+Shift+G"),
-                    some("Ctrl+Shift+G")
+                    some("g e"),
+                    some("g e"),
+                    None
                 ),
-                (
-                    "Switch project",
-                    some("⌘P"),
-                    some("Ctrl+P"),
-                    some("Ctrl+Shift+P")
-                ),
+                ("Switch project", some("⌘P"), some("Ctrl+P"), some("Ctrl+P")),
                 (
                     "Project 1–9",
                     some("⌘1–9"),
                     some("Ctrl+1–9"),
-                    some("Ctrl+Shift+1–9")
+                    some("Ctrl+1–9")
                 ),
-                (
-                    "Board view",
-                    some("⇧⌘B"),
-                    some("Ctrl+Shift+B"),
-                    some("Ctrl+Shift+B")
-                ),
+                ("Board view", some("⇧⌘B"), some("Ctrl+Shift+B"), None),
                 (
                     "Files view",
                     some("⇧⌘O"),
@@ -280,9 +265,9 @@ mod tests {
                 ),
                 (
                     "Hide / show the pane",
-                    some("⌘\\"),
-                    some("Ctrl+\\"),
-                    some("Ctrl+Shift+\\")
+                    some("⌘B"),
+                    some("Ctrl+B"),
+                    some("Ctrl+Shift+B")
                 ),
                 (
                     "Activity popover",
@@ -298,23 +283,24 @@ mod tests {
                 ),
                 (
                     "Terminals drawer (last-used Project terminal)",
-                    some("⇧⌘T"),
-                    some("Ctrl+Shift+T"),
-                    some("Ctrl+Shift+T")
+                    some("⌃`"),
+                    some("Ctrl+`"),
+                    some("Ctrl+`")
                 ),
                 (
                     "New Project agent (empty pane, starts on the first message)",
-                    some("⇧⌘A"),
-                    some("Ctrl+Shift+A"),
-                    some("Ctrl+Shift+A")
+                    some("⇧⌘L"),
+                    some("Ctrl+Shift+L"),
+                    None
                 ),
-                ("Settings", some("⌘,"), some("Ctrl+,"), some("Ctrl+Shift+,")),
+                ("Settings", some("⌘,"), some("Ctrl+,"), some("Ctrl+,")),
             ]
         );
         assert!(NOTES[2].starts_with("Terminals and Settings are at the bottom"));
     }
 
-    /// Every action of the keymap has a row, except Find in terminal, which the notes name.
+    /// Every action of the keymap has a row, except Find in terminal, which the notes name, and the actions 0097
+    /// added, which T-0394 brings to this map.
     #[test]
     fn every_action_is_shown() {
         let shown: Vec<KeyAction> = GROUPS
@@ -333,7 +319,19 @@ mod tests {
         for action in KeyAction::all() {
             assert_eq!(
                 shown.contains(&action),
-                action != KeyAction::FindInTerminal,
+                action != KeyAction::FindInTerminal
+                    && !matches!(
+                        action,
+                        KeyAction::CommandPalette
+                            | KeyAction::ShowShortcuts
+                            | KeyAction::NextTab
+                            | KeyAction::PreviousTab
+                            | KeyAction::Park
+                            | KeyAction::CloseTicket
+                            | KeyAction::OpenPr
+                            | KeyAction::RerunValidation
+                            | KeyAction::OpenDiff
+                    ),
                 "{action:?}"
             );
         }

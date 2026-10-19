@@ -24,6 +24,6 @@ switcher: boolean,
  */
 pill: PillView | null, recent: PaneButton, 
 /**
- * + shows the empty pane (as ⇧⌘A does); nothing starts.
+ * + shows the empty pane (as ⇧⌘L does); nothing starts.
  */
 new: PaneButton, more: PaneButton, };
