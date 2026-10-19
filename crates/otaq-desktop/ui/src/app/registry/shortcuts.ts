@@ -21,10 +21,14 @@ export interface Shortcuts {
   run(action: KeyAction): boolean;
   /** The actions with at least one handler. */
   names(): KeyActionName[];
+  /** Calls `listener` after each action a handler took, from a key or the palette (its recent items, T-0393). Returns
+   * its removal. */
+  onRan(listener: (action: KeyAction) => void): () => void;
 }
 
 export function createShortcuts(): Shortcuts {
   const handlers = new Map<KeyActionName, ((action: KeyAction) => unknown)[]>();
+  const ran = new Set<(action: KeyAction) => void>();
   return {
     on(name, handler) {
       const entry = handler as (action: KeyAction) => unknown;
@@ -37,8 +41,16 @@ export function createShortcuts(): Shortcuts {
     },
     run(action) {
       const list = handlers.get(action.action) ?? [];
-      return list.toReversed().some((handler) => handler(action) !== false);
+      const taken = list.toReversed().some((handler) => handler(action) !== false);
+      if (taken) for (const listener of ran) listener(action);
+      return taken;
     },
     names: () => [...handlers.keys()],
+    onRan(listener) {
+      ran.add(listener);
+      return () => {
+        ran.delete(listener);
+      };
+    },
   };
 }

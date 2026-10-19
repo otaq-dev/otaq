@@ -301,6 +301,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::LimitsMoveWaiting(_)
         | Request::TicketUseFallback(_)
         | Request::SettingsAutoFallback(_)
+        | Request::RecentItems(_)
         | Request::WorkflowSkillsStatus(_)
         | Request::WorkflowSkillsImport(_)
         | Request::WorkflowSkillsReimport(_)

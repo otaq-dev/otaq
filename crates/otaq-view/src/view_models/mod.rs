@@ -66,6 +66,7 @@ pub mod model_picker;
 pub mod named_agents;
 pub mod onboarding;
 pub mod onboarding_page;
+pub mod palette;
 pub mod panel;
 pub mod panel_actions;
 pub mod pr_dialog;

@@ -5,6 +5,7 @@ import type { KeyMapView } from "./KeyMapView";
 import type { LegendPriority } from "./LegendPriority";
 import type { LegendTier } from "./LegendTier";
 import type { MenuItem } from "./MenuItem";
+import type { PaletteGalleryFrame } from "./PaletteGalleryFrame";
 import type { SequenceHint } from "./SequenceHint";
 import type { ShortcutListView } from "./ShortcutListView";
 import type { TypeScaleRow } from "./TypeScaleRow";
@@ -22,6 +23,10 @@ shortcut_lists: [ShortcutListView, ShortcutListView, ShortcutListView],
  * The `g` hint (design `s02-30`): with the base map's sequences, and with a recorded `g` `p` Park.
  */
 g_hints: [Array<SequenceHint>, Array<SequenceHint>], 
+/**
+ * The command palette's states (design `s02-20` … `s02-23`, T-0393).
+ */
+palette: Array<PaletteGalleryFrame>, 
 /**
  * A card's context menu as in *Overlays & feedback → Context menu*.
  */

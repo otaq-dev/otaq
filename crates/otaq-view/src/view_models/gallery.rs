@@ -82,6 +82,8 @@ pub struct GalleryView {
     pub shortcut_lists: [ShortcutList; 3],
     /// The `g` hint (design `s02-30`): with the base map's sequences, and with a recorded `g` `p` Park.
     pub g_hints: [Vec<SequenceHint>; 2],
+    /// The command palette's states (design `s02-20` … `s02-23`, T-0393).
+    pub palette: Vec<crate::view_models::palette::GalleryFrame>,
     /// A card's context menu as in *Overlays & feedback → Context menu*.
     pub context_menu: Vec<MenuItem>,
     /// A dropdown's list: the priority menu with P2 checked.
@@ -265,6 +267,7 @@ pub fn view() -> GalleryView {
         keyboard_map: keyboard_map::map(),
         shortcut_lists: shortcut_lists(),
         g_hints: g_hints(),
+        palette: crate::view_models::palette::gallery(),
         context_menu: context_menu(),
         priority_menu: priority::menu_items(Priority::High),
     }

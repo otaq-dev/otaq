@@ -6,6 +6,7 @@
 pub mod agents;
 pub mod named_agents;
 pub mod projects;
+pub mod recents;
 pub mod settings;
 pub mod tickets;
 

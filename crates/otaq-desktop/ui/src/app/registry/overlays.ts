@@ -41,6 +41,8 @@ export interface OverlayParams {
   inbox: undefined;
   /** The quick switcher, ⌘P (T-0219). */
   quick_switcher: undefined;
+  /** The command palette, ⌘K / ⇧⌘P (T-0393); `terminal`: a terminal had the keyboard when it opened. */
+  command_palette: { terminal: boolean } | undefined;
   /** The ticket editor on a new Backlog ticket, in an epic if given (T-0228). */
   new_ticket: { epic?: string } | undefined;
   /** The ticket editor on a ticket (T-0228). */
@@ -111,6 +113,7 @@ export type OverlayId = keyof OverlayParams;
 export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   inbox: false,
   quick_switcher: false,
+  command_palette: false,
   new_ticket: true,
   edit_ticket: true,
   settings: true,

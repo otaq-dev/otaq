@@ -58,6 +58,8 @@ pub use onboarding::{
     AddOutcome as AddProjectOutcome, FormParams as AddProjectParams, Start as OnboardingStart,
 };
 #[cfg(test)]
+pub use palette::{Use as PaletteUse, ViewParams as PaletteParams};
+#[cfg(test)]
 pub use pane::{
     EndParams as PaneEndParams, Ended as PaneEnded, Params as PaneParams,
     ProjectOnly as PaneProjectParams, RenameParams as PaneRenameParams,
@@ -185,6 +187,7 @@ areas! {
     pane,
     agent_tools,
     limits,
+    palette,
 }
 
 /// Reads the user's answer once the service answers, then sends the counts every [`crate::usage::FLUSH_EVERY`]
