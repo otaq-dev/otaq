@@ -1133,7 +1133,13 @@ export function SidePanel() {
     // Loading the next ticket, or gone: the panel keeps its width meanwhile.
     const style = sizes && cls ? { width: shownWidth(layout.panelWidths, cls, main, sizes) } : undefined;
     return (
-      <div className="panel panel-gone" style={style}>
+      // `data-loading` until there is something to show (the ticket, or that it's gone): the frame waits for it before
+      // sliding the panel in (0095).
+      <div
+        className="panel panel-gone"
+        style={style}
+        data-loading={load_ && load_.view === null ? undefined : ""}
+      >
         {load_ && load_.view === null ? load_.gone : null}
       </div>
     );

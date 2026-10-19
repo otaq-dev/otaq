@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, type PointerEvent, type ReactNode } from "react";
 
 import "./frame.css";
-import { playLeave, playMotion, Tooltip, usePresence } from "../components";
+import { playEnterWhenReady, playLeave, Tooltip, usePresence } from "../components";
 import type { LayoutView } from "../generated/LayoutView";
 import type { MainTab } from "../generated/MainTab";
 import type { SizeClass } from "../generated/SizeClass";
@@ -84,16 +84,17 @@ function OverlayHost() {
 }
 
 /**
- * The ticket panel's layer: it slides in from the right edge when a ticket opens and back out when it closes, staying
- * mounted until the slide ends (OT-6). Switching tickets keeps it mounted, so the slide doesn't play again; resizing
+ * The ticket panel's layer: a drawer, sliding in from the right edge once the ticket has loaded and back out when it
+ * closes, staying mounted until the slide ends (OT-6, 0095). Switching tickets keeps it mounted, so the slide doesn't play again; resizing
  * changes only its width, so the drag stays instant.
  */
 function PanelLayer({ open }: { open: boolean }) {
   const layer = useRef<HTMLDivElement>(null);
   const { mounted, leaving, done } = usePresence(open);
-  useLayoutEffect(() => {
-    if (mounted && layer.current) playMotion(layer.current, "panel", "in");
-  }, [mounted]);
+  useLayoutEffect(
+    () => (mounted && layer.current ? playEnterWhenReady(layer.current, "panel") : undefined),
+    [mounted],
+  );
   useLayoutEffect(() => (leaving ? playLeave(layer.current, "panel", done) : undefined), [leaving, done]);
   if (!mounted) return null;
   return (

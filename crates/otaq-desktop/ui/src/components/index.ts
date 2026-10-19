@@ -31,6 +31,7 @@ export { AnchoredMenu, Menu, type AnchoredMenuProps, type MenuClose, type MenuPr
 export {
   type InnerMotion,
   type MotionPreset,
+  playEnterWhenReady,
   playLeave,
   playMotion,
   reducedMotion,
