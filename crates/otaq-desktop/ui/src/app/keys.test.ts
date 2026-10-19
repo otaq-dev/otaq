@@ -321,6 +321,21 @@ describe("the key dispatcher on the board", () => {
     expect(ran).toEqual([]);
   });
 
+  it("turns ↵ / Esc (Open / close the panel) off with the letters, leaving them to the page (KEY-02, T-0394)", () => {
+    const { d, ran } = setup({ ...MAC, letters: false }, ["open_panel", "close_panel", "send_back"]);
+    // NOTE-1's panel is open: Esc on the board runs nothing and isn't stopped, nor is ↵.
+    const esc = dispatchKey(d, key("Escape", "Escape"), BOARD);
+    expect(esc).toEqual({ kind: "passed" });
+    expect(stopsEvent(esc)).toBe(false);
+    expect(dispatchKey(d, key("Enter", "Enter"), BOARD)).toEqual({ kind: "passed" });
+    // A key with a modifier still runs.
+    dispatchKey(d, key("Backspace", "Backspace", { metaKey: true }), BOARD);
+    expect(ran).toEqual(["send_back"]);
+    const on = setup(MAC, ["close_panel"]);
+    expect(dispatchKey(on.d, key("Escape", "Escape"), BOARD).kind).toBe("ran");
+    expect(on.ran).toEqual(["close_panel"]);
+  });
+
   it("holds the shortcuts back while a modal is open", () => {
     const { d, ran } = setup(MAC, ["command_palette"]);
     const outcome = dispatchKey(d, key("k", "KeyK", { metaKey: true }), { ...BOARD, modal: true });

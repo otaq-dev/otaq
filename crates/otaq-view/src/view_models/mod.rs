@@ -86,6 +86,7 @@ pub mod send_back;
 pub mod settings;
 pub mod settings_page;
 pub mod shell;
+pub mod shortcut_list;
 pub mod stack;
 pub mod status;
 pub mod switcher;

@@ -224,10 +224,9 @@
 }
 
 .gallery-keymap {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(460px, 1fr));
-  gap: var(--s-5);
-  align-items: start;
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
 }
 
 .gallery-keygroup {
@@ -235,35 +234,102 @@
   flex-direction: column;
   padding: 8px 0;
   border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--bg-app);
+  background: var(--bg-panel);
+}
+
+.gallery-keyletters {
+  flex: none;
+  width: 420px;
+}
+
+.gallery-keymods {
+  flex: 1;
+  min-width: 0;
 }
 
 .gallery-keygroup-head {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
   padding: 8px 16px;
 }
 
+.gallery-keygroup h4 {
+  margin: 0;
+  font: 600 13px var(--font-ui);
+  color: var(--text-primary);
+}
+
 .gallery-keyrow {
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) repeat(3, auto);
+  display: flex;
   gap: 8px;
   align-items: center;
   padding: 6px 16px;
   color: var(--text-secondary);
-  font: 400 12px var(--font-ui);
+  font: 400 12.5px var(--font-ui);
+}
+
+.gallery-keylabel {
+  display: flex;
+  flex: 1;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+/* The modifier table: the three columns at the drawn widths, a rule between rows. */
+.gallery-keymods .gallery-keyrow {
+  gap: 12px;
+}
+
+.gallery-keymods .gallery-keyrow + .gallery-keyrow {
+  border-top: 1px solid var(--border);
+}
+
+.gallery-keymods .gallery-keyrow > :nth-child(2) {
+  width: 150px;
+}
+
+.gallery-keymods .gallery-keyrow > :nth-child(3) {
+  width: 220px;
+}
+
+.gallery-keymods .gallery-keyrow > :nth-child(4) {
+  width: 270px;
 }
 
 .gallery-keys {
   display: flex;
-  gap: 4px;
+  flex: none;
+  gap: 6px;
+  align-items: center;
+}
+
+.gallery-keyword {
+  font: 400 11px var(--font-ui);
+  color: var(--text-muted);
+}
+
+/* The parked Files view: the label muted with its tag, the keys dimmed. */
+.gallery-keyrow[data-parked] .gallery-keylabel {
+  color: var(--text-muted);
+}
+
+.gallery-keyrow[data-parked] .kbd {
+  opacity: 0.45;
+}
+
+.gallery-keytag {
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  background: var(--bg-column);
+  font: 400 10.5px var(--font-ui);
+  color: var(--text-muted);
 }
 
 .gallery-keynote-first {
   margin: 0;
-  font: 500 12px var(--font-ui);
+  font: 500 12px/1.45 var(--font-ui);
 }
 
 /* The card grids (T-0218): cells as the 04 frames' columns, a card at the column width (216 px, d0066, less padding). */
