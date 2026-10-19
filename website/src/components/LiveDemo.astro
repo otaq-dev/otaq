@@ -1,4 +1,5 @@
 ---
+import Demo from "../demo/Demo";
 import Icon from "./Icon.astro";
 ---
 
@@ -38,8 +39,7 @@ import Icon from "./Icon.astro";
     </div>
     <div class="demo-frame" data-demo-frame>
       <div class="demo-clip" data-demo-clip>
-        <!-- demo: T-0398 replaces this stand-in with the Demo island (1280 × 800) -->
-        <div class="demo-stand-in"></div>
+        <Demo client:idle />
       </div>
     </div>
     <div class="viewonly" data-demo-note hidden>

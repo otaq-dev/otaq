@@ -1,0 +1,1888 @@
+/*
+ * The demo's styles, from the canvas's Demo.dc.html (<helmet><style>), scoped to the demo's root so nothing leaks into
+ * the page: every rule gains one `.oq` (`.btn` → `.oq .btn`, `.oq button` → `.oq.oq button`), which keeps their order
+ * of precedence as drawn. The short variables point at the Otaq Dark tokens (src/styles/tokens.css); --flag and --sh
+ * keep their drawn values. --done is --text-muted, not the drawn #7a7e87 (nor the token --st-done, #6a6f79): as text on
+ * a card both are under 4.5:1 (WCAG AA, decision 0096). The light theme (.oq.light) is left out: the site is dark only
+ * (WEB-03).
+ */
+.oq.oq {
+  --bg: var(--bg-app);
+  --panel: var(--bg-panel);
+  --col: var(--bg-column);
+  --card: var(--bg-card);
+  --raised: var(--bg-raised);
+  --hover: var(--bg-hover);
+  --press: var(--bg-pressed);
+  --bd: var(--border);
+  --bds: var(--border-strong);
+  --bdc: var(--border-card);
+  --tx: var(--text-primary);
+  --tx2: var(--text-secondary);
+  --tx3: var(--text-muted);
+  --ac: var(--accent);
+  --ach: var(--accent-hover);
+  --acs: var(--accent-soft);
+  --onac: var(--text-on-accent);
+  --attn: var(--st-attn);
+  --attnbg: var(--st-attn-bg);
+  --err: var(--st-error);
+  --errbg: var(--st-error-bg);
+  --work: var(--st-working);
+  --workbg: var(--st-working-bg);
+  --inv: var(--st-investigate);
+  --invbg: var(--st-investigate-bg);
+  --q: var(--st-queued);
+  --qbg: var(--st-queued-bg);
+  --rev: var(--st-review);
+  --revbg: var(--st-review-bg);
+  --pau: var(--st-paused);
+  --paubg: var(--st-paused-bg);
+  --ok: var(--st-approved);
+  --okbg: var(--st-approved-bg);
+  --done: var(--text-muted);
+  --termbg: var(--term-bg);
+  --termfg: var(--term-fg);
+  --addbg: var(--diff-add-bg);
+  --delbg: var(--diff-del-bg);
+  --flag: #14b8a6;
+  --cc: var(--tool-cc);
+  --ccfg: var(--tool-cc-fg);
+  --cx: var(--tool-cx);
+  --cxfg: var(--tool-cx-fg);
+  --cp: var(--tool-cp);
+  --cpfg: var(--tool-cp-fg);
+  --oc: var(--tool-oc);
+  --ocfg: var(--tool-oc-fg);
+  --sh: 0 8px 24px rgb(0 0 0 / 40%), 0 1px 3px rgb(0 0 0 / 30%);
+  position: relative;
+  width: 1280px;
+  height: 800px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--tx);
+  font:
+    13px/1.5 "Geist",
+    system-ui,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.oq.oq * {
+  box-sizing: border-box;
+}
+.oq.oq button {
+  font: inherit;
+  color: inherit;
+}
+.oq.oq button:focus-visible,
+.oq.oq input:focus-visible,
+.oq.oq select:focus-visible,
+.oq.oq textarea:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.oq .mono {
+  font-family: "Geist Mono", ui-monospace, monospace;
+}
+.oq .ic {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+}
+.oq .ic.s12 {
+  width: 12px;
+  height: 12px;
+}
+.oq .ic.s16 {
+  width: 16px;
+  height: 16px;
+}
+.oq .spin {
+  animation: oqspin 1s linear infinite;
+}
+@keyframes oqspin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes oqslide {
+  from {
+    transform: translateX(40px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes oqfade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes oqglow {
+  0% {
+    box-shadow: 0 0 0 0 var(--inv);
+  }
+  100% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+.oq .mk {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.oq .mk .o {
+  stroke-width: 9;
+}
+.oq .mk .c {
+  stroke-width: 8;
+}
+.oq .mk .f {
+  fill: var(--flag);
+  stroke: none;
+}
+/* header */
+.oq .hd {
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px 0 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--bd);
+}
+.oq .lights {
+  display: flex;
+  gap: 7px;
+  margin-right: 6px;
+}
+.oq .lights i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--bds);
+}
+.oq .lights i:nth-child(1) {
+  background: #ff5f57;
+}
+.oq .lights i:nth-child(2) {
+  background: #febc2e;
+}
+.oq .lights i:nth-child(3) {
+  background: #28c840;
+}
+.oq .pname {
+  font-size: 15px;
+  font-weight: 600;
+}
+.oq .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 4px;
+  border: 1px solid var(--bd);
+  font:
+    11px/1 "Geist Mono",
+    monospace;
+  color: var(--tx2);
+  white-space: nowrap;
+}
+.oq .search {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
+.oq .search label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 340px;
+  height: 28px;
+  padding: 0 6px 0 10px;
+  border-radius: 6px;
+  background: var(--col);
+  border: 1px solid var(--bd);
+  color: var(--tx3);
+}
+.oq .search input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: 0;
+  color: var(--tx);
+  font:
+    13px "Geist",
+    sans-serif;
+}
+.oq .search input::placeholder {
+  color: var(--tx3);
+}
+.oq .kbd {
+  font:
+    11px/1 "Geist Mono",
+    monospace;
+  color: var(--tx2);
+  background: var(--col);
+  border: 1px solid var(--bds);
+  border-radius: 4px;
+  padding: 3px 5px;
+}
+.oq .hbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+  color: var(--tx2);
+  white-space: nowrap;
+  transition: background 0.12s;
+}
+.oq .hbtn:hover {
+  background: var(--hover);
+  color: var(--tx);
+}
+.oq .hbtn.out {
+  border-color: var(--bds);
+  color: var(--tx);
+}
+.oq .hbtn.attn {
+  border-color: var(--attn);
+  color: var(--attn);
+  background: var(--attnbg);
+}
+.oq .hbtn.on {
+  background: var(--press);
+  color: var(--tx);
+}
+.oq .badge {
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font:
+    600 11px/1 "Geist Mono",
+    monospace;
+  background: var(--attn);
+  color: var(--bg);
+}
+.oq .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.12s;
+}
+.oq .btn-p {
+  background: var(--ac);
+  color: var(--onac) !important;
+}
+.oq .btn-p:hover {
+  background: var(--ach);
+}
+.oq .btn-s {
+  background: var(--raised);
+  border-color: var(--bds);
+}
+.oq .btn-s:hover {
+  background: var(--hover);
+}
+.oq .btn-g {
+  background: none;
+  color: var(--tx2);
+}
+.oq .btn-g:hover {
+  background: var(--hover);
+  color: var(--tx);
+}
+.oq .btn-sm {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.oq .ibtn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--tx2);
+}
+.oq .ibtn:hover {
+  background: var(--hover);
+  color: var(--tx);
+}
+.oq .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+}
+/* layout */
+.oq .body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.oq .rail {
+  width: 56px;
+  flex: none;
+  background: var(--panel);
+  border-right: 1px solid var(--bd);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+}
+.oq .proj {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--bd);
+  background: var(--card);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font:
+    600 10px/1 "Geist Mono",
+    monospace;
+  color: var(--tx2);
+}
+.oq .proj:hover {
+  background: var(--hover);
+}
+.oq .proj.on {
+  border-color: var(--ac);
+  color: var(--tx);
+  box-shadow: 0 0 0 1px var(--ac);
+}
+.oq .proj .pb {
+  position: absolute;
+  top: -5px;
+  right: -6px;
+}
+.oq .proj-n {
+  font:
+    10px/1 "Geist",
+    sans-serif;
+  color: var(--tx3);
+  margin-top: -6px;
+  max-width: 52px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oq .rail .sp {
+  flex: 1;
+}
+/* pane */
+.oq .pane {
+  width: 340px;
+  flex: none;
+  background: var(--panel);
+  border-right: 1px solid var(--bd);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.oq .pane-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 0 12px;
+}
+.oq .pane-t {
+  font:
+    500 11px/1 "Geist Mono",
+    monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tx3);
+  flex: 1;
+}
+.oq .atabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 8px;
+  border-bottom: 1px solid var(--bd);
+  overflow-x: auto;
+}
+.oq .atab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: 1px solid var(--bd);
+  background: none;
+  cursor: pointer;
+  color: var(--tx2);
+  white-space: nowrap;
+  font-size: 12px;
+}
+.oq .atab:hover {
+  background: var(--hover);
+}
+.oq .atab.on {
+  background: var(--acs);
+  border-color: var(--ac);
+  color: var(--tx);
+}
+.oq .ag-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 8px;
+}
+.oq .ag-n {
+  font-weight: 600;
+  font-size: 14px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oq .ag-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 10px;
+  color: var(--tx3);
+  font-size: 11px;
+}
+.oq .created {
+  margin: 0 12px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--bd);
+  border-radius: 6px;
+  background: var(--col);
+  font-size: 12px;
+  color: var(--tx2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.oq .klink {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font:
+    500 12px "Geist Mono",
+    monospace;
+  color: var(--ac);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.oq .pterm {
+  flex: 1;
+  min-height: 0;
+  margin: 0 8px;
+  border-radius: 8px;
+  background: var(--termbg);
+  border: 1px solid var(--bd);
+  overflow-y: auto;
+  padding: 12px 12px 8px;
+}
+.oq .empty {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 4px;
+  color: var(--tx2);
+  font-size: 12.5px;
+}
+.oq .sugg {
+  text-align: left;
+  border: 1px solid var(--bd);
+  background: var(--card);
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--tx);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.oq .sugg:hover {
+  background: var(--hover);
+}
+.oq .compose {
+  margin: 8px;
+  border: 1px solid var(--bds);
+  border-radius: 8px;
+  background: var(--card);
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 6px 6px 6px 10px;
+}
+.oq .compose input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--tx);
+  font:
+    13px "Geist",
+    sans-serif;
+  height: 26px;
+}
+.oq .compose input::placeholder {
+  color: var(--tx3);
+}
+.oq .pane-f {
+  padding: 0 12px 10px;
+  color: var(--tx3);
+  font-size: 11px;
+  display: flex;
+  justify-content: space-between;
+}
+.oq .strip {
+  width: 28px;
+  flex: none;
+  background: var(--panel);
+  border-right: 1px solid var(--bd);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 8px;
+  gap: 8px;
+}
+/* terminal lines */
+.oq .tl {
+  font:
+    12px/1.55 "Geist Mono",
+    monospace;
+  color: var(--termfg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.oq .tl.u {
+  color: var(--tx);
+  background: var(--col);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin: 4px 0;
+}
+.oq .tl.a::before {
+  content: "● ";
+  color: var(--tx);
+}
+.oq .tl.tool::before {
+  content: "● ";
+  color: var(--ok);
+}
+.oq .tl.tool {
+  color: var(--tx);
+}
+.oq .tl.o {
+  color: var(--tx2);
+  padding-left: 16px;
+}
+.oq .tl.d {
+  color: var(--tx3);
+}
+.oq .tl.ok {
+  color: var(--ok);
+}
+.oq .tl.w {
+  color: var(--pau);
+}
+.oq .tl.e {
+  color: var(--err);
+}
+.oq .tl.q {
+  color: var(--attn);
+  font-weight: 500;
+}
+.oq .tl.q::before {
+  content: "? ";
+}
+.oq .tl.h {
+  font-weight: 600;
+  color: var(--tx);
+}
+.oq .tl.sp {
+  height: 8px;
+}
+.oq .tl.tb {
+  color: var(--tx);
+  padding-left: 16px;
+}
+.oq .opts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 4px;
+  padding: 10px;
+  border: 1px solid var(--attn);
+  border-radius: 6px;
+  background: var(--attnbg);
+}
+.oq .opts-t {
+  font:
+    500 11px/1.3 "Geist",
+    sans-serif;
+  color: var(--attn);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.oq .opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  border: 1px solid var(--bds);
+  background: var(--card);
+  border-radius: 6px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.oq .opt:hover {
+  border-color: var(--attn);
+}
+.oq .opt .n {
+  font:
+    11px "Geist Mono",
+    monospace;
+  color: var(--tx3);
+}
+.oq .opt .rec {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--tx3);
+}
+/* main */
+.oq .main {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.oq .mtabs {
+  height: 38px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--bd);
+}
+.oq .mtab {
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  cursor: pointer;
+  color: var(--tx2);
+  font-weight: 500;
+}
+.oq .mtab:hover {
+  color: var(--tx);
+}
+.oq .mtab.on {
+  color: var(--tx);
+  border-bottom-color: var(--ac);
+}
+.oq .mhint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--tx3);
+}
+.oq .epics {
+  flex: none;
+  padding: 10px 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.oq .ep-t {
+  font:
+    500 11px/1 "Geist Mono",
+    monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tx3);
+}
+.oq .ep {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: var(--invbg);
+  border: 1px solid var(--bd);
+}
+.oq .ep-n {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--inv);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.oq .ep-l {
+  font-size: 11px;
+  color: var(--tx2);
+  white-space: nowrap;
+}
+.oq .stops {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.oq .stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 4px;
+  border: 1px solid var(--bd);
+  background: var(--card);
+  cursor: pointer;
+  font:
+    11px/1 "Geist Mono",
+    monospace;
+  color: var(--tx2);
+}
+.oq .stop:hover {
+  border-color: var(--bds);
+  color: var(--tx);
+}
+.oq .cols {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  overflow-x: auto;
+}
+.oq .colm {
+  flex: 1 1 0;
+  min-width: 194px;
+  display: flex;
+  flex-direction: column;
+  background: var(--col);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  min-height: 0;
+  transition:
+    border-color 0.12s,
+    background 0.12s;
+}
+.oq .colm.drop {
+  border-color: var(--ac);
+  background: var(--acs);
+}
+.oq .colm.nodrop {
+  opacity: 0.6;
+}
+.oq .col-h {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 10px 2px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.oq .col-h .n {
+  font:
+    500 11px "Geist Mono",
+    monospace;
+  color: var(--tx3);
+  font-weight: 400;
+}
+.oq .col-s {
+  padding: 0 10px 6px;
+  font-size: 11px;
+  color: var(--tx3);
+}
+.oq .col-b {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.oq .sec-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font:
+    500 10.5px/1 "Geist Mono",
+    monospace;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--tx3);
+  padding: 8px 4px 2px;
+}
+.oq .ph {
+  border: 1px dashed var(--bds);
+  border-radius: 6px;
+  padding: 14px 10px;
+  text-align: center;
+  color: var(--tx3);
+  font-size: 11.5px;
+}
+.oq .coach {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--acs);
+  border: 1px solid var(--ac);
+  font-size: 11.5px;
+  color: var(--tx);
+  margin-bottom: 2px;
+}
+.oq .coach .ibtn {
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+}
+.oq .donerail {
+  width: 40px;
+  flex: none;
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  background: var(--col);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  cursor: pointer;
+  color: var(--tx2);
+}
+.oq .donerail:hover {
+  background: var(--hover);
+}
+.oq .donerail span {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  font-weight: 600;
+}
+/* card */
+.oq .cd {
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--bdc);
+  border-radius: 6px;
+  padding: 9px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  transition:
+    opacity 0.15s,
+    border-color 0.12s,
+    box-shadow 0.12s;
+}
+.oq .cd:hover {
+  border-color: var(--tx3);
+}
+.oq .cd.attn {
+  border-color: var(--attn);
+  box-shadow: inset 3px 0 0 var(--attn);
+}
+.oq .cd.err {
+  border-color: var(--err);
+}
+.oq .cd.fresh {
+  border-color: var(--inv);
+  animation: oqglow 1.2s ease-out 2;
+}
+.oq .cd.sel {
+  border-color: var(--ac);
+  box-shadow: 0 0 0 1px var(--ac);
+}
+.oq .cd.rel {
+  border-color: var(--ac);
+}
+.oq .cd.dim {
+  opacity: 0.4;
+}
+.oq .cd.drag {
+  opacity: 0.35;
+}
+.oq .cd.donec {
+  background: transparent;
+}
+.oq .cd-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
+}
+.oq .key {
+  font:
+    11px/1 "Geist Mono",
+    monospace;
+  color: var(--tx3);
+}
+.oq .prio {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font:
+    500 10.5px/1 "Geist Mono",
+    monospace;
+  border: 1px solid var(--bd);
+  color: var(--tx3);
+}
+.oq .prio.p1 {
+  background: var(--tx);
+  color: var(--card);
+  border-color: var(--tx);
+}
+.oq .prio.p2 {
+  color: var(--tx);
+  border-color: var(--bds);
+}
+.oq .av {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font:
+    600 7.5px/1 "Geist Mono",
+    monospace;
+  flex: none;
+}
+.oq .av.lg {
+  width: 22px;
+  height: 22px;
+  font-size: 9.5px;
+}
+.oq .av.xl {
+  width: 30px;
+  height: 30px;
+  font-size: 11px;
+}
+.oq .av-CC {
+  background: var(--cc);
+  color: var(--ccfg);
+}
+.oq .av-CX {
+  background: var(--cx);
+  color: var(--cxfg);
+}
+.oq .av-CP {
+  background: var(--cp);
+  color: var(--cpfg);
+}
+.oq .av-OC {
+  background: var(--oc);
+  color: var(--ocfg);
+}
+.oq .epchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--invbg);
+  color: var(--inv);
+  font-size: 10.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.oq .cd-ti {
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  font:
+    500 13px/1.35 "Geist",
+    sans-serif;
+  color: var(--tx);
+}
+.oq .cd.donec .cd-ti {
+  color: var(--tx2);
+}
+.oq .meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--tx3);
+  min-width: 0;
+}
+.oq .meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oq .meta.m {
+  font-family: "Geist Mono", monospace;
+}
+.oq .meta.inv {
+  color: var(--inv);
+}
+.oq .meta.aq {
+  color: var(--attn);
+}
+.oq .meta.pa {
+  color: var(--pau);
+}
+.oq .meta.wk {
+  color: var(--work);
+}
+.oq .warnbox {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 6px 7px;
+  border-radius: 4px;
+  background: var(--paubg);
+  color: var(--pau);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.oq .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 4px;
+  font:
+    500 11px/1 "Geist",
+    sans-serif;
+  white-space: nowrap;
+  align-self: flex-start;
+}
+.oq .pill .ic {
+  width: 12px;
+  height: 12px;
+}
+.oq .pl-q {
+  color: var(--q);
+  background: var(--qbg);
+}
+.oq .pl-w {
+  color: var(--work);
+  background: var(--workbg);
+}
+.oq .pl-a {
+  color: var(--attn);
+  background: var(--attnbg);
+}
+.oq .pl-r {
+  color: var(--rev);
+  background: var(--revbg);
+}
+.oq .pl-ok {
+  color: var(--ok);
+  background: var(--okbg);
+}
+.oq .pl-i {
+  color: var(--inv);
+  background: var(--invbg);
+}
+.oq .pl-pa {
+  color: var(--pau);
+  background: var(--paubg);
+}
+.oq .pl-e {
+  color: var(--err);
+  background: var(--errbg);
+}
+.oq .pl-d {
+  color: var(--done);
+  background: var(--qbg);
+}
+/* panel */
+.oq .panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 640px;
+  background: var(--panel);
+  border-left: 1px solid var(--bds);
+  box-shadow: -16px 0 40px rgb(0 0 0 / 28%);
+  display: flex;
+  flex-direction: column;
+  animation: oqslide 0.26s ease-out;
+  z-index: 5;
+}
+.oq .pn-h {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 14px 8px 16px;
+}
+.oq .pn-ti {
+  flex: 1;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  line-height: 1.3;
+}
+.oq .pn-ti .key {
+  font-size: 13px;
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+.oq .pn-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 8px;
+  flex-wrap: wrap;
+}
+.oq .pn-ag {
+  display: flex;
+  gap: 16px;
+  padding: 6px 16px 10px;
+  font-size: 12px;
+  color: var(--tx2);
+  flex-wrap: wrap;
+}
+.oq .pn-ag div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.oq .pn-ag b {
+  color: var(--tx);
+  font-weight: 500;
+}
+.oq .pn-act {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+.oq .pn-act .note {
+  font-size: 12px;
+  color: var(--tx2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.oq .ptabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--bd);
+  border-top: 1px solid var(--bd);
+}
+.oq .ptab {
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  cursor: pointer;
+  color: var(--tx2);
+}
+.oq .ptab:hover {
+  color: var(--tx);
+}
+.oq .ptab.on {
+  color: var(--tx);
+  border-bottom-color: var(--ac);
+}
+.oq .pbody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px;
+}
+.oq .tterm {
+  background: var(--termbg);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  padding: 12px 14px;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.oq .tterm .grow {
+  flex: 1;
+}
+.oq .tterm .tl {
+  font-size: calc(1em - 1px);
+}
+.oq .tprompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--bd);
+  margin-top: 10px;
+  padding-top: 8px;
+  font:
+    12px "Geist Mono",
+    monospace;
+  color: var(--tx3);
+}
+.oq .tprompt input {
+  flex: 1;
+  background: none;
+  border: 0;
+  outline: 0;
+  color: var(--tx);
+  font:
+    12px "Geist Mono",
+    monospace;
+}
+.oq .tprompt input::placeholder {
+  color: var(--tx3);
+}
+.oq .term-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: var(--tx3);
+}
+.oq .sess {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--bd);
+  font-size: 11.5px;
+  color: var(--tx2);
+}
+.oq .sess.on {
+  background: var(--acs);
+  border-color: var(--ac);
+  color: var(--tx);
+}
+.oq .dstat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--tx2);
+}
+.oq .add {
+  color: var(--ok);
+  font-family: "Geist Mono", monospace;
+}
+.oq .del {
+  color: var(--err);
+  font-family: "Geist Mono", monospace;
+}
+.oq .dfile {
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.oq .dfile-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--col);
+  border-bottom: 1px solid var(--bd);
+  font:
+    12px "Geist Mono",
+    monospace;
+}
+.oq .dl {
+  display: flex;
+  font:
+    11.5px/1.6 "Geist Mono",
+    monospace;
+  white-space: pre;
+  color: var(--termfg);
+}
+.oq .dl .ln {
+  width: 38px;
+  flex: none;
+  text-align: right;
+  padding-right: 8px;
+  color: var(--tx3);
+  user-select: none;
+}
+.oq .dl .tx {
+  flex: 1;
+  padding-right: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.oq .dl.add-l {
+  background: var(--addbg);
+}
+.oq .dl.del-l {
+  background: var(--delbg);
+}
+.oq .dl.hunk {
+  color: var(--tx3);
+  background: var(--col);
+}
+.oq .slab {
+  font:
+    500 10.5px/1 "Geist Mono",
+    monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tx3);
+  margin: 6px 0 8px;
+}
+.oq .prose {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--tx);
+  margin: 0 0 16px;
+}
+.oq .ul {
+  margin: 0 0 16px;
+  padding-left: 18px;
+  line-height: 1.7;
+}
+.oq .hist {
+  display: flex;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--bd);
+  font-size: 12.5px;
+}
+.oq .hist .t {
+  width: 90px;
+  flex: none;
+  color: var(--tx3);
+  font:
+    11px "Geist Mono",
+    monospace;
+  padding-top: 2px;
+}
+.oq .phd {
+  border: 1px dashed var(--bds);
+  border-radius: 8px;
+  padding: 28px 20px;
+  text-align: center;
+  color: var(--tx2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+.oq .dec {
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  background: var(--card);
+}
+.oq .dec-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 12.5px;
+  margin-bottom: 4px;
+}
+/* popover / dialog */
+.oq .pop {
+  position: absolute;
+  top: 48px;
+  right: 110px;
+  width: 420px;
+  max-height: 600px;
+  display: flex;
+  flex-direction: column;
+  background: var(--raised);
+  border: 1px solid var(--bds);
+  border-radius: 8px;
+  box-shadow: var(--sh);
+  z-index: 20;
+  animation: oqfade 0.2s ease-out;
+}
+.oq .pop-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 8px 14px;
+}
+.oq .pop-h b {
+  font-size: 14px;
+  flex: 1;
+}
+.oq .pop-b {
+  overflow-y: auto;
+  padding: 0 8px 8px;
+}
+.oq .grp {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px 6px;
+  font:
+    500 10.5px/1 "Geist Mono",
+    monospace;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--tx3);
+}
+.oq .item {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  border-radius: 6px;
+  padding: 8px;
+  cursor: pointer;
+  align-items: flex-start;
+}
+.oq .item:hover {
+  background: var(--hover);
+}
+.oq .item .bar {
+  width: 3px;
+  align-self: stretch;
+  border-radius: 2px;
+  flex: none;
+}
+.oq .item .main-i {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.oq .item .t1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.oq .item .t1 b {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oq .item .t2 {
+  font-size: 11.5px;
+  color: var(--tx2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oq .item .age {
+  font:
+    11px "Geist Mono",
+    monospace;
+  color: var(--tx3);
+}
+.oq .pk {
+  font:
+    600 9.5px/1 "Geist Mono",
+    monospace;
+  padding: 3px 4px;
+  border-radius: 3px;
+  background: var(--col);
+  border: 1px solid var(--bd);
+  color: var(--tx2);
+}
+.oq .allclear {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 36px 20px;
+  color: var(--tx2);
+  text-align: center;
+}
+.oq .scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: oqfade 0.2s ease-out;
+}
+.oq .dlg {
+  width: 920px;
+  height: 620px;
+  background: var(--panel);
+  border: 1px solid var(--bds);
+  border-radius: 10px;
+  box-shadow: var(--sh);
+  display: flex;
+  overflow: hidden;
+}
+.oq .snav {
+  width: 220px;
+  flex: none;
+  border-right: 1px solid var(--bd);
+  background: var(--col);
+  padding: 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+.oq .snav h2 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  margin: 0 8px 12px;
+}
+.oq .snav .gl {
+  font:
+    500 10.5px/1 "Geist Mono",
+    monospace;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--tx3);
+  padding: 12px 8px 6px;
+}
+.oq .srow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--tx2);
+  text-align: left;
+  width: 100%;
+}
+.oq .srow:hover {
+  background: var(--hover);
+  color: var(--tx);
+}
+.oq .srow.on {
+  background: var(--acs);
+  color: var(--tx);
+}
+.oq .spage {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.oq .spage-h {
+  display: flex;
+  align-items: center;
+  padding: 14px 14px 10px 24px;
+  border-bottom: 1px solid var(--bd);
+}
+.oq .spage-h h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  flex: 1;
+}
+.oq .spage-b {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.oq .sdesc {
+  font-size: 12.5px;
+  color: var(--tx2);
+  margin: 0;
+}
+.oq .trow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  background: var(--card);
+}
+.oq .trow .tt {
+  flex: 1;
+  min-width: 0;
+}
+.oq .trow .tt b {
+  font-weight: 600;
+  display: block;
+  font-size: 13px;
+}
+.oq .trow .tt span {
+  font-size: 12px;
+  color: var(--tx2);
+}
+.oq .field {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--bd);
+}
+.oq .field > label,
+.oq .field > .fl {
+  font-weight: 500;
+  padding-top: 5px;
+}
+.oq .field .hint {
+  font-size: 11.5px;
+  color: var(--tx3);
+  margin-top: 4px;
+}
+.oq .inp {
+  width: 100%;
+  height: 30px;
+  border-radius: 4px;
+  border: 1px solid var(--bds);
+  background: var(--card);
+  color: var(--tx);
+  padding: 0 9px;
+  font:
+    12.5px "Geist Mono",
+    monospace;
+}
+.oq .inp.ro {
+  background: var(--col);
+  color: var(--tx2);
+}
+.oq textarea.inp {
+  height: 74px;
+  padding: 7px 9px;
+  font-family: "Geist", sans-serif;
+  font-size: 12.5px;
+  resize: none;
+  line-height: 1.5;
+}
+.oq select.inp {
+  font-family: "Geist", sans-serif;
+}
+.oq .sw {
+  width: 34px;
+  height: 20px;
+  border-radius: 10px;
+  border: 0;
+  background: var(--bds);
+  position: relative;
+  cursor: pointer;
+  flex: none;
+  transition: background 0.12s;
+}
+.oq .sw::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: left 0.12s;
+}
+.oq .sw.on {
+  background: var(--ac);
+}
+.oq .sw.on::after {
+  left: 17px;
+}
+.oq .themes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.oq .theme {
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--card);
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.oq .theme.on {
+  border-color: var(--ac);
+  box-shadow: 0 0 0 1px var(--ac);
+}
+.oq .tprev {
+  height: 70px;
+  border-radius: 6px;
+  display: flex;
+  gap: 5px;
+  padding: 7px;
+  border: 1px solid var(--bd);
+}
+.oq .tprev i {
+  flex: 1;
+  border-radius: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+}
+.oq .tprev b {
+  display: block;
+  height: 9px;
+  border-radius: 2px;
+}
+.oq .kbrow {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--bd);
+  font-size: 12.5px;
+}
+.oq .toast {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  max-width: 620px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--raised);
+  border: 1px solid var(--bds);
+  box-shadow: var(--sh);
+  font-size: 12.5px;
+  z-index: 40;
+  animation: oqfade 0.2s ease-out;
+}
+.oq .toast .ic {
+  color: var(--tx2);
+}
+.oq .cnt {
+  font:
+    11px "Geist Mono",
+    monospace;
+  color: var(--tx3);
+}
+
+/* Focus the demo moves onto a region (the panel, the inbox, Settings, the pane, the board) shows the drawn ring. */
+.oq.oq:focus-visible,
+.oq [data-home]:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/* WEB-06: prefers-reduced-motion stops every animation. */
+@media (prefers-reduced-motion: reduce) {
+  .oq.oq *,
+  .oq.oq *::before,
+  .oq.oq *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/*
+ * The page (src/styles/landing.css) uses some of the same class names for its own parts. Undo what its rules would add
+ * here: the hero's floating cards (.fl), the "Works with" chips (.tool), the waving flag of the brand mark (.mk .f) and
+ * its pressed buttons (.btn).
+ */
+.oq .fl {
+  position: static;
+  z-index: auto;
+  width: auto;
+  text-align: inherit;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  display: block;
+  gap: normal;
+  box-shadow: none;
+  animation: none;
+}
+.oq .tool {
+  display: block;
+  gap: normal;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.oq .mk .f {
+  animation: none;
+}
+.oq .btn:active {
+  transform: none;
+}
