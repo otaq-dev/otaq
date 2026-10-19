@@ -53,7 +53,7 @@ export interface ShortcutCardProps {
   titleId?: string;
 }
 
-/** The list's box: head, note, and the groups in two columns (the gallery draws it on its own). */
+/** The list's box: head, note, and the groups in three columns (the gallery draws it on its own). */
 export function ShortcutCard({ view, onSettings, titleId }: ShortcutCardProps) {
   return (
     <>

@@ -10,6 +10,6 @@ export type ShortcutListView = { title: string, settings_link: string, close: st
  */
 note: string, or: string, then: string, 
 /**
- * The two columns of groups ([`COLUMNS`]).
+ * The three columns of groups ([`COLUMNS`]).
  */
 columns: Array<Array<ShortcutGroup>>, };

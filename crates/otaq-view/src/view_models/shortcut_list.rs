@@ -1,5 +1,5 @@
 //! The `?` shortcut list (KEY-07, d0097; design `s02-24`…`s02-27`): an overlay over the window with every action that
-//! has a key, in the user's keys, in four groups drawn as two columns. A row holds one action, or the actions that
+//! has a key, in the user's keys, in four groups drawn as three columns. A row holds one action, or the actions that
 //! share its title (Next / previous ticket, Project 1–9); its keys are joined by "or", a sequence's two keys by
 //! "then". A row with a changed key is drawn in the accent tint with "changed"; with the letters off, a key with no
 //! modifier is left out of a row that has another, and a row with only such keys stays, dimmed, with "off". Keyless
@@ -26,10 +26,11 @@ pub const OR: &str = "or";
 /// Between a sequence's two keys ("g then b").
 pub const THEN: &str = "then";
 
-/// The groups in their columns, as drawn: Moving around over The terminal, Views over The ticket.
-pub const COLUMNS: [&[KeyGroup]; 2] = [
+/// The groups in their columns, as drawn: Moving around over The terminal, then Views, then The ticket.
+pub const COLUMNS: [&[KeyGroup]; 3] = [
     &[KeyGroup::MovingAround, KeyGroup::TheTerminal],
-    &[KeyGroup::Views, KeyGroup::TheTicket],
+    &[KeyGroup::Views],
+    &[KeyGroup::TheTicket],
 ];
 
 /// The whole list. `ShortcutListView` on the page.
@@ -43,7 +44,7 @@ pub struct ShortcutList {
     pub note: &'static str,
     pub or: &'static str,
     pub then: &'static str,
-    /// The two columns of groups ([`COLUMNS`]).
+    /// The three columns of groups ([`COLUMNS`]).
     pub columns: Vec<Vec<ShortcutGroup>>,
 }
 
@@ -269,7 +270,7 @@ mod tests {
         shortcut_list(&user_keys(Platform::Mac, custom), letters)
     }
 
-    /// `s02-24`: the four groups in two columns, every row with its keys as drawn.
+    /// `s02-24`: the four groups in three columns, every row with its keys as drawn.
     #[test]
     fn the_groups_and_rows_are_the_drawn_ones() {
         let list = mac(&CustomKeys::default(), true);
@@ -283,7 +284,11 @@ mod tests {
             .collect();
         assert_eq!(
             titles,
-            [["Moving around", "The terminal"], ["Views", "The ticket"]]
+            [
+                vec!["Moving around", "The terminal"],
+                vec!["Views"],
+                vec!["The ticket"]
+            ]
         );
         assert_eq!(
             drawn(&list, KeyGroup::MovingAround),
