@@ -1,0 +1,28 @@
+---
+import { REPO_URL } from "./os";
+import Icon from "./Icon.astro";
+import Mark from "./Mark.astro";
+---
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#top" aria-label="Otaq home">
+      <Mark size={26} /> Otaq
+    </a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#demo">Live demo</a>
+      <a href="#how">How it works</a>
+      <a href="#you">What you do</a>
+      <a href="#agents">Agents</a>
+      <a href="#install">Install</a>
+    </nav>
+    <a class="btn btn-s btn-sm gh" href={REPO_URL}>
+      <Icon icon="git-branch" />
+      GitHub
+    </a>
+    <a class="btn btn-p btn-sm" href="#install">
+      <Icon icon="download" />
+      Download
+    </a>
+  </div>
+</header>

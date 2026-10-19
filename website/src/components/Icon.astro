@@ -1,0 +1,13 @@
+---
+// One of the page's icons (Icons.astro), decorative: the text next to it says what it means.
+interface Props {
+  icon: string;
+  class?: string;
+  style?: string;
+}
+const { icon, class: cls, style } = Astro.props;
+---
+
+<svg class:list={["ic", cls]} style={style} aria-hidden="true">
+  <use href={`#m-${icon}`}></use>
+</svg>
