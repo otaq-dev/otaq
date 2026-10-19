@@ -75,9 +75,17 @@ describe("the fixed ids", () => {
   });
 
   it("overlays: every id has its modality; the inbox and popovers don't hold shortcuts back", () => {
-    expect(OVERLAY_IDS).toHaveLength(31);
+    expect(OVERLAY_IDS).toHaveLength(32);
     const nonModal = OVERLAY_IDS.filter((id) => !OVERLAY_MODAL[id]);
-    expect(nonModal).toEqual(["inbox", "quick_switcher", "processes", "terminals", "activity", "all_clear"]);
+    expect(nonModal).toEqual([
+      "inbox",
+      "quick_switcher",
+      "command_palette",
+      "processes",
+      "terminals",
+      "activity",
+      "all_clear",
+    ]);
   });
 
   // No `default`: an id added to a union without a case here fails ESLint's switch-exhaustiveness-check.
@@ -100,6 +108,7 @@ describe("the fixed ids", () => {
       switch (id) {
         case "inbox":
         case "quick_switcher":
+        case "command_palette":
         case "activity":
         case "all_clear":
           return "popover";
@@ -160,5 +169,18 @@ describe("shortcut handlers", () => {
     project();
     expect(shortcuts.names()).toEqual(["close_panel"]);
     expect(shortcuts.run({ action: "project", number: 3 })).toBe(false);
+  });
+
+  it("tells its listeners each action a handler took (the palette's recent items)", () => {
+    const shortcuts = createShortcuts();
+    const ran: string[] = [];
+    const stop = shortcuts.onRan(({ action }) => ran.push(action));
+    shortcuts.on("park", () => false);
+    shortcuts.on("approve", () => undefined);
+    expect(shortcuts.run({ action: "park" })).toBe(false);
+    expect(shortcuts.run({ action: "approve" })).toBe(true);
+    stop();
+    shortcuts.run({ action: "approve" });
+    expect(ran).toEqual(["approve"]);
   });
 });

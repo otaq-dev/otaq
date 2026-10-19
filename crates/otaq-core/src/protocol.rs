@@ -831,6 +831,10 @@ pub enum Request {
     /// `{"on": true}`: "Use fallback agents automatically", off by default (AGT-08; T-0357).
     #[serde(rename = "settings.auto_fallback")]
     SettingsAutoFallback(AutoFallbackParams),
+    /// `{}` or `{"record": {"kind": "ticket", "key": "NOTE-2"}}`: the command palette's recent items (KEY-06, d0097),
+    /// with the use recorded first when given. Answered with [`Reply::RecentItems`], newest first.
+    #[serde(rename = "recent.items")]
+    RecentItems(RecentItemsParams),
 
     // Imported workflow skills (M27; d0092). The user's requests.
     /// `{"project": "NOTE"}` or `{}`: the four workflow skill settings of a project or the global page (WSK-01,
@@ -921,6 +925,13 @@ pub struct UseFallbackParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AutoFallbackParams {
     pub on: bool,
+}
+
+/// `recent.items`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecentItemsParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record: Option<crate::store::recents::RecentUse>,
 }
 
 /// `agents.edit`: the entry's id and its whole form.
@@ -1774,6 +1785,7 @@ impl Request {
             Self::LimitsMoveWaiting(_) => "limits.move_waiting",
             Self::TicketUseFallback(_) => "ticket.use_fallback",
             Self::SettingsAutoFallback(_) => "settings.auto_fallback",
+            Self::RecentItems(_) => "recent.items",
             Self::WorkflowSkillsStatus(_) => "workflow_skills.status",
             Self::WorkflowSkillsImport(_) => "workflow_skills.import",
             Self::WorkflowSkillsReimport(_) => "workflow_skills.reimport",
@@ -1898,6 +1910,8 @@ pub enum Reply {
     WorkflowSkills(Vec<crate::workflow_skills::SkillStatus>),
     /// One workflow skill setting after an import, Re-import or reset.
     WorkflowSkill(Box<crate::workflow_skills::SkillStatus>),
+    /// The command palette's recent items, newest first (`recent.items`).
+    RecentItems(Vec<crate::store::recents::RecentItem>),
 }
 
 /// The global settings with any values flagged as invalid.

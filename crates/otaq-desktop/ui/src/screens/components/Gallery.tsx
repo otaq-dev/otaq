@@ -16,6 +16,7 @@ import { FrameBody } from "../../app/Frame";
 import { INITIAL_LAYOUT, layoutView, loadLayout } from "../../app/layout";
 import { createRegistries, type OverlayProps, RegistriesContext } from "../../app/registry";
 import { SequenceHintLine } from "../../app/SequenceHint";
+import { PaletteGallery } from "../palette/PaletteGallery";
 import { useStore } from "../../app/store";
 import { openOverlay } from "../../app/overlays";
 import { EpicCard, stateOfLook, TicketCard } from "../../cards";
@@ -2676,6 +2677,14 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
                   </div>
                 ))}
               </div>
+            </Section>
+            <Section title="02 · Command palette: just opened, typing, >, no results, another project, can't run, Windows / Linux (update AF §3, s02-20 … s02-23, T-0393)">
+              {THEMES.map((theme) => (
+                <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+                  <Caption>{theme.toUpperCase()}</Caption>
+                  <PaletteGallery frames={view.palette} />
+                </div>
+              ))}
             </Section>
           </>
         )}

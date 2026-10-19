@@ -276,6 +276,18 @@ pub(super) async fn handle(
             shared.gate.set_automatic(p.on).await?;
             Ok(Reply::Ok)
         }),
+        Request::RecentItems(p) => boxed(move || async move {
+            let items = match p.record {
+                Some(used) => {
+                    shared
+                        .store
+                        .record_recent(used, crate::store::now_ms())
+                        .await?
+                }
+                None => shared.store.recent_items().await?,
+            };
+            Ok(Reply::RecentItems(items))
+        }),
         Request::AgentsModelsRefresh(p) => boxed(move || async move {
             Ok(Reply::Models(
                 shared.models.refresh(p.tool).await.map(Box::new),

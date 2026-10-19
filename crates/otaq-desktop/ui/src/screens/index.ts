@@ -9,6 +9,7 @@ export { inbox } from "./inbox";
 export { leadTab } from "./lead_tab";
 export { notices } from "./notices";
 export { onboarding } from "./onboarding";
+export { palette } from "./palette";
 export { pane } from "./pane";
 export { panel } from "./panel";
 export { pr } from "./pr";

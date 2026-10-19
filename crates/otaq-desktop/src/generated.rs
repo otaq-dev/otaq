@@ -71,6 +71,10 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::DigitParams::export_all(&cfg)?;
     crate::api::StepParams::export_all(&cfg)?;
     crate::api::CleanupBroom::export_all(&cfg)?;
+    // The command palette (T-0393): its view with the rows, and the requests' params.
+    otaq_view::view_models::palette::View::export_all(&cfg)?;
+    crate::api::PaletteParams::export_all(&cfg)?;
+    crate::api::PaletteUse::export_all(&cfg)?;
     // T-0231: `PageEvent` writes `Notices` with its banner and toast types; these are the requests' own.
     otaq_view::view_models::toasts::NewToast::export_all(&cfg)?;
     otaq_view::view_models::restart::RestartDialogView::export_all(&cfg)?;

@@ -407,6 +407,7 @@ async fn action_for(
         }
         R::TicketUseFallback(_) => Action::UserOnly("use fallback agents"),
         R::SettingsAutoFallback(_) => Action::UserOnly("change settings"),
+        R::RecentItems(_) => Action::UserOnly("use the command palette"),
         // Imported workflow skills are the user's (d0092).
         R::WorkflowSkillsStatus(_)
         | R::WorkflowSkillsImport(_)
