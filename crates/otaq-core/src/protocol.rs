@@ -612,6 +612,18 @@ pub enum Request {
     /// (FLW-08…FLW-10); it replaces the open one. Answered with [`Reply::FlowProposal`].
     #[serde(rename = "flow.propose_from")]
     FlowProposeFrom(crate::flow::apply::ProposeFromParams),
+    /// `otaq flow show` (FLW-02): `{"project": "SHOP"}`, the applied stages and the agents they name as one document.
+    /// Answered with [`Reply::FlowDocument`].
+    #[serde(rename = "flow.show")]
+    FlowShow(ProjectParams),
+    /// `otaq flow propose` (FLW-03), from a Project agent's session or the user: a document or another project's
+    /// stages, checked, opened in the preview (replacing the open one). Answered with [`Reply::FlowProposal`].
+    #[serde(rename = "flow.propose")]
+    FlowPropose(crate::flow::propose::ProposeParams),
+    /// Ask for more changes in the preview (FLW-04): closes the open proposal; the text goes to the Project agent
+    /// that proposed it. Answered with [`Reply::Ok`].
+    #[serde(rename = "flow.ask_for_changes")]
+    FlowAskForChanges(crate::flow::propose::AskForChangesParams),
 
     // Sessions (SES-04, SVC-05).
     /// With `key`, every session the ticket ever had (newest first); without, every session in the service's
@@ -1748,6 +1760,9 @@ impl Request {
             Self::FlowWaiting(_) => "flow.waiting",
             Self::FlowCancelWaiting(_) => "flow.cancel_waiting",
             Self::FlowProposeFrom(_) => "flow.propose_from",
+            Self::FlowShow(_) => "flow.show",
+            Self::FlowPropose(_) => "flow.propose",
+            Self::FlowAskForChanges(_) => "flow.ask_for_changes",
             Self::SessionList(_) => "session.list",
             Self::SessionAttach(_) => "session.attach",
             Self::SessionDetach(_) => "session.detach",
@@ -1890,6 +1905,7 @@ pub enum Reply {
     FlowProposal(Option<Box<crate::flow::proposal::Proposal>>),
     FlowApplied(Box<crate::flow::apply::Applied>),
     FlowWaiting(Option<Box<crate::flow::apply::WaitingChange>>),
+    FlowDocument(Box<crate::flow::propose::FlowDocument>),
     Sessions(Vec<SessionInfo>),
     SessionAttached(Box<SessionAttach>),
     Delivery(Delivery),

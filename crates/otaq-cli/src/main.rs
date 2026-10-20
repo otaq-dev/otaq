@@ -7,6 +7,7 @@ mod cli;
 mod daemon;
 mod decision;
 mod deps;
+mod flow;
 mod hook;
 mod launch;
 mod lead;
@@ -170,6 +171,7 @@ fn main() -> ExitCode {
         Some(Command::Questions { key }) => agent::questions(key, &cli.global, &out),
         Some(Command::Dep(command)) => deps::run(command, &cli.global, &out),
         Some(Command::Project(command)) => read::project(command, &cli.global, &out),
+        Some(Command::Flow(command)) => flow::run(command, &cli.global, &out),
         Some(Command::Hook { tool, event }) => {
             hook::run(&tool, &event);
             Ok(())

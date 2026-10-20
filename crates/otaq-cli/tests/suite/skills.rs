@@ -49,11 +49,6 @@ fn every_command_a_skill_names_exists() {
         let file = folder.join("SKILL.md");
         let text = std::fs::read_to_string(&file).unwrap();
         for words in commands(&text) {
-            // `flow show | presets | propose` (FLW-02, FLW-03) come with T-0414, after the `flow` skill (T-0415):
-            // T-0414 removes this exception.
-            if words[0] == "flow" {
-                continue;
-            }
             let ok = Command::new(CB)
                 .args(&words)
                 .arg("--help")

@@ -395,10 +395,16 @@ async fn action_for(
             parent: facts(board, &p.parent).await?,
         },
 
+        // The preview's buttons are the user's (FLW-04, FLW-06); proposing is a Project agent's too (FLW-03).
         R::FlowApply(_)
         | R::FlowCancelProposal(_)
         | R::FlowCancelWaiting(_)
-        | R::FlowProposeFrom(_) => Action::UserOnly("change flows"),
+        | R::FlowProposeFrom(_)
+        | R::FlowAskForChanges(_) => Action::UserOnly("change flows"),
+        R::FlowShow(_) => Action::Read,
+        R::FlowPropose(p) => Action::ProposeFlow {
+            project: board.project(&p.project).await?.key,
+        },
         R::ServiceStop => Action::UserOnly("stop the background service"),
         R::DismissPermissionWarning => Action::UserOnly("change onboarding"),
         R::DismissTrustNote => Action::UserOnly("dismiss notices"),

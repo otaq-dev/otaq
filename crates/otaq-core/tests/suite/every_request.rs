@@ -49,6 +49,13 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "flow.propose_from" {
             params["source"] = json!({"from": "previous"});
         }
+        if method == "flow.propose" {
+            params["source"] = json!({"from": "project", "project": "NOPE"});
+        }
+        if method == "flow.ask_for_changes" {
+            params["proposal"] = json!(3);
+            params["text"] = json!("t");
+        }
         if method == "hook" {
             params["tool"] = json!("claude");
         }
@@ -257,6 +264,9 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::FlowWaiting(_)
         | Request::FlowCancelWaiting(_)
         | Request::FlowProposeFrom(_)
+        | Request::FlowShow(_)
+        | Request::FlowPropose(_)
+        | Request::FlowAskForChanges(_)
         | Request::SessionList(_)
         | Request::SessionAttach(_)
         | Request::SessionDetach(_)

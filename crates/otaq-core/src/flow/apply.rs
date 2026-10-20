@@ -310,7 +310,7 @@ impl Board {
     }
 
     /// A project by its key, else by its name ("pocket-notes").
-    async fn project_named(
+    pub(crate) async fn project_named(
         &self,
         name: &str,
     ) -> Result<crate::store::projects::Project, BoardError> {

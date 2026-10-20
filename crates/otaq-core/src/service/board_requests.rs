@@ -21,6 +21,8 @@ use crate::caller::Caller;
 use crate::domain::{Actor, Kind};
 use crate::epic_lead::changes::LeadChange;
 use crate::flow::apply::FlowEvent;
+use crate::flow::proposal::ProposedBy;
+use crate::flow::propose;
 use crate::protocol::{
     ErrorBody, ErrorKind, Event, GlobalSettingsReply, ProjectSettingsReply, Reply, Request,
 };
@@ -1199,9 +1201,20 @@ pub(super) async fn handle(
             Ok(Reply::FlowProposal(Some(Box::new(proposal))))
         }),
         Request::FlowApply(p) => boxed(move || async move {
+            let by = board.proposed_by(&p.project, p.proposal).await?;
             let applied = board
                 .apply_proposal(&p.project, p.proposal, &p.choices, shared.agents.models())
                 .await?;
+            if let Some(by) = &by {
+                let waiting = applied.waiting.as_ref().map(|w| w.summary());
+                propose::deliver_answer(
+                    &shared.deliveries,
+                    by,
+                    applied.proposal,
+                    &propose::Answer::Applied { waiting },
+                )
+                .await;
+            }
             let key = board.project(&p.project).await?.key;
             flow_event(
                 shared,
@@ -1229,11 +1242,58 @@ pub(super) async fn handle(
             Ok(Reply::FlowApplied(Box::new(applied)))
         }),
         Request::FlowCancelProposal(p) => boxed(move || async move {
+            let by = board.proposal_row(&p.project).await?.map(|r| r.proposed_by);
             if let Some(id) = board.cancel_proposal(&p.project).await? {
                 let key = board.project(&p.project).await?.key;
                 flow_event(shared, &key, FlowEvent::ProposalClosed { proposal: id });
+                if let Some(by) = &by {
+                    let answer = propose::Answer::Cancelled;
+                    propose::deliver_answer(&shared.deliveries, by, id, &answer).await;
+                }
             }
             Ok(Reply::Ok)
+        }),
+        Request::FlowAskForChanges(p) => boxed(move || async move {
+            let by = board
+                .ask_for_changes(&p.project, p.proposal, &p.text)
+                .await?;
+            let key = board.project(&p.project).await?.key;
+            flow_event(
+                shared,
+                &key,
+                FlowEvent::ProposalClosed {
+                    proposal: p.proposal,
+                },
+            );
+            let answer = propose::Answer::MoreChanges(p.text.clone());
+            propose::deliver_answer(&shared.deliveries, &by, p.proposal, &answer).await;
+            Ok(Reply::Ok)
+        }),
+        Request::FlowShow(p) => boxed(move || async move {
+            Ok(Reply::FlowDocument(Box::new(
+                board.flow_document(&p.project).await?,
+            )))
+        }),
+        Request::FlowPropose(p) => boxed(move || async move {
+            let by = match caller {
+                Caller::ProjectAgent { agent, session, .. } => ProposedBy::ProjectAgent {
+                    agent: agent.clone(),
+                    session: session.clone(),
+                    name: shared.project_agents.get(agent).await?.name,
+                },
+                _ => ProposedBy::User,
+            };
+            let proposal = board
+                .propose(&p.project, &p.source, &by, shared.agents.models())
+                .await?;
+            flow_event(
+                shared,
+                &proposal.project,
+                FlowEvent::Proposed {
+                    proposal: proposal.id,
+                },
+            );
+            Ok(Reply::FlowProposal(Some(Box::new(proposal))))
         }),
         Request::FlowWaiting(p) => boxed(move || async move {
             Ok(Reply::FlowWaiting(

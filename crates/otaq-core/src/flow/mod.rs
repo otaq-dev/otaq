@@ -2,7 +2,8 @@
 //! `yaml` reads and writes flow files (STG-01), `check` holds the rules every flow must follow (STG-02), `default`
 //! the shipped default flow (STG-03), `store` each project's applied flow and the ones before it (FLW-01), `engine`
 //! the moves between stages (STG-06), `proposal` a proposed flow checked and compared (FLW-03, FLW-04), `apply` what
-//! applies when and the quiet-board wait (FLW-05, FLW-06), `presets` the shipped preset files (FLW-08).
+//! applies when and the quiet-board wait (FLW-05, FLW-06), `presets` the shipped preset files (FLW-08), `propose`
+//! `otaq flow show` and `propose` and the answer to a proposal (FLW-02, FLW-03).
 
 pub mod apply;
 pub mod check;
@@ -11,6 +12,7 @@ pub mod engine;
 pub mod model;
 pub mod presets;
 pub mod proposal;
+pub mod propose;
 pub mod store;
 pub mod yaml;
 

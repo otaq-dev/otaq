@@ -281,6 +281,9 @@ pub enum Command {
     /// List or show projects
     #[command(subcommand)]
     Project(ProjectCommand),
+    /// The project's flow: `flow show`, `flow presets`, `flow propose -f <file> | --stdin | --from <project>`
+    #[command(subcommand)]
+    Flow(FlowCommand),
     /// Internal: what an agent tool's hooks run (`otaq hook --tool claude Stop`, payload on stdin)
     #[command(hide = true)]
     Hook {
@@ -441,6 +444,27 @@ pub enum ProjectCommand {
     Show {
         /// The project's key (SHOP)
         key: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
+pub enum FlowCommand {
+    /// The project's applied flow and the agents it names, as the YAML `flow propose` reads
+    Show,
+    /// The ready-made flows Otaq ships, one line each
+    Presets,
+    /// Propose a flow to the user: it opens in Otaq's preview and nothing changes until they apply it
+    #[command(group(clap::ArgGroup::new("source").required(true).args(["file", "stdin", "from"])))]
+    Propose {
+        /// A flow file (YAML: agents and flow)
+        #[arg(short = 'f', long = "file", value_name = "FILE")]
+        file: Option<PathBuf>,
+        /// Read the flow (YAML) from stdin
+        #[arg(long)]
+        stdin: bool,
+        /// Propose another project's stages (its key or name); agents are shared
+        #[arg(long, value_name = "PROJECT")]
+        from: Option<String>,
     },
 }
 

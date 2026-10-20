@@ -163,6 +163,8 @@ pub enum Action {
     Verdict(TicketFacts),
     /// Several actions, all needed (a batch that creates tickets and links them).
     All(Vec<Action>),
+    /// `otaq flow propose` for the project `project` (its key): the user, or a Project agent of that project (FLW-03).
+    ProposeFlow { project: String },
 }
 
 /// Allows or refuses `action` for `caller`. Refusals are [`Refusal::NotAllowed`] with a message for people. An epic
@@ -201,6 +203,18 @@ pub fn authorize_in_stage(
             .iter()
             .try_for_each(|a| authorize_in_stage(caller, names, stage, a))
     };
+    if let Action::ProposeFlow { project } = action {
+        return match caller {
+            Caller::User => Ok(()),
+            Caller::ProjectAgent { project: own, .. } if own == project => Ok(()),
+            Caller::ProjectAgent { project: own, .. } => refuse(format!(
+                "{} can only propose a flow for its own project, {}",
+                names.caller.unwrap_or("The Project agent"),
+                names.project.unwrap_or(own)
+            )),
+            _ => refuse(crate::flow::propose::ONLY_A_PROJECT_AGENT_OR_YOU.to_owned()),
+        };
+    }
     if let Caller::Validator {
         ticket, ticket_id, ..
     } = caller
@@ -332,7 +346,9 @@ pub fn authorize_in_stage(
             target.label
         )),
         Action::UserOnly(what) => refuse(format!("{ticket}'s agent can't {what}; ask the user")),
-        Action::Verdict(_) | Action::LeadCommand { .. } => unreachable!("handled above"),
+        Action::Verdict(_) | Action::LeadCommand { .. } | Action::ProposeFlow { .. } => {
+            unreachable!("handled above")
+        }
         Action::All(actions) => all(actions),
     }
 }
