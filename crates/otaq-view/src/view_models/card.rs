@@ -38,7 +38,6 @@
 //!
 //! Data that the service doesn't fill yet comes in through [`CardExtras`]; fixtures fill it.
 
-use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::epic_flight::is_never_started;
 use otaq_core::board::needs_you::change_agent;
 use otaq_core::board::tickets::{Base, Ticket};
@@ -1344,7 +1343,9 @@ fn turn(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<ToolAvatarVie
 pub fn held<'a>(ticket: &Ticket, status: Status, x: &'a CardExtras) -> Option<&'a CardHold> {
     match status {
         Status::Queued | Status::Held | Status::WaitingForSlot => x.agents.hold(Role::Developer),
-        _ if ticket.status.column() == Column::Dev => x.agents.hold(Role::Validator),
+        _ if crate::view_models::flow_columns::place_set(ticket).at_work() => {
+            x.agents.hold(Role::Validator)
+        }
         _ => None,
     }
 }

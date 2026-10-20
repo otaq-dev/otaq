@@ -92,6 +92,7 @@ const card = (key: string): BoardCard => {
 
 const column = (over: Partial<BoardColumn>): BoardColumn => ({
   id: "ready_for_dev",
+  kind: "ready_for_dev",
   title: "Ready for Dev",
   icon: "play",
   count: "2",

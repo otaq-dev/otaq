@@ -4,10 +4,11 @@
 //! Change… while it is open in review), and the Decisions section on the Diff tab, grouped by child for an epic.
 //! No decisions → no section.
 
-use crate::view_models::legacy_column::{Column, ColumnOf};
+use crate::view_models::flow_columns::place_set;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::decisions::{ChildDecisions, Decision, Outcome};
 use otaq_core::domain::Status;
+use otaq_core::domain::StatusSet;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -104,7 +105,7 @@ pub const HINT_EPIC: &str = "Approve keeps them all \u{b7} Change\u{2026} adds a
 /// The review is open: a ticket in Ready for Review, or an epic in its Ready for Review column.
 pub fn in_review(ticket: &Ticket) -> bool {
     if ticket.is_epic() {
-        ticket.column() == Column::ReadyForReview
+        place_set(ticket) == StatusSet::HumanCheck
     } else {
         ticket.status == Status::WaitingForYou
     }
@@ -113,8 +114,8 @@ pub fn in_review(ticket: &Ticket) -> bool {
 /// The section is shown once the ticket has reached its review: Ready for Review, Approved or Done.
 fn reached_review(ticket: &Ticket) -> bool {
     matches!(
-        ticket.column(),
-        Column::ReadyForReview | Column::Approved | Column::Done
+        place_set(ticket),
+        StatusSet::HumanCheck | StatusSet::Delivery | StatusSet::Done
     )
 }
 
@@ -262,7 +263,7 @@ pub fn ticket_tab(
     children: &[ChildDecisions],
     tickets: &[Ticket],
 ) -> Option<DecisionsSection> {
-    let decided = matches!(ticket.column(), Column::Approved | Column::Done);
+    let decided = matches!(place_set(ticket), StatusSet::Delivery | StatusSet::Done);
     with_groups(
         groups(ticket, own, children, tickets, false),
         (!decided).then_some(HINT_TICKET_TAB),

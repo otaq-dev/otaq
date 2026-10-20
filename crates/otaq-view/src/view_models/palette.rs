@@ -4,7 +4,6 @@
 //! with the reason, and can't be picked. The current project's tickets come before the other projects' (below "Other
 //! projects"); `>` first lists actions only; an empty field lists the recent items of every project, newest first.
 
-use crate::view_models::legacy_column::ColumnOf;
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::Status;
@@ -14,8 +13,7 @@ use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::keymap::{Binding, KeyAction, KeyPlace};
-use crate::view_models::board::column_look;
-use crate::view_models::board_page::ColumnId;
+use crate::view_models::flow_columns::Columns;
 use crate::view_models::panel::{self, Tab};
 use crate::view_models::panel_actions::{self, Action as PanelAction};
 use crate::view_models::{close, send_back};
@@ -353,7 +351,9 @@ fn action_row(action: KeyAction, inputs: &Inputs) -> Row {
 
 /// "Review", "Dev · Needs you": the board column it is in, and Needs you when it waits on the user.
 pub fn place(ticket: &Ticket) -> String {
-    let column = column_look(ColumnId::of(ticket.column())).0;
+    // The default flow's column names; every project's flow has the same columns until M33.
+    let columns = Columns::of(&otaq_core::flow::default_file().flow);
+    let column = columns.column_of(ticket).title.as_str();
     if ticket.status.is_needs_you_family() {
         format!("{column} \u{b7} Needs you")
     } else {

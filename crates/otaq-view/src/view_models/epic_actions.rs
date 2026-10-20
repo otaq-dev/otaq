@@ -3,7 +3,6 @@
 //! went to Dev (the dialog previews the new key, says the old key keeps working and how the base changes), and
 //! Close epic… with one confirmation built from the service's close plan.
 
-use crate::view_models::legacy_column::ColumnOf;
 use otaq_core::board::epics::{ClosePlan, progress_of};
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Kind, Status, TicketKey};
@@ -122,7 +121,14 @@ pub fn close_dialog(epic: &Ticket, plan: &ClosePlan, tickets: &[Ticket]) -> Clos
         .close
         .iter()
         .filter(|c| !c.agent_running)
-        .map(|c| format!("{} {} ({})", c.key, c.title, c.status.column().label()))
+        .map(|c| {
+            format!(
+                "{} {} ({})",
+                c.key,
+                c.title,
+                crate::view_models::project_agent_page::column_name(c.status)
+            )
+        })
         .collect();
     let merged: Vec<String> = plan
         .stay_merged

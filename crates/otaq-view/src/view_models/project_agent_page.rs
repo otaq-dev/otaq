@@ -2,8 +2,8 @@
 //! agents & terminals → Row · states, Row · lifecycle*): the state pill, Resume once it ended, Close mid-turn's
 //! confirmation and Recently ended. The pane itself is `agent_pane.rs`.
 
-use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::domain::Status;
+use otaq_core::domain::StatusSet;
 use otaq_core::project_agents::{AgentState, CreatedAndChanged, ProjectAgent};
 use serde::Serialize;
 use ts_rs::TS;
@@ -73,13 +73,14 @@ pub fn resume_button(agent: &ProjectAgent) -> Option<ResumeButton> {
 
 /// What a column is called in the close confirmation and the pane's Created and changed.
 pub fn column_name(status: Status) -> &'static str {
-    match status.column() {
-        Column::Backlog => "Backlog",
-        Column::ReadyForDev => "Ready for Dev",
-        Column::Dev => "Dev",
-        Column::ReadyForReview => "Ready for Review",
-        Column::Approved => "Approved",
-        Column::Done => "Done",
+    // The default flow's names, by the status's set (an agent check's cards are in Dev).
+    match status.set() {
+        StatusSet::Backlog => "Backlog",
+        StatusSet::Waiting => "Ready for Dev",
+        StatusSet::AgentStage | StatusSet::AgentCheck => "Dev",
+        StatusSet::HumanCheck => "Ready for Review",
+        StatusSet::Delivery => "Approved",
+        StatusSet::Done => "Done",
     }
 }
 

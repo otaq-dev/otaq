@@ -3,7 +3,6 @@
 //! notifications → Success toasts*), and the editor's note that the agent will be told what changed (*08 ·
 //! Ticket editor → Editing while the agent works*).
 
-use crate::view_models::legacy_column::{Column, ColumnOf};
 use std::time::{Duration, Instant};
 
 use otaq_core::board::change_note::change_parts;
@@ -20,14 +19,14 @@ pub const CREATED_BY_AGENT: &str = "created by agent";
 /// The card's origin label for a ticket a ticket's agent created, while it waits in Backlog. A Project agent's
 /// tickets name the agent instead ([`project_agent_label`]).
 pub fn origin_label(ticket: &Ticket) -> Option<&'static str> {
-    (matches!(ticket.created_by, Actor::Agent(_)) && ticket.column() == Column::Backlog)
+    (matches!(ticket.created_by, Actor::Agent(_)) && ticket.place.is_backlog())
         .then_some(CREATED_BY_AGENT)
 }
 
 /// "by Project agent “Checkout slowness”" on a Backlog card a Project agent created (d0068), with the agent's
 /// current name; "by a Project agent" once it isn't listed any more.
 pub fn project_agent_label(ticket: &Ticket, name: Option<&str>) -> Option<String> {
-    if !matches!(ticket.created_by, Actor::ProjectAgent(_)) || ticket.column() != Column::Backlog {
+    if !matches!(ticket.created_by, Actor::ProjectAgent(_)) || !ticket.place.is_backlog() {
         return None;
     }
     Some(match name {
@@ -42,7 +41,7 @@ pub const FRESH_MS: i64 = 8_000;
 /// A Project agent created it moments ago: Backlog highlights it (*18 → live board feedback*).
 pub fn fresh_from_project_agent(ticket: &Ticket, now_ms: i64) -> bool {
     matches!(ticket.created_by, Actor::ProjectAgent(_))
-        && ticket.column() == Column::Backlog
+        && ticket.place.is_backlog()
         && (0..FRESH_MS).contains(&(now_ms - ticket.created_at))
 }
 

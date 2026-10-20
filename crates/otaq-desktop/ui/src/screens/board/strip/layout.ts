@@ -19,14 +19,15 @@ export type TrackCell =
 
 const EMPTY = (column: BoardColumnId): EpicStation => ({ column, stops: [], merged: null, check: null });
 
-/** The cells of `track` over `columns` (the page's columns, in board order): the label over Backlog, each other
- * column its station (an empty one if the track has none for it), a collapsed column its rail. */
+/** The cells of `track` over `columns` (the page's columns, in board order): the label over Backlog (the first column
+ * of every flow, STG-08), each other column its station (an empty one if the track has none for it), a collapsed
+ * column its rail. */
 export function trackCells(
   columns: readonly Pick<BoardColumn, "id" | "collapsed">[],
   track: Pick<EpicTrack, "stations">,
 ): TrackCell[] {
-  return columns.map(({ id, collapsed }) => {
-    if (id === "backlog") return { kind: "label", column: id };
+  return columns.map(({ id, collapsed }, index) => {
+    if (index === 0) return { kind: "label", column: id };
     const station = track.stations.find((s) => s.column === id) ?? EMPTY(id);
     return collapsed ? { kind: "rail", column: id, station } : { kind: "station", column: id, station };
   });

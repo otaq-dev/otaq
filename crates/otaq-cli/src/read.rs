@@ -23,7 +23,7 @@ use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::board::tickets::{Base, HistoryEvent, Ticket};
 use otaq_core::client::Client;
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{Priority, Status, StatusSet, TicketKey};
+use otaq_core::domain::{Place, Priority, Status, StatusSet, TicketKey};
 use otaq_core::named_agents::rows::{RowFacts, TicketAgents};
 use otaq_core::named_agents::{Role, RowSetBy};
 use otaq_core::protocol::{
@@ -466,7 +466,9 @@ pub fn unexpected(reply: &Reply) -> ErrorBody {
 }
 
 /// The board's columns as the default flow draws them, by the name `--status` and `otaq show` use (`dev`,
-/// "Ready for Review"); a ticket's column comes from its status's set (STG-04).
+/// "Ready for Review"); a ticket's column comes from its place (STG-08): Backlog, Ready for Dev and Done as
+/// themselves, a stage by the kind of statuses it allows (an agent check's are Dev's), and a card waiting before a
+/// later Agent stage in that stage's column, Dev.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Column {
     Backlog,
@@ -488,13 +490,16 @@ impl Column {
     ];
 
     fn of(ticket: &Ticket) -> Self {
-        match ticket.status.set() {
-            StatusSet::Backlog => Self::Backlog,
-            StatusSet::Waiting => Self::ReadyForDev,
-            StatusSet::AgentStage | StatusSet::AgentCheck => Self::Dev,
-            StatusSet::HumanCheck => Self::ReadyForReview,
-            StatusSet::Delivery => Self::Approved,
-            StatusSet::Done => Self::Done,
+        match &ticket.place {
+            Place::Backlog => Self::Backlog,
+            Place::Waiting(None) => Self::ReadyForDev,
+            Place::Waiting(Some(_)) => Self::Dev,
+            Place::Done => Self::Done,
+            Place::InStage(_) => match ticket.status.set() {
+                StatusSet::HumanCheck => Self::ReadyForReview,
+                StatusSet::Delivery => Self::Approved,
+                _ => Self::Dev,
+            },
         }
     }
 

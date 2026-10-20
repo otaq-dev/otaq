@@ -3,7 +3,6 @@
 //! badges, a trash button while it never went to Dev (d0060), and "Nothing runs until you drag a ticket to
 //! Dev." It sits beside the terminal, never over its output.
 
-use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::TicketKey;
 
@@ -42,10 +41,7 @@ pub fn summary(created: &[Ticket]) -> Option<Summary> {
         .map(|t| t.depends_on.iter().filter(|d| keys.contains(d)).count())
         .sum();
     let n = created.len();
-    let in_backlog = created
-        .iter()
-        .filter(|t| t.column() == Column::Backlog)
-        .count();
+    let in_backlog = created.iter().filter(|t| t.place.is_backlog()).count();
     let plural =
         |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
     Some(Summary {
@@ -65,7 +61,7 @@ pub fn summary(created: &[Ticket]) -> Option<Summary> {
                 key: t.key.clone(),
                 title: t.title.clone(),
                 deps: t.depends_on.iter().map(ToString::to_string).collect(),
-                deletable: t.column() == Column::Backlog && !t.has_started(),
+                deletable: t.place.is_backlog() && !t.has_started(),
             })
             .collect(),
     })

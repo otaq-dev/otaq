@@ -204,7 +204,6 @@ mod tests {
     use crate::keymap::Platform;
     use crate::view_models::board::{BoardInput, build};
     use crate::view_models::card_fixtures::{NOW, ticket};
-    use crate::view_models::legacy_column::{Column, ColumnOf};
     use otaq_core::domain::Status;
 
     #[test]
@@ -239,6 +238,7 @@ mod tests {
         );
         let order = |tickets: &[Ticket]| -> Vec<String> {
             build(&BoardInput {
+                flow: &otaq_core::flow::default_file().flow,
                 tickets,
                 visible: None,
                 strong: None,
@@ -413,7 +413,7 @@ mod tests {
         assert_eq!(focus_with(&fixtures::letters_off()), None);
         // The track: 40.1 runs, 40.2 waits, 40.3 not queued.
         let mut track = wishlist([Status::Working, Status::Queued, Status::Backlog]);
-        assert_eq!(track[2].column(), Column::ReadyForDev);
+        assert!(track[2].place.is_ready_for_dev());
         assert_eq!(
             labels(&track),
             [

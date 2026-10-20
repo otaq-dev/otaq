@@ -1,8 +1,10 @@
 // The board's moment of interaction, without the DOM (UIT-04): a drag asks Rust once, when it starts (`board.drag`,
 // every drop target's verdict from the core's `check_move`), and from then on only this file works while the pointer
-// or the arrow keys move: which drop target is under the card, how it looks, whether a release drops. The Review
-// column is two targets (d0087): the column itself ("review", Ready for Review) and its Approved section
-// ("approved"). The verdicts and their words are Rust's; nothing here decides a rule.
+// or the arrow keys move: which drop target is under the card, how it looks, whether a release drops. The targets
+// are the view's (STG-08): every column, and a section with a `target` of its own after it (d0087: on the default
+// flow the Review column, which means Ready for Review, and its Approved section). The verdicts and their words are
+// Rust's; nothing here decides a rule.
+import type { BoardColumn } from "../../generated/BoardColumn";
 import type { BoardColumnId } from "../../generated/BoardColumnId";
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
 import type { BoardScrollChip } from "../../generated/BoardScrollChip";
@@ -11,6 +13,11 @@ import type { DragAnswer } from "../../generated/DragAnswer";
 import type { DragVerdict } from "../../generated/DragVerdict";
 import type { EpicCardView } from "../../generated/EpicCardView";
 import type { EpicTrack } from "../../generated/EpicTrack";
+
+/** The two columns every flow has before its stages, by their fixed ids (STG-08, d0108): Backlog, and Ready for Dev,
+ * the wait before the first Agent stage. Queue and take back drop there. */
+export const BACKLOG: BoardColumnId = "backlog";
+export const READY_FOR_DEV: BoardColumnId = "ready_for_dev";
 
 /** The door's request call, or a fake one in the tests. */
 export type Ask = (method: string, params?: unknown) => Promise<unknown>;
@@ -39,9 +46,13 @@ export function columnAt(spans: readonly ColumnSpan[], x: number, y = 0): BoardD
   return part?.id ?? spans.find((s) => s.top === undefined && inside(s))?.id ?? null;
 }
 
-/** The drop targets in board order, for ←/→ while a card is lifted: Review's Approved section follows Review. */
-export function targetOrder(columns: readonly BoardColumnId[]): BoardDropTarget[] {
-  return columns.flatMap((c): BoardDropTarget[] => (c === "review" ? ["review", "approved"] : [c]));
+/** The drop targets in board order, for ←/→ while a card is lifted: a column, then its sections with a target of
+ * their own (Review's Approved section follows Review). */
+export function targetOrder(columns: readonly Pick<BoardColumn, "id" | "sections">[]): BoardDropTarget[] {
+  return columns.flatMap((c): BoardDropTarget[] => [
+    c.id,
+    ...c.sections.flatMap((s) => (s.target === null ? [] : [s.target])),
+  ]);
 }
 
 /** How `target` looks for the dragged card; `undefined` until Rust's answer is in, or over no target. */

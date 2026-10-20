@@ -4,8 +4,8 @@
 //! The primary button is always the one thing that unblocks the ticket. Actions whose features arrive in later
 //! milestones are listed here with the ticket that enables them and stay **hidden** (not disabled) until then.
 
-use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::tickets::Ticket;
+use otaq_core::domain::StatusSet;
 use otaq_core::domain::{Kind, Status};
 use otaq_core::named_agents::rows::TicketAgents;
 
@@ -216,17 +216,18 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
     let s = ticket.status;
     if ticket.kind == Kind::Epic {
         // No Start on an epic: its children start (d0059). Its review flow is T-0109.
-        return match ticket.column() {
-            Column::Backlog => vec![(A::Edit, Secondary)],
-            // A delivery unit in Review: Approve, never Send back (EPC-05).
-            Column::ReadyForReview => vec![(A::Approve, Primary)],
+        // By the kind of stage it is in (STG-08): its Backlog, its human check, its Delivery, Done.
+        return match crate::view_models::flow_columns::place_set(ticket) {
+            StatusSet::Backlog => vec![(A::Edit, Secondary)],
+            // A delivery unit in its human check: Approve, never Send back (EPC-05).
+            StatusSet::HumanCheck => vec![(A::Approve, Primary)],
             // The epic's PR (EPC-08): the same manual outcomes as a ticket's (REV-13).
-            Column::Approved if s == Status::PrOpen => vec![
+            StatusSet::Delivery if s == Status::PrOpen => vec![
                 (A::OpenPrInBrowser, Secondary),
                 (A::MarkMerged, Primary),
                 (A::MarkClosed, Danger),
             ],
-            Column::Done if s == Status::ClosedNotMerged => vec![(A::Reopen, Secondary)],
+            StatusSet::Done if s == Status::ClosedNotMerged => vec![(A::Reopen, Secondary)],
             _ => Vec::new(),
         };
     }

@@ -42,7 +42,9 @@ import { type Anchor, Tooltip } from "../../components";
 import type { ApproveChoice as Choice } from "../../generated/ApproveChoice";
 import type { ApproveMenu } from "../../generated/ApproveMenu";
 import type { BoardCard } from "../../generated/BoardCard";
+import type { BoardColumn } from "../../generated/BoardColumn";
 import type { BoardColumnId } from "../../generated/BoardColumnId";
+import type { DragVerdict } from "../../generated/DragVerdict";
 import type { BoardDropParams } from "../../generated/BoardDropParams";
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
 import type { BoardParams } from "../../generated/BoardParams";
@@ -65,6 +67,7 @@ import { ChainLayer } from "./ChainLayer";
 import { CardMenu, type OpenCardMenu } from "./CardMenu";
 import { cardsOf, type CardHandlers, Column, columnOfCard, walkOf } from "./Column";
 import {
+  BACKLOG,
   type ColumnSpan,
   createDrag,
   type DragState,
@@ -72,6 +75,7 @@ import {
   liftedRow,
   liftedTrack,
   moveFocus,
+  READY_FOR_DEV,
   revealScroll,
   targetOrder,
   verdictOf,
@@ -267,6 +271,16 @@ export function afterDrop(
   }
 }
 
+/** The verdict of `column`'s section with a target of its own (Review's Approved) while a card is dragged. */
+function sectionDrag(
+  column: BoardColumn,
+  drag: DragState | null,
+): { verdict: DragVerdict | undefined; over: boolean } | undefined {
+  const target = column.sections.find((s) => s.target !== null)?.target;
+  if (!drag || target == null) return undefined;
+  return { verdict: verdictOf(drag.answer, target), over: drag.over === target };
+}
+
 /** Sends a drop to Rust and carries out its answer. */
 export function dropCard(
   key: string,
@@ -409,10 +423,29 @@ export function Board() {
   const ghost = useRef<HTMLDivElement>(null);
   const columns = useRef(new Map<BoardDropTarget, HTMLElement>());
   const pointer = useRef({ x: 0, y: 0 });
+  // The sections that are drop targets of their own (Review's Approved), with the column each is in (STG-08).
+  const sectionOwners = useMemo(
+    () =>
+      new Map(
+        (view?.columns ?? []).flatMap((c) =>
+          c.sections.flatMap((s): [BoardDropTarget, BoardDropTarget][] =>
+            s.target === null ? [] : [[s.target, c.id]],
+          ),
+        ),
+      ),
+    [view],
+  );
+  const sectionOwnersRef = useRef(sectionOwners);
+  useLayoutEffect(() => {
+    sectionOwnersRef.current = sectionOwners;
+  }, [sectionOwners]);
 
+  // The approve choice opens over the section it approves into (Approved), else its column.
   const showApprove = useCallback((menu: ApproveMenu) => {
+    const [section] = [...sectionOwnersRef.current.entries()];
     const approved = (
-      columns.current.get("approved") ?? columns.current.get("review")
+      section &&
+      (columns.current.get(section[0]) ?? columns.current.get(section[1]))
     )?.getBoundingClientRect();
     const anchor = approved
       ? { left: approved.left + 8, top: approved.top + 40, width: approved.width - 16, height: 0 }
@@ -436,13 +469,15 @@ export function Board() {
     if (ghost.current) ghost.current.style.transform = `translate(${String(x)}px, ${String(y)}px)`;
   }, []);
 
-  // Review's Approved section is a target from its label down to the column's bottom, where the cards scroll.
+  // A section that is a target of its own (Review's Approved) is one from its label down to its column's bottom,
+  // where the cards scroll.
   const spans = useCallback(
     (): ColumnSpan[] =>
       [...columns.current.entries()].map(([id, el]) => {
         const r = el.getBoundingClientRect();
-        if (id !== "approved") return { id, left: r.left, right: r.right };
-        const column = columns.current.get("review")?.getBoundingClientRect();
+        const owner = sectionOwnersRef.current.get(id);
+        if (owner === undefined) return { id, left: r.left, right: r.right };
+        const column = columns.current.get(owner)?.getBoundingClientRect();
         const cards = el.closest(".board-column-cards")?.getBoundingClientRect();
         return {
           id,
@@ -555,6 +590,7 @@ export function Board() {
   useShortcut("focus_epic", focusSelected);
 
   const order = useMemo(() => view?.columns.map((c) => c.id) ?? [], [view]);
+  const targets = useMemo(() => targetOrder(view?.columns ?? []), [view]);
   // The arrow keys walk the cards; with an epic focused, only its cards (EPC-18); never those of a folded section.
   const keys = useMemo(() => {
     const strong = view?.focus ? new Set(view.focus.keys) : null;
@@ -568,10 +604,12 @@ export function Board() {
   }, [view, prefs.foldedSections]);
   const keysRef = useRef(keys);
   const orderRef = useRef(order);
+  const targetsRef = useRef(targets);
   useLayoutEffect(() => {
     keysRef.current = keys;
     orderRef.current = order;
-  }, [keys, order]);
+    targetsRef.current = targets;
+  }, [keys, order, targets]);
 
   // The right-click menu: its items are asked when it opens, so they follow the ticket as it is now.
   const openMenu = useCallback(
@@ -616,7 +654,7 @@ export function Board() {
           e.preventDefault();
           if (lifted !== null) {
             if (e.key === "ArrowLeft" || e.key === "ArrowRight")
-              controller.step(e.key === "ArrowLeft" ? -1 : 1, targetOrder(orderRef.current));
+              controller.step(e.key === "ArrowLeft" ? -1 : 1, targetsRef.current);
             return;
           }
           const col = orderRef.current.indexOf(column);
@@ -656,19 +694,20 @@ export function Board() {
     [controller, release, placeGhost, openMenu],
   );
 
-  // ⌘D: start the selected ticket, as if it was dropped on Dev. On an epic (its card, or its track's name) it queues
-  // the children still in Backlog; on a child row only that child (EPC-12, d0058).
+  // ⌘D: start the selected ticket, as if it was dropped on Dev (the first agent column). On an epic (its card, or its
+  // track's name) it queues the children still in Backlog; on a child row only that child (EPC-12, d0058).
+  const startOn = view?.columns.find((c) => c.kind === "agent")?.id;
   const startSelected = useCallback(() => {
-    if (selected === null) return false;
-    void dropCard(selected, "dev", showApprove);
+    if (selected === null || startOn === undefined) return false;
+    void dropCard(selected, startOn, showApprove);
     return true;
-  }, [selected, showApprove]);
+  }, [selected, startOn, showApprove]);
   useShortcut("start_dev", startSelected);
   // Park (0097, palette only unless the user gives it a key): the selected ticket as if dropped on Backlog, which
   // asks the Park confirmation (CLS-06).
   const parkSelected = useCallback(() => {
     if (selected === null) return false;
-    void dropCard(selected, "backlog", showApprove);
+    void dropCard(selected, BACKLOG, showApprove);
     return true;
   }, [selected, showApprove]);
   useShortcut("park", parkSelected);
@@ -746,7 +785,7 @@ export function Board() {
         placeGhost(e.clientX, e.clientY);
       },
       queue: (key) => {
-        void dropCard(key, "ready_for_dev", showApprove);
+        void dropCard(key, READY_FOR_DEV, showApprove);
       },
     }),
     [controller, placeGhost, showApprove, focusOn, openMenu],
@@ -764,8 +803,9 @@ export function Board() {
   );
 
   const overVerdict = drag ? verdictOf(drag.answer, drag.over) : undefined;
-  // Over Approved the hint is drawn in the section itself (*Review column · drop target*).
-  const ghostHint = drag?.over === "approved" ? undefined : overVerdict;
+  // Over Approved (a section with a target of its own) the hint is drawn in the section itself (*Review column · drop
+  // target*).
+  const ghostHint = drag?.over != null && sectionOwners.has(drag.over) ? undefined : overVerdict;
 
   // The panel over the board (SHL-05): room after the columns to scroll into, and the selected card's column
   // scrolled into the part the panel leaves (*x9qiI*), when it opens, moves to another card or is resized.
@@ -879,11 +919,7 @@ export function Board() {
             onToggleSection={(section) => {
               if (project !== null) toggleSectionFold(project, section);
             }}
-            approved={
-              drag && column.id === "review"
-                ? { verdict: verdictOf(drag.answer, "approved"), over: drag.over === "approved" }
-                : undefined
-            }
+            approved={sectionDrag(column, drag)}
             element={element$}
           />
         ))}

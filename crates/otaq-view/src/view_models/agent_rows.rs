@@ -26,10 +26,10 @@
 //!   Verifier · Copilot · auto", with "asked for gpt-5.5, ran on auto"), row changes and moves ("Moved to Strong GPT
 //!   (Codex): Claude Code limit"), and a Done ticket's "Developer: Light (deleted) · claude-haiku-5-5 · 48k".
 
-use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::follow::FollowChoice;
 use otaq_core::agent_tools::models::{ModelKind, ModelList};
+use otaq_core::domain::StatusSet;
 use otaq_core::domain::{Kind, Status, TicketKey};
 use otaq_core::named_agents::mark::is_swap;
 use otaq_core::named_agents::rows::{RowFacts, SessionAgentRun, TicketAgents};
@@ -500,7 +500,7 @@ fn row_view(t: &TicketAgents, facts: &RowFacts, tools: &Tools) -> Option<RowView
 }
 
 fn finished(t: &TicketAgents) -> bool {
-    t.status.is_some_and(|s| s.column() == Column::Done)
+    t.status.is_some_and(|s| s.set() == StatusSet::Done)
 }
 
 /// Every row of `t`, in the kind's order.

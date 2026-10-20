@@ -1,8 +1,9 @@
 //! `board.*`: the board (UI-02, TKT-06, CLS-03, CLS-06, REV-14; d0004, d0037, d0041, d0047, d0052, d0066;
-//! *03 · Board — shop-web*, *03 · Board & columns*). `board.view` builds the five columns for the page from the
-//! project's snapshot (SHL-06, d0087: Review holds Ready for Review and Approved as two sections); a drag is the
-//! UIT-04 way: `board.drag` answers once, at drag start, with every drop target's verdict (the Review column and its
-//! Approved section separately) from the core's `check_move`, so the page draws the whole drag itself;
+//! *03 · Board — shop-web*, *03 · Board & columns*). `board.view` builds the columns of the project's flow for the
+//! page from its snapshot (SHL-06, STG-08, d0087, d0108: on the default flow five, Review holding Ready for Review
+//! and Approved as two sections); a drag is the UIT-04 way: `board.drag` answers once, at drag start, with every
+//! drop target's verdict (the Review column and its Approved section separately) from the core's `check_move_in` on
+//! the project's flow, so the page draws the whole drag itself;
 //! `board.drop` says what the drop does (and carries out a plain move); `board.park` is the Park confirmation's
 //! button.
 //!
@@ -35,8 +36,10 @@
 
 use otaq_core::board::snapshot::BoardSnapshot;
 use otaq_core::board::tickets::{Base, Ticket};
+use otaq_core::flow::Flow;
 use otaq_core::protocol::{
-    CloseParams, EpicQueueParams, IdParams, KeyParams, LeadParams, MoveParams, ProjectParams, Reply,
+    CloseParams, EpicQueueParams, IdParams, KeyParams, LeadParams, MoveParams, ProjectParams,
+    ProjectSettingsReply, Reply,
     Request,
 };
 use otaq_view::view_models::board_page::{
@@ -138,6 +141,31 @@ async fn snapshot(app: &App, project: &str) -> Result<BoardSnapshot, RequestErro
     }
 }
 
+async fn settings(app: &App, project: &str) -> Option<Box<ProjectSettingsReply>> {
+    match app
+        .service
+        .send(Request::ProjectSettingsGet(ProjectParams {
+            project: project.to_owned(),
+        }))
+        .await
+    {
+        Ok(Reply::ProjectSettings(reply)) => Some(reply),
+        _ => None,
+    }
+}
+
+/// The project's flow (STG-03, STG-08): the default adjusted by its settings, which the board's columns and drags
+/// follow; the default flow when the settings can't be read.
+fn flow_of(settings: Option<&ProjectSettingsReply>) -> Flow {
+    settings.map_or_else(otaq_core::flow::default_flow, |s| {
+        otaq_core::flow::effective_flow(&s.effective)
+    })
+}
+
+async fn flow(app: &App, project: &str) -> Flow {
+    flow_of(settings(app, project).await.as_deref())
+}
+
 async fn ticket(app: &App, key: &str) -> Result<Ticket, RequestError> {
     match app
         .service
@@ -220,9 +248,12 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         Ok(Reply::StartupReport(report)) => report.was_validating,
         _ => Vec::new(),
     };
+    let settings = settings(app, &params.project).await;
+    let flow = flow_of(settings.as_deref());
     let mut page = board_page::page(
         &tickets,
         &ProjectFacts {
+            flow: &flow,
             name: &project.name,
             repo_path: &project.repo_path,
             base_branch: &project.base_branch,
@@ -238,12 +269,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
     );
     // The empty board's Auto-merge line (T-0240) follows the project's settings.
     if let Some(empty) = page.empty.as_mut()
-        && let Ok(Reply::ProjectSettings(reply)) = app
-            .service
-            .send(Request::ProjectSettingsGet(ProjectParams {
-                project: params.project.clone(),
-            }))
-            .await
+        && let Some(reply) = settings
     {
         empty.auto_merge = Some(empty_board::auto_merge_line(
             reply.effective.auto_merge,
@@ -257,13 +283,15 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
 /// project's tickets, for what the drop queues.
 pub async fn drag(app: &App, params: TicketParams) -> Result<DragAnswer, RequestError> {
     let ticket = ticket(app, &params.key).await?;
+    let project = ticket.key.project.to_string();
     let tickets: Vec<Ticket> = if ticket.is_epic() || ticket.epic.is_some() {
-        let board = snapshot(app, &ticket.key.project.to_string()).await?;
+        let board = snapshot(app, &project).await?;
         board.tickets().cloned().collect()
     } else {
         Vec::new()
     };
-    Ok(board_page::drag_answer(&ticket, &tickets))
+    let flow = flow(app, &project).await;
+    Ok(board_page::drag_answer_in(&flow, &ticket, &tickets))
 }
 
 /// The branch an approve merges into: the service's own proposal, else the ticket's base.
@@ -284,6 +312,7 @@ async fn merge_target(app: &App, ticket: &Ticket) -> String {
 pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestError> {
     let ticket = ticket(app, &params.key).await?;
     let target = params.target;
+    let flow = flow(app, &ticket.key.project.to_string()).await;
     // An epic's drop depends on its place (its card or its track) and its children.
     let tickets: Vec<Ticket> = if ticket.is_epic() {
         let board = snapshot(app, &ticket.key.project.to_string()).await?;
@@ -291,17 +320,21 @@ pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestE
     } else {
         Vec::new()
     };
-    Ok(match board_page::drop_step(&ticket, &tickets, target) {
+    Ok(match board_page::drop_step_in(&flow, &ticket, &tickets, &target) {
         DropStep::Nothing => DropOutcome::Nothing,
         DropStep::NotYet(message) => DropOutcome::NotYet { message },
         DropStep::Park => DropOutcome::Park {
             dialog: board_page::park_dialog(&ticket),
         },
         DropStep::Move => {
+            // A move only follows a target the flow has (drop_step_in says Nothing otherwise).
+            let Some(target) = board_page::core_target(&flow, &target) else {
+                return Ok(DropOutcome::Nothing);
+            };
             app.service
                 .send(Request::TicketMove(MoveParams {
                     key: params.key,
-                    target: target.column().target(),
+                    target,
                     confirmed: false,
                 }))
                 .await?;

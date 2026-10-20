@@ -17,8 +17,8 @@
 //! today; "ended by restart", "asks you" and "Open lead" say what a click does instead (frames 14, 26, *16 → Epic
 //! lead after a restart*).
 
-use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::tickets::Ticket;
+use otaq_core::domain::StatusSet;
 use otaq_core::domain::TicketKey;
 use otaq_core::project_agents::lead::{Lead, LeadStatus, lead_name};
 use serde::Serialize;
@@ -477,7 +477,7 @@ pub fn gallery() -> Gallery {
     let child = |key: &str, title: &str, status: Status| {
         let mut t = ticket(key, title, status);
         t.epic = Some(epic.key.clone());
-        t.queued_at = (status.column() != Column::Backlog).then_some(1_000);
+        t.queued_at = (status.set() != StatusSet::Backlog).then_some(1_000);
         t
     };
     let in_flight = vec![
@@ -497,7 +497,7 @@ pub fn gallery() -> Gallery {
     ]
     .into_iter()
     .filter_map(|(name, l)| {
-        let strip = Strip::with_leads(&in_flight, Column::ALL, &[l])?;
+        let strip = Strip::with_leads(&in_flight, &otaq_core::flow::default_flow(), &[l])?;
         Some(GalleryTrack {
             name: name.to_owned(),
             track: strip.tracks.into_iter().next()?,

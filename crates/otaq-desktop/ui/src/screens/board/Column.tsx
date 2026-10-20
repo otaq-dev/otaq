@@ -2,8 +2,10 @@
 // button, Backlog's plus), Ready for Dev's hint, the cards (Dev: the floated cards, the "WORKING · VALIDATING"
 // section and the "N more · working" fold; Review: its two sections, below), the empty hint, Backlog's "Add ticket"
 // row, and the "7 above · 6 need you" chip of a column scrolled down (*Very full column*). Done folded is the 34 px
-// rail. The Review column (*Row · Review column (0086 · V)*, d0087) holds "READY FOR REVIEW" and "APPROVED": each
-// label folds its section (the count stays), an empty section says so, and Approved is a drop target of its own: a
+// rail. Which of these a column is comes from its `kind` (STG-08: the columns are the project's flow's), never its id.
+// The Review column (*Row · Review column (0086 · V)*, d0087) holds "READY FOR REVIEW" and "APPROVED": each
+// label folds its section (the count stays), an empty section says so, and Approved (the section with a `target`
+// of its own) is a drop target of its own: a
 // Ready for Review card dragged over it lights it with the hint, and while such a card is dragged an empty Approved
 // says how. Approved's "doesn't watch PRs" line is on its cards (Card v2), so the section doesn't repeat it.
 // Everything it says is `BoardColumn`'s; while a card is dragged over it, it takes the verdict's outline. Under the
@@ -27,6 +29,7 @@ import { Tooltip } from "../../components";
 import type { BoardCard } from "../../generated/BoardCard";
 import type { BoardColumn } from "../../generated/BoardColumn";
 import type { BoardColumnId } from "../../generated/BoardColumnId";
+import type { BoardColumnKind } from "../../generated/BoardColumnKind";
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
 import type { BoardDoneFold } from "../../generated/BoardDoneFold";
 import type { BoardEpicFocus } from "../../generated/BoardEpicFocus";
@@ -55,12 +58,13 @@ export interface CardHandlers {
   hover: (key: string, over: boolean) => void;
 }
 
-/** The column icon's colour (*03*: each column's icon in its status colour). */
-const ICON_INK: Record<BoardColumnId, string> = {
+/** The column icon's colour (*03*: each column's icon in its status colour), by what the column holds. */
+const ICON_INK: Record<BoardColumnKind, string> = {
   backlog: "var(--st-queued)",
   ready_for_dev: "var(--st-queued)",
-  dev: "var(--st-working)",
-  review: "var(--st-review)",
+  agent: "var(--st-working)",
+  human_check: "var(--st-review)",
+  delivery: "var(--st-approved)",
   done: "var(--st-done)",
 };
 
@@ -286,9 +290,10 @@ export interface ColumnProps {
   /** Review: the sections folded by the user (kept per project, `prefs.ts`). */
   foldedSections?: readonly BoardReviewSectionId[];
   onToggleSection?: (section: BoardReviewSectionId) => void;
-  /** Review, while a card is dragged: the Approved section's verdict, and whether the card is over it. */
+  /** Review, while a card is dragged: the verdict of its section with a target of its own (Approved), and whether
+   * the card is over it. */
   approved?: { verdict: DragVerdict | undefined; over: boolean } | undefined;
-  /** The column's element (and Review's Approved section's), measured when a drag starts. */
+  /** The column's element (and its sections' with a target of their own: Approved), measured when a drag starts. */
   element: (target: BoardDropTarget, el: HTMLElement | null) => void;
 }
 
@@ -306,7 +311,7 @@ export function sectionLook(
 interface ReviewSectionProps extends Omit<CardListProps, "cards"> {
   section: BoardReviewSection;
   folded: boolean;
-  /** Approved only, while a card is dragged. */
+  /** A section with a target of its own (Approved), while a card is dragged. */
   drag: { verdict: DragVerdict | undefined; over: boolean } | undefined;
   onToggle: () => void;
   element: ColumnProps["element"];
@@ -324,9 +329,9 @@ function ReviewSection({ section, folded, drag, onToggle, element, ...list }: Re
       data-section={section.id}
       data-verdict={look}
       ref={
-        section.id === "approved"
+        section.target !== null
           ? (el) => {
-              element("approved", el);
+              if (section.target !== null) element(section.target, el);
             }
           : undefined
       }
@@ -367,7 +372,7 @@ function DoneRail({
         aria-label={`${column.title} ${column.count}`}
         onClick={onToggle}
       >
-        <span style={{ color: ICON_INK[column.id] }}>
+        <span style={{ color: ICON_INK[column.kind] }}>
           <Icon name={column.icon} size={13} />
         </span>
         <span className="board-rail-count">{column.count}</span>
@@ -463,10 +468,11 @@ export function Column({
       }}
       aria-label={column.title}
       data-column={column.id}
+      data-kind={column.kind}
       data-verdict={dragging ? verdictLook(verdict) : undefined}
     >
       <header className="board-column-header">
-        <span className="board-column-icon" style={{ color: ICON_INK[column.id] }}>
+        <span className="board-column-icon" style={{ color: ICON_INK[column.kind] }}>
           <Icon name={column.icon} size={13} />
         </span>
         <span className="board-column-title">{column.title}</span>
@@ -565,7 +571,7 @@ export function Column({
               key={section.id}
               section={section}
               folded={foldedSections.includes(section.id)}
-              drag={section.id === "approved" ? approved : undefined}
+              drag={section.target !== null ? approved : undefined}
               onToggle={() => {
                 onToggleSection?.(section.id);
               }}

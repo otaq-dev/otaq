@@ -119,6 +119,7 @@ const cardOf = (key: string): BoardCard => ({
 
 const sectionOf = (key: string): BoardReviewSection => ({
   id: "ready_for_review",
+  target: null,
   title: "READY FOR REVIEW",
   count: "1",
   cards: [cardOf(key)],
@@ -479,6 +480,7 @@ describe("the board screen", () => {
 
   const column = (over: Partial<BoardColumn>): BoardColumn => ({
     id: "review",
+    kind: "human_check",
     title: "Review",
     icon: "eye",
     count: "0",
@@ -637,14 +639,15 @@ describe("the Review column (T-0328, d0087)", () => {
     expect(columnAt(REVIEW_SPANS, 700, 320)).toBe("approved");
     expect(columnAt(REVIEW_SPANS, 700, 200)).toBe("review");
     expect(columnAt(REVIEW_SPANS, 300, 320)).toBe("ready_for_dev");
-    expect(targetOrder(["backlog", "ready_for_dev", "dev", "review", "done"])).toEqual([
-      "backlog",
-      "ready_for_dev",
-      "dev",
-      "review",
-      "approved",
-      "done",
-    ]);
+    const sections = (id: string) =>
+      id === "review"
+        ? [{ ...sectionOf("NOTE-7") }, { ...sectionOf("NOTE-8"), id: "approved", target: "approved" }]
+        : [];
+    expect(
+      targetOrder(
+        ["backlog", "ready_for_dev", "dev", "review", "done"].map((id) => ({ id, sections: sections(id) })),
+      ),
+    ).toEqual(["backlog", "ready_for_dev", "dev", "review", "approved", "done"]);
   });
 
   it("looks up each section's verdict: Ready for Review drops on Approved, not on its own section", async () => {
@@ -708,6 +711,7 @@ describe("the Review column (T-0328, d0087)", () => {
   });
   const section = (over: Partial<BoardReviewSection>): BoardReviewSection => ({
     id: "ready_for_review",
+    target: null,
     title: "READY FOR REVIEW",
     count: "0",
     cards: [],
@@ -721,6 +725,7 @@ describe("the Review column (T-0328, d0087)", () => {
   });
   const review: BoardColumn = {
     id: "review",
+    kind: "human_check",
     title: "Review",
     icon: "eye",
     count: "1",
@@ -734,6 +739,7 @@ describe("the Review column (T-0328, d0087)", () => {
       section({ count: "1", cards: [card("NOTE-7")] }),
       section({
         id: "approved",
+        target: "approved",
         title: "APPROVED",
         empty: "Nothing approved",
         drag_hint: "Drag a ticket here from Ready for Review to approve it.",
@@ -808,6 +814,7 @@ describe("the panel over the board (SHL-05)", () => {
   it("scrolls to the selected card's column", () => {
     const columns: BoardColumn[] = (["backlog", "dev", "review"] as const).map((id) => ({
       id,
+      kind: id === "dev" ? "agent" : id === "review" ? "human_check" : "backlog",
       title: id,
       icon: "eye",
       count: "0",

@@ -272,7 +272,7 @@
   background: var(--border-strong);
 }
 
-.board-column[data-column="dev"] .board-column-cards {
+.board-column[data-kind="agent"] .board-column-cards {
   gap: 5px;
 }
 

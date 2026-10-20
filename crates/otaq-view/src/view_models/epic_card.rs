@@ -13,10 +13,11 @@
 //! ("Wishlist lead · ended · in review"). Child rows the lead created say "added by Wishlist lead", and a lead that
 //! asks you turns the card's border turquoise ([`EpicViewModel::with_lead`]).
 
-use crate::view_models::legacy_column::{Column, ColumnOf};
+use crate::view_models::flow_columns::place_set;
 use otaq_core::board::epic_flight::{self, EpicPlace};
 use otaq_core::board::epics::progress_of;
 use otaq_core::board::tickets::{Base, Ticket};
+use otaq_core::domain::StatusSet;
 use otaq_core::domain::{Actor, Status, TicketKey};
 use otaq_core::project_agents::lead::Lead;
 
@@ -41,7 +42,7 @@ impl ChildState {
         match status {
             Status::Merged => Self::Merged,
             Status::ClosedNotMerged => Self::Closed,
-            s if s.column() == Column::Backlog || s.is_queued() => Self::NotStarted,
+            s if s.set() == StatusSet::Backlog || s.is_queued() => Self::NotStarted,
             _ => Self::Working,
         }
     }
@@ -203,9 +204,10 @@ impl EpicViewModel {
 
     /// [`with_lead`](Self::with_lead) in place.
     pub fn set_lead(&mut self, epic: &Ticket, tickets: &[Ticket], lead: Option<&Lead>) {
-        self.lead = match epic.column() {
-            Column::Backlog => Some(LeadStatusView::of_epic(epic, tickets, lead)),
-            Column::ReadyForReview | Column::Approved if epic.status != Status::ClosedNotMerged => {
+        let in_review = matches!(place_set(epic), StatusSet::HumanCheck | StatusSet::Delivery);
+        self.lead = match () {
+            _ if epic.place.is_backlog() => Some(LeadStatusView::of_epic(epic, tickets, lead)),
+            _ if in_review && epic.status != Status::ClosedNotMerged => {
                 lead.map(|l| LeadStatusView::of(epic, Some(l)).on_review_card())
             }
             _ => None,

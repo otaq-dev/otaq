@@ -4,9 +4,9 @@
 //! An epic's panel shows **Ticket · Lead · History**, with **Diff** first once the epic is in review (d0083, d0059;
 //! *05 → Row · Epic panel · Lead tab (0083)*); it has no Terminal, Run or Shell tab. Tab N's key (`1`–`6`) follows the shown order.
 
-use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::order::sort_column;
 use otaq_core::board::tickets::Ticket;
+use otaq_core::domain::StatusSet;
 use otaq_core::domain::TicketKey;
 use otaq_core::project_agents::lead::LeadStatus;
 use otaq_core::session::SessionInfo;
@@ -96,7 +96,10 @@ pub enum Indicator {
 
 /// An epic's tabs (d0083, d0059 and accepted Q9): Ticket · Lead · History, with Diff first in review.
 pub fn epic_tabs(epic: &Ticket) -> Vec<Tab> {
-    let review = matches!(epic.column(), Column::ReadyForReview | Column::Approved);
+    let review = matches!(
+        crate::view_models::flow_columns::place_set(epic),
+        StatusSet::HumanCheck | StatusSet::Delivery
+    );
     review
         .then_some(Tab::Diff)
         .into_iter()
@@ -240,7 +243,7 @@ pub fn middle_truncate(text: &str, max_chars: usize) -> String {
 
 /// The branch the header shows: the stored one once started, else the temporary name it will get.
 pub fn branch_name(ticket: &Ticket) -> Option<String> {
-    let started = ticket.has_started() || ticket.column() != Column::Backlog;
+    let started = ticket.has_started() || !ticket.place.is_backlog();
     ticket
         .work
         .as_ref()

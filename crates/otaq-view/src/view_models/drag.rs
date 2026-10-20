@@ -1,12 +1,14 @@
 //! Drag and drop on the board (UI-02, TKT-04; *03 · Board & columns → Drag · over an allowed column, Drag ·
-//! over a forbidden column*). The rules are the core's [`check_move`]: a column
+//! over a forbidden column*). The rules are the core's [`check_move_in`] on the project's flow: a column
 //! under the dragged card is drawn allowed (accent) or forbidden (red, with the reason). A drop does what the
 //! rules allow, and a ticket with a short or empty description starts without a warning (d0067). Backlog → Ready
 //! for Dev or Dev queues it (it lands in Ready for Dev until it can start), Ready for Dev → Backlog takes it out of
 //! the queue without asking (d0066). A drop on Approved (since d0087 the Review column's Approved section) asks how
 //! (Local merge or Open PR) and never approves by itself (T-0095); Dev → Backlog asks to park first (T-0107);
 //! Approved → Ready for Review (the Review column outside its Approved section) is PR rework (the PR stays,
-//! T-0150). The page's drop targets map onto these core columns (`board_page::DropTargetId`).
+//! T-0150). The page's drop targets map onto the core's drop targets (`board_page::DropTargetId`,
+//! `flow_columns::Columns::drop_target`). Each rule has a `_in` form that takes the project's flow; the short form
+//! is the default flow's.
 //!
 //! Epics (EPC-12, EPC-14, d0080; *03 · Board & columns → epic flows 1 → 1*, *epic flows 3 → 8*): the Backlog epic
 //! card, one of its rows, and a "not queued" chip on its track are dragged to Ready for Dev or Dev. The card queues
@@ -18,19 +20,18 @@
 //! running", or "Park 2 running children", which asks first); Ready for Dev and Dev queue the rest, as the card
 //! does; the other columns are not allowed.
 
-use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::epic_flight::{self, EpicPlace, TakeBackPlan, nothing_to_queue};
 use otaq_core::board::moves::{
-    DropTarget, MERGED_LOCKED, MoveAction, MoveCheck, ONLY_AGENT_SUBMITS, check_move,
+    DropTarget, MERGED_LOCKED, MoveAction, MoveCheck, ONLY_AGENT_SUBMITS, check_move_in,
 };
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Status, TicketKey};
+use otaq_core::flow::Flow;
 
 use crate::icons::IconName;
 
-/// Where a drop on a column lands. A drop on Dev from Backlog lands in Ready for Dev until it can start (d0066).
-pub fn target_for(column: Column) -> DropTarget {
-    column.target()
+fn default_flow() -> &'static Flow {
+    &otaq_core::flow::default_file().flow
 }
 
 /// *03 · Drag · over a forbidden column*: the reason over Ready for Review.
@@ -66,7 +67,7 @@ pub enum EpicQueue<'a> {
 /// The epic queue a drop of `ticket` makes, from the project's `tickets` (which may be just the epic's children);
 /// `None` for anything else (a standalone ticket, a child already queued or started, an epic past Backlog).
 pub fn epic_queue<'a>(ticket: &'a Ticket, tickets: &'a [Ticket]) -> Option<EpicQueue<'a>> {
-    if ticket.column() != Column::Backlog {
+    if !ticket.place.is_backlog() {
         return None;
     }
     if ticket.is_epic() {
@@ -108,14 +109,24 @@ pub fn is_track(ticket: &Ticket, tickets: &[Ticket]) -> bool {
 
 /// What dropping `ticket` on `column` takes back: the core's plan when it is an epic's track over Backlog
 /// (EPC-14); `None` for anything else.
-pub fn take_back(ticket: &Ticket, tickets: &[Ticket], column: Column) -> Option<TakeBackPlan> {
-    (column == Column::Backlog && is_track(ticket, tickets))
+pub fn take_back(ticket: &Ticket, tickets: &[Ticket], column: DropTarget) -> Option<TakeBackPlan> {
+    (column == DropTarget::Backlog && is_track(ticket, tickets))
         .then(|| epic_flight::take_back_plan(ticket, tickets))
 }
 
-/// How a column looks while `ticket` is dragged over it. `tickets` (the project's, or at least the epic's
-/// children) only matter for an epic or a child row in Backlog.
-pub fn feedback(ticket: &Ticket, tickets: &[Ticket], column: Column) -> DropFeedback {
+/// [`feedback_in`] on the default flow.
+pub fn feedback(ticket: &Ticket, tickets: &[Ticket], column: DropTarget) -> DropFeedback {
+    feedback_in(default_flow(), ticket, tickets, column)
+}
+
+/// How a column looks while `ticket` is dragged over it, on `flow`'s board. `tickets` (the project's, or at least
+/// the epic's children) only matter for an epic or a child row in Backlog.
+pub fn feedback_in(
+    flow: &Flow,
+    ticket: &Ticket,
+    tickets: &[Ticket],
+    column: DropTarget,
+) -> DropFeedback {
     if let Some(plan) = take_back(ticket, tickets, column) {
         return match plan {
             TakeBackPlan::Refused { reason, .. } => DropFeedback::Forbidden {
@@ -125,7 +136,7 @@ pub fn feedback(ticket: &Ticket, tickets: &[Ticket], column: Column) -> DropFeed
             _ => DropFeedback::Allowed,
         };
     }
-    let check = check_move(ticket, target_for(column));
+    let check = check_move_in(flow, ticket, column);
     // An epic with nothing left in Backlog has nothing to queue (its children all started or wait already).
     if check.action() == Some(MoveAction::QueueEpic)
         && epic_queue(ticket, tickets)
@@ -143,7 +154,7 @@ pub fn feedback(ticket: &Ticket, tickets: &[Ticket], column: Column) -> DropFeed
         MoveCheck::Refused { reason } => {
             let detail = match reason.as_str() {
                 // Only a Backlog card can be queued instead.
-                ONLY_AGENT_SUBMITS if ticket.column() == Column::Backlog => {
+                ONLY_AGENT_SUBMITS if ticket.place.is_backlog() => {
                     Some("Drag to Ready for Dev to queue it.")
                 }
                 MERGED_LOCKED => Some("Fixing merged work means a new ticket."),
@@ -167,7 +178,17 @@ pub fn feedback(ticket: &Ticket, tickets: &[Ticket], column: Column) -> DropFeed
 pub fn drop_hint(
     ticket: &Ticket,
     tickets: &[Ticket],
-    column: Column,
+    column: DropTarget,
+) -> Option<(IconName, String)> {
+    drop_hint_in(default_flow(), ticket, tickets, column)
+}
+
+/// [`drop_hint`] on `flow`'s board.
+pub fn drop_hint_in(
+    flow: &Flow,
+    ticket: &Ticket,
+    tickets: &[Ticket],
+    column: DropTarget,
 ) -> Option<(IconName, String)> {
     match take_back(ticket, tickets, column) {
         Some(TakeBackPlan::Refused { .. }) => return None,
@@ -177,7 +198,7 @@ pub fn drop_hint(
         Some(plan) => return Some((IconName::ArrowDownToLine, plan.hint())),
         None => {}
     }
-    let action = check_move(ticket, target_for(column)).action()?;
+    let action = check_move_in(flow, ticket, column).action()?;
     if matches!(action, MoveAction::Start | MoveAction::QueueEpic)
         && let Some(queue) = epic_queue(ticket, tickets)
     {
@@ -220,7 +241,7 @@ pub fn drop_hint(
 }
 
 /// The hint's second line, under it: "SHOP-45.1 keeps running" when a track's take back leaves children running.
-pub fn drop_note(ticket: &Ticket, tickets: &[Ticket], column: Column) -> Option<String> {
+pub fn drop_note(ticket: &Ticket, tickets: &[Ticket], column: DropTarget) -> Option<String> {
     take_back(ticket, tickets, column)?.note()
 }
 
@@ -249,23 +270,34 @@ pub enum DropAction {
     NotYet(String),
 }
 
-/// What a drop of `ticket` on `column` does; `tickets` (the project's) only matter for an epic's track.
-pub fn on_drop(ticket: &Ticket, tickets: &[Ticket], column: Column) -> DropAction {
+/// [`on_drop_in`] on the default flow.
+pub fn on_drop(ticket: &Ticket, tickets: &[Ticket], column: DropTarget) -> DropAction {
+    on_drop_in(default_flow(), ticket, tickets, column)
+}
+
+/// What a drop of `ticket` on `column` of `flow`'s board does; `tickets` (the project's) only matter for an
+/// epic's track.
+pub fn on_drop_in(
+    flow: &Flow,
+    ticket: &Ticket,
+    tickets: &[Ticket],
+    column: DropTarget,
+) -> DropAction {
     match take_back(ticket, tickets, column) {
         Some(TakeBackPlan::Refused { .. }) => return DropAction::Nothing,
         Some(plan @ TakeBackPlan::ParkAll { .. }) => return DropAction::AskParkAll(plan),
         Some(TakeBackPlan::Unqueue { epic, .. }) => return DropAction::TakeBack { epic },
         None => {}
     }
-    let check = check_move(ticket, target_for(column));
+    let check = check_move_in(flow, ticket, column);
     // A row of the epic card or a "not queued" chip: only that child (T-0263's single-child path).
     if let (
         MoveCheck::Allowed {
             action: MoveAction::Start,
         },
-        Column::Backlog,
+        true,
         Some(epic),
-    ) = (&check, ticket.column(), &ticket.epic)
+    ) = (&check, ticket.place.is_backlog(), &ticket.epic)
     {
         return DropAction::QueueEpic {
             epic: epic.clone(),
@@ -321,7 +353,7 @@ mod tests {
             child("SHOP-45.1", Status::Backlog),
             child("SHOP-45.2", Status::Backlog),
         ];
-        for column in [Column::ReadyForDev, Column::Dev] {
+        for column in [DropTarget::ReadyForDev, DropTarget::Dev] {
             assert_eq!(feedback(&epic, &children, column), DropFeedback::Allowed);
             assert_eq!(
                 drop_hint(&epic, &children, column),
@@ -335,7 +367,11 @@ mod tests {
                 }
             );
         }
-        for column in [Column::ReadyForReview, Column::Approved, Column::Done] {
+        for column in [
+            DropTarget::ReadyForReview,
+            DropTarget::Approved,
+            DropTarget::Done,
+        ] {
             assert!(matches!(
                 feedback(&epic, &children, column),
                 DropFeedback::Forbidden { .. }
@@ -344,24 +380,28 @@ mod tests {
             assert_eq!(on_drop(&epic, &[], column), DropAction::Nothing);
         }
         assert_eq!(
-            feedback(&epic, &children, Column::Backlog),
+            feedback(&epic, &children, DropTarget::Backlog),
             DropFeedback::Home
         );
 
         // A row (or the "not queued" chip of the same child): only that child.
         let row = &children[0];
         assert_eq!(
-            drop_hint(row, &children, Column::ReadyForDev),
+            drop_hint(row, &children, DropTarget::ReadyForDev),
             Some((IconName::Play, "Queue SHOP-45.1".to_owned()))
         );
         assert_eq!(
-            on_drop(row, &[], Column::Dev),
+            on_drop(row, &[], DropTarget::Dev),
             DropAction::QueueEpic {
                 epic: "SHOP-45".parse().unwrap(),
                 child: Some("SHOP-45.1".parse().unwrap()),
             }
         );
-        for column in [Column::ReadyForReview, Column::Approved, Column::Done] {
+        for column in [
+            DropTarget::ReadyForReview,
+            DropTarget::Approved,
+            DropTarget::Done,
+        ] {
             assert!(matches!(
                 feedback(row, &children, column),
                 DropFeedback::Forbidden { .. }
@@ -369,19 +409,19 @@ mod tests {
             assert_eq!(on_drop(row, &[], column), DropAction::Nothing);
         }
         assert_eq!(
-            feedback(row, &children, Column::Backlog),
+            feedback(row, &children, DropTarget::Backlog),
             DropFeedback::Home
         );
 
         // A parked row resumes (EPC-14).
         let parked = child("SHOP-45.1", Status::Parked);
-        assert_eq!(parked.column(), Column::Backlog);
+        assert!(parked.place.is_backlog());
         assert_eq!(
-            drop_hint(&parked, &[], Column::ReadyForDev),
+            drop_hint(&parked, &[], DropTarget::ReadyForDev),
             Some((IconName::Play, "Resume SHOP-45.1".to_owned()))
         );
         assert!(matches!(
-            on_drop(&parked, &[], Column::ReadyForDev),
+            on_drop(&parked, &[], DropTarget::ReadyForDev),
             DropAction::QueueEpic { child: Some(_), .. }
         ));
     }
@@ -390,7 +430,7 @@ mod tests {
     fn the_epic_hint_counts_what_it_queues_and_resumes() {
         let epic = epic();
         let hint =
-            |children: &[Ticket]| drop_hint(&epic, children, Column::ReadyForDev).map(|h| h.1);
+            |children: &[Ticket]| drop_hint(&epic, children, DropTarget::ReadyForDev).map(|h| h.1);
         assert_eq!(
             hint(&[child("SHOP-45.1", Status::Backlog)]).as_deref(),
             Some("Queue 1 child")
@@ -416,16 +456,16 @@ mod tests {
         ];
         assert_eq!(hint(&others), None);
         assert!(matches!(
-            feedback(&epic, &others, Column::ReadyForDev),
+            feedback(&epic, &others, DropTarget::ReadyForDev),
             DropFeedback::Forbidden { .. }
         ));
         // A standalone ticket and a queued child keep their own hints.
         let queued = child("SHOP-45.1", Status::Queued);
         assert_eq!(
-            drop_hint(&queued, &[], Column::Backlog).unwrap().1,
+            drop_hint(&queued, &[], DropTarget::Backlog).unwrap().1,
             "Drop to take it out of the queue"
         );
-        assert_eq!(on_drop(&queued, &[], Column::Backlog), DropAction::Move);
+        assert_eq!(on_drop(&queued, &[], DropTarget::Backlog), DropAction::Move);
     }
 
     /// *Epic flows 1 → 3*, *epic flows 4 → 11* (EPC-14): the track's name is dragged. Backlog takes it back with the
@@ -442,34 +482,38 @@ mod tests {
         ];
         assert!(is_track(&epic, &flow3));
         assert_eq!(
-            feedback(&epic, &flow3, Column::Backlog),
+            feedback(&epic, &flow3, DropTarget::Backlog),
             DropFeedback::Allowed
         );
         assert_eq!(
-            drop_hint(&epic, &flow3, Column::Backlog),
+            drop_hint(&epic, &flow3, DropTarget::Backlog),
             Some((
                 IconName::ArrowDownToLine,
                 "Unqueue 1 never-started child (45.2)".to_owned()
             ))
         );
         assert_eq!(
-            drop_note(&epic, &flow3, Column::Backlog).as_deref(),
+            drop_note(&epic, &flow3, DropTarget::Backlog).as_deref(),
             Some("SHOP-45.1 keeps running")
         );
         assert_eq!(
-            on_drop(&epic, &flow3, Column::Backlog),
+            on_drop(&epic, &flow3, DropTarget::Backlog),
             DropAction::TakeBack {
                 epic: key("SHOP-45")
             }
         );
         // Nothing left in Backlog to queue: Ready for Dev and Dev say so.
-        for column in [Column::ReadyForDev, Column::Dev] {
+        for column in [DropTarget::ReadyForDev, DropTarget::Dev] {
             assert!(matches!(
                 feedback(&epic, &flow3, column),
                 DropFeedback::Forbidden { .. }
             ));
         }
-        for column in [Column::ReadyForReview, Column::Approved, Column::Done] {
+        for column in [
+            DropTarget::ReadyForReview,
+            DropTarget::Approved,
+            DropTarget::Done,
+        ] {
             assert!(matches!(
                 feedback(&epic, &flow3, column),
                 DropFeedback::Forbidden { .. }
@@ -484,7 +528,7 @@ mod tests {
             child("SHOP-45.1", Status::Working),
             child("SHOP-45.2", Status::Backlog),
         ];
-        for column in [Column::ReadyForDev, Column::Dev] {
+        for column in [DropTarget::ReadyForDev, DropTarget::Dev] {
             assert_eq!(feedback(&epic, &single, column), DropFeedback::Allowed);
             assert_eq!(
                 drop_hint(&epic, &single, column),
@@ -506,18 +550,18 @@ mod tests {
             child("SHOP-45.2", Status::Working),
         ];
         assert_eq!(
-            feedback(&epic, &all_started, Column::Backlog),
+            feedback(&epic, &all_started, DropTarget::Backlog),
             DropFeedback::Allowed
         );
         assert_eq!(
-            drop_hint(&epic, &all_started, Column::Backlog),
+            drop_hint(&epic, &all_started, DropTarget::Backlog),
             Some((
                 IconName::SquareParking,
                 "Park 2 running children".to_owned()
             ))
         );
-        assert_eq!(drop_note(&epic, &all_started, Column::Backlog), None);
-        let DropAction::AskParkAll(plan) = on_drop(&epic, &all_started, Column::Backlog) else {
+        assert_eq!(drop_note(&epic, &all_started, DropTarget::Backlog), None);
+        let DropAction::AskParkAll(plan) = on_drop(&epic, &all_started, DropTarget::Backlog) else {
             panic!("Park all asks first");
         };
         let confirmation = plan.confirmation().unwrap();
@@ -531,23 +575,29 @@ mod tests {
         ];
         assert!(is_track(&epic, &merged));
         assert_eq!(
-            feedback(&epic, &merged, Column::Backlog),
+            feedback(&epic, &merged, DropTarget::Backlog),
             DropFeedback::Forbidden {
                 title: "Nothing of SHOP-45 is queued or running".to_owned(),
                 detail: None,
             }
         );
-        assert_eq!(drop_hint(&epic, &merged, Column::Backlog), None);
+        assert_eq!(drop_hint(&epic, &merged, DropTarget::Backlog), None);
         assert_eq!(
-            on_drop(&epic, &merged, Column::Backlog),
+            on_drop(&epic, &merged, DropTarget::Backlog),
             DropAction::Nothing
         );
 
         // The epic card (nothing started) stays home over Backlog.
         let card = [child("SHOP-45.1", Status::Backlog)];
         assert!(!is_track(&epic, &card));
-        assert_eq!(feedback(&epic, &card, Column::Backlog), DropFeedback::Home);
-        assert_eq!(on_drop(&epic, &card, Column::Backlog), DropAction::Nothing);
+        assert_eq!(
+            feedback(&epic, &card, DropTarget::Backlog),
+            DropFeedback::Home
+        );
+        assert_eq!(
+            on_drop(&epic, &card, DropTarget::Backlog),
+            DropAction::Nothing
+        );
     }
 
     /// State 10: a single child card in Ready for Dev goes back to Backlog as today (d0066), no dialog.
@@ -559,16 +609,16 @@ mod tests {
         ];
         let queued = &children[1];
         assert_eq!(
-            feedback(queued, &children, Column::Backlog),
+            feedback(queued, &children, DropTarget::Backlog),
             DropFeedback::Allowed
         );
         assert_eq!(
-            drop_hint(queued, &children, Column::Backlog).unwrap().1,
+            drop_hint(queued, &children, DropTarget::Backlog).unwrap().1,
             "Drop to take it out of the queue"
         );
-        assert_eq!(drop_note(queued, &children, Column::Backlog), None);
+        assert_eq!(drop_note(queued, &children, DropTarget::Backlog), None);
         assert_eq!(
-            on_drop(queued, &children, Column::Backlog),
+            on_drop(queued, &children, DropTarget::Backlog),
             DropAction::Move
         );
     }
@@ -578,7 +628,7 @@ mod tests {
     fn no_epic_is_told_to_stay_in_backlog() {
         let epic = epic();
         let children = [child("SHOP-45.1", Status::Backlog)];
-        for &column in Column::ALL {
+        for &column in DropTarget::ALL {
             if let DropFeedback::Forbidden { title, .. } = feedback(&epic, &children, column) {
                 assert!(!title.contains("Backlog"), "{title}");
             }
@@ -588,14 +638,20 @@ mod tests {
     #[test]
     fn allowed_and_forbidden_columns() {
         let backlog = ticket("SHOP-31", "Add order history page", Status::Backlog);
-        assert_eq!(feedback(&backlog, &[], Column::Backlog), DropFeedback::Home);
-        assert_eq!(feedback(&backlog, &[], Column::Dev), DropFeedback::Allowed);
         assert_eq!(
-            feedback(&backlog, &[], Column::ReadyForDev),
+            feedback(&backlog, &[], DropTarget::Backlog),
+            DropFeedback::Home
+        );
+        assert_eq!(
+            feedback(&backlog, &[], DropTarget::Dev),
             DropFeedback::Allowed
         );
         assert_eq!(
-            feedback(&backlog, &[], Column::ReadyForReview),
+            feedback(&backlog, &[], DropTarget::ReadyForDev),
+            DropFeedback::Allowed
+        );
+        assert_eq!(
+            feedback(&backlog, &[], DropTarget::ReadyForReview),
             DropFeedback::Forbidden {
                 title: ONLY_AGENTS_TO_REVIEW.into(),
                 detail: Some("Drag to Ready for Dev to queue it."),
@@ -603,22 +659,26 @@ mod tests {
         );
         let queued = ticket("SHOP-20", "Checkout page", Status::Queued);
         assert_eq!(
-            feedback(&queued, &[], Column::Backlog),
+            feedback(&queued, &[], DropTarget::Backlog),
             DropFeedback::Allowed
         );
         assert!(matches!(
-            feedback(&queued, &[], Column::Dev),
+            feedback(&queued, &[], DropTarget::Dev),
             DropFeedback::Forbidden { .. }
         ));
         let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
         epic.kind = Kind::Epic;
         // An epic drop queues its children (d0080); with none left in Backlog there is nothing to queue.
         assert_eq!(
-            feedback(&epic, &[child("SHOP-40.1", Status::Backlog)], Column::Dev),
+            feedback(
+                &epic,
+                &[child("SHOP-40.1", Status::Backlog)],
+                DropTarget::Dev
+            ),
             DropFeedback::Allowed
         );
         assert_eq!(
-            feedback(&epic, &[], Column::Dev),
+            feedback(&epic, &[], DropTarget::Dev),
             DropFeedback::Forbidden {
                 title: "Every child of SHOP-40 is already queued or started".into(),
                 detail: None,
@@ -626,46 +686,46 @@ mod tests {
         );
         let merged = ticket("SHOP-17", "Add Stripe client", Status::Merged);
         assert!(matches!(
-            feedback(&merged, &[], Column::Backlog),
+            feedback(&merged, &[], DropTarget::Backlog),
             DropFeedback::Forbidden { .. }
         ));
         let working = ticket("SHOP-19", "Price table", Status::Working);
         assert_eq!(
-            feedback(&working, &[], Column::Backlog),
+            feedback(&working, &[], DropTarget::Backlog),
             DropFeedback::Allowed,
             "Park"
         );
-        assert_eq!(feedback(&working, &[], Column::Dev), DropFeedback::Home);
+        assert_eq!(feedback(&working, &[], DropTarget::Dev), DropFeedback::Home);
     }
 
     #[test]
     fn drop_hints_say_what_the_drop_does() {
         let backlog = ticket("SHOP-24", "Update footer links", Status::Backlog);
         assert_eq!(
-            drop_hint(&backlog, &[], Column::ReadyForDev),
+            drop_hint(&backlog, &[], DropTarget::ReadyForDev),
             Some((
                 IconName::Play,
                 "Drop to queue · starts in priority order".to_owned()
             )),
             "the frame's wording"
         );
-        assert_eq!(drop_hint(&backlog, &[], Column::Backlog), None, "home");
-        assert_eq!(drop_hint(&backlog, &[], Column::ReadyForReview), None);
+        assert_eq!(drop_hint(&backlog, &[], DropTarget::Backlog), None, "home");
+        assert_eq!(drop_hint(&backlog, &[], DropTarget::ReadyForReview), None);
         let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         assert_eq!(
-            drop_hint(&pr, &[], Column::ReadyForReview).unwrap().1,
+            drop_hint(&pr, &[], DropTarget::ReadyForReview).unwrap().1,
             "Drop to rework · PR #481 stays"
         );
         let working = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Working);
         assert_eq!(
-            drop_hint(&working, &[], Column::Backlog).unwrap().1,
+            drop_hint(&working, &[], DropTarget::Backlog).unwrap().1,
             "Drop to park · asks first"
         );
         let mut parked = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Parked);
         parked.place = otaq_core::domain::Place::Backlog;
         assert!(
-            drop_hint(&parked, &[], Column::Dev)
+            drop_hint(&parked, &[], DropTarget::Dev)
                 .unwrap()
                 .1
                 .contains("resume")
@@ -677,43 +737,52 @@ mod tests {
         // An empty description is a plain Start: no warning (d0067).
         let mut t24 = ticket("SHOP-24", "Update footer links", Status::Backlog);
         assert!(t24.body.is_empty());
-        assert_eq!(on_drop(&t24, &[], Column::Dev), DropAction::Move);
+        assert_eq!(on_drop(&t24, &[], DropTarget::Dev), DropAction::Move);
         t24.body = "Fix the links.".into();
-        assert_eq!(on_drop(&t24, &[], Column::Dev), DropAction::Move);
-        assert_eq!(on_drop(&t24, &[], Column::Approved), DropAction::Nothing);
-        assert_eq!(on_drop(&t24, &[], Column::ReadyForDev), DropAction::Move);
+        assert_eq!(on_drop(&t24, &[], DropTarget::Dev), DropAction::Move);
+        assert_eq!(
+            on_drop(&t24, &[], DropTarget::Approved),
+            DropAction::Nothing
+        );
+        assert_eq!(
+            on_drop(&t24, &[], DropTarget::ReadyForDev),
+            DropAction::Move
+        );
         // Ready for Dev → Backlog: out of the queue, no confirmation (d0066).
         let queued = ticket("SHOP-20", "Checkout page", Status::Queued);
-        assert_eq!(on_drop(&queued, &[], Column::Backlog), DropAction::Move);
+        assert_eq!(on_drop(&queued, &[], DropTarget::Backlog), DropAction::Move);
         let working = ticket("SHOP-19", "Price table", Status::Working);
-        assert_eq!(on_drop(&working, &[], Column::Backlog), DropAction::AskPark);
+        assert_eq!(
+            on_drop(&working, &[], DropTarget::Backlog),
+            DropAction::AskPark
+        );
         let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         assert_eq!(
-            on_drop(&review, &[], Column::Approved),
+            on_drop(&review, &[], DropTarget::Approved),
             DropAction::ChooseApprove
         );
         let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         assert_eq!(
-            feedback(&pr, &[], Column::ReadyForReview),
+            feedback(&pr, &[], DropTarget::ReadyForReview),
             DropFeedback::Allowed
         );
         assert_eq!(
-            on_drop(&pr, &[], Column::ReadyForReview),
+            on_drop(&pr, &[], DropTarget::ReadyForReview),
             DropAction::Move,
             "PR rework: the PR stays"
         );
         assert!(matches!(
-            feedback(&pr, &[], Column::Dev),
+            feedback(&pr, &[], DropTarget::Dev),
             DropFeedback::Forbidden { .. }
         ));
         assert!(matches!(
-            feedback(&pr, &[], Column::Backlog),
+            feedback(&pr, &[], DropTarget::Backlog),
             DropFeedback::Forbidden { .. }
         ));
         let closed = ticket("SHOP-26", "Add sitemap", Status::ClosedNotMerged);
         assert_eq!(
-            on_drop(&closed, &[], Column::Backlog),
+            on_drop(&closed, &[], DropTarget::Backlog),
             DropAction::Move,
             "the service reopens or says why not"
         );

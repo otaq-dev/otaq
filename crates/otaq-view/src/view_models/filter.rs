@@ -8,8 +8,9 @@
 //! still hide. Focusing an epic (its track's name, `g` `e`) puts its token in the filter ([`Filter::focus`]); Esc takes
 //! it out ([`Filter::unfocus`]).
 
-use crate::view_models::legacy_column::{Column, ColumnOf};
+use crate::view_models::flow_columns::place_set;
 use otaq_core::board::tickets::Ticket;
+use otaq_core::domain::StatusSet;
 use otaq_core::domain::{Status, TicketKey};
 
 use crate::view_models::chain::chain;
@@ -106,10 +107,10 @@ impl Is {
             Self::Queued => t.status.is_queued(),
             Self::Parked => t.status == Status::Parked,
             Self::Running => t.flags.run_port.is_some(),
-            Self::Backlog => t.column() == Column::Backlog,
-            Self::Review => t.column() == Column::ReadyForReview,
-            Self::Approved => t.column() == Column::Approved,
-            Self::Done => t.column() == Column::Done,
+            Self::Backlog => t.place.is_backlog(),
+            Self::Review => place_set(t) == StatusSet::HumanCheck,
+            Self::Approved => place_set(t) == StatusSet::Delivery,
+            Self::Done => t.place.is_done(),
         }
     }
 }

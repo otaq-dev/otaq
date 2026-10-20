@@ -1,27 +1,28 @@
-//! The board's columns (UI-02, SHL-06; *03 · Board & columns*; d0087): five columns with counts, Backlog · Ready
-//! for Dev · Dev · Review · Done. The states and their stored columns are the core's six (§7); only the page groups
-//! them: the Review column holds Ready for Review and Approved as two sections ([`SectionView`]), each with its own
-//! count and its own cards in the old columns' order, and the column counts both. Ready for Dev shows the queued
-//! cards (d0066); Dev the cards that need the user (and pins) on top, then the Agent Working section; the "N more ·
-//! working" fold that never hides needs-you cards (T-0027); the Done column that collapses to a 34 px rail; epic
-//! cards in Backlog; and the empty-column hints. Order comes from the core ([`otaq_core::board::order`]), so the
-//! board, the service and the tests agree.
+//! The board's columns (UI-02, SHL-06, STG-08; *03 · Board & columns*; d0087, d0108): the project's flow's columns
+//! with counts ([`flow_columns`]), on the default flow Backlog · Ready for Dev · Dev · Review · Done. A human
+//! check's column holds its stage and the Delivery folded into it as two sections ([`SectionView`]: Ready for
+//! Review and Approved), each with its own count and its own cards in its status set's order, and the column counts
+//! both. Ready for Dev shows the queued cards (d0066); an agent column (Dev) the cards that need the user (and pins)
+//! on top, then the Agent Working section; the "N more · working" fold that never hides needs-you cards (T-0027);
+//! the Done column that collapses to a 34 px rail; epic cards in Backlog; and the empty-column hints. Order comes
+//! from the core ([`otaq_core::board::order`]), so the board, the service and the tests agree.
 //!
 //! Each child is on the board exactly once (EPC-11, d0080): an epic is a card in Backlog only in its Card place
 //! and a delivery card in Review / Done; in its Track place the strip draws it instead. Epic children never show
 //! as cards in Backlog: they are rows of the epic card, or "not queued" stops on its track. In Done an epic's
 //! merged children fold into one line (EPC-16, [`DoneFold`]); its closed children stay cards.
 
-use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::epic_flight::{EpicPlace, children_of, epic_place};
-use otaq_core::board::order::{ColumnOrder, fold_dev, sort_column};
+use otaq_core::board::order::{ColumnOrder, fold_dev};
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Kind, Status, TicketKey};
+use otaq_core::domain::{Kind, Status, StatusSet, TicketKey};
+use otaq_core::flow::{Flow, Stage};
 
 use crate::icons::IconName;
-use crate::view_models::board_page::ColumnId;
+use crate::view_models::board_page::{ColumnId, DropTargetId, ReviewSectionId};
 use crate::view_models::card::{CardExtras, CardViewModel};
 use crate::view_models::epic_card::EpicViewModel;
+use crate::view_models::flow_columns::{ColumnKind, Columns, FlowColumn};
 use crate::view_models::queue::queue_facts;
 use otaq_core::named_agents::rows::BoardAgents;
 
@@ -65,14 +66,20 @@ pub struct DevSections {
     pub folded: Vec<TicketKey>,
 }
 
-/// One section of the Review column (*Row · Review column (0086 · V)*): Ready for Review or Approved, with its own
-/// count and cards in that state's order (§7.5). Folding it is the page's state; the count stays.
+/// One section of a human check's column (*Row · Review column (0086 · V)*): the human check's (Ready for Review)
+/// or the Delivery's folded into it (Approved), with its own count and cards in that status set's order (§7.5).
+/// Folding it is the page's state; the count stays.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SectionView {
-    /// The state it holds: [`Column::ReadyForReview`] or [`Column::Approved`].
-    pub column: Column,
+    pub id: ReviewSectionId,
+    /// A section after the column's own is a drop target of its own (Approved); the first is the column.
+    pub target: Option<DropTargetId>,
+    /// It holds a Delivery stage's cards (the Approved section).
+    pub delivery: bool,
     /// "READY FOR REVIEW", "APPROVED".
     pub title: &'static str,
+    /// "Ready for Review", "Approved": the fold tooltip's name.
+    pub name: &'static str,
     /// "2", or "1/2" with a filter.
     pub count: String,
     pub cards: Vec<CardEntry>,
@@ -87,15 +94,18 @@ pub struct SectionView {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColumnView {
     pub id: ColumnId,
-    pub title: &'static str,
+    pub kind: ColumnKind,
+    /// The stage's name ("Dev", "Review"), or "Backlog", "Ready for Dev", "Done".
+    pub title: String,
     pub icon: IconName,
     /// "12" or, with a filter, "3/12" (T-0038); with an epic focused, its cards over all (Q55). Review: both
     /// sections.
     pub count: String,
-    /// Every column but Dev and Review.
+    /// Every column but the agent and human check columns.
     pub cards: Vec<CardEntry>,
+    /// An agent column's (Dev's) parts.
     pub dev: Option<DevSections>,
-    /// Review only: Ready for Review, then Approved.
+    /// A human check's column: Ready for Review, then Approved.
     pub sections: Vec<SectionView>,
     /// Under the title: Ready for Dev's "Starts when ready, in priority order".
     pub hint: Option<&'static str>,
@@ -175,31 +185,30 @@ fn items(keys: &[TicketKey], folds: &[DoneFold]) -> usize {
     keys.len() - folds.iter().map(|f| f.keys.len() - 1).sum::<usize>()
 }
 
-/// The column's title, icon and empty hint.
-pub fn column_look(id: ColumnId) -> (&'static str, IconName, &'static str) {
-    match id {
-        ColumnId::Backlog => (
-            "Backlog",
+/// A column's icon and empty hint, by its kind.
+pub fn column_look(kind: ColumnKind) -> (IconName, &'static str) {
+    match kind {
+        ColumnKind::Backlog => (
             IconName::CircleDashed,
             "Write a ticket here: what to build and when it’s done.",
         ),
-        ColumnId::ReadyForDev => (
-            "Ready for Dev",
+        ColumnKind::ReadyForDev => (
             IconName::Hourglass,
             "Drag a ticket here from Backlog to start it when it’s ready.",
         ),
-        ColumnId::Dev => (
-            "Dev",
+        ColumnKind::Agent => (
             IconName::Activity,
             "Tickets move here when their agent starts. Each agent works in its own worktree.",
         ),
-        ColumnId::Review => (
-            "Review",
+        ColumnKind::HumanCheck => (
             IconName::Eye,
             "Agents move their ticket here when they submit it for your review.",
         ),
-        ColumnId::Done => (
-            "Done",
+        ColumnKind::Delivery => (
+            IconName::GitMerge,
+            "Approved tickets wait here until they’re delivered.",
+        ),
+        ColumnKind::Done => (
             IconName::CircleCheck,
             "Merged and closed tickets end up here.",
         ),
@@ -262,6 +271,8 @@ pub fn dev_budget(board_height: f32) -> usize {
 }
 
 pub struct BoardInput<'a> {
+    /// The project's flow: its columns (STG-08).
+    pub flow: &'a Flow,
     pub tickets: &'a [Ticket],
     /// Tickets shown (a filter, T-0038); `None` shows all.
     pub visible: Option<&'a [TicketKey]>,
@@ -287,7 +298,7 @@ pub fn is_card(ticket: &Ticket, all: &[Ticket]) -> bool {
     if ticket.kind == Kind::Epic {
         epic_place(ticket, all) != EpicPlace::Track
     } else {
-        ticket.epic.is_none() || ticket.column() != Column::Backlog
+        ticket.epic.is_none() || !ticket.place.is_backlog()
     }
 }
 
@@ -304,16 +315,24 @@ struct StateCards {
 }
 
 impl StateCards {
-    fn of(column: Column, input: &BoardInput, cards: &[&TicketKey], shown: &[&TicketKey]) -> Self {
+    /// The cards of `column`'s `part` (or of the whole column).
+    fn of(
+        columns: &Columns,
+        column: &str,
+        part: Option<&str>,
+        input: &BoardInput,
+        cards: &[&TicketKey],
+        shown: &[&TicketKey],
+    ) -> Self {
         let all = input.tickets;
         // Order over the whole project ("blocks more" counts every dependent), cards only; the counts count the
         // cards the column shows.
-        let full = sort_column(column.set(), all);
+        let full = columns.order(column, part, cards, all);
         let keep = |keys: &[TicketKey], of: &[&TicketKey]| -> Vec<TicketKey> {
             keys.iter().filter(|k| of.contains(k)).cloned().collect()
         };
-        let (shown_cards, folds) = done_folds(&keep(&full.cards, shown), all);
-        let every = keep(&full.cards, cards);
+        let (shown_cards, folds) = done_folds(&keep(&full, shown), all);
+        let every = full;
         let total = items(&every, &done_folds(&every, all).1);
         let visible = items(&shown_cards, &folds);
         let strong = input.strong.map(|strong| {
@@ -322,7 +341,8 @@ impl StateCards {
         });
         Self {
             order: ColumnOrder {
-                column: column.set(),
+                // The core's order type; the board only reads its cards.
+                column: StatusSet::AgentStage,
                 cards: shown_cards,
             },
             folds,
@@ -400,36 +420,43 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
         })
     };
     let entries = |keys: &[TicketKey]| keys.iter().filter_map(entry).collect::<Vec<_>>();
-    ColumnId::ALL
+    let columns = Columns::of(input.flow);
+    columns
         .iter()
-        .map(|&id| {
-            let states: Vec<StateCards> = id
-                .states()
+        .map(|column| {
+            let id = column.id.as_str();
+            let parts: Vec<Option<&str>> = if column.has_sections() {
+                column.parts.iter().map(|p| Some(p.id.as_str())).collect()
+            } else {
+                vec![None]
+            };
+            let states: Vec<StateCards> = parts
                 .iter()
-                .map(|&column| StateCards::of(column, input, &cards, &shown))
+                .map(|&part| StateCards::of(&columns, id, part, input, &cards, &shown))
                 .collect();
             let total: usize = states.iter().map(|s| s.total).sum();
             let visible: usize = states.iter().map(|s| s.visible).sum();
             let strong = input
                 .strong
                 .map(|_| states.iter().filter_map(|s| s.strong).sum());
-            let (title, icon, empty_hint) = column_look(id);
+            let (icon, empty_hint) = column_look(column.kind);
             let mut view = ColumnView {
-                id,
-                title,
+                id: ColumnId::new(id),
+                kind: column.kind,
+                title: column.title.clone(),
                 icon,
                 count: count_text(visible, total, strong, filtered),
                 cards: Vec::new(),
                 dev: None,
                 sections: Vec::new(),
-                hint: (id == ColumnId::ReadyForDev).then_some(READY_FOR_DEV_HINT),
+                hint: (column.kind == ColumnKind::ReadyForDev).then_some(READY_FOR_DEV_HINT),
                 empty_hint,
-                collapsed: id == ColumnId::Done && input.done_collapsed,
+                collapsed: column.kind == ColumnKind::Done && input.done_collapsed,
                 hidden: total - visible,
                 folds: Vec::new(),
             };
-            match id {
-                ColumnId::Dev => {
+            match column.kind {
+                ColumnKind::Agent => {
                     view.dev = Some(dev_sections(
                         &states[0].order,
                         all,
@@ -437,15 +464,17 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                         &entries,
                     ));
                 }
-                ColumnId::Review => {
+                ColumnKind::HumanCheck => {
                     view.sections = states
                         .into_iter()
-                        .map(|s| section(s, filtered, &entries))
+                        .zip(&column.parts)
+                        .enumerate()
+                        .map(|(i, (s, part))| section(s, column, i, part.stage, filtered, &entries))
                         .collect();
                 }
                 _ => {
                     let [state] = <[StateCards; 1]>::try_from(states)
-                        .unwrap_or_else(|_| unreachable!("one state per column but Review"));
+                        .unwrap_or_else(|_| unreachable!("one part per column without sections"));
                     view.cards = entries(&state.order.cards);
                     view.folds = state.folds;
                 }
@@ -457,16 +486,27 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
 
 fn section(
     state: StateCards,
+    column: &FlowColumn,
+    index: usize,
+    stage: &Stage,
     filtered: bool,
     entries: &dyn Fn(&[TicketKey]) -> Vec<CardEntry>,
 ) -> SectionView {
-    let approved = Column::of_set(state.order.column) == Column::Approved;
+    let approved = stage.is_delivery();
+    let id = column.parts[index].id.clone();
     SectionView {
-        column: Column::of_set(state.order.column),
+        target: (index > 0).then(|| DropTargetId::new(id.clone())),
+        id: ReviewSectionId(id.into()),
+        delivery: approved,
         title: if approved {
             APPROVED_SECTION
         } else {
             READY_FOR_REVIEW_SECTION
+        },
+        name: if approved {
+            "Approved"
+        } else {
+            "Ready for Review"
         },
         count: count_text(state.visible, state.total, state.strong, filtered),
         cards: entries(&state.order.cards),
@@ -561,6 +601,7 @@ mod tests {
 
     fn input(tickets: &[Ticket], budget: Option<usize>) -> BoardInput<'_> {
         BoardInput {
+            flow: &otaq_core::flow::default_file().flow,
             tickets,
             visible: None,
             strong: None,
@@ -572,6 +613,84 @@ mod tests {
             was_validating: &[],
             agents: None,
         }
+    }
+
+    /// STG-08 on the test flow: Grill, Dev (Validate in it), Security, QA and the Delivery each have their own
+    /// column between Ready for Dev and Done; a card waiting between Grill and Dev shows in Dev's column with its
+    /// waiting status, a validating one in Dev too, a Security check in Security, QA's card in QA's section.
+    #[test]
+    fn the_test_flow_draws_a_column_per_own_stage() {
+        use otaq_core::domain::Place;
+        let flow = crate::view_models::flow_columns::every_kind();
+        let at = |key: &str, status, place: Place| {
+            let mut t = ticket(key, "Work", status);
+            t.place = place;
+            t
+        };
+        let tickets = vec![
+            at("NOTE-1", Status::Working, Place::stage_of("grill")),
+            at("NOTE-2", Status::Queued, Place::Waiting(Some("dev".into()))),
+            at("NOTE-3", Status::Checking, Place::stage_of("validate")),
+            at("NOTE-4", Status::Checking, Place::stage_of("security")),
+            at("NOTE-5", Status::WaitingForYou, Place::stage_of("qa")),
+            at("NOTE-6", Status::PrOpen, Place::stage_of("ship")),
+            at("NOTE-7", Status::Queued, Place::Waiting(None)),
+        ];
+        let columns = build(&BoardInput {
+            flow: &flow,
+            ..input(&tickets, None)
+        });
+        let ids: Vec<&str> = columns.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "backlog",
+                "ready_for_dev",
+                "grill",
+                "dev",
+                "security",
+                "qa",
+                "ship",
+                "done"
+            ]
+        );
+        let dev_keys = |id: &str| {
+            let dev = columns
+                .iter()
+                .find(|c| c.id.as_str() == id)
+                .unwrap()
+                .dev
+                .clone()
+                .unwrap();
+            keys(&dev.top)
+                .into_iter()
+                .chain(keys(&dev.working))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(dev_keys("grill"), ["NOTE-1"]);
+        assert_eq!(
+            dev_keys("dev"),
+            ["NOTE-3", "NOTE-2"],
+            "checks, then the card waiting before Dev"
+        );
+        assert_eq!(dev_keys("security"), ["NOTE-4"]);
+        let qa = &columns[5];
+        assert_eq!(qa.sections.len(), 1, "nothing folded into QA");
+        assert_eq!(keys(&qa.sections[0].cards), ["NOTE-5"]);
+        assert_eq!(keys(&columns[6].cards), ["NOTE-6"]);
+        assert_eq!(keys(&columns[1].cards), ["NOTE-7"]);
+        let waiting = columns[3]
+            .dev
+            .as_ref()
+            .unwrap()
+            .working
+            .iter()
+            .find_map(|e| match e {
+                CardEntry::Ticket(vm) if vm.key.to_string() == "NOTE-2" => Some(vm.clone()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(waiting.hover.status, Status::Queued.label());
     }
 
     /// T-0075: a working card that turns turquoise moves up to the top of Dev, below the pinned card, and back
@@ -855,13 +974,22 @@ mod tests {
     fn five_columns_with_counts_and_epics_in_backlog() {
         let tickets = board();
         let columns = build(&input(&tickets, None));
-        let titles: Vec<_> = columns.iter().map(|c| c.title).collect();
+        let titles: Vec<_> = columns.iter().map(|c| c.title.as_str()).collect();
         assert_eq!(
             titles,
             ["Backlog", "Ready for Dev", "Dev", "Review", "Done"]
         );
-        let ids: Vec<_> = columns.iter().map(|c| c.id).collect();
-        assert_eq!(ids, ColumnId::ALL);
+        let ids: Vec<_> = columns.iter().map(|c| c.id.clone()).collect();
+        assert_eq!(
+            ids,
+            [
+                ColumnId::BACKLOG,
+                ColumnId::READY_FOR_DEV,
+                ColumnId::DEV,
+                ColumnId::REVIEW,
+                ColumnId::DONE
+            ]
+        );
         let counts: Vec<_> = columns.iter().map(|c| c.count.as_str()).collect();
         assert_eq!(counts, ["2", "4", "7", "1", "1"]);
         // The epic is a card with SHOP-40.3 as its row, not a second Backlog card.
@@ -886,18 +1014,18 @@ mod tests {
         let sections: Vec<_> = review
             .sections
             .iter()
-            .map(|s| (s.column, s.title, s.count.as_str(), keys(&s.cards)))
+            .map(|s| (s.id.clone(), s.title, s.count.as_str(), keys(&s.cards)))
             .collect();
         assert_eq!(
             sections,
             [
                 (
-                    Column::ReadyForReview,
+                    ReviewSectionId::READY_FOR_REVIEW,
                     READY_FOR_REVIEW_SECTION,
                     "1",
                     vec!["SHOP-18".to_owned()]
                 ),
-                (Column::Approved, APPROVED_SECTION, "0", vec![]),
+                (ReviewSectionId::APPROVED, APPROVED_SECTION, "0", vec![]),
             ]
         );
         assert_eq!(review.sections[1].empty, "Nothing approved");

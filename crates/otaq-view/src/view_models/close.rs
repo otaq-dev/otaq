@@ -2,7 +2,6 @@
 //! ticket · panel "…" menu, Close ticket · confirm, Submit for review · dialog, Closed · not merged · Reopen*):
 //! which menu items show, and the dialogs' texts.
 
-use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::review::USER_SUBMITS_FROM;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::Status;
@@ -32,7 +31,7 @@ pub fn close_item(ticket: &Ticket) -> Option<MenuItem> {
 /// "Submit for review…": on a ticket whose agent is at work or stopped; enabled only when it isn't mid-turn.
 pub fn submit_item(ticket: &Ticket) -> Option<MenuItem> {
     let shown = !ticket.is_epic()
-        && ticket.column() == Column::Dev
+        && crate::view_models::flow_columns::place_set(ticket).at_work()
         && (USER_SUBMITS_FROM.contains(&ticket.status)
             || matches!(ticket.status, Status::Working | Status::WorkingInBackground));
     if !shown {
@@ -94,7 +93,7 @@ pub fn close_text(ticket: &Ticket, tickets: &[Ticket], agent_running: bool) -> C
     }
     let mut dependents: Vec<&Ticket> = tickets
         .iter()
-        .filter(|t| t.depends_on.contains(&ticket.key) && t.column() != Column::Done)
+        .filter(|t| t.depends_on.contains(&ticket.key) && !t.place.is_done())
         .collect();
     dependents.sort_by(|a, b| a.key.cmp(&b.key));
     for d in dependents {

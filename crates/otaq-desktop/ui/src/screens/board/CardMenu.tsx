@@ -7,11 +7,13 @@
 // Add ticket to epic opens New ticket under it, Focus is `g` `e`.
 import { openTicket } from "../../app/selection";
 import { AnchoredMenu, type Anchor } from "../../components";
+import type { BoardDropTarget } from "../../generated/BoardDropTarget";
 import type { CardMenuChoice } from "../../generated/CardMenuChoice";
 import type { CardMenuParams } from "../../generated/CardMenuParams";
 import type { MenuItem } from "../../generated/MenuItem";
 import { openOverlay } from "../../app/overlays";
 import { request } from "../../tauri";
+import { BACKLOG, READY_FOR_DEV } from "./drag";
 
 /** An open card menu: whose, where, and its items. */
 export interface OpenCardMenu {
@@ -22,7 +24,7 @@ export interface OpenCardMenu {
 
 /** What the board does for an epic's items: a drop, as a drag would end, and the focus (`g` `e`). */
 export interface MenuBoard {
-  drop: (key: string, column: "ready_for_dev" | "backlog") => void;
+  drop: (key: string, column: BoardDropTarget) => void;
   focus: (key: string) => void;
 }
 
@@ -50,10 +52,10 @@ export function afterMenuChoice(choice: CardMenuChoice, key: string, board: Menu
       openTicket(key);
       return;
     case "queue_epic":
-      board.drop(key, "ready_for_dev");
+      board.drop(key, READY_FOR_DEV);
       return;
     case "take_back_epic":
-      board.drop(key, "backlog");
+      board.drop(key, BACKLOG);
       return;
     case "add_to_epic":
       openOverlay("new_ticket", { epic: key });
