@@ -361,7 +361,7 @@ so the author runs what users run. No admin rights:
 
 - `~/Applications/Otaq.app`: `Contents/MacOS/otaq-app` (the app, the bundle's main program) and
   `Contents/MacOS/otaq` (the command and the background service), the agent tools' plugin folders in
-  `Contents/Resources` (`plugin/`, `plugin-copilot/`), the tent icon, an `Info.plist` with the bundle ID
+  `Contents/Resources` (`plugin/`: the shipped skills and each tool's hooks plugin), the tent icon, an `Info.plist` with the bundle ID
   `io.otaq.desktop` and the workspace's version, signed ad-hoc (decision 0021, no paid signing);
 - `~/.local/bin/otaq`, a link to `Otaq.app/Contents/MacOS/otaq`. When `~/.local/bin` isn't on `PATH` the script says
   so; it never edits shell files.

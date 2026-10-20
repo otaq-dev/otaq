@@ -195,13 +195,12 @@ impl Seeder {
                 return None;
             }
         };
-        // The workflow skills' worktree copies are never seeded (d0082): each launch writes its own (WSK-05).
+        // Otaq's skill copies are never seeded either ([`plan`] leaves them out of any seed, d0082).
         let leave_out: Vec<PathBuf> = env_files
             .iter()
             .map(|f| f.trim())
             .filter(|f| !f.is_empty())
             .map(PathBuf::from)
-            .chain(crate::workflow_skills::worktree::all_folders())
             .collect();
         let started = Instant::now();
         let result = match self.warm.mode() {
@@ -578,13 +577,18 @@ impl Plan {
 }
 
 /// The paths of `seed` to clone into `worktree`: each candidate that isn't there yet, and inside a folder both
-/// have, its entries the same way. `leave_out` (env files) is never cloned; a folder holding one is gone into.
+/// have, its entries the same way. `leave_out` (env files) is never cloned, nor are Otaq's skill copies in the seed
+/// (a checkout holds them while a Project agent runs, AGM-07; each session writes its own); a folder holding one is
+/// gone into.
 pub(crate) fn plan(
     seed: &Path,
     worktree: &Path,
     candidates: Vec<PathBuf>,
     leave_out: &[PathBuf],
 ) -> io::Result<Plan> {
+    let mut leave_out = leave_out.to_vec();
+    leave_out.extend(crate::skills::copy::copies_to_skip(seed));
+    let leave_out = leave_out.as_slice();
     let mut plan = Plan::default();
     let mut todo = candidates;
     todo.reverse();

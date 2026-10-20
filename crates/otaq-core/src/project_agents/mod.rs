@@ -22,10 +22,12 @@
 //! - **Epic leads** (d0083) are Project agent rows with an epic ([`lead`]). They are named after their epic and left
 //!   out of every Project agent list.
 
+mod checkout;
 pub mod lead;
 pub mod prime;
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -249,6 +251,8 @@ struct Inner {
     handovers: crate::epic_lead::wake::Handovers,
     /// The check before every launch (set by the service; unset, nothing is checked).
     gate: std::sync::OnceLock<crate::agents::gate::LaunchGate>,
+    /// The skill copies each running agent holds in its project's folder (AGM-07).
+    checkout: tokio::sync::Mutex<checkout::Held>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -308,6 +312,7 @@ impl ProjectAgents {
                 lead_epics: Mutex::new(HashMap::new()),
                 handovers: Default::default(),
                 gate: std::sync::OnceLock::new(),
+                checkout: Default::default(),
             }),
         };
         // The board tells the leads about queues, merges, closes and reviews (d0083).
@@ -375,6 +380,8 @@ impl ProjectAgents {
                 "project agents after the restart"
             );
         }
+        // No agent runs now: the skill copies a crash left in the projects' folders go (AGM-07).
+        self.remove_checkout_leftovers().await;
         Ok(report)
     }
 
@@ -418,22 +425,33 @@ impl ProjectAgents {
                 &agent,
             )
             .await?;
-        let launched = self.launch(
+        let id = new_id();
+        // The agent's skills, copied into the project's folder while it runs (AGM-07).
+        let first_prompt = self
+            .copy_into_checkout(
+                &id,
+                Path::new(&project.repo_path),
+                Some(&agent),
+                Some(FirstPrompt::Skill {
+                    name: PROJECT_AGENT_SKILL.to_owned(),
+                    message: Some(message.to_owned()),
+                }),
+            )
+            .await;
+        let launched = match self.launch(
             runs_on.tool,
             LaunchRequest {
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
-                ..request(
-                    &project,
-                    LaunchRole::ProjectAgent,
-                    Some(FirstPrompt::OtaqSkill {
-                        name: PROJECT_AGENT_SKILL.to_owned(),
-                        message: Some(message.to_owned()),
-                    }),
-                )
+                ..request(&project, LaunchRole::ProjectAgent, first_prompt)
             },
-        )?;
-        let id = new_id();
+        ) {
+            Ok(launched) => launched,
+            Err(e) => {
+                self.release_checkout(&id).await;
+                return Err(e);
+            }
+        };
         sqlx::query(
             "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, agent_id, agent_name, effort,
                                          state, first_request, created_at)
@@ -453,6 +471,7 @@ impl ProjectAgents {
         .execute(self.inner.board.store().pool())
         .await?;
         if let Err(e) = self.spawn(&project, launched, &id, &runs_on, None).await {
+            self.release_checkout(&id).await;
             sqlx::query("DELETE FROM project_agents WHERE id = ?")
                 .bind(&id)
                 .execute(self.inner.board.store().pool())
@@ -482,17 +501,29 @@ impl ProjectAgents {
         self.refuse_during_limit(runs_on.tool).await?;
         self.inner.adapters.unavailable(runs_on.tool)?;
         let project = self.inner.board.project(&agent.project).await?;
+        let conversation = agent.conversation()?.to_owned();
+        self.copy_stored_agent_into_checkout(&agent.id, &project, &runs_on)
+            .await?;
         let launched = self.launch(
             runs_on.tool,
             LaunchRequest {
-                resume: Some(agent.conversation()?.to_owned()),
+                resume: Some(conversation),
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
                 ..request(&project, LaunchRole::ProjectAgent, None)
             },
-        )?;
-        self.restart(&agent, &project, launched, &runs_on, None)
-            .await?;
+        );
+        let started = match launched {
+            Ok(launched) => {
+                self.restart(&agent, &project, launched, &runs_on, None)
+                    .await
+            }
+            Err(e) => Err(e),
+        };
+        if let Err(e) = started {
+            self.release_checkout(&agent.id).await;
+            return Err(e);
+        }
         tracing::info!(agent = id, "project agent resumed");
         self.changed(&agent.project, id);
         self.get(id).await
@@ -514,6 +545,23 @@ impl ProjectAgents {
             agent: id.zip(name).map(|(id, name)| SessionAgent { id, name }),
             fallback: None,
         })
+    }
+
+    /// Before a resume: the skills of the agent `runs_on` stored (its agent now, if it is still there) are copied into
+    /// the project's folder for the agent `id` (AGM-07).
+    async fn copy_stored_agent_into_checkout(
+        &self,
+        id: &str,
+        project: &Project,
+        runs_on: &RunsOn,
+    ) -> Result<(), BoardError> {
+        let agent = match &runs_on.agent {
+            Some(stored) => self.inner.board.store().agent(&stored.id).await?,
+            None => None,
+        };
+        self.copy_into_checkout(id, Path::new(&project.repo_path), agent.as_ref(), None)
+            .await;
+        Ok(())
     }
 
     /// Starts a new session for the ended agent `agent` with `launched` (its conversation resumed) on `runs_on`'s
@@ -1138,6 +1186,8 @@ impl ProjectAgents {
             let Some(ended) = this.inner.sessions.wait_ended(&session_id).await else {
                 return;
             };
+            // Its skill copies leave the project's folder with it, whatever ended it (AGM-07).
+            this.release_checkout(&id).await;
             if ended.end_reason.as_deref() == Some(END_SERVICE_STOPPED) {
                 return;
             }
@@ -1281,7 +1331,7 @@ fn summary(c: &CreatedAndChanged) -> String {
 }
 
 /// The request in a UserPromptSubmit prompt: the prompt without `skill`, the invocation that starts the session
-/// (`/otaq:project-agent`, alone it is no request). `None` when nothing is left.
+/// (`/otaq-project-agent`, alone it is no request). `None` when nothing is left.
 pub fn request_text(prompt: &str, skill: &str) -> Option<String> {
     let prompt = prompt.trim();
     let rest = prompt.strip_prefix(skill).unwrap_or(prompt).trim();
@@ -1323,7 +1373,7 @@ mod tests {
 
     #[test]
     fn the_skill_invocation_is_no_request() {
-        let skill = naming::skill(PROJECT_AGENT_SKILL);
+        let skill = format!("/{}", naming::copy_name(PROJECT_AGENT_SKILL));
         assert_eq!(request_text(&skill, &skill), None);
         assert_eq!(request_text(&format!("  {skill}  "), &skill), None);
         assert_eq!(

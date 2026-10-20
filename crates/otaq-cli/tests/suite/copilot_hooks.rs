@@ -1,6 +1,6 @@
 //! `otaq hook --tool copilot <event>` (T-0352; ADP-03, ADP-08, d0088): the saved Copilot payloads
 //! (`otaq-core/tests/fixtures/copilot/`) fed to the command inside an agent session (an ordinary `sh`), as
-//! `plugin-copilot/hooks/hooks.json` runs it. An `errorOccurred` reads the session's `events.jsonl` in Copilot's home,
+//! `plugin/copilot/hooks/hooks.json` runs it. An `errorOccurred` reads the session's `events.jsonl` in Copilot's home,
 //! here a temporary one.
 
 use std::path::{Path, PathBuf};

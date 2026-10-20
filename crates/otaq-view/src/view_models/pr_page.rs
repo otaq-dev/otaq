@@ -342,7 +342,7 @@ mod tests {
             provider: Some(Provider::GitHub),
             logged_in: Some(logged_in),
             cli_found: true,
-            open_pr_skill: otaq_core::naming::skill("open-pr"),
+            open_pr_skill: "open-pr".to_owned(),
         }
     }
 
@@ -407,7 +407,7 @@ mod tests {
             pr_number: pr,
             pr_url: pr.map(|n| format!("https://github.com/acme/shop-web/pull/{n}")),
             external_id: None,
-            skill: otaq_core::naming::skill("open-pr"),
+            skill: "open-pr".to_owned(),
         }
     }
 
@@ -437,7 +437,7 @@ mod tests {
 
     #[test]
     fn every_stage_reads_like_its_frame() {
-        let skill = otaq_core::naming::skill("open-pr");
+        let skill = "open-pr".to_owned();
         let mut d = PrDialog::opening(&shop18(), &skill, Some(&github(true)));
         let v = dialog_view(&d);
         assert_eq!(v.heading, "Open PR for SHOP-18 Checkout API");
@@ -513,7 +513,7 @@ mod tests {
         assert_eq!(intro.confirm, "Push to PR #481");
         assert!(push_intro(&shop18(), &flow(FlowState::Proposed, None)).is_none());
 
-        let mut d = PrDialog::opening(&t, &otaq_core::naming::skill("push"), Some(&github(true)));
+        let mut d = PrDialog::opening(&t, "push", Some(&github(true)));
         d.update(&f);
         let v = dialog_view(&d);
         assert!(v.push && v.branch_locked);
@@ -529,11 +529,7 @@ mod tests {
     fn an_epic_opens_one_pr() {
         let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
         epic.kind = Kind::Epic;
-        let d = PrDialog::opening(
-            &epic,
-            &otaq_core::naming::skill("open-pr"),
-            Some(&github(true)),
-        );
+        let d = PrDialog::opening(&epic, "open-pr", Some(&github(true)));
         assert_eq!(dialog_view(&d).heading, "Open PR for epic SHOP-40 Wishlist");
     }
 

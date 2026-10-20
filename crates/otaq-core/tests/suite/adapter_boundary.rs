@@ -43,10 +43,6 @@ const PATTERNS: &[(&str, &str)] = &[
         "agent_tools::claude",
         "the Claude Code adapter's own module, reached past the interface",
     ),
-    (
-        "naming::skill(",
-        "a skill in Claude Code's syntax (`/otaq:commit`); ask `skill_reference`",
-    ),
     // Codex (ADP-07).
     ("\"codex\"", "`codex` as a program or stored name"),
     ("\"codex ", "a Codex command line"),
@@ -196,12 +192,6 @@ const EXCEPTIONS: &[Exception] = &[
         path: "otaq-core/src/service/mod.rs",
         pattern: "agent_tools::claude",
         reason: "the service builds the registry: the Claude Code adapter and its config file (d0088)",
-    },
-    Exception {
-        path: "otaq-core/src/board/settings.rs",
-        pattern: "naming::skill(",
-        reason: "the stored defaults of Otaq's own workflow skills, as Settings shows them, and recognising them \
-                 (`own_skill_of`); the adapter names them to the agent",
     },
     Exception {
         path: "otaq-cli/src/statusline.rs",

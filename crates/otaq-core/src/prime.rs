@@ -11,7 +11,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::agent_tools::models::{ModelKind, ModelList, ModelLists};
-use crate::agent_tools::{Adapters, AgentTool, SkillRef};
+use crate::agent_tools::{Adapters, AgentTool};
 use crate::board::conflicts::{Conflict, ConflictReason};
 use crate::board::tickets::{Base, EventKind, Ticket};
 use crate::board::{Board, BoardError};
@@ -38,10 +38,10 @@ pub struct PrimeContext {
     /// The epic lead's unread notes to this ticket (LEAD-10), at the top; its own agent's prime marks them read.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unread_notes: Vec<crate::epic_lead::notes::LeadNote>,
-    /// The Commit workflow skill to use (d0050), named for the caller's tool (ADP-05, WSK-06): `/otaq:commit`, or
-    /// an imported skill by its copy in the worktree (`.agents/skills/otaq-custom-commit/`) once it is there.
-    pub commit_skill: SkillRef,
-    /// The restack skill in the caller's tool's syntax: `/otaq:restack`.
+    /// The Commit skill to use (d0050), named for the caller's tool by its copy in the worktree (AGM-07):
+    /// `/otaq-commit`, or the agent's imported skill standing for it (`/otaq-commit-compact`).
+    pub commit_skill: String,
+    /// The restack skill in the caller's tool's syntax: `/otaq-restack`.
     pub restack_skill: String,
     /// The branch conflicts with the one it merges into: the agent resolves that first, with the restack skill
     /// (Send to agent to fix, or a reopened ticket's rebase; GIT-03, GIT-06).
@@ -200,39 +200,35 @@ pub fn render_agents(agents: &[PrimeAgent], reader: AgentReader) -> String {
 
 impl Board {
     /// The prime context of a ticket, its skills named for an agent of `tool` (ADP-05): the caller's session's
-    /// tool, or a new session's for someone running `otaq prime` by hand. An imported Commit skill is named by its
-    /// copy in the ticket's worktree when the launch wrote it there (WSK-05, WSK-06); else the built-in.
+    /// tool, or a new session's for someone running `otaq prime` by hand. The Commit skill is the ticket's agent's
+    /// (its imported skill standing for `commit`, else `commit`), by its copy's name in the worktree (AGM-07).
     pub async fn prime_context(
         &self,
         key: &str,
         tool: &dyn AgentTool,
     ) -> Result<PrimeContext, BoardError> {
         let mut context = self.unnamed_prime_context(key).await?;
-        let commit = crate::board::settings::WorkflowStep::Commit;
-        let imported = !self
-            .effective_settings(context.ticket.key.project.as_str())
-            .await?
-            .workflow_skills
-            .commit
-            .is_built_in();
-        let copied = imported
-            && context
-                .ticket
-                .work
-                .as_ref()
-                .and_then(|w| w.worktree.as_deref())
-                .is_some_and(|worktree| {
-                    crate::workflow_skills::worktree::is_written(
-                        std::path::Path::new(worktree),
-                        commit,
-                    )
-                });
-        context.commit_skill = tool.workflow_skill(commit, copied);
+        let agent = crate::agents::resolve::session_agent(
+            self,
+            &context.ticket,
+            crate::agents::SessionRole::Developer,
+        )
+        .await
+        .ok();
+        let sources = crate::skills::Sources {
+            shipped: None,
+            data: self.data(),
+        };
+        let commit = sources.runs(
+            agent.as_ref(),
+            crate::board::settings::WorkflowStep::Commit.own_skill(),
+        );
+        context.commit_skill = tool.skill_reference(&commit.own);
         context.restack_skill = tool.skill_reference(crate::review::RESTACK_SKILL);
         Ok(context)
     }
 
-    /// The prime context with Otaq's own Commit skill as stored and no restack skill named yet.
+    /// The prime context with no Commit or restack skill named yet.
     async fn unnamed_prime_context(&self, key: &str) -> Result<PrimeContext, BoardError> {
         let ticket = self.ticket(key).await?;
         let project = ticket.key.project.to_string();
@@ -285,7 +281,7 @@ impl Board {
             review_feedback: Vec::new(),
             pending_questions,
             decisions,
-            commit_skill: SkillRef::Own(crate::board::settings::WorkflowStep::Commit.own_default()),
+            commit_skill: String::new(),
             restack_skill: String::new(),
             instructions,
             pull_request,
@@ -797,17 +793,10 @@ pub fn render(ctx: &PrimeContext) -> String {
         "Follow the Agent instructions below. They add to these rules; they can't skip getting context or \
          submitting for review."
             .to_owned(),
-        match &ctx.commit_skill {
-            SkillRef::Own(name) => format!(
-                "Commit everything with `{name}` before you submit. Never push and never open a PR: the user does \
-                 that."
-            ),
-            SkillRef::Folder { folder } => format!(
-                "Commit everything by following the skill in {} before you submit. Never push and never open a PR: \
-                 the user does that.",
-                SkillRef::follow(folder)
-            ),
-        },
+        format!(
+            "Commit everything with `{}` before you submit. Never push and never open a PR: the user does that.",
+            ctx.commit_skill
+        ),
         format!(
             "When the ticket is done, as its description describes, submit: `{cmd} review submit --stdin` with a \
              short summary of what you changed on stdin. It is refused while files are uncommitted."

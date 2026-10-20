@@ -21,7 +21,6 @@ use crate::domain::stored_enum;
 use crate::naming;
 use crate::store::now_ms;
 use crate::tools::Os;
-pub use crate::workflow_skills::{ResolvedSkill, ResolvedSkills};
 
 /// The optional agent limit and back-pressure (d0016): off by default; when on, at most 5 agents, and new starts
 /// wait while 3 items need the user.
@@ -65,12 +64,6 @@ impl WorkflowStep {
             Self::OpenPr => "open_pr",
             Self::Validate => "validate",
         }
-    }
-
-    /// Otaq's own skill for the step as stored and as Settings shows it: `/otaq:commit` (the adapter names it to
-    /// the agent in its tool's syntax).
-    pub fn own_default(self) -> String {
-        naming::skill(self.own_skill())
     }
 
     /// Otaq's own skill for the step, by its name in the plugin: `commit`, `push`, `open-pr`, `validate`.
@@ -571,9 +564,6 @@ pub const PROJECT_NOTES: &str = "project_notes";
 pub struct EffectiveSettings {
     /// The project's notes for every agent (AGM-02, AGM-06).
     pub project_notes: String,
-    /// The skill each workflow step runs: an imported skill of the stage's agent standing for its shipped one, else
-    /// the built-in ([`crate::agents::skills::step_skills`]).
-    pub workflow_skills: ResolvedSkills,
     pub validation: bool,
     /// Always within 1–5: a flagged value falls back to the global one, then to 3.
     pub validation_rounds: u32,
@@ -733,8 +723,7 @@ impl Board {
     pub async fn effective_settings(&self, project: &str) -> Result<EffectiveSettings, BoardError> {
         let global = self.global_settings().await?;
         let own = self.project_settings(project).await?;
-        let skills = crate::agents::skills::step_skills(self, project).await?;
-        Ok(effective(&global, &own, skills))
+        Ok(effective(&global, &own))
     }
 
     /// `settings.set`: stores the global settings.
@@ -818,18 +807,12 @@ impl Board {
     }
 }
 
-/// Resolves a project's settings against the global ones ([`Board::effective_settings`] reads them), with the
-/// workflow skills its agents run.
-pub fn effective(
-    global: &GlobalSettings,
-    own: &ProjectSettings,
-    skills: ResolvedSkills,
-) -> EffectiveSettings {
+/// Resolves a project's settings against the global ones ([`Board::effective_settings`] reads them).
+pub fn effective(global: &GlobalSettings, own: &ProjectSettings) -> EffectiveSettings {
     let validation = own.validation.unwrap_or(global.validation);
     let auto_merge = own.auto_merge.unwrap_or(global.auto_merge);
     EffectiveSettings {
         project_notes: own.project_notes.clone(),
-        workflow_skills: skills,
         validation,
         validation_rounds: effective_rounds(own.validation_rounds, global.validation_rounds),
         auto_merge,

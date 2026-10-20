@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use crate::common::Fixture;
 use otaq_core::agents::{Agent, AgentFields, Agents, FixedModels, ImportedSkill, SkillRef, skills};
-use otaq_core::board::settings::{ResolvedSkill, WorkflowStep};
 use otaq_core::board::{BoardError, Refusal};
 use otaq_core::client::{Client, ClientConfig, ClientError};
 use otaq_core::protocol::{Reply, Request};
@@ -126,7 +125,7 @@ async fn the_example_skill_is_copied_whole_with_its_modes() {
         skill.warnings,
         ["outside.md links outside the folder; not copied"]
     );
-    assert_eq!(skill.stands_for, None, "added, standing for nothing");
+    assert_eq!(skill.replaces, None, "added, standing for nothing");
     assert_eq!(
         after.skills.last(),
         Some(&SkillRef::Imported(skill.id.clone())),
@@ -158,21 +157,21 @@ async fn the_example_skill_is_copied_whole_with_its_modes() {
         .execute(f.board.store().pool())
         .await
         .unwrap();
-    let effective = f.board.effective_settings("SHOP").await.unwrap();
+    let developer = agent(&f, "Developer").await;
+    let sources = otaq_core::skills::Sources {
+        shipped: None,
+        data: f.board.data(),
+    };
     assert_eq!(
-        effective.workflow_skills.commit,
-        ResolvedSkill::Imported {
-            name: "my-commit".into(),
+        sources.runs(Some(&developer), "commit"),
+        otaq_core::skills::Source {
+            own: "my-commit".into(),
             folder: copy.clone()
         }
     );
-    // …and a missing or broken copy means the built-in (WSK-04).
+    // …and a missing or broken copy means the shipped skill (WSK-04).
     std::fs::write(copy.join("SKILL.md"), "no front matter any more\n").unwrap();
-    let effective = f.board.effective_settings("SHOP").await.unwrap();
-    assert_eq!(
-        effective.workflow_skills.commit,
-        ResolvedSkill::BuiltIn(WorkflowStep::Commit)
-    );
+    assert_eq!(sources.runs(Some(&developer), "commit").own, "commit");
 }
 
 #[tokio::test]

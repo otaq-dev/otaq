@@ -1,4 +1,5 @@
-//! The Claude Code plugin in `plugin/` (T-0073, PLG-01…PLG-05, GIT-08): valid JSON, every hook calls a
+//! Otaq's plugin folder `plugin/` (T-0073, PLG-01…PLG-05, GIT-08; AGM-07): Claude Code's hooks plugin in `plugin/claude/`
+//! is valid JSON, every hook calls a
 //! `otaq hook --tool claude <event>` the Claude Code adapter knows, and the skills exist with the steps the decisions require. Real
 //! `claude` behaviour is checked by hand.
 
@@ -66,16 +67,27 @@ fn skill_names() -> Vec<String> {
     names
 }
 
+/// AGM-07: Claude Code's plugin folder holds the hooks only, so no skill appears twice (Claude Code always loads a
+/// plugin's `skills/`); the shipped skills sit beside it, in `plugin/skills/`.
 #[test]
 fn the_manifest_names_the_plugin_namespace() {
-    let manifest = json(&plugin().join(".claude-plugin").join("plugin.json"));
+    let claude = plugin().join("claude");
+    let manifest = json(&claude.join(".claude-plugin").join("plugin.json"));
     assert_eq!(manifest["name"], naming::PLUGIN_NAMESPACE);
     assert_eq!(manifest["license"], "MIT");
+    assert!(manifest.get("skills").is_none());
+    let mut entries: Vec<String> = std::fs::read_dir(&claude)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    entries.sort();
+    assert_eq!(entries, [".claude-plugin", "hooks"]);
+    assert!(plugin().join("skills").join(WORK_TICKET_SKILL).is_dir());
 }
 
 #[test]
 fn every_hook_runs_an_accepted_otaq_hook_event() {
-    let hooks = json(&plugin().join("hooks").join("hooks.json"));
+    let hooks = json(&plugin().join("claude").join("hooks").join("hooks.json"));
     let events = hooks["hooks"].as_object().expect("hooks object");
     let mut wired: Vec<HookEvent> = Vec::new();
     for (event, groups) in events {
@@ -114,10 +126,7 @@ fn every_hook_runs_an_accepted_otaq_hook_event() {
 fn work_ticket_teaches_the_whole_path_to_review() {
     let (name, body) = skill(WORK_TICKET_SKILL);
     assert_eq!(name, WORK_TICKET_SKILL);
-    assert_eq!(
-        naming::skill(&name),
-        format!("/{}:work-ticket", naming::PLUGIN_NAMESPACE)
-    );
+    assert_eq!(naming::copy_name(&name), "otaq-work-ticket");
     let cmd = naming::COMMAND_NAME;
     let prime = body.find(&format!("`{cmd} prime`")).expect("prime first");
     let commit = body.find(COMMIT_STEP).expect("the Commit skill");
@@ -406,7 +415,7 @@ fn answer_question_changes_nothing_and_ends_with_answer() {
 fn validate_is_a_read_only_judge_that_ends_with_a_verdict() {
     let (name, body) = skill("validate");
     assert_eq!(name, "validate");
-    assert_eq!(WorkflowStep::Validate.own_default(), naming::skill(&name));
+    assert_eq!(WorkflowStep::Validate.own_skill(), name);
     assert!(
         front_matter("validate")
             .contains(&("disable-model-invocation".to_owned(), "true".to_owned()))

@@ -377,7 +377,7 @@ mod tests {
             provider: Some(Provider::GitHub),
             logged_in: Some(logged_in),
             cli_found: true,
-            open_pr_skill: otaq_core::naming::skill("open-pr"),
+            open_pr_skill: "open-pr".to_owned(),
         }
     }
 
@@ -430,17 +430,13 @@ mod tests {
             pr_number: branch_locked.then_some(481),
             pr_url: None,
             external_id: None,
-            skill: otaq_core::naming::skill("open-pr"),
+            skill: "open-pr".to_owned(),
         }
     }
 
     #[test]
     fn preparing_then_proposed_with_a_live_name_check() {
-        let mut d = PrDialog::opening(
-            &shop18(),
-            &otaq_core::naming::skill("open-pr"),
-            Some(&github(true)),
-        );
+        let mut d = PrDialog::opening(&shop18(), "open-pr", Some(&github(true)));
         assert_eq!(d.stage, Stage::Preparing);
         assert_eq!(d.heading(), "Open PR for SHOP-18 Checkout API");
         assert_eq!(d.provider.as_deref(), Some("GitHub \u{b7} acme/shop-web"));
@@ -521,7 +517,7 @@ mod tests {
         let mut t = shop18();
         t.flags.pr_number = Some(481);
         t.title = "Add sitemap".into();
-        let mut d = PrDialog::opening(&t, &otaq_core::naming::skill("push"), Some(&github(true)));
+        let mut d = PrDialog::opening(&t, "push", Some(&github(true)));
         d.update(&view(FlowState::Proposed, true));
         assert_eq!(d.heading(), "Push SHOP-18 Add sitemap to PR #481");
         assert_eq!(d.confirm_label(), "Push to PR #481");
@@ -542,11 +538,7 @@ mod tests {
     fn epic_and_not_logged_in() {
         let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
         epic.kind = Kind::Epic;
-        let mut d = PrDialog::opening(
-            &epic,
-            &otaq_core::naming::skill("open-pr"),
-            Some(&github(true)),
-        );
+        let mut d = PrDialog::opening(&epic, "open-pr", Some(&github(true)));
         d.target = "main".into();
         assert_eq!(d.heading(), "Open PR for epic SHOP-40 Wishlist");
         d.commits = vec![CommitField {
@@ -559,11 +551,7 @@ mod tests {
             "Into main \u{b7} the epic\u{2019}s base branch"
         );
 
-        let d = PrDialog::opening(
-            &shop18(),
-            &otaq_core::naming::skill("open-pr"),
-            Some(&github(false)),
-        );
+        let d = PrDialog::opening(&shop18(), "open-pr", Some(&github(false)));
         assert_eq!(
             d.stage,
             Stage::NotLoggedIn {

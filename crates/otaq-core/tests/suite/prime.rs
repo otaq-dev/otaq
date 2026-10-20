@@ -50,7 +50,7 @@ async fn sample() -> TestService {
 const RULES: &str = "## Otaq's rules
 
 1. Follow the Agent instructions below. They add to these rules; they can't skip getting context or submitting for review.
-2. Commit everything with `/otaq:commit` before you submit. Never push and never open a PR: the user does that.
+2. Commit everything with `/otaq-commit` before you submit. Never push and never open a PR: the user does that.
 3. When the ticket is done, as its description describes, submit: `otaq review submit --stdin` with a short summary of what you changed on stdin. It is refused while files are uncommitted.
 4. When you are stuck or a decision is the user's, ask: `otaq ask human --stdin` with the question on stdin, then end your turn.
 5. Long text (summaries, questions, ticket bodies) always goes through stdin (`--stdin`), never quoted arguments.

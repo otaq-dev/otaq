@@ -2,7 +2,7 @@
 //!
 //! **Send back** returns a ticket from Ready for Review straight to Dev with the round's comments and note
 //! (d0034). The click is the go-ahead (d0018), so it is never held, except by the optional agent limit:
-//! - the session is **live**: `/otaq:address-review` is typed into it at once through the user-click path
+//! - the session is **live**: `/otaq-address-review` is typed into it, copied into the worktree first (AGM-07), at once through the user-click path
 //!   (unsent text in its input line answers "needs confirmation" first, d0048) and the ticket is Agent Working;
 //! - the session is **gone**: the same click resumes the stored conversation on its tool, in the
 //!   ticket's worktree with the skill as its first prompt;
@@ -469,7 +469,15 @@ impl Review {
                     .await;
                 self.record(ticket, &action, Status::Working, None, actor)
                     .await?;
-                let text = inner.deliveries.skill_reference(&session.id, skill);
+                let worktree = ticket
+                    .work
+                    .as_ref()
+                    .and_then(|w| w.worktree.as_deref())
+                    .map(std::path::Path::new);
+                let text = inner
+                    .deliveries
+                    .skill_line(&inner.board, &session.id, worktree, skill)
+                    .await;
                 let typed = if clear_first {
                     inner
                         .deliveries

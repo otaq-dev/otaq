@@ -15,7 +15,6 @@ use otaq_core::agent_tools::{LaunchContext, Tool};
 use otaq_core::agents::{Agent, AgentFields, AgentModel, Agents, FixedModels, ModelRef};
 use otaq_core::board::comments::{NewComment, Side};
 use otaq_core::board::moves::DropTarget;
-use otaq_core::board::settings::WorkflowStep;
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::caller::Caller;
 use otaq_core::domain::{Actor, Kind, Status};
@@ -30,6 +29,11 @@ use tempfile::TempDir;
 
 /// Prints its arguments, then waits (reading what is typed into it).
 const SCRIPT: &str = "printf 'ARGS %s\\n' \"$*\"; exec cat";
+
+/// A skill as Claude Code runs it: `/otaq-work-ticket` (AGM-07).
+fn claude_skill(name: &str) -> String {
+    format!("/{}", naming::copy_name(name))
+}
 
 fn me() -> Actor {
     Actor::User("me".into())
@@ -238,7 +242,7 @@ async fn a_dev_session_runs_developer_on_its_model() {
         launched(w, &session.id).await,
         format!(
             "--session-id {id} --model opus --effort high {}",
-            naming::skill("work-ticket")
+            claude_skill("work-ticket")
         )
     );
     assert_eq!(
@@ -261,7 +265,7 @@ async fn a_dev_session_runs_developer_on_its_model() {
     let id = session.tool_session_id.clone().unwrap();
     assert_eq!(
         launched(w, &session.id).await,
-        format!("--session-id {id} {}", naming::skill("work-ticket")),
+        format!("--session-id {id} {}", claude_skill("work-ticket")),
         "no default model yet: the tool's own default, no model passed"
     );
     assert_eq!(
@@ -284,7 +288,7 @@ async fn a_dev_session_runs_developer_on_its_model() {
         launched(w, &session.id).await,
         format!(
             "--session-id {id} --model haiku {}",
-            naming::skill("work-ticket")
+            claude_skill("work-ticket")
         ),
         "default resolved at the start"
     );
@@ -342,7 +346,7 @@ async fn retry_start_after_the_model_changed_runs_the_new_model() {
         launched(w, &session.id).await,
         format!(
             "--session-id {id} --model haiku {}",
-            naming::skill("work-ticket")
+            claude_skill("work-ticket")
         )
     );
     world.w.stop().await;
@@ -366,11 +370,7 @@ async fn a_check_round_runs_its_own_agent() {
         .session()
         .unwrap();
     let id = validator.tool_session_id.clone().unwrap();
-    let prompt = w
-        .adapters
-        .get(Tool::Claude)
-        .workflow_skill(WorkflowStep::Validate, false)
-        .prompt();
+    let prompt = w.adapters.get(Tool::Claude).skill_reference("validate");
     assert_eq!(
         launched(w, &validator.id).await,
         format!("--session-id {id} --model haiku {prompt}")
@@ -388,7 +388,7 @@ async fn a_check_round_runs_its_own_agent() {
         launched(w, &developer.id).await,
         format!(
             "--session-id {dev_id} --model opus {}",
-            naming::skill("work-ticket")
+            claude_skill("work-ticket")
         )
     );
 
@@ -437,7 +437,7 @@ async fn the_lead_and_the_project_agent_run_the_role_agents() {
         launched(w, &session.id).await,
         format!(
             "--session-id {id} --model opus {}",
-            naming::skill("epic-lead")
+            claude_skill("epic-lead")
         )
     );
     assert_eq!(
@@ -463,7 +463,7 @@ async fn the_lead_and_the_project_agent_run_the_role_agents() {
         launched(w, &session.id).await,
         format!(
             "--session-id {id} --model haiku {} Why is checkout slow?",
-            naming::skill("project-agent")
+            claude_skill("project-agent")
         )
     );
     assert_eq!(agent.model.as_deref(), Some("haiku"));
@@ -492,7 +492,7 @@ async fn a_project_agent_opens_on_the_agent_asked_for() {
         launched(w, &session.id).await,
         format!(
             "--session-id {id} --model opus {} Why is checkout slow?",
-            naming::skill("project-agent")
+            claude_skill("project-agent")
         )
     );
     assert_eq!(stored_on(w, &session.id).await.2, named(&strong));
@@ -598,7 +598,7 @@ async fn resume(
                 s,
                 format!(
                     "--resume {CONVERSATION}{flag} {}",
-                    naming::skill("address-review")
+                    claude_skill("address-review")
                 ),
             )
         }
@@ -640,24 +640,20 @@ async fn resume(
             world.set_model(on, edited_to).await;
             w.force_status(&t, Status::WaitingForYou).await;
             // A local origin has no PR provider: Developer's own imported Open PR skill runs instead.
-            let folder = otaq_core::workflow_skills::testing::skill_folder(w.data.root(), "my-pr");
+            let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
             import_open_pr(&world, &folder).await;
             w.prs.open("SHOP-1", true, false, &me()).await.unwrap();
             let s = w
                 .sessions
                 .running_of(&t.id, SessionKind::Agent)
                 .expect("resumed");
-            // Written into the worktree before the resume, and named by that folder (WSK-05, WSK-06).
+            // Written into the worktree before the resume, and run by its copy's name (AGM-07).
             assert!(
                 worktree
-                    .join(".agents/skills/otaq-custom-open-pr/SKILL.md")
+                    .join(".agents/skills/otaq-my-pr/SKILL.md")
                     .is_file()
             );
-            let prompt = w
-                .adapters
-                .get(Tool::Claude)
-                .workflow_skill(WorkflowStep::OpenPr, true)
-                .prompt();
+            let prompt = w.adapters.get(Tool::Claude).skill_reference("my-pr");
             (s, format!("--resume {CONVERSATION}{flag} {prompt}"))
         }
         Resume::Answer => {
@@ -700,7 +696,7 @@ async fn resume(
                 s,
                 format!(
                     "--resume {CONVERSATION}{flag} {}",
-                    naming::skill("answer-question")
+                    claude_skill("answer-question")
                 ),
             )
         }
@@ -827,7 +823,7 @@ async fn an_edited_agent_changes_only_new_sessions() {
         launched(w, &session.id).await,
         format!(
             "--session-id {id} --model opus {}",
-            naming::skill("work-ticket")
+            claude_skill("work-ticket")
         )
     );
     world.w.stop().await;

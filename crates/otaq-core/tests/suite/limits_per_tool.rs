@@ -928,7 +928,7 @@ async fn epic_ready(world: &World) -> Ticket {
         .await
         .unwrap();
     w.force_status(&epic, Status::WaitingForYou).await;
-    let folder = otaq_core::workflow_skills::testing::skill_folder(w.data.root(), "my-pr");
+    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
     w.import_step_skill(otaq_core::board::settings::WorkflowStep::OpenPr, &folder)
         .await;
     epic

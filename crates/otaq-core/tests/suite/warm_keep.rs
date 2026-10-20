@@ -289,25 +289,28 @@ async fn a_file_committed_after_the_last_build_is_newer_than_the_output_in_the_n
     }
 }
 
-/// WSK-05, d0082: the workflow skills' worktree copies (`otaq-custom-*`, gitignored by their own `.gitignore`) are
+/// AGM-07, d0082: Otaq's skill copies (marked, gitignored by their own `.gitignore`) and M27's `otaq-custom-*` are
 /// neither kept at Done nor seeded into a later worktree, even from a stock that holds them; the build around them
 /// is.
 #[tokio::test]
-async fn workflow_skill_copies_are_neither_kept_nor_seeded() {
-    use otaq_core::board::settings::{ResolvedSkill, WorkflowStep};
-    use otaq_core::workflow_skills::worktree::{all_folders, write};
+async fn skill_copies_are_neither_kept_nor_seeded() {
+    use otaq_core::skills::copy::{Marker, write_copy};
     for available in BOTH {
         let w = world(available).await;
         let project = shop_web(&w).await;
-        let skill = ResolvedSkill::Imported {
-            name: "my-commit".into(),
-            folder: otaq_core::workflow_skills::testing::skill_folder(w.data.root(), "my-commit"),
-        };
+        let source = otaq_core::skills::testing::skill_folder(w.data.root(), "my-commit");
         let copies = |wt: &Path| {
-            for step in WorkflowStep::ALL {
-                write(wt, step, &skill).unwrap();
-            }
+            write_copy(wt, "otaq-my-commit", &source, Marker::Worktree).unwrap();
+            let old = wt.join(".claude/skills/otaq-custom-commit");
+            std::fs::create_dir_all(&old).unwrap();
+            std::fs::write(old.join(".gitignore"), "*\n").unwrap();
+            std::fs::write(old.join("SKILL.md"), "old").unwrap();
         };
+        let all = [
+            ".agents/skills/otaq-my-commit",
+            ".claude/skills/otaq-my-commit",
+            ".claude/skills/otaq-custom-commit",
+        ];
         let (key, wt) = started(&w, "Checkout API", "api.ts").await;
         build(&wt, "v1");
         copies(&wt);
@@ -315,8 +318,8 @@ async fn workflow_skill_copies_are_neither_kept_nor_seeded() {
 
         let folder = warm(&w, &project);
         assert_eq!(built(&w, &project).as_deref(), Some("v1"), "the build kept");
-        for copy in all_folders() {
-            assert!(!folder.join(&copy).exists(), "{} kept", copy.display());
+        for copy in all {
+            assert!(!folder.join(copy).exists(), "{copy} kept");
         }
 
         // A stock holding them anyway (kept before the guard) doesn't seed them.
@@ -332,8 +335,8 @@ async fn workflow_skill_copies_are_neither_kept_nor_seeded() {
             std::fs::read_to_string(next.join("out/deep/app.bin")).unwrap(),
             "v1"
         );
-        for copy in all_folders() {
-            assert!(!next.join(&copy).exists(), "{} seeded", copy.display());
+        for copy in all {
+            assert!(!next.join(copy).exists(), "{copy} seeded");
         }
         w.stop().await;
     }

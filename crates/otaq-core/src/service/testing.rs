@@ -157,7 +157,7 @@ impl TestService {
         let id = imported.imported.last().expect("the import").id.clone();
         self.edit_agent(&agent.name, |page| {
             for skill in page.imported.iter_mut().filter(|s| s.id == id) {
-                skill.stands_for = Some(step.own_skill().to_owned());
+                skill.replaces = Some(step.own_skill().to_owned());
             }
             let own = crate::agents::SkillRef::Shipped(step.own_skill().to_owned());
             page.skills.retain(|s| *s != own);
@@ -172,7 +172,7 @@ impl TestService {
             let gone: Vec<String> = page
                 .imported
                 .iter()
-                .filter(|s| s.stands_for.as_deref() == Some(step.own_skill()))
+                .filter(|s| s.replaces.as_deref() == Some(step.own_skill()))
                 .map(|s| s.id.clone())
                 .collect();
             page.skills.retain(

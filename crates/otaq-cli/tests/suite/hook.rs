@@ -330,7 +330,7 @@ async fn the_plugin_hook_commands_run_under_sh() {
     let hooks: Value = serde_json::from_str(
         &std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../plugin/hooks/hooks.json"
+            "/../../plugin/claude/hooks/hooks.json"
         ))
         .unwrap(),
     )

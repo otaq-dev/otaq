@@ -1012,7 +1012,7 @@ pub mod fixtures {
                     imported_at: 1,
                     fingerprint: String::new(),
                     warnings: Vec::new(),
-                    stands_for: Some("validate".into()),
+                    replaces: Some("validate".into()),
                 }];
             }),
             with(agent("strong", "Strong", Some("opus")), &|a| {

@@ -1,0 +1,9 @@
+{
+  "name": "otaq",
+  "version": "0.1.0",
+  "description": "Otaq agent signals for Claude Code: hooks only. Otaq copies the skills its agents use into their working folder as otaq-<name>.",
+  "author": {
+    "name": "The Otaq Authors"
+  },
+  "license": "MIT"
+}

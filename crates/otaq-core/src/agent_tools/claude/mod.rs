@@ -23,8 +23,8 @@ use self::trust::ClaudeConfig;
 use super::{
     AgentTool, BoxFuture, Detection, FirstPrompt, InputQuirks, LaunchContext, LaunchError,
     LaunchPlan, LaunchRequest, LaunchRole, ModelList, ModelListError, OneOffCommand, OneOffLine,
-    OneOffRequest, Os, SetupEntry, SetupOutcome, SetupReport, SignalContext, SkillDelivery,
-    TokenSource, Tool, ToolEvent, ToolIdMode, TranscriptEntry, WindowsSource,
+    OneOffRequest, Os, SetupEntry, SetupOutcome, SetupReport, SignalContext, TokenSource, Tool,
+    ToolEvent, ToolIdMode, TranscriptEntry, WindowsSource,
 };
 use crate::agent_tools::events::LimitWindow;
 use crate::data_dir::DataDir;
@@ -94,22 +94,9 @@ impl ClaudeCode {
         self.context.check.claude_config_dir.as_deref()
     }
 
-    /// The prompt as typed: `/otaq:epic-lead <message>`, a workflow skill (Otaq's own, or its worktree folder), or
-    /// the text.
+    /// The prompt as typed: `/otaq-epic-lead <message>`, or the text.
     fn prompt_text(&self, prompt: &FirstPrompt) -> String {
-        match prompt {
-            FirstPrompt::OtaqSkill { name, message } => {
-                let skill = self.skill_reference(name);
-                match message.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
-                    Some(message) => format!("{skill} {message}"),
-                    None => skill,
-                }
-            }
-            FirstPrompt::WorkflowSkill { step, imported } => {
-                self.workflow_skill(*step, *imported).prompt()
-            }
-            FirstPrompt::Text(text) => text.clone(),
-        }
+        prompt.text(self)
     }
 
     /// Otaq's status-line settings file for the session (USG-04). Without it the agent still starts; only the
@@ -447,12 +434,10 @@ impl AgentTool for ClaudeCode {
         }
     }
 
+    /// `/otaq-commit`: Claude Code runs a project skill of `.claude/skills/` by `/<name>` (its skills page,
+    /// code.claude.com/docs/en/skills: "invoke one directly with `/skill-name`").
     fn skill_reference(&self, skill: &str) -> String {
-        naming::skill(skill)
-    }
-
-    fn skill_delivery(&self) -> SkillDelivery {
-        SkillDelivery::PluginFolderAtLaunch
+        launch::skill_reference(skill)
     }
 }
 
@@ -463,9 +448,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::agent_tools::test_support::{follow_validate, only_the_prompt_differs};
-    use crate::agent_tools::{Adapters, SkillRef, TokensUnknown};
-    use crate::board::settings::WorkflowStep;
+    use crate::agent_tools::{Adapters, TokensUnknown};
     use crate::domain::TicketKey;
     use crate::signals::background::BackgroundWork;
 
@@ -516,7 +499,7 @@ mod tests {
             ticket: Some(key()),
             epic: None,
             port: 4012,
-            first_prompt: Some(FirstPrompt::OtaqSkill {
+            first_prompt: Some(FirstPrompt::Skill {
                 name: crate::agent_tools::WORK_TICKET_SKILL.into(),
                 message: None,
             }),
@@ -567,60 +550,30 @@ mod tests {
         assert!(quirks.multi_line_clearable);
     }
 
+    /// AGM-07: a skill by its copy's name in Claude Code's syntax for a project skill, the same for a shipped and
+    /// an imported one; no plugin namespace.
     #[test]
-    fn skills() {
+    fn skills_by_their_copys_name() {
         let f = fixture();
-        let name = naming::PLUGIN_NAMESPACE;
         assert_eq!(
             f.adapter.skill_reference("commit"),
-            format!("/{name}:commit")
+            format!("/{}-commit", naming::COMMAND_NAME)
         );
         assert_eq!(
-            f.adapter.skill_delivery(),
-            SkillDelivery::PluginFolderAtLaunch
+            f.adapter.skill_reference("team-validate"),
+            format!("/{}-team-validate", naming::COMMAND_NAME)
         );
-    }
-
-    /// ADP-05, WSK-06 (d0092): Otaq's own workflow skills in Claude Code's syntax; an imported one by its copy in
-    /// the worktree, worded as on every tool.
-    #[test]
-    fn workflow_skills_by_syntax_or_worktree_folder() {
-        let f = fixture();
-        for own in WorkflowStep::ALL {
-            assert_eq!(
-                f.adapter.workflow_skill(own, false),
-                SkillRef::Own(naming::skill(own.own_skill()))
-            );
-        }
-        assert_eq!(
-            f.adapter
-                .workflow_skill(WorkflowStep::Validate, true)
-                .prompt(),
-            follow_validate()
-        );
-    }
-
-    /// A workflow skill as a first prompt: Otaq's own by name, an imported one by its worktree folder; the launch is
-    /// otherwise the same, with no permission flag (d0011).
-    #[test]
-    fn a_workflow_skill_first_prompt() {
-        let f = fixture();
         let mut request = request(LaunchRole::Validator);
-        request.first_prompt = Some(FirstPrompt::WorkflowSkill {
-            step: WorkflowStep::Validate,
-            imported: false,
+        request.first_prompt = Some(FirstPrompt::Skill {
+            name: "validate".into(),
+            message: None,
         });
-        let built_in = f.adapter.launch(&request).unwrap();
-        assert_eq!(built_in.args.last(), Some(&naming::skill("validate")));
-
-        request.first_prompt = Some(FirstPrompt::WorkflowSkill {
-            step: WorkflowStep::Validate,
-            imported: true,
-        });
-        let imported = f.adapter.launch(&request).unwrap();
-        assert_eq!(imported.args.last(), Some(&follow_validate()));
-        only_the_prompt_differs(&built_in, &imported);
-        assert!(!imported.args.iter().any(|a| a == "--add-dir"));
+        let plan = f.adapter.launch(&request).unwrap();
+        assert_eq!(
+            plan.args.last(),
+            Some(&format!("/{}-validate", naming::COMMAND_NAME))
+        );
+        assert!(!plan.args.iter().any(|a| a == "--add-dir"));
     }
 
     #[test]
@@ -676,7 +629,7 @@ mod tests {
             [
                 "--model".to_owned(),
                 "opus".to_owned(),
-                naming::skill(crate::agent_tools::WORK_TICKET_SKILL)
+                launch::skill_reference(crate::agent_tools::WORK_TICKET_SKILL)
             ]
         );
     }

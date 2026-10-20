@@ -81,8 +81,8 @@ const INITIAL_SIZE: TerminalSize = TerminalSize {
 
 /// What a PR step types into the ticket's session, or starts or resumes it with.
 enum PrStep<'a> {
-    /// The Open PR or Push skill in force, written into the worktree first when imported (WSK-05) and named for the
-    /// session's tool (ADP-05, WSK-06).
+    /// The Open PR or Push skill, as the Delivery stage's agent runs it, written into the worktree first by one name
+    /// with that agent's skills (AGM-07) and named for the session's tool.
     Skill(WorkflowStep),
     /// Otaq's own words: the confirmed push ([`confirmed_instruction`]).
     Words(&'a str),
@@ -205,12 +205,7 @@ impl Prs {
             FlowKind::Open => WorkflowStep::OpenPr,
             FlowKind::Push => WorkflowStep::Push,
         };
-        let skill = board
-            .effective_settings(&project)
-            .await?
-            .workflow_skills
-            .get(step)
-            .label();
+        let skill = board.delivery_skill(&project, step).await?;
         let live = self.live_session(&ticket);
         if let Some(outcome) = self.unsent_first(&ticket, live.as_ref(), clear_first)? {
             return Ok(outcome);
@@ -461,7 +456,7 @@ impl Prs {
         let runs_on = self.delivery_runs_on(epic).await?;
         self.inner.adapters.unavailable(runs_on.tool)?;
         let worktree = worktree_of(epic)?;
-        let imported = self.copy_skill(epic, &worktree, step).await?;
+        let first_prompt = self.copy_skill(epic, &worktree, step).await?;
         let launched = self.inner.adapters.launch(
             runs_on.tool,
             &LaunchRequest {
@@ -471,7 +466,7 @@ impl Prs {
                 ticket: Some(epic.key.clone()),
                 epic: None,
                 port: 0,
-                first_prompt: Some(FirstPrompt::WorkflowSkill { step, imported }),
+                first_prompt: Some(first_prompt),
                 resume: None,
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
@@ -635,19 +630,33 @@ impl Prs {
         Ok(None)
     }
 
-    /// Writes the skill in force for `step` into `worktree` (WSK-05): whether the session is pointed at that copy.
+    /// Writes the Delivery stage's agent's skills and the skill it runs for `step` into `worktree` (AGM-07): the
+    /// prompt that runs it.
     async fn copy_skill(
         &self,
         ticket: &Ticket,
         worktree: &std::path::Path,
         step: WorkflowStep,
-    ) -> Result<bool, BoardError> {
-        Ok(self
-            .inner
-            .board
-            .copy_skills_into(ticket.key.project.as_str(), worktree, &[step])
-            .await?
-            .copied(step))
+    ) -> Result<FirstPrompt, BoardError> {
+        let board = &self.inner.board;
+        let agent = resolve::delivery_agent(board, ticket.key.project.as_str())
+            .await
+            .ok();
+        let prompt = FirstPrompt::Skill {
+            name: step.own_skill().to_owned(),
+            message: None,
+        };
+        Ok(board
+            .copy_for_session(
+                worktree,
+                self.inner.adapters.shipped_skills(),
+                agent.as_ref(),
+                Some(prompt.clone()),
+                crate::skills::Marker::Worktree,
+            )
+            .await
+            .0
+            .unwrap_or(prompt))
     }
 
     /// Types `step` into the live session through the user-click path, or resumes the stored conversation with it
@@ -663,16 +672,10 @@ impl Prs {
         match live {
             Some(session) => {
                 let text = match step {
-                    PrStep::Skill(skill_step) => {
-                        let imported = self
-                            .copy_skill(ticket, &worktree_of(ticket)?, skill_step)
-                            .await?;
-                        self.inner
-                            .adapters
-                            .of_session(session.tool)
-                            .workflow_skill(skill_step, imported)
-                            .prompt()
-                    }
+                    PrStep::Skill(skill_step) => self
+                        .copy_skill(ticket, &worktree_of(ticket)?, skill_step)
+                        .await?
+                        .text(self.inner.adapters.of_session(session.tool)),
                     PrStep::Words(text) => text.to_owned(),
                 };
                 let typed = if clear_first {
@@ -716,10 +719,7 @@ impl Prs {
         inner.adapters.unavailable(runs_on.tool)?;
         let worktree = worktree_of(ticket)?;
         let first_prompt = match step {
-            PrStep::Skill(step) => FirstPrompt::WorkflowSkill {
-                step,
-                imported: self.copy_skill(ticket, &worktree, step).await?,
-            },
+            PrStep::Skill(step) => self.copy_skill(ticket, &worktree, step).await?,
             PrStep::Words(text) => FirstPrompt::Text(text.to_owned()),
         };
         let port = ticket.work.as_ref().and_then(|w| w.agent_port).unwrap_or(0);

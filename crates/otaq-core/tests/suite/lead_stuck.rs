@@ -586,7 +586,7 @@ async fn keeps_conflicting_goes_to_the_lead_once_and_its_note_retries_the_merge(
         delivered[before..],
         [
             format!("Note from Wishlist lead: {NOTE}"),
-            naming::skill("restack")
+            format!("/{}", naming::copy_name("restack"))
         ]
     );
     assert_eq!(

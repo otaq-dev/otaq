@@ -123,7 +123,7 @@ impl AgentRecord {
                         imported_at: skill.imported_at.unwrap_or_default(),
                         fingerprint: skill.fingerprint.clone().unwrap_or_default(),
                         warnings: serde_json::from_str(&skill.warnings_json).unwrap_or_default(),
-                        stands_for: skill.stands_for.clone(),
+                        replaces: skill.stands_for.clone(),
                     });
                 }
                 (None, None) => {}
@@ -555,7 +555,7 @@ async fn write_skills(
                 .bind(record.imported_at)
                 .bind(&record.fingerprint)
                 .bind(serde_json::to_string(&record.warnings).expect("warnings serialize"))
-                .bind(&record.stands_for)
+                .bind(&record.replaces)
                 .execute(&mut **tx)
                 .await?;
             }

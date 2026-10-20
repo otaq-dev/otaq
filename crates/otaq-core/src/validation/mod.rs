@@ -954,7 +954,7 @@ impl Validation {
             },
             None => RunsOn::agent(&agent, board.store().default_model().await?.as_ref()),
         };
-        match self.launch_validator(&ticket, runs_on).await {
+        match self.launch_validator(&ticket, runs_on, &agent).await {
             Ok(session) => Ok(ValidatorStart::Started(Box::new(session))),
             Err(e) => {
                 // A launch that failed because of its tool: checked again, then held if it can't start now (ADP-10).
@@ -975,6 +975,7 @@ impl Validation {
         &self,
         ticket: &Ticket,
         runs_on: RunsOn,
+        agent: &crate::agents::Agent,
     ) -> Result<SessionInfo, BoardError> {
         let inner = &self.inner;
         let board = &inner.board;
@@ -990,13 +991,31 @@ impl Validation {
                     format!("{} has no worktree to validate", ticket.key),
                 )
             })?;
-        // The Validate skill in force, written into the worktree first (WSK-05): only ignored paths change, so the
-        // round's recorded head and tracked files stay as they were (VAL-02).
-        let validate = crate::board::settings::WorkflowStep::Validate;
-        let imported = board
-            .copy_skills_into(ticket.key.project.as_str(), &worktree, &[validate])
-            .await?
-            .copied(validate);
+        // The check's own skill (Q261) and every skill of its agent, written into the worktree first by one name
+        // (AGM-07): only ignored paths change, so the round's recorded head and tracked files stay as they were
+        // (VAL-02).
+        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+        let skips = board.ticket_skips(ticket, &flow).await?;
+        let skill = resolve::check_stage_of(&flow, ticket, &skips)
+            .and_then(|stage| stage.skill.clone())
+            .unwrap_or_else(|| {
+                crate::board::settings::WorkflowStep::Validate
+                    .own_skill()
+                    .to_owned()
+            });
+        let first_prompt = board
+            .copy_for_session(
+                &worktree,
+                inner.adapters.shipped_skills(),
+                Some(agent),
+                Some(FirstPrompt::Skill {
+                    name: skill,
+                    message: None,
+                }),
+                crate::skills::Marker::Worktree,
+            )
+            .await
+            .0;
         let launched = inner.adapters.launch(
             runs_on.tool,
             &LaunchRequest {
@@ -1006,10 +1025,7 @@ impl Validation {
                 ticket: Some(ticket.key.clone()),
                 epic: None,
                 port: 0,
-                first_prompt: Some(FirstPrompt::WorkflowSkill {
-                    step: validate,
-                    imported,
-                }),
+                first_prompt,
                 resume: None,
                 model: runs_on.model,
                 effort: runs_on.effort.clone(),
@@ -1043,7 +1059,7 @@ impl Validation {
             .await
             .map_err(other)?;
         board.validator_started(&ticket.id, &session.id).await?;
-        tracing::info!(key = %ticket.key, session = %session.id, imported, "validator started");
+        tracing::info!(key = %ticket.key, session = %session.id, "validator started");
         Ok(session)
     }
 

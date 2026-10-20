@@ -3,11 +3,10 @@
 
 use crate::common::Fixture;
 use otaq_core::board::settings::{
-    AutoMerge, GlobalSettings, KeyboardChange, KeyboardSettings, ProjectSettings, ResolvedSkill,
-    Theme, ThemeSetting, WorkflowStep, resource_without_create,
+    AutoMerge, GlobalSettings, KeyboardChange, KeyboardSettings, ProjectSettings, Theme,
+    ThemeSetting, WorkflowStep, resource_without_create,
 };
 use otaq_core::git::testing::{git, snapshot};
-use otaq_core::naming;
 
 #[tokio::test]
 async fn defaults() {
@@ -26,16 +25,14 @@ async fn defaults() {
     assert_eq!(global.keyboard, KeyboardSettings::default());
     assert_eq!(global.theme, ThemeSetting::default());
     let effective = f.board.effective_settings("SHOP").await.unwrap();
-    for step in WorkflowStep::ALL {
+    assert_eq!(effective.project_notes, "");
+    // The PR path runs Otaq's own skills, by their own names (AGM-07).
+    for step in [WorkflowStep::OpenPr, WorkflowStep::Push] {
         assert_eq!(
-            effective.workflow_skills.get(step),
-            &ResolvedSkill::BuiltIn(step)
+            f.board.delivery_skill("SHOP", step).await.unwrap(),
+            step.own_skill()
         );
     }
-    assert_eq!(
-        effective.workflow_skills.open_pr.label(),
-        naming::skill("open-pr")
-    );
 
     let project = f.board.project_settings("SHOP").await.unwrap();
     assert!(project.let_finished_tickets_answer);
@@ -156,10 +153,6 @@ async fn project_values_round_trip_with_the_projects_notes() {
     let f = Fixture::shop().await;
     let effective = f.board.effective_settings("SHOP").await.unwrap();
     assert_eq!(effective.project_notes, "");
-    assert_eq!(
-        effective.workflow_skills.commit,
-        ResolvedSkill::BuiltIn(WorkflowStep::Commit)
-    );
 
     let own = ProjectSettings {
         project_notes: "Use pnpm, not npm.".into(),
@@ -170,10 +163,6 @@ async fn project_values_round_trip_with_the_projects_notes() {
     assert_eq!(f.board.project_settings("SHOP").await.unwrap(), own);
     let effective = f.board.effective_settings("SHOP").await.unwrap();
     assert_eq!(effective.project_notes, "Use pnpm, not npm.");
-    assert_eq!(
-        effective.workflow_skills.push,
-        ResolvedSkill::BuiltIn(WorkflowStep::Push)
-    );
 }
 
 #[tokio::test]
@@ -259,10 +248,6 @@ async fn m12_defaults() {
     assert!(effective.validation && !effective.auto_merge_inactive);
     assert_eq!(effective.validation_rounds, 3);
     assert_eq!(effective.auto_merge, AutoMerge::Off);
-    assert_eq!(
-        effective.workflow_skills.validate,
-        ResolvedSkill::BuiltIn(WorkflowStep::Validate)
-    );
 }
 
 /// Project overrides win; empty overrides use the global values; Auto-merge without validation is inactive;
@@ -296,10 +281,6 @@ async fn m12_overrides_and_resolution() {
     assert!(
         effective.auto_merge_inactive,
         "Auto-merge does nothing while validation is off"
-    );
-    assert_eq!(
-        effective.workflow_skills.validate,
-        ResolvedSkill::BuiltIn(WorkflowStep::Validate)
     );
     // Flagged rounds are never used: the project's 6 falls back to the global value, the global 0 to 3.
     let own = ProjectSettings {

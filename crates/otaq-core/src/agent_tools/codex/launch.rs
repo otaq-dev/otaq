@@ -2,15 +2,16 @@
 //!
 //! ```text
 //! OTAQ_TICKET=SHOP-18  PORT=<agent port>  PATH=<otaq bin dir>:$PATH
-//! codex --no-daemon -c check_for_update_on_startup=false [-m <model>] "$otaq:work-ticket"
+//! codex --no-daemon -c check_for_update_on_startup=false [-m <model>] "$otaq-work-ticket"
 //! codex --no-daemon -c check_for_update_on_startup=false resume <id> [-m <model>] ["<prompt>"]
 //! ```
 //!
 //! `--no-daemon` keeps the agent's commands under the session's own process (no shared background server, which
 //! could own them, or be left behind); the `-c` override skips the update screen that would block the start. **No
 //! approval, sandbox or bypass flag** (d0011): the user's own Codex settings apply; the `otaq` pre-approval and the
-//! hooks come from the one-time setup (T-0351). Otaq's skills are installed once too, so the first prompt only names
-//! one (`$otaq:work-ticket`).
+//! hooks come from the one-time setup (T-0351). The skills are project skills copied into the session's folder
+//! (AGM-07: Codex has no launch option for a skill folder, the typed skill lines report of 2026-10-19), so the first
+//! prompt only names one (`$otaq-work-ticket`).
 //!
 //! Codex can't take a chosen id: a new conversation's id is captured after start (its `SessionStart` hook, T-0350)
 //! and the session's id stays empty until then; a resume names the stored id.
@@ -19,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use super::{COMMAND_NAME, Codex, CodexContext};
 use crate::agent_tools::{
-    AgentTool, FirstPrompt, LaunchError, LaunchPlan, LaunchRequest, LaunchRole, ToolIdMode,
+    FirstPrompt, LaunchError, LaunchPlan, LaunchRequest, LaunchRole, ToolIdMode,
 };
 use crate::naming;
 
@@ -84,22 +85,9 @@ pub(super) fn launch(codex: &Codex, request: &LaunchRequest) -> Result<LaunchPla
     })
 }
 
-/// The first prompt as typed: `$otaq:epic-lead <message>`, a workflow skill (Otaq's own, or its worktree
-/// folder), or the text.
+/// The first prompt as typed: `$otaq-epic-lead <message>`, or the text.
 fn prompt_text(codex: &Codex, prompt: &FirstPrompt) -> String {
-    match prompt {
-        FirstPrompt::OtaqSkill { name, message } => {
-            let skill = codex.skill_reference(name);
-            match message.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
-                Some(message) => format!("{skill} {message}"),
-                None => skill,
-            }
-        }
-        FirstPrompt::WorkflowSkill { step, imported } => {
-            codex.workflow_skill(*step, *imported).prompt()
-        }
-        FirstPrompt::Text(text) => text.clone(),
-    }
+    prompt.text(codex)
 }
 
 /// Otaq's variables for the role, as every tool gets them: a ticket's agent (and an answer or delivery session)
@@ -228,13 +216,12 @@ mod tests {
     use std::ffi::OsString;
 
     use super::*;
+    use crate::agent_tools::AgentTool;
     use crate::agent_tools::claude::ClaudeLaunch;
-    use crate::agent_tools::test_support::{follow_validate, only_the_prompt_differs};
+    use crate::agent_tools::test_support::only_the_prompt_differs;
     use crate::agent_tools::{
         Adapters, LaunchContext, OneOffRequest, Tool, ToolContext, WORK_TICKET_SKILL,
     };
-    use crate::board::settings::WorkflowStep;
-    use crate::naming::PLUGIN_NAMESPACE as NS;
 
     /// What Codex is never given (d0011, ADP-07): an approval mode, a sandbox, a bypass of either or of hook trust.
     const FORBIDDEN: &[&str] = &[
@@ -290,7 +277,7 @@ mod tests {
             ticket: Some("SHOP-18".parse().unwrap()),
             epic: None,
             port: 4012,
-            first_prompt: Some(FirstPrompt::OtaqSkill {
+            first_prompt: Some(FirstPrompt::Skill {
                 name: WORK_TICKET_SKILL.into(),
                 message: None,
             }),
@@ -321,11 +308,11 @@ mod tests {
         );
     }
 
-    /// SDD ADP-07: `codex --no-daemon -c check_for_update_on_startup=false [-m <model>] "$otaq:work-ticket"` in the
+    /// SDD ADP-07: `codex --no-daemon -c check_for_update_on_startup=false [-m <model>] "$otaq-work-ticket"` in the
     /// worktree, Otaq's environment, the id captured after start.
     #[test]
     fn a_new_session_with_an_exact_model_and_with_none() {
-        let skill = format!("${NS}:work-ticket");
+        let skill = format!("${}-work-ticket", naming::COMMAND_NAME);
         let mut with_model = request(LaunchRole::TicketAgent);
         with_model.model = Some("gpt-6-sol".into());
         let plan = codex().launch(&with_model).unwrap();
@@ -382,7 +369,7 @@ mod tests {
                 "gpt-6-sol",
                 "-c",
                 "model_reasoning_effort=\"xhigh\"",
-                &format!("${NS}:work-ticket"),
+                &format!("${}-work-ticket", naming::COMMAND_NAME),
             ])
         );
         assert!(codex().effort_levels().contains(&"minimal"));
@@ -393,7 +380,7 @@ mod tests {
         let mut resume = request(LaunchRole::TicketAgent);
         resume.resume = Some("01a147a1-dd63-7c03-b96e-8f7557586707".into());
         resume.model = Some("gpt-6-sol".into());
-        resume.first_prompt = Some(FirstPrompt::OtaqSkill {
+        resume.first_prompt = Some(FirstPrompt::Skill {
             name: "address-review".into(),
             message: None,
         });
@@ -408,7 +395,7 @@ mod tests {
                 "01a147a1-dd63-7c03-b96e-8f7557586707",
                 "-m",
                 "gpt-6-sol",
-                &format!("${NS}:address-review"),
+                &format!("${}-address-review", naming::COMMAND_NAME),
             ])
         );
         assert_eq!(
@@ -466,14 +453,14 @@ mod tests {
         let mut lead = project.clone();
         lead.role = LaunchRole::EpicLead;
         lead.epic = Some("SHOP-30".parse().unwrap());
-        lead.first_prompt = Some(FirstPrompt::OtaqSkill {
+        lead.first_prompt = Some(FirstPrompt::Skill {
             name: "epic-lead".into(),
             message: Some("  Start with the cart  ".into()),
         });
         let plan = codex().launch(&lead).unwrap();
         assert_eq!(
             plan.args.last().unwrap(),
-            &format!("${NS}:epic-lead Start with the cart")
+            &format!("${}-epic-lead Start with the cart", naming::COMMAND_NAME)
         );
         assert_eq!(
             plan.env,
@@ -579,24 +566,30 @@ mod tests {
         assert!(!codex().conversation_not_found(b"Working (12s)"));
     }
 
-    /// A workflow skill as a first prompt (WSK-06, d0092): Otaq's own in Codex's syntax, an imported one by its
-    /// worktree folder; the launch is otherwise the same, with no flag of [`FORBIDDEN`] and no added folder (d0011).
+    /// A stage's skill as a first prompt (AGM-07): a shipped one and an imported one alike by their copies' names in
+    /// Codex's syntax; the launch is otherwise the same, with no flag of [`FORBIDDEN`] and no added folder (d0011).
     #[test]
-    fn a_workflow_skill_first_prompt() {
+    fn a_skill_first_prompt() {
         let mut req = request(LaunchRole::Validator);
-        req.first_prompt = Some(FirstPrompt::WorkflowSkill {
-            step: WorkflowStep::Validate,
-            imported: false,
+        req.first_prompt = Some(FirstPrompt::Skill {
+            name: "validate".into(),
+            message: None,
         });
-        let built_in = codex().launch(&req).unwrap();
-        assert_eq!(built_in.args.last().unwrap(), &format!("${NS}:validate"));
-        req.first_prompt = Some(FirstPrompt::WorkflowSkill {
-            step: WorkflowStep::Validate,
-            imported: true,
+        let shipped = codex().launch(&req).unwrap();
+        assert_eq!(
+            shipped.args.last().unwrap(),
+            &format!("${}-validate", naming::COMMAND_NAME)
+        );
+        req.first_prompt = Some(FirstPrompt::Skill {
+            name: "team-validate".into(),
+            message: None,
         });
         let imported = codex().launch(&req).unwrap();
-        assert_eq!(imported.args.last(), Some(&follow_validate()));
-        only_the_prompt_differs(&built_in, &imported);
+        assert_eq!(
+            imported.args.last().unwrap(),
+            &format!("${}-team-validate", naming::COMMAND_NAME)
+        );
+        only_the_prompt_differs(&shipped, &imported);
         for flag in FORBIDDEN.iter().chain(&["--add-dir"]) {
             assert!(!imported.args.iter().any(|a| a == flag), "{flag}");
         }

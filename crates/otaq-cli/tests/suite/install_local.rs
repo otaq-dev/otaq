@@ -70,9 +70,10 @@ fn the_bundle_has_the_layout_plist_and_signature() {
         [naming::COMMAND_NAME.to_owned(), naming::app_binary_name()]
     );
     assert!(resources.join("icon.icns").is_file());
-    for folder in ["plugin", "plugin-copilot"] {
+    for folder in ["claude", "copilot"] {
         assert!(
             resources
+                .join("plugin")
                 .join(folder)
                 .join(".claude-plugin/plugin.json")
                 .is_file(),
@@ -80,8 +81,15 @@ fn the_bundle_has_the_layout_plist_and_signature() {
         );
     }
     assert!(
-        resources.join("plugin-copilot/skills").is_dir(),
-        "the skills link resolves"
+        resources
+            .join("plugin/codex/.codex-plugin/plugin.json")
+            .is_file()
+    );
+    assert!(
+        resources
+            .join("plugin/skills/work-ticket/SKILL.md")
+            .is_file(),
+        "the shipped skills are in the bundle"
     );
 
     let plist = contents.join("Info.plist");

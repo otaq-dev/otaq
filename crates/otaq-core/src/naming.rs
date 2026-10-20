@@ -1,6 +1,6 @@
 //! The product's names, in one place (d0028, d0076).
 //!
-//! The product name spreads into the command, the plugin namespace (`/otaq:work-ticket`), branch names and
+//! The product name spreads into the command, the plugin namespace, skill copies (`otaq-work-ticket`), branch names and
 //! environment variables (`OTAQ_TICKET`). Every crate builds these strings from the constants below, so a
 //! forced rename later means changing only this file. A test (`tests/suite/naming_literals.rs`) fails if another source
 //! file spells one of them out.
@@ -11,7 +11,7 @@ pub const PRODUCT_NAME: &str = "Otaq";
 /// The command-line binary.
 pub const COMMAND_NAME: &str = "otaq";
 
-/// The Claude Code plugin namespace, as in `/otaq:work-ticket`.
+/// The plugin namespace: the name of Otaq's hooks plugin for each tool (`otaq@otaq-local` in Codex).
 pub const PLUGIN_NAMESPACE: &str = "otaq";
 
 /// The palette key of the bundled Otaq themes, Otaq Dark and Otaq Light, as the design has it and as
@@ -78,17 +78,28 @@ pub fn db_prefix() -> &'static str {
     COMMAND_NAME
 }
 
-/// A plugin skill as typed in Claude Code: `skill("work-ticket")` → `/otaq:work-ticket`. Only the Claude Code
-/// adapter names skills to agents with it (ADP-05), and Settings stores Otaq's own workflow skills in this form;
-/// everything else asks the session's adapter ([`crate::agent_tools::AgentTool::skill_reference`]).
-pub fn skill(name: &str) -> String {
-    format!("/{PLUGIN_NAMESPACE}:{name}")
-}
+/// The longest name a skill may have (the skill format's limit).
+pub const SKILL_NAME_MAX: usize = 64;
 
-/// The folder (and `name:`) of an imported workflow skill's copy in a worktree (WSK-05, d0092):
-/// `custom_skill("commit")` → `otaq-custom-commit`.
-pub fn custom_skill(step: &str) -> String {
-    format!("{COMMAND_NAME}-custom-{step}")
+/// The name of Otaq's copy of a skill (AGM-07, d0098): its folder in `.agents/skills/` and `.claude/skills/` and its
+/// SKILL.md's `name:`, the same for shipped and imported skills on every tool. `otaq-` and the skill's own name,
+/// lower case, every character but `a-z`, `0-9` and `-` made a `-` (no two in a row, none at the end), cut to
+/// [`SKILL_NAME_MAX`] characters: `copy_name("commit-compact")` → `otaq-commit-compact`,
+/// `copy_name("frontend-design:frontend-design")` → `otaq-frontend-design-frontend-design`.
+pub fn copy_name(skill: &str) -> String {
+    let mut name = format!("{COMMAND_NAME}-");
+    for c in skill.to_lowercase().chars() {
+        let c = if c.is_ascii_lowercase() || c.is_ascii_digit() {
+            c
+        } else {
+            '-'
+        };
+        if !(c == '-' && name.ends_with('-')) {
+            name.push(c);
+        }
+    }
+    name.truncate(SKILL_NAME_MAX);
+    name.trim_end_matches('-').to_owned()
 }
 
 /// The prefix of branches Otaq creates: `otaq/`.
@@ -153,8 +164,21 @@ mod tests {
     }
 
     #[test]
-    fn skill_uses_the_plugin_namespace() {
-        assert_eq!(skill("work-ticket"), "/otaq:work-ticket");
+    fn copy_names() {
+        assert_eq!(copy_name("commit-compact"), "otaq-commit-compact");
+        assert_eq!(copy_name("work-ticket"), "otaq-work-ticket");
+        assert_eq!(
+            copy_name("frontend-design:frontend-design"),
+            "otaq-frontend-design-frontend-design"
+        );
+        assert_eq!(copy_name("My PR  skill!"), "otaq-my-pr-skill");
+        let long = copy_name(&"a".repeat(70));
+        assert_eq!(long.len(), SKILL_NAME_MAX);
+        assert_eq!(long, format!("otaq-{}", "a".repeat(59)));
+        assert_eq!(
+            copy_name(&format!("{}-b", "a".repeat(58))),
+            format!("otaq-{}", "a".repeat(58))
+        );
     }
 
     #[test]

@@ -22,7 +22,7 @@ fn me() -> Actor {
 }
 
 fn skill() -> String {
-    naming::skill("address-review")
+    format!("/{}", naming::copy_name("address-review"))
 }
 
 async fn in_review_with_comments(world: &TestService, comments: usize) -> Ticket {
@@ -348,7 +348,10 @@ async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
         "until it is back in Review"
     );
     world
-        .wait_for_output(&agent.session, &naming::skill("restack"))
+        .wait_for_output(
+            &agent.session,
+            &format!("/{}", naming::copy_name("restack")),
+        )
         .await;
     let prime = otaq_core::prime::render(
         &world
@@ -530,8 +533,11 @@ async fn send_to_fix_brings_the_build_back() {
     assert_eq!(freed::app_bin(&wt).as_deref(), Some("Pricing"));
     assert_eq!(freed::state(&w, &key).await, BuildState::Present);
     assert_eq!(freed::entries(&w, &project), Vec::<u64>::new());
-    w.wait_for_output(&agent.session, &naming::skill("restack"))
-        .await;
+    w.wait_for_output(
+        &agent.session,
+        &format!("/{}", naming::copy_name("restack")),
+    )
+    .await;
     w.stop().await;
 }
 

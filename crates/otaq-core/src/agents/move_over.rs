@@ -250,7 +250,7 @@ fn import_of(value: Option<&Value>) -> Option<StoredImport> {
         .and_then(|v| serde_json::from_value(v.clone()).ok())
 }
 
-fn imported(stored: StoredImport, stands_for: &str) -> ImportedSkill {
+fn imported(stored: StoredImport, replaces: &str) -> ImportedSkill {
     ImportedSkill {
         id: stored.id,
         name: stored.name,
@@ -258,14 +258,14 @@ fn imported(stored: StoredImport, stands_for: &str) -> ImportedSkill {
         imported_at: stored.imported_at,
         fingerprint: stored.fingerprint,
         warnings: stored.warnings,
-        stands_for: Some(stands_for.to_owned()),
+        replaces: Some(replaces.to_owned()),
     }
 }
 
 /// A shipped agent with `skill` in place of the shipped skill it stands for (or added when the agent doesn't have
 /// that one).
 fn put_skill(agent: &mut NewAgent, skill: ImportedSkill) {
-    let stands = skill.stands_for.clone().unwrap_or_default();
+    let stands = skill.replaces.clone().unwrap_or_default();
     let new = SkillRef::Imported(skill.id.clone());
     match agent
         .skills

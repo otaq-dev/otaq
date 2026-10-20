@@ -1980,7 +1980,7 @@ async fn the_move_over_carries_m31s_agents_and_records_what_it_dropped() {
         (
             validate.name.as_str(),
             validate.original.as_str(),
-            validate.stands_for.as_deref()
+            validate.replaces.as_deref()
         ),
         ("team-validate", "/team/validate", Some("validate"))
     );

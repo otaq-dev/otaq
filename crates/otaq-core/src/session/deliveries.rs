@@ -331,9 +331,27 @@ impl Deliveries {
         self.sessions.write(session, b"\r")
     }
 
-    /// One of Otaq's own skills as the session's agent tool names it (ADP-05): `/otaq:address-review` for
-    /// Claude Code.
-    pub fn skill_reference(&self, session: &str, skill: &str) -> String {
+    /// A skill typed into a live session (Send back's `address-review`, Send to agent to fix's `restack`): copied
+    /// into the session's `worktree` first by one name (AGM-07), then named as the session's agent tool names it:
+    /// `/otaq-address-review` for Claude Code.
+    pub async fn skill_line(
+        &self,
+        board: &crate::board::Board,
+        session: &str,
+        worktree: Option<&std::path::Path>,
+        skill: &str,
+    ) -> String {
+        if let Some(worktree) = worktree {
+            board
+                .copy_skills(
+                    worktree,
+                    self.adapters.shipped_skills(),
+                    None,
+                    Some(skill),
+                    crate::skills::Marker::Worktree,
+                )
+                .await;
+        }
         let tool = self.sessions.info(session).ok().and_then(|info| info.tool);
         self.adapters.of_session(tool).skill_reference(skill)
     }

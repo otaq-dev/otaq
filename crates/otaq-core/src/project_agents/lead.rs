@@ -659,24 +659,35 @@ impl EpicLeads {
             .board
             .project(&epic.key.project.to_string())
             .await?;
-        let launched = agents.launch(
+        let id = new_id();
+        // The agent's skills, copied into the project's folder while it runs (AGM-07).
+        let first_prompt = agents
+            .copy_into_checkout(
+                &id,
+                std::path::Path::new(&project.repo_path),
+                Some(&agent),
+                Some(FirstPrompt::Skill {
+                    name: EPIC_LEAD_SKILL.to_owned(),
+                    message: message.map(str::to_owned),
+                }),
+            )
+            .await;
+        let launched = match agents.launch(
             runs_on.tool,
             LaunchRequest {
                 epic: Some(epic.key.clone()),
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
                 title: Some(epic.title.clone()),
-                ..super::request(
-                    &project,
-                    LaunchRole::EpicLead,
-                    Some(FirstPrompt::OtaqSkill {
-                        name: EPIC_LEAD_SKILL.to_owned(),
-                        message: message.map(str::to_owned),
-                    }),
-                )
+                ..super::request(&project, LaunchRole::EpicLead, first_prompt)
             },
-        )?;
-        let id = new_id();
+        ) {
+            Ok(launched) => launched,
+            Err(e) => {
+                agents.release_checkout(&id).await;
+                return Err(e);
+            }
+        };
         let pool = self.inner().board.store().pool();
         let inserted = sqlx::query(
             "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, agent_id, agent_name, effort,
@@ -697,6 +708,7 @@ impl EpicLeads {
         .execute(pool)
         .await;
         if let Err(e) = inserted {
+            agents.release_checkout(&id).await;
             // Another click opened it first: one lead per epic.
             tracing::info!(epic = %epic.key, error = %e, "the epic's lead wasn't added");
             return Err(BoardError::refused(
@@ -727,6 +739,7 @@ impl EpicLeads {
             )
             .await
         {
+            agents.release_checkout(&id).await;
             sqlx::query("DELETE FROM project_agents WHERE id = ?")
                 .bind(&id)
                 .execute(pool)
@@ -753,23 +766,33 @@ impl EpicLeads {
         self.refuse_during_limit(runs_on.tool).await?;
         agents.inner.adapters.unavailable(runs_on.tool)?;
         let project = self.inner().board.project(&agent.project).await?;
-        let launched = agents.launch(
+        let conversation = agent.conversation()?.to_owned();
+        agents
+            .copy_stored_agent_into_checkout(&agent.id, &project, &runs_on)
+            .await?;
+        let launched = match agents.launch(
             runs_on.tool,
             LaunchRequest {
                 epic: Some(epic.key.clone()),
-                resume: Some(agent.conversation()?.to_owned()),
+                resume: Some(conversation),
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
                 title: Some(epic.title.clone()),
                 ..super::request(&project, LaunchRole::EpicLead, None)
             },
-        )?;
+        ) {
+            Ok(launched) => launched,
+            Err(e) => {
+                agents.release_checkout(&agent.id).await;
+                return Err(e);
+            }
+        };
         self.inner()
             .lead_turns
             .lock()
             .expect("lead turns")
             .remove(&agent.id);
-        agents
+        if let Err(e) = agents
             .restart(
                 &agent,
                 &project,
@@ -777,7 +800,11 @@ impl EpicLeads {
                 &runs_on,
                 Some((&epic.id, &epic.key)),
             )
-            .await?;
+            .await
+        {
+            agents.release_checkout(&agent.id).await;
+            return Err(e);
+        }
         tracing::info!(epic = %epic.key, agent = agent.id, "epic lead resumed");
         agents.changed(&agent.project, &agent.id);
         self.get_for(epic)

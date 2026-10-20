@@ -396,7 +396,7 @@ mod tests {
             provider: None,
             logged_in: None,
             cli_found: false,
-            open_pr_skill: otaq_core::naming::skill("open-pr"),
+            open_pr_skill: "open-pr".to_owned(),
         };
         let open = &options(&shop18, "main", &tickets, Some(&pr))[1];
         assert_eq!(open.title, "Open PR");

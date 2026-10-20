@@ -134,16 +134,18 @@ pub struct ImportedSkill {
     pub original: String,
     /// Unix milliseconds.
     pub imported_at: i64,
-    /// A hash of the copy as imported ([`crate::workflow_skills::folder::fingerprint`]): the copy was edited when it
+    /// A hash of the copy as imported ([`crate::skills::folder::fingerprint`]): the copy was edited when it
     /// differs.
     pub fingerprint: String,
     /// What the last import warned about (WSK-02: files the SKILL.md mentions that aren't in the folder).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
-    /// The shipped skill it replaces (`commit`): set by the move-over for M31's imported workflow skills (AGM-02:
-    /// "in place of the shipped ones").
+    /// The shipped skill it replaces (`validate`): set by the move-over for M31's imported workflow skills (AGM-02:
+    /// "in place of the shipped ones"; d0108 rule 8: they become the default flow's stage skills). Read only where a
+    /// stage's or step's skill is resolved inside the running agent ([`crate::skills::Sources::runs`]): a stage whose
+    /// skill is that one runs this one. Stored in `agent_skills.stands_for`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stands_for: Option<String>,
+    pub replaces: Option<String>,
 }
 
 /// An agent's model (AGM-01): `default` (the account's default model, resolved when a session starts, AGM-03), or a

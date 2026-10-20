@@ -156,7 +156,15 @@ impl Review {
                     .await;
                 self.record(ticket, &action, Status::Working, None, actor)
                     .await?;
-                let text = inner.deliveries.skill_reference(&session.id, skill);
+                let worktree = ticket
+                    .work
+                    .as_ref()
+                    .and_then(|w| w.worktree.as_deref())
+                    .map(std::path::Path::new);
+                let text = inner
+                    .deliveries
+                    .skill_line(&inner.board, &session.id, worktree, skill)
+                    .await;
                 inner
                     .deliveries
                     .queue_delivery(&session.id, DeliveryKind::Skill, &text)

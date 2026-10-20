@@ -304,7 +304,10 @@ async fn conflicts_go_back_to_the_agent_until_the_third() {
     assert_eq!(after.status, Status::MergeConflictFixing);
     assert_eq!(after.auto_merge_conflicts, 1);
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
-    assert_eq!(pending.last().unwrap().text, naming::skill("restack"));
+    assert_eq!(
+        pending.last().unwrap().text,
+        format!("/{}", naming::copy_name("restack"))
+    );
     assert_eq!(
         after.validation_round, 0,
         "the next submit validates from 0"
@@ -425,6 +428,9 @@ async fn a_conflict_handed_to_the_agent_gets_the_build_back() {
     assert_eq!(freed::state(&w, &key).await, BuildState::Present);
     assert_eq!(freed::entries(&w, &project), Vec::<u64>::new());
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
-    assert_eq!(pending.last().unwrap().text, naming::skill("restack"));
+    assert_eq!(
+        pending.last().unwrap().text,
+        format!("/{}", naming::copy_name("restack"))
+    );
     w.stop().await;
 }

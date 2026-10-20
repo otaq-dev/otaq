@@ -51,7 +51,6 @@ use super::{StartError, begin_setup_log, copy_env_files, prepare_worktree, run_s
 use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole, WORK_TICKET_SKILL};
 use crate::agents::gate::{Gated, Held, LaunchGate, Scope};
 use crate::agents::{Agent, RunsOn, SessionRole, resolve};
-use crate::board::settings::WorkflowStep;
 use crate::board::stage_runs::{Moved, end_open};
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
@@ -70,6 +69,7 @@ use crate::session::{
     END_MODEL_REFUSED, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec,
     StoredConversation, TerminalSize,
 };
+use crate::skills::Marker;
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 use crate::ticket_env::TicketEnv;
@@ -742,10 +742,20 @@ impl Starter {
                 returning.as_ref().and_then(|r| r.skill.as_deref()),
                 inner.deliveries.get(),
             ) {
+                // The skill is copied into the worktree first, by one name (AGM-07).
+                let written = board
+                    .copy_skills(
+                        &worktree.path,
+                        inner.adapters.shipped_skills(),
+                        None,
+                        Some(skill),
+                        Marker::Worktree,
+                    )
+                    .await;
                 let text = inner
                     .adapters
                     .of_session(running.tool)
-                    .skill_reference(skill);
+                    .skill_reference(written.runs.as_deref().unwrap_or(skill));
                 deliveries
                     .queue_delivery(&running.id, DeliveryKind::Skill, &text)
                     .await
@@ -763,6 +773,18 @@ impl Starter {
         let (runs_on, resume, first_prompt) = match conversation {
             Some((c, prompt)) => (RunsOn::resumed(&c), Some(c.id), prompt),
             None => {
+                // The stage's own skill (Q261): `grill` for a Grill stage, `work-ticket` for Dev.
+                let flow = board
+                    .effective_flow(&project.key)
+                    .await
+                    .map_err(|e| (StartStep::Launch, e.into()))?;
+                let skips = board
+                    .ticket_skips(ticket, &flow)
+                    .await
+                    .map_err(|e| (StartStep::Launch, e.into()))?;
+                let skill = resolve::agent_stage_of(&flow, ticket, &skips)
+                    .and_then(|stage| stage.skill.clone())
+                    .unwrap_or_else(|| WORK_TICKET_SKILL.to_owned());
                 let runs_on = match checked {
                     Some((runs_on, agent)) => {
                         agent_new = Some(agent);
@@ -783,8 +805,8 @@ impl Starter {
                 (
                     runs_on,
                     None,
-                    Some(FirstPrompt::OtaqSkill {
-                        name: WORK_TICKET_SKILL.to_owned(),
+                    Some(FirstPrompt::Skill {
+                        name: skill,
                         message: None,
                     }),
                 )
@@ -797,6 +819,7 @@ impl Starter {
                 &worktree.path,
                 ports.agent,
                 runs_on,
+                agent_new.as_ref(),
                 resume,
                 first_prompt,
             )
@@ -818,7 +841,8 @@ impl Starter {
         }
     }
 
-    /// Builds the agent's launch and spawns its session.
+    /// Builds the agent's launch and spawns its session. `agent` is a new conversation's agent; a resumed one runs
+    /// the agent its session stored.
     #[allow(clippy::too_many_arguments)]
     async fn launch(
         &self,
@@ -827,16 +851,28 @@ impl Starter {
         cwd: &Path,
         port: u16,
         runs_on: RunsOn,
+        agent: Option<&Agent>,
         resume: Option<String>,
         first_prompt: Option<FirstPrompt>,
     ) -> Result<SessionInfo, StartError> {
         let inner = &self.inner;
-        // The Commit skill in force, written into the worktree for `prime` to name (WSK-05, WSK-06); a copy that
-        // can't be written leaves the built-in.
-        inner
+        // Every skill of the running agent, and the one it runs first, written into the worktree by one name
+        // (AGM-07); a copy that can't be written is logged.
+        let stored = match (agent, &runs_on.agent) {
+            (None, Some(stored)) => inner.board.store().agent(&stored.id).await?,
+            _ => None,
+        };
+        let first_prompt = inner
             .board
-            .copy_skills_into(&project.key, cwd, &[WorkflowStep::Commit])
-            .await?;
+            .copy_for_session(
+                cwd,
+                inner.adapters.shipped_skills(),
+                agent.or(stored.as_ref()),
+                first_prompt,
+                Marker::Worktree,
+            )
+            .await
+            .0;
         let launched = inner
             .adapters
             .launch(
@@ -1087,7 +1123,7 @@ impl Returning {
     /// What the resumed conversation gets first: the inbox answer, else the skill.
     fn first_prompt(&self) -> Option<FirstPrompt> {
         self.prompt.clone().map(FirstPrompt::Text).or_else(|| {
-            self.skill.clone().map(|name| FirstPrompt::OtaqSkill {
+            self.skill.clone().map(|name| FirstPrompt::Skill {
                 name,
                 message: None,
             })

@@ -219,15 +219,13 @@ impl Board {
             .await?
             .ok_or_else(|| BoardError::NotFound(key.to_owned()))?;
         let target = self.merge_target(&ticket).await?.target;
-        let skills = self
-            .effective_settings(ticket.key.project.as_str())
-            .await?
-            .workflow_skills;
-        let skill = match row.pr_number {
-            Some(_) => skills.push,
-            None => skills.open_pr,
-        }
-        .label();
+        let step = match row.pr_number {
+            Some(_) => crate::board::settings::WorkflowStep::Push,
+            None => crate::board::settings::WorkflowStep::OpenPr,
+        };
+        let skill = self
+            .delivery_skill(ticket.key.project.as_str(), step)
+            .await?;
         Ok(PrFlowView {
             skill,
             flow: self.pr_flow(&ticket.id).await?,

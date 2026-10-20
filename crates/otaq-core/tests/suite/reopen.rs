@@ -109,7 +109,10 @@ async fn a_reopened_ticket_rebases_and_starts_a_new_session() {
     let out = w.wait_for_output(&session.id, "ARGS").await;
     assert!(out.contains("--session-id"), "{out}");
     assert!(!out.contains("--resume"), "never a resume: {out}");
-    assert!(out.contains(&naming::skill("work-ticket")), "{out}");
+    assert!(
+        out.contains(&format!("/{}", naming::copy_name("work-ticket"))),
+        "{out}"
+    );
     assert_ne!(
         session.tool_session_id.as_deref(),
         Some("0199-old-conversation")

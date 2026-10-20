@@ -23,6 +23,11 @@ use otaq_core::store::now_ms;
 use otaq_core::usage::limit::{LimitHit, LimitKind};
 use serde_json::{Value, json};
 
+/// A skill as Claude Code runs it: `/otaq-work-ticket` (AGM-07).
+fn claude_skill(name: &str) -> String {
+    format!("/{}", naming::copy_name(name))
+}
+
 fn fake_launch() -> LaunchContext {
     let script = format!(
         "printf 'ARGS %s\\n' \"$*\"; printf 'ROLE=%s TICKET=%s PORT=%s\\n' \"${role}\" \"${{{ticket}-none}}\" \
@@ -173,9 +178,9 @@ async fn opening_starts_claude_with_the_role_the_skill_and_the_message_several_a
             .trim_end();
         assert!(
             args.ends_with(&format!(
-                "--session-id {} /{}:project-agent {message}",
+                "--session-id {} /{}-project-agent {message}",
                 agent.tool_session_id.as_deref().unwrap(),
-                naming::PLUGIN_NAMESPACE
+                naming::COMMAND_NAME
             )),
             "{out}"
         );
@@ -315,7 +320,7 @@ async fn without_a_name_the_first_words_of_the_message_name_it_after_its_first_t
     prompt(
         &w,
         &a,
-        &format!("{} {message}", naming::skill("project-agent")),
+        &format!("{} {message}", claude_skill("project-agent")),
     )
     .await;
     assert_eq!(first_request(&w, &a.id).await.as_deref(), Some(message));
@@ -434,7 +439,7 @@ async fn an_agent_that_exits_ends_and_resume_continues_its_conversation() {
         "{out}"
     );
     assert!(
-        !out.contains(&naming::skill("project-agent")),
+        !out.contains(&claude_skill("project-agent")),
         "no skill on resume: {out}"
     );
     // Resuming a running agent changes nothing.
@@ -452,7 +457,7 @@ async fn after_a_restart_agents_are_ended_by_restart_and_resume() {
         &used,
         &format!(
             "{} Import the GitHub issues labelled ready",
-            naming::skill("project-agent")
+            claude_skill("project-agent")
         ),
     )
     .await;

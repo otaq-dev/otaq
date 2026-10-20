@@ -28,11 +28,11 @@ use serde_json::Value;
 use super::{
     AgentTool, BoxFuture, Detection, InputQuirks, LaunchError, LaunchPlan, LaunchRequest,
     ModelList, ModelListError, OneOffCommand, OneOffLine, OneOffRequest, Os, SetupEntry,
-    SetupOutcome, SetupReport, SignalContext, SkillDelivery, TokenSource, Tool, ToolContext,
-    ToolEvent, TranscriptEntry, WindowsSource,
+    SetupOutcome, SetupReport, SignalContext, TokenSource, Tool, ToolContext, ToolEvent,
+    TranscriptEntry, WindowsSource,
 };
 use crate::agent_tools::events::LimitWindow;
-use crate::naming;
+
 use crate::usage::limit::LimitKind;
 
 /// The name shown to people.
@@ -246,13 +246,9 @@ impl AgentTool for Copilot {
         EFFORT_LEVELS
     }
 
-    /// `/otaq:commit` (the hands-on check, row 6).
+    /// `/otaq-commit` ([`launch::skill_reference`]).
     fn skill_reference(&self, skill: &str) -> String {
-        format!("/{}:{skill}", naming::PLUGIN_NAMESPACE)
-    }
-
-    fn skill_delivery(&self) -> SkillDelivery {
-        SkillDelivery::PluginFolderAtLaunch
+        launch::skill_reference(skill)
     }
 }
 

@@ -58,7 +58,7 @@ pub fn import(data: &DataDir, folder: &Path, id: &str) -> Result<Copied, Refused
 }
 
 /// Why Otaq's copy at `folder` can't be used, if it can't: it is gone, has no SKILL.md, or its front matter no
-/// longer reads (WSK-04: the step then uses the built-in).
+/// longer reads (WSK-04: the shipped skill it stands for runs instead).
 pub fn copy_problem(folder: &Path) -> Option<String> {
     if !folder.is_dir() {
         return Some(copy_missing());
@@ -78,7 +78,7 @@ pub fn remove(path: &Path) {
         Err(e) => Err(e),
     };
     if let Err(e) = removed {
-        tracing::warn!(path = %path.display(), error = %e, "can't delete a workflow skill copy");
+        tracing::warn!(path = %path.display(), error = %e, "can't delete a skill folder");
     }
 }
 
@@ -171,8 +171,8 @@ fn copy_whole(from: &Path, to: &Path) -> io::Result<Vec<String>> {
 }
 
 /// Copies what is in `from` into the existing folder `to`, as the import does (modes kept, links inside followed,
-/// links that leave it skipped): the worktree copy of Otaq's copy (WSK-05).
-pub(super) fn copy_into(from: &Path, to: &Path) -> io::Result<()> {
+/// links that leave it skipped): a session's copy of a skill ([`super::copy::write_copy`], AGM-07).
+pub(crate) fn copy_into(from: &Path, to: &Path) -> io::Result<()> {
     let root = crate::paths::canonical(from)?;
     let mut walking = vec![root.clone()];
     copy_dir(

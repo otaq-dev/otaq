@@ -16,7 +16,7 @@ use otaq_core::pr::proposal::Proposal;
 use otaq_core::pr::service::PrOutcome;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
-use otaq_core::workflow_skills::testing::skill_folder;
+use otaq_core::skills::testing::skill_folder;
 use serde_json::json;
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
@@ -140,8 +140,8 @@ async fn open_pr_on_an_epic_runs_a_delivery_session_and_ends_it() {
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
     let session = delivery(w, &s.epic).expect("a delivery session");
     let printed = w.wait_for_output(&session, "delivery:").await;
-    // The imported skill, written into the delivery worktree before the launch (WSK-05, WSK-06).
-    let named = "`.agents/skills/otaq-custom-open-pr/`";
+    // The imported skill, written into the delivery worktree before the launch, run by its copy's name (AGM-07).
+    let named = "/otaq-my-pr";
     let printed = if printed.contains(named) {
         printed
     } else {
@@ -154,7 +154,7 @@ async fn open_pr_on_an_epic_runs_a_delivery_session_and_ends_it() {
         assert!(
             worktree
                 .join(root)
-                .join("skills/otaq-custom-open-pr/SKILL.md")
+                .join("skills/otaq-my-pr/SKILL.md")
                 .is_file()
         );
     }

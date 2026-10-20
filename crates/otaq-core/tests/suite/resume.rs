@@ -258,7 +258,7 @@ async fn a_send_back_whose_resume_failed_gets_its_skill_on_retry() {
     w.record_ended_agent(&t, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
         .await;
     let conversation = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
-    let skill = otaq_core::naming::skill("address-review");
+    let skill = format!("/{}", otaq_core::naming::copy_name("address-review"));
 
     // Send back resumes the ended conversation with the skill; the conversation is gone.
     w.review

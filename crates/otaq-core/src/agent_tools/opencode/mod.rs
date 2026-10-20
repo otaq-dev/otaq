@@ -28,8 +28,8 @@ use serde_json::Value;
 use super::{
     AgentTool, BoxFuture, Detection, InputQuirks, LaunchError, LaunchPlan, LaunchRequest,
     ModelList, ModelListError, OneOffCommand, OneOffLine, OneOffRequest, Os, SetupEntry,
-    SetupOutcome, SetupReport, SignalContext, SkillDelivery, TokenSource, Tool, ToolContext,
-    ToolEvent, TranscriptEntry, WindowsSource,
+    SetupOutcome, SetupReport, SignalContext, TokenSource, Tool, ToolContext, ToolEvent,
+    TranscriptEntry, WindowsSource,
 };
 use crate::agent_tools::catalog::FamilySource;
 use crate::agent_tools::events::LimitWindow;
@@ -250,10 +250,6 @@ impl AgentTool for OpenCode {
 
     fn skill_reference(&self, skill: &str) -> String {
         launch::skill_reference(skill)
-    }
-
-    fn skill_delivery(&self) -> SkillDelivery {
-        SkillDelivery::LaunchConfig
     }
 
     fn family_source(&self) -> Option<FamilySource> {

@@ -111,7 +111,10 @@ async fn submit_starts_a_validator_in_the_worktree() {
         .expect("a validator runs");
     // The stand-in prints its arguments, its environment and then its folder: wait for the last line.
     let out = w.wait_for_output(&validator.id, "CWD=").await;
-    assert!(out.contains(&naming::skill("validate")), "{out}");
+    assert!(
+        out.contains(&format!("/{}", naming::copy_name("validate"))),
+        "{out}"
+    );
     assert!(
         out.contains(&format!(
             "ROLE={} TICKET={} PORT=none",
@@ -202,8 +205,8 @@ async fn uncommitted_files_refuse_before_any_validator() {
 async fn the_validators_imported_skill_is_the_prompt() {
     let w = world().await;
     w.add_project("shop-web").await;
-    // An imported skill is named by its copy in the worktree (WSK-06, d0092): Validator's, in place of `validate`.
-    let folder = otaq_core::workflow_skills::testing::skill_folder(w.data.root(), "my-validate");
+    // An imported skill runs by its copy's name (AGM-07): Validator's, in place of `validate`.
+    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-validate");
     w.import_step_skill(WorkflowStep::Validate, &folder).await;
     let t = working(&w, "Cart totals").await;
     submit(&w, &t).await.unwrap();
@@ -211,9 +214,12 @@ async fn the_validators_imported_skill_is_the_prompt() {
         .sessions
         .running_of(&t.id, SessionKind::Validator)
         .unwrap();
-    let named = format!("`.agents/skills/{}/`", naming::custom_skill("validate"));
+    let named = format!("/{}", naming::copy_name("my-validate"));
     let out = w.wait_for_output(&validator.id, &named).await;
-    assert!(!out.contains(&naming::skill("validate")), "{out}");
+    assert!(
+        !out.contains(&format!("/{} ", naming::copy_name("validate"))),
+        "{out}"
+    );
     w.stop().await;
 }
 
@@ -256,8 +262,11 @@ async fn under_the_usage_limit_the_validator_waits_for_resume_all() {
         .sessions
         .running_of(&t.id, SessionKind::Validator)
         .expect("started on Resume");
-    w.wait_for_output(&validator.id, &naming::skill("validate"))
-        .await;
+    w.wait_for_output(
+        &validator.id,
+        &format!("/{}", naming::copy_name("validate")),
+    )
+    .await;
     assert_eq!(
         rounds(&w, &t).await[0].2.as_deref(),
         Some(validator.id.as_str())

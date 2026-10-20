@@ -15,7 +15,7 @@ use otaq_core::pr::flow::{BranchCheck, FlowState};
 use otaq_core::pr::proposal::{CommitMessage, Proposal};
 use otaq_core::pr::service::PrOutcome;
 use otaq_core::service::testing::{AgentShell, TestService};
-use otaq_core::workflow_skills::testing::skill_folder;
+use otaq_core::skills::testing::skill_folder;
 use serde_json::{Value, json};
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
@@ -102,12 +102,18 @@ async fn open_pr_proposes_confirms_rewords_renames_and_reports() {
     // The click types the Open PR skill into the live session; the ticket stays in Ready for Review.
     let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-    // An imported skill: its copy in the worktree (WSK-05, WSK-06; d0092).
-    w.wait_for_output(&s.agent.session, "`.agents/skills/otaq-custom-open-pr/`")
-        .await;
+    // An imported skill: its copy in the worktree, run by its copy's name (AGM-07).
+    w.wait_for_output(
+        &s.agent.session,
+        &format!("/{}", naming::copy_name("my-pr")),
+    )
+    .await;
     assert!(
         s.worktree
-            .join(".agents/skills/otaq-custom-open-pr/SKILL.md")
+            .join(format!(
+                ".agents/skills/{}/SKILL.md",
+                naming::copy_name("my-pr")
+            ))
             .is_file()
     );
     assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
@@ -372,7 +378,7 @@ async fn rework_then_push_to_pr_rewords_only_the_new_commits() {
     // Approve offers Push to PR: the Push skill runs; only the two new commits are editable.
     let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-    w.wait_for_output(&s.agent.session, &naming::skill("push"))
+    w.wait_for_output(&s.agent.session, &format!("/{}", naming::copy_name("push")))
         .await;
     let view = w.board.pr_flow_view("SHOP-1").await.unwrap();
     assert_eq!(

@@ -1,19 +1,14 @@
 //! An agent's imported skills (AGM-01, AGM-04; WSK-02…WSK-04, d0092): **Import skill folder…** checks a folder, keeps
 //! Otaq's own copy in `$OTAQ_HOME/skills/<id>/` and adds it to the agent's skills; **Re-import** copies the remembered
-//! original again. Agents only ever use the copy; a missing or broken copy means the shipped skill it stands for.
-//!
-//! Until each agent's skills are copied into the worktree by one name (AGM-07, T-0408), the workflow steps of M31 run
-//! the imported skill that stands for their shipped one ([`step_skills`]): Commit and Push the first Agent stage's
-//! agent's, Open PR the Delivery stage's, Validate the first agent check's.
+//! original again. Agents only ever use the copy, written into each session's folder by one name with the agent's
+//! other skills ([`crate::skills`], AGM-07); a missing or broken copy means the shipped skill it stands for.
 
 use std::path::{Path, PathBuf};
 
-use super::{Agent, ImportedSkill, SkillRef, resolve};
-use crate::board::settings::WorkflowStep;
+use super::{Agent, ImportedSkill, SkillRef};
 use crate::board::{Board, BoardError, Refusal};
-use crate::flow::Flow;
+use crate::skills::folder;
 use crate::store::{new_id, now_ms};
-use crate::workflow_skills::{ResolvedSkill, ResolvedSkills, folder};
 
 /// Runs blocking file work off the service's async threads.
 async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
@@ -43,7 +38,7 @@ async fn copy_in(board: &Board, from: &Path) -> Result<ImportedSkill, BoardError
         imported_at: now_ms(),
         fingerprint: copied.fingerprint,
         warnings: copied.warnings,
-        stands_for: None,
+        replaces: None,
     })
 }
 
@@ -158,62 +153,4 @@ pub async fn remove_unreferenced(board: &Board) -> Result<usize, BoardError> {
         removed
     })
     .await)
-}
-
-/// The skill `agent` runs for `step`: its imported skill standing for the step's shipped one, when Otaq's copy is
-/// there and reads; else the built-in (WSK-04: a missing or broken copy means the built-in).
-fn step_skill(board: &Board, agent: Option<&Agent>, step: WorkflowStep) -> ResolvedSkill {
-    agent
-        .and_then(|agent| {
-            agent.skills.iter().find_map(|skill| match skill {
-                SkillRef::Imported(id) => agent
-                    .imported_skill(id)
-                    .filter(|s| s.stands_for.as_deref() == Some(step.own_skill())),
-                SkillRef::Shipped(_) => None,
-            })
-        })
-        .and_then(|skill| {
-            let folder = board.data().skill_path(&skill.id).ok()?;
-            folder::copy_problem(&folder)
-                .is_none()
-                .then(|| ResolvedSkill::Imported {
-                    name: skill.name.clone(),
-                    folder,
-                })
-        })
-        .unwrap_or(ResolvedSkill::BuiltIn(step))
-}
-
-/// The skill each workflow step of `project` runs ([`crate::board::settings::EffectiveSettings::workflow_skills`]),
-/// from the agents its flow's stages name. The flow is the default file's (or a test's): which agents the stages
-/// name doesn't depend on the project's Validation settings.
-pub async fn step_skills(board: &Board, project: &str) -> Result<ResolvedSkills, BoardError> {
-    let flow = board
-        .test_flow(project)
-        .unwrap_or_else(crate::flow::default_flow);
-    let agent_of = async |stage: Option<&crate::flow::Stage>| -> Result<Option<Agent>, BoardError> {
-        Ok(match stage.and_then(|s| s.agent.as_deref()) {
-            Some(name) => resolve::named(board.store(), name).await?,
-            None => None,
-        })
-    };
-    let developer = agent_of(flow.first_agent_stage()).await?;
-    let deliverer = agent_of(delivery_stage(&flow)).await?;
-    let validator = agent_of(flow.stages.iter().find(|s| s.is_agent_check())).await?;
-    Ok(ResolvedSkills {
-        commit: step_skill(board, developer.as_ref(), WorkflowStep::Commit),
-        push: step_skill(board, developer.as_ref(), WorkflowStep::Push),
-        open_pr: step_skill(
-            board,
-            deliverer.as_ref().or(developer.as_ref()),
-            WorkflowStep::OpenPr,
-        ),
-        validate: step_skill(board, validator.as_ref(), WorkflowStep::Validate),
-    })
-}
-
-fn delivery_stage(flow: &Flow) -> Option<&crate::flow::Stage> {
-    flow.stages
-        .iter()
-        .find(|s| s.is_delivery() && s.agent.is_some())
 }

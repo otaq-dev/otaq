@@ -4,9 +4,14 @@
 //!
 //! ```text
 //! OTAQ_TICKET=SHOP-18  PORT=<agent port>  PATH=<otaq bin dir>:$PATH
-//! claude --plugin-dir <otaq plugin> --allowedTools "Bash(otaq:*)" --settings <status-line settings>
-//!        --session-id <uuid> "/otaq:work-ticket"
+//! claude --plugin-dir <otaq plugin>/claude --allowedTools "Bash(otaq:*)" --settings <status-line settings>
+//!        --session-id <uuid> "/otaq-work-ticket"
 //! ```
+//!
+//! `<otaq plugin>/claude` is Otaq's Claude Code plugin with its hooks only: Claude Code always loads a plugin's
+//! `skills/` folder too (the plugin manifest reference, code.claude.com/docs/en/plugins-reference: "`skills` … Adds
+//! to the default `skills/` scan"), so the shipped skills live outside it and reach the agent as copies in its
+//! working folder, `.claude/skills/otaq-<name>/`, run as `/otaq-<name>` (AGM-07).
 //!
 //! **No permission mode or other permission flag**: the user's own Claude Code settings apply (d0011). The only
 //! pre-approval is `Bash(otaq:*)`. `--settings` points at Otaq's file in its data folder whose only key is
@@ -46,9 +51,12 @@ impl ClaudeLaunch {
     }
 }
 
+/// The folder of Otaq's Claude Code plugin (its hooks) inside Otaq's plugin folder.
+const PLUGIN_FOLDER: &str = "claude";
+
 /// The plugin folder: `<bin>/plugin`, `<bin>/../share/otaq/plugin`, `<bin>/../Resources/plugin` (`Otaq.app`,
 /// d0072), or the repository's `plugin/` (dev builds run from `target/`). A folder counts when it has
-/// `.claude-plugin/plugin.json`. The repository comes last, so an installed build never uses it.
+/// `claude/.claude-plugin/plugin.json`. The repository comes last, so an installed build never uses it.
 pub fn find_plugin_dir(bin_dir: &Path) -> Option<PathBuf> {
     let repo_plugin = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -69,7 +77,17 @@ pub fn find_plugin_dir(bin_dir: &Path) -> Option<PathBuf> {
     ]
     .into_iter()
     .flatten()
-    .find(|dir| dir.join(".claude-plugin").join("plugin.json").is_file())
+    .find(|dir| {
+        dir.join(PLUGIN_FOLDER)
+            .join(".claude-plugin")
+            .join("plugin.json")
+            .is_file()
+    })
+}
+
+/// A skill as Claude Code runs a project skill: `/otaq-work-ticket` (AGM-07).
+pub(super) fn skill_reference(skill: &str) -> String {
+    format!("/{}", naming::copy_name(skill))
 }
 
 /// A command line, which the adapter turns into its [`crate::agent_tools::LaunchPlan`].
@@ -98,7 +116,7 @@ pub(super) fn launch_agent(
         ticket,
         worktree,
         agent_port,
-        naming::skill(WORK_TICKET_SKILL),
+        skill_reference(WORK_TICKET_SKILL),
         settings,
     )
 }
@@ -145,9 +163,9 @@ pub(super) fn launch_validator(
 }
 
 /// A new Project agent (PAG-01, d0068): a conversation in the project's own folder (the user's checkout) with
-/// `/otaq:project-agent` as its first prompt and the Project agent role in its environment. No ticket, no
+/// `/otaq-project-agent` as its first prompt and the Project agent role in its environment. No ticket, no
 /// `PORT`. The same plugin, pre-approval, status line and no permission flags as the agent (d0011). The adapter
-/// puts the user's first message after the skill (`/otaq:project-agent <message>`, d0087).
+/// puts the user's first message after the skill (`/otaq-project-agent <message>`, d0087).
 pub(super) fn launch_project_agent(
     ctx: &LaunchContext,
     repo: &Path,
@@ -158,7 +176,7 @@ pub(super) fn launch_project_agent(
     args.extend([
         "--session-id".to_owned(),
         session_id.clone(),
-        naming::skill(PROJECT_AGENT_SKILL),
+        skill_reference(PROJECT_AGENT_SKILL),
     ]);
     project_agent_command(ctx, repo, args, session_id)
 }
@@ -177,7 +195,7 @@ pub(super) fn resume_project_agent(
 }
 
 /// A new epic lead (LEAD-01, d0083): a Project agent session in the project's own folder with
-/// `/otaq:epic-lead` (and the first message, if any) as its first prompt, the epic lead role and the epic in its
+/// `/otaq-epic-lead` (and the first message, if any) as its first prompt, the epic lead role and the epic in its
 /// environment. The same plugin, pre-approval, status line and no permission flags as the agent (d0011).
 pub(super) fn launch_epic_lead(
     ctx: &LaunchContext,
@@ -188,7 +206,7 @@ pub(super) fn launch_epic_lead(
 ) -> AgentCommand {
     let session_id = uuid::Uuid::now_v7().to_string();
     let mut args = common_flags(ctx, settings);
-    let skill = naming::skill(EPIC_LEAD_SKILL);
+    let skill = skill_reference(EPIC_LEAD_SKILL);
     let prompt = match first_message.map(str::trim).filter(|m| !m.is_empty()) {
         Some(message) => format!("{skill} {message}"),
         None => skill,
@@ -264,7 +282,7 @@ pub(super) fn resume_agent(
 }
 
 /// Like [`resume_agent`], with a first prompt for the resumed conversation: the skill a Send back or Send to
-/// agent to fix asked for (`claude --resume <id> "/otaq:address-review"`), so it runs as soon as the
+/// agent to fix asked for (`claude --resume <id> "/otaq-address-review"`), so it runs as soon as the
 /// conversation is loaded instead of being typed into a terminal that may not be ready yet.
 pub(super) fn resume_agent_with(
     ctx: &LaunchContext,
@@ -288,12 +306,12 @@ pub(super) fn resume_agent_with(
     )
 }
 
-/// `--plugin-dir <plugin> --allowedTools "Bash(otaq:*)" [--settings <file>]`: the plugin, the one
+/// `--plugin-dir <plugin>/claude --allowedTools "Bash(otaq:*)" [--settings <file>]`: Otaq's hooks plugin, the one
 /// pre-approval (d0011) and Otaq's status line (USG-04).
 fn common_flags(ctx: &LaunchContext, settings: Option<&Path>) -> Vec<String> {
     let mut flags = vec![
         "--plugin-dir".to_owned(),
-        ctx.plugin_dir.display().to_string(),
+        ctx.plugin_dir.join(PLUGIN_FOLDER).display().to_string(),
         "--allowedTools".to_owned(),
         format!("Bash({}:*)", naming::COMMAND_NAME),
     ];
@@ -380,7 +398,7 @@ mod tests {
             cmd.args,
             [
                 "--plugin-dir".to_owned(),
-                "/opt/cb/plugin".to_owned(),
+                "/opt/cb/plugin/claude".to_owned(),
                 "--allowedTools".to_owned(),
                 format!("Bash({name}:*)"),
                 "--settings".to_owned(),
@@ -422,14 +440,14 @@ mod tests {
             cmd.args,
             [
                 "--plugin-dir".to_owned(),
-                "/opt/cb/plugin".to_owned(),
+                "/opt/cb/plugin/claude".to_owned(),
                 "--allowedTools".to_owned(),
                 format!("Bash({name}:*)"),
                 "--settings".to_owned(),
                 settings.display().to_string(),
                 "--session-id".to_owned(),
                 cmd.tool_session_id.clone(),
-                format!("/{name}:project-agent"),
+                format!("/{}-project-agent", naming::COMMAND_NAME),
             ]
         );
         assert!(!cmd.args.iter().any(|a| a.contains("permission")));
@@ -468,7 +486,6 @@ mod tests {
     fn epic_lead_launch() {
         let epic: TicketKey = "SHOP-40".parse().unwrap();
         let repo = Path::new("/src/shop-web");
-        let name = naming::COMMAND_NAME;
         let path = platform_path(&["/opt/cb/bin", "/usr/bin", "/bin"])
             .to_string_lossy()
             .into_owned();
@@ -484,7 +501,7 @@ mod tests {
             [
                 "--session-id".to_owned(),
                 open.tool_session_id.clone(),
-                format!("/{name}:epic-lead"),
+                format!("/{}-epic-lead", naming::COMMAND_NAME),
             ]
         );
         assert_eq!(open.env, env);
@@ -494,7 +511,7 @@ mod tests {
         let queued = launch_epic_lead(&ctx(), repo, &epic, Some("SHOP-40 was queued."), None);
         assert_eq!(
             queued.args.last().unwrap(),
-            &format!("/{name}:epic-lead SHOP-40 was queued.")
+            &format!("/{}-epic-lead SHOP-40 was queued.", naming::COMMAND_NAME)
         );
 
         let resume = resume_epic_lead(&ctx(), repo, &epic, "c-1", None);
@@ -520,14 +537,14 @@ mod tests {
             cmd.args,
             [
                 "--plugin-dir".to_owned(),
-                "/opt/cb/plugin".to_owned(),
+                "/opt/cb/plugin/claude".to_owned(),
                 "--allowedTools".to_owned(),
                 format!("Bash({name}:*)"),
                 "--settings".to_owned(),
                 "/home/me/.data/claude/SHOP-18.settings.json".to_owned(),
                 "--session-id".to_owned(),
                 session,
-                format!("/{name}:work-ticket"),
+                format!("/{}-work-ticket", naming::COMMAND_NAME),
             ]
         );
         assert_eq!(cmd.cwd, Path::new("/wt/shop-web/SHOP-18"));
@@ -633,8 +650,9 @@ mod tests {
         let macos = contents.join("MacOS");
         let plugin = contents.join("Resources").join("plugin");
         std::fs::create_dir_all(&macos).unwrap();
-        std::fs::create_dir_all(plugin.join(".claude-plugin")).unwrap();
-        std::fs::write(plugin.join(".claude-plugin").join("plugin.json"), "{}").unwrap();
+        let manifest = plugin.join(PLUGIN_FOLDER).join(".claude-plugin");
+        std::fs::create_dir_all(&manifest).unwrap();
+        std::fs::write(manifest.join("plugin.json"), "{}").unwrap();
         assert_eq!(find_plugin_dir(&macos), Some(plugin));
     }
 
@@ -642,7 +660,8 @@ mod tests {
     fn the_repository_plugin_is_found_in_dev_builds() {
         let dir = find_plugin_dir(Path::new("/nonexistent/bin")).expect("repo plugin");
         assert!(dir.ends_with("plugin"));
-        assert!(dir.join(".claude-plugin/plugin.json").is_file());
+        assert!(dir.join("claude/.claude-plugin/plugin.json").is_file());
+        assert!(dir.join("skills/work-ticket/SKILL.md").is_file());
     }
 
     /// Every role through the adapter (0088 launch tests): the exact program, arguments, folder and environment.
@@ -685,7 +704,7 @@ mod tests {
         }
 
         fn skill(name: &str, message: Option<&str>) -> Option<FirstPrompt> {
-            Some(FirstPrompt::OtaqSkill {
+            Some(FirstPrompt::Skill {
                 name: name.to_owned(),
                 message: message.map(str::to_owned),
             })
@@ -740,7 +759,7 @@ mod tests {
         fn args(settings: &Path, rest: &[&str]) -> Vec<String> {
             [
                 "--plugin-dir".to_owned(),
-                "/opt/cb/plugin".to_owned(),
+                "/opt/cb/plugin/claude".to_owned(),
                 "--allowedTools".to_owned(),
                 format!("Bash({}:*)", naming::COMMAND_NAME),
                 "--settings".to_owned(),
@@ -763,7 +782,7 @@ mod tests {
         }
 
         fn otaq_skill(name: &str) -> String {
-            format!("/{}:{name}", naming::PLUGIN_NAMESPACE)
+            format!("/{}", naming::copy_name(name))
         }
 
         #[test]

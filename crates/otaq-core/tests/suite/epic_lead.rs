@@ -183,13 +183,13 @@ async fn open_lead_starts_claude_with_the_role_the_epic_and_the_skill() {
     let out = w.wait_for_output(&session.id, "CWD=").await;
     assert!(
         out.contains(&format!(
-            "--session-id {} /{}:epic-lead\r\n",
+            "--session-id {} /{}-epic-lead\r\n",
             lead.agent.tool_session_id.as_deref().unwrap(),
-            naming::PLUGIN_NAMESPACE
+            naming::COMMAND_NAME
         )) || out.contains(&format!(
-            "--session-id {} /{}:epic-lead\n",
+            "--session-id {} /{}-epic-lead\n",
             lead.agent.tool_session_id.as_deref().unwrap(),
-            naming::PLUGIN_NAMESPACE
+            naming::COMMAND_NAME
         )),
         "the skill and no message: {out}"
     );
@@ -301,7 +301,7 @@ async fn an_ended_lead_is_resumed_not_started_twice_and_after_a_restart_waits_fo
         "{out}"
     );
     assert!(
-        !out.contains(&naming::skill("epic-lead")),
+        !out.contains(&format!("/{}", naming::copy_name("epic-lead"))),
         "no skill on resume: {out}"
     );
     assert!(
@@ -378,14 +378,14 @@ async fn a_queue_start_checks_the_plan_and_every_status_follows_the_turns() {
     let out = w.wait_for_output(&session(&lead.agent), "CWD=").await;
     assert!(
         out.contains(&format!(
-            "/{}:epic-lead {} was queued. Check the plan before the first child starts: `{} prime --epic`.",
-            naming::PLUGIN_NAMESPACE,
+            "/{}-epic-lead {} was queued. Check the plan before the first child starts: `{} prime --epic`.",
+            naming::COMMAND_NAME,
             wishlist.key,
             naming::COMMAND_NAME
         )),
         "{out}"
     );
-    prompt(&w, &lead, &naming::skill("epic-lead")).await;
+    prompt(&w, &lead, &format!("/{}", naming::copy_name("epic-lead"))).await;
     assert_eq!(status(&w, &wishlist).await, LeadStatus::CheckingPlan);
     stop(&w, &lead).await;
     assert_eq!(status(&w, &wishlist).await, LeadStatus::Idle);
