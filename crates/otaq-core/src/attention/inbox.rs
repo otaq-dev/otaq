@@ -816,6 +816,7 @@ mod tests {
             suggestion: None,
             lead_note: None,
             change_agent: None,
+            waiting_in: None,
         }
     }
 

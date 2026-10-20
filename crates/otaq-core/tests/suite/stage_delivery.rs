@@ -104,10 +104,18 @@ fn epic_at(place: Place, status: Status) -> Ticket {
 // ---- The inbox ----
 
 /// Group 3 is every human check's wait and a click Delivery's To deliver; PR open waits for nobody's click in the
-/// inbox, as today. A ticket in the test flow's QA is in group 3; one waiting at its Delivery comes first (closest
-/// to Done), whatever its age; inside the human checks the older comes first, as today.
+/// inbox, as today. A ticket in the test flow's QA is in group 3 (its Delivery in click mode here); one waiting at
+/// its Delivery comes first (closest to Done), whatever its age; inside the human checks the older comes first, as
+/// today.
 #[test]
 fn group_three_is_waiting_in_a_human_check_or_a_click_delivery() {
+    let mut flow = every_kind();
+    for stage in flow.stages.iter_mut().filter(|s| s.id == "ship") {
+        stage.delivery = Some(Delivery {
+            mode: DeliveryMode::Click,
+            delivers: Delivers::Pr,
+        });
+    }
     assert_eq!(group_of(Status::WaitingForYou), Some(NeedsYouGroup::Review));
     assert_eq!(group_of(Status::ToDeliver), Some(NeedsYouGroup::Review));
     for status in [Status::PrOpen, Status::Merged, Status::Checking] {
@@ -126,13 +134,14 @@ fn group_three_is_waiting_in_a_human_check_or_a_click_delivery() {
             key: "NOTE",
             name: "pocket-notes",
             tickets: &tickets,
+            flow: &flow,
         }],
         NOW,
     );
     let keys: Vec<_> = items.iter().map(|i| i.key.to_string()).collect();
     assert_eq!(keys, ["NOTE-3", "NOTE-2", "NOTE-1"]);
     assert!(items.iter().all(|i| i.group == NeedsYouGroup::Review));
-    assert_eq!(items[1].reason, "ready for review");
+    assert_eq!(items[1].reason, "ready for QA");
 }
 
 // ---- Builds and worktrees ----
@@ -324,6 +333,7 @@ fn an_epic_at_review_epic_waits_quietly_for_its_pass() {
             key: "NOTE",
             name: "pocket-notes",
             tickets: std::slice::from_ref(&epic),
+            flow: &flow,
         }],
         NOW,
     );

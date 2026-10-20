@@ -15,6 +15,7 @@ use super::{Board, BoardError, Refusal};
 use crate::domain::{Place, Status};
 use crate::flow::StageKind;
 use crate::flow::engine::{self, At, Move, RunResult, Step, run_kind};
+use crate::flow::model::Delivers;
 use crate::store::{new_id, now_ms};
 
 /// One run of one stage, as History and the next stage's agent will read it.
@@ -73,6 +74,12 @@ pub(crate) struct Moved {
     pub ended: Option<RunResult>,
     /// Runs that start and end at once (skipped stages, a Delivery finished as it was entered).
     pub through: Vec<(String, StageKind, RunResult)>,
+    /// A human check's Pass offers these delivery choices; the ticket stays put ([`Step::choose`]).
+    pub choose: Option<Delivers>,
+    /// It entered an agent check: a checker starts ([`Step::start_check`]).
+    pub start_check: bool,
+    /// It entered an automatic Delivery: it delivers with no click ([`Step::automatic`]).
+    pub automatic: bool,
 }
 
 impl Moved {
@@ -86,6 +93,9 @@ impl Moved {
                 .iter()
                 .map(|(stage, result)| (stage.id.clone(), stage.kind, *result))
                 .collect(),
+            choose: step.choose,
+            start_check: step.start_check,
+            automatic: step.automatic,
         }
     }
 

@@ -110,11 +110,13 @@ impl Board {
         .fetch_one(self.store.pool())
         .await?;
         // The project's inbox count (ATT-10): the same items the inbox lists for it.
+        let flow = self.effective_flow(&project.key).await?;
         let needs_you = needs_you_items_with(
             &[ProjectTickets {
                 key: &project.key,
                 name: &project.name,
                 tickets,
+                flow: &flow,
             }],
             now_ms(),
             &self.limit_stops().snapshot(),

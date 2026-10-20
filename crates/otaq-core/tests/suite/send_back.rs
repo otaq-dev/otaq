@@ -61,7 +61,7 @@ async fn a_live_session_gets_the_skill_and_the_ticket_works_again() {
     let after = done(
         world
             .review
-            .send_back("SHOP-1", "Also check page 0", false, &me())
+            .fail("SHOP-1", "Also check page 0", false, &me())
             .await
             .unwrap(),
     );
@@ -109,11 +109,7 @@ async fn unsent_text_asks_first_and_clear_it_and_send_goes_on() {
     let agent = world.agent_shell(&t).await;
     world.sessions.input(&agent.session, b"my draft").unwrap();
 
-    let first = world
-        .review
-        .send_back("SHOP-1", "", false, &me())
-        .await
-        .unwrap();
+    let first = world.review.fail("SHOP-1", "", false, &me()).await.unwrap();
     assert_eq!(
         first,
         ReturnOutcome::NeedsConfirmation {
@@ -127,13 +123,7 @@ async fn unsent_text_asks_first_and_clear_it_and_send_goes_on() {
         1
     );
 
-    let after = done(
-        world
-            .review
-            .send_back("SHOP-1", "", true, &me())
-            .await
-            .unwrap(),
-    );
+    let after = done(world.review.fail("SHOP-1", "", true, &me()).await.unwrap());
     assert_eq!(after.status, Status::Working);
     world.wait_for_output(&agent.session, &skill()).await;
     world.stop().await;
@@ -162,13 +152,7 @@ async fn a_full_agent_limit_queues_the_ticket_with_the_skill_to_run() {
     // Unsent text doesn't matter now: nothing is typed until a slot frees.
     world.sessions.input(&agent.session, b"draft").unwrap();
 
-    let after = done(
-        world
-            .review
-            .send_back("SHOP-2", "", false, &me())
-            .await
-            .unwrap(),
-    );
+    let after = done(world.review.fail("SHOP-2", "", false, &me()).await.unwrap());
     assert!(after.status.is_queued(), "{}", after.status);
     assert!(after.queued_at.is_some());
     let row = world.board.store().ticket(&t.id).await.unwrap().unwrap();
@@ -210,13 +194,7 @@ async fn a_gone_session_is_resumed_with_the_skill_in_the_same_click() {
     let worktree = world.start_worktree(&t).await;
     world.record_ended_agent(&t, "0199-old-conversation").await;
 
-    let after = done(
-        world
-            .review
-            .send_back("SHOP-1", "", false, &me())
-            .await
-            .unwrap(),
-    );
+    let after = done(world.review.fail("SHOP-1", "", false, &me()).await.unwrap());
     assert_eq!(after.status, Status::Working, "{:?}", after.start_problem);
     let session = world
         .sessions
@@ -268,7 +246,7 @@ async fn send_back_is_refused_on_epics_and_outside_review() {
     world.force_status(&t, Status::Working).await;
     let err = world
         .review
-        .send_back("SHOP-1", "", false, &me())
+        .fail("SHOP-1", "", false, &me())
         .await
         .unwrap_err();
     assert_eq!(err.refusal(), Some(Refusal::MoveRefused));
@@ -289,7 +267,7 @@ async fn send_back_is_refused_on_epics_and_outside_review() {
     world.force_status(&epic, Status::WaitingForYou).await;
     let err = world
         .review
-        .send_back(&epic.key.to_string(), "", false, &me())
+        .fail(&epic.key.to_string(), "", false, &me())
         .await
         .unwrap_err();
     assert_eq!(err.to_string(), "Add or reopen a child ticket to change it");
@@ -399,7 +377,7 @@ async fn a_live_session_gets_the_build_back_then_the_skill() {
     let agent = w.agent_shell(&t).await;
     let worktree = t.work.clone().unwrap().worktree;
 
-    let after = done(w.review.send_back(&key, "", false, &me()).await.unwrap());
+    let after = done(w.review.fail(&key, "", false, &me()).await.unwrap());
 
     assert_eq!(after.status, Status::Working);
     assert_eq!(freed::app_bin(&wt).as_deref(), Some("Checkout API"));
@@ -436,7 +414,7 @@ async fn a_gone_session_is_resumed_with_its_build() {
     let key = t.key.to_string();
     w.record_ended_agent(&t, "0199-old-conversation").await;
 
-    let after = done(w.review.send_back(&key, "", false, &me()).await.unwrap());
+    let after = done(w.review.fail(&key, "", false, &me()).await.unwrap());
 
     assert_eq!(after.status, Status::Working, "{:?}", after.start_problem);
     assert_eq!(freed::app_bin(&wt).as_deref(), Some("Search paging"));
@@ -483,7 +461,7 @@ async fn a_full_limit_queues_and_the_start_brings_the_build_back() {
     let key = t.key.to_string();
     w.record_ended_agent(&t, "0199-cart").await;
 
-    let after = done(w.review.send_back(&key, "", false, &me()).await.unwrap());
+    let after = done(w.review.fail(&key, "", false, &me()).await.unwrap());
     assert!(after.status.is_queued(), "{}", after.status);
     assert_eq!(freed::state(&w, &key).await, BuildState::Freed);
     assert_eq!(
@@ -561,7 +539,7 @@ async fn without_its_own_build_the_nearest_is_taken_or_setup_builds() {
 
     done(
         w.review
-            .send_back(&b.key.to_string(), "", false, &me())
+            .fail(&b.key.to_string(), "", false, &me())
             .await
             .unwrap(),
     );
@@ -577,7 +555,7 @@ async fn without_its_own_build_the_nearest_is_taken_or_setup_builds() {
     w.wait_for_output(&b_agent.session, &skill()).await;
 
     let a_key = a.key.to_string();
-    done(w.review.send_back(&a_key, "", false, &me()).await.unwrap());
+    done(w.review.fail(&a_key, "", false, &me()).await.unwrap());
     assert_eq!(freed::app_bin(&a_wt), None, "no build to take");
     assert_eq!(freed::state(&w, &a_key).await, BuildState::Present);
     let log = freed::setup_log(&w, &a_key);
@@ -597,7 +575,7 @@ async fn a_failed_setup_on_send_back_still_delivers_the_skill() {
     let key = t.key.to_string();
     let agent = w.agent_shell(&t).await;
 
-    let after = done(w.review.send_back(&key, "", false, &me()).await.unwrap());
+    let after = done(w.review.fail(&key, "", false, &me()).await.unwrap());
 
     assert_eq!(after.status, Status::Working);
     w.wait_for_output(&agent.session, &skill()).await;

@@ -5,7 +5,7 @@
 use otaq_core::board::comments::{ReviewComment, Side};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Status, TicketKey};
-use otaq_core::protocol::{Request, SendBackParams};
+use otaq_core::protocol::{FailParams, Request};
 
 /// Whether Send back is offered: a ticket (never an epic) in Ready for Review.
 pub fn available(ticket: &Ticket) -> bool {
@@ -69,7 +69,7 @@ pub fn waiting_title(key: &TicketKey) -> String {
 
 /// The request; `clear_first` is the unsent-text prompt's "Clear it and send".
 pub fn request(key: &TicketKey, note: &str, clear_first: bool) -> Request {
-    Request::TicketSendBack(SendBackParams {
+    Request::TicketFail(FailParams {
         key: key.to_string(),
         note: note.trim().to_owned(),
         clear_first,
@@ -175,7 +175,7 @@ mod tests {
         let key: TicketKey = "SHOP-18".parse().unwrap();
         assert_eq!(
             request(&key, "  ", false),
-            Request::TicketSendBack(SendBackParams {
+            Request::TicketFail(FailParams {
                 key: "SHOP-18".into(),
                 note: String::new(),
                 clear_first: false
@@ -183,7 +183,7 @@ mod tests {
         );
         assert!(matches!(
             request(&key, "x", true),
-            Request::TicketSendBack(SendBackParams {
+            Request::TicketFail(FailParams {
                 clear_first: true,
                 ..
             })

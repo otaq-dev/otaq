@@ -303,7 +303,7 @@ async fn review_feedback_prints_the_latest_round() {
             .unwrap();
     }
     w.review
-        .send_back(
+        .fail(
             "SHOP-1",
             "Also check page 0.",
             false,

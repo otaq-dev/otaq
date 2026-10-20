@@ -148,11 +148,13 @@ fn items(shop: &[Ticket], bill: &[Ticket]) -> Vec<(String, NeedsYouGroup, String
             key: "SHOP",
             name: "shop-web",
             tickets: shop,
+            flow: &otaq_core::flow::default_file().flow,
         },
         ProjectTickets {
             key: "BILL",
             name: "billing-api",
             tickets: bill,
+            flow: &otaq_core::flow::default_file().flow,
         },
     ];
     needs_you_items(&projects, NOW)
@@ -223,6 +225,7 @@ fn every_field_of_an_item() {
         key: "SHOP",
         name: "shop-web",
         tickets: &shop,
+        flow: &otaq_core::flow::default_file().flow,
     }];
     let list = needs_you_items(&projects, NOW);
     let first = &list[0];
@@ -255,11 +258,13 @@ fn back_pressure_counts_every_group() {
             key: "SHOP",
             name: "shop-web",
             tickets: &shop,
+            flow: &otaq_core::flow::default_file().flow,
         },
         ProjectTickets {
             key: "BILL",
             name: "billing-api",
             tickets: &bill,
+            flow: &otaq_core::flow::default_file().flow,
         },
     ];
     let list = needs_you_items(&projects, NOW);

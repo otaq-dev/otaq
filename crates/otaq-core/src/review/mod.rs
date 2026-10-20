@@ -1,7 +1,12 @@
-//! The user's review actions that reach a ticket's agent session (REV-04, GIT-03; d0034, d0038, d0048).
+//! The user's review actions that reach a ticket's agent session (REV-04, GIT-03, FLW-14; d0034, d0038, d0048,
+//! d0108).
 //!
-//! **Send back** returns a ticket from Ready for Review straight to Dev with the round's comments and note
-//! (d0034). The click is the go-ahead (d0018), so it is never held, except by the optional agent limit:
+//! **Pass** on any human check ([`Review::pass`]) moves the card on, or, directly before a click Delivery, offers the
+//! delivery choices (today's Approve → Local merge / Open PR).
+//!
+//! **Fail** ([`Review::fail`], Send back on the default flow) returns a ticket waiting in a human check to the nearest
+//! earlier Agent stage with the round's comments and note (d0034, d0108 rule 6); it then walks every later stage
+//! again. The click is the go-ahead (d0018), so it is never held, except by the optional agent limit:
 //! - the session is **live**: `/otaq-address-review` is typed into it, copied into the worktree first (AGM-07), at once through the user-click path
 //!   (unsent text in its input line answers "needs confirmation" first, d0048) and the ticket is Agent Working;
 //! - the session is **gone**: the same click resumes the stored conversation on its tool, in the
@@ -29,9 +34,11 @@ use serde::{Deserialize, Serialize};
 use crate::board::conflicts::{Conflict, ConflictReason};
 use crate::board::review::{ApproveCheck, EPIC_NO_SEND_BACK};
 use crate::board::tickets::Ticket;
+use crate::board::validation::{Round, Transition};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, Status, TicketKey};
+use crate::domain::{Actor, Status, TicketKey, ValidationTrigger};
+use crate::flow::Delivers;
 use crate::git::merge::{MergeOutcome, MergeRequest};
 use crate::ports::PortPool;
 use crate::scheduler::Scheduler;
@@ -62,6 +69,20 @@ pub enum ReturnOutcome {
         unclearable_by: Option<String>,
     },
 }
+
+/// The answer to a Pass on a human check (FLW-14).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum PassOutcome {
+    /// Directly before a click Delivery: nothing changed; the user picks Local merge or Open PR (`either`: both),
+    /// as today's Approve offers them.
+    Choose { delivers: Delivers },
+    /// The card moved on (the ticket afterwards).
+    Moved { ticket: Box<Ticket> },
+}
+
+/// The summary a Pass into an agent check records for the human check it leaves.
+pub const PASSED_BY_YOU: &str = "Passed by you";
 
 /// The answer to a Local merge click (GIT-03, REV-08).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -149,9 +170,10 @@ impl Review {
         &self.inner.board
     }
 
-    /// **Send back** (REV-04): the pending comments and `note` go to the agent, which continues in Dev.
+    /// **Fail** on a human check (FLW-14; Send back on the default flow, REV-04): the pending comments and `note`
+    /// go to the nearest earlier Agent stage's session, which continues there; every agent check's counter restarts.
     /// `clear_first` is the user's "Clear it and send" after a "needs confirmation" answer.
-    pub async fn send_back(
+    pub async fn fail(
         &self,
         key: &str,
         note: &str,
@@ -174,6 +196,68 @@ impl Review {
         }
         self.return_to_agent(&ticket, Return::SendBack { note }, clear_first, actor)
             .await
+    }
+
+    /// **Pass** on a human check (FLW-14, STG-06): directly before a click Delivery it changes nothing and offers the
+    /// delivery choices (an epic child's: Local merge only, d0108 rule 7); otherwise the card moves to the next stage
+    /// the ticket runs: another human check, an agent check (its checker starts, through `validation`), the wait
+    /// before an Agent stage (the scheduler starts it), or its Delivery.
+    pub async fn pass(
+        &self,
+        key: &str,
+        validation: &crate::validation::Validation,
+        actor: &Actor,
+    ) -> Result<PassOutcome, BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.ticket(key).await?;
+        let moved = board.pass_step(&ticket).await?;
+        if let Some(delivers) = moved.choose {
+            let delivers = match ticket.epic {
+                Some(_) => Delivers::Local,
+                None => delivers,
+            };
+            return Ok(PassOutcome::Choose { delivers });
+        }
+        if moved.start_check {
+            // As a submit into an agent check: the round opens on the reviewed head, then its checker starts.
+            let head = board.submit_head(&ticket).await?;
+            board.record_pass_runs(&ticket, &moved).await?;
+            let into = Transition {
+                to: moved.status,
+                place: moved.place.clone(),
+                entry: None,
+                round: Round::Keep,
+                outcome: None,
+                start_validator: true,
+                deliver_findings: false,
+                tell_cancelled: false,
+                auto_merge: false,
+                restack: false,
+                extra_round: false,
+                stop: None,
+                skipped: Vec::new(),
+            };
+            board
+                .enter_validation(
+                    &ticket,
+                    &into,
+                    &head,
+                    PASSED_BY_YOU,
+                    ValidationTrigger::User,
+                    false,
+                    actor,
+                )
+                .await?;
+            validation.start_held(&ticket.id).await?;
+        } else {
+            board.record_pass(&ticket, &moved, actor).await?;
+            if moved.place.is_waiting() {
+                self.inner.scheduler.wake();
+            }
+        }
+        Ok(PassOutcome::Moved {
+            ticket: Box::new(board.ticket(key).await?),
+        })
     }
 
     /// **Local merge** (GIT-03): the user's approve action that spends no tokens. `message` is the confirmed

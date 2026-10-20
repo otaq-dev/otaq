@@ -977,6 +977,7 @@ pub fn lead_gallery() -> LeadGallery {
         suggestion: None,
         lead_note: None,
         change_agent: None,
+        waiting_in: None,
     };
     let mut passed = item(
         "SHOP-40.2",
@@ -1103,6 +1104,7 @@ pub fn notes_gallery() -> View {
         suggestion: None,
         lead_note: None,
         change_agent: None,
+        waiting_in: None,
     };
     let items = vec![
         item("NOTE-1", "Add export", "asks: ", asks, MIN),
@@ -1167,6 +1169,7 @@ mod tests {
             suggestion: None,
             lead_note: None,
             change_agent: None,
+            waiting_in: None,
         }
     }
 

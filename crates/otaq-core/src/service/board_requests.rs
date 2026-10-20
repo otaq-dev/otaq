@@ -491,17 +491,25 @@ pub(super) async fn handle(
                 Err(e) => Err(e),
             }
         }),
-        Request::TicketSendBack(p) => boxed(move || async move {
+        Request::TicketFail(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(
                 shared,
                 &project,
-                shared
-                    .review
-                    .send_back(&p.key, &p.note, p.clear_first, &actor),
+                shared.review.fail(&p.key, &p.note, p.clear_first, &actor),
             )
             .await
             .map(Reply::Returned)
+        }),
+        Request::TicketPass(p) => boxed(move || async move {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                shared.review.pass(&p.key, &shared.validation, &actor),
+            )
+            .await
+            .map(Reply::Passed)
         }),
         Request::TicketConflict(p) => boxed(move || async move {
             match board.ticket(&p.key).await {

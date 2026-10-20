@@ -11,13 +11,17 @@
 //! 1b. an epic lead's suggestions to close or delete a child (LEAD-08, d0083): no OS notification, they block no
 //!    agent;
 //! 2. Interrupted, Start interrupted, Resume failed, Parent closed;
-//! 3. waiting in a human check or a click Delivery (STG-11, d0108): on the default flow Ready for Review, tickets
-//!    and epics (an epic at its own stop, Review epic included), and To deliver.
+//! 3. "Waiting for you in a check or a delivery" (FLW-14, FLW-15, STG-11; d0108 smaller rule 13): waiting in a human
+//!    check (on the default flow Ready for Review, tickets and epics, an epic at its own stop, Review epic
+//!    included), or To deliver in a **click-mode** Delivery only (Q265): an automatic Delivery's card delivers by
+//!    itself. Each item names its stage ([`WaitingIn`]).
 //!
 //! Inside a group, tickets that block more tickets come first, then the oldest (the longest in that status),
-//! then key order. In group 3 a ticket waiting at its Delivery comes before one in a human check, closest to Done
-//! first (no default-flow ticket waits at its Delivery: its Review → Approve offers the choices). A status belongs to a group by [`group_of`] alone, so the states that later milestones set
-//! (Interrupted, Resume failed) slot in as their tickets land.
+//! then key order. Group 3 comes closest to Done first, by the stage's position in the ticket's flow (Q264): a
+//! later human check before an earlier one, a ticket waiting at its Delivery before both (no default-flow ticket
+//! waits at its Delivery: its Review → Approve offers the choices). A status belongs to a group by [`group_of`]
+//! (and, for group 3, the stage's mode), so the states that later milestones set (Interrupted, Resume failed) slot
+//! in as their tickets land.
 //!
 //! A ticket whose terminal has focus raises no item (ATT-03, [`crate::domain::Flags::your_turn`]); the item
 //! appears as soon as the user leaves the terminal. While the plan-limit banner is up, agents stopped by the
@@ -25,6 +29,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::epic_flight::{REVIEW_EPIC, epic_stop};
 use super::order::blocked_counts;
 use super::readiness::{ReadyState, readiness};
 use super::tickets::Ticket;
@@ -34,6 +39,7 @@ use crate::agents::SessionRole;
 use crate::attention::Suppression;
 use crate::domain::validation::{NO_RESULT, failed_times};
 use crate::domain::{AutoMergeStop, StartStep, Status, StatusSet, TicketKey};
+use crate::flow::{DeliveryMode, Flow};
 use crate::signals::hooks::HELPER_PROMPT_PREFIX;
 
 /// The inbox groups of ATT-06, in order.
@@ -64,8 +70,8 @@ pub fn group_of(status: Status) -> Option<NeedsYouGroup> {
         | Status::StartInterrupted
         | Status::ResumeFailed
         | Status::ParentClosed => Some(NeedsYouGroup::Stopped),
-        // A human check waits for the user's Pass or Fail; To deliver for the Local merge or Open PR click. In M31
-        // every Delivery is click mode (the derived flow, STG-03), so To deliver always waits for a click.
+        // A human check waits for the user's Pass or Fail; To deliver for the Local merge or Open PR click (an
+        // automatic Delivery's card is left out by its stage, [`waits_for_click`]).
         status if status.set() == StatusSet::HumanCheck || status == Status::ToDeliver => {
             Some(NeedsYouGroup::Review)
         }
@@ -73,13 +79,58 @@ pub fn group_of(status: Status) -> Option<NeedsYouGroup> {
     }
 }
 
-/// Group 3's order (d0108 smaller rule 13): closest to Done first, so a ticket waiting at its Delivery comes before
-/// one in a human check. 0 for every other item.
-fn closest_to_done(item: &NeedsYouItem) -> u8 {
-    match (item.group, item.status.set()) {
-        (NeedsYouGroup::Review, StatusSet::HumanCheck) => 1,
-        _ => 0,
-    }
+/// Whether a group 3 ticket waits for the user (FLW-15, Q265): anything but To deliver in an automatic Delivery,
+/// which delivers with no click.
+pub fn waits_for_click(ticket: &Ticket, flow: &Flow) -> bool {
+    ticket.status != Status::ToDeliver
+        || ticket
+            .place
+            .stage()
+            .and_then(|id| flow.stage(id))
+            .and_then(|stage| stage.delivery)
+            .is_none_or(|d| d.mode == DeliveryMode::Click)
+}
+
+/// The stage a group 3 ticket waits in, with its place in the flow (FLW-14).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WaitingIn {
+    pub stage: String,
+    /// Its name: "Review", "QA", "Review epic".
+    pub name: String,
+    /// Closest to Done ranks highest: twice the stage's position in the project's flow, the implicit Review epic
+    /// stop one before the Delivery's.
+    pub rank: u32,
+}
+
+/// Where a group 3 ticket waits, from its project's flow; `None` for a stage the flow doesn't have.
+fn waiting_in(ticket: &Ticket, flow: &Flow) -> Option<WaitingIn> {
+    let id = ticket.place.stage()?;
+    let rank = |i: usize| u32::try_from(i * 2).unwrap_or(u32::MAX);
+    let (name, rank) = match flow.position(id) {
+        Some(i) => (flow.stages[i].name.clone(), rank(i)),
+        // An epic at the implicit Review epic stop: just before the Delivery (d0108 rule 7).
+        None if id == REVIEW_EPIC => {
+            let delivery = flow.stages.iter().position(|s| s.is_delivery())?;
+            (epic_stop(flow).name, rank(delivery).saturating_sub(1))
+        }
+        None => return None,
+    };
+    Some(WaitingIn {
+        stage: id.to_owned(),
+        name,
+        rank,
+    })
+}
+
+/// Group 3's order (d0108 smaller rule 13, Q264): closest to Done first, by the stage's position in the flow. Equal
+/// for every other item.
+fn closest_to_done(item: &NeedsYouItem) -> std::cmp::Reverse<Option<u32>> {
+    std::cmp::Reverse(
+        item.waiting_in
+            .as_ref()
+            .filter(|_| item.group == NeedsYouGroup::Review)
+            .map(|w| w.rank),
+    )
 }
 
 /// The inbox order: by group, then (group 3) closest to Done, then the tickets that block more, the oldest, and key
@@ -134,6 +185,9 @@ pub struct NeedsYouItem {
     /// (Developer: a Start failed ticket) or Change validator (Validator: No result) in place of its first action.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub change_agent: Option<SessionRole>,
+    /// Group 3: the stage it waits in (FLW-14: each row names its stage).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_in: Option<WaitingIn>,
 }
 
 /// The lead's suggestion behind a [`NeedsYouGroup::Suggestions`] item: Close… / Delete… confirms it
@@ -158,12 +212,13 @@ pub struct QuestionItem {
     pub question: String,
 }
 
-/// One project's tickets, as [`needs_you_items`] reads them.
+/// One project's tickets, as [`needs_you_items`] reads them, with its applied flow (group 3's modes and order).
 #[derive(Debug, Clone, Copy)]
 pub struct ProjectTickets<'a> {
     pub key: &'a str,
     pub name: &'a str,
     pub tickets: &'a [Ticket],
+    pub flow: &'a Flow,
 }
 
 /// The needs-you items of every project, in inbox order.
@@ -192,6 +247,11 @@ pub fn needs_you_items_with(
                     Some(_) => NeedsYouGroup::Family,
                     None => group_of(ticket.status)?,
                 };
+                let waiting_in = match group {
+                    NeedsYouGroup::Review if !waits_for_click(ticket, project.flow) => return None,
+                    NeedsYouGroup::Review => waiting_in(ticket, project.flow),
+                    _ => None,
+                };
                 let since = since(ticket);
                 Some(NeedsYouItem {
                     group,
@@ -203,7 +263,7 @@ pub fn needs_you_items_with(
                     status: ticket.status,
                     interrupted_from: ticket.interrupted_from,
                     question: ticket.question.clone(),
-                    reason: reason(ticket, project.tickets),
+                    reason: reason(ticket, project.tickets, waiting_in.as_ref()),
                     since,
                     age_ms: (now - since).max(0),
                     blocked: u32::try_from(blocks.get(&ticket.key).copied().unwrap_or(0))
@@ -215,6 +275,7 @@ pub fn needs_you_items_with(
                         is_stop(ticket.status) || ticket.interrupted_from.is_some_and(is_stop)
                     }),
                     change_agent: change_agent(ticket),
+                    waiting_in,
                 })
             })
         })
@@ -258,8 +319,8 @@ fn since(ticket: &Ticket) -> i64 {
     signal.or(ticket.status_since).unwrap_or(ticket.updated_at)
 }
 
-/// The item's line in the inbox (brief 10).
-fn reason(ticket: &Ticket, tickets: &[Ticket]) -> String {
+/// The item's line in the inbox (brief 10); `waiting_in` names a group 3 ticket's human check.
+fn reason(ticket: &Ticket, tickets: &[Ticket], waiting_in: Option<&WaitingIn>) -> String {
     // Interrupted with its label kept: the label's own line (the inbox adds "session ended by restart").
     if let Some(label) = ticket.interrupted_from {
         let kept = Ticket {
@@ -267,7 +328,7 @@ fn reason(ticket: &Ticket, tickets: &[Ticket]) -> String {
             interrupted_from: None,
             ..ticket.clone()
         };
-        return reason(&kept, tickets);
+        return reason(&kept, tickets, waiting_in);
     }
     let signal = ticket
         .signal
@@ -346,12 +407,27 @@ fn reason(ticket: &Ticket, tickets: &[Ticket]) -> String {
             };
             format!("Auto-merge stopped · {}{tries}", lower_first(&text))
         }
-        // "ready for review · validated · round 2": how it got there (d0063).
-        Status::WaitingForYou => match ticket.flags.review_entry {
-            Some(entry) => format!("ready for review · {}", lower_first(&entry.to_string())),
-            None => "ready for review".into(),
-        },
+        // "ready for review · validated · round 2": the human check, and how it got there (d0063); "ready for QA".
+        Status::WaitingForYou => {
+            let ready = format!(
+                "ready for {}",
+                waiting_in.map_or_else(|| "review".to_owned(), |w| lower_name(&w.name))
+            );
+            match ticket.flags.review_entry {
+                Some(entry) => format!("{ready} · {}", lower_first(&entry.to_string())),
+                None => ready,
+            }
+        }
         other => other.label().to_lowercase(),
+    }
+}
+
+/// A stage's name inside the line: "Review" → "review", "Security review" → "security review"; "QA" stays.
+fn lower_name(name: &str) -> String {
+    let mut chars = name.chars();
+    match (chars.next(), chars.next()) {
+        (Some(_), Some(second)) if second.is_uppercase() => name.to_owned(),
+        _ => lower_first(name),
     }
 }
 
@@ -369,16 +445,20 @@ impl Board {
     pub async fn needs_you_items(&self, now: i64) -> Result<Vec<NeedsYouItem>, BoardError> {
         let projects = self.projects().await?;
         let mut loaded = Vec::with_capacity(projects.len());
+        let mut flows = Vec::with_capacity(projects.len());
         for project in &projects {
             loaded.push(self.tickets(&project.key).await?);
+            flows.push(self.effective_flow(&project.key).await?);
         }
         let views: Vec<ProjectTickets<'_>> = projects
             .iter()
             .zip(&loaded)
-            .map(|(p, tickets)| ProjectTickets {
+            .zip(&flows)
+            .map(|((p, tickets), flow)| ProjectTickets {
                 key: &p.key,
                 name: &p.name,
                 tickets,
+                flow,
             })
             .collect();
         let mut items = needs_you_items_with(&views, now, &self.limit_stops().snapshot());
@@ -423,6 +503,7 @@ impl Board {
                 suggestion: None,
                 lead_note: None,
                 change_agent: None,
+                waiting_in: None,
             });
         }
         // The epic leads' suggestions (LEAD-08), while their child hasn't started or closed.
@@ -468,6 +549,7 @@ impl Board {
                 }),
                 lead_note: None,
                 change_agent: None,
+                waiting_in: None,
             });
         }
         for item in &mut items {

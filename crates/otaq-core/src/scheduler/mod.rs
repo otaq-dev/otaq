@@ -431,13 +431,19 @@ impl Scheduler {
             loaded.push(board.tickets(&project.key).await?);
         }
         let needs_you = if count_needs_you {
+            let mut flows = Vec::with_capacity(projects.len());
+            for project in &projects {
+                flows.push(board.effective_flow(&project.key).await?);
+            }
             let views: Vec<ProjectTickets<'_>> = projects
                 .iter()
                 .zip(&loaded)
-                .map(|(p, tickets)| ProjectTickets {
+                .zip(&flows)
+                .map(|((p, tickets), flow)| ProjectTickets {
                     key: &p.key,
                     name: &p.name,
                     tickets,
+                    flow,
                 })
                 .collect();
             needs_you_count(&needs_you_items_with(

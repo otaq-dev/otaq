@@ -105,7 +105,7 @@ pub enum DeliveryMode {
     Automatic,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Delivers {
     /// A Local merge; runs no agent.

@@ -261,10 +261,7 @@ async fn a_send_back_whose_resume_failed_gets_its_skill_on_retry() {
     let skill = format!("/{}", otaq_core::naming::copy_name("address-review"));
 
     // Send back resumes the ended conversation with the skill; the conversation is gone.
-    w.review
-        .send_back("SHOP-1", "", false, &me())
-        .await
-        .unwrap();
+    w.review.fail("SHOP-1", "", false, &me()).await.unwrap();
     until_status(&w, "SHOP-1", Status::ResumeFailed).await;
     let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
     assert_eq!(

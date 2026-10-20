@@ -477,7 +477,7 @@ async fn send_back_restarts_the_counter_and_prime_shows_the_comments() {
         .await
         .unwrap();
     w.review
-        .send_back(
+        .fail(
             &t.key.to_string(),
             "Also the tax",
             false,

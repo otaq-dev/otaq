@@ -57,6 +57,7 @@ mod folder_trust;
 mod free;
 mod git;
 mod human_answers;
+mod human_checks;
 mod inbox;
 mod inbox_answer;
 mod launch_gate;

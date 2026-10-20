@@ -442,6 +442,10 @@ stored_enum! {
         /// `reason` (an agent's) and, logged on an epic for a child, `child`. History reads "Dev: Quick developer
         /// (set by the Project agent)" · "typo fix".
         StageChoiceSet = "stage_choice_set",
+        /// The user's Pass on a human check that moved the card on (FLW-14, d0108): payload `stage` (its name),
+        /// `stage_id`. History reads "Passed QA" · "by you". A Pass that offered the delivery choices logs the
+        /// delivery's own event instead.
+        Passed = "passed",
     }
 }
 

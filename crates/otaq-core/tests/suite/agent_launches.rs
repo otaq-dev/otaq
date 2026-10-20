@@ -586,10 +586,7 @@ async fn resume(
                 })
                 .await
                 .unwrap();
-            w.review
-                .send_back("SHOP-1", "", false, &me())
-                .await
-                .unwrap();
+            w.review.fail("SHOP-1", "", false, &me()).await.unwrap();
             let s = w
                 .sessions
                 .running_of(&t.id, SessionKind::Agent)

@@ -599,6 +599,7 @@ pub fn run_items(items: &[NeedsYouItem], agents: &[AgentNeedsYou]) -> Vec<NeedsY
             suggestion: None,
             lead_note: None,
             change_agent: None,
+            waiting_in: None,
         })
     });
     let at = items
@@ -767,6 +768,7 @@ mod tests {
             suggestion: None,
             lead_note: None,
             change_agent: None,
+            waiting_in: None,
         }
     }
 
@@ -1262,6 +1264,7 @@ mod tests {
                 key: "SHOP",
                 name: "shop-web",
                 tickets: &held,
+                flow: &otaq_core::flow::default_file().flow,
             }],
             0,
         );

@@ -52,7 +52,7 @@ use crate::board::tickets::{HistoryEvent, NewTicketInput, Ticket, TicketUpdate};
 use crate::domain::{Status, TicketKey};
 use crate::git::diff::FileDiff;
 use crate::prime::PrimeContext;
-use crate::review::{LocalMergeOutcome, ReturnOutcome};
+use crate::review::{LocalMergeOutcome, PassOutcome, ReturnOutcome};
 use crate::scheduler::SchedulerStatus;
 use crate::session::deliveries::Delivery;
 use crate::session::{SessionInfo, TerminalSize};
@@ -456,11 +456,16 @@ pub enum Request {
     /// [`Reply::ReviewComments`].
     #[serde(rename = "review.comments")]
     ReviewComments(CommentsParams),
-    /// Send back (REV-04): the pending comments and the note go to the agent, and the ticket returns to Dev.
-    /// Answered with [`Reply::Returned`]: done, or `needs_confirmation` when the session's input line has
-    /// unsent text (resend with `clear_first` for "Clear it and send").
-    #[serde(rename = "ticket.send_back")]
-    TicketSendBack(SendBackParams),
+    /// Fail on a human check (FLW-14; Send back on the default flow, REV-04): the pending comments and the note go
+    /// to the nearest earlier Agent stage's session, and the ticket returns there. Answered with
+    /// [`Reply::Returned`]: done, or `needs_confirmation` when the session's input line has unsent text (resend
+    /// with `clear_first` for "Clear it and send").
+    #[serde(rename = "ticket.fail")]
+    TicketFail(FailParams),
+    /// Pass on a human check (FLW-14): answered with [`Reply::Passed`]: the delivery choices when a click Delivery
+    /// comes next (nothing changed), else the ticket moved on.
+    #[serde(rename = "ticket.pass")]
+    TicketPass(KeyParams),
     /// The latest Send back's comments and note (`otaq review feedback`, REV-05). Answered with
     /// [`Reply::ReviewFeedback`].
     #[serde(rename = "review.feedback")]
@@ -1236,9 +1241,9 @@ pub struct LocalMergeParams {
     pub approve_anyway: bool,
 }
 
-/// `{"key": "SHOP-18", "note": "…"}`; `clear_first` is the user's "Clear it and send".
+/// `{"key": "SHOP-18", "note": "…"}`: a Fail's comments; `clear_first` is the user's "Clear it and send".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SendBackParams {
+pub struct FailParams {
     pub key: String,
     #[serde(default)]
     pub note: String,
@@ -1652,7 +1657,8 @@ impl Request {
             Self::ReviewCommentEdit(_) => "review.comment_edit",
             Self::ReviewCommentDelete(_) => "review.comment_delete",
             Self::ReviewComments(_) => "review.comments",
-            Self::TicketSendBack(_) => "ticket.send_back",
+            Self::TicketFail(_) => "ticket.fail",
+            Self::TicketPass(_) => "ticket.pass",
             Self::ReviewFeedback(_) => "review.feedback",
             Self::TicketMergeProposal(_) => "ticket.merge_proposal",
             Self::TicketLocalMerge(_) => "ticket.local_merge",
@@ -1865,6 +1871,7 @@ pub enum Reply {
     ReviewComment(ReviewComment),
     ReviewComments(ReviewComments),
     Returned(ReturnOutcome),
+    Passed(PassOutcome),
     ReviewFeedback(ReviewFeedback),
     MergeProposal(MergeProposal),
     LocalMerge(LocalMergeOutcome),

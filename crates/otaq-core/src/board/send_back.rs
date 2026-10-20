@@ -1,6 +1,7 @@
-//! The bookkeeping of a ticket returning from Ready for Review to Dev (REV-04, GIT-03; d0034, d0038).
+//! The bookkeeping of a ticket returning from a human check to the nearest earlier Agent stage (REV-04, GIT-03,
+//! FLW-14; d0034, d0038, d0108 rule 6): on the default flow, Ready for Review to Dev.
 //!
-//! **Send back** bundles the round's pending comments and the optional note: the comments get `sent_at`, a
+//! **Fail** (Send back on the default flow) bundles the round's pending comments and the optional note: the comments get `sent_at`, a
 //! `reviews` row records the action, the note and the round, `sent_back_round` becomes that round and the card
 //! shows "Sent back · N comments · round K" until the ticket next reaches Ready for Review. The ticket goes to
 //! Dev: Agent Working when its live session gets the skill at once, otherwise Queued with the skill to run once
