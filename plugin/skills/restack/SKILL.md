@@ -1,6 +1,6 @@
 ---
 name: restack
-description: Bring the Otaq ticket named by $OTAQ_TICKET up to date with the branch it merges into - get the context with `otaq prime`, rebase onto the target it names, resolve the conflicts, commit, then submit it with `otaq review submit`.
+description: Bring the Otaq ticket named by $OTAQ_TICKET up to date with the branch it merges into - get the context with `otaq prime`, rebase onto the target it names, resolve the conflicts, commit, then end your stage with `otaq stage next`.
 disable-model-invocation: true
 ---
 
@@ -15,7 +15,7 @@ Otaq put everything back as it was; resolving the conflicts is your job now.
 1. **Get the context first.** Run `otaq prime` and read all of it. Its "Resolve first" section names the
    **target** to rebase onto (for example `main`, `develop`, or the epic's branch) and the conflicting files.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step
-   below. They add to these steps; they never remove getting the context (step 1) or submitting for review (step 6).
+   below. They add to these steps; they never remove getting the context (step 1) or ending your stage (step 6).
 3. **Rebase onto the target** that `prime` names, in this worktree:
 
    ```sh
@@ -26,12 +26,13 @@ Otaq put everything back as it was; resolving the conflicts is your job now.
 4. **Resolve every conflict.** Keep both sides' intent: the target's changes are other merged work, yours is this
    ticket's. Continue the rebase (`git add <file>`, then `git rebase --continue`) until it finishes. If a conflict needs
    a decision that belongs to the user, ask (see below) instead of guessing; `git rebase --abort` puts the branch back.
-5. **Commit everything** with the Commit skill that `prime` names if anything is left
-   uncommitted after the rebase, then run the checks the Agent instructions ask for. Nothing may stay uncommitted.
-6. **Submit for review again** with a short summary of how you resolved the conflicts, on stdin:
+5. **Commit everything** with the commit skill `prime` names (`otaq-commit`, or your agent's own
+   commit skill; when it names none, `git add -A` and `git commit`) if anything is left uncommitted after the rebase,
+   then run the checks the Agent instructions ask for. Nothing may stay uncommitted.
+6. **End your stage again** with a short summary of how you resolved the conflicts, on stdin:
 
    ```sh
-   otaq review submit --stdin <<'SUMMARY'
+   otaq stage next --stdin <<'SUMMARY'
    Rebased onto main. lib/pricing.ts: kept main's rounding and moved the new currency column on top of it.
    SUMMARY
    ```

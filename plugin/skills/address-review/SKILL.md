@@ -1,6 +1,6 @@
 ---
 name: address-review
-description: Address the review feedback on the Otaq ticket named by $OTAQ_TICKET after the user sent it back - get the context with `otaq prime`, read the feedback with `otaq review feedback`, fix it, commit everything, then submit it again with `otaq review submit`.
+description: Address the review feedback on the Otaq ticket named by $OTAQ_TICKET after the user sent it back - get the context with `otaq prime`, read the feedback with `otaq review feedback`, fix it, commit everything, then end your stage again with `otaq stage next`.
 disable-model-invocation: true
 ---
 
@@ -12,29 +12,30 @@ comments and maybe a general note. You are in the same worktree and on the same 
 ## Steps
 
 1. **Get the context first.** Run `otaq prime` and read all of it: the ticket and its description, Otaq's
-   rules and the user's **Agent instructions**.
+   rules, the user's **Agent instructions** and the project's notes.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step
-   below. They add to these steps; they never remove getting the context (step 1) or submitting for review (step 6).
+   below. They add to these steps; they never remove getting the context (step 1) or ending your stage (step 6).
 3. **Read the feedback:** run `otaq review feedback`. It prints the comments of the latest round, by file and
    line (a "removed line" comment is about a line your change deleted), and the user's note. For a ticket with an
    open PR it then lists the PR's unresolved review comments; address them too.
 4. **Fix every comment.** If a comment is unclear, or you disagree with it, ask the user (see below) instead of
    guessing. Keep to the feedback and the ticket; file anything else as a new ticket.
-5. **Commit everything** with the Commit skill that `prime` names. Nothing may stay
-   uncommitted: `review submit` is refused while files are uncommitted. Delete scratch files instead of committing
-   them.
-6. **Submit for review again** with a short summary of what you changed for each comment, on stdin:
+5. **Commit everything** with the commit skill `prime` names (`otaq-commit`, or your agent's own
+   commit skill); when it names none, commit with `git add -A` and `git commit`. Nothing may stay uncommitted:
+   `stage next` is refused while files are uncommitted. Delete scratch files instead of committing them.
+6. **End your stage again** with a short summary of what you changed for each comment, on stdin:
 
    ```sh
-   otaq review submit --stdin <<'SUMMARY'
+   otaq stage next --stdin <<'SUMMARY'
    lib/search.ts: the page size now comes from settings; restored the removed bounds check.
    app/page.tsx: shows the total number of results.
    SUMMARY
    ```
 
    Then **end your turn** and wait. Otaq may validate your work first: the result arrives in this session as a
-   message. If validation failed, the message lists the findings: fix them, commit everything and submit again. When
-   it passes, the ticket moves to Ready for Review and the user reviews the diff again.
+   message. If validation failed, the message lists the findings: fix them, commit everything and run
+   `otaq stage next` again. When it passes, the ticket moves on (to Ready for Review on the default board) and the
+   user reviews the diff again.
 
 ## When you need the user
 
@@ -86,4 +87,4 @@ QUESTION
 
 - **Never push, never open a PR, never merge.** The user does that from the board.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments: summaries, questions, ticket bodies.
-- If `otaq review submit` is refused, read why (usually uncommitted files), fix it and submit again.
+- If `otaq stage next` is refused, read why (usually uncommitted files), fix it and run it again.

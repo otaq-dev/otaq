@@ -24,7 +24,7 @@ async fn prime_prints_the_context_and_clears_needs_you() {
         "{}",
         ran.stdout
     );
-    assert!(ran.stdout.contains("review submit --stdin"));
+    assert!(ran.stdout.contains("stage next --stdin"));
     assert_eq!(
         w.status("SHOP-12").await,
         Status::Working,
@@ -54,12 +54,12 @@ async fn prime_names_developers_imported_commit_skill() {
     let rule = ran
         .stdout
         .lines()
-        .find(|l| l.contains("before you submit"))
+        .find(|l| l.contains("before you end your stage"))
         .expect("the commit rule");
     assert_eq!(
         rule,
-        "2. Commit everything with `/otaq-my-commit` before you submit. Never push and never open a PR: the user \
-         does that."
+        "2. Commit everything with `/otaq-my-commit` before you end your stage. Never push and never open a PR: the \
+         user does that."
     );
     let ran = agent.run(&format!("'{CB}' prime --json")).await;
     let context: Value = serde_json::from_str(&ran.stdout).unwrap();

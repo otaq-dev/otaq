@@ -13,8 +13,9 @@ use otaq_core::board::settings::WorkflowStep;
 use otaq_core::naming;
 use serde_json::Value;
 
-/// How the skills name the Commit skill: the one `prime` names, never one tool's syntax (ADP-05).
-const COMMIT_STEP: &str = "with the Commit skill that `prime` names";
+/// How the skills name the commit skill: the one `prime` names, by its copy's name `otaq-commit`, never one tool's
+/// syntax (ADP-05, AGM-07).
+const COMMIT_STEP: &str = "with the commit skill `prime` names (`otaq-commit`";
 
 fn plugin() -> PathBuf {
     find_plugin_dir(Path::new("/nonexistent")).expect("the repository's plugin folder")
@@ -123,7 +124,7 @@ fn every_hook_runs_an_accepted_otaq_hook_event() {
 }
 
 #[test]
-fn work_ticket_teaches_the_whole_path_to_review() {
+fn work_ticket_teaches_the_whole_path_to_the_next_stage() {
     let (name, body) = skill(WORK_TICKET_SKILL);
     assert_eq!(name, WORK_TICKET_SKILL);
     assert_eq!(naming::copy_name(&name), "otaq-work-ticket");
@@ -131,12 +132,20 @@ fn work_ticket_teaches_the_whole_path_to_review() {
     let prime = body.find(&format!("`{cmd} prime`")).expect("prime first");
     let commit = body.find(COMMIT_STEP).expect("the Commit skill");
     let submit = body
-        .find(&format!("{cmd} review submit --stdin"))
-        .expect("submit with stdin");
-    assert!(prime < commit && commit < submit, "prime → commit → submit");
+        .find(&format!("{cmd} stage next --stdin"))
+        .expect("stage next with stdin");
+    let done = body
+        .find(&format!("{cmd} stage done --stdin"))
+        .expect("stage done when there is nothing to deliver");
+    assert!(
+        prime < commit && commit < submit && submit < done,
+        "prime → commit → stage next, then when stage done fits"
+    );
     for needle in [
         "Follow the Agent instructions",
         "never remove",
+        "you committed nothing",
+        "It is refused once the branch has commits",
         &format!("{cmd} ask human --stdin"),
         "Never push",
         "Long text always goes through stdin",
@@ -261,7 +270,8 @@ fn work_ticket_checks_the_ticket_before_any_code() {
     }
 }
 
-/// T-0087 (REV-05, PLG-02, PLG-03): address-review reads the feedback after prime, then commits and submits.
+/// T-0087 (REV-05, PLG-02, PLG-03; AGM-12): address-review reads the feedback after prime, then commits and ends its
+/// stage with `stage next`.
 #[test]
 fn address_review_reads_the_feedback_fixes_commits_and_submits() {
     let (name, body) = skill("address-review");
@@ -273,7 +283,7 @@ fn address_review_reads_the_feedback_fixes_commits_and_submits() {
         format!("`{cmd} review feedback`"),
         "Fix every comment".to_owned(),
         COMMIT_STEP.to_owned(),
-        format!("{cmd} review submit --stdin"),
+        format!("{cmd} stage next --stdin"),
     ];
     let mut at = 0;
     for step in &order {
@@ -292,7 +302,8 @@ fn address_review_reads_the_feedback_fixes_commits_and_submits() {
     );
 }
 
-/// T-0090 (GIT-03, d0038): restack rebases onto the target prime names, resolves, commits and submits.
+/// T-0090 (GIT-03, d0038; AGM-12): restack rebases onto the target prime names, resolves, commits and ends its stage
+/// with `stage next`.
 #[test]
 fn restack_rebases_resolves_commits_and_submits() {
     let (name, body) = skill("restack");
@@ -304,7 +315,7 @@ fn restack_rebases_resolves_commits_and_submits() {
         "Rebase onto the target".to_owned(),
         "Resolve every conflict".to_owned(),
         COMMIT_STEP.to_owned(),
-        format!("{cmd} review submit --stdin"),
+        format!("{cmd} stage next --stdin"),
     ];
     let mut at = 0;
     for step in &order {
@@ -400,6 +411,7 @@ fn answer_question_changes_nothing_and_ends_with_answer() {
     for needle in [
         "Follow the Agent instructions",
         "You change nothing",
+        &format!("don't run `{cmd} stage next`"),
         "don't commit",
         "don't push",
         "--stdin <<'ANSWER'",
@@ -449,7 +461,7 @@ fn validate_is_a_read_only_judge_that_ends_with_a_verdict() {
     for needle in [
         "Never edit, create or delete files, never commit, and never fix anything",
         "Long text always goes through stdin",
-        &format!("don't run `{cmd} review submit`"),
+        &format!("don't run `{cmd} stage next`"),
     ] {
         assert!(body.contains(needle), "validate must say {needle:?}");
     }
@@ -464,8 +476,8 @@ fn validate_is_a_read_only_judge_that_ends_with_a_verdict() {
     );
 }
 
-/// T-0191 (PLG-07, d0067): no skill mentions "Done when"; the agent's skills say to end the turn after submitting
-/// and to fix and submit again after a failed validation.
+/// T-0191 (PLG-07, d0067; AGM-12): no skill mentions "Done when"; the agent's skills say to end the turn after
+/// `stage next` and to fix and run it again after a failed validation.
 #[test]
 fn no_skill_mentions_done_when_and_the_agent_waits_for_validation() {
     let names = skill_names();
@@ -481,14 +493,14 @@ fn no_skill_mentions_done_when_and_the_agent_waits_for_validation() {
     for name in [WORK_TICKET_SKILL, "address-review"] {
         let (_, body) = skill(name);
         let submit = body
-            .find(&format!("{cmd} review submit --stdin"))
-            .expect("submit");
+            .find(&format!("{cmd} stage next --stdin"))
+            .expect("stage next");
         let rest = &body[submit..];
         for needle in [
             "**end your turn** and wait",
             "arrives in this session as a\n   message",
             "If validation failed",
-            "fix them, commit everything and submit again",
+            "fix them, commit everything and run\n   `otaq stage next` again",
         ] {
             assert!(
                 rest.contains(needle),
@@ -579,7 +591,7 @@ fn work_ticket_records_product_choices_and_reads_its_notes() {
         format!("`{cmd} prime`"),
         format!("Run `{cmd} notes` each time you start a new step"),
         COMMIT_STEP.to_owned(),
-        format!("{cmd} review submit --stdin"),
+        format!("{cmd} stage next --stdin"),
         "Notes for later tickets:".to_owned(),
         "If you can't go on without the answer".to_owned(),
         "Otherwise decide and record it".to_owned(),
@@ -636,10 +648,7 @@ fn epic_lead_directs_through_the_cli_and_never_edits_files() {
         "never answer a permission prompt".to_owned(),
         "don't look for a way around it".to_owned(),
         "**End every turn idle.**".to_owned(),
-        format!(
-            "{cmd} create \"Wishlist empty state\" --parent SHOP-40 --deps SHOP-40.3 --developer Light --reason \
-             \"copy only\" --stdin"
-        ),
+        format!("{cmd} create \"Wishlist empty state\" --parent SHOP-40 --deps SHOP-40.3 --stdin"),
         format!("`{cmd} dep add SHOP-40.3 SHOP-40.2`"),
         format!("`{cmd} update SHOP-40.3 --stdin`"),
         "## Checking the plan".to_owned(),
@@ -742,13 +751,14 @@ fn flat(body: &str) -> String {
     body.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// T-0339 (AGT-07, PAG-03; d0086, d0087): the project-agent skill proposes two or more tickets, or an epic, with a
-/// table (# · Title · Description · Agent; the short table above about 10), creates one explicit ticket at once
-/// with the pick in the reply, picks by difficulty with a reason, tells *set by you* from its own pick, and makes no
-/// picks with one named agent. The real flags only. T-0376 (PAG-08, d0091): it decides the shape and writes the plan
-/// into the epic.
+/// T-0339 (PAG-03; d0087), T-0409 (AGM-12, AGM-09; d0108): the project-agent skill proposes two or more tickets, or
+/// an epic, with a table (# · Title · Description · Choices; the short table above about 10), creates one explicit
+/// ticket at once with its choice in the reply, sets stage choices by difficulty with a reason ("typo fix → Dev: Quick
+/// developer"), tells *set by you* from its own choice, and leaves the Choices column out when no stage has options
+/// (the default flow). The real flags only. T-0376 (PAG-08, d0091): it decides the shape and writes the plan into the
+/// epic.
 #[test]
-fn project_agent_proposes_with_a_table_and_picks_agents() {
+fn project_agent_proposes_with_a_table_and_sets_stage_choices() {
     let (_, body) = skill(otaq_core::agent_tools::PROJECT_AGENT_SKILL);
     let text = flat(&body);
     let cmd = naming::COMMAND_NAME;
@@ -756,31 +766,29 @@ fn project_agent_proposes_with_a_table_and_picks_agents() {
         "Two or more tickets, or an epic:** propose first, then wait for the user's go-ahead",
         "One ticket the user asked for explicitly**",
         &format!(
-            "{cmd} create \"Fix README typo\" --developer Light --reason \"docs-only change\""
+            "{cmd} create \"Fix README typo\" --stage \"Dev=Quick developer\" --reason \"typo fix\" --stdin"
         ),
-        "\"Created SHOP-41 · Light: docs-only change\"",
+        "\"Created SHOP-41 · typo fix → Dev: Quick developer\"",
         "\"I'm proposing one epic and 2 tickets\"",
-        "**# · Title · Description · Agent**",
+        "**# · Title · Description · Choices**",
+        "2 Order detail page items, totals, reorder Dev: Quick developer · Review: skip",
         "change any row by its number",
-        "(\"make 2 Standard\", \"drop 2\")",
+        "(\"2 needs a review\", \"drop 2\")",
+        "joined with \" · \" (\"Dev: Quick developer · Review: skip\")",
+        "It reads \"—\" when the ticket keeps every stage's own agent",
         "**Above about 10 tickets**",
-        "\"Light: 34 · Standard: 22 · Strong: 4\"",
-        "**without the Description column** (**# · Title · Agent**)",
+        "**without the Description column** (**# · Title · Choices**)",
         "**first 10 rows**",
         "\"…50 more (say 'show all' to list them)\"",
         "When the user says \"show all\", list every row",
-        "(\"make 37 Light\")",
-        "**By how hard the work is**, using each named agent's \"Use for\" note",
-        "a cheaper one for a minor fix, a documentation change or a small config change",
-        "Fill in the **Validator row only when you have a reason**",
-        "\"security-sensitive, validate with Strong\"",
-        "**If you're unsure, leave the project default**",
-        "**Every pick has a reason**, passed with `--reason`",
-        "\"Light · picked by Checkout slowness: docs-only change\"",
+        "**Only stages with options have choices.** `prime --project` lists them under **Stage choices**",
+        "a cheaper agent for a minor fix, a documentation change or a small config change (\"typo fix → Dev: Quick developer\")",
+        "**If you're unsure, leave the stage's own agent**",
+        "**Every choice has a reason**, passed with `--reason`",
         "with no second approval",
-        "a row the user set is never changed back by an agent",
-        "**An agent the user named** (\"make 2 Standard\", \"use Strong for all of these\", \"keep these agents\") is the user's: add `--by-user`",
-        "**A plain approval of your own suggestion** (\"yes\", \"go\") leaves it your pick",
+        "a choice the user set is never changed back by an agent",
+        "**A choice the user named** (\"2 needs a review\", \"use Quick developer for all of these\", \"keep these choices\") is the user's: add `--by-user`",
+        "**A plain approval of your own suggestion** (\"yes\", \"go\") leaves it yours",
         &format!(
             "`{cmd} create \"Order history\" --type epic --stdin` with the plan as its description"
         ),
@@ -794,10 +802,8 @@ fn project_agent_proposes_with_a_table_and_picks_agents() {
         &format!("(`{cmd} update SHOP-40 --stdin`), keeping what the user wrote above it"),
         "--parent SHOP-42",
         "There is no `--epic` flag",
-        "- **Developer:** Light · docs-only change",
-        "- **Validator:** Strong · security-sensitive, validate with Strong",
-        "**leave the Agent column out** (**# · Title · Description**), make **no picks**, and pass no `--developer` or `--validator` flags",
-        "\"Done: one epic and 2 tickets, all on Claude Code (the project default).\"",
+        "- **Stage:** Dev=Quick developer · typo fix",
+        "When `prime --project` lists no **Stage choices** (the default flow has none), there is nothing to pick: **leave the Choices column out** (**# · Title · Description**), and pass no `--stage` flags",
         "Otaq shows no dialog for it",
     ] {
         assert!(text.contains(needle), "project-agent must say {needle:?}");
@@ -807,14 +813,22 @@ fn project_agent_proposes_with_a_table_and_picks_agents() {
         "old flags"
     );
     assert!(!text.contains("create --epic"), "no --epic flag");
+    for gone in [
+        "Agent column",
+        "\"Use for\"",
+        "Light: 34",
+        "Project default",
+    ] {
+        assert!(!text.contains(gone), "project-agent still says {gone:?}");
+    }
 }
 
-/// T-0339 (AGT-07, LEAD-03; d0086, d0087): the epic-lead skill takes the drag as the go-ahead for its children's
-/// picks, may re-pick a never-started child after a merge with a reason, never a row the user set or its own Epic lead
-/// row, and does none of this with one named agent. T-0376 (LEAD-13, d0091): it doesn't plan an epic from scratch
-/// (no proposal table); asked to split, it points to the Project agent.
+/// T-0339 (LEAD-03; d0087), T-0409 (AGM-12, AGM-08; d0108): the epic-lead skill takes the drag as the go-ahead for
+/// its children's stage choices, may change a never-started child's choice after a merge with a reason, never one the
+/// user set, and sets none when no stage has options (the default flow). T-0376 (LEAD-13, d0091): it doesn't plan an
+/// epic from scratch (no proposal table); asked to split, it points to the Project agent.
 #[test]
-fn epic_lead_points_splits_to_the_project_agent_and_re_picks_after_a_merge() {
+fn epic_lead_points_splits_to_the_project_agent_and_changes_choices_after_a_merge() {
     let (_, body) = skill(otaq_core::agent_tools::EPIC_LEAD_SKILL);
     let text = flat(&body);
     let cmd = naming::COMMAND_NAME;
@@ -825,11 +839,11 @@ fn epic_lead_points_splits_to_the_project_agent_and_re_picks_after_a_merge() {
         "**If the user asks you to split the epic, or to split it again**",
         "say that the Project agent does that (from its pane, or Split with the Project agent on an epic card with no children), and end your turn",
         "**Keeping the plan current is yours:**",
-        "## Agent picks",
+        "## Stage choices",
         "## Checking the plan",
-        "**Dragging the epic is the go-ahead for its children and their agent picks**",
+        "**Dragging the epic is the go-ahead for its children and their stage choices**",
         "## The merge turn",
-        "**Re-pick a never-started child's agent**",
+        "**Change a never-started child's stage choice**",
     ];
     let mut at = 0;
     for step in order {
@@ -839,19 +853,20 @@ fn epic_lead_points_splits_to_the_project_agent_and_re_picks_after_a_merge() {
         at += found;
     }
     for needle in [
-        "**Pick by how hard the work is**, using each named agent's \"Use for\" note",
-        "the **Validator** row (`--validator <name>`) only when you have a reason",
-        "leave the project default",
-        "**Every pick has a reason** (`--reason \"…\"`)",
-        "(\"make 2 Standard\", \"use Strong for all of these\", \"keep these agents\") is the user's: add `--by-user`",
-        "A plain approval of your own suggestion (\"yes\", \"go\") leaves it your pick",
-        "Never change a row the user set, and never your own Epic lead row",
-        "**With only one named agent**",
-        "no Agent column, no picks, no `--developer` or `--validator` flags",
+        "`prime --epic` lists them under **Stage choices**",
+        "**When it lists none (the default flow has none), there is nothing to pick:** pass no `--stage` flags",
+        "**Choose by how hard the work is**",
+        "(\"copy only → Dev: Quick developer\")",
+        "leave the stage's own agent (no flag)",
+        "**Every choice has a reason** (`--reason \"…\"`)",
+        &format!("`{cmd} update SHOP-40.4 --stage \"Dev=Quick developer\" --reason \"…\"`"),
+        "(\"2 needs a review\", \"use Quick developer for all of these\", \"keep these choices\") is the user's: add `--by-user`",
+        "A plain approval of your own suggestion (\"yes\", \"go\") leaves it your choice",
+        "Never change a choice the user set",
         "never wait for a separate approval",
-        "(\"40.3 is only a config change: Strong → Light\")",
+        "(\"40.3 is only a config change: Dev → Quick developer\")",
         "**A choice the user made themselves is never changed by you**",
-        &format!("{cmd} update SHOP-40.3 --developer Light --reason \""),
+        &format!("{cmd} update SHOP-40.3 --stage \"Dev=Quick developer\" --reason \""),
     ] {
         assert!(text.contains(needle), "epic-lead must say {needle:?}");
     }
@@ -859,6 +874,9 @@ fn epic_lead_points_splits_to_the_project_agent_and_re_picks_after_a_merge() {
         "Planning with the user",
         "propose the plan first",
         "**# · Title · Description · Agent**",
+        "Agent picks",
+        "\"Use for\"",
+        "Epic lead row",
     ] {
         assert!(!text.contains(gone), "epic-lead still says {gone:?}");
     }

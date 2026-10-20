@@ -25,7 +25,8 @@ prepare the pull request; **the user confirms it before anything is pushed**. Th
 3. **Check the provider.** `prime` names it from the `origin` remote URL: `github.com` is **GitHub** (you will use
    `gh`); `dev.azure.com` or `*.visualstudio.com` is **Azure DevOps** (you will use `az repos`). For any other remote,
    **stop**: propose nothing, push nothing, and reply "This remote isn't GitHub or Azure DevOps, so the built-in Open PR
-   skill can't open the PR. Use your own Open PR skill (Settings → Workflow skills)." Then end your turn.
+   skill can't open the PR. Use your own Open PR skill (add it to the agent's skills in Settings → Agents)." Then end
+   your turn.
 4. **Write the proposal.**
    - **Branch name:** follow the user's rules if the Agent instructions give any (for example
      `bugfix/SHOP-18-login-redirect`, or `feature/PAY-123-wishlist` from the External ID). Otherwise use

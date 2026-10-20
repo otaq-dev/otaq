@@ -120,16 +120,19 @@ async fn world() -> World {
 
     // 40.1 merged: its summary and a recorded decision the lead marked.
     let api = w.board.ticket("SHOP-40.1").await.unwrap();
-    sqlx::query("INSERT INTO events (id, ticket_id, kind, actor, payload_json, at) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(new_id())
-        .bind(&api.id)
-        .bind("review_submitted")
-        .bind("agent:SHOP-40.1")
-        .bind(json!({ "summary": SUMMARY }).to_string())
-        .bind(now_ms())
-        .execute(w.board.store().pool())
-        .await
-        .unwrap();
+    // Its Dev stage ended with SUMMARY (AGM-06: the lead reads the last Agent stage's summary).
+    sqlx::query(
+        "INSERT INTO stage_runs (id, ticket_id, stage_id, kind, agent, result, summary, started_at, ended_at)
+         VALUES (?, ?, 'dev', 'agent', 'Developer', 'done', ?, ?, ?)",
+    )
+    .bind(new_id())
+    .bind(&api.id)
+    .bind(SUMMARY)
+    .bind(now_ms())
+    .bind(now_ms())
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
     decisions::record(
         &w.board,
         "SHOP-40.1",
@@ -215,8 +218,8 @@ async fn world() -> World {
     .await
     .unwrap();
 
-    // AGM-02: the global Agent instructions are Developer's own now.
-    w.edit_agent("Developer", |a| {
+    // AGM-06: the lead reads the Epic lead role's agent's instructions.
+    w.edit_agent("Epic lead", |a| {
         a.instructions = "Use my /tdd skill.".into()
     })
     .await;
@@ -293,7 +296,7 @@ async fn shop_40_mid_flight_renders_every_section() {
     let children = section(&text, "Children, in start order");
     assert!(
         children.contains(
-            "- SHOP-40.1 · Wishlist API (Merged · P3 · Normal) · started · added by you\n  Submit summary:\n  > \
+            "- SHOP-40.1 · Wishlist API (Merged · P3 · Normal) · started · added by you\n  Summary:\n  > \
              GET/POST /wishlist, items newest first.\n  > Notes for later tickets: the API returns `items[]`.\n  \
              Recorded decisions:\n  - SHOP-40.1#1 Which order do the items come in?\n    Built: newest first\n    \
              Other option: in the order added\n    Why: the usual order for saved lists\n    Marked by Wishlist \
@@ -376,7 +379,7 @@ async fn shop_40_mid_flight_renders_every_section() {
         )
     );
 
-    // The rule and the Agent instructions.
+    // The rule and the Epic lead's instructions.
     assert_eq!(
         ctx.rules,
         "You may change only never-started children of SHOP-40; name a written source for every answer, note and mark."
@@ -384,7 +387,7 @@ async fn shop_40_mid_flight_renders_every_section() {
     assert_eq!(rules_line(&"SHOP-40".parse().unwrap()), ctx.rules);
     assert!(
         text.ends_with(&format!(
-            "## {product}'s rules\n\n{}\n\n## Agent instructions (global)\n\nUse my /tdd skill.\n",
+            "## {product}'s rules\n\n{}\n\n## Agent instructions (Epic lead)\n\nUse my /tdd skill.\n",
             ctx.rules
         )),
         "{text}"

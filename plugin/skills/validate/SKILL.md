@@ -17,8 +17,9 @@ the agent does the fixing.
 ## Steps
 
 1. **Get the context first.** Run `otaq prime --validate` and read all of it: the ticket's description, the
-   agent's summary, the diff, the user's review comments when the ticket was sent back, earlier rounds' findings, the
-   linked tickets and the user's **Agent instructions**.
+   user's **Agent instructions** and the project's notes, the earlier stages (the agent's summary of its work among
+   them), the diff, the user's review comments when the ticket was sent back, earlier rounds' findings and the linked
+   tickets.
 2. **Follow the Agent instructions** that `prime --validate` prints. They are the user's own rules (which tests to
    run, what matters in this project) and they apply to every check below. They never allow you to change anything.
 3. **Check the change against the description.** Does it do what this ticket's description asks, including any
@@ -59,7 +60,7 @@ the agent does the fixing.
 
 - **Change nothing:** don't edit, create or delete files, don't commit, don't push, and don't run commands that change
   tracked files or anything outside the worktree (no installs, no migrations, no formatting fixes).
-- Don't file tickets and don't run `otaq review submit`: the user creates tickets from your notes.
+- Don't file tickets and don't run `otaq stage next`: the user creates tickets from your notes.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments.
 - Always finish with `otaq check pass --stdin` or `otaq check fail --stdin`. Ending your turn without
   a verdict leaves the ticket waiting for the user.

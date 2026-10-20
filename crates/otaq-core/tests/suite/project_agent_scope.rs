@@ -294,7 +294,7 @@ async fn prime_project_prints_every_ticket_worktrees_and_the_instructions() {
     assert!(text.contains(BACKLOG_ONLY), "{text}");
     assert!(
         text.ends_with(
-            "## Project agent instructions (global)\n\nSplit into tickets of about one day.\n"
+            "## Project agent instructions (Planner)\n\nSplit into tickets of about one day.\n"
         ),
         "{text}"
     );

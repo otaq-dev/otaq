@@ -170,7 +170,7 @@ impl Prs {
                 return Err(BoardError::refused(
                     Refusal::NotAllowed,
                     format!(
-                        "{why}: use your own Open PR skill (Settings \u{2192} Workflow skills)"
+                        "{why}: use your own Open PR skill (add it to the agent's skills in Settings \u{2192} Agents)"
                     ),
                 ));
             }

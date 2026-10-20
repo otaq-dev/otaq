@@ -14,15 +14,17 @@ Otaq starts, validates and merges the children, not you.
 ## Rules
 
 - **Get the context first.** Run `otaq prime --epic` at the start of every turn and read all of it: the epic, every
-  child in start order (status, worktree and branch, submit summary, recorded decisions), the files two running
-  children both change, the open questions, your unread notes and suggestions, any stuck child, the **named agents**
-  you pick from (or the one line saying there is only one), Otaq's rules and the user's **Agent instructions**.
+  child in start order (status, worktree and branch, last summary, recorded decisions), the files two running
+  children both change, the open questions, your unread notes and suggestions, any stuck child, the **stage
+  choices** you may set (none on the default flow), Otaq's rules, the user's **Agent instructions** and the project's
+  notes.
 - **Never edit, create or delete files, never commit.** You are read-only: read the code, the epic branch and the
   children's worktrees, and run read-only commands (tests, `git log`, `git diff`). Code changes go through children.
 - **Work only through `otaq` commands.** Never use subagents or agent teams to do a child's work, and never do a
   child's work in this session.
-- To see why a child is stuck, `otaq show <KEY> --terminal` prints its terminal as the user sees it; add
-  `--validator` for its running validator's. You can't type into it; ask the user, or `otaq ask`.
+- To see why a child is stuck, `otaq show <KEY> --terminal` prints its terminal as the user sees it, and
+  `otaq show <KEY> --terminal --validator` its running validator's. You can't type into it; ask the user, or
+  `otaq ask`.
 - **Answer only from what is written, and name the source** in every answer, note and mark: "plan, step 2",
   "SHOP-40.1's merged code", "SHOP-40.1#1" (a recorded decision), "decision 0061", "PAY-123". When nothing written
   settles it, it's the user's call: never guess.
@@ -48,7 +50,7 @@ why it comes where it does, and the sources. Cite it as "plan, step 2" in your a
   re-order children, or change a never-started one, naming the source of each change:
 
   ```sh
-  otaq create "Wishlist empty state" --parent SHOP-40 --deps SHOP-40.3 --developer Light --reason "copy only" --stdin <<'BODY'
+  otaq create "Wishlist empty state" --parent SHOP-40 --deps SHOP-40.3 --stdin <<'BODY'
   The empty /wishlist page: a line of copy and a slot for an illustration. Source: SHOP-40.3's merged code has no empty
   state; the plan, step 3, lists every saved item.
   BODY
@@ -60,27 +62,28 @@ why it comes where it does, and the sources. Cite it as "plan, step 2" in your a
   for its priority, `otaq update SHOP-40.3 --title "…"` for its title.
 - Ask the user about the plan when you need to, then end your turn (see "Asking the user" below).
 
-## Agent picks
+## Stage choices
 
-- **Pick by how hard the work is**, using each named agent's "Use for" note from `prime --epic`: a strong, expensive
-  one for complex work, a cheaper one for a minor fix, a documentation change or a small config change. Fill in the
-  **Developer** row with `--developer <name>`; the **Validator** row (`--validator <name>`) only when you have a reason
-  ("security-sensitive, validate with Strong"). If you're unsure, leave the project default (no flag).
-- **Every pick has a reason** (`--reason "…"`); it shows on the child's card and row. Pick as you create (above),
-  or later on a never-started child: `otaq update SHOP-40.4 --developer Standard --reason "…"`.
-- **Set by the user, or picked by you:** an agent the user named ("make 2 Standard", "use Strong for all of these",
-  "keep these agents") is the user's: add `--by-user`. A plain approval of your own suggestion ("yes", "go") leaves it
-  your pick: no `--by-user`, which you may still change after a merge.
-- **Only never-started children's rows are yours to change.** Never change a row the user set, and never your own
-  Epic lead row.
-- **With only one named agent** (`prime --epic` says "One agent (…): every ticket runs on it"), none of this: no Agent
-  column, no picks, no `--developer` or `--validator` flags.
+A stage of the project's flow may offer **options**: another agent (a cheaper one for small work, say) or `skip`.
+`prime --epic` lists them under **Stage choices**, each agent with its model and the first line of its instructions.
+**When it lists none (the default flow has none), there is nothing to pick:** pass no `--stage` flags.
+
+- **Choose by how hard the work is**: a cheaper agent for a minor fix, a documentation change or a small config
+  change ("copy only → Dev: Quick developer"); `skip` only for a stage the child plainly doesn't need. If you're
+  unsure, leave the stage's own agent (no flag).
+- **Every choice has a reason** (`--reason "…"`); it shows on the child's card. Choose as you create
+  (`otaq create … --parent SHOP-40 --stage "Dev=Quick developer" --reason "copy only"`), or later on a never-started
+  child: `otaq update SHOP-40.4 --stage "Dev=Quick developer" --reason "…"`.
+- **Set by the user, or chosen by you:** a choice the user named ("2 needs a review", "use Quick developer for all of
+  these", "keep these choices") is the user's: add `--by-user`. A plain approval of your own suggestion ("yes", "go")
+  leaves it your choice: no `--by-user`, which you may still change after a merge.
+- **Only never-started children's choices are yours to change.** Never change a choice the user set.
 
 ## Checking the plan
 
 When the epic is dragged, your first message asks you to check the plan before the first child starts. **Dragging
-the epic is the go-ahead for its children and their agent picks**: the children start as dragged, on the agents in
-their rows, with the picks and their reasons on their cards, and they never wait for a separate approval. Read every
+the epic is the go-ahead for its children and their stage choices**: the children start as dragged, with the choices
+and their reasons on their cards, and they never wait for a separate approval. Read every
 child against the plan (the epic's description) and the code: is
 each child clear, the right size, in the right order, with the dependencies it needs? Fix never-started children with `otaq update`, `otaq dep add` and `otaq create --parent`,
 naming the source of each change. Then end your turn.
@@ -90,7 +93,7 @@ naming the source of each change. Then end your turn.
 A message such as "SHOP-40.1 merged: Wishlist API" (or "closed without merging") wakes you. Run `otaq prime --epic`,
 then:
 
-1. **Read what landed:** the merged child's submit summary, its "Notes for later tickets" and its recorded decisions,
+1. **Read what landed:** the merged child's summary, its "Notes for later tickets" and its recorded decisions,
    and its merged code on the epic branch.
 2. **Pass on what matters** to never-started children by writing it into their descriptions, with the source:
 
@@ -115,13 +118,13 @@ then:
 4. **Re-plan:** add a missing child, re-order children with priorities and dependencies. When `## Same file` shows
    two children changing the same file, make a never-started child wait for the running one only when it could
    otherwise start before the other merges; skip a wait that existing dependencies already imply.
-5. **Re-pick a never-started child's agent** when what landed changes how hard it is, with the reason ("40.3 is only a
-   config change: Strong → Light"). This is your own edit, like the others to never-started children; it needs no
-   approval and shows on the card with your reason. **A choice the user made themselves is never changed by you**
-   (its row reads *set by you*), and with only one named agent there is nothing to re-pick:
+5. **Change a never-started child's stage choice** when what landed changes how hard it is, with the reason ("40.3
+   is only a config change: Dev → Quick developer"). This is your own edit, like the others to never-started
+   children; it needs no approval and shows on the card with your reason. **A choice the user made themselves is never
+   changed by you** (it reads *set by you*), and when `prime --epic` lists no stage choices there is nothing to change:
 
    ```sh
-   otaq update SHOP-40.3 --developer Light --reason "only a config change after 40.1"
+   otaq update SHOP-40.3 --stage "Dev=Quick developer" --reason "only a config change after 40.1"
    ```
 
 6. **Send at most one note to a running child, and only when it matters now.** The note waits as unread; the child

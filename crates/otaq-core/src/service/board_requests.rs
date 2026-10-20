@@ -1458,10 +1458,9 @@ async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, Boa
         .board
         .prime_context(key, shared.adapters.of_session(tool))
         .await?;
-    context.agents = crate::prime::prime_agents(
+    context.choices = crate::prime::reader_choices(
         &shared.board,
-        context.ticket.key.project.as_str(),
-        &shared.adapters,
+        crate::prime::ChoicesFor::Ticket(&context.ticket),
         &shared.models,
     )
     .await?;
@@ -1616,10 +1615,9 @@ async fn lead_questions_waiting(shared: &Shared, caller: &Caller) -> Result<Repl
 /// `otaq prime --epic` (LEAD-03): the epic lead's context.
 async fn epic_prime(shared: &Shared, key: &str) -> Result<Reply, BoardError> {
     let mut context = crate::epic_lead::prime::context(&shared.board, key).await?;
-    context.agents = crate::prime::prime_agents(
+    context.choices = crate::prime::reader_choices(
         &shared.board,
-        context.epic.key.project.as_str(),
-        &shared.adapters,
+        crate::prime::ChoicesFor::NewTickets(context.epic.key.project.as_str()),
         &shared.models,
     )
     .await?;

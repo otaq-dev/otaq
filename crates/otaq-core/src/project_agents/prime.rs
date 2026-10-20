@@ -1,8 +1,9 @@
 //! `otaq prime --project` (PAG-03, CLI-06; d0068): what a Project agent reads first. Every ticket of the
 //! project with its status, priority, dependencies and epic; for each started ticket its worktree and branch (it
-//! may read and run code there); the rules of what it may change; and the user's **Project agent instructions**
-//! (the project's override if set, else the global text); and the named agents it picks from (AGT-06). Concise
-//! Markdown ([`render`]); `--json` prints the [`ProjectPrime`] itself.
+//! may read and run code there); the **stage choices** it may set on the tickets it creates (AGM-06, AGM-08; none on
+//! the default flow); the rules of what it may change; and what it is told to follow: the Project agent role's
+//! agent's **instructions**, then the project's notes (AGM-06; d0068, d0108). Concise Markdown ([`render`]); `--json`
+//! prints the [`ProjectPrime`] itself.
 
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +12,7 @@ use crate::board::{Board, BoardError};
 use crate::domain::{Kind, Priority, Status, StatusSet, TicketKey};
 use crate::naming;
 use crate::policy::BACKLOG_ONLY;
-use crate::prime::{AgentReader, Instructions, PrimeAgent, render_agents};
+use crate::prime::{AgentReader, Instructions, PrimeChoice, render_choices};
 
 /// Everything `prime --project` prints.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,9 +26,10 @@ pub struct ProjectPrime {
     pub tickets: Vec<PrimeTicket>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<Instructions>,
-    /// The named agents it picks from (AGT-06). Filled by the service.
+    /// The stage choices it may set on the tickets it creates (AGM-08); none on the default flow. Filled by the
+    /// service.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub agents: Vec<PrimeAgent>,
+    pub choices: Vec<PrimeChoice>,
 }
 
 /// One ticket as `prime --project` lists it.
@@ -78,25 +80,20 @@ impl Board {
     pub async fn project_prime(&self, project: &str) -> Result<ProjectPrime, BoardError> {
         let p = self.project(project).await?;
         let tickets = self.tickets(&p.key).await?;
-        // The Project agent role's agent's instructions (AGM-02: the Project agent instructions moved there).
-        let own = self
+        // The Project agent role's agent's instructions (AGM-02: the Project agent instructions moved there), then
+        // the project's notes (AGM-06).
+        let agent = self
             .store()
             .role_agent(crate::agents::Role::ProjectAgent)
-            .await?
-            .map(|a| a.instructions)
-            .unwrap_or_default();
-        let text = own.trim();
-        let instructions = (!text.is_empty()).then(|| Instructions {
-            project: None,
-            text: text.to_owned(),
-        });
+            .await?;
+        let instructions = self.instructions(&p.key, agent.as_ref()).await?;
         Ok(ProjectPrime {
             project: p.key,
             name: p.name,
             repo_path: p.repo_path,
             tickets: tickets.iter().map(PrimeTicket::of).collect(),
             instructions,
-            agents: Vec::new(),
+            choices: Vec::new(),
         })
     }
 }
@@ -142,11 +139,15 @@ pub fn render(ctx: &ProjectPrime) -> String {
         }
     }
 
-    out.push_str(&render_agents(&ctx.agents, AgentReader::ProjectAgent));
+    out.push_str(&render_choices(
+        &ctx.choices,
+        AgentReader::ProjectAgent,
+        None,
+    ));
 
     out.push_str(&format!("\n## {}'s rules\n\n", naming::PRODUCT_NAME));
     let rules = [
-        "Follow the Project agent instructions below. They add to these rules.".to_owned(),
+        "Follow the Project agent instructions and the project's notes below. They add to these rules.".to_owned(),
         format!(
             "Right after you read the user's first request, name yourself: `{cmd} agent name \"<3–4 words>\"`. \
              Rename yourself only when the user asks (`--rename`)."
@@ -172,13 +173,7 @@ pub fn render(ctx: &ProjectPrime) -> String {
     }
 
     if let Some(instructions) = &ctx.instructions {
-        let source = match &instructions.project {
-            Some(project) => format!("project {project}"),
-            None => "global".to_owned(),
-        };
-        out.push_str(&format!("\n## Project agent instructions ({source})\n\n"));
-        out.push_str(instructions.text.trim());
-        out.push('\n');
+        out.push_str(&instructions.render("Project agent instructions"));
     }
     out
 }
@@ -221,10 +216,12 @@ mod tests {
             repo_path: "/src/shop-web".into(),
             tickets: vec![started, epic, child],
             instructions: Some(Instructions {
-                project: None,
-                text: "Use my /import-github skill.".into(),
+                agent: Some("Planner".into()),
+                own: "Use my /import-github skill.".into(),
+                project: "shop-web".into(),
+                notes: "Ask before touching the payment code.".into(),
             }),
-            agents: Vec::new(),
+            choices: Vec::new(),
         };
         let cmd = naming::COMMAND_NAME;
         let product = naming::PRODUCT_NAME;
@@ -243,7 +240,7 @@ build them later in their own worktrees.
 
 ## {product}'s rules
 
-1. Follow the Project agent instructions below. They add to these rules.
+1. Follow the Project agent instructions and the project's notes below. They add to these rules.
 2. Right after you read the user's first request, name yourself: `{cmd} agent name \"<3–4 words>\"`. Rename \
 yourself only when the user asks (`--rename`).
 3. Read and run code in this checkout and in the ticket worktrees above, but never edit files and never commit: \
@@ -255,9 +252,13 @@ agents can only change Backlog tickets\"). If the CLI refuses, tell the user wha
 6. Ask a ticket's agent with `{cmd} ask <KEY> --stdin`; ask the user with `{cmd} ask human --stdin` (with \
 `--option` when there are clear alternatives), then end your turn.
 
-## Project agent instructions (global)
+## Project agent instructions (Planner)
 
 Use my /import-github skill.
+
+## Notes every agent in shop-web gets
+
+Ask before touching the payment code.
 "
         );
         assert_eq!(render(&ctx), expected);

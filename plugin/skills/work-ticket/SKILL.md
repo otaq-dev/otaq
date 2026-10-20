@@ -1,6 +1,6 @@
 ---
 name: work-ticket
-description: Work on the Otaq ticket named by $OTAQ_TICKET from start to review - get its context with `otaq prime`, follow the user's Agent instructions, check the ticket for gaps and ask what changes what gets built (options with pros and cons) before coding, implement, commit everything, then submit it with `otaq review submit`.
+description: Work on the Otaq ticket named by $OTAQ_TICKET from start to review - get its context with `otaq prime`, follow the user's Agent instructions, check the ticket for gaps and ask what changes what gets built (options with pros and cons) before coding, implement, commit everything, then end your stage with `otaq stage next`.
 disable-model-invocation: true
 ---
 
@@ -12,24 +12,25 @@ time.
 
 ## Steps
 
-1. **Get the context first.** Run `otaq prime` and read all of it: the ticket and its description, the tickets
-   it depends on (with what their agents did), Otaq's rules and the user's **Agent instructions**.
+1. **Get the context first.** Run `otaq prime` and read all of it: the ticket and its description, the
+   user's **Agent instructions** and the project's notes, your stage and its skill, what the earlier stages did, the
+   tickets it depends on (with what their agents did) and Otaq's rules.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules (tests to run, skills to use,
    how to plan) and they apply to every step below. They add to these steps; they never remove getting the context
-   (step 1) or submitting for review (step 6).
+   (step 1) or ending your stage (step 6).
 3. **Check the ticket before you build** (see "Check the ticket first" below). If something that changes what gets
    built is open, ask before you write any code.
 4. **Plan, then implement** until the ticket is done, as its description describes. Keep to the ticket; file anything
    else as a new ticket (see below) instead of doing it here. **Run `otaq notes` each time you start a new step**
    and act on what it says: in an epic, the epic's lead leaves notes there for you (for example "the API returns
    `items[]`, not `list`").
-5. **Commit everything** with the Commit skill that `prime` names. Nothing may stay
-   uncommitted: `review submit` is refused while files are uncommitted. Delete scratch files instead of committing
-   them.
-6. **Submit for review** with a short summary of what you changed, on stdin:
+5. **Commit everything** with the commit skill `prime` names (`otaq-commit`, or your agent's own
+   commit skill); when it names none, commit with `git add -A` and `git commit`. Nothing may stay uncommitted:
+   `stage next` is refused while files are uncommitted. Delete scratch files instead of committing them.
+6. **End your stage** with a short summary of what you changed, on stdin. The next stage reads it:
 
    ```sh
-   otaq review submit --stdin <<'SUMMARY'
+   otaq stage next --stdin <<'SUMMARY'
    Added the price table with sorting by price and name.
    Prices align right; the table scrolls on mobile widths.
    SUMMARY
@@ -39,8 +40,19 @@ time.
    summary with a paragraph that starts `Notes for later tickets:`. In an epic, the lead reads it and passes it on.
 
    Then **end your turn** and wait. Otaq may validate your work first: the result arrives in this session as a
-   message. If validation failed, the message lists the findings: fix them, commit everything and submit again. When
-   it passes, the ticket moves to Ready for Review and the user reviews the diff.
+   message. If validation failed, the message lists the findings: fix them, commit everything and run
+   `otaq stage next` again. When it passes, the ticket moves on (to Ready for Review on the default board) and the user
+   reviews the diff.
+
+   **Nothing to deliver?** Only when the ticket needs no change at all (for example it was already fixed in SHOP-31)
+   and you committed nothing, end the ticket instead, with the reason on stdin. It goes to Done as "Closed · nothing
+   to merge". It is refused once the branch has commits: then use `otaq stage next`, so they're checked and delivered.
+
+   ```sh
+   otaq stage done --stdin <<'REASON'
+   Already fixed in SHOP-31: the price table sorts by name since its merge.
+   REASON
+   ```
 
 ## Check the ticket first
 
@@ -155,4 +167,7 @@ QUESTION
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments: summaries, questions, ticket bodies.
 - Useful commands: `otaq show <KEY>` (any ticket), `otaq dep tree` (your ticket's chain),
   `otaq create "Title" --stdin` (a follow-up in Backlog).
-- If `otaq review submit` is refused, read why (usually uncommitted files), fix it and submit again.
+- If `otaq stage next` is refused, read why (usually uncommitted files), fix it and run it again.
+- If `prime` lists **Stage choices**, you may change a later stage's choice for this ticket when what you learned
+  changes how hard its work is, always with a reason (`otaq update <KEY> --stage "<stage>=<choice>" --reason "…"`).
+  A choice the user set can't be changed.

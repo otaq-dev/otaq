@@ -106,16 +106,15 @@ fn own(caller: &Caller) -> Result<&str, ErrorBody> {
     }
 }
 
-/// `otaq prime --project` (PAG-03): the project's context with the named agents it picks from (AGT-06).
+/// `otaq prime --project` (PAG-03): the project's context with the stage choices it may set (AGM-06, AGM-08).
 async fn project_prime(
     shared: &Shared,
     project: &str,
 ) -> Result<crate::project_agents::prime::ProjectPrime, BoardError> {
     let mut context = shared.board.project_prime(project).await?;
-    context.agents = crate::prime::prime_agents(
+    context.choices = crate::prime::reader_choices(
         &shared.board,
-        &context.project,
-        &shared.adapters,
+        crate::prime::ChoicesFor::NewTickets(&context.project),
         &shared.models,
     )
     .await?;

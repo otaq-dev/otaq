@@ -104,6 +104,66 @@ fn no_skill_text_names_a_skill_in_one_tools_syntax() {
     }
 }
 
+/// T-0409 (AGM-12, AGM-10, AGM-11; d0108): no shipped skill names a removed command or flag. Stages end with
+/// `stage next` / `stage done`, checks with `check pass|fail`, and tickets set stage choices with `--stage`. The
+/// only `--validator` left is `show --terminal --validator` (a running check's terminal), which isn't an agent pick.
+#[test]
+fn no_skill_names_a_removed_command_or_flag() {
+    let ns = naming::PLUGIN_NAMESPACE;
+    let gone = [
+        "review submit".to_owned(),
+        "validate pass".to_owned(),
+        "validate fail".to_owned(),
+        "--developer".to_owned(),
+        "--validator".to_owned(),
+        format!("/{ns}:"),
+    ];
+    for (name, path) in skill_files() {
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("--terminal --validator", "--terminal");
+        for word in &gone {
+            assert!(!text.contains(word.as_str()), "{name} names {word:?}");
+        }
+    }
+}
+
+/// T-0409 (AGM-12, AGM-07): the skills that end an Agent stage name `stage next`, the check ends with `check pass|fail`,
+/// and a skill another skill names is named by its copy, `otaq-<name>`.
+#[test]
+fn skills_end_stages_with_the_stage_commands() {
+    let cmd = naming::COMMAND_NAME;
+    let read = |name: &str| {
+        let (_, path) = skill_files()
+            .into_iter()
+            .find(|(n, _)| n == name)
+            .unwrap_or_else(|| panic!("no skill {name}"));
+        std::fs::read_to_string(path).unwrap()
+    };
+    for name in ["work-ticket", "address-review", "restack", "commit"] {
+        assert!(
+            read(name).contains(&format!("{cmd} stage next")),
+            "{name} must name `stage next`"
+        );
+    }
+    for name in ["work-ticket", "address-review", "restack"] {
+        assert!(
+            read(name).contains(&format!("(`{}`", naming::copy_name("commit"))),
+            "{name} must name the commit skill by its copy"
+        );
+    }
+    let validate = read("validate");
+    for verdict in ["pass", "fail"] {
+        assert!(validate.contains(&format!("{cmd} check {verdict} --stdin")));
+    }
+    for name in ["validate", "answer-question"] {
+        assert!(
+            read(name).contains(&format!("don't run `{cmd} stage next`")),
+            "{name} must say not to run `stage next`"
+        );
+    }
+}
+
 #[test]
 fn the_quoting_check_matches_yaml() {
     assert!(quoted(r#"'Otaq''s skill with "<KEY>: <what>" messages'"#));

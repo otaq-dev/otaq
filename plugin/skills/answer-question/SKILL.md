@@ -34,5 +34,5 @@ ticket's work). You answer from what you did here. **You change nothing.**
 
 - **Change nothing:** don't edit, create or delete files, don't commit, don't push, don't run commands that change
   the repository, the database or anything else (no installs, no migrations, no builds that write files).
-- Don't start new work, don't file tickets, don't run `otaq review submit`.
+- Don't start new work, don't file tickets, don't run `otaq stage next`.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments.

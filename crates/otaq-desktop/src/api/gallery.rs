@@ -61,7 +61,6 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.limit_lines" => reply(&limit_banner::gallery()),
         // The notification banners and Settings → Notifications in every state (T-0372).
         "gallery.notifications" => reply(&settings_page::notifications_gallery()),
-        // Settings → Workflow skills, global and per project, in every state of update AC (T-0380).
         // Settings → Keyboard shortcuts in every frame of update AF, macOS and Windows / Linux (T-0395).
         "gallery.keyboard_page" => reply(&otaq_view::view_models::keyboard_page::gallery()),
         // The answer options' notes in the inbox, the panel and the card's hover card (T-0375).

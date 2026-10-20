@@ -1,10 +1,11 @@
 //! `otaq prime --epic` (LEAD-03; d0083, d0084, d0040): what an epic's lead reads first, and again at each wake-up.
 //! The epic (description, External ID, branch and base, place, queue mode); every child in start order with its
-//! status, priority, dependencies, whether it started, who added it, its submit summary, its recorded decisions and
-//! its worktree and branch; the children's same-file overlaps; the open questions (waiting for the lead, and the
+//! status, priority, dependencies, whether it started, who added it, its last stage's summary, its recorded decisions
+//! and its worktree and branch; the children's same-file overlaps; the open questions (waiting for the lead, and the
 //! user's); the lead's unread notes and its suggestions in every state; the children whose first stop waits for the
-//! lead's note (T-0285); the named agents it picks from (AGT-06); the user's Agent instructions; and the lead's one
-//! rule. Concise Markdown ([`render`]);
+//! lead's note (T-0285); the stage choices it may set on never-started children (AGM-06, AGM-08; none on the default
+//! flow); the lead's one rule; and the Epic lead role's agent's instructions, then the project's notes (AGM-06).
+//! Concise Markdown ([`render`]);
 //! `--json` prints the [`EpicPrime`] itself.
 
 use serde::{Deserialize, Serialize};
@@ -22,7 +23,7 @@ use crate::epic_lead::questions::{self, LeadQuestion};
 use crate::epic_lead::stuck::{self, StuckState};
 use crate::epic_lead::suggest::{self, Suggestion, SuggestionState};
 use crate::naming;
-use crate::prime::{AgentReader, Instructions, PrimeAgent, render_agents};
+use crate::prime::{AgentReader, Instructions, PrimeChoice, render_choices};
 use crate::project_agents::lead::lead_name;
 
 /// Everything `prime --epic` prints.
@@ -49,9 +50,10 @@ pub struct EpicPrime {
     pub stuck: Vec<StuckChild>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<Instructions>,
-    /// The named agents it picks from for never-started children (AGT-06). Filled by the service.
+    /// The stage choices it may set on never-started children (AGM-08); none on the default flow. Filled by the
+    /// service.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub agents: Vec<PrimeAgent>,
+    pub choices: Vec<PrimeChoice>,
     /// "You may change only never-started children of SHOP-40; name a written source for every answer, note and
     /// mark."
     pub rules: String,
@@ -89,7 +91,7 @@ pub struct PrimeChild {
     pub started: bool,
     /// Who added it: "you" (the user), "Wishlist lead", "SHOP-40.2" (a ticket's agent) or "a Project agent".
     pub added_by: String,
-    /// What its agent said at its latest `review submit`.
+    /// What its agent said when its last Agent stage ended ([`Board::last_stage_summary`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     /// Its recorded decisions (DEC-02), with the lead's mark and the user's outcome.
@@ -206,7 +208,7 @@ pub async fn context(board: &Board, epic: &str) -> Result<EpicPrime, BoardError>
             depends_on: child.depends_on.clone(),
             started,
             added_by: added_by(&child.created_by, lead_agent.as_deref(), &lead),
-            summary: board.review_summary(&child.id).await?,
+            summary: board.last_stage_summary(&child.key.to_string()).await?,
             decisions,
             worktree: work.and_then(|w| w.worktree.clone()),
             branch: work.and_then(|w| w.branch.clone()),
@@ -221,7 +223,12 @@ pub async fn context(board: &Board, epic: &str) -> Result<EpicPrime, BoardError>
         .filter(|n| n.read_at.is_none())
         .collect();
     let suggestions = suggest::list_for_epic(board, &epic.key.to_string()).await?;
-    let instructions = board.agent_instructions(&project).await?;
+    // The Epic lead role's agent's instructions, then the project's notes (AGM-06).
+    let agent = board
+        .store()
+        .role_agent(crate::agents::Role::EpicLead)
+        .await?;
+    let instructions = board.instructions(&project, agent.as_ref()).await?;
     let branch = epic.work.as_ref().and_then(|w| w.branch.clone());
     let base = match &epic.base {
         Base::Branch(b) => b.clone(),
@@ -249,7 +256,7 @@ pub async fn context(board: &Board, epic: &str) -> Result<EpicPrime, BoardError>
         suggestions,
         stuck,
         instructions,
-        agents: Vec::new(),
+        choices: Vec::new(),
     })
 }
 
@@ -372,7 +379,7 @@ pub fn render(ctx: &EpicPrime) -> String {
             out.push_str(&format!("  worktree {worktree} · branch `{branch}`\n"));
         }
         if let Some(summary) = &c.summary {
-            out.push_str("  Submit summary:\n");
+            out.push_str("  Summary:\n");
             quote(&mut out, "  ", summary);
         }
         if !c.decisions.is_empty() {
@@ -483,7 +490,7 @@ pub fn render(ctx: &EpicPrime) -> String {
         }
     }
 
-    out.push_str(&render_agents(&ctx.agents, AgentReader::EpicLead));
+    out.push_str(&render_choices(&ctx.choices, AgentReader::EpicLead, None));
 
     out.push_str(&format!(
         "\n## {}'s rules\n\n{}\n",
@@ -492,13 +499,7 @@ pub fn render(ctx: &EpicPrime) -> String {
     ));
 
     if let Some(instructions) = &ctx.instructions {
-        let source = match &instructions.project {
-            Some(project) => format!("project {project}"),
-            None => "global".to_owned(),
-        };
-        out.push_str(&format!("\n## Agent instructions ({source})\n\n"));
-        out.push_str(instructions.text.trim());
-        out.push('\n');
+        out.push_str(&instructions.render("Agent instructions"));
     }
     out
 }
