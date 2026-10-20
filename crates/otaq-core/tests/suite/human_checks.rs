@@ -267,11 +267,15 @@ async fn a_fail_at_qa_resumes_dev_and_walks_the_checks_again() {
     let t = at(&w, "Export as CSV", "dev", Status::Working).await;
     ended_session(&w, &t, "dev-conversation").await;
     place_in(&w, &t, "qa", Status::WaitingForYou).await;
-    sqlx::query("UPDATE tickets SET validation_round = 2 WHERE id = ?")
-        .bind(&t.id)
-        .execute(w.board.store().pool())
-        .await
-        .unwrap();
+    // Both checks counted fails (each its own, T-0417).
+    sqlx::query(
+        "INSERT INTO check_counters (ticket_id, stage_id, fails, updated_at)
+         VALUES (?1, 'validate', 2, 1), (?1, 'security', 1, 2)",
+    )
+    .bind(&t.id)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
 
     let note = "The CSV needs a header row.";
     match w.review.fail("SHOP-1", note, false, &me()).await.unwrap() {
@@ -281,7 +285,11 @@ async fn a_fail_at_qa_resumes_dev_and_walks_the_checks_again() {
     until_status(&w, "SHOP-1", Status::Working).await;
     let back = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(back.place, Place::stage_of("dev"));
-    assert_eq!(back.validation_round, 0, "a human Fail resets the counter");
+    assert_eq!(back.validation_round, 0, "a human Fail resets the counters");
+    assert!(
+        w.board.check_counts(&t.id).await.unwrap().0.is_empty(),
+        "both checks' counters restart"
+    );
     let session = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
     let out = w.wait_for_output(&session.id, "ARGS").await;
     assert!(out.contains("--resume dev-conversation"), "{out}");

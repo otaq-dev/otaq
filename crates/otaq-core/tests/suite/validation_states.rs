@@ -66,6 +66,21 @@ async fn set(f: &Fixture, id: &str, sql: &str) {
         .unwrap();
 }
 
+/// Validate's own counter (`check_counters`, T-0417): its fails in a row, its extra rounds and the round it passed in.
+async fn validate_counter(f: &Fixture, id: &str, fails: i64, extra: i64, passed: Option<i64>) {
+    sqlx::query(
+        "INSERT OR REPLACE INTO check_counters (ticket_id, stage_id, fails, extra, passed_round, updated_at)
+         VALUES (?, 'validate', ?, ?, ?, 1)",
+    )
+    .bind(id)
+    .bind(fails)
+    .bind(extra)
+    .bind(passed)
+    .execute(f.board.store().pool())
+    .await
+    .unwrap();
+}
+
 /// The Review entry shows in Review; the round marker on a working ticket after a failed round, with the
 /// project's rounds (plus extra ones); Merged automatically on Done.
 #[tokio::test]
@@ -77,9 +92,10 @@ async fn ticket_columns_become_flags() {
     set(
         &f,
         &t.id,
-        "UPDATE tickets SET state = 'working', stage_id = 'dev', validation_round = 1 WHERE id = ?",
+        "UPDATE tickets SET state = 'working', stage_id = 'dev' WHERE id = ?",
     )
     .await;
+    validate_counter(&f, &t.id, 1, 0, None).await;
     let ticket = f.ticket(&key).await;
     assert_eq!(
         ticket.flags.validation_round,
@@ -89,12 +105,7 @@ async fn ticket_columns_become_flags() {
         ticket.flags.validation_round.unwrap().to_string(),
         "Validation failed · round 1 of 3"
     );
-    set(
-        &f,
-        &t.id,
-        "UPDATE tickets SET validation_rounds_extra = 1 WHERE id = ?",
-    )
-    .await;
+    validate_counter(&f, &t.id, 1, 1, None).await;
     assert_eq!(
         f.ticket(&key).await.flags.validation_round,
         Some(ValidationRound { round: 1, of: 4 }),
@@ -112,9 +123,10 @@ async fn ticket_columns_become_flags() {
         &f,
         &t.id,
         "UPDATE tickets SET state = 'ready_for_review', stage_id = 'review', \
-         review_entry = 'validated', validation_round = 2 WHERE id = ?",
+         review_entry = 'validated' WHERE id = ?",
     )
     .await;
+    validate_counter(&f, &t.id, 0, 0, Some(2)).await;
     let ticket = f.ticket(&key).await;
     let entry = ticket.flags.review_entry.unwrap();
     assert_eq!(entry.entry, ReviewEntry::Validated);
@@ -143,9 +155,10 @@ async fn validating_round_findings_and_conflict_files() {
     set(
         &f,
         &t.id,
-        "UPDATE tickets SET state = 'validating', stage_id = 'validate', validation_round = 1 WHERE id = ?",
+        "UPDATE tickets SET state = 'validating', stage_id = 'validate' WHERE id = ?",
     )
     .await;
+    validate_counter(&f, &t.id, 1, 0, None).await;
     assert_eq!(
         f.ticket(&key).await.flags.validating_round,
         Some(ValidationRound { round: 2, of: 3 }),

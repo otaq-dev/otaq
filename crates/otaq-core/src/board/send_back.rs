@@ -176,7 +176,7 @@ pub(crate) async fn return_to_dev(
                             queued_at = CASE WHEN ? THEN ? ELSE queued_at END,
                             last_signal_at = CASE WHEN ? THEN ? ELSE last_signal_at END,
                             signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
-                            validation_round = 0, validation_rounds_extra = 0, review_entry = NULL,
+                            review_entry = NULL,
                             updated_by = ?, updated_at = ?, ",
         set_state_since!(),
         " WHERE id = ?"
@@ -195,6 +195,8 @@ pub(crate) async fn return_to_dev(
     .bind(&ticket.id)
     .execute(&mut **tx)
     .await?;
+    // A human Fail: every agent check's counter restarts at 0 (FLW-13).
+    super::validation::reset_check_counters(tx, &ticket.id).await?;
     record_event(
         tx,
         &ticket.id,

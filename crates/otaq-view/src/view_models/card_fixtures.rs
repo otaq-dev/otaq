@@ -610,6 +610,7 @@ pub fn hold(
         fallback: fallback.map(|tool| otaq_core::agents::ModelRef { tool, model: None }),
         can_use_fallback,
         fallback_held,
+        can_skip_check: false,
         resets_at: None,
     }
 }

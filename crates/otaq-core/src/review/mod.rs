@@ -34,11 +34,12 @@ use serde::{Deserialize, Serialize};
 use crate::board::conflicts::{Conflict, ConflictReason};
 use crate::board::review::{ApproveCheck, EPIC_NO_SEND_BACK};
 use crate::board::tickets::Ticket;
-use crate::board::validation::{Round, Transition};
+use crate::board::validation::Transition;
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::domain::{Actor, Status, TicketKey, ValidationTrigger};
 use crate::flow::Delivers;
+use crate::flow::engine::Counters;
 use crate::git::merge::{MergeOutcome, MergeRequest};
 use crate::ports::PortPool;
 use crate::scheduler::Scheduler;
@@ -226,7 +227,7 @@ impl Review {
                 to: moved.status,
                 place: moved.place.clone(),
                 entry: None,
-                round: Round::Keep,
+                counters: Counters::Keep,
                 outcome: None,
                 start_validator: true,
                 deliver_findings: false,

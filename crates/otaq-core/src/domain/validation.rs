@@ -140,6 +140,29 @@ impl fmt::Display for ValidationRound {
 }
 
 stored_enum! {
+    /// How the user moved a card past an agent check (`check_counters.moved_past`, FLW-13): either way the card
+    /// reaches its Delivery in click mode (d0108 "Move on anyway"; Q277).
+    pub enum MovedPast ("moved past") {
+        /// Move on anyway after the check's last allowed round failed: "Failed Security 3 times · moved by you".
+        Failed = "failed",
+        /// Skip this check (on a running check, or one held for the plan limit with no usable fallback), or Move on
+        /// anyway after it ended without a result: "Skipped Security · by you".
+        Skipped = "skipped",
+    }
+}
+
+impl MovedPast {
+    /// Why the card's Delivery waits for a click: "Failed Security 3 times · moved by you", "Skipped Security · by
+    /// you". `fails` are the check's fails in a row when the card was moved on.
+    pub fn reason(self, check: &str, fails: u32) -> String {
+        match self {
+            Self::Failed => format!("Failed {check} {} · moved by you", times_word(fails)),
+            Self::Skipped => format!("Skipped {check} · by you"),
+        }
+    }
+}
+
+stored_enum! {
     /// Who started a validation round (`validations.trigger`).
     pub enum ValidationTrigger ("validation trigger") {
         /// The agent's `stage next` (or `review submit`).
@@ -283,6 +306,23 @@ mod tests {
         assert_eq!(
             cancelled_toast("SHOP-29", CancelledBy::Description).0,
             "Validation cancelled: SHOP-29’s description changed"
+        );
+    }
+
+    /// T-0417 (FLW-13): why a card moved past a check reaches its Delivery in click mode.
+    #[test]
+    fn moved_past_reasons() {
+        assert_eq!(
+            MovedPast::Failed.reason("Security", 3),
+            "Failed Security 3 times · moved by you"
+        );
+        assert_eq!(
+            MovedPast::Failed.reason("Validate", 1),
+            "Failed Validate 1 time · moved by you"
+        );
+        assert_eq!(
+            MovedPast::Skipped.reason("Security", 0),
+            "Skipped Security · by you"
         );
     }
 

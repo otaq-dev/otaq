@@ -162,6 +162,14 @@ pub struct Flags {
     /// Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validating_round: Option<super::ValidationRound>,
+    /// The agent check the round markers count for, by name ("Security"): the check the card is in, else the one
+    /// that counted last, the one that sent it back (FLW-13, each check counts its own). Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check: Option<String>,
+    /// Why its Delivery waits for a click: the checks the user moved it past in this walk ("Failed Security 3 times ·
+    /// moved by you", "Skipped Security · by you"; d0108 "Move on anyway", FLW-13). Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_past_check: Option<String>,
     /// The last failed round's findings (its report lines that aren't notes), while the agent fixes them or after
     /// the last round failed: "· 2 findings", and the first one on "Validation failed 3 times" (d0063). Not a flag
     /// of its own.
@@ -341,6 +349,8 @@ mod tests {
             }),
             validation_round: Some(crate::domain::ValidationRound { round: 1, of: 3 }),
             validating_round: Some(crate::domain::ValidationRound { round: 2, of: 3 }),
+            check: Some("Security".into()),
+            moved_past_check: Some("Skipped Security · by you".into()),
             findings: vec!["src/cart.ts:12 the total ignores the coupon".into()],
             conflict_files: vec!["lib/wishlist.ts".into()],
             merged_automatically: true,

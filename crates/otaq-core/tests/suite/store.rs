@@ -12,6 +12,7 @@ const TABLES: &[&str] = &[
     "agent_holds",
     "agent_skills",
     "agents",
+    "check_counters",
     "decisions",
     "events",
     "human_questions",
@@ -702,6 +703,25 @@ async fn one_row_round_trips_through_every_table() {
             .await
             .unwrap();
     assert_eq!(choice, "agent");
+
+    // Each agent check's own counter (T-0417).
+    sqlx::query(
+        "INSERT INTO check_counters (ticket_id, stage_id, fails, extra, moved_past, updated_at) \
+         VALUES (?, 'security', 2, 1, 'failed', ?)",
+    )
+    .bind(&t18.id)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let fails: i64 = sqlx::query_scalar(
+        "SELECT fails FROM check_counters WHERE ticket_id = ? AND stage_id = 'security'",
+    )
+    .bind(&t18.id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(fails, 2);
 
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");

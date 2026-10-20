@@ -231,6 +231,10 @@ pub struct CardHold {
     pub can_use_fallback: bool,
     /// The fallback is blocked as well: "Claude Code and its fallback Codex are both at their limits".
     pub fallback_held: bool,
+    /// **Skip this check** is offered: an agent check held for its tool's plan limit with no usable fallback (none
+    /// set, or the fallback at its limit too; FLW-13, Q277). Never on a held Agent stage.
+    #[serde(default)]
+    pub can_skip_check: bool,
     /// A limit's hold: when the tool's limit resets, when known ("Claude Code limit · resets 3:45 pm", Q154).
     #[serde(default)]
     pub resets_at: Option<i64>,
@@ -252,6 +256,7 @@ impl CardHold {
             can_use_fallback: hold.fallback_tool.is_some() && !hold.fallback_held,
             fallback: fallbacks.get(&hold.tool).cloned(),
             fallback_held: hold.fallback_held,
+            can_skip_check: crate::validation::skip_at_limit(hold),
             resets_at: None,
         }
     }

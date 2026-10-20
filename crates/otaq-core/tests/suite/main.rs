@@ -18,6 +18,7 @@ mod board_protocol;
 mod caller;
 mod change_note;
 mod changed_since_review;
+mod check_counters;
 mod checkout_skills;
 mod checkpoint;
 mod cleanup;

@@ -95,7 +95,8 @@ pub struct Ticket {
     /// When the queued ticket became ready to start: the start order's last key, "ready the longest" (SCH-01).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ready_since: Option<i64>,
-    /// Validation rounds counted since the last reset (d0063).
+    /// The round of the agent check its markers count for ([`Flags::check`], FLW-13): that check's fails in a row,
+    /// or the round it last passed in ("Validated · round 2"). Each check counts its own (`check_counters`, d0063).
     #[serde(default)]
     pub validation_round: u32,
     /// Auto-merge conflicts in a row (d0064).
@@ -961,6 +962,8 @@ impl Board {
             Some(key) => self.effective_flow(&key).await?,
             None => crate::flow::default_flow(),
         };
+        // Each agent check's own counter (FLW-13).
+        let check_counts = super::validation::project_check_counts(pool, project_id).await?;
 
         records
             .into_iter()
@@ -1019,6 +1022,13 @@ impl Board {
                             .unwrap_or_default();
                         super::review::user_note(&summary)
                     });
+                let place = Place::of(
+                    status,
+                    row.stage_id.as_deref(),
+                    row.interrupted_from.as_deref().and_then(|s| s.parse().ok()),
+                );
+                let counts = check_counts.get(&row.id).cloned().unwrap_or_default();
+                let counted = CountedCheck::of(&flow, &place, &counts);
                 let mut flags = Flags {
                     your_turn: status.is_needs_you_family() && self.focus.covers(&row.id, status),
                     run_port: self.run_ports().get(&row.id),
@@ -1053,9 +1063,11 @@ impl Board {
                         .get(&row.id)
                         .and_then(|n| u32::try_from(*n).ok())
                         .unwrap_or(0),
-                    review_entry: review_entry_flag(&row, status),
-                    validation_round: failed_round_marker(&row, status, &flow),
-                    validating_round: validating_round(&row, status, &flow),
+                    review_entry: review_entry_flag(&row, status, &counted),
+                    validation_round: failed_round_marker(&row, status, &counted),
+                    validating_round: validating_round(status, &counted),
+                    check: counted.name.clone(),
+                    moved_past_check: counts.moved_past_reason(&flow),
                     conflict_files: row
                         .conflict_files
                         .as_deref()
@@ -1170,11 +1182,7 @@ impl Board {
                     priority_inherited: row.epic_id.is_some()
                         && !own_priority.contains_key(row.id.as_str()),
                     epic,
-                    place: Place::of(
-                        status,
-                        row.stage_id.as_deref(),
-                        row.interrupted_from.as_deref().and_then(|s| s.parse().ok()),
-                    ),
+                    place,
                     status,
                     base,
                     base_locked: row.branch_locked,
@@ -1193,7 +1201,7 @@ impl Board {
                     status_since: row.state_since,
                     queued_at: row.queued_at,
                     ready_since: row.ready_since,
-                    validation_round: u32::try_from(row.validation_round).unwrap_or(0),
+                    validation_round: counted.count.shown_round(),
                     auto_merge_conflicts: u32::try_from(row.auto_merge_conflicts).unwrap_or(0),
                     auto_merge_stop: row.auto_merge_stop.as_deref().and_then(|s| s.parse().ok()),
                     epic_queue_mode: (kind == Kind::Epic)
@@ -1283,8 +1291,39 @@ pub(crate) fn key_from_parts(project: &str, number: i64, child: i64) -> Option<T
     })
 }
 
+/// The agent check a ticket's round markers count for (FLW-13): its name, its counter and its rounds (the stage's,
+/// with the extra ones the user allowed).
+struct CountedCheck {
+    name: Option<String>,
+    count: super::validation::CheckCount,
+    rounds: u32,
+}
+
+impl CountedCheck {
+    fn of(
+        flow: &crate::flow::Flow,
+        place: &Place,
+        counts: &super::validation::CheckCounts,
+    ) -> Self {
+        let check = counts.counting(flow, place);
+        let count = check.map(|c| counts.of(&c.id)).unwrap_or_default();
+        let in_it = check.is_some_and(|c| place.stage() == Some(c.id.as_str()));
+        Self {
+            name: check
+                .filter(|_| in_it || count.fails > 0 || count.passed_round.is_some())
+                .map(|c| c.name.clone()),
+            rounds: flow.check_rounds(check.map(|c| c.id.as_str()), count.extra),
+            count,
+        }
+    }
+}
+
 /// "Validated · round 2" and the like: how the ticket reached Review (d0063). Shown in Review, Approved and Done.
-fn review_entry_flag(row: &TicketRow, status: Status) -> Option<crate::domain::ReviewEntryFlag> {
+fn review_entry_flag(
+    row: &TicketRow,
+    status: Status,
+    counted: &CountedCheck,
+) -> Option<crate::domain::ReviewEntryFlag> {
     let entry: crate::domain::ReviewEntry = row.review_entry.as_deref()?.parse().ok()?;
     matches!(
         status.set(),
@@ -1292,20 +1331,18 @@ fn review_entry_flag(row: &TicketRow, status: Status) -> Option<crate::domain::R
     )
     .then(|| crate::domain::ReviewEntryFlag {
         entry,
-        round: u32::try_from(row.validation_round).unwrap_or(0),
+        round: counted.count.shown_round(),
     })
 }
 
-/// "Validation failed · round 1 of 3": the agent works again after a failed round (VAL-04). The rounds are the
-/// flow's check's; "Give it another round" adds to them.
+/// "Validation failed · round 1 of 3": the agent works again after a failed round (VAL-04), counted on the check
+/// that failed it. The rounds are that check's; "Give it another round" adds to them.
 fn failed_round_marker(
     row: &TicketRow,
     status: Status,
-    flow: &crate::flow::Flow,
+    counted: &CountedCheck,
 ) -> Option<crate::domain::ValidationRound> {
-    let round = u32::try_from(row.validation_round)
-        .ok()
-        .filter(|r| *r > 0)?;
+    let round = Some(counted.count.fails).filter(|r| *r > 0)?;
     let working = matches!(
         status,
         Status::Working
@@ -1315,30 +1352,21 @@ fn failed_round_marker(
             | Status::Idle
             | Status::WaitingForLimitReset
     );
-    (working && row.review_entry.is_none()).then(|| crate::domain::ValidationRound {
+    (working && row.review_entry.is_none()).then_some(crate::domain::ValidationRound {
         round,
-        of: rounds_of(row, flow),
+        of: counted.rounds,
     })
-}
-
-/// The limit of the agent check the ticket counts rounds for, with the rounds the user added.
-fn rounds_of(row: &TicketRow, flow: &crate::flow::Flow) -> u32 {
-    flow.check_rounds(
-        row.stage_id.as_deref(),
-        u32::try_from(row.validation_rounds_extra).unwrap_or(0),
-    )
 }
 
 /// "validator · round 1 of 3": the round the validator is checking (Validating…, Needs you · validator; d0063).
 fn validating_round(
-    row: &TicketRow,
     status: Status,
-    flow: &crate::flow::Flow,
+    counted: &CountedCheck,
 ) -> Option<crate::domain::ValidationRound> {
     matches!(status, Status::Checking | Status::CheckerNeedsYou).then(|| {
         crate::domain::ValidationRound {
-            round: u32::try_from(row.validation_round).unwrap_or(0) + 1,
-            of: rounds_of(row, flow),
+            round: counted.count.fails + 1,
+            of: counted.rounds,
         }
     })
 }

@@ -21,7 +21,7 @@ pub use priority::{PRIORITY_RANGE, Priority};
 pub use status::{Kind, Place, StartStep, Status, StatusSet};
 pub use ticket_env::{BuildState, ResourceState, SchemaOverlap};
 pub use validation::{
-    AutoMergeStop, ReviewEntry, ReviewEntryFlag, ValidationAction, ValidationOutcome,
+    AutoMergeStop, MovedPast, ReviewEntry, ReviewEntryFlag, ValidationAction, ValidationOutcome,
     ValidationRound, ValidationTrigger,
 };
 

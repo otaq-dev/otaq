@@ -16,6 +16,13 @@
 //! cancelled: the validator stops, the round doesn't count, the agent works again and is told so. Changes are
 //! noticed on the agent's turn ends and on verdicts; Otaq never stashes or touches the worktree to check.
 //!
+//! **Any agent check of any flow** runs this way (FLW-13, d0108 second gap review rule 9): each counts its own fails
+//! in a row ([`crate::board::validation::CheckCounts`]) against its own rounds; a pass into another agent check opens
+//! that check's round and starts its checker; 0063's rules (VAL-02, VAL-07, VAL-08) and Stop this check hold
+//! whatever the check's skill. **Move on anyway** and **Skip this check** take the card to the engine's next stage,
+//! and its Delivery is then in click mode ([`Board::forced_click_reason`]); Skip this check is also offered on a check
+//! held for the plan limit when no fallback can take it (Q277), never on a held Agent stage.
+//!
 //! With validation off for the project the submit goes straight to Ready for Review, as before M12. Every round's
 //! validator goes through the check before every launch (SCH-04 `[M23]`, [`crate::agents::gate`]): when its
 //! tool is at its limit the round opens but no validator starts and the ticket shows "Waiting for limit reset";
@@ -31,15 +38,17 @@ use std::sync::{Arc, Mutex};
 
 use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole};
 use crate::agents::gate::{Gated, Held, LaunchGate, Scope};
-use crate::agents::{RunsOn, SessionRole, resolve};
+use crate::agents::store::HoldScope;
+use crate::agents::{AgentHold, HoldReason, RunsOn, SessionRole, resolve};
 use crate::board::tickets::Ticket;
 use crate::board::validation::{
-    Round, Transition, ValidationEvent, ValidationState, findings_message, transition,
+    CheckCounts, Transition, ValidationEvent, ValidationState, findings_message, transition,
 };
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::validation::{CancelledBy, cancelled_toast};
-use crate::domain::{Actor, Place, Status, ValidationAction, ValidationTrigger};
+use crate::domain::{Actor, MovedPast, Place, Status, ValidationAction, ValidationTrigger};
 use crate::epic_lead::stuck::FirstStop;
+use crate::flow::engine::Counters;
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
@@ -180,19 +189,13 @@ impl Validation {
         {
             return Err(self.changed_under_validation(&ticket).await?);
         }
-        let extra = board.validation_rounds_extra(&ticket.id).await?;
-        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
-        let rounds = check_rounds(&flow, &ticket, extra);
-        let skips = board.ticket_skips(&ticket, &flow).await?;
+        let facts = self.check_facts(&ticket).await?;
+        let (flow, rounds) = (&facts.flow, facts.rounds);
+        // Auto-merge only for work that passed its checks: not once the user moved it past one (d0108).
+        let forced = facts.counts.moved_past_reason(flow).is_some();
         let state = ValidationState {
-            flow: &flow,
-            place: &ticket.place,
-            status: ticket.status,
-            round: ticket.validation_round,
-            rounds,
-            auto_merge: auto_merge_applies(&ticket, &flow),
-            conflicts: ticket.auto_merge_conflicts,
-            skips: &skips,
+            auto_merge: auto_merge_applies(&ticket, flow) && !forced,
+            ..facts.state(&ticket)
         };
         let event = if pass {
             ValidationEvent::Pass
@@ -208,7 +211,7 @@ impl Validation {
             let place = ticket
                 .place
                 .stage()
-                .and_then(|id| crate::flow::engine::back_to(&flow, id, &[]))
+                .and_then(|id| crate::flow::engine::back_to(flow, id, &[]))
                 .map_or_else(|| ticket.place.clone(), |s| Place::stage_of(&s.id));
             Transition {
                 to: Status::Working,
@@ -243,14 +246,67 @@ impl Validation {
                 .await?;
         }
         if step.deliver_findings {
-            let round = ticket.validation_round + 1;
+            let round = facts.fails + 1;
             self.tell_agent(&ticket, &findings_message(round, rounds, report))
                 .await;
+        }
+        if step.start_validator {
+            // A pass into the next agent check: its own round and checker (FLW-13).
+            self.start_next_check(&ticket.id, ValidationTrigger::Agent)
+                .await?;
         }
         if step.auto_merge {
             self.run_auto_merge(&ticket).await;
         }
         board.ticket_by_id(&ticket.id).await
+    }
+
+    /// What the rules need about the ticket's agent check ([`CheckFacts`]).
+    async fn check_facts(&self, ticket: &Ticket) -> Result<CheckFacts, BoardError> {
+        let board = &self.inner.board;
+        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+        let skips = board.ticket_skips(ticket, &flow).await?;
+        let counts = board.check_counts(&ticket.id).await?;
+        let count = counts
+            .counting(&flow, &ticket.place)
+            .map(|check| counts.of(&check.id))
+            .unwrap_or_default();
+        let rounds = flow.check_rounds(
+            counts
+                .counting(&flow, &ticket.place)
+                .map(|check| check.id.as_str()),
+            count.extra,
+        );
+        Ok(CheckFacts {
+            flow,
+            skips,
+            fails: count.fails,
+            rounds,
+            counts,
+        })
+    }
+
+    /// The ticket has just entered another agent check from one (a pass, a skip, Move on anyway): that check's round
+    /// opens and its checker starts; a checker that can't start ends the round without a result, as a submit's.
+    async fn start_next_check(
+        &self,
+        ticket_id: &str,
+        trigger: ValidationTrigger,
+    ) -> Result<(), BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.ticket_by_id(ticket_id).await?;
+        if !validating(ticket.status) {
+            return Ok(());
+        }
+        board.open_next_check(&ticket, trigger).await?;
+        self.forget_turns(ticket_id);
+        if let Err(e) = self.start_validator(ticket_id).await {
+            tracing::warn!(key = %ticket.key, error = %e, "the next check's checker didn't start");
+            board
+                .validator_did_not_start(ticket_id, &e.to_string())
+                .await?;
+        }
+        Ok(())
     }
 
     /// How Auto-merge runs (the service registers Review's).
@@ -339,24 +395,9 @@ impl Validation {
         ticket: &Ticket,
         event: ValidationEvent,
     ) -> Result<crate::board::validation::Transition, BoardError> {
-        let board = &self.inner.board;
-        let extra = board.validation_rounds_extra(&ticket.id).await?;
-        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
-        let skips = board.ticket_skips(ticket, &flow).await?;
-        transition(
-            ValidationState {
-                flow: &flow,
-                place: &ticket.place,
-                status: ticket.status,
-                round: ticket.validation_round,
-                rounds: check_rounds(&flow, ticket, extra),
-                auto_merge: false,
-                conflicts: ticket.auto_merge_conflicts,
-                skips: &skips,
-            },
-            event,
-        )
-        .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))
+        let facts = self.check_facts(ticket).await?;
+        transition(facts.state(ticket), event)
+            .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))
     }
 
     async fn stop_validator(&self, ticket: &Ticket) {
@@ -437,22 +478,48 @@ impl Validation {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
         match action {
-            ValidationAction::Stop | ValidationAction::Skip => {
-                let event = if action == ValidationAction::Stop {
-                    ValidationEvent::StopValidation
-                } else {
-                    ValidationEvent::SkipToReview
-                };
-                let step = self.step(&ticket, event).await?;
+            ValidationAction::Stop => {
+                let step = self.step(&ticket, ValidationEvent::StopValidation).await?;
                 self.stop_validator(&ticket).await;
                 board.end_round(&ticket, &step, "", None, actor).await?;
                 self.forget_turns(&ticket.id);
             }
+            ValidationAction::Skip => {
+                if ticket.status == Status::WaitingForLimitReset {
+                    self.may_skip_held(&ticket).await?;
+                }
+                let step = self.step(&ticket, ValidationEvent::SkipCheck).await?;
+                self.stop_validator(&ticket).await;
+                if ticket.status == Status::WaitingForLimitReset {
+                    board
+                        .store()
+                        .clear_agent_hold(HoldScope::Ticket(&ticket.id), SessionRole::Validator)
+                        .await?;
+                }
+                board.end_round(&ticket, &step, "", None, actor).await?;
+                if let Some(check) = ticket.place.stage() {
+                    board
+                        .moved_past_check(&ticket.id, check, MovedPast::Skipped)
+                        .await?;
+                }
+                self.forget_turns(&ticket.id);
+                if step.start_validator {
+                    self.start_next_check(&ticket.id, ValidationTrigger::User)
+                        .await?;
+                }
+            }
             ValidationAction::MoveToReviewAnyway => {
-                let step = self
-                    .step(&ticket, ValidationEvent::MoveToReviewAnyway)
-                    .await?;
-                board.move_to_review(&ticket, step.entry, actor).await?;
+                let step = self.step(&ticket, ValidationEvent::MoveOnAnyway).await?;
+                let how = if ticket.status == Status::CheckFailed {
+                    MovedPast::Failed
+                } else {
+                    MovedPast::Skipped
+                };
+                board.move_on_from_check(&ticket, &step, how, actor).await?;
+                if step.start_validator {
+                    self.start_next_check(&ticket.id, ValidationTrigger::User)
+                        .await?;
+                }
             }
             ValidationAction::AnotherRound | ValidationAction::AnswerAgent => {
                 let event = if action == ValidationAction::AnotherRound {
@@ -495,6 +562,35 @@ impl Validation {
         board.ticket_by_id(&ticket.id).await
     }
 
+    /// Skip this check on a check held for the plan limit is the user's only when no fallback can take it (Q277):
+    /// none set, or the fallback at its limit too. Otherwise Use fallback is the way on.
+    async fn may_skip_held(&self, ticket: &Ticket) -> Result<(), BoardError> {
+        let hold = self
+            .inner
+            .board
+            .store()
+            .agent_hold(HoldScope::Ticket(&ticket.id), SessionRole::Validator)
+            .await?;
+        match hold {
+            Some(hold) if skip_at_limit(&hold) => Ok(()),
+            Some(hold) if hold.reason == HoldReason::ToolLimit => Err(BoardError::refused(
+                Refusal::MoveRefused,
+                format!(
+                    "{}'s check can run on {}'s fallback: use the fallback instead",
+                    ticket.key,
+                    hold.tool.display_name()
+                ),
+            )),
+            _ => Err(BoardError::refused(
+                Refusal::MoveRefused,
+                format!(
+                    "{}'s check isn't waiting for its tool's plan limit",
+                    ticket.key
+                ),
+            )),
+        }
+    }
+
     /// The epic lead's one note to a child whose "Validation failed N times" waits for it (LEAD-07, d0083): it
     /// counts as Answer the agent (VAL-06). The round counter restarts at 0 and the note goes to the agent with the
     /// last findings. The child is at work already (its stop was held there).
@@ -506,29 +602,25 @@ impl Validation {
     ) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
-        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
-        // The child is at work already (its stop was held there): the row is the failed check's.
-        let place = Place::of(Status::CheckFailed, None, None);
+        let facts = self.check_facts(&ticket).await?;
+        // The child is at work already (its stop was held there): the row is the failed check's, the one that
+        // counted last (the lead's note is per check stage, d0083).
+        let Some(check) = facts.counts.counting(&facts.flow, &ticket.place) else {
+            return Err(BoardError::refused(
+                Refusal::MoveRefused,
+                format!("{} has no failed check to answer", ticket.key),
+            ));
+        };
+        let place = Place::stage_of(&check.id);
         let failed = ValidationState {
-            flow: &flow,
             place: &place,
             status: Status::CheckFailed,
-            round: ticket.validation_round,
-            rounds: ticket.validation_round,
-            auto_merge: false,
-            conflicts: ticket.auto_merge_conflicts,
-            skips: &[],
+            ..facts.state(&ticket)
         };
         let step = transition(failed, ValidationEvent::AnswerAgent)
             .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;
-        debug_assert_eq!(step.round, Round::Reset);
-        sqlx::query(
-            "UPDATE tickets SET validation_round = 0, validation_rounds_extra = 0, updated_at = ? WHERE id = ?",
-        )
-        .bind(crate::store::now_ms())
-        .bind(&ticket.id)
-        .execute(board.store().pool())
-        .await?;
+        debug_assert_eq!(step.counters, Counters::ResetThis);
+        board.reset_check_counter(&ticket.id, &check.id).await?;
         let findings = board.last_report(&ticket.id).await?.unwrap_or_default();
         let after = board.ticket_by_id(&ticket.id).await?;
         self.tell_agent(
@@ -801,7 +893,6 @@ impl Validation {
     ) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
-        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
         // The agent's "next stage" (STG-06): an agent check validates; anything else (Validation off: Review) is
         // the plain submit.
         if !self.next_is_agent_check(&ticket).await? {
@@ -825,19 +916,9 @@ impl Validation {
             ValidationTrigger::Agent => ValidationEvent::AgentSubmit,
             ValidationTrigger::User => ValidationEvent::UserNextStage,
         };
-        let skips = board.ticket_skips(&ticket, &flow).await?;
-        let state = ValidationState {
-            flow: &flow,
-            place: &ticket.place,
-            status: ticket.status,
-            round: ticket.validation_round,
-            rounds: check_rounds(&flow, &ticket, 0),
-            auto_merge: false,
-            conflicts: ticket.auto_merge_conflicts,
-            skips: &skips,
-        };
-        let step =
-            transition(state, event).map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;
+        let facts = self.check_facts(&ticket).await?;
+        let step = transition(facts.state(&ticket), event)
+            .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;
         let head = board.submit_head(&ticket).await?;
         board
             .enter_validation(&ticket, &step, &head, summary, trigger, false, actor)
@@ -1103,6 +1184,15 @@ fn lead_findings_message(ticket: &Ticket, findings: &str, lead: &str, note: &str
     )
 }
 
+/// Whether a hold offers **Skip this check** (FLW-13, Q277): an agent check's checker held for its tool's plan limit
+/// with no usable fallback (none set, or the fallback at its limit too). An Agent stage held for the limit never
+/// offers it, nor does any other hold.
+pub fn skip_at_limit(hold: &AgentHold) -> bool {
+    hold.role == SessionRole::Validator
+        && hold.reason == HoldReason::ToolLimit
+        && hold.fallback_tool.is_none()
+}
+
 /// Whether a passed agent check merges the ticket without a click (AMG-01 until T-0419 replaces Auto-merge): its
 /// flow's Delivery stage is `mode: automatic` and `delivers: local`; never for an epic.
 pub fn auto_merge_applies(ticket: &Ticket, flow: &crate::flow::Flow) -> bool {
@@ -1115,10 +1205,29 @@ pub fn auto_merge_applies(ticket: &Ticket, flow: &crate::flow::Flow) -> bool {
         })
 }
 
-/// The limit of the agent check the ticket is in, or (from its Agent stage) of the one it goes to next: the
-/// check's rounds plus `extra` ([`crate::flow::Flow::check_rounds`]).
-fn check_rounds(flow: &crate::flow::Flow, ticket: &Ticket, extra: u32) -> u32 {
-    flow.check_rounds(ticket.place.stage(), extra)
+/// What the rules need about a ticket's agent check: the flow, the stages it skips, and the counter of the check it
+/// counts rounds for ([`CheckCounts::counting`]): its fails in a row and its rounds with the extra ones.
+struct CheckFacts {
+    flow: crate::flow::Flow,
+    skips: Vec<String>,
+    fails: u32,
+    rounds: u32,
+    counts: CheckCounts,
+}
+
+impl CheckFacts {
+    fn state<'a>(&'a self, ticket: &'a Ticket) -> ValidationState<'a> {
+        ValidationState {
+            flow: &self.flow,
+            place: &ticket.place,
+            status: ticket.status,
+            fails: self.fails,
+            rounds: self.rounds,
+            auto_merge: false,
+            conflicts: ticket.auto_merge_conflicts,
+            skips: &self.skips,
+        }
+    }
 }
 
 /// Validating…, or its validator waits on a prompt.

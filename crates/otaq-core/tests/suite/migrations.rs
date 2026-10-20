@@ -258,17 +258,18 @@ async fn validation_columns_start_empty() {
     .await;
     pool.close().await;
 
-    let store = Store::open(&path).await.unwrap();
+    // Up to 0025 only: 0051 drops the round counter (each check counts its own, T-0417).
+    let store = database_at(&path, 25).await;
     let row: (Option<String>, i64, i64, Option<String>, bool) = sqlx::query_as(
         "SELECT review_entry, validation_round, auto_merge_conflicts, auto_merge_stop, merged_automatically
          FROM tickets WHERE id = 't18'",
     )
-    .fetch_one(store.pool())
+    .fetch_one(&store)
     .await
     .unwrap();
     assert_eq!(row, (None, 0, 0, None, false));
     exec(
-        store.pool(),
+        &store,
         "INSERT INTO validations (id, ticket_id, round, trigger, started_at) VALUES ('v1', 't18', 1, 'agent', 0)",
     )
     .await;
@@ -1628,7 +1629,13 @@ async fn every_state_moves_to_its_place_and_stage() {
         .unwrap();
     let kept: Vec<&String> = columns
         .iter()
-        .filter(|c| !matches!(c.as_str(), "board_column" | "state"))
+        // 0051 drops the round counters too (each check counts its own, T-0417).
+        .filter(|c| {
+            !matches!(
+                c.as_str(),
+                "board_column" | "state" | "validation_round" | "validation_rounds_extra"
+            )
+        })
         .collect();
     let snapshot = |pool: SqlitePool| {
         let list = kept
