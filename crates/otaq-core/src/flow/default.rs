@@ -47,6 +47,27 @@ pub fn effective_flow(settings: &EffectiveSettings) -> Flow {
 impl Board {
     /// The flow of a project (by name or key), read from its settings now.
     pub async fn effective_flow(&self, project: &str) -> Result<Flow, BoardError> {
+        if let Some(flow) = self.test_flow(project) {
+            return Ok(flow);
+        }
         Ok(effective_flow(&self.effective_settings(project).await?))
+    }
+
+    /// Tests only: puts the project `key` on `flow` (the test flow, `tests/flows/every-kind.yaml`) for this board's
+    /// life, wherever the board reads a project's flow. Nothing is stored: storing applied flows is M33's.
+    #[doc(hidden)]
+    pub fn use_flow_for_tests(&self, key: &str, flow: Flow) {
+        self.test_flows
+            .lock()
+            .expect("test flows")
+            .insert(key.to_owned(), flow);
+    }
+
+    fn test_flow(&self, project: &str) -> Option<Flow> {
+        self.test_flows
+            .lock()
+            .expect("test flows")
+            .get(project)
+            .cloned()
     }
 }

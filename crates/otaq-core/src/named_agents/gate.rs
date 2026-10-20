@@ -1,4 +1,4 @@
-//! The check before every launch (SCH-04 `[M23]`, AGT-05, AGT-08, USG-10; d0086, d0088, d0018; T-0357).
+//! The check before every launch (SCH-04 `[M23]`, AGT-05, AGT-08, USG-10, STG-07; d0086, d0088, d0018, d0108; T-0357).
 //!
 //! Every **new session** of a role runs it right after M22's resolution ([`super::resolve`]): the Developer's start
 //! (and Retry start), each Validator round, an epic lead's start (Open lead, the drag), a Project agent's first
@@ -19,7 +19,8 @@
 //! agents automatically" is on: the row **moves** to it, recording where from and why ([`super::RowMove`]), even a
 //! row *set by you* (who set it stays; a default row becomes Otaq's pick), and the session launches there. Otherwise the role is **held** ([`super::AgentHold`]): with the
 //! fallback offered (Use fallback), with "both held" when the fallback is blocked too, or with nothing to offer
-//! (Change agent). A held Developer stays in Ready for Dev (Held, its step naming the reason); nothing locks.
+//! (Change agent). A held Developer stays waiting before its Agent stage (Held, its step naming the reason; Ready
+//! for Dev before the first, between two Agent stages before the next, STG-07); nothing locks.
 //!
 //! **A hold lifts** when its cause may have gone ([`LaunchGate::run`]): a tool's state changes, a limit is resumed or
 //! resets, a list is read again, an entry, a default or a row changes, the automatic fallback is turned on, or the
@@ -1024,17 +1025,17 @@ fn same_hold(stored: &AgentHold, held: &Held) -> bool {
         && stored.fallback_held == held.fallback_held
 }
 
-/// Whether the ticket still waits for its held `role`: a Developer held in Ready for Dev, a validation round that
-/// opened without its validator, an epic whose lead could still start.
+/// Whether the ticket still waits for its held `role`: a Developer held before an Agent stage (Ready for Dev before
+/// the first, STG-07), a validation round that opened without its validator, an epic whose lead could still start.
 pub fn still_waits(ticket: &Ticket, role: Role) -> bool {
     match role {
-        Role::Developer => ticket.board_group() == StatusSet::Waiting,
+        Role::Developer => ticket.place.is_waiting(),
         Role::Validator => matches!(
             ticket.status,
             Status::Checking | Status::WaitingForLimitReset
         ),
         Role::EpicLead => !matches!(
-            ticket.board_group(),
+            ticket.status.set(),
             StatusSet::HumanCheck | StatusSet::Delivery | StatusSet::Done
         ),
         Role::ProjectAgent => false,

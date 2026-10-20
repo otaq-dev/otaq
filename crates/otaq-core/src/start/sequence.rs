@@ -25,6 +25,12 @@
 //! ticket whose build was freed at Review gets it back before its ports and agent ([`TicketEnv::fetch_build`],
 //! M19-c); a setup that fails there is Start interrupted at the setup step, like a new worktree's.
 //!
+//! **The next Agent stage** (STG-07, d0108): a ticket that finished one Agent stage waits before the next one as a
+//! queued ticket does (dependencies, the limit, the holds), and the same sequence starts it there: it keeps its
+//! worktree (no base sync, env files or setup), the previous stage's session is stopped, and a new conversation
+//! begins, checked before its launch like any new one. The ticket enters the stage it waited before
+//! ([`crate::flow::engine::Move::Begin`]).
+//!
 //! **A model the tool refused** on the Developer's first turn (AGT-05) sends the ticket back the same way, as Start
 //! interrupted at the `model` step (Start failed), counted as not started ([`Starter::model_refused`]).
 //!
@@ -43,10 +49,12 @@ use serde_json::{Value, json};
 use super::{StartError, begin_setup_log, copy_env_files, prepare_worktree, run_setup};
 use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole, WORK_TICKET_SKILL};
 use crate::board::settings::WorkflowStep;
+use crate::board::stage_runs::{Moved, end_open};
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, BuildState, StartStep, Status};
+use crate::domain::{Actor, BuildState, Place, StartStep, Status};
+use crate::flow::engine::{Move, RunResult, first_stage};
 use crate::git::BaseSync;
 use crate::named_agents::gate::{Gated, Held, LaunchGate, Scope};
 use crate::named_agents::{Resolved, Role, RunsOn, resolve_ticket_role};
@@ -347,14 +355,27 @@ impl Starter {
         let to = Status::StartInterrupted;
         let now = now_ms();
         let actor = Actor::Agent(ticket.key.clone());
+        // Not started: waiting again before the Agent stage it was starting (Ready for Dev before the first).
+        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+        let waits_before = ticket
+            .place
+            .stage()
+            .filter(|id| {
+                first_stage(&flow, &[])
+                    .1
+                    .is_none_or(|first| first.id != *id)
+            })
+            .map(str::to_owned);
         let mut tx = board.store().begin_write().await?;
+        end_open(&mut tx, &ticket.id, RunResult::Cancelled, None).await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET stage_id = NULL, state = ?, start_problem_step = ?, start_problem_message = ?,
+            "UPDATE tickets SET stage_id = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
                                 started_at = NULL, signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
                                 interrupted_from = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
+        .bind(waits_before)
         .bind(to.as_str())
         .bind(StartStep::Model.as_str())
         .bind(message)
@@ -498,15 +519,21 @@ impl Starter {
             .project_git(&project.key)
             .await
             .map_err(|e| (StartStep::Base, e.into()))?;
-        let returning = Returning::of(board, ticket)
-            .await
-            .map_err(|e| (StartStep::Base, e.into()))?;
+        // Waiting before a later Agent stage: a new conversation in the worktree it has (STG-07).
+        let next_stage = matches!(ticket.place, Place::Waiting(Some(_)));
+        let returning = match next_stage {
+            true => None,
+            false => Returning::of(board, ticket)
+                .await
+                .map_err(|e| (StartStep::Base, e.into()))?,
+        };
         // The check before every launch, for a new conversation only (AGT-05, d0088: once, at session start).
-        let new_conversation = !returning.as_ref().is_some_and(|r| r.conversation.is_some())
-            && inner
-                .sessions
-                .running_of(&ticket.id, SessionKind::Agent)
-                .is_none();
+        let new_conversation = next_stage
+            || (!returning.as_ref().is_some_and(|r| r.conversation.is_some())
+                && inner
+                    .sessions
+                    .running_of(&ticket.id, SessionKind::Agent)
+                    .is_none());
         let mut checked = None;
         if new_conversation {
             let resolved = resolve_ticket_role(board, ticket, Role::Developer)
@@ -525,7 +552,7 @@ impl Starter {
             };
             checked = Some((runs_on, resolved));
         }
-        let keep_worktree = returning.is_some()
+        let keep_worktree = (returning.is_some() || next_stage)
             && ticket
                 .work
                 .as_ref()
@@ -693,9 +720,15 @@ impl Starter {
             .await
             .map_err(|e| (StartStep::Ports, StartError::Other(e.to_string())))?;
 
-        // 7. The agent. A session still running from an earlier attempt is reused.
+        // 7. The agent. A session still running from an earlier attempt is reused; the previous stage's is stopped.
         self.mark_step(ticket, StartStep::Launch).await;
-        if let Some(running) = inner.sessions.running_of(&ticket.id, SessionKind::Agent) {
+        let running = inner.sessions.running_of(&ticket.id, SessionKind::Agent);
+        if let Some(previous) = running.as_ref().filter(|_| next_stage)
+            && let Err(e) = inner.sessions.stop(&previous.id).await
+        {
+            tracing::warn!(ticket = %key, error = %e, "can't stop the previous stage's session");
+        }
+        if let Some(running) = running.filter(|_| !next_stage) {
             if let (Some(skill), Some(deliveries)) = (
                 returning.as_ref().and_then(|r| r.skill.as_deref()),
                 inner.deliveries.get(),
@@ -912,15 +945,23 @@ impl Starter {
     ) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
         let now = now_ms();
+        // Started: into the Agent stage it waited before (the first one it runs from Ready for Dev), past the stages
+        // it skips. Any other status keeps it waiting where it is.
+        let begun = match status {
+            Status::Working => Some(self.begin(ticket).await?),
+            _ => None,
+        };
         let mut tx = board.store().begin_write().await?;
+        if let Some(begun) = &begun {
+            begun.record(&mut tx, &ticket.id, None).await?;
+        }
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = COALESCE(?, stage_id), state = ?, start_problem_step = ?,
                                 start_problem_message = ?, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        // Started: in the default flow's Agent stage (T-0401 starts it into the stage it waits before).
-        .bind(crate::flow::engine::default_stage(status, None))
+        .bind(begun.as_ref().and_then(|b| b.place.stage_id()))
         .bind(status.as_str())
         .bind(problem.map(|(step, _)| step.as_str()))
         .bind(problem.map(|(_, message)| message))
@@ -936,6 +977,31 @@ impl Starter {
         let after = board.ticket_by_id(&ticket.id).await?;
         self.publish(&after, ticket.status != after.status);
         Ok(after)
+    }
+
+    /// Where the scheduler's start takes a waiting ticket in its project's flow ([`Move::Begin`]). A stage the flow
+    /// no longer has (the flow changed while it waited) starts it in the first Agent stage instead.
+    async fn begin(&self, ticket: &Ticket) -> Result<Moved, BoardError> {
+        let board = &self.inner.board;
+        let waiting = if ticket.place.is_waiting() {
+            ticket.place.clone()
+        } else {
+            Place::Waiting(None)
+        };
+        let at = Ticket {
+            place: waiting,
+            ..ticket.clone()
+        };
+        match board.moved(&at, Status::Queued, Move::Begin).await {
+            Ok(begun) => Ok(begun),
+            Err(_) => {
+                let first = Ticket {
+                    place: Place::Waiting(None),
+                    ..ticket.clone()
+                };
+                board.moved(&first, Status::Queued, Move::Begin).await
+            }
+        }
     }
 
     /// Records a note in the ticket's history without changing its status.

@@ -174,11 +174,18 @@ impl Board {
             .moved(&ticket, Status::Working, Move::SubmitByUser)
             .await?;
         let status = step.status;
+        // On to another Agent stage: the ticket waits before it as a queued one does (STG-07), its wait counted from
+        // now; the review's marks are a human check's.
+        let waits = step.place.is_waiting();
         let mut tx = self.store.begin_write().await?;
         step.record(&mut tx, &ticket.id, Some(summary)).await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET stage_id = ?, state = ?, review_head_sha = ?, review_entered_at = ?,
-                                review_entry = ?,
+            "UPDATE tickets SET stage_id = ?, state = ?,
+                                review_head_sha = CASE WHEN ? THEN review_head_sha ELSE ? END,
+                                review_entered_at = CASE WHEN ? THEN review_entered_at ELSE ? END,
+                                review_entry = CASE WHEN ? THEN review_entry ELSE ? END,
+                                queued_at = CASE WHEN ? THEN ? ELSE queued_at END,
+                                ready_since = CASE WHEN ? THEN NULL ELSE ready_since END,
                                 signal_text = NULL, signal_since = NULL, wakeup_at = NULL, sent_back_at = NULL,
                                 resume_skill = NULL, conflicts_with = NULL, conflict_files = NULL,
                                 conflict_reason = NULL, pr_rework = FALSE, updated_by = ?,
@@ -188,9 +195,15 @@ impl Board {
         ))
         .bind(step.place.stage_id())
         .bind(status.as_str())
+        .bind(waits)
         .bind(&head)
+        .bind(waits)
         .bind(now)
+        .bind(waits)
         .bind(entry.map(|e| e.as_str()))
+        .bind(waits)
+        .bind(now)
+        .bind(waits)
         .bind(actor.to_string())
         .bind(now)
         .bind(status.as_str())

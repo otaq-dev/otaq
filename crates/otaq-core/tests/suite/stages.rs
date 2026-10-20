@@ -530,6 +530,12 @@ fn a_fail_walks_every_later_stage_again() {
     card.apply(Move::Begin);
     assert_eq!(card.at(), Some("grill"));
     card.apply(Move::NextStage);
+    // Dev is an Agent stage: the card waits before it until the scheduler starts it (STG-07).
+    assert_eq!(
+        (&card.place, card.status),
+        (&Place::Waiting(Some("dev".into())), Status::Queued)
+    );
+    card.apply(Move::Begin);
     assert_eq!(card.at(), Some("dev"));
     card.apply(Move::NextStage);
     assert_eq!(

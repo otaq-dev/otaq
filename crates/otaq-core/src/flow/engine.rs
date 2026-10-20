@@ -7,6 +7,7 @@
 //!   A Fail returns the card to the nearest earlier Agent stage, which resumes its session; from there it walks
 //!   every later stage again. Each agent check counts its own fails in a row ([`Counters`]); a human Fail resets
 //!   them all. A human check directly followed by a click Delivery offers the delivery choices as its Pass.
+//!   Moving on into an Agent stage waits before it (STG-07): only the scheduler's [`Move::Begin`] enters it.
 //! - [`drag`]: a drag's verdict (today's drag rules, by stage kind).
 //! - [`default_stage`]: the default flow's stage for a status, for the writes that don't know the flow yet (until
 //!   T-0401–T-0403 move them onto stages).
@@ -348,6 +349,28 @@ fn enter<'f>(at: &At<'f, '_>, skipped: Vec<&'f Stage>, stage: Option<&'f Stage>)
     step
 }
 
+/// Moving on from a stage to `stage`, after walking over `skipped`: an Agent stage is waited for (STG-07, d0108
+/// "waiting is automatic before every Agent stage"): the ticket waits before it, as Ready for Dev waits before the
+/// first, until the scheduler starts it ([`Move::Begin`]). Any other stage is entered at once.
+fn move_on<'f>(at: &At<'f, '_>, skipped: Vec<&'f Stage>, stage: Option<&'f Stage>) -> Step<'f> {
+    match stage {
+        Some(stage) if stage.is_agent_stage() => {
+            let mut step = Step::to(
+                at,
+                Place::Waiting(Some(stage.id.clone())),
+                Status::Queued,
+                None,
+            );
+            step.passed_through = skipped
+                .into_iter()
+                .map(|s| (s, RunResult::Skipped))
+                .collect();
+            step
+        }
+        _ => enter(at, skipped, stage),
+    }
+}
+
 /// Back to the nearest earlier Agent stage, which resumes its session.
 fn back<'f>(at: &At<'f, '_>, from: &Stage) -> Result<Step<'f>, NotNow> {
     let to = back_to(at.flow, &from.id, at.skips).ok_or_else(|| {
@@ -392,7 +415,7 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
     let human_check = is(StageKind::Check { by: CheckBy::You });
     let forward = |also_skip: &dyn Fn(&Stage) -> bool| {
         let (skipped, next) = walk(at.flow, at.skips, at.index(), also_skip);
-        enter(&at, skipped, next)
+        move_on(&at, skipped, next)
     };
     Ok(match mv {
         Move::Start if at.place.is_backlog() => {
