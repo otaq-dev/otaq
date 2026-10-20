@@ -9,9 +9,11 @@
 //!   "40.2 asked lead" (calm), "40.3 lead's note" (violet), "40.3 failed" after the note (turquoise), and "new · by
 //!   Wishlist lead" for a child the lead added ("new" in a narrow station).
 //!
-//! Stations follow the board's columns, from the project's flow (SHL-06, CHANGES-v §5, STG-08): on the default flow
-//! one Review station for Ready for Review and Approved, and while Done is its rail the Done station is a check
-//! ([`Strip::with_done_rail`]).
+//! Stations follow the board's columns, from the project's flow (SHL-06, CHANGES-v §5, STG-08, FLW-19): on the
+//! default flow one Review station for Ready for Review and Approved, and while Done is its rail the Done station is
+//! a check ([`Strip::with_done_rail`]). An epic of a flow with no human check waits at the implicit **Review epic**
+//! stop when its children are done (d0108 rule 7, Q273): its track stays and shows the stop, the epic's own, in the
+//! station of the Delivery's column ("Review epic"); a click opens the epic, where the user passes it.
 //!
 //! Order (d0047, d0080 changelog): pinned epics (most recently pinned first) → tracks with a child that needs the
 //! user → the rest, by when the epic was first queued. Two states no frame draws reuse existing shapes: a parked
@@ -25,7 +27,9 @@
 
 use std::cmp::Reverse;
 
-use otaq_core::board::epic_flight::{EpicPlace, children_of, epic_place, is_parked};
+use otaq_core::board::epic_flight::{
+    EpicPlace, REVIEW_EPIC_NAME, children_of, epic_place, is_parked,
+};
 use otaq_core::board::epics::progress_of;
 use otaq_core::board::readiness::{ReadyState, readiness};
 use otaq_core::board::tickets::Ticket;
@@ -37,6 +41,7 @@ use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::theme::Status as Legend;
+use crate::view_models::board::at_review_epic;
 use crate::view_models::board_page::ColumnId;
 use crate::view_models::flow_columns::{ColumnKind, Columns, place_set};
 use crate::view_models::lead_status::LeadStatusView;
@@ -181,7 +186,9 @@ impl Strip {
         let lead_of = |epic: &Ticket| leads.iter().find(|l| l.epic == epic.key);
         let mut epics: Vec<&Ticket> = tickets
             .iter()
-            .filter(|t| t.is_epic() && epic_place(t, tickets) == EpicPlace::Track)
+            .filter(|t| {
+                t.is_epic() && (epic_place(t, tickets) == EpicPlace::Track || at_review_epic(t))
+            })
             .collect();
         if epics.is_empty() {
             return None;
@@ -256,10 +263,21 @@ fn track(epic: &Ticket, tickets: &[Ticket], columns: &Columns, lead: Option<&Lea
     let mut children = children_of(epic, tickets);
     children.sort_by(|a, b| a.key.cmp(&b.key));
     let progress = progress_of(&epic.key, tickets);
-    let stops: Vec<(ColumnId, Stop)> = children
-        .iter()
-        .filter(|c| !c.place.is_backlog())
-        .map(|c| (ColumnId::new(columns.spot(c).column), stop(c, tickets)))
+    // The epic at its Review epic stop first, in the Delivery's column (its card isn't on the board).
+    let review_epic = at_review_epic(epic).then(|| {
+        (
+            ColumnId::new(columns.spot(epic).column),
+            review_epic_stop(epic),
+        )
+    });
+    let stops: Vec<(ColumnId, Stop)> = review_epic
+        .into_iter()
+        .chain(
+            children
+                .iter()
+                .filter(|c| !c.place.is_backlog())
+                .map(|c| (ColumnId::new(columns.spot(c).column), stop(c, tickets))),
+        )
         .collect();
     let stations: Vec<ColumnId> = columns
         .iter()
@@ -410,6 +428,23 @@ fn stop_state(child: &Ticket, tickets: &[Ticket]) -> (StopState, IconName, Optio
         // At work without a needs-you state: working, in background, validating; also Interrupted, Resume failed
         // and Waiting for limit reset, whose tooltip names them (Q56).
         _ => (StopState::Working, IconName::Activity, None),
+    }
+}
+
+/// The epic waiting at the implicit Review epic stop (FLW-19, Q273; *Row · Epics in a custom flow*): "Review epic"
+/// in the review colour with your check's person. It waits for the user's Pass, which the epic's panel offers.
+fn review_epic_stop(epic: &Ticket) -> Stop {
+    Stop {
+        key: epic.key.to_string(),
+        state: StopState::InReview,
+        icon: IconName::UserCheck,
+        note: None,
+        label: REVIEW_EPIC_NAME.to_owned(),
+        short_label: REVIEW_EPIC_NAME.to_owned(),
+        tooltip: format!("{} {} · {REVIEW_EPIC_NAME}", epic.key, epic.title),
+        needs_you: false,
+        new: None,
+        new_short: None,
     }
 }
 

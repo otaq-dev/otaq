@@ -18,7 +18,8 @@
 // its name (EPC-14, T-0271): onto Backlog it takes back, at once or after the Park-all confirmation. Clicking a
 // track's name or `g` `e` on a selected epic, child or track focuses the epic (EPC-18, T-0274): its `epic:` token goes in
 // the filter, the other cards, tracks and Done lines dim (Q55), the arrow keys walk only its cards, and Esc leaves.
-// A track's right click is its epic's menu.
+// A track's right click is its epic's menu. A long flow that doesn't fit (FLW-12) gets the stage strip above the
+// board (`StageStrip`): the columns in view outlined, a click scrolls to one.
 import {
   type CSSProperties,
   type KeyboardEvent,
@@ -82,6 +83,7 @@ import {
 } from "./drag";
 import { EmptyBoard } from "./EmptyBoard";
 import { NoProjects } from "./NoProjects";
+import { columnsInView, StageStrip } from "./StageStrip";
 import {
   agentOf,
   boardAgent,
@@ -123,6 +125,8 @@ export const BOARD_EVENTS = [
   "lead_changed",
   // A named agent renamed or a role default changed: the footers' agent names (T-0345).
   "agents_changed",
+  // A flow change waits (Ready for Dev's "Waiting for the flow change") or applied (the columns change; FLW-06).
+  "flow_changed",
 ];
 
 /** Cards say how long ago their last signal came ("12s"); the board refetches this often to keep that true. */
@@ -825,6 +829,33 @@ export function Board() {
     if (next !== null) board.scrollLeft = next;
   }, [selected, selectedColumn, covered]);
 
+  // The stage strip's outlines: the columns in view, again as the board scrolls or resizes (FLW-12).
+  const [inView, setInView] = useState<ReadonlySet<string>>(() => new Set());
+  const stageStrip = view?.stage_strip ?? null;
+  const measureInView = useCallback(() => {
+    const board = boardEl.current;
+    if (!board || stageStrip === null) return;
+    const b = board.getBoundingClientRect();
+    const spans = stageStrip.columns.flatMap(({ column }) => {
+      const r = columns.current.get(column)?.getBoundingClientRect();
+      return r ? [{ id: column, left: r.left, right: r.right }] : [];
+    });
+    const next = columnsInView(spans, { left: b.left, right: b.right - covered });
+    setInView((old) => (old.size === next.size && [...next].every((id) => old.has(id)) ? old : next));
+  }, [stageStrip, covered]);
+  useLayoutEffect(() => {
+    measureInView();
+  }, [measureInView, size]);
+  const pickColumn = useCallback((column: BoardColumnId) => {
+    const board = boardEl.current;
+    const el = columns.current.get(column);
+    if (!board || !el) return;
+    const pad = parseFloat(getComputedStyle(board).paddingLeft) || 0;
+    const left =
+      el.getBoundingClientRect().left - board.getBoundingClientRect().left + board.scrollLeft - pad;
+    board.scrollTo({ left, behavior: "smooth" });
+  }, []);
+
   // The columns' widths and their least total (for the room after them), from the view (SHL-01).
   const boardStyle = useMemo(() => {
     if (!view) return undefined;
@@ -859,6 +890,7 @@ export function Board() {
       style={boardStyle}
       onScroll={(e) => {
         if (project !== null) rememberBoardScroll(project, e.currentTarget.scrollLeft);
+        measureInView();
       }}
       // A card that moved away under the pointer never reports leaving; leaving the board ends its highlight.
       onPointerLeave={() => {
@@ -868,6 +900,7 @@ export function Board() {
         background.press(e);
       }}
     >
+      {stageStrip !== null && <StageStrip strip={stageStrip} inView={inView} onPick={pickColumn} />}
       {view?.strip && (
         <Strip
           strip={view.strip}

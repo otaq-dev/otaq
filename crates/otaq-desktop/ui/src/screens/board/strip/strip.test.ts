@@ -171,6 +171,65 @@ describe("column alignment", () => {
     ]);
   });
 
+  it("draws a rail cell under every rail, an empty stage of a long flow too (FLW-12)", () => {
+    const columns = [
+      { id: "backlog", collapsed: false },
+      { id: "ready_for_dev", collapsed: false },
+      { id: "grill", collapsed: true },
+      { id: "dev", collapsed: false },
+      { id: "done", collapsed: true },
+    ];
+    expect(trackCells(columns, WISHLIST).map((c) => [c.kind, c.column])).toEqual([
+      ["label", "backlog"],
+      ["station", "ready_for_dev"],
+      ["rail", "grill"],
+      ["station", "dev"],
+      ["rail", "done"],
+    ]);
+  });
+
+  it("shows an epic at Review epic as its own stop on its track (FLW-19, Q273)", () => {
+    const review: EpicStop = {
+      ...stop("SHOP-12", "in_review", null),
+      icon: "user-check",
+      label: "Review epic",
+      short_label: "Review epic",
+      tooltip: "SHOP-12 Plugin API · Review epic",
+    };
+    expect(stopKey(review)).toBe("Review epic");
+    const track: EpicTrack = {
+      ...WISHLIST,
+      key: "SHOP-12",
+      name: "Plugin API",
+      not_queued: [],
+      stations: STATIONS.map((column) => ({
+        column,
+        stops: column === "review" ? [review] : [],
+        merged: null,
+        check: null,
+      })),
+    };
+    const strip: EpicStrip = {
+      title: "Epics in flight · 1",
+      needs_you: null,
+      hint: "",
+      folded: "Epics in flight 1",
+      tracks: [track],
+    };
+    const html = renderToStaticMarkup(
+      createElement(Strip, {
+        strip,
+        columns: COLUMNS,
+        folded: false,
+        onToggleFold: () => undefined,
+        pulse: null,
+        focus: null,
+        handlers: NOOP,
+      }),
+    );
+    expect(html).toMatch(/data-column="review">.*data-state="in_review".*Review epic</);
+  });
+
   it("follows Done to its rail, with its n merged", () => {
     const done = trackCells(RAIL, WISHLIST)[4];
     expect(done?.kind).toBe("rail");

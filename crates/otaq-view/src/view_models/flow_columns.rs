@@ -16,7 +16,7 @@ use otaq_core::board::order::sort_column;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Place, StatusSet, TicketKey};
 use otaq_core::flow::engine::{Target, status_set};
-use otaq_core::flow::{CheckBy, Column, Flow, Stage, StageKind};
+use otaq_core::flow::{CheckBy, Column, Delivers, Flow, Stage, StageKind};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -70,7 +70,7 @@ pub struct Part<'f> {
 pub struct FlowColumn<'f> {
     pub id: String,
     pub kind: ColumnKind,
-    /// "Backlog", "Ready for Dev", the stage's name, "Done".
+    /// "Backlog", "Ready for Dev", the stage's name ("Done · PR" for a Delivery, [`delivery_title`]), "Done".
     pub title: String,
     /// The stages it shows: its owner, then the `with-previous` stages folded into it. Empty for Backlog, Ready
     /// for Dev and Done.
@@ -132,7 +132,7 @@ impl<'f> Columns<'f> {
                 _ => columns.push(FlowColumn {
                     id: stage.id.clone(),
                     kind: ColumnKind::of(stage.kind),
-                    title: stage.name.clone(),
+                    title: delivery_title(stage).unwrap_or_else(|| stage.name.clone()),
                     parts: vec![part],
                 }),
             }
@@ -276,6 +276,31 @@ impl<'f> Columns<'f> {
         }
         keys
     }
+}
+
+/// A Delivery column's title names what it delivers (FLW-12, Q272): "Done · PR", "Done · Local merge"; a click
+/// Delivery that lets the user pick (`either`) keeps its name. `None` for other stages.
+pub fn delivery_title(stage: &Stage) -> Option<String> {
+    let how = match stage.delivery?.delivers {
+        Delivers::Pr => "PR",
+        Delivers::Local => "Local merge",
+        Delivers::Either => return Some(stage.name.clone()),
+    };
+    Some(format!("{} \u{b7} {how}", stage.name))
+}
+
+/// Whether `flow` keeps the default flow's shape (its stages' ids, kinds and columns, in order; FLW-05's "shape"),
+/// with or without some of them (a flow without Validate): its board keeps today's look (d0108: "a project that
+/// keeps the default flow looks exactly like today's board"), the column icons in their status colours. Any other
+/// flow shows each stage's kind as one muted icon (FLW-12). A new agent or model is no shape change.
+pub fn keeps_default_look(flow: &Flow) -> bool {
+    let shape = |s: &Stage| (s.id.clone(), s.kind, s.column);
+    let default = otaq_core::flow::default_flow();
+    let mut left = default.stages.iter().map(shape);
+    flow.stages
+        .iter()
+        .map(shape)
+        .all(|stage| left.any(|d| d == stage))
 }
 
 /// The kind of place `ticket` is in, as the set of statuses it allows (STG-04): Backlog, waiting, Done, or the
@@ -477,7 +502,7 @@ mod tests {
                 "Dev",
                 "Security",
                 "QA",
-                "Done",
+                "Done \u{b7} PR",
                 "Done"
             ]
         );

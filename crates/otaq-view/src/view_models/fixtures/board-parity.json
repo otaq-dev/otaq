@@ -1944,14 +1944,17 @@
             "count": "2",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
             "id": "backlog",
+            "quiet_icon": false,
             "sections": [],
             "title": "Backlog",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -2159,14 +2162,17 @@
             "count": "5",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": "Starts when ready, in priority order",
             "icon": "hourglass",
             "id": "ready_for_dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Ready for Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -2180,7 +2186,6 @@
                 "ALL-13",
                 "ALL-16"
               ],
-              "section": null,
               "top": [
                 {
                   "card": {
@@ -2508,14 +2513,20 @@
               "working_count": "10"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
             "id": "dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [],
+              "title": "Dev · Developer · work-ticket"
+            }
           },
           {
             "add": null,
@@ -2525,7 +2536,6 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": null,
               "top": [
                 {
                   "card": {
@@ -2708,15 +2718,23 @@
               ],
               "working_count": "4"
             },
-            "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "empty_hint": "An agent checks each ticket here before it moves on.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
-            "icon": "activity",
+            "icon": "shield-check",
             "id": "validate",
+            "quiet_icon": false,
             "sections": [],
             "title": "Validate",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [
+                "up to 3 rounds"
+              ],
+              "title": "Validate · Validator · validate"
+            }
           },
           {
             "add": null,
@@ -2725,11 +2743,13 @@
             "count": "3",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
             "id": "review",
+            "quiet_icon": false,
             "sections": [
               {
                 "cards": [
@@ -2876,7 +2896,13 @@
               }
             ],
             "title": "Review",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [
+                "Done · Developer · shown in Review"
+              ],
+              "title": "Review · your check"
+            }
           },
           {
             "add": null,
@@ -2962,14 +2988,17 @@
             "count": "2",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
             "id": "done",
+            "quiet_icon": false,
             "sections": [],
             "title": "Done",
-            "toggle": "Collapse Done"
+            "toggle": "Collapse Done",
+            "tooltip": null
           }
         ],
         "done_rail_width": 34.0,
@@ -2980,6 +3009,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "stage_strip": null,
         "strip": null,
         "tab_count": "24"
       },
@@ -3057,14 +3087,17 @@
             "count": "2",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
             "id": "backlog",
+            "quiet_icon": false,
             "sections": [],
             "title": "Backlog",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -3272,14 +3305,17 @@
             "count": "5",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": "Starts when ready, in priority order",
             "icon": "hourglass",
             "id": "ready_for_dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Ready for Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -3293,7 +3329,6 @@
                 "ALL-13",
                 "ALL-16"
               ],
-              "section": null,
               "top": [
                 {
                   "card": {
@@ -3621,14 +3656,20 @@
               "working_count": "10"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
             "id": "dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [],
+              "title": "Dev · Developer · work-ticket"
+            }
           },
           {
             "add": null,
@@ -3638,7 +3679,6 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": null,
               "top": [
                 {
                   "card": {
@@ -3821,15 +3861,23 @@
               ],
               "working_count": "4"
             },
-            "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "empty_hint": "An agent checks each ticket here before it moves on.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
-            "icon": "activity",
+            "icon": "shield-check",
             "id": "validate",
+            "quiet_icon": false,
             "sections": [],
             "title": "Validate",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [
+                "up to 3 rounds"
+              ],
+              "title": "Validate · Validator · validate"
+            }
           },
           {
             "add": null,
@@ -3838,11 +3886,13 @@
             "count": "3",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
             "id": "review",
+            "quiet_icon": false,
             "sections": [
               {
                 "cards": [
@@ -3989,7 +4039,13 @@
               }
             ],
             "title": "Review",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [
+                "Done · Developer · shown in Review"
+              ],
+              "title": "Review · your check"
+            }
           },
           {
             "add": null,
@@ -4075,14 +4131,17 @@
             "count": "2",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
             "id": "done",
+            "quiet_icon": false,
             "sections": [],
             "title": "Done",
-            "toggle": "Expand Done"
+            "toggle": "Expand Done",
+            "tooltip": null
           }
         ],
         "done_rail_width": 34.0,
@@ -4093,6 +4152,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "stage_strip": null,
         "strip": null,
         "tab_count": "24"
       },
@@ -4170,14 +4230,17 @@
             "count": "2",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
             "id": "backlog",
+            "quiet_icon": false,
             "sections": [],
             "title": "Backlog",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -4385,14 +4448,17 @@
             "count": "5",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": "Starts when ready, in priority order",
             "icon": "hourglass",
             "id": "ready_for_dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Ready for Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -4406,7 +4472,6 @@
                 "ALL-13",
                 "ALL-16"
               ],
-              "section": null,
               "top": [
                 {
                   "card": {
@@ -4734,14 +4799,20 @@
               "working_count": "10"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
             "id": "dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [],
+              "title": "Dev · Developer · work-ticket"
+            }
           },
           {
             "add": null,
@@ -4751,7 +4822,6 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": null,
               "top": [
                 {
                   "card": {
@@ -4934,15 +5004,23 @@
               ],
               "working_count": "4"
             },
-            "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "empty_hint": "An agent checks each ticket here before it moves on.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
-            "icon": "activity",
+            "icon": "shield-check",
             "id": "validate",
+            "quiet_icon": false,
             "sections": [],
             "title": "Validate",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [
+                "up to 3 rounds"
+              ],
+              "title": "Validate · Validator · validate"
+            }
           },
           {
             "add": null,
@@ -4951,11 +5029,13 @@
             "count": "3",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
             "id": "review",
+            "quiet_icon": false,
             "sections": [
               {
                 "cards": [
@@ -5102,7 +5182,13 @@
               }
             ],
             "title": "Review",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [
+                "Done · Developer · shown in Review"
+              ],
+              "title": "Review · your check"
+            }
           },
           {
             "add": null,
@@ -5188,14 +5274,17 @@
             "count": "2",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
             "id": "done",
+            "quiet_icon": false,
             "sections": [],
             "title": "Done",
-            "toggle": "Collapse Done"
+            "toggle": "Collapse Done",
+            "tooltip": null
           }
         ],
         "done_rail_width": 34.0,
@@ -5206,6 +5295,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "stage_strip": null,
         "strip": null,
         "tab_count": "24"
       }
@@ -5291,14 +5381,17 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
             "id": "backlog",
+            "quiet_icon": false,
             "sections": [],
             "title": "Backlog",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -5307,14 +5400,17 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": "Starts when ready, in priority order",
             "icon": "hourglass",
             "id": "ready_for_dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Ready for Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -5324,7 +5420,6 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": null,
               "top": [],
               "working": [
                 {
@@ -5363,14 +5458,20 @@
               "working_count": "1"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
             "id": "dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [],
+              "title": "Dev · Developer · work-ticket"
+            }
           },
           {
             "add": null,
@@ -5379,11 +5480,13 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
             "id": "review",
+            "quiet_icon": false,
             "sections": [
               {
                 "cards": [],
@@ -5411,7 +5514,13 @@
               }
             ],
             "title": "Review",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [
+                "Done · Developer · shown in Review"
+              ],
+              "title": "Review · your check"
+            }
           },
           {
             "add": null,
@@ -5420,14 +5529,17 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
             "id": "done",
+            "quiet_icon": false,
             "sections": [],
             "title": "Done",
-            "toggle": "Collapse Done"
+            "toggle": "Collapse Done",
+            "tooltip": null
           }
         ],
         "done_rail_width": 34.0,
@@ -5438,6 +5550,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "stage_strip": null,
         "strip": null,
         "tab_count": "1"
       },
@@ -5452,14 +5565,17 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
             "id": "backlog",
+            "quiet_icon": false,
             "sections": [],
             "title": "Backlog",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -5468,14 +5584,17 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": "Starts when ready, in priority order",
             "icon": "hourglass",
             "id": "ready_for_dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Ready for Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -5485,7 +5604,6 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": null,
               "top": [],
               "working": [
                 {
@@ -5524,14 +5642,20 @@
               "working_count": "1"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
             "id": "dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [],
+              "title": "Dev · Developer · work-ticket"
+            }
           },
           {
             "add": null,
@@ -5540,11 +5664,13 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
             "id": "review",
+            "quiet_icon": false,
             "sections": [
               {
                 "cards": [],
@@ -5572,7 +5698,13 @@
               }
             ],
             "title": "Review",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [
+                "Done · Developer · shown in Review"
+              ],
+              "title": "Review · your check"
+            }
           },
           {
             "add": null,
@@ -5581,14 +5713,17 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
             "id": "done",
+            "quiet_icon": false,
             "sections": [],
             "title": "Done",
-            "toggle": "Expand Done"
+            "toggle": "Expand Done",
+            "tooltip": null
           }
         ],
         "done_rail_width": 34.0,
@@ -5599,6 +5734,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "stage_strip": null,
         "strip": null,
         "tab_count": "1"
       },
@@ -5613,14 +5749,17 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
             "id": "backlog",
+            "quiet_icon": false,
             "sections": [],
             "title": "Backlog",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -5629,14 +5768,17 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": "Starts when ready, in priority order",
             "icon": "hourglass",
             "id": "ready_for_dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Ready for Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -5646,7 +5788,6 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": null,
               "top": [],
               "working": [
                 {
@@ -5685,14 +5826,20 @@
               "working_count": "1"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
             "id": "dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [],
+              "title": "Dev · Developer · work-ticket"
+            }
           },
           {
             "add": null,
@@ -5701,11 +5848,13 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
             "id": "review",
+            "quiet_icon": false,
             "sections": [
               {
                 "cards": [],
@@ -5733,7 +5882,13 @@
               }
             ],
             "title": "Review",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [
+                "Done · Developer · shown in Review"
+              ],
+              "title": "Review · your check"
+            }
           },
           {
             "add": null,
@@ -5742,14 +5897,17 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
             "id": "done",
+            "quiet_icon": false,
             "sections": [],
             "title": "Done",
-            "toggle": "Collapse Done"
+            "toggle": "Collapse Done",
+            "tooltip": null
           }
         ],
         "done_rail_width": 34.0,
@@ -5760,6 +5918,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "stage_strip": null,
         "strip": null,
         "tab_count": "1"
       }
@@ -6346,14 +6505,17 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
             "id": "backlog",
+            "quiet_icon": false,
             "sections": [],
             "title": "Backlog",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -6397,14 +6559,17 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": "Starts when ready, in priority order",
             "icon": "hourglass",
             "id": "ready_for_dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Ready for Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -6414,7 +6579,6 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": null,
               "top": [],
               "working": [
                 {
@@ -6490,14 +6654,20 @@
               "working_count": "2"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
             "id": "dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [],
+              "title": "Dev · Developer · work-ticket"
+            }
           },
           {
             "add": null,
@@ -6507,20 +6677,27 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": null,
               "top": [],
               "working": [],
               "working_count": "0"
             },
-            "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "empty_hint": "An agent checks each ticket here before it moves on.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
-            "icon": "activity",
+            "icon": "shield-check",
             "id": "validate",
+            "quiet_icon": false,
             "sections": [],
             "title": "Validate",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [
+                "up to 2 rounds"
+              ],
+              "title": "Validate · Validator · validate"
+            }
           },
           {
             "add": null,
@@ -6529,11 +6706,13 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
             "id": "review",
+            "quiet_icon": false,
             "sections": [
               {
                 "cards": [
@@ -6600,7 +6779,13 @@
               }
             ],
             "title": "Review",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [
+                "Done · Developer · shown in Review"
+              ],
+              "title": "Review · your check"
+            }
           },
           {
             "add": null,
@@ -6643,6 +6828,7 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
+            "folded": [],
             "folds": [
               {
                 "epic": "NOTE-10",
@@ -6656,9 +6842,11 @@
             "hint": null,
             "icon": "circle-check",
             "id": "done",
+            "quiet_icon": false,
             "sections": [],
             "title": "Done",
-            "toggle": "Collapse Done"
+            "toggle": "Collapse Done",
+            "tooltip": null
           }
         ],
         "done_rail_width": 34.0,
@@ -6669,6 +6857,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "stage_strip": null,
         "strip": {
           "folded": "Epics in flight 1",
           "hint": "Hover a ticket to find its card · Click an epic name to focus on it",
@@ -6821,14 +7010,17 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
             "id": "backlog",
+            "quiet_icon": false,
             "sections": [],
             "title": "Backlog",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -6872,14 +7064,17 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": "Starts when ready, in priority order",
             "icon": "hourglass",
             "id": "ready_for_dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Ready for Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -6889,7 +7084,6 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": null,
               "top": [],
               "working": [
                 {
@@ -6965,14 +7159,20 @@
               "working_count": "2"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
             "id": "dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [],
+              "title": "Dev · Developer · work-ticket"
+            }
           },
           {
             "add": null,
@@ -6982,20 +7182,27 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": null,
               "top": [],
               "working": [],
               "working_count": "0"
             },
-            "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "empty_hint": "An agent checks each ticket here before it moves on.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
-            "icon": "activity",
+            "icon": "shield-check",
             "id": "validate",
+            "quiet_icon": false,
             "sections": [],
             "title": "Validate",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [
+                "up to 2 rounds"
+              ],
+              "title": "Validate · Validator · validate"
+            }
           },
           {
             "add": null,
@@ -7004,11 +7211,13 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
             "id": "review",
+            "quiet_icon": false,
             "sections": [
               {
                 "cards": [
@@ -7075,7 +7284,13 @@
               }
             ],
             "title": "Review",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [
+                "Done · Developer · shown in Review"
+              ],
+              "title": "Review · your check"
+            }
           },
           {
             "add": null,
@@ -7118,6 +7333,7 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
+            "folded": [],
             "folds": [
               {
                 "epic": "NOTE-10",
@@ -7131,9 +7347,11 @@
             "hint": null,
             "icon": "circle-check",
             "id": "done",
+            "quiet_icon": false,
             "sections": [],
             "title": "Done",
-            "toggle": "Expand Done"
+            "toggle": "Expand Done",
+            "tooltip": null
           }
         ],
         "done_rail_width": 34.0,
@@ -7144,6 +7362,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "stage_strip": null,
         "strip": {
           "folded": "Epics in flight 1",
           "hint": "Hover a ticket to find its card · Click an epic name to focus on it",
@@ -7296,14 +7515,17 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
             "id": "backlog",
+            "quiet_icon": false,
             "sections": [],
             "title": "Backlog",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -7347,14 +7569,17 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": "Starts when ready, in priority order",
             "icon": "hourglass",
             "id": "ready_for_dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Ready for Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": null
           },
           {
             "add": null,
@@ -7364,7 +7589,6 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": null,
               "top": [],
               "working": [
                 {
@@ -7440,14 +7664,20 @@
               "working_count": "2"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
             "id": "dev",
+            "quiet_icon": false,
             "sections": [],
             "title": "Dev",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [],
+              "title": "Dev · Developer · work-ticket"
+            }
           },
           {
             "add": null,
@@ -7457,20 +7687,27 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": null,
               "top": [],
               "working": [],
               "working_count": "0"
             },
-            "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "empty_hint": "An agent checks each ticket here before it moves on.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
-            "icon": "activity",
+            "icon": "shield-check",
             "id": "validate",
+            "quiet_icon": false,
             "sections": [],
             "title": "Validate",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [
+                "up to 2 rounds"
+              ],
+              "title": "Validate · Validator · validate"
+            }
           },
           {
             "add": null,
@@ -7479,11 +7716,13 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
+            "folded": [],
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
             "id": "review",
+            "quiet_icon": false,
             "sections": [
               {
                 "cards": [
@@ -7550,7 +7789,13 @@
               }
             ],
             "title": "Review",
-            "toggle": null
+            "toggle": null,
+            "tooltip": {
+              "detail": [
+                "Done · Developer · shown in Review"
+              ],
+              "title": "Review · your check"
+            }
           },
           {
             "add": null,
@@ -7593,6 +7838,7 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
+            "folded": [],
             "folds": [
               {
                 "epic": "NOTE-10",
@@ -7606,9 +7852,11 @@
             "hint": null,
             "icon": "circle-check",
             "id": "done",
+            "quiet_icon": false,
             "sections": [],
             "title": "Done",
-            "toggle": "Collapse Done"
+            "toggle": "Collapse Done",
+            "tooltip": null
           }
         ],
         "done_rail_width": 34.0,
@@ -7619,6 +7867,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "stage_strip": null,
         "strip": {
           "folded": "Epics in flight 1",
           "hint": "Hover a ticket to find its card · Click an epic name to focus on it",

@@ -238,6 +238,24 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         Ok(Reply::StartupReport(report)) => report.was_validating,
         _ => Vec::new(),
     };
+    // Every agent: the column headers name each stage's tool and model (FLW-12).
+    let agent_list = match app.service.send(Request::AgentsList).await {
+        Ok(Reply::Agents(list)) => Some(*list),
+        _ => None,
+    };
+    // No ticket starts from Ready for Dev while a flow change waits for a quiet board (FLW-06): its cards say why.
+    let starts_held = match app
+        .service
+        .send(Request::FlowWaiting(ProjectParams {
+            project: params.project.clone(),
+        }))
+        .await
+    {
+        Ok(Reply::FlowWaiting(Some(_))) => {
+            Some(otaq_core::flow::apply::WAITING_FOR_THE_FLOW_CHANGE)
+        }
+        _ => None,
+    };
     let flow = flow(app, &params.project).await;
     let page = board_page::page(
         &tickets,
@@ -251,6 +269,8 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
             leads: &leads,
             agent_filter: agent_filter.as_ref(),
             agents: agents.as_ref(),
+            agent_list: agent_list.as_ref(),
+            starts_held,
         },
         &params,
         otaq_core::store::now_ms(),

@@ -34,6 +34,8 @@ fn facts<'a>(name: &'static str, flow: &'a Flow) -> ProjectFacts<'a> {
         leads: &[],
         agent_filter: None,
         agents: None,
+        agent_list: None,
+        starts_held: None,
     }
 }
 

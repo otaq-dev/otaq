@@ -96,6 +96,9 @@ const column = (over: Partial<BoardColumn>): BoardColumn => ({
   title: "Ready for Dev",
   icon: "play",
   count: "2",
+  quiet_icon: false,
+  folded: [],
+  tooltip: null,
   hint: null,
   empty_hint: "",
   collapsed: false,
@@ -160,7 +163,6 @@ describe("a column under the chain highlight", () => {
       cards: [],
       dev: {
         top: [],
-        section: "WORKING · VALIDATING",
         working_count: "6",
         working: [card("SHOP-33")],
         fold: "2 more · working",

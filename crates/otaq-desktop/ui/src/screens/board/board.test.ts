@@ -10,7 +10,9 @@ import type { BoardColumn } from "../../generated/BoardColumn";
 import type { DragAnswer } from "../../generated/DragAnswer";
 import type { DropOutcome } from "../../generated/DropOutcome";
 import type { BoardReviewSection } from "../../generated/BoardReviewSection";
+import type { BoardStageStrip } from "../../generated/BoardStageStrip";
 import { afterDrop, coveredWidth, dropCard, openApproveChoice } from "./Board";
+import { columnsInView, StageStrip } from "./StageStrip";
 import { Column, type ColumnProps, columnOfCard, runsOf, walkOf } from "./Column";
 import {
   aboveChip,
@@ -484,6 +486,9 @@ describe("the board screen", () => {
     title: "Review",
     icon: "eye",
     count: "0",
+    quiet_icon: false,
+    folded: [],
+    tooltip: null,
     hint: null,
     empty_hint: "Agents move their ticket here when they submit it for your review.",
     collapsed: false,
@@ -533,6 +538,55 @@ describe("the board screen", () => {
     );
     expect(rail).toContain("board-rail");
     expect(rail).not.toContain("board-column-cards");
+  });
+
+  it("heads a stage with its muted kind icon, its folded stages and who runs it (FLW-12)", () => {
+    const dev = renderToStaticMarkup(
+      createElement(
+        Column,
+        props(
+          column({
+            id: "dev",
+            kind: "agent",
+            title: "Dev",
+            icon: "bot",
+            quiet_icon: true,
+            count: "3",
+            folded: [{ tag: "Validating", count: "1" }],
+            tooltip: { title: "Dev · Rust developer · work-ticket", detail: ["Claude Code · sonnet"] },
+          }),
+        ),
+      ),
+    );
+    expect(dev).toContain('style="color:var(--text-muted)"');
+    expect(dev).toMatch(/board-column-title">Dev<.*board-column-count">3<.*·.*Validating<.*>1</);
+    // The tooltip wraps the title (it shows on hover).
+    expect(dev).toMatch(/tooltip-anchor[^>]*><span class="board-column-title">Dev</);
+    // The default flow's icons keep their status colour.
+    const review = renderToStaticMarkup(createElement(Column, props(column({}))));
+    expect(review).toContain('style="color:var(--st-review)"');
+    expect(review).not.toContain("board-column-folded");
+  });
+
+  it("draws an empty stage of a long flow as a rail with no click; Done's rail opens Done", () => {
+    let toggled = 0;
+    const rail = (c: BoardColumn) =>
+      renderToStaticMarkup(
+        createElement(Column, {
+          ...props(c),
+          onToggleDone: () => {
+            toggled += 1;
+          },
+        }),
+      );
+    const grill = rail(column({ id: "grill", kind: "agent", title: "Grill", icon: "bot", collapsed: true }));
+    expect(grill).toMatch(/<div class="board-rail" data-column="grill" role="group" aria-label="Grill 0">/);
+    expect(grill).not.toContain("<button");
+    const done = rail(
+      column({ id: "done", kind: "done", title: "Done", collapsed: true, toggle: "Expand Done" }),
+    );
+    expect(done).toMatch(/<button type="button" class="board-rail" data-column="done"/);
+    expect(toggled).toBe(0);
   });
 
   const ticketCard = (key: string): BoardCard => ({
@@ -729,6 +783,9 @@ describe("the Review column (T-0328, d0087)", () => {
     title: "Review",
     icon: "eye",
     count: "1",
+    quiet_icon: false,
+    folded: [],
+    tooltip: null,
     hint: null,
     empty_hint: "",
     collapsed: false,
@@ -810,6 +867,42 @@ describe("the Review column (T-0328, d0087)", () => {
   });
 });
 
+describe("the stage strip (FLW-12)", () => {
+  const STRIP: BoardStageStrip = {
+    label: "Columns",
+    columns: [
+      { column: "backlog", title: "Backlog", count: "1", folded: [] },
+      { column: "dev", title: "Dev", count: "1", folded: [{ name: "Validate", count: "1" }] },
+      { column: "qa", title: "QA", count: "1", folded: [] },
+    ],
+  };
+
+  it("names every column with its count, a folded stage under its column, and outlines those in view", () => {
+    const html = renderToStaticMarkup(
+      createElement(StageStrip, {
+        strip: STRIP,
+        inView: new Set(["backlog", "dev"]),
+        onPick: () => undefined,
+      }),
+    );
+    expect(html).toContain('aria-label="Columns"');
+    expect(html.match(/stage-strip-chevron/g)).toHaveLength(2);
+    expect(html).toMatch(/data-column="dev" data-in-view="true"[^>]*>.*Dev<.*>1<.*Validate<.*>1</);
+    expect(html).toMatch(/data-column="qa">/);
+  });
+
+  it("counts a column in view when at least half of it shows", () => {
+    const spans = [
+      { id: "backlog", left: 0, right: 184 },
+      { id: "dev", left: 192, right: 376 },
+      { id: "qa", left: 384, right: 568 },
+    ];
+    expect([...columnsInView(spans, { left: 0, right: 500 })]).toEqual(["backlog", "dev", "qa"]);
+    expect([...columnsInView(spans, { left: 100, right: 450 })]).toEqual(["dev"]);
+    expect([...columnsInView(spans, { left: 600, right: 900 })]).toEqual([]);
+  });
+});
+
 describe("the panel over the board (SHL-05)", () => {
   it("scrolls to the selected card's column", () => {
     const columns: BoardColumn[] = (["backlog", "dev", "review"] as const).map((id) => ({
@@ -818,6 +911,9 @@ describe("the panel over the board (SHL-05)", () => {
       title: id,
       icon: "eye",
       count: "0",
+      quiet_icon: false,
+      folded: [],
+      tooltip: null,
       hint: null,
       empty_hint: "",
       collapsed: false,

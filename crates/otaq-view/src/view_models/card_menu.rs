@@ -249,6 +249,8 @@ mod tests {
                 agent_names: &[],
                 was_validating: &[],
                 agents: None,
+                agent_list: None,
+                starts_held: None,
             })[0]
                 .cards
                 .iter()

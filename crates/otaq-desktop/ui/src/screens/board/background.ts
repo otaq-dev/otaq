@@ -13,7 +13,6 @@ const BACKGROUND = [
   ".board-spacer",
   ".board-column-hint",
   ".board-column-cards",
-  ".board-section",
   ".board-review-section",
   ".board-review-empty",
   ".board-empty-column",

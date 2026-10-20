@@ -28,7 +28,7 @@ use crate::key_labels::KeyLabels;
 use crate::keymap::Platform;
 use crate::view_models::approve::{self, ApproveChoice};
 use crate::view_models::board::{
-    self, BoardInput, CardEntry, ColumnView, DevSections, SectionView,
+    self, BoardInput, CardEntry, ColumnView, DevSections, HeaderTooltip, SectionView, StripColumn,
 };
 use crate::view_models::card_page::{EpicCardView, TicketCardView};
 use crate::view_models::chain;
@@ -153,13 +153,11 @@ pub struct Note {
     pub text: String,
 }
 
-/// Dev's parts: the floated cards (pins and needs-you) above the section header, then the working cards and the fold.
+/// Dev's parts: the floated cards (pins and needs-you), then the working cards and the fold.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "BoardDevSections")]
 pub struct DevPage {
     pub top: Vec<BoardCard>,
-    /// "WORKING · VALIDATING" while an agent check shares the column; none for the default flow's Dev (FLW-01).
-    pub section: Option<String>,
     pub working_count: String,
     pub working: Vec<BoardCard>,
     /// "2 more · working" while folded; a click unfolds.
@@ -194,6 +192,79 @@ pub struct SectionPage {
     pub unfold: String,
 }
 
+/// A stage folded into an agent column, after its count in the header (FLW-12, Q270): "· Validating 1".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "BoardFoldedStage")]
+pub struct FoldedStage {
+    /// "Validating".
+    pub tag: String,
+    pub count: String,
+}
+
+/// Who runs a column's stages, on hovering its title (FLW-12): a bold first line and detail lines.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "BoardColumnTooltip")]
+pub struct ColumnTooltip {
+    /// "Grill · Griller · grill".
+    pub title: String,
+    /// "Claude Code · sonnet", "Options: skip".
+    pub detail: Vec<String>,
+}
+
+impl From<HeaderTooltip> for ColumnTooltip {
+    fn from(t: HeaderTooltip) -> Self {
+        Self {
+            title: t.title,
+            detail: t.detail,
+        }
+    }
+}
+
+/// The stage strip above a long flow's board that doesn't fit (FLW-12; *Row · A flow with many stages*): every
+/// column with its count and the stages folded into it. The page outlines the columns in view and scrolls to one
+/// on a click.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "BoardStageStrip")]
+pub struct StageStrip {
+    /// "Columns": the strip's name for assistive tech.
+    pub label: String,
+    pub columns: Vec<StageStripColumn>,
+}
+
+/// One column in the stage strip: "Dev 1" over "Validate 1".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "BoardStageStripColumn")]
+pub struct StageStripColumn {
+    pub column: ColumnId,
+    pub title: String,
+    pub count: String,
+    pub folded: Vec<StageStripFolded>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "BoardStageStripFolded")]
+pub struct StageStripFolded {
+    pub name: String,
+    pub count: String,
+}
+
+impl From<StripColumn> for StageStripColumn {
+    fn from(c: StripColumn) -> Self {
+        Self {
+            column: c.column,
+            title: c.title,
+            count: c.count,
+            folded: c
+                .folded
+                .into_iter()
+                .map(|(name, count)| StageStripFolded { name, count })
+                .collect(),
+        }
+    }
+}
+
+pub const STAGE_STRIP_LABEL: &str = "Columns";
+
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "BoardColumn")]
 pub struct ColumnPage {
@@ -203,15 +274,23 @@ pub struct ColumnPage {
     pub kind: ColumnKind,
     pub title: String,
     pub icon: IconName,
-    /// Review: both sections together.
+    /// The icon in the muted colour (a flow that isn't the default's shape, FLW-12); else in its kind's status
+    /// colour.
+    pub quiet_icon: bool,
+    /// Review: both sections together. An agent column with a folded stage: its own stage's cards.
     pub count: String,
+    /// An agent column's folded stages, after its count: "· Validating 1".
+    pub folded: Vec<FoldedStage>,
+    /// Who runs it, on hovering the title; `None` for Backlog, Ready for Dev and Done.
+    pub tooltip: Option<ColumnTooltip>,
     /// Under the title: Ready for Dev's "Starts when ready, in priority order".
     pub hint: Option<String>,
     /// Shown when the column has no card (Review's sections have their own lines).
     pub empty_hint: String,
-    /// Done only: drawn as the 34 px rail.
+    /// Drawn as the 34 px rail: Done folded, or an empty stage of a long flow (FLW-12).
     pub collapsed: bool,
-    /// Done only: the header button's tooltip ("Collapse Done" / "Expand Done").
+    /// Done only: the header button's (and the rail's) tooltip ("Collapse Done" / "Expand Done"); a click on it
+    /// folds or opens Done. An empty stage's rail has none: it opens when a card comes.
     pub toggle: Option<String>,
     /// "6 hidden by filter".
     pub hidden: Option<String>,
@@ -267,9 +346,11 @@ pub struct BoardPage {
     pub focus: Option<EpicFocus>,
     /// The "Created or changed by <agent> ✕" chip while the board is filtered by a Project agent (d0087).
     pub agent_filter: Option<AgentChip>,
-    /// The columns fill the board's width; below this many px per column the board scrolls sideways and the
-    /// hidden-columns chip names what is off-screen (SHL-01).
+    /// The columns fill the board's width; below this many px per column the board scrolls sideways (SHL-01): 200,
+    /// or a long flow's compact 184 (FLW-12).
     pub min_column_width: f32,
+    /// The stage strip above a long flow that doesn't fit (FLW-12).
+    pub stage_strip: Option<StageStrip>,
     /// Done as a rail.
     pub done_rail_width: f32,
     /// The Board tab's count ("Board 26", Q84): the cards in every column but Done, whatever the filter.
@@ -396,6 +477,11 @@ pub struct ProjectFacts<'a> {
     pub agent_filter: Option<&'a AgentFilter>,
     /// The cards' named agents (`board.agents`, T-0345): the footer's agent part.
     pub agents: Option<&'a otaq_core::agents::facts::BoardAgents>,
+    /// Every agent (`agents.list`): the column headers' tooltips name each stage's tool and model (FLW-12).
+    pub agent_list: Option<&'a otaq_core::agents::AgentList>,
+    /// Why no ticket starts from Ready for Dev (FLW-06: [`board::WAITING_FOR_THE_FLOW_CHANGE`] while a flow change
+    /// waits); `None` while starts run.
+    pub starts_held: Option<&'a str>,
 }
 
 pub const APPROVED_NOTE: &str =
@@ -458,7 +544,6 @@ fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
     let kind = view.kind;
     let dev = view.dev.map(|d: DevSections| DevPage {
         top: cards(d.top, tickets),
-        section: d.section.map(str::to_owned),
         working_count: d.working_count.to_string(),
         working: cards(d.working, tickets),
         fold: d.fold,
@@ -469,7 +554,20 @@ fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
         kind,
         title: view.title,
         icon: view.icon,
+        quiet_icon: view.quiet_icon,
         count: view.count,
+        folded: match kind {
+            ColumnKind::Agent => view
+                .folded
+                .into_iter()
+                .map(|f| FoldedStage {
+                    tag: f.tag,
+                    count: f.count,
+                })
+                .collect(),
+            _ => Vec::new(),
+        },
+        tooltip: view.tooltip.map(ColumnTooltip::from),
         hint: view.hint.map(str::to_owned),
         empty_hint: view.empty_hint.to_owned(),
         collapsed: view.collapsed,
@@ -563,9 +661,12 @@ pub fn page(
         agent_names: project.agent_names,
         was_validating: project.was_validating,
         agents: project.agents,
+        agent_list: project.agent_list,
+        starts_held: project.starts_held,
     };
     let mut built = board::build(&input);
     with_leads(&mut built, tickets, project.leads);
+    let layout = board::lay_out(&mut built, params.width);
     BoardPage {
         strip: Strip::with_leads(tickets, project.flow, project.leads)
             .map(|s| s.with_done_rail(done_collapsed)),
@@ -586,7 +687,11 @@ pub fn page(
             keys: keys.iter().map(ToString::to_string).collect(),
         }),
         agent_filter: agent_filter.map(AgentFilter::chip),
-        min_column_width: board::MIN_COLUMN_WIDTH,
+        min_column_width: layout.column_width,
+        stage_strip: layout.strip.map(|columns| StageStrip {
+            label: STAGE_STRIP_LABEL.to_owned(),
+            columns: columns.into_iter().map(StageStripColumn::from).collect(),
+        }),
         done_rail_width: board::DONE_RAIL_WIDTH,
         tab_count: tickets
             .iter()
@@ -952,6 +1057,8 @@ pub fn gallery() -> Gallery {
         leads: &[],
         agent_filter: None,
         agents: None,
+        agent_list: None,
+        starts_held: None,
     };
     let params = Params {
         project: "SHOP".into(),
@@ -1035,6 +1142,8 @@ mod tests {
             leads: &[],
             agent_filter: None,
             agents: None,
+            agent_list: None,
+            starts_held: None,
         }
     }
 
@@ -1313,7 +1422,6 @@ mod tests {
                 ..
             }
         ));
-        assert_eq!(dev.section, None, "Dev has no sections (FLW-01)");
         let review = &page.columns[4];
         assert_eq!(review.count, "2", "both sections");
         assert!(review.cards.is_empty(), "the cards are in the sections");
@@ -2365,5 +2473,83 @@ mod tests {
             ["SHOP-17", "SHOP-18", "SHOP-19", "SHOP-20", "SHOP-21"]
         );
         assert!(planning.chains.iter().all(|c| c.key != "SHOP-22"));
+    }
+
+    /// FLW-12 on the page: the test flow at 1440 with the pane open is long and doesn't fit: 184 px columns, the
+    /// empty Grill a rail with no toggle (Done's keeps its own), Dev's header with "Validating 1" and the stage
+    /// strip; the default flow keeps 200 px and no strip.
+    #[test]
+    fn a_long_flow_reaches_the_page_with_its_strip() {
+        use otaq_core::domain::Place;
+        let flow = crate::view_models::flow_columns::every_kind();
+        let at = |key: &str, status, place: Place| {
+            let mut t = ticket(key, "Work", status);
+            t.place = place;
+            t
+        };
+        let tickets = vec![
+            at("SHOP-33", Status::Working, Place::stage_of("dev")),
+            at("SHOP-30", Status::Checking, Place::stage_of("validate")),
+            at("SHOP-19", Status::Checking, Place::stage_of("security")),
+            at("SHOP-23", Status::WaitingForYou, Place::stage_of("qa")),
+            at("SHOP-26", Status::PrOpen, Place::stage_of("ship")),
+        ];
+        let page = super::page(
+            &tickets,
+            &ProjectFacts {
+                flow: &flow,
+                ..facts()
+            },
+            &params(1440. - 64. - 400.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
+        assert_eq!(page.min_column_width, board::COMPACT_COLUMN_WIDTH);
+        let grill = &page.columns[2];
+        assert!(grill.collapsed && grill.toggle.is_none());
+        let done = page.columns.last().unwrap();
+        assert!(done.collapsed && done.toggle.as_deref() == Some("Expand Done"));
+        let dev = &page.columns[3];
+        assert_eq!(
+            dev.folded,
+            [FoldedStage {
+                tag: "Validating".into(),
+                count: "1".into()
+            }]
+        );
+        assert!(page.columns.iter().all(|c| c.quiet_icon));
+        let strip = page.stage_strip.expect("the stage strip");
+        assert_eq!(strip.label, "Columns");
+        let names: Vec<&str> = strip.columns.iter().map(|c| c.title.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "Backlog",
+                "Ready for Dev",
+                "Grill",
+                "Dev",
+                "Security",
+                "QA",
+                "Done · PR",
+                "Done"
+            ]
+        );
+        assert_eq!(
+            strip.columns[3].folded,
+            [StageStripFolded {
+                name: "Validate".into(),
+                count: "1".into()
+            }]
+        );
+
+        let default = super::page(
+            &tickets,
+            &facts(),
+            &params(1440. - 64. - 400.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
+        assert_eq!(default.min_column_width, board::MIN_COLUMN_WIDTH);
+        assert_eq!(default.stage_strip, None);
     }
 }
