@@ -25,11 +25,11 @@ use std::sync::{Arc, Weak};
 
 use super::{AgentState, Inner, ProjectAgent, ProjectAgents};
 use crate::agent_tools::{EPIC_LEAD_SKILL, FirstPrompt, LaunchRequest, LaunchRole, Tool};
+use crate::agents::{Role, SessionRole, resolve};
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, StatusSet, TicketKey};
 use crate::epic_lead::wake::{Finished, Handovers, LeadEvents, closed_text, merged_text};
-use crate::named_agents::{Role, resolve_ticket_role};
 use crate::naming;
 use crate::session::deliveries::Deliveries;
 use crate::store::{new_id, now_ms};
@@ -643,14 +643,14 @@ impl EpicLeads {
     ) -> Result<Lead, BoardError> {
         let (message, reason) = first.unzip();
         let agents = &self.agents;
-        // The epic's Epic lead row, else the project's default, else the app default (LEAD-01, AGT-05), after the
-        // check before every launch (a hold keeps the epic waiting).
-        let resolved = resolve_ticket_role(&self.inner().board, epic, Role::EpicLead).await?;
+        // The agent with the Epic lead role (LEAD-01, AGM-05), after the check before every launch (a hold keeps the
+        // epic waiting).
+        let agent = resolve::role_agent(self.inner().board.store(), Role::EpicLead).await?;
         let runs_on = agents
             .checked(
-                Role::EpicLead,
-                crate::named_agents::gate::Scope::ticket(epic),
-                resolved.as_ref(),
+                SessionRole::EpicLead,
+                crate::agents::gate::Scope::ticket(epic),
+                &agent,
             )
             .await?;
         agents.inner.adapters.unavailable(runs_on.tool)?;
@@ -664,6 +664,7 @@ impl EpicLeads {
             LaunchRequest {
                 epic: Some(epic.key.clone()),
                 model: runs_on.model.clone(),
+                effort: runs_on.effort.clone(),
                 title: Some(epic.title.clone()),
                 ..super::request(
                     &project,
@@ -678,9 +679,9 @@ impl EpicLeads {
         let id = new_id();
         let pool = self.inner().board.store().pool();
         let inserted = sqlx::query(
-            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, named_agent_id,
-                                         named_agent_name, state, created_at, epic_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, agent_id, agent_name, effort,
+                                         state, created_at, epic_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
@@ -689,6 +690,7 @@ impl EpicLeads {
         .bind(&launched.model)
         .bind(runs_on.agent.as_ref().map(|a| &a.id))
         .bind(runs_on.agent.as_ref().map(|a| &a.name))
+        .bind(&runs_on.effort)
         .bind(AgentState::Running.as_str())
         .bind(now_ms())
         .bind(&epic.id)
@@ -720,7 +722,7 @@ impl EpicLeads {
                 &project,
                 launched,
                 &id,
-                runs_on.agent,
+                &runs_on,
                 Some((&epic.id, &epic.key)),
             )
             .await
@@ -756,7 +758,8 @@ impl EpicLeads {
             LaunchRequest {
                 epic: Some(epic.key.clone()),
                 resume: Some(agent.conversation()?.to_owned()),
-                model: runs_on.model,
+                model: runs_on.model.clone(),
+                effort: runs_on.effort.clone(),
                 title: Some(epic.title.clone()),
                 ..super::request(&project, LaunchRole::EpicLead, None)
             },
@@ -771,7 +774,7 @@ impl EpicLeads {
                 &agent,
                 &project,
                 launched,
-                runs_on.agent,
+                &runs_on,
                 Some((&epic.id, &epic.key)),
             )
             .await?;

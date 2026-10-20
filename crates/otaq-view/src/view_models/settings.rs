@@ -146,18 +146,6 @@ pub fn env_file_problem(problems: &[SettingProblem], file: &str) -> Option<Strin
         .map(|p| p.message.clone())
 }
 
-/// What an empty project override says: "Empty — uses the global default: “…”".
-pub fn instructions_placeholder(global: &GlobalSettings) -> String {
-    if global.agent_instructions.trim().is_empty() {
-        "Empty — no instructions are set globally either.".into()
-    } else {
-        format!(
-            "Empty — uses the global default: “{}”",
-            global.agent_instructions.trim()
-        )
-    }
-}
-
 /// The database file and logs folder as shown in Data (d0055), with `~` for the home folder. The folder ends in the
 /// platform's own separator (`logs\` on Windows, not `logs/`).
 pub fn data_paths(data: &DataDir) -> (String, String) {
@@ -443,13 +431,6 @@ mod tests {
 
     #[test]
     fn load_and_save_helpers() {
-        let mut global = GlobalSettings::default();
-        assert!(instructions_placeholder(&global).contains("no instructions"));
-        global.agent_instructions = "Ask before coding.".into();
-        assert_eq!(
-            instructions_placeholder(&global),
-            "Empty — uses the global default: “Ask before coding.”"
-        );
         assert_eq!(parse_font_size("15 px"), Ok(15));
         assert!(parse_font_size("99").is_err());
         assert!(parse_font_size("big").is_err());

@@ -15,17 +15,10 @@ export interface SettingsContextValue {
   /** Saves one field (`settings.edit`); the fresh view replaces the page. */
   edit: (field: string, value: SettingsValue) => void;
   act: (action: SettingsButtonAction) => void;
-  /** Settings → Workflow skills' calls (T-0380): the fresh view replaces the page (a refusal is written under its
-   * step); answers `"confirm"` when the row's dialog must ask first, `null` when it failed. Absent in the gallery's
-   * other sections. */
-  skill?: (method: SkillMethod, params: Record<string, unknown>) => Promise<"done" | "confirm" | null>;
   /** The header's place for a topic's own buttons (Keyboard shortcuts' Reset all, T-0395); `null` until it is
    * drawn, absent in the gallery. */
   headerSlot?: HTMLElement | null;
 }
-
-/** The Workflow skills' calls (`api/settings.rs`). */
-export type SkillMethod = "settings.skill_import" | "settings.skill_reimport" | "settings.skill_reset";
 
 export const SettingsContext = createContext<SettingsContextValue | null>(null);
 

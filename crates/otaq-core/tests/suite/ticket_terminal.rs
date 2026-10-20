@@ -78,7 +78,9 @@ async fn printing(
             tool: None,
             tool_session_id: None,
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
         })
         .await
         .unwrap();

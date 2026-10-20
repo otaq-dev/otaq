@@ -14,10 +14,9 @@
 //! - **Origin line** of a card an agent created ("Created by Checkout slowness", violet, d0068).
 //! - **Footer, only when it has something to say:** while an agent runs, the tokens its tool reports and the last
 //!   signal ("182k · 40s"; "not reported" when Otaq can't read the usage file, d0086); and the card's one action.
-//!   Its **agent part** (M22, AGT-04, update Y §8; [`footer_agent`]): a not-started card whose Developer row isn't
-//!   the project default names it, "Fable test · set by you" (neutral) or "Light · picked by Checkout slowness"
-//!   (violet); while an agent runs, the named agent of whoever has the turn ("Strong 182k · 40s"); a model the tool
-//!   refused names the agent that couldn't run it. Nothing names an agent while there is only one (d0086).
+//!   Its **agent part** (M22, AGT-04, AGM-09; [`footer_agent`]): while an agent runs, the agent of whoever has the
+//!   turn ("Strong 182k · 40s"); a held role names the agent it would start on. Nothing before the start, and
+//!   nothing names an agent while there is only one (d0086).
 //! - **Hover:** the full status ("Needs you · permission"), and what the card has no room for.
 //!
 //! **The flag order** (head slot, highest first, [`Rank`]): Validator / Needs you / Asks you (also via lead) / Idle
@@ -32,18 +31,18 @@
 //! role held before it starts ([`AgentFacts::holds`], T-0357's `agent_holds`) takes the head with **Unavailable**
 //! (amber: its tool isn't available, or its model is no longer listed) or **Limit** (neutral: its tool is at its
 //! limit), never turquoise and never an inbox item; its line says why and what helps ("Codex not available · Use
-//! fallback (Sonnet) · Change agent"), and the card's action is Use fallback or Change agent / Change validator. A
-//! row a fallback moved says so while it runs, amber ("Moved from Strong · Claude Code limit"). A swapped model
-//! changes nothing on the card (the panel says it).
+//! fallback (Claude Code) · Change agent"), and the card's action is Use fallback or Change agent / Change
+//! validator. A session on its tool's fallback says so while it runs, amber ("On Codex · Claude Code limit",
+//! AGM-03). A swapped model changes nothing on the card (the panel says it).
 //!
 //! Data that the service doesn't fill yet comes in through [`CardExtras`]; fixtures fill it.
 
+use otaq_core::agents::facts::{BoardAgents, CardAgents, CardHold, RunsOnTool};
+use otaq_core::agents::{HoldReason, SessionRole as Role};
 use otaq_core::board::epic_flight::is_never_started;
 use otaq_core::board::needs_you::change_agent;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Actor, Priority, Status, TicketKey};
-use otaq_core::named_agents::rows::{BoardAgents, CardAgents, CardHold};
-use otaq_core::named_agents::{CameFrom, HoldReason, MoveReason, Role, RowMove, RowSetBy};
 use otaq_core::signals::background::{minutes, wakeup_text};
 use otaq_core::signals::{HELPER_PROMPT_PREFIX, is_stale};
 
@@ -121,43 +120,28 @@ pub struct CardExtras {
 /// What the card knows about its agents (`board.agents`, AGT-04): the footer's agent part ([`footer_agent`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentFacts {
-    /// How many named agents there are: with one, the card names none (d0086, "only what's needed").
+    /// How many agents there are: with one, the card names none (d0086, "only what's needed").
     pub count: usize,
-    /// The named agent the Developer and the Validator run on now.
-    pub developer: Option<String>,
-    pub validator: Option<String>,
-    /// The Developer row points at another agent than the project default: who set it.
-    pub off_default: Option<RowSetBy>,
-    /// The named agent of the running developer session and of the running validator.
+    /// The agent of the running developer session and of the running validator.
     pub running_developer: Option<String>,
     pub running_validator: Option<String>,
     /// The roles held before they start (M23): a Developer's while it waits in Ready for Dev, a Validator's in Dev.
     pub holds: Vec<CardHold>,
-    /// Where the Developer and the Validator rows moved from (a fallback, or Move waiting to…).
-    pub developer_move: Option<RowMove>,
-    pub validator_move: Option<RowMove>,
+    /// The tool and model each running session runs on, and the fallback it runs on (AGM-03).
+    pub developer_on: Option<RunsOnTool>,
+    pub validator_on: Option<RunsOnTool>,
 }
 
 impl AgentFacts {
-    /// From the service's facts for one card, with the number of named agents.
+    /// From the service's facts for one card, with the number of agents.
     pub fn of(card: &CardAgents, count: usize) -> Self {
         Self {
             count,
-            developer: card.developer.as_ref().map(|r| r.agent.name.clone()),
-            validator: card.validator.as_ref().map(|r| r.agent.name.clone()),
-            off_default: card
-                .developer
-                .as_ref()
-                .filter(|_| card.developer_off_default)
-                .and_then(|r| match &r.came_from {
-                    CameFrom::Row { set_by } => Some(set_by.clone()),
-                    _ => None,
-                }),
             running_developer: card.running_developer.clone(),
             running_validator: card.running_validator.clone(),
             holds: card.holds.clone(),
-            developer_move: card.developer_move.clone(),
-            validator_move: card.validator_move.clone(),
+            developer_on: card.running_developer_on.clone(),
+            validator_on: card.running_validator_on.clone(),
         }
     }
 
@@ -169,24 +153,23 @@ impl AgentFacts {
 
 impl CardExtras {
     /// The card's agents from `board.agents` (T-0345, T-0362): the footer's facts, whether several tools are
-    /// connected, and the avatars: each role's running session's tool and model, else the tool its row resolves
-    /// to now (a not-started, held or refused card shows the tool it would run on).
+    /// connected, and the avatars: each role's running session's tool and model, else a held role's tool.
     pub fn with_agents(mut self, board: &BoardAgents, key: &TicketKey) -> Self {
         self.several_tools = board.connected.len() > 1;
         let Some(card) = board.cards.iter().find(|c| &c.key == key) else {
             return self;
         };
         self.agents = AgentFacts::of(card, board.agent_count);
-        let avatar = |on: &Option<otaq_core::named_agents::rows::RunsOnTool>,
-                      resolved: &Option<otaq_core::named_agents::Resolved>| {
-            match (on, resolved) {
-                (Some(on), _) => Some(ToolAvatarView::of(on.tool, on.model.as_deref())),
-                (None, Some(r)) => Some(ToolAvatarView::of(r.agent.tool, r.agent.model.as_deref())),
-                (None, None) => None,
-            }
+        let avatar = |on: &Option<RunsOnTool>, role: Role| match on {
+            Some(on) => Some(ToolAvatarView::of(on.tool, on.model.as_deref())),
+            None => card
+                .holds
+                .iter()
+                .find(|h| h.role == role)
+                .map(|h| ToolAvatarView::of(h.tool, h.model.as_deref())),
         };
-        self.developer = avatar(&card.running_developer_on, &card.developer);
-        self.validator = avatar(&card.running_validator_on, &card.validator);
+        self.developer = avatar(&card.running_developer_on, Role::Developer);
+        self.validator = avatar(&card.running_validator_on, Role::Validator);
         self
     }
 
@@ -386,15 +369,6 @@ impl CardActionKind {
             Self::RetryValidation => Some(A::Retry),
             Self::RetryMerge => Some(A::RetryMerge),
             Self::MoveToReview => Some(A::MoveToReview),
-            _ => None,
-        }
-    }
-
-    /// The role Use fallback moves (`ticket.use_fallback`'s `role`).
-    pub fn fallback_role(self) -> Option<Role> {
-        match self {
-            Self::UseFallback => Some(Role::Developer),
-            Self::UseValidatorFallback => Some(Role::Validator),
             _ => None,
         }
     }
@@ -1381,12 +1355,15 @@ fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
         ),
         _ => hold_reason_text(h.reason, tool),
     };
-    let agent = h.agent.as_deref().unwrap_or(tool);
-    let text = match (h.reason, &h.fallback) {
+    let fallback = h
+        .fallback
+        .as_ref()
+        .map(|f| AvatarTool::from(f.tool).name().to_owned());
+    let text = match (h.reason, &fallback) {
         (HoldReason::ModelUnavailable, _) => format!("{cause} \u{b7} {change}"),
         // One step, no chains: both blocked, it waits (0086).
         (HoldReason::ToolLimit, Some(fallback)) if h.fallback_held => {
-            format!("{agent} and its fallback {fallback} are both at their limits")
+            format!("{tool} and its fallback {fallback} are both at their limits")
         }
         (HoldReason::ToolUnavailable, Some(fallback)) if h.fallback_held => {
             format!(
@@ -1419,6 +1396,7 @@ fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
         ),
         // The model on hover: "Old GPT · Codex · gpt-5.4 is no longer in Codex's list".
         HoldReason::ModelUnavailable => {
+            let agent = h.agent.as_deref().unwrap_or(tool);
             let mut named = vec![agent.to_owned()];
             if x.several_tools && !agent.eq_ignore_ascii_case(tool) {
                 named.push(tool.to_owned());
@@ -1442,31 +1420,20 @@ fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
     }
 }
 
-/// The amber line of a row a fallback moved, while it runs (0086, *Moved by a fallback*): "Moved from Strong ·
-/// Claude Code limit", "Validator moved from Verifier · Copilot not available". The user's own move says nothing.
+/// The amber line of a session on its tool's fallback, while it runs (AGM-03): "On Codex · Claude Code limit",
+/// "Validator on Codex · Copilot not available".
 fn moved_part(status: Status, x: &CardExtras) -> Option<Part> {
-    let (moved, prefix) = match status {
-        Status::Checking => (x.agents.validator_move.as_ref()?, "Validator moved"),
-        Status::Working | Status::WorkingInBackground => {
-            (x.agents.developer_move.as_ref()?, "Moved")
-        }
+    let (on, prefix) = match status {
+        Status::Checking => (x.agents.validator_on.as_ref()?, "Validator on"),
+        Status::Working | Status::WorkingInBackground => (x.agents.developer_on.as_ref()?, "On"),
         _ => return None,
     };
-    let why = moved_reason(moved)?;
+    let from = on.fallback.as_ref()?;
+    let why = hold_reason_text(from.reason, AvatarTool::from(from.tool).name());
     Some(Part::quiet(
-        format!("{prefix} from {} \u{b7} {why}", moved.from_name),
+        format!("{prefix} {} \u{b7} {why}", AvatarTool::from(on.tool).name()),
         Tone::Warning,
     ))
-}
-
-/// Why a row moved: "Claude Code limit", "Codex not available"; `None` for the user's own move.
-pub fn moved_reason(moved: &RowMove) -> Option<String> {
-    let tool = AvatarTool::from(moved.tool?).name();
-    match moved.reason {
-        MoveReason::ToolUnavailable => Some(format!("{tool} not available")),
-        MoveReason::ToolLimit => Some(format!("{tool} limit")),
-        MoveReason::UserMove => None,
-    }
 }
 
 /// The head flag of a held role whose tool isn't available or whose model is no longer listed (≤ 12 characters).
@@ -1722,10 +1689,9 @@ fn footer(
     )
 }
 
-/// The footer's agent part (update Y §8, AGT-04): never while there is only one named agent (d0086). A model the
-/// tool refused names the agent that couldn't run it (Start failed: the Developer's, No result: the Validator's);
-/// while an agent runs, whoever has the turn's (the validator while it validates); a not-started card whose
-/// Developer row isn't the project default, that agent and who set it. On the project default, nothing.
+/// The footer's agent part (update Y §8, AGT-04, AGM-09): never while there is only one agent (d0086), nothing
+/// before the start. A held role names the agent it would start on; while an agent runs, whoever has the turn's (the
+/// validator while it validates).
 pub fn footer_agent(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<FooterAgent> {
     let a = &x.agents;
     if a.count < 2 {
@@ -1736,49 +1702,17 @@ pub fn footer_agent(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<F
         picked: false,
         tooltip: None,
     };
-    match change_agent(ticket) {
-        Some(Role::Developer) => return a.developer.as_ref().map(plain),
-        Some(Role::Validator) => return a.validator.as_ref().map(plain),
-        _ => {}
-    }
-    // A held role names the agent it would start on.
     if let Some(hold) = held(ticket, status, x) {
-        let name = match hold.role {
-            Role::Validator => hold.agent.as_ref().or(a.validator.as_ref()),
-            _ => hold.agent.as_ref().or(a.developer.as_ref()),
-        };
-        return name.map(plain);
+        return hold.agent.as_ref().map(plain);
     }
     if runs(status) {
         let name = match status {
-            Status::Checking => a.running_validator.as_ref().or(a.validator.as_ref()),
-            _ => a.running_developer.as_ref().or(a.developer.as_ref()),
+            Status::Checking => a.running_validator.as_ref(),
+            _ => a.running_developer.as_ref(),
         };
-        // A validator a fallback took: "Strong (Verifier's fallback)" (*Validator moved by its fallback*).
-        let fallback_of = a
-            .validator_move
-            .as_ref()
-            .filter(|m| status == Status::Checking && m.reason != MoveReason::UserMove);
-        return name.map(|name| match fallback_of {
-            Some(m) => plain(&format!("{name} ({}\u{2019}s fallback)", m.from_name)),
-            None => plain(name),
-        });
+        return name.map(plain);
     }
-    let not_started =
-        ticket.started_at.is_none() && !matches!(status, Status::Merged | Status::ClosedNotMerged);
-    let name = a.developer.as_ref().filter(|_| not_started)?;
-    Some(match a.off_default.as_ref()? {
-        RowSetBy::User => FooterAgent {
-            text: format!("{name} \u{b7} set by you"),
-            picked: false,
-            tooltip: None,
-        },
-        RowSetBy::Agent { picked_by, reason } => FooterAgent {
-            text: format!("{name} \u{b7} picked by {picked_by}"),
-            picked: true,
-            tooltip: Some(reason.trim().to_owned()).filter(|r| !r.is_empty()),
-        },
-    })
+    None
 }
 
 /// The tool the user's agents run on (M22: the one connected tool), by the name people read.
@@ -4017,40 +3951,22 @@ mod tests {
     fn the_m22_cards_name_their_agents() {
         let rows = [
             (
-                "Set by you \u{b7} before the drag",
-                None,
-                Some("Ready to start"),
-                Some("Fable test \u{b7} set by you"),
-            ),
-            (
                 "Start failed on the model",
                 Some("Start failed"),
                 Some("Claude Code couldn\u{2019}t run the model"),
-                Some("Fable test [Change agent]"),
+                Some("[Change agent]"),
             ),
             (
                 "No result \u{b7} the validator\u{2019}s model",
                 Some("No result"),
                 Some("Validator couldn\u{2019}t run its model"),
-                Some("Fable test [Change validator]"),
+                Some("[Change validator]"),
             ),
             (
                 "Project default \u{b7} no footer",
                 None,
                 Some("Ready to start"),
                 None,
-            ),
-            (
-                "Ready to start \u{b7} agent picked (0066, 0086)",
-                None,
-                Some("Ready to start"),
-                Some("Light \u{b7} picked by Checkout slowness (violet)"),
-            ),
-            (
-                "Created by a Project agent \u{b7} agent picked",
-                None,
-                None,
-                Some("Light \u{b7} picked by Checkout slowness (violet)"),
             ),
             (
                 "Working \u{b7} two or more named agents",
@@ -4074,15 +3990,6 @@ mod tests {
                 "{name}"
             );
         }
-        let (_, created) = variant("Created by a Project agent \u{b7} agent picked");
-        assert_eq!(
-            created.origin.as_deref(),
-            Some("Created by Checkout slowness")
-        );
-        let picked = created.footer.unwrap().agent.unwrap();
-        assert_eq!(picked.tooltip.as_deref(), Some("docs-only change"));
-        let (_, mine) = variant("Set by you \u{b7} before the drag");
-        assert_eq!(mine.footer.unwrap().agent.unwrap().tooltip, None);
     }
 
     /// Start failed on the model (AGT-05): red, the tool's message on the line's hover and the flag's, Change agent
@@ -4231,17 +4138,7 @@ mod tests {
             Option<(CardActionKind, bool)>,
         );
         use CardActionKind as K;
-        let want: [Row; 13] = [
-            (
-                "Set by you \u{b7} several tools",
-                "CC",
-                None,
-                "Ready to start",
-                Tone::Muted,
-                None,
-                "Fable test \u{b7} set by you",
-                None,
-            ),
+        let want: [Row; 12] = [
             (
                 "Start failed \u{b7} several tools",
                 "CC",
@@ -4249,7 +4146,7 @@ mod tests {
                 "Claude Code couldn\u{2019}t run the model",
                 Tone::Error,
                 Some("Claude Code couldn\u{2019}t run the model"),
-                "Fable test [Change agent]",
+                "[Change agent]",
                 Some((K::ChangeAgent, true)),
             ),
             (
@@ -4259,7 +4156,7 @@ mod tests {
                 "Codex couldn\u{2019}t run the model",
                 Tone::Error,
                 Some("Codex couldn\u{2019}t run the model"),
-                "Standard [Change agent]",
+                "[Change agent]",
                 Some((K::ChangeAgent, true)),
             ),
             (
@@ -4306,7 +4203,7 @@ mod tests {
                 "Tool at its limit \u{b7} fallback off",
                 "CC",
                 Some(("At limit", Palette::Queued)),
-                "Claude Code limit \u{b7} Use fallback (Strong GPT) \u{b7} Change agent",
+                "Claude Code limit \u{b7} Use fallback (Codex) \u{b7} Change agent",
                 Tone::Muted,
                 None,
                 "Strong [Use fallback]",
@@ -4316,7 +4213,7 @@ mod tests {
                 "Tool not available \u{b7} fallback off (0086)",
                 "CX",
                 Some(("Unavailable", Palette::Paused)),
-                "Codex not available \u{b7} Use fallback (Sonnet) \u{b7} Change agent",
+                "Codex not available \u{b7} Use fallback (Claude Code) \u{b7} Change agent",
                 Tone::Warning,
                 None,
                 "Standard [Use fallback]",
@@ -4326,17 +4223,17 @@ mod tests {
                 "Validator held \u{b7} tool not available",
                 "CP",
                 Some(("Unavailable", Palette::Paused)),
-                "GitHub Copilot not available \u{b7} Use fallback (Strong) \u{b7} Change validator",
+                "GitHub Copilot not available \u{b7} Use fallback (Claude Code) \u{b7} Change validator",
                 Tone::Warning,
                 None,
                 "Verifier [Use fallback]",
                 Some((K::UseValidatorFallback, false)),
             ),
             (
-                "Moved by a fallback (0086)",
+                "On its tool\u{2019}s fallback (AGM-03)",
                 "CX",
                 Some(("Working", Palette::Working)),
-                "Moved from Strong \u{b7} Claude Code limit",
+                "On Codex \u{b7} Claude Code limit",
                 Tone::Warning,
                 None,
                 "Strong GPT 80k 30s",
@@ -4346,20 +4243,20 @@ mod tests {
                 "Fallback also at its limit",
                 "CC",
                 Some(("At limit", Palette::Queued)),
-                "Strong and its fallback Strong GPT are both at their limits",
+                "Claude Code and its fallback Codex are both at their limits",
                 Tone::Muted,
                 None,
                 "Strong [Change agent]",
                 Some((K::ChangeAgent, false)),
             ),
             (
-                "Validator moved by its fallback",
+                "Validator on its tool\u{2019}s fallback",
                 "CC",
                 Some(("Validating\u{2026}", Palette::Queued)),
-                "Validator moved from Verifier \u{b7} GitHub Copilot not available",
+                "Validator on Claude Code \u{b7} GitHub Copilot not available",
                 Tone::Warning,
                 None,
-                "Strong (Verifier\u{2019}s fallback) 6k",
+                "Strong 6k",
                 None,
             ),
         ];
@@ -4452,7 +4349,7 @@ mod tests {
     #[test]
     fn holds_and_moves_show_where_they_apply() {
         use otaq_core::agent_tools::Tool;
-        use otaq_core::named_agents::HoldReason as H;
+        use otaq_core::agents::HoldReason as H;
         let developer = card_fixtures::hold(
             Role::Developer,
             H::ToolUnavailable,
@@ -4525,41 +4422,27 @@ mod tests {
             vm.footer.unwrap().action.unwrap().kind,
             CardActionKind::ChangeValidator
         );
-        // Moves: the user's own says nothing; nothing once the ticket no longer runs.
-        let mv = |reason| CardExtras {
+        // On the fallback: said while it runs; nothing once the ticket no longer runs.
+        let on = |reason| CardExtras {
             several_tools: true,
             agents: AgentFacts {
-                developer_move: Some(card_fixtures::moved("Strong", reason, Tool::Claude)),
+                developer_on: Some(card_fixtures::on_fallback(
+                    Tool::Codex,
+                    Tool::Claude,
+                    reason,
+                )),
                 ..card_fixtures::named("Strong GPT")
             },
             ..main_project()
         };
         let working = ticket("SHOP-31", "Hotfix", Status::Working);
         assert_eq!(
-            line(&CardViewModel::from(
-                &working,
-                &mv(MoveReason::ToolUnavailable),
-                NOW
-            )),
-            Some("Moved from Strong \u{b7} Claude Code not available")
-        );
-        let user = card_fixtures::moved("Strong", MoveReason::UserMove, Tool::Claude);
-        assert_eq!(moved_reason(&user), None);
-        assert_eq!(
-            line(&CardViewModel::from(
-                &working,
-                &mv(MoveReason::UserMove),
-                NOW
-            )),
-            None
+            line(&CardViewModel::from(&working, &on(H::ToolUnavailable), NOW)),
+            Some("On Codex \u{b7} Claude Code not available")
         );
         let review = ticket("SHOP-31", "Hotfix", Status::WaitingForYou);
         assert_eq!(
-            line(&CardViewModel::from(
-                &review,
-                &mv(MoveReason::ToolLimit),
-                NOW
-            )),
+            line(&CardViewModel::from(&review, &on(H::ToolLimit), NOW)),
             None
         );
     }
@@ -4595,45 +4478,27 @@ mod tests {
     }
 
     /// `board.agents` reaches the card (T-0362): avatars only with two tools connected; the running session's tool
-    /// and model, else the tool the row resolves to; the head follows whoever has the turn.
+    /// and model, else a held role's tool; the head follows whoever has the turn.
     #[test]
-    fn the_board_brings_tools_holds_and_moves() {
+    fn the_board_brings_tools_holds_and_fallbacks() {
         use otaq_core::agent_tools::Tool;
-        use otaq_core::named_agents::rows::{CardAgents, RunsOnTool};
-        use otaq_core::named_agents::{NamedAgent, Resolved};
-        let agent = |name: &str, tool| Resolved {
-            agent: NamedAgent {
-                id: name.to_lowercase(),
-                name: name.into(),
-                tool,
-                model: Some("gpt-5.5".into()),
-                use_for: String::new(),
-                fallback: None,
-                mark: None,
-                created_at: 0,
-                updated_at: 0,
-            },
-            came_from: CameFrom::AppDefault,
-        };
+        use otaq_core::agents::HoldReason as H;
+        use otaq_core::agents::facts::{CardAgents, RunsOnTool};
         let card = CardAgents {
             key: "SHOP-29".parse().unwrap(),
-            developer: Some(agent("Standard", Tool::Codex)),
-            validator: Some(agent("Verifier", Tool::Copilot)),
-            developer_off_default: false,
-            running_developer: None,
+            running_developer: Some("Standard".into()),
             running_validator: Some("Verifier".into()),
-            running_developer_on: None,
+            running_developer_on: Some(card_fixtures::on_fallback(
+                Tool::Codex,
+                Tool::Claude,
+                H::ToolLimit,
+            )),
             running_validator_on: Some(RunsOnTool {
                 tool: Tool::Copilot,
                 model: Some("auto".into()),
+                fallback: None,
             }),
             holds: Vec::new(),
-            developer_move: Some(card_fixtures::moved(
-                "Strong",
-                MoveReason::ToolLimit,
-                Tool::Claude,
-            )),
-            validator_move: None,
         };
         let board = |connected: Vec<Tool>| BoardAgents {
             agent_count: 3,
@@ -4643,8 +4508,8 @@ mod tests {
         let key: TicketKey = "SHOP-29".parse().unwrap();
         let x = main_project().with_agents(&board(vec![Tool::Claude, Tool::Codex]), &key);
         assert!(x.several_tools);
-        assert_eq!(x.agents.developer_move, card.developer_move);
-        assert_eq!(x.developer.as_ref().unwrap().hover, "Codex \u{b7} gpt-5.5");
+        assert_eq!(x.agents.developer_on, card.running_developer_on);
+        assert_eq!(x.developer.as_ref().unwrap().hover, "Codex");
         assert_eq!(
             x.validator.as_ref().unwrap().hover,
             "GitHub Copilot \u{b7} auto"
@@ -4670,54 +4535,5 @@ mod tests {
                 .agents,
             AgentFacts::default()
         );
-    }
-
-    /// The facts from `board.agents`: a row off the default carries who set it, a row on it nothing.
-    #[test]
-    fn agent_facts_come_from_the_service() {
-        use otaq_core::named_agents::rows::CardAgents;
-        use otaq_core::named_agents::{NamedAgent, Resolved};
-        let agent = |name: &str| NamedAgent {
-            id: name.to_lowercase(),
-            name: name.into(),
-            tool: otaq_core::agent_tools::Tool::ALL[0],
-            model: None,
-            use_for: String::new(),
-            fallback: None,
-            mark: None,
-            created_at: 0,
-            updated_at: 0,
-        };
-        let by = RowSetBy::Agent {
-            picked_by: "Checkout slowness".into(),
-            reason: "docs-only change".into(),
-        };
-        let card = CardAgents {
-            key: "SHOP-41".parse().unwrap(),
-            developer: Some(Resolved {
-                agent: agent("Light"),
-                came_from: CameFrom::Row { set_by: by.clone() },
-            }),
-            validator: Some(Resolved {
-                agent: agent("Claude Code"),
-                came_from: CameFrom::AppDefault,
-            }),
-            developer_off_default: true,
-            running_developer: None,
-            running_validator: None,
-            running_developer_on: None,
-            running_validator_on: None,
-            holds: Vec::new(),
-            developer_move: None,
-            validator_move: None,
-        };
-        let facts = AgentFacts::of(&card, 5);
-        assert_eq!(facts.off_default, Some(by));
-        assert_eq!(facts.developer.as_deref(), Some("Light"));
-        let on_default = CardAgents {
-            developer_off_default: false,
-            ..card
-        };
-        assert_eq!(AgentFacts::of(&on_default, 5).off_default, None);
     }
 }

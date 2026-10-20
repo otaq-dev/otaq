@@ -10,17 +10,18 @@
 //! `answer_options.rs`; the page keeps only the selection and the draft.
 
 use otaq_core::agent_tools::Tool;
+use otaq_core::agents::SessionRole as Role;
 use otaq_core::board::needs_you::NeedsYouGroup;
 use otaq_core::board::questions::Choice;
 use otaq_core::domain::{LeadNoteSent, StuckStop, TicketKey, ValidationAction};
 use otaq_core::epic_lead::suggest::SuggestionKind;
-use otaq_core::named_agents::Role;
 use otaq_core::project_agents::AgentNeedsYou;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::theme::Palette;
+use crate::view_models::agents::RoleId;
 use crate::view_models::answer::{self as answers, AnswerKind};
 use crate::view_models::answer_options::{self, AnswerOptions};
 use crate::view_models::inbox::{
@@ -28,7 +29,6 @@ use crate::view_models::inbox::{
 };
 use crate::view_models::inbox_run::{ALL_CLEAR_FOR, RunBar, all_clear_text, bar_title};
 use crate::view_models::limit_banner::{LimitBanner, LineButton};
-use crate::view_models::named_agents::RoleId;
 use crate::view_models::panel::Tab;
 use crate::view_models::status::{PillView, pill};
 use crate::view_models::terminal_strip::UnsentPrompt;

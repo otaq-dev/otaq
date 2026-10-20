@@ -15,14 +15,7 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { toolProblemAction } from "../panel/toolProblemRunner";
 import { type LimitLineHandlers, LimitLines } from "./LimitLines";
-import {
-  followNotifications,
-  limitLinesOf,
-  moveWaiting,
-  noticesStore,
-  pressBanner,
-  watchNotices,
-} from "./notices";
+import { followNotifications, limitLinesOf, noticesStore, pressBanner, watchNotices } from "./notices";
 import "./notices.css";
 
 export { noticesStore, onlyRestartAllowed } from "./notices";
@@ -36,13 +29,10 @@ function warnOnFailure(what: string) {
   };
 }
 
-/** The limit lines' presses in the app: a line's button as its tool problem action, an agent picked in Move waiting to…. */
+/** The limit lines' presses in the app: a line's button as its tool problem action. */
 export const LINE_HANDLERS: LimitLineHandlers = {
   onAction: (action) => {
     toolProblemAction(action, {});
-  },
-  onMove: (tool, agent) => {
-    moveWaiting(tool, agent).catch(warnOnFailure("Move waiting"));
   },
 };
 

@@ -6,7 +6,7 @@
 //!   the Project agent role and the project-agent skill with that message as its first prompt, no ticket
 //!   ([`crate::agent_tools::LaunchRole::ProjectAgent`]). The message is its first request from the start: there is
 //!   no empty "New agent" session. The check before every launch runs first (SCH-04 `[M23]`,
-//!   [`crate::named_agents::gate`]): a tool that isn't available or is at its limit, or a model no longer listed,
+//!   [`crate::agents::gate`]): a tool that isn't available or is at its limit, or a model no longer listed,
 //!   refuses the message with the reason and holds the Project agent (no fallback, Q-B); the message stays in the
 //!   pane for the user to send again. A Resume is refused while the usage limit holds. They never count toward the
 //!   agent limit, which counts tickets (SCH-03).
@@ -33,11 +33,11 @@ use serde::{Deserialize, Serialize};
 use crate::agent_tools::{
     Adapters, FirstPrompt, LaunchRequest, LaunchRole, Launched, PROJECT_AGENT_SKILL, Tool,
 };
+use crate::agents::{Agent, Role, RunsOn, SessionRole, resolve};
 use crate::board::questions::{Choice, HumanQuestion};
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::stored_enum;
 use crate::domain::{Actor, Status, StatusSet, TicketKey};
-use crate::named_agents::{Role, RunsOn, resolve_project_role};
 use crate::naming;
 use crate::protocol::Event;
 use crate::service::EventBus;
@@ -159,7 +159,7 @@ pub struct ProjectAgentList {
     pub recent: Vec<ProjectAgent>,
     /// A first message held before its start (SCH-04 `[M23]`, §7.2): the pane's notice.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub holds: Vec<crate::named_agents::AgentHold>,
+    pub holds: Vec<crate::agents::AgentHold>,
 }
 
 /// What the startup reconcile did (REC-01, REC-06).
@@ -248,7 +248,7 @@ struct Inner {
     /// Questions and first stops sent to the leads, until they act on them (d0083).
     handovers: crate::epic_lead::wake::Handovers,
     /// The check before every launch (set by the service; unset, nothing is checked).
-    gate: std::sync::OnceLock<crate::named_agents::gate::LaunchGate>,
+    gate: std::sync::OnceLock<crate::agents::gate::LaunchGate>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -316,23 +316,24 @@ impl ProjectAgents {
     }
 
     /// Gives the Project agents and leads the service's check before every launch (SCH-04 `[M23]`).
-    pub fn set_gate(&self, gate: crate::named_agents::gate::LaunchGate) {
+    pub fn set_gate(&self, gate: crate::agents::gate::LaunchGate) {
         let _ = self.inner.gate.set(gate);
     }
 
-    /// The check before a new session of `role` in `scope` on `resolved`: what it runs on, or refused with why it is
+    /// The check before a new session of `role` in `scope` on `agent`: what it runs on, or refused with why it is
     /// held (the hold is written).
     async fn checked(
         &self,
-        role: Role,
-        scope: crate::named_agents::gate::Scope<'_>,
-        resolved: Option<&crate::named_agents::Resolved>,
+        role: SessionRole,
+        scope: crate::agents::gate::Scope<'_>,
+        agent: &Agent,
     ) -> Result<RunsOn, BoardError> {
-        use crate::named_agents::gate::Gated;
+        use crate::agents::gate::Gated;
         let Some(gate) = self.inner.gate.get() else {
-            return Ok(RunsOn::resolved(resolved));
+            let default = self.inner.board.store().default_model().await?;
+            return Ok(RunsOn::agent(agent, default.as_ref()));
         };
-        match gate.before_launch(role, scope, resolved).await? {
+        match gate.before_launch(role, scope, agent).await? {
             Gated::Launch(runs_on) => Ok(runs_on),
             Gated::Held(held) => Err(BoardError::refused(Refusal::MoveRefused, held.message())),
         }
@@ -384,8 +385,8 @@ impl ProjectAgents {
         self.open_on(project, message, None).await
     }
 
-    /// [`Self::open`] on the named agent `agent` instead of the project's Project agent default (the pane's "New agent
-    /// on Sonnet", M23).
+    /// [`Self::open`] on the agent `agent` instead of the agent with the Project agent role (the pane's "New agent on
+    /// Sonnet", M23).
     pub async fn open_on(
         &self,
         project: &str,
@@ -397,37 +398,31 @@ impl ProjectAgents {
         if message.is_empty() {
             return Err(BoardError::refused(Refusal::EmptyField, EMPTY_MESSAGE));
         }
-        // The named agent asked for ("New agent on Sonnet", the user's pick), else the project's Project agent
-        // default, else the app default (AGT-03, AGT-05): a Project agent has no row.
-        let resolved = match agent {
-            Some(id) => Some(crate::named_agents::Resolved {
-                agent: self
-                    .inner
-                    .board
-                    .store()
-                    .named_agent(id)
-                    .await?
-                    .ok_or_else(|| BoardError::NotFound(format!("no named agent {id}")))?,
-                came_from: crate::named_agents::CameFrom::Row {
-                    set_by: crate::named_agents::RowSetBy::User,
-                },
-            }),
-            None => resolve_project_role(&self.inner.board, &project, Role::ProjectAgent).await?,
+        // The agent asked for ("New agent on Sonnet", the user's pick), else the agent with the Project agent role
+        // (AGM-05).
+        let store = self.inner.board.store();
+        let agent = match agent {
+            Some(id) => store
+                .agent(id)
+                .await?
+                .ok_or_else(|| BoardError::NotFound(format!("no agent {id}")))?,
+            None => resolve::role_agent(store, Role::ProjectAgent).await?,
         };
         let runs_on = self
             .checked(
-                Role::ProjectAgent,
-                crate::named_agents::gate::Scope::Project {
+                SessionRole::ProjectAgent,
+                crate::agents::gate::Scope::Project {
                     id: &project.id,
                     name: &project.name,
                 },
-                resolved.as_ref(),
+                &agent,
             )
             .await?;
         let launched = self.launch(
             runs_on.tool,
             LaunchRequest {
                 model: runs_on.model.clone(),
+                effort: runs_on.effort.clone(),
                 ..request(
                     &project,
                     LaunchRole::ProjectAgent,
@@ -440,9 +435,9 @@ impl ProjectAgents {
         )?;
         let id = new_id();
         sqlx::query(
-            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, named_agent_id,
-                                         named_agent_name, state, first_request, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, agent_id, agent_name, effort,
+                                         state, first_request, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
@@ -451,15 +446,13 @@ impl ProjectAgents {
         .bind(&launched.model)
         .bind(runs_on.agent.as_ref().map(|a| &a.id))
         .bind(runs_on.agent.as_ref().map(|a| &a.name))
+        .bind(&runs_on.effort)
         .bind(AgentState::Running.as_str())
         .bind(message)
         .bind(now_ms())
         .execute(self.inner.board.store().pool())
         .await?;
-        if let Err(e) = self
-            .spawn(&project, launched, &id, runs_on.agent, None)
-            .await
-        {
+        if let Err(e) = self.spawn(&project, launched, &id, &runs_on, None).await {
             sqlx::query("DELETE FROM project_agents WHERE id = ?")
                 .bind(&id)
                 .execute(self.inner.board.store().pool())
@@ -493,48 +486,44 @@ impl ProjectAgents {
             runs_on.tool,
             LaunchRequest {
                 resume: Some(agent.conversation()?.to_owned()),
-                model: runs_on.model,
+                model: runs_on.model.clone(),
+                effort: runs_on.effort.clone(),
                 ..request(&project, LaunchRole::ProjectAgent, None)
             },
         )?;
-        self.restart(&agent, &project, launched, runs_on.agent, None)
+        self.restart(&agent, &project, launched, &runs_on, None)
             .await?;
         tracing::info!(agent = id, "project agent resumed");
         self.changed(&agent.project, id);
         self.get(id).await
     }
 
-    /// What an ended agent's Resume runs on (ADP-04, d0088): the tool, model and named agent its row stored at its
-    /// start, whatever the named agent is set to now.
+    /// What an ended agent's Resume runs on (ADP-04, d0088): the tool, model, effort and agent its row stored at its
+    /// start, whatever the agent is set to now.
     async fn runs_on(&self, agent: &ProjectAgent) -> Result<RunsOn, BoardError> {
-        let named: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-            "SELECT named_agent_id, named_agent_name FROM project_agents WHERE id = ?",
-        )
-        .bind(&agent.id)
-        .fetch_optional(self.inner.board.store().pool())
-        .await?;
-        let agent_named = named.and_then(|(id, name)| {
-            Some(SessionAgent {
-                id: id?,
-                name: name?,
-            })
-        });
+        let stored: Option<(Option<String>, Option<String>, Option<String>)> =
+            sqlx::query_as("SELECT agent_id, agent_name, effort FROM project_agents WHERE id = ?")
+                .bind(&agent.id)
+                .fetch_optional(self.inner.board.store().pool())
+                .await?;
+        let (id, name, effort) = stored.unwrap_or_default();
         Ok(RunsOn {
             tool: Some(agent.tool),
             model: agent.model.clone(),
-            agent: agent_named,
+            effort,
+            agent: id.zip(name).map(|(id, name)| SessionAgent { id, name }),
+            fallback: None,
         })
     }
 
-    /// Starts a new session for the ended agent `agent` with `launched` (its conversation resumed) on
-    /// `named_agent`: running again, its end and closed marks cleared; put back as it was when the session can't
-    /// start.
+    /// Starts a new session for the ended agent `agent` with `launched` (its conversation resumed) on `runs_on`'s
+    /// agent: running again, its end and closed marks cleared; put back as it was when the session can't start.
     async fn restart(
         &self,
         agent: &ProjectAgent,
         project: &Project,
         launched: Launched,
-        named_agent: Option<SessionAgent>,
+        runs_on: &RunsOn,
         lead: Option<(&str, &TicketKey)>,
     ) -> Result<(), BoardError> {
         let id = agent.id.as_str();
@@ -545,7 +534,7 @@ impl ProjectAgents {
         .bind(id)
         .execute(self.inner.board.store().pool())
         .await?;
-        if let Err(e) = self.spawn(project, launched, id, named_agent, lead).await {
+        if let Err(e) = self.spawn(project, launched, id, runs_on, lead).await {
             self.set_state(id, agent.state).await?;
             sqlx::query("UPDATE project_agents SET ended_at = ?, closed_at = ? WHERE id = ?")
                 .bind(agent.ended_at)
@@ -1108,7 +1097,7 @@ impl ProjectAgents {
         project: &Project,
         launched: Launched,
         id: &str,
-        named_agent: Option<SessionAgent>,
+        runs_on: &RunsOn,
         lead: Option<(&str, &TicketKey)>,
     ) -> Result<SessionInfo, BoardError> {
         let sessions = &self.inner.sessions;
@@ -1127,7 +1116,9 @@ impl ProjectAgents {
                 tool: Some(launched.tool),
                 tool_session_id: launched.tool_session_id,
                 model: launched.model,
-                named_agent,
+                agent: runs_on.agent.clone(),
+                effort: runs_on.effort.clone(),
+                fallback: runs_on.fallback.clone(),
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
@@ -1251,6 +1242,7 @@ fn request(
         first_prompt,
         resume: None,
         model: None,
+        effort: None,
         title: None,
     }
 }

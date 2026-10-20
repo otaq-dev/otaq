@@ -67,10 +67,7 @@ async fn setup() -> Setup {
         .unwrap();
     // origin is a local folder: the project uses its own Open PR skill (REV-11).
     let folder = skill_folder(w.data.root(), "my-pr");
-    w.board
-        .import_workflow_skill(Some("SHOP"), WorkflowStep::OpenPr, &folder)
-        .await
-        .unwrap();
+    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
     let epic = w
         .board
         .create_ticket(

@@ -19,6 +19,8 @@ use serde_json::json;
 use super::flow::{FlowKind, FlowState};
 use super::proposal::Proposal;
 use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole, Launched};
+use crate::agents::gate::{Held, LaunchGate, check};
+use crate::agents::{RunsOn, resolve};
 use crate::board::review::ApproveCheck;
 use crate::board::settings::WorkflowStep;
 use crate::board::tickets::{EventKind, Ticket, record_event};
@@ -26,15 +28,12 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::domain::{Actor, Status, TicketKey};
 use crate::git::merge::uncommitted_files_message;
-use crate::named_agents::gate::{Held, LaunchGate, check};
-use crate::named_agents::{NamedAgent, Role, RunsOn, resolve_project_role};
 use crate::naming;
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, Delivery};
 use crate::session::{
-    SessionAgent, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, StoredConversation,
-    TerminalSize,
+    SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, StoredConversation, TerminalSize,
 };
 use crate::store::now_ms;
 
@@ -474,44 +473,32 @@ impl Prs {
                 port: 0,
                 first_prompt: Some(FirstPrompt::WorkflowSkill { step, imported }),
                 resume: None,
-                model: runs_on.model,
+                model: runs_on.model.clone(),
+                effort: runs_on.effort.clone(),
                 title: Some(epic.title.clone()),
             },
         )?;
-        self.spawn(epic, SessionKind::Delivery, launched, runs_on.agent)
+        self.spawn(epic, SessionKind::Delivery, launched, &runs_on)
             .await
     }
 
-    /// What the epic's delivery session runs on: the project's Developer default (Q-D), through the check before
-    /// every launch (T-0357's Q3): refused with the hold's message ("Codex isn't available · logged out", "Claude
-    /// Code limit reached", "Model unavailable · Codex no longer lists gpt-5.4") when it can't start now, nothing
-    /// held (it is the user's click); a family choice resolved to the model it passes.
+    /// What the epic's delivery session runs on: the Delivery stage's agent (AGM-05; Q-D: an epic has no Agent stage
+    /// of its own), through the check before every launch (T-0357's Q3): refused with the hold's message ("Codex
+    /// isn't available · logged out", "Claude Code limit reached", "Model unavailable · Codex no longer lists
+    /// gpt-5.4") when it can't start now, nothing held (it is the user's click); a family choice resolved to the
+    /// model it passes.
     async fn delivery_runs_on(&self, epic: &Ticket) -> Result<RunsOn, BoardError> {
         let board = &self.inner.board;
-        let project = board.project(epic.key.project.as_str()).await?;
-        let resolved = resolve_project_role(board, &project, Role::Developer).await?;
-        let mut runs_on = RunsOn::resolved(resolved.as_ref());
+        let agent = resolve::delivery_agent(board, epic.key.project.as_str()).await?;
         let Some(gate) = self.inner.gate.get() else {
-            return Ok(runs_on);
+            return Ok(RunsOn::agent(
+                &agent,
+                board.store().default_model().await?.as_ref(),
+            ));
         };
-        let agent = match resolved {
-            Some(resolved) => resolved.agent,
-            None => {
-                let tool = self.inner.adapters.for_new_session().tool();
-                NamedAgent {
-                    id: String::new(),
-                    name: tool.display_name().to_owned(),
-                    tool,
-                    model: None,
-                    use_for: String::new(),
-                    fallback: None,
-                    mark: None,
-                    created_at: 0,
-                    updated_at: 0,
-                }
-            }
-        };
-        match check(&agent, &gate.facts().await?) {
+        let mut runs_on = gate.runs_on(&agent).await?;
+        let on = gate.model_of(&agent).await?;
+        match check(&on, &gate.facts().await?) {
             Ok(model) => {
                 runs_on.model = model;
                 Ok(runs_on)
@@ -519,6 +506,7 @@ impl Prs {
             Err(blocked) => {
                 let held = Held {
                     agent,
+                    on,
                     blocked,
                     fallback: None,
                     fallback_held: false,
@@ -583,7 +571,7 @@ impl Prs {
         ticket: &Ticket,
         kind: SessionKind,
         launched: Launched,
-        named_agent: Option<SessionAgent>,
+        runs_on: &RunsOn,
     ) -> Result<SessionInfo, BoardError> {
         let project = self
             .inner
@@ -609,7 +597,9 @@ impl Prs {
                 tool: Some(launched.tool),
                 tool_session_id: launched.tool_session_id,
                 model: launched.model,
-                named_agent,
+                agent: runs_on.agent.clone(),
+                effort: runs_on.effort.clone(),
+                fallback: runs_on.fallback.clone(),
             })
             .await
             .map_err(other)
@@ -748,11 +738,12 @@ impl Prs {
                 port,
                 first_prompt: Some(first_prompt),
                 resume: Some(conversation.id),
-                model: runs_on.model,
+                model: runs_on.model.clone(),
+                effort: runs_on.effort.clone(),
                 title: Some(ticket.title.clone()),
             },
         )?;
-        self.spawn(ticket, kind, launched, runs_on.agent).await
+        self.spawn(ticket, kind, launched, &runs_on).await
     }
 }
 

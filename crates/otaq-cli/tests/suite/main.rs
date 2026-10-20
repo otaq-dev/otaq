@@ -3,7 +3,6 @@
 //! `cargo nextest run -p otaq-cli -E 'test(/^<file>::/)'`.
 
 mod agent;
-mod agent_picks;
 mod ask;
 mod attach;
 mod cli;

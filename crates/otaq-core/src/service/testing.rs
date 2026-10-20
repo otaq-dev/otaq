@@ -63,7 +63,7 @@ pub struct TestService {
     pub adapters: crate::agent_tools::Adapters,
     pub ticket_env: crate::ticket_env::TicketEnv,
     pub events: super::EventBus,
-    pub gate: crate::named_agents::gate::LaunchGate,
+    pub gate: crate::agents::gate::LaunchGate,
     pub connected: crate::agent_tools::connected::ConnectedTools,
     pub models: crate::agent_tools::models::ModelLists,
     stopper: Stopper,
@@ -92,6 +92,108 @@ impl TestService {
             })
             .await
             .expect("project added")
+    }
+
+    /// Puts the agent called `name` on `model` (no model-list check), keeping the rest of its page: an agent on
+    /// another tool, as Settings → Agents would save it.
+    pub async fn set_agent_model(
+        &self,
+        name: &str,
+        model: crate::agents::AgentModel,
+    ) -> crate::agents::Agent {
+        self.edit_agent(name, |page| {
+            page.model = model;
+            page.effort = None;
+        })
+        .await
+    }
+
+    /// Changes the agent called `name` as `edit` says (no checks), as Settings → Agents would save it; a model
+    /// change clears its mark.
+    pub async fn edit_agent(
+        &self,
+        name: &str,
+        edit: impl FnOnce(&mut crate::agents::store::NewAgent),
+    ) -> crate::agents::Agent {
+        let store = self.board.store();
+        let agent = store
+            .agent_named(name)
+            .await
+            .expect("agents read")
+            .unwrap_or_else(|| panic!("no agent {name}"));
+        let mut page = crate::agents::store::NewAgent {
+            name: agent.name.clone(),
+            instructions: agent.instructions.clone(),
+            skills: agent.skills.clone(),
+            imported: agent.imported.clone(),
+            model: agent.model.clone(),
+            effort: agent.effort.clone(),
+            role: agent.role,
+        };
+        edit(&mut page);
+        let model_changed = page.model != agent.model;
+        store
+            .update_agent(&agent.id, &page, model_changed)
+            .await
+            .expect("agent saved");
+        store
+            .agent(&agent.id)
+            .await
+            .expect("agents read")
+            .expect("the agent")
+    }
+
+    /// Imports the skill `folder` onto the agent that runs `step` on the default flow (Developer; Validator for
+    /// Validate), standing in for the step's shipped skill as the move-over carries M31's workflow skills (AGM-02).
+    pub async fn import_step_skill(
+        &self,
+        step: crate::board::settings::WorkflowStep,
+        folder: &std::path::Path,
+    ) -> crate::agents::Agent {
+        let agent = self.step_agent(step).await;
+        let imported = crate::agents::skills::import(&self.board, &agent.id, folder)
+            .await
+            .expect("skill imported");
+        let id = imported.imported.last().expect("the import").id.clone();
+        self.edit_agent(&agent.name, |page| {
+            for skill in page.imported.iter_mut().filter(|s| s.id == id) {
+                skill.stands_for = Some(step.own_skill().to_owned());
+            }
+            let own = crate::agents::SkillRef::Shipped(step.own_skill().to_owned());
+            page.skills.retain(|s| *s != own);
+        })
+        .await
+    }
+
+    /// Puts the agent that runs `step` back on the shipped skill: its imported one for the step goes.
+    pub async fn drop_step_skill(&self, step: crate::board::settings::WorkflowStep) {
+        let agent = self.step_agent(step).await;
+        self.edit_agent(&agent.name, |page| {
+            let gone: Vec<String> = page
+                .imported
+                .iter()
+                .filter(|s| s.stands_for.as_deref() == Some(step.own_skill()))
+                .map(|s| s.id.clone())
+                .collect();
+            page.skills.retain(
+                |s| !matches!(s, crate::agents::SkillRef::Imported(id) if gone.contains(id)),
+            );
+            page.imported.retain(|s| !gone.contains(&s.id));
+        })
+        .await;
+    }
+
+    async fn step_agent(&self, step: crate::board::settings::WorkflowStep) -> crate::agents::Agent {
+        let role = match step {
+            crate::board::settings::WorkflowStep::Validate => "Validator",
+            _ => "Developer",
+        };
+        self.board
+            .store()
+            .agent_named(role)
+            .await
+            .expect("agents read")
+            .expect("the step's agent")
     }
 
     /// Creates a ticket in Backlog as the user.
@@ -304,7 +406,9 @@ impl TestService {
                 tool: None,
                 tool_session_id: None,
                 model: None,
-                named_agent: None,
+                agent: None,
+                effort: None,
+                fallback: None,
             })
             .await
             .expect("session starts");

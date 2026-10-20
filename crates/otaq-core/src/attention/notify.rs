@@ -541,14 +541,10 @@ pub fn summary(held: &[Held], sound: bool) -> OsNotification {
     }
 }
 
-/// The one notification for a tool that isn't available while tickets wait on it or moved off it (USG-10, d0086):
-/// "Codex isn't available" / "5 tickets waiting", "3 tickets moved to Sonnet", or both. Posted when it first
-/// happens, not per ticket; a click opens the board.
-pub fn tool_unavailable(
-    tool: Tool,
-    waiting: u32,
-    moved: &[crate::named_agents::moves::MovedTo],
-) -> OsNotification {
+/// The one notification for a tool that isn't available while tickets wait on it or started on its fallback (USG-10,
+/// d0086, AGM-03): "Codex isn't available" / "5 tickets waiting", "3 tickets on the fallback", or both. Posted when it
+/// first happens, not per ticket; a click opens the board.
+pub fn tool_unavailable(tool: Tool, waiting: u32, on_fallback: u32) -> OsNotification {
     let tickets = |n: u32| match n {
         1 => "1 ticket".to_owned(),
         n => format!("{n} tickets"),
@@ -557,8 +553,8 @@ pub fn tool_unavailable(
     if waiting > 0 {
         parts.push(format!("{} waiting", tickets(waiting)));
     }
-    for m in moved {
-        parts.push(format!("{} moved to {}", tickets(m.count), m.name));
+    if on_fallback > 0 {
+        parts.push(format!("{} on the fallback", tickets(on_fallback)));
     }
     OsNotification {
         title: format!("{} isn\u{2019}t available", tool.display_name()),
@@ -1598,7 +1594,7 @@ mod tests {
     /// A tool that isn't available opens the board, in no project's thread.
     #[test]
     fn a_tool_that_is_not_available_opens_the_board() {
-        let n = tool_unavailable(Tool::Codex, 5, &[]);
+        let n = tool_unavailable(Tool::Codex, 5, 0);
         assert_eq!(n.title, "Codex isn\u{2019}t available");
         assert_eq!(n.body, "5 tickets waiting");
         assert_eq!(n.kind, Some(Kind::ToolUnavailable));
@@ -1706,7 +1702,7 @@ mod tests {
     /// d0090: Linux has no subtitle; it is the body's last line.
     #[test]
     fn linux_appends_the_subtitle_to_the_body() {
-        let mut n = tool_unavailable(Tool::Codex, 1, &[]);
+        let mut n = tool_unavailable(Tool::Codex, 1, 0);
         assert_eq!(linux_body(&n), "1 ticket waiting");
         n.subtitle = "shop-web · Fix flaky login redirect".into();
         assert_eq!(

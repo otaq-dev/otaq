@@ -2,7 +2,6 @@
 //! these for the app and the CLI alike, so every rule is enforced in one place (d0055). No UI, no sockets.
 
 pub mod agent_edits;
-pub mod agent_picks;
 pub mod batch;
 pub mod change_note;
 pub mod comments;
@@ -217,30 +216,29 @@ stored_enum! {
         BranchLocked = "branch_locked",
         /// `pr opened` got something that isn't a pull request URL.
         BadPrUrl = "bad_pr_url",
-        /// Another named agent has this name, ignoring case (AGT-01).
+        /// Another agent has this name, ignoring case (AGM-01).
         NameTaken = "name_taken",
+        /// An agent's name is `skip` or starts with `_` (AGM-01, Q256).
+        BadName = "bad_name",
         /// The model isn't in the tool's own list (AGT-02, d0086).
         ModelNotListed = "model_not_listed",
-        /// The named agent is in use; the error's data lists what uses it (AGT-02).
+        /// The effort level isn't one of the tool's, or the tool has none (AGM-01).
+        BadEffort = "bad_effort",
+        /// A shipped skill Otaq doesn't ship, or an imported skill that isn't there (AGM-01).
+        BadSkill = "bad_skill",
+        /// The agent holds a role, or a stage names it (AGM-01): the message says which.
         AgentInUse = "agent_in_use",
-        /// The last named agent can't be deleted: every role needs a default (AGT-03).
-        LastAgent = "last_agent",
-        /// The agent row is locked: its session started, or a validation round runs (AGT-04).
-        RowLocked = "row_locked",
-        /// The ticket has no such agent row: a ticket has Developer and Validator, an epic Epic lead (AGT-04).
-        NoSuchRow = "no_such_row",
-        /// A named agent's fallback is itself or on the same tool: "A fallback must be on another tool" (AGT-08,
-        /// d0086).
+        /// A stage names an agent that isn't one of the agents (AGM-01).
+        UnknownAgent = "unknown_agent",
+        /// A tool's fallback is on the same tool: "A fallback must be on another tool" (AGM-03).
         BadFallback = "bad_fallback",
         /// A workflow skill folder can't be imported (WSK-02): no SKILL.md, front matter that doesn't read, or a
         /// copy that failed. Nothing changed.
         BadSkillFolder = "bad_skill_folder",
         /// Re-import's remembered original folder is gone (WSK-04); Otaq's copy stays.
         OriginalNotFound = "original_not_found",
-        /// The step has no imported skill to re-import.
+        /// The agent has no such imported skill to re-import.
         NotImported = "not_imported",
-        /// A settings save brought a typed workflow skill name (WSK-01: skills are imported folders now).
-        TypedSkillName = "typed_skill_name",
     }
 }
 

@@ -265,10 +265,7 @@ pub struct TicketUpdate {
     /// An empty string removes the External ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
-    /// Agent rows to set (`otaq update --developer Light`, AGT-06); checked and written by the service.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub agents: Vec<super::agent_picks::AgentPick>,
-    /// An agent's picks are the user's (`--by-user`, d0087): written *set by you*.
+    /// An agent's change is the user's (`--by-user`, d0087): kept for stage choices (T-0407).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub by_user: bool,
 }
@@ -426,11 +423,16 @@ stored_enum! {
         /// schema-path glob) and `files` (what `other` adds under it). Recorded once per new overlap; files are never
         /// touched. History reads "Schema path shared with SHOP-21" · "db/migrations/**".
         SchemaOverlap = "schema_overlap",
-        /// A ticket's or an epic's agent row changed (AGT-04, d0086): payload `role`, `agent` (the name now; null
-        /// = emptied, "Let agents pick again"), `from` (the name before), `set_by` (`user` / `agent` with
-        /// `picked_by` and `reason`) and, logged on an epic for a child, `child` (`named_agents::rows::row_event`).
-        /// History reads "Developer: Strong (set by you)", "Wishlist lead re-picked SHOP-40.3: Strong → Light".
+        /// A ticket's or an epic's agent row changed (AGT-04, d0086; rows went with M32, AGM-02, and History still
+        /// reads the ones recorded before): payload `role`, `agent` (the name now; null = emptied), `from` (the name
+        /// before), `set_by` (`user` / `agent` with `picked_by` and `reason`) and, logged on an epic for a child,
+        /// `child`. History reads "Developer: Strong (set by you)", "Wishlist lead re-picked SHOP-40.3: Strong →
+        /// Light".
         AgentRowSet = "agent_row_set",
+        /// A held session started on its tool's fallback, by the user's click (AGM-03): payload `role` (the session
+        /// role), `tool` and `model` (the fallback it runs on), `from_tool` and `reason` (`tool_limit`,
+        /// `tool_unavailable`, `model_unavailable`). History reads "Started on Codex · Claude Code limit".
+        FallbackUsed = "fallback_used",
     }
 }
 

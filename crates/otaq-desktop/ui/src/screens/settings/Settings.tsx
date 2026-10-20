@@ -12,13 +12,12 @@ import type { SettingsButtonAction } from "../../generated/SettingsButtonAction"
 import type { SettingsNavRow } from "../../generated/SettingsNavRow";
 import type { SettingsValue } from "../../generated/SettingsValue";
 import type { SettingsView } from "../../generated/SettingsView";
-import type { SkillOutcome } from "../../generated/SkillOutcome";
 import type { ThemeCreditsDialog } from "../../generated/ThemeCreditsDialog";
 import type { RequestError } from "../../generated/RequestError";
 import { asRequestError, watchView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { SettingsContext, type SettingsContextValue, type SkillMethod, topicRow } from "./context";
+import { SettingsContext, type SettingsContextValue, topicRow } from "./context";
 import { CreditsDialog, RemoveDialog } from "./Dialogs";
 
 type Open =
@@ -84,27 +83,6 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
     [project],
   );
 
-  // Settings → Workflow skills (WSK-01, WSK-04): an import, Re-import or reset answers with the fresh view, or asks
-  // first (`needs_confirmation`).
-  const skill = useCallback(
-    (method: SkillMethod, params: Record<string, unknown>) =>
-      request(method, params).then(
-        (answer) => {
-          const outcome = answer as SkillOutcome;
-          if (outcome.outcome === "done") {
-            setView(outcome.view);
-            setError(null);
-          }
-          return outcome.outcome;
-        },
-        (e: unknown) => {
-          setError(asRequestError(e));
-          return null;
-        },
-      ),
-    [],
-  );
-
   const act = useCallback(
     (action: SettingsButtonAction) => {
       switch (action) {
@@ -146,8 +124,8 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
 
   const page = view?.page;
   const context = useMemo<SettingsContextValue | null>(
-    () => (page ? { page, project, edit, act, skill, headerSlot } : null),
-    [page, project, edit, act, skill, headerSlot],
+    () => (page ? { page, project, edit, act, headerSlot } : null),
+    [page, project, edit, act, headerSlot],
   );
 
   const globalRows = view?.nav.filter((r) => r.target.page === "global") ?? [];

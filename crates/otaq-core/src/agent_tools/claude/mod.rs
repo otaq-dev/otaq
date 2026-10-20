@@ -54,6 +54,14 @@ pub struct ClaudeContext {
 /// The name shown to people.
 pub(super) const DISPLAY_NAME: &str = "Claude Code";
 
+/// Claude Code's effort levels (AGM-01): its `--effort <level>` flag, "Effort level for the current session (low,
+/// medium, high, xhigh, max)" (`claude --help`, 2.1.304, read with a throwaway HOME). Passed on every launch and
+/// resume that has one, like the model.
+pub(super) const EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
+
+/// The flag [`EFFORT_LEVELS`] go with.
+const EFFORT_FLAG: &str = "--effort";
+
 /// The short name used in sentences ("Claude's saved conversation").
 pub(super) const SHORT_NAME: &str = "Claude";
 
@@ -282,6 +290,12 @@ impl AgentTool for ClaudeCode {
                 .args
                 .splice(at..at, ["--model".to_owned(), model.clone()]);
         }
+        if let Some(effort) = &request.effort {
+            let at = command.args.len() - usize::from(has_prompt);
+            command
+                .args
+                .splice(at..at, [EFFORT_FLAG.to_owned(), effort.clone()]);
+        }
         Ok(LaunchPlan {
             program: command.program,
             args: command.args,
@@ -289,6 +303,10 @@ impl AgentTool for ClaudeCode {
             env: command.env,
             tool_id: ToolIdMode::ChosenUpFront(command.tool_session_id),
         })
+    }
+
+    fn effort_levels(&self) -> &'static [&'static str] {
+        EFFORT_LEVELS
     }
 
     fn unavailable(&self) -> Option<LaunchError> {
@@ -505,6 +523,7 @@ mod tests {
             resume: None,
             model: None,
             title: None,
+            effort: None,
         }
     }
 

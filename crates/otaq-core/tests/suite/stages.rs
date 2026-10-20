@@ -713,7 +713,7 @@ async fn until_status(w: &TestService, key: &str, status: Status) {
 
 /// What a session's row says it ran on: its agent's name and its model.
 async fn ran_on(w: &TestService, session: &str) -> (Option<String>, Option<String>) {
-    sqlx::query_as("SELECT named_agent_name, COALESCE(model_ran, model) FROM sessions WHERE id = ?")
+    sqlx::query_as("SELECT agent_name, COALESCE(model_ran, model) FROM sessions WHERE id = ?")
         .bind(session)
         .fetch_one(w.board.store().pool())
         .await

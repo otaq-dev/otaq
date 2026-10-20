@@ -102,6 +102,17 @@ impl Tool {
         }
     }
 
+    /// [`AgentTool::effort_levels`]: the tool's own effort / reasoning levels (AGM-01), empty for a tool without a
+    /// documented one; an agent's page shows Effort only where there are some.
+    pub fn effort_levels(self) -> &'static [&'static str] {
+        match self {
+            Self::Claude => claude::EFFORT_LEVELS,
+            Self::Codex => codex::EFFORT_LEVELS,
+            Self::Copilot => copilot::EFFORT_LEVELS,
+            Self::OpenCode => opencode::EFFORT_LEVELS,
+        }
+    }
+
     /// [`AgentTool::swaps_refused_model`]: the tool runs another model quietly when it can't run the one asked for
     /// (the panel's "asked for gpt-5.5, ran on auto").
     pub fn swaps_refused_model(self) -> bool {
@@ -296,8 +307,11 @@ pub struct LaunchRequest {
     /// The tool id to resume (Resume, Park, Send back, answers); `None` starts a new conversation.
     pub resume: Option<String>,
     /// The model, passed to the tool unchanged (d0088); `None` uses the tool's default. A new session's comes from
-    /// its resolved named agent, a resume's from the session it continues ([`crate::named_agents::RunsOn`]).
+    /// its agent, a resume's from the session it continues ([`crate::agents::RunsOn`]).
     pub model: Option<String>,
+    /// The tool's own effort level (AGM-01), only for a tool with one ([`AgentTool::effort_levels`]); `None` passes
+    /// none. Comes the same way as the model.
+    pub effort: Option<String>,
     /// The ticket's or the epic's own title ("Add coupon codes"), for a tool that names its conversations (OpenCode's
     /// session list: "Otaq · SHOP-18 · Add coupon codes"); `None` for a Project agent.
     pub title: Option<String>,
@@ -747,6 +761,13 @@ pub trait AgentTool: Send + Sync {
         false
     }
 
+    /// The tool's own documented effort / reasoning levels (AGM-01, d0108: "the word effort is left to the tools'
+    /// own setting"), passed by [`Self::launch`] with [`LaunchRequest::effort`]; empty for a tool without one, which
+    /// gets no Effort field. Each adapter names the flag or config key and where it is documented.
+    fn effort_levels(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     // 7. Skills (ADP-05).
 
     /// One of Otaq's own skills named for the agent: `/otaq:commit` (Claude Code, Copilot), `$otaq:commit`
@@ -992,6 +1013,7 @@ mod tests {
                 tool.resume_hint("3be94c10")
             );
             assert_eq!(adapter.swaps_refused_model(), tool.swaps_refused_model());
+            assert_eq!(adapter.effort_levels(), tool.effort_levels());
             let quirks = adapter.input();
             assert!(!quirks.clear_line.contains(&0x03), "{tool} types Ctrl+C");
             assert_eq!(quirks.clear_line, b"\x05\x15", "{tool}");
@@ -1042,6 +1064,7 @@ mod tests {
             resume: None,
             model: None,
             title: None,
+            effort: None,
         };
         let launched = adapters.launch(Some(Tool::OpenCode), &request).unwrap();
         let ToolIdMode::CreatedBeforeLaunch { id, step } = &launched.plan.tool_id else {
@@ -1073,6 +1096,7 @@ mod tests {
             resume: Some("c-1".into()),
             model: Some("opus".into()),
             title: None,
+            effort: None,
         };
 
         let none = Adapters::launching_only(None, data.clone());

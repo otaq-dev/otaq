@@ -12,6 +12,7 @@ pub mod agent_edits;
 pub mod agent_pane;
 pub mod agent_rows;
 pub mod agent_tools_page;
+pub mod agents;
 pub mod answer;
 pub mod answer_options;
 pub mod approve;
@@ -66,7 +67,7 @@ pub mod menu;
 pub mod messages;
 pub mod modal;
 pub mod model_picker;
-pub mod named_agents;
+
 pub mod onboarding;
 pub mod onboarding_page;
 pub mod palette;

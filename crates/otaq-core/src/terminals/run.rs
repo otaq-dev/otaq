@@ -310,7 +310,9 @@ impl Runs {
                 tool: None,
                 tool_session_id: None,
                 model: None,
-                named_agent: None,
+                agent: None,
+                effort: None,
+                fallback: None,
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;

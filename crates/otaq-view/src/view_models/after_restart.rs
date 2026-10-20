@@ -316,7 +316,7 @@ fn agents_part(
                 agent: a
                     .session
                     .as_ref()
-                    .and_then(|s| s.named_agent.as_ref())
+                    .and_then(|s| s.agent.as_ref())
                     .map(|n| n.name.clone()),
             };
             AgentRow {

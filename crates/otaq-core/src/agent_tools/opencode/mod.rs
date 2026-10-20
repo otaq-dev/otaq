@@ -38,6 +38,12 @@ use crate::usage::limit::LimitKind;
 /// The name shown to people.
 pub(super) const DISPLAY_NAME: &str = "OpenCode";
 
+/// OpenCode has no effort setting of its own (AGM-01): `opencode run --help` (v2.0.17, read with a throwaway HOME)
+/// lists none, and a model's reasoning level is one of its **variants**, part of the model itself
+/// (`--model provider/model#variant`, https://opencode.ai/docs/models/#variants), which the model picker already
+/// offers. So an OpenCode agent gets no Effort field.
+pub(super) const EFFORT_LEVELS: &[&str] = &[];
+
 /// The short name used in sentences ("OpenCode's saved conversation").
 pub(super) const SHORT_NAME: &str = "OpenCode";
 

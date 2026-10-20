@@ -10,7 +10,7 @@
 //!
 //! Everything is per tool (USG-10): a hit, the reset, the agents it stopped (kept out of the inbox, ATT-09) and
 //! **Resume** ([`PlanLimit::resume_tool`]): only that tool's agents continue and only its holds lift (the check
-//! before every launch reads the tool's active limit, [`crate::named_agents::gate`]). Resume is per tool only.
+//! before every launch reads the tool's active limit, [`crate::agents::gate`]). Resume is per tool only.
 
 use std::sync::Arc;
 use std::time::Duration;

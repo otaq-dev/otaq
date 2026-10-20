@@ -13,9 +13,9 @@ use tokio::sync::watch;
 
 use super::{Messages, PART_QUESTION, Route, question_text};
 use crate::agent_tools::{FirstPrompt, LaunchRequest, LaunchRole};
+use crate::agents::RunsOn;
 use crate::board::tickets::Ticket;
 use crate::board::{BoardError, Refusal};
-use crate::named_agents::RunsOn;
 use crate::naming;
 use crate::session::{
     SessionInfo, SessionKind, SessionTicket, SpawnSpec, StoredConversation, TerminalSize,
@@ -265,6 +265,7 @@ impl Messages {
                 }),
                 resume: Some(conversation.id),
                 model: runs_on.model,
+                effort: runs_on.effort.clone(),
                 title: Some(target.title.clone()),
             },
         )?;
@@ -287,7 +288,9 @@ impl Messages {
                 tool: Some(launched.tool),
                 tool_session_id: launched.tool_session_id,
                 model: launched.model,
-                named_agent: runs_on.agent,
+                agent: runs_on.agent,
+                effort: runs_on.effort,
+                fallback: runs_on.fallback,
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;

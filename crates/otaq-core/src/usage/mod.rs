@@ -126,7 +126,7 @@ impl TicketUsage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentTokens {
     /// Developer (the agent's sessions, its answers and an epic's deliveries), Validator, or Epic lead (an epic's).
-    pub role: crate::named_agents::Role,
+    pub role: crate::agents::SessionRole,
     /// The named agent's name at its sessions' start ("Strong"); `None` for sessions that ran on none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
@@ -163,7 +163,7 @@ pub struct UsageSummary {
     /// The banner's line per tool (USG-10): its limit or its being unavailable, what waits, Resume, Move waiting
     /// to… (filled by the service).
     #[serde(default)]
-    pub tool_lines: crate::named_agents::moves::ToolLines,
+    pub tool_lines: crate::agents::limits::ToolLines,
 }
 
 /// `YYYY-MM-DD` of a Unix-milliseconds moment in local time (the `usage.day` column).
@@ -569,7 +569,7 @@ impl Usage {
     /// A ticket's (by id) tokens by role and named agent ([`AgentTokens`]), in role order (Developer, Validator, Epic
     /// lead) and then the order the agents first ran. An epic's lead counts on the epic (LEAD-12).
     pub async fn agents_of(&self, ticket_id: &str) -> Result<Vec<AgentTokens>, StoreError> {
-        use crate::named_agents::Role;
+        use crate::agents::SessionRole;
         type Row = (
             String,
             Option<String>,
@@ -582,13 +582,13 @@ impl Usage {
             i64,
         );
         let rows: Vec<Row> = sqlx::query_as(
-            "SELECT s.kind, s.named_agent_name, s.tool, s.tool_session_id, SUM(u.input), SUM(u.cached),
+            "SELECT s.kind, s.agent_name, s.tool, s.tool_session_id, SUM(u.input), SUM(u.cached),
                     SUM(u.output), SUM(u.reasoning), s.started_at
              FROM sessions s LEFT JOIN usage u ON u.session_id = s.id
              WHERE s.ticket_id = ? AND (s.tool IS NOT NULL OR s.tool_session_id IS NOT NULL)
              GROUP BY s.id
              UNION ALL
-             SELECT 'lead', s.named_agent_name, s.tool, s.tool_session_id, SUM(u.input), SUM(u.cached),
+             SELECT 'lead', s.agent_name, s.tool, s.tool_session_id, SUM(u.input), SUM(u.cached),
                     SUM(u.output), SUM(u.reasoning), s.started_at
              FROM project_agents a JOIN sessions s ON s.project_agent_id = a.id
              LEFT JOIN usage u ON u.session_id = s.id
@@ -604,9 +604,9 @@ impl Usage {
         let mut out: Vec<AgentTokens> = Vec::new();
         for (kind, agent, tool, tool_id, a, b, c, d, _) in rows {
             let role = match kind.as_str() {
-                "validator" => Role::Validator,
-                "lead" => Role::EpicLead,
-                _ => Role::Developer,
+                "validator" => SessionRole::Validator,
+                "lead" => SessionRole::EpicLead,
+                _ => SessionRole::Developer,
             };
             let tool = tool.and_then(|t| t.parse().ok());
             let at = match out
@@ -631,7 +631,7 @@ impl Usage {
                     .add(&tokens((a, b, c, d)));
             }
         }
-        out.sort_by_key(|t| Role::ALL.iter().position(|r| *r == t.role));
+        out.sort_by_key(|t| SessionRole::ALL.iter().position(|r| *r == t.role));
         Ok(out)
     }
 

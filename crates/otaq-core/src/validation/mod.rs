@@ -17,7 +17,7 @@
 //! noticed on the agent's turn ends and on verdicts; Otaq never stashes or touches the worktree to check.
 //!
 //! With validation off for the project the submit goes straight to Ready for Review, as before M12. Every round's
-//! validator goes through the check before every launch (SCH-04 `[M23]`, [`crate::named_agents::gate`]): when its
+//! validator goes through the check before every launch (SCH-04 `[M23]`, [`crate::agents::gate`]): when its
 //! tool is at its limit the round opens but no validator starts and the ticket shows "Waiting for limit reset";
 //! when its tool isn't available or its model isn't listed the round stays open without a validator (Validating…,
 //! with the hold). The automatic fallback may move its Validator row instead. The validator starts once the hold
@@ -30,6 +30,8 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole};
+use crate::agents::gate::{Gated, Held, LaunchGate, Scope};
+use crate::agents::{RunsOn, SessionRole, resolve};
 use crate::board::settings::{AutoMerge, EffectiveSettings};
 use crate::board::tickets::Ticket;
 use crate::board::validation::{
@@ -40,8 +42,6 @@ use crate::domain::validation::{CancelledBy, cancelled_toast};
 use crate::domain::{Actor, Place, Status, ValidationAction, ValidationTrigger};
 use crate::epic_lead::stuck::FirstStop;
 use crate::flow::effective_flow;
-use crate::named_agents::gate::{Gated, Held, LaunchGate, Scope};
-use crate::named_agents::{Role, RunsOn, resolve_ticket_role};
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
@@ -875,7 +875,7 @@ impl Validation {
     /// The round waits for its held validator: "Waiting for limit reset" for a tool at its limit (marked as a
     /// validation that waits), Validating… otherwise.
     async fn hold_round(&self, ticket: &Ticket, held: &Held) -> Result<(), BoardError> {
-        let limit = held.blocked == crate::named_agents::gate::Blocked::AtLimit;
+        let limit = held.blocked == crate::agents::gate::Blocked::AtLimit;
         let (from, to, interrupted_from) = if limit {
             (
                 Status::Checking,
@@ -928,11 +928,11 @@ impl Validation {
         {
             inner.sessions.stop(&old.id).await.map_err(other)?;
         }
-        // Every round resolves its Validator again: the row may change between rounds (AGT-05, d0086).
-        let resolved = resolve_ticket_role(board, &ticket, Role::Validator).await?;
+        // Every round resolves its agent again: the agent's model may change between rounds (AGM-05, d0088).
+        let agent = resolve::session_agent(board, &ticket, SessionRole::Validator).await?;
         let runs_on = match inner.gate.get() {
             Some(gate) => match gate
-                .before_launch(Role::Validator, Scope::ticket(&ticket), resolved.as_ref())
+                .before_launch(SessionRole::Validator, Scope::ticket(&ticket), &agent)
                 .await?
             {
                 Gated::Launch(runs_on) => runs_on,
@@ -941,27 +941,15 @@ impl Validation {
                     return Ok(ValidatorStart::Held(held));
                 }
             },
-            None => RunsOn::resolved(resolved.as_ref()),
+            None => RunsOn::agent(&agent, board.store().default_model().await?.as_ref()),
         };
         match self.launch_validator(&ticket, runs_on).await {
             Ok(session) => Ok(ValidatorStart::Started(Box::new(session))),
             Err(e) => {
                 // A launch that failed because of its tool: checked again, then held if it can't start now (ADP-10).
-                let resolved = match (&resolved, inner.gate.get()) {
-                    (Some(resolved), Some(_)) => {
-                        let mut resolved = resolved.clone();
-                        if let Some(row) =
-                            resolve_ticket_role(board, &ticket, Role::Validator).await?
-                        {
-                            resolved = row;
-                        }
-                        Some(resolved)
-                    }
-                    _ => None,
-                };
-                if let (Some(gate), Some(resolved)) = (inner.gate.get(), resolved.as_ref())
+                if let Some(gate) = inner.gate.get()
                     && let Some(held) = gate
-                        .after_failed_launch(Role::Validator, Scope::ticket(&ticket), resolved)
+                        .after_failed_launch(SessionRole::Validator, Scope::ticket(&ticket), &agent)
                         .await?
                 {
                     self.hold_round(&ticket, &held).await?;
@@ -1013,6 +1001,7 @@ impl Validation {
                 }),
                 resume: None,
                 model: runs_on.model,
+                effort: runs_on.effort.clone(),
                 title: Some(ticket.title.clone()),
             },
         )?;
@@ -1036,7 +1025,9 @@ impl Validation {
                 tool: Some(launched.tool),
                 tool_session_id: launched.tool_session_id,
                 model: launched.model,
-                named_agent: runs_on.agent,
+                agent: runs_on.agent,
+                effort: runs_on.effort,
+                fallback: runs_on.fallback,
             })
             .await
             .map_err(other)?;

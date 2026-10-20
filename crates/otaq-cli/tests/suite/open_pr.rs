@@ -47,10 +47,7 @@ async fn setup() -> Setup {
         .unwrap();
     // origin is a local folder, not GitHub or Azure DevOps: the project uses its own Open PR skill.
     let folder = skill_folder(w.data.root(), "my-pr");
-    w.board
-        .import_workflow_skill(Some("SHOP"), WorkflowStep::OpenPr, &folder)
-        .await
-        .unwrap();
+    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
     let ticket = w.create("SHOP", "Login redirect").await;
     let worktree = w.start_worktree(&ticket).await;
     commit(&worktree, "login.ts", "redirect\n");
@@ -267,20 +264,14 @@ async fn cancel_and_refusals_leave_the_ticket_in_review() {
     let w = &s.w;
 
     // With the built-in Open PR skill, a remote that isn't GitHub or Azure DevOps refuses (REV-11).
-    w.board
-        .reset_workflow_skill(Some("SHOP"), WorkflowStep::OpenPr, true)
-        .await
-        .unwrap();
+    w.drop_step_skill(WorkflowStep::OpenPr).await;
     let refused = w.prs.open("SHOP-1", false, false, &me()).await.unwrap_err();
     assert!(
         refused.to_string().contains("PR provider not detected"),
         "{refused}"
     );
     let folder = skill_folder(w.data.root(), "my-pr");
-    w.board
-        .import_workflow_skill(Some("SHOP"), WorkflowStep::OpenPr, &folder)
-        .await
-        .unwrap();
+    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
 
     // Uncommitted files refuse first (REV-08).
     std::fs::write(s.worktree.join("scratch.txt"), "x").unwrap();

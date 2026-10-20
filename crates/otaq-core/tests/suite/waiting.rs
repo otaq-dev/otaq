@@ -17,7 +17,7 @@ use otaq_core::board::settings::{AgentLimits, GlobalSettings};
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Actor, Flags, Kind, Place, Status, TicketKey, ValidationTrigger};
 use otaq_core::flow::engine::{self, At, Move, RunResult};
-use otaq_core::flow::{Flow, yaml};
+use otaq_core::flow::{Flow, FlowFile, yaml};
 use otaq_core::git::testing::commit;
 use otaq_core::scheduler::{
     Gate, HOLDS_A_SLOT, Scheduler, StartTickets, ToStart, plan, running_count, stock_limit,
@@ -26,11 +26,13 @@ use otaq_core::service::testing::TestService;
 use otaq_core::service::{EventBus, ServiceConfig};
 use otaq_core::session::SessionKind;
 
-fn every_kind() -> Flow {
+fn every_kind_file() -> FlowFile {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml");
-    yaml::read(&std::fs::read_to_string(path).unwrap())
-        .unwrap()
-        .flow
+    yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+fn every_kind() -> Flow {
+    every_kind_file().flow
 }
 
 fn before(stage: &str) -> Place {
@@ -404,7 +406,7 @@ async fn a_ticket_finishing_grill_waits_for_a_slot_before_dev() {
         })
         .await
         .unwrap();
-    w.board.use_flow_for_tests("NOTE", every_kind());
+    w.board.use_flow_for_tests("NOTE", &every_kind_file()).await;
     one_slot_on(&w.board).await;
     let grilled = w.create("NOTE", "Export as CSV").await;
     let other = w.create("NOTE", "Search notes").await;

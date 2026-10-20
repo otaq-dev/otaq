@@ -270,11 +270,6 @@ const EXCEPTIONS: &[Exception] = &[
         reason: "`fixtures` and `gallery`, the banner's sample lines per tool for tests and the design gallery (T-0364)",
     },
     Exception {
-        path: "otaq-view/src/view_models/limit_banner.rs",
-        pattern: "Tool::Copilot",
-        reason: "`fixtures` and `gallery`, the banner's sample lines per tool for tests and the design gallery (T-0364)",
-    },
-    Exception {
         path: "otaq-view/src/view_models/card_fixtures.rs",
         pattern: "Tool::Claude",
         reason: "`tool_variants`, the M23 cards' sample tools for tests and the design gallery (T-0362)",
@@ -290,24 +285,24 @@ const EXCEPTIONS: &[Exception] = &[
         reason: "`tool_variants`, the M23 cards' sample tools for tests and the design gallery (T-0362)",
     },
     Exception {
-        path: "otaq-view/src/view_models/named_agents.rs",
+        path: "otaq-view/src/view_models/agents.rs",
         pattern: "Tool::Claude",
-        reason: "`fixtures`, Settings → Agents' sample entries and model lists on every tool for tests and the design gallery (T-0361)",
+        reason: "`fixtures`, Settings → Agents' sample agents and model lists on every tool for tests (T-0361, T-0405)",
     },
     Exception {
-        path: "otaq-view/src/view_models/named_agents.rs",
+        path: "otaq-view/src/view_models/agents.rs",
         pattern: "Tool::Codex",
-        reason: "`fixtures`, Settings → Agents' sample entries and model lists on every tool for tests and the design gallery (T-0361)",
+        reason: "`fixtures`, Settings → Agents' sample agents and model lists on every tool for tests (T-0361, T-0405)",
     },
     Exception {
-        path: "otaq-view/src/view_models/named_agents.rs",
+        path: "otaq-view/src/view_models/agents.rs",
         pattern: "Tool::Copilot",
-        reason: "`fixtures`, Settings → Agents' sample entries and model lists on every tool for tests and the design gallery (T-0361)",
+        reason: "`fixtures`, Settings → Agents' sample agents and model lists on every tool for tests (T-0361, T-0405)",
     },
     Exception {
-        path: "otaq-view/src/view_models/named_agents.rs",
+        path: "otaq-view/src/view_models/agents.rs",
         pattern: "Tool::OpenCode",
-        reason: "`fixtures`, Settings → Agents' sample entries and model lists on every tool for tests and the design gallery (T-0361)",
+        reason: "`fixtures`, Settings → Agents' sample agents and model lists on every tool for tests (T-0361, T-0405)",
     },
     Exception {
         path: "otaq-view/src/view_models/lead_tab.rs",

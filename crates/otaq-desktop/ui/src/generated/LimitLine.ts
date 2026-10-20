@@ -2,7 +2,6 @@
 import type { BannerTone } from "./BannerTone";
 import type { IconName } from "./IconName";
 import type { LimitLineButton } from "./LimitLineButton";
-import type { MoveWaitingMenu } from "./MoveWaitingMenu";
 import type { ToolAvatarView } from "./ToolAvatarView";
 
 /**
@@ -20,8 +19,9 @@ avatar: ToolAvatarView | null,
 /**
  * A limit neutral, a tool that isn't available amber; never turquoise (d0077).
  */
-tone: BannerTone, icon: IconName, title: string, text: string, buttons: Array<LimitLineButton>, 
+tone: BannerTone, icon: IconName, title: string, text: string, 
 /**
- * `None` with one tool connected, when nothing waits, or when no agent on another tool can start now.
+ * Resume, Sign in… or Show in Agent tools, and Use fallback now (several tools, tickets waiting, a fallback
+ * that can start now).
  */
-move_waiting: MoveWaitingMenu | null, };
+buttons: Array<LimitLineButton>, };

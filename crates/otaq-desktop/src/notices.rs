@@ -15,11 +15,11 @@ use std::time::{Duration, Instant};
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::models::ModelList;
+use otaq_core::agents::limits::ToolLines;
 use otaq_core::attention::notify::{Target, open_env_var};
 use otaq_core::attention::os_permission::NotificationsState;
 use otaq_core::client::{Client, Compatibility};
 use otaq_core::domain::TicketKey;
-use otaq_core::named_agents::moves::ToolLines;
 use otaq_core::protocol::{Event, ModelsParams, OnboardingState, Reply, Request, UsageParams};
 use otaq_core::store::now_ms;
 use otaq_view::view_models::after_restart::{OnConnect, on_connect};
@@ -561,16 +561,16 @@ impl State {
     }
 }
 
-/// What the usage-limit banner is drawn from: every tool's line and the model lists of the tools its Move waiting
-/// to… menus offer.
+/// What the usage-limit banner is drawn from: every tool's line and the model lists of its fallbacks' tools (Use
+/// fallback now names the model).
 #[derive(Debug, Clone, Default)]
 pub struct LimitInputs {
     pub lines: ToolLines,
     pub lists: Vec<(Tool, ModelList)>,
 }
 
-/// The inputs for `lines`, asking the service (`send`) for the model list of each tool a Move waiting to… target runs
-/// on. A list it can't give leaves that target's model as stored.
+/// The inputs for `lines`, asking the service (`send`) for the model list of each fallback's tool that names a model.
+/// A list it can't give leaves the model as stored.
 pub async fn limit_inputs<F, Fut>(lines: ToolLines, send: F) -> LimitInputs
 where
     F: Fn(Request) -> Fut,
@@ -579,7 +579,12 @@ where
     let mut tools: Vec<Tool> = lines
         .lines
         .iter()
-        .flat_map(|l| l.targets.iter().map(|t| t.tool))
+        .filter_map(|l| {
+            l.fallback
+                .as_ref()
+                .filter(|f| f.model.is_some())
+                .map(|f| f.tool)
+        })
         .collect();
     tools.sort();
     tools.dedup();
@@ -723,8 +728,9 @@ async fn follow(
 #[cfg(test)]
 mod tests {
     use otaq_core::agent_tools::Tool;
+    use otaq_core::agents::ModelRef;
+    use otaq_core::agents::limits::{self as moves, ToolLine};
     use otaq_core::client::ServiceInfo;
-    use otaq_core::named_agents::moves::{self, ToolLine};
     use otaq_core::protocol::{PROTOCOL_VERSION, ServiceStatus};
     use otaq_core::usage::limit::LimitKind;
 
@@ -977,9 +983,10 @@ mod tests {
             },
             stopped: 8,
             waiting: 2,
-            moved: Vec::new(),
+            on_fallback: 0,
             resume_enabled: resets_at.is_none(),
-            targets: Vec::new(),
+            fallback: None,
+            fallback_can_start: false,
         }
     }
 
@@ -1056,29 +1063,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_inputs_ask_for_the_targets_model_lists_once_per_tool() {
+    async fn the_inputs_ask_for_the_fallbacks_model_list_once_per_tool() {
         use std::sync::atomic::{AtomicU32, Ordering};
-        let line = ToolLine {
-            targets: vec![
-                moves::MoveTarget {
-                    id: "standard".into(),
-                    name: "Standard".into(),
-                    tool: Tool::Codex,
-                    model: None,
-                },
-                moves::MoveTarget {
-                    id: "strong-gpt".into(),
-                    name: "Strong GPT".into(),
-                    tool: Tool::Codex,
-                    model: Some("gpt-5.5-pro".into()),
-                },
-            ],
-            ..limit_line(Tool::Claude, None)
+        let on = |tool, model: Option<&str>| ToolLine {
+            fallback: Some(ModelRef {
+                tool: Tool::Codex,
+                model: model.map(Into::into),
+            }),
+            fallback_can_start: true,
+            ..limit_line(tool, None)
         };
+        let lines = vec![
+            on(Tool::Claude, Some("gpt-5.5-pro")),
+            on(Tool::Copilot, Some("gpt-5.5")),
+            on(Tool::OpenCode, None),
+        ];
         let asked = AtomicU32::new(0);
         let inputs = limit_inputs(
             ToolLines {
-                lines: vec![line],
+                lines,
                 several_tools: true,
             },
             |request| {

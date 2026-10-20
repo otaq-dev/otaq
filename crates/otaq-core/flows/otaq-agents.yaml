@@ -1,0 +1,9 @@
+agents:
+  - name: Planner
+    role: project-agent
+    skills: [project-agent]
+    model: default
+  - name: Epic lead
+    role: epic-lead
+    skills: [epic-lead]
+    model: default

@@ -112,7 +112,7 @@ async fn project_prime(
     project: &str,
 ) -> Result<crate::project_agents::prime::ProjectPrime, BoardError> {
     let mut context = shared.board.project_prime(project).await?;
-    context.agents = crate::prime::named_agents(
+    context.agents = crate::prime::prime_agents(
         &shared.board,
         &context.project,
         &shared.adapters,

@@ -259,6 +259,7 @@ mod tests {
             resume: None,
             model: model.map(Into::into),
             title: None,
+            effort: None,
         }
     }
 

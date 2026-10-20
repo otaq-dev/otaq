@@ -51,8 +51,6 @@ import {
   ToolProblemCallout,
   Tooltip,
 } from "../../components";
-import type { AgentRole } from "../../generated/AgentRole";
-import type { AgentRowSet } from "../../generated/AgentRowSet";
 import type { PanelAnswer } from "../../generated/PanelAnswer";
 import type { PanelAnswerAgent } from "../../generated/PanelAnswerAgent";
 import type { PanelButton } from "../../generated/PanelButton";
@@ -618,20 +616,12 @@ function Holds({ view }: { view: PanelView }) {
 }
 
 /**
- * The Agents rows under the action bar, in every panel state (AGT-04; *05 → Row · Developer and Validator rows*,
- * *08 → Epic panel · lead running*): a ticket's Developer and Validator, an epic's Epic lead and its children. A pick
- * is written at once (`panel.agent_row`); the panel reloads on the ticket's change. `focus` (the open request's
- * `focus_agent_row`) opens that row's picker.
+ * The Agents rows under the action bar, in every panel state (AGT-04, AGM-05; *05 → Row · Developer and Validator
+ * rows*, *08 → Epic panel · lead running*): the agent each stage runs, an epic's Epic lead; read-only until T-0411.
+ * `focus` (the open request's `focus_agent_row`) marks that row.
  */
 function Agents({ view }: { view: PanelView }) {
-  const [refused, setRefused] = useState<{ key: string; message: string } | null>(null);
   if (view.agents === null) return null;
-  const pick = (role: AgentRole, agent: string | null) => {
-    setRefused(null);
-    (request("panel.agent_row", { key: view.key, role, agent }) as Promise<AgentRowSet>).then((out) => {
-      if (out.outcome === "refused") setRefused({ key: view.key, message: out.refusal.message });
-    }, ignore);
-  };
   return (
     <div className="panel-agents">
       <AgentBlock
@@ -639,8 +629,7 @@ function Agents({ view }: { view: PanelView }) {
         block={view.agents}
         look="panel"
         focus={view.focus_agent_row}
-        refusal={refused?.key === view.key ? refused.message : null}
-        onPick={pick}
+        onPick={ignore}
       />
     </div>
   );

@@ -395,7 +395,7 @@ pub struct ProjectFacts<'a> {
     /// `Params::agent`'s filter, read from the service; `None` without one (or when the agent is gone).
     pub agent_filter: Option<&'a AgentFilter>,
     /// The cards' named agents (`board.agents`, T-0345): the footer's agent part.
-    pub agents: Option<&'a otaq_core::named_agents::rows::BoardAgents>,
+    pub agents: Option<&'a otaq_core::agents::facts::BoardAgents>,
 }
 
 pub const APPROVED_NOTE: &str =

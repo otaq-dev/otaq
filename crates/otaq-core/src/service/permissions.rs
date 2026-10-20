@@ -72,20 +72,6 @@ async fn stage_name(caller: &Caller, board: &Board) -> Option<String> {
     )
 }
 
-/// The name an agent caller's picks carry (AGT-06): a Project agent's own name ("Checkout slowness"), an epic
-/// lead's "Wishlist lead". `None` for the user; ticket agents and validators may not pick.
-pub(super) async fn picker_name(caller: &Caller, board: &Board) -> Option<String> {
-    match caller {
-        Caller::ProjectAgent { agent, .. } => Some(project_agent_name(board, agent).await),
-        Caller::EpicLead { epic_id, .. } => board
-            .ticket_by_id(epic_id)
-            .await
-            .ok()
-            .map(|epic| crate::project_agents::lead::lead_name(&epic.title)),
-        _ => None,
-    }
-}
-
 /// A Project agent's name ("New agent" until named, PAG-04).
 async fn project_agent_name(board: &Board, agent: &str) -> String {
     let name: Option<(Option<String>,)> =
@@ -157,12 +143,6 @@ async fn batch_action(
         .iter()
         .map(|epic| Action::CreateTicket { epic: epic.clone() })
         .collect();
-    // Picks first, so a ticket agent hears "Ticket agents can't choose agents".
-    for (n, ticket) in tickets.iter().enumerate() {
-        if !ticket.agents.is_empty() {
-            actions.insert(0, Action::PickAgents(new(n)));
-        }
-    }
     for (n, ticket) in tickets.iter().enumerate() {
         for dep in &ticket.depends_on {
             let parent = match board.batch_ref(tickets, dep).await? {
@@ -263,23 +243,7 @@ async fn action_for(
         R::AgentsModelsRefresh(_) => Action::UserOnly("read the model lists again"),
         R::AgentsModelsRetry(_) => Action::UserOnly("read the model lists again"),
 
-        R::TicketUpdate(p) => {
-            let target = facts(board, &p.key).await?;
-            let fields = crate::board::tickets::TicketUpdate {
-                agents: Vec::new(),
-                by_user: false,
-                ..p.update.clone()
-            };
-            match (p.update.agents.is_empty(), fields == Default::default()) {
-                (true, _) => Action::EditTicket(target),
-                // Picks only: the pick rule alone ("Ticket agents can't choose agents").
-                (false, true) => Action::PickAgents(target),
-                (false, false) => Action::All(vec![
-                    Action::PickAgents(target.clone()),
-                    Action::EditTicket(target),
-                ]),
-            }
-        }
+        R::TicketUpdate(p) => Action::EditTicket(facts(board, &p.key).await?),
         R::TicketAskHuman(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionRecord(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionChange(_) => Action::UserOnly("change recorded decisions"),
@@ -412,34 +376,29 @@ async fn action_for(
         R::ProjectTerminalDismiss(_) => Action::UserOnly("dismiss the Project terminal's summary"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),
-        // Named agents are the user's (AGT-02, AGT-03); agents set rows through `otaq create/update` (T-0338).
+        // Agents, the default model and the fallbacks are the user's (AGM-01, AGM-03, AGM-04).
         R::AgentsList
         | R::AgentsAdd(_)
         | R::AgentsEdit(_)
         | R::AgentsDuplicate(_)
         | R::AgentsDelete(_)
         | R::AgentsInUse(_)
-        | R::ProjectAgentDefaults(_)
-        | R::AgentsSetDefault(_)
-        | R::ProjectSetAgentDefault(_) => Action::UserOnly("change named agents"),
-        R::TicketAgentRow(_) => Action::UserOnly("set agent rows"),
+        | R::AgentsMoveRole(_)
+        | R::AgentsDefaultModel(_)
+        | R::AgentsFallback(_)
+        | R::AgentsImportSkill(_)
+        | R::AgentsReimportSkill(_) => Action::UserOnly("change agents"),
         // Agent tools, limits per tool and fallbacks are the user's (d0086).
         R::AgentToolsList
         | R::AgentToolsRecheck(_)
         | R::AgentToolsSetHidden(_)
         | R::AgentToolsSignIn(_)
         | R::AgentToolsDisconnect(_) => Action::UserOnly("manage agent tools"),
-        R::LimitsResumeTool(_) | R::LimitsMoveWaiting(_) => {
-            Action::UserOnly("resume or move waiting work")
+        R::LimitsResumeTool(_) | R::LimitsUseFallbackNow(_) => {
+            Action::UserOnly("resume or use the fallback")
         }
-        R::TicketUseFallback(_) => Action::UserOnly("use fallback agents"),
-        R::SettingsAutoFallback(_) => Action::UserOnly("change settings"),
+        R::TicketUseFallback(_) => Action::UserOnly("use the fallback"),
         R::RecentItems(_) => Action::UserOnly("use the command palette"),
-        // Imported workflow skills are the user's (d0092).
-        R::WorkflowSkillsStatus(_)
-        | R::WorkflowSkillsImport(_)
-        | R::WorkflowSkillsReimport(_)
-        | R::WorkflowSkillsReset(_) => Action::UserOnly("change workflow skills"),
         R::ReviewCommentAdd(_)
         | R::ReviewCommentReply(_)
         | R::ReviewCommentEdit(_)

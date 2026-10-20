@@ -54,36 +54,29 @@ fn sample(method: &str, unit: bool) -> Request {
             params["tool"] = json!("claude");
         }
         if method == "agents.add" || method == "agents.edit" {
-            params["tool"] = json!("claude");
+            params["model"] = json!({"kind": "default"});
         }
-        if [
-            "agents.set_default",
-            "project.set_agent_default",
-            "ticket.agent_row",
-        ]
-        .contains(&method)
-        {
-            params["role"] = json!("developer");
+        if method == "agents.move_role" {
+            params["role"] = json!("epic-lead");
             params["agent"] = json!("nope");
         }
-        if method.starts_with("agent_tools.") || method.starts_with("limits.") {
+        if method == "agents.default_model" {
+            params["model"] = json!({"tool": "claude"});
+        }
+        if method == "agents.import_skill" {
+            params["folder"] = json!("/nonexistent");
+        }
+        if method == "agents.reimport_skill" {
+            params["skill"] = json!("nope");
+        }
+        if method.starts_with("agent_tools.")
+            || method.starts_with("limits.")
+            || method == "agents.fallback"
+        {
             params["tool"] = json!("codex");
         }
         if method == "agent_tools.set_hidden" {
             params["hidden"] = json!(true);
-        }
-        if method == "limits.move_waiting" {
-            params["agent"] = json!("nope");
-        }
-        if method == "ticket.use_fallback" {
-            params["role"] = json!("developer");
-        }
-        if method == "settings.auto_fallback" {
-            params["on"] = json!(true);
-        }
-        if method.starts_with("workflow_skills.") {
-            params["step"] = json!("commit");
-            params["folder"] = json!("/nonexistent");
         }
         if method == "decision.mark" {
             params["source"] = json!("PAY-1");
@@ -287,10 +280,11 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentsDuplicate(_)
         | Request::AgentsDelete(_)
         | Request::AgentsInUse(_)
-        | Request::ProjectAgentDefaults(_)
-        | Request::AgentsSetDefault(_)
-        | Request::ProjectSetAgentDefault(_)
-        | Request::TicketAgentRow(_)
+        | Request::AgentsMoveRole(_)
+        | Request::AgentsDefaultModel(_)
+        | Request::AgentsFallback(_)
+        | Request::AgentsImportSkill(_)
+        | Request::AgentsReimportSkill(_)
         | Request::TicketAgents(_)
         | Request::BoardAgents(_)
         | Request::AgentToolsList
@@ -299,14 +293,9 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentToolsSignIn(_)
         | Request::AgentToolsDisconnect(_)
         | Request::LimitsResumeTool(_)
-        | Request::LimitsMoveWaiting(_)
+        | Request::LimitsUseFallbackNow(_)
         | Request::TicketUseFallback(_)
-        | Request::SettingsAutoFallback(_)
-        | Request::RecentItems(_)
-        | Request::WorkflowSkillsStatus(_)
-        | Request::WorkflowSkillsImport(_)
-        | Request::WorkflowSkillsReimport(_)
-        | Request::WorkflowSkillsReset(_) => false,
+        | Request::RecentItems(_) => false,
     }
 }
 

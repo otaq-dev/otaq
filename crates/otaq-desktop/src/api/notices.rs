@@ -7,12 +7,12 @@ use otaq_core::agent_tools::Tool;
 use otaq_core::board::epic_flight::EpicQueueOutcome;
 use otaq_core::board::settings::AutoMerge;
 use otaq_core::protocol::{
-    EpicUndoQueueParams, KeyParams, MoveWaitingParams, ProjectParams, ProjectSettingsParams, Reply,
+    EpicUndoQueueParams, KeyParams, ProjectParams, ProjectSettingsParams, Reply,
     Request, ResumeAllParams, ToolParams,
 };
 use otaq_view::view_models::banners::{PERMISSION_DOCS_URL, Situation, SituationKind};
 use otaq_view::view_models::limit_banner::{
-    MOVE_FAILED, RESUME_ALL_FAILED, RESUME_FAILED, moved_toast, resumed,
+    FALLBACK_FAILED, RESUME_ALL_FAILED, RESUME_FAILED, fallback_toast, resumed,
 };
 use otaq_view::view_models::restart::RestartDialog;
 use otaq_view::view_models::epic_toast;
@@ -78,15 +78,6 @@ fn parse<T: for<'de> Deserialize<'de>>(params: Value) -> Result<T, RequestError>
 #[ts(rename = "BannerDismiss")]
 pub struct DismissBanner {
     pub kind: SituationKind,
-}
-
-/// `{"tool": "claude", "agent": "strong-gpt"}`: Move waiting to… on `tool`'s line, the agent picked in its menu.
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "LimitMoveWaiting")]
-pub struct LimitMoveWaiting {
-    #[ts(type = "string")]
-    pub tool: otaq_core::agent_tools::Tool,
-    pub agent: String,
 }
 
 /// `{"id": 3}`: a toast.
@@ -232,37 +223,35 @@ pub(super) async fn resume_tool(app: &App, tool: Tool) -> Result<Value, RequestE
     Ok(Value::Null)
 }
 
-/// Move waiting to… (AGT-08): `tool`'s not-yet-started tickets move to `agent` and start (`limits.move_waiting`);
-/// a toast says how many ("4 tickets moved to Strong GPT").
-pub(super) async fn move_waiting(app: &App, params: LimitMoveWaiting) -> Result<Value, RequestError> {
-    let request = Request::LimitsMoveWaiting(MoveWaitingParams {
-        tool: params.tool,
-        agent: params.agent.clone(),
-    });
-    let toast = match app.service.send(request).await {
-        Ok(Reply::MovedWaiting(keys)) => {
-            let name = moved_to_name(app, &params.agent).await;
-            NewToast::new(ToastLevel::Success, moved_toast(keys.len(), &name), None)
+/// Use fallback now (AGM-03): `tool`'s waiting tickets start on its fallback (`limits.use_fallback_now`); a toast
+/// says how many ("4 tickets started on Codex").
+pub(super) async fn use_fallback_now(app: &App, tool: Tool) -> Result<Value, RequestError> {
+    let toast = match app
+        .service
+        .send(Request::LimitsUseFallbackNow(ToolParams { tool }))
+        .await
+    {
+        Ok(Reply::StartedOnFallback(keys)) => {
+            let on = match app.service.send(Request::AgentsList).await {
+                Ok(Reply::Agents(list)) => list
+                    .fallbacks
+                    .iter()
+                    .find(|f| f.tool == tool)
+                    .map(|f| f.fallback.tool),
+                _ => None,
+            };
+            let title = match on {
+                Some(on) => fallback_toast(keys.len(), on),
+                None => format!("{} started on the fallback", keys.len()),
+            };
+            NewToast::new(ToastLevel::Success, title, None)
         }
         Ok(_) => return Ok(Value::Null),
-        Err(e) => NewToast::new(ToastLevel::Error, MOVE_FAILED, Some(e.message)),
+        Err(e) => NewToast::new(ToastLevel::Error, FALLBACK_FAILED, Some(e.message)),
     };
     app.notices.toast(toast);
     refresh_limits(app).await;
     Ok(Value::Null)
-}
-
-/// The name the banner's menu showed for `agent` (its id when no line lists it any more).
-async fn moved_to_name(app: &App, agent: &str) -> String {
-    let named = match app.service.send(Request::AgentsList).await {
-        Ok(Reply::Agents(list)) => list
-            .agents
-            .into_iter()
-            .find(|a| a.id == agent)
-            .map(|a| a.name),
-        _ => None,
-    };
-    named.unwrap_or_else(|| agent.to_owned())
 }
 
 /// Fetches the banner's lines again, after Resume or a move.

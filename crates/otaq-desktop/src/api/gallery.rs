@@ -7,7 +7,7 @@ use std::ffi::OsStr;
 use otaq_core::naming;
 use otaq_view::view_models::{
     activity, agent_pane, agent_rows, agent_tools_page, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
-    limit_banner, named_agents, onboarding_page, settings_page, tool_avatar,
+    limit_banner, onboarding_page, settings_page, tool_avatar,
 };
 use serde_json::Value;
 
@@ -50,7 +50,6 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.drawer" => reply(&super::drawer::gallery()),
         // 15 · Settings → Agents: fresh install, a list you made, the picker, the mark, ⋯ and Delete, the project
         // block (T-0340; T-0343 draws it).
-        "gallery.agents" => reply(&named_agents::gallery()),
         // 05/08 · Agent rows: every row state, one agent, locked, moved on (T-0341; drawn by T-0344).
         "gallery.agent_rows" => reply(&agent_rows::gallery()),
         // 15 · Settings → Agent tools: every state per tool, the notes, Disconnect's dialog (T-0360; T-0365 draws it).
@@ -62,7 +61,6 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         // The notification banners and Settings → Notifications in every state (T-0372).
         "gallery.notifications" => reply(&settings_page::notifications_gallery()),
         // Settings → Workflow skills, global and per project, in every state of update AC (T-0380).
-        "gallery.workflow_skills" => reply(&settings_page::workflow_skills_gallery()),
         // Settings → Keyboard shortcuts in every frame of update AF, macOS and Windows / Linux (T-0395).
         "gallery.keyboard_page" => reply(&otaq_view::view_models::keyboard_page::gallery()),
         // The answer options' notes in the inbox, the panel and the card's hover card (T-0375).
@@ -147,7 +145,7 @@ mod tests {
         let rows = crate::api::request(&h.app, "gallery.agent_rows", Value::Null)
             .await
             .unwrap();
-        assert_eq!(rows["samples"][3]["block"]["rows"][0]["value"], "Strong");
+        assert_eq!(rows["samples"][1]["block"]["rows"][0]["value"], "Strong");
         let notifications = crate::api::request(&h.app, "gallery.notifications", Value::Null)
             .await
             .unwrap();

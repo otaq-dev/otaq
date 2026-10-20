@@ -328,7 +328,6 @@ async fn themes_travel_in_the_settings_requests() {
     settings.validation = false;
     settings.validation_rounds = 5;
     settings.auto_merge = otaq_core::board::settings::AutoMerge::All;
-    settings.project_agent_instructions = "Use my /import-github skill.".into();
     client
         .request(Request::SettingsSet(settings.clone()))
         .await

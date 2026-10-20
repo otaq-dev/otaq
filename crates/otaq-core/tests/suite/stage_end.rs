@@ -9,15 +9,13 @@ use std::path::Path;
 use otaq_core::board::settings::ProjectSettings;
 use otaq_core::board::tickets::{EventKind, HistoryEvent, Ticket};
 use otaq_core::domain::{Actor, Place, Status, ValidationTrigger};
-use otaq_core::flow::{Flow, yaml};
+use otaq_core::flow::{FlowFile, yaml};
 use otaq_core::service::testing::{AgentShell, TestService};
 use serde_json::{Value, json};
 
-fn every_kind() -> Flow {
+fn every_kind_file() -> FlowFile {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml");
-    yaml::read(&std::fs::read_to_string(path).unwrap())
-        .unwrap()
-        .flow
+    yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
 async fn into_stage(w: &TestService, ticket: &Ticket, stage: &str) {
@@ -84,7 +82,7 @@ async fn submit(w: &TestService, ticket: &Ticket, summary: &str) -> Ticket {
 async fn finished_stages_on_the_test_flow() {
     let w = TestService::start().await;
     w.add_project("shop-web").await;
-    w.board.use_flow_for_tests("SHOP", every_kind());
+    w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
     let t = w.create("SHOP", "Export as CSV").await;
     w.start_worktree(&t).await;
     w.force_status(&t, Status::Working).await;

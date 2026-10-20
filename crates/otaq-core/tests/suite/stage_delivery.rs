@@ -22,7 +22,7 @@ use otaq_core::domain::{
 };
 use otaq_core::flow::default::{DELIVER, DEV, REVIEW};
 use otaq_core::flow::engine::{self, At, Move, RunResult};
-use otaq_core::flow::{Delivers, Delivery, DeliveryMode, Flow, default_flow, yaml};
+use otaq_core::flow::{Delivers, Delivery, DeliveryMode, Flow, FlowFile, default_flow, yaml};
 use otaq_core::git::testing::{commit, git};
 use otaq_core::review::LocalMergeOutcome;
 use otaq_core::service::ServiceConfig;
@@ -38,11 +38,13 @@ fn me() -> Actor {
     Actor::User("me".into())
 }
 
-fn every_kind() -> Flow {
+fn every_kind_file() -> FlowFile {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml");
-    yaml::read(&std::fs::read_to_string(path).unwrap())
-        .unwrap()
-        .flow
+    yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+fn every_kind() -> Flow {
+    every_kind_file().flow
 }
 
 /// The test flow without its human check (QA): grill → dev → validate → security → ship.
@@ -473,7 +475,15 @@ async fn on_a_flow_without_a_human_check_an_epic_is_approved_and_delivered_at_re
     let project = pocket_notes(&w).await;
     let repo = PathBuf::from(&project.repo_path);
     let flow = no_human_check();
-    w.board.use_flow_for_tests("NOTE", flow.clone());
+    w.board
+        .use_flow_for_tests(
+            "NOTE",
+            &FlowFile {
+                agents: every_kind_file().agents,
+                flow: flow.clone(),
+            },
+        )
+        .await;
     let main_before = git(&repo, &["rev-parse", "main"]);
     let epic = create(
         &w,

@@ -11,11 +11,11 @@
 
 pub mod access;
 mod agent_requests;
+mod agents_requests;
 mod board_requests;
 mod connection;
 mod events;
 pub mod lock;
-mod named_agent_requests;
 mod permissions;
 mod session_requests;
 mod terminal_requests;
@@ -33,13 +33,13 @@ use crate::agent_tools::claude::trust::ClaudeConfig;
 use crate::agent_tools::claude::{ClaudeCode, ClaudeContext};
 use crate::agent_tools::connected::ConnectedTools;
 use crate::agent_tools::{Adapters, Tool, ToolContext, ToolEvent};
+use crate::agents::Agents;
 use crate::attention::Inbox;
 use crate::attention::notify::{NoNotifier, Notifier, Opener};
 use crate::board::Board;
 use crate::caller::Caller;
 use crate::data_dir::DataDir;
 use crate::ipc::{self, UserId};
-use crate::named_agents::{NamedAgents, starter};
 use crate::ports::PortPool;
 use crate::protocol::{self, PROTOCOL_VERSION, ServiceStatus};
 use crate::recovery::cleanup::Cleanup;
@@ -212,11 +212,11 @@ struct Shared {
     /// The copies of the tools' model lists (AGT-02).
     models: crate::agent_tools::models::ModelLists,
     /// The check before every launch (T-0357).
-    gate: crate::named_agents::gate::LaunchGate,
+    gate: crate::agents::gate::LaunchGate,
     /// Each agent tool's state on Settings → Agent tools (ADP-10, d0086).
     connected: ConnectedTools,
-    /// The named agents' rules (AGT-01…AGT-04).
-    named_agents: NamedAgents,
+    /// The agents' rules (AGM-01…AGM-04).
+    agents: Agents,
     ticket_env: crate::ticket_env::TicketEnv,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
@@ -409,14 +409,14 @@ impl Shared {
     }
 }
 
-/// Creates the starter entry and the role defaults if the list is empty and a tool is connected (AGT-01), in the
+/// Sets the default model for new agents to the first connected tool's when none is set (AGM-02), in the
 /// background, when onboarding adds a project (every check of the tools does the same, [`ConnectedTools`]).
-fn spawn_starter(connected: &ConnectedTools, adapters: &Adapters, store: &Store) {
-    let tools = starter::connected(connected, adapters);
+fn spawn_default_model(connected: &ConnectedTools, store: &Store) {
+    let tools = connected.connected();
     let store = store.clone();
     tokio::spawn(async move {
-        if let Err(e) = starter::ensure(&store, &tools).await {
-            tracing::warn!(error = %e, "can't create the starter named agents");
+        if let Err(e) = crate::agents::move_over::ensure_default_model(&store, &tools).await {
+            tracing::warn!(error = %e, "can't set the default model for new agents");
         }
     });
 }
@@ -480,11 +480,11 @@ impl Service {
             .await
             .map_err(ServiceError::Store)?;
         board.trust().set_adapters(adapters.clone());
-        // Copies of imported workflow skills that no setting holds (d0092).
-        match board.remove_unreferenced_skill_copies().await {
+        // Copies of imported skills that no agent holds (d0092, AGM-01).
+        match crate::agents::skills::remove_unreferenced(&board).await {
             Ok(0) => {}
-            Ok(removed) => tracing::info!(removed, "unused workflow skill copies removed"),
-            Err(e) => tracing::warn!(error = %e, "can't check the workflow skill copies"),
+            Ok(removed) => tracing::info!(removed, "unused skill copies removed"),
+            Err(e) => tracing::warn!(error = %e, "can't check the skill copies"),
         }
         // Starts cut short by the previous service stopping are shown, never re-run silently (SES-02).
         match Starter::interrupt_cut_short(&board).await {
@@ -569,7 +569,7 @@ impl Service {
         .await
         .drop_model(dropped);
         // The check before every launch (SCH-04 `[M23]`, AGT-05, AGT-08).
-        let gate = crate::named_agents::gate::LaunchGate::new(
+        let gate = crate::agents::gate::LaunchGate::new(
             board.clone(),
             connected.clone(),
             models.clone(),
@@ -930,14 +930,15 @@ impl Service {
         plan_limit.set_project_agents(project_agents.clone());
         inbox.set_project_agents(project_agents.clone());
         project_agents.set_gate(gate.clone());
-        gate.set_restarts(crate::named_agents::gate::Restarts {
+        gate.set_restarts(crate::agents::gate::Restarts {
             validation: validation.clone(),
             project_agents: project_agents.clone(),
         });
-        // The named agents check models against the copies of the tools' lists (AGT-02).
-        let named_agents = NamedAgents::new(board.clone(), Arc::new(models.clone()));
+        // The agents check models against the copies of the tools' lists (AGT-02).
+        let agents = Agents::new(board.clone(), Arc::new(models.clone()));
         // The agent tools are checked at start (d0086), in the background as detect runs each tool's program; a
-        // tool that became Connected since the last run is set up, and an empty list gets its starter (AGT-01).
+        // tool that became Connected since the last run is set up, and with no default model yet the first connected
+        // tool's becomes it (AGM-02).
         connected.wire(crate::agent_tools::connected::Wiring {
             adapters: adapters.clone(),
             store: store.clone(),
@@ -958,7 +959,7 @@ impl Service {
             });
         }
         let shared = Arc::new(Shared {
-            named_agents,
+            agents,
             adapters,
             models,
             gate,
@@ -1123,7 +1124,7 @@ impl Service {
     }
 
     /// The check before every launch (T-0357).
-    pub fn gate(&self) -> crate::named_agents::gate::LaunchGate {
+    pub fn gate(&self) -> crate::agents::gate::LaunchGate {
         self.shared.gate.clone()
     }
 

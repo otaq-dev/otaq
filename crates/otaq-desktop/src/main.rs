@@ -54,8 +54,6 @@ pub struct App {
     >,
     /// Anonymous usage data, sent only after the user said yes (d0085).
     usage: usage::Usage,
-    /// Settings → Agents while it is open: the entries a tool connecting added, the lists that couldn't load (T-0361).
-    agents_visit: std::sync::Mutex<otaq_view::view_models::named_agents::Visit>,
     /// Whether the window has keyboard focus, told to every connection to the service (`app.focus`, d0090).
     window_focus: api::WindowFocus,
 }
@@ -111,7 +109,6 @@ fn main() {
         pr_dialogs: Default::default(),
         cleanup: Default::default(),
         run_commands: Default::default(),
-        agents_visit: Default::default(),
         window_focus: Default::default(),
         usage: usage::Usage::new(runtime.handle().clone()),
     });

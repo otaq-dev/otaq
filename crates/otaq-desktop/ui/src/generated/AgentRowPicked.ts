@@ -2,7 +2,6 @@
 import type { AgentRowSetBy } from "./AgentRowSetBy";
 
 /**
- * What a row picked in the ⌘N form shows until the ticket is created (the pick is set right after): *set by
- * you* with Let agents pick again, beside the picked item's name and model.
+ * What a row picked in the ⌘N form shows until the ticket is created (T-0411).
  */
 export type AgentRowPicked = { set_by: AgentRowSetBy, let_agents_pick: string, };

@@ -1,6 +1,6 @@
 //! Connected tools (ADP-10, d0086): each agent tool's state on Settings → Agent tools, kept in memory by the
 //! service, the tools that count, and what connecting, hiding, signing in and disconnecting a tool does. Only a
-//! **Connected** tool counts: for the starter list, for "one tool connected", for avatars and for launching.
+//! **Connected** tool counts: for the default model, for "one tool connected", for avatars and for launching.
 //!
 //! The states come from each adapter's detect ([`AgentToolState::from_detection`]), run by
 //! [`ConnectedTools::recheck`] at service start, on `agent_tools.recheck` (the page opening, Re-check, the
@@ -12,9 +12,9 @@
 //! **A tool becomes Connected** (from any state, un-hiding included) when it counts now and didn't at the last
 //! check; the tools that counted are kept in `settings` ([`AGENT_TOOLS_CONNECTED`]), so a restart connects nothing
 //! again. Then, once: the adapter's one-time setup ([`super::AgentTool::set_up_tool`], its report kept for the
-//! page), the tool's starter entry if no entry uses it ([`starter::add_for_connected_tool`]; an empty list gets
-//! M22's starter, one entry per connected tool), and its folder trust for every existing project with the
-//! one-time note naming it ([`Trust::record_existing`], d0085).
+//! page) and its folder trust for every existing project with the one-time note naming it
+//! ([`Trust::record_existing`], d0085). While no default model for new agents is set, the first connected tool's
+//! default model becomes it ([`crate::agents::move_over::ensure_default_model`], AGM-02).
 
 use std::collections::{BTreeSet, HashMap};
 use std::ffi::OsString;
@@ -28,7 +28,6 @@ use super::setup::Trust;
 use super::{Adapters, Detection, Os, SetupReport, Tool, WindowsSource};
 use crate::board::{BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::named_agents::starter::{self, ConnectedTool};
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::{SessionKind, Sessions, SpawnSpec, TerminalSize};
@@ -515,7 +514,9 @@ impl ConnectedTools {
                 tool: None,
                 tool_session_id: None,
                 model: None,
-                named_agent: None,
+                agent: None,
+                effort: None,
+                fallback: None,
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
@@ -576,8 +577,8 @@ impl ConnectedTools {
         self.changes.subscribe()
     }
 
-    /// What follows a check: a tool that counts now and didn't before becomes Connected, once; an empty list
-    /// gets M22's starter. The tools that count are stored for the next check, keeping the earlier answer for a
+    /// What follows a check: a tool that counts now and didn't before becomes Connected, once; with no default
+    /// model yet, the first connected tool's becomes it. The tools that count are stored for the next check, keeping the earlier answer for a
     /// tool not checked yet.
     async fn settle(&self, w: &Wiring) {
         let known = match stored_tools(&w.store, AGENT_TOOLS_CONNECTED).await {
@@ -596,9 +597,8 @@ impl ConnectedTools {
                 .filter(|tool| !found.states.contains_key(tool))
                 .collect()
         };
-        let starters = starter::connected(self, &w.adapters);
-        if let Err(e) = starter::ensure(&w.store, &starters).await {
-            tracing::warn!(error = %e, "can't create the starter named agents");
+        if let Err(e) = crate::agents::move_over::ensure_default_model(&w.store, &connected).await {
+            tracing::warn!(error = %e, "can't set the default model for new agents");
         }
         for &tool in connected.iter().filter(|tool| !known.contains(tool)) {
             self.connect(w, tool).await;
@@ -623,23 +623,12 @@ impl ConnectedTools {
         }
     }
 
-    /// What connecting `tool` does (d0086, d0085): its one-time setup, its entry, its folder trust.
+    /// What connecting `tool` does (d0086, d0085): its one-time setup and its folder trust.
     async fn connect(&self, w: &Wiring, tool: Tool) {
         let adapter = w.adapters.get(tool);
         let name = adapter.display_name();
         tracing::info!(tool = %tool, "{name} connected: running its one-time setup");
         self.set_up(w, tool).await;
-        let entry = ConnectedTool {
-            tool: tool.as_str().to_owned(),
-            name: name.to_owned(),
-        };
-        match starter::add_for_connected_tool(&w.store, &entry).await {
-            Ok(Some(_)) => {
-                tracing::info!(tool = %tool, "added the named agent \"{name}\" (tool default)")
-            }
-            Ok(None) => {}
-            Err(e) => tracing::warn!(tool = %tool, error = %e, "can't add the tool's named agent"),
-        }
         if w.trust.record_existing(&w.store, tool).await {
             w.events.publish(Event::TrustChanged);
         }

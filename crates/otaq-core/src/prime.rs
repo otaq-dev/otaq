@@ -2,11 +2,11 @@
 //!
 //! The ticket (title, What and why, base branch), its parents with the summaries their agents gave at
 //! `review submit`, review feedback and pending questions (once M6 and M10 store them), Otaq's own rules,
-//! and the user's **Agent instructions**: the project's override if set, else the global text (d0040). The
+//! and the **instructions**: the Agent stage's agent's own, then the project's notes (AGM-02, AGM-06). The
 //! output is concise Markdown for an agent ([`render`]); `--json` prints the [`PrimeContext`] itself.
 //!
-//! Every prime (the ticket agent's, `--project` and `--epic`) lists the **named agents** (AGT-06; d0086): name, tool,
-//! model as Settings shows it, "Use for" and the project's default per role ([`named_agents`], [`render_agents`]).
+//! The agents a prime lists ([`prime_agents`], [`render_agents`]) are none until stage options are listed (AGM-06,
+//! T-0409): the default flow has none.
 
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +16,6 @@ use crate::board::conflicts::{Conflict, ConflictReason};
 use crate::board::tickets::{Base, EventKind, Ticket};
 use crate::board::{Board, BoardError};
 use crate::domain::{Status, TicketKey};
-use crate::named_agents::Role;
 use crate::naming;
 
 /// Everything `prime` prints.
@@ -53,7 +52,7 @@ pub struct PrimeContext {
     /// The pull request being prepared or already open (REV-10, REV-14): for the Open PR and Push skills.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pull_request: Option<PrimePr>,
-    /// The named agents (AGT-06), for reading only: a ticket's agent can't choose them. Filled by the service.
+    /// The agents the reader may pick from (AGM-06); none until stage options are listed. Filled by the service.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agents: Vec<PrimeAgent>,
 }
@@ -81,17 +80,16 @@ pub struct Parent {
     pub summary: Option<String>,
 }
 
-/// The user's Agent instructions and where they come from.
+/// The instructions an agent gets and where they come from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Instructions {
-    /// The project's name (`shop-web`) when they are the project's override; `None` for the global default.
+    /// The project's name (`shop-web`) when they hold the project's notes; `None` for the agent's own only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
     pub text: String,
 }
 
-/// A named agent as `prime` lists it (AGT-06): "Strong · Claude Code · Opus · always the newest", its "Use for" and
-/// the roles the project runs on it by default.
+/// An agent as `prime` lists it: "Strong · Claude Code · Opus · always the newest", and what it is for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrimeAgent {
     pub name: String,
@@ -101,9 +99,6 @@ pub struct PrimeAgent {
     pub model: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub use_for: String,
-    /// The roles whose default in this project is this agent: the project's own, else the app's.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub default_for: Vec<Role>,
 }
 
 impl PrimeAgent {
@@ -119,7 +114,7 @@ impl PrimeAgent {
 
 /// A named agent's model as Settings shows it (AGT-02, AUDIT-y C2), for the core's own texts: "tool default" (no
 /// model, or the tool's default entry), "<Display> · always the newest" for a follow choice, else the text as saved.
-/// The view models' `named_agents::model_label` says the same for the screens.
+/// The view models' `agents::model_label` says the same for the screens.
 pub fn model_text(model: Option<&str>, list: Option<&ModelList>) -> String {
     let id = model.map(str::trim).unwrap_or_default();
     match list.and_then(|l| l.entry(id)) {
@@ -136,42 +131,15 @@ pub fn model_text(model: Option<&str>, list: Option<&ModelList>) -> String {
 /// The tool default beside an agent's name: "Claude Code · tool default".
 const TOOL_DEFAULT: &str = "tool default";
 
-/// The named agents for a prime in `project` (AGT-06), oldest first, each with the roles the project runs on it
-/// by default. The tools' names come from their adapters, the models' labels from Otaq's copies of their lists.
-pub async fn named_agents(
-    board: &Board,
-    project: &str,
-    adapters: &Adapters,
-    models: &ModelLists,
+/// The agents a prime in `project` lists (AGM-06): none until stage options are listed (T-0409); the default flow
+/// has none.
+pub async fn prime_agents(
+    _board: &Board,
+    _project: &str,
+    _adapters: &Adapters,
+    _models: &ModelLists,
 ) -> Result<Vec<PrimeAgent>, BoardError> {
-    let store = board.store();
-    let agents = store.named_agents().await?;
-    let own = board.project(project).await?.agent_defaults();
-    let app = store.agent_defaults().await?;
-    let defaults: Vec<(Role, String)> = Role::ALL
-        .iter()
-        .filter_map(|&role| {
-            crate::named_agents::resolve(role, None, &own, &app, &agents)
-                .map(|r| (role, r.agent.id))
-        })
-        .collect();
-    Ok(agents
-        .iter()
-        .map(|a| PrimeAgent {
-            name: a.name.clone(),
-            tool: adapters.get(a.tool).display_name().to_owned(),
-            model: model_text(
-                a.model.as_deref(),
-                models.copy(a.tool).as_ref().map(|c| &c.list),
-            ),
-            use_for: a.use_for.trim().to_owned(),
-            default_for: defaults
-                .iter()
-                .filter(|(_, id)| *id == a.id)
-                .map(|(role, _)| *role)
-                .collect(),
-        })
-        .collect())
+    Ok(Vec::new())
 }
 
 /// Who reads the named agents, which says what it may do with them.
@@ -222,12 +190,7 @@ pub fn render_agents(agents: &[PrimeAgent], reader: AgentReader) -> String {
     };
     let mut out = format!("\n## Agents\n\n{lead}\n\n");
     for a in agents {
-        out.push_str(&format!("- {}", a.label()));
-        if !a.default_for.is_empty() {
-            let roles: Vec<&str> = a.default_for.iter().map(|r| r.label()).collect();
-            out.push_str(&format!(" \u{b7} project default for {}", roles.join(", ")));
-        }
-        out.push('\n');
+        out.push_str(&format!("- {}\n", a.label()));
         if !a.use_for.is_empty() {
             out.push_str(&format!("  Use for: {}\n", a.use_for));
         }
@@ -330,25 +293,36 @@ impl Board {
         })
     }
 
-    /// The user's Agent instructions for a project's agents (d0040): the project's override if set, else the global
-    /// text; `None` when both are empty. `prime` and `prime --epic` print them.
+    /// The instructions a project's ticket agents get (AGM-06): the first Agent stage's agent's own, then the
+    /// project's notes; `None` when both are empty. `prime` and `prime --epic` print them (T-0409 gives each agent
+    /// its own).
     pub async fn agent_instructions(
         &self,
         project: &str,
     ) -> Result<Option<Instructions>, BoardError> {
-        let settings = self.effective_settings(project).await?;
-        let text = settings.agent_instructions.trim();
+        let flow = self.effective_flow(project).await?;
+        let own = match flow.first_agent_stage() {
+            Some(stage) => crate::agents::resolve::stage_agent(self, stage)
+                .await
+                .map(|a| a.instructions)
+                .unwrap_or_default(),
+            None => String::new(),
+        };
+        let notes = self.project_settings(project).await?.project_notes;
+        let text = [own.trim(), notes.trim()]
+            .into_iter()
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n");
         if text.is_empty() {
             return Ok(None);
         }
-        let own = self.project_settings(project).await?;
-        let overridden = !own.agent_instructions.trim().is_empty();
         Ok(Some(Instructions {
-            project: match overridden {
-                true => Some(self.project(project).await?.name),
-                false => None,
+            project: match notes.trim().is_empty() {
+                true => None,
+                false => Some(self.project(project).await?.name),
             },
-            text: text.to_owned(),
+            text,
         }))
     }
 

@@ -36,7 +36,9 @@ fn spec(f: &Fixture, ticket: Option<SessionTicket>, script: &str) -> SpawnSpec {
         tool: None,
         tool_session_id: None,
         model: None,
-        named_agent: None,
+        agent: None,
+        effort: None,
+        fallback: None,
     }
 }
 
@@ -320,7 +322,9 @@ async fn protocol_list_attach_resize_detach() {
             tool: None,
             tool_session_id: None,
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
         })
         .await
         .unwrap();
@@ -492,7 +496,9 @@ async fn keystrokes_from_several_clients_reach_cat_and_track_unsent_text() {
             tool: None,
             tool_session_id: None,
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
         })
         .await
         .unwrap();
@@ -582,6 +588,7 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
                 resume: None,
                 model: None,
                 title: None,
+                effort: None,
             },
         )
         .unwrap();
@@ -601,7 +608,9 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
             tool: Some(cmd.tool),
             tool_session_id: cmd.tool_session_id.clone(),
             model: cmd.model.clone(),
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
         })
         .await
         .unwrap();
@@ -706,7 +715,9 @@ async fn attaching_again_on_one_connection_keeps_the_running_feed_whole() {
             tool: None,
             tool_session_id: None,
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
         })
         .await
         .unwrap();

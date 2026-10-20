@@ -17,12 +17,12 @@ use otaq_core::board::questions::Choice;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{TicketKey, ValidationAction};
 use otaq_core::project_agents::lead::{Lead, LeadStatus};
-use otaq_core::named_agents::rows::TicketAgents;
+use otaq_core::agents::facts::TicketAgents;
 use otaq_core::usage::TicketUsage;
 use otaq_core::protocol::{
     CloseParams, CommentsParams, DepParams, KeyParams, LeadParams, MoveParams, ProjectAgentAnswerParams,
     ProjectParams, Reply, Request, SendToFixParams, SessionListParams, SubmitByUserParams, UsageParams,
-    UseFallbackParams, ValidationActionParams,
+    ValidationActionParams,
 };
 use otaq_core::review::ReturnOutcome;
 use otaq_core::session::deliveries::Delivery;
@@ -34,7 +34,7 @@ use otaq_view::view_models::answer::{self, AnswerOutcome};
 use otaq_view::view_models::answer_options::AnswerOptions;
 use otaq_view::view_models::agent_rows::{self, Block};
 use otaq_view::view_models::tool_problems::{Callout, Tools};
-use otaq_view::view_models::named_agents::RoleId;
+use otaq_view::view_models::agents::RoleId;
 use otaq_view::view_models::approve;
 use otaq_view::view_models::card::{
     CardActionKind, TOKENS_UNKNOWN, age_label, tokens_label,
@@ -78,7 +78,6 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "panel.remove_dependency" => reply(&remove_dependency(app, parse(params)?).await?),
         "panel.setup_log" => reply(&setup_log(parse(params)?)),
         "panel.answer_agent" => reply(&answer_agent(app, parse(params)?).await?),
-        "panel.agent_row" => reply(&super::editor::agent_row(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -1448,12 +1447,11 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
             format!("{key} can\u{2019}t be moved to Review"),
         ),
         // A held role's fallback takes it (AGT-08, T-0362).
-        kind @ (CardActionKind::UseFallback | CardActionKind::UseValidatorFallback) => (
-            Request::TicketUseFallback(UseFallbackParams {
+        CardActionKind::UseFallback | CardActionKind::UseValidatorFallback => (
+            Request::TicketUseFallback(KeyParams {
                 key: params.key.clone(),
-                role: kind.fallback_role().expect("a fallback action"),
             }),
-            format!("{key} didn\u{2019}t move to its fallback"),
+            format!("{key} didn\u{2019}t start on its fallback"),
         ),
         other => {
             return Err(RequestError::plain(format!(
@@ -1645,7 +1643,9 @@ mod tests {
             tool: None,
             tool_session_id: None,
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
             model_ran: None,
             size: None,
         }

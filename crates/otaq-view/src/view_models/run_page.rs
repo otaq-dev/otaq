@@ -603,7 +603,9 @@ mod tests {
             tool: None,
             tool_session_id: None,
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
             model_ran: None,
             size: None,
         };

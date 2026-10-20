@@ -215,9 +215,11 @@ async fn world() -> World {
     .await
     .unwrap();
 
-    let mut global = w.board.global_settings().await.unwrap();
-    global.agent_instructions = "Use my /tdd skill.".into();
-    w.board.set_global_settings(&global).await.unwrap();
+    // AGM-02: the global Agent instructions are Developer's own now.
+    w.edit_agent("Developer", |a| {
+        a.instructions = "Use my /tdd skill.".into()
+    })
+    .await;
 
     let lead_shell = w.shell_in(&lead.agent.session.as_ref().unwrap().id);
     World {

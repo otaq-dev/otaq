@@ -68,7 +68,6 @@ import type { DecisionChangeGallery } from "../../generated/DecisionChangeGaller
 import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import type { DecisionGallery } from "../../generated/DecisionGallery";
 import type { EnvVarsGallery } from "../../generated/EnvVarsGallery";
-import type { AgentsGallery } from "../../generated/AgentsGallery";
 import type { AgentToolsGallery } from "../../generated/AgentToolsGallery";
 import type { OnboardingToolsGallery } from "../../generated/OnboardingToolsGallery";
 import type { WarmSwitchGallery } from "../../generated/WarmSwitchGallery";
@@ -88,8 +87,6 @@ import type { PillView } from "../../generated/PillView";
 import type { ToolAvatarGallery } from "../../generated/ToolAvatarGallery";
 import type { TrustGallery } from "../../generated/TrustGallery";
 import type { NotificationsGallery } from "../../generated/NotificationsGallery";
-import type { SettingsSkillDialog } from "../../generated/SettingsSkillDialog";
-import type { WorkflowSkillsGallery } from "../../generated/WorkflowSkillsGallery";
 import type { ShortcutsGallery } from "../../generated/ShortcutsGallery";
 import type { OptionNotesGallery } from "../../generated/OptionNotesGallery";
 import type { InboxView } from "../../generated/InboxView";
@@ -126,16 +123,9 @@ import "../shortcuts/shortcuts.css";
 import { SettingsContext, type SettingsContextValue } from "../settings/context";
 import { WarmOffDialog } from "../settings/Dialogs";
 import { EnvVarsRow } from "../settings/EnvVars";
-import { AgentsSectionBody, ProjectAgentsBody } from "../settings/Agents";
-import { AgentDeleteDialogView, AgentDialog } from "../settings/AgentDialog";
 import { AgentToolsPageBody, DisconnectDialogView } from "../settings/AgentTools";
 import { type ShortcutsCalls, ShortcutsView } from "../settings/Keyboard";
-import {
-  Section as SettingsSectionRows,
-  SkillDialogView,
-  SkillRowView,
-  WarmBuildRow,
-} from "../settings/Rows";
+import { Section as SettingsSectionRows, WarmBuildRow } from "../settings/Rows";
 import "../settings/settings.css";
 import { ActivityGallery } from "../shell/ActivityGallery";
 import { LimitLinesGallery } from "../notices/LimitLinesGallery";
@@ -1471,136 +1461,6 @@ function EnvVarsSection() {
   );
 }
 
-const loadAgents = () => request("gallery.agents") as Promise<AgentsGallery>;
-
-/** *15 · Settings → Agents* from `gallery.agents`, in its one-tool form (T-0343, d0086: the section on a fresh
- * install, a list you made and with Fable test marked, each dialog — Add agent with the model picker, Edit with the
- * mark, Duplicate's "Strong copy", a taken name, the only agent — both Deletes, and the project block collapsed and
- * expanded) or with several tools (T-0366: `soGMU`, `t1sI3`, `cnRA5`, `OCna6`; Edit agent with Tool and Fallback
- * `ObF25`, Copilot's Auto tiers, the list loading and couldn't load `GTuGI`, "no longer listed", the project block
- * `mQijC`). Calls are only recorded; nothing is sent. */
-function AgentsGallerySection({ several }: { several: boolean }) {
-  const { view, error } = useServiceView(loadAgents, []);
-  const [picked, setPicked] = useState<string | null>(null);
-  const [open, setOpen] = useState<{ kind: "dialog" | "delete"; index: number } | null>(null);
-  if (error) return <p role="alert">{error.message}</p>;
-  if (!view) return null;
-  const close = () => {
-    setOpen(null);
-  };
-  // Several tools: the Fallbacks block is enabled, the dialog has a Fallback field, the pickers carry avatars.
-  const sections = view.sections.filter((cell) => cell.view.fallbacks.enabled === several);
-  const dialogs = view.dialogs.flatMap((cell, index) =>
-    (cell.view.fallback !== null) === several ? [{ cell, index }] : [],
-  );
-  const deletes = several ? [] : view.deletes;
-  const projects = view.projects.filter(
-    (cell) => cell.view.rows.some((row) => row.picker.value.tool !== null) === several,
-  );
-  const dialog = open?.kind === "dialog" ? view.dialogs[open.index] : undefined;
-  const remove = open?.kind === "delete" ? view.deletes[open.index] : undefined;
-  return (
-    <Section
-      title={
-        several
-          ? "15 · Settings → Agents, several tools: table, Fallbacks, pickers per tool, list states, marks (T-0366)"
-          : "15 · Settings → Agents: fresh install, a list you made, the picker, the mark, ⋯ and Delete, project block (T-0343)"
-      }
-    >
-      <Caption>Last call: {picked ?? "—"}</Caption>
-      <div className="gallery-wrap">
-        {sections.map((cell) => (
-          <div key={cell.label} className="gallery-stack" style={{ width: 762 }}>
-            <Caption>{cell.label.toUpperCase()}</Caption>
-            <AgentsSectionBody
-              section={cell.view}
-              onAdd={() => {
-                setPicked("Add agent");
-              }}
-              onMenu={(row, action) => {
-                setPicked(`${row.name} · ${action}`);
-              }}
-              onDefault={(role, agent) => {
-                setPicked(`${role} → ${agent}`);
-              }}
-              onAutoFallback={(on) => {
-                setPicked(`auto fallback ${on ? "on" : "off"}`);
-              }}
-            />
-          </div>
-        ))}
-        {projects.map((cell) => (
-          <div key={cell.label} className="gallery-stack" style={{ width: 762 }}>
-            <Caption>{cell.label.toUpperCase()}</Caption>
-            <ProjectAgentsBody
-              block={cell.view}
-              onPick={(role, agent) => {
-                setPicked(`${cell.view.project} · ${role} → ${agent ?? "app default"}`);
-              }}
-            />
-          </div>
-        ))}
-      </div>
-      <div className="gallery-wrap">
-        {dialogs.map(({ cell, index }) => (
-          <Button
-            key={cell.label}
-            variant="secondary"
-            label={cell.label}
-            onClick={() => {
-              setOpen({ kind: "dialog", index });
-            }}
-          />
-        ))}
-        {deletes.map((cell, index) => (
-          <Button
-            key={cell.label}
-            variant="secondary"
-            icon="trash-2"
-            label={`Delete · ${cell.label}`}
-            onClick={() => {
-              setOpen({ kind: "delete", index });
-            }}
-          />
-        ))}
-      </div>
-      {dialog && (
-        <AgentDialog
-          dialog={dialog.view}
-          onDraft={() => undefined}
-          onTool={(tool) => {
-            setPicked(`tool ${tool}`);
-          }}
-          onRetry={(tool) => {
-            setPicked(`retry ${tool}`);
-          }}
-          onSave={(draft) => {
-            setPicked(`save ${JSON.stringify(draft)}`);
-            close();
-          }}
-          onCancel={close}
-          onDelete={(id) => {
-            setPicked(`Delete… ${id}`);
-          }}
-        />
-      )}
-      {remove && (
-        <AgentDeleteDialogView
-          dialog={remove.view}
-          onClose={close}
-          onDelete={(id) => {
-            setPicked(`delete ${id}`);
-            close();
-          }}
-          onOpenTicket={(key) => {
-            setPicked(`open ${key}`);
-          }}
-        />
-      )}
-    </Section>
-  );
-}
-
 const loadWarmSwitch = () => request("gallery.warm_switch") as Promise<WarmSwitchGallery>;
 
 /** *15 → Row · Start new worktrees from a warm build (0082)* and the dark frame's Linux state (T-0301): the row in
@@ -2178,97 +2038,6 @@ function NotificationsGallerySection() {
   );
 }
 
-const loadWorkflowSkills = () => request("gallery.workflow_skills") as Promise<WorkflowSkillsGallery>;
-
-/** T-0380 (WSK-01, WSK-02, WSK-04, WSK-07; d0092; *15 → update AC* `G4P2FV`/`UQ0Ft`, `prAII`/`zzn80`,
- * `D12DJ0`/`pL63n`): Settings → Workflow skills, global and per project, every §2/§3 state, the ⋯ menu open and both
- * dialogs, from `gallery.workflow_skills`, in Otaq Light and Dark. Clicks are only recorded; Use built-in answers
- * "ask first" so its dialog shows. */
-function WorkflowSkillsGallerySection() {
-  const { view, error } = useServiceView(loadWorkflowSkills, []);
-  const [picked, setPicked] = useState<string | null>(null);
-  const [open, setOpen] = useState<{ theme: string; dialog: SettingsSkillDialog } | null>(null);
-  if (error) return <p role="alert">{error.message}</p>;
-  if (!view) return null;
-  const context = (project: string | null): SettingsContextValue => ({
-    page: { page: "global", title: "Workflow skills", sections: [] },
-    project,
-    edit: () => undefined,
-    act: () => undefined,
-    skill: (method, params) => {
-      setPicked(`${method} ${JSON.stringify(params)}`);
-      return Promise.resolve(
-        method === "settings.skill_reset" && params.confirmed !== true ? "confirm" : "done",
-      );
-    },
-  });
-  const imported = view.cells[1]?.section.rows[0]?.control;
-  const commit = imported?.kind === "skills" ? imported.rows[0] : undefined;
-  return (
-    <Section title="15 · Settings → Workflow skills: global, project, ⋯, Re-import, Use built-in, §2 and §3 (T-0380)">
-      <Caption>Last click: {picked ?? "—"}</Caption>
-      <div className="gallery-two">
-        {THEMES.map((theme) => (
-          <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
-            <Caption>{theme.toUpperCase()}</Caption>
-            {view.cells.map((cell) => (
-              <SettingsContext.Provider key={cell.name} value={context(cell.project)}>
-                <div
-                  className="gallery-stack-tight"
-                  data-cell={cell.name}
-                  style={{ padding: "0 16px 16px", borderRadius: 8, background: "var(--bg-panel)" }}
-                >
-                  <Caption>{cell.name.toUpperCase()}</Caption>
-                  <SettingsSectionRows section={cell.section} />
-                </div>
-              </SettingsContext.Provider>
-            ))}
-            {commit && (
-              <SettingsContext.Provider value={context(null)}>
-                <div
-                  className="gallery-stack-tight"
-                  data-cell="menu"
-                  style={{ padding: "0 16px 120px", borderRadius: 8, background: "var(--bg-panel)" }}
-                >
-                  <Caption>THE ⋯ MENU ON AN IMPORTED SKILL</Caption>
-                  <SkillRowView row={commit} />
-                </div>
-                <div className="gallery-wrap">
-                  {[commit.reimport, commit.reset].map(
-                    (dialog) =>
-                      dialog && (
-                        <Button
-                          key={dialog.title}
-                          variant="secondary"
-                          label={`Open “${dialog.title}”`}
-                          onClick={() => {
-                            setOpen({ theme, dialog });
-                          }}
-                        />
-                      ),
-                  )}
-                </div>
-                {open?.theme === theme && (
-                  <SkillDialogView
-                    dialog={open.dialog}
-                    onConfirm={() => {
-                      setPicked(`${open.dialog.title} · ${open.dialog.confirm}`);
-                      setOpen(null);
-                    }}
-                    onCancel={() => {
-                      setOpen(null);
-                    }}
-                  />
-                )}
-              </SettingsContext.Provider>
-            )}
-          </div>
-        ))}
-      </div>
-    </Section>
-  );
-}
-
 const loadShortcuts = () => request("gallery.keyboard_page") as Promise<ShortcutsGallery>;
 
 /** T-0395 (KEY-05, KEY-04; d0097; *15 · Keyboard shortcuts* `s15-46`…`s15-55`): Settings → Keyboard shortcuts in
@@ -2655,14 +2424,11 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <InboxLead />
         <OptionNotes />
         <EnvVarsSection />
-        <AgentsGallerySection several={false} />
-        <AgentsGallerySection several />
         <WarmSwitchSection />
         <CleanupWarmGallery />
         <ReviewColumnSection />
         <TrustSection />
         <NotificationsGallerySection />
-        <WorkflowSkillsGallerySection />
         <ShortcutsGallerySection />
         <AgentToolsGallerySection />
         <OnboardingToolsGallerySection />

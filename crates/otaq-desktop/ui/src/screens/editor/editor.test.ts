@@ -128,7 +128,6 @@ const FORM: EditorForm = {
   deps: [],
   base_branch: "main",
   external_id: "",
-  agents: [],
 };
 
 const VIEW: EditorView = {
@@ -732,30 +731,24 @@ describe("the editor", () => {
   });
 });
 
-describe("the Agents block in the form (T-0344)", () => {
-  const picker = (selected: string | null) =>
-    [
-      { agent: null, label: "Project default (Claude Code)", detail: "tool default" },
-      { agent: "cc", label: "Claude Code", detail: "tool default" },
-      { agent: "strong", label: "Strong", detail: "Opus · always the newest" },
-    ].map((i) => ({ ...i, selected: i.agent === selected, avatar: null }));
-  const row = (role: AgentRowView["role"], label: string): AgentRowView => ({
+describe("the Agents block in the form (T-0344, T-0405)", () => {
+  const row = (role: AgentRowView["role"], label: string, value: string): AgentRowView => ({
     role,
     label,
-    value: "Project default (Claude Code)",
+    value,
     detail: "tool default",
     set_by: null,
     let_agents_pick: null,
     lock: null,
-    picker: picker(null),
-    change: "Change",
+    picker: null,
+    change: null,
     moved_on: null,
     next_lead: null,
     avatar: null,
     swap: null,
     moved: null,
   });
-  const agents = (rows: AgentRowView[], hint = "who writes the code and who checks it"): AgentBlock => ({
+  const agents = (rows: AgentRowView[], hint = "the agent each stage runs"): AgentBlock => ({
     heading: "Agents",
     hint,
     rows,
@@ -764,13 +757,10 @@ describe("the Agents block in the form (T-0344)", () => {
     children: [],
     children_heading: null,
     children_note: null,
-    picked: {
-      set_by: { text: "set by you", agent_made: false, icon: "user" },
-      let_agents_pick: "Let agents pick again",
-    },
+    picked: null,
   });
-  const TICKET = agents([row("developer", "Developer"), row("validator", "Validator")]);
-  const EPIC = agents([row("lead", "Epic lead")], "who leads the epic's children");
+  const TICKET = agents([row("developer", "Dev", "Developer"), row("validator", "Validate", "Validator")]);
+  const EPIC = agents([row("lead", "Epic lead", "Epic lead")], "who leads the epic's children");
 
   let shown: EditorForm = FORM;
   function Form({ view }: { view: EditorView }) {
@@ -794,86 +784,15 @@ describe("the Agents block in the form (T-0344)", () => {
       el?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     });
   };
-  const value = (host: HTMLElement, role: string) =>
-    host.querySelector(`[data-role="${role}"] button.agent-row-value`);
-  const option = (host: HTMLElement, label: string) =>
-    [...host.querySelectorAll('[role="option"]')].find(
-      (o) => o.querySelector(".agent-picker-name")?.textContent === label,
-    );
 
-  it("⌘N: a pick goes into the form, reads set by you, and Let agents pick again drops it", () => {
+  it("⌘N: each stage's agent, read-only; Type Epic shows the one Epic lead row", () => {
     const host = mount(createElement(Form, { view: { ...VIEW, agents: TICKET, epic_agents: EPIC } }));
-    expect(host.textContent).toContain("who writes the code and who checks it");
-    press(value(host, "developer"));
-    press(option(host, "Strong"));
-    expect(shown.agents).toEqual([{ role: "developer", agent: "strong" }]);
-    const dev = host.querySelector('[data-role="developer"]');
-    expect(dev?.querySelector(".agent-row-name")?.textContent).toBe("Strong");
-    expect(dev?.querySelector(".agent-row-who")?.textContent).toBe("set by you");
-    press(
-      [...(dev?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Let agents pick again"),
-    );
-    expect(shown.agents).toEqual([]);
-  });
-
-  it("⌘N with Type Epic: the one Epic lead row, and the ticket's picks don't carry over", () => {
-    const host = mount(createElement(Form, { view: { ...VIEW, agents: TICKET, epic_agents: EPIC } }));
-    press(value(host, "developer"));
-    press(option(host, "Strong"));
+    expect(host.textContent).toContain("the agent each stage runs");
+    expect(host.querySelectorAll(".agent-row")).toHaveLength(2);
+    expect(host.querySelector('[role="option"]')).toBeNull();
     press([...host.querySelectorAll("button")].find((b) => b.textContent === "Epic"));
     expect(shown.epic_kind).toBe(true);
-    expect(shown.agents).toEqual([]);
     expect(host.querySelectorAll(".agent-row")).toHaveLength(1);
     expect(host.textContent).toContain("who leads the epic's children");
-    press(value(host, "lead"));
-    press(option(host, "Strong"));
-    expect(shown.agents).toEqual([{ role: "lead", agent: "strong" }]);
-  });
-
-  it("an existing ticket writes each pick once, with editor.agent_row, and shows the block it answers", async () => {
-    const sent: unknown[] = [];
-    const after = agents([
-      {
-        ...row("developer", "Developer"),
-        value: "Strong",
-        set_by: { text: "set by you", agent_made: false, icon: "user" },
-      },
-      row("validator", "Validator"),
-    ]);
-    ipc.reply = (method, params) => {
-      if (method !== "editor.agent_row") return [];
-      sent.push(params);
-      return { outcome: "set", agents: after };
-    };
-    const host = mount(
-      createElement(Form, { view: { ...VIEW, create: false, key: "SHOP-48", agents: TICKET } }),
-    );
-    press(value(host, "developer"));
-    press(option(host, "Strong"));
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(sent).toEqual([{ key: "SHOP-48", role: "developer", agent: "strong" }]);
-    expect(shown.agents).toEqual([]);
-    expect(host.querySelector('[data-role="developer"] .agent-row-who')?.textContent).toBe("set by you");
-  });
-
-  it("a row that locked meanwhile: the refusal under the block", async () => {
-    ipc.reply = (method) =>
-      method === "editor.agent_row"
-        ? {
-            outcome: "refused",
-            refusal: { field: "agents", title: "Locked", message: "SHOP-48 has started", icon: "lock" },
-          }
-        : [];
-    const host = mount(
-      createElement(Form, { view: { ...VIEW, create: false, key: "SHOP-48", agents: TICKET } }),
-    );
-    press(value(host, "validator"));
-    press(option(host, "Strong"));
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(host.querySelector(".editor-refusal")?.textContent).toContain("SHOP-48 has started");
   });
 });

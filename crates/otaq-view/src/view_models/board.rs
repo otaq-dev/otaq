@@ -24,7 +24,7 @@ use crate::view_models::card::{CardExtras, CardViewModel};
 use crate::view_models::epic_card::EpicViewModel;
 use crate::view_models::flow_columns::{ColumnKind, Columns, FlowColumn};
 use crate::view_models::queue::queue_facts;
-use otaq_core::named_agents::rows::BoardAgents;
+use otaq_core::agents::facts::BoardAgents;
 
 /// From this board width Done opens as a column; below it Done is its rail (SHL-01; CHANGES-v §1: "At ≥ 1360 px of
 /// board width Done opens as a column"). The board width is the main area's: the pane and the project rail are not

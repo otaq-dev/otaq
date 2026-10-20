@@ -579,7 +579,7 @@ pub async fn history_view(app: &App, params: Params) -> Result<Option<HistoryVie
     let rows = match super::editor::agent_facts(app, super::editor::of_ticket(&params.key)).await {
         Some(agents) => {
             let tools = super::editor::agent_tools(app).await;
-            history::with_named_agents(rows, &agent_rows::history_lines(&agents, &tools))
+            history::with_agents(rows, &agent_rows::history_lines(&agents, &tools))
         }
         None => rows,
     };

@@ -2,15 +2,10 @@
 import type { IconName } from "./IconName";
 
 /**
- * Who set a row: neutral "set by you" / "project default", or an agent's pick in violet (d0077).
+ * Who set a row: neutral "set by you", or an agent's pick in violet (d0077). M31's recorded row changes only.
  */
 export type AgentRowSetBy = { text: string, 
 /**
  * Agent-made: violet.
  */
-agent_made: boolean, 
-/**
- * Before the text in a row: the person for *set by you*, the bot for an agent's pick, none for "project
- * default" (*05 → Row · Developer and Validator rows · every state*).
- */
-icon: IconName | null, };
+agent_made: boolean, icon: IconName | null, };

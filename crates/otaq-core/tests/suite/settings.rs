@@ -4,8 +4,7 @@
 use crate::common::Fixture;
 use otaq_core::board::settings::{
     AutoMerge, GlobalSettings, KeyboardChange, KeyboardSettings, ProjectSettings, ResolvedSkill,
-    SkillSetting, Theme, ThemeSetting, WorkflowSkillOverrides, WorkflowSkills, WorkflowStep,
-    resource_without_create,
+    Theme, ThemeSetting, WorkflowStep, resource_without_create,
 };
 use otaq_core::git::testing::{git, snapshot};
 use otaq_core::naming;
@@ -26,10 +25,8 @@ async fn defaults() {
     assert!(!global.description_source_mode);
     assert_eq!(global.keyboard, KeyboardSettings::default());
     assert_eq!(global.theme, ThemeSetting::default());
-    assert_eq!(global.workflow_skills, WorkflowSkills::default());
     let effective = f.board.effective_settings("SHOP").await.unwrap();
     for step in WorkflowStep::ALL {
-        assert_eq!(global.workflow_skills.get(step), &SkillSetting::BuiltIn);
         assert_eq!(
             effective.workflow_skills.get(step),
             &ResolvedSkill::BuiltIn(step)
@@ -64,7 +61,6 @@ async fn global_values_round_trip_and_keep_other_rows() {
     let mut global = GlobalSettings::default();
     global.agent_limits.enabled = true;
     global.agent_limits.max_concurrency = 8;
-    global.agent_instructions = "Ask before coding.".into();
     global.theme = ThemeSetting::Picked(Theme::TokyoNight);
     global.terminal_font_size = 15;
     global.notifications = false;
@@ -156,30 +152,24 @@ async fn a_0069_system_mode_waits_for_the_os() {
 }
 
 #[tokio::test]
-async fn project_values_fall_back_to_global_when_empty() {
+async fn project_values_round_trip_with_the_projects_notes() {
     let f = Fixture::shop().await;
-    let global = GlobalSettings {
-        agent_instructions: "Run tests before submitting.".into(),
-        ..Default::default()
-    };
-    f.board.set_global_settings(&global).await.unwrap();
-
     let effective = f.board.effective_settings("SHOP").await.unwrap();
-    assert_eq!(effective.agent_instructions, "Run tests before submitting.");
+    assert_eq!(effective.project_notes, "");
     assert_eq!(
         effective.workflow_skills.commit,
         ResolvedSkill::BuiltIn(WorkflowStep::Commit)
     );
 
     let own = ProjectSettings {
-        agent_instructions: "Use my /tdd skill.".into(),
+        project_notes: "Use pnpm, not npm.".into(),
         let_finished_tickets_answer: false,
         ..Default::default()
     };
     f.board.set_project_settings("SHOP", &own).await.unwrap();
     assert_eq!(f.board.project_settings("SHOP").await.unwrap(), own);
     let effective = f.board.effective_settings("SHOP").await.unwrap();
-    assert_eq!(effective.agent_instructions, "Use my /tdd skill.");
+    assert_eq!(effective.project_notes, "Use pnpm, not npm.");
     assert_eq!(
         effective.workflow_skills.push,
         ResolvedSkill::BuiltIn(WorkflowStep::Push)
@@ -265,8 +255,6 @@ async fn m12_defaults() {
     assert!(global.validation);
     assert_eq!(global.validation_rounds, 3);
     assert_eq!(global.auto_merge, AutoMerge::Off);
-    assert_eq!(global.workflow_skills.validate, SkillSetting::BuiltIn);
-    assert!(global.project_agent_instructions.is_empty());
     let effective = f.board.effective_settings("SHOP").await.unwrap();
     assert!(effective.validation && !effective.auto_merge_inactive);
     assert_eq!(effective.validation_rounds, 3);
@@ -285,7 +273,6 @@ async fn m12_overrides_and_resolution() {
     let global = GlobalSettings {
         validation_rounds: 4,
         auto_merge: AutoMerge::EpicChildren,
-        project_agent_instructions: "Use my /import-github skill.".into(),
         ..GlobalSettings::default()
     };
     f.board.set_global_settings(&global).await.unwrap();
@@ -294,20 +281,10 @@ async fn m12_overrides_and_resolution() {
         (effective.validation_rounds, effective.auto_merge),
         (4, AutoMerge::EpicChildren)
     );
-    assert_eq!(
-        effective.project_agent_instructions,
-        "Use my /import-github skill."
-    );
-
     let own = ProjectSettings {
         validation: Some(false),
         validation_rounds: Some(2),
         auto_merge: Some(AutoMerge::All),
-        project_agent_instructions: "Split into tickets of about one day.".into(),
-        workflow_skills: WorkflowSkillOverrides {
-            validate: SkillSetting::Legacy("/my-validate".into()),
-            ..WorkflowSkillOverrides::default()
-        },
         ..ProjectSettings::default()
     };
     f.board.set_project_settings("SHOP", &own).await.unwrap();
@@ -320,16 +297,10 @@ async fn m12_overrides_and_resolution() {
         effective.auto_merge_inactive,
         "Auto-merge does nothing while validation is off"
     );
-    // A legacy value isn't run: the global setting (the built-in) is (WSK-07).
     assert_eq!(
         effective.workflow_skills.validate,
         ResolvedSkill::BuiltIn(WorkflowStep::Validate)
     );
-    assert_eq!(
-        effective.project_agent_instructions,
-        "Split into tickets of about one day."
-    );
-
     // Flagged rounds are never used: the project's 6 falls back to the global value, the global 0 to 3.
     let own = ProjectSettings {
         validation_rounds: Some(6),

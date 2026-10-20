@@ -57,6 +57,12 @@ pub(super) fn launch(codex: &Codex, request: &LaunchRequest) -> Result<LaunchPla
     if let Some(model) = &request.model {
         args.extend([MODEL_FLAG.to_owned(), model.clone()]);
     }
+    if let Some(effort) = &request.effort {
+        args.extend([
+            "-c".to_owned(),
+            format!("model_reasoning_effort=\"{effort}\""),
+        ]);
+    }
     match prompt {
         Some(prompt) => args.push(prompt),
         None if request.resume.is_none() => {
@@ -291,6 +297,7 @@ mod tests {
             resume: None,
             model: None,
             title: None,
+            effort: None,
         }
     }
 
@@ -361,6 +368,26 @@ mod tests {
     }
 
     /// Resume: `codex --no-daemon -c … resume <id> [-m <model>] ["<prompt>"]`, the stored id known up front.
+    /// An agent's effort goes to Codex as `-c model_reasoning_effort="<level>"` after the model (AGM-01).
+    #[test]
+    fn an_effort_is_a_config_override() {
+        let mut req = request(LaunchRole::TicketAgent);
+        req.model = Some("gpt-6-sol".into());
+        req.effort = Some("xhigh".into());
+        let plan = codex().launch(&req).unwrap();
+        assert_eq!(
+            plan.args[3..8],
+            args(&[
+                "-m",
+                "gpt-6-sol",
+                "-c",
+                "model_reasoning_effort=\"xhigh\"",
+                &format!("${NS}:work-ticket"),
+            ])
+        );
+        assert!(codex().effort_levels().contains(&"minimal"));
+    }
+
     #[test]
     fn a_resume_with_and_without_a_prompt() {
         let mut resume = request(LaunchRole::TicketAgent);

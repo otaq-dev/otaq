@@ -82,7 +82,7 @@ pub struct Waiting {
     pub deliver: &'static str,
 }
 
-/// "Instructions: shop-web": the project's settings on Agent instructions (d0040).
+/// "Instructions: shop-web": the project's settings on Project notes (d0040, AGM-02).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "TerminalTabInstructions")]
 pub struct Instructions {
@@ -629,7 +629,9 @@ mod tests {
             tool: None,
             tool_session_id: None,
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
             model_ran: None,
             size: None,
         }

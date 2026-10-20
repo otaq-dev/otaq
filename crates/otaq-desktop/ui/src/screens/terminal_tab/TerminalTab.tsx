@@ -291,7 +291,7 @@ export function TerminalTabBody({
                 onClick={() => {
                   openOverlay("settings", {
                     project: view.instructions.project,
-                    section: "agent_instructions",
+                    section: "project_notes",
                   });
                 }}
               >

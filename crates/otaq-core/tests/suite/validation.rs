@@ -199,15 +199,12 @@ async fn uncommitted_files_refuse_before_any_validator() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_projects_validate_skill_is_the_prompt() {
+async fn the_validators_imported_skill_is_the_prompt() {
     let w = world().await;
     w.add_project("shop-web").await;
-    // An imported skill is named by its copy in the worktree (WSK-06, d0092).
+    // An imported skill is named by its copy in the worktree (WSK-06, d0092): Validator's, in place of `validate`.
     let folder = otaq_core::workflow_skills::testing::skill_folder(w.data.root(), "my-validate");
-    w.board
-        .import_workflow_skill(Some("SHOP"), WorkflowStep::Validate, &folder)
-        .await
-        .unwrap();
+    w.import_step_skill(WorkflowStep::Validate, &folder).await;
     let t = working(&w, "Cart totals").await;
     submit(&w, &t).await.unwrap();
     let validator = w

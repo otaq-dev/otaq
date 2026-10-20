@@ -10,6 +10,8 @@ use sqlx::Row;
 const TABLES: &[&str] = &[
     "active_limits",
     "agent_holds",
+    "agent_skills",
+    "agents",
     "decisions",
     "events",
     "human_questions",
@@ -18,7 +20,6 @@ const TABLES: &[&str] = &[
     "lead_suggestions",
     "limit_windows",
     "messages",
-    "named_agents",
     "pending_deliveries",
     "pr_flows",
     "project_agents",
@@ -29,7 +30,6 @@ const TABLES: &[&str] = &[
     "sessions",
     "settings",
     "stage_runs",
-    "ticket_agent_rows",
     "ticket_deps",
     "ticket_key_aliases",
     "tickets",
@@ -619,11 +619,11 @@ async fn one_row_round_trips_through_every_table() {
         .unwrap();
     assert_eq!(state, "held");
 
-    // A named agent and a ticket's row on it (AGT-01, AGT-04).
+    // An agent with an imported skill (AGM-01): the shipped ones are there already.
     let light = new_id();
     sqlx::query(
-        "INSERT INTO named_agents (id, name, tool, model, use_for, created_at, updated_at) \
-         VALUES (?, 'Light', 'claude', 'haiku', 'Typos, docs, small config', ?, ?)",
+        "INSERT INTO agents (id, name, instructions, tool, model, came_from, created_at, updated_at) \
+         VALUES (?, 'Light', 'Typos, docs, small config', 'claude', 'haiku', 'you', ?, ?)",
     )
     .bind(&light)
     .bind(at)
@@ -632,26 +632,26 @@ async fn one_row_round_trips_through_every_table() {
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO ticket_agent_rows (ticket_id, role, named_agent_id, set_by, picked_by, reason, set_at) \
-         VALUES (?, 'developer', ?, 'agent', 'Checkout slowness', 'docs-only change', ?)",
+        "INSERT INTO agent_skills (agent_id, position, imported_id, name, original, imported_at, fingerprint) \
+         VALUES (?, 0, 'copy-1', 'my-commit', '/tmp/my-commit', ?, 'f')",
     )
-    .bind(&t18.id)
     .bind(&light)
     .bind(at)
     .execute(pool)
     .await
     .unwrap();
-    let picked_by: String =
-        sqlx::query_scalar("SELECT picked_by FROM ticket_agent_rows WHERE ticket_id = ?")
-            .bind(&t18.id)
-            .fetch_one(pool)
-            .await
-            .unwrap();
-    assert_eq!(picked_by, "Checkout slowness");
+    let name: String = sqlx::query_scalar(
+        "SELECT name FROM agent_skills WHERE agent_id = ? AND imported_id IS NOT NULL",
+    )
+    .bind(&light)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(name, "my-commit");
 
     // A held Developer start on that agent (M23, SCH-04): its tool is at its limit.
     sqlx::query(
-        "INSERT INTO agent_holds (id, ticket_id, role, reason, tool, model, named_agent_id, since) \
+        "INSERT INTO agent_holds (id, ticket_id, role, reason, tool, model, agent_id, since) \
          VALUES (?, ?, 'developer', 'tool_limit', 'claude', 'haiku', ?, ?)",
     )
     .bind(new_id())

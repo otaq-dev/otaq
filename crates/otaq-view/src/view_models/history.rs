@@ -34,7 +34,7 @@ pub struct HistoryRow {
     pub outcome: Option<(IconName, Palette)>,
     /// A counted validation round opens its report.
     pub report: Option<Report>,
-    /// A session row's session id (its title names the named agent, [`with_named_agents`]).
+    /// A session row's session id (its title names the agent, [`with_agents`]).
     pub session: Option<String>,
 }
 
@@ -322,6 +322,7 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             text(p, "message").map(first_line),
         ),
         EventKind::AgentRowSet => agent_rows::row_change_line(p),
+        EventKind::FallbackUsed => (agent_rows::fallback_line(p), None),
         EventKind::SchemaOverlap => (
             match text(p, "other") {
                 Some(other) => format!("Schema path shared with {other}"),
@@ -648,7 +649,7 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
 /// claude-sonnet-5-6" (with "(Sonnet → claude-sonnet-5-6)" when it moved on; with several tools "Session started on
 /// Verifier · Copilot · auto", the swap note before its session id), and its end and a Done ticket's agents as lines
 /// of their own, newest first like the rest.
-pub fn with_named_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<HistoryRow> {
+pub fn with_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<HistoryRow> {
     for line in lines {
         match line {
             HistoryLine::Start {
@@ -712,7 +713,9 @@ mod tests {
             tool: Some(Tool::Claude),
             tool_session_id: Some(format!("3be94c10-{id}")),
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
             model_ran: None,
             size: None,
         }

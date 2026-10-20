@@ -83,6 +83,9 @@ pub(super) fn launch(
         }
     };
     args.extend(model_flags(request.model.as_deref()));
+    if let Some(effort) = &request.effort {
+        args.extend(["--reasoning-effort".to_owned(), effort.clone()]);
+    }
     args.extend([
         "--plugin-dir".to_owned(),
         plugin.display().to_string(),
@@ -268,6 +271,7 @@ mod tests {
             resume: None,
             model: None,
             title: None,
+            effort: None,
         }
     }
 
@@ -351,6 +355,18 @@ mod tests {
     }
 
     /// A resume passes the id and the model again; a prompt only when there is one.
+    /// An agent's effort goes to Copilot as `--reasoning-effort <level>` (AGM-01).
+    #[test]
+    fn an_effort_is_its_own_flag() {
+        let i = install();
+        let mut req = request(LaunchRole::TicketAgent);
+        req.model = Some("gpt-5.5".into());
+        req.effort = Some("max".into());
+        let args = launch(&i.copilot, &req).unwrap().args;
+        let at = args.iter().position(|a| a == "--reasoning-effort").unwrap();
+        assert_eq!(args[at + 1], "max");
+    }
+
     #[test]
     fn resume() {
         let i = install();

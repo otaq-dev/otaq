@@ -12,11 +12,11 @@
 
 use std::time::{Duration, Instant};
 
+use otaq_core::agents::SessionRole as Role;
 use otaq_core::attention::inbox::InboxList;
 use otaq_core::board::needs_you::{NeedsYouGroup, NeedsYouItem, SuggestionItem};
 use otaq_core::domain::{LeadNoteSent, Status, TicketKey, ValidationAction};
 use otaq_core::epic_lead::suggest::SuggestionKind;
-use otaq_core::named_agents::Role;
 use otaq_core::project_agents::AgentNeedsYou;
 use serde::Serialize;
 use ts_rs::TS;

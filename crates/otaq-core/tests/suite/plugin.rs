@@ -8,7 +8,7 @@ use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::WORK_TICKET_SKILL;
 use otaq_core::agent_tools::claude::find_plugin_dir;
 use otaq_core::agent_tools::claude::hooks::HookEvent;
-use otaq_core::board::settings::WorkflowSkills;
+use otaq_core::board::settings::WorkflowStep;
 use otaq_core::naming;
 use serde_json::Value;
 
@@ -406,10 +406,7 @@ fn answer_question_changes_nothing_and_ends_with_answer() {
 fn validate_is_a_read_only_judge_that_ends_with_a_verdict() {
     let (name, body) = skill("validate");
     assert_eq!(name, "validate");
-    assert_eq!(
-        serde_json::to_value(WorkflowSkills::default()).unwrap()["validate"],
-        naming::skill(&name)
-    );
+    assert_eq!(WorkflowStep::Validate.own_default(), naming::skill(&name));
     assert!(
         front_matter("validate")
             .contains(&("disable-model-invocation".to_owned(), "true".to_owned()))

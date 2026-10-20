@@ -78,11 +78,16 @@ impl Board {
     pub async fn project_prime(&self, project: &str) -> Result<ProjectPrime, BoardError> {
         let p = self.project(project).await?;
         let tickets = self.tickets(&p.key).await?;
-        let settings = self.effective_settings(&p.key).await?;
-        let own = self.project_settings(&p.key).await?;
-        let text = settings.project_agent_instructions.trim();
+        // The Project agent role's agent's instructions (AGM-02: the Project agent instructions moved there).
+        let own = self
+            .store()
+            .role_agent(crate::agents::Role::ProjectAgent)
+            .await?
+            .map(|a| a.instructions)
+            .unwrap_or_default();
+        let text = own.trim();
         let instructions = (!text.is_empty()).then(|| Instructions {
-            project: (!own.project_agent_instructions.trim().is_empty()).then(|| p.name.clone()),
+            project: None,
             text: text.to_owned(),
         });
         Ok(ProjectPrime {

@@ -251,12 +251,11 @@ async fn prime_project_prints_every_ticket_worktrees_and_the_instructions() {
         .execute(w.board.store().pool())
         .await
         .unwrap();
-    let mut settings = w.board.project_settings("SHOP").await.unwrap();
-    settings.project_agent_instructions = "Split into tickets of about one day.".into();
-    w.board
-        .set_project_settings("SHOP", &settings)
-        .await
-        .unwrap();
+    // AGM-02: the Project agent instructions are the Project agent role's agent's own.
+    w.edit_agent("Planner", |a| {
+        a.instructions = "Split into tickets of about one day.".into();
+    })
+    .await;
     let (_, shell) = open(&w).await;
     let answer = send(
         &w,
@@ -295,7 +294,7 @@ async fn prime_project_prints_every_ticket_worktrees_and_the_instructions() {
     assert!(text.contains(BACKLOG_ONLY), "{text}");
     assert!(
         text.ends_with(
-            "## Project agent instructions (project shop-web)\n\nSplit into tickets of about one day.\n"
+            "## Project agent instructions (global)\n\nSplit into tickets of about one day.\n"
         ),
         "{text}"
     );

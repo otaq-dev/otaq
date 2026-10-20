@@ -33,6 +33,8 @@ pub enum Rule {
     SkipStrandsHumanCheck,
     /// Two stages with one id or one name.
     Duplicate,
+    /// A stage or a stage option names an agent that isn't one of the agents (AGM-01).
+    UnknownAgent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,6 +43,40 @@ pub struct Problem {
     /// The id of the stage it is about, when it is about one.
     pub stage: Option<String>,
     pub message: String,
+}
+
+/// "Dev names the agent Rust developer, which isn't one of your agents".
+pub fn unknown_agent_message(stage: &Stage, name: &str) -> String {
+    format!(
+        "{} names the agent {name}, which isn't one of your agents",
+        stage.name
+    )
+}
+
+/// The agents a flow names (AGM-01: a stage's `agent` and its options' agents), each against `known` (whether an
+/// agent of that name is there); a problem per unknown name, in stage order.
+pub fn check_agents(flow: &Flow, known: impl Fn(&str) -> bool) -> Result<(), Vec<Problem>> {
+    let mut problems = Vec::new();
+    for stage in &flow.stages {
+        let options = stage.options.iter().filter_map(|o| match o {
+            super::model::StageOption::Agent(name) => Some(name),
+            super::model::StageOption::Skip => None,
+        });
+        for name in stage.agent.iter().chain(options) {
+            if !known(name) {
+                problems.push(Problem {
+                    rule: Rule::UnknownAgent,
+                    stage: Some(stage.id.clone()),
+                    message: unknown_agent_message(stage, name),
+                });
+            }
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems)
+    }
 }
 
 /// Every problem with the flow, in stage order; `Ok` when there is none.

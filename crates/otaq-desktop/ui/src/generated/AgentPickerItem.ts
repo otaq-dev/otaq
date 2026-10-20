@@ -2,14 +2,6 @@
 import type { ToolAvatarView } from "./ToolAvatarView";
 
 /**
- * One item of a row's picker: "Project default (Claude Code)" (agent `null`) first, then each named agent.
+ * One item of a row's picker (T-0411 offers the ticket's choices again).
  */
-export type AgentPickerItem = { agent: string | null, label: string, 
-/**
- * The model as Settings shows it; with several tools after the tool ("Codex · gpt-5.5").
- */
-detail: string, selected: boolean, 
-/**
- * The tool's avatar, with several tools connected.
- */
-avatar: ToolAvatarView | null, };
+export type AgentPickerItem = { agent: string | null, label: string, detail: string, selected: boolean, avatar: ToolAvatarView | null, };

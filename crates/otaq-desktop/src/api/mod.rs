@@ -31,8 +31,6 @@ pub use drawer::{
     View as DrawerView,
 };
 #[cfg(test)]
-pub use editor::{AgentRowOutcome, AgentRowRequest};
-#[cfg(test)]
 pub use editor::{
     BranchesParams as EditorBranchesParams, CompareEntry as EditorCompareEntry,
     CompareParams as EditorCompareParams, LinkParams as EditorLinkParams, Linked as EditorLinked,
@@ -50,9 +48,7 @@ pub use keymap::Keymap;
 #[cfg(test)]
 pub use lead::{Load as LeadTabLoad, Params as LeadTabParams};
 #[cfg(test)]
-pub use notices::{
-    DismissBanner, HoldToast, LimitMoveWaiting, NotificationOpen, ToastId, ToastPress,
-};
+pub use notices::{DismissBanner, HoldToast, NotificationOpen, ToastId, ToastPress};
 #[cfg(test)]
 pub use onboarding::{
     AddOutcome as AddProjectOutcome, FormParams as AddProjectParams, Start as OnboardingStart,
@@ -111,10 +107,7 @@ pub use sections::{
 };
 #[cfg(test)]
 pub use settings::{
-    AgentDefaultSet, AgentDeleteOutcome, AgentDialogParams, AgentIdParams, AgentModelsRetry,
-    AgentSaveOutcome, AgentSaveParams, AgentsOpen, AutoFallbackSet, ProjectAgentDefaultSet,
-    SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams, SkillImport,
-    SkillOutcome, SkillReset, SkillStep,
+    AgentsOpen, SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams,
 };
 #[cfg(test)]
 pub use shell::{

@@ -205,7 +205,7 @@ async fn ran_on(app: &App, key: &str) -> Option<RanOn> {
         .and_then(|s| {
             Some(RanOn {
                 tool: s.tool?,
-                agent: s.named_agent.map(|a| a.name),
+                agent: s.agent.map(|a| a.name),
             })
         })
 }

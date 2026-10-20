@@ -24,7 +24,7 @@
 //! always continues. Settings changes wake the scheduler, so they apply at once.
 //!
 //! **Per-tool holds** (SCH-04 `[M23]`, USG-10; d0086): the scheduler holds nothing itself. Each start runs the check
-//! before every launch ([`crate::named_agents::gate`]), so only a ticket whose agent would use a tool at its limit or
+//! before every launch ([`crate::agents::gate`]), so only a ticket whose agent would use a tool at its limit or
 //! not available (or a model no longer listed) waits as **Held**, and tickets on other tools keep starting. Held
 //! tickets are skipped; the gate lifts their holds when the cause goes, never on a tick.
 

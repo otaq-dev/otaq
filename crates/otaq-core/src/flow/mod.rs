@@ -9,7 +9,7 @@ pub mod engine;
 pub mod model;
 pub mod yaml;
 
-pub use check::{Problem, Rule, check};
+pub use check::{Problem, Rule, check, check_agents};
 pub use default::{default_file, default_flow, effective_flow};
 pub use model::{
     CheckBy, Column, Delivers, Delivery, DeliveryMode, Flow, FlowAgent, FlowFile, Stage, StageKind,

@@ -758,47 +758,55 @@ pub enum Request {
     #[serde(rename = "ticket.terminal")]
     TicketTerminal(TerminalParams),
 
-    // Named agents (AGT-01…AGT-04; d0086, d0088). The user's requests; agents set rows through T-0338's CLI.
-    /// Every named agent (with its mark) and the app-wide role defaults. Answered with [`Reply::Agents`].
+    // Agents (AGM-01…AGM-05; d0108, d0088). The user's requests (Settings → Agents); agents never change agents.
+    /// Every agent (with its mark), the default model, each tool's fallback and the move-over's notice. Answered
+    /// with [`Reply::Agents`].
     #[serde(rename = "agents.list")]
     AgentsList,
-    /// `{"name": "Strong", "tool": "claude", "model": "opus", "use_for": "Complex features"}`: adds an entry; the
-    /// model must be in the tool's list (or empty). Answered with [`Reply::Agent`].
+    /// `{"name": "Rust developer", "instructions": "…", "skills": [{"shipped": "work-ticket"}], "model": {"kind":
+    /// "tool", "tool": "claude", "model": "opus"}, "effort": "high"}`: New agent ("Added by you"); the name new
+    /// ignoring case (not `skip` or `_…`), the model from the tool's list, the effort one of the tool's. Answered with
+    /// [`Reply::Agent`].
     #[serde(rename = "agents.add")]
-    AgentsAdd(crate::named_agents::AgentFields),
-    /// `{"id": "0199…", "name": …, "tool": …, "model": …, "use_for": …}`: the whole form; a model change clears the
-    /// mark. Answered with [`Reply::Agent`].
+    AgentsAdd(crate::agents::AgentFields),
+    /// `{"id": "0199…", …the fields}`: the whole page; a model change clears the mark. Applies to the next session
+    /// that starts. Answered with [`Reply::Agent`].
     #[serde(rename = "agents.edit")]
     AgentsEdit(AgentEditParams),
     /// `{"id": "0199…"}`: Duplicate's draft, "<name> copy", not saved. Answered with [`Reply::AgentDraft`].
     #[serde(rename = "agents.duplicate")]
     AgentsDuplicate(IdParams),
-    /// `{"id": "0199…"}`: deletes an unused entry. Refused (`agent_in_use`, the parts in the error's `in_use`)
-    /// while in use, and for the last entry (`last_agent`).
+    /// `{"id": "0199…"}`: deletes an agent nothing uses. Refused (`agent_in_use`) for a role's agent ("Planner is
+    /// your Project agent. Give the role to another agent first") and while a stage names it ("Griller is used in
+    /// shop-web · Grill. Change that stage first.").
     #[serde(rename = "agents.delete")]
     AgentsDelete(IdParams),
-    /// `{"id": "0199…"}`: what uses an entry, before Delete asks (T-0340): the refused dialog or the plain
-    /// confirmation. Refused for the last entry (`last_agent`), as Delete is. Answered with [`Reply::AgentInUse`].
+    /// `{"id": "0199…"}`: what uses an agent, before Delete asks. Answered with [`Reply::AgentInUse`].
     #[serde(rename = "agents.in_use")]
     AgentsInUse(IdParams),
-    /// `{"role": "validator", "agent": "0199…"}`: an app-wide role default. Answered with
-    /// [`Reply::AgentDefaults`].
-    #[serde(rename = "agents.set_default")]
-    AgentsSetDefault(AgentDefaultParams),
-    /// `{"project": "SHOP", "role": "developer", "agent": "0199…"}`; `agent` null = "Use app default". Answered with
-    /// [`Reply::AgentDefaults`] (the project's overrides).
-    #[serde(rename = "project.set_agent_default")]
-    ProjectSetAgentDefault(ProjectAgentDefaultParams),
-    /// `{"project": "SHOP"}`: the project's role default overrides (T-0340: the project's Agents block). Answered
-    /// with [`Reply::AgentDefaults`].
-    #[serde(rename = "project.agent_defaults")]
-    ProjectAgentDefaults(ProjectParams),
-    /// `{"key": "SHOP-19", "role": "developer", "agent": "0199…"}`: the user sets a row (*set by you*); `agent`
-    /// null = "Let agents pick again". Refused on a locked row and on a row the ticket doesn't have.
-    #[serde(rename = "ticket.agent_row")]
-    TicketAgentRow(AgentRowParams),
-    /// `{"key": "SHOP-19"}`, or `{"project": "SHOP", "new_epic": true}` for the ⌘N form: the ticket's or epic's rows with what they resolve to, their locks, the sessions with
-    /// their named agents, an epic's children's rows. Answered with [`Reply::TicketAgents`].
+    /// `{"role": "project-agent", "agent": "0199…"}`: gives the role to another agent, in one step. Answered with
+    /// [`Reply::Agent`] (the new holder).
+    #[serde(rename = "agents.move_role")]
+    AgentsMoveRole(MoveRoleParams),
+    /// `{"model": {"tool": "claude", "model": "sonnet"}}`: Default model for new agents (AGM-03). Answered with
+    /// [`Reply::Agents`].
+    #[serde(rename = "agents.default_model")]
+    AgentsDefaultModel(DefaultModelParams),
+    /// `{"tool": "claude", "fallback": {"tool": "codex", "model": "newest:gpt-sol"}}`, or without `fallback` for
+    /// none: one line of Fallback per tool (AGM-03). Answered with [`Reply::Agents`].
+    #[serde(rename = "agents.fallback")]
+    AgentsFallback(FallbackParams),
+    /// `{"id": "0199…", "folder": "/abs/my-commit"}`: Import skill folder… onto the agent (WSK-02, WSK-03). Answered
+    /// with [`Reply::Agent`], or refused (`bad_skill_folder`) with nothing changed.
+    #[serde(rename = "agents.import_skill")]
+    AgentsImportSkill(ImportSkillParams),
+    /// `{"id": "0199…", "skill": "<imported id>"}`: Re-import from the remembered original (WSK-04);
+    /// `original_not_found` when it is gone. Answered with [`Reply::Agent`].
+    #[serde(rename = "agents.reimport_skill")]
+    AgentsReimportSkill(ReimportSkillParams),
+    /// `{"key": "SHOP-19"}`, or `{"project": "SHOP", "new_epic": true}` for the ⌘N form: the agent each stage of the
+    /// ticket's flow runs (an epic's lead), the sessions with their agents, the holds. Answered with
+    /// [`Reply::TicketAgents`].
     #[serde(rename = "ticket.agents")]
     TicketAgents(TicketAgentsParams),
     /// `{"project": "SHOP"}`: what each board card says about its agents (the footer's name and who set it, who
@@ -829,38 +837,17 @@ pub enum Request {
     /// the tool's limit cleared, its holds lifted. Replies with [`Reply::Resumed`].
     #[serde(rename = "limits.resume_tool")]
     LimitsResumeTool(ToolParams),
-    /// `{"tool": "claude", "agent": "0199…"}`: **Move waiting to…**: that tool's not-yet-started tickets' Developer
-    /// rows move to `agent` (AGT-08; T-0358), and they start. Replies with [`Reply::MovedWaiting`].
-    #[serde(rename = "limits.move_waiting")]
-    LimitsMoveWaiting(MoveWaitingParams),
-    /// `{"key": "SHOP-31", "role": "developer"}`: **Use fallback** for a held role (AGT-08; T-0357).
+    /// `{"tool": "claude"}`: **Use fallback now** (AGM-03): every ticket waiting on the tool starts on its fallback;
+    /// refused when it has none or it can't start either. Replies with [`Reply::StartedOnFallback`].
+    #[serde(rename = "limits.use_fallback_now")]
+    LimitsUseFallbackNow(ToolParams),
+    /// `{"key": "SHOP-31"}`: **Use fallback** for a ticket waiting on its tool or its model (AGM-03).
     #[serde(rename = "ticket.use_fallback")]
-    TicketUseFallback(UseFallbackParams),
-    /// `{"on": true}`: "Use fallback agents automatically", off by default (AGT-08; T-0357).
-    #[serde(rename = "settings.auto_fallback")]
-    SettingsAutoFallback(AutoFallbackParams),
+    TicketUseFallback(KeyParams),
     /// `{}` or `{"record": {"kind": "ticket", "key": "NOTE-2"}}`: the command palette's recent items (KEY-06, d0097),
     /// with the use recorded first when given. Answered with [`Reply::RecentItems`], newest first.
     #[serde(rename = "recent.items")]
     RecentItems(RecentItemsParams),
-
-    // Imported workflow skills (M27; d0092). The user's requests.
-    /// `{"project": "NOTE"}` or `{}`: the four workflow skill settings of a project or the global page (WSK-01,
-    /// WSK-04), answered with [`Reply::WorkflowSkills`].
-    #[serde(rename = "workflow_skills.status")]
-    WorkflowSkillsStatus(SkillScopeParams),
-    /// `{"project": "NOTE", "step": "commit", "folder": "/abs/my-commit"}`: Import skill folder… and Import a
-    /// different folder… (WSK-01–WSK-03). Answered with [`Reply::WorkflowSkill`] (its warnings), or refused
-    /// (`bad_skill_folder`) with nothing changed.
-    #[serde(rename = "workflow_skills.import")]
-    WorkflowSkillsImport(SkillImportParams),
-    /// `{"step": "commit"}`: Re-import from the remembered original (WSK-04); `original_not_found` when it is gone.
-    #[serde(rename = "workflow_skills.reimport")]
-    WorkflowSkillsReimport(SkillSettingParams),
-    /// `{"step": "commit", "confirmed": false}`: Use built-in / Use global, deleting the copy (WSK-04);
-    /// `needs_confirmation` when the copy was edited since its import.
-    #[serde(rename = "workflow_skills.reset")]
-    WorkflowSkillsReset(SkillResetParams),
 }
 
 /// A request about one agent tool.
@@ -876,38 +863,6 @@ pub struct RecheckParams {
     pub tool: Option<Tool>,
 }
 
-/// A workflow skill setting (d0092): `step` of the global settings, or of `project`'s when it is set.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SkillSettingParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
-    pub step: crate::board::settings::WorkflowStep,
-}
-
-/// `workflow_skills.status`: the global settings, or `project`'s.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SkillScopeParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
-}
-
-/// `workflow_skills.import`: the picked folder (absolute).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SkillImportParams {
-    #[serde(flatten)]
-    pub setting: SkillSettingParams,
-    pub folder: std::path::PathBuf,
-}
-
-/// `workflow_skills.reset`: `confirmed` once the user agreed to lose the copy's edits.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SkillResetParams {
-    #[serde(flatten)]
-    pub setting: SkillSettingParams,
-    #[serde(default)]
-    pub confirmed: bool,
-}
-
 /// `agent_tools.set_hidden`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetHiddenParams {
@@ -915,24 +870,39 @@ pub struct SetHiddenParams {
     pub hidden: bool,
 }
 
-/// `limits.move_waiting`: the tool whose waiting tickets move, and the named agent they move to.
+/// `agents.move_role`: the role and the agent that takes it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MoveWaitingParams {
-    pub tool: Tool,
+pub struct MoveRoleParams {
+    pub role: crate::agents::Role,
     pub agent: String,
 }
 
-/// `ticket.use_fallback`.
+/// `agents.default_model`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UseFallbackParams {
-    pub key: String,
-    pub role: crate::named_agents::Role,
+pub struct DefaultModelParams {
+    pub model: crate::agents::ModelRef,
 }
 
-/// `settings.auto_fallback`.
+/// `agents.fallback`: `fallback` `None` = none.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AutoFallbackParams {
-    pub on: bool,
+pub struct FallbackParams {
+    pub tool: Tool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<crate::agents::ModelRef>,
+}
+
+/// `agents.import_skill`: the agent and the picked folder (absolute).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportSkillParams {
+    pub id: String,
+    pub folder: std::path::PathBuf,
+}
+
+/// `agents.reimport_skill`: the agent and its imported skill's id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReimportSkillParams {
+    pub id: String,
+    pub skill: String,
 }
 
 /// `recent.items`.
@@ -942,28 +912,12 @@ pub struct RecentItemsParams {
     pub record: Option<crate::store::recents::RecentUse>,
 }
 
-/// `agents.edit`: the entry's id and its whole form.
+/// `agents.edit`: the agent's id and its whole page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentEditParams {
     pub id: String,
     #[serde(flatten)]
-    pub fields: crate::named_agents::AgentFields,
-}
-
-/// `agents.set_default`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentDefaultParams {
-    pub role: crate::named_agents::Role,
-    pub agent: String,
-}
-
-/// `project.set_agent_default`: `agent` `None` = "Use app default".
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProjectAgentDefaultParams {
-    pub project: String,
-    pub role: crate::named_agents::Role,
-    #[serde(default)]
-    pub agent: Option<String>,
+    pub fields: crate::agents::AgentFields,
 }
 
 /// `ticket.agents`: an existing ticket by `key`, else a new one in `project` (an epic when `new_epic`).
@@ -975,15 +929,6 @@ pub struct TicketAgentsParams {
     pub project: Option<String>,
     #[serde(default)]
     pub new_epic: bool,
-}
-
-/// `ticket.agent_row`: `agent` `None` empties the row.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentRowParams {
-    pub key: String,
-    pub role: crate::named_agents::Role,
-    #[serde(default)]
-    pub agent: Option<String>,
 }
 
 /// `{"id": "<question id>", "options": ["Logged-in users only", "Guests too"], "notes": [null, "Kept in the
@@ -1780,10 +1725,11 @@ impl Request {
             Self::AgentsDuplicate(_) => "agents.duplicate",
             Self::AgentsDelete(_) => "agents.delete",
             Self::AgentsInUse(_) => "agents.in_use",
-            Self::AgentsSetDefault(_) => "agents.set_default",
-            Self::ProjectSetAgentDefault(_) => "project.set_agent_default",
-            Self::ProjectAgentDefaults(_) => "project.agent_defaults",
-            Self::TicketAgentRow(_) => "ticket.agent_row",
+            Self::AgentsMoveRole(_) => "agents.move_role",
+            Self::AgentsDefaultModel(_) => "agents.default_model",
+            Self::AgentsFallback(_) => "agents.fallback",
+            Self::AgentsImportSkill(_) => "agents.import_skill",
+            Self::AgentsReimportSkill(_) => "agents.reimport_skill",
             Self::TicketAgents(_) => "ticket.agents",
             Self::BoardAgents(_) => "board.agents",
             Self::AgentToolsList => "agent_tools.list",
@@ -1792,14 +1738,9 @@ impl Request {
             Self::AgentToolsSignIn(_) => "agent_tools.sign_in",
             Self::AgentToolsDisconnect(_) => "agent_tools.disconnect",
             Self::LimitsResumeTool(_) => "limits.resume_tool",
-            Self::LimitsMoveWaiting(_) => "limits.move_waiting",
+            Self::LimitsUseFallbackNow(_) => "limits.use_fallback_now",
             Self::TicketUseFallback(_) => "ticket.use_fallback",
-            Self::SettingsAutoFallback(_) => "settings.auto_fallback",
             Self::RecentItems(_) => "recent.items",
-            Self::WorkflowSkillsStatus(_) => "workflow_skills.status",
-            Self::WorkflowSkillsImport(_) => "workflow_skills.import",
-            Self::WorkflowSkillsReimport(_) => "workflow_skills.reimport",
-            Self::WorkflowSkillsReset(_) => "workflow_skills.reset",
         }
     }
 }
@@ -1886,8 +1827,8 @@ pub enum Reply {
     Resumed(Vec<TicketKey>),
     /// The tickets "This is the usage limit" folded into the banner.
     LimitMarked(Vec<TicketKey>),
-    /// The tickets Move waiting to… moved, in key order ("4 tickets moved to Strong GPT").
-    MovedWaiting(Vec<TicketKey>),
+    /// The tickets Use fallback now started on the tool's fallback, in key order.
+    StartedOnFallback(Vec<TicketKey>),
     BeforeRestart(Box<crate::recovery::BeforeRestart>),
     Inbox(Box<crate::attention::inbox::InboxList>),
     InboxCounts(crate::attention::inbox::InboxCounts),
@@ -1910,19 +1851,14 @@ pub enum Reply {
     TicketTerminal(Box<TicketTerminal>),
     /// A tool's model list as Otaq's copy has it; `None` before it was first read.
     Models(Option<Box<crate::agent_tools::models::ModelCopy>>),
-    Agents(Box<crate::named_agents::AgentList>),
-    Agent(Box<crate::named_agents::NamedAgent>),
-    AgentDraft(Box<crate::named_agents::AgentFields>),
-    TicketAgents(Box<crate::named_agents::rows::TicketAgents>),
-    BoardAgents(Box<crate::named_agents::rows::BoardAgents>),
-    AgentDefaults(Box<crate::named_agents::RoleDefaults>),
-    AgentInUse(Box<crate::named_agents::InUse>),
+    Agents(Box<crate::agents::AgentList>),
+    Agent(Box<crate::agents::Agent>),
+    AgentDraft(Box<crate::agents::AgentFields>),
+    TicketAgents(Box<crate::agents::facts::TicketAgents>),
+    BoardAgents(Box<crate::agents::facts::BoardAgents>),
+    AgentInUse(Box<crate::agents::InUse>),
     /// Every agent tool's row (`agent_tools.list`, `agent_tools.set_hidden`).
     AgentTools(Box<crate::agent_tools::connected::AgentToolsList>),
-    /// The four workflow skill settings of a scope (`workflow_skills.status`).
-    WorkflowSkills(Vec<crate::workflow_skills::SkillStatus>),
-    /// One workflow skill setting after an import, Re-import or reset.
-    WorkflowSkill(Box<crate::workflow_skills::SkillStatus>),
     /// The command palette's recent items, newest first (`recent.items`).
     RecentItems(Vec<crate::store::recents::RecentItem>),
 }

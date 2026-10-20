@@ -703,6 +703,7 @@ mod tests {
                 resume: None,
                 model: None,
                 title: None,
+                effort: None,
             }
         }
 
@@ -718,6 +719,7 @@ mod tests {
                 resume: None,
                 model: None,
                 title: None,
+                effort: None,
             }
         }
 
@@ -1080,6 +1082,35 @@ mod tests {
                 plan.args,
                 args(&settings, &["--resume", RESUMED, "--model", "opus"])
             );
+        }
+
+        /// An agent's effort goes to Claude Code as `--effort <level>` after the model, before the prompt (AGM-01).
+        #[test]
+        fn an_effort_goes_after_the_model() {
+            let f = fixture();
+            let settings = statusline::settings_path(&f.data, &key());
+            let mut request =
+                ticket_request(LaunchRole::TicketAgent, skill(WORK_TICKET_SKILL, None));
+            request.model = Some("opus".into());
+            request.effort = Some("high".into());
+            let plan = f.adapter.launch(&request).unwrap();
+            let id = new_id(&plan);
+            assert_eq!(
+                plan.args,
+                args(
+                    &settings,
+                    &[
+                        "--session-id",
+                        &id,
+                        "--model",
+                        "opus",
+                        "--effort",
+                        "high",
+                        &otaq_skill("work-ticket")
+                    ]
+                )
+            );
+            assert!(f.adapter.effort_levels().contains(&"xhigh"));
         }
 
         #[test]

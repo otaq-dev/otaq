@@ -41,6 +41,12 @@ use crate::usage::limit::LimitKind;
 /// The name shown to people.
 pub(super) const DISPLAY_NAME: &str = "Codex";
 
+/// Codex's reasoning effort levels (AGM-01): its config key `model_reasoning_effort` ("minimal | low | medium | high |
+/// xhigh", the Codex configuration reference, https://developers.openai.com/codex/config-reference), set for one
+/// launch with `-c model_reasoning_effort="<level>"` (`codex --help`: "-c, --config <key=value> Override a
+/// configuration value", 0.157.1, read with a throwaway HOME).
+pub(super) const EFFORT_LEVELS: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
+
 /// The short name used in sentences ("Codex's saved conversation").
 pub(super) const SHORT_NAME: &str = "Codex";
 
@@ -242,6 +248,10 @@ impl AgentTool for Codex {
 
     fn swaps_refused_model(&self) -> bool {
         false
+    }
+
+    fn effort_levels(&self) -> &'static [&'static str] {
+        EFFORT_LEVELS
     }
 
     /// `$otaq:commit` (the hands-on check, row 6).

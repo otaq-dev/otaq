@@ -9,16 +9,12 @@ use std::time::Duration;
 
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agent_tools::{LaunchContext, Tool};
+use otaq_core::agents::{Agent, AgentFields, AgentModel, Agents, FixedModels, SessionRole};
 use otaq_core::attention::notify::{Notifier, OnClick, OsNotification};
 use otaq_core::board::needs_you::NeedsYouGroup;
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::caller::Caller;
-use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::{Actor, Kind, StartStep, Status, StatusSet, ValidationAction};
-use otaq_core::named_agents::{
-    AgentFields, FixedModels, NamedAgent, NamedAgents, Role, RowSetBy, row_lock,
-};
-use otaq_core::protocol::{Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::{END_MODEL_REFUSED, SessionKind, StoredConversation};
@@ -69,14 +65,14 @@ impl Notifier for Recorder {
 
 struct World {
     w: TestService,
-    agents: NamedAgents,
-    fable: NamedAgent,
-    light: NamedAgent,
+    agents: Agents,
+    fable: Agent,
+    light: Agent,
     recorder: Arc<Recorder>,
 }
 
-/// shop-web with Fable test (`fable`) and Light (`haiku`); a scheduler that looks every
-/// 50 ms, so a loop would show at once.
+/// shop-web with Developer on `fable` and Light (`haiku`); a scheduler that looks every 50 ms, so a loop would show
+/// at once.
 async fn world() -> World {
     let recorder = Arc::new(Recorder::default());
     let notifier: Arc<dyn Notifier> = recorder.clone();
@@ -88,22 +84,44 @@ async fn world() -> World {
     })
     .await;
     w.add_project("shop-web").await;
-    let agents = NamedAgents::new(w.board.clone(), Arc::new(FixedModels::sample()));
-    let add = |name: &str, model: Option<&str>| AgentFields {
-        name: name.into(),
-        tool: Tool::Claude,
-        model: model.map(str::to_owned),
-        use_for: String::new(),
-        fallback: None,
-    };
-    let fable = agents.add(&add("Fable test", Some("fable"))).await.unwrap();
-    let light = agents.add(&add("Light", Some("haiku"))).await.unwrap();
+    let agents = Agents::new(w.board.clone(), Arc::new(FixedModels::sample()));
+    let fable = w.set_agent_model("Developer", claude(Some("fable"))).await;
+    let light = agents
+        .add(&page("Light", Some("haiku"), Vec::new()))
+        .await
+        .unwrap();
     World {
         w,
         agents,
         fable,
         light,
         recorder,
+    }
+}
+
+fn claude(model: Option<&str>) -> AgentModel {
+    AgentModel::Tool {
+        tool: Tool::Claude,
+        model: model.map(str::to_owned),
+    }
+}
+
+/// An agent's page on Claude Code with `model`.
+fn page(name: &str, model: Option<&str>, skills: Vec<otaq_core::agents::SkillRef>) -> AgentFields {
+    AgentFields {
+        name: name.into(),
+        instructions: String::new(),
+        skills,
+        model: claude(model),
+        effort: None,
+    }
+}
+
+/// The model text an agent passes.
+fn model_of(agent: &Agent) -> Option<String> {
+    match &agent.model {
+        AgentModel::Tool { model, .. } => model.clone(),
+        AgentModel::Default => None,
     }
 }
 
@@ -118,14 +136,14 @@ async fn until<F: std::future::Future<Output = bool>>(what: &str, mut done: impl
     .unwrap_or_else(|_| panic!("{what} never happened"));
 }
 
-/// The session's named agent and model as T-0336 stores them at launch.
-async fn on_agent(w: &TestService, session: &str, agent: &NamedAgent, model_ran: Option<&str>) {
+/// The session's agent and model as the start stores them (AGM-05).
+async fn on_agent(w: &TestService, session: &str, agent: &Agent, model_ran: Option<&str>) {
     sqlx::query(
-        "UPDATE sessions SET named_agent_id = ?, named_agent_name = ?, model = ?, model_ran = ? WHERE id = ?",
+        "UPDATE sessions SET agent_id = ?, agent_name = ?, model = ?, model_ran = ? WHERE id = ?",
     )
     .bind(&agent.id)
     .bind(&agent.name)
-    .bind(&agent.model)
+    .bind(model_of(agent))
     .bind(model_ran)
     .bind(session)
     .execute(w.board.store().pool())
@@ -158,25 +176,16 @@ async fn agent_sessions(w: &TestService, ticket: &Ticket) -> Vec<(String, Option
     .unwrap()
 }
 
-async fn mark_text(w: &World, agent: &NamedAgent) -> Option<String> {
+async fn mark_text(w: &World, agent: &Agent) -> Option<String> {
     let mark = w.agents.agent(&agent.id).await.unwrap().mark?;
     // The tool's message is kept for the edit dialog.
     assert_eq!(mark.message.as_deref(), Some(TOOL_MESSAGE));
     Some(mark.text)
 }
 
-/// SHOP-1 on Fable test, started by the scheduler: the ticket and its agent's session.
+/// SHOP-1 with Developer on `fable`, started by the scheduler: the ticket and its agent's session.
 async fn started_on_fable(w: &World) -> (Ticket, String) {
     let ticket = w.w.create("SHOP", "Add gift wrap option").await;
-    w.w.board
-        .store()
-        .set_ticket_agent_row(
-            &ticket.id,
-            Role::Developer,
-            Some((&w.fable.id, &RowSetBy::User)),
-        )
-        .await
-        .unwrap();
     w.w.board
         .move_ticket(
             "SHOP-1",
@@ -226,13 +235,11 @@ async fn a_developers_first_turn_refused_is_start_failed_not_started_and_never_r
     assert_eq!(problem.step, StartStep::Model);
     assert_eq!(problem.message, TOOL_MESSAGE);
     assert_eq!(after.started_at, None);
-    // The session ended "not started": the Developer row unlocks, and its conversation isn't kept for Resume.
+    // The session ended "not started": its conversation isn't kept for Resume.
     let info = w.w.sessions.wait_ended(&session).await.unwrap();
     assert_eq!(info.end_reason.as_deref(), Some(END_MODEL_REFUSED));
     let store = w.w.board.store();
     assert!(!store.developer_started(&ticket.id).await.unwrap());
-    let facts = w.agents.lock_facts(&ticket.id).await.unwrap();
-    assert_eq!(row_lock(Role::Developer, facts), None);
     assert_eq!(
         StoredConversation::latest_agent(store.pool(), &ticket.id)
             .await
@@ -241,13 +248,13 @@ async fn a_developers_first_turn_refused_is_start_failed_not_started_and_never_r
     );
     // The worktree stays for the retry.
     assert!(std::path::Path::new(after.work.as_ref().unwrap().worktree.as_ref().unwrap()).is_dir());
-    // The named agent is marked with the model passed (no exact model was reported).
+    // The agent is marked with the model passed (no exact model was reported).
     assert_eq!(
         mark_text(&w, &w.fable).await.as_deref(),
         Some("Claude Code couldn't run fable on SHOP-1")
     );
 
-    // The inbox item is Start interrupted's (group 2), offering Change agent; like Start interrupted it posts no OS
+    // The inbox item is Start interrupted's (group 2), offering Open agent…; like Start interrupted it posts no OS
     // notification (ATT-11: only items that block an agent).
     until("the inbox item", || async {
         w.w.inbox
@@ -266,7 +273,7 @@ async fn a_developers_first_turn_refused_is_start_failed_not_started_and_never_r
         (
             NeedsYouGroup::Stopped,
             Status::StartInterrupted,
-            Some(Role::Developer)
+            Some(SessionRole::Developer)
         )
     );
     assert_eq!(item.reason, "start failed · couldn't run the model");
@@ -305,7 +312,7 @@ async fn a_developers_first_turn_refused_is_start_failed_not_started_and_never_r
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_new_developer_row_starts_it_again_and_a_new_model_alone_does_not() {
+async fn a_new_model_alone_does_not_start_it_again() {
     let w = world().await;
     let (ticket, session) = started_on_fable(&w).await;
     hook(
@@ -316,39 +323,30 @@ async fn a_new_developer_row_starts_it_again_and_a_new_model_alone_does_not() {
     )
     .await;
     assert_eq!(w.w.status("SHOP-1").await, Status::StartInterrupted);
-    let client = Client::connect(ClientConfig::new(&w.w.data)).await.unwrap();
 
-    // Saving a new model on the named agent starts nothing (and clears the mark).
+    // Saving a new model on the agent starts nothing (and clears the mark); Retry start is the click.
+    let developer = w.agents.agent(&w.fable.id).await.unwrap();
     w.agents
         .edit(
             &w.fable.id,
-            &AgentFields {
-                name: "Fable test".into(),
-                tool: Tool::Claude,
-                model: Some("sonnet".into()),
-                use_for: String::new(),
-                fallback: None,
-            },
+            &page(&developer.name, Some("sonnet"), developer.skills.clone()),
         )
         .await
         .unwrap();
     assert_eq!(mark_text(&w, &w.fable).await, None);
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(w.w.status("SHOP-1").await, Status::StartInterrupted);
-
-    // Picking another agent from Change agent is the click: it starts as Retry start would.
-    let request: Request = serde_json::from_value(json!({"method": "ticket.agent_row",
-        "params": {"key": "SHOP-1", "role": "developer", "agent": w.light.id}}))
-    .unwrap();
-    assert_eq!(client.request(request).await.unwrap(), Reply::Ok);
-    until("the start on the new row", || async {
+    w.w.starter
+        .retry("SHOP-1", &Actor::User("me".into()))
+        .await
+        .unwrap();
+    until("the start on the new model", || async {
         w.w.status("SHOP-1").await == Status::Working
     })
     .await;
-    assert_eq!(agent_sessions(&w.w, &ticket).await.len(), 2);
-    // It runs on the row's agent now, with that agent's model (resolution at start, T-0336).
+    // It runs the agent's new model (resolution at start, AGM-05).
     let (agent, model): (Option<String>, Option<String>) = sqlx::query_as(
-        "SELECT named_agent_id, model FROM sessions WHERE ticket_id = ? AND kind = 'agent'
+        "SELECT agent_id, model FROM sessions WHERE ticket_id = ? AND kind = 'agent'
          ORDER BY started_at DESC, id DESC LIMIT 1",
     )
     .bind(&ticket.id)
@@ -357,7 +355,7 @@ async fn a_new_developer_row_starts_it_again_and_a_new_model_alone_does_not() {
     .unwrap();
     assert_eq!(
         (agent.as_deref(), model.as_deref()),
-        (Some(w.light.id.as_str()), Some("haiku"))
+        (Some(w.fable.id.as_str()), Some("sonnet"))
     );
     w.w.stop().await;
 }
@@ -416,7 +414,7 @@ async fn a_validator_round_refused_is_no_result_and_never_counts() {
     let item = items.iter().find(|i| i.key == ticket.key).unwrap();
     assert_eq!(
         (item.group, item.change_agent),
-        (NeedsYouGroup::Family, Some(Role::Validator))
+        (NeedsYouGroup::Family, Some(SessionRole::Validator))
     );
     // Notified once, as today's No result.
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -461,13 +459,6 @@ async fn a_validator_round_refused_is_no_result_and_never_counts() {
         [(1, "no_result".to_owned()), (1, "no_result".to_owned())]
     );
 
-    // A new Validator row from Change validator starts the round again.
-    let client = Client::connect(ClientConfig::new(&w.w.data)).await.unwrap();
-    let request: Request = serde_json::from_value(json!({"method": "ticket.agent_row",
-        "params": {"key": "SHOP-1", "role": "validator", "agent": w.light.id}}))
-    .unwrap();
-    assert_eq!(client.request(request).await.unwrap(), Reply::Ok);
-    assert_eq!(w.w.status("SHOP-1").await, Status::Checking);
     w.w.stop().await;
 }
 
@@ -580,8 +571,6 @@ async fn a_leads_first_turn_refused_leaves_it_not_started_and_open_lead_starts_a
     // Its terminal keeps the tool's message (the stand-in printed its start; the tool would print the error).
     assert!(w.w.sessions.attach(&session).is_ok());
     assert!(!w.w.board.store().lead_started(&epic.id).await.unwrap());
-    let facts = w.agents.lock_facts(&epic.id).await.unwrap();
-    assert_eq!(row_lock(Role::EpicLead, facts), None);
     assert_eq!(
         mark_text(&w, &w.fable).await.as_deref(),
         Some("Claude Code couldn't run fable on SHOP-1")
@@ -641,17 +630,12 @@ async fn the_mark_clears_on_a_model_edit_or_a_later_first_turn_on_its_model_only
     assert_eq!(mark_text(&w, &w.fable).await.as_deref(), Some(marked));
 
     // A rename keeps it.
-    let renamed = AgentFields {
-        name: "Fable trial".into(),
-        tool: Tool::Claude,
-        model: Some("fable".into()),
-        use_for: "Trying Fable".into(),
-        fallback: None,
-    };
+    let skills = w.agents.agent(&w.fable.id).await.unwrap().skills;
+    let renamed = page("Fable trial", Some("fable"), skills);
     w.agents.edit(&w.fable.id, &renamed).await.unwrap();
     assert_eq!(mark_text(&w, &w.fable).await.as_deref(), Some(marked));
 
-    // A first turn on another entry keeps it.
+    // A first turn on another agent keeps it.
     let other = w.w.create("SHOP", "Fix README typo").await;
     w.w.force_status(&other, Status::Working).await;
     let shell = w.w.agent_shell(&other).await;
@@ -660,7 +644,7 @@ async fn the_mark_clears_on_a_model_edit_or_a_later_first_turn_on_its_model_only
     hook(&w.w, &agent_caller(&other, &shell.session), "Stop", &stop).await;
     assert_eq!(mark_text(&w, &w.fable).await.as_deref(), Some(marked));
 
-    // A later session of the entry whose first turn gets through on the entry's model clears it.
+    // A later session of the agent whose first turn gets through on the agent's model clears it.
     let later = w.w.create("SHOP", "Update footer links").await;
     w.w.force_status(&later, Status::Working).await;
     let shell = w.w.agent_shell(&later).await;
@@ -687,7 +671,7 @@ async fn the_mark_clears_on_a_model_edit_or_a_later_first_turn_on_its_model_only
         .edit(
             &w.fable.id,
             &AgentFields {
-                model: Some("opus".into()),
+                model: claude(Some("opus")),
                 ..renamed
             },
         )

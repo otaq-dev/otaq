@@ -34,11 +34,12 @@
 //! **A model the tool refused** on the Developer's first turn (AGT-05) sends the ticket back the same way, as Start
 //! interrupted at the `model` step (Start failed), counted as not started ([`Starter::model_refused`]).
 //!
-//! **The check before every launch** (SCH-04 `[M23]`, AGT-08; [`crate::named_agents::gate`]) runs first for a new
-//! conversation, before any step: a tool that isn't available or is at its limit, or a model no longer listed,
-//! holds the ticket in Ready for Dev (Held, its step naming the reason; nothing is created and nothing locks), or
-//! the automatic fallback moves its Developer row and it starts there. A resumed conversation isn't checked. A
-//! launch that fails because of its tool has the tool checked again, then the check decides once more (ADP-10).
+//! **The check before every launch** (SCH-04 `[M23]`, AGT-08; [`crate::agents::gate`]) runs first for a new
+//! conversation, before any step, on the agent of the Agent stage it starts (AGM-05): a tool that isn't available or
+//! is at its limit, or a model no longer listed, holds the ticket in Ready for Dev (Held, its step naming the reason;
+//! nothing is created and nothing locks), or it starts on its tool's fallback when the user asked for it (AGM-03). A
+//! resumed conversation isn't checked. A launch that fails because of its tool has the tool checked again, then the
+//! check decides once more (ADP-10).
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -48,6 +49,8 @@ use serde_json::{Value, json};
 
 use super::{StartError, begin_setup_log, copy_env_files, prepare_worktree, run_setup};
 use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole, WORK_TICKET_SKILL};
+use crate::agents::gate::{Gated, Held, LaunchGate, Scope};
+use crate::agents::{Agent, RunsOn, SessionRole, resolve};
 use crate::board::settings::WorkflowStep;
 use crate::board::stage_runs::{Moved, end_open};
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
@@ -56,8 +59,6 @@ use crate::data_dir::DataDir;
 use crate::domain::{Actor, BuildState, Place, StartStep, Status};
 use crate::flow::engine::{Move, RunResult, first_stage};
 use crate::git::BaseSync;
-use crate::named_agents::gate::{Gated, Held, LaunchGate, Scope};
-use crate::named_agents::{Resolved, Role, RunsOn, resolve_ticket_role};
 use crate::naming;
 use crate::ports::PortPool;
 use crate::protocol::Event;
@@ -464,7 +465,7 @@ impl Starter {
                     Some((step, &message)),
                     actor,
                     EventKind::Held,
-                    json!({ "step": step, "message": message, "tool": held.agent.tool,
+                    json!({ "step": step, "message": message, "tool": held.on.tool,
                             "agent": held.agent.name }),
                 )
                 .await?;
@@ -534,21 +535,30 @@ impl Starter {
                     .is_none());
         let mut checked = None;
         if new_conversation {
-            let resolved = resolve_ticket_role(board, ticket, Role::Developer)
+            // The running agent of the Agent stage it starts (AGM-05).
+            let agent = resolve::session_agent(board, ticket, SessionRole::Developer)
                 .await
                 .map_err(|e| (StartStep::Base, e.into()))?;
             let runs_on = match inner.gate.get() {
                 Some(gate) => match gate
-                    .before_launch(Role::Developer, Scope::ticket(ticket), resolved.as_ref())
+                    .before_launch(SessionRole::Developer, Scope::ticket(ticket), &agent)
                     .await
                     .map_err(|e| (StartStep::Base, e.into()))?
                 {
                     Gated::Held(held) => return Ok(Done::AgentHeld(held)),
                     Gated::Launch(runs_on) => runs_on,
                 },
-                None => RunsOn::resolved(resolved.as_ref()),
+                None => RunsOn::agent(
+                    &agent,
+                    board
+                        .store()
+                        .default_model()
+                        .await
+                        .map_err(|e| (StartStep::Base, BoardError::from(e).into()))?
+                        .as_ref(),
+                ),
             };
-            checked = Some((runs_on, resolved));
+            checked = Some((runs_on, agent));
         }
         let keep_worktree = (returning.is_some() || next_stage)
             && ticket
@@ -746,23 +756,28 @@ impl Starter {
             let prompt = r.first_prompt();
             r.conversation.map(|c| (c, prompt))
         });
-        // A new conversation runs on the Developer its row resolved to at the check (AGT-05: the start, Retry start,
-        // Start from scratch); a resumed one on the tool, model and named agent it ran on (ADP-04, d0088).
-        let mut resolved_new: Option<Resolved> = None;
+        // A new conversation runs on the agent resolved at the check (AGM-05: the start, Retry start, Start from
+        // scratch); a resumed one on the tool, model and agent it ran on (ADP-04, d0088).
+        let mut agent_new: Option<Agent> = None;
         let (runs_on, resume, first_prompt) = match conversation {
             Some((c, prompt)) => (RunsOn::resumed(&c), Some(c.id), prompt),
             None => {
                 let runs_on = match checked {
-                    Some((runs_on, resolved)) => {
-                        resolved_new = resolved;
+                    Some((runs_on, agent)) => {
+                        agent_new = Some(agent);
                         runs_on
                     }
-                    None => RunsOn::resolved(
-                        resolve_ticket_role(board, ticket, Role::Developer)
+                    None => {
+                        let agent = resolve::session_agent(board, ticket, SessionRole::Developer)
                             .await
-                            .map_err(|e| (StartStep::Launch, e.into()))?
-                            .as_ref(),
-                    ),
+                            .map_err(|e| (StartStep::Launch, e.into()))?;
+                        let default = board
+                            .store()
+                            .default_model()
+                            .await
+                            .map_err(|e| (StartStep::Launch, BoardError::from(e).into()))?;
+                        RunsOn::agent(&agent, default.as_ref())
+                    }
                 };
                 (
                     runs_on,
@@ -774,13 +789,6 @@ impl Starter {
                 )
             }
         };
-        // What the row resolves to after a move to the fallback: the agent the launch runs on.
-        if let (Some(resolved), Some(agent)) = (resolved_new.as_mut(), runs_on.agent.as_ref())
-            && resolved.agent.id != agent.id
-            && let Ok(Some(moved)) = board.store().named_agent(&agent.id).await
-        {
-            resolved.agent = moved;
-        }
         match self
             .launch(
                 ticket,
@@ -796,9 +804,9 @@ impl Starter {
             Ok(session) => Ok(Done::Started(Box::new(session))),
             Err(e) => {
                 // A launch that failed because of its tool: checked again, then held if it can't start now.
-                if let (Some(gate), Some(resolved)) = (inner.gate.get(), resolved_new.as_ref())
+                if let (Some(gate), Some(agent)) = (inner.gate.get(), agent_new.as_ref())
                     && let Some(held) = gate
-                        .after_failed_launch(Role::Developer, Scope::ticket(ticket), resolved)
+                        .after_failed_launch(SessionRole::Developer, Scope::ticket(ticket), agent)
                         .await
                         .map_err(|e| (StartStep::Launch, e.into()))?
                 {
@@ -842,6 +850,7 @@ impl Starter {
                     first_prompt,
                     resume,
                     model: runs_on.model,
+                    effort: runs_on.effort.clone(),
                     title: Some(ticket.title.clone()),
                 },
             )
@@ -865,7 +874,9 @@ impl Starter {
                 tool: Some(launched.tool),
                 tool_session_id: launched.tool_session_id,
                 model: launched.model,
-                named_agent: runs_on.agent,
+                agent: runs_on.agent,
+                effort: runs_on.effort,
+                fallback: runs_on.fallback,
             })
             .await
             .map_err(|e| StartError::Other(e.to_string()))

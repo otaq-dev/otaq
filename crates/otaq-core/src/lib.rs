@@ -2,6 +2,7 @@
 //! socket server. Runs as `otaq daemon`. Has no UI dependency, so it is fully testable headless (d0002).
 
 pub mod agent_tools;
+pub mod agents;
 pub mod attention;
 pub mod board;
 pub mod caller;
@@ -17,7 +18,6 @@ pub mod ipc;
 pub mod local_time;
 pub mod logging;
 pub mod messages;
-pub mod named_agents;
 pub mod naming;
 pub mod paths;
 pub mod policy;

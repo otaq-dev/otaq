@@ -17,15 +17,11 @@ const every =
 export const GLOBAL_SECTIONS = every<GlobalSectionId>()([
   /** M23: the agent tools (T-0360's view; T-0365 draws it). */
   "agent_tools",
-  /** M22: named agents and the role defaults (T-0340's view; T-0343 draws it). */
+  /** The agents and the default model (T-0405's view, read-only until T-0410). */
   "agents",
   "agent_limits",
-  "agent_instructions",
-  "workflow_skills",
   /** M12: Validation & Auto-merge (T-0240). */
   "validation",
-  /** M12: the nav's "Project agents" (T-0240). */
-  "project_agent_instructions",
   "usage",
   "notifications",
   "data",
@@ -40,12 +36,8 @@ export const GLOBAL_SECTIONS = every<GlobalSectionId>()([
 export const PROJECT_SECTIONS = every<ProjectSectionId>()([
   /** Name, key, repository, base branch. */
   "general",
-  /** M22: the project's role default overrides (T-0340's view; T-0343 draws it). */
-  "agents",
-  "agent_instructions",
-  /** M12 (T-0240). */
-  "project_agent_instructions",
-  "workflow_skills",
+  /** The notes every agent in the project gets (AGM-02). */
+  "project_notes",
   /** M12 (T-0240). */
   "validation",
   /** "Let finished tickets answer questions". */

@@ -508,40 +508,22 @@ pub fn lead_note() -> LeadNoteSent {
 pub const MODEL_ISSUE_MESSAGE: &str = "There's an issue with the selected model (claude-fable-5-1). It may not \
                                        exist or you may not have access to it.";
 
-/// shop-web's named agents in the M22 cards (update Y, "a list you made"): Claude Code, Strong, Light, Sonnet and
-/// Fable test; the project's Developer default is Strong.
-pub fn named(developer: &str) -> AgentFacts {
+/// shop-web's agents in the M22 cards (update Y, "a list you made"): five of them. Before T-0411 a card names no
+/// agent before its start (AGM-09), so `_developer` (the Dev stage's agent) shows nowhere yet.
+pub fn named(_developer: &str) -> AgentFacts {
     AgentFacts {
         count: 5,
-        developer: Some(developer.into()),
-        validator: Some("Claude Code".into()),
         ..AgentFacts::default()
     }
 }
 
-/// *04 → Variants · one tool (M22)* (`uUqnz`) and the picked-by cards of *Ticket Card v2 · all variants* (`SPy9r`),
-/// then the running footer with two or more named agents and with one (Q-A). The gallery's "M22 · Named agents".
+/// *04 → Variants · one tool (M22)* (`uUqnz`): a refused model, a card before its start naming no agent (AGM-09),
+/// then the running footer with two or more agents and with one (Q-A). The gallery's "M22 · Named agents".
 pub fn agent_variants() -> Vec<Variant> {
     use otaq_core::board::tickets::{AgentSignal, StartProblem};
     use otaq_core::domain::StartStep;
-    use otaq_core::named_agents::RowSetBy;
-    let picked = || RowSetBy::Agent {
-        picked_by: "Checkout slowness".into(),
-        reason: "docs-only change".into(),
-    };
     let with = |agents: AgentFacts| CardExtras { agents, ..base() };
     let mut out = Vec::new();
-
-    let mut t = ticket("SHOP-48", "Add gift wrap option", Status::Backlog);
-    t.flags.ready_to_start = true;
-    out.push(v(
-        "Set by you \u{b7} before the drag",
-        t,
-        with(AgentFacts {
-            off_default: Some(RowSetBy::User),
-            ..named("Fable test")
-        }),
-    ));
 
     let mut t = ticket("SHOP-48", "Add gift wrap option", Status::StartInterrupted);
     t.start_problem = Some(StartProblem {
@@ -551,10 +533,7 @@ pub fn agent_variants() -> Vec<Variant> {
     out.push(v(
         "Start failed on the model",
         t.clone(),
-        with(AgentFacts {
-            off_default: Some(RowSetBy::User),
-            ..named("Fable test")
-        }),
+        with(named("Fable test")),
     ));
 
     let mut t = ticket("SHOP-29", "Coupon field", Status::CheckNoResult);
@@ -571,10 +550,7 @@ pub fn agent_variants() -> Vec<Variant> {
         "No result \u{b7} the validator\u{2019}s model",
         t.clone(),
         CardExtras {
-            agents: AgentFacts {
-                validator: Some("Fable test".into()),
-                ..named("Claude Code")
-            },
+            agents: named("Claude Code"),
             ..base()
         }
         .with_signal(&t, NOW),
@@ -588,32 +564,6 @@ pub fn agent_variants() -> Vec<Variant> {
         with(named("Strong")),
     ));
 
-    let mut t = ticket("SHOP-41", "Fix README typo", Status::Backlog);
-    t.priority = Priority::Low;
-    t.flags.ready_to_start = true;
-    out.push(v(
-        "Ready to start \u{b7} agent picked (0066, 0086)",
-        t,
-        with(AgentFacts {
-            off_default: Some(picked()),
-            ..named("Light")
-        }),
-    ));
-
-    let mut t = ticket("SHOP-41", "Fix README typo", Status::Backlog);
-    t.created_by = Actor::ProjectAgent("pa-1".into());
-    out.push(v(
-        "Created by a Project agent \u{b7} agent picked",
-        t,
-        CardExtras {
-            agent_name: Some("Checkout slowness".into()),
-            ..with(AgentFacts {
-                off_default: Some(picked()),
-                ..named("Light")
-            })
-        },
-    ));
-
     let mut working = ticket("SHOP-19", "Price table", Status::Working);
     working.started_at = Some(NOW - 3_600_000);
     working.flags.last_signal_at = Some(NOW - 40_000);
@@ -622,7 +572,6 @@ pub fn agent_variants() -> Vec<Variant> {
         "Working \u{b7} two or more named agents",
         working.clone(),
         with(AgentFacts {
-            off_default: Some(RowSetBy::User),
             running_developer: Some("Strong".into()),
             ..named("Strong")
         }),
@@ -642,40 +591,39 @@ pub fn agent_variants() -> Vec<Variant> {
 /// A role held before it starts (T-0357's `agent_holds`, as `board.agents` names it).
 #[allow(clippy::too_many_arguments)]
 pub fn hold(
-    role: otaq_core::named_agents::Role,
-    reason: otaq_core::named_agents::HoldReason,
+    role: otaq_core::agents::SessionRole,
+    reason: otaq_core::agents::HoldReason,
     tool: otaq_core::agent_tools::Tool,
     model: Option<&str>,
     agent: &str,
-    fallback: Option<&str>,
+    fallback: Option<otaq_core::agent_tools::Tool>,
     can_use_fallback: bool,
     fallback_held: bool,
-) -> otaq_core::named_agents::rows::CardHold {
-    otaq_core::named_agents::rows::CardHold {
+) -> otaq_core::agents::facts::CardHold {
+    otaq_core::agents::facts::CardHold {
         role,
         reason,
         tool,
         model: model.map(str::to_owned),
         agent: Some(agent.to_owned()),
-        fallback: fallback.map(str::to_owned),
+        agent_id: None,
+        fallback: fallback.map(|tool| otaq_core::agents::ModelRef { tool, model: None }),
         can_use_fallback,
         fallback_held,
         resets_at: None,
     }
 }
 
-/// A row a fallback moved (or the user's Move waiting to…).
-pub fn moved(
-    from: &str,
-    reason: otaq_core::named_agents::MoveReason,
+/// A session running on `tool`, its tool `from`'s fallback, for `reason` (AGM-03).
+pub fn on_fallback(
     tool: otaq_core::agent_tools::Tool,
-) -> otaq_core::named_agents::RowMove {
-    otaq_core::named_agents::RowMove {
-        from_id: Some(from.to_lowercase()),
-        from_name: from.to_owned(),
-        reason,
-        tool: Some(tool),
-        at: NOW - 10 * 60_000,
+    from: otaq_core::agent_tools::Tool,
+    reason: otaq_core::agents::HoldReason,
+) -> otaq_core::agents::facts::RunsOnTool {
+    otaq_core::agents::facts::RunsOnTool {
+        tool,
+        model: None,
+        fallback: Some(otaq_core::agents::FallbackFrom { tool: from, reason }),
     }
 }
 
@@ -686,9 +634,9 @@ pub fn moved(
 pub fn tool_variants() -> Vec<Variant> {
     use crate::view_models::tool_avatar::{AvatarTool, ToolAvatarView};
     use otaq_core::agent_tools::Tool;
+    use otaq_core::agents::{HoldReason as H, SessionRole as Role};
     use otaq_core::board::tickets::StartProblem;
     use otaq_core::domain::{StartStep, ValidationRound};
-    use otaq_core::named_agents::{HoldReason as H, MoveReason, Role, RowSetBy};
     let av = |tool: AvatarTool, model: Option<&str>| Some(ToolAvatarView::of(tool, model));
     let tools = |developer: Option<ToolAvatarView>, agents: AgentFacts| CardExtras {
         several_tools: true,
@@ -708,21 +656,6 @@ pub fn tool_variants() -> Vec<Variant> {
     };
     let mut out = Vec::new();
 
-    let mut t = ticket("SHOP-48", "Add gift wrap option", Status::Backlog);
-    t.priority = Priority::High;
-    t.flags.ready_to_start = true;
-    out.push(v(
-        "Set by you \u{b7} several tools",
-        t,
-        tools(
-            av(AvatarTool::ClaudeCode, Some("claude-fable-5-1")),
-            AgentFacts {
-                off_default: Some(RowSetBy::User),
-                ..named("Fable test")
-            },
-        ),
-    ));
-
     let mut t = ticket("SHOP-48", "Add gift wrap option", Status::StartInterrupted);
     t.priority = Priority::High;
     t.start_problem = Some(StartProblem {
@@ -734,10 +667,7 @@ pub fn tool_variants() -> Vec<Variant> {
         t,
         tools(
             av(AvatarTool::ClaudeCode, Some("claude-fable-5-1")),
-            AgentFacts {
-                off_default: Some(RowSetBy::User),
-                ..named("Fable test")
-            },
+            named("Fable test"),
         ),
     ));
 
@@ -790,7 +720,6 @@ pub fn tool_variants() -> Vec<Variant> {
             ..tools(
                 av(AvatarTool::ClaudeCode, None),
                 AgentFacts {
-                    validator: Some("Old GPT".into()),
                     holds: vec![hold(
                         Role::Validator,
                         H::ModelUnavailable,
@@ -821,7 +750,6 @@ pub fn tool_variants() -> Vec<Variant> {
             ..tools(
                 av(AvatarTool::ClaudeCode, None),
                 AgentFacts {
-                    validator: Some("Verifier".into()),
                     running_validator: Some("Verifier".into()),
                     ..named("Strong")
                 },
@@ -866,7 +794,7 @@ pub fn tool_variants() -> Vec<Variant> {
                     Tool::Claude,
                     Some("claude-opus-5-5"),
                     "Strong",
-                    Some("Strong GPT"),
+                    Some(Tool::Codex),
                     true,
                     false,
                 )],
@@ -892,7 +820,7 @@ pub fn tool_variants() -> Vec<Variant> {
                     Tool::Codex,
                     None,
                     "Standard",
-                    Some("Sonnet"),
+                    Some(Tool::Claude),
                     true,
                     false,
                 )],
@@ -911,14 +839,13 @@ pub fn tool_variants() -> Vec<Variant> {
             ..tools(
                 av(AvatarTool::ClaudeCode, None),
                 AgentFacts {
-                    validator: Some("Verifier".into()),
                     holds: vec![hold(
                         Role::Validator,
                         H::ToolUnavailable,
                         Tool::Copilot,
                         None,
                         "Verifier",
-                        Some("Strong"),
+                        Some(Tool::Claude),
                         true,
                         false,
                     )],
@@ -934,13 +861,13 @@ pub fn tool_variants() -> Vec<Variant> {
     t.flags.last_signal_at = Some(NOW - 30_000);
     t.flags.tokens = Some(80_000);
     out.push(v(
-        "Moved by a fallback (0086)",
+        "On its tool\u{2019}s fallback (AGM-03)",
         t,
         tools(
             av(AvatarTool::Codex, Some("gpt-5.5")),
             AgentFacts {
                 running_developer: Some("Strong GPT".into()),
-                developer_move: Some(moved("Strong", MoveReason::ToolLimit, Tool::Claude)),
+                developer_on: Some(on_fallback(Tool::Codex, Tool::Claude, H::ToolLimit)),
                 ..named("Strong GPT")
             },
         ),
@@ -960,7 +887,7 @@ pub fn tool_variants() -> Vec<Variant> {
                     Tool::Claude,
                     Some("claude-opus-5-5"),
                     "Strong",
-                    Some("Strong GPT"),
+                    Some(Tool::Codex),
                     false,
                     true,
                 )],
@@ -973,19 +900,18 @@ pub fn tool_variants() -> Vec<Variant> {
     t.started_at = Some(NOW - 3_600_000);
     t.flags.tokens = Some(6_000);
     out.push(v(
-        "Validator moved by its fallback",
+        "Validator on its tool\u{2019}s fallback",
         t,
         CardExtras {
             validator: av(AvatarTool::ClaudeCode, Some("claude-opus-5-5")),
             ..tools(
                 av(AvatarTool::Copilot, None),
                 AgentFacts {
-                    validator: Some("Strong".into()),
                     running_validator: Some("Strong".into()),
-                    validator_move: Some(moved(
-                        "Verifier",
-                        MoveReason::ToolUnavailable,
+                    validator_on: Some(on_fallback(
+                        Tool::Claude,
                         Tool::Copilot,
+                        H::ToolUnavailable,
                     )),
                     ..named("Standard")
                 },

@@ -53,17 +53,46 @@ impl Board {
         Ok(effective_flow(&self.effective_settings(project).await?))
     }
 
-    /// Tests only: puts the project `key` on `flow` (the test flow, `tests/flows/every-kind.yaml`) for this board's
-    /// life, wherever the board reads a project's flow. Nothing is stored: storing applied flows is M33's.
+    /// Tests only: puts the project `key` on `file`'s flow (the test flow, `tests/flows/every-kind.yaml`) for this
+    /// board's life, wherever the board reads a project's flow, and creates the file's agents that aren't there yet
+    /// ("Added by <key>'s flow"; a role another agent holds stays with it). Only the flow isn't stored: storing
+    /// applied flows is M33's.
     #[doc(hidden)]
-    pub fn use_flow_for_tests(&self, key: &str, flow: Flow) {
+    pub async fn use_flow_for_tests(&self, key: &str, file: &FlowFile) {
+        let store = self.store();
+        for agent in &file.agents {
+            if store
+                .agent_named(&agent.name)
+                .await
+                .expect("agents read")
+                .is_some()
+            {
+                continue;
+            }
+            let mut new = crate::agents::shipped::new_agent(agent);
+            if let Some(role) = new.role
+                && store.role_agent(role).await.expect("agents read").is_some()
+            {
+                new.role = None;
+            }
+            store
+                .insert_agent(
+                    &new,
+                    &crate::agents::CameFrom::Flow {
+                        project: key.to_owned(),
+                    },
+                    None,
+                )
+                .await
+                .expect("a test flow's agent added");
+        }
         self.test_flows
             .lock()
             .expect("test flows")
-            .insert(key.to_owned(), flow);
+            .insert(key.to_owned(), file.flow.clone());
     }
 
-    fn test_flow(&self, project: &str) -> Option<Flow> {
+    pub(crate) fn test_flow(&self, project: &str) -> Option<Flow> {
         self.test_flows
             .lock()
             .expect("test flows")

@@ -4,13 +4,12 @@
 //! the tool's program.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agent_tools::{LaunchContext, Tool};
+use otaq_core::agents::AgentModel;
 use otaq_core::board::Refusal;
-use otaq_core::named_agents::{AgentFields, FixedModels, NamedAgents, Role};
 use otaq_core::protocol::Event;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
@@ -176,7 +175,7 @@ async fn ran_with(file: &std::path::Path) -> Vec<String> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_question_runs_on_the_project_agents_named_agent() {
+async fn the_question_runs_on_the_project_agent_roles_agent() {
     let dir = tempfile::TempDir::new().unwrap();
     let args_file = dir.path().join("args");
     let script = format!(
@@ -211,25 +210,19 @@ async fn the_question_runs_on_the_project_agents_named_agent() {
         args
     };
 
-    // No named agents yet: the new-session tool with its default model, no model option.
+    // Planner on `default` and no default model yet: the new-session tool with its default model, no model option.
     w.suggester.start("SHOP").await.unwrap();
     assert_eq!(ran_with(&args_file).await, args(None));
 
-    // shop-web's Project agent default is Strong (opus): `--model opus`.
-    let agents = NamedAgents::new(w.board.clone(), Arc::new(FixedModels::sample()));
-    let field = |name: &str, model: Option<&str>| AgentFields {
-        name: name.into(),
-        tool: Tool::ALL[0],
-        model: model.map(str::to_owned),
-        use_for: String::new(),
-        fallback: None,
-    };
-    agents.add(&field("Claude Code", None)).await.unwrap();
-    let strong = agents.add(&field("Strong", Some("opus"))).await.unwrap();
-    agents
-        .set_project_default("SHOP", Role::ProjectAgent, Some(&strong.id))
-        .await
-        .unwrap();
+    // The Project agent role's agent on `opus`: `--model opus` (AGM-05).
+    w.set_agent_model(
+        "Planner",
+        AgentModel::Tool {
+            tool: Tool::ALL[0],
+            model: Some("opus".into()),
+        },
+    )
+    .await;
     std::fs::remove_file(&args_file).unwrap();
     w.suggester.start("SHOP").await.unwrap();
     assert_eq!(ran_with(&args_file).await, args(Some("opus")));

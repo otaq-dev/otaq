@@ -13,7 +13,7 @@ use otaq_core::board::moves::DropTarget;
 use otaq_core::board::settings::{AgentLimits, GlobalSettings};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Actor, Place, Status};
-use otaq_core::flow::{Flow, yaml};
+use otaq_core::flow::{FlowFile, yaml};
 use otaq_core::recovery::{ResumeAs, resume_as};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService};
@@ -75,11 +75,9 @@ async fn place(w: &TestService, key: &str) -> Place {
     w.board.ticket(key).await.unwrap().place
 }
 
-fn every_kind() -> Flow {
+fn every_kind_file() -> FlowFile {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml");
-    yaml::read(&std::fs::read_to_string(path).unwrap())
-        .unwrap()
-        .flow
+    yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
 async fn conversation_of(w: &TestService, ticket: &Ticket) -> String {
@@ -115,7 +113,7 @@ async fn resumes(w: &TestService, ticket: &Ticket, conversation: &str) {
 async fn a_restart_by_stage_kind() {
     let w = TestService::start_with(launch).await;
     w.add_project("shop-web").await;
-    w.board.use_flow_for_tests("SHOP", every_kind());
+    w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
     let grill = w.create("SHOP", "Sort notes by date").await; // SHOP-1
     let qa = w.create("SHOP", "Export as CSV").await; // SHOP-2
     let security = w.create("SHOP", "Search notes").await; // SHOP-3
@@ -133,7 +131,7 @@ async fn a_restart_by_stage_kind() {
     let dev_conversation = conversation_of(&w, &dev).await;
 
     let w = w.restart_with(launch).await;
-    w.board.use_flow_for_tests("SHOP", every_kind());
+    w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
     let report = w.recovery.startup_report();
     let keys = |list: &[otaq_core::domain::TicketKey]| {
         list.iter().map(ToString::to_string).collect::<Vec<_>>()
@@ -182,7 +180,7 @@ async fn a_restart_by_stage_kind() {
 async fn a_forward_wait_before_dev_starts_a_new_conversation() {
     let w = TestService::start_with(launch).await;
     w.add_project("shop-web").await;
-    w.board.use_flow_for_tests("SHOP", every_kind());
+    w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
     let t = w.create("SHOP", "Sort notes by date").await;
     start_agent(&w, "SHOP-1").await;
     assert_eq!(place(&w, "SHOP-1").await, Place::stage_of("grill"));
@@ -354,7 +352,7 @@ async fn rights_follow_the_stage_run() {
 async fn a_send_back_with_the_limit_full_waits_before_its_agent_stage() {
     let w = TestService::start_with(launch).await;
     w.add_project("shop-web").await;
-    w.board.use_flow_for_tests("SHOP", every_kind());
+    w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
     w.board
         .set_global_settings(&GlobalSettings {
             agent_limits: AgentLimits {

@@ -5,7 +5,7 @@ import { openOverlay } from "../../app/overlays";
 import type { Screen } from "../../app/registry";
 import type { GlobalSection, ProjectSection } from "../../app/registry";
 import { AboutSection } from "./About";
-import { AgentsSection, ProjectAgents } from "./Agents";
+import { AgentsSection } from "./Agents";
 import { AgentToolsSection } from "./AgentTools";
 import { KeyboardSection } from "./Keyboard";
 import { sectionComponent } from "./Rows";
@@ -17,10 +17,7 @@ export const GLOBAL: readonly GlobalSection[] = [
   "agent_tools",
   "agents",
   "agent_limits",
-  "agent_instructions",
-  "workflow_skills",
   "validation",
-  "project_agent_instructions",
   "usage",
   "notifications",
   "data",
@@ -31,10 +28,7 @@ export const GLOBAL: readonly GlobalSection[] = [
 ];
 export const PROJECT: readonly ProjectSection[] = [
   "general",
-  "agents",
-  "agent_instructions",
-  "project_agent_instructions",
-  "workflow_skills",
+  "project_notes",
   "validation",
   "answers",
   "commands",
@@ -56,8 +50,7 @@ export const settings: Screen = (app) => {
             ? KeyboardSection
             : sectionComponent(id);
   for (const id of GLOBAL) app.settings.global.register(id, { Component: globalComponent(id) });
-  for (const id of PROJECT)
-    app.settings.project.register(id, { Component: id === "agents" ? ProjectAgents : sectionComponent(id) });
+  for (const id of PROJECT) app.settings.project.register(id, { Component: sectionComponent(id) });
   app.shortcuts.on("settings", () => {
     openOverlay("settings");
   });

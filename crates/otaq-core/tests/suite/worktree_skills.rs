@@ -70,13 +70,10 @@ async fn shop_web(w: &TestService) {
         .unwrap();
 }
 
-/// Imports the skill folder `name` as the project's `step`.
+/// Imports the skill folder `name` onto the agent of `step` (AGM-01), standing in for the step's shipped skill.
 async fn import(w: &TestService, step: WorkflowStep, name: &str) {
     let folder = skill_folder(w.data.root(), name);
-    w.board
-        .import_workflow_skill(Some("SHOP"), step, &folder)
-        .await
-        .unwrap();
+    w.import_step_skill(step, &folder).await;
 }
 
 fn worktree_of(t: &Ticket) -> PathBuf {
@@ -459,10 +456,7 @@ async fn open_pr_and_push_type_the_copy_into_the_live_session() {
         .execute(w.board.store().pool())
         .await
         .unwrap();
-    w.board
-        .reset_workflow_skill(Some("SHOP"), WorkflowStep::OpenPr, true)
-        .await
-        .unwrap();
+    w.drop_step_skill(WorkflowStep::OpenPr).await;
     import(&w, WorkflowStep::Push, "my-push").await;
     let outcome = w.prs.open("SHOP-1", true, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");

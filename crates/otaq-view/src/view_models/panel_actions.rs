@@ -4,10 +4,10 @@
 //! The primary button is always the one thing that unblocks the ticket. Actions whose features arrive in later
 //! milestones are listed here with the ticket that enables them and stay **hidden** (not disabled) until then.
 
+use otaq_core::agents::facts::TicketAgents;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::StatusSet;
 use otaq_core::domain::{Kind, Status};
-use otaq_core::named_agents::rows::TicketAgents;
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -304,8 +304,8 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
 }
 
 /// The row whose picker Change agent / Change validator opens (`panel.view`'s `focus_agent_row`).
-pub fn agent_row(action: Action) -> Option<otaq_core::named_agents::Role> {
-    use otaq_core::named_agents::Role;
+pub fn agent_row(action: Action) -> Option<otaq_core::agents::SessionRole> {
+    use otaq_core::agents::SessionRole as Role;
     match action {
         Action::ChangeAgent => Some(Role::Developer),
         Action::ChangeValidator => Some(Role::Validator),
@@ -353,7 +353,7 @@ fn refused_model(agents: &TicketAgents) -> Option<&str> {
         .sessions
         .iter()
         .rev()
-        .find(|s| s.role == otaq_core::named_agents::Role::Developer && !s.running)
+        .find(|s| s.role == otaq_core::agents::SessionRole::Developer && !s.running)
         .and_then(|s| s.model_ran.as_deref().or(s.model.as_deref()))
 }
 
@@ -693,30 +693,31 @@ mod tests {
 
     /// SHOP-48's facts after the refusal: one ended Developer session on Fable test, `fable` → `claude-fable-5-1`.
     fn refused_session() -> TicketAgents {
-        use otaq_core::named_agents::rows::SessionAgentRun;
+        use otaq_core::agents::store::SessionAgentRun;
         TicketAgents {
             key: Some("SHOP-48".parse().unwrap()),
             kind: otaq_core::domain::Kind::Ticket,
             status: Some(Status::StartInterrupted),
             agents: Vec::new(),
-            rows: Vec::new(),
+            stages: Vec::new(),
+            lead: None,
             sessions: vec![SessionAgentRun {
                 id: "s1".into(),
-                role: otaq_core::named_agents::Role::Developer,
+                role: otaq_core::agents::SessionRole::Developer,
                 running: false,
                 started_at: 1,
                 ended_at: Some(2),
                 tool: None,
-                named_agent_id: Some("fable".into()),
-                named_agent_name: Some("Fable test".into()),
+                agent_id: Some("fable".into()),
+                agent_name: Some("Fable test".into()),
                 model: Some("fable".into()),
                 model_ran: Some("claude-fable-5-1".into()),
+                effort: None,
                 tokens: None,
                 round_outcome: None,
                 moved_on: None,
             }],
             tokens: Vec::new(),
-            children: Vec::new(),
             holds: Vec::new(),
         }
     }
@@ -777,8 +778,8 @@ mod tests {
                 agent_row(A::RetryStart)
             ),
             (
-                Some(otaq_core::named_agents::Role::Developer),
-                Some(otaq_core::named_agents::Role::Validator),
+                Some(otaq_core::agents::SessionRole::Developer),
+                Some(otaq_core::agents::SessionRole::Validator),
                 None
             )
         );

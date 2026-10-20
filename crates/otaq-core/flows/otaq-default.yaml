@@ -1,3 +1,10 @@
+agents:
+  - name: Developer
+    skills: [work-ticket, commit]
+    model: default
+  - name: Validator
+    skills: [validate]
+    model: default
 flow:
   - id: dev
     name: Dev

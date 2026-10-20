@@ -35,8 +35,7 @@
 //! **Choosing agents** (`otaq create|update --developer|--validator|--lead`, AGT-06; d0086, d0087) is its own
 //! action, [`Action::PickAgents`]: a Project agent on the tickets it may change (Backlog), an epic lead on its
 //! epic's never-started children (not its own Epic lead row); ticket agents and validators never ("Ticket agents
-//! can't choose agents"). [`pick_rule`] then judges each row: a locked row is refused for everyone; an agent's own
-//! pick needs a reason, a second named agent, and a row the user didn't set.
+//! can't choose agents"). The per-ticket rows went with M32 (AGM-02); stage choices (T-0407) take this action.
 //!
 //! **Reading a ticket's terminal** (`otaq show <KEY> --terminal`, CLI-09, d0087) is its own narrower action, not
 //! "read anything": a Project agent reads any ticket of its project, an epic lead its own epic's children; ticket
@@ -48,7 +47,6 @@
 use crate::board::{BoardError, Refusal};
 use crate::caller::Caller;
 use crate::domain::{Actor, TicketKey};
-use crate::named_agents::{Role, RowLock, RowSetBy};
 
 /// The refusal of `check pass|fail` from anyone but an agent check's session (AGM-10).
 pub const ONLY_A_VALIDATOR: &str = "Only an agent check can give a verdict";
@@ -77,14 +75,6 @@ pub const NOTHING_TO_PICK: &str = "There's only one agent, so there's nothing to
 
 /// An agent's pick without a reason (AGT-06).
 pub const SAY_WHY: &str = "Say why with --reason";
-
-/// An agent's pick over a row the user set (d0086): "SHOP-31's Developer was set by you; agents can't change it".
-pub fn set_by_you_refusal(key: &str, role: Role) -> String {
-    format!(
-        "{key}'s {} was set by you; agents can't change it",
-        role.label()
-    )
-}
 
 /// The refusal of a ticket's terminal to an epic lead outside its epic's children (CLI-09): "Wishlist lead can
 /// only read SHOP-40's children's terminals".
@@ -173,8 +163,7 @@ pub enum Action {
         target: TicketFacts,
         project: String,
     },
-    /// Sets this ticket's agent rows (`--developer`, `--validator`, `--lead`, AGT-06); each row is then judged by
-    /// [`pick_rule`].
+    /// Sets this ticket's agent picks (AGT-06): stage choices from T-0407.
     PickAgents(TicketFacts),
     /// Only the user may do this; `what` completes "SHOP-18's agent can't …" ("move tickets").
     UserOnly(&'static str),
@@ -354,54 +343,6 @@ pub fn authorize_in_stage(
         Action::Verdict(_) | Action::LeadCommand { .. } => unreachable!("handled above"),
         Action::All(actions) => all(actions),
     }
-}
-
-/// One row an `otaq create|update` sets, as [`pick_rule`] judges it.
-#[derive(Debug, Clone, Copy)]
-pub struct RowPick<'a> {
-    /// The ticket's key ("SHOP-31"), as the refusals name it.
-    pub key: &'a str,
-    pub role: Role,
-    /// Who set the row as it is; `None` when it is empty.
-    pub set_by: Option<&'a RowSetBy>,
-    pub lock: Option<RowLock>,
-}
-
-/// Judges one row of an allowed [`Action::PickAgents`] (AGT-04, AGT-06; d0086, d0087). `agent_pick` is an agent's
-/// own pick ("picked by …"); the user's rows and an agent's `--by-user` (the user named it) are not. `agents` is
-/// the number of named agents.
-///
-/// - a locked row is refused for everyone ([`RowLock::refusal`]);
-/// - an agent's pick is refused with one named agent ([`NOTHING_TO_PICK`]), without a reason ([`SAY_WHY`]) and
-///   over a row the user set ([`set_by_you_refusal`]).
-pub fn pick_rule(
-    agent_pick: bool,
-    agents: usize,
-    reason: Option<&str>,
-    row: RowPick,
-) -> Result<(), BoardError> {
-    if let Some(lock) = row.lock {
-        return Err(BoardError::refused(
-            Refusal::RowLocked,
-            lock.refusal(row.key, row.role),
-        ));
-    }
-    if !agent_pick {
-        return Ok(());
-    }
-    if agents <= 1 {
-        return Err(BoardError::refused(Refusal::NotAllowed, NOTHING_TO_PICK));
-    }
-    if reason.is_none_or(|r| r.trim().is_empty()) {
-        return Err(BoardError::refused(Refusal::EmptyField, SAY_WHY));
-    }
-    if row.set_by == Some(&RowSetBy::User) {
-        return Err(BoardError::refused(
-            Refusal::NotAllowed,
-            set_by_you_refusal(row.key, row.role),
-        ));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -1115,87 +1056,6 @@ mod tests {
                     Some(TICKET_AGENTS_CANT_PICK)
                 );
             }
-        }
-    }
-
-    /// T-0338 (AGT-04, AGT-06; d0086, d0087, Q-H): each row of an allowed pick.
-    #[test]
-    fn the_pick_rule() {
-        let user = RowSetBy::User;
-        let agent_pick = RowSetBy::Agent {
-            picked_by: "Checkout slowness".into(),
-            reason: "docs-only change".into(),
-        };
-        fn row(set_by: Option<&RowSetBy>, lock: Option<RowLock>) -> RowPick<'_> {
-            RowPick {
-                key: "SHOP-31",
-                role: Role::Developer,
-                set_by,
-                lock,
-            }
-        }
-        let (user, agent_pick) = (&user, &agent_pick);
-        let judged = |agent: bool, agents: usize, reason: Option<&str>, row: RowPick| {
-            pick_rule(agent, agents, reason, row).map_err(|e| (e.refusal().unwrap(), e.to_string()))
-        };
-        let refused = |code: Refusal, text: &str| Err((code, text.to_owned()));
-        let set_by_you = "SHOP-31's Developer was set by you; agents can't change it";
-        let locked = "SHOP-31's Developer is locked: Send back continues the same conversation";
-        let started = Some(RowLock::Started);
-        let rows = [
-            (
-                "user, empty row",
-                judged(false, 1, None, row(None, None)),
-                Ok(()),
-            ),
-            (
-                "user over an agent pick",
-                judged(false, 3, None, row(Some(agent_pick), None)),
-                Ok(()),
-            ),
-            (
-                "user, locked",
-                judged(false, 3, None, row(Some(user), started)),
-                refused(Refusal::RowLocked, locked),
-            ),
-            (
-                "agent, with a reason",
-                judged(true, 3, Some("docs-only change"), row(None, None)),
-                Ok(()),
-            ),
-            (
-                "agent re-picks its pick",
-                judged(true, 3, Some("x"), row(Some(agent_pick), None)),
-                Ok(()),
-            ),
-            (
-                "agent, no reason",
-                judged(true, 3, None, row(None, None)),
-                refused(Refusal::EmptyField, SAY_WHY),
-            ),
-            (
-                "agent, blank reason",
-                judged(true, 3, Some(" "), row(None, None)),
-                refused(Refusal::EmptyField, SAY_WHY),
-            ),
-            (
-                "agent over set by you",
-                judged(true, 3, Some("x"), row(Some(user), None)),
-                refused(Refusal::NotAllowed, set_by_you),
-            ),
-            (
-                "agent, one named agent",
-                judged(true, 1, Some("x"), row(None, None)),
-                refused(Refusal::NotAllowed, NOTHING_TO_PICK),
-            ),
-            (
-                "agent, locked",
-                judged(true, 3, Some("x"), row(None, started)),
-                refused(Refusal::RowLocked, locked),
-            ),
-        ];
-        for (name, got, expected) in rows {
-            assert_eq!(got, expected, "{name}");
         }
     }
 }

@@ -245,7 +245,7 @@ impl Signals {
                     }
                     continue;
                 }
-                // Start failed, No result or a failed turn, and the named agent's mark (AGT-05).
+                // Start failed, No result or a failed turn, and the agent's mark (AGT-05).
                 ToolEvent::ModelRefused { model, message } => {
                     if let Some(session) = session
                         && let Some(signal) = self
@@ -431,7 +431,7 @@ impl Signals {
             return Ok(());
         }
         let row: Option<(Option<String>, Option<String>, String)> = sqlx::query_as(
-            "SELECT s.model, COALESCE(s.named_agent_id, a.named_agent_id), p.name FROM sessions s
+            "SELECT s.model, COALESCE(s.agent_id, a.agent_id), p.name FROM sessions s
              JOIN projects p ON p.id = s.project_id LEFT JOIN project_agents a ON a.id = s.project_agent_id
              WHERE s.id = ?",
         )
@@ -445,9 +445,9 @@ impl Signals {
             .inner
             .models
             .get()
-            .map(|m| m as &dyn crate::named_agents::ModelCatalog);
-        let exact = crate::named_agents::mark::asked_exact(tool, asked.as_deref(), models);
-        if !crate::named_agents::mark::is_swap(true, exact, asked.as_deref(), ran) {
+            .map(|m| m as &dyn crate::agents::ModelCatalog);
+        let exact = crate::agents::mark::asked_exact(tool, asked.as_deref(), models);
+        if !crate::agents::mark::is_swap(true, exact, asked.as_deref(), ran) {
             return Ok(());
         }
         let on = match caller {
@@ -456,14 +456,14 @@ impl Signals {
             Caller::ProjectAgent { .. } | Caller::User => project,
         };
         let asked = asked.unwrap_or_default();
-        let mark = crate::named_agents::mark::swapped(adapter.display_name(), ran, &asked, &on);
+        let mark = crate::agents::mark::swapped(adapter.display_name(), ran, &asked, &on);
         tracing::warn!(
             session,
             asked,
             ran,
             "the tool ran another model than the one asked for"
         );
-        if crate::named_agents::mark::set(self.inner.board.store(), &agent, &mark).await? {
+        if crate::agents::mark::set(self.inner.board.store(), &agent, &mark).await? {
             self.inner.events.publish(Event::AgentsChanged);
         }
         Ok(())

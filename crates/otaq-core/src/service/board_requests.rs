@@ -12,7 +12,6 @@ use serde_json::json;
 
 use super::Shared;
 use crate::agent_tools::SetupOutcome;
-use crate::board::agent_picks::{PickTarget, Picker, check_picks};
 use crate::board::change_note::change_note;
 use crate::board::questions::validate_options;
 use crate::board::readiness::project_readiness;
@@ -52,8 +51,8 @@ pub(super) async fn handle(
         Request::ProjectAdd(add) => boxed(move || async move {
             let (project, trust) = board.add_project_trusted(&add).await?;
             shared.events.publish(Event::ProjectsChanged);
-            // Onboarding ends with a project: the starter entry, if a tool got connected since the start (AGT-01).
-            super::spawn_starter(&shared.connected, &shared.adapters, &shared.store);
+            // Onboarding ends with a project: the default model, if a tool got connected since the start (AGM-02).
+            super::spawn_default_model(&shared.connected, &shared.store);
             // A failed trust lists the project in the notices (PRJ-08).
             if matches!(trust, Some(SetupOutcome::Failed { .. })) {
                 shared.events.publish(Event::TrustChanged);
@@ -121,7 +120,7 @@ pub(super) async fn handle(
         Request::UsageSummary(p) => boxed(move || async move {
             let mut summary = shared.usage.summary(p.project.as_deref()).await?;
             summary.tool_lines =
-                crate::named_agents::moves::tool_lines(crate::named_agents::moves::LineSources {
+                crate::agents::limits::tool_lines(crate::agents::limits::LineSources {
                     board,
                     gate: &shared.gate,
                     plan_limit: &shared.plan_limit,
@@ -153,9 +152,9 @@ pub(super) async fn handle(
             )
         }
         Request::TicketAgents(p) => boxed(move || async move {
-            let agents = &shared.named_agents;
+            use crate::agents::facts;
             let answer = match (&p.key, &p.project) {
-                (Some(key), _) => match agents.ticket_agents(key).await {
+                (Some(key), _) => match facts::ticket_agents(board, key).await {
                     Ok(mut t) => {
                         let id = shared.board.ticket_id(key).await?;
                         t.tokens = shared.usage.agents_of(&id).await?;
@@ -165,14 +164,14 @@ pub(super) async fn handle(
                 },
                 (None, Some(project)) => {
                     let kind = if p.new_epic { Kind::Epic } else { Kind::Ticket };
-                    agents.new_ticket_agents(project, kind).await
+                    facts::new_ticket_agents(board, project, kind).await
                 }
                 (None, None) => Err(BoardError::NotFound("a key or a project".into())),
             };
             answer.map(|t| Reply::TicketAgents(Box::new(t)))
         }),
         Request::BoardAgents(p) => boxed(move || async move {
-            let mut agents = shared.named_agents.board_agents(&p.project).await?;
+            let mut agents = crate::agents::facts::board_agents(board, &p.project).await?;
             agents.connected = shared.connected.connected();
             Ok(Reply::BoardAgents(Box::new(agents)))
         }),
@@ -198,38 +197,8 @@ pub(super) async fn handle(
             shared.connected.disconnect(p.tool).await?;
             Ok(Reply::AgentTools(Box::new(shared.connected.list())))
         }),
-        // Imported workflow skills (d0092). A change is a settings change: windows refetch.
-        Request::WorkflowSkillsStatus(p) => boxed(move || async move {
-            board
-                .workflow_skills_status(p.project.as_deref())
-                .await
-                .map(Reply::WorkflowSkills)
-        }),
-        Request::WorkflowSkillsImport(p) => boxed(move || async move {
-            let s = &p.setting;
-            let status = board
-                .import_workflow_skill(s.project.as_deref(), s.step, &p.folder)
-                .await?;
-            publish_skill_change(shared, s.project.as_deref());
-            Ok(Reply::WorkflowSkill(Box::new(status)))
-        }),
-        Request::WorkflowSkillsReimport(p) => boxed(move || async move {
-            let status = board
-                .reimport_workflow_skill(p.project.as_deref(), p.step)
-                .await?;
-            publish_skill_change(shared, p.project.as_deref());
-            Ok(Reply::WorkflowSkill(Box::new(status)))
-        }),
-        Request::WorkflowSkillsReset(p) => boxed(move || async move {
-            let s = &p.setting;
-            let status = board
-                .reset_workflow_skill(s.project.as_deref(), s.step, p.confirmed)
-                .await?;
-            publish_skill_change(shared, s.project.as_deref());
-            Ok(Reply::WorkflowSkill(Box::new(status)))
-        }),
         Request::LimitsResumeTool(p) => boxed(move || async move {
-            let resumed = crate::named_agents::moves::resume_tool(
+            let resumed = crate::agents::limits::resume_tool(
                 &shared.plan_limit,
                 &shared.validation,
                 &shared.gate,
@@ -241,19 +210,15 @@ pub(super) async fn handle(
             }
             Ok(Reply::Resumed(resumed))
         }),
-        Request::LimitsMoveWaiting(p) => boxed(move || async move {
-            crate::named_agents::moves::move_waiting(
-                board,
-                &shared.gate,
-                &shared.events,
-                p.tool,
-                &p.agent,
-            )
-            .await
-            .map(Reply::MovedWaiting)
+        Request::LimitsUseFallbackNow(p) => boxed(move || async move {
+            let started = shared.gate.use_fallback_now(p.tool).await?;
+            for key in &started {
+                publish_ticket_changed(shared, key).await;
+            }
+            Ok(Reply::StartedOnFallback(started))
         }),
         Request::TicketUseFallback(p) => boxed(move || async move {
-            shared.gate.use_fallback(&p.key, p.role).await?;
+            shared.gate.use_fallback(&p.key).await?;
             Ok(Reply::Ok)
         }),
         // What macOS allows Otaq's notifications, the ask and the blocked banner (ATT-13, ATT-14; d0090).
@@ -270,10 +235,6 @@ pub(super) async fn handle(
         }),
         Request::NotificationsDismissBlocked => boxed(move || async move {
             shared.notifications.dismiss_blocked().await?;
-            Ok(Reply::Ok)
-        }),
-        Request::SettingsAutoFallback(p) => boxed(move || async move {
-            shared.gate.set_automatic(p.on).await?;
             Ok(Reply::Ok)
         }),
         Request::RecentItems(p) => boxed(move || async move {
@@ -331,30 +292,11 @@ pub(super) async fn handle(
         }),
         Request::TicketCreateBatch(p) => boxed(move || async move {
             let project = p.project.clone();
-            // Every ticket's picks are checked before anything is created (AGT-06).
-            let picker_name = super::permissions::picker_name(caller, board).await;
-            let picker = picker_of(picker_name.as_deref(), p.by_user);
-            let mut writes = Vec::with_capacity(p.tickets.len());
-            for ticket in &p.tickets {
-                let label = format!("the new ticket \"{}\"", ticket.title);
-                let target = PickTarget::New {
-                    kind: ticket.kind,
-                    label: &label,
-                };
-                writes.push(
-                    check_picks(board, &shared.named_agents, target, &ticket.agents, picker)
-                        .await?,
-                );
-            }
-            let created = mutate(shared, &project, async {
-                let tickets = board.create_batch(&p.project, &p.tickets, &actor).await?;
-                for (ticket, writes) in tickets.iter().zip(&writes) {
-                    board
-                        .write_picks(ticket, writes, &actor, lead_epic(caller))
-                        .await?;
-                }
-                Ok(tickets)
-            })
+            let created = mutate(
+                shared,
+                &project,
+                board.create_batch(&p.project, &p.tickets, &actor),
+            )
             .await;
             match created {
                 Ok(tickets) => {
@@ -371,39 +313,12 @@ pub(super) async fn handle(
         Request::TicketUpdate(p) => boxed(move || async move {
             let project = project_of(&p.key);
             let before = board.ticket(&p.key).await.ok();
-            // The picks are checked before any field changes (AGT-06).
-            let writes = match &before {
-                Some(ticket) if !p.update.agents.is_empty() => {
-                    let picker_name = super::permissions::picker_name(caller, board).await;
-                    let picker = picker_of(picker_name.as_deref(), p.update.by_user);
-                    let target = PickTarget::Existing(ticket);
-                    check_picks(
-                        board,
-                        &shared.named_agents,
-                        target,
-                        &p.update.agents,
-                        picker,
-                    )
-                    .await?
-                }
-                _ => Vec::new(),
-            };
-            let mut picked = false;
-            let after = mutate(shared, &project, async {
-                let after = board.update_ticket(&p.key, &p.update, &actor).await?;
-                picked = board
-                    .write_picks(&after, &writes, &actor, lead_epic(caller))
-                    .await?;
-                Ok(after)
-            })
+            let after = mutate(
+                shared,
+                &project,
+                board.update_ticket(&p.key, &p.update, &actor),
+            )
             .await;
-            if picked && let Ok(after) = &after {
-                shared.events.publish(Event::TicketChanged {
-                    project: project.clone(),
-                    id: after.id.clone(),
-                    key: after.key.clone(),
-                });
-            }
             // The user's description edit cancels a validation first (VAL-08); then the agent gets the note.
             let after = match (&before, after) {
                 (Some(before), Ok(after)) if !actor.is_agent() => {
@@ -419,10 +334,7 @@ pub(super) async fn handle(
                 queue_change_note(shared, before, after, &actor).await;
             }
             let fields = updated_fields(&p.update);
-            // Picks alone are logged as row changes, not as an edit.
-            if let Ok(after) = &after
-                && (!fields.is_empty() || p.update.agents.is_empty())
-            {
+            if let Ok(after) = &after {
                 lead_changed(
                     shared,
                     caller,
@@ -1213,10 +1125,11 @@ pub(super) async fn handle(
         | Request::AgentsDuplicate(_)
         | Request::AgentsDelete(_)
         | Request::AgentsInUse(_)
-        | Request::ProjectAgentDefaults(_)
-        | Request::AgentsSetDefault(_)
-        | Request::ProjectSetAgentDefault(_)
-        | Request::TicketAgentRow(_) => return None,
+        | Request::AgentsMoveRole(_)
+        | Request::AgentsDefaultModel(_)
+        | Request::AgentsFallback(_)
+        | Request::AgentsImportSkill(_)
+        | Request::AgentsReimportSkill(_) => return None,
     };
     Some(answer.await.map_err(|e| error_body(&e)))
 }
@@ -1233,14 +1146,6 @@ where
     F: Future<Output = Result<Reply, BoardError>> + Send + 'a,
 {
     Box::pin(make())
-}
-
-/// A workflow skill setting changed: the global one is a settings change (`settings_changed`); a project's needs
-/// no event (its page refetches what it changed).
-fn publish_skill_change(shared: &Shared, project: Option<&str>) {
-    if project.is_none() {
-        shared.events.publish(Event::SettingsChanged);
-    }
 }
 
 async fn global_settings(board: &Board) -> Result<Reply, BoardError> {
@@ -1466,7 +1371,7 @@ async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, Boa
         .board
         .prime_context(key, shared.adapters.of_session(tool))
         .await?;
-    context.agents = crate::prime::named_agents(
+    context.agents = crate::prime::prime_agents(
         &shared.board,
         context.ticket.key.project.as_str(),
         &shared.adapters,
@@ -1624,7 +1529,7 @@ async fn lead_questions_waiting(shared: &Shared, caller: &Caller) -> Result<Repl
 /// `otaq prime --epic` (LEAD-03): the epic lead's context.
 async fn epic_prime(shared: &Shared, key: &str) -> Result<Reply, BoardError> {
     let mut context = crate::epic_lead::prime::context(&shared.board, key).await?;
-    context.agents = crate::prime::named_agents(
+    context.agents = crate::prime::prime_agents(
         &shared.board,
         context.epic.key.project.as_str(),
         &shared.adapters,
@@ -1840,23 +1745,6 @@ async fn publish_ticket_changed(shared: &Shared, key: &crate::domain::TicketKey)
 /// The project part of a ticket key (`SHOP-18` → `SHOP`). Aliases keep their project, so this holds for them too.
 fn project_of(key: &str) -> String {
     key.split_once('-').map_or(key, |(p, _)| p).to_owned()
-}
-
-/// Who picks agents in a request (AGT-06): the user, or an agent by its name; `by_user` makes an agent's picks the
-/// user's.
-fn picker_of(name: Option<&str>, by_user: bool) -> Picker<'_> {
-    match name {
-        Some(name) => Picker::Agent { name, by_user },
-        None => Picker::User,
-    }
-}
-
-/// The epic of an epic lead caller, whose picks are logged on the epic too.
-fn lead_epic(caller: &Caller) -> Option<&str> {
-    match caller {
-        Caller::EpicLead { epic_id, .. } => Some(epic_id),
-        _ => None,
-    }
 }
 
 /// Runs a mutation of one project's tickets and publishes the changes it made.

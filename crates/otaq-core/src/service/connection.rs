@@ -12,8 +12,8 @@ use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 
 use super::{
-    Shared, agent_requests, board_requests, events, named_agent_requests, permissions,
-    session_requests, terminal_requests, until_stopped,
+    Shared, agent_requests, agents_requests, board_requests, events, permissions, session_requests,
+    terminal_requests, until_stopped,
 };
 use crate::agent_tools::setup;
 use crate::attention::ClientId;
@@ -448,11 +448,12 @@ async fn respond(
         | Request::AgentsDuplicate(_)
         | Request::AgentsDelete(_)
         | Request::AgentsInUse(_)
-        | Request::ProjectAgentDefaults(_)
-        | Request::AgentsSetDefault(_)
-        | Request::ProjectSetAgentDefault(_)
-        | Request::TicketAgentRow(_)) => {
-            match named_agent_requests::handle(request, shared).await {
+        | Request::AgentsMoveRole(_)
+        | Request::AgentsDefaultModel(_)
+        | Request::AgentsFallback(_)
+        | Request::AgentsImportSkill(_)
+        | Request::AgentsReimportSkill(_)) => {
+            match agents_requests::handle(request, shared).await {
                 Ok(reply) => (reply, Then::Continue),
                 Err(error) => return (Message::error(id, error), Then::Continue),
             }

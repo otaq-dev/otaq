@@ -7,28 +7,4 @@ import type { IconName } from "./IconName";
 /**
  * The "Agents" block of a form or the Ticket tab.
  */
-export type AgentBlock = { heading: string, 
-/**
- * "who writes the code and who checks it" / "who leads the epic's children".
- */
-hint: string, rows: Array<AgentRowView>, 
-/**
- * "Your only agent. …" or "Not started: both rows can change.".
- */
-note: string | null, 
-/**
- * The info icon before "Your only agent. …" (08 `ehjFV`); none before "Not started: …".
- */
-note_icon: IconName | null, 
-/**
- * An epic panel's children, read-only.
- */
-children: Array<AgentChildRow>, children_heading: string | null, 
-/**
- * "Each child's own Developer and Validator rows live on the child; …" under the children.
- */
-children_note: string | null, 
-/**
- * The ⌘N form (no ticket yet, a choice to make): how a row picked there reads.
- */
-picked: AgentRowPicked | null, };
+export type AgentBlock = { heading: string, hint: string, rows: Array<AgentRowView>, note: string | null, note_icon: IconName | null, children: Array<AgentChildRow>, children_heading: string | null, children_note: string | null, picked: AgentRowPicked | null, };

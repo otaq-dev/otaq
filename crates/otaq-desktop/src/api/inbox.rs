@@ -28,7 +28,7 @@ use otaq_view::keymap::KeyAction;
 use otaq_view::view_models::answer::{self, AnswerOutcome};
 use otaq_view::view_models::answer_options::AnswerOptions;
 use otaq_core::agent_tools::Tool;
-use otaq_core::named_agents::Role;
+use otaq_core::agents::SessionRole as Role;
 use otaq_view::view_models::inbox::{
     FADE, InboxGroupView, RowAction, name_tools, run_items, run_tab,
 };
@@ -179,11 +179,19 @@ async fn refused_tools(app: &App, groups: &[InboxGroupView]) -> Vec<(TicketKey, 
         });
         if let Ok(Reply::TicketAgents(agents)) = app.service.send(request).await
             && let Some(tool) = agents
-                .rows
+                .sessions
                 .iter()
-                .find(|r| r.role == role)
-                .and_then(|r| r.resolved.as_ref())
-                .map(|r| r.agent.tool)
+                .rev()
+                .find(|s| s.role == role)
+                .and_then(|s| s.tool)
+                .or_else(|| {
+                    agents
+                        .stages
+                        .iter()
+                        .find(|s| s.role == role)
+                        .and_then(|s| s.agent.as_ref())
+                        .and_then(|a| a.model.tool())
+                })
         {
             found.push((row.key.clone(), role, tool.into()));
         }

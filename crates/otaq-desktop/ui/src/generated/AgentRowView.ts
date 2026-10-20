@@ -9,41 +9,29 @@ import type { ToolAvatarView } from "./ToolAvatarView";
  */
 export type AgentRowView = { role: AgentRole, 
 /**
- * "Developer", "Validator", "Epic lead".
+ * The stage's name ("Dev", "Validate"), or "Epic lead".
  */
 label: string, 
 /**
- * Primary: "Strong", "Project default (Claude Code)", "Light (started on claude-haiku-5-5)", "Light (deleted)".
+ * Primary: "Strong", "Light (deleted)".
  */
 value: string, 
 /**
  * Secondary: "Fable · always the newest", "tool default", "claude-opus-5-5 · started".
  */
-detail: string | null, set_by: AgentRowSetBy | null, 
+detail: string | null, set_by: AgentRowSetBy | null, let_agents_pick: string | null, 
 /**
- * "Let agents pick again" on a row set by you that can change.
- */
-let_agents_pick: string | null, 
-/**
- * Locked: the lock icon's tooltip (AGT-04).
+ * Started: the lock icon's tooltip (AGT-04).
  */
 lock: string | null, 
 /**
- * The picker's items; `None` for a read-only row (locked, or one named agent: no chevron).
+ * `None`: read-only (every row until T-0411).
  */
-picker: Array<AgentPickerItem> | null, 
-/**
- * The Change button's label beside an editable row.
- */
-change: string | null, 
+picker: Array<AgentPickerItem> | null, change: string | null, 
 /**
  * "Sonnet → claude-sonnet-5-6 · new since the last run (claude-sonnet-5-5)" while the session runs.
  */
-moved_on: string | null, 
-/**
- * "Change for the next lead", on its own line under an ended lead's row.
- */
-next_lead: string | null, 
+moved_on: string | null, next_lead: string | null, 
 /**
  * The tool's avatar before the value, with several tools connected (SHL-08).
  */
@@ -53,6 +41,6 @@ avatar: ToolAvatarView | null,
  */
 swap: string | null, 
 /**
- * "moved from Strong: Claude Code limit" (AGT-08), amber; *set by you* stays where it was.
+ * "on Codex · Claude Code limit": the session runs on its tool's fallback (AGM-03), amber.
  */
 moved: string | null, };

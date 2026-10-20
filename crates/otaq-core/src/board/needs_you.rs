@@ -30,10 +30,10 @@ use super::readiness::{ReadyState, readiness};
 use super::tickets::Ticket;
 use super::validation::AUTO_MERGE_CONFLICT_LIMIT;
 use super::{Board, BoardError};
+use crate::agents::SessionRole;
 use crate::attention::Suppression;
 use crate::domain::validation::{NO_RESULT, failed_times};
 use crate::domain::{AutoMergeStop, StartStep, Status, StatusSet, TicketKey};
-use crate::named_agents::Role;
 use crate::signals::hooks::HELPER_PROMPT_PREFIX;
 
 /// The inbox groups of ATT-06, in order.
@@ -133,7 +133,7 @@ pub struct NeedsYouItem {
     /// The tool refused the model of this role's agent (AGT-05, SDD §7.2 `[M22]`): the item offers Change agent
     /// (Developer: a Start failed ticket) or Change validator (Validator: No result) in place of its first action.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub change_agent: Option<Role>,
+    pub change_agent: Option<SessionRole>,
 }
 
 /// The lead's suggestion behind a [`NeedsYouGroup::Suggestions`] item: Close… / Delete… confirms it
@@ -231,19 +231,19 @@ pub fn needs_you_count(items: &[NeedsYouItem]) -> usize {
 
 /// Whose agent to change when the tool refused its model: the Developer of a Start failed ticket (Start
 /// interrupted at the `model` step), the Validator of a No result the validator's model caused.
-pub fn change_agent(ticket: &Ticket) -> Option<Role> {
+pub fn change_agent(ticket: &Ticket) -> Option<SessionRole> {
     match ticket.status {
         Status::StartInterrupted => ticket
             .start_problem
             .as_ref()
             .filter(|p| p.step == StartStep::Model)
-            .map(|_| Role::Developer),
+            .map(|_| SessionRole::Developer),
         Status::CheckNoResult => ticket
             .signal
             .as_ref()
             .and_then(|s| s.text.as_deref())
             .filter(|t| crate::validation::refused_its_model(t))
-            .map(|_| Role::Validator),
+            .map(|_| SessionRole::Validator),
         _ => None,
     }
 }

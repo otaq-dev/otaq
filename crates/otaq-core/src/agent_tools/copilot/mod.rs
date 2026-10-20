@@ -38,6 +38,12 @@ use crate::usage::limit::LimitKind;
 /// The name shown to people.
 pub(super) const DISPLAY_NAME: &str = "GitHub Copilot";
 
+/// Copilot's reasoning effort levels (AGM-01): its `--reasoning-effort <level>` flag, "Set the reasoning effort level
+/// [possible values: none, minimal, low, medium, high, xhigh, max]" (`copilot --help`, GitHub Copilot CLI 1.0.98,
+/// read with a throwaway HOME).
+pub(super) const EFFORT_LEVELS: &[&str] =
+    &["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+
 /// The short name used in sentences ("Copilot's saved conversation").
 pub(super) const SHORT_NAME: &str = "Copilot";
 
@@ -234,6 +240,10 @@ impl AgentTool for Copilot {
     /// An unavailable `--model` starts on Auto instead (ADP-08).
     fn swaps_refused_model(&self) -> bool {
         true
+    }
+
+    fn effort_levels(&self) -> &'static [&'static str] {
+        EFFORT_LEVELS
     }
 
     /// `/otaq:commit` (the hands-on check, row 6).

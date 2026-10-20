@@ -38,17 +38,14 @@ async fn prime_prints_the_context_and_clears_needs_you() {
     w.stop().await;
 }
 
-/// REV-09, WSK-06: a project's imported Commit skill is the skill prime names, by its copy in the ticket's worktree
+/// REV-09, WSK-06: Developer's imported Commit skill is the skill prime names, by its copy in the ticket's worktree
 /// once the launch wrote it there (d0092); before that, the built-in.
 #[tokio::test(flavor = "multi_thread")]
-async fn prime_names_the_projects_commit_skill_override() {
+async fn prime_names_developers_imported_commit_skill() {
     let w = TestService::start().await;
     w.shop_sample().await;
     let folder = skill_folder(w.data.root(), "my-commit");
-    w.board
-        .import_workflow_skill(Some("SHOP"), WorkflowStep::Commit, &folder)
-        .await
-        .unwrap();
+    w.import_step_skill(WorkflowStep::Commit, &folder).await;
     let shop12 = w.board.ticket("SHOP-12").await.unwrap();
     let worktree = w.give_worktree(&shop12).await;
     let agent = w.agent_shell(&shop12).await;

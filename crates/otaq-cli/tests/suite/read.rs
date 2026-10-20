@@ -284,7 +284,9 @@ async fn show_terminal_prints_the_screen_as_plain_text() {
             tool: None,
             tool_session_id: None,
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
         })
         .await
         .unwrap();

@@ -83,26 +83,35 @@ enum RawKind {
     Delivery,
 }
 
+/// An agents file (`otaq-agents.yaml`, AGM-02): only `agents:`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawAgentsFile {
+    agents: Vec<RawAgent>,
+}
+
+/// The YAML's own error: its first line ("line 5 column 5: unknown field `colour`, expected one of id, name, …");
+/// the source snippet under it is left out.
+fn format_error(e: impl fmt::Display) -> FormatError {
+    let text = e.to_string();
+    let first = text.lines().next().unwrap_or_default();
+    FormatError(first.strip_prefix("error: ").unwrap_or(first).to_owned())
+}
+
+fn agent(a: RawAgent) -> FlowAgent {
+    FlowAgent {
+        name: a.name,
+        role: a.role,
+        instructions: a.instructions,
+        skills: a.skills,
+        model: a.model,
+    }
+}
+
 /// Reads a flow file. The STG-02 rules are [`super::check`]'s; this only refuses what isn't a flow at all.
 pub fn read(text: &str) -> Result<FlowFile, FormatError> {
-    let raw: RawFile = serde_saphyr::from_str(text).map_err(|e| {
-        // The first line ("line 5 column 5: unknown field `colour`, expected one of id, name, …"); the source
-        // snippet under it is left out.
-        let text = e.to_string();
-        let first = text.lines().next().unwrap_or_default();
-        FormatError(first.strip_prefix("error: ").unwrap_or(first).to_owned())
-    })?;
-    let agents = raw
-        .agents
-        .into_iter()
-        .map(|a| FlowAgent {
-            name: a.name,
-            role: a.role,
-            instructions: a.instructions,
-            skills: a.skills,
-            model: a.model,
-        })
-        .collect();
+    let raw: RawFile = serde_saphyr::from_str(text).map_err(format_error)?;
+    let agents = raw.agents.into_iter().map(agent).collect();
     let mut stages = Vec::with_capacity(raw.flow.len());
     for raw in raw.flow {
         stages.push(stage(raw)?);
@@ -114,24 +123,42 @@ pub fn read(text: &str) -> Result<FlowFile, FormatError> {
     })
 }
 
+/// Reads an agents file (`otaq-agents.yaml`, AGM-02): its `agents:`, as a flow file's.
+pub fn read_agents(text: &str) -> Result<Vec<FlowAgent>, FormatError> {
+    let raw: RawAgentsFile = serde_saphyr::from_str(text).map_err(format_error)?;
+    Ok(raw.agents.into_iter().map(agent).collect())
+}
+
+/// Writes an agents file in Otaq's layout (a flow file's `agents:`).
+pub fn write_agents(agents: &[FlowAgent]) -> String {
+    let mut out = String::new();
+    write_agents_into(&mut out, agents);
+    out
+}
+
+fn write_agents_into(out: &mut String, agents: &[FlowAgent]) {
+    if agents.is_empty() {
+        return;
+    }
+    out.push_str("agents:\n");
+    for agent in agents {
+        let mut item = Item::new(out);
+        item.field("name", &agent.name);
+        if let Some(role) = &agent.role {
+            item.field("role", role);
+        }
+        if !agent.instructions.is_empty() {
+            item.text("instructions", &agent.instructions);
+        }
+        item.list("skills", agent.skills.iter().map(String::as_str));
+        item.field("model", &agent.model);
+    }
+}
+
 /// Writes a flow file in Otaq's layout (above).
 pub fn write(file: &FlowFile) -> String {
     let mut out = String::new();
-    if !file.agents.is_empty() {
-        out.push_str("agents:\n");
-        for agent in &file.agents {
-            let mut item = Item::new(&mut out);
-            item.field("name", &agent.name);
-            if let Some(role) = &agent.role {
-                item.field("role", role);
-            }
-            if !agent.instructions.is_empty() {
-                item.text("instructions", &agent.instructions);
-            }
-            item.list("skills", agent.skills.iter().map(String::as_str));
-            item.field("model", &agent.model);
-        }
-    }
+    write_agents_into(&mut out, &file.agents);
     out.push_str("flow:\n");
     for stage in &file.flow.stages {
         let mut item = Item::new(&mut out);

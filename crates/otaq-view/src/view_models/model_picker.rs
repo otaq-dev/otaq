@@ -13,7 +13,7 @@ use otaq_core::naming::PRODUCT_NAME;
 use serde::Serialize;
 use ts_rs::TS;
 
-use super::named_agents::{ListState, TOOL_DEFAULT_LABEL, is_tool_default, model_label, tool_word};
+use super::agents::{ListState, TOOL_DEFAULT_LABEL, is_tool_default, model_label, tool_word};
 
 /// One choice. `value` is what the dialog sends as the agent's model: `None` for the tool default.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -243,7 +243,7 @@ pub fn picker(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::view_models::named_agents::{ListState, fixtures};
+    use crate::view_models::agents::{ListState, fixtures};
 
     /// A group's heading and its items' label and detail.
     type Shape = (Option<String>, Vec<(String, Option<String>)>);

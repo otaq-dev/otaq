@@ -2,14 +2,6 @@
 import type { AgentRowSetBy } from "./AgentRowSetBy";
 
 /**
- * One child in the epic panel's read-only list (d0086): "40.2" · "Light" · "picked by Wishlist lead".
+ * One child in the epic panel's read-only list (d0086).
  */
-export type AgentChildRow = { key: string, 
-/**
- * "40.2".
- */
-number: string, value: string, set_by: AgentRowSetBy | null, 
-/**
- * "merged" for a merged child.
- */
-note: string | null, };
+export type AgentChildRow = { key: string, number: string, value: string, set_by: AgentRowSetBy | null, note: string | null, };

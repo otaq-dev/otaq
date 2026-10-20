@@ -125,19 +125,11 @@ async fn onboarding(client: &Client) -> OnboardingState {
     }
 }
 
-/// The named agents as (name, tool).
-async fn entries(w: &TestService) -> Vec<(String, Tool)> {
-    let mut all: Vec<(String, Tool)> = w
-        .board
-        .store()
-        .named_agents()
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|a| (a.name, a.tool))
-        .collect();
-    all.sort();
-    all
+/// The default model for new agents' tool (AGM-03), with no model of its own.
+async fn default_tool(w: &TestService) -> Option<Tool> {
+    let model = w.board.store().default_model().await.unwrap()?;
+    assert_eq!(model.model, None, "the tool's own default");
+    Some(model.tool)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -280,30 +272,20 @@ async fn sign_in_runs_the_login_in_a_terminal_then_rechecks() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_empty_list_gets_one_starter_entry_per_connected_tool() {
+/// AGM-02 (fresh install): the default model for new agents is the first connected tool with no model.
+async fn the_first_connected_tool_is_the_default_model() {
     let tools = Tools::new();
-    tools.claude();
     tools.codex();
+    tools.claude();
     let w = TestService::start_with(tools.with()).await;
     let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
     recheck(&client).await;
-    assert_eq!(
-        entries(&w).await,
-        [
-            ("Claude Code".to_owned(), Tool::Claude),
-            ("Codex".to_owned(), Tool::Codex)
-        ]
-    );
-    let defaults = w.board.store().agent_defaults().await.unwrap();
-    let agents = w.board.store().named_agents().await.unwrap();
-    let claude = agents.iter().find(|a| a.tool == Tool::Claude).unwrap();
-    assert_eq!(defaults.developer.as_deref(), Some(claude.id.as_str()));
-    assert_eq!(defaults.project_agent.as_deref(), Some(claude.id.as_str()));
+    assert_eq!(default_tool(&w).await, Some(Tool::Claude));
     w.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn connecting_a_tool_sets_it_up_once_adds_its_entry_and_records_its_trust() {
+async fn connecting_a_tool_sets_it_up_once_and_records_its_trust() {
     let tools = Tools::new();
     tools.claude();
     let w = TestService::start_with(tools.with()).await;
@@ -311,11 +293,7 @@ async fn connecting_a_tool_sets_it_up_once_adds_its_entry_and_records_its_trust(
     let first = recheck(&client).await;
     let setup = row(&first, Tool::Claude).setup.clone().expect("set up");
     assert_eq!(setup.action, SetupAction::SetUp);
-    assert_eq!(
-        entries(&w).await,
-        [("Claude Code".to_owned(), Tool::Claude)]
-    );
-    let defaults = w.board.store().agent_defaults().await.unwrap();
+    assert_eq!(default_tool(&w).await, Some(Tool::Claude));
 
     // Two projects; Claude Code records their trust at Add project.
     let shop = w.add_project("shop-web").await;
@@ -326,7 +304,7 @@ async fn connecting_a_tool_sets_it_up_once_adds_its_entry_and_records_its_trust(
     let again = recheck(&client).await;
     assert_eq!(row(&again, Tool::Claude).setup.as_ref(), Some(&setup));
 
-    // Codex connects later: its entry, the defaults unchanged, and Claude Code's config untouched (trust for that
+    // Codex connects later: the default model unchanged, and Claude Code's config untouched (trust for that
     // tool only).
     tools.set_trusted(&shop.repo_path, false);
     tools.codex();
@@ -338,14 +316,7 @@ async fn connecting_a_tool_sets_it_up_once_adds_its_entry_and_records_its_trust(
             .map(|s| s.action),
         Some(SetupAction::SetUp)
     );
-    assert_eq!(
-        entries(&w).await,
-        [
-            ("Claude Code".to_owned(), Tool::Claude),
-            ("Codex".to_owned(), Tool::Codex)
-        ]
-    );
-    assert_eq!(w.board.store().agent_defaults().await.unwrap(), defaults);
+    assert_eq!(default_tool(&w).await, Some(Tool::Claude));
     assert_eq!(tools.trusted(&shop.repo_path), Some(false));
     assert!(!onboarding(&client).await.trust_note);
 
@@ -365,8 +336,6 @@ async fn connecting_a_tool_sets_it_up_once_adds_its_entry_and_records_its_trust(
     let state = onboarding(&client).await;
     assert!(state.trust_note);
     assert_eq!(state.trust_note_tools, [Tool::Claude]);
-    // No second entry: one uses the tool already.
-    assert_eq!(entries(&w).await.len(), 2);
 
     // Dismissed, then the same again: the trust is recorded, but the note is raised once per tool.
     assert_eq!(
@@ -434,12 +403,11 @@ async fn disconnect_removes_the_setup_and_hides_the_tool_unless_agents_run() {
         codex.setup.as_ref().map(|s| s.action),
         Some(SetupAction::Removed)
     );
-    // It stays hidden at the next check, and its named agent stays.
+    // It stays hidden at the next check.
     assert!(matches!(
         row(&recheck(&client).await, Tool::Codex).state,
         AgentToolState::Hidden { .. }
     ));
-    assert!(entries(&w).await.iter().any(|(_, t)| *t == Tool::Codex));
     w.stop().await;
 }
 

@@ -7,9 +7,6 @@
 import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { AgentBlock, Button, Field, Kbd, Segmented, Select, StatusPill } from "../../components";
-import type { AgentBlock as AgentBlockView } from "../../generated/AgentBlock";
-import type { AgentRole } from "../../generated/AgentRole";
-import type { AgentRowSet } from "../../generated/AgentRowSet";
 import type { EditorDepChip } from "../../generated/EditorDepChip";
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorPickerRow } from "../../generated/EditorPickerRow";
@@ -33,16 +30,7 @@ import {
 } from "../../markdown";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import {
-  formPicks,
-  highlighted,
-  isSaveKey,
-  refusalFor,
-  SAVE_KEYS,
-  shownPriority,
-  step,
-  withPick,
-} from "./logic";
+import { highlighted, isSaveKey, refusalFor, SAVE_KEYS, shownPriority, step } from "./logic";
 
 const ignore = () => undefined;
 
@@ -209,49 +197,15 @@ function DepsField({ view, chips, refusal, onAdd, onRemove }: DepsProps) {
 }
 
 /**
- * The Agents block (AGT-04; *08 → Row · Agents field*): a new ticket's Developer and Validator rows (an epic's Epic
- * lead row once Type is Epic), picked in the form and set right after the ticket is created; an existing ticket's
- * rows, each pick written at once with `editor.agent_row` (the block it answers shows until the view reloads). One
- * named agent: read-only rows and "Your only agent…".
+ * The Agents block (AGT-04, AGM-05; *08 → Row · Agents field*): the agent each stage of a new ticket's flow runs (an
+ * epic's Epic lead once Type is Epic), and an existing ticket's, read-only until T-0411 draws the ticket's choices.
  */
-function AgentsField({
-  view,
-  form,
-  onChange,
-  refusal,
-}: {
-  view: EditorView;
-  form: EditorForm;
-  onChange: (form: EditorForm) => void;
-  refusal: EditorRefusal | null;
-}) {
-  const [set, setSet] = useState<{ from: AgentBlockView | null; block: AgentBlockView | null } | null>(null);
-  const [refused, setRefused] = useState<EditorRefusal | null>(null);
-  const block = view.create
-    ? form.epic_kind
-      ? view.epic_agents
-      : view.agents
-    : set !== null && set.from === view.agents
-      ? set.block
-      : view.agents;
+function AgentsField({ view, form }: { view: EditorView; form: EditorForm }) {
+  const block = view.create && form.epic_kind ? view.epic_agents : view.agents;
   if (block === null) return null;
-  const key = view.key;
-  const pick = (role: AgentRole, agent: string | null) => {
-    if (view.create) {
-      onChange(withPick(form, role, agent));
-      return;
-    }
-    if (key === null) return;
-    setRefused(null);
-    (request("editor.agent_row", { key, role, agent }) as Promise<AgentRowSet>).then((out) => {
-      if (out.outcome === "set") setSet({ from: view.agents, block: out.agents });
-      else setRefused(out.refusal);
-    }, ignore);
-  };
   return (
     <div className="editor-field">
-      <AgentBlock block={block} look="form" picks={formPicks(form)} onPick={pick} />
-      <RefusalBox refusal={refused ?? refusal} />
+      <AgentBlock block={block} look="form" onPick={ignore} />
     </div>
   );
 }
@@ -524,7 +478,7 @@ export function EditorFields({
           }}
         />
       </div>
-      <AgentsField view={view} form={form} onChange={onChange} refusal={refusalFor(refusal, "agents")} />
+      <AgentsField view={view} form={form} />
       {view.create && (
         <div className="editor-row">
           <div className="editor-field">
@@ -538,7 +492,7 @@ export function EditorFields({
               onSelect={(i) => {
                 // A ticket's rows and an epic's lead row are different rows: a pick doesn't carry over.
                 if ((i === 1) !== form.epic_kind) {
-                  onChange({ ...form, epic_kind: i === 1, epic: i === 1 ? null : form.epic, agents: [] });
+                  onChange({ ...form, epic_kind: i === 1, epic: i === 1 ? null : form.epic });
                 }
               }}
             />

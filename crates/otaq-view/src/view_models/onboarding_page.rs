@@ -348,11 +348,11 @@ pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
 /// The tools step's line about the starter entry (*14* `ODRG2`, `z8OVF`; d0086), after "You can connect more later in
 /// Settings → Agent tools.".
 pub fn agents_line() -> String {
-    let tool = super::tool_avatar::AvatarTool::from(super::named_agents::new_entry_tool()).name();
+    let tool = super::tool_avatar::AvatarTool::from(super::agents::new_entry_tool()).name();
     format!(
         "You can connect more later in Settings \u{2192} Agent tools. {} starts you with one agent, {tool} \u{b7} {} ({tool} picks its own model). Make others, like Strong or Light, in Settings \u{2192} Agents.",
         naming::PRODUCT_NAME,
-        super::named_agents::TOOL_DEFAULT,
+        super::agents::TOOL_DEFAULT,
     )
 }
 

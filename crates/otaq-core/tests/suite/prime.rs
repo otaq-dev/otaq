@@ -1,8 +1,6 @@
 //! `otaq prime` output (T-0071, PLG-02; d0040): snapshots of the Markdown for sample tickets, with and without
 //! Agent instructions; and the named agents every prime lists (T-0339, AGT-06; d0086).
 
-use std::sync::Arc;
-
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::models::{ModelCopy, ModelEntry, ModelKind, ModelList, settings_key};
 use otaq_core::board::tickets::TicketUpdate;
@@ -10,8 +8,6 @@ use otaq_core::client::{Client, ClientConfig};
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::Actor;
 use otaq_core::git::testing::TempRepos;
-use otaq_core::named_agents::starter::{self, ConnectedTool};
-use otaq_core::named_agents::{AgentFields, FixedModels, NamedAgents, Role};
 use otaq_core::prime::{model_text, render};
 use otaq_core::protocol::{KeyParams, ProjectParams, Reply, Request};
 use otaq_core::service::testing::TestService;
@@ -102,11 +98,13 @@ The checkout page shows the cart, the price table and a pay button.
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn with_global_and_project_instructions() {
+async fn with_the_agents_instructions_and_the_projects_notes() {
     let w = sample().await;
-    let mut global = w.board.global_settings().await.unwrap();
-    global.agent_instructions = "Use my /tdd skill.\nRun `pnpm test` before submitting.".into();
-    w.board.set_global_settings(&global).await.unwrap();
+    // AGM-02: the global Agent instructions are Developer's own now.
+    w.edit_agent("Developer", |a| {
+        a.instructions = "Use my /tdd skill.\nRun `pnpm test` before submitting.".into();
+    })
+    .await;
 
     let epic_child = w
         .board
@@ -123,9 +121,9 @@ async fn with_global_and_project_instructions() {
         "{RULES}\n## Agent instructions (global)\n\nUse my /tdd skill.\nRun `pnpm test` before submitting.\n"
     )), "{text}");
 
-    // The project's override wins and is labelled with the project.
+    // The project's notes come after the agent's own, labelled with the project (AGM-06).
     let mut project = w.board.project_settings("SHOP").await.unwrap();
-    project.agent_instructions = "Ask before touching the payment code.".into();
+    project.project_notes = "Ask before touching the payment code.".into();
     w.board
         .set_project_settings("SHOP", &project)
         .await
@@ -138,11 +136,11 @@ async fn with_global_and_project_instructions() {
     );
     assert!(
         text.ends_with(
-            "## Agent instructions (project shop-web)\n\nAsk before touching the payment code.\n"
+            "## Agent instructions (project shop-web)\n\nUse my /tdd skill.\nRun `pnpm test` before submitting.\n\n\
+             Ask before touching the payment code.\n"
         ),
         "{text}"
     );
-    assert!(!text.contains("/tdd"));
 
     // Review feedback and pending questions render once they exist (M6, M10).
     let mut context = w
@@ -163,9 +161,10 @@ async fn with_global_and_project_instructions() {
 #[tokio::test(flavor = "multi_thread")]
 async fn validate_prime_plain() {
     let w = sample().await;
-    let mut global = w.board.global_settings().await.unwrap();
-    global.agent_instructions = "Run `pnpm test` before submitting.".into();
-    w.board.set_global_settings(&global).await.unwrap();
+    w.edit_agent("Developer", |a| {
+        a.instructions = "Run `pnpm test` before submitting.".into();
+    })
+    .await;
     let ctx = w.board.validate_prime("SHOP-20").await.unwrap();
     assert_eq!((ctx.round, ctx.rounds), (1, 3));
     let text = otaq_core::prime::render_validate(&ctx);
@@ -242,9 +241,8 @@ fn claude_list() -> ModelList {
     ModelList { entries }
 }
 
-/// The sample board on a service whose copy of Claude Code's list was read earlier, with the starter entry
-/// ("Claude Code", every app default on it).
-async fn with_agents() -> (TestService, NamedAgents) {
+/// The sample board on a service whose copy of Claude Code's list was read earlier.
+async fn with_agents() -> TestService {
     let home = tempfile::TempDir::new().unwrap();
     let store = Store::open_in(&DataDir::new(home.path().join("h")))
         .await
@@ -262,17 +260,7 @@ async fn with_agents() -> (TestService, NamedAgents) {
     store.close().await;
     let w = TestService::start_in(home, TempRepos::new(), |config| config).await;
     w.shop_sample().await;
-    let claude_code = ConnectedTool {
-        tool: tool.as_str().into(),
-        name: "Claude Code".into(),
-    };
-    assert!(
-        starter::ensure(w.board.store(), &[claude_code])
-            .await
-            .unwrap()
-    );
-    let agents = NamedAgents::new(w.board.clone(), Arc::new(FixedModels::sample()));
-    (w, agents)
+    w
 }
 
 /// The three primes as the user's terminal gets them, rendered.
@@ -311,80 +299,14 @@ async fn primes(w: &TestService) -> (String, String, String) {
     (ticket, project, epic)
 }
 
-/// T-0339 (AGT-06): with four named agents, every prime lists them with tool, model as Settings shows it, "Use for"
-/// and the project's default per role (shop-web overrides Developer → Strong); the Project agent and the lead are
-/// told how to pick, the ticket's agent that it can't choose.
+/// AGM-06 (T-0405): the default flow has no stage options, so no prime lists agents to pick from (T-0409 lists the
+/// options of the stages the reader may set).
 #[tokio::test(flavor = "multi_thread")]
-async fn every_prime_lists_the_named_agents_and_the_projects_defaults() {
-    let (w, agents) = with_agents().await;
-    let add = |name: &str, model: &str, use_for: &str| AgentFields {
-        name: name.into(),
-        tool: Tool::ALL[0],
-        model: Some(model.into()),
-        use_for: use_for.into(),
-        fallback: None,
-    };
-    let strong = agents
-        .add(&add("Strong", "opus", "Complex features, tricky bugs"))
-        .await
-        .unwrap();
-    agents
-        .add(&add("Light", "haiku", "Typos, docs, small config"))
-        .await
-        .unwrap();
-    agents.add(&add("Sonnet", "sonnet", "")).await.unwrap();
-    agents
-        .set_project_default("SHOP", Role::Developer, Some(&strong.id))
-        .await
-        .unwrap();
-
-    let list =
-        "- Claude Code · tool default · project default for Validator, Epic lead, Project agent
-  Use for: Everything, until you add more agents
-- Strong · Claude Code · Opus · always the newest · project default for Developer
-  Use for: Complex features, tricky bugs
-- Light · Claude Code · Haiku · always the newest
-  Use for: Typos, docs, small config
-- Sonnet · Claude Code · Sonnet · always the newest
-";
-    let (ticket, project, epic) = primes(&w).await;
-    let section = |lead: &str| format!("\n## Agents\n\n{lead}\n\n{list}\n## Otaq's rules\n");
-    assert!(
-        project.contains(&section(
-            "Pick one for each ticket you propose by how hard the work is, using its \"Use for\": `otaq create … \
-             --developer <name> --reason \"…\"`, and `--validator <name>` only when you have a reason. When unsure, \
-             leave the project default."
-        )),
-        "{project}"
-    );
-    assert!(
-        epic.contains(&section(
-            "Pick for never-started children by how hard the work is, using each \"Use for\": `otaq update <KEY> \
-             --developer <name> --reason \"…\"`, and `--validator <name>` only when you have a reason. Never change a \
-             row the user set, and never your own Epic lead row."
-        )),
-        "{epic}"
-    );
-    assert!(
-        ticket.contains(&section(
-            "Ticket agents can't choose agents: the user, a Project agent or the epic lead picks them. This list is \
-             for reading only."
-        )),
-        "{ticket}"
-    );
-    w.stop().await;
-}
-
-/// T-0339 (d0086: "Until a second entry exists, agents have nothing to choose between"): with only the starter
-/// entry, every prime says so in one line instead of the list.
-#[tokio::test(flavor = "multi_thread")]
-async fn one_named_agent_is_one_line() {
-    let (w, _agents) = with_agents().await;
-    let one = "\n## Agents\n\nOne agent (Claude Code · tool default): every ticket runs on it. Make no agent picks and \
-               leave the Agent column out of proposals.\n\n## Otaq's rules\n";
+async fn no_prime_lists_agents_on_the_default_flow() {
+    let w = with_agents().await;
     let (ticket, project, epic) = primes(&w).await;
     for text in [&ticket, &project, &epic] {
-        assert!(text.contains(one), "{text}");
+        assert!(!text.contains("\n## Agents\n"), "{text}");
         assert!(!text.contains("Use for:"), "{text}");
     }
     w.stop().await;

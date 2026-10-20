@@ -756,7 +756,7 @@ async fn close_ended_closes_only_the_projects_ended_agents() {
 /// M23 (T-0363): a first message held before its start comes with the project's list, for the pane's notice.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_list_carries_a_held_first_message() {
-    use otaq_core::named_agents::{AgentHold, HoldReason, Role};
+    use otaq_core::agents::{AgentHold, HoldReason, SessionRole};
     let w = world().await;
     let project = w.board.project("SHOP").await.unwrap();
     assert!(
@@ -771,13 +771,14 @@ async fn the_list_carries_a_held_first_message() {
         id: "h1".into(),
         ticket_id: None,
         project_id: Some(project.id.clone()),
-        role: Role::ProjectAgent,
+        role: SessionRole::ProjectAgent,
         reason: HoldReason::ModelUnavailable,
         tool: Tool::ALL[1],
         model: Some("gpt-5.4".into()),
-        named_agent_id: None,
-        fallback_agent_id: None,
+        agent_id: None,
+        fallback_tool: None,
         fallback_held: false,
+        fallback_asked: false,
         since: 1,
     };
     w.board.store().set_agent_hold(&hold).await.unwrap();
