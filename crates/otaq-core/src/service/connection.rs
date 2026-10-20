@@ -234,6 +234,8 @@ async fn handle(
                 return (Message::error(id, error), Then::Continue);
             }
             let who = caller::resolve(peer_pid, &shared.sessions);
+            // The role comes from the stage the session runs (STG-10).
+            let who = caller::by_stage(who, shared.board.store().pool()).await;
             // Tickets created from a Project terminal are listed in its summary (T-0167).
             let origin = (!who.is_agent()
                 && matches!(

@@ -215,7 +215,9 @@ impl StoredConversation {
         })
     }
 
-    /// The conversation of ticket `ticket_id`'s newest agent session whose tool id is known.
+    /// The conversation of ticket `ticket_id`'s newest agent session whose tool id is known: Resume's (STG-09).
+    /// By stage run (d0108): a session that ran an Agent stage counts whatever its kind, and when the ticket is in
+    /// (or waits before) an Agent stage, that stage's own session comes first.
     pub async fn latest_agent(
         pool: &sqlx::SqlitePool,
         ticket_id: &str,
@@ -228,10 +230,14 @@ impl StoredConversation {
             Option<String>,
         );
         let row: Option<Row> = sqlx::query_as(
-            "SELECT tool, tool_session_id, model, named_agent_id, named_agent_name FROM sessions
-             WHERE ticket_id = ? AND kind = 'agent' AND tool IS NOT NULL AND tool_session_id IS NOT NULL
-                   AND COALESCE(end_reason, '') <> ?
-             ORDER BY started_at DESC, id DESC LIMIT 1",
+            "SELECT s.tool, s.tool_session_id, s.model, s.named_agent_id, s.named_agent_name FROM sessions s
+             WHERE s.ticket_id = ?1 AND s.tool IS NOT NULL AND s.tool_session_id IS NOT NULL
+                   AND COALESCE(s.end_reason, '') <> ?2
+                   AND (s.kind = 'agent'
+                        OR EXISTS (SELECT 1 FROM stage_runs r WHERE r.session_id = s.id AND r.kind = 'agent'))
+             ORDER BY EXISTS (SELECT 1 FROM stage_runs r JOIN tickets t ON t.id = r.ticket_id
+                              WHERE r.session_id = s.id AND r.kind = 'agent' AND r.stage_id = t.stage_id) DESC,
+                      s.started_at DESC, s.id DESC LIMIT 1",
         )
         .bind(ticket_id)
         .bind(END_MODEL_REFUSED)

@@ -519,14 +519,12 @@ impl Starter {
             .project_git(&project.key)
             .await
             .map_err(|e| (StartStep::Base, e.into()))?;
-        // Waiting before a later Agent stage: a new conversation in the worktree it has (STG-07).
-        let next_stage = matches!(ticket.place, Place::Waiting(Some(_)));
-        let returning = match next_stage {
-            true => None,
-            false => Returning::of(board, ticket)
-                .await
-                .map_err(|e| (StartStep::Base, e.into()))?,
-        };
+        let returning = Returning::of(board, ticket)
+            .await
+            .map_err(|e| (StartStep::Base, e.into()))?;
+        // Waiting before a later Agent stage, not coming back to it (Resume, Retry, a Send back's skill, Park): a new
+        // conversation in the worktree it has (STG-07).
+        let next_stage = matches!(ticket.place, Place::Waiting(Some(_))) && returning.is_none();
         // The check before every launch, for a new conversation only (AGT-05, d0088: once, at session start).
         let new_conversation = next_stage
             || (!returning.as_ref().is_some_and(|r| r.conversation.is_some())

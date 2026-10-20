@@ -1,13 +1,14 @@
 //! Failure and recovery (SDD §17; d0018, d0022, d0045): **detect and report, never self-heal**.
 //!
 //! - **Startup reconcile** (REC-01): when the service starts (after a reboot, a crash or a user-clicked restart),
-//!   every ticket whose agent was at work is compared with its session by [`reconcile::reconcile`]. A fresh service
-//!   has no sessions yet, so they are all gone: tickets at work become **Interrupted** (needs-you ones keep their label
-//!   and question), Ready for Review and Approved tickets only get a History note. Run and Shell sessions end as
-//!   "stopped by restart". Starts cut short are Start interrupted already ([`crate::start::Starter::interrupt_cut_short`]),
+//!   every ticket in a stage is compared with the session of that stage by [`reconcile::reconcile`], by the stage's
+//!   kind (STG-09). A fresh service has no sessions yet, so they are all gone: tickets at work in an Agent stage become
+//!   **Interrupted** (needs-you ones keep their label and question), tickets in an agent check are Interrupted and
+//!   checked afresh on Resume, tickets in a human check or a click Delivery only get a History note. Run and Shell
+//!   sessions end as "stopped by restart". Starts cut short are Start interrupted already ([`crate::start::Starter::interrupt_cut_short`]),
 //!   so reconcile leaves them alone.
-//! - **The agent tool exited** (d0018): an agent session that ends on its own while its ticket is at work interrupts the
-//!   ticket the same way. Sessions Otaq stopped itself (Park, Close, Done) don't.
+//! - **The agent tool exited** (d0018): a session that ends on its own while its ticket is at work in the stage it
+//!   runs interrupts the ticket the same way. Sessions Otaq stopped itself (Park, Close, Done) don't.
 //! - **Nothing resumes automatically.** Resume is the user's click (T-0112).
 //!
 //! Each service start is recorded in `service_runs`; a previous run without a clean stop means this start followed
@@ -23,9 +24,12 @@ use serde_json::json;
 use tokio::sync::{broadcast, watch};
 
 use crate::agent_tools::{Adapters, Tool};
-use crate::board::tickets::{EventKind, record_event};
+use crate::board::epic_flight::epic_flow;
+use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError};
+use crate::caller::SessionStage;
 use crate::domain::{Actor, StartStep, Status, TicketKey};
+use crate::flow::Flow;
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::{
@@ -34,7 +38,38 @@ use crate::session::{
 };
 use crate::store::tickets::set_state_since;
 use crate::store::{Store, StoreError, new_id, now_ms};
-pub use reconcile::{AT_WORK, Outcome, reconcile, reconcile_validation};
+pub use reconcile::{AT_WORK, Outcome, ResumeAs, StageAt, reconcile, resume_as};
+
+/// What History records about a session that ended by itself.
+fn ended_payload(info: &SessionInfo) -> serde_json::Value {
+    let reason = info.end_reason.as_deref().unwrap_or_default();
+    json!({ "reason": reason, "session": info.id, "tool": info.tool })
+}
+
+/// The flow a ticket walks: its project's, or for an epic the epic's own ([`epic_flow`]: its stop, e.g. Review
+/// epic, then the Delivery).
+fn walks(flow: Flow, ticket: &Ticket) -> Flow {
+    if ticket.is_epic() {
+        epic_flow(&flow)
+    } else {
+        flow
+    }
+}
+
+/// The flows tickets walk, read once per project (and once more for its epics) for a startup reconcile.
+#[derive(Default)]
+struct Flows(std::collections::HashMap<(String, bool), Flow>);
+
+impl Flows {
+    async fn of(&mut self, board: &Board, ticket: &Ticket) -> Result<&Flow, BoardError> {
+        let key = (ticket.key.project.to_string(), ticket.is_epic());
+        if !self.0.contains_key(&key) {
+            let flow = board.effective_flow(&key.0).await?;
+            self.0.insert(key.clone(), walks(flow, ticket));
+        }
+        Ok(&self.0[&key])
+    }
+}
 
 /// How many entries "Before the restart" shows by default.
 pub const DEFAULT_ENTRIES: usize = 40;
@@ -354,29 +389,36 @@ impl Recovery {
             ..Default::default()
         };
 
-        let watched: Vec<&str> = AT_WORK
-            .iter()
-            .chain([&Status::WaitingForYou, &Status::PrOpen])
-            .map(|s| s.as_str())
-            .collect();
+        // Every ticket whose stage's session can be gone, by the kind of the stage it is in (STG-09).
+        let watched: Vec<&str> = reconcile::watched().map(|s| s.as_str()).collect();
         let sql = format!(
-            "SELECT id, state FROM tickets WHERE state IN ({})",
+            "SELECT id FROM tickets WHERE state IN ({}) ORDER BY rowid",
             vec!["?"; watched.len()].join(", ")
         );
-        let mut query = sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(sql));
+        let mut query = sqlx::query_as::<_, (String,)>(sqlx::AssertSqlSafe(sql));
         for state in &watched {
             query = query.bind(*state);
         }
-        for (id, state) in query.fetch_all(pool).await? {
-            let Ok(status) = state.parse::<Status>() else {
-                continue;
-            };
-            let alive = inner.sessions.running_of(&id, SessionKind::Agent).is_some();
-            match reconcile(status, alive) {
+        let mut flows = Flows::default();
+        for (id,) in query.fetch_all(pool).await? {
+            let ticket = inner.board.ticket_by_id(&id).await?;
+            let flow = flows.of(&inner.board, &ticket).await?;
+            let from = self.interrupted_from(&ticket).await?;
+            let alive = self.stage_session_alive(flow, &ticket, from);
+            let reason = json!({ "reason": REASON_RESTART });
+            match reconcile(flow, &ticket.place, ticket.status, from, alive) {
                 Outcome::Unchanged => {}
                 Outcome::Interrupt { keep_label } => {
                     if let Some(key) = self
-                        .interrupt(&id, status, keep_label, json!({ "reason": REASON_RESTART }))
+                        .interrupt(&id, ticket.status, keep_label, reason)
+                        .await?
+                    {
+                        report.interrupted.push(key);
+                    }
+                }
+                Outcome::InterruptIn { stage } => {
+                    if let Some(key) = self
+                        .interrupt_as(&id, ticket.status, None, Some(&stage), false, reason)
                         .await?
                     {
                         report.interrupted.push(key);
@@ -387,31 +429,16 @@ impl Recovery {
                         report.session_ended.push(key);
                     }
                 }
-                Outcome::InterruptValidation => {}
-            }
-        }
-        // Validating tickets whose validator is gone (REC-01's M12 row).
-        let validating: Vec<(String, String)> =
-            sqlx::query_as("SELECT id, state FROM tickets WHERE state IN (?, ?)")
-                .bind(Status::Checking.as_str())
-                .bind(Status::CheckerNeedsYou.as_str())
-                .fetch_all(pool)
-                .await?;
-        for (id, state) in validating {
-            let Ok(status) = state.parse::<Status>() else {
-                continue;
-            };
-            let alive = inner
-                .sessions
-                .running_of(&id, SessionKind::Validator)
-                .is_some();
-            if reconcile_validation(status, alive) == Outcome::InterruptValidation
-                && let Some(key) = self
-                    .interrupt_validation(&id, status, json!({ "reason": REASON_RESTART }))
-                    .await?
-            {
-                report.was_validating.push(key.clone());
-                report.interrupted.push(key);
+                // The checker is gone (REC-01's M12 row): Resume starts a fresh check.
+                Outcome::InterruptValidation => {
+                    if let Some(key) = self
+                        .interrupt_validation(&id, ticket.status, reason)
+                        .await?
+                    {
+                        report.was_validating.push(key.clone());
+                        report.interrupted.push(key);
+                    }
+                }
             }
         }
 
@@ -438,6 +465,7 @@ impl Recovery {
 
         report.interrupted.sort();
         report.session_ended.sort();
+        report.was_validating.sort();
         if !report.interrupted.is_empty() || !report.session_ended.is_empty() {
             tracing::warn!(
                 unclean = report.unclean,
@@ -451,27 +479,19 @@ impl Recovery {
     }
 
     /// An agent session ended while the service runs. If the agent tool exited on its own (not stopped by Otaq)
-    /// while its ticket was at work, the ticket is Interrupted (d0018). Returns the ticket's key when it was.
+    /// while its ticket was at work in the Agent stage this session runs (or the automatic Delivery it delivers),
+    /// the ticket is Interrupted (d0018, STG-09). A session that ran an agent check is its checker
+    /// ([`Self::validator_session_ended`]). Returns the ticket's key when it was.
     pub async fn agent_session_ended(
         &self,
         info: &SessionInfo,
     ) -> Result<Option<TicketKey>, BoardError> {
-        if info.kind != SessionKind::Agent || info.is_running() {
-            return Ok(None);
-        }
-        let reason = info.end_reason.as_deref().unwrap_or_default();
-        // Ended by Otaq on a refused model: its ticket's state is already set (AGT-05).
-        if reason == END_STOPPED || reason == END_SERVICE_STOPPED || reason == END_MODEL_REFUSED {
-            return Ok(None);
-        }
-        let Some(key) = &info.ticket else {
+        let Some((ticket, flow, checker)) = self.ended_by_itself(info).await? else {
             return Ok(None);
         };
-        let ticket = match self.inner.board.ticket(&key.to_string()).await {
-            Ok(ticket) => ticket,
-            Err(BoardError::NotFound(_)) => return Ok(None),
-            Err(e) => return Err(e),
-        };
+        if checker {
+            return Ok(None);
+        }
         // A newer session of the ticket runs (a resume started meanwhile): this end changes nothing.
         if let Some(running) = self
             .inner
@@ -481,6 +501,10 @@ impl Recovery {
         {
             return Ok(None);
         }
+        let at_work = matches!(
+            StageAt::find(&flow, &ticket.place, ticket.status, None),
+            Some(StageAt::Agent)
+        ) && AT_WORK.contains(&ticket.status);
         // A resume whose tool can't find the conversation: Resume failed, never a fallback (REC-03).
         let output = self
             .inner
@@ -488,7 +512,7 @@ impl Recovery {
             .attach(&info.id)
             .map(|a| a.scrollback)
             .unwrap_or_default();
-        if AT_WORK.contains(&ticket.status)
+        if at_work
             && self
                 .inner
                 .adapters
@@ -499,7 +523,7 @@ impl Recovery {
         }
         // The tool reports its conversation id after start and the agent ended before it did (Codex, ADP-07):
         // there is nothing to resume, so the start failed (Retry start begins a new conversation).
-        if AT_WORK.contains(&ticket.status)
+        if at_work
             && let Some(tool) = info.tool
             && info.tool_session_id.as_deref().is_none_or(str::is_empty)
         {
@@ -507,29 +531,69 @@ impl Recovery {
                 .start_failed(&ticket.id, ticket.status, tool, info)
                 .await;
         }
-        match reconcile(ticket.status, false) {
+        let payload = ended_payload(info);
+        match reconcile(&flow, &ticket.place, ticket.status, None, false) {
             Outcome::Interrupt { keep_label } => {
-                self.interrupt(
+                self.interrupt(&ticket.id, ticket.status, keep_label, payload)
+                    .await
+            }
+            Outcome::InterruptIn { stage } => {
+                self.interrupt_as(
                     &ticket.id,
                     ticket.status,
-                    keep_label,
-                    json!({ "reason": reason, "session": info.id, "tool": info.tool }),
+                    None,
+                    Some(&stage),
+                    false,
+                    payload,
                 )
                 .await
             }
+            // The checker's session decides an agent check; a human check and a Delivery wait for a click.
             Outcome::Unchanged | Outcome::NoteSessionEnded | Outcome::InterruptValidation => {
                 Ok(None)
             }
         }
     }
 
-    /// A validator session ended while the service runs, not stopped by Otaq (a crash, the tool exiting):
-    /// its validating ticket is Interrupted from Validating (VAL-07).
+    /// A checker session (a validator, or any session that ran an agent check) ended while the service runs, not
+    /// stopped by Otaq (a crash, the tool exiting): its checking ticket is Interrupted from Checking (VAL-07,
+    /// STG-09).
     pub async fn validator_session_ended(
         &self,
         info: &SessionInfo,
     ) -> Result<Option<TicketKey>, BoardError> {
-        if info.kind != SessionKind::Validator || info.is_running() {
+        let Some((ticket, flow, checker)) = self.ended_by_itself(info).await? else {
+            return Ok(None);
+        };
+        if !checker {
+            return Ok(None);
+        }
+        let own = self
+            .inner
+            .board
+            .open_round(&ticket.id)
+            .await?
+            .and_then(|(_, _, session, _)| session);
+        if own.as_deref() != Some(info.id.as_str()) {
+            return Ok(None);
+        }
+        let from = self.interrupted_from(&ticket).await?;
+        match reconcile(&flow, &ticket.place, ticket.status, from, false) {
+            Outcome::InterruptValidation => {
+                self.interrupt_validation(&ticket.id, ticket.status, ended_payload(info))
+                    .await
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// A ticket's agent or checker session that ended by itself (not stopped by Otaq): its ticket, the ticket's
+    /// flow, and whether the session is the checker (its stage run's kind, else its own kind; STG-10).
+    async fn ended_by_itself(
+        &self,
+        info: &SessionInfo,
+    ) -> Result<Option<(Ticket, Flow, bool)>, BoardError> {
+        if !matches!(info.kind, SessionKind::Agent | SessionKind::Validator) || info.is_running() {
             return Ok(None);
         }
         let reason = info.end_reason.as_deref().unwrap_or_default();
@@ -545,25 +609,47 @@ impl Recovery {
             Err(BoardError::NotFound(_)) => return Ok(None),
             Err(e) => return Err(e),
         };
-        let own = self
+        let checker = match SessionStage::of(self.inner.board.store().pool(), &info.id).await? {
+            Some(stage) if stage.is_check() => true,
+            Some(stage) if stage.is_agent_stage() => false,
+            _ => info.kind == SessionKind::Validator,
+        };
+        let flow = self
             .inner
             .board
-            .open_round(&ticket.id)
-            .await?
-            .and_then(|(_, _, session, _)| session);
-        if own.as_deref() != Some(info.id.as_str()) {
-            return Ok(None);
+            .effective_flow(ticket.key.project.as_str())
+            .await?;
+        let flow = walks(flow, &ticket);
+        Ok(Some((ticket, flow, checker)))
+    }
+
+    /// The status a ticket's wait stands for (`interrupted_from`, as stored): a check's, for a checker waiting for
+    /// the plan limit.
+    async fn interrupted_from(&self, ticket: &Ticket) -> Result<Option<Status>, BoardError> {
+        if ticket.interrupted_from.is_some() {
+            return Ok(ticket.interrupted_from);
         }
-        match reconcile_validation(ticket.status, false) {
-            Outcome::InterruptValidation => {
-                self.interrupt_validation(
-                    &ticket.id,
-                    ticket.status,
-                    json!({ "reason": reason, "session": info.id, "tool": info.tool }),
-                )
-                .await
-            }
-            _ => Ok(None),
+        let row: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT interrupted_from FROM tickets WHERE id = ?")
+                .bind(&ticket.id)
+                .fetch_optional(self.inner.board.store().pool())
+                .await?;
+        Ok(row
+            .and_then(|(from,)| from)
+            .and_then(|from| from.parse().ok()))
+    }
+
+    /// Whether the session of the stage the ticket is in runs: the checker's in an agent check, the ticket
+    /// agent's elsewhere (an automatic Delivery's too).
+    fn stage_session_alive(&self, flow: &Flow, ticket: &Ticket, from: Option<Status>) -> bool {
+        let sessions = &self.inner.sessions;
+        match StageAt::find(flow, &ticket.place, ticket.status, from) {
+            Some(StageAt::AgentCheck) => sessions
+                .running_of(&ticket.id, SessionKind::Validator)
+                .is_some(),
+            _ => sessions
+                .running_of(&ticket.id, SessionKind::Agent)
+                .is_some(),
         }
     }
 
@@ -576,7 +662,14 @@ impl Recovery {
     ) -> Result<Option<TicketKey>, BoardError> {
         payload["validation"] = json!(true);
         let key = self
-            .interrupt_as(ticket_id, before, Some(Status::Checking), false, payload)
+            .interrupt_as(
+                ticket_id,
+                before,
+                Some(Status::Checking),
+                None,
+                false,
+                payload,
+            )
             .await?;
         if key.is_some() {
             self.inner
@@ -623,17 +716,18 @@ impl Recovery {
         payload: serde_json::Value,
     ) -> Result<Option<TicketKey>, BoardError> {
         let from = keep_label.then_some(before);
-        self.interrupt_as(ticket_id, before, from, keep_label, payload)
+        self.interrupt_as(ticket_id, before, from, None, keep_label, payload)
             .await
     }
 
     /// Interrupted, remembering `from` (the needs-you status it kept, or Validating) and keeping the text when
-    /// `keep_label`.
+    /// `keep_label`; in `stage` when given (the Agent stage that runs an automatic Delivery), else where it is.
     async fn interrupt_as(
         &self,
         ticket_id: &str,
         before: Status,
         from: Option<Status>,
+        stage: Option<&str>,
         keep_label: bool,
         mut payload: serde_json::Value,
     ) -> Result<Option<TicketKey>, BoardError> {
@@ -641,13 +735,14 @@ impl Recovery {
         let now = now_ms();
         let mut tx = board.store().begin_write().await?;
         let done = sqlx::query(concat!(
-            "UPDATE tickets SET state = ?, interrupted_from = ?,
+            "UPDATE tickets SET stage_id = COALESCE(?, stage_id), state = ?, interrupted_from = ?,
                                 signal_text = CASE WHEN ? THEN signal_text ELSE NULL END,
                                 signal_since = CASE WHEN ? THEN signal_since ELSE NULL END,
                                 wakeup_at = NULL, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ? AND state = ?"
         ))
+        .bind(stage)
         .bind(Status::Interrupted.as_str())
         .bind(from.map(|s| s.as_str()))
         .bind(keep_label)

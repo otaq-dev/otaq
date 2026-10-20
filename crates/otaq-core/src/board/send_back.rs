@@ -24,6 +24,15 @@ pub struct SentRound {
     pub round: u32,
 }
 
+/// What `tickets.stage_id` holds for a ticket queued to come back to the Agent stage `agent_stage` (Resume, a Send
+/// back with the limit full): that stage, which it waits before, or `None` (Ready for Dev) when it is the flow's
+/// first Agent stage, so the default flow queues as today. The start continues its conversation there (STG-07,
+/// STG-09).
+pub(crate) fn waits_before(flow: &crate::flow::Flow, agent_stage: &str) -> Option<String> {
+    let first = flow.first_agent_stage().map(|s| s.id.as_str());
+    (Some(agent_stage) != first).then(|| agent_stage.to_owned())
+}
+
 impl Board {
     /// Marks the pending comments sent, records the review, and moves the ticket to `to` (Working or Queued)
     /// with `resume_skill` (the skill still to run, when it couldn't be typed now).
@@ -37,7 +46,7 @@ impl Board {
     ) -> Result<SentRound, BoardError> {
         let now = now_ms();
         let round = self.current_round(&ticket.id).await?;
-        let stage = self.back_stage(ticket).await?;
+        let stage = self.back_stage(ticket, to).await?;
         let mut tx = self.store.begin_write().await?;
         let sent = sqlx::query(
             "UPDATE review_comments SET sent_at = ?, round = ? WHERE ticket_id = ? AND sent_at IS NULL",
@@ -92,7 +101,7 @@ impl Board {
         resume_skill: Option<&str>,
         actor: &Actor,
     ) -> Result<(), BoardError> {
-        let stage = self.back_stage(ticket).await?;
+        let stage = self.back_stage(ticket, to).await?;
         let mut tx = self.store.begin_write().await?;
         return_to_dev(&mut tx, ticket, to, stage.as_deref(), resume_skill, actor).await?;
         record_event(
@@ -109,21 +118,21 @@ impl Board {
     }
 
     /// Where a Send back takes the ticket: the nearest earlier Agent stage, as the flow engine says (a human
-    /// check's Fail, STG-06).
-    async fn back_stage(&self, ticket: &Ticket) -> Result<Option<String>, BoardError> {
-        Ok(
-            match self
-                .moved(ticket, Status::WaitingForYou, Move::HumanFail)
-                .await
-            {
-                Ok(moved) => moved.place.stage().map(str::to_owned),
-                Err(_) => self
-                    .effective_flow(ticket.key.project.as_str())
-                    .await?
-                    .first_agent_stage()
-                    .map(|s| s.id.clone()),
-            },
-        )
+    /// check's Fail, STG-06). Queued (`to`, the limit is full), it waits before that stage instead
+    /// ([`waits_before`]): Ready for Dev before the flow's first.
+    async fn back_stage(&self, ticket: &Ticket, to: Status) -> Result<Option<String>, BoardError> {
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        let stage = match self
+            .moved(ticket, Status::WaitingForYou, Move::HumanFail)
+            .await
+        {
+            Ok(moved) => moved.place.stage().map(str::to_owned),
+            Err(_) => flow.first_agent_stage().map(|s| s.id.clone()),
+        };
+        Ok(match to.is_queued() {
+            true => stage.and_then(|id| waits_before(&flow, &id)),
+            false => stage,
+        })
     }
 
     /// The note of the latest Send back, if it had one.
@@ -149,8 +158,8 @@ async fn latest_review(
     Ok(row.map(|(round, note)| (u32::try_from(round).unwrap_or(0), note)))
 }
 
-/// Ready for Review → Dev: Agent Working in `stage` (the live session got the skill) or Queued (`queued_at` now,
-/// in Ready for Dev as today) with the skill still to run. The next submit validates again from round 1 (d0063,
+/// Ready for Review → Dev: Agent Working in `stage` (the live session got the skill) or Queued (`queued_at` now)
+/// with the skill still to run, waiting before `stage` (`None`: Ready for Dev, as today). The next submit validates again from round 1 (d0063,
 /// VAL-10).
 pub(crate) async fn return_to_dev(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
@@ -171,7 +180,7 @@ pub(crate) async fn return_to_dev(
         set_state_since!(),
         " WHERE id = ?"
     ))
-    .bind(stage.filter(|_| !to.is_queued()))
+    .bind(stage)
     .bind(to.as_str())
     .bind(resume_skill)
     .bind(to.is_queued())

@@ -1,8 +1,9 @@
 //! Resume, Resume all, Retry and Start from scratch (REC-01, REC-03; d0018, d0045): the user's clicks that bring
 //! an Interrupted or Resume failed ticket's agent back. **Nothing here runs on its own.**
 //!
-//! - **Resume** continues the stored conversation on the tool and model it ran on (its adapter's resume), in a new
-//!   session in the same worktree.
+//! - **Resume** reopens the session of the stage the card is in (STG-09, d0108): in an Agent stage it continues
+//!   that stage's stored conversation on the tool and model it ran on (its adapter's resume), in a new session in
+//!   the same worktree; in an agent check it starts a fresh check ([`crate::recovery::resume_as`]).
 //!   It goes through the start sequence like a parked ticket (worktree kept, no base sync or setup); with the
 //!   agent limit full, the ticket waits in Queued for a slot like a Send back.
 //! - **Resume all** resumes exactly the Interrupted Dev tickets ([`crate::recovery::resume_all_eligible`]).
@@ -17,7 +18,7 @@ use super::Review;
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, Status, TicketKey};
-use crate::recovery::{RETURN_RESUME, RETURN_SCRATCH, resume_all_eligible};
+use crate::recovery::{RETURN_RESUME, RETURN_SCRATCH, ResumeAs, resume_all_eligible, resume_as};
 use crate::session::SessionKind;
 use crate::start::StartOutcome;
 use crate::store::now_ms;
@@ -55,8 +56,13 @@ impl Review {
                 ),
             ));
         }
-        // It was validating: a fresh validation, not counted; the agent's conversation isn't touched (VAL-07).
-        if ticket.interrupted_from == Some(Status::Checking) {
+        // It was in an agent check: a fresh check, not counted; the agent's conversation isn't touched (VAL-07).
+        let flow = self
+            .inner
+            .board
+            .effective_flow(ticket.key.project.as_str())
+            .await?;
+        if resume_as(&flow, &ticket.place, ticket.interrupted_from) == ResumeAs::FreshCheck {
             let hook = self
                 .inner
                 .validation_resume
@@ -236,6 +242,25 @@ impl Review {
         Ok(ticket)
     }
 
+    /// The Agent stage a resumed ticket waits before: the one it is in, or (from a check) the nearest earlier one;
+    /// `None` for the flow's first, which is Ready for Dev as today.
+    async fn waits_before(&self, ticket: &Ticket) -> Result<Option<String>, BoardError> {
+        let Some(id) = ticket.place.stage() else {
+            return Ok(None);
+        };
+        let flow = self
+            .inner
+            .board
+            .effective_flow(ticket.key.project.as_str())
+            .await?;
+        let stage = match flow.stage(id) {
+            Some(stage) if stage.is_agent_stage() => Some(stage),
+            Some(_) => crate::flow::engine::back_to(&flow, id, &[]),
+            None => None,
+        };
+        Ok(stage.and_then(|s| crate::board::send_back::waits_before(&flow, &s.id)))
+    }
+
     /// Back to Queued with how to continue (`mode`), then the start sequence right away, or a wait for a slot
     /// while the agent limit is full.
     async fn bring_back(
@@ -260,6 +285,7 @@ impl Review {
             ));
         }
         let full = self.limit_full().await?;
+        let waits_before = self.waits_before(ticket).await?;
         let now = now_ms();
         // Resume and Retry keep the first prompt that never arrived (a Send back's skill, an inbox answer) and send
         // it with the resumed conversation; Start from scratch begins with the ticket prompt (d0018), so it drops
@@ -267,7 +293,7 @@ impl Review {
         let scratch = mode == RETURN_SCRATCH;
         let mut tx = board.store().begin_write().await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET stage_id = NULL, state = ?, return_mode = ?,
+            "UPDATE tickets SET stage_id = ?, state = ?, return_mode = ?,
                                 resume_prompt = CASE WHEN ? THEN NULL ELSE COALESCE(?, resume_prompt) END,
                                 resume_skill = CASE WHEN ? THEN NULL ELSE resume_skill END, queued_at = ?,
                                 start_problem_step = NULL, start_problem_message = NULL, signal_text = NULL,
@@ -275,6 +301,7 @@ impl Review {
             set_state_since!(),
             " WHERE id = ?"
         ))
+        .bind(waits_before.as_deref())
         .bind(Status::Queued.as_str())
         .bind(mode)
         .bind(scratch)

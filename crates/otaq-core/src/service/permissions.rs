@@ -6,10 +6,9 @@ use crate::board::epic_flight::is_never_started;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
 use crate::caller::Caller;
-use crate::domain::StatusSet;
 use crate::epic_lead::questions;
 use crate::policy::{
-    Action, Names, ONLY_A_LEAD_MARKS, ONLY_A_LEAD_SUGGESTS, TicketFacts, authorize_named,
+    Action, Names, ONLY_A_LEAD_MARKS, ONLY_A_LEAD_SUGGESTS, TicketFacts, authorize_in_stage,
 };
 use crate::protocol::Request;
 
@@ -46,7 +45,34 @@ pub(super) async fn check(
         caller: caller_name.as_deref(),
         project: project_name.as_deref(),
     };
-    authorize_named(caller, names, &action)
+    let stage = stage_name(caller, board).await;
+    authorize_in_stage(caller, names, stage.as_deref(), &action)
+}
+
+/// The name of the stage a ticket session's stage run is in, for its refusals (STG-10): none for the default flow's
+/// Dev and Validate, whose sessions keep today's words.
+async fn stage_name(caller: &Caller, board: &Board) -> Option<String> {
+    let (Caller::Agent {
+        ticket, session, ..
+    }
+    | Caller::Validator {
+        ticket, session, ..
+    }) = caller
+    else {
+        return None;
+    };
+    let run = crate::caller::SessionStage::of(board.store().pool(), session)
+        .await
+        .ok()??;
+    if [crate::flow::default::DEV, crate::flow::default::VALIDATE].contains(&run.stage.as_str()) {
+        return None;
+    }
+    let flow = board.effective_flow(ticket.project.as_str()).await.ok();
+    Some(
+        flow.as_ref()
+            .and_then(|f| f.stage(&run.stage))
+            .map_or(run.stage.clone(), |s| s.name.clone()),
+    )
 }
 
 /// The name an agent caller's picks carry (AGT-06): a Project agent's own name ("Checkout slowness"), an epic
@@ -87,7 +113,7 @@ async fn facts_of(board: &Board, ticket: Ticket) -> Result<TicketFacts, BoardErr
         None => None,
     };
     Ok(TicketFacts {
-        backlog: ticket.board_group() == StatusSet::Backlog && !ticket.has_started(),
+        backlog: ticket.place.is_backlog() && !ticket.has_started(),
         never_started: is_never_started(&ticket),
         epic_id,
         id: ticket.id,
