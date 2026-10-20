@@ -49,7 +49,7 @@ async fn child(w: &TestService, epic: &Ticket, title: &str) -> Ticket {
 async fn merge_child(w: &TestService, child: &Ticket, file: &str) {
     let wt = w.start_worktree(child).await;
     commit(&wt, file, &format!("{file}\n"));
-    w.force_status(child, Status::ReadyForReview).await;
+    w.force_status(child, Status::WaitingForYou).await;
     let outcome = w
         .review
         .local_merge(
@@ -91,7 +91,7 @@ async fn an_epic_reaches_review_then_local_merges_into_main() {
         .unwrap();
     assert_eq!(
         w.status("SHOP-1").await,
-        Status::ReadyForReview,
+        Status::WaitingForYou,
         "every child done, two merged"
     );
     assert_eq!(
@@ -162,7 +162,7 @@ async fn a_new_child_returns_an_epic_in_review_to_backlog() {
     let epic = epic(&w).await;
     let api = child(&w, &epic, "Wishlist API").await;
     merge_child(&w, &api, "api.ts").await;
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
 
     child(&w, &epic, "Wishlist share link").await;
     assert_eq!(

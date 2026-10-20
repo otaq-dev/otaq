@@ -1,7 +1,8 @@
 //! Board moves (SDD §7.3 transitions, §7.4 drag rules; TKT-04; d0004, d0034, d0036, d0037, d0041, d0044, d0052).
 //!
 //! [`check_move`] is one pure function: given a ticket and where it is dropped, it says whether the move is
-//! allowed, needs a confirmation or a choice, comes with a warning, or is refused (with a reason for people).
+//! allowed, needs a confirmation or a choice, comes with a warning, or is refused (with a reason for people). The
+//! flow engine decides it from the kinds of the stages involved ([`crate::flow::engine::drag`], STG-06).
 //! [`Board::move_ticket`] carries out the moves whose effects exist so far: Backlog → Dev (Queued) and Reopen
 //! (Done · Closed → Backlog, T-0101). The others (Park, Approve, PR rework) are allowed by the rules but carried
 //! out by their own requests (T-0104, T-0089/T-0095, T-0144/T-0150); until then they are refused here as
@@ -13,12 +14,14 @@ use sqlx::{Sqlite, Transaction};
 
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
-use crate::domain::{Actor, Column, Kind, Status, stored_enum};
+use crate::domain::{Actor, Status, stored_enum};
+use crate::flow::{Flow, engine};
 use crate::store::now_ms;
 use crate::store::tickets::{TicketRow, set_state_since};
 
 stored_enum! {
-    /// Where a card is dropped: one target per column (d0066).
+    /// Where a card is dropped: one target per column of the default flow's board, and its Approved section
+    /// (d0066). [`DropTarget::in_flow`] says what each means in a flow.
     pub enum DropTarget ("drop target") {
         Backlog = "backlog",
         /// The go-ahead: the ticket starts when it can (SCH-01).
@@ -28,31 +31,6 @@ stored_enum! {
         ReadyForReview = "ready_for_review",
         Approved = "approved",
         Done = "done",
-    }
-}
-
-impl DropTarget {
-    pub fn column(self) -> Column {
-        match self {
-            Self::Backlog => Column::Backlog,
-            Self::ReadyForDev => Column::ReadyForDev,
-            Self::Dev => Column::Dev,
-            Self::ReadyForReview => Column::ReadyForReview,
-            Self::Approved => Column::Approved,
-            Self::Done => Column::Done,
-        }
-    }
-
-    /// The target for a drop on `column`.
-    pub fn of(column: Column) -> Self {
-        match column {
-            Column::Backlog => Self::Backlog,
-            Column::ReadyForDev => Self::ReadyForDev,
-            Column::Dev => Self::Dev,
-            Column::ReadyForReview => Self::ReadyForReview,
-            Column::Approved => Self::Approved,
-            Column::Done => Self::Done,
-        }
     }
 }
 
@@ -124,63 +102,15 @@ pub const MERGED_LOCKED_REOPEN: &str = "Merged tickets are locked. Create a new 
 /// Ready for Dev → Dev: the scheduler starts it (SCH-01).
 pub const STARTS_BY_ITSELF: &str = "It starts by itself when it can, in priority order";
 
-/// Decides a drag or a "Start" (⇧⌘D, which is a drop on [`DropTarget::ReadyForDev`]).
+/// Decides a drag or a "Start" (⇧⌘D, which is a drop on [`DropTarget::ReadyForDev`]) on the default flow, whose
+/// board the drop targets are (every project's flow in M31 has its Dev, Review and Done stages).
 pub fn check_move(ticket: &Ticket, target: DropTarget) -> MoveCheck {
-    use DropTarget as T;
-    let refused = |reason: &str| MoveCheck::Refused {
-        reason: reason.to_owned(),
-    };
-    let from = ticket.column;
-    let to = target.column();
+    check_move_in(&crate::flow::default_file().flow, ticket, target)
+}
 
-    if ticket.status == Status::Merged && to != Column::Done {
-        return refused(MERGED_LOCKED);
-    }
-    if from == to {
-        return MoveCheck::Unchanged;
-    }
-    match (from, target) {
-        // An epic in Backlog is its card or its track (EPC-11): the drop queues its children (d0080). In
-        // Ready for Review, Approved or Done it is its delivery card and keeps the rules below.
-        (Column::Backlog, T::ReadyForDev | T::Dev) if ticket.kind == Kind::Epic => {
-            MoveCheck::Allowed {
-                action: MoveAction::QueueEpic,
-            }
-        }
-        // The go-ahead; on Dev it lands in Ready for Dev until it can start (d0066). Never a warning: Otaq
-        // doesn't judge how a ticket is written (d0067).
-        (Column::Backlog, T::ReadyForDev | T::Dev) => MoveCheck::Allowed {
-            action: MoveAction::Start,
-        },
-        (Column::ReadyForDev, T::Backlog) => MoveCheck::Allowed {
-            action: MoveAction::Unqueue,
-        },
-        (Column::ReadyForDev, T::Dev) => refused(STARTS_BY_ITSELF),
-        (Column::Dev, T::ReadyForDev) => refused("Drag it to Backlog to park it"),
-        (Column::Dev, T::Backlog) => MoveCheck::Confirm {
-            action: MoveAction::Park,
-        },
-        (Column::ReadyForReview, T::Approved) => MoveCheck::Choose {
-            action: MoveAction::Approve,
-        },
-        (Column::Approved, T::ReadyForReview) => MoveCheck::Allowed {
-            action: MoveAction::PrRework,
-        },
-        (Column::Done, T::Backlog) => MoveCheck::Allowed {
-            action: MoveAction::Reopen,
-        },
-        (_, T::ReadyForReview) => refused(ONLY_AGENT_SUBMITS),
-        (Column::Done, _) => refused("Drag it to Backlog to reopen it first"),
-        (Column::ReadyForReview, T::ReadyForDev | T::Dev) => {
-            refused("Use Send back to return it to Dev with your comments")
-        }
-        (_, T::ReadyForDev | T::Dev) => {
-            refused("Drag it back through Ready for Review: Approved tickets return with PR rework")
-        }
-        (_, T::Approved) => refused("Approve a ticket from Ready for Review"),
-        (_, T::Done) => refused("Use Close ticket, Approve or Mark merged to finish a ticket"),
-        (_, T::Backlog) => refused("Only Ready for Dev, Dev and Closed tickets go back to Backlog"),
-    }
+/// Decides a drag in `flow`.
+pub fn check_move_in(flow: &Flow, ticket: &Ticket, target: DropTarget) -> MoveCheck {
+    engine::drag(flow, &ticket.place, ticket.status, ticket.kind, target)
 }
 
 impl Board {
@@ -194,7 +124,8 @@ impl Board {
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
         let ticket = self.ticket(key).await?;
-        let check = check_move(&ticket, target);
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        let check = check_move_in(&flow, &ticket, target);
         match &check {
             MoveCheck::Unchanged => return Ok(ticket),
             MoveCheck::Refused { reason } => {
@@ -309,14 +240,9 @@ impl Board {
                 .await?;
         }
         if let Some(epic) = epic
-            && epic.column != Column::Backlog
+            && !epic.place.is_backlog()
         {
-            let to = if epic.status == Status::EpicInProgress {
-                Status::EpicInProgress
-            } else {
-                Status::Backlog
-            };
-            self.set_status(&epic, to, actor, EventKind::Reopened)
+            self.set_status(&epic, Status::Backlog, actor, EventKind::Reopened)
                 .await?;
             // Its lead, ended at Review, resumes with no message (LEAD-12).
             self.leads().epic_back(&epic.key).await;
@@ -335,11 +261,10 @@ impl Board {
         let now = now_ms();
         let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, outcome = NULL, updated_by = ?, updated_at = ?, ",
+            "UPDATE tickets SET stage_id = NULL, state = ?, outcome = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(to.column().as_str())
         .bind(to.as_str())
         .bind(actor.to_string())
         .bind(now)
@@ -374,13 +299,12 @@ pub(crate) async fn queue_in(
 ) -> Result<(), BoardError> {
     let now = now_ms();
     sqlx::query(concat!(
-        "UPDATE tickets SET board_column = ?, state = ?, started_at = COALESCE(started_at, ?),
+        "UPDATE tickets SET stage_id = NULL, state = ?, started_at = COALESCE(started_at, ?),
                             queued_at = ?, ready_since = NULL, branch_locked = TRUE, updated_by = ?,
                             updated_at = ?, ",
         set_state_since!(),
         " WHERE id = ?"
     ))
-    .bind(Column::ReadyForDev.as_str())
     .bind(Status::Queued.as_str())
     .bind(now)
     .bind(now)
@@ -422,7 +346,7 @@ pub(crate) async fn unqueue_in(
     let never_worked =
         !row.parked && !row.reopened && row.worktree_path.is_none() && row.branch_name.is_none();
     sqlx::query(concat!(
-        "UPDATE tickets SET board_column = ?, state = ?, queued_at = NULL, ready_since = NULL,
+        "UPDATE tickets SET stage_id = NULL, state = ?, queued_at = NULL, ready_since = NULL,
                             start_problem_step = NULL, start_problem_message = NULL, joined_queue_by = NULL,
                             started_at = CASE WHEN ? THEN NULL ELSE started_at END,
                             branch_locked = CASE WHEN ? THEN FALSE ELSE branch_locked END,
@@ -430,7 +354,6 @@ pub(crate) async fn unqueue_in(
         set_state_since!(),
         " WHERE id = ?"
     ))
-    .bind(to.column().as_str())
     .bind(to.as_str())
     .bind(never_worked)
     .bind(never_worked)

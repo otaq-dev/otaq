@@ -33,7 +33,6 @@
 //! T-0362 (AGT-08, SHL-08; d0086, d0087): `board.agents` also brings the connected tools (avatars once two are
 //! connected, here and on every screen through `tool_avatar::set_connected`), each card's holds and row moves.
 
-use otaq_core::board::moves::DropTarget;
 use otaq_core::board::snapshot::BoardSnapshot;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::protocol::{
@@ -302,7 +301,7 @@ pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestE
             app.service
                 .send(Request::TicketMove(MoveParams {
                     key: params.key,
-                    target: DropTarget::of(target.column()),
+                    target: target.column().target(),
                     confirmed: false,
                 }))
                 .await?;
@@ -1000,7 +999,7 @@ mod tests {
         else {
             panic!("no child");
         };
-        assert_eq!(second.column, otaq_core::domain::Column::Backlog, "the other waits");
+        assert_eq!(second.place, otaq_core::domain::Place::Backlog, "the other waits");
 
         // The epic (as ⌘D sends it, on Dev): the rest.
         let outcome = request(&h.app, "board.drop", json!({ "key": epic, "target": "dev" }))
@@ -1013,7 +1012,7 @@ mod tests {
         else {
             panic!("no child");
         };
-        assert_eq!(second.column, otaq_core::domain::Column::ReadyForDev);
+        assert_eq!(second.place, otaq_core::domain::Place::Waiting(None));
 
         // Nothing left to queue: the drag says so, and a drop is refused.
         let drag = request(&h.app, "board.drag", json!({ "key": epic })).await.unwrap();
@@ -1106,7 +1105,7 @@ mod tests {
                 let Reply::Ticket(t) = send(h, Request::TicketGet(KeyParams { key })).await else {
                     panic!("no ticket");
                 };
-                t.column
+                t.place
             }
         };
 
@@ -1118,7 +1117,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(outcome["kind"], "moved");
-        assert_eq!(column(children[0].clone()).await, otaq_core::domain::Column::ReadyForDev);
+        assert_eq!(column(children[0].clone()).await, otaq_core::domain::Place::Waiting(None));
 
         // Now a track: Backlog takes both back.
         let n1 = children[0].rsplit('-').next().unwrap();
@@ -1136,7 +1135,7 @@ mod tests {
             .unwrap();
         assert_eq!(outcome["kind"], "moved");
         for child in &children {
-            assert_eq!(column(child.clone()).await, otaq_core::domain::Column::Backlog);
+            assert_eq!(column(child.clone()).await, otaq_core::domain::Place::Backlog);
         }
         let board = request(
             &h.app,

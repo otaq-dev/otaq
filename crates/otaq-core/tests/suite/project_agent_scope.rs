@@ -83,7 +83,7 @@ async fn a_project_agent_changes_backlog_tickets_only_and_its_tickets_name_it() 
     .await;
     let ticket = &created["reply"]["ticket"];
     assert_eq!(ticket["key"], "SHOP-41", "{created}");
-    assert_eq!(ticket["column"], "backlog");
+    assert_eq!(ticket["place"], "backlog");
     assert_eq!(ticket["created_by"], me.as_str());
     let edited = send(
         &w,

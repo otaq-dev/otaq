@@ -122,7 +122,7 @@ impl Focus {
     /// for the validation and Auto-merge stops (no session waits there; the ticket is in front of the user).
     pub fn covers(&self, ticket_id: &str, status: Status) -> bool {
         match status {
-            Status::ValidatorNeedsYou => self.side_focused(ticket_id, Side::Validator),
+            Status::CheckerNeedsYou => self.side_focused(ticket_id, Side::Validator),
             s if s.is_agent_waiting() => self.side_focused(ticket_id, Side::Agent),
             _ => self.is_focused(ticket_id),
         }
@@ -290,9 +290,9 @@ mod tests {
         let focus = Focus::default();
         let agent = focus.set("t1", "agent", Side::Agent, 1, true);
         assert!(agent.ticket_changed);
-        assert!(!focus.covers("t1", Status::ValidatorNeedsYou));
+        assert!(!focus.covers("t1", Status::CheckerNeedsYou));
         assert!(focus.covers("t1", Status::AsksYou));
-        assert!(focus.covers("t1", Status::ValidationFailed));
+        assert!(focus.covers("t1", Status::CheckFailed));
 
         // The same client moves to the validator: the ticket's validator side changes.
         assert!(
@@ -302,9 +302,9 @@ mod tests {
         );
         let validator = focus.set("t1", "validator", Side::Validator, 1, true);
         assert!(validator.ticket_changed && validator.session_focused);
-        assert!(focus.covers("t1", Status::ValidatorNeedsYou));
+        assert!(focus.covers("t1", Status::CheckerNeedsYou));
         assert!(!focus.covers("t1", Status::NeedsYou));
-        assert!(focus.covers("t1", Status::AutoMergeStopped));
+        assert!(focus.covers("t1", Status::DeliveryStopped));
 
         // A second client on the agent while the first looks at the validator: both sides count.
         assert!(
@@ -321,7 +321,7 @@ mod tests {
                 ticket_lost_focus: true,
             }]
         );
-        assert!(!focus.covers("t1", Status::ValidatorNeedsYou));
+        assert!(!focus.covers("t1", Status::CheckerNeedsYou));
         assert!(focus.covers("t1", Status::Idle));
     }
 }

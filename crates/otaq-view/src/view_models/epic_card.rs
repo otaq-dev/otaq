@@ -13,10 +13,11 @@
 //! ("Wishlist lead · ended · in review"). Child rows the lead created say "added by Wishlist lead", and a lead that
 //! asks you turns the card's border turquoise ([`EpicViewModel::with_lead`]).
 
+use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::epic_flight::{self, EpicPlace};
 use otaq_core::board::epics::progress_of;
 use otaq_core::board::tickets::{Base, Ticket};
-use otaq_core::domain::{Actor, Column, Status, TicketKey};
+use otaq_core::domain::{Actor, Status, TicketKey};
 use otaq_core::project_agents::lead::Lead;
 
 use crate::icons::IconName;
@@ -104,7 +105,7 @@ impl EpicViewModel {
         let progress = progress_of(&epic.key, tickets);
         let card_place = epic_flight::epic_place(epic, tickets) == EpicPlace::Card;
         let pill = match epic.status {
-            Status::ReadyForReview => Pill {
+            Status::WaitingForYou => Pill {
                 legend: Legend::ReadyForReview,
                 label: "Ready for Review".into(),
             },
@@ -141,7 +142,7 @@ impl EpicViewModel {
             _ => format!("{branch_name} · on {base}"),
         };
         let actions = match epic.status {
-            Status::ReadyForReview => vec![CardAction {
+            Status::WaitingForYou => vec![CardAction {
                 kind: CardActionKind::Review,
                 label: "Review feature",
                 icon: Some(IconName::Eye),
@@ -202,7 +203,7 @@ impl EpicViewModel {
 
     /// [`with_lead`](Self::with_lead) in place.
     pub fn set_lead(&mut self, epic: &Ticket, tickets: &[Ticket], lead: Option<&Lead>) {
-        self.lead = match epic.column {
+        self.lead = match epic.column() {
             Column::Backlog => Some(LeadStatusView::of_epic(epic, tickets, lead)),
             Column::ReadyForReview | Column::Approved if epic.status != Status::ClosedNotMerged => {
                 lead.map(|l| LeadStatusView::of(epic, Some(l)).on_review_card())
@@ -286,7 +287,7 @@ mod tests {
         let mut tickets = wishlist();
         for t in &mut tickets[1..] {
             t.status = Status::Backlog;
-            t.column = Column::Backlog;
+            t.place = otaq_core::domain::Place::Backlog;
         }
         let vm = EpicViewModel::from(&tickets[0], &tickets, None);
         assert!(vm.children.iter().all(|c| c.draggable));
@@ -294,7 +295,7 @@ mod tests {
 
         tickets[1].status = Status::Parked;
         tickets[2].status = Status::Merged;
-        tickets[2].column = Column::Done;
+        tickets[2].place = otaq_core::domain::Place::Done;
         tickets[3].status = Status::Parked;
         let vm = EpicViewModel::from(&tickets[0], &tickets, None);
         let rows: Vec<(String, &str, bool)> = vm
@@ -311,8 +312,8 @@ mod tests {
             ]
         );
 
-        tickets[0].status = Status::ReadyForReview;
-        tickets[0].column = Column::ReadyForReview;
+        tickets[0].status = Status::WaitingForYou;
+        tickets[0].place = otaq_core::domain::Place::stage_of("review");
         let vm = EpicViewModel::from(&tickets[0], &tickets, None);
         assert!(
             vm.children.iter().all(|c| !c.draggable),
@@ -324,7 +325,7 @@ mod tests {
     fn external_id_hidden_when_empty_and_later_states() {
         let mut tickets = wishlist();
         tickets[0].external_id = Some(String::new());
-        tickets[0].status = Status::ReadyForReview;
+        tickets[0].status = Status::WaitingForYou;
         let vm = EpicViewModel::from(&tickets[0], &tickets, None);
         assert_eq!(vm.external_id, None);
         assert_eq!(vm.actions[0].label, "Review feature");
@@ -354,7 +355,7 @@ mod tests {
         let mut tickets = wishlist();
         for t in &mut tickets[1..] {
             t.status = Status::Backlog;
-            t.column = Column::Backlog;
+            t.place = otaq_core::domain::Place::Backlog;
         }
         let epic = tickets[0].clone();
         let vm = EpicViewModel::from(&epic, &tickets, None).with_lead(&epic, &tickets, None);
@@ -398,8 +399,8 @@ mod tests {
         assert!(vm.lead_asks());
 
         let mut review = epic.clone();
-        review.status = Status::ReadyForReview;
-        review.column = Column::ReadyForReview;
+        review.status = Status::WaitingForYou;
+        review.place = otaq_core::domain::Place::stage_of("review");
         let ended = lead_status::sample(&review, LeadStatus::EndedInReview, 0);
         let vm =
             EpicViewModel::from(&review, &tickets, None).with_lead(&review, &tickets, Some(&ended));
@@ -409,7 +410,7 @@ mod tests {
 
         let mut done = review.clone();
         done.status = Status::Merged;
-        done.column = Column::Done;
+        done.place = otaq_core::domain::Place::Done;
         let vm =
             EpicViewModel::from(&done, &tickets, None).with_lead(&done, &tickets, Some(&ended));
         assert_eq!(vm.lead, None);

@@ -162,7 +162,7 @@ async fn review_submit_refuses_uncommitted_files_then_submits() {
 
     // The turn's Stop doesn't touch it.
     stop_hook(&agent).await;
-    assert_eq!(w.status("SHOP-19").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-19").await, Status::WaitingForYou);
     w.stop().await;
 }
 
@@ -287,7 +287,7 @@ async fn review_feedback_prints_the_latest_round() {
         "SHOP-1 has no review feedback: it was never sent back."
     );
 
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     for (file, line, side, body) in [
         ("lib/search.ts", 40, Side::Old, "Why was this removed?"),
         (
@@ -386,6 +386,6 @@ async fn submit_with_validation_on_says_validation_runs() {
         (0, otaq_core::validation::SUBMITTED_VALIDATING),
         "{ran:?}"
     );
-    assert_eq!(w.status("SHOP-19").await, Status::Validating);
+    assert_eq!(w.status("SHOP-19").await, Status::Checking);
     w.stop().await;
 }

@@ -837,7 +837,7 @@ async fn a_held_validator_waits_in_dev_and_starts_once_its_tool_is_back() {
         )
         .await
         .unwrap();
-    assert_eq!(after.status, Status::Validating);
+    assert_eq!(after.status, Status::Checking);
     assert!(
         w.sessions
             .running_of(&t.id, SessionKind::Validator)

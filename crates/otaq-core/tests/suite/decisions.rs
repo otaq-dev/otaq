@@ -121,7 +121,10 @@ async fn record_numbers_per_ticket_logs_history_and_changes_nothing_else() {
         })
     );
     let after = w.board.ticket("SHOP-1").await.unwrap();
-    assert_eq!((after.status, after.column), (before.status, before.column));
+    assert_eq!(
+        (after.status, after.board_group()),
+        (before.status, before.board_group())
+    );
     assert_eq!(after.flags, before.flags);
     w.stop().await;
 }

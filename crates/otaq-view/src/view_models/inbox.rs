@@ -122,9 +122,9 @@ pub fn suggested_line(s: &SuggestionItem) -> String {
 pub fn validation_actions(status: Status) -> Vec<ValidationAction> {
     use ValidationAction as A;
     match status {
-        Status::ValidationFailed => vec![A::MoveToReviewAnyway, A::AnotherRound, A::AnswerAgent],
-        Status::ValidationNoResult => vec![A::Retry, A::MoveToReviewAnyway],
-        Status::AutoMergeStopped => vec![A::RetryMerge, A::MoveToReview],
+        Status::CheckFailed => vec![A::MoveToReviewAnyway, A::AnotherRound, A::AnswerAgent],
+        Status::CheckNoResult => vec![A::Retry, A::MoveToReviewAnyway],
+        Status::DeliveryStopped => vec![A::RetryMerge, A::MoveToReview],
         _ => Vec::new(),
     }
 }
@@ -492,7 +492,7 @@ fn row(
             .then_some("session ended by restart · answering resumes it"),
         actions: if resolved { Vec::new() } else { actions },
         resolved,
-        tab: if item.status == Status::ReadyForReview {
+        tab: if item.status == Status::WaitingForYou {
             Tab::Diff
         } else {
             Tab::Terminal
@@ -501,7 +501,7 @@ fn row(
         question: item.question.clone(),
         message: None,
         sent_note: None,
-        opens_validator: item.status == Status::ValidatorNeedsYou && !resolved,
+        opens_validator: item.status == Status::CheckerNeedsYou && !resolved,
         lead_note: item.lead_note.clone().filter(|_| !resolved),
         suggestion: None,
     }
@@ -629,22 +629,22 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(
-            actions(Status::ValidationFailed),
+            actions(Status::CheckFailed),
             v(&[A::MoveToReviewAnyway, A::AnotherRound, A::AnswerAgent])
         );
         assert_eq!(
-            actions(Status::ValidationNoResult),
+            actions(Status::CheckNoResult),
             v(&[A::Retry, A::MoveToReviewAnyway])
         );
         assert_eq!(
-            actions(Status::AutoMergeStopped),
+            actions(Status::DeliveryStopped),
             v(&[A::RetryMerge, A::MoveToReview])
         );
         let validator = row(
             &item(
                 "SHOP-33",
                 "Shipping estimate",
-                Status::ValidatorNeedsYou,
+                Status::CheckerNeedsYou,
                 NeedsYouGroup::Family,
                 MIN,
             ),
@@ -663,7 +663,7 @@ mod tests {
             &item(
                 "SHOP-34",
                 "Tax display",
-                Status::ValidationNoResult,
+                Status::CheckNoResult,
                 NeedsYouGroup::Family,
                 MIN,
             ),
@@ -824,7 +824,7 @@ mod tests {
         let mut stuck = item(
             "SHOP-40.3",
             "Wishlist page",
-            Status::ValidationFailed,
+            Status::CheckFailed,
             NeedsYouGroup::Family,
             6 * MIN,
         );
@@ -840,7 +840,7 @@ mod tests {
         assert_eq!(r.lead_note, stuck.lead_note);
         assert_eq!(
             r.actions,
-            validation_actions(Status::ValidationFailed)
+            validation_actions(Status::CheckFailed)
                 .into_iter()
                 .map(RowAction::Validation)
                 .collect::<Vec<_>>()
@@ -923,14 +923,14 @@ mod tests {
             item(
                 "SHOP-18",
                 "Checkout API",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 Review,
                 25 * MIN,
             ),
             item(
                 "BILL-5",
                 "VAT rounding fix",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 Review,
                 60 * MIN,
             ),
@@ -1191,7 +1191,7 @@ mod tests {
         );
         assert_eq!(
             actions(
-                Status::ValidationNoResult,
+                Status::CheckNoResult,
                 NeedsYouGroup::Family,
                 Some(Role::Validator)
             ),
@@ -1205,7 +1205,7 @@ mod tests {
             [RowAction::RetryStart]
         );
         assert_eq!(
-            actions(Status::ValidationNoResult, NeedsYouGroup::Family, None),
+            actions(Status::CheckNoResult, NeedsYouGroup::Family, None),
             [
                 RowAction::Validation(A::Retry),
                 RowAction::Validation(A::MoveToReviewAnyway)
@@ -1250,7 +1250,7 @@ mod tests {
         let mut validator = item(
             "SHOP-29",
             "Coupon field",
-            Status::ValidationNoResult,
+            Status::CheckNoResult,
             NeedsYouGroup::Family,
             MIN,
         );

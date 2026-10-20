@@ -149,7 +149,12 @@ async fn list_filters_and_readiness() {
         &w,
         &["--project", "SHOP", "list", "--status", "dev", "--json"],
     ));
-    assert!(dev.as_array().unwrap().iter().all(|t| t["column"] == "dev"));
+    assert!(
+        dev.as_array()
+            .unwrap()
+            .iter()
+            .all(|t| t["stage"] == "dev" || t["stage"] == "validate")
+    );
 
     // Inside the repository, the project is found from the folder.
     let repo = w.board.project("SHOP").await.unwrap().repo_path;

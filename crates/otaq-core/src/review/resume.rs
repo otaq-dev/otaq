@@ -56,7 +56,7 @@ impl Review {
             ));
         }
         // It was validating: a fresh validation, not counted; the agent's conversation isn't touched (VAL-07).
-        if ticket.interrupted_from == Some(Status::Validating) {
+        if ticket.interrupted_from == Some(Status::Checking) {
             let hook = self
                 .inner
                 .validation_resume
@@ -267,7 +267,7 @@ impl Review {
         let scratch = mode == RETURN_SCRATCH;
         let mut tx = board.store().begin_write().await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, return_mode = ?,
+            "UPDATE tickets SET stage_id = NULL, state = ?, return_mode = ?,
                                 resume_prompt = CASE WHEN ? THEN NULL ELSE COALESCE(?, resume_prompt) END,
                                 resume_skill = CASE WHEN ? THEN NULL ELSE resume_skill END, queued_at = ?,
                                 start_problem_step = NULL, start_problem_message = NULL, signal_text = NULL,
@@ -275,7 +275,6 @@ impl Review {
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(Status::Queued.column().as_str())
         .bind(Status::Queued.as_str())
         .bind(mode)
         .bind(scratch)

@@ -347,7 +347,7 @@ mod tests {
     }
 
     fn shop18() -> Ticket {
-        let mut t = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let mut t = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         t.work = Some(Work {
             branch: Some(otaq_core::naming::branch("SHOP-18")),
             ..Default::default()
@@ -527,7 +527,7 @@ mod tests {
 
     #[test]
     fn an_epic_opens_one_pr() {
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::ReadyForReview);
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
         epic.kind = Kind::Epic;
         let d = PrDialog::opening(
             &epic,
@@ -565,7 +565,7 @@ mod tests {
             success_toast(&t, FlowKind::Push, "main").unwrap().title,
             "Pushed to PR #481"
         );
-        t.status = Status::ReadyForReview;
+        t.status = Status::WaitingForYou;
         assert!(open_box(&t, 0).is_none(), "only while the PR is open");
     }
 }

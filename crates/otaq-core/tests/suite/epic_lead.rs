@@ -252,7 +252,7 @@ async fn open_is_refused_for_a_live_lead_an_epic_in_review_and_a_plain_ticket() 
         .unwrap();
     assert_eq!(rows, 1);
 
-    for status in [Status::ReadyForReview, Status::PrOpen, Status::Merged] {
+    for status in [Status::WaitingForYou, Status::PrOpen, Status::Merged] {
         let search = epic(&w, "Search").await;
         w.force_status(&search, status).await;
         for result in [

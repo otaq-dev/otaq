@@ -532,7 +532,7 @@ async fn resume(
             w.start_worktree(&t).await;
             record_ended_on(w, &t, &agent).await;
             world.set_model(on, edited_to).await;
-            w.force_status(&t, Status::ReadyForReview).await;
+            w.force_status(&t, Status::WaitingForYou).await;
             w.board
                 .add_comment(&NewComment {
                     key: "SHOP-1".into(),
@@ -597,7 +597,7 @@ async fn resume(
             commit(&worktree, "api.ts", "checkout\n");
             record_ended_on(w, &t, &agent).await;
             world.set_model(on, edited_to).await;
-            w.force_status(&t, Status::ReadyForReview).await;
+            w.force_status(&t, Status::WaitingForYou).await;
             // A local origin has no PR provider: the user's own Open PR skill runs instead.
             let folder = otaq_core::workflow_skills::testing::skill_folder(w.data.root(), "my-pr");
             w.board

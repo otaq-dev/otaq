@@ -418,7 +418,7 @@ mod tests {
     use crate::view_models::card_fixtures::ticket;
 
     fn review_ticket() -> Ticket {
-        ticket("SHOP-18", "Checkout API", Status::ReadyForReview)
+        ticket("SHOP-18", "Checkout API", Status::WaitingForYou)
     }
 
     fn facts<'a>(
@@ -465,7 +465,7 @@ mod tests {
 
     #[test]
     fn a_hotfix_on_its_own_base_names_it_and_its_conflict() {
-        let mut t = ticket("SHOP-31", "Hotfix: checkout crash", Status::ReadyForReview);
+        let mut t = ticket("SHOP-31", "Hotfix: checkout crash", Status::WaitingForYou);
         t.flags.conflicts_with = Some("release/2.3".into());
         let all = vec![t.clone()];
         let view = approve_view(facts(&t, &all, "release/2.3", &ApproveCheck::Unchanged));

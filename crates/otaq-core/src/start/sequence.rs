@@ -278,11 +278,10 @@ impl Starter {
     pub async fn interrupt_cut_short(board: &Board) -> Result<u64, BoardError> {
         let now = now_ms();
         let result = sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, start_problem_message = ?, updated_at = ?, ",
+            "UPDATE tickets SET state = ?, start_problem_message = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE state IN (?, ?) AND start_problem_step IS NOT NULL AND start_problem_message IS NULL"
         ))
-        .bind(Status::StartInterrupted.column().as_str())
         .bind(Status::StartInterrupted.as_str())
         .bind(CUT_SHORT)
         .bind(now)
@@ -350,13 +349,12 @@ impl Starter {
         let actor = Actor::Agent(ticket.key.clone());
         let mut tx = board.store().begin_write().await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
+            "UPDATE tickets SET stage_id = NULL, state = ?, start_problem_step = ?, start_problem_message = ?,
                                 started_at = NULL, signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
                                 interrupted_from = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(to.column().as_str())
         .bind(to.as_str())
         .bind(StartStep::Model.as_str())
         .bind(message)
@@ -916,12 +914,13 @@ impl Starter {
         let now = now_ms();
         let mut tx = board.store().begin_write().await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
-                                updated_by = ?, updated_at = ?, ",
+            "UPDATE tickets SET stage_id = COALESCE(?, stage_id), state = ?, start_problem_step = ?,
+                                start_problem_message = ?, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(status.column().as_str())
+        // Started: in the default flow's Agent stage (T-0401 starts it into the stage it waits before).
+        .bind(crate::flow::engine::default_stage(status, None))
         .bind(status.as_str())
         .bind(problem.map(|(step, _)| step.as_str()))
         .bind(problem.map(|(_, message)| message))

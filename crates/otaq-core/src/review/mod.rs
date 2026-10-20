@@ -162,7 +162,7 @@ impl Review {
         if ticket.is_epic() {
             return Err(BoardError::refused(Refusal::MoveRefused, EPIC_NO_SEND_BACK));
         }
-        if ticket.status != Status::ReadyForReview {
+        if ticket.status != Status::WaitingForYou {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
@@ -189,7 +189,7 @@ impl Review {
         let board = &inner.board;
         let _one_at_a_time = inner.merging.lock().await;
         let ticket = board.ticket(key).await?;
-        if ticket.status != Status::ReadyForReview {
+        if ticket.status != Status::WaitingForYou {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
@@ -331,7 +331,7 @@ impl Review {
         let ticket = board.ticket(key).await?;
         let conflict = board.conflict(&ticket.id).await?;
         let target = match (&conflict, ticket.status) {
-            (Some(c), Status::ReadyForReview) if c.reason == ConflictReason::Merge => {
+            (Some(c), Status::WaitingForYou) if c.reason == ConflictReason::Merge => {
                 c.target.clone()
             }
             _ => {
@@ -356,7 +356,7 @@ impl Review {
         let board = &self.inner.board;
         let git = board.git()?;
         for ticket in board.tickets(project).await? {
-            if ticket.status != Status::ReadyForReview {
+            if ticket.status != Status::WaitingForYou {
                 continue;
             }
             let Ok(merge) = board.merge_target(&ticket).await else {

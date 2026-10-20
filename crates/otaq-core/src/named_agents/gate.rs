@@ -43,7 +43,7 @@ use crate::agent_tools::follow::FollowChoice;
 use crate::agent_tools::models::{ModelCopy, ModelLists};
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
-use crate::domain::{Actor, Column, StartStep, Status, TicketKey};
+use crate::domain::{Actor, StartStep, Status, StatusSet, TicketKey};
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::SessionAgent;
@@ -885,12 +885,11 @@ impl LaunchGate {
         let now = now_ms();
         let mut tx = store.begin_write().await?;
         let done = sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, start_problem_step = NULL, start_problem_message = NULL,
+            "UPDATE tickets SET state = ?, start_problem_step = NULL, start_problem_message = NULL,
                                 updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ? AND state = ? AND start_problem_step IN (?, ?, ?)"
         ))
-        .bind(queued.column().as_str())
         .bind(queued.as_str())
         .bind(now)
         .bind(queued.as_str())
@@ -1029,14 +1028,14 @@ fn same_hold(stored: &AgentHold, held: &Held) -> bool {
 /// opened without its validator, an epic whose lead could still start.
 pub fn still_waits(ticket: &Ticket, role: Role) -> bool {
     match role {
-        Role::Developer => ticket.column == Column::ReadyForDev,
+        Role::Developer => ticket.board_group() == StatusSet::Waiting,
         Role::Validator => matches!(
             ticket.status,
-            Status::Validating | Status::WaitingForLimitReset
+            Status::Checking | Status::WaitingForLimitReset
         ),
         Role::EpicLead => !matches!(
-            ticket.column,
-            Column::ReadyForReview | Column::Approved | Column::Done
+            ticket.board_group(),
+            StatusSet::HumanCheck | StatusSet::Delivery | StatusSet::Done
         ),
         Role::ProjectAgent => false,
     }

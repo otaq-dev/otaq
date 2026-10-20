@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
-use crate::domain::{Column, Kind, Priority, Status, TicketKey};
+use crate::domain::{Kind, Priority, Status, StatusSet, TicketKey};
 use crate::naming;
 use crate::policy::BACKLOG_ONLY;
 use crate::prime::{AgentReader, Instructions, PrimeAgent, render_agents};
@@ -66,7 +66,7 @@ impl PrimeTicket {
             depends_on: t.depends_on.clone(),
             parent: t.epic.clone(),
             external_id: t.external_id.clone(),
-            editable: t.column == Column::Backlog && !t.has_started(),
+            editable: t.board_group() == StatusSet::Backlog && !t.has_started(),
             worktree: work.and_then(|w| w.worktree.clone()),
             branch: work.and_then(|w| w.branch.clone()),
         }

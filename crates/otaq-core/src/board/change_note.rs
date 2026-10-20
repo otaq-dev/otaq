@@ -115,7 +115,7 @@ fn lines(text: &str) -> Vec<&str> {
 mod tests {
     use super::*;
     use crate::board::tickets::Base;
-    use crate::domain::{Actor, Column, Flags, Kind, Status};
+    use crate::domain::{Actor, Flags, Kind, Status};
 
     fn ticket(body: &str) -> Ticket {
         Ticket {
@@ -127,7 +127,7 @@ mod tests {
             priority: Default::default(),
             priority_inherited: false,
             epic: None,
-            column: Column::Dev,
+            place: crate::domain::Place::stage_of(crate::flow::default::DEV),
             status: Status::Working,
             base: Base::Branch("main".into()),
             base_locked: true,

@@ -309,7 +309,7 @@ async fn the_users_submit_for_review_isnt_refused() {
 
     let answer = send_as_user(&w, "ticket.submit_by_user", json!({"key": "SHOP-40.2"})).await;
     ok(&answer);
-    assert_eq!(w.status("SHOP-40.2").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-40.2").await, Status::WaitingForYou);
     w.stop().await;
 }
 

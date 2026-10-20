@@ -8,7 +8,7 @@ use otaq_core::board::projects::AddProject;
 use otaq_core::board::tickets::{NewTicketInput, TicketUpdate};
 use otaq_core::client::{Client, ClientConfig, ClientError};
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{Column, Priority, Status};
+use otaq_core::domain::{Priority, Status, StatusSet};
 use otaq_core::git::testing::TempRepos;
 use otaq_core::protocol::{
     DepParams, ErrorKind, Event, KeyParams, MoveParams, ProjectParams, Reply, Request,
@@ -209,7 +209,7 @@ async fn projects_tickets_deps_and_events() {
     let ready_for_dev = board
         .columns
         .iter()
-        .find(|c| c.column == Column::ReadyForDev)
+        .find(|c| c.column == StatusSet::Waiting)
         .unwrap();
     assert_eq!(
         ready_for_dev
@@ -222,7 +222,7 @@ async fn projects_tickets_deps_and_events() {
     let backlog = board
         .columns
         .iter()
-        .find(|c| c.column == Column::Backlog)
+        .find(|c| c.column == StatusSet::Backlog)
         .unwrap();
     assert_eq!(backlog.cards.len(), 1);
 

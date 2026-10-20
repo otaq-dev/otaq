@@ -113,7 +113,7 @@ async fn start_again(shared: &Shared, key: &str, role: Role) {
             shared.starter.retry(key, &actor).await.map(|_| ())
         }
         Role::Validator
-            if ticket.status == Status::ValidationNoResult
+            if ticket.status == Status::CheckNoResult
                 && ticket
                     .signal
                     .as_ref()

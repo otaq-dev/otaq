@@ -14,11 +14,11 @@ use crate::view_models::card::tokens_label;
 /// times".
 pub fn pill_label(ticket: &Ticket) -> Option<String> {
     match ticket.status {
-        Status::Validating => ticket
+        Status::Checking => ticket
             .flags
             .validating_round
             .map(|r| format!("{VALIDATING} \u{b7} round {} of {}", r.round, r.of)),
-        Status::ValidationFailed => Some(failed_times(ticket.validation_round.max(1))),
+        Status::CheckFailed => Some(failed_times(ticket.validation_round.max(1))),
         _ => None,
     }
 }
@@ -28,10 +28,7 @@ pub fn pill_label(ticket: &Ticket) -> Option<String> {
 pub fn token_split(ticket: &Ticket, usage: &TicketUsage) -> Option<String> {
     let validation = usage.validation?;
     let agent = usage.agent()?;
-    let running = matches!(
-        ticket.status,
-        Status::Validating | Status::ValidatorNeedsYou
-    );
+    let running = matches!(ticket.status, Status::Checking | Status::CheckerNeedsYou);
     let rounds = (usage.rounds + u32::from(running)).max(1);
     Some(format!(
         "agent {} \u{b7} validation {} ({rounds} {})",
@@ -44,7 +41,7 @@ pub fn token_split(ticket: &Ticket, usage: &TicketUsage) -> Option<String> {
 /// Why Auto-merge stopped, under the action bar (*Auto-merge stop · messages*): "Keeps conflicting with
 /// otaq/SHOP-40 (3 tries in a row).", or the Local merge's own message.
 pub fn stop_message(ticket: &Ticket) -> Option<String> {
-    if ticket.status != Status::AutoMergeStopped {
+    if ticket.status != Status::DeliveryStopped {
         return None;
     }
     if let (Some(AutoMergeStop::KeepsConflicting), Some(target)) =
@@ -75,7 +72,7 @@ pub struct AnswerAgentText {
 
 /// `rounds` is the project's Validation rounds: the counter restarts at 0 with that many new rounds.
 pub fn answer_agent_text(ticket: &Ticket, rounds: u32) -> Option<AnswerAgentText> {
-    (ticket.status == Status::ValidationFailed).then(|| AnswerAgentText {
+    (ticket.status == Status::CheckFailed).then(|| AnswerAgentText {
         heading: "Answer the agent",
         placeholder: "What the agent should do about the findings",
         footer: format!(
@@ -94,11 +91,7 @@ pub fn answer_agent_text(ticket: &Ticket, rounds: u32) -> Option<AnswerAgentText
 /// The editor's warning while it validates (VAL-08): "SHOP-29’s validation will be cancelled and its agent told
 /// what changed."
 pub fn editor_warning(ticket: &Ticket) -> Option<String> {
-    matches!(
-        ticket.status,
-        Status::Validating | Status::ValidatorNeedsYou
-    )
-    .then(|| {
+    matches!(ticket.status, Status::Checking | Status::CheckerNeedsYou).then(|| {
         format!(
             "{}\u{2019}s validation will be cancelled and its agent told what changed.",
             ticket.key
@@ -124,7 +117,7 @@ mod tests {
     }
 
     fn validating() -> Ticket {
-        let mut t = ticket("SHOP-29", "Coupon field", Status::Validating);
+        let mut t = ticket("SHOP-29", "Coupon field", Status::Checking);
         t.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
         t
     }
@@ -135,7 +128,7 @@ mod tests {
             pill_label(&validating()).as_deref(),
             Some("Validating\u{2026} \u{b7} round 1 of 3")
         );
-        let mut failed = ticket("SHOP-32", "Address autocomplete", Status::ValidationFailed);
+        let mut failed = ticket("SHOP-32", "Address autocomplete", Status::CheckFailed);
         failed.validation_round = 3;
         assert_eq!(
             pill_label(&failed).as_deref(),
@@ -157,7 +150,7 @@ mod tests {
             token_split(&validating(), &usage).as_deref(),
             Some("agent 58k \u{b7} validation 9k (1 round)")
         );
-        let failed = ticket("SHOP-32", "t", Status::ValidationFailed);
+        let failed = ticket("SHOP-32", "t", Status::CheckFailed);
         let usage = TicketUsage {
             id: "x".into(),
             tokens: tokens(244_000),
@@ -179,7 +172,7 @@ mod tests {
 
     #[test]
     fn the_stop_messages_match_the_frame() {
-        let mut t = ticket("SHOP-40.2", "Wishlist page", Status::AutoMergeStopped);
+        let mut t = ticket("SHOP-40.2", "Wishlist page", Status::DeliveryStopped);
         t.auto_merge_stop = Some(AutoMergeStop::KeepsConflicting);
         t.auto_merge_conflicts = 3;
         let epic = otaq_core::naming::branch("SHOP-40");
@@ -205,7 +198,7 @@ mod tests {
 
     #[test]
     fn answer_the_agent_and_the_editor_warning() {
-        let mut failed = ticket("SHOP-32", "Address autocomplete", Status::ValidationFailed);
+        let mut failed = ticket("SHOP-32", "Address autocomplete", Status::CheckFailed);
         failed.validation_round = 3;
         let text = answer_agent_text(&failed, 3).unwrap();
         assert_eq!(

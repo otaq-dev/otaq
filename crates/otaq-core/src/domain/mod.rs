@@ -1,4 +1,4 @@
-//! The nouns every other module talks about, as plain types with no I/O: ticket keys, kinds, columns, statuses
+//! The nouns every other module talks about, as plain types with no I/O: ticket keys, kinds, places, statuses
 //! and flags (SDD §6.2, §7.1, §7.2).
 //!
 //! Each enum has one stored string form (`as_str` / `FromStr`), used in the database and on the wire, so a
@@ -18,7 +18,7 @@ pub use flags::{
 };
 pub use key::{KeyError, ProjectKey, TicketKey};
 pub use priority::{PRIORITY_RANGE, Priority};
-pub use status::{Column, Kind, StartStep, Status};
+pub use status::{Kind, Place, StartStep, Status, StatusSet};
 pub use ticket_env::{BuildState, ResourceState, SchemaOverlap};
 pub use validation::{
     AutoMergeStop, ReviewEntry, ReviewEntryFlag, ValidationAction, ValidationOutcome,

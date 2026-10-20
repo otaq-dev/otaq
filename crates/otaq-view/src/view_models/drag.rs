@@ -18,18 +18,19 @@
 //! running", or "Park 2 running children", which asks first); Ready for Dev and Dev queue the rest, as the card
 //! does; the other columns are not allowed.
 
+use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::epic_flight::{self, EpicPlace, TakeBackPlan, nothing_to_queue};
 use otaq_core::board::moves::{
     DropTarget, MERGED_LOCKED, MoveAction, MoveCheck, ONLY_AGENT_SUBMITS, check_move,
 };
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Column, Status, TicketKey};
+use otaq_core::domain::{Status, TicketKey};
 
 use crate::icons::IconName;
 
 /// Where a drop on a column lands. A drop on Dev from Backlog lands in Ready for Dev until it can start (d0066).
 pub fn target_for(column: Column) -> DropTarget {
-    DropTarget::of(column)
+    column.target()
 }
 
 /// *03 · Drag · over a forbidden column*: the reason over Ready for Review.
@@ -65,7 +66,7 @@ pub enum EpicQueue<'a> {
 /// The epic queue a drop of `ticket` makes, from the project's `tickets` (which may be just the epic's children);
 /// `None` for anything else (a standalone ticket, a child already queued or started, an epic past Backlog).
 pub fn epic_queue<'a>(ticket: &'a Ticket, tickets: &'a [Ticket]) -> Option<EpicQueue<'a>> {
-    if ticket.column != Column::Backlog {
+    if ticket.column() != Column::Backlog {
         return None;
     }
     if ticket.is_epic() {
@@ -142,7 +143,7 @@ pub fn feedback(ticket: &Ticket, tickets: &[Ticket], column: Column) -> DropFeed
         MoveCheck::Refused { reason } => {
             let detail = match reason.as_str() {
                 // Only a Backlog card can be queued instead.
-                ONLY_AGENT_SUBMITS if ticket.column == Column::Backlog => {
+                ONLY_AGENT_SUBMITS if ticket.column() == Column::Backlog => {
                     Some("Drag to Ready for Dev to queue it.")
                 }
                 MERGED_LOCKED => Some("Fixing merged work means a new ticket."),
@@ -264,7 +265,7 @@ pub fn on_drop(ticket: &Ticket, tickets: &[Ticket], column: Column) -> DropActio
         },
         Column::Backlog,
         Some(epic),
-    ) = (&check, ticket.column, &ticket.epic)
+    ) = (&check, ticket.column(), &ticket.epic)
     {
         return DropAction::QueueEpic {
             epic: epic.clone(),
@@ -374,7 +375,7 @@ mod tests {
 
         // A parked row resumes (EPC-14).
         let parked = child("SHOP-45.1", Status::Parked);
-        assert_eq!(parked.column, Column::Backlog);
+        assert_eq!(parked.column(), Column::Backlog);
         assert_eq!(
             drop_hint(&parked, &[], Column::ReadyForDev),
             Some((IconName::Play, "Resume SHOP-45.1".to_owned()))
@@ -526,7 +527,7 @@ mod tests {
         // Nothing queued or running (the last child merged, the epic not yet in Review): not allowed, with why.
         let merged = [
             child("SHOP-45.1", Status::Merged),
-            child("SHOP-45.2", Status::ReadyForReview),
+            child("SHOP-45.2", Status::WaitingForYou),
         ];
         assert!(is_track(&epic, &merged));
         assert_eq!(
@@ -662,7 +663,7 @@ mod tests {
             "Drop to park · asks first"
         );
         let mut parked = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Parked);
-        parked.column = Column::Backlog;
+        parked.place = otaq_core::domain::Place::Backlog;
         assert!(
             drop_hint(&parked, &[], Column::Dev)
                 .unwrap()
@@ -686,7 +687,7 @@ mod tests {
         assert_eq!(on_drop(&queued, &[], Column::Backlog), DropAction::Move);
         let working = ticket("SHOP-19", "Price table", Status::Working);
         assert_eq!(on_drop(&working, &[], Column::Backlog), DropAction::AskPark);
-        let review = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         assert_eq!(
             on_drop(&review, &[], Column::Approved),
             DropAction::ChooseApprove

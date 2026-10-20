@@ -37,7 +37,7 @@ use tokio::task::JoinSet;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, BuildState, Column, ResourceState, Status, TicketKey};
+use crate::domain::{Actor, BuildState, ResourceState, Status, StatusSet, TicketKey};
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::{SessionKind, Sessions};
@@ -383,7 +383,9 @@ impl TicketEnv {
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut tasks = JoinSet::new();
         // The tickets last seen in Ready for Dev (those there at startup too): leaving it changes the stock limit.
-        let mut ready = self.ids_in(|s| s.column() == Column::ReadyForDev).await;
+        let mut ready = self
+            .ids_in(|s| s.set().board_group() == StatusSet::Waiting)
+            .await;
         // The tickets last seen in [`FREED_IN`]: entering or leaving it scans their project's schema paths again.
         let mut in_review = self.ids_in(|s| FREED_IN.contains(&s)).await;
         loop {
@@ -412,7 +414,7 @@ impl TicketEnv {
                             let (env, project) = (self.clone(), key.project.to_string());
                             tasks.spawn(async move { env.rescan_schema(&project).await });
                         }
-                        let entered = status.column() == Column::ReadyForDev;
+                        let entered = status.set().board_group() == StatusSet::Waiting;
                         let left = !entered && ready.remove(&id);
                         if entered {
                             ready.insert(id);
@@ -444,7 +446,9 @@ impl TicketEnv {
             if lagged {
                 // What the missed events changed: the sets are read again, and every stock's limit applied (a
                 // ticket that entered or left Ready for Dev unseen changed it).
-                ready = self.ids_in(|s| s.column() == Column::ReadyForDev).await;
+                ready = self
+                    .ids_in(|s| s.set().board_group() == StatusSet::Waiting)
+                    .await;
                 in_review = self.ids_in(|s| FREED_IN.contains(&s)).await;
                 let env = self.clone();
                 tasks.spawn(async move {

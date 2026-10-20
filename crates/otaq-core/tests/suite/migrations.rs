@@ -216,10 +216,11 @@ async fn queued_tickets_move_to_ready_for_dev() {
     }
     pool.close().await;
 
-    let store = Store::open(&path).await.unwrap();
+    // Read at 0024: 0046 drops the column (T-0400).
+    let pool = database_at(&path, 24).await;
     let rows: Vec<(String, String, Option<i64>)> =
         sqlx::query_as("SELECT state, board_column, ready_since FROM tickets ORDER BY number")
-            .fetch_all(store.pool())
+            .fetch_all(&pool)
             .await
             .unwrap();
     for (state, column, ready_since) in rows {
@@ -1443,4 +1444,317 @@ async fn questions_asked_before_notes_read_as_no_notes() {
     let question = board.open_question("t31").await.unwrap().expect("open");
     assert_eq!(question.options, ["Postmark", "SES"]);
     assert!(question.notes.is_empty());
+}
+
+/// T-0400 (STG-04, STG-05; d0108): migration 0046 puts a ticket in each of today's 26 states (and an Interrupted or
+/// limit-held validation) in its place and stage of the default flow, drops `board_column`, makes today's
+/// validation rounds runs of `validate` and opens a run for each ticket in a stage; nothing else changes.
+#[tokio::test]
+async fn every_state_moves_to_its_place_and_stage() {
+    use otaq_core::domain::{Place, Status};
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 45).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'pocket-notes', '/tmp/pocket-notes', 'NOTE', 'main', 41, 0)",
+    )
+    .await;
+    // (state, interrupted_from, today's column) → (state, stage).
+    type Row<'a> = (&'a str, Option<&'a str>, &'a str, &'a str, Option<&'a str>);
+    let rows: &[Row] = &[
+        ("backlog", None, "backlog", "backlog", None),
+        ("parked", None, "backlog", "parked", None),
+        ("epic_in_progress", None, "backlog", "backlog", None),
+        ("queued", None, "ready_for_dev", "queued", None),
+        (
+            "waiting_for_slot",
+            None,
+            "ready_for_dev",
+            "waiting_for_slot",
+            None,
+        ),
+        ("held", None, "ready_for_dev", "held", None),
+        (
+            "parent_closed",
+            None,
+            "ready_for_dev",
+            "parent_closed",
+            None,
+        ),
+        (
+            "start_interrupted",
+            None,
+            "ready_for_dev",
+            "start_interrupted",
+            None,
+        ),
+        ("working", None, "dev", "working", Some("dev")),
+        (
+            "working_in_background",
+            None,
+            "dev",
+            "working_in_background",
+            Some("dev"),
+        ),
+        ("asks_you", None, "dev", "asks_you", Some("dev")),
+        ("needs_you", None, "dev", "needs_you", Some("dev")),
+        ("idle", None, "dev", "idle", Some("dev")),
+        (
+            "waiting_for_limit_reset",
+            None,
+            "dev",
+            "waiting_for_limit_reset",
+            Some("dev"),
+        ),
+        (
+            "interrupted",
+            Some("idle"),
+            "dev",
+            "interrupted",
+            Some("dev"),
+        ),
+        ("resume_failed", None, "dev", "resume_failed", Some("dev")),
+        ("validating", None, "dev", "validating", Some("validate")),
+        (
+            "validator_needs_you",
+            None,
+            "dev",
+            "validator_needs_you",
+            Some("validate"),
+        ),
+        (
+            "validation_failed",
+            None,
+            "dev",
+            "validation_failed",
+            Some("validate"),
+        ),
+        (
+            "validation_no_result",
+            None,
+            "dev",
+            "validation_no_result",
+            Some("validate"),
+        ),
+        (
+            "merge_conflict_fixing",
+            None,
+            "dev",
+            "merge_conflict_fixing",
+            Some("dev"),
+        ),
+        (
+            "auto_merge_stopped",
+            None,
+            "dev",
+            "auto_merge_stopped",
+            Some("dev"),
+        ),
+        (
+            "ready_for_review",
+            None,
+            "ready_for_review",
+            "ready_for_review",
+            Some("review"),
+        ),
+        ("pr_open", None, "approved", "pr_open", Some("deliver")),
+        ("merged", None, "done", "merged", None),
+        ("closed_not_merged", None, "done", "closed_not_merged", None),
+        (
+            "interrupted",
+            Some("validating"),
+            "dev",
+            "interrupted",
+            Some("validate"),
+        ),
+        (
+            "waiting_for_limit_reset",
+            Some("validating"),
+            "dev",
+            "waiting_for_limit_reset",
+            Some("validate"),
+        ),
+    ];
+    assert_eq!(
+        rows.iter()
+            .take(26)
+            .map(|r| r.0)
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        26,
+        "each of today's 26 states once"
+    );
+    for (n, (state, from, column, _, _)) in rows.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO tickets (id, project_id, number, kind, title, board_column, state, interrupted_from,
+                                  created_by, created_at, updated_at, state_since, validation_round)
+             VALUES (?, 'p', ?, 'ticket', ?, ?, ?, ?, 'me', 1, 2, 3, 1)",
+        )
+        .bind(format!("t{}", n + 1))
+        .bind(n as i64 + 1)
+        .bind(format!("Ticket {state}"))
+        .bind(*column)
+        .bind(*state)
+        .bind(*from)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    exec(
+        &pool,
+        "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, model, model_ran, named_agent_name, state,
+                               started_at, ended_at)
+         VALUES ('dev9', 'p', 't9', 'agent', 'claude', 'sonnet', 'claude-sonnet-5-5', 'Developer', 'running', 5,
+                 NULL),
+                ('val17', 'p', 't17', 'validator', 'claude', 'opus', NULL, 'Validator', 'running', 6, NULL)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO validations (id, ticket_id, round, trigger, session_id, started_at, ended_at, outcome, report)
+         VALUES ('v1', 't17', 1, 'agent', NULL, 4, 5, 'fail', 'Missing test'),
+                ('v2', 't17', 2, 'agent', 'val17', 6, NULL, NULL, NULL)",
+    )
+    .await;
+    // Every column but the dropped one, as text, before the migration.
+    let columns: Vec<String> = sqlx::query_scalar("SELECT name FROM pragma_table_info('tickets')")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    let kept: Vec<&String> = columns
+        .iter()
+        .filter(|c| !matches!(c.as_str(), "board_column" | "state"))
+        .collect();
+    let snapshot = |pool: SqlitePool| {
+        let list = kept
+            .iter()
+            .map(|c| format!("COALESCE(CAST({c} AS TEXT), '∅')"))
+            .collect::<Vec<_>>()
+            .join(" || '|' || ");
+        async move {
+            sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(format!(
+                "SELECT {list} FROM tickets ORDER BY number"
+            )))
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+        }
+    };
+    let before = snapshot(pool.clone()).await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let after: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT state, stage_id FROM tickets ORDER BY number")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    for ((state, from, _, to, stage), (got_state, got_stage)) in rows.iter().zip(&after) {
+        assert_eq!(
+            (got_state.as_str(), got_stage.as_deref()),
+            (*to, *stage),
+            "{state} (from {from:?})"
+        );
+    }
+    let columns: Vec<String> = sqlx::query_scalar("SELECT name FROM pragma_table_info('tickets')")
+        .fetch_all(store.pool())
+        .await
+        .unwrap();
+    assert!(!columns.iter().any(|c| c == "board_column"), "{columns:?}");
+    assert_eq!(
+        snapshot(store.pool().clone()).await,
+        before,
+        "nothing else changes"
+    );
+
+    // The board reads each place.
+    let data = otaq_core::data_dir::DataDir::new(path.parent().unwrap().join("home"));
+    let board = otaq_core::board::Board::new(store.clone(), None, data);
+    let tickets = board.tickets("NOTE").await.unwrap();
+    let place = |state: &str, n: usize| {
+        let t = tickets
+            .iter()
+            .find(|t| t.title == format!("Ticket {state}") && t.key.number as usize == n)
+            .unwrap();
+        (t.place.clone(), t.status)
+    };
+    assert_eq!(place("parked", 2), (Place::Backlog, Status::Parked));
+    assert_eq!(place("held", 6), (Place::Waiting(None), Status::Held));
+    assert_eq!(
+        place("working", 9),
+        (Place::stage_of("dev"), Status::Working)
+    );
+    assert_eq!(
+        place("validating", 17),
+        (Place::stage_of("validate"), Status::Checking)
+    );
+    assert_eq!(
+        place("ready_for_review", 23),
+        (Place::stage_of("review"), Status::WaitingForYou)
+    );
+    assert_eq!(
+        place("pr_open", 24),
+        (Place::stage_of("deliver"), Status::PrOpen)
+    );
+    assert_eq!(place("merged", 25), (Place::Done, Status::Merged));
+    assert_eq!(
+        place("interrupted", 27),
+        (Place::stage_of("validate"), Status::Interrupted)
+    );
+
+    // The rounds are runs of `validate`; tickets in a stage have an open run, with their live session.
+    let runs = board.stage_runs("NOTE-17").await.unwrap();
+    let runs: Vec<_> = runs
+        .iter()
+        .map(|r| {
+            (
+                r.stage.as_str(),
+                r.kind.as_str(),
+                r.round,
+                r.result.map(|r| r.as_str()),
+                r.session.as_deref(),
+                r.model.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        runs,
+        [
+            ("validate", "check", Some(1), Some("failed"), None, None),
+            (
+                "validate",
+                "check",
+                Some(2),
+                None,
+                Some("val17"),
+                Some("opus")
+            )
+        ]
+    );
+    let dev = board.stage_runs("NOTE-9").await.unwrap();
+    assert_eq!(dev.len(), 1);
+    assert_eq!(
+        (
+            dev[0].stage.as_str(),
+            dev[0].session.as_deref(),
+            dev[0].agent.as_deref(),
+            dev[0].model.as_deref(),
+            dev[0].result
+        ),
+        (
+            "dev",
+            Some("dev9"),
+            Some("Developer"),
+            Some("claude-sonnet-5-5"),
+            None
+        )
+    );
+    assert!(board.stage_runs("NOTE-1").await.unwrap().is_empty());
+    assert!(board.stage_runs("NOTE-25").await.unwrap().is_empty());
+    assert_eq!(
+        board.stage_runs("NOTE-24").await.unwrap()[0].stage,
+        "deliver"
+    );
 }

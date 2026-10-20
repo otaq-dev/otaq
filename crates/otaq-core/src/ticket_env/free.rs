@@ -21,7 +21,7 @@ use crate::ticket_env::stock::Added;
 use crate::warm::keep;
 
 /// The statuses whose build is freed: Ready for Review and Approved (an approved ticket stays freed).
-pub const FREED_IN: [Status; 2] = [Status::ReadyForReview, Status::PrOpen];
+pub const FREED_IN: [Status; 2] = [Status::WaitingForYou, Status::PrOpen];
 
 /// What a Free did.
 #[derive(Debug, Clone, PartialEq, Eq)]

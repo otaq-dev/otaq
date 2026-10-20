@@ -301,7 +301,7 @@ async fn park_all_parks_every_running_child_after_one_confirmation() {
         )
         .await
         .unwrap();
-    assert_eq!(w.status(&key(&page)).await, Status::Validating);
+    assert_eq!(w.status(&key(&page)).await, Status::Checking);
     assert!(
         w.sessions
             .running_of(&page.id, SessionKind::Validator)
@@ -453,7 +453,7 @@ async fn a_resumed_child_goes_back_to_parked() {
     let api = f.child(&epic, "Search index API").await;
     let page = f.child(&epic, "Search results page").await;
     sqlx::query(
-        "UPDATE tickets SET board_column = 'backlog', state = 'parked', parked = TRUE, branch_name = 'otaq/x'
+        "UPDATE tickets SET stage_id = NULL, state = 'parked', parked = TRUE, branch_name = 'otaq/x'
          WHERE id = ?",
     )
     .bind(&api.id)

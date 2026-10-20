@@ -10,9 +10,10 @@
 //! ([`ApproveMenu`]). An epic's track dragged onto Backlog takes back (EPC-14): its waiting children at once, or,
 //! when every child started, Park all after its confirmation ([`ParkAllDialog`]).
 
+use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::epic_flight::TakeBackPlan;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Column, Status, TicketKey};
+use otaq_core::domain::{Status, TicketKey};
 use otaq_core::pr::provider::PrProvider;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -599,7 +600,7 @@ pub fn page(
         done_rail_width: board::DONE_RAIL_WIDTH,
         tab_count: tickets
             .iter()
-            .filter(|t| board::is_card(t, tickets) && t.column != Column::Done)
+            .filter(|t| board::is_card(t, tickets) && t.column() != Column::Done)
             .count()
             .to_string(),
     }
@@ -903,8 +904,8 @@ pub fn gallery() -> Gallery {
     let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
     pr.flags.pr_number = Some(481);
     let full = vec![
-        ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
-        ticket("SHOP-23", "Split user full name", Status::ReadyForReview),
+        ticket("SHOP-18", "Checkout API", Status::WaitingForYou),
+        ticket("SHOP-23", "Split user full name", Status::WaitingForYou),
         pr.clone(),
     ];
     let review_of = |name: &str, tickets: &[Ticket]| GalleryColumn {
@@ -922,7 +923,7 @@ pub fn gallery() -> Gallery {
         .expect("the Review column"),
     };
     let drag_of = |t: &Ticket| GalleryDrag {
-        from: format!("{} · {}", t.key, t.column.label()),
+        from: format!("{} · {}", t.key, t.column().label()),
         answer: drag_answer(t, &[]),
     };
     let one = |t: Ticket| vec![t, ticket("SHOP-24", "Update footer links", Status::Backlog)];
@@ -931,7 +932,7 @@ pub fn gallery() -> Gallery {
             review_of("both sections", &full),
             review_of(
                 "an empty Approved section",
-                &one(ticket("SHOP-18", "Checkout API", Status::ReadyForReview)),
+                &one(ticket("SHOP-18", "Checkout API", Status::WaitingForYou)),
             ),
             review_of("an empty Ready for Review section", &one(pr.clone())),
             review_of(
@@ -942,7 +943,7 @@ pub fn gallery() -> Gallery {
         drags: [
             ticket("SHOP-24", "Update footer links", Status::Backlog),
             ticket("SHOP-25", "Upgrade to Next.js 15", Status::Working),
-            ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
+            ticket("SHOP-18", "Checkout API", Status::WaitingForYou),
             pr,
             ticket("SHOP-30", "Order history", Status::ClosedNotMerged),
         ]
@@ -1004,7 +1005,7 @@ mod tests {
             ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou),
             ticket("SHOP-27", "Search results paging", Status::Working),
             ticket("SHOP-21", "Order confirmation email", Status::Queued),
-            ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
+            ticket("SHOP-18", "Checkout API", Status::WaitingForYou),
             pr,
             ticket("SHOP-17", "Add Stripe client", Status::Merged),
         ]
@@ -1046,7 +1047,7 @@ mod tests {
         assert_eq!(rows, [("SHOP-45.1", true), ("SHOP-45.2", true)]);
 
         tickets[1].status = Status::Queued;
-        tickets[1].column = Column::ReadyForDev;
+        tickets[1].place = otaq_core::domain::Place::Waiting(None);
         let board = page(
             &tickets,
             &facts(),
@@ -1107,7 +1108,7 @@ mod tests {
         );
 
         tickets[1].status = Status::Queued;
-        tickets[1].column = Column::ReadyForDev;
+        tickets[1].place = otaq_core::domain::Place::Waiting(None);
         tickets[1].queued_at = Some(1);
         let board = page(
             &tickets,
@@ -1145,7 +1146,7 @@ mod tests {
         assert_eq!(board.strip, None);
 
         tickets[1].status = Status::Queued;
-        tickets[1].column = Column::ReadyForDev;
+        tickets[1].place = otaq_core::domain::Place::Waiting(None);
         tickets[1].queued_at = Some(1_000);
         let board = page(
             &tickets,
@@ -1605,7 +1606,7 @@ mod tests {
             ticket("SHOP-24", "Update footer links", Status::Backlog),
             ticket("SHOP-21", "Order confirmation email", Status::Queued),
             ticket("SHOP-25", "Upgrade to Next.js 15", Status::Working),
-            ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
+            ticket("SHOP-18", "Checkout API", Status::WaitingForYou),
             pr,
             ticket("SHOP-30", "Order history", Status::ClosedNotMerged),
             ticket("SHOP-17", "Add Stripe client", Status::Merged),
@@ -1668,7 +1669,7 @@ mod tests {
     /// → the Review column is PR rework; a Ready for Review card dropped on its own column does nothing.
     #[test]
     fn approve_choice_and_pr_rework_on_drop() {
-        let review = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         assert_eq!(
             drop_step(&review, &[], DropTargetId::Approved),
             DropStep::Approve,
@@ -1723,7 +1724,7 @@ mod tests {
         let tickets = vec![
             epic,
             child("SHOP-45.1", Status::Merged),
-            child("SHOP-45.2", Status::ReadyForReview),
+            child("SHOP-45.2", Status::WaitingForYou),
             child("SHOP-45.3", Status::Working),
         ];
         let open = page(
@@ -1946,7 +1947,7 @@ mod tests {
                 .all(|v| matches!(v, Verdict::Forbidden { .. }))
         );
         let mut parked = child("SHOP-45.2", Status::Parked);
-        parked.column = Column::Backlog;
+        parked.place = otaq_core::domain::Place::Backlog;
         assert_eq!(
             verdicts(drag_answer(&parked, &tickets))[2],
             Verdict::Allowed {
@@ -2095,7 +2096,7 @@ mod tests {
         );
         // What the service's unqueue leaves (d0066).
         tickets[2].status = Status::Backlog;
-        tickets[2].column = Column::Backlog;
+        tickets[2].place = otaq_core::domain::Place::Backlog;
         let board = page(
             &tickets,
             &facts(),
@@ -2124,7 +2125,7 @@ mod tests {
         assert_eq!(park.title, "Park SHOP-25?");
         assert!(park.message.contains("will be stopped"), "{}", park.message);
         assert_eq!(park.kept.len(), 3);
-        let review = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         assert_eq!(
             drop_step(&review, &[], DropTargetId::Approved),
             DropStep::Approve
@@ -2223,10 +2224,10 @@ mod tests {
         let runs = at(Status::Working, Status::Working, Status::Queued);
         assert!(card_text(&runs, "SHOP-20").contains("waits for SHOP-18, SHOP-19 to merge"));
         assert!(card_text(&runs, "SHOP-21").contains("waits for SHOP-20 to merge"));
-        let review = at(Status::ReadyForReview, Status::Working, Status::Queued);
+        let review = at(Status::WaitingForYou, Status::Working, Status::Queued);
         assert!(card_text(&review, "SHOP-20").contains("SHOP-18 in Review"));
         // 3 · One parent merged.
-        let one = at(Status::Merged, Status::ReadyForReview, Status::Queued);
+        let one = at(Status::Merged, Status::WaitingForYou, Status::Queued);
         assert!(card_text(&one, "SHOP-20").contains("waits for SHOP-19 to merge"));
         // 4 · All parents merged: SHOP-20 works from the new main; SHOP-21 still waits.
         let all = at(Status::Merged, Status::Merged, Status::Working);

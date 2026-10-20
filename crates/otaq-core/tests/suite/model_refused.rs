@@ -14,7 +14,7 @@ use otaq_core::board::needs_you::NeedsYouGroup;
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
-use otaq_core::domain::{Actor, Column, Kind, StartStep, Status, ValidationAction};
+use otaq_core::domain::{Actor, Kind, StartStep, Status, StatusSet, ValidationAction};
 use otaq_core::named_agents::{
     AgentFields, FixedModels, NamedAgent, NamedAgents, Role, RowSetBy, row_lock,
 };
@@ -219,8 +219,8 @@ async fn a_developers_first_turn_refused_is_start_failed_not_started_and_never_r
     // Back in Ready for Dev as Start failed, with the step `model` and the tool's message; not started.
     let after = w.w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(
-        (after.status, after.column),
-        (Status::StartInterrupted, Column::ReadyForDev)
+        (after.status, after.board_group()),
+        (Status::StartInterrupted, StatusSet::Waiting)
     );
     let problem = after.start_problem.clone().unwrap();
     assert_eq!(problem.step, StartStep::Model);
@@ -382,8 +382,8 @@ async fn a_validator_round_refused_is_no_result_and_never_counts() {
     );
     let after = w.w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(
-        (after.status, after.column, after.validation_round),
-        (Status::ValidationNoResult, Column::Dev, 0)
+        (after.status, after.board_group(), after.validation_round),
+        (Status::CheckNoResult, StatusSet::AgentStage, 0)
     );
     let text = after.signal.as_ref().and_then(|s| s.text.clone()).unwrap();
     assert!(refused_its_model(&text), "{text}");
@@ -447,7 +447,7 @@ async fn a_validator_round_refused_is_no_result_and_never_counts() {
     let after = w.w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(
         (after.status, after.validation_round),
-        (Status::ValidationNoResult, 0)
+        (Status::CheckNoResult, 0)
     );
     let rounds: Vec<(i64, String)> = sqlx::query_as(
         "SELECT round, outcome FROM validations WHERE ticket_id = ? ORDER BY started_at, id",
@@ -467,7 +467,7 @@ async fn a_validator_round_refused_is_no_result_and_never_counts() {
         "params": {"key": "SHOP-1", "role": "validator", "agent": w.light.id}}))
     .unwrap();
     assert_eq!(client.request(request).await.unwrap(), Reply::Ok);
-    assert_eq!(w.w.status("SHOP-1").await, Status::Validating);
+    assert_eq!(w.w.status("SHOP-1").await, Status::Checking);
     w.w.stop().await;
 }
 

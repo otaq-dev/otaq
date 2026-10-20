@@ -535,7 +535,7 @@ pub fn submit(
         // Validation on: the validator checks it first, and its result comes back to this session (VAL-01).
         let validating = matches!(
             ticket.status,
-            otaq_core::domain::Status::Validating | otaq_core::domain::Status::WaitingForLimitReset
+            otaq_core::domain::Status::Checking | otaq_core::domain::Status::WaitingForLimitReset
         );
         let text = if validating {
             otaq_core::validation::SUBMITTED_VALIDATING.to_owned()

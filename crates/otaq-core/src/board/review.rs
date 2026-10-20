@@ -15,7 +15,8 @@ use serde_json::json;
 
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
-use crate::domain::{Actor, Status};
+use crate::domain::{Actor, ReviewEntry, Status};
+use crate::flow::engine::Move;
 use crate::signals::LIVE;
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
@@ -161,15 +162,22 @@ impl Board {
         &self,
         ticket: Ticket,
         summary: &str,
-        entry: Option<crate::domain::ReviewEntry>,
+        entry: Option<ReviewEntry>,
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
         let head = self.submit_head(&ticket).await?;
         let now = now_ms();
-        let status = Status::ReadyForReview;
+        // The agent's "next stage", or the user's Submit for review past the checks (STG-06).
+        // The agent checks run through `crate::validation::Validation::submit`; this submit goes past them
+        // (none on a flow with Validation off).
+        let step = self
+            .moved(&ticket, Status::Working, Move::SubmitByUser)
+            .await?;
+        let status = step.status;
         let mut tx = self.store.begin_write().await?;
+        step.record(&mut tx, &ticket.id, Some(summary)).await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, review_head_sha = ?, review_entered_at = ?,
+            "UPDATE tickets SET stage_id = ?, state = ?, review_head_sha = ?, review_entered_at = ?,
                                 review_entry = ?,
                                 signal_text = NULL, signal_since = NULL, wakeup_at = NULL, sent_back_at = NULL,
                                 resume_skill = NULL, conflicts_with = NULL, conflict_files = NULL,
@@ -178,7 +186,7 @@ impl Board {
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(status.column().as_str())
+        .bind(step.place.stage_id())
         .bind(status.as_str())
         .bind(&head)
         .bind(now)

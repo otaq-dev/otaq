@@ -382,7 +382,7 @@ mod tests {
     }
 
     fn shop18() -> Ticket {
-        let mut t = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let mut t = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         t.work = Some(otaq_core::board::tickets::Work {
             branch: Some(otaq_core::naming::branch("SHOP-18")),
             ..Default::default()
@@ -540,7 +540,7 @@ mod tests {
 
     #[test]
     fn epic_and_not_logged_in() {
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::ReadyForReview);
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
         epic.kind = Kind::Epic;
         let mut d = PrDialog::opening(
             &epic,

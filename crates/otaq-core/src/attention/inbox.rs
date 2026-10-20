@@ -367,7 +367,7 @@ impl Inbox {
         let mut texts = HashMap::new();
         for item in items.iter().filter(|i| notify::should_notify(i)) {
             let ticket = board.ticket_by_id(&item.id).await?;
-            let text = if ticket.status == Status::ValidationFailed {
+            let text = if ticket.status == Status::CheckFailed {
                 ticket.flags.findings.first().cloned()
             } else {
                 ticket

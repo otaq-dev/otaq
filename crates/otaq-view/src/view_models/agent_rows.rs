@@ -26,10 +26,11 @@
 //!   Verifier · Copilot · auto", with "asked for gpt-5.5, ran on auto"), row changes and moves ("Moved to Strong GPT
 //!   (Codex): Claude Code limit"), and a Done ticket's "Developer: Light (deleted) · claude-haiku-5-5 · 48k".
 
+use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::follow::FollowChoice;
 use otaq_core::agent_tools::models::{ModelKind, ModelList};
-use otaq_core::domain::{Column, Kind, Status, TicketKey};
+use otaq_core::domain::{Kind, Status, TicketKey};
 use otaq_core::named_agents::mark::is_swap;
 use otaq_core::named_agents::rows::{RowFacts, SessionAgentRun, TicketAgents};
 use otaq_core::named_agents::{CameFrom, MoveReason, NamedAgent, Role, RowLock, RowMove, RowSetBy};
@@ -854,7 +855,7 @@ pub fn gallery() -> Gallery {
     let mut deleted = edited.clone();
     deleted.agents.retain(|a| a.id != "light");
     let mut failed = shop_48_set_by_you();
-    failed.status = Some(Status::ValidationFailed);
+    failed.status = Some(Status::CheckFailed);
     failed.rows[1] = row(
         &failed.agents,
         Role::Validator,
@@ -1184,7 +1185,7 @@ pub mod fixtures {
         let (strong, light) = (find(&agents, "strong"), find(&agents, "light"));
         ticket(
             "SHOP-29",
-            Status::Validating,
+            Status::Checking,
             agents.clone(),
             vec![
                 row(
@@ -1354,7 +1355,7 @@ pub mod fixtures {
         TicketAgents {
             key: Some("SHOP-40".parse().expect("key")),
             kind: Kind::Epic,
-            status: Some(Status::EpicInProgress),
+            status: Some(Status::Backlog),
             rows: vec![row(
                 &agents,
                 Role::EpicLead,
@@ -1545,7 +1546,7 @@ pub mod fixtures {
         let (strong, verifier) = (find(&agents, "strong"), find(&agents, "verifier"));
         ticket(
             "SHOP-29",
-            Status::Validating,
+            Status::Checking,
             agents.clone(),
             vec![
                 row(
@@ -1909,7 +1910,7 @@ mod tests {
         let (strong, light) = (find(&agents, "strong"), find(&agents, "light"));
         let t = ticket(
             "SHOP-30",
-            Status::ValidationFailed,
+            Status::CheckFailed,
             agents.clone(),
             vec![
                 row(
@@ -1995,7 +1996,7 @@ mod tests {
         let (cc, fable) = (starter(), find(&agents, "fable"));
         let t = ticket(
             "SHOP-29",
-            Status::Validating,
+            Status::Checking,
             agents.clone(),
             vec![
                 row(&agents, Role::Developer, None, "cc", Some(RowLock::Started)),

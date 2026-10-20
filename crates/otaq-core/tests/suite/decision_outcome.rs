@@ -73,7 +73,7 @@ async fn new_ticket(w: &TestService, title: &str, kind: Kind, epic: Option<&Tick
 async fn in_review(w: &TestService, t: &Ticket, file: &str) {
     let wt = w.start_worktree(t).await;
     commit(&wt, file, &format!("{file}\n"));
-    w.force_status(t, Status::ReadyForReview).await;
+    w.force_status(t, Status::WaitingForYou).await;
 }
 
 fn history_of(
@@ -203,7 +203,7 @@ async fn auto_merge_keeps_nothing_and_the_epic_approve_keeps_the_childrens() {
 
     w.review.auto_merge("SHOP-1.1").await.unwrap();
     assert_eq!(w.status("SHOP-1.1").await, Status::Merged);
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     let open = decisions::list(&w.board, "SHOP-1.1").await.unwrap();
     assert_eq!(open[0].outcome, Outcome::Open);
     assert!(
@@ -352,7 +352,7 @@ async fn change_asks_first_over_unsent_text() {
             unclearable_by: None,
         }
     );
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     assert_eq!(
         decisions::get(&w.board, "SHOP-1#1").await.unwrap().outcome,
         Outcome::Open
@@ -388,7 +388,7 @@ async fn change_in_an_epic_review_adds_a_fix_child_and_the_epic_is_a_track_again
     for child in [&api, &page] {
         w.review.auto_merge(&child.key.to_string()).await.unwrap();
     }
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
 
     // The dialog's prefill.
     assert_eq!(
@@ -523,6 +523,6 @@ async fn the_refusals() {
         decisions::get(&w.board, "SHOP-1#1").await.unwrap().outcome,
         Outcome::Open
     );
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     w.stop().await;
 }

@@ -116,7 +116,7 @@ impl Board {
                 super::review::EPIC_NO_SEND_BACK,
             ));
         }
-        if ticket.status != Status::ReadyForReview {
+        if ticket.status != Status::WaitingForYou {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(

@@ -129,7 +129,7 @@ async fn submit(w: &TestService, t: &Ticket) {
         .await
         .unwrap();
     match reply {
-        Reply::Ticket(after) => assert_eq!(after.status, Status::ReadyForReview),
+        Reply::Ticket(after) => assert_eq!(after.status, Status::WaitingForYou),
         other => panic!("{other:?}"),
     }
 }
@@ -241,7 +241,7 @@ async fn review_entry_frees_the_build_and_the_worktree_stays_clean() {
         assert_eq!(WarmRecord::read(&freed).unwrap().from, key);
 
         let after = w.board.ticket(&key).await.unwrap();
-        assert_eq!(after.status, Status::ReadyForReview);
+        assert_eq!(after.status, Status::WaitingForYou);
         let work = after.work.unwrap();
         assert_eq!(
             (&work.worktree, &work.branch, work.agent_port, work.run_port),
@@ -277,7 +277,7 @@ async fn the_sweep_frees_what_no_event_announced() {
     let project = shop_web(&w).await;
     let (review, _) = started(&w, "In review", "a.ts").await;
     let (working, working_wt) = started(&w, "Working", "b.ts").await;
-    w.force_status(&review, Status::ReadyForReview).await;
+    w.force_status(&review, Status::WaitingForYou).await;
     w.force_status(&working, Status::Working).await;
 
     w.ticket_env.sweep().await;
@@ -315,7 +315,7 @@ async fn with_validation_on_the_build_is_freed_only_after_the_pass() {
         )
         .await
         .unwrap();
-    assert_eq!(validating.status, Status::Validating);
+    assert_eq!(validating.status, Status::Checking);
     announce(&w, &key).await;
     w.ticket_env.sweep().await;
     stays_present(&w, &key).await;
@@ -331,7 +331,7 @@ async fn with_validation_on_the_build_is_freed_only_after_the_pass() {
         .verdict(&key, true, "ok", &validator)
         .await
         .unwrap();
-    assert_eq!(passed.status, Status::ReadyForReview);
+    assert_eq!(passed.status, Status::WaitingForYou);
     announce(&w, &key).await;
     until_freed(&w, &key).await;
     assert!(!wt.join("out").exists());
@@ -373,7 +373,7 @@ async fn a_free_that_fails_keeps_the_build_and_shows_in_cleanup() {
     let project = shop_web(&w).await;
     let (t, wt) = started(&w, "Locked build", "lock.ts").await;
     let key = t.key.to_string();
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     let held = hold(&wt);
 
     let outcome = w.ticket_env.free(&t.key).await;
@@ -383,7 +383,7 @@ async fn a_free_that_fails_keeps_the_build_and_shows_in_cleanup() {
     assert!(problem.is_some());
     assert_eq!(
         w.status(&key).await,
-        Status::ReadyForReview,
+        Status::WaitingForYou,
         "Review isn't broken"
     );
     // Everything is back where it was.

@@ -1005,7 +1005,7 @@ pub fn lead_gallery() -> LeadGallery {
     let mut stuck = item(
         "SHOP-40.3",
         "Wishlist page",
-        Status::ValidationFailed,
+        Status::CheckFailed,
         NeedsYouGroup::Family,
         "validation failed 3 times \u{b7} \u{201c}orders.test.ts expects list\u{201d}",
         6 * MIN,
@@ -1226,7 +1226,7 @@ mod tests {
         let permission = agent("a2", Status::NeedsYou, None);
         let m = model(vec![item(
             "SHOP-32",
-            Status::ValidationFailed,
+            Status::CheckFailed,
             NeedsYouGroup::Family,
         )]);
         let agents = [asks, permission];
@@ -1342,7 +1342,7 @@ mod tests {
     fn the_inbox_names_the_users_next_key() {
         let m = model(vec![item(
             "SHOP-33",
-            Status::ValidatorNeedsYou,
+            Status::CheckerNeedsYou,
             NeedsYouGroup::Family,
         )]);
         let v = view(
@@ -1380,13 +1380,13 @@ mod tests {
     /// on a review item (the service's reason).
     #[test]
     fn the_m12_items_in_group_1() {
-        let mut review = item("SHOP-18", Status::ReadyForReview, NeedsYouGroup::Review);
+        let mut review = item("SHOP-18", Status::WaitingForYou, NeedsYouGroup::Review);
         review.reason = "ready for review · validated · round 2".into();
         let m = model(vec![
-            item("SHOP-33", Status::ValidatorNeedsYou, NeedsYouGroup::Family),
-            item("SHOP-32", Status::ValidationFailed, NeedsYouGroup::Family),
-            item("SHOP-34", Status::ValidationNoResult, NeedsYouGroup::Family),
-            item("SHOP-40.4", Status::AutoMergeStopped, NeedsYouGroup::Family),
+            item("SHOP-33", Status::CheckerNeedsYou, NeedsYouGroup::Family),
+            item("SHOP-32", Status::CheckFailed, NeedsYouGroup::Family),
+            item("SHOP-34", Status::CheckNoResult, NeedsYouGroup::Family),
+            item("SHOP-40.4", Status::DeliveryStopped, NeedsYouGroup::Family),
             review,
         ]);
         let v = view(
@@ -1589,7 +1589,7 @@ mod tests {
                 reason: "PAY-123 only mentions signed-in users.".into(),
             }),
         });
-        let mut stuck = item("SHOP-40.3", Status::ValidationFailed, NeedsYouGroup::Family);
+        let mut stuck = item("SHOP-40.3", Status::CheckFailed, NeedsYouGroup::Family);
         stuck.reason = "validation failed 3 times · “orders.test.ts expects list”".into();
         stuck.lead_note = Some(LeadNoteSent {
             lead: "Wishlist lead".into(),

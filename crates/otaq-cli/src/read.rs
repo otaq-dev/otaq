@@ -23,7 +23,7 @@ use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::board::tickets::{Base, HistoryEvent, Ticket};
 use otaq_core::client::Client;
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{Column, Priority, Status, TicketKey};
+use otaq_core::domain::{Priority, Status, StatusSet, TicketKey};
 use otaq_core::named_agents::rows::{RowFacts, TicketAgents};
 use otaq_core::named_agents::{Role, RowSetBy};
 use otaq_core::protocol::{
@@ -465,6 +465,62 @@ pub fn unexpected(reply: &Reply) -> ErrorBody {
     ))
 }
 
+/// The board's columns as the default flow draws them, by the name `--status` and `otaq show` use (`dev`,
+/// "Ready for Review"); a ticket's column comes from its status's set (STG-04).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Column {
+    Backlog,
+    ReadyForDev,
+    Dev,
+    ReadyForReview,
+    Approved,
+    Done,
+}
+
+impl Column {
+    const ALL: [Self; 6] = [
+        Self::Backlog,
+        Self::ReadyForDev,
+        Self::Dev,
+        Self::ReadyForReview,
+        Self::Approved,
+        Self::Done,
+    ];
+
+    fn of(ticket: &Ticket) -> Self {
+        match ticket.status.set() {
+            StatusSet::Backlog => Self::Backlog,
+            StatusSet::Waiting => Self::ReadyForDev,
+            StatusSet::AgentStage | StatusSet::AgentCheck => Self::Dev,
+            StatusSet::HumanCheck => Self::ReadyForReview,
+            StatusSet::Delivery => Self::Approved,
+            StatusSet::Done => Self::Done,
+        }
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::Backlog => "backlog",
+            Self::ReadyForDev => "ready_for_dev",
+            Self::Dev => "dev",
+            Self::ReadyForReview => "ready_for_review",
+            Self::Approved => "approved",
+            Self::Done => "done",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Backlog => "Backlog",
+            Self::ReadyForDev => "Ready for Dev",
+            Self::Dev => "Dev",
+            Self::ReadyForReview => "Ready for Review",
+            Self::Approved => "Approved",
+            Self::Done => "Done",
+        }
+    }
+}
+
 /// `--status`: a status (`working`, `asks_you`, "Ready for Review") or a column (`dev`, `done`).
 enum StatusFilter {
     Status(Status),
@@ -477,7 +533,7 @@ impl StatusFilter {
         if let Ok(status) = normal.parse::<Status>() {
             return Ok(Self::Status(status));
         }
-        if let Ok(column) = normal.parse::<Column>() {
+        if let Some(column) = Column::ALL.into_iter().find(|c| c.id() == normal) {
             return Ok(Self::Column(column));
         }
         Err(ErrorBody::new(
@@ -491,7 +547,7 @@ impl StatusFilter {
     fn matches(&self, ticket: &Ticket) -> bool {
         match self {
             Self::Status(s) => ticket.status == *s,
-            Self::Column(c) => ticket.column == *c,
+            Self::Column(c) => Column::of(ticket) == *c,
         }
     }
 }
@@ -542,7 +598,7 @@ fn status_of(key: &TicketKey, tickets: &[Ticket]) -> String {
 pub fn show_text(ticket: &Ticket, tickets: &[Ticket], agents: Option<&TicketAgents>) -> String {
     let mut text = format!("{} · {}\n", ticket.key, ticket.title);
     let kind = if ticket.is_epic() { "Epic · " } else { "" };
-    let (status, column) = (ticket.status.label(), ticket.column.label());
+    let (status, column) = (ticket.status.label(), Column::of(ticket).label());
     // A status named like its column ("Ready for Dev") says it once.
     let column = if status == column {
         String::new()
@@ -691,7 +747,7 @@ mod tests {
         ));
         assert!(matches!(
             StatusFilter::parse("Ready for Review"),
-            Ok(StatusFilter::Status(Status::ReadyForReview))
+            Ok(StatusFilter::Status(Status::WaitingForYou))
         ));
         assert!(matches!(
             StatusFilter::parse("dev"),

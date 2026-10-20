@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{BuildState, Column, ResourceState, TicketKey};
+use crate::domain::{BuildState, ResourceState, StatusSet, TicketKey};
 use crate::naming;
 use crate::ports::PortPool;
 use crate::session::Sessions;
@@ -144,7 +144,7 @@ impl Cleanup {
             let owner = tickets.iter().find(|t| &t.key == key);
             let why = match owner {
                 None => format!("{key} no longer exists"),
-                Some(t) if matches!(t.column, Column::Done | Column::Backlog) => {
+                Some(t) if matches!(t.board_group(), StatusSet::Done | StatusSet::Backlog) => {
                     format!("{key} is {}", t.status.label())
                 }
                 Some(_) => continue,
@@ -166,7 +166,7 @@ impl Cleanup {
         // Worktree folders no unfinished ticket uses; kept ones of finished tickets are their own group.
         let in_use: HashSet<PathBuf> = tickets
             .iter()
-            .filter(|t| t.column != Column::Done)
+            .filter(|t| t.board_group() != StatusSet::Done)
             .filter_map(|t| t.work.as_ref()?.worktree.as_deref())
             .map(normalized)
             .collect();
@@ -254,7 +254,9 @@ impl Cleanup {
                 .into_iter()
                 .flatten()
                 .collect();
-            if ports.is_empty() || !matches!(ticket.column, Column::Done | Column::Backlog) {
+            if ports.is_empty()
+                || !matches!(ticket.board_group(), StatusSet::Done | StatusSet::Backlog)
+            {
                 continue;
             }
             items.push(CleanupItem {
@@ -329,7 +331,10 @@ impl Cleanup {
         }
 
         // Resources of finished tickets that Remove couldn't remove (M19-d): the recorded name, and the problem.
-        for ticket in tickets.iter().filter(|t| t.column == Column::Done) {
+        for ticket in tickets
+            .iter()
+            .filter(|t| t.board_group() == StatusSet::Done)
+        {
             let Some(work) = &ticket.work else { continue };
             let Some(name) = &work.resource_name else {
                 continue;

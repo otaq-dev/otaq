@@ -57,6 +57,7 @@ pub mod keyboard_page;
 pub mod layout;
 pub mod lead_status;
 pub mod lead_tab;
+pub mod legacy_column;
 pub mod licenses;
 pub mod limit_banner;
 pub mod limits;

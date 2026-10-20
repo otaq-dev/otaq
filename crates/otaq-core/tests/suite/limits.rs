@@ -27,7 +27,7 @@ fn t(key: &str, status: Status, queued_at: i64) -> Ticket {
         priority: Default::default(),
         priority_inherited: false,
         epic: None,
-        column: status.column(),
+        place: otaq_core::domain::Place::of(status, None, None),
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
@@ -85,7 +85,7 @@ fn needs_you_and_background_count_review_and_parked_do_not() {
         t("SHOP-3", Status::AsksYou, 0),
         t("SHOP-4", Status::NeedsYou, 0),
         t("SHOP-5", Status::Idle, 0),
-        t("SHOP-6", Status::ReadyForReview, 0),
+        t("SHOP-6", Status::WaitingForYou, 0),
         t("SHOP-7", Status::Parked, 0),
         t("SHOP-8", Status::PrOpen, 0),
         t("SHOP-9", Status::Interrupted, 0),
@@ -100,7 +100,7 @@ fn needs_you_and_background_count_review_and_parked_do_not() {
         7
     );
     assert!(HOLDS_A_SLOT.contains(&Status::WorkingInBackground));
-    assert!(!HOLDS_A_SLOT.contains(&Status::ReadyForReview));
+    assert!(!HOLDS_A_SLOT.contains(&Status::WaitingForYou));
 }
 
 #[test]
@@ -142,7 +142,7 @@ fn a_waiting_ticket_starts_when_a_slot_frees_up() {
         t("SHOP-3", Status::WaitingForSlot, 5),
     ];
     assert!(started(&tickets, &on(1, 3, 0)).is_empty());
-    tickets[0].status = Status::ReadyForReview;
+    tickets[0].status = Status::WaitingForYou;
     assert_eq!(started(&tickets, &on(1, 3, 0)), ["SHOP-3"]);
 }
 
@@ -162,7 +162,7 @@ fn back_pressure_stops_new_starts_until_items_clear() {
 fn nothing_running_is_touched_by_a_limit() {
     let tickets: Vec<Ticket> = HOLDS_A_SLOT
         .iter()
-        .chain([Status::ReadyForReview, Status::Interrupted].iter())
+        .chain([Status::WaitingForYou, Status::Interrupted].iter())
         .enumerate()
         .map(|(i, s)| t(&format!("SHOP-{}", i + 1), *s, 0))
         .collect();
@@ -206,8 +206,8 @@ async fn queued(f: &Fixture, title: &str) -> Ticket {
 
 async fn set(f: &Fixture, key: &str, status: Status) {
     let t = f.ticket(key).await;
-    sqlx::query("UPDATE tickets SET board_column = ?, state = ? WHERE id = ?")
-        .bind(status.column().as_str())
+    sqlx::query("UPDATE tickets SET stage_id = ?, state = ? WHERE id = ?")
+        .bind(otaq_core::flow::engine::default_stage(status, None))
         .bind(status.as_str())
         .bind(&t.id)
         .execute(f.board.store().pool())
@@ -269,7 +269,7 @@ async fn the_scheduler_reads_the_settings_and_counts_needs_you_across_projects()
             ..Default::default()
         })
         .await;
-    set(&f, &bill.key.to_string(), Status::ReadyForReview).await;
+    set(&f, &bill.key.to_string(), Status::WaitingForYou).await;
     limits(
         &f,
         AgentLimits {

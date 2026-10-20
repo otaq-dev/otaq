@@ -9,9 +9,11 @@
 
 use serde_json::json;
 
+use super::stage_runs;
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError};
 use crate::domain::{Actor, Status};
+use crate::flow::engine::{Move, RunResult};
 use crate::store::tickets::set_state_since;
 use crate::store::{Store, new_id, now_ms};
 
@@ -35,6 +37,7 @@ impl Board {
     ) -> Result<SentRound, BoardError> {
         let now = now_ms();
         let round = self.current_round(&ticket.id).await?;
+        let stage = self.back_stage(ticket).await?;
         let mut tx = self.store.begin_write().await?;
         let sent = sqlx::query(
             "UPDATE review_comments SET sent_at = ?, round = ? WHERE ticket_id = ? AND sent_at IS NULL",
@@ -62,7 +65,9 @@ impl Board {
             .bind(&ticket.id)
             .execute(&mut *tx)
             .await?;
-        return_to_dev(&mut tx, ticket, to, resume_skill, actor).await?;
+        // A human check's Fail (STG-06).
+        stage_runs::end_open(&mut tx, &ticket.id, RunResult::Failed, Some(note)).await?;
+        return_to_dev(&mut tx, ticket, to, stage.as_deref(), resume_skill, actor).await?;
         let comments = u32::try_from(sent).unwrap_or(u32::MAX);
         record_event(
             &mut tx,
@@ -87,8 +92,9 @@ impl Board {
         resume_skill: Option<&str>,
         actor: &Actor,
     ) -> Result<(), BoardError> {
+        let stage = self.back_stage(ticket).await?;
         let mut tx = self.store.begin_write().await?;
-        return_to_dev(&mut tx, ticket, to, resume_skill, actor).await?;
+        return_to_dev(&mut tx, ticket, to, stage.as_deref(), resume_skill, actor).await?;
         record_event(
             &mut tx,
             &ticket.id,
@@ -100,6 +106,24 @@ impl Board {
         tx.commit().await?;
         tracing::info!(key = %ticket.key, target, %to, "sent to the agent to fix");
         Ok(())
+    }
+
+    /// Where a Send back takes the ticket: the nearest earlier Agent stage, as the flow engine says (a human
+    /// check's Fail, STG-06).
+    async fn back_stage(&self, ticket: &Ticket) -> Result<Option<String>, BoardError> {
+        Ok(
+            match self
+                .moved(ticket, Status::WaitingForYou, Move::HumanFail)
+                .await
+            {
+                Ok(moved) => moved.place.stage().map(str::to_owned),
+                Err(_) => self
+                    .effective_flow(ticket.key.project.as_str())
+                    .await?
+                    .first_agent_stage()
+                    .map(|s| s.id.clone()),
+            },
+        )
     }
 
     /// The note of the latest Send back, if it had one.
@@ -125,18 +149,20 @@ async fn latest_review(
     Ok(row.map(|(round, note)| (u32::try_from(round).unwrap_or(0), note)))
 }
 
-/// Ready for Review → Dev: Agent Working (the live session got the skill) or Queued (`queued_at` now) with the
-/// skill still to run. The next submit validates again from round 1 (d0063, VAL-10).
+/// Ready for Review → Dev: Agent Working in `stage` (the live session got the skill) or Queued (`queued_at` now,
+/// in Ready for Dev as today) with the skill still to run. The next submit validates again from round 1 (d0063,
+/// VAL-10).
 pub(crate) async fn return_to_dev(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     ticket: &Ticket,
     to: Status,
+    stage: Option<&str>,
     resume_skill: Option<&str>,
     actor: &Actor,
 ) -> Result<(), BoardError> {
     let now = now_ms();
     sqlx::query(concat!(
-        "UPDATE tickets SET board_column = ?, state = ?, resume_skill = ?,
+        "UPDATE tickets SET stage_id = ?, state = ?, resume_skill = ?,
                             queued_at = CASE WHEN ? THEN ? ELSE queued_at END,
                             last_signal_at = CASE WHEN ? THEN ? ELSE last_signal_at END,
                             signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
@@ -145,7 +171,7 @@ pub(crate) async fn return_to_dev(
         set_state_since!(),
         " WHERE id = ?"
     ))
-    .bind(to.column().as_str())
+    .bind(stage.filter(|_| !to.is_queued()))
     .bind(to.as_str())
     .bind(resume_skill)
     .bind(to.is_queued())

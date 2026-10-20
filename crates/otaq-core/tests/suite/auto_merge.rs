@@ -129,7 +129,7 @@ async fn which_tickets_merge_by_themselves() {
     let epic = epic(&w).await;
 
     let off = working(&w, "Off", None, "off.ts").await;
-    assert_eq!(pass(&w, &off).await.status, Status::ReadyForReview);
+    assert_eq!(pass(&w, &off).await.status, Status::WaitingForYou);
 
     auto_merge(&w, AutoMerge::EpicChildren).await;
     let child = working(&w, "Wishlist API", Some(&epic), "wishlist.ts").await;
@@ -151,7 +151,7 @@ async fn which_tickets_merge_by_themselves() {
         format!("{}: Wishlist API", child.key)
     );
     assert_eq!(git(&repo, &["rev-parse", "main"]), main, "main untouched");
-    assert_eq!(pass(&w, &standalone).await.status, Status::ReadyForReview);
+    assert_eq!(pass(&w, &standalone).await.status, Status::WaitingForYou);
 
     auto_merge(&w, AutoMerge::All).await;
     let all = working(&w, "Header", None, "header.ts").await;
@@ -184,7 +184,7 @@ async fn the_users_routes_never_auto_merge() {
         .submit_by_user(&submitted.key.to_string(), "", &me())
         .await
         .unwrap();
-    assert_eq!(after.status, Status::ReadyForReview);
+    assert_eq!(after.status, Status::WaitingForYou);
 
     let skipped = working(&w, "Skipped", None, "b.ts").await;
     w.validation
@@ -201,7 +201,7 @@ async fn the_users_routes_never_auto_merge() {
         .user_action(&skipped.key.to_string(), ValidationAction::Skip, "", &me())
         .await
         .unwrap();
-    assert_eq!(after.status, Status::ReadyForReview);
+    assert_eq!(after.status, Status::WaitingForYou);
 
     w.board
         .set_project_settings(
@@ -225,7 +225,7 @@ async fn the_users_routes_never_auto_merge() {
         )
         .await
         .unwrap();
-    assert_eq!(after.status, Status::ReadyForReview);
+    assert_eq!(after.status, Status::WaitingForYou);
     w.stop().await;
 }
 
@@ -315,7 +315,7 @@ async fn conflicts_go_back_to_the_agent_until_the_third() {
         if n < 3 {
             assert_eq!(after.status, Status::MergeConflictFixing);
         } else {
-            assert_eq!(after.status, Status::AutoMergeStopped);
+            assert_eq!(after.status, Status::DeliveryStopped);
             assert_eq!(after.auto_merge_stop, Some(AutoMergeStop::KeepsConflicting));
             assert_eq!(
                 after.signal.unwrap().text.as_deref(),
@@ -346,7 +346,7 @@ async fn a_dirty_checkout_stops_it() {
     let t = working(&w, "Checkout API", None, "api.ts").await;
     std::fs::write(repo.join("file1.txt"), "my edit\n").unwrap();
     let after = pass(&w, &t).await;
-    assert_eq!(after.status, Status::AutoMergeStopped);
+    assert_eq!(after.status, Status::DeliveryStopped);
     assert_eq!(after.auto_merge_stop, Some(AutoMergeStop::CheckoutDirty));
     assert_eq!(
         after.signal.unwrap().text.as_deref(),
@@ -366,7 +366,7 @@ async fn a_dirty_checkout_stops_it() {
         )
         .await
         .unwrap();
-    assert_eq!(after.status, Status::ReadyForReview);
+    assert_eq!(after.status, Status::WaitingForYou);
     assert_eq!(
         after.flags.review_entry.unwrap().to_string(),
         "Validated · round 1"
@@ -393,7 +393,7 @@ async fn a_diverged_base_stops_it() {
     git(&seed, &["push", "--quiet", "origin", "main"]);
     commit(&clone, "mine.ts", "local only\n");
     let after = pass(&w, &t).await;
-    assert_eq!(after.status, Status::AutoMergeStopped);
+    assert_eq!(after.status, Status::DeliveryStopped);
     assert_eq!(after.auto_merge_stop, Some(AutoMergeStop::BaseDiverged));
     assert_eq!(
         after.signal.unwrap().text.as_deref(),

@@ -276,7 +276,7 @@ async fn what_cannot_be_queued_is_refused() {
     );
 
     // Its delivery card keeps today's rules.
-    f.force_status(&epic, Status::ReadyForReview).await;
+    f.force_status(&epic, Status::WaitingForYou).await;
     let err = f.board.queue_epic(&key(&epic), &me()).await.unwrap_err();
     assert_eq!(err.refusal(), Some(Refusal::MoveRefused));
 }

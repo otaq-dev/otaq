@@ -20,7 +20,7 @@ pub fn ticket(key: &str, title: &str, status: Status) -> Ticket {
         priority: Default::default(),
         priority_inherited: false,
         epic: None,
-        column: status.column(),
+        place: otaq_core::domain::Place::of(status, None, None),
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
@@ -235,7 +235,7 @@ pub fn variants() -> Vec<Variant> {
     t.flags.tokens = Some(311_000);
     out.push(v("Interrupted (0018)", t, base()));
 
-    let mut t = ticket("SHOP-33", "Shipping estimate", Status::ValidatorNeedsYou);
+    let mut t = ticket("SHOP-33", "Shipping estimate", Status::CheckerNeedsYou);
     t.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
     live(&mut t, 60, 64_000);
     t.signal = Some(signal("Allow Bash(pnpm test)?"));
@@ -245,13 +245,13 @@ pub fn variants() -> Vec<Variant> {
         base().with_signal(&t, NOW),
     ));
 
-    let mut t = ticket("SHOP-32", "Address autocomplete", Status::ValidationFailed);
+    let mut t = ticket("SHOP-32", "Address autocomplete", Status::CheckFailed);
     t.validation_round = 3;
     t.flags.findings = vec!["Arrow keys do nothing in the list".into()];
     t.flags.tokens = Some(64_000);
     out.push(v("Validation failed 3 times (0063)", t, base()));
 
-    let mut t = ticket("SHOP-34", "Tax display", Status::ValidationNoResult);
+    let mut t = ticket("SHOP-34", "Tax display", Status::CheckNoResult);
     t.flags.tokens = Some(64_000);
     out.push(v("Validation ended without a result", t, base()));
 
@@ -266,7 +266,7 @@ pub fn variants() -> Vec<Variant> {
         },
     ));
 
-    let mut t = ticket("SHOP-29", "Coupon field", Status::Validating);
+    let mut t = ticket("SHOP-29", "Coupon field", Status::Checking);
     t.status_since = Some(NOW - 2 * 60_000);
     t.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
     live(&mut t, 3 * 60, 23_000);
@@ -292,7 +292,7 @@ pub fn variants() -> Vec<Variant> {
     live(&mut t, 10, 77_000);
     out.push(v("Merge conflict · fixing (0064)", t, sleeved(4)));
 
-    let mut t = child("SHOP-40.4", "Wishlist share link", Status::AutoMergeStopped);
+    let mut t = child("SHOP-40.4", "Wishlist share link", Status::DeliveryStopped);
     t.auto_merge_stop = Some(AutoMergeStop::KeepsConflicting);
     t.auto_merge_conflicts = 3;
     t.flags.conflicts_with = Some(otaq_core::naming::branch("SHOP-40"));
@@ -338,7 +338,7 @@ pub fn variants() -> Vec<Variant> {
     ));
 
     let review = |name, entry, round, diff: bool| {
-        let mut t = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let mut t = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         t.validation_round = round;
         t.flags.review_entry = Some(ReviewEntryFlag { entry, round });
         v(
@@ -557,7 +557,7 @@ pub fn agent_variants() -> Vec<Variant> {
         }),
     ));
 
-    let mut t = ticket("SHOP-29", "Coupon field", Status::ValidationNoResult);
+    let mut t = ticket("SHOP-29", "Coupon field", Status::CheckNoResult);
     t.signal = Some(AgentSignal {
         text: Some(otaq_core::validation::couldnt_run_text(
             "claude-fable-5-1",
@@ -779,7 +779,7 @@ pub fn tool_variants() -> Vec<Variant> {
         ),
     ));
 
-    let mut t = ticket("SHOP-30", "Order history page", Status::Validating);
+    let mut t = ticket("SHOP-30", "Order history page", Status::Checking);
     t.priority = Priority::High;
     t.started_at = Some(NOW - 3_600_000);
     out.push(v(
@@ -807,7 +807,7 @@ pub fn tool_variants() -> Vec<Variant> {
         },
     ));
 
-    let mut swapped = ticket("SHOP-29", "Coupon field", Status::Validating);
+    let mut swapped = ticket("SHOP-29", "Coupon field", Status::Checking);
     swapped.priority = Priority::High;
     swapped.started_at = Some(NOW - 3_600_000);
     swapped.status_since = Some(NOW - 2 * 60_000);
@@ -901,7 +901,7 @@ pub fn tool_variants() -> Vec<Variant> {
         ),
     ));
 
-    let mut t = ticket("SHOP-33", "Shipping estimate", Status::Validating);
+    let mut t = ticket("SHOP-33", "Shipping estimate", Status::Checking);
     t.started_at = Some(NOW - 3_600_000);
     out.push(v(
         "Validator held \u{b7} tool not available",
@@ -969,7 +969,7 @@ pub fn tool_variants() -> Vec<Variant> {
         ),
     ));
 
-    let mut t = ticket("SHOP-29", "Coupon field", Status::Validating);
+    let mut t = ticket("SHOP-29", "Coupon field", Status::Checking);
     t.started_at = Some(NOW - 3_600_000);
     t.flags.tokens = Some(6_000);
     out.push(v(
@@ -1102,7 +1102,7 @@ pub fn lead_variants() -> Vec<Variant> {
     t.flags.unread_notes = Some(unread());
     out.push(v("Dev · both on one card", t, sleeve(4)));
 
-    let mut t = child("SHOP-40.3", "Wishlist page", Status::ValidationFailed);
+    let mut t = child("SHOP-40.3", "Wishlist page", Status::CheckFailed);
     t.validation_round = 3;
     t.flags.findings = vec!["orders.test.ts expects list".into()];
     t.flags.tokens = Some(163_000);
@@ -1159,7 +1159,7 @@ pub fn epic_variants() -> Vec<EpicVariant> {
         tickets: t,
         branch: None,
     });
-    let (e, t) = wishlist(Status::ReadyForReview, [Status::Merged; 3]);
+    let (e, t) = wishlist(Status::WaitingForYou, [Status::Merged; 3]);
     out.push(EpicVariant {
         name: "Epic · Ready for Review",
         epic: e,

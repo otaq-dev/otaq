@@ -459,7 +459,7 @@ async fn delete_is_refused_while_in_use_and_names_what_uses_it() {
     f.force_status(&tickets[0], Status::Merged).await;
     f.force_status(&tickets[1], Status::ClosedNotMerged).await;
     f.force_status(&tickets[2], Status::PrOpen).await;
-    f.force_status(&tickets[3], Status::ReadyForReview).await;
+    f.force_status(&tickets[3], Status::WaitingForYou).await;
     f.force_status(&tickets[4], Status::Working).await;
     f.force_status(&tickets[5], Status::Queued).await;
     let uses = refused(agents.delete(&light.id).await.unwrap());

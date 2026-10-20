@@ -36,7 +36,7 @@ async fn a_local_merge_cleans_up_a_clean_worktree_and_keeps_the_branch() {
         .allocate(&t.id)
         .await
         .unwrap();
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     let agent = w.agent_shell(&t).await;
     let finished = Arc::new(AtomicUsize::new(0));
     let seen = finished.clone();
@@ -106,7 +106,7 @@ async fn merged_with_resources(w: &TestService, name: &str) -> (Ticket, PathBuf,
     let wt = w.start_worktree(&t).await;
     commit(&wt, "api.ts", "api\n");
     let dir = created(w, &t, name).await;
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     (t, wt, dir)
 }
 

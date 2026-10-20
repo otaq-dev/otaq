@@ -1742,7 +1742,7 @@ async fn lead_changed(
 async fn queue_change_note(shared: &Shared, before: &Ticket, after: &Ticket, actor: &Actor) {
     let validating = matches!(
         after.status,
-        crate::domain::Status::Validating | crate::domain::Status::ValidatorNeedsYou
+        crate::domain::Status::Checking | crate::domain::Status::CheckerNeedsYou
     );
     if actor.is_agent() || !(LIVE.contains(&after.status) || validating) {
         return;

@@ -17,6 +17,7 @@
 //! today; "ended by restart", "asks you" and "Open lead" say what a click does instead (frames 14, 26, *16 → Epic
 //! lead after a restart*).
 
+use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::TicketKey;
 use otaq_core::project_agents::lead::{Lead, LeadStatus, lead_name};
@@ -422,7 +423,7 @@ pub fn gallery() -> Gallery {
     use crate::view_models::card_page::{EpicCardView, EpicCell};
     use crate::view_models::epic_card::EpicViewModel;
     use crate::view_models::epic_strip::Strip;
-    use otaq_core::domain::{Actor, Column, Kind, Status};
+    use otaq_core::domain::{Actor, Kind, Status};
 
     let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
     epic.kind = Kind::Epic;

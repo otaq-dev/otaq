@@ -106,12 +106,12 @@ pub const HOLDS_A_SLOT: &[Status] = &[
     Status::Idle,
     Status::WaitingForLimitReset,
     // One slot per ticket, not per session: the validator doesn't take a second one (d0063).
-    Status::Validating,
-    Status::ValidatorNeedsYou,
-    Status::ValidationFailed,
-    Status::ValidationNoResult,
+    Status::Checking,
+    Status::CheckerNeedsYou,
+    Status::CheckFailed,
+    Status::CheckNoResult,
     Status::MergeConflictFixing,
-    Status::AutoMergeStopped,
+    Status::DeliveryStopped,
 ];
 
 /// What may hold new starts back (SCH-03): the optional limits and the number of needs-you items
@@ -351,12 +351,11 @@ impl Scheduler {
         let held = Status::Held;
         let mut tx = self.inner.board.store().begin_write().await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
+            "UPDATE tickets SET state = ?, start_problem_step = ?, start_problem_message = ?,
                                 updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(held.column().as_str())
         .bind(held.as_str())
         .bind(StartStep::SyncBase.as_str())
         .bind(message)
@@ -507,11 +506,10 @@ impl Scheduler {
         let now = now_ms();
         let mut tx = self.inner.board.store().begin_write().await?;
         let updated = sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, updated_at = ?, ",
+            "UPDATE tickets SET state = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ? AND state = ?"
         ))
-        .bind(change.to.column().as_str())
         .bind(change.to.as_str())
         .bind(now)
         .bind(change.to.as_str())

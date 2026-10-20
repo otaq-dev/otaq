@@ -8,8 +8,9 @@
 //! still hide. Focusing an epic (its track's name, `g` `e`) puts its token in the filter ([`Filter::focus`]); Esc takes
 //! it out ([`Filter::unfocus`]).
 
+use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Column, Status, TicketKey};
+use otaq_core::domain::{Status, TicketKey};
 
 use crate::view_models::chain::chain;
 
@@ -87,28 +88,28 @@ impl Is {
 
     fn matches(self, t: &Ticket) -> bool {
         match self {
-            Self::NeedsMe => t.needs_user() || t.status == Status::ReadyForReview,
+            Self::NeedsMe => t.needs_user() || t.status == Status::WaitingForYou,
             Self::Working => matches!(
                 t.status,
                 Status::Working
                     | Status::WorkingInBackground
-                    | Status::Validating
+                    | Status::Checking
                     | Status::MergeConflictFixing
             ),
             Self::Validating => matches!(
                 t.status,
-                Status::Validating
-                    | Status::ValidatorNeedsYou
-                    | Status::ValidationFailed
-                    | Status::ValidationNoResult
+                Status::Checking
+                    | Status::CheckerNeedsYou
+                    | Status::CheckFailed
+                    | Status::CheckNoResult
             ),
             Self::Queued => t.status.is_queued(),
             Self::Parked => t.status == Status::Parked,
             Self::Running => t.flags.run_port.is_some(),
-            Self::Backlog => t.column == Column::Backlog,
-            Self::Review => t.column == Column::ReadyForReview,
-            Self::Approved => t.column == Column::Approved,
-            Self::Done => t.column == Column::Done,
+            Self::Backlog => t.column() == Column::Backlog,
+            Self::Review => t.column() == Column::ReadyForReview,
+            Self::Approved => t.column() == Column::Approved,
+            Self::Done => t.column() == Column::Done,
         }
     }
 }
@@ -384,7 +385,7 @@ mod tests {
         vec![
             epic,
             moved,
-            ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
+            ticket("SHOP-18", "Checkout API", Status::WaitingForYou),
             checkout,
             ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou),
             running,
@@ -501,16 +502,16 @@ mod tests {
     #[test]
     fn m12_states_in_the_status_filter() {
         let all = vec![
-            ticket("SHOP-29", "Coupon field", Status::Validating),
-            ticket("SHOP-33", "Shipping estimate", Status::ValidatorNeedsYou),
-            ticket("SHOP-32", "Address autocomplete", Status::ValidationFailed),
-            ticket("SHOP-34", "Tax display", Status::ValidationNoResult),
+            ticket("SHOP-29", "Coupon field", Status::Checking),
+            ticket("SHOP-33", "Shipping estimate", Status::CheckerNeedsYou),
+            ticket("SHOP-32", "Address autocomplete", Status::CheckFailed),
+            ticket("SHOP-34", "Tax display", Status::CheckNoResult),
             ticket(
                 "SHOP-40.4",
                 "Wishlist share link",
                 Status::MergeConflictFixing,
             ),
-            ticket("SHOP-41", "Wishlist sync", Status::AutoMergeStopped),
+            ticket("SHOP-41", "Wishlist sync", Status::DeliveryStopped),
         ];
         let only = |token: &str| {
             let mut f = Filter::default();

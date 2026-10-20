@@ -6,6 +6,7 @@ use crate::board::epic_flight::is_never_started;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
 use crate::caller::Caller;
+use crate::domain::StatusSet;
 use crate::epic_lead::questions;
 use crate::policy::{
     Action, Names, ONLY_A_LEAD_MARKS, ONLY_A_LEAD_SUGGESTS, TicketFacts, authorize_named,
@@ -86,7 +87,7 @@ async fn facts_of(board: &Board, ticket: Ticket) -> Result<TicketFacts, BoardErr
         None => None,
     };
     Ok(TicketFacts {
-        backlog: ticket.column == crate::domain::Column::Backlog && !ticket.has_started(),
+        backlog: ticket.board_group() == StatusSet::Backlog && !ticket.has_started(),
         never_started: is_never_started(&ticket),
         epic_id,
         id: ticket.id,

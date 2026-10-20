@@ -405,23 +405,23 @@ async fn validator_and_agent_hooks_while_validating() {
     w.validating_with(&shop1, &validator.session).await;
     // The agent's Stop: still Validating, never Idle.
     hook(&agent, "Stop-idle.json").await;
-    assert_eq!(w.status("SHOP-1").await, Status::Validating);
+    assert_eq!(w.status("SHOP-1").await, Status::Checking);
     // The agent's permission prompt still turns it turquoise; its next prompt brings back Validating….
     hook(&agent, "Notification-permission_prompt.json").await;
     assert_eq!(w.status("SHOP-1").await, Status::NeedsYou);
     hook(&agent, "UserPromptSubmit.json").await;
-    assert_eq!(w.status("SHOP-1").await, Status::Validating);
+    assert_eq!(w.status("SHOP-1").await, Status::Checking);
 
     // The validator's permission prompt → Needs you · validator; typing into it → Validating again.
     hook(&validator, "Notification-permission_prompt.json").await;
-    wait_status(&w, "SHOP-1", Status::ValidatorNeedsYou).await;
+    wait_status(&w, "SHOP-1", Status::CheckerNeedsYou).await;
     hook(&validator, "UserPromptSubmit.json").await;
-    wait_status(&w, "SHOP-1", Status::Validating).await;
+    wait_status(&w, "SHOP-1", Status::Checking).await;
 
     // The usage limit → Waiting for limit reset (the validation restarts on its tool's Resume, T-0188).
     hook(&validator, "StopFailure-session_limit.json").await;
     wait_status(&w, "SHOP-1", Status::WaitingForLimitReset).await;
-    w.force_status(&shop1, Status::Validating).await;
+    w.force_status(&shop1, Status::Checking).await;
 
     // Its turn ends with no verdict → Validation ended without a result; the validator is stopped (typed, not
     // awaited: the command's own session ends).
@@ -430,7 +430,7 @@ async fn validator_and_agent_hooks_while_validating() {
     w.sessions
         .input(&validator.session, line.as_bytes())
         .unwrap();
-    wait_status(&w, "SHOP-1", Status::ValidationNoResult).await;
+    wait_status(&w, "SHOP-1", Status::CheckNoResult).await;
     w.stop().await;
 }
 

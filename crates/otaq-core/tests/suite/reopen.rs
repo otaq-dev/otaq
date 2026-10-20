@@ -230,7 +230,7 @@ async fn merged_tickets_are_locked_and_a_reopened_child_returns_its_epic_to_back
         .await
         .unwrap();
     w.force_status(&child, Status::ClosedNotMerged).await;
-    w.force_status(&epic, Status::ReadyForReview).await;
+    w.force_status(&epic, Status::WaitingForYou).await;
     w.board.reopen(&child.key.to_string(), &me()).await.unwrap();
     assert_eq!(w.status(&child.key.to_string()).await, Status::Backlog);
     assert_eq!(w.status(&epic.key.to_string()).await, Status::Backlog);

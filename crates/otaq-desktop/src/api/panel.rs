@@ -776,7 +776,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     };
     let has_log = ticket.status == otaq_core::domain::Status::StartInterrupted
         && setup_log_path(&params.key).is_some();
-    let pending = if ticket.status == otaq_core::domain::Status::ReadyForReview {
+    let pending = if ticket.status == otaq_core::domain::Status::WaitingForYou {
         match app
             .service
             .send(Request::ReviewComments(CommentsParams {
@@ -796,7 +796,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     } else {
         None
     };
-    let rounds = if ticket.status == otaq_core::domain::Status::ValidationFailed {
+    let rounds = if ticket.status == otaq_core::domain::Status::CheckFailed {
         validation_rounds(app, &ticket).await
     } else {
         0
@@ -1791,7 +1791,7 @@ mod tests {
 
     #[test]
     fn a_queued_child_names_its_parent() {
-        let parent = fixture("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let parent = fixture("SHOP-18", "Checkout API", Status::WaitingForYou);
         let mut child = fixture("SHOP-20", "Checkout page", Status::Queued);
         child.depends_on = vec![parent.key.clone()];
         let all = vec![parent, child.clone()];
@@ -1848,7 +1848,7 @@ mod tests {
 
     #[test]
     fn conflicts_show_in_review_with_the_fix() {
-        let mut review = fixture("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let mut review = fixture("SHOP-18", "Checkout API", Status::WaitingForYou);
         let conflict = Conflict {
             target: "main".into(),
             files: vec!["a.ts".into(), "b.ts".into()],
@@ -1966,7 +1966,7 @@ mod tests {
 
     #[test]
     fn send_back_counts_the_pending_comments() {
-        let review = fixture("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let review = fixture("SHOP-18", "Checkout API", Status::WaitingForYou);
         let all = vec![review.clone()];
         let view = view_of(&Facts {
             pending: 2,
@@ -1991,7 +1991,7 @@ mod tests {
     fn the_validation_states_carry_their_extras() {
         use otaq_core::domain::ValidationRound;
         use otaq_core::usage::Tokens;
-        let mut t = fixture("SHOP-29", "Coupon field", Status::Validating);
+        let mut t = fixture("SHOP-29", "Coupon field", Status::Checking);
         t.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
         let tokens = |input| {
             Some(Tokens {
@@ -2019,7 +2019,7 @@ mod tests {
         assert_eq!(view.menu[0].label, "Stop validation");
         assert_eq!((view.answer_agent, view.approve_more), (None, None));
 
-        let mut failed = fixture("SHOP-32", "Address autocomplete", Status::ValidationFailed);
+        let mut failed = fixture("SHOP-32", "Address autocomplete", Status::CheckFailed);
         failed.validation_round = 3;
         let view = view_of(&facts(&failed, std::slice::from_ref(&failed), &[]));
         assert_eq!(view.pill.label, "Validation failed 3 times");
@@ -2029,7 +2029,7 @@ mod tests {
         );
         assert!(view.answer_agent.unwrap().footer.ends_with("(3 new rounds)."));
 
-        let mut stopped = fixture("SHOP-40.2", "Wishlist page", Status::AutoMergeStopped);
+        let mut stopped = fixture("SHOP-40.2", "Wishlist page", Status::DeliveryStopped);
         stopped.auto_merge_stop = Some(otaq_core::domain::AutoMergeStop::CheckoutDirty);
         stopped.signal = Some(otaq_core::board::tickets::AgentSignal {
             text: Some("shop-web has uncommitted changes on main. Clean up and retry.".into()),
@@ -2042,7 +2042,7 @@ mod tests {
             Some("shop-web has uncommitted changes on main. Clean up and retry.")
         );
 
-        let review = fixture("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let review = fixture("SHOP-18", "Checkout API", Status::WaitingForYou);
         let view = view_of(&facts(&review, std::slice::from_ref(&review), &[]));
         assert_eq!(view.approve_more, Some("Approve choices"));
     }
@@ -2087,7 +2087,7 @@ mod tests {
         assert_eq!(view.holds[0].heading, "Model unavailable");
         assert_eq!(view.holds[0].buttons[0].label, "Change agent");
         let swapped = shop_29_swapped();
-        let t = fixture("SHOP-29", "Coupon field", Status::Validating);
+        let t = fixture("SHOP-29", "Coupon field", Status::Checking);
         let view = view_of(&Facts {
             agents: Some(&swapped),
             tools: &tools,

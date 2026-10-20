@@ -393,7 +393,7 @@ async fn the_validator_follows_the_copy_and_stays_read_only() {
         .verdict(&key, true, "Totals are right.", &validator.id)
         .await
         .unwrap();
-    assert_eq!(after.status, Status::ReadyForReview, "not discarded");
+    assert_eq!(after.status, Status::WaitingForYou, "not discarded");
     w.stop().await;
 }
 

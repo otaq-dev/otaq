@@ -1,18 +1,23 @@
-//! The M12 rows of SDD §7.3 as one pure function (d0063, d0064): validation before Review and Auto-merge.
+//! The M12 rows of SDD §7.3 as one pure function (d0063, d0064): validation before Review and Auto-merge, on any
+//! agent check of a project's flow (STG-06).
 //!
 //! [`transition`] takes where a ticket stands ([`ValidationState`]) and what happened ([`ValidationEvent`]) and
 //! says where it goes, how it entered Review, what happens to the round counter, and whether the validator's
-//! findings go to the agent. It does no I/O: the service carries the result out (T-0183 … T-0189), and every row
-//! is tested on its own.
+//! findings go to the agent. Where the ticket goes is the flow engine's ([`crate::flow::engine::step`]); this adds
+//! the validation's own bookkeeping and Auto-merge, which keeps today's behaviour on top of the stages until M33.
+//! It does no I/O: the service carries the result out (T-0183 … T-0189), and every row is tested on its own.
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use super::stage_runs;
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{
-    Actor, AutoMergeStop, ReviewEntry, Status, ValidationOutcome, ValidationTrigger,
+    Actor, AutoMergeStop, Place, ReviewEntry, Status, ValidationOutcome, ValidationTrigger,
 };
+use crate::flow::Flow;
+use crate::flow::engine::{self, At, Move, RunResult};
 use crate::store::tickets::set_state_since;
 use crate::store::{new_id, now_ms};
 
@@ -20,15 +25,16 @@ use crate::store::{new_id, now_ms};
 pub const AUTO_MERGE_CONFLICT_LIMIT: u32 = 3;
 
 /// What the rules need to know about a ticket.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ValidationState {
+#[derive(Debug, Clone, Copy)]
+pub struct ValidationState<'a> {
+    /// The project's flow (the derived flow until M33: Validation off has no Validate stage).
+    pub flow: &'a Flow,
+    pub place: &'a Place,
     pub status: Status,
     /// Rounds counted so far (`tickets.validation_round`).
     pub round: u32,
-    /// The project's rounds setting plus the extra rounds the user allowed.
+    /// The check's rounds plus the extra rounds the user allowed.
     pub rounds: u32,
-    /// Validation is on for the project.
-    pub validation: bool,
     /// The project's Auto-merge applies to this ticket (its kind and the setting; never an epic).
     pub auto_merge: bool,
     /// Auto-merge conflicts in a row so far.
@@ -85,9 +91,11 @@ pub enum Round {
 }
 
 /// The result of a row.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Transition {
     pub to: Status,
+    /// Where the ticket is afterwards (its stage).
+    pub place: Place,
     /// Set when the ticket enters Ready for Review.
     pub entry: Option<ReviewEntry>,
     pub round: Round,
@@ -107,12 +115,15 @@ pub struct Transition {
     pub extra_round: bool,
     /// Why Auto-merge stopped, when it did.
     pub stop: Option<AutoMergeStop>,
+    /// Stages walked over without running (Submit for review skips the checks): each gets a skipped run.
+    pub skipped: Vec<String>,
 }
 
 impl Transition {
-    fn to(to: Status) -> Self {
+    fn at(to: Status, place: Place) -> Self {
         Self {
             to,
+            place,
             entry: None,
             round: Round::Keep,
             outcome: None,
@@ -123,19 +134,47 @@ impl Transition {
             restack: false,
             extra_round: false,
             stop: None,
+            skipped: Vec::new(),
         }
     }
 
-    fn review(entry: ReviewEntry) -> Self {
+    /// Where the engine's step goes.
+    fn of(step: &engine::Step<'_>) -> Self {
         Self {
-            entry: Some(entry),
-            ..Self::to(Status::ReadyForReview)
+            start_validator: step.start_check,
+            skipped: step
+                .passed_through
+                .iter()
+                .filter(|(_, result)| *result == RunResult::Skipped)
+                .map(|(stage, _)| stage.id.clone())
+                .collect(),
+            ..Self::at(step.status, step.place.clone())
         }
+    }
+
+    /// Staying where the ticket is, with another status.
+    fn stay(s: &ValidationState<'_>, to: Status) -> Self {
+        Self::at(to, s.place.clone())
+    }
+
+    fn review(mut self, entry: ReviewEntry) -> Self {
+        self.entry = Some(entry);
+        self
     }
 
     fn ended(mut self, outcome: ValidationOutcome) -> Self {
         self.outcome = Some(outcome);
         self
+    }
+
+    fn round(mut self, round: Round) -> Self {
+        self.round = round;
+        self
+    }
+
+    /// Whether the ticket enters a human check (today's Ready for Review).
+    pub fn enters_review(&self) -> bool {
+        self.to == Status::WaitingForYou
     }
 }
 
@@ -157,133 +196,140 @@ fn agent_works(status: Status) -> bool {
 }
 
 fn validating(status: Status) -> bool {
-    matches!(status, Status::Validating | Status::ValidatorNeedsYou)
+    matches!(status, Status::Checking | Status::CheckerNeedsYou)
 }
 
 /// One M12 row of SDD §7.3.
-pub fn transition(s: ValidationState, event: ValidationEvent) -> Result<Transition, NotNow> {
+pub fn transition(s: ValidationState<'_>, event: ValidationEvent) -> Result<Transition, NotNow> {
     use ValidationEvent as E;
     let not_now = || {
-        Err(NotNow(format!(
+        NotNow(format!(
             "{event:?} doesn't apply while the ticket is {}",
             s.status.label()
-        )))
+        ))
     };
-    let submit = |s: ValidationState| {
-        if !s.validation {
-            // Validation off for the project: straight to Review, as before M12.
-            return Transition::to(Status::ReadyForReview);
-        }
-        let mut t = Transition::to(Status::Validating);
-        t.start_validator = true;
-        // A fix after an Auto-merge conflict validates again with the counter at 0 (AMG-03).
-        if s.status == Status::MergeConflictFixing {
-            t.round = Round::Reset;
-        }
-        t
+    let at = At {
+        fails: s.round,
+        rounds: s.rounds,
+        ..At::new(s.flow, s.place, s.status)
+    };
+    let go = |mv: Move| {
+        engine::step(at, mv)
+            .map(|step| Transition::of(&step))
+            .map_err(|_| not_now())
+    };
+    // Where Auto-merge's stops wait (in the Agent stage that would fix the conflict, as today's card does in Dev)
+    // and where its retries go (the human check after it).
+    let agent_stage = || {
+        s.place
+            .stage()
+            .and_then(|id| engine::back_to(s.flow, id, &[]))
+            .ok_or_else(not_now)
+    };
+    let review_stage = || {
+        s.place
+            .stage()
+            .and_then(|id| engine::next_human_check(s.flow, id))
+            .ok_or_else(not_now)
+    };
+    let to_stage = |stage: &crate::flow::Stage, status: Status| {
+        Transition::at(status, Place::stage_of(&stage.id))
     };
     Ok(match event {
-        E::AgentSubmit | E::ValidateAndSubmit if agent_works(s.status) => submit(s),
+        E::AgentSubmit | E::ValidateAndSubmit if agent_works(s.status) => {
+            let t = go(Move::NextStage)?;
+            // A fix after an Auto-merge conflict validates again with the counter at 0 (AMG-03).
+            if t.start_validator && s.status == Status::MergeConflictFixing {
+                t.round(Round::Reset)
+            } else {
+                t
+            }
+        }
         E::SubmitByUser if agent_works(s.status) => {
-            Transition::review(ReviewEntry::SubmittedByUser)
+            go(Move::SubmitByUser)?.review(ReviewEntry::SubmittedByUser)
         }
         E::Pass if validating(s.status) => {
-            let mut t = if s.auto_merge {
-                Transition {
-                    auto_merge: true,
-                    entry: Some(ReviewEntry::Validated),
-                    ..Transition::to(Status::ReadyForReview)
-                }
-            } else {
-                Transition::review(ReviewEntry::Validated)
-            };
-            t.round = Round::Count;
+            let mut t = go(Move::Pass)?.round(Round::Count);
+            if t.enters_review() {
+                t.entry = Some(ReviewEntry::Validated);
+                t.auto_merge = s.auto_merge;
+            }
             t.ended(ValidationOutcome::Pass)
         }
         E::Fail if validating(s.status) => {
-            let last = s.round + 1 >= s.rounds;
-            let mut t = if last {
-                Transition::to(Status::ValidationFailed)
-            } else {
-                Transition {
-                    deliver_findings: true,
-                    ..Transition::to(Status::Working)
-                }
-            };
-            t.round = Round::Count;
+            let mut t = go(Move::Fail)?.round(Round::Count);
+            t.deliver_findings = t.to != Status::CheckFailed;
             t.ended(ValidationOutcome::Fail)
         }
         E::NoVerdict if validating(s.status) => {
-            Transition::to(Status::ValidationNoResult).ended(ValidationOutcome::NoResult)
+            go(Move::NoResult)?.ended(ValidationOutcome::NoResult)
         }
         E::ValidatorChangedFiles if validating(s.status) => {
-            Transition::to(Status::ValidationNoResult).ended(ValidationOutcome::Discarded)
+            go(Move::NoResult)?.ended(ValidationOutcome::Discarded)
         }
-        E::ValidatorNeedsYou if s.status == Status::Validating => {
-            Transition::to(Status::ValidatorNeedsYou)
+        E::ValidatorNeedsYou if s.status == Status::Checking => {
+            Transition::stay(&s, Status::CheckerNeedsYou)
         }
-        E::ValidatorContinues if s.status == Status::ValidatorNeedsYou => {
-            Transition::to(Status::Validating)
+        E::ValidatorContinues if s.status == Status::CheckerNeedsYou => {
+            Transition::stay(&s, Status::Checking)
         }
         E::CodeChanged if validating(s.status) => Transition {
             tell_cancelled: true,
-            ..Transition::to(Status::Working)
+            ..go(Move::CancelCheck)?
         }
         .ended(ValidationOutcome::Cancelled),
         E::StopValidation if validating(s.status) => {
-            Transition::to(Status::Working).ended(ValidationOutcome::Stopped)
+            go(Move::CancelCheck)?.ended(ValidationOutcome::Stopped)
         }
-        E::SkipToReview if validating(s.status) => {
-            Transition::review(ReviewEntry::Skipped).ended(ValidationOutcome::Skipped)
-        }
-        E::MoveToReviewAnyway if s.status == Status::ValidationFailed => {
-            Transition::review(ReviewEntry::FailedMoved)
+        E::SkipToReview if validating(s.status) => go(Move::SkipCheck)?
+            .review(ReviewEntry::Skipped)
+            .ended(ValidationOutcome::Skipped),
+        E::MoveToReviewAnyway if s.status == Status::CheckFailed => {
+            go(Move::MoveOnAnyway)?.review(ReviewEntry::FailedMoved)
         }
         // No verdict: "Validation skipped by you" (d0063 changelog).
-        E::MoveToReviewAnyway if s.status == Status::ValidationNoResult => {
-            Transition::review(ReviewEntry::Skipped)
+        E::MoveToReviewAnyway if s.status == Status::CheckNoResult => {
+            go(Move::MoveOnAnyway)?.review(ReviewEntry::Skipped)
         }
-        E::AnotherRound if s.status == Status::ValidationFailed => Transition {
+        E::AnotherRound if s.status == Status::CheckFailed => Transition {
             deliver_findings: true,
             extra_round: true,
-            ..Transition::to(Status::Working)
+            ..go(Move::AnotherRound)?
         },
-        E::AnswerAgent if s.status == Status::ValidationFailed => Transition {
+        E::AnswerAgent if s.status == Status::CheckFailed => Transition {
             deliver_findings: true,
-            round: Round::Reset,
-            ..Transition::to(Status::Working)
-        },
-        E::RetryValidation if s.status == Status::ValidationNoResult => Transition {
-            start_validator: true,
-            ..Transition::to(Status::Validating)
-        },
-        E::AutoMerged if s.status == Status::ReadyForReview => Transition::to(Status::Merged),
-        E::AutoMergeConflict if s.status == Status::ReadyForReview => {
+            ..go(Move::AnswerAgent)?
+        }
+        .round(Round::Reset),
+        E::RetryValidation if s.status == Status::CheckNoResult => go(Move::RetryCheck)?,
+        E::AutoMerged if s.status == Status::WaitingForYou => go(Move::Delivered)?,
+        E::AutoMergeConflict if s.status == Status::WaitingForYou => {
+            let stage = agent_stage()?;
             if s.conflicts + 1 >= AUTO_MERGE_CONFLICT_LIMIT {
                 Transition {
                     stop: Some(AutoMergeStop::KeepsConflicting),
-                    ..Transition::to(Status::AutoMergeStopped)
+                    ..to_stage(stage, Status::DeliveryStopped)
                 }
             } else {
                 Transition {
                     restack: true,
-                    round: Round::Reset,
-                    ..Transition::to(Status::MergeConflictFixing)
+                    ..to_stage(stage, Status::MergeConflictFixing)
                 }
+                .round(Round::Reset)
             }
         }
-        E::AutoMergeBlocked(stop) if s.status == Status::ReadyForReview => Transition {
+        E::AutoMergeBlocked(stop) if s.status == Status::WaitingForYou => Transition {
             stop: Some(stop),
-            ..Transition::to(Status::AutoMergeStopped)
+            ..to_stage(agent_stage()?, Status::DeliveryStopped)
         },
-        E::RetryMerge if s.status == Status::AutoMergeStopped => Transition {
+        E::RetryMerge if s.status == Status::DeliveryStopped => Transition {
             auto_merge: true,
-            ..Transition::to(Status::ReadyForReview)
+            ..to_stage(review_stage()?, Status::WaitingForYou)
         },
-        E::MoveToReview if s.status == Status::AutoMergeStopped => {
-            Transition::to(Status::ReadyForReview)
+        E::MoveToReview if s.status == Status::DeliveryStopped => {
+            to_stage(review_stage()?, Status::WaitingForYou)
         }
-        _ => return not_now(),
+        _ => return Err(not_now()),
     })
 }
 
@@ -386,8 +432,9 @@ impl Board {
             step.to
         };
         let mut tx = self.store.begin_write().await?;
+        stage_runs::end_open(&mut tx, &ticket.id, RunResult::Done, Some(summary)).await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, review_entry = NULL, validation_round = ?,
+            "UPDATE tickets SET stage_id = ?, state = ?, review_entry = NULL, validation_round = ?,
                                 interrupted_from = ?, signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
                                 resume_skill = NULL, conflicts_with = NULL,
                                 conflict_files = NULL, conflict_reason = NULL, auto_merge_stop = NULL,
@@ -395,10 +442,10 @@ impl Board {
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(status.column().as_str())
+        .bind(step.place.stage_id())
         .bind(status.as_str())
         .bind(i64::from(counted))
-        .bind(held.then_some(Status::Validating.as_str()))
+        .bind(held.then_some(Status::Checking.as_str()))
         .bind(actor.to_string())
         .bind(now)
         .bind(status.as_str())
@@ -448,13 +495,12 @@ impl Board {
         .bind(ticket_id)
         .execute(&mut *tx)
         .await?;
-        let validating = Status::Validating;
+        let validating = Status::Checking;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, interrupted_from = NULL, updated_at = ?, ",
+            "UPDATE tickets SET state = ?, interrupted_from = NULL, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ? AND state = ? AND interrupted_from = ?"
         ))
-        .bind(validating.column().as_str())
         .bind(validating.as_str())
         .bind(now)
         .bind(validating.as_str())
@@ -476,7 +522,7 @@ impl Board {
         reason: &str,
     ) -> Result<(), BoardError> {
         let now = now_ms();
-        let to = Status::ValidationNoResult;
+        let to = Status::CheckNoResult;
         let mut tx = self.store.begin_write().await?;
         sqlx::query(
             "UPDATE validations SET ended_at = ?, outcome = ?, report = ? WHERE ticket_id = ? AND ended_at IS NULL",
@@ -488,11 +534,10 @@ impl Board {
         .execute(&mut *tx)
         .await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, signal_text = ?, signal_since = ?, updated_at = ?, ",
+            "UPDATE tickets SET state = ?, signal_text = ?, signal_since = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(to.column().as_str())
         .bind(to.as_str())
         .bind(format!("The validator didn't start: {reason}"))
         .bind(now)
@@ -559,7 +604,7 @@ impl Board {
         };
         let now = now_ms();
         let notes: Vec<&str> = report.lines().filter_map(note_of).collect();
-        let review = step.to == Status::ReadyForReview;
+        let review = step.enters_review();
         let mut tx = self.store.begin_write().await?;
         sqlx::query(
             "UPDATE validations SET ended_at = ?, outcome = ?, report = ?, notes_json = ? WHERE id = ?",
@@ -572,7 +617,7 @@ impl Board {
         .execute(&mut *tx)
         .await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, validation_round = ?, review_entry = ?,
+            "UPDATE tickets SET stage_id = ?, state = ?, validation_round = ?, review_entry = ?,
                                 review_head_sha = CASE WHEN ? THEN ? ELSE review_head_sha END,
                                 review_entered_at = CASE WHEN ? THEN ? ELSE review_entered_at END,
                                 sent_back_at = CASE WHEN ? THEN NULL ELSE sent_back_at END,
@@ -581,7 +626,7 @@ impl Board {
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(step.to.column().as_str())
+        .bind(step.place.stage_id())
         .bind(step.to.as_str())
         .bind(i64::from(counted))
         .bind(step.entry.map(|e| e.as_str()))
@@ -645,10 +690,17 @@ impl Board {
         behind: bool,
     ) -> Result<bool, BoardError> {
         let now = now_ms();
+        // A held stop handed back moves from the Agent stage into its check again; a validation that waits stays.
+        let ticket = self.ticket_by_id(ticket_id).await?;
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        let stage = (!behind)
+            .then(|| engine::stage_for(&flow, &ticket.place, to))
+            .flatten()
+            .map(|s| s.id.clone());
         let from: Vec<&str> = from.iter().map(|s| s.as_str()).collect();
         let sql = format!(
             concat!(
-                "UPDATE tickets SET board_column = ?, state = ?, signal_text = ?, signal_since = ?,
+                "UPDATE tickets SET stage_id = COALESCE(?, stage_id), state = ?, signal_text = ?, signal_since = ?,
                                     interrupted_from = ?, updated_at = ?, ",
                 set_state_since!(),
                 " WHERE id = ? AND state IN ({})"
@@ -656,11 +708,11 @@ impl Board {
             vec!["?"; from.len()].join(", ")
         );
         let mut query = sqlx::query(sqlx::AssertSqlSafe(sql))
-            .bind(to.column().as_str())
+            .bind(stage)
             .bind(to.as_str())
             .bind(text)
             .bind(text.map(|_| now))
-            .bind(behind.then_some(Status::Validating.as_str()))
+            .bind(behind.then_some(Status::Checking.as_str()))
             .bind(now)
             .bind(to.as_str())
             .bind(now)
@@ -672,13 +724,21 @@ impl Board {
     }
 
     /// Into Ready for Review without a verdict, by the user (Move to Review anyway, VAL-06, VAL-07): the last
-    /// round's head is the reviewed head; never auto-merged.
+    /// round's head is the reviewed head; never auto-merged. The ticket goes to the first human check after its
+    /// stage (the default flow's Review).
     pub(crate) async fn move_to_review(
         &self,
         ticket: &Ticket,
         entry: Option<ReviewEntry>,
         actor: &Actor,
     ) -> Result<(), BoardError> {
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        let stage = ticket
+            .place
+            .stage()
+            .and_then(|id| engine::next_human_check(&flow, id))
+            .or_else(|| flow.stages.iter().rev().find(|s| s.is_human_check()))
+            .map(|s| s.id.clone());
         let head: Option<Option<String>> = sqlx::query_scalar(
             "SELECT head_sha FROM validations WHERE ticket_id = ? ORDER BY started_at DESC, id DESC LIMIT 1",
         )
@@ -686,17 +746,17 @@ impl Board {
         .fetch_optional(self.store.pool())
         .await?;
         let now = now_ms();
-        let to = Status::ReadyForReview;
+        let to = Status::WaitingForYou;
         let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, review_head_sha = COALESCE(?, review_head_sha),
+            "UPDATE tickets SET stage_id = ?, state = ?, review_head_sha = COALESCE(?, review_head_sha),
                                 review_entered_at = ?, review_entry = COALESCE(?, review_entry),
                                 sent_back_at = NULL, pr_rework = FALSE, auto_merge_stop = NULL,
                                 signal_text = NULL, signal_since = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(to.column().as_str())
+        .bind(stage)
         .bind(to.as_str())
         .bind(head.flatten())
         .bind(now)
@@ -720,27 +780,27 @@ impl Board {
         Ok(())
     }
 
-    /// Back to the agent after the last failed round (Give it another round, Answer the agent): Agent Working,
-    /// one more round allowed or the counter at 0.
+    /// Back to the agent after the last failed round (Give it another round, Answer the agent): Agent Working in
+    /// the stage `step` names, one more round allowed or the counter at 0.
     pub(crate) async fn back_to_agent(
         &self,
         ticket: &Ticket,
-        extra_round: bool,
-        reset: bool,
+        step: &Transition,
         actor: &Actor,
     ) -> Result<(), BoardError> {
+        let (extra_round, reset) = (step.extra_round, step.round == Round::Reset);
         let now = now_ms();
         let to = Status::Working;
         let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?,
+            "UPDATE tickets SET stage_id = ?, state = ?,
                                 validation_round = CASE WHEN ? THEN 0 ELSE validation_round END,
                                 validation_rounds_extra = CASE WHEN ? THEN 0 ELSE validation_rounds_extra + ? END,
                                 signal_text = NULL, signal_since = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(to.column().as_str())
+        .bind(step.place.stage_id())
         .bind(to.as_str())
         .bind(reset)
         .bind(reset)
@@ -803,15 +863,14 @@ impl Board {
         actor: &Actor,
     ) -> Result<(), BoardError> {
         let now = now_ms();
-        let to = Status::Validating;
+        let to = Status::Checking;
         let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, signal_text = NULL, signal_since = NULL,
+            "UPDATE tickets SET state = ?, signal_text = NULL, signal_since = NULL,
                                 interrupted_from = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(to.column().as_str())
         .bind(to.as_str())
         .bind(actor.to_string())
         .bind(now)
@@ -867,13 +926,10 @@ impl Board {
         let to = Status::MergeConflictFixing;
         sqlx::query(concat!(
             "UPDATE tickets SET auto_merge_conflicts = auto_merge_conflicts + 1,
-                                board_column = CASE WHEN state = ? THEN ? ELSE board_column END,
                                 state = CASE WHEN state = ? THEN ? ELSE state END, updated_at = ?, ",
             "state_since = CASE WHEN state = ? THEN ? ELSE state_since END",
             " WHERE id = ?"
         ))
-        .bind(Status::Working.as_str())
-        .bind(to.column().as_str())
         .bind(Status::Working.as_str())
         .bind(to.as_str())
         .bind(now)
@@ -894,15 +950,24 @@ impl Board {
         conflicted: bool,
     ) -> Result<(), BoardError> {
         let now = now_ms();
-        let to = Status::AutoMergeStopped;
+        let to = Status::DeliveryStopped;
+        // It stops in the Agent stage whose session would fix the conflict (rule 12 of d0108's second gap review).
+        let ticket = self.ticket_by_id(ticket_id).await?;
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        let stage = match ticket.place.stage() {
+            Some(id) if ticket.status.at_work() => Some(id.to_owned()),
+            Some(id) => engine::back_to(&flow, id, &[]).map(|s| s.id.clone()),
+            None => None,
+        }
+        .or_else(|| flow.first_agent_stage().map(|s| s.id.clone()));
         let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, auto_merge_stop = ?, signal_text = ?, signal_since = ?,
+            "UPDATE tickets SET stage_id = ?, state = ?, auto_merge_stop = ?, signal_text = ?, signal_since = ?,
                                 auto_merge_conflicts = auto_merge_conflicts + ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(to.column().as_str())
+        .bind(stage)
         .bind(to.as_str())
         .bind(stop.as_str())
         .bind(message)
@@ -951,7 +1016,7 @@ impl Board {
         let ids: Vec<(String,)> =
             sqlx::query_as("SELECT id FROM tickets WHERE state = ? AND interrupted_from = ?")
                 .bind(Status::WaitingForLimitReset.as_str())
-                .bind(Status::Validating.as_str())
+                .bind(Status::Checking.as_str())
                 .fetch_all(self.store.pool())
                 .await?;
         Ok(ids.into_iter().map(|(id,)| id).collect())
@@ -1053,14 +1118,26 @@ mod tests {
     use super::*;
     use ValidationEvent as E;
 
-    fn state(status: Status) -> ValidationState {
+    fn state(status: Status) -> ValidationState<'static> {
         ValidationState {
+            flow: &crate::flow::default_file().flow,
+            place: Box::leak(Box::new(Place::of(status, None, None))),
             status,
             round: 0,
             rounds: 3,
-            validation: true,
             auto_merge: false,
             conflicts: 0,
+        }
+    }
+
+    /// Validation off: the derived flow has no Validate stage.
+    fn without_validation(s: ValidationState<'static>) -> ValidationState<'static> {
+        let mut flow = crate::flow::default_flow();
+        flow.stages
+            .retain(|s| s.id != crate::flow::default::VALIDATE);
+        ValidationState {
+            flow: Box::leak(Box::new(flow)),
+            ..s
         }
     }
 
@@ -1086,8 +1163,8 @@ mod tests {
             priority: Default::default(),
             priority_inherited: true,
             epic: Some("SHOP-40".parse().unwrap()),
-            column: crate::domain::Column::ReadyForReview,
-            status: Status::ReadyForReview,
+            place: Place::stage_of(crate::flow::default::REVIEW),
+            status: Status::WaitingForYou,
             base: crate::board::tickets::Base::Branch("main".into()),
             base_locked: true,
             external_id: None,
@@ -1133,17 +1210,14 @@ mod tests {
     fn submit_starts_a_validator() {
         for event in [E::AgentSubmit, E::ValidateAndSubmit] {
             let t = go(state(Status::Working), event);
-            assert_eq!(t.to, Status::Validating);
+            assert_eq!(t.to, Status::Checking);
             assert!(t.start_validator && t.round == Round::Keep && t.outcome.is_none());
         }
-        let off = ValidationState {
-            validation: false,
-            ..state(Status::Working)
-        };
+        let off = without_validation(state(Status::Working));
         let t = go(off, E::AgentSubmit);
-        assert_eq!((t.to, t.entry), (Status::ReadyForReview, None));
+        assert_eq!((t.to, t.entry), (Status::WaitingForYou, None));
         assert!(!t.start_validator);
-        assert!(transition(state(Status::Validating), E::AgentSubmit).is_err());
+        assert!(transition(state(Status::Checking), E::AgentSubmit).is_err());
     }
 
     /// Submit for review skips validation: "Submitted by you", never auto-merged.
@@ -1159,22 +1233,22 @@ mod tests {
         assert_eq!(
             (t.to, t.entry, t.auto_merge),
             (
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 Some(ReviewEntry::SubmittedByUser),
                 false
             )
         );
-        assert!(transition(state(Status::Validating), E::SubmitByUser).is_err());
+        assert!(transition(state(Status::Checking), E::SubmitByUser).is_err());
     }
 
     /// Validating → Ready for Review "Validated · round N" on pass; with Auto-merge, the merge runs.
     #[test]
     fn pass() {
-        let t = go(state(Status::Validating), E::Pass);
+        let t = go(state(Status::Checking), E::Pass);
         assert_eq!(
             (t.to, t.entry, t.round, t.outcome, t.auto_merge),
             (
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 Some(ReviewEntry::Validated),
                 Round::Count,
                 Some(ValidationOutcome::Pass),
@@ -1183,7 +1257,7 @@ mod tests {
         );
         let auto = ValidationState {
             auto_merge: true,
-            ..state(Status::Validating)
+            ..state(Status::Checking)
         };
         assert!(go(auto, E::Pass).auto_merge);
     }
@@ -1191,20 +1265,20 @@ mod tests {
     /// Fail with rounds left → back to the agent with the findings; the last round → turquoise, nothing delivered.
     #[test]
     fn fail_and_the_last_fail() {
-        let t = go(state(Status::Validating), E::Fail);
+        let t = go(state(Status::Checking), E::Fail);
         assert_eq!(
             (t.to, t.deliver_findings, t.round),
             (Status::Working, true, Round::Count)
         );
         let last = ValidationState {
             round: 2,
-            ..state(Status::Validating)
+            ..state(Status::Checking)
         };
         let t = go(last, E::Fail);
         assert_eq!(
             (t.to, t.deliver_findings, t.round, t.outcome),
             (
-                Status::ValidationFailed,
+                Status::CheckFailed,
                 false,
                 Round::Count,
                 Some(ValidationOutcome::Fail)
@@ -1213,13 +1287,13 @@ mod tests {
         // One round: the first failure is the last; five rounds: the fourth isn't.
         let one = ValidationState {
             rounds: 1,
-            ..state(Status::Validating)
+            ..state(Status::Checking)
         };
-        assert_eq!(go(one, E::Fail).to, Status::ValidationFailed);
+        assert_eq!(go(one, E::Fail).to, Status::CheckFailed);
         let five = ValidationState {
             rounds: 5,
             round: 3,
-            ..state(Status::Validating)
+            ..state(Status::Checking)
         };
         assert_eq!(go(five, E::Fail).to, Status::Working);
     }
@@ -1231,10 +1305,10 @@ mod tests {
             (E::NoVerdict, ValidationOutcome::NoResult),
             (E::ValidatorChangedFiles, ValidationOutcome::Discarded),
         ] {
-            let t = go(state(Status::Validating), event);
+            let t = go(state(Status::Checking), event);
             assert_eq!(
                 (t.to, t.round, t.outcome),
-                (Status::ValidationNoResult, Round::Keep, Some(outcome))
+                (Status::CheckNoResult, Round::Keep, Some(outcome))
             );
             assert!(!outcome.counts());
         }
@@ -1243,24 +1317,24 @@ mod tests {
     #[test]
     fn validator_permission_prompt_and_back() {
         assert_eq!(
-            go(state(Status::Validating), E::ValidatorNeedsYou).to,
-            Status::ValidatorNeedsYou
+            go(state(Status::Checking), E::ValidatorNeedsYou).to,
+            Status::CheckerNeedsYou
         );
         assert_eq!(
-            go(state(Status::ValidatorNeedsYou), E::ValidatorContinues).to,
-            Status::Validating
+            go(state(Status::CheckerNeedsYou), E::ValidatorContinues).to,
+            Status::Checking
         );
         // A verdict also lands while the prompt shows.
         assert_eq!(
-            go(state(Status::ValidatorNeedsYou), E::Pass).to,
-            Status::ReadyForReview
+            go(state(Status::CheckerNeedsYou), E::Pass).to,
+            Status::WaitingForYou
         );
     }
 
     /// Code changed, Stop validation and Skip to Review: none counts as a round.
     #[test]
     fn changes_stop_and_skip() {
-        let t = go(state(Status::Validating), E::CodeChanged);
+        let t = go(state(Status::Checking), E::CodeChanged);
         assert_eq!(
             (t.to, t.tell_cancelled, t.round, t.outcome),
             (
@@ -1270,7 +1344,7 @@ mod tests {
                 Some(ValidationOutcome::Cancelled)
             )
         );
-        let t = go(state(Status::Validating), E::StopValidation);
+        let t = go(state(Status::Checking), E::StopValidation);
         assert_eq!(
             (t.to, t.tell_cancelled, t.outcome),
             (Status::Working, false, Some(ValidationOutcome::Stopped))
@@ -1278,13 +1352,13 @@ mod tests {
         let t = go(
             ValidationState {
                 auto_merge: true,
-                ..state(Status::Validating)
+                ..state(Status::Checking)
             },
             E::SkipToReview,
         );
         assert_eq!(
             (t.to, t.entry, t.auto_merge),
-            (Status::ReadyForReview, Some(ReviewEntry::Skipped), false)
+            (Status::WaitingForYou, Some(ReviewEntry::Skipped), false)
         );
         for event in [E::StopValidation, E::SkipToReview, E::CodeChanged] {
             assert!(
@@ -1297,15 +1371,11 @@ mod tests {
     /// After the last failed round: Move to Review anyway, Give it another round, Answer the agent.
     #[test]
     fn after_the_last_failed_round() {
-        let failed = state(Status::ValidationFailed);
+        let failed = state(Status::CheckFailed);
         let t = go(failed, E::MoveToReviewAnyway);
         assert_eq!(
             (t.to, t.entry, t.auto_merge),
-            (
-                Status::ReadyForReview,
-                Some(ReviewEntry::FailedMoved),
-                false
-            )
+            (Status::WaitingForYou, Some(ReviewEntry::FailedMoved), false)
         );
         let t = go(failed, E::AnotherRound);
         assert_eq!(
@@ -1323,21 +1393,21 @@ mod tests {
     /// ("Validation skipped by you").
     #[test]
     fn after_no_result() {
-        let t = go(state(Status::ValidationNoResult), E::RetryValidation);
+        let t = go(state(Status::CheckNoResult), E::RetryValidation);
         assert_eq!(
             (t.to, t.start_validator, t.round),
-            (Status::Validating, true, Round::Keep)
+            (Status::Checking, true, Round::Keep)
         );
-        let t = go(state(Status::ValidationNoResult), E::MoveToReviewAnyway);
+        let t = go(state(Status::CheckNoResult), E::MoveToReviewAnyway);
         assert_eq!(t.entry, Some(ReviewEntry::Skipped));
-        assert!(transition(state(Status::ValidationFailed), E::RetryValidation).is_err());
+        assert!(transition(state(Status::CheckFailed), E::RetryValidation).is_err());
     }
 
     /// Auto-merge: success → Merged; a conflict → back to the agent with restack, the counter at 0; the third
     /// conflict in a row → stopped; base diverged / checkout dirty → stopped; Retry merge and Move to Review.
     #[test]
     fn auto_merge() {
-        let review = state(Status::ReadyForReview);
+        let review = state(Status::WaitingForYou);
         assert_eq!(go(review, E::AutoMerged).to, Status::Merged);
         let t = go(review, E::AutoMergeConflict);
         assert_eq!(
@@ -1352,26 +1422,26 @@ mod tests {
         assert_eq!(
             (t.to, t.restack, t.stop),
             (
-                Status::AutoMergeStopped,
+                Status::DeliveryStopped,
                 false,
                 Some(AutoMergeStop::KeepsConflicting)
             )
         );
         for stop in [AutoMergeStop::BaseDiverged, AutoMergeStop::CheckoutDirty] {
             let t = go(review, E::AutoMergeBlocked(stop));
-            assert_eq!((t.to, t.stop), (Status::AutoMergeStopped, Some(stop)));
+            assert_eq!((t.to, t.stop), (Status::DeliveryStopped, Some(stop)));
         }
-        let stopped = state(Status::AutoMergeStopped);
+        let stopped = state(Status::DeliveryStopped);
         let t = go(stopped, E::RetryMerge);
-        assert_eq!((t.to, t.auto_merge), (Status::ReadyForReview, true));
+        assert_eq!((t.to, t.auto_merge), (Status::WaitingForYou, true));
         let t = go(stopped, E::MoveToReview);
         assert_eq!(
             (t.to, t.auto_merge, t.entry),
-            (Status::ReadyForReview, false, None),
+            (Status::WaitingForYou, false, None),
             "still Validated · round N"
         );
         // The fix after a conflict validates again with the counter at 0.
         let t = go(state(Status::MergeConflictFixing), E::AgentSubmit);
-        assert_eq!((t.to, t.round), (Status::Validating, Round::Reset));
+        assert_eq!((t.to, t.round), (Status::Checking, Round::Reset));
     }
 }

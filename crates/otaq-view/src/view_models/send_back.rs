@@ -9,7 +9,7 @@ use otaq_core::protocol::{Request, SendBackParams};
 
 /// Whether Send back is offered: a ticket (never an epic) in Ready for Review.
 pub fn available(ticket: &Ticket) -> bool {
-    !ticket.is_epic() && ticket.status == Status::ReadyForReview
+    !ticket.is_epic() && ticket.status == Status::WaitingForYou
 }
 
 /// What the dialog lists.
@@ -105,7 +105,7 @@ mod tests {
 
     #[test]
     fn the_dialog_lists_comments_and_waiting_tickets() {
-        let shop18 = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let shop18 = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         let mut shop20 = ticket("SHOP-20", "Checkout page", Status::Queued);
         shop20.depends_on = vec![shop18.key.clone()];
         let mut shop21 = ticket("SHOP-21", "Order confirmation email", Status::Queued);
@@ -163,9 +163,9 @@ mod tests {
 
     #[test]
     fn only_tickets_in_review_and_never_epics() {
-        assert!(available(&ticket("SHOP-18", "t", Status::ReadyForReview)));
+        assert!(available(&ticket("SHOP-18", "t", Status::WaitingForYou)));
         assert!(!available(&ticket("SHOP-18", "t", Status::Working)));
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::ReadyForReview);
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
         epic.kind = otaq_core::domain::Kind::Epic;
         assert!(!available(&epic));
     }

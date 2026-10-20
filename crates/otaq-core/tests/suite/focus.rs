@@ -8,7 +8,7 @@ use otaq_core::agent_tools::Tool;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
-use otaq_core::domain::{Column, Status};
+use otaq_core::domain::{Status, StatusSet};
 use otaq_core::protocol::{Event, FocusParams, Request};
 use otaq_core::service::testing::{AgentShell, TestService};
 use otaq_core::session::SessionKind;
@@ -90,7 +90,7 @@ async fn waiting_while_focused_is_recorded_but_calm_until_the_user_leaves() {
     let dev = dev
         .columns
         .iter()
-        .find(|c| c.column == Column::Dev)
+        .find(|c| c.column == StatusSet::AgentStage)
         .unwrap();
     assert_eq!(dev.cards[0].key.to_string(), "SHOP-1");
 
@@ -229,7 +229,7 @@ async fn the_validators_terminal_calms_only_the_validator() {
     let t = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(
         (t.status, t.flags.your_turn),
-        (Status::ValidatorNeedsYou, false)
+        (Status::CheckerNeedsYou, false)
     );
     assert!(t.shows_needs_you());
     assert_eq!(
@@ -245,7 +245,7 @@ async fn the_validators_terminal_calms_only_the_validator() {
     let t = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(
         (t.status, t.flags.your_turn),
-        (Status::ValidatorNeedsYou, true)
+        (Status::CheckerNeedsYou, true)
     );
     assert_eq!(in_inbox(&w).await, (false, 0));
 

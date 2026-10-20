@@ -38,6 +38,7 @@
 //!
 //! Data that the service doesn't fill yet comes in through [`CardExtras`]; fixtures fill it.
 
+use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::epic_flight::is_never_started;
 use otaq_core::board::needs_you::change_agent;
 use otaq_core::board::tickets::{Base, Ticket};
@@ -635,7 +636,7 @@ fn runs(status: Status) -> bool {
         status,
         Status::Working
             | Status::WorkingInBackground
-            | Status::Validating
+            | Status::Checking
             | Status::MergeConflictFixing
     )
 }
@@ -782,7 +783,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             }
         }
         // The validator's permission prompt (VAL-11).
-        Status::ValidatorNeedsYou => Part::flag(
+        Status::CheckerNeedsYou => Part::flag(
             flag(
                 R::NeedsYou,
                 VALIDATOR_ASKS,
@@ -893,7 +894,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             Tone::Error,
         ),
         // The last round failed: its first finding, else the count (VAL-06).
-        Status::ValidationFailed => {
+        Status::CheckFailed => {
             let n = ticket.validation_round.max(1);
             Part::flag(
                 flag(
@@ -913,7 +914,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             )
         }
         // The validator's model was refused (AGT-05): not a round; its message on hover.
-        Status::ValidationNoResult if let Some((model, message)) = validator_refusal(ticket) => {
+        Status::CheckNoResult if let Some((model, message)) = validator_refusal(ticket) => {
             Part::flag(
                 flag(
                     R::Stopped,
@@ -933,7 +934,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             )))
         }
         // No verdict, or a discarded one: the core's text says which (VAL-02, VAL-07).
-        Status::ValidationNoResult => Part::flag(
+        Status::CheckNoResult => Part::flag(
             flag(
                 R::Stopped,
                 "No result",
@@ -948,7 +949,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             Tone::Attention,
         ),
         // "Keeps conflicting with <epic branch> · 3 tries", or the Local merge's message (AMG-03, AMG-04).
-        Status::AutoMergeStopped => {
+        Status::DeliveryStopped => {
             let n = ticket.auto_merge_conflicts.max(1);
             let (label, full) = match ticket.auto_merge_stop {
                 Some(AutoMergeStop::BaseDiverged) => ("Diverged".to_owned(), "Base diverged"),
@@ -964,7 +965,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                     _ => x
                         .question
                         .clone()
-                        .unwrap_or_else(|| Status::AutoMergeStopped.label().to_owned()),
+                        .unwrap_or_else(|| Status::DeliveryStopped.label().to_owned()),
                 }),
                 Tone::Attention,
             )
@@ -992,7 +993,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             Tone::Warning,
         ),
         // Calm, like working (*Validating… (0063)*): which round and how long.
-        Status::Validating => Part::flag(
+        Status::Checking => Part::flag(
             flag(
                 R::Busy,
                 "Validating\u{2026}",
@@ -1044,7 +1045,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             }),
             Tone::Muted,
         ),
-        Status::ReadyForReview => return review_part(ticket),
+        Status::WaitingForYou => return review_part(ticket),
         Status::PrOpen => {
             let n = flags.pr_number?;
             Part::flag(
@@ -1085,7 +1086,8 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         Status::Queued if x.starting => Part::quiet("Starting\u{2026}", Tone::Muted),
         Status::Queued => Part::quiet(x.waits_for.clone()?, Tone::Muted),
         Status::Backlog if flags.ready_to_start => Part::quiet(READY_TO_START, Tone::Muted),
-        Status::Backlog | Status::EpicInProgress | Status::Merged => return None,
+        // To deliver: waits for the Delivery click (not on the default flow, whose Review offers it).
+        Status::Backlog | Status::Merged | Status::ToDeliver => return None,
     })
 }
 
@@ -1192,7 +1194,7 @@ impl CardViewModel {
         if let Some(base) = flags.conflicts_with.as_ref().filter(|_| {
             !matches!(
                 status,
-                Status::MergeConflictFixing | Status::AutoMergeStopped
+                Status::MergeConflictFixing | Status::DeliveryStopped
             )
         }) {
             parts.push(
@@ -1329,7 +1331,7 @@ impl CardViewModel {
 /// Whose avatar the head shows (*Has the turn*): the validator while the ticket validates, the validator asks or
 /// its round is held, else the developer.
 fn turn(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<ToolAvatarView> {
-    let validator = matches!(status, Status::Validating | Status::ValidatorNeedsYou)
+    let validator = matches!(status, Status::Checking | Status::CheckerNeedsYou)
         || held(ticket, status, x).is_some_and(|h| h.role == Role::Validator);
     match validator {
         true => x.validator.clone(),
@@ -1342,9 +1344,7 @@ fn turn(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<ToolAvatarVie
 pub fn held<'a>(ticket: &Ticket, status: Status, x: &'a CardExtras) -> Option<&'a CardHold> {
     match status {
         Status::Queued | Status::Held | Status::WaitingForSlot => x.agents.hold(Role::Developer),
-        _ if ticket.status.column() == otaq_core::domain::Column::Dev => {
-            x.agents.hold(Role::Validator)
-        }
+        _ if ticket.status.column() == Column::Dev => x.agents.hold(Role::Validator),
         _ => None,
     }
 }
@@ -1445,7 +1445,7 @@ fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
 /// Claude Code limit", "Validator moved from Verifier · Copilot not available". The user's own move says nothing.
 fn moved_part(status: Status, x: &CardExtras) -> Option<Part> {
     let (moved, prefix) = match status {
-        Status::Validating => (x.agents.validator_move.as_ref()?, "Validator moved"),
+        Status::Checking => (x.agents.validator_move.as_ref()?, "Validator moved"),
         Status::Working | Status::WorkingInBackground => {
             (x.agents.developer_move.as_ref()?, "Moved")
         }
@@ -1476,7 +1476,7 @@ pub const MODEL_UNAVAILABLE: &str = "Model unavailable";
 /// The old callout's markers on a card that isn't stopped: the first that applies (they never pile up).
 fn marker(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
     let flags = &ticket.flags;
-    if ticket.status == Status::ReadyForReview && flags.pr_rework {
+    if ticket.status == Status::WaitingForYou && flags.pr_rework {
         // PR rework (d0041): dragged back from Approved; Send back starts the agent.
         return Some(Part::quiet(
             "Back for rework \u{b7} Send back to start the agent",
@@ -1750,14 +1750,14 @@ pub fn footer_agent(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<F
     }
     if runs(status) {
         let name = match status {
-            Status::Validating => a.running_validator.as_ref().or(a.validator.as_ref()),
+            Status::Checking => a.running_validator.as_ref().or(a.validator.as_ref()),
             _ => a.running_developer.as_ref().or(a.developer.as_ref()),
         };
         // A validator a fallback took: "Strong (Verifier's fallback)" (*Validator moved by its fallback*).
         let fallback_of = a
             .validator_move
             .as_ref()
-            .filter(|m| status == Status::Validating && m.reason != MoveReason::UserMove);
+            .filter(|m| status == Status::Checking && m.reason != MoveReason::UserMove);
         return name.map(|name| match fallback_of {
             Some(m) => plain(&format!("{name} ({}\u{2019}s fallback)", m.from_name)),
             None => plain(name),
@@ -1893,7 +1893,7 @@ fn details(
     if let Some(provider) = x.pr_provider.clone().or_else(|| pr_provider_label(ticket)) {
         details.push(provider);
     }
-    if status != Status::ReadyForReview
+    if status != Status::WaitingForYou
         && let Some(entry) = flags.review_entry
     {
         details.push(entry.entry.label(entry.round));
@@ -1952,14 +1952,14 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
     if kept {
         // Answered from the panel: that answer resumes it.
         return match status {
-            Status::NeedsYou | Status::ValidatorNeedsYou => open("Answer"),
+            Status::NeedsYou | Status::CheckerNeedsYou => open("Answer"),
             _ => open("Reply"),
         };
     }
     match status {
-        Status::NeedsYou | Status::ValidatorNeedsYou => open("Answer"),
+        Status::NeedsYou | Status::CheckerNeedsYou => open("Answer"),
         Status::AsksYou | Status::Idle => open("Reply"),
-        Status::ParentClosed | Status::ValidationFailed | Status::AutoMergeStopped => open("Open"),
+        Status::ParentClosed | Status::CheckFailed | Status::DeliveryStopped => open("Open"),
         Status::Interrupted => a(CardActionKind::Resume, "Resume", Some(IconName::Play), true),
         // *16 → Resume failed*: Start from scratch, the frame's primary; Retry stays in the panel.
         Status::ResumeFailed => a(
@@ -1975,14 +1975,14 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
             true,
         ),
         // Back from PR rework and submitted again: the new commits go to the PR (REV-14).
-        Status::ReadyForReview if has_pr && !ticket.flags.pr_rework => a(
+        Status::WaitingForYou if has_pr && !ticket.flags.pr_rework => a(
             CardActionKind::PushToPr,
             "Push to PR",
             Some(IconName::Upload),
             true,
         ),
-        Status::ReadyForReview if has_pr => None,
-        Status::ReadyForReview => a(CardActionKind::Review, "Review", Some(IconName::Eye), true),
+        Status::WaitingForYou if has_pr => None,
+        Status::WaitingForYou => a(CardActionKind::Review, "Review", Some(IconName::Eye), true),
         // Mark closed stays in the panel and the card's menu.
         Status::PrOpen if has_pr => a(CardActionKind::MarkMerged, "Mark merged", None, false),
         Status::ClosedNotMerged => a(
@@ -1998,7 +1998,7 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
             false,
         ),
         // VAL-07: a fresh validator; Move to Review anyway stays in the panel.
-        Status::ValidationNoResult => a(
+        Status::CheckNoResult => a(
             CardActionKind::RetryValidation,
             "Retry validation",
             Some(IconName::RotateCcw),
@@ -2079,7 +2079,7 @@ fn second_stop(ticket: &Ticket) -> Option<&otaq_core::domain::LeadNoteSent> {
     ticket.flags.lead_note_sent.as_ref().filter(|_| {
         matches!(
             at,
-            Status::ValidationFailed | Status::AutoMergeStopped | Status::Idle
+            Status::CheckFailed | Status::DeliveryStopped | Status::Idle
         )
     })
 }
@@ -2277,7 +2277,7 @@ pub const SCHEMA_OVERLAP_HINT: &str = "Whichever merges second may need its migr
 /// or after approval.
 pub fn decisions_label(ticket: &Ticket) -> Option<String> {
     let n = ticket.flags.open_decisions;
-    (n > 0 && ticket.status == Status::ReadyForReview)
+    (n > 0 && ticket.status == Status::WaitingForYou)
         .then(|| format!("{n} decision{}", if n == 1 { "" } else { "s" }))
 }
 
@@ -2311,7 +2311,7 @@ mod tests {
     use super::*;
     use crate::view_models::card_fixtures::{self, NOW, ticket};
     use crate::view_models::tool_avatar::AvatarTool;
-    use otaq_core::domain::{Column, ValidationRound};
+    use otaq_core::domain::ValidationRound;
 
     fn main_project() -> CardExtras {
         CardExtras {
@@ -2703,27 +2703,27 @@ mod tests {
         };
         let st = |s| of(ticket("SHOP-1", "x", s), main_project());
         let stop = |stop| {
-            let mut t = ticket("SHOP-1", "x", Status::AutoMergeStopped);
+            let mut t = ticket("SHOP-1", "x", Status::DeliveryStopped);
             t.auto_merge_stop = Some(stop);
             t.auto_merge_conflicts = 3;
             of(t, main_project())
         };
-        let mut failed = ticket("SHOP-1", "x", Status::ValidationFailed);
+        let mut failed = ticket("SHOP-1", "x", Status::CheckFailed);
         failed.validation_round = 3;
-        let mut conflicts = ticket("SHOP-1", "x", Status::ReadyForReview);
+        let mut conflicts = ticket("SHOP-1", "x", Status::WaitingForYou);
         conflicts.flags.conflicts_with = Some("main".into());
         let mut port = ticket("SHOP-1", "x", Status::Working);
         port.flags.run_port = Some(4020);
         let mut pr = ticket("SHOP-1", "x", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         let review = |entry| {
-            let mut t = ticket("SHOP-1", "x", Status::ReadyForReview);
+            let mut t = ticket("SHOP-1", "x", Status::WaitingForYou);
             t.flags.review_entry = Some(otaq_core::domain::ReviewEntryFlag { entry, round: 3 });
             of(t, main_project())
         };
         use otaq_core::domain::ReviewEntry as E;
         let flags = [
-            st(Status::ValidatorNeedsYou),
+            st(Status::CheckerNeedsYou),
             st(Status::NeedsYou),
             st(Status::AsksYou),
             st(Status::Idle),
@@ -2735,7 +2735,7 @@ mod tests {
             stop(AutoMergeStop::BaseDiverged),
             stop(AutoMergeStop::CheckoutDirty),
             of(failed, main_project()),
-            st(Status::ValidationNoResult),
+            st(Status::CheckNoResult),
             st(Status::WaitingForLimitReset),
             of(
                 ticket("SHOP-1", "x", Status::Held),
@@ -2744,7 +2744,7 @@ mod tests {
                     ..main_project()
                 },
             ),
-            st(Status::Validating),
+            st(Status::Checking),
             st(Status::MergeConflictFixing),
             of(conflicts, main_project()),
             review(E::Validated),
@@ -2925,20 +2925,20 @@ mod tests {
                 .avatar
                 .map(|a| a.letters)
         };
-        assert_eq!(shown(Status::Validating).as_deref(), Some("CX"));
-        assert_eq!(shown(Status::ValidatorNeedsYou).as_deref(), Some("CX"));
+        assert_eq!(shown(Status::Checking).as_deref(), Some("CX"));
+        assert_eq!(shown(Status::CheckerNeedsYou).as_deref(), Some("CX"));
         for status in [
             Status::Working,
             Status::NeedsYou,
-            Status::ValidationFailed,
-            Status::ValidationNoResult,
-            Status::ReadyForReview,
+            Status::CheckFailed,
+            Status::CheckNoResult,
+            Status::WaitingForYou,
         ] {
             assert_eq!(shown(status).as_deref(), Some("CC"), "{status}");
         }
         // Hidden while one tool is connected.
         let hidden = CardViewModel::from(
-            &ticket("SHOP-29", "Coupon field", Status::Validating),
+            &ticket("SHOP-29", "Coupon field", Status::Checking),
             &x,
             NOW,
         );
@@ -3026,11 +3026,11 @@ mod tests {
         t.created_by = Actor::Agent("SHOP-40.2".parse().unwrap());
         assert_eq!(card(&t).origin.as_deref(), Some("Created by SHOP-40.2"));
         t.status = Status::Working;
-        t.column = Column::Dev;
+        t.place = otaq_core::domain::Place::stage_of("dev");
         assert_eq!(card(&t).origin, None);
         t.created_by = Actor::User("me".into());
         t.status = Status::Backlog;
-        t.column = Column::Backlog;
+        t.place = otaq_core::domain::Place::Backlog;
         assert_eq!(card(&t).origin, None);
     }
 
@@ -3116,7 +3116,7 @@ mod tests {
                 |_, _| {},
                 "Resume failed",
             ),
-            ("validating", Status::Validating, |_, _| {}, "Validating…"),
+            ("validating", Status::Checking, |_, _| {}, "Validating…"),
             (
                 "round",
                 Status::Working,
@@ -3125,19 +3125,19 @@ mod tests {
             ),
             (
                 "validator",
-                Status::ValidatorNeedsYou,
+                Status::CheckerNeedsYou,
                 |_, _| {},
                 "Needs you · validator",
             ),
             (
                 "failed",
-                Status::ValidationFailed,
+                Status::CheckFailed,
                 |t, _| t.validation_round = 3,
                 "Validation failed 3 times",
             ),
             (
                 "no result",
-                Status::ValidationNoResult,
+                Status::CheckNoResult,
                 |_, _| {},
                 "without a result",
             ),
@@ -3149,25 +3149,25 @@ mod tests {
             ),
             (
                 "keeps",
-                Status::AutoMergeStopped,
+                Status::DeliveryStopped,
                 |t, _| t.auto_merge_stop = Some(otaq_core::domain::AutoMergeStop::KeepsConflicting),
                 "Keeps conflicting",
             ),
             (
                 "diverged",
-                Status::AutoMergeStopped,
+                Status::DeliveryStopped,
                 |t, _| t.auto_merge_stop = Some(otaq_core::domain::AutoMergeStop::BaseDiverged),
                 "Base diverged",
             ),
             (
                 "dirty",
-                Status::AutoMergeStopped,
+                Status::DeliveryStopped,
                 |t, _| t.auto_merge_stop = Some(otaq_core::domain::AutoMergeStop::CheckoutDirty),
                 "Checkout dirty",
             ),
             (
                 "review",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 |_, _| {},
                 "Ready for Review",
             ),
@@ -3199,7 +3199,7 @@ mod tests {
             ),
             (
                 "validated",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 |t, _| {
                     t.flags.review_entry = Some(ReviewEntryFlag {
                         entry: E::Validated,
@@ -3210,7 +3210,7 @@ mod tests {
             ),
             (
                 "skipped",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 |t, _| {
                     t.flags.review_entry = Some(ReviewEntryFlag {
                         entry: E::Skipped,
@@ -3221,7 +3221,7 @@ mod tests {
             ),
             (
                 "submitted",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 |t, _| {
                     t.flags.review_entry = Some(ReviewEntryFlag {
                         entry: E::SubmittedByUser,
@@ -3232,7 +3232,7 @@ mod tests {
             ),
             (
                 "failed moved",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 |t, _| {
                     t.flags.review_entry = Some(ReviewEntryFlag {
                         entry: E::FailedMoved,
@@ -3266,7 +3266,7 @@ mod tests {
             ),
             (
                 "conflicts",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 |t, _| t.flags.conflicts_with = Some("main".into()),
                 "Conflicts with main",
             ),
@@ -3284,7 +3284,7 @@ mod tests {
             ),
             (
                 "run",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 |t, _| t.flags.run_port = Some(4020),
                 "Serving :4020",
             ),
@@ -3347,7 +3347,7 @@ mod tests {
             ),
             (
                 "decisions",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 |t, _| t.flags.open_decisions = 1,
                 "1 decision",
             ),
@@ -3627,8 +3627,8 @@ mod tests {
         );
         t.flags.changed_since_review = false;
 
-        t.status = Status::ReadyForReview;
-        t.column = t.status.column();
+        t.status = Status::WaitingForYou;
+        t.place = otaq_core::domain::Place::stage_of("dev");
         t.flags.pr_rework = true;
         let vm = card(&t);
         assert_eq!(
@@ -3778,7 +3778,7 @@ mod tests {
     #[test]
     fn schema_overlap_and_decisions() {
         use otaq_core::domain::SchemaOverlap;
-        let mut t = ticket("SHOP-18", "Add orders table", Status::ReadyForReview);
+        let mut t = ticket("SHOP-18", "Add orders table", Status::WaitingForYou);
         assert_eq!(line(&card(&t)), None);
         let overlap = |other: &str, file: &str| SchemaOverlap {
             other: other.parse().unwrap(),
@@ -3842,13 +3842,13 @@ mod tests {
     #[test]
     fn the_validation_and_merge_stops() {
         // Without a report, the count.
-        let mut t = ticket("SHOP-32", "Address autocomplete", Status::ValidationFailed);
+        let mut t = ticket("SHOP-32", "Address autocomplete", Status::CheckFailed);
         t.validation_round = 1;
         let vm = card(&t);
         assert_eq!(flag_of(&vm), Some("Failed ×1"));
         assert_eq!(line(&vm), Some("Validation failed 1 time"));
         // A discarded verdict says why (VAL-02).
-        let mut t = ticket("SHOP-34", "Tax display", Status::ValidationNoResult);
+        let mut t = ticket("SHOP-34", "Tax display", Status::CheckNoResult);
         t.signal = Some(otaq_core::board::tickets::AgentSignal {
             text: Some(otaq_core::domain::validation::DISCARDED.into()),
             since: None,
@@ -3881,7 +3881,7 @@ mod tests {
             (AutoMergeStop::BaseDiverged, "Diverged"),
             (AutoMergeStop::CheckoutDirty, "Dirty repo"),
         ] {
-            let mut t = ticket("BILL-6", "Late fee rule", Status::AutoMergeStopped);
+            let mut t = ticket("BILL-6", "Late fee rule", Status::DeliveryStopped);
             t.auto_merge_stop = Some(stop);
             let x = CardExtras {
                 question: Some("the message".into()),
@@ -3895,7 +3895,7 @@ mod tests {
             assert_eq!(vm.outline, Outline::Attention);
         }
         // A submitted note keeps its line next to the entry (d0052).
-        let mut t = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let mut t = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         t.flags.review_entry = Some(otaq_core::domain::ReviewEntryFlag {
             entry: otaq_core::domain::ReviewEntry::SubmittedByUser,
             round: 0,
@@ -3927,7 +3927,7 @@ mod tests {
         // Only on a never-started child.
         let (mut t, _) = variant("Ready for Dev · Updated by Wishlist lead");
         t.status = Status::Working;
-        t.column = Column::Dev;
+        t.place = otaq_core::domain::Place::stage_of("review");
         assert_eq!(line(&card(&t)), Some("after SHOP-40.4"));
 
         let (mut t, vm) = variant("Dev · Lead's note sent (round 0 of 3)");
@@ -3944,7 +3944,7 @@ mod tests {
                 .unwrap()
                 .starts_with("Lead's note sent · validation round 1 of 3: ")
         );
-        t.status = Status::ReadyForReview;
+        t.status = Status::WaitingForYou;
         assert_eq!(lead_note_callout(&t), None);
 
         // After the second stop, the note is on hover.
@@ -3974,8 +3974,8 @@ mod tests {
         assert!(s.hovers[0].title.ends_with("· unread"));
         assert_eq!(s.hovers[1].sections.last().unwrap().text, SAME_FILE_HINT);
         // The unread note only on a running child; the same file "+1" with two others.
-        t.status = Status::ReadyForReview;
-        t.column = Column::ReadyForReview;
+        t.status = Status::WaitingForYou;
+        t.place = otaq_core::domain::Place::of(t.status, None, None);
         t.flags.same_file.push(otaq_core::domain::SameFile {
             other: "SHOP-40.3".parse().unwrap(),
             files: vec!["app/wishlist/page.tsx".into()],
@@ -4151,11 +4151,7 @@ mod tests {
             vm.footer.unwrap().action.unwrap().kind,
             CardActionKind::RetryStart
         );
-        let vm = card(&ticket(
-            "SHOP-34",
-            "Tax display",
-            Status::ValidationNoResult,
-        ));
+        let vm = card(&ticket("SHOP-34", "Tax display", Status::CheckNoResult));
         assert_eq!(
             vm.footer.unwrap().action.unwrap().kind,
             CardActionKind::RetryValidation
@@ -4483,7 +4479,7 @@ mod tests {
                 "{status}"
             );
         }
-        for status in [Status::Backlog, Status::Working, Status::ReadyForReview] {
+        for status in [Status::Backlog, Status::Working, Status::WaitingForYou] {
             let vm = CardViewModel::from(&ticket("SHOP-36", "Cache", status), &x, NOW);
             assert_ne!(flag_of(&vm), Some(UNAVAILABLE), "{status}");
         }
@@ -4556,7 +4552,7 @@ mod tests {
             )),
             None
         );
-        let review = ticket("SHOP-31", "Hotfix", Status::ReadyForReview);
+        let review = ticket("SHOP-31", "Hotfix", Status::WaitingForYou);
         assert_eq!(
             line(&CardViewModel::from(
                 &review,
@@ -4657,13 +4653,13 @@ mod tests {
                 .avatar
                 .map(|a| a.letters)
         };
-        assert_eq!(head(Status::Validating, &x).as_deref(), Some("CP"));
+        assert_eq!(head(Status::Checking, &x).as_deref(), Some("CP"));
         assert_eq!(head(Status::Working, &x).as_deref(), Some("CX"));
         // One tool connected, or an older service that sends none: no avatar.
         for connected in [vec![Tool::Claude], Vec::new()] {
             let one = main_project().with_agents(&board(connected), &key);
             assert!(!one.several_tools);
-            assert_eq!(head(Status::Validating, &one), None);
+            assert_eq!(head(Status::Checking, &one), None);
         }
         // A card the board doesn't list keeps its extras.
         let other: TicketKey = "SHOP-1".parse().unwrap();

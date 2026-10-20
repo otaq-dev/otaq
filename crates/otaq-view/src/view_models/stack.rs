@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn queued_lines_carry_the_cards_waiting_text() {
         let tickets = vec![
-            with("SHOP-18", "Checkout API", Status::ReadyForReview, &[]),
+            with("SHOP-18", "Checkout API", Status::WaitingForYou, &[]),
             with("SHOP-19", "Payment form", Status::Working, &[]),
             with(
                 "SHOP-20",
@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn collapsed_summary() {
         let tickets = vec![
-            with("SHOP-18", "Checkout API", Status::ReadyForReview, &[]),
+            with("SHOP-18", "Checkout API", Status::WaitingForYou, &[]),
             with("SHOP-19", "Payment form", Status::Working, &[]),
             with(
                 "SHOP-20",

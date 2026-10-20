@@ -670,7 +670,7 @@ pub fn epic_of(epic: &Ticket, tickets: &[Ticket]) -> Option<EpicView> {
         tickets
             .iter()
             .find(|t| &t.key == key)
-            .is_some_and(|t| t.column == otaq_core::domain::Column::Done)
+            .is_some_and(|t| t.place.is_done())
     };
     Some(EpicView {
         external_id: header.external_id,
@@ -890,7 +890,7 @@ mod tests {
 
     #[test]
     fn the_stack_lists_the_chain_and_marks_the_open_ticket() {
-        let parent = fixture("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let parent = fixture("SHOP-18", "Checkout API", Status::WaitingForYou);
         let mut child = fixture("SHOP-20", "Checkout page", Status::Queued);
         child.depends_on = vec![key("SHOP-18")];
         let lone = fixture("SHOP-12", "Footer", Status::Backlog);

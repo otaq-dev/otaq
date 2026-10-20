@@ -303,12 +303,13 @@ pub(crate) async fn hold_in_dev(
     let now = now_ms();
     let to = Status::Working;
     sqlx::query(concat!(
-        "UPDATE tickets SET board_column = ?, state = ?, signal_text = NULL, signal_since = NULL,
+        "UPDATE tickets SET stage_id = ?, state = ?, signal_text = NULL, signal_since = NULL,
                             auto_merge_conflicts = auto_merge_conflicts + ?, updated_at = ?, ",
         set_state_since!(),
         " WHERE id = ?"
     ))
-    .bind(to.column().as_str())
+    // At work in the default flow's Agent stage.
+    .bind(crate::flow::engine::default_stage(to, None))
     .bind(to.as_str())
     .bind(i64::from(conflicted))
     .bind(now)
@@ -415,7 +416,7 @@ pub async fn hand_back(
                 .set_validation_status(
                     child_id,
                     &[Status::Working, Status::WorkingInBackground, Status::Idle],
-                    Status::ValidationFailed,
+                    Status::CheckFailed,
                     None,
                     false,
                 )
@@ -519,7 +520,7 @@ pub(crate) async fn note_flags(
 pub fn is_stop(status: Status) -> bool {
     matches!(
         status,
-        Status::ValidationFailed | Status::AutoMergeStopped | Status::Idle
+        Status::CheckFailed | Status::DeliveryStopped | Status::Idle
     )
 }
 
@@ -775,18 +776,14 @@ mod tests {
 
     #[test]
     fn only_a_childs_own_stops_carry_the_note() {
-        for status in [
-            Status::ValidationFailed,
-            Status::AutoMergeStopped,
-            Status::Idle,
-        ] {
+        for status in [Status::CheckFailed, Status::DeliveryStopped, Status::Idle] {
             assert!(is_stop(status), "{status:?}");
         }
         for status in [
             Status::AsksYou,
             Status::NeedsYou,
             Status::Working,
-            Status::ValidationNoResult,
+            Status::CheckNoResult,
         ] {
             assert!(!is_stop(status), "{status:?}");
         }

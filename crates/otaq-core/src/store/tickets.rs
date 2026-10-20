@@ -20,7 +20,6 @@ pub struct TicketRow {
     /// 1–4 (d0065); `NULL` for an epic child that follows its epic (migration 0023).
     pub priority: Option<i64>,
     pub external_id: Option<String>,
-    pub board_column: String,
     pub state: String,
     pub outcome: Option<String>,
     pub pinned_at: Option<i64>,
@@ -91,6 +90,9 @@ pub struct TicketRow {
     pub resource_problem: Option<String>,
     /// T-0304 (migration 0041): JSON `[{other, path}]`, Review tickets adding files under the same schema path.
     pub schema_overlap: Option<String>,
+    /// T-0400 (migration 0046): the flow stage the ticket is in, or the Agent stage it waits before; `NULL` in
+    /// Backlog, Ready for Dev and Done (STG-04).
+    pub stage_id: Option<String>,
 }
 
 /// The SQL that keeps `tickets.state_since` (when the ticket entered its status) in an `UPDATE tickets SET …`
@@ -113,7 +115,8 @@ pub struct NewTicket {
     pub kind: String,
     pub title: String,
     pub body: String,
-    pub board_column: String,
+    /// The stage it is in (`None` in Backlog, Ready for Dev and Done).
+    pub stage_id: Option<String>,
     pub state: String,
     pub created_by: String,
 }
@@ -124,7 +127,7 @@ impl Store {
         let now = now_ms();
         sqlx::query(
             "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, body,
-                                  board_column, state, created_by, created_at, updated_at, state_since)
+                                  stage_id, state, created_by, created_at, updated_at, state_since)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
@@ -135,7 +138,7 @@ impl Store {
         .bind(&new.kind)
         .bind(&new.title)
         .bind(&new.body)
-        .bind(&new.board_column)
+        .bind(&new.stage_id)
         .bind(&new.state)
         .bind(&new.created_by)
         .bind(now)

@@ -364,7 +364,7 @@ async fn a_validators_refused_model_is_no_result() {
         append(&file, &format!("{line}\n"));
     }
     until("No result", || async {
-        w.status("SHOP-2").await == Status::ValidationNoResult
+        w.status("SHOP-2").await == Status::CheckNoResult
     })
     .await;
     assert_eq!(w.board.ticket("SHOP-2").await.unwrap().validation_round, 0);

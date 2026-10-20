@@ -76,11 +76,11 @@ impl Kind {
     /// The kind of a ticket's item in `status`.
     pub fn of_status(status: Status) -> Self {
         match status {
-            Status::NeedsYou | Status::ValidatorNeedsYou => Self::Permission,
+            Status::NeedsYou | Status::CheckerNeedsYou => Self::Permission,
             Status::AsksYou => Self::Question,
             Status::Idle => Self::TurnEnded,
-            Status::ValidationFailed | Status::ValidationNoResult => Self::ValidationDecision,
-            Status::AutoMergeStopped => Self::AutoMergeStopped,
+            Status::CheckFailed | Status::CheckNoResult => Self::ValidationDecision,
+            Status::DeliveryStopped => Self::AutoMergeStopped,
             _ => Self::Interrupted,
         }
     }
@@ -339,13 +339,13 @@ fn one(item: &NeedsYouItem, facts: ItemText, choices: &Choices) -> OsNotificatio
             Target::Ticket { key: key.clone() },
         ),
         // "SHOP-33 validator permission" · "Allow Bash(pnpm test)?"; a click opens the validator's terminal.
-        Status::ValidatorNeedsYou => (
+        Status::CheckerNeedsYou => (
             format!("{key} validator permission"),
             text.unwrap_or_default().to_owned(),
             Target::Validator { key: key.clone() },
         ),
         // "SHOP-32 · Validation failed 3 times" · "<finding>. Decide in Otaq."
-        Status::ValidationFailed => (
+        Status::CheckFailed => (
             format!(
                 "{key} \u{b7} {}",
                 validation::failed_times(facts.failed_times.max(1))
@@ -356,7 +356,7 @@ fn one(item: &NeedsYouItem, facts: ItemText, choices: &Choices) -> OsNotificatio
             },
             Target::Ticket { key: key.clone() },
         ),
-        Status::ValidationNoResult => (
+        Status::CheckNoResult => (
             format!(
                 "{key} \u{b7} {}",
                 text.filter(|t| *t == validation::DISCARDED)
@@ -365,7 +365,7 @@ fn one(item: &NeedsYouItem, facts: ItemText, choices: &Choices) -> OsNotificatio
             decide,
             Target::Ticket { key: key.clone() },
         ),
-        Status::AutoMergeStopped => (
+        Status::DeliveryStopped => (
             format!("{key} \u{b7} Auto-merge stopped"),
             text.map(|t| t.replace('`', "")).unwrap_or_default(),
             Target::Ticket { key: key.clone() },
@@ -1154,12 +1154,7 @@ mod tests {
                 reason: "PAY-123 only mentions signed-in users.".into(),
             }),
         });
-        let mut stuck = item(
-            "SHOP-40.3",
-            Status::ValidationFailed,
-            NeedsYouGroup::Family,
-            1,
-        );
+        let mut stuck = item("SHOP-40.3", Status::CheckFailed, NeedsYouGroup::Family, 1);
         stuck.lead_note = Some(LeadNoteSent {
             lead: "Wishlist lead".into(),
             text: "Fix the test.".into(),
@@ -1263,7 +1258,7 @@ mod tests {
         )));
         assert!(!should_notify(&item(
             "SHOP-18",
-            Status::ReadyForReview,
+            Status::WaitingForYou,
             Review,
             1
         )));
@@ -1285,24 +1280,24 @@ mod tests {
             titled(
                 "SHOP-33",
                 "Shipping estimate",
-                Status::ValidatorNeedsYou,
+                Status::CheckerNeedsYou,
                 Family,
             ),
             titled(
                 "SHOP-32",
                 "Address autocomplete",
-                Status::ValidationFailed,
+                Status::CheckFailed,
                 Family,
             ),
-            titled("SHOP-34", "Tax display", Status::ValidationNoResult, Family),
+            titled("SHOP-34", "Tax display", Status::CheckNoResult, Family),
             titled(
                 "SHOP-40.4",
                 "Wishlist share link",
-                Status::AutoMergeStopped,
+                Status::DeliveryStopped,
                 Family,
             ),
             item("SHOP-25", Status::Interrupted, Stopped, 30),
-            item("SHOP-18", Status::ReadyForReview, Review, 40),
+            item("SHOP-18", Status::WaitingForYou, Review, 40),
         ];
         assert!(items[..8].iter().all(should_notify));
         let texts = HashMap::from([
@@ -1436,7 +1431,7 @@ mod tests {
         let again = [titled(
             "SHOP-32",
             "Address autocomplete",
-            Status::ValidationFailed,
+            Status::CheckFailed,
             Family,
         )];
         let out = notifications(plan(&again, &texts, &mut HashSet::new(), &on()));
@@ -1445,7 +1440,7 @@ mod tests {
         // M12: failed rounds that go back to the agent and auto-merges raise no item, so they never notify.
         for quiet in [
             Status::Working,
-            Status::Validating,
+            Status::Checking,
             Status::MergeConflictFixing,
             Status::Merged,
         ] {

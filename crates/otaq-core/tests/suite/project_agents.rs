@@ -648,7 +648,7 @@ async fn the_startup_report_names_ended_agents_and_validating_tickets() {
     let used = open(&w, "Audit the footer").await;
     let other = open(&w, "Find slow queries").await;
     let validating = w.create("SHOP", "Cart totals").await;
-    w.force_status(&validating, otaq_core::domain::Status::Validating)
+    w.force_status(&validating, otaq_core::domain::Status::Checking)
         .await;
     let w = w.restart_with(with_fake_claude).await;
 

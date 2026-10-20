@@ -254,7 +254,7 @@ async fn a_send_back_whose_resume_failed_gets_its_skill_on_retry() {
     w.add_project("shop-web").await;
     let t = w.create("SHOP", "Search results paging").await;
     w.start_worktree(&t).await;
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     w.record_ended_agent(&t, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
         .await;
     let conversation = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
@@ -362,7 +362,7 @@ async fn resume_all_takes_exactly_the_interrupted_tickets() {
         ("SHOP", "a", Status::Interrupted),
         ("SHOP", "b", Status::StartInterrupted),
         ("SHOP", "c", Status::ResumeFailed),
-        ("SHOP", "d", Status::ReadyForReview),
+        ("SHOP", "d", Status::WaitingForYou),
         ("SHOP", "e", Status::PrOpen),
         ("SHOP", "f", Status::Working),
         ("BILL", "g", Status::Interrupted),
@@ -386,7 +386,7 @@ async fn resume_all_takes_exactly_the_interrupted_tickets() {
         ("SHOP-1", Status::Working),
         ("SHOP-2", Status::StartInterrupted),
         ("SHOP-3", Status::ResumeFailed),
-        ("SHOP-4", Status::ReadyForReview),
+        ("SHOP-4", Status::WaitingForYou),
         ("SHOP-5", Status::PrOpen),
         ("BILL-1", Status::Working),
     ] {

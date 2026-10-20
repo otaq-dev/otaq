@@ -14,8 +14,8 @@ use sqlx::{FromRow, Sqlite, Transaction};
 use super::epic_flight::EpicQueueMode;
 use super::{Board, BoardError, Refusal};
 use crate::domain::{
-    Actor, BuildState, Column, Flags, Kind, Priority, ProjectKey, ResourceState, SchemaOverlap,
-    StartStep, Status, TicketKey, stored_enum,
+    Actor, BuildState, Flags, Kind, Place, Priority, ProjectKey, ResourceState, SchemaOverlap,
+    StartStep, Status, StatusSet, TicketKey, stored_enum,
 };
 use crate::store::projects::Project;
 use crate::store::tickets::TicketRow;
@@ -59,7 +59,10 @@ pub struct Ticket {
     /// The epic this ticket belongs to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epic: Option<TicketKey>,
-    pub column: Column,
+    /// Where it is: Backlog, waiting before an Agent stage, a stage of its flow, or Done (STG-04). In JSON
+    /// `"place"` and, in or before a stage, `"stage"` (the stage's id).
+    #[serde(flatten)]
+    pub place: Place,
     pub status: Status,
     pub base: Base,
     /// The base can't change any more (the ticket has been to Dev; for an epic, a child has).
@@ -196,6 +199,12 @@ pub struct StartProblem {
 }
 
 impl Ticket {
+    /// The group of the board the ticket shows in ([`StatusSet::BOARD`]), from its status: the default flow's
+    /// columns, until the board's columns come from the flow (STG-08).
+    pub fn board_group(&self) -> StatusSet {
+        self.status.set().board_group()
+    }
+
     pub fn is_epic(&self) -> bool {
         self.kind == Kind::Epic
     }
@@ -482,7 +491,7 @@ impl Board {
         };
         sqlx::query(
             "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, body, priority,
-                                  external_id, board_column, state, base_branch, created_by, created_at,
+                                  external_id, stage_id, state, base_branch, created_by, created_at,
                                   updated_at, started_at, queued_at, branch_locked, joined_queue_by)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
@@ -502,7 +511,8 @@ impl Board {
                 .map(|p| i64::from(p.number())),
         )
         .bind(&external_id)
-        .bind(status.column().as_str())
+        // Backlog, or waiting before the first Agent stage: no stage yet.
+        .bind(None::<&str>)
         .bind(status.as_str())
         .bind(&base_branch)
         .bind(actor.to_string())
@@ -971,7 +981,7 @@ impl Board {
                 });
                 let submitted_by_you = submits
                     .get(&row.id)
-                    .filter(|_| row.state == Status::ReadyForReview.as_str())
+                    .filter(|_| row.state == Status::WaitingForYou.as_str())
                     .filter(|(actor, _)| actor.parse::<Actor>().is_ok_and(|a| !a.is_agent()))
                     .map(|(_, payload)| {
                         let summary = serde_json::from_str::<Value>(payload)
@@ -993,13 +1003,13 @@ impl Board {
                     },
                     resuming_conversation: (row.parked
                         || row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME))
-                        && matches!(status.column(), Column::ReadyForDev | Column::Dev),
+                        && (status.is_queued() || status.at_work()),
                     submitted_by_you,
                     conflicts_with: row.conflicts_with.clone(),
                     sent_back,
                     pinned_at: row.pinned_at,
                     pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),
-                    pr_rework: row.pr_rework && status == Status::ReadyForReview,
+                    pr_rework: row.pr_rework && status == Status::WaitingForYou,
                     updated_by_agent: agent_edited.contains(&row.id),
                     last_signal_at: row.last_signal_at,
                     answering: answering
@@ -1025,7 +1035,7 @@ impl Board {
                     merged_automatically: row.merged_automatically && status == Status::Merged,
                     open_decisions: open_decisions
                         .get(&row.id)
-                        .filter(|_| status == Status::ReadyForReview)
+                        .filter(|_| status == Status::WaitingForYou)
                         .and_then(|n| u32::try_from(*n).ok())
                         .unwrap_or(0),
                     asked_lead: questions
@@ -1048,7 +1058,7 @@ impl Board {
                         .and_then(|open| Some(open.question.via_lead.as_ref()?.lead.clone())),
                     ..Flags::default()
                 };
-                if flags.validation_round.is_some() || status == Status::ValidationFailed {
+                if flags.validation_round.is_some() || status == Status::CheckFailed {
                     flags.findings = failed_reports
                         .get(&row.id)
                         .map(|report| findings_of(report))
@@ -1088,7 +1098,7 @@ impl Board {
                     .as_deref()
                     .filter(|_| status == Status::Interrupted)
                     .and_then(|s| s.parse::<Status>().ok())
-                    .filter(|s| s.is_needs_you_family() || *s == Status::Validating);
+                    .filter(|s| s.is_needs_you_family() || *s == Status::Checking);
                 let signal = (status.is_needs_you_family()
                     || status == Status::WorkingInBackground
                     || interrupted_from.is_some())
@@ -1127,7 +1137,11 @@ impl Board {
                     priority_inherited: row.epic_id.is_some()
                         && !own_priority.contains_key(row.id.as_str()),
                     epic,
-                    column: status.column(),
+                    place: Place::of(
+                        status,
+                        row.stage_id.as_deref(),
+                        row.interrupted_from.as_deref().and_then(|s| s.parse().ok()),
+                    ),
                     status,
                     base,
                     base_locked: row.branch_locked,
@@ -1219,7 +1233,11 @@ impl Board {
 /// Whether a new child of this epic joins the queue (EPC-13): its epic is queued as a whole and not done.
 fn joins_epic_queue(epic: &TicketRecord) -> bool {
     epic.row.epic_queue_mode.parse::<EpicQueueMode>().ok() == Some(EpicQueueMode::Whole)
-        && epic.row.board_column != Column::Done.as_str()
+        && epic
+            .row
+            .state
+            .parse::<Status>()
+            .is_ok_and(|s| s.set() != StatusSet::Done)
 }
 
 /// `SHOP` + 40 + 1 → `SHOP-40.1`; child number 0 means no child.
@@ -1236,8 +1254,8 @@ pub(crate) fn key_from_parts(project: &str, number: i64, child: i64) -> Option<T
 fn review_entry_flag(row: &TicketRow, status: Status) -> Option<crate::domain::ReviewEntryFlag> {
     let entry: crate::domain::ReviewEntry = row.review_entry.as_deref()?.parse().ok()?;
     matches!(
-        status.column(),
-        Column::ReadyForReview | Column::Approved | Column::Done
+        status.set(),
+        StatusSet::HumanCheck | StatusSet::Delivery | StatusSet::Done
     )
     .then(|| crate::domain::ReviewEntryFlag {
         entry,
@@ -1276,7 +1294,7 @@ fn validating_round(
     status: Status,
     rounds: u32,
 ) -> Option<crate::domain::ValidationRound> {
-    matches!(status, Status::Validating | Status::ValidatorNeedsYou).then(|| {
+    matches!(status, Status::Checking | Status::CheckerNeedsYou).then(|| {
         crate::domain::ValidationRound {
             round: u32::try_from(row.validation_round).unwrap_or(0) + 1,
             of: rounds + u32::try_from(row.validation_rounds_extra).unwrap_or(0),

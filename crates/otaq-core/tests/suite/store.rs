@@ -28,6 +28,7 @@ const TABLES: &[&str] = &[
     "service_runs",
     "sessions",
     "settings",
+    "stage_runs",
     "ticket_agent_rows",
     "ticket_deps",
     "ticket_key_aliases",
@@ -62,7 +63,7 @@ fn ticket(project_id: &str, number: i64, kind: &str, title: &str) -> NewTicket {
         kind: kind.into(),
         title: title.into(),
         body: String::new(),
-        board_column: "backlog".into(),
+        stage_id: None,
         state: "normal".into(),
         created_by: "user".into(),
     }
@@ -667,6 +668,20 @@ async fn one_row_round_trips_through_every_table() {
         .unwrap();
     assert_eq!(reason, "tool_limit");
 
+    // A stage run (STG-05, T-0400): a ticket entering a stage opens one.
+    sqlx::query("UPDATE tickets SET stage_id = 'dev', state = 'working' WHERE id = ?")
+        .bind(&t18.id)
+        .execute(pool)
+        .await
+        .unwrap();
+    let (stage, kind): (String, String) =
+        sqlx::query_as("SELECT stage_id, kind FROM stage_runs WHERE ticket_id = ?")
+            .bind(&t18.id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!((stage.as_str(), kind.as_str()), ("dev", "agent"));
+
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");
     }
@@ -683,7 +698,7 @@ async fn agent_counts_come_from_live_agent_sessions() {
     let add = async |number: i64, state: &str, kind: &str, ended: Option<i64>| {
         let t = store
             .insert_ticket(&NewTicket {
-                board_column: "dev".into(),
+                stage_id: Some("dev".into()),
                 state: state.into(),
                 ..ticket(&project.id, number, "ticket", "t")
             })

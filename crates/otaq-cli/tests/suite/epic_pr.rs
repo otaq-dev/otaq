@@ -125,7 +125,7 @@ async fn setup() -> Setup {
         );
     }
     let epic = w.board.ticket(&epic.key.to_string()).await.unwrap();
-    assert_eq!(epic.status, Status::ReadyForReview, "every child merged");
+    assert_eq!(epic.status, Status::WaitingForYou, "every child merged");
     Setup { w, epic, repo }
 }
 
@@ -242,7 +242,7 @@ async fn cancel_ends_the_delivery_session_and_keeps_a_dirty_worktree() {
     std::fs::write(worktree.join("notes.txt"), "left behind").unwrap();
 
     let epic = w.prs.cancel("SHOP-1", &me()).await.unwrap();
-    assert_eq!(epic.status, Status::ReadyForReview);
+    assert_eq!(epic.status, Status::WaitingForYou);
     assert!(delivery(w, &epic).is_none(), "the session ended");
     assert!(worktree.join("notes.txt").exists(), "kept: it has changes");
     let scan = w.cleanup.scan().await.unwrap();

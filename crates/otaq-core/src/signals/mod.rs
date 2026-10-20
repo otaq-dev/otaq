@@ -584,15 +584,15 @@ impl Signals {
             return Ok(());
         };
         // An agent that waits for the user during a validation is marked so (interrupted_from validating).
-        let behind = interrupted_from.as_deref() == Some(Status::Validating.as_str());
+        let behind = interrupted_from.as_deref() == Some(Status::Checking.as_str());
         let before = SignalState {
             status,
             text,
             since,
             wakeup_at,
             last_signal_at,
-            validating: status == Status::Validating
-                || status == Status::ValidatorNeedsYou
+            validating: status == Status::Checking
+                || status == Status::CheckerNeedsYou
                 || (behind && status.is_agent_waiting()),
         };
         let after = transition(&before, input, now_ms());
@@ -606,15 +606,14 @@ impl Signals {
         }
         // Only a validating ticket's mark changes: set while its agent waits, cleared once it validates again.
         let behind_after = (before.validating && after.status.is_agent_waiting())
-            .then_some(Status::Validating.as_str());
+            .then_some(Status::Checking.as_str());
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, signal_text = ?, signal_since = ?, wakeup_at = ?,
+            "UPDATE tickets SET state = ?, signal_text = ?, signal_since = ?, wakeup_at = ?,
                                 last_signal_at = ?,
                                 interrupted_from = CASE WHEN ? THEN ? ELSE interrupted_from END, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(after.status.column().as_str())
         .bind(after.status.as_str())
         .bind(&after.text)
         .bind(after.since)

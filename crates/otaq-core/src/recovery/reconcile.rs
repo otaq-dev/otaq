@@ -46,7 +46,7 @@ pub const AT_WORK: &[Status] = &[
 /// REC-01's M12 row: a validating ticket and its validator's session.
 pub fn reconcile_validation(before: Status, validator_alive: bool) -> Outcome {
     match before {
-        Status::Validating | Status::ValidatorNeedsYou if !validator_alive => {
+        Status::Checking | Status::CheckerNeedsYou if !validator_alive => {
             Outcome::InterruptValidation
         }
         _ => Outcome::Unchanged,
@@ -61,7 +61,7 @@ pub fn reconcile(before: Status, session_alive: bool) -> Outcome {
     match before {
         s if s.is_agent_waiting() => Outcome::Interrupt { keep_label: true },
         s if AT_WORK.contains(&s) => Outcome::Interrupt { keep_label: false },
-        Status::ReadyForReview | Status::PrOpen => Outcome::NoteSessionEnded,
+        Status::WaitingForYou | Status::PrOpen => Outcome::NoteSessionEnded,
         _ => Outcome::Unchanged,
     }
 }
@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn review_and_approved_only_note_the_end() {
         assert_eq!(
-            reconcile(Status::ReadyForReview, false),
+            reconcile(Status::WaitingForYou, false),
             Outcome::NoteSessionEnded
         );
         assert_eq!(reconcile(Status::PrOpen, false), Outcome::NoteSessionEnded);
@@ -117,7 +117,6 @@ mod tests {
         for status in [
             Status::Backlog,
             Status::Parked,
-            Status::EpicInProgress,
             Status::Queued,
             Status::WaitingForSlot,
             Status::Held,
@@ -136,7 +135,7 @@ mod tests {
     /// session doesn't decide a validating ticket, and the M12 stops wait for the user with or without one.
     #[test]
     fn the_m12_rows() {
-        for status in [Status::Validating, Status::ValidatorNeedsYou] {
+        for status in [Status::Checking, Status::CheckerNeedsYou] {
             assert_eq!(
                 reconcile_validation(status, false),
                 Outcome::InterruptValidation
@@ -145,9 +144,9 @@ mod tests {
             assert_eq!(reconcile(status, false), Outcome::Unchanged, "{status}");
         }
         for status in [
-            Status::ValidationFailed,
-            Status::ValidationNoResult,
-            Status::AutoMergeStopped,
+            Status::CheckFailed,
+            Status::CheckNoResult,
+            Status::DeliveryStopped,
         ] {
             assert_eq!(reconcile(status, false), Outcome::Unchanged, "{status}");
         }

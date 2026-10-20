@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
-use crate::domain::{Column, Kind, SameFile, Status, TicketKey};
+use crate::domain::{Kind, SameFile, Status, StatusSet, TicketKey};
 use crate::git::{Git, GitError};
 
 /// Two running children of one epic that changed the same files so far. `a` sorts before `b`.
@@ -36,7 +36,8 @@ pub struct Overlap {
 /// Whether a ticket in this status is a running child's: in Dev with an agent session (working, turquoise,
 /// background or validating). Interrupted and Resume failed have no session.
 pub fn is_running(status: Status) -> bool {
-    status.column() == Column::Dev && !matches!(status, Status::Interrupted | Status::ResumeFailed)
+    status.set().board_group() == StatusSet::AgentStage
+        && !matches!(status, Status::Interrupted | Status::ResumeFailed)
 }
 
 /// The cache of every running child's changed files. The board reads it when it builds tickets; [`refresh`]
@@ -372,12 +373,12 @@ mod tests {
     fn running_means_in_dev_with_a_session() {
         assert!(is_running(Status::Working));
         assert!(is_running(Status::AsksYou));
-        assert!(is_running(Status::Validating));
+        assert!(is_running(Status::Checking));
         assert!(is_running(Status::WorkingInBackground));
         assert!(!is_running(Status::Interrupted));
         assert!(!is_running(Status::ResumeFailed));
         assert!(!is_running(Status::Parked));
-        assert!(!is_running(Status::ReadyForReview));
+        assert!(!is_running(Status::WaitingForYou));
         assert!(!is_running(Status::Merged));
     }
 }

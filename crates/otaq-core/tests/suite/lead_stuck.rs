@@ -332,7 +332,7 @@ async fn validation_failed_goes_to_the_lead_once_and_its_note_counts_as_answer_t
 
     // The second stop: the inbox, with the lead's note and view; the lead isn't woken.
     let second = submit_and_fail(&w, "SHOP-40.2").await;
-    assert_eq!(second.status, Status::ValidationFailed);
+    assert_eq!(second.status, Status::CheckFailed);
     let inbox = item(&w, "SHOP-40.2").await.expect("an inbox item");
     assert_eq!(inbox.lead_note, Some(sent));
     assert!(
@@ -357,7 +357,7 @@ async fn a_turn_without_a_note_hands_the_stop_back() {
     lead_stop(&w, &lead).await;
 
     let back = ticket(&w, "SHOP-40.2").await;
-    assert_eq!(back.status, Status::ValidationFailed);
+    assert_eq!(back.status, Status::CheckFailed);
     let inbox = item(&w, "SHOP-40.2").await.expect("an inbox item");
     assert_eq!(inbox.lead_note, None);
     assert_eq!(back.flags.lead_note_sent, None);
@@ -384,7 +384,7 @@ async fn a_turn_without_a_note_hands_the_stop_back() {
         .unwrap();
     assert_eq!(
         submit_and_fail(&w, "SHOP-40.2").await.status,
-        Status::ValidationFailed
+        Status::CheckFailed
     );
     assert!(pending(&w, &session(&lead)).await.is_empty());
     let _ = lead_shell;
@@ -397,7 +397,7 @@ async fn without_a_live_lead_the_stop_goes_to_the_inbox_at_once() {
     let w = world().await;
     button(&w).await;
     let failed = submit_and_fail(&w, "SHOP-40.2").await;
-    assert_eq!(failed.status, Status::ValidationFailed);
+    assert_eq!(failed.status, Status::CheckFailed);
     assert!(item(&w, "SHOP-40.2").await.is_some());
     assert_eq!(state(&w, "SHOP-40.2").await, None, "the attempt isn't used");
     w.stop().await;
@@ -502,7 +502,7 @@ async fn a_restart_hands_the_held_stop_back() {
         Status::Working
     );
     let w = w.restart().await;
-    assert_eq!(w.status("SHOP-40.2").await, Status::ValidationFailed);
+    assert_eq!(w.status("SHOP-40.2").await, Status::CheckFailed);
     assert_eq!(state(&w, "SHOP-40.2").await, Some(StuckState::HandedBack));
     assert!(item(&w, "SHOP-40.2").await.is_some());
     w.stop().await;
@@ -599,7 +599,7 @@ async fn keeps_conflicting_goes_to_the_lead_once_and_its_note_retries_the_merge(
         pass(&w, "SHOP-40.2").await;
     }
     let stopped = ticket(&w, "SHOP-40.2").await;
-    assert_eq!(stopped.status, Status::AutoMergeStopped);
+    assert_eq!(stopped.status, Status::DeliveryStopped);
     assert_eq!(
         stopped.auto_merge_stop,
         Some(AutoMergeStop::KeepsConflicting)
@@ -631,7 +631,7 @@ async fn a_held_conflict_handed_back_stops() {
     lead_takes_the_wake_up(&w, &lead).await;
     lead_stop(&w, &lead).await;
     wait_until("handed back", async || {
-        w.status("SHOP-40.2").await == Status::AutoMergeStopped
+        w.status("SHOP-40.2").await == Status::DeliveryStopped
     })
     .await;
     let stopped = ticket(&w, "SHOP-40.2").await;

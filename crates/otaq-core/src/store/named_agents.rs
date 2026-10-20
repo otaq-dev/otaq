@@ -10,7 +10,7 @@ use sqlx::{FromRow, Sqlite, Transaction};
 use super::settings::AGENT_DEFAULTS;
 use super::{Store, StoreError, new_id, now_ms};
 use crate::agent_tools::Tool;
-use crate::domain::{Column, ProjectKey, TicketKey};
+use crate::domain::{ProjectKey, Status, TicketKey};
 use crate::named_agents::{
     AgentHold, AgentRow, HoldReason, Mark, NamedAgent, Role, RoleDefaults, RowMove, RowSetBy,
 };
@@ -33,13 +33,13 @@ macro_rules! started {
     };
 }
 
-/// The columns where a ticket counts as not finished for "in use": Backlog through Ready for Review (d0086). Approved
-/// and Done don't count.
-const UNFINISHED: [Column; 4] = [
-    Column::Backlog,
-    Column::ReadyForDev,
-    Column::Dev,
-    Column::ReadyForReview,
+/// The statuses where a ticket counts as finished for "in use": in its Delivery stage or Done (d0086: Backlog
+/// through Ready for Review count as not finished; Approved and Done don't).
+const FINISHED: [Status; 4] = [
+    Status::ToDeliver,
+    Status::PrOpen,
+    Status::Merged,
+    Status::ClosedNotMerged,
 ];
 
 #[derive(Debug, Clone, FromRow)]
@@ -456,18 +456,18 @@ impl Store {
         &self,
         id: &str,
     ) -> Result<Vec<TicketKey>, StoreError> {
-        let columns = UNFINISHED.map(Column::as_str);
+        let finished = FINISHED.map(Status::as_str);
         let rows: Vec<(String, i64, i64)> = sqlx::query_as(
             "SELECT DISTINCT p.key, t.number, t.child_number FROM ticket_agent_rows r
              JOIN tickets t ON t.id = r.ticket_id JOIN projects p ON p.id = t.project_id
-             WHERE r.named_agent_id = ? AND t.board_column IN (?, ?, ?, ?)
+             WHERE r.named_agent_id = ? AND t.state NOT IN (?, ?, ?, ?)
              ORDER BY p.key, t.number, t.child_number",
         )
         .bind(id)
-        .bind(columns[0])
-        .bind(columns[1])
-        .bind(columns[2])
-        .bind(columns[3])
+        .bind(finished[0])
+        .bind(finished[1])
+        .bind(finished[2])
+        .bind(finished[3])
         .fetch_all(self.pool())
         .await?;
         Ok(rows

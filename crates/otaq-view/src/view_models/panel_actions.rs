@@ -4,8 +4,9 @@
 //! The primary button is always the one thing that unblocks the ticket. Actions whose features arrive in later
 //! milestones are listed here with the ticket that enables them and stay **hidden** (not disabled) until then.
 
+use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Column, Kind, Status};
+use otaq_core::domain::{Kind, Status};
 use otaq_core::named_agents::rows::TicketAgents;
 
 use serde::{Deserialize, Serialize};
@@ -215,7 +216,7 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
     let s = ticket.status;
     if ticket.kind == Kind::Epic {
         // No Start on an epic: its children start (d0059). Its review flow is T-0109.
-        return match ticket.column {
+        return match ticket.column() {
             Column::Backlog => vec![(A::Edit, Secondary)],
             // A delivery unit in Review: Approve, never Send back (EPC-05).
             Column::ReadyForReview => vec![(A::Approve, Primary)],
@@ -232,7 +233,6 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
     match s {
         Status::Backlog => vec![(A::Start, Primary), (A::Edit, Secondary)],
         Status::Parked => vec![(A::Start, Primary), (A::Edit, Secondary)],
-        Status::EpicInProgress => Vec::new(),
         // Held because the base diverged: once pushed or pulled, Retry start (d0059).
         Status::Held
             if ticket
@@ -261,7 +261,9 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
         Status::Interrupted => vec![(A::Resume, Primary)],
         // *16 → Resume · in progress → resumed → failed*: Start from scratch is the primary, Retry beside it.
         Status::ResumeFailed => vec![(A::RetryResume, Secondary), (A::StartFromScratch, Primary)],
-        Status::ReadyForReview => vec![(A::Approve, Primary), (A::SendBack, Secondary)],
+        Status::WaitingForYou => vec![(A::Approve, Primary), (A::SendBack, Secondary)],
+        // Waits for the Delivery click (not on the default flow): Local merge or Open PR.
+        Status::ToDeliver => vec![(A::Approve, Primary)],
         Status::PrOpen => {
             // Epic children never offer the PR actions; they merge locally (d0059).
             if ticket.epic.is_some() {
@@ -277,24 +279,24 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
         Status::Merged => vec![(A::ViewDiff, Secondary)],
         Status::ClosedNotMerged => vec![(A::Reopen, Secondary)],
         // The M12 rows (d0063, d0064): Stop validation and Skip to Review are in the "…" menu.
-        Status::Validating => vec![(A::OpenValidator, Secondary), (A::Run, Secondary)],
-        Status::ValidatorNeedsYou => vec![(A::AnswerValidator, Attention)],
-        Status::ValidationFailed => vec![
+        Status::Checking => vec![(A::OpenValidator, Secondary), (A::Run, Secondary)],
+        Status::CheckerNeedsYou => vec![(A::AnswerValidator, Attention)],
+        Status::CheckFailed => vec![
             (A::MoveToReviewAnyway, Primary),
             (A::AnotherRound, Secondary),
             (A::AnswerAgent, Secondary),
         ],
         // No result on the validator's model: Change validator first, then today's two.
-        Status::ValidationNoResult if card::validator_refusal(ticket).is_some() => vec![
+        Status::CheckNoResult if card::validator_refusal(ticket).is_some() => vec![
             (A::ChangeValidator, Primary),
             (A::RetryValidation, Secondary),
             (A::MoveToReviewAnyway, Secondary),
         ],
-        Status::ValidationNoResult => vec![
+        Status::CheckNoResult => vec![
             (A::RetryValidation, Primary),
             (A::MoveToReviewAnyway, Secondary),
         ],
-        Status::AutoMergeStopped => vec![(A::RetryMerge, Primary), (A::MoveToReview, Secondary)],
+        Status::DeliveryStopped => vec![(A::RetryMerge, Primary), (A::MoveToReview, Secondary)],
         // The agent fixes the Auto-merge conflict in its own terminal.
         Status::MergeConflictFixing => vec![(A::OpenTerminal, Secondary)],
     }
@@ -370,10 +372,7 @@ pub const SKIP_TO_REVIEW: &str = "skip-to-review";
 
 /// Validating… and Needs you · validator: the validator runs (VAL-06).
 pub fn validating(ticket: &Ticket) -> bool {
-    matches!(
-        ticket.status,
-        Status::Validating | Status::ValidatorNeedsYou
-    )
+    matches!(ticket.status, Status::Checking | Status::CheckerNeedsYou)
 }
 
 /// The "…" menu: Stop validation and Skip to Review while it validates (d0063), Edit ticket, Pin / Unpin, Copy
@@ -470,7 +469,7 @@ mod tests {
             "as before: Local merge's confirmation"
         );
         assert!(approve_opens_menu(1) && approve_opens_menu(3));
-        let shop23 = ticket("SHOP-23", "Split user full name", Status::ReadyForReview);
+        let shop23 = ticket("SHOP-23", "Split user full name", Status::WaitingForYou);
         let menu: Vec<_> = options(&shop23, "main", &[], None)
             .into_iter()
             .map(|o| o.choice)
@@ -502,7 +501,7 @@ mod tests {
         assert_eq!(all(Status::Interrupted), [(A::Resume, Primary)]);
         assert_eq!(all(Status::StartInterrupted), [(A::RetryStart, Primary)]);
         assert_eq!(
-            all(Status::ReadyForReview),
+            all(Status::WaitingForYou),
             [(A::Approve, Primary), (A::SendBack, Secondary)]
         );
         assert_eq!(
@@ -525,7 +524,7 @@ mod tests {
             [A::OpenTerminal],
             "Run comes with M9"
         );
-        assert_eq!(shown(Status::ReadyForReview), [A::Approve, A::SendBack]);
+        assert_eq!(shown(Status::WaitingForYou), [A::Approve, A::SendBack]);
         assert_eq!(
             shown(Status::PrOpen),
             [A::OpenPrInBrowser, A::MarkMerged, A::MarkClosed],
@@ -639,16 +638,16 @@ mod tests {
     fn the_validation_rows() {
         use Look::*;
         assert_eq!(
-            all(Status::Validating),
+            all(Status::Checking),
             [(A::OpenValidator, Secondary), (A::Run, Secondary)]
         );
-        assert_eq!(shown(Status::Validating), [A::OpenValidator]);
+        assert_eq!(shown(Status::Checking), [A::OpenValidator]);
         assert_eq!(
-            all(Status::ValidatorNeedsYou),
+            all(Status::CheckerNeedsYou),
             [(A::AnswerValidator, Attention)]
         );
         assert_eq!(
-            all(Status::ValidationFailed),
+            all(Status::CheckFailed),
             [
                 (A::MoveToReviewAnyway, Primary),
                 (A::AnotherRound, Secondary),
@@ -656,14 +655,14 @@ mod tests {
             ]
         );
         assert_eq!(
-            all(Status::ValidationNoResult),
+            all(Status::CheckNoResult),
             [
                 (A::RetryValidation, Primary),
                 (A::MoveToReviewAnyway, Secondary)
             ]
         );
         assert_eq!(
-            all(Status::AutoMergeStopped),
+            all(Status::DeliveryStopped),
             [(A::RetryMerge, Primary), (A::MoveToReview, Secondary)]
         );
         assert_eq!(A::OpenValidator.label(), "Open terminal \u{b7} Validator");
@@ -674,7 +673,7 @@ mod tests {
     /// While it validates: Stop validation and Skip to Review first; both submit items hidden.
     #[test]
     fn the_menu_while_validating() {
-        let mut t = ticket("SHOP-29", "Coupon field", Status::Validating);
+        let mut t = ticket("SHOP-29", "Coupon field", Status::Checking);
         t.started_at = Some(1);
         let items = menu(&t, false, true, false);
         let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
@@ -703,7 +702,7 @@ mod tests {
                 .iter()
                 .any(|i| i.label == "Validate and submit" && !i.disabled)
         );
-        t.status = Status::ValidatorNeedsYou;
+        t.status = Status::CheckerNeedsYou;
         assert_eq!(menu(&t, false, true, false)[0].id, STOP_VALIDATION);
     }
 
@@ -801,7 +800,7 @@ mod tests {
         // Other start problems and No results: as before, no callout.
         assert_eq!(shown(Status::StartInterrupted), [A::RetryStart]);
         assert_eq!(
-            shown(Status::ValidationNoResult),
+            shown(Status::CheckNoResult),
             [A::RetryValidation, A::MoveToReviewAnyway]
         );
         assert_eq!(

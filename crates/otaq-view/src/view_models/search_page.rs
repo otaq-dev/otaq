@@ -138,7 +138,7 @@ mod tests {
 
     fn sample() -> Vec<Ticket> {
         vec![
-            ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
+            ticket("SHOP-18", "Checkout API", Status::WaitingForYou),
             ticket("SHOP-20", "Checkout page", Status::Queued),
             ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou),
             ticket("SHOP-19", "Price table", Status::Working),

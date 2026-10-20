@@ -54,15 +54,15 @@ pub fn group_of(status: Status) -> Option<NeedsYouGroup> {
         Status::AsksYou
         | Status::NeedsYou
         | Status::Idle
-        | Status::ValidatorNeedsYou
-        | Status::ValidationFailed
-        | Status::ValidationNoResult
-        | Status::AutoMergeStopped => Some(NeedsYouGroup::Family),
+        | Status::CheckerNeedsYou
+        | Status::CheckFailed
+        | Status::CheckNoResult
+        | Status::DeliveryStopped => Some(NeedsYouGroup::Family),
         Status::Interrupted
         | Status::StartInterrupted
         | Status::ResumeFailed
         | Status::ParentClosed => Some(NeedsYouGroup::Stopped),
-        Status::ReadyForReview => Some(NeedsYouGroup::Review),
+        Status::WaitingForYou => Some(NeedsYouGroup::Review),
         _ => None,
     }
 }
@@ -218,7 +218,7 @@ pub fn change_agent(ticket: &Ticket) -> Option<Role> {
             .as_ref()
             .filter(|p| p.step == StartStep::Model)
             .map(|_| Role::Developer),
-        Status::ValidationNoResult => ticket
+        Status::CheckNoResult => ticket
             .signal
             .as_ref()
             .and_then(|s| s.text.as_deref())
@@ -302,22 +302,22 @@ fn reason(ticket: &Ticket, tickets: &[Ticket]) -> String {
             _ => "a parent was closed without merging".into(),
         },
         // The M12 items of frame *10 → New item types · group 1 (M12)* (d0063, d0064).
-        Status::ValidatorNeedsYou => match signal {
+        Status::CheckerNeedsYou => match signal {
             Some(prompt) => format!("validator permission: {prompt}"),
             None => "validator permission".into(),
         },
-        Status::ValidationFailed => {
+        Status::CheckFailed => {
             let failed = failed_times(ticket.validation_round.max(1)).to_lowercase();
             match ticket.flags.findings.first() {
                 Some(finding) => format!("{failed} · “{finding}”"),
                 None => failed,
             }
         }
-        Status::ValidationNoResult => signal.map_or_else(
+        Status::CheckNoResult => signal.map_or_else(
             || NO_RESULT.to_lowercase(),
             |text| lower_first(&text.replace('`', "")),
         ),
-        Status::AutoMergeStopped => {
+        Status::DeliveryStopped => {
             let text = signal.unwrap_or("stopped").replace('`', "");
             let tries = if ticket.auto_merge_stop == Some(AutoMergeStop::KeepsConflicting) {
                 format!(" after {AUTO_MERGE_CONFLICT_LIMIT} tries in a row")
@@ -327,7 +327,7 @@ fn reason(ticket: &Ticket, tickets: &[Ticket]) -> String {
             format!("Auto-merge stopped · {}{tries}", lower_first(&text))
         }
         // "ready for review · validated · round 2": how it got there (d0063).
-        Status::ReadyForReview => match ticket.flags.review_entry {
+        Status::WaitingForYou => match ticket.flags.review_entry {
             Some(entry) => format!("ready for review · {}", lower_first(&entry.to_string())),
             None => "ready for review".into(),
         },

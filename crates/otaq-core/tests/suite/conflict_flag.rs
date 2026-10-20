@@ -19,7 +19,7 @@ async fn reviewed(w: &TestService, title: &str, file: &str, content: &str) -> (T
     let wt = w.start_worktree(&t).await;
     std::fs::create_dir_all(wt.join("lib")).unwrap();
     commit(&wt, file, content);
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     (w.board.ticket(&t.key.to_string()).await.unwrap(), wt)
 }
 

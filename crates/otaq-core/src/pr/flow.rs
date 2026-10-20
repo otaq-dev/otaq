@@ -517,16 +517,21 @@ impl Board {
             }
             None => None,
         };
-        let to = Status::ReadyForReview;
+        let to = Status::WaitingForYou;
+        // Back from the open PR to the human check before the Delivery (STG-06).
+        let moved = self
+            .moved(ticket, ticket.status, crate::flow::engine::Move::PrRework)
+            .await?;
         let now = now_ms();
         let mut tx = self.store().begin_write().await?;
+        moved.record(&mut tx, &ticket.id, None).await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, review_head_sha = COALESCE(?, review_head_sha),
+            "UPDATE tickets SET stage_id = ?, state = ?, review_head_sha = COALESCE(?, review_head_sha),
                                 review_entered_at = ?, pr_rework = TRUE, updated_by = ?, updated_at = ?, ",
             crate::store::tickets::set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(to.column().as_str())
+        .bind(moved.place.stage_id())
         .bind(to.as_str())
         .bind(head)
         .bind(now)

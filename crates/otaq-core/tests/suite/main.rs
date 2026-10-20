@@ -107,6 +107,7 @@ mod sessions;
 mod settings;
 mod shell;
 mod signals;
+mod stages;
 mod start;
 mod stock;
 mod store;

@@ -144,7 +144,7 @@ impl Prs {
     ) -> Result<PrOutcome, BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
-        if ticket.status != Status::ReadyForReview {
+        if ticket.status != Status::WaitingForYou {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
@@ -384,7 +384,7 @@ impl Prs {
             // The delivery session's job is done (EPC-08).
             self.end_delivery(&ticket).await?;
         }
-        if matches!(ticket.status, Status::ReadyForReview | Status::PrOpen) {
+        if matches!(ticket.status, Status::WaitingForYou | Status::PrOpen) {
             board.record_pr_open(&ticket, actor).await?;
             // The user's Open PR approved it: its decisions are kept by the user, not the skill (DEC-05).
             crate::decisions::keep_all(board, key, &Actor::current_user()).await?;
@@ -764,21 +764,36 @@ impl Board {
         actor: &Actor,
     ) -> Result<(), BoardError> {
         let to = Status::PrOpen;
+        // Into the Delivery stage, "PR open" (STG-06): from the human check whose Pass offered it, or (pushed again)
+        // where it is.
+        let moved = self
+            .moved(ticket, ticket.status, crate::flow::engine::Move::PrOpened)
+            .await
+            .ok();
+        let stage = moved
+            .as_ref()
+            .and_then(|m| m.place.stage_id().map(str::to_owned))
+            .or_else(|| crate::flow::engine::default_stage(to, None).map(str::to_owned));
         let now = now_ms();
+        let mut tx = self.store().begin_write().await?;
+        if let Some(moved) = &moved {
+            moved.record(&mut tx, &ticket.id, None).await?;
+        }
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, updated_by = ?, updated_at = ?, ",
+            "UPDATE tickets SET stage_id = ?, state = ?, updated_by = ?, updated_at = ?, ",
             crate::store::tickets::set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(to.column().as_str())
+        .bind(stage)
         .bind(to.as_str())
         .bind(actor.to_string())
         .bind(now)
         .bind(to.as_str())
         .bind(now)
         .bind(&ticket.id)
-        .execute(self.store().pool())
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(())
     }
 }

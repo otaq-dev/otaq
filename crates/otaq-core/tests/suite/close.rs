@@ -63,7 +63,7 @@ async fn close_from_backlog_dev_and_review() {
     let review = w.create("SHOP", "In review").await;
     let wt = w.start_worktree(&review).await;
     std::fs::write(wt.join("scratch.md"), "x\n").unwrap();
-    w.force_status(&review, Status::ReadyForReview).await;
+    w.force_status(&review, Status::WaitingForYou).await;
     w.review.close("SHOP-3", false, &me()).await.unwrap();
     assert!(wt.join("scratch.md").is_file());
     let row = w.board.store().ticket(&review.id).await.unwrap().unwrap();
@@ -149,7 +149,7 @@ async fn close_removes_but_does_not_refresh() {
     let wt = w.start_worktree(&t).await;
     commit(&wt, "a.ts", "a\n");
     let dir = created(&w, &t, "shop_db_1").await;
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     w.board
         .set_project_settings(
             "SHOP",

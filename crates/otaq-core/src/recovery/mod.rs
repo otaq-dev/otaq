@@ -356,7 +356,7 @@ impl Recovery {
 
         let watched: Vec<&str> = AT_WORK
             .iter()
-            .chain([&Status::ReadyForReview, &Status::PrOpen])
+            .chain([&Status::WaitingForYou, &Status::PrOpen])
             .map(|s| s.as_str())
             .collect();
         let sql = format!(
@@ -393,8 +393,8 @@ impl Recovery {
         // Validating tickets whose validator is gone (REC-01's M12 row).
         let validating: Vec<(String, String)> =
             sqlx::query_as("SELECT id, state FROM tickets WHERE state IN (?, ?)")
-                .bind(Status::Validating.as_str())
-                .bind(Status::ValidatorNeedsYou.as_str())
+                .bind(Status::Checking.as_str())
+                .bind(Status::CheckerNeedsYou.as_str())
                 .fetch_all(pool)
                 .await?;
         for (id, state) in validating {
@@ -576,7 +576,7 @@ impl Recovery {
     ) -> Result<Option<TicketKey>, BoardError> {
         payload["validation"] = json!(true);
         let key = self
-            .interrupt_as(ticket_id, before, Some(Status::Validating), false, payload)
+            .interrupt_as(ticket_id, before, Some(Status::Checking), false, payload)
             .await?;
         if key.is_some() {
             self.inner
@@ -641,14 +641,13 @@ impl Recovery {
         let now = now_ms();
         let mut tx = board.store().begin_write().await?;
         let done = sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, interrupted_from = ?,
+            "UPDATE tickets SET state = ?, interrupted_from = ?,
                                 signal_text = CASE WHEN ? THEN signal_text ELSE NULL END,
                                 signal_since = CASE WHEN ? THEN signal_since ELSE NULL END,
                                 wakeup_at = NULL, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ? AND state = ?"
         ))
-        .bind(Status::Interrupted.column().as_str())
         .bind(Status::Interrupted.as_str())
         .bind(from.map(|s| s.as_str()))
         .bind(keep_label)
@@ -696,13 +695,12 @@ impl Recovery {
         let now = now_ms();
         let mut tx = board.store().begin_write().await?;
         let done = sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
+            "UPDATE tickets SET stage_id = NULL, state = ?, start_problem_step = ?, start_problem_message = ?,
                                 signal_text = NULL, signal_since = NULL, wakeup_at = NULL, interrupted_from = NULL,
                                 updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ? AND state = ?"
         ))
-        .bind(Status::StartInterrupted.column().as_str())
         .bind(Status::StartInterrupted.as_str())
         .bind(StartStep::Launch.as_str())
         .bind(&message)
@@ -742,11 +740,10 @@ impl Recovery {
         let now = now_ms();
         let mut tx = board.store().begin_write().await?;
         let done = sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, wakeup_at = NULL, updated_at = ?, ",
+            "UPDATE tickets SET state = ?, wakeup_at = NULL, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ? AND state = ?"
         ))
-        .bind(Status::ResumeFailed.column().as_str())
         .bind(Status::ResumeFailed.as_str())
         .bind(now)
         .bind(Status::ResumeFailed.as_str())

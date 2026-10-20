@@ -112,7 +112,7 @@ async fn blocking_items_notify_once_and_never_while_focused() {
         assert!(posted[0].sound);
     }
     // Ready for Review never notifies; other events don't repeat the question.
-    w.force_status(&review, Status::ReadyForReview).await;
+    w.force_status(&review, Status::WaitingForYou).await;
     w.board
         .pin("SHOP-1", &otaq_core::domain::Actor::User("me".into()))
         .await

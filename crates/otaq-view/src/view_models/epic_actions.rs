@@ -3,6 +3,7 @@
 //! went to Dev (the dialog previews the new key, says the old key keeps working and how the base changes), and
 //! Close epic… with one confirmation built from the service's close plan.
 
+use crate::view_models::legacy_column::ColumnOf;
 use otaq_core::board::epics::{ClosePlan, progress_of};
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Kind, Status, TicketKey};

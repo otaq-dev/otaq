@@ -34,7 +34,7 @@ fn t(key: &str, status: Status) -> Ticket {
         },
         epic,
         key,
-        column: status.column(),
+        place: otaq_core::domain::Place::of(status, None, None),
         status,
         base_locked: false,
         external_id: None,
@@ -171,7 +171,7 @@ fn running_and_reviewed_children_make_a_track() {
     assert_eq!(place(Status::Backlog, children.clone()), EpicPlace::Track);
     assert_eq!(running(&children).len(), 1);
     let children = vec![
-        worked(t("SHOP-45.1", Status::ReadyForReview)),
+        worked(t("SHOP-45.1", Status::WaitingForYou)),
         worked(t("SHOP-45.2", Status::Merged)),
     ];
     assert_eq!(place(Status::Backlog, children), EpicPlace::Track);
@@ -191,7 +191,7 @@ fn a_done_epic_is_a_delivery_card() {
         "until reevaluate_epic moves it"
     );
     assert_eq!(
-        place(Status::ReadyForReview, merged.clone()),
+        place(Status::WaitingForYou, merged.clone()),
         EpicPlace::Delivery
     );
     assert_eq!(place(Status::PrOpen, merged.clone()), EpicPlace::Delivery);

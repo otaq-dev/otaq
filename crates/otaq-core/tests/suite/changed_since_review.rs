@@ -105,7 +105,7 @@ async fn a_new_commit_needs_approve_anyway_and_shows_only_itself() {
     assert_eq!(first, LocalMergeOutcome::Changed { check });
     assert_eq!(
         w.status("SHOP-1").await,
-        Status::ReadyForReview,
+        Status::WaitingForYou,
         "nothing merged"
     );
     let anyway = w

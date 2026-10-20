@@ -98,7 +98,7 @@ pub async fn in_review(w: &TestService, title: &str, file: &str) -> (Ticket, Pat
     let wt = w.start_worktree(&t).await;
     commit(&wt, file, "code\n");
     build(&wt, title);
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     (w.board.ticket(&t.key.to_string()).await.unwrap(), wt)
 }
 

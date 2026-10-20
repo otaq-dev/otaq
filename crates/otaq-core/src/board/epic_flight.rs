@@ -29,7 +29,7 @@ use super::moves::{DropTarget, MoveAction, MoveCheck, check_move, queue_in, unqu
 use super::settings::AutoMerge;
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
-use crate::domain::{Actor, Column, Status, TicketKey, stored_enum};
+use crate::domain::{Actor, Status, StatusSet, TicketKey, stored_enum};
 use crate::store::now_ms;
 use crate::store::tickets::TicketRow;
 
@@ -76,31 +76,37 @@ pub fn been_to_dev(ticket: &Ticket) -> bool {
         .work
         .as_ref()
         .is_some_and(|w| w.branch.is_some() || w.worktree.is_some());
-    match ticket.column {
-        Column::Dev | Column::ReadyForReview | Column::Approved => true,
-        Column::Backlog => ticket.status == Status::Parked || worked,
-        Column::ReadyForDev => worked,
-        Column::Done => ticket.status == Status::Merged || worked || ticket.has_started(),
+    match ticket.board_group() {
+        StatusSet::AgentStage
+        | StatusSet::AgentCheck
+        | StatusSet::HumanCheck
+        | StatusSet::Delivery => true,
+        StatusSet::Backlog => ticket.status == Status::Parked || worked,
+        StatusSet::Waiting => worked,
+        StatusSet::Done => ticket.status == Status::Merged || worked || ticket.has_started(),
     }
 }
 
 /// A never-started child: it has never been to Dev and is a row of the epic card, a card in Ready for Dev, or a
 /// "not queued" chip on its track.
 pub fn is_never_started(ticket: &Ticket) -> bool {
-    matches!(ticket.column, Column::Backlog | Column::ReadyForDev) && !been_to_dev(ticket)
+    matches!(
+        ticket.board_group(),
+        StatusSet::Backlog | StatusSet::Waiting
+    ) && !been_to_dev(ticket)
 }
 
 /// An active child: in Ready for Dev, Dev or Ready for Review.
 pub fn is_active(ticket: &Ticket) -> bool {
     matches!(
-        ticket.column,
-        Column::ReadyForDev | Column::Dev | Column::ReadyForReview
+        ticket.board_group(),
+        StatusSet::Waiting | StatusSet::AgentStage | StatusSet::HumanCheck
     )
 }
 
 /// A running child: in Dev, where its agent session (or validator) works or waits for the user.
 pub fn is_running(ticket: &Ticket) -> bool {
-    ticket.column == Column::Dev
+    ticket.board_group() == StatusSet::AgentStage
 }
 
 /// A parked child: "Parked · has work" in Backlog (d0052).
@@ -144,8 +150,8 @@ pub fn children_of<'a>(epic: &Ticket, tickets: &'a [Ticket]) -> Vec<&'a Ticket> 
 /// after Review makes it a track again (the epic is back in Backlog, EPC-05).
 pub fn epic_place(epic: &Ticket, tickets: &[Ticket]) -> EpicPlace {
     if matches!(
-        epic.column,
-        Column::ReadyForReview | Column::Approved | Column::Done
+        epic.board_group(),
+        StatusSet::HumanCheck | StatusSet::Delivery | StatusSet::Done
     ) {
         return EpicPlace::Delivery;
     }
@@ -197,7 +203,7 @@ pub fn nothing_to_queue(epic: &TicketKey) -> String {
 pub fn to_queue<'a>(epic: &Ticket, tickets: &'a [Ticket]) -> Vec<&'a Ticket> {
     children_of(epic, tickets)
         .into_iter()
-        .filter(|c| c.column == Column::Backlog)
+        .filter(|c| c.board_group() == StatusSet::Backlog)
         .collect()
 }
 
@@ -345,8 +351,9 @@ pub fn take_back_plan_starting(
             .map(|c| c.key.clone())
             .collect()
     };
-    let is_starting = |c: &Ticket| c.column == Column::ReadyForDev && starting.contains(&c.id);
-    let waiting = |c: &Ticket| c.column == Column::ReadyForDev && !starting.contains(&c.id);
+    let is_starting =
+        |c: &Ticket| c.board_group() == StatusSet::Waiting && starting.contains(&c.id);
+    let waiting = |c: &Ticket| c.board_group() == StatusSet::Waiting && !starting.contains(&c.id);
     let unqueue = keys(&waiting);
     let running = keys(&is_running);
     let now_starting = keys(&is_starting);
@@ -563,7 +570,7 @@ impl Board {
                     format!("{} isn't a child of {}", child.key, epic.key),
                 ));
             }
-            if child.column == Column::ReadyForDev {
+            if child.board_group() == StatusSet::Waiting {
                 let row = self.waiting_row(&child).await?;
                 waiting.push((child, row));
             }
@@ -608,12 +615,12 @@ impl Board {
                     format!("{} isn't a child of {}", child.key, epic.key),
                 ));
             }
-            match child.column {
-                Column::ReadyForDev => {
+            match child.board_group() {
+                StatusSet::Waiting => {
                     let row = self.waiting_row(&child).await?;
                     waiting.push((child, row));
                 }
-                Column::Backlog => {}
+                StatusSet::Backlog => {}
                 _ => already_started.push(child.key),
             }
         }

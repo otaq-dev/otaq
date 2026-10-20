@@ -4,12 +4,12 @@
 use crate::common::{Fixture, me};
 use otaq_core::board::Refusal;
 use otaq_core::board::tickets::{Base, Ticket, TicketUpdate};
-use otaq_core::domain::{Column, Status};
+use otaq_core::domain::{Status, StatusSet};
 use otaq_core::store::new_id;
 
 async fn set_status(f: &Fixture, t: &Ticket, status: Status) {
-    sqlx::query("UPDATE tickets SET board_column = ?, state = ?, started_at = 1 WHERE id = ?")
-        .bind(status.column().as_str())
+    sqlx::query("UPDATE tickets SET stage_id = ?, state = ?, started_at = 1 WHERE id = ?")
+        .bind(otaq_core::flow::engine::default_stage(status, None))
         .bind(status.as_str())
         .bind(&t.id)
         .execute(f.board.store().pool())
@@ -198,8 +198,8 @@ async fn close_plan_and_close() {
     for key in ["SHOP-40.2", "SHOP-40.3", "SHOP-40"] {
         let t = f.ticket(key).await;
         assert_eq!(
-            (t.column, t.status),
-            (Column::Done, Status::ClosedNotMerged),
+            (t.board_group(), t.status),
+            (StatusSet::Done, Status::ClosedNotMerged),
             "{key}"
         );
     }

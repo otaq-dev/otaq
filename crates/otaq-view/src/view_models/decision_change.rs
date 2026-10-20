@@ -216,24 +216,24 @@ pub fn gallery() -> Gallery {
 /// SHOP-23 in review, and SHOP-40 in review with its merged child 40.1 (next child: 40.7).
 pub mod fixtures {
     use otaq_core::board::tickets::Ticket;
-    use otaq_core::domain::{Column, Kind, Status};
+    use otaq_core::domain::{Kind, Status};
 
     use crate::view_models::card_fixtures::ticket;
 
     pub fn shop23() -> (Ticket, Vec<Ticket>) {
-        let mut t = ticket("SHOP-23", "Split user full name", Status::ReadyForReview);
-        t.column = Column::ReadyForReview;
+        let mut t = ticket("SHOP-23", "Split user full name", Status::WaitingForYou);
+        t.place = otaq_core::domain::Place::stage_of("review");
         (t.clone(), vec![t])
     }
 
     /// (SHOP-40.1, the project).
     pub fn shop40() -> (Ticket, Vec<Ticket>) {
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::ReadyForReview);
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
         epic.kind = Kind::Epic;
-        epic.column = Column::ReadyForReview;
+        epic.place = otaq_core::domain::Place::stage_of("review");
         epic.next_child_number = Some(7);
         let mut child = ticket("SHOP-40.1", "Wishlist API", Status::Merged);
-        child.column = Column::Done;
+        child.place = otaq_core::domain::Place::Done;
         child.epic = Some(epic.key.clone());
         (child.clone(), vec![epic, child])
     }
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn a_child_still_in_review_goes_back_to_its_agent() {
         let (mut child, tickets) = shop40();
-        child.status = Status::ReadyForReview;
+        child.status = Status::WaitingForYou;
         assert!(matches!(
             view(&order(), &child, &tickets, 0, true),
             ChangeView::SendBack(_)

@@ -212,7 +212,7 @@ async fn remove_deletes_everything_in_the_database_and_leaves_the_repo() {
                 kind: "ticket".into(),
                 title: format!("SHOP-{number}"),
                 body: String::new(),
-                board_column: "backlog".into(),
+                stage_id: None,
                 state: "backlog".into(),
                 created_by: "me".into(),
             })

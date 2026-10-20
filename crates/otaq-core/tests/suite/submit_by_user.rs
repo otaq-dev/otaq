@@ -29,7 +29,7 @@ async fn allowed_from_idle_needs_you_and_interrupted_only() {
         w.force_status(&t, status).await;
         let key = format!("SHOP-{}", n + 1);
         let after = w.board.submit_by_user(&key, "", &me()).await.unwrap();
-        assert_eq!(after.status, Status::ReadyForReview, "from {status}");
+        assert_eq!(after.status, Status::WaitingForYou, "from {status}");
     }
     for status in [Status::Working, Status::WorkingInBackground, Status::Queued] {
         let t = w.create("SHOP", "busy").await;
@@ -75,7 +75,7 @@ async fn submitted_by_you_with_the_note_and_the_session_stays() {
         .submit_by_user("SHOP-1", "I finished the redirect by hand.", &me())
         .await
         .unwrap();
-    assert_eq!(after.status, Status::ReadyForReview);
+    assert_eq!(after.status, Status::WaitingForYou);
     assert_eq!(
         w.board.review_summary(&t.id).await.unwrap().as_deref(),
         Some("Submitted by you\n\nI finished the redirect by hand.")

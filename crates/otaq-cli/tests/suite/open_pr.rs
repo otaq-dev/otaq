@@ -113,7 +113,7 @@ async fn open_pr_proposes_confirms_rewords_renames_and_reports() {
             .join(".agents/skills/otaq-custom-open-pr/SKILL.md")
             .is_file()
     );
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     let flow = w.board.pr_flow(&s.ticket.id).await.unwrap().unwrap();
     assert_eq!(flow.state, FlowState::Preparing);
 
@@ -301,7 +301,7 @@ async fn cancel_and_refusals_leave_the_ticket_in_review() {
     let outcome = w.prs.open("SHOP-1", true, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
     let ticket = w.prs.cancel("SHOP-1", &me()).await.unwrap();
-    assert_eq!(ticket.status, Status::ReadyForReview);
+    assert_eq!(ticket.status, Status::WaitingForYou);
     assert!(w.board.pr_flow(&s.ticket.id).await.unwrap().is_none());
     let history = w.board.history("SHOP-1").await.unwrap();
     assert!(history.iter().any(|e| e.kind.as_str() == "pr_cancelled"));
@@ -363,7 +363,7 @@ async fn rework_then_push_to_pr_rewords_only_the_new_commits() {
         .move_ticket("SHOP-1", DropTarget::ReadyForReview, false, &me())
         .await
         .unwrap();
-    assert_eq!(ticket.status, Status::ReadyForReview);
+    assert_eq!(ticket.status, Status::WaitingForYou);
     assert_eq!(ticket.flags.pr_number, Some(7));
     assert!(ticket.flags.pr_rework, "back for rework");
     w.force_status(&ticket, Status::Working).await;
@@ -521,7 +521,7 @@ async fn a_reported_problem_goes_to_the_dialog_and_retry_asks_again() {
         )
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     let flow = w.board.pr_flow(&s.ticket.id).await.unwrap().unwrap();
     assert_eq!(
         flow.reported.as_deref(),

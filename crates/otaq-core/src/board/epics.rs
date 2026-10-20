@@ -14,7 +14,7 @@ use sqlx::{Sqlite, Transaction};
 use super::deps::check_same_base;
 use super::tickets::{Base, EventKind, Ticket, allocate_child_number, record_event};
 use super::{Board, BoardError, Refusal};
-use crate::domain::{Actor, Status, TicketKey};
+use crate::domain::{Actor, Status, StatusSet, TicketKey};
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 
@@ -204,15 +204,11 @@ impl Board {
         actor: &Actor,
     ) -> Result<Option<Status>, BoardError> {
         let epic = self.epic(epic).await?;
-        if epic.column != crate::domain::Column::Backlog {
+        if !epic.place.is_backlog() {
             return Ok(None);
         }
         let children = self.epic_children(&epic.key.to_string()).await?;
-        if children.is_empty()
-            || !children
-                .iter()
-                .all(|c| c.column == crate::domain::Column::Done)
-        {
+        if children.is_empty() || !children.iter().all(|c| c.place.is_done()) {
             return Ok(None);
         }
         let merged = children.iter().any(|c| c.status == Status::Merged);
@@ -231,14 +227,15 @@ impl Board {
                 None => None,
             };
             let now = now_ms();
-            let to = Status::ReadyForReview;
+            let to = Status::WaitingForYou;
             sqlx::query(concat!(
-                "UPDATE tickets SET board_column = ?, state = ?, review_head_sha = ?, review_entered_at = ?,
+                "UPDATE tickets SET stage_id = ?, state = ?, review_head_sha = ?, review_entered_at = ?,
                                     updated_by = ?, updated_at = ?, ",
                 set_state_since!(),
                 " WHERE id = ?"
             ))
-            .bind(to.column().as_str())
+            // The default flow's human check (T-0403 moves the epic's place onto the flow's last human check).
+            .bind(crate::flow::engine::default_stage(to, None))
             .bind(to.as_str())
             .bind(head)
             .bind(now)
@@ -264,7 +261,7 @@ impl Board {
         };
         tx.commit().await?;
         tracing::info!(epic = %epic.key, %to, "every child is done");
-        if to == Status::ReadyForReview {
+        if to == Status::WaitingForYou {
             // From here the user reviews the whole epic: its lead ends (d0083).
             self.leads().epic_in_review(&epic.key, actor).await;
         }
@@ -276,8 +273,8 @@ impl Board {
     pub async fn epic_back_to_backlog(&self, epic: &str, actor: &Actor) -> Result<(), BoardError> {
         let epic = self.epic(epic).await?;
         if !matches!(
-            epic.column,
-            crate::domain::Column::ReadyForReview | crate::domain::Column::Approved
+            epic.status.set(),
+            StatusSet::HumanCheck | StatusSet::Delivery
         ) {
             return Ok(());
         }
@@ -285,11 +282,10 @@ impl Board {
         let to = Status::Backlog;
         let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, updated_by = ?, updated_at = ?, ",
+            "UPDATE tickets SET stage_id = NULL, state = ?, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(to.column().as_str())
         .bind(to.as_str())
         .bind(actor.to_string())
         .bind(now)
@@ -407,11 +403,10 @@ pub(crate) async fn close_bookkeeping(
     let to = Status::ClosedNotMerged;
     let now = now_ms();
     sqlx::query(concat!(
-        "UPDATE tickets SET board_column = ?, state = ?, outcome = 'closed', updated_by = ?, updated_at = ?, ",
+        "UPDATE tickets SET stage_id = NULL, state = ?, outcome = 'closed', updated_by = ?, updated_at = ?, ",
         set_state_since!(),
         " WHERE id = ?"
     ))
-    .bind(to.column().as_str())
     .bind(to.as_str())
     .bind(actor.to_string())
     .bind(now)

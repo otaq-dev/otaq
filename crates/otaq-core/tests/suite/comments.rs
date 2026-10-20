@@ -29,7 +29,7 @@ async fn send_round(f: &Fixture) {
 
 async fn in_review(f: &Fixture) {
     let t = f.create("Checkout API").await;
-    f.force_status(&t, Status::ReadyForReview).await;
+    f.force_status(&t, Status::WaitingForYou).await;
 }
 
 #[tokio::test]
@@ -136,7 +136,7 @@ async fn comments_need_a_ticket_in_review_and_some_text() {
         .await
         .unwrap_err();
     assert_eq!(err.refusal(), Some(Refusal::MoveRefused));
-    f.force_status(&t, Status::ReadyForReview).await;
+    f.force_status(&t, Status::WaitingForYou).await;
     let err = f
         .board
         .add_comment(&comment(1, Side::New, "  "))
@@ -144,7 +144,7 @@ async fn comments_need_a_ticket_in_review_and_some_text() {
         .unwrap_err();
     assert_eq!(err.refusal(), Some(Refusal::EmptyField));
     let epic = f.epic("Wishlist").await;
-    f.force_status(&epic, Status::ReadyForReview).await;
+    f.force_status(&epic, Status::WaitingForYou).await;
     let err = f
         .board
         .add_comment(&NewComment {

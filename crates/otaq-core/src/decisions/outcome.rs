@@ -303,7 +303,7 @@ pub async fn change_with_fix_child(
         ));
     };
     let epic = board.ticket(&epic.to_string()).await?;
-    if epic.status != Status::ReadyForReview {
+    if epic.status != Status::WaitingForYou {
         return Err(BoardError::refused(
             Refusal::MoveRefused,
             format!(

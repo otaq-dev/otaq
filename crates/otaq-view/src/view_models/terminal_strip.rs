@@ -271,7 +271,7 @@ pub fn validator_state(
         tone: StripTone::Muted,
     };
     match phase {
-        Phase::Live if status == Status::ValidatorNeedsYou => StripState {
+        Phase::Live if status == Status::CheckerNeedsYou => StripState {
             label: "Waiting for you",
             tone: StripTone::Attention,
         },
@@ -331,7 +331,7 @@ pub fn validator_hint(
             "Read-only · this validator has ended",
             HintTone::Muted,
         ),
-        _ => hint(phase, focused, Status::Validating, false, 0),
+        _ => hint(phase, focused, Status::Checking, false, 0),
     }
 }
 
@@ -528,16 +528,16 @@ mod tests {
             validator_attach_command(&key(), false),
             attach_command(&key())
         );
-        let live = validator_state(&Phase::Live, Status::Validating, None);
+        let live = validator_state(&Phase::Live, Status::Checking, None);
         assert_eq!((live.label, live.tone), ("Live", StripTone::Working));
-        let asks = validator_state(&Phase::Live, Status::ValidatorNeedsYou, None);
+        let asks = validator_state(&Phase::Live, Status::CheckerNeedsYou, None);
         assert_eq!(
             (asks.label, asks.tone),
             ("Waiting for you", StripTone::Attention)
         );
         let failed = validator_state(
             &Phase::Ended,
-            Status::ValidationFailed,
+            Status::CheckFailed,
             Some(ValidationOutcome::Fail),
         );
         assert_eq!(
@@ -591,7 +591,7 @@ mod tests {
             "Reconnecting…"
         );
         assert_eq!(
-            state(&Phase::Ended, Status::ReadyForReview, false).0,
+            state(&Phase::Ended, Status::WaitingForYou, false).0,
             "Ended"
         );
         // The terminal has focus and the agent waits: only "your turn" (ATT-03).
@@ -704,7 +704,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            text(Phase::Ended, false, Status::ReadyForReview, false, 0),
+            text(Phase::Ended, false, Status::WaitingForYou, false, 0),
             Some((s("Read-only · the session ended"), Muted))
         );
         assert_eq!(

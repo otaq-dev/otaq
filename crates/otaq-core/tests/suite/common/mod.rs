@@ -131,8 +131,8 @@ impl Fixture {
 
     /// Puts a ticket straight into `status`, as if the board had got it there.
     pub async fn force_status(&self, ticket: &Ticket, status: otaq_core::domain::Status) {
-        sqlx::query("UPDATE tickets SET board_column = ?, state = ? WHERE id = ?")
-            .bind(status.column().as_str())
+        sqlx::query("UPDATE tickets SET stage_id = ?, state = ? WHERE id = ?")
+            .bind(otaq_core::flow::engine::default_stage(status, None))
             .bind(status.as_str())
             .bind(&ticket.id)
             .execute(self.board.store().pool())

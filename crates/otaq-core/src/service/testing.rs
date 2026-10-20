@@ -126,7 +126,7 @@ impl TestService {
             ("Product images", Status::Backlog),
             ("Coupon codes", Status::Backlog),
             ("Add Stripe client", Status::Merged),
-            ("Checkout API", Status::ReadyForReview),
+            ("Checkout API", Status::WaitingForYou),
             ("Price table", Status::Working),
             ("Checkout page", Status::Queued),
             ("Order confirmation email", Status::Queued),
@@ -199,11 +199,11 @@ impl TestService {
     /// Puts a ticket straight into `status` (and its column), as if the board had got it there.
     pub async fn force_status(&self, ticket: &Ticket, status: Status) {
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, ",
+            "UPDATE tickets SET stage_id = ?, state = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(status.column().as_str())
+        .bind(crate::flow::engine::default_stage(status, None))
         .bind(status.as_str())
         .bind(status.as_str())
         .bind(crate::store::now_ms())
@@ -228,7 +228,7 @@ impl TestService {
 
     /// Puts the ticket in Validating with an open round 1 judged by `session` (tests report the verdict from it).
     pub async fn validating_with(&self, ticket: &Ticket, session: &str) {
-        self.force_status(ticket, Status::Validating).await;
+        self.force_status(ticket, Status::Checking).await;
         sqlx::query(
             "INSERT INTO validations (id, ticket_id, round, trigger, session_id, started_at) VALUES (?, ?, 1, 'agent', ?, ?)",
         )

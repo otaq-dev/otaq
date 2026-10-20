@@ -37,8 +37,9 @@ use crate::board::validation::{
 };
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::validation::{CancelledBy, cancelled_toast};
-use crate::domain::{Actor, Status, ValidationAction, ValidationTrigger};
+use crate::domain::{Actor, Place, Status, ValidationAction, ValidationTrigger};
 use crate::epic_lead::stuck::FirstStop;
+use crate::flow::effective_flow;
 use crate::named_agents::gate::{Gated, Held, LaunchGate, Scope};
 use crate::named_agents::{Role, RunsOn, resolve_ticket_role};
 use crate::protocol::Event;
@@ -189,12 +190,14 @@ impl Validation {
             .effective_settings(ticket.key.project.as_str())
             .await?;
         let extra = board.validation_rounds_extra(&ticket.id).await?;
-        let rounds = settings.validation_rounds + extra;
+        let flow = ticket_flow(&settings, &ticket);
+        let rounds = check_rounds(&flow, &ticket, extra);
         let state = ValidationState {
+            flow: &flow,
+            place: &ticket.place,
             status: ticket.status,
             round: ticket.validation_round,
             rounds,
-            validation: true,
             auto_merge: auto_merge_applies(&ticket, &settings),
             conflicts: ticket.auto_merge_conflicts,
         };
@@ -206,14 +209,21 @@ impl Validation {
         let step =
             transition(state, event).map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;
         // An epic child's first "Validation failed N times" goes to its live lead once (LEAD-07): held at work.
-        let held = step.to == Status::ValidationFailed && board.leads().takes_stop(&ticket).await;
+        let held = step.to == Status::CheckFailed && board.leads().takes_stop(&ticket).await;
         let recorded = if held {
+            // Held at work: back in the Agent stage before the check.
+            let place = ticket
+                .place
+                .stage()
+                .and_then(|id| crate::flow::engine::back_to(&flow, id, &[]))
+                .map_or_else(|| ticket.place.clone(), |s| Place::stage_of(&s.id));
             Transition {
                 to: Status::Working,
-                ..step
+                place,
+                ..step.clone()
             }
         } else {
-            step
+            step.clone()
         };
         board
             .record_verdict(
@@ -233,7 +243,7 @@ impl Validation {
                 .set_validation_status(
                     &ticket.id,
                     &[Status::Working],
-                    Status::ValidationFailed,
+                    Status::CheckFailed,
                     None,
                     false,
                 )
@@ -341,12 +351,14 @@ impl Validation {
             .effective_settings(ticket.key.project.as_str())
             .await?;
         let extra = board.validation_rounds_extra(&ticket.id).await?;
+        let flow = ticket_flow(&settings, ticket);
         transition(
             ValidationState {
+                flow: &flow,
+                place: &ticket.place,
                 status: ticket.status,
                 round: ticket.validation_round,
-                rounds: settings.validation_rounds + extra,
-                validation: settings.validation,
+                rounds: check_rounds(&flow, ticket, extra),
                 auto_merge: false,
                 conflicts: ticket.auto_merge_conflicts,
             },
@@ -478,9 +490,7 @@ impl Validation {
                 };
                 let step = self.step(&ticket, event).await?;
                 let findings = board.last_report(&ticket.id).await?.unwrap_or_default();
-                board
-                    .back_to_agent(&ticket, step.extra_round, step.round == Round::Reset, actor)
-                    .await?;
+                board.back_to_agent(&ticket, &step, actor).await?;
                 let after = board.ticket_by_id(&ticket.id).await?;
                 let text = user_findings_message(&after, &findings, note, step.extra_round);
                 self.tell_agent(&after, &text).await;
@@ -524,11 +534,15 @@ impl Validation {
     ) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
+        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+        // The child is at work already (its stop was held there): the row is the failed check's.
+        let place = Place::of(Status::CheckFailed, None, None);
         let failed = ValidationState {
-            status: Status::ValidationFailed,
+            flow: &flow,
+            place: &place,
+            status: Status::CheckFailed,
             round: ticket.validation_round,
             rounds: ticket.validation_round,
-            validation: true,
             auto_merge: false,
             conflicts: ticket.auto_merge_conflicts,
         };
@@ -659,8 +673,8 @@ impl Validation {
                 board
                     .set_validation_status(
                         ticket_id,
-                        &[Status::Validating],
-                        Status::ValidatorNeedsYou,
+                        &[Status::Checking],
+                        Status::CheckerNeedsYou,
                         Some(prompt),
                         false,
                     )
@@ -670,8 +684,8 @@ impl Validation {
                 board
                     .set_validation_status(
                         ticket_id,
-                        &[Status::ValidatorNeedsYou],
-                        Status::Validating,
+                        &[Status::CheckerNeedsYou],
+                        Status::Checking,
                         None,
                         false,
                     )
@@ -696,7 +710,7 @@ impl Validation {
                 board
                     .set_validation_status(
                         ticket_id,
-                        &[Status::Validating, Status::ValidatorNeedsYou],
+                        &[Status::Checking, Status::CheckerNeedsYou],
                         Status::WaitingForLimitReset,
                         None,
                         true,
@@ -744,7 +758,7 @@ impl Validation {
                 project,
                 id: ticket.id.clone(),
                 key: ticket.key.clone(),
-                status: Status::ValidationNoResult,
+                status: Status::CheckNoResult,
             });
         }
         if let Err(e) = self
@@ -772,7 +786,17 @@ impl Validation {
         let settings = board
             .effective_settings(ticket.key.project.as_str())
             .await?;
-        if !settings.validation {
+        let flow = effective_flow(&settings);
+        // The agent's "next stage" (STG-06): an agent check validates; anything else (Validation off: Review) is
+        // the plain submit.
+        let next = crate::flow::engine::step(
+            crate::flow::engine::At::new(&flow, &ticket.place, Status::Working),
+            crate::flow::engine::Move::NextStage,
+        )
+        .ok()
+        .and_then(|step| step.stage)
+        .is_some_and(crate::flow::Stage::is_agent_check);
+        if !next {
             return board.submit_for_review(key, summary, actor).await;
         }
         if !LIVE.contains(&ticket.status) && ticket.status != Status::MergeConflictFixing {
@@ -790,10 +814,11 @@ impl Validation {
             ValidationTrigger::User => ValidationEvent::ValidateAndSubmit,
         };
         let state = ValidationState {
+            flow: &flow,
+            place: &ticket.place,
             status: ticket.status,
             round: ticket.validation_round,
-            rounds: settings.validation_rounds,
-            validation: true,
+            rounds: check_rounds(&flow, &ticket, 0),
             auto_merge: false,
             conflicts: ticket.auto_merge_conflicts,
         };
@@ -842,20 +867,19 @@ impl Validation {
         let limit = held.blocked == crate::named_agents::gate::Blocked::AtLimit;
         let (from, to, interrupted_from) = if limit {
             (
-                Status::Validating,
+                Status::Checking,
                 Status::WaitingForLimitReset,
-                Some(Status::Validating.as_str()),
+                Some(Status::Checking.as_str()),
             )
         } else {
-            (Status::WaitingForLimitReset, Status::Validating, None)
+            (Status::WaitingForLimitReset, Status::Checking, None)
         };
         let now = crate::store::now_ms();
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, interrupted_from = ?, updated_at = ?, ",
+            "UPDATE tickets SET state = ?, interrupted_from = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ? AND state = ?"
         ))
-        .bind(to.column().as_str())
         .bind(to.as_str())
         .bind(interrupted_from)
         .bind(now)
@@ -1070,9 +1094,37 @@ pub fn auto_merge_applies(ticket: &Ticket, settings: &EffectiveSettings) -> bool
         }
 }
 
+/// The project's flow, and while the ticket is in a stage the flow no longer has (Validation turned off while it
+/// validated), the default flow it entered that stage in, so its round can end as before.
+fn ticket_flow(settings: &EffectiveSettings, ticket: &Ticket) -> crate::flow::Flow {
+    let flow = effective_flow(settings);
+    match ticket.place.stage() {
+        Some(id) if flow.stage(id).is_none() => effective_flow(&EffectiveSettings {
+            validation: true,
+            ..settings.clone()
+        }),
+        _ => flow,
+    }
+}
+
+/// The limit of the agent check the ticket is in, or (from its Agent stage) of the one it goes to next: the
+/// check's rounds (the project's Validation rounds on the derived flow) plus `extra`.
+fn check_rounds(flow: &crate::flow::Flow, ticket: &Ticket, extra: u32) -> u32 {
+    let check = ticket.place.stage().and_then(|id| {
+        flow.stage(id).filter(|s| s.is_agent_check()).or_else(|| {
+            let index = flow.position(id)?;
+            flow.stages[index + 1..].iter().find(|s| s.is_agent_check())
+        })
+    });
+    check.map_or(
+        crate::board::settings::DEFAULT_VALIDATION_ROUNDS + extra,
+        |s| crate::flow::engine::rounds_of(s, extra),
+    )
+}
+
 /// Validating…, or its validator waits on a prompt.
 fn validating(status: Status) -> bool {
-    matches!(status, Status::Validating | Status::ValidatorNeedsYou)
+    matches!(status, Status::Checking | Status::CheckerNeedsYou)
 }
 
 fn other(e: impl std::fmt::Display) -> BoardError {

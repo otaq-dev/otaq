@@ -7,7 +7,7 @@ use super::needs_you::{ProjectTickets, needs_you_items_with};
 use super::order::sort_column;
 use super::tickets::Ticket;
 use super::{Board, BoardError};
-use crate::domain::{Column, TicketKey};
+use crate::domain::{StatusSet, TicketKey};
 use crate::store::now_ms;
 use crate::store::projects::Project;
 
@@ -25,10 +25,10 @@ pub struct ProjectInfo {
     pub needs_you: u32,
 }
 
-/// One column, cards in board order (SDD §7.5).
+/// One group of cards, in board order (SDD §7.5): the statuses of one of [`StatusSet::BOARD`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ColumnSnapshot {
-    pub column: Column,
+    pub column: StatusSet,
     pub cards: Vec<Ticket>,
 }
 
@@ -36,8 +36,8 @@ pub struct ColumnSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoardSnapshot {
     pub project: ProjectInfo,
-    /// The six state columns, left to right (the board draws Ready for Review and Approved as one Review
-    /// column, d0087).
+    /// The six groups, left to right (the board draws the human check and the Delivery as one Review column,
+    /// d0087, d0108).
     pub columns: Vec<ColumnSnapshot>,
 }
 
@@ -54,7 +54,7 @@ impl BoardSnapshot {
 
 /// Builds the columns from a project's tickets.
 pub fn columns(tickets: &[Ticket]) -> Vec<ColumnSnapshot> {
-    Column::ALL
+    StatusSet::BOARD
         .iter()
         .map(|column| {
             let order = sort_column(*column, tickets);

@@ -2,9 +2,10 @@
 //! ticket · panel "…" menu, Close ticket · confirm, Submit for review · dialog, Closed · not merged · Reopen*):
 //! which menu items show, and the dialogs' texts.
 
+use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::review::USER_SUBMITS_FROM;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Column, Status};
+use otaq_core::domain::Status;
 
 use crate::icons::IconName;
 use crate::view_models::menu::MenuItem;
@@ -31,7 +32,7 @@ pub fn close_item(ticket: &Ticket) -> Option<MenuItem> {
 /// "Submit for review…": on a ticket whose agent is at work or stopped; enabled only when it isn't mid-turn.
 pub fn submit_item(ticket: &Ticket) -> Option<MenuItem> {
     let shown = !ticket.is_epic()
-        && ticket.column == Column::Dev
+        && ticket.column() == Column::Dev
         && (USER_SUBMITS_FROM.contains(&ticket.status)
             || matches!(ticket.status, Status::Working | Status::WorkingInBackground));
     if !shown {
@@ -60,10 +61,7 @@ pub fn validate_item(submit: &MenuItem) -> MenuItem {
 /// validating*): "SHOP-29’s agent and validator will be stopped. The validation is discarded (round 1 of 3 not
 /// counted)."
 pub fn validating_stop_line(ticket: &Ticket) -> Option<String> {
-    if !matches!(
-        ticket.status,
-        Status::Validating | Status::ValidatorNeedsYou
-    ) {
+    if !matches!(ticket.status, Status::Checking | Status::CheckerNeedsYou) {
         return None;
     }
     let round = ticket
@@ -96,7 +94,7 @@ pub fn close_text(ticket: &Ticket, tickets: &[Ticket], agent_running: bool) -> C
     }
     let mut dependents: Vec<&Ticket> = tickets
         .iter()
-        .filter(|t| t.depends_on.contains(&ticket.key) && t.column != Column::Done)
+        .filter(|t| t.depends_on.contains(&ticket.key) && t.column() != Column::Done)
         .collect();
     dependents.sort_by(|a, b| a.key.cmp(&b.key));
     for d in dependents {
@@ -263,7 +261,7 @@ mod tests {
         for status in [
             Status::Backlog,
             Status::Working,
-            Status::ReadyForReview,
+            Status::WaitingForYou,
             Status::PrOpen,
         ] {
             assert!(
@@ -293,7 +291,7 @@ mod tests {
         assert!(working.disabled);
         assert_eq!(working.hint.as_deref(), Some("agent is working"));
         assert!(submit_item(&ticket("SHOP-19", "t", Status::Backlog)).is_none());
-        assert!(submit_item(&ticket("SHOP-19", "t", Status::ReadyForReview)).is_none());
+        assert!(submit_item(&ticket("SHOP-19", "t", Status::WaitingForYou)).is_none());
     }
 
     #[test]
@@ -319,7 +317,7 @@ mod tests {
     /// *Close / Park · while validating (SHOP-29)*.
     #[test]
     fn close_and_park_while_validating_stop_both() {
-        let mut t = ticket("SHOP-29", "Coupon field", Status::Validating);
+        let mut t = ticket("SHOP-29", "Coupon field", Status::Checking);
         t.flags.validating_round = Some(otaq_core::domain::ValidationRound { round: 1, of: 3 });
         let line = "SHOP-29\u{2019}s agent and validator will be stopped. The validation is discarded (round 1 of 3 \
                     not counted).";

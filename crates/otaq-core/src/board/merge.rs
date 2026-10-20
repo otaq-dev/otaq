@@ -8,6 +8,7 @@ use serde_json::json;
 use super::tickets::{Base, EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, Status, TicketKey};
+use crate::flow::engine::Move;
 use crate::naming;
 use crate::store::tickets::set_state_since;
 use crate::store::{new_id, now_ms};
@@ -110,9 +111,17 @@ impl Board {
         let now = now_ms();
         let to = Status::Merged;
         let round = self.current_round(&ticket.id).await?;
+        // The Delivery finished (STG-06): from the human check whose Pass offered it, or from the Delivery stage.
+        let moved = self
+            .moved(ticket, ticket.status, Move::Delivered)
+            .await
+            .ok();
         let mut tx = self.store.begin_write().await?;
+        if let Some(moved) = &moved {
+            moved.record(&mut tx, &ticket.id, None).await?;
+        }
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, outcome = 'merged', merge_commit_sha = ?,
+            "UPDATE tickets SET stage_id = NULL, state = ?, outcome = 'merged', merge_commit_sha = ?,
                                 base_sha = ?, sent_back_at = NULL, resume_skill = NULL, conflicts_with = NULL,
                                 conflict_files = NULL, conflict_reason = NULL,
                                 signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
@@ -120,7 +129,6 @@ impl Board {
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(to.column().as_str())
         .bind(to.as_str())
         .bind(commit)
         .bind(onto)

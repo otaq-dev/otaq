@@ -22,13 +22,14 @@
 //! whole label turquoise (the needs-you dot too, and the header's count), and no child; its track sorts with the
 //! tracks that need the user.
 
+use crate::view_models::legacy_column::{Column, ColumnOf};
 use std::cmp::Reverse;
 
 use otaq_core::board::epic_flight::{EpicPlace, children_of, epic_place, is_parked};
 use otaq_core::board::epics::progress_of;
 use otaq_core::board::readiness::{ReadyState, readiness};
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Actor, AutoMergeStop, Column, Status, TicketKey};
+use otaq_core::domain::{Actor, AutoMergeStop, Status, TicketKey};
 use otaq_core::project_agents::lead::Lead;
 use serde::Serialize;
 use ts_rs::TS;
@@ -254,8 +255,8 @@ fn track(epic: &Ticket, tickets: &[Ticket], columns: &[Column], lead: Option<&Le
     let progress = progress_of(&epic.key, tickets);
     let stops: Vec<(ColumnId, Stop)> = children
         .iter()
-        .filter(|c| c.column != Column::Backlog)
-        .map(|c| (ColumnId::of(c.column), stop(c, tickets)))
+        .filter(|c| c.column() != Column::Backlog)
+        .map(|c| (ColumnId::of(c.column()), stop(c, tickets)))
         .collect();
     let mut stations: Vec<ColumnId> = Vec::new();
     for column in columns.iter().filter(|c| **c != Column::Backlog) {
@@ -273,7 +274,7 @@ fn track(epic: &Ticket, tickets: &[Ticket], columns: &[Column], lead: Option<&Le
         count: format!("{}/{}", progress.merged, progress.total),
         segments: children
             .iter()
-            .map(|c| match c.column {
+            .map(|c| match c.column() {
                 Column::Backlog => chip_state(c),
                 _ => stop_state(c, tickets).0,
             })
@@ -284,7 +285,7 @@ fn track(epic: &Ticket, tickets: &[Ticket], columns: &[Column], lead: Option<&Le
         lead_asks,
         not_queued: children
             .iter()
-            .filter(|c| c.column == Column::Backlog)
+            .filter(|c| c.column() == Column::Backlog)
             .map(|c| chip(c))
             .collect(),
         stations: stations
@@ -340,7 +341,7 @@ fn short_key(key: &TicketKey) -> String {
 fn stop_state(child: &Ticket, tickets: &[Ticket]) -> (StopState, IconName, Option<String>) {
     let s = child.status;
     let conflict = s == Status::MergeConflictFixing
-        || (s == Status::AutoMergeStopped
+        || (s == Status::DeliveryStopped
             && child.auto_merge_stop == Some(AutoMergeStop::KeepsConflicting));
     if conflict {
         return (
@@ -353,13 +354,13 @@ fn stop_state(child: &Ticket, tickets: &[Ticket]) -> (StopState, IconName, Optio
         let words = match s {
             Status::AsksYou => "asks you",
             // *03 → 25*: it failed again after the lead's note.
-            Status::ValidationFailed => "failed",
+            Status::CheckFailed => "failed",
             _ => "needs you",
         };
         let (legend, _) = crate::view_models::status::pill(s);
         return (StopState::NeedsYou, legend.spec().2, Some(words.into()));
     }
-    match child.column {
+    match child.column() {
         Column::ReadyForDev => match readiness(child, tickets) {
             ReadyState::Waiting { parents } => (
                 StopState::Waits,
@@ -418,7 +419,7 @@ fn stop(child: &Ticket, tickets: &[Ticket]) -> Stop {
     };
     let needs_you = child.shows_needs_you();
     let detail = match readiness(child, tickets).reason() {
-        Some(reason) if child.column == Column::ReadyForDev => reason,
+        Some(reason) if child.column() == Column::ReadyForDev => reason,
         _ => child.status.label().to_owned(),
     };
     let by_lead = child.flags.by_lead.as_ref().filter(|b| b.added);
@@ -692,7 +693,7 @@ mod tests {
         });
         let mut noted = at(child("SHOP-40.3", Status::Working), 600);
         noted.flags.lead_note_sent = Some(lead_note());
-        let mut failed = at(child("SHOP-40.4", Status::ValidationFailed), 700);
+        let mut failed = at(child("SHOP-40.4", Status::CheckFailed), 700);
         failed.flags.lead_note_sent = Some(lead_note());
         let tickets = vec![
             epic("SHOP-40", "Wishlist", "PAY-123"),
@@ -748,11 +749,11 @@ mod tests {
                 .find(|t| t.key.to_string() == key)
                 .unwrap();
             t.status = status;
-            t.column = status.column();
+            t.place = otaq_core::domain::Place::of(t.status, None, None);
         };
         set(&mut tickets, "SHOP-40.2", Status::NeedsYou);
-        set(&mut tickets, "SHOP-60.1", Status::ReadyForReview);
-        set(&mut tickets, "SHOP-40.4", Status::AutoMergeStopped);
+        set(&mut tickets, "SHOP-60.1", Status::WaitingForYou);
+        set(&mut tickets, "SHOP-40.4", Status::DeliveryStopped);
         tickets
             .iter_mut()
             .find(|t| t.key.to_string() == "SHOP-40.4")
@@ -793,7 +794,7 @@ mod tests {
         let tickets = vec![
             epic("SHOP-40", "Wishlist", "PAY-123"),
             child("SHOP-40.1", Status::Merged),
-            child("SHOP-40.2", Status::ReadyForReview),
+            child("SHOP-40.2", Status::WaitingForYou),
             child("SHOP-40.3", Status::PrOpen),
             child("SHOP-40.4", Status::Working),
         ];
@@ -860,7 +861,7 @@ mod tests {
             .find(|t| t.key.to_string() == key)
             .unwrap();
         t.status = status;
-        t.column = status.column();
+        t.place = otaq_core::domain::Place::of(t.status, None, None);
     }
 
     #[test]
@@ -898,8 +899,8 @@ mod tests {
         assert_eq!(Strip::from(&tickets, Column::ALL), None);
         // The epic in Review: a delivery card.
         let mut tickets = tickets;
-        tickets[0].status = Status::ReadyForReview;
-        tickets[0].column = Column::ReadyForReview;
+        tickets[0].status = Status::WaitingForYou;
+        tickets[0].place = otaq_core::domain::Place::stage_of("review");
         set_status(&mut tickets, "SHOP-45.1", Status::Merged);
         set_status(&mut tickets, "SHOP-45.2", Status::Merged);
         assert_eq!(Strip::from(&tickets, Column::ALL), None);

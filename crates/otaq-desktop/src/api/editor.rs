@@ -1310,7 +1310,7 @@ mod tests {
     /// *08 → Editing while it validates (SHOP-29)*.
     #[test]
     fn editing_while_it_validates_warns_first() {
-        let mut t = fixture("SHOP-29", "Coupon field", Status::Validating);
+        let mut t = fixture("SHOP-29", "Coupon field", Status::Checking);
         t.base_locked = true;
         let view = edit_view(&t, "shop-web", &[t.clone()], &AgentEdits::default(), true, 0);
         assert_eq!(

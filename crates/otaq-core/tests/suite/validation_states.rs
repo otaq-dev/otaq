@@ -6,16 +6,16 @@ use std::collections::HashSet;
 
 use crate::common::Fixture;
 use otaq_core::board::needs_you::{NeedsYouGroup, group_of};
-use otaq_core::domain::{ReviewEntry, Status, ValidationRound};
+use otaq_core::domain::{ReviewEntry, Status, StatusSet, ValidationRound};
 use otaq_core::scheduler::{HOLDS_A_SLOT, running_count};
 
 const M12_DEV: [Status; 6] = [
-    Status::Validating,
-    Status::ValidatorNeedsYou,
-    Status::ValidationFailed,
-    Status::ValidationNoResult,
+    Status::Checking,
+    Status::CheckerNeedsYou,
+    Status::CheckFailed,
+    Status::CheckNoResult,
     Status::MergeConflictFixing,
-    Status::AutoMergeStopped,
+    Status::DeliveryStopped,
 ];
 
 #[test]
@@ -26,7 +26,7 @@ fn needs_you_states_are_inbox_group_one_and_validating_makes_no_item() {
             .then_some(NeedsYouGroup::Family);
         assert_eq!(group_of(status), expected, "{status}");
     }
-    assert_eq!(group_of(Status::Validating), None);
+    assert_eq!(group_of(Status::Checking), None);
     assert_eq!(group_of(Status::MergeConflictFixing), None);
 }
 
@@ -38,7 +38,7 @@ fn every_m12_dev_state_holds_one_slot_per_ticket() {
     assert_eq!(
         HOLDS_A_SLOT
             .iter()
-            .filter(|s| **s == Status::Validating)
+            .filter(|s| **s == Status::Checking)
             .count(),
         1
     );
@@ -51,7 +51,7 @@ async fn a_validating_ticket_counts_once_toward_the_limit() {
     set(
         &f,
         &t.id,
-        "UPDATE tickets SET state = 'validating', board_column = 'dev' WHERE id = ?",
+        "UPDATE tickets SET state = 'validating', stage_id = 'validate' WHERE id = ?",
     )
     .await;
     let tickets = f.board.tickets("SHOP").await.unwrap();
@@ -77,7 +77,7 @@ async fn ticket_columns_become_flags() {
     set(
         &f,
         &t.id,
-        "UPDATE tickets SET state = 'working', board_column = 'dev', validation_round = 1 WHERE id = ?",
+        "UPDATE tickets SET state = 'working', stage_id = 'dev', validation_round = 1 WHERE id = ?",
     )
     .await;
     let ticket = f.ticket(&key).await;
@@ -111,7 +111,7 @@ async fn ticket_columns_become_flags() {
     set(
         &f,
         &t.id,
-        "UPDATE tickets SET state = 'ready_for_review', board_column = 'ready_for_review', \
+        "UPDATE tickets SET state = 'ready_for_review', stage_id = 'review', \
          review_entry = 'validated', validation_round = 2 WHERE id = ?",
     )
     .await;
@@ -124,12 +124,12 @@ async fn ticket_columns_become_flags() {
     set(
         &f,
         &t.id,
-        "UPDATE tickets SET state = 'merged', board_column = 'done', merged_automatically = TRUE WHERE id = ?",
+        "UPDATE tickets SET state = 'merged', stage_id = NULL, merged_automatically = TRUE WHERE id = ?",
     )
     .await;
     let ticket = f.ticket(&key).await;
     assert!(ticket.flags.merged_automatically);
-    assert_eq!(ticket.column, otaq_core::domain::Column::Done);
+    assert_eq!(ticket.board_group(), StatusSet::Done);
 }
 
 /// The card's details (T-0192): the round the validator checks, the last failed round's findings (notes left
@@ -143,7 +143,7 @@ async fn validating_round_findings_and_conflict_files() {
     set(
         &f,
         &t.id,
-        "UPDATE tickets SET state = 'validating', board_column = 'dev', validation_round = 1 WHERE id = ?",
+        "UPDATE tickets SET state = 'validating', stage_id = 'validate', validation_round = 1 WHERE id = ?",
     )
     .await;
     assert_eq!(
@@ -192,7 +192,7 @@ async fn validating_round_findings_and_conflict_files() {
     set(
         &f,
         &t.id,
-        "UPDATE tickets SET state = 'ready_for_review', board_column = 'ready_for_review', \
+        "UPDATE tickets SET state = 'ready_for_review', stage_id = 'review', \
          review_entry = 'failed_moved' WHERE id = ?",
     )
     .await;
@@ -204,7 +204,7 @@ async fn validating_round_findings_and_conflict_files() {
     set(
         &f,
         &t.id,
-        "UPDATE tickets SET state = 'merge_conflict_fixing', board_column = 'dev', review_entry = NULL, \
+        "UPDATE tickets SET state = 'merge_conflict_fixing', stage_id = 'dev', review_entry = NULL, \
          conflicts_with = 'main', conflict_files = '[\"lib/wishlist.ts\"]' WHERE id = ?",
     )
     .await;

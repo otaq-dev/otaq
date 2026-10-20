@@ -25,6 +25,7 @@ pub mod send_back;
 pub mod settings;
 pub mod snapshot;
 pub mod stack;
+pub mod stage_runs;
 pub mod tickets;
 pub mod validation;
 

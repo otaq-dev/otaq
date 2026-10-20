@@ -85,7 +85,7 @@ async fn started(w: &TestService, title: &str, file: &str) -> (String, PathBuf) 
     let t = w.create("SHOP", title).await;
     let wt = w.start_worktree(&t).await;
     commit(&wt, file, "code\n");
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     (t.key.to_string(), wt)
 }
 

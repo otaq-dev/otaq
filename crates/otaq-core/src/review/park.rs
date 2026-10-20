@@ -24,7 +24,7 @@ use crate::board::epic_flight::{
 };
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{BoardError, Refusal};
-use crate::domain::{Actor, Column, Status};
+use crate::domain::{Actor, Status, StatusSet};
 use crate::session::SessionKind;
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
@@ -57,7 +57,7 @@ impl Review {
         let inner = &self.inner;
         let board = &inner.board;
         let ticket = board.ticket(key).await?;
-        if ticket.column != Column::Dev || ticket.is_epic() {
+        if ticket.board_group() != StatusSet::AgentStage || ticket.is_epic() {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!("{} isn't in Dev; only Dev tickets are parked", ticket.key),
@@ -109,13 +109,12 @@ impl Review {
         let now = now_ms();
         let mut tx = board.store().begin_write().await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, parked = ?, start_problem_step = NULL,
+            "UPDATE tickets SET stage_id = NULL, state = ?, parked = ?, start_problem_step = NULL,
                                 start_problem_message = NULL, signal_text = NULL, signal_since = NULL,
                                 wakeup_at = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(to.column().as_str())
         .bind(to.as_str())
         .bind(has_work)
         .bind(actor.to_string())

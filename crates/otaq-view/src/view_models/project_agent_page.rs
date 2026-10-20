@@ -2,7 +2,8 @@
 //! agents & terminals → Row · states, Row · lifecycle*): the state pill, Resume once it ended, Close mid-turn's
 //! confirmation and Recently ended. The pane itself is `agent_pane.rs`.
 
-use otaq_core::domain::{Column, Status};
+use crate::view_models::legacy_column::{Column, ColumnOf};
+use otaq_core::domain::Status;
 use otaq_core::project_agents::{AgentState, CreatedAndChanged, ProjectAgent};
 use serde::Serialize;
 use ts_rs::TS;

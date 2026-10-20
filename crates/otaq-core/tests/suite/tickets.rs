@@ -6,7 +6,7 @@ use crate::common::{Fixture, agent, me, shop_input};
 use otaq_core::board::Refusal;
 use otaq_core::board::tickets::{Base, NewTicketInput, TicketUpdate};
 use otaq_core::domain::Priority;
-use otaq_core::domain::{Actor, Column, Kind, Status};
+use otaq_core::domain::{Actor, Kind, Status, StatusSet};
 use serde_json::Value;
 
 async fn events(f: &Fixture, ticket_id: &str) -> Vec<(String, String, Value)> {
@@ -28,8 +28,8 @@ async fn create_allocates_numbers_and_lands_in_backlog() {
     let first = f.create("Checkout page").await;
     assert_eq!(first.key.to_string(), "SHOP-1");
     assert_eq!(
-        (first.column, first.status, first.kind),
-        (Column::Backlog, Status::Backlog, Kind::Ticket)
+        (first.board_group(), first.status, first.kind),
+        (StatusSet::Backlog, Status::Backlog, Kind::Ticket)
     );
     assert_eq!(first.base, Base::Branch("main".into()));
     assert_eq!(first.created_by, me());

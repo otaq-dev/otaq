@@ -567,7 +567,7 @@ pub mod fixtures {
     pub const MIN: i64 = 60_000;
 
     pub fn epic() -> Ticket {
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::EpicInProgress);
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
         epic.kind = Kind::Epic;
         epic.external_id = Some("PAY-123".into());
         epic
@@ -693,8 +693,8 @@ pub fn gallery() -> Gallery {
     let mut review_events = events.clone();
     review_events.push(suggestion(T0 + 4 * 60 * MIN));
     let mut review_epic = epic();
-    review_epic.status = Status::ReadyForReview;
-    review_epic.column = otaq_core::domain::Column::ReadyForReview;
+    review_epic.status = Status::WaitingForYou;
+    review_epic.place = otaq_core::domain::Place::stage_of("review");
     let mut asking = lead(LeadStatus::AsksYou);
     asking.agent.question = Some(otaq_core::board::questions::HumanQuestion {
         id: "q-lead".into(),

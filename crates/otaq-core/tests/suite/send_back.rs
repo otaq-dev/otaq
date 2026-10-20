@@ -27,7 +27,7 @@ fn skill() -> String {
 
 async fn in_review_with_comments(world: &TestService, comments: usize) -> Ticket {
     let t = world.create("SHOP", "Search results paging").await;
-    world.force_status(&t, Status::ReadyForReview).await;
+    world.force_status(&t, Status::WaitingForYou).await;
     for n in 0..comments {
         world
             .board
@@ -121,7 +121,7 @@ async fn unsent_text_asks_first_and_clear_it_and_send_goes_on() {
             unclearable_by: None,
         }
     );
-    assert_eq!(world.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(world.status("SHOP-1").await, Status::WaitingForYou);
     assert_eq!(
         world.board.comments("SHOP-1", None).await.unwrap().pending,
         1
@@ -286,7 +286,7 @@ async fn send_back_is_refused_on_epics_and_outside_review() {
         )
         .await
         .unwrap();
-    world.force_status(&epic, Status::ReadyForReview).await;
+    world.force_status(&epic, Status::WaitingForYou).await;
     let err = world
         .review
         .send_back(&epic.key.to_string(), "", false, &me())
@@ -310,7 +310,7 @@ async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
     let wt = world.start_worktree(&t).await;
     commit(&wt, "lib.ts", "ticket\n");
     commit(&repo, "lib.ts", "main\n");
-    world.force_status(&t, Status::ReadyForReview).await;
+    world.force_status(&t, Status::WaitingForYou).await;
     let agent = world.agent_shell(&t).await;
 
     // No conflict yet: nothing to fix.
@@ -332,7 +332,7 @@ async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
     );
     let flagged = world.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(flagged.flags.conflicts_with.as_deref(), Some("main"));
-    assert_eq!(flagged.status, Status::ReadyForReview);
+    assert_eq!(flagged.status, Status::WaitingForYou);
 
     let after = done(
         world

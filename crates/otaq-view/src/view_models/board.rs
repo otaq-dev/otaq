@@ -12,10 +12,11 @@
 //! as cards in Backlog: they are rows of the epic card, or "not queued" stops on its track. In Done an epic's
 //! merged children fold into one line (EPC-16, [`DoneFold`]); its closed children stay cards.
 
+use crate::view_models::legacy_column::{Column, ColumnOf};
 use otaq_core::board::epic_flight::{EpicPlace, children_of, epic_place};
 use otaq_core::board::order::{ColumnOrder, fold_dev, sort_column};
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Column, Kind, Status, TicketKey};
+use otaq_core::domain::{Kind, Status, TicketKey};
 
 use crate::icons::IconName;
 use crate::view_models::board_page::ColumnId;
@@ -286,7 +287,7 @@ pub fn is_card(ticket: &Ticket, all: &[Ticket]) -> bool {
     if ticket.kind == Kind::Epic {
         epic_place(ticket, all) != EpicPlace::Track
     } else {
-        ticket.epic.is_none() || ticket.column != Column::Backlog
+        ticket.epic.is_none() || ticket.column() != Column::Backlog
     }
 }
 
@@ -307,7 +308,7 @@ impl StateCards {
         let all = input.tickets;
         // Order over the whole project ("blocks more" counts every dependent), cards only; the counts count the
         // cards the column shows.
-        let full = sort_column(column, all);
+        let full = sort_column(column.set(), all);
         let keep = |keys: &[TicketKey], of: &[&TicketKey]| -> Vec<TicketKey> {
             keys.iter().filter(|k| of.contains(k)).cloned().collect()
         };
@@ -321,7 +322,7 @@ impl StateCards {
         });
         Self {
             order: ColumnOrder {
-                column,
+                column: column.set(),
                 cards: shown_cards,
             },
             folds,
@@ -459,9 +460,9 @@ fn section(
     filtered: bool,
     entries: &dyn Fn(&[TicketKey]) -> Vec<CardEntry>,
 ) -> SectionView {
-    let approved = state.order.column == Column::Approved;
+    let approved = Column::of_set(state.order.column) == Column::Approved;
     SectionView {
-        column: state.order.column,
+        column: Column::of_set(state.order.column),
         title: if approved {
             APPROVED_SECTION
         } else {
@@ -549,7 +550,7 @@ mod tests {
             t20,
             ticket("SHOP-21", "Order confirmation email", Status::Queued),
             ticket("SHOP-29", "Coupons", Status::Held),
-            ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
+            ticket("SHOP-18", "Checkout API", Status::WaitingForYou),
             ticket("SHOP-17", "Add Stripe client", Status::Merged),
         ]
     }
@@ -757,7 +758,7 @@ mod tests {
     /// EPC-04: SHOP-40 in Review is its delivery card there, as before; its merged children stay in Done.
     #[test]
     fn an_epic_in_review_is_its_delivery_card() {
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::ReadyForReview);
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
         epic.kind = Kind::Epic;
         let mut tickets = vec![epic];
         for key in ["SHOP-40.1", "SHOP-40.2"] {
@@ -827,7 +828,7 @@ mod tests {
         // The first merged child folds at once ("1 of 4"), and a closed child never does.
         let mut tickets = wishlist_done();
         tickets[2].status = Status::Working;
-        tickets[2].column = Column::Dev;
+        tickets[2].place = otaq_core::domain::Place::stage_of("dev");
         let done = &build(&input(&tickets, None))[4];
         assert_eq!(done.folds.len(), 1);
         assert_eq!(done.folds[0].label, "Wishlist · 1 of 4 merged");
@@ -913,14 +914,14 @@ mod tests {
     /// counts both sections, under a filter too.
     #[test]
     fn review_sections_keep_their_own_order_and_counts() {
-        let mut pinned = ticket("SHOP-31", "Hotfix", Status::ReadyForReview);
+        let mut pinned = ticket("SHOP-31", "Hotfix", Status::WaitingForYou);
         pinned.flags.pinned_at = Some(20);
-        let mut older_pin = ticket("SHOP-32", "Footer", Status::ReadyForReview);
+        let mut older_pin = ticket("SHOP-32", "Footer", Status::WaitingForYou);
         older_pin.flags.pinned_at = Some(10);
         let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         let tickets = vec![
-            ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
+            ticket("SHOP-18", "Checkout API", Status::WaitingForYou),
             older_pin,
             pinned,
             pr,

@@ -199,7 +199,7 @@ impl PlanLimit {
         )
         .bind(Status::WaitingForLimitReset.as_str())
         .bind(with_validations)
-        .bind(Status::Validating.as_str())
+        .bind(Status::Checking.as_str())
         .fetch_all(self.inner.store.pool())
         .await?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
@@ -496,11 +496,10 @@ impl PlanLimit {
             let waiting = Status::WaitingForLimitReset;
             let mut tx = inner.store.begin_write().await?;
             let updated = sqlx::query(concat!(
-                "UPDATE tickets SET board_column = ?, state = ?, signal_since = ?, updated_at = ?, ",
+                "UPDATE tickets SET state = ?, signal_since = ?, updated_at = ?, ",
                 set_state_since!(),
                 " WHERE id = ? AND state = ?"
             ))
-            .bind(waiting.column().as_str())
             .bind(waiting.as_str())
             .bind(now)
             .bind(now)

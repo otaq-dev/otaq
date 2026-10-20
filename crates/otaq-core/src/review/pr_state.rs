@@ -44,14 +44,21 @@ impl Review {
         }
         let to = Status::Merged;
         let now = now_ms();
+        // The Delivery finished (STG-06).
+        let moved = board
+            .moved(&ticket, ticket.status, crate::flow::engine::Move::Delivered)
+            .await
+            .ok();
         let mut tx = board.store().begin_write().await?;
+        if let Some(moved) = &moved {
+            moved.record(&mut tx, &ticket.id, None).await?;
+        }
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, outcome = 'merged', conflicts_with = NULL,
+            "UPDATE tickets SET stage_id = NULL, state = ?, outcome = 'merged', conflicts_with = NULL,
                                 conflict_files = NULL, conflict_reason = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(to.column().as_str())
         .bind(to.as_str())
         .bind(actor.to_string())
         .bind(now)

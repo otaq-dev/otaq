@@ -104,7 +104,7 @@ pub struct Available {
 pub async fn available(app: &App, params: Params) -> Result<Available, RequestError> {
     let ticket = ticket(app, &params.key).await?;
     Ok(Available {
-        approve: ticket.status == Status::ReadyForReview,
+        approve: ticket.status == Status::WaitingForYou,
         send_back: sb::available(&ticket),
     })
 }

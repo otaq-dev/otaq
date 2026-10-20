@@ -72,7 +72,7 @@ async fn items_and_counts_across_projects() {
     w.shop_sample().await;
     w.add_project("billing-api").await;
     let bill = w.create("BILL", "VAT rounding fix").await;
-    w.force_status(&bill, Status::ReadyForReview).await;
+    w.force_status(&bill, Status::WaitingForYou).await;
     w.add_project("otaq").await;
     let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
 

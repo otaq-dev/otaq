@@ -19,13 +19,13 @@ use serde_json::json;
 use super::readiness::readiness;
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError};
-use crate::domain::{Actor, Column, Status, TicketKey};
+use crate::domain::{Actor, Status, StatusSet, TicketKey};
 use crate::store::now_ms;
 
-/// A column's cards in board order.
+/// A board group's cards in board order ([`StatusSet::BOARD`]: the default flow's columns).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ColumnOrder {
-    pub column: Column,
+    pub column: StatusSet,
     pub cards: Vec<TicketKey>,
 }
 
@@ -131,10 +131,15 @@ pub fn start_order(ticket: &Ticket, tickets: &[Ticket]) -> impl Ord + use<> {
     )
 }
 
-/// Orders one column. `tickets` is the whole project (needed for the "blocks more" counts and readiness).
-pub fn sort_column(column: Column, tickets: &[Ticket]) -> ColumnOrder {
-    let mut in_column: Vec<&Ticket> = tickets.iter().filter(|t| t.column == column).collect();
-    if column == Column::ReadyForDev {
+/// Orders one board group (its status set's board group, [`StatusSet::board_group`]). `tickets` is the whole
+/// project (needed for the "blocks more" counts and readiness).
+pub fn sort_column(column: StatusSet, tickets: &[Ticket]) -> ColumnOrder {
+    let column = column.board_group();
+    let mut in_column: Vec<&Ticket> = tickets
+        .iter()
+        .filter(|t| t.status.set().board_group() == column)
+        .collect();
+    if column == StatusSet::Waiting {
         // Needs-you cards (Start interrupted, Parent closed) first, then the start order (d0066).
         in_column.sort_by_cached_key(|t| (!t.needs_user(), start_order(t, tickets)));
     } else {

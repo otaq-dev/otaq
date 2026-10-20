@@ -43,7 +43,7 @@ async fn only_the_validator_reports_a_verdict() {
     assert_ne!(ran.status, 0);
     let e: Value = serde_json::from_str(&ran.stdout).unwrap();
     assert_eq!(e["error"]["message"], only);
-    assert_eq!(w.status("SHOP-19").await, Status::Validating);
+    assert_eq!(w.status("SHOP-19").await, Status::Checking);
 
     // The validator: it reads its context, then fails the round; the findings go back to the agent.
     let ran = validator.run(&format!("'{CB}' prime --validate")).await;

@@ -36,7 +36,7 @@ use crate::agent_tools::{
 use crate::board::questions::{Choice, HumanQuestion};
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::stored_enum;
-use crate::domain::{Actor, Column, Status, TicketKey};
+use crate::domain::{Actor, Status, StatusSet, TicketKey};
 use crate::named_agents::{Role, RunsOn, resolve_project_role};
 use crate::naming;
 use crate::protocol::Event;
@@ -853,7 +853,7 @@ impl ProjectAgents {
                             key: t.key.clone(),
                             title: t.title.clone(),
                             status: t.status,
-                            deletable: t.column == Column::Backlog && !t.has_started(),
+                            deletable: t.board_group() == StatusSet::Backlog && !t.has_started(),
                         });
                     }
                 }

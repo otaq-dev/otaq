@@ -29,7 +29,7 @@ fn t(key: &str, status: Status, queued_at: i64) -> Ticket {
         priority: Default::default(),
         priority_inherited: false,
         epic: None,
-        column: status.column(),
+        place: otaq_core::domain::Place::of(status, None, None),
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
@@ -88,7 +88,7 @@ fn stock_limit_counts_waiting_for_slot_and_limit_held_only() {
         t("SHOP-4", Status::Queued, 0),
         t("SHOP-5", Status::Working, 0),
         t("SHOP-6", Status::Backlog, 0),
-        t("SHOP-7", Status::ReadyForReview, 0),
+        t("SHOP-7", Status::WaitingForYou, 0),
         t("SHOP-8", Status::StartInterrupted, 0),
     ];
     assert_eq!(stock_limit(&board, &board), 3);
@@ -226,7 +226,7 @@ fn the_scheduler_never_queues_retries_or_touches_other_states() {
         Status::StartInterrupted,
         Status::Working,
         Status::Idle,
-        Status::ReadyForReview,
+        Status::WaitingForYou,
         Status::PrOpen,
         Status::Merged,
         Status::ClosedNotMerged,
@@ -367,8 +367,8 @@ async fn queue(f: &Fixture, key: &str) {
 
 async fn set(f: &Fixture, key: &str, status: Status) {
     let t = f.ticket(key).await;
-    sqlx::query("UPDATE tickets SET board_column = ?, state = ? WHERE id = ?")
-        .bind(status.column().as_str())
+    sqlx::query("UPDATE tickets SET stage_id = ?, state = ? WHERE id = ?")
+        .bind(otaq_core::flow::engine::default_stage(status, None))
         .bind(status.as_str())
         .bind(&t.id)
         .execute(f.board.store().pool())
@@ -393,7 +393,7 @@ async fn storyboard_chain_shop_20_starts_only_after_both_parents_merged() {
     // 2 · the chain runs: SHOP-2 and SHOP-3 start in parallel, SHOP-4 waits.
     w.scheduler.pass().await.unwrap();
     assert_eq!(w.recorder.started(), ["SHOP-2", "SHOP-3"]);
-    set(f, "SHOP-2", Status::ReadyForReview).await;
+    set(f, "SHOP-2", Status::WaitingForYou).await;
     set(f, "SHOP-3", Status::Working).await;
     w.scheduler.pass().await.unwrap();
     assert_eq!(w.recorder.started().len(), 2);

@@ -27,7 +27,7 @@ use super::{AgentState, Inner, ProjectAgent, ProjectAgents};
 use crate::agent_tools::{EPIC_LEAD_SKILL, FirstPrompt, LaunchRequest, LaunchRole, Tool};
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{BoardError, Refusal};
-use crate::domain::{Actor, Column, TicketKey};
+use crate::domain::{Actor, StatusSet, TicketKey};
 use crate::epic_lead::wake::{Finished, Handovers, LeadEvents, closed_text, merged_text};
 use crate::named_agents::{Role, resolve_ticket_role};
 use crate::naming;
@@ -98,7 +98,7 @@ pub struct LeadFacts {
     /// Its session runs.
     pub live: bool,
     /// The epic's column.
-    pub epic_column: Column,
+    pub epic_column: StatusSet,
     /// It waits for the user: its own question or a permission prompt.
     pub waits_for_user: bool,
     /// Why its current turn runs; `None` between turns.
@@ -113,7 +113,7 @@ pub fn lead_status(facts: &LeadFacts) -> LeadStatus {
     if !facts.live {
         let in_review = matches!(
             facts.epic_column,
-            Column::ReadyForReview | Column::Approved | Column::Done
+            StatusSet::HumanCheck | StatusSet::Delivery | StatusSet::Done
         );
         return if in_review {
             LeadStatus::EndedInReview
@@ -386,7 +386,10 @@ impl EpicLeads {
         if let Some(lead) = self.get_for(&epic).await? {
             return Ok(lead);
         }
-        if matches!(epic.column, Column::ReadyForDev | Column::Dev) {
+        if matches!(
+            epic.board_group(),
+            StatusSet::Waiting | StatusSet::AgentStage
+        ) {
             let message = check_plan_message(&epic.key);
             self.launch_new(&epic, Some((&message, TurnReason::CheckPlan)))
                 .await
@@ -617,7 +620,7 @@ impl EpicLeads {
         let status = lead_status(&LeadFacts {
             state: Some(agent.state),
             live: is_live(&agent),
-            epic_column: epic.column,
+            epic_column: epic.board_group(),
             waits_for_user: agent.question.is_some() || agent.needs_you.is_some(),
             turn,
         });
@@ -802,8 +805,8 @@ fn is_live(agent: &ProjectAgent) -> bool {
 /// "SHOP-40 is in review; its lead has ended": no lead opens for an epic in Ready for Review, Approved or Done.
 fn refuse_in_review(epic: &Ticket) -> Result<(), BoardError> {
     if matches!(
-        epic.column,
-        Column::ReadyForReview | Column::Approved | Column::Done
+        epic.board_group(),
+        StatusSet::HumanCheck | StatusSet::Delivery | StatusSet::Done
     ) {
         return Err(BoardError::refused(
             Refusal::MoveRefused,
@@ -918,7 +921,7 @@ mod tests {
         LeadFacts {
             state: Some(AgentState::Running),
             live: true,
-            epic_column: Column::Dev,
+            epic_column: StatusSet::AgentStage,
             waits_for_user: false,
             turn,
         }
@@ -929,7 +932,7 @@ mod tests {
         let none = LeadFacts {
             state: None,
             live: false,
-            epic_column: Column::Backlog,
+            epic_column: StatusSet::Backlog,
             waits_for_user: false,
             turn: None,
         };
@@ -975,14 +978,14 @@ mod tests {
             turn: None,
         };
         assert_eq!(
-            lead_status(&ended(AgentState::EndedByRestart, Column::Dev)),
+            lead_status(&ended(AgentState::EndedByRestart, StatusSet::AgentStage)),
             LeadStatus::EndedByRestart
         );
         assert_eq!(
-            lead_status(&ended(AgentState::Ended, Column::Dev)),
+            lead_status(&ended(AgentState::Ended, StatusSet::AgentStage)),
             LeadStatus::Ended
         );
-        for column in [Column::ReadyForReview, Column::Approved, Column::Done] {
+        for column in [StatusSet::HumanCheck, StatusSet::Delivery, StatusSet::Done] {
             assert_eq!(
                 lead_status(&ended(AgentState::Ended, column)),
                 LeadStatus::EndedInReview

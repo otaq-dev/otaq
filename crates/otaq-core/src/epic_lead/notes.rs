@@ -551,10 +551,10 @@ mod tests {
         assert!(idle_at_stop(Status::Working));
         assert!(idle_at_stop(Status::WorkingInBackground));
         for status in [
-            Status::Validating,
+            Status::Checking,
             Status::AsksYou,
             Status::Idle,
-            Status::ReadyForReview,
+            Status::WaitingForYou,
         ] {
             assert!(!idle_at_stop(status), "{status:?}");
         }
