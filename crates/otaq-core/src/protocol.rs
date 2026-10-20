@@ -485,10 +485,15 @@ pub enum Request {
     /// The ticket's "conflicts with `main`" with its files, if any. Answered with [`Reply::Conflict`].
     #[serde(rename = "ticket.conflict")]
     TicketConflict(KeyParams),
-    /// **Send to agent to fix** (GIT-03): a ticket whose Local merge conflicted returns to Dev with the restack
-    /// skill. Answered with [`Reply::Returned`], like Send back (`clear_first` for "Clear it and send").
-    #[serde(rename = "ticket.send_to_fix")]
-    TicketSendToFix(SendToFixParams),
+    /// **Send back with PR comments** (FLW-16): a ticket whose PR is open returns to its nearest earlier Agent
+    /// stage, whose session reads the unresolved PR comments (`otaq review feedback`) with the optional note.
+    /// Answered with [`Reply::Returned`], like Send back (`clear_first` for "Clear it and send").
+    #[serde(rename = "ticket.send_back_pr")]
+    TicketSendBackPr(FailParams),
+    /// **Add a child from PR comments** (FLW-16): an epic whose PR is open gets a Backlog child holding the PR's
+    /// unresolved comments. Answered with [`Reply::Ticket`] (the child).
+    #[serde(rename = "ticket.add_child_from_pr")]
+    TicketAddChildFromPr(KeyParams),
 
     // Epics.
     #[serde(rename = "epic.move_to")]
@@ -1188,14 +1193,6 @@ pub struct DiffFileParams {
     pub since: Option<String>,
 }
 
-/// `{"key": "SHOP-18"}`; `clear_first` is the user's "Clear it and send".
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SendToFixParams {
-    pub key: String,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub clear_first: bool,
-}
-
 /// `{"key": "SHOP-22", "note": "…"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubmitByUserParams {
@@ -1687,7 +1684,8 @@ impl Request {
             Self::TicketLocalMerge(_) => "ticket.local_merge",
             Self::TicketApproveCheck(_) => "ticket.approve_check",
             Self::TicketConflict(_) => "ticket.conflict",
-            Self::TicketSendToFix(_) => "ticket.send_to_fix",
+            Self::TicketSendBackPr(_) => "ticket.send_back_pr",
+            Self::TicketAddChildFromPr(_) => "ticket.add_child_from_pr",
             Self::TicketPrime(_) => "ticket.prime",
             Self::TicketAskHuman(_) => "ticket.ask_human",
             Self::DecisionRecord(_) => "decision.record",
@@ -2102,7 +2100,7 @@ pub enum Event {
         key: TicketKey,
         message: String,
     },
-    /// A toast (UI-07, d0064): Auto-merge merged a validated ticket ("SHOP-40.1 merged automatically into the
+    /// A toast (UI-07, d0064): an automatic local Delivery merged a ticket ("SHOP-40.1 merged automatically into the
     /// Wishlist branch" · "Validated · round 1 · local, not pushed · SHOP-40.2 can start"). No notification.
     MergedAutomatically {
         project: String,

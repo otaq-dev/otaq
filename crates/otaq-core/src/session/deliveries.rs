@@ -331,7 +331,7 @@ impl Deliveries {
         self.sessions.write(session, b"\r")
     }
 
-    /// A skill typed into a live session (Send back's `address-review`, Send to agent to fix's `restack`): copied
+    /// A skill typed into a live session (Send back's `address-review`, a Delivery conflict's `restack`): copied
     /// into the session's `worktree` first by one name (AGM-07), then named as the session's agent tool names it:
     /// `/otaq-address-review` for Claude Code.
     pub async fn skill_line(

@@ -153,8 +153,8 @@ pub fn approve_view(f: ApproveFacts) -> ApproveView {
             note: ap::confirm_note(ticket, f.target, f.tickets),
             conflict: ticket.flags.conflicts_with.as_ref().map(|_| {
                 format!(
-                    "Conflicts with {t}. {} tries a rebase onto the latest {t} first; if it still conflicts, Send \
-                     to agent to fix.",
+                    "Conflicts with {t}. {} tries a rebase onto the latest {t} first; if it still conflicts, its \
+                     agent fixes it.",
                     otaq_core::naming::PRODUCT_NAME,
                     t = f.target
                 )
@@ -196,14 +196,14 @@ pub enum MergeResult {
     Merged {
         toasts: Vec<ToastText>,
     },
-    /// *Merge conflict during Local merge*: the files, the way forward, the worktree, Send to agent to fix.
+    /// *Merge conflict during Local merge*: the files, what happens now (the agent fixes it with no click, FLW-17),
+    /// the worktree.
     Conflict {
         title: String,
         text: String,
         files: Vec<String>,
         help: String,
         worktree: Option<String>,
-        fix: &'static str,
         close: &'static str,
     },
     /// *Local merge · refused, uncommitted changes* (the user's checkout) or a diverged base: Retry.
@@ -293,7 +293,6 @@ pub fn merge_result(
                 .as_ref()
                 .and_then(|w| w.worktree.as_deref())
                 .map(crate::shell::tilde),
-            fix: "Send to agent to fix",
             close: "Close",
         },
         MergeView::DirtyCheckout { message } | MergeView::Diverged { message } => {
@@ -473,7 +472,7 @@ mod tests {
         assert!(view.confirm.locked);
         let conflict = view.confirm.conflict.unwrap();
         assert!(conflict.starts_with("Conflicts with release/2.3. "));
-        assert!(conflict.ends_with("if it still conflicts, Send to agent to fix."));
+        assert!(conflict.ends_with("if it still conflicts, its agent fixes it."));
     }
 
     #[test]
@@ -549,14 +548,14 @@ mod tests {
             files: vec!["src/lib/stripe/session.ts".into(), "package.json".into()],
         };
         let MergeResult::Conflict {
-            title, text, fix, ..
+            title, text, help, ..
         } = merge_result(&t, "main", &conflict, &all)
         else {
             panic!("not a conflict");
         };
         assert_eq!(title, "Rebase onto main stopped \u{2014} conflict");
         assert!(text.contains("conflicts in 2 files"));
-        assert_eq!(fix, "Send to agent to fix");
+        assert!(help.starts_with("SHOP-18 went back to its agent"), "{help}");
 
         let dirty = LocalMergeOutcome::RefusedDirtyCheckout {
             message: "shop-web has uncommitted changes on main. Clean up and retry.".into(),

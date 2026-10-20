@@ -190,10 +190,10 @@ async fn an_opened_pr_keeps_the_decisions() {
     w.stop().await;
 }
 
-/// Auto-merge isn't an approval: the merged child's decisions stay open and count on the epic in review. The
+/// An automatic Delivery isn't an approval: the merged child's decisions stay open and count on the epic in review. The
 /// epic's own Local merge then keeps them, with the History line on the child.
 #[tokio::test(flavor = "multi_thread")]
-async fn auto_merge_keeps_nothing_and_the_epic_approve_keeps_the_childrens() {
+async fn an_automatic_delivery_keeps_nothing_and_the_epic_approve_keeps_the_childrens() {
     let w = TestService::start().await;
     w.add_project("shop-web").await;
     let epic = new_ticket(&w, "Wishlist", Kind::Epic, None).await;
@@ -201,7 +201,7 @@ async fn auto_merge_keeps_nothing_and_the_epic_approve_keeps_the_childrens() {
     record(&w, &api, &saved_order()).await;
     in_review(&w, &api, "api.ts").await;
 
-    w.review.auto_merge("SHOP-1.1").await.unwrap();
+    w.review.deliver_locally("SHOP-1.1", false).await.unwrap();
     assert_eq!(w.status("SHOP-1.1").await, Status::Merged);
     assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     let open = decisions::list(&w.board, "SHOP-1.1").await.unwrap();
@@ -389,7 +389,10 @@ async fn change_in_an_epic_review_adds_a_fix_child_and_the_epic_is_a_track_again
         in_review(&w, child, file).await;
     }
     for child in [&api, &page] {
-        w.review.auto_merge(&child.key.to_string()).await.unwrap();
+        w.review
+            .deliver_locally(&child.key.to_string(), false)
+            .await
+            .unwrap();
     }
     assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
 

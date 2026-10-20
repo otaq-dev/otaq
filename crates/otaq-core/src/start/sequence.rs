@@ -16,7 +16,7 @@
 //! cut short becomes Start interrupted at the next service start ([`Starter::interrupt_cut_short`]) rather
 //! than being picked up again by the scheduler.
 //!
-//! **Returning to Dev** (Send back, Send to agent to fix, a parked ticket dragged back) goes through the same
+//! **Returning to Dev** (Send back, a Delivery's conflict, a parked ticket dragged back) goes through the same
 //! sequence, but the ticket already has its worktree: base sync, env files and setup are skipped while the
 //! worktree is there, and step 7 continues the stored conversation (its tool's resume) instead of starting
 //! a new one, with the skill still to run (`resume_skill`, or an inbox answer in `resume_prompt`) as its first

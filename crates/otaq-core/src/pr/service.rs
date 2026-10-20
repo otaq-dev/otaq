@@ -9,6 +9,12 @@
 //!    and then types the instruction to push; nothing is pushed before.
 //! 3. **Cancel**: the proposal is discarded, nothing was pushed, the ticket stays in Ready for Review.
 //! 4. `otaq pr opened <url>`: Approved · PR open with the PR's number.
+//!
+//! **An automatic Delivery** (FLW-15, d0108 rule 8 and second gap review rule 6) runs the same flow with no click and
+//! no dialog ([`Prs::open_automatically`]): the Delivery's agent gets the skill followed by [`automatic_message`] (the
+//! Dev stage's session when the Delivery's agent is the same, else a fresh delivery session in the worktree), and
+//! once it proposes, Otaq confirms the proposal as it is and tells it to push ([`automatic_instruction`]). Both are
+//! queued for its input line, like any automatic message.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -31,7 +37,7 @@ use crate::git::merge::uncommitted_files_message;
 use crate::naming;
 use crate::protocol::Event;
 use crate::service::EventBus;
-use crate::session::deliveries::{Deliveries, Delivery};
+use crate::session::deliveries::{Deliveries, Delivery, DeliveryKind};
 use crate::session::{
     SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, StoredConversation, TerminalSize,
 };
@@ -78,6 +84,42 @@ const INITIAL_SIZE: TerminalSize = TerminalSize {
     rows: 40,
     cols: 120,
 };
+
+/// How a PR step reaches a live session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Typing {
+    /// The user's click: typed at once (unsent text asked about first); `clear_first` after "Clear it and send".
+    Click { clear_first: bool },
+    /// An automatic Delivery's: queued until the session is idle with an empty input line.
+    Queued,
+}
+
+/// What follows the PR skill's name when an automatic Delivery starts it (FLW-15): the skill proposes as usual and
+/// Otaq confirms the proposal itself. It starts with the word `automatic`, which the skill keys on.
+pub fn automatic_message() -> String {
+    format!(
+        "automatic: this project's flow opens the PR with no dialog. Propose as usual with `{} pr propose --stdin`; \
+         {} confirms your proposal as it is and then tells you to push.",
+        naming::COMMAND_NAME,
+        naming::PRODUCT_NAME
+    )
+}
+
+/// What Otaq types once it confirmed an automatic Delivery's proposal itself (FLW-15, no dialog).
+pub fn automatic_instruction(kind: FlowKind) -> String {
+    let cmd = naming::COMMAND_NAME;
+    match kind {
+        FlowKind::Open => format!(
+            "The pull request was confirmed automatically (this project's flow opens it with no dialog). Run `{cmd} \
+             prime` for the confirmed branch, title and description, then push the branch and open the PR, and report \
+             it with `{cmd} pr opened <url>`."
+        ),
+        FlowKind::Push => format!(
+            "The push was confirmed automatically (this project's flow pushes with no dialog). Run `{cmd} prime`, push \
+             the branch, then report back with `{cmd} pr opened <url>`."
+        ),
+    }
+}
 
 /// What a PR step types into the ticket's session, or starts or resumes it with.
 enum PrStep<'a> {
@@ -143,7 +185,7 @@ impl Prs {
     ) -> Result<PrOutcome, BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
-        if ticket.status != Status::WaitingForYou {
+        if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver) {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
@@ -210,12 +252,17 @@ impl Prs {
         if let Some(outcome) = self.unsent_first(&ticket, live.as_ref(), clear_first)? {
             return Ok(outcome);
         }
-        board.start_pr_flow(&ticket, kind).await?;
+        board.start_pr_flow(&ticket, kind, false).await?;
         let started = match (ticket.is_epic(), &live) {
             (true, None) => self.start_delivery(&ticket, step).await.map(|_| ()),
             _ => {
-                self.run_in_session(&ticket, live.as_ref(), PrStep::Skill(step), clear_first)
-                    .await
+                self.run_in_session(
+                    &ticket,
+                    live.as_ref(),
+                    PrStep::Skill(step),
+                    Typing::Click { clear_first },
+                )
+                .await
             }
         };
         if let Err(e) = started {
@@ -285,12 +332,181 @@ impl Prs {
             &ticket,
             live.as_ref(),
             PrStep::Words(&confirmed_instruction(flow.kind)),
-            clear_first,
+            Typing::Click { clear_first },
         )
         .await?;
         Ok(PrOutcome::Started {
             ticket: Box::new(board.ticket(key).await?),
         })
+    }
+
+    /// **An automatic PR Delivery** (FLW-15): the ticket waits in its Delivery stage; the flow opens (or, with a PR,
+    /// pushes to) the PR with no click and no dialog. Refused, nothing started, with uncommitted files, a provider
+    /// the built-in skill can't use, or a delivery session that can't start now: the card then waits for the user's
+    /// click. `without_checks` records "Delivered without checks" for when the PR is merged.
+    pub async fn open_automatically(
+        &self,
+        key: &str,
+        without_checks: bool,
+    ) -> Result<(), BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.ticket(key).await?;
+        if ticket.status != Status::ToDeliver {
+            return Err(BoardError::refused(
+                Refusal::MoveRefused,
+                format!(
+                    "{} is {}; an automatic PR runs from its Delivery",
+                    ticket.key,
+                    ticket.status.label()
+                ),
+            ));
+        }
+        let kind = match ticket.flags.pr_number {
+            Some(_) => FlowKind::Push,
+            None => FlowKind::Open,
+        };
+        let project = ticket.key.project.to_string();
+        if kind == FlowKind::Open
+            && let Some(why) = board
+                .pr_provider_from_remote(&project)
+                .await?
+                .open_pr_blocked()
+        {
+            return Err(BoardError::refused(Refusal::NotAllowed, why));
+        }
+        // The Dev stage's session when the Delivery's agent is the same, else a fresh delivery session (d0108 second
+        // gap review rule 6). An epic always has its own (EPC-08).
+        let resume_dev = !ticket.is_epic() && self.same_agent_as_dev(&ticket).await?;
+        if !resume_dev
+            && self
+                .inner
+                .sessions
+                .running_of(&ticket.id, SessionKind::Delivery)
+                .is_none()
+        {
+            self.delivery_runs_on(&ticket).await?;
+        }
+        let ticket = if ticket.is_epic() {
+            self.delivery_worktree(&ticket).await?
+        } else {
+            ticket
+        };
+        let worktree = worktree_of(&ticket)?;
+        let files = board.git()?.uncommitted_files(&worktree).await?;
+        if !files.is_empty() {
+            return Err(BoardError::refused(
+                Refusal::MoveRefused,
+                uncommitted_files_message(&ticket.key.to_string(), files.len()),
+            ));
+        }
+        let step = match kind {
+            FlowKind::Open => WorkflowStep::OpenPr,
+            FlowKind::Push => WorkflowStep::Push,
+        };
+        board.start_pr_flow(&ticket, kind, true).await?;
+        sqlx::query("UPDATE tickets SET delivered_without_checks = ? WHERE id = ?")
+            .bind(without_checks)
+            .bind(&ticket.id)
+            .execute(board.store().pool())
+            .await?;
+        let started = if resume_dev {
+            let live = self
+                .inner
+                .sessions
+                .running_of(&ticket.id, SessionKind::Agent);
+            self.run_in_session(&ticket, live.as_ref(), PrStep::Skill(step), Typing::Queued)
+                .await
+        } else {
+            match self
+                .inner
+                .sessions
+                .running_of(&ticket.id, SessionKind::Delivery)
+            {
+                Some(live) => {
+                    self.run_in_session(&ticket, Some(&live), PrStep::Skill(step), Typing::Queued)
+                        .await
+                }
+                None => self.start_delivery(&ticket, step).await.map(|_| ()),
+            }
+        };
+        if let Err(e) = started {
+            board.end_pr_flow(&ticket.id).await?;
+            self.end_delivery(&ticket).await?;
+            return Err(e);
+        }
+        tracing::info!(key = %ticket.key, ?kind, resume_dev, "automatic PR started");
+        Ok(())
+    }
+
+    /// Whether the Delivery's agent is the agent that ran the ticket's nearest Agent stage before the Delivery (its
+    /// choice for that stage, else the stage's agent).
+    async fn same_agent_as_dev(&self, ticket: &Ticket) -> Result<bool, BoardError> {
+        let board = &self.inner.board;
+        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+        let skips = board.ticket_skips(ticket, &flow).await?;
+        let Some(dev) = flow
+            .stages
+            .iter()
+            .find(|s| s.is_delivery())
+            .and_then(|d| crate::flow::engine::back_to(&flow, &d.id, &skips))
+        else {
+            return Ok(false);
+        };
+        let delivery = resolve::delivery_agent(board, ticket.key.project.as_str()).await?;
+        let dev = resolve::running_agent(board, ticket, &dev.id).await?;
+        Ok(delivery.id == dev.id)
+    }
+
+    /// `otaq pr propose --stdin` (REV-10): the proposal is stored for the dialog. An automatic Delivery's is confirmed
+    /// at once as it is (FLW-15, no dialog), after the dialog's own checks, and the skill is told to push; a branch
+    /// name that is taken or a missing commit message is refused for the skill to propose again.
+    pub async fn propose(
+        &self,
+        key: &str,
+        text: &str,
+        actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.pr_propose(key, text, actor).await?;
+        let Some(flow) = board
+            .pr_flow(&ticket.id)
+            .await?
+            .filter(|f| f.automatic && f.state == FlowState::Proposed)
+        else {
+            return Ok(ticket);
+        };
+        let proposal = flow.proposal.clone().ok_or_else(|| {
+            BoardError::refused(Refusal::BadProposal, "the proposal wasn't stored")
+        })?;
+        if flow.kind == FlowKind::Open
+            && let super::flow::BranchCheck::Problem { message } =
+                board.check_branch_name(key, &proposal.branch).await?
+        {
+            return Err(BoardError::refused(Refusal::BranchTaken, message));
+        }
+        if let Some(e) = proposal
+            .commits
+            .iter()
+            .find(|c| c.message.trim().is_empty())
+        {
+            return Err(BoardError::refused(
+                Refusal::EmptyField,
+                format!("Commit {} has no message", &e.sha[..7.min(e.sha.len())]),
+            ));
+        }
+        board
+            .apply_confirmed(&ticket, flow.kind, &proposal, &Actor::current_user())
+            .await?;
+        let live = self.live_session(&ticket);
+        self.run_in_session(
+            &ticket,
+            live.as_ref(),
+            PrStep::Words(&automatic_instruction(flow.kind)),
+            Typing::Queued,
+        )
+        .await?;
+        tracing::info!(key = %ticket.key, "automatic PR confirmed");
+        board.ticket(key).await
     }
 
     /// **Retry** after the skill reported a problem: the problem is cleared and the skill is asked again (the
@@ -327,7 +543,7 @@ impl Prs {
                 self.start_delivery(&ticket, skill_step).await.map(|_| ())?
             }
             _ => {
-                self.run_in_session(&ticket, live.as_ref(), step, clear_first)
+                self.run_in_session(&ticket, live.as_ref(), step, Typing::Click { clear_first })
                     .await?
             }
         }
@@ -353,9 +569,7 @@ impl Prs {
             ));
         }
         board.end_pr_flow(&ticket.id).await?;
-        if ticket.is_epic() {
-            self.end_delivery(&ticket).await?;
-        }
+        self.end_delivery(&ticket).await?;
         let mut tx = board.store().begin_write().await?;
         record_event(
             &mut tx,
@@ -372,16 +586,24 @@ impl Prs {
     /// `otaq pr opened <url>`: the PR is recorded, the flow ends and the ticket is Approved · PR open.
     pub async fn opened(&self, key: &str, url: &str, actor: &Actor) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
+        let automatic = board
+            .pr_flow(&board.ticket(key).await?.id)
+            .await?
+            .is_some_and(|f| f.automatic);
         let ticket = board.pr_opened(key, url, actor).await?;
         board.end_pr_flow(&ticket.id).await?;
-        if ticket.is_epic() {
-            // The delivery session's job is done (EPC-08).
-            self.end_delivery(&ticket).await?;
-        }
-        if matches!(ticket.status, Status::WaitingForYou | Status::PrOpen) {
+        // A delivery session's job is done (EPC-08, FLW-15).
+        self.end_delivery(&ticket).await?;
+        if matches!(
+            ticket.status,
+            Status::WaitingForYou | Status::ToDeliver | Status::PrOpen
+        ) {
             board.record_pr_open(&ticket, actor).await?;
-            // The user's Open PR approved it: its decisions are kept by the user, not the skill (DEC-05).
-            crate::decisions::keep_all(board, key, &Actor::current_user()).await?;
+            // The user's Open PR approved it: its decisions are kept by the user, not the skill (DEC-05). An
+            // automatic Delivery isn't an approval and keeps nothing, as Auto-merge didn't.
+            if !automatic {
+                crate::decisions::keep_all(board, key, &Actor::current_user()).await?;
+            }
         }
         // The pushed content must be what the user reviewed (REV-10 step 4); reworded commits don't count.
         match board.verify_pushed(&ticket).await {
@@ -401,10 +623,16 @@ impl Prs {
         board.ticket(key).await
     }
 
+    /// The session a PR step goes to: an epic's delivery session; a ticket's fresh delivery session (an automatic
+    /// Delivery whose agent isn't the Dev stage's), else its agent's.
     fn live_session(&self, ticket: &Ticket) -> Option<SessionInfo> {
-        self.inner
-            .sessions
-            .running_of(&ticket.id, session_kind(ticket))
+        let sessions = &self.inner.sessions;
+        match ticket.is_epic() {
+            true => sessions.running_of(&ticket.id, SessionKind::Delivery),
+            false => sessions
+                .running_of(&ticket.id, SessionKind::Delivery)
+                .or_else(|| sessions.running_of(&ticket.id, SessionKind::Agent)),
+        }
     }
 
     /// The epic's delivery worktree on its branch (created, or reused): `wt/<repo>/SHOP-40`. Returns the epic
@@ -444,10 +672,10 @@ impl Prs {
         board.ticket_by_id(&epic.id).await
     }
 
-    /// Starts the epic's short-lived delivery session: a new conversation in the delivery worktree with the skill
-    /// in force (written into it first when imported, named by the adapter) as its first prompt, `OTAQ_TICKET` the
-    /// epic (EPC-08). The one agent session an epic runs, on the project's Developer default (Q-D: an epic has no
-    /// Developer row).
+    /// Starts a short-lived delivery session: a new conversation in the delivery worktree (an epic's, EPC-08) or the
+    /// ticket's worktree (an automatic Delivery whose agent isn't the Dev stage's, FLW-15), with the skill in force
+    /// (written into it first, named by the adapter) as its first prompt, `OTAQ_TICKET` the ticket. On the Delivery
+    /// stage's agent.
     async fn start_delivery(
         &self,
         epic: &Ticket,
@@ -512,13 +740,16 @@ impl Prs {
         }
     }
 
-    /// Ends the epic's delivery: the session stops and the delivery worktree goes, unless it has uncommitted
-    /// changes (then it is kept and listed in Cleanup, d0018).
+    /// Ends a delivery: its session stops. An epic's delivery worktree goes too, unless it has uncommitted changes
+    /// (then it is kept and listed in Cleanup, d0018); a ticket keeps its worktree until Done.
     async fn end_delivery(&self, epic: &Ticket) -> Result<(), BoardError> {
         let inner = &self.inner;
         let board = &inner.board;
         if let Some(session) = inner.sessions.running_of(&epic.id, SessionKind::Delivery) {
             inner.sessions.stop(&session.id).await.map_err(other)?;
+        }
+        if !epic.is_epic() {
+            return Ok(());
         }
         let epic = board.ticket_by_id(&epic.id).await?;
         let Some(worktree) = epic
@@ -642,11 +873,16 @@ impl Prs {
         let agent = resolve::delivery_agent(board, ticket.key.project.as_str())
             .await
             .ok();
+        // An automatic Delivery's skill is told so (FLW-15).
+        let automatic = board
+            .pr_flow(&ticket.id)
+            .await?
+            .is_some_and(|f| f.automatic);
         let prompt = FirstPrompt::Skill {
             name: board
                 .delivery_skill_name(ticket.key.project.as_str(), step)
                 .await?,
-            message: None,
+            message: automatic.then(automatic_message),
         };
         Ok(board
             .copy_for_session(
@@ -661,14 +897,14 @@ impl Prs {
             .unwrap_or(prompt))
     }
 
-    /// Types `step` into the live session through the user-click path, or resumes the stored conversation with it
-    /// as the first prompt. A skill is written into the worktree first.
+    /// Types `step` into the live session (through the user-click path, or queued for an automatic Delivery), or
+    /// resumes the stored conversation with it as the first prompt. A skill is written into the worktree first.
     async fn run_in_session(
         &self,
         ticket: &Ticket,
         live: Option<&SessionInfo>,
         step: PrStep<'_>,
-        clear_first: bool,
+        typing: Typing,
     ) -> Result<(), BoardError> {
         let deliveries = &self.inner.deliveries;
         match live {
@@ -680,10 +916,17 @@ impl Prs {
                         .text(self.inner.adapters.of_session(session.tool)),
                     PrStep::Words(text) => text.to_owned(),
                 };
-                let typed = if clear_first {
-                    deliveries.clear_and_send(&session.id, Some(&text)).await
-                } else {
-                    deliveries.deliver_from_click(&session.id, &text).await
+                let typed = match typing {
+                    Typing::Click { clear_first: true } => {
+                        deliveries.clear_and_send(&session.id, Some(&text)).await
+                    }
+                    Typing::Click { clear_first: false } => {
+                        deliveries.deliver_from_click(&session.id, &text).await
+                    }
+                    Typing::Queued => deliveries
+                        .queue_delivery(&session.id, DeliveryKind::Skill, &text)
+                        .await
+                        .map(|()| Delivery::Sent { count: 0 }),
                 };
                 if let Delivery::NeedsConfirmation { .. } = typed.map_err(other)? {
                     tracing::warn!(key = %ticket.key, "unsent text appeared before the PR step was typed");

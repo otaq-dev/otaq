@@ -110,7 +110,7 @@ pub async fn keep_all(board: &Board, key: &str, actor: &Actor) -> Result<u32, Bo
 }
 
 /// The user's **Local merge** (GIT-03): the merge, then, once merged, Approve keeps the decisions (DEC-05).
-/// Auto-merge calls [`Review::local_merge`] itself and keeps nothing.
+/// An automatic Delivery merges with [`Review::deliver_locally`] and keeps nothing.
 pub async fn local_merge_keeping(
     review: &Review,
     key: &str,

@@ -34,7 +34,6 @@ use crate::epic_lead::wake::Handover;
 use crate::naming;
 use crate::project_agents::lead::{EpicLeads, Wake, lead_name};
 use crate::protocol::Event;
-use crate::review::Review;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::session::{SessionKind, Sessions};
@@ -293,7 +292,7 @@ pub async fn hold(
     Ok(true)
 }
 
-/// A child whose stop is held stays in Dev at work (Working), its stop waiting. `conflicted` counts Auto-merge's
+/// A child whose stop is held stays in Dev at work (Working), its stop waiting. `conflicted` counts the Delivery's
 /// conflict that stopped it, as the stop itself would have.
 pub(crate) async fn hold_in_dev(
     board: &Board,
@@ -425,7 +424,7 @@ pub async fn hand_back(
         StuckStop::KeepsConflicting => {
             let target = held.first.detail.clone().unwrap_or_default();
             board
-                .auto_merge_stopped(
+                .delivery_stopped(
                     child_id,
                     AutoMergeStop::KeepsConflicting,
                     &keeps_conflicting(&target),
@@ -531,7 +530,6 @@ pub struct Stuck {
     leads: EpicLeads,
     signals: Signals,
     validation: Validation,
-    review: Review,
     deliveries: Deliveries,
     sessions: Sessions,
     events: EventBus,
@@ -543,7 +541,6 @@ pub struct StuckParts {
     pub leads: EpicLeads,
     pub signals: Signals,
     pub validation: Validation,
-    pub review: Review,
     pub deliveries: Deliveries,
     pub sessions: Sessions,
     pub events: EventBus,
@@ -556,7 +553,6 @@ impl Stuck {
             leads,
             signals,
             validation,
-            review,
             deliveries,
             sessions,
             events,
@@ -566,7 +562,6 @@ impl Stuck {
             leads,
             signals,
             validation,
-            review,
             deliveries,
             sessions,
             events,
@@ -668,22 +663,15 @@ impl Stuck {
         Ok(true)
     }
 
-    /// Keeps conflicting, answered: the conflict counter restarts and Retry merge runs (AMG-03). A new conflict
-    /// goes back to the agent with restack, which has the note by then.
+    /// Keeps conflicting, answered: the conflict counter restarts and the Delivery runs again (FLW-17, as Retry
+    /// merge): an automatic one merges now, a click one waits for the user's. A new conflict goes back to the agent
+    /// with restack, which has the note by then.
     async fn retry_merge(&self, child: &Ticket, actor: &Actor) -> Result<(), BoardError> {
         if !matches!(child.status, Status::Working | Status::WorkingInBackground) {
             return Ok(());
         }
-        sqlx::query("UPDATE tickets SET auto_merge_conflicts = 0 WHERE id = ?")
-            .bind(&child.id)
-            .execute(self.board.store().pool())
-            .await?;
-        self.board.move_to_review(child, None, actor).await?;
-        if let crate::review::auto_merge::AutoMerged::Merged { toast } =
-            self.review.auto_merge(&child.key.to_string()).await?
-        {
-            self.events.publish(*toast);
-        }
+        self.board.to_delivery(child, actor).await?;
+        self.board.delivery().arrived(&child.id).await;
         Ok(())
     }
 

@@ -107,7 +107,10 @@ async fn an_epic_in_review_counts_every_childs_open_decisions() {
         let wt = w.start_worktree(c).await;
         commit(&wt, &format!("{}.ts", c.key), "x\n");
         w.force_status(c, Status::WaitingForYou).await;
-        w.review.auto_merge(&c.key.to_string()).await.unwrap();
+        w.review
+            .deliver_locally(&c.key.to_string(), false)
+            .await
+            .unwrap();
     }
     assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     assert_eq!(count(&w, "SHOP-1").await, 2);

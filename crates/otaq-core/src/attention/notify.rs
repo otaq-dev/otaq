@@ -366,7 +366,7 @@ fn one(item: &NeedsYouItem, facts: ItemText, choices: &Choices) -> OsNotificatio
             Target::Ticket { key: key.clone() },
         ),
         Status::DeliveryStopped => (
-            format!("{key} \u{b7} Auto-merge stopped"),
+            format!("{key} \u{b7} Delivery stopped"),
             text.map(|t| t.replace('`', "")).unwrap_or_default(),
             Target::Ticket { key: key.clone() },
         ),
@@ -1370,7 +1370,7 @@ mod tests {
                     decide.as_str()
                 ),
                 (
-                    "SHOP-40.4 · Auto-merge stopped",
+                    "SHOP-40.4 · Delivery stopped",
                     "shop-web · Wishlist share link",
                     "Keeps conflicting with wishlist"
                 ),

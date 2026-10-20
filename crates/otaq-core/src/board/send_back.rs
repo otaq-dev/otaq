@@ -92,32 +92,6 @@ impl Board {
         Ok(SentRound { comments, round })
     }
 
-    /// **Send to agent to fix** (GIT-03): back to Dev to resolve the conflict with `target`; the conflict stays
-    /// on the ticket until the agent submits again.
-    pub async fn record_send_to_fix(
-        &self,
-        ticket: &Ticket,
-        target: &str,
-        to: Status,
-        resume_skill: Option<&str>,
-        actor: &Actor,
-    ) -> Result<(), BoardError> {
-        let stage = self.back_stage(ticket, to).await?;
-        let mut tx = self.store.begin_write().await?;
-        return_to_dev(&mut tx, ticket, to, stage.as_deref(), resume_skill, actor).await?;
-        record_event(
-            &mut tx,
-            &ticket.id,
-            EventKind::SentToFix,
-            actor,
-            json!({ "target": target, "to": to }),
-        )
-        .await?;
-        tx.commit().await?;
-        tracing::info!(key = %ticket.key, target, %to, "sent to the agent to fix");
-        Ok(())
-    }
-
     /// Where a Send back takes the ticket: the nearest earlier Agent stage, as the flow engine says (a human
     /// check's Fail, STG-06). Queued (`to`, the limit is full), it waits before that stage instead
     /// ([`waits_before`]): Ready for Dev before the flow's first.

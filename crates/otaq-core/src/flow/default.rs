@@ -33,7 +33,7 @@ pub fn default_flow() -> Flow {
 #[doc(hidden)]
 pub mod testing {
     use super::super::model::{Delivers, Delivery, DeliveryMode, FlowFile};
-    use super::{DELIVER, VALIDATE};
+    use super::{DELIVER, REVIEW, VALIDATE};
 
     /// No Validate stage: a submit goes straight to Review.
     pub fn without_validate(file: &mut FlowFile) {
@@ -49,8 +49,10 @@ pub mod testing {
         }
     }
 
-    /// The Delivery merges locally with no click (`mode: automatic`, `delivers: local`).
+    /// Dev → Validate → Done, the Delivery merging locally with no click (`mode: automatic`, `delivers: local`) right
+    /// after Validate's pass: what Auto-merge's "All tickets" was (d0108). No Review: an epic stops at Review epic.
     pub fn automatic_local_delivery(file: &mut FlowFile) {
+        file.flow.stages.retain(|s| s.id != REVIEW);
         for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
             // A Local merge runs no agent.
             stage.agent = None;
@@ -58,6 +60,18 @@ pub mod testing {
             stage.delivery = Some(Delivery {
                 mode: DeliveryMode::Automatic,
                 delivers: Delivers::Local,
+            });
+        }
+    }
+
+    /// Dev → Validate → Done, the Delivery opening a PR with no click and no dialog (`mode: automatic`, `delivers:
+    /// pr`) on the Developer, Dev's agent, so it resumes Dev's session.
+    pub fn automatic_pr_delivery(file: &mut FlowFile) {
+        file.flow.stages.retain(|s| s.id != REVIEW);
+        for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
+            stage.delivery = Some(Delivery {
+                mode: DeliveryMode::Automatic,
+                delivers: Delivers::Pr,
             });
         }
     }

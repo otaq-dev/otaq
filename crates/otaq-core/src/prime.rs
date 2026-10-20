@@ -50,7 +50,7 @@ pub struct PrimeContext {
     /// The restack skill in the caller's tool's syntax: `/otaq-restack`.
     pub restack_skill: String,
     /// The branch conflicts with the one it merges into: the agent resolves that first, with the restack skill
-    /// (Send to agent to fix, or a reopened ticket's rebase; GIT-03, GIT-06).
+    /// (a Delivery's conflict, or a reopened ticket's rebase; GIT-03, GIT-06, FLW-17).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conflict: Option<Conflict>,
     /// The agent's own instructions and the project's notes (AGM-06).
@@ -964,6 +964,13 @@ fn render_pr(pr: &PrimePr) -> String {
     if let (Some(n), Some(url)) = (v.pr_number, &v.pr_url) {
         out.push_str(&format!("- PR: #{n} {url}\n"));
     }
+    // An automatic Delivery's flow (FLW-15): the skill keys on the word `automatic`.
+    if v.flow.as_ref().is_some_and(|f| f.automatic) {
+        out.push_str(&format!(
+            "- Mode: automatic (no dialog): nobody reviews your proposal; {} confirms it at once\n",
+            naming::PRODUCT_NAME
+        ));
+    }
     let kind = v.flow.as_ref().map(|f| f.kind);
     let pushed = v.commits.iter().filter(|c| c.pushed).count();
     if pushed > 0 {
@@ -983,8 +990,12 @@ fn render_pr(pr: &PrimePr) -> String {
     if let Some(flow) = &v.flow {
         match (flow.state, &flow.confirmed) {
             (FlowState::Pushing, Some(confirmed)) => {
+                let who = match flow.automatic {
+                    true => format!("{} confirmed it automatically.", naming::PRODUCT_NAME),
+                    false => "The user confirmed.".to_owned(),
+                };
                 out.push_str(
-                    &format!("\n**The user confirmed.** {} renamed the branch and reworded the commits. Push exactly this:\n\n", naming::PRODUCT_NAME),
+                    &format!("\n**{who}** {} renamed the branch and reworded the commits. Push exactly this:\n\n", naming::PRODUCT_NAME),
                 );
                 out.push_str(&format!("- Branch: `{}`\n", confirmed.branch));
                 if !confirmed.title.is_empty() {

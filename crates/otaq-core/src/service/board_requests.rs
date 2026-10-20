@@ -542,15 +542,33 @@ pub(super) async fn handle(
             .await
             .map(Reply::LocalMerge)
         }),
-        Request::TicketSendToFix(p) => boxed(move || async move {
+        Request::TicketSendBackPr(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(
                 shared,
                 &project,
-                shared.review.send_to_fix(&p.key, p.clear_first, &actor),
+                shared
+                    .review
+                    .send_back_pr(&p.key, &p.note, p.clear_first, &actor),
             )
             .await
             .map(Reply::Returned)
+        }),
+        // The PR's comments are fetched only on this click (REV-05, d0017).
+        Request::TicketAddChildFromPr(p) => boxed(move || async move {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                crate::review::delivery::add_child_from_pr(
+                    board,
+                    &p.key,
+                    &shared.config.tools.path,
+                    &actor,
+                ),
+            )
+            .await
+            .map(|t| Reply::Ticket(Box::new(t)))
         }),
         // PR comments are fetched only here, while the agent asks for its feedback (REV-05, d0017).
         Request::ReviewFeedback(p) => boxed(move || async move {
@@ -729,7 +747,7 @@ pub(super) async fn handle(
             mutate(
                 shared,
                 &project,
-                board.pr_propose(&p.key, &p.proposal, &actor),
+                shared.prs.propose(&p.key, &p.proposal, &actor),
             )
             .await
             .map(|t| Reply::Ticket(Box::new(t)))
@@ -1714,7 +1732,6 @@ fn stuck(shared: &Shared) -> crate::epic_lead::stuck::Stuck {
         leads: shared.project_agents.leads(),
         signals: shared.signals.clone(),
         validation: shared.validation.clone(),
-        review: shared.review.clone(),
         deliveries: shared.deliveries.clone(),
         sessions: shared.sessions.clone(),
         events: shared.events.clone(),

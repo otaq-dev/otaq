@@ -19,8 +19,8 @@
 //! A build freed at Review comes back first (M19-c): at the click for a live session, before the skill is typed;
 //! by the start for a resumed or queued one. A failure there never refuses the click.
 
-pub mod auto_merge;
 mod close;
+pub mod delivery;
 pub mod finish;
 pub mod park;
 pub mod pr_state;
@@ -51,7 +51,8 @@ use crate::ticket_env::fetch::FetchWhy;
 
 /// The skill Send back runs (REV-04).
 pub const ADDRESS_REVIEW_SKILL: &str = "address-review";
-/// The skill Send to agent to fix runs: rebase onto the target and resolve the conflicts (GIT-03).
+/// The skill a Delivery's conflict runs, with no click: rebase onto the target and resolve the conflicts (GIT-03,
+/// FLW-17).
 pub const RESTACK_SKILL: &str = "restack";
 
 /// The answer to a click that returns a ticket to its agent.
@@ -104,8 +105,9 @@ pub enum LocalMergeOutcome {
     RefusedDiverged { message: String },
     /// "shop-web has uncommitted changes on main. Clean up and retry."
     RefusedDirtyCheckout { message: String },
-    /// The free rebase conflicted: nothing was merged; the ticket stays in Ready for Review with Send to agent
-    /// to fix.
+    /// The free rebase conflicted: nothing was merged; the ticket went back to its nearest earlier Agent stage,
+    /// whose session fixes it with `restack` (no click), or stopped there after the third conflict in a row
+    /// (FLW-17). An epic's conflict stays on its card.
     Conflict { target: String, files: Vec<String> },
     /// New commits since the review (REV-06): nothing was done; approve again with `approve_anyway`, or Send
     /// back.
@@ -232,10 +234,7 @@ impl Review {
                 start_validator: true,
                 deliver_findings: false,
                 tell_cancelled: false,
-                auto_merge: false,
-                restack: false,
                 extra_round: false,
-                stop: None,
                 skipped: Vec::new(),
             };
             board
@@ -255,6 +254,8 @@ impl Review {
             if moved.place.is_waiting() {
                 self.inner.scheduler.wake();
             }
+            // Into an automatic Delivery: it delivers now, unless the card was moved past a check (FLW-15).
+            board.delivery().arrived(&ticket.id).await;
         }
         Ok(PassOutcome::Moved {
             ticket: Box::new(board.ticket(key).await?),
@@ -262,8 +263,26 @@ impl Review {
     }
 
     /// **Local merge** (GIT-03): the user's approve action that spends no tokens. `message` is the confirmed
-    /// squash message ([`Board::merge_proposal`] proposes one).
+    /// squash message ([`Board::merge_proposal`] proposes one). A conflict goes to the agent with `restack` at once,
+    /// no click (FLW-17, [`Self::delivery_conflict`]).
     pub async fn local_merge(
+        &self,
+        key: &str,
+        message: &str,
+        approve_anyway: bool,
+        actor: &Actor,
+    ) -> Result<LocalMergeOutcome, BoardError> {
+        let outcome = self.merge(key, message, approve_anyway, actor).await?;
+        if let LocalMergeOutcome::Conflict { target, .. } = &outcome {
+            let ticket = self.inner.board.ticket(key).await?;
+            self.delivery_conflict(&ticket, target, actor).await?;
+        }
+        Ok(outcome)
+    }
+
+    /// The Local merge itself, from a human check that offers it or from the Delivery stage (the click, or an
+    /// automatic Delivery): a conflict is only recorded on the ticket.
+    async fn merge(
         &self,
         key: &str,
         message: &str,
@@ -274,7 +293,7 @@ impl Review {
         let board = &inner.board;
         let _one_at_a_time = inner.merging.lock().await;
         let ticket = board.ticket(key).await?;
-        if ticket.status != Status::WaitingForYou {
+        if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver) {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
@@ -404,32 +423,6 @@ impl Review {
         })
     }
 
-    /// **Send to agent to fix** (GIT-03, d0038): a ticket whose branch conflicts with its target goes back to Dev
-    /// with the `restack` skill, like Send back (the click spends the tokens).
-    pub async fn send_to_fix(
-        &self,
-        key: &str,
-        clear_first: bool,
-        actor: &Actor,
-    ) -> Result<ReturnOutcome, BoardError> {
-        let board = &self.inner.board;
-        let ticket = board.ticket(key).await?;
-        let conflict = board.conflict(&ticket.id).await?;
-        let target = match (&conflict, ticket.status) {
-            (Some(c), Status::WaitingForYou) if c.reason == ConflictReason::Merge => {
-                c.target.clone()
-            }
-            _ => {
-                return Err(BoardError::refused(
-                    Refusal::MoveRefused,
-                    format!("{} has no conflict to fix in Ready for Review", ticket.key),
-                ));
-            }
-        };
-        self.return_to_agent(&ticket, Return::Fix { target: &target }, clear_first, actor)
-            .await
-    }
-
     /// After a merge into `target` (GIT-04, d0038): a read-only test merge of every ticket in Ready for Review that
     /// merges into it; "conflicts with `target`" is set or cleared. No files touched, no tokens.
     pub async fn flag_conflicts(
@@ -503,7 +496,12 @@ impl Review {
                 .map(|_| ()),
             Return::Fix { target } => {
                 board
-                    .record_send_to_fix(ticket, target, to, skill, actor)
+                    .record_conflict_fix(ticket, target, to, skill, actor)
+                    .await
+            }
+            Return::PrComments { note } => {
+                board
+                    .record_send_back_pr(ticket, note, to, skill, actor)
                     .await
             }
         }
@@ -602,21 +600,30 @@ impl Review {
 
 /// What returns a ticket to its agent.
 enum Return<'a> {
-    SendBack { note: &'a str },
-    Fix { target: &'a str },
+    SendBack {
+        note: &'a str,
+    },
+    /// A Delivery's conflict (FLW-17).
+    Fix {
+        target: &'a str,
+    },
+    /// Send back with PR comments (FLW-16): the agent reads them with `otaq review feedback`.
+    PrComments {
+        note: &'a str,
+    },
 }
 
 impl Return<'_> {
     fn skill(&self) -> &'static str {
         match self {
-            Self::SendBack { .. } => ADDRESS_REVIEW_SKILL,
+            Self::SendBack { .. } | Self::PrComments { .. } => ADDRESS_REVIEW_SKILL,
             Self::Fix { .. } => RESTACK_SKILL,
         }
     }
 
     fn fetch_why(&self) -> FetchWhy {
         match self {
-            Self::SendBack { .. } => FetchWhy::SendBack,
+            Self::SendBack { .. } | Self::PrComments { .. } => FetchWhy::SendBack,
             Self::Fix { .. } => FetchWhy::Fix,
         }
     }

@@ -99,7 +99,6 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::PanelSubmitParams::export_all(&cfg)?;
     crate::api::PanelAnswerParams::export_all(&cfg)?;
     crate::api::PanelSent::export_all(&cfg)?;
-    crate::api::PanelSendToFix::export_all(&cfg)?;
     crate::api::PanelParentParams::export_all(&cfg)?;
     crate::api::PanelCardParams::export_all(&cfg)?;
     crate::api::PanelAnswerAgentParams::export_all(&cfg)?;

@@ -1183,8 +1183,12 @@ mod tests {
         use otaq_core::domain::validation::{CancelledBy, cancelled_toast, merged_toast};
         let n = notices();
         let key: TicketKey = "SHOP-40.1".parse().unwrap();
-        let (title, message) =
-            merged_toast("SHOP-40.1", "the Wishlist branch", 1, &["SHOP-40.2".into()]);
+        let (title, message) = merged_toast(
+            "SHOP-40.1",
+            "the Wishlist branch",
+            Some(1),
+            &["SHOP-40.2".into()],
+        );
         let merged = Event::MergedAutomatically {
             project: "SHOP".into(),
             key: key.clone(),

@@ -384,8 +384,6 @@ pub enum Click {
     SendBack {
         note: String,
     },
-    /// Send to agent to fix (GIT-03).
-    SendToFix,
     /// Open PR / Push to PR: the skill is typed (REV-10).
     OpenPr,
     /// The PR dialog's confirm: the push instruction is typed.

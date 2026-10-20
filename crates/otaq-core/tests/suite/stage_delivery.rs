@@ -1,7 +1,7 @@
 //! Inbox, Delivery, cleanup and epics on stages (T-0403; STG-11; d0108, d0016, d0018, d0038, d0059, d0064, d0080,
 //! d0079): inbox group 3 is "waiting in a human check or a click Delivery" (a ticket in the test flow's QA is in
 //! it), builds are freed in human checks and Delivery stages, a ticket keeps its worktree in its Delivery stage
-//! until Merged or Closed, an Auto-merge conflict is fixed in the Agent stage, and an epic stops at its flow's last
+//! until Merged or Closed, a Delivery's conflict is fixed in the Agent stage, and an epic stops at its flow's last
 //! human check, or at the implicit Review epic when the flow has none, where it counts as quiet. A child's Delivery
 //! always merges into the epic's branch. `claude` stands in as `sh`; every data folder is temporary.
 
@@ -240,10 +240,10 @@ async fn a_pr_open_ticket_keeps_its_worktree_until_merged_or_closed() {
     w.stop().await;
 }
 
-/// Auto-merge stays a rule on top of the stages: a conflict is fixed in the Agent stage before Review (the card is
-/// in Dev, "Merge conflict · fixing"), the third stops there; a clean merge is Done.
+/// An automatic Delivery's conflict is fixed in the Agent stage before it (the card is in Dev, "Merge conflict ·
+/// fixing"), the third stops there (FLW-17, d0108 second gap review rule 12).
 #[tokio::test(flavor = "multi_thread")]
-async fn an_auto_merge_conflict_is_fixed_in_the_agent_stage() {
+async fn a_delivery_conflict_is_fixed_in_the_agent_stage() {
     let w = world().await;
     let project = pocket_notes(&w).await;
     let repo = PathBuf::from(&project.repo_path);

@@ -60,6 +60,8 @@ pub struct Board {
     leads: LeadLink,
     /// The agent tools' folder trust, recorded when a project is added (PRJ-06); the service sets the registry.
     trust: Trust,
+    /// Runs an automatic Delivery when a move put a ticket into one (FLW-15); the service sets it.
+    delivery: merge::DeliveryLink,
     /// The data folder: where Otaq's copies of imported workflow skills live (`skills/<id>`, WSK-03).
     data: DataDir,
     /// Held while a workflow skill setting changes (an import, Re-import, a reset, a settings save), so two
@@ -82,6 +84,7 @@ impl Board {
             overlaps: Overlaps::default(),
             leads: LeadLink::default(),
             trust: Trust::default(),
+            delivery: merge::DeliveryLink::default(),
             data,
             skill_changes: Default::default(),
             flows: Default::default(),
@@ -130,6 +133,11 @@ impl Board {
     /// The epic leads' side of board changes (d0083); the Project agents set it.
     pub fn leads(&self) -> &LeadLink {
         &self.leads
+    }
+
+    /// The automatic Delivery's side of board moves (FLW-15).
+    pub fn delivery(&self) -> &merge::DeliveryLink {
+        &self.delivery
     }
 
     /// The agent tools' folder trust (PRJ-06, PRJ-08).

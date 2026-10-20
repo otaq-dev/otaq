@@ -107,7 +107,7 @@ fn scheduled(ticket: &Ticket) -> bool {
 /// The statuses that hold a slot of the optional agent limit (d0016, d0042; d0108 rule 8: a live agent session,
 /// whatever the stage): any Agent stage's Working **including** the needs-you family, Working in background and
 /// Waiting for limit reset; any agent check's (one slot per ticket, not per session); a `restack` fix (Merge
-/// conflict · fixing, rule 12) and an Auto-merge stop. Waiting cards (before any Agent stage), human checks,
+/// conflict · fixing, rule 12) and a Delivery's stop. Waiting cards (before any Agent stage), human checks,
 /// Delivery waits and Parked tickets don't, and neither do Interrupted or Resume failed ones (no agent runs).
 /// Tickets whose start is running, and PR Delivery sessions, hold one too ([`running_count`]).
 pub const HOLDS_A_SLOT: &[Status] = &[

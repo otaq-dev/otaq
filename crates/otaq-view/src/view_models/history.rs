@@ -420,9 +420,14 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
                 None => format!("onto {b}"),
             }),
         ),
+        // A Delivery's conflict went to the agent with restack, no click (FLW-17).
         EventKind::SentToFix => (
-            "Sent to agent to fix".to_owned(),
+            "Merge conflict \u{b7} sent to the agent".to_owned(),
             text(p, "target").map(|t| format!("conflicts with {t}")),
+        ),
+        EventKind::SentBackWithPrComments => (
+            "Sent back with PR comments".to_owned(),
+            text(p, "note").filter(|n| !n.is_empty()).map(first_line),
         ),
         // *16 → History · Claude session IDs*: "Interrupted by restart · conversation saved".
         EventKind::Interrupted => match text(p, "reason").as_deref() {
@@ -504,9 +509,17 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
         ),
         EventKind::MergedAutomatically => (
             otaq_core::domain::validation::MERGED_AUTOMATICALLY.to_owned(),
-            text(p, "target").map(|t| format!("into {t}")),
+            text(p, "target").map(
+                |t| match p.get("without_checks").and_then(|w| w.as_bool()) {
+                    Some(true) => format!(
+                        "into {t} \u{b7} {}",
+                        otaq_core::domain::validation::DELIVERED_WITHOUT_CHECKS
+                    ),
+                    _ => format!("into {t}"),
+                },
+            ),
         ),
-        EventKind::AutoMergeStopped => ("Auto-merge stopped".to_owned(), text(p, "message")),
+        EventKind::AutoMergeStopped => ("Delivery stopped".to_owned(), text(p, "message")),
         // An epic's queue mode (d0080).
         EventKind::EpicQueueModeSet => (
             match text(p, "to")

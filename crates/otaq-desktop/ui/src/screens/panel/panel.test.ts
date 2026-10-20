@@ -383,7 +383,7 @@ describe("the panel", () => {
     const html = render({
       ...VIEW,
       notice: { text: "Waits for SHOP-18 to merge.", parent_closed: false, choices: [] },
-      conflict: { line: "Conflicts with main · 1 file (a.ts)", fix: "Send to agent to fix" },
+      conflict: { line: "Conflicts with main · 1 file (a.ts)" },
       start_problem: {
         heading: "Start failed",
         message: "SHOP-19 stopped before its agent session started.",
@@ -394,12 +394,7 @@ describe("the panel", () => {
         retry_does: ["Runs the whole start again"],
       },
     });
-    for (const text of [
-      "Waits for SHOP-18",
-      "Conflicts with main",
-      "Send to agent to fix",
-      "RETRY START DOES",
-    ]) {
+    for (const text of ["Waits for SHOP-18", "Conflicts with main", "RETRY START DOES"]) {
       expect(html).toContain(text);
     }
     expect(html).not.toContain("View the setup log");

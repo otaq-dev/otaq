@@ -1,10 +1,11 @@
-//! The M12 rows of SDD §7.3 as one pure function (d0063, d0064): validation before Review and Auto-merge, on any
-//! agent check of a project's flow (STG-06).
+//! The M12 rows of SDD §7.3 as one pure function (d0063): validation before Review, on any agent check of a
+//! project's flow (STG-06).
 //!
 //! [`transition`] takes where a ticket stands ([`ValidationState`]) and what happened ([`ValidationEvent`]) and
 //! says where it goes, how it entered Review, what happens to the check counters, and whether the validator's
 //! findings go to the agent. Where the ticket goes is the flow engine's ([`crate::flow::engine::step`]); this adds
-//! the validation's own bookkeeping and Auto-merge, which keeps today's behaviour on top of the stages until M33.
+//! the validation's own bookkeeping. What follows a pass into an automatic Delivery is the Delivery's
+//! ([`super::merge`]).
 //! It does no I/O: the service carries the result out (T-0183 … T-0189), and every row is tested on its own.
 //!
 //! **Each agent check counts its own fails in a row** (FLW-13, Q259; d0108 "After a Fail"): one row per ticket and
@@ -21,16 +22,12 @@ use super::stage_runs;
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{
-    Actor, AutoMergeStop, MovedPast, Place, ReviewEntry, Status, ValidationOutcome,
-    ValidationTrigger,
+    Actor, MovedPast, Place, ReviewEntry, Status, ValidationOutcome, ValidationTrigger,
 };
 use crate::flow::engine::{self, At, Counters, Move, RunResult};
 use crate::flow::{Flow, Stage};
 use crate::store::tickets::set_state_since;
 use crate::store::{new_id, now_ms};
-
-/// Conflicts in a row before Auto-merge stops trying (AMG-03).
-pub const AUTO_MERGE_CONFLICT_LIMIT: u32 = 3;
 
 /// What the rules need to know about a ticket.
 #[derive(Debug, Clone, Copy)]
@@ -43,10 +40,6 @@ pub struct ValidationState<'a> {
     pub fails: u32,
     /// The check's rounds plus the extra rounds the user allowed on it.
     pub rounds: u32,
-    /// The project's Auto-merge applies to this ticket (its kind and the setting; never an epic).
-    pub auto_merge: bool,
-    /// Auto-merge conflicts in a row so far.
-    pub conflicts: u32,
     /// The stages the ticket skips by its choices ([`Board::ticket_skips`], AGM-08).
     pub skips: &'a [String],
 }
@@ -81,15 +74,6 @@ pub enum ValidationEvent {
     AnotherRound,
     AnswerAgent,
     RetryValidation,
-    /// Auto-merge's Local merge landed.
-    AutoMerged,
-    /// Auto-merge's rebase conflicted.
-    AutoMergeConflict,
-    /// Auto-merge couldn't run: the base diverged or the user's checkout is dirty.
-    AutoMergeBlocked(AutoMergeStop),
-    RetryMerge,
-    /// From an Auto-merge stop: into Ready for Review, still "Validated · round N".
-    MoveToReview,
 }
 
 /// The result of a row.
@@ -110,14 +94,8 @@ pub struct Transition {
     pub deliver_findings: bool,
     /// The agent is told the validation was cancelled because the code changed (VAL-08).
     pub tell_cancelled: bool,
-    /// Run the Local merge without the confirmation (AMG-02).
-    pub auto_merge: bool,
-    /// Hand the conflict to the agent with the restack skill, no click (AMG-03).
-    pub restack: bool,
     /// One more round is allowed (Give it another round).
     pub extra_round: bool,
-    /// Why Auto-merge stopped, when it did.
-    pub stop: Option<AutoMergeStop>,
     /// Stages walked over without running (a skip, or `Move::SubmitByUser` past them): each gets a skipped run.
     pub skipped: Vec<String>,
 }
@@ -133,10 +111,7 @@ impl Transition {
             start_validator: false,
             deliver_findings: false,
             tell_cancelled: false,
-            auto_merge: false,
-            restack: false,
             extra_round: false,
-            stop: None,
             skipped: Vec::new(),
         }
     }
@@ -238,23 +213,6 @@ pub fn transition(s: ValidationState<'_>, event: ValidationEvent) -> Result<Tran
             .map(|step| Transition::of(&step))
             .map_err(|_| not_now())
     };
-    // Where Auto-merge's stops wait (in the Agent stage that would fix the conflict, as today's card does in Dev)
-    // and where its retries go (the human check after it).
-    let agent_stage = || {
-        s.place
-            .stage()
-            .and_then(|id| engine::back_to(s.flow, id, s.skips))
-            .ok_or_else(not_now)
-    };
-    let review_stage = || {
-        s.place
-            .stage()
-            .and_then(|id| engine::next_human_check(s.flow, id))
-            .ok_or_else(not_now)
-    };
-    let to_stage = |stage: &crate::flow::Stage, status: Status| {
-        Transition::at(status, Place::stage_of(&stage.id))
-    };
     // The agent's (or the user's) next stage; the user's from Interrupted as if the agent were idle.
     let go_next = || -> Result<Transition, NotNow> {
         let t = if s.status == Status::Interrupted {
@@ -268,7 +226,7 @@ pub fn transition(s: ValidationState<'_>, event: ValidationEvent) -> Result<Tran
         } else {
             go(Move::NextStage)?
         };
-        // A fix after an Auto-merge conflict validates again with the counters at 0 (AMG-03).
+        // A fix after a Delivery's conflict validates again with the counters at 0 (FLW-17).
         Ok(
             if t.start_validator && s.status == Status::MergeConflictFixing {
                 t.counters(Counters::ResetAll)
@@ -284,7 +242,6 @@ pub fn transition(s: ValidationState<'_>, event: ValidationEvent) -> Result<Tran
             let mut t = go(Move::Pass)?;
             if t.enters_review() {
                 t.entry = Some(ReviewEntry::Validated);
-                t.auto_merge = s.auto_merge;
             }
             t.ended(ValidationOutcome::Pass)
         }
@@ -333,33 +290,6 @@ pub fn transition(s: ValidationState<'_>, event: ValidationEvent) -> Result<Tran
             ..go(Move::AnswerAgent)?
         },
         E::RetryValidation if s.status == Status::CheckNoResult => go(Move::RetryCheck)?,
-        E::AutoMerged if s.status == Status::WaitingForYou => go(Move::Delivered)?,
-        E::AutoMergeConflict if s.status == Status::WaitingForYou => {
-            let stage = agent_stage()?;
-            if s.conflicts + 1 >= AUTO_MERGE_CONFLICT_LIMIT {
-                Transition {
-                    stop: Some(AutoMergeStop::KeepsConflicting),
-                    ..to_stage(stage, Status::DeliveryStopped)
-                }
-            } else {
-                Transition {
-                    restack: true,
-                    ..to_stage(stage, Status::MergeConflictFixing)
-                }
-                .counters(Counters::ResetAll)
-            }
-        }
-        E::AutoMergeBlocked(stop) if s.status == Status::WaitingForYou => Transition {
-            stop: Some(stop),
-            ..to_stage(agent_stage()?, Status::DeliveryStopped)
-        },
-        E::RetryMerge if s.status == Status::DeliveryStopped => Transition {
-            auto_merge: true,
-            ..to_stage(review_stage()?, Status::WaitingForYou)
-        },
-        E::MoveToReview if s.status == Status::DeliveryStopped => {
-            to_stage(review_stage()?, Status::WaitingForYou)
-        }
         _ => return Err(not_now()),
     })
 }
@@ -948,103 +878,6 @@ impl Board {
         Ok(())
     }
 
-    /// Auto-merge landed (AMG-02): "Merged automatically", the conflict count back at 0, a History line.
-    pub(crate) async fn record_auto_merged(
-        &self,
-        ticket_id: &str,
-        target: &str,
-    ) -> Result<(), BoardError> {
-        let mut tx = self.store.begin_write().await?;
-        sqlx::query(
-            "UPDATE tickets SET merged_automatically = TRUE, auto_merge_conflicts = 0, auto_merge_stop = NULL
-             WHERE id = ?",
-        )
-        .bind(ticket_id)
-        .execute(&mut *tx)
-        .await?;
-        record_event(
-            &mut tx,
-            ticket_id,
-            EventKind::MergedAutomatically,
-            &Actor::current_user(),
-            json!({ "target": target }),
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
-    /// Auto-merge's conflict went back to the agent (AMG-03): "Merge conflict · fixing", one more in a row.
-    pub(crate) async fn auto_merge_conflict(&self, ticket_id: &str) -> Result<(), BoardError> {
-        let now = now_ms();
-        let to = Status::MergeConflictFixing;
-        sqlx::query(concat!(
-            "UPDATE tickets SET auto_merge_conflicts = auto_merge_conflicts + 1,
-                                state = CASE WHEN state = ? THEN ? ELSE state END, updated_at = ?, ",
-            "state_since = CASE WHEN state = ? THEN ? ELSE state_since END",
-            " WHERE id = ?"
-        ))
-        .bind(Status::Working.as_str())
-        .bind(to.as_str())
-        .bind(now)
-        .bind(Status::Working.as_str())
-        .bind(now)
-        .bind(ticket_id)
-        .execute(self.store.pool())
-        .await?;
-        Ok(())
-    }
-
-    /// Auto-merge stopped (AMG-03, AMG-04): turquoise with the reason as its text. `conflicted` counts this conflict.
-    pub(crate) async fn auto_merge_stopped(
-        &self,
-        ticket_id: &str,
-        stop: AutoMergeStop,
-        message: &str,
-        conflicted: bool,
-    ) -> Result<(), BoardError> {
-        let now = now_ms();
-        let to = Status::DeliveryStopped;
-        // It stops in the Agent stage whose session would fix the conflict (rule 12 of d0108's second gap review).
-        let ticket = self.ticket_by_id(ticket_id).await?;
-        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
-        let stage = match ticket.place.stage() {
-            Some(id) if ticket.status.at_work() => Some(id.to_owned()),
-            Some(id) => engine::back_to(&flow, id, &[]).map(|s| s.id.clone()),
-            None => None,
-        }
-        .or_else(|| flow.first_agent_stage().map(|s| s.id.clone()));
-        let mut tx = self.store.begin_write().await?;
-        sqlx::query(concat!(
-            "UPDATE tickets SET stage_id = ?, state = ?, auto_merge_stop = ?, signal_text = ?, signal_since = ?,
-                                auto_merge_conflicts = auto_merge_conflicts + ?, updated_at = ?, ",
-            set_state_since!(),
-            " WHERE id = ?"
-        ))
-        .bind(stage)
-        .bind(to.as_str())
-        .bind(stop.as_str())
-        .bind(message)
-        .bind(now)
-        .bind(i64::from(conflicted))
-        .bind(now)
-        .bind(to.as_str())
-        .bind(now)
-        .bind(ticket_id)
-        .execute(&mut *tx)
-        .await?;
-        record_event(
-            &mut tx,
-            ticket_id,
-            EventKind::AutoMergeStopped,
-            &Actor::current_user(),
-            json!({ "stop": stop, "message": message }),
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
     /// Whether the round this validator session judged has ended (its verdict is in).
     pub(crate) async fn round_of_session_ended(&self, session: &str) -> Result<bool, BoardError> {
         let ended: Option<Option<i64>> =
@@ -1571,8 +1404,6 @@ mod tests {
             status,
             fails: 0,
             rounds: 3,
-            auto_merge: false,
-            conflicts: 0,
             skips: &[],
         }
     }
@@ -1680,25 +1511,19 @@ mod tests {
         assert!(transition(state(Status::Checking), E::UserNextStage).is_err());
     }
 
-    /// Validating → Ready for Review "Validated · round N" on pass; with Auto-merge, the merge runs.
+    /// Validating → Ready for Review "Validated · round N" on pass.
     #[test]
     fn pass() {
         let t = go(state(Status::Checking), E::Pass);
         assert_eq!(
-            (t.to, t.entry, t.counters, t.outcome, t.auto_merge),
+            (t.to, t.entry, t.counters, t.outcome),
             (
                 Status::WaitingForYou,
                 Some(ReviewEntry::Validated),
                 Counters::Count,
                 Some(ValidationOutcome::Pass),
-                false
             )
         );
-        let auto = ValidationState {
-            auto_merge: true,
-            ..state(Status::Checking)
-        };
-        assert!(go(auto, E::Pass).auto_merge);
     }
 
     /// Fail with rounds left → back to the agent with the findings; the last round → turquoise, nothing delivered.
@@ -1788,16 +1613,10 @@ mod tests {
             (t.to, t.tell_cancelled, t.outcome),
             (Status::Working, false, Some(ValidationOutcome::Stopped))
         );
-        let t = go(
-            ValidationState {
-                auto_merge: true,
-                ..state(Status::Checking)
-            },
-            E::SkipCheck,
-        );
+        let t = go(state(Status::Checking), E::SkipCheck);
         assert_eq!(
-            (t.to, t.entry, t.auto_merge),
-            (Status::WaitingForYou, Some(ReviewEntry::Skipped), false)
+            (t.to, t.entry),
+            (Status::WaitingForYou, Some(ReviewEntry::Skipped))
         );
         for event in [E::StopValidation, E::SkipCheck, E::CodeChanged] {
             assert!(
@@ -1813,8 +1632,8 @@ mod tests {
         let failed = state(Status::CheckFailed);
         let t = go(failed, E::MoveOnAnyway);
         assert_eq!(
-            (t.to, t.entry, t.auto_merge),
-            (Status::WaitingForYou, Some(ReviewEntry::FailedMoved), false)
+            (t.to, t.entry),
+            (Status::WaitingForYou, Some(ReviewEntry::FailedMoved))
         );
         let t = go(failed, E::AnotherRound);
         assert_eq!(
@@ -1842,44 +1661,9 @@ mod tests {
         assert!(transition(state(Status::CheckFailed), E::RetryValidation).is_err());
     }
 
-    /// Auto-merge: success → Merged; a conflict → back to the agent with restack, the counter at 0; the third
-    /// conflict in a row → stopped; base diverged / checkout dirty → stopped; Retry merge and Move to Review.
+    /// The fix after a Delivery's conflict validates again with the counters at 0 (FLW-17).
     #[test]
-    fn auto_merge() {
-        let review = state(Status::WaitingForYou);
-        assert_eq!(go(review, E::AutoMerged).to, Status::Merged);
-        let t = go(review, E::AutoMergeConflict);
-        assert_eq!(
-            (t.to, t.restack, t.counters),
-            (Status::MergeConflictFixing, true, Counters::ResetAll)
-        );
-        let third = ValidationState {
-            conflicts: 2,
-            ..review
-        };
-        let t = go(third, E::AutoMergeConflict);
-        assert_eq!(
-            (t.to, t.restack, t.stop),
-            (
-                Status::DeliveryStopped,
-                false,
-                Some(AutoMergeStop::KeepsConflicting)
-            )
-        );
-        for stop in [AutoMergeStop::BaseDiverged, AutoMergeStop::CheckoutDirty] {
-            let t = go(review, E::AutoMergeBlocked(stop));
-            assert_eq!((t.to, t.stop), (Status::DeliveryStopped, Some(stop)));
-        }
-        let stopped = state(Status::DeliveryStopped);
-        let t = go(stopped, E::RetryMerge);
-        assert_eq!((t.to, t.auto_merge), (Status::WaitingForYou, true));
-        let t = go(stopped, E::MoveToReview);
-        assert_eq!(
-            (t.to, t.auto_merge, t.entry),
-            (Status::WaitingForYou, false, None),
-            "still Validated · round N"
-        );
-        // The fix after a conflict validates again with the counter at 0.
+    fn a_conflict_fix_validates_from_zero() {
         let t = go(state(Status::MergeConflictFixing), E::AgentSubmit);
         assert_eq!((t.to, t.counters), (Status::Checking, Counters::ResetAll));
     }
@@ -1965,8 +1749,6 @@ mod tests {
                     status: Status::WaitingForLimitReset,
                     fails: 0,
                     rounds: 2,
-                    auto_merge: false,
-                    conflicts: 0,
                     skips: &[],
                 },
                 E::SkipCheck,

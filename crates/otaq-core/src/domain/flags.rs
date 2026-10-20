@@ -179,9 +179,17 @@ pub struct Flags {
     /// of its own.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conflict_files: Vec<String>,
-    /// Done through Auto-merge: "Merged automatically" (d0064).
+    /// Merged by an automatic local Delivery: "Merged automatically" (d0064, d0108).
     #[serde(default, skip_serializing_if = "is_false")]
     pub merged_automatically: bool,
+    /// Done through an automatic Delivery with no check passed before it: "Delivered without checks" (amber, d0108
+    /// rule 8).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub delivered_without_checks: bool,
+    /// An automatic Delivery is under way (FLW-15): its agent opens or pushes the PR with no dialog. The card waits
+    /// for nobody, so it isn't in the inbox's group 3. Not a flag of its own.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub delivering_automatically: bool,
     /// Closed by an agent's `otaq stage done` (AGM-10): "Closed · nothing to merge", with the agent's reason (empty
     /// when it gave none). Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -262,6 +270,7 @@ stored_enum! {
         ReviewEntry = "review_entry",
         ValidationRound = "validation_round",
         MergedAutomatically = "merged_automatically",
+        DeliveredWithoutChecks = "delivered_without_checks",
         YourTurn = "your_turn",
         SameFile = "same_file",
         AskedLead = "asked_lead",
@@ -299,6 +308,7 @@ impl Flags {
             (Flag::ReviewEntry, self.review_entry.is_some()),
             (Flag::ValidationRound, self.validation_round.is_some()),
             (Flag::MergedAutomatically, self.merged_automatically),
+            (Flag::DeliveredWithoutChecks, self.delivered_without_checks),
             (Flag::YourTurn, self.your_turn),
             (Flag::SameFile, !self.same_file.is_empty()),
             (Flag::AskedLead, self.asked_lead.is_some()),
@@ -354,6 +364,8 @@ mod tests {
             findings: vec!["src/cart.ts:12 the total ignores the coupon".into()],
             conflict_files: vec!["lib/wishlist.ts".into()],
             merged_automatically: true,
+            delivered_without_checks: true,
+            delivering_automatically: true,
             nothing_to_merge: Some("Already fixed in SHOP-31.".into()),
             ready_to_start: true,
             your_turn: true,

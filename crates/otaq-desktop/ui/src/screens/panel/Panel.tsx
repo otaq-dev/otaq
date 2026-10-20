@@ -765,19 +765,6 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
       return true;
     }, []),
   );
-  const [fixing, setFixing] = useState(false);
-  const sendToFix = (clear = false): Promise<unknown> => {
-    setFixing(true);
-    return (request("panel.send_to_fix", { key: view.key, clear }) as Promise<PanelSent>)
-      .then((sent) => {
-        if (sent.outcome === "done") showTab("terminal");
-        askUnsent(sent, () => sendToFix(true));
-      })
-      .catch(ignore)
-      .finally(() => {
-        setFixing(false);
-      });
-  };
   // A board card's button for this ticket (T-0220), run once the panel shows it.
   const [cardAnswer, setCardAnswer] = useState<CardAnswer | null>(null);
   const pendingCard = useStore(cardActions);
@@ -938,18 +925,6 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
           <div className="panel-conflict">
             <Icon name="triangle-alert" size={13} />
             <span className="panel-conflict-line">{view.conflict.line}</span>
-            {view.conflict.fix !== null && (
-              <Button
-                compact
-                variant="secondary"
-                icon="undo-2"
-                label={view.conflict.fix}
-                loading={fixing}
-                onClick={() => {
-                  void sendToFix();
-                }}
-              />
-            )}
           </div>
         )}
         {view.answer ? (

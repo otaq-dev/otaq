@@ -1,7 +1,7 @@
 //! "conflicts with `main`" (GIT-03, GIT-04, GIT-06; d0038, d0044, d0051): a fact about a ticket's branch and the
 //! branch it merges into, shown on the card and in the panel, and named by `otaq prime`.
 //!
-//! It comes from Local merge's free rebase (the ticket stays in Ready for Review with **Send to agent to fix**),
+//! It comes from a Delivery's free rebase (the ticket goes to its agent with `restack`, no click, FLW-17),
 //! from the read-only test merge after another ticket merged (T-0096), or from the rebase of a reopened ticket on
 //! its way to Dev (T-0101). It clears when the agent submits again, or when the next test merge is clean.
 
@@ -13,7 +13,7 @@ use crate::domain::stored_enum;
 stored_enum! {
     /// Where a conflict was found.
     pub enum ConflictReason ("conflict reason") {
-        /// Local merge's rebase or the test merge: Send to agent to fix.
+        /// A Delivery's rebase or the test merge: its agent fixes it with `restack`.
         Merge = "merge",
         /// The rebase of a reopened ticket on its way to Dev: the agent resolves it first.
         Reopen = "reopen",

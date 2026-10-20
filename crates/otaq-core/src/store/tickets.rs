@@ -75,6 +75,8 @@ pub struct TicketRow {
     pub merged_automatically: bool,
     /// T-0411 (migration 0049): the reason of an agent's `stage done` close (Closed · nothing to merge).
     pub nothing_to_merge: Option<String>,
+    /// T-0419 (migration 0053): an automatic Delivery delivered it with no check passed before it.
+    pub delivered_without_checks: bool,
     /// T-0262 (migration 0030): an epic's queue mode, `none` / `whole` / `single` (d0080), and when it was set.
     pub epic_queue_mode: String,
     pub epic_queue_mode_at: Option<i64>,

@@ -854,18 +854,21 @@ impl Service {
             }));
         }
         {
-            let review = review.clone();
-            let events = events.clone();
-            validation.on_auto_merge(Arc::new(move |key| {
-                let (review, events) = (review.clone(), events.clone());
+            // An automatic Delivery runs as soon as a move put a ticket into it (FLW-15).
+            let (review, prs, events) = (review.clone(), prs.clone(), events.clone());
+            board.delivery().set(Arc::new(move |id| {
+                let (review, prs, events) = (review.clone(), prs.clone(), events.clone());
                 Box::pin(async move {
-                    // The toast (UI-07); never a notification (d0064).
-                    if let crate::review::auto_merge::AutoMerged::Merged { toast } =
-                        review.auto_merge(&key).await?
-                    {
-                        events.publish(*toast);
+                    match crate::review::delivery::run_automatic(&review, &prs, &id).await {
+                        // The toast (UI-07); never a notification (d0064).
+                        Ok(crate::review::delivery::Delivered::Merged { toast }) => {
+                            events.publish(*toast)
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::warn!(ticket = id, error = %e, "automatic Delivery failed")
+                        }
                     }
-                    Ok(())
                 })
             }));
         }
@@ -921,7 +924,6 @@ impl Service {
             leads: project_agents.leads(),
             signals: signals.clone(),
             validation: validation.clone(),
-            review: review.clone(),
             deliveries: deliveries.clone(),
             sessions: sessions.clone(),
             events: events.clone(),

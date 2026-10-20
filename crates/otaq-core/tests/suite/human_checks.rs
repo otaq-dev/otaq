@@ -399,13 +399,27 @@ async fn on_the_default_flow_reviews_pass_offers_the_delivery_choices() {
     w.stop().await;
 }
 
-/// Inbox group 3 (FLW-15, Q265): a card that a Pass moved into an automatic Delivery delivers by itself and isn't
-/// in group 3; in QA it was, naming its stage.
+/// Inbox group 3 (FLW-15, Q265): a card that a Pass moved into an automatic Delivery delivers by itself (its
+/// delivery session opens the PR) and isn't in group 3; in QA it was, naming its stage. A card whose Security check
+/// failed and was moved on reaches the same Delivery in click mode and waits in group 3 (T-0419).
 #[tokio::test(flavor = "multi_thread")]
 async fn an_automatic_deliverys_card_is_not_in_group_three() {
     let w = world().await;
     w.board.use_flow_for_tests("SHOP", &every_kind()).await;
+    // GitHub's built-in Open PR skill: the automatic PR starts (nothing is pushed or called before the proposal).
+    let repo = w.board.project("SHOP").await.unwrap().repo_path;
+    otaq_core::git::testing::git(
+        Path::new(&repo),
+        &[
+            "remote",
+            "add",
+            "origin",
+            "git@github.com:acme/shop-web.git",
+        ],
+    );
     let t = at(&w, "Export as CSV", "qa", Status::WaitingForYou).await;
+    ran(&w, &t, "validate", RunResult::Passed, Some(1)).await;
+    ran(&w, &t, "security", RunResult::Passed, Some(1)).await;
     let items = w.board.needs_you_items(i64::MAX / 2).await.unwrap();
     let item = items.iter().find(|i| i.id == t.id).unwrap();
     assert_eq!(item.group, NeedsYouGroup::Review);
@@ -417,8 +431,34 @@ async fn an_automatic_deliverys_card_is_not_in_group_three() {
         (after.place, after.status),
         (Place::stage_of("ship"), Status::ToDeliver)
     );
+    let after = w.board.ticket("SHOP-1").await.unwrap();
+    assert!(after.flags.delivering_automatically);
+    assert!(
+        w.sessions
+            .running_of(&t.id, SessionKind::Delivery)
+            .is_some(),
+        "Shipper's delivery session"
+    );
     let items = w.board.needs_you_items(i64::MAX / 2).await.unwrap();
     assert!(items.iter().all(|i| i.id != t.id), "{items:?}");
+
+    let moved_on = at(&w, "Import CSV", "qa", Status::WaitingForYou).await;
+    ran(&w, &moved_on, "validate", RunResult::Passed, Some(1)).await;
+    ran(&w, &moved_on, "security", RunResult::Failed, Some(2)).await;
+    let key = moved_on.key.to_string();
+    let after = moved(w.review.pass(&key, &w.validation, &me()).await.unwrap());
+    assert_eq!(after.status, Status::ToDeliver);
+    assert!(
+        !w.board
+            .ticket(&key)
+            .await
+            .unwrap()
+            .flags
+            .delivering_automatically
+    );
+    let items = w.board.needs_you_items(i64::MAX / 2).await.unwrap();
+    let item = items.iter().find(|i| i.id == moved_on.id).unwrap();
+    assert_eq!(item.group, NeedsYouGroup::Review, "click mode: the user's");
     w.stop().await;
 }
 

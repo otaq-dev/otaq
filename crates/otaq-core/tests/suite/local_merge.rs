@@ -182,6 +182,7 @@ async fn a_rebase_conflict_merges_nothing() {
     commit(&repo, "lib.ts", "main\n");
     let main = git(&repo, &["rev-parse", "main"]);
     let head = git(&wt, &["rev-parse", "HEAD"]);
+    w.agent_shell(&t).await;
 
     let outcome = w
         .review
@@ -202,7 +203,8 @@ async fn a_rebase_conflict_merges_nothing() {
         "the branch as it was"
     );
     assert_eq!(git(&wt, &["status", "--porcelain"]), "");
-    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
+    // FLW-17: back to Dev at once, its agent fixes it with restack (no click).
+    assert_eq!(w.status("SHOP-1").await, Status::MergeConflictFixing);
     let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
     assert_eq!(row.merge_commit_sha, None);
     no_stash(&repo);

@@ -149,7 +149,8 @@ impl Board {
         }
     }
 
-    /// Moves a working ticket to Ready for Review with `summary`, unless its worktree has uncommitted files.
+    /// Moves a working ticket to Ready for Review with `summary`, unless its worktree has uncommitted files. A ticket
+    /// whose agent fixed a Delivery's conflict moves on the same way (FLW-17).
     pub async fn submit_for_review(
         &self,
         key: &str,
@@ -157,7 +158,7 @@ impl Board {
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
         let ticket = self.ticket(key).await?;
-        if !LIVE.contains(&ticket.status) {
+        if !LIVE.contains(&ticket.status) && ticket.status != Status::MergeConflictFixing {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(

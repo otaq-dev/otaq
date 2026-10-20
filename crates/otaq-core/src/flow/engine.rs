@@ -130,6 +130,9 @@ pub enum Move {
     PrOpened,
     /// PR rework: back from the open PR to the human check before the Delivery (d0041).
     PrRework,
+    /// Send back with PR comments (FLW-16): from the open PR to the nearest earlier Agent stage, whose session
+    /// resumes; every later stage runs again and the Delivery pushes to the same PR.
+    PrComments,
     /// Mark closed, or Close ticket.
     Close,
     /// Into the queue from Backlog.
@@ -320,7 +323,7 @@ pub fn stage_for<'f>(flow: &'f Flow, place: &Place, status: Status) -> Option<&'
     }
 }
 
-/// The first human check after `from`: where Auto-merge's Retry merge and Move to Review take a stopped card.
+/// The first human check after `from`: where Move on anyway takes a card.
 pub fn next_human_check<'f>(flow: &'f Flow, from: &str) -> Option<&'f Stage> {
     let index = flow.position(from)?;
     flow.stages[index + 1..].iter().find(|s| s.is_human_check())
@@ -552,6 +555,11 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
                 Some(check),
             )
             .ended(RunResult::Cancelled)
+        }
+        Move::PrComments if is(StageKind::Delivery) && at.status == Status::PrOpen => {
+            back(&at, current.expect("in a stage"))?
+                .ended(RunResult::Cancelled)
+                .counters(Counters::ResetAll)
         }
         Move::Close if !at.place.is_done() => {
             Step::to(&at, Place::Done, Status::ClosedNotMerged, None).ended(RunResult::Cancelled)

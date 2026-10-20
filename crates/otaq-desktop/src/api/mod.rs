@@ -71,8 +71,8 @@ pub use panel::{
     CardParams as PanelCardParams, ChoiceParams as PanelChoiceParams,
     CloseDialog as PanelCloseDialog, Load as PanelLoad, MenuParams as PanelMenuParams,
     Params as PanelParams, ParentParams as PanelParentParams,
-    PriorityParams as PanelPriorityParams, SendToFix as PanelSendToFix, Sent as PanelSent,
-    SubmitDialog as PanelSubmitDialog, SubmitParams as PanelSubmitParams,
+    PriorityParams as PanelPriorityParams, Sent as PanelSent, SubmitDialog as PanelSubmitDialog,
+    SubmitParams as PanelSubmitParams,
 };
 #[cfg(test)]
 pub use pr::{

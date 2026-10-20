@@ -99,8 +99,6 @@ struct Inner {
     agent_turned: Mutex<HashSet<String>>,
     /// Resumes a gone agent with a first prompt (Review's resume; set by the service).
     resume_agent: Mutex<Option<AgentResume>>,
-    /// Runs Auto-merge for a ticket (Review's; set by the service).
-    auto_merge: Mutex<Option<AutoMergeRun>>,
     /// The check before every launch (set by the service; unset, nothing is checked).
     gate: std::sync::OnceLock<LaunchGate>,
 }
@@ -122,11 +120,6 @@ impl ValidatorStart {
         }
     }
 }
-
-/// Runs Auto-merge for a ticket (its key).
-pub type AutoMergeRun = Arc<
-    dyn Fn(String) -> Pin<Box<dyn Future<Output = Result<(), BoardError>> + Send>> + Send + Sync,
->;
 
 /// Resumes the agent of a ticket (its id) with a first prompt.
 pub type AgentResume = Arc<
@@ -152,7 +145,6 @@ impl Validation {
                 events,
                 agent_turned: Mutex::new(HashSet::new()),
                 resume_agent: Mutex::new(None),
-                auto_merge: Mutex::new(None),
                 gate: std::sync::OnceLock::new(),
             }),
         }
@@ -191,12 +183,7 @@ impl Validation {
         }
         let facts = self.check_facts(&ticket).await?;
         let (flow, rounds) = (&facts.flow, facts.rounds);
-        // Auto-merge only for work that passed its checks: not once the user moved it past one (d0108).
-        let forced = facts.counts.moved_past_reason(flow).is_some();
-        let state = ValidationState {
-            auto_merge: auto_merge_applies(&ticket, flow) && !forced,
-            ..facts.state(&ticket)
-        };
+        let state = facts.state(&ticket);
         let event = if pass {
             ValidationEvent::Pass
         } else {
@@ -255,9 +242,8 @@ impl Validation {
             self.start_next_check(&ticket.id, ValidationTrigger::Agent)
                 .await?;
         }
-        if step.auto_merge {
-            self.run_auto_merge(&ticket).await;
-        }
+        // A pass into an automatic Delivery delivers now, unless the user moved the card past a check (FLW-15).
+        board.delivery().arrived(&ticket.id).await;
         board.ticket_by_id(&ticket.id).await
     }
 
@@ -307,20 +293,6 @@ impl Validation {
                 .await?;
         }
         Ok(())
-    }
-
-    /// How Auto-merge runs (the service registers Review's).
-    pub fn on_auto_merge(&self, hook: AutoMergeRun) {
-        *self.inner.auto_merge.lock().expect("auto-merge") = Some(hook);
-    }
-
-    async fn run_auto_merge(&self, ticket: &Ticket) {
-        let hook = self.inner.auto_merge.lock().expect("auto-merge").clone();
-        if let Some(hook) = hook
-            && let Err(e) = hook(ticket.key.to_string()).await
-        {
-            tracing::warn!(key = %ticket.key, error = %e, "auto-merge failed");
-        }
     }
 
     /// The worktree changed during validation: cancelled when the agent took a turn, else discarded (the
@@ -534,17 +506,11 @@ impl Validation {
                 let text = user_findings_message(&after, &findings, note, step.extra_round);
                 self.tell_agent(&after, &text).await;
             }
+            // A stopped Delivery's (FLW-17): back to where it is offered; Retry merge runs an automatic one again.
             ValidationAction::RetryMerge | ValidationAction::MoveToReview => {
-                let event = if action == ValidationAction::RetryMerge {
-                    ValidationEvent::RetryMerge
-                } else {
-                    ValidationEvent::MoveToReview
-                };
-                let step = self.step(&ticket, event).await?;
-                board.move_to_review(&ticket, None, actor).await?;
-                if step.auto_merge {
-                    let ticket = board.ticket_by_id(&ticket.id).await?;
-                    self.run_auto_merge(&ticket).await;
+                board.back_to_delivery(&ticket, actor).await?;
+                if action == ValidationAction::RetryMerge {
+                    board.delivery().arrived(&ticket.id).await;
                 }
             }
             ValidationAction::Retry => {
@@ -558,6 +524,13 @@ impl Validation {
                         .await?;
                 }
             }
+        }
+        if matches!(
+            action,
+            ValidationAction::Skip | ValidationAction::MoveToReviewAnyway
+        ) {
+            // On into a Delivery: moved past a check, it waits for the click (FLW-15); the hook decides.
+            board.delivery().arrived(&ticket.id).await;
         }
         board.ticket_by_id(&ticket.id).await
     }
@@ -838,7 +811,7 @@ impl Validation {
     }
 
     /// The user's **Move to next stage** (CLS-05, d0108 rule 10): the agent's own `stage next`, started by the user
-    /// when the agent isn't mid-turn. Into an agent check the check runs (and Auto-merge may follow its pass);
+    /// when the agent isn't mid-turn. Into an agent check the check runs (and an automatic Delivery may follow its pass);
     /// anything else is [`Board::submit_by_user`]. The summary reads "Submitted by you" and the note.
     pub async fn submit_by_user(
         &self,
@@ -850,7 +823,10 @@ impl Validation {
         let ticket = board.ticket(key).await?;
         crate::board::review::user_may_submit(&ticket)?;
         if !self.next_is_agent_check(&ticket).await? {
-            return board.submit_by_user(key, note, actor).await;
+            let after = board.submit_by_user(key, note, actor).await?;
+            // Into a Delivery: automatic only after passed checks (none walked over, FLW-15).
+            board.delivery().arrived(&after.id).await;
+            return board.ticket_by_id(&after.id).await;
         }
         self.submit(
             key,
@@ -896,7 +872,10 @@ impl Validation {
         // The agent's "next stage" (STG-06): an agent check validates; anything else (Validation off: Review) is
         // the plain submit.
         if !self.next_is_agent_check(&ticket).await? {
-            return board.submit_for_review(key, summary, actor).await;
+            let after = board.submit_for_review(key, summary, actor).await?;
+            // Straight into an automatic Delivery (a flow with no check before it, FLW-15).
+            board.delivery().arrived(&after.id).await;
+            return board.ticket_by_id(&after.id).await;
         }
         // The user's Move to next stage checked the statuses it starts from (Interrupted too).
         if trigger == ValidationTrigger::Agent
@@ -1193,18 +1172,6 @@ pub fn skip_at_limit(hold: &AgentHold) -> bool {
         && hold.fallback_tool.is_none()
 }
 
-/// Whether a passed agent check merges the ticket without a click (AMG-01 until T-0419 replaces Auto-merge): its
-/// flow's Delivery stage is `mode: automatic` and `delivers: local`; never for an epic.
-pub fn auto_merge_applies(ticket: &Ticket, flow: &crate::flow::Flow) -> bool {
-    !ticket.is_epic()
-        && flow.stages.iter().any(|s| {
-            s.delivery.is_some_and(|d| {
-                d.mode == crate::flow::DeliveryMode::Automatic
-                    && d.delivers == crate::flow::Delivers::Local
-            })
-        })
-}
-
 /// What the rules need about a ticket's agent check: the flow, the stages it skips, and the counter of the check it
 /// counts rounds for ([`CheckCounts::counting`]): its fails in a row and its rounds with the extra ones.
 struct CheckFacts {
@@ -1223,8 +1190,6 @@ impl CheckFacts {
             status: ticket.status,
             fails: self.fails,
             rounds: self.rounds,
-            auto_merge: false,
-            conflicts: ticket.auto_merge_conflicts,
             skips: &self.skips,
         }
     }

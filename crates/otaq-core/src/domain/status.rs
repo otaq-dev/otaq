@@ -59,10 +59,11 @@ stored_enum! {
         Interrupted = "interrupted",
         /// Resuming failed; Retry or Start from scratch (d0018).
         ResumeFailed = "resume_failed",
-        /// Auto-merge's rebase conflicted; the agent is fixing it with `restack` (working, d0064, d0108).
+        /// A Delivery's rebase conflicted; the agent is fixing it with `restack` (working, d0064, d0108, FLW-17).
         MergeConflictFixing = "merge_conflict_fixing",
-        /// Turquoise: Auto-merge stopped (keeps conflicting, base diverged, checkout dirty; d0064). It stays in the
-        /// Agent stage whose session would fix it, as today's card does in Dev (d0108 second gap review rule 12).
+        /// Turquoise: the Delivery stopped (keeps conflicting, base diverged, checkout dirty; d0064, FLW-17). It stays
+        /// in the Agent stage whose session would fix it, as today's card does in Dev (d0108 second gap review rule
+        /// 12).
         DeliveryStopped = "auto_merge_stopped",
 
         // An agent check

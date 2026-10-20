@@ -340,20 +340,11 @@ pub fn conflict_line(conflict: &otaq_core::board::conflicts::Conflict) -> String
     line
 }
 
-/// Send to agent to fix is offered on a ticket in Review whose Local merge or test merge conflicted.
-pub fn offers_fix(
-    ticket: &Ticket,
-    conflict: Option<&otaq_core::board::conflicts::Conflict>,
-) -> bool {
-    ticket.status == Status::WaitingForYou
-        && conflict.is_some_and(|c| c.reason == otaq_core::board::conflicts::ConflictReason::Merge)
-}
-
-/// The conflict's way forward: Send to agent to fix, or by hand.
+/// What happens after the conflict (FLW-17, no click): the agent fixes it, or the user does by hand.
 pub fn conflict_help(key: &TicketKey, target: &str) -> String {
     format!(
-        "Send to agent to fix: {key} returns to Dev and its agent rebases onto {target}, resolves the conflict and \
-         submits again. Or resolve it yourself in the worktree and approve again."
+        "{key} went back to its agent, which rebases onto {target}, resolves the conflict and moves on again. Or \
+         resolve it yourself in the worktree."
     )
 }
 
@@ -489,19 +480,6 @@ mod tests {
             conflict_line(&c),
             "Conflicts with main \u{b7} 2 files (src/lib/stripe/session.ts, src/lib/cart/validate.ts)"
         );
-        let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
-        assert!(offers_fix(&review, Some(&c)));
-        assert!(!offers_fix(&review, None));
-        let reopened = Conflict {
-            reason: ConflictReason::Reopen,
-            ..c.clone()
-        };
-        assert!(
-            !offers_fix(&review, Some(&reopened)),
-            "the agent resolves it first"
-        );
-        let working = ticket("SHOP-18", "Checkout API", Status::Working);
-        assert!(!offers_fix(&working, Some(&c)));
     }
 
     #[test]

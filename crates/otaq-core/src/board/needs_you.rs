@@ -30,16 +30,16 @@
 use serde::{Deserialize, Serialize};
 
 use super::epic_flight::{REVIEW_EPIC, epic_stop};
+use super::merge::DELIVERY_CONFLICT_LIMIT;
 use super::order::blocked_counts;
 use super::readiness::{ReadyState, readiness};
 use super::tickets::Ticket;
-use super::validation::AUTO_MERGE_CONFLICT_LIMIT;
 use super::{Board, BoardError};
 use crate::agents::SessionRole;
 use crate::attention::Suppression;
 use crate::domain::validation::{NO_RESULT, failed_times};
 use crate::domain::{AutoMergeStop, StartStep, Status, StatusSet, TicketKey};
-use crate::flow::{DeliveryMode, Flow};
+use crate::flow::Flow;
 use crate::signals::hooks::HELPER_PROMPT_PREFIX;
 
 /// The inbox groups of ATT-06, in order.
@@ -71,7 +71,7 @@ pub fn group_of(status: Status) -> Option<NeedsYouGroup> {
         | Status::ResumeFailed
         | Status::ParentClosed => Some(NeedsYouGroup::Stopped),
         // A human check waits for the user's Pass or Fail; To deliver for the Local merge or Open PR click (an
-        // automatic Delivery's card is left out by its stage, [`waits_for_click`]).
+        // automatic Delivery under way is left out, [`waits_for_click`]).
         status if status.set() == StatusSet::HumanCheck || status == Status::ToDeliver => {
             Some(NeedsYouGroup::Review)
         }
@@ -79,16 +79,11 @@ pub fn group_of(status: Status) -> Option<NeedsYouGroup> {
     }
 }
 
-/// Whether a group 3 ticket waits for the user (FLW-15, Q265): anything but To deliver in an automatic Delivery,
-/// which delivers with no click.
-pub fn waits_for_click(ticket: &Ticket, flow: &Flow) -> bool {
-    ticket.status != Status::ToDeliver
-        || ticket
-            .place
-            .stage()
-            .and_then(|id| flow.stage(id))
-            .and_then(|stage| stage.delivery)
-            .is_none_or(|d| d.mode == DeliveryMode::Click)
+/// Whether a group 3 ticket waits for the user (FLW-15, Q265): anything but an automatic Delivery under way, which
+/// delivers with no click. A card at an automatic Delivery that waits all the same (moved past a check, so click mode;
+/// or left there because it couldn't start) is the user's.
+pub fn waits_for_click(ticket: &Ticket) -> bool {
+    ticket.status != Status::ToDeliver || !ticket.flags.delivering_automatically
 }
 
 /// The stage a group 3 ticket waits in, with its place in the flow (FLW-14).
@@ -248,7 +243,7 @@ pub fn needs_you_items_with(
                     None => group_of(ticket.status)?,
                 };
                 let waiting_in = match group {
-                    NeedsYouGroup::Review if !waits_for_click(ticket, project.flow) => return None,
+                    NeedsYouGroup::Review if !waits_for_click(ticket) => return None,
                     NeedsYouGroup::Review => waiting_in(ticket, project.flow),
                     _ => None,
                 };
@@ -401,11 +396,11 @@ fn reason(ticket: &Ticket, tickets: &[Ticket], waiting_in: Option<&WaitingIn>) -
         Status::DeliveryStopped => {
             let text = signal.unwrap_or("stopped").replace('`', "");
             let tries = if ticket.auto_merge_stop == Some(AutoMergeStop::KeepsConflicting) {
-                format!(" after {AUTO_MERGE_CONFLICT_LIMIT} tries in a row")
+                format!(" after {DELIVERY_CONFLICT_LIMIT} tries in a row")
             } else {
                 String::new()
             };
-            format!("Auto-merge stopped · {}{tries}", lower_first(&text))
+            format!("Delivery stopped · {}{tries}", lower_first(&text))
         }
         // "ready for review · validated · round 2": the human check, and how it got there (d0063); "ready for QA".
         Status::WaitingForYou => {

@@ -79,9 +79,8 @@ describe("the review screen", () => {
           title: "Rebase onto main stopped — conflict",
           text: "main moved since SHOP-18 was built.",
           files: ["src/lib/stripe/session.ts", "package.json"],
-          help: "Send to agent to fix: SHOP-18 returns to Dev",
+          help: "SHOP-18 went back to its agent",
           worktree: "~/.otaq/wt/shop-web/SHOP-18",
-          fix: "Send to agent to fix",
           close: "Close",
         },
         close: () => undefined,
@@ -92,7 +91,7 @@ describe("the review screen", () => {
     for (const text of [
       "Rebase onto main stopped — conflict",
       "package.json",
-      "Send to agent to fix",
+      "SHOP-18 went back to its agent",
       "Close",
     ]) {
       expect(conflict).toContain(text);

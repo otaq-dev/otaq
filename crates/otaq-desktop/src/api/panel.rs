@@ -21,10 +21,9 @@ use otaq_core::agents::facts::TicketAgents;
 use otaq_core::usage::TicketUsage;
 use otaq_core::protocol::{
     CloseParams, CommentsParams, DepParams, KeyParams, LeadParams, MoveParams, ProjectAgentAnswerParams,
-    ProjectParams, Reply, Request, SendToFixParams, SessionListParams, SetChoiceParams, SubmitByUserParams, UsageParams,
+    ProjectParams, Reply, Request, SessionListParams, SetChoiceParams, SubmitByUserParams, UsageParams,
     ValidationActionParams,
 };
-use otaq_core::review::ReturnOutcome;
 use otaq_core::session::deliveries::Delivery;
 use otaq_core::session::{SessionInfo, SessionKind};
 use otaq_view::icons::IconName;
@@ -49,7 +48,7 @@ use otaq_view::view_models::pr_dialog;
 use otaq_view::view_models::priority::{self, PriorityView};
 use otaq_view::view_models::queue;
 use otaq_view::view_models::status::{self, PillView};
-use otaq_view::view_models::terminal_strip::{self as strip, Click, UnsentPrompt};
+use otaq_view::view_models::terminal_strip::{self as strip, UnsentPrompt};
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
 use otaq_view::view_models::validation_panel;
 use serde::{Deserialize, Serialize};
@@ -71,7 +70,6 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "panel.submit" => reply(&submit(app, parse(params)?).await?),
         "panel.mark_closed" => reply(&mark_closed(app, parse(params)?).await?),
         "panel.answer" => reply(&answer(app, parse(params)?).await?),
-        "panel.send_to_fix" => reply(&send_to_fix(app, parse(params)?).await?),
         "panel.card" => reply(&card(app, parse(params)?).await?),
         "panel.reopen_parent" => reply(&reopen_parent(app, parse(params)?).await?),
         "panel.remove_dependency" => reply(&remove_dependency(app, parse(params)?).await?),
@@ -242,12 +240,12 @@ pub struct Notice {
     pub choices: Vec<ParentChoice>,
 }
 
-/// "Conflicts with main · 2 files (…)" in the header (GIT-04), with Send to agent to fix when it applies.
+/// "Conflicts with main · 2 files (…)" in the header (GIT-04). A Delivery's conflict goes to the agent with no click
+/// (FLW-17), so the strip only says it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "PanelConflict")]
 pub struct ConflictStrip {
     pub line: String,
-    pub fix: Option<&'static str>,
 }
 
 /// A refused model's callout above the bar (AGT-05; T-0345): "Claude Code couldn't run claude-fable-5-1" and the
@@ -650,7 +648,6 @@ pub fn view_of(f: &Facts) -> View {
             .filter(|_| ticket.flags.conflicts_with.is_some())
             .map(|c| ConflictStrip {
                 line: approve::conflict_line(c),
-                fix: approve::offers_fix(ticket, Some(c)).then_some("Send to agent to fix"),
             }),
         start_problem,
         refusal,
@@ -1359,45 +1356,6 @@ async fn answer_lead(app: &App, epic: &Ticket, params: &AnswerParams) -> Result<
     }
 }
 
-/// What `panel.send_to_fix` takes.
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "PanelSendToFixParams")]
-pub struct SendToFix {
-    pub key: String,
-    #[serde(default)]
-    pub clear: bool,
-}
-
-/// Send to agent to fix (GIT-04): the ticket returns to Dev and its agent rebases.
-pub async fn send_to_fix(app: &App, params: SendToFix) -> Result<Sent, RequestError> {
-    let key = key_of(&params.key)?;
-    match app
-        .service
-        .send(Request::TicketSendToFix(SendToFixParams {
-            key: params.key,
-            clear_first: params.clear,
-        }))
-        .await
-    {
-        Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. })) => {
-            Ok(Sent::Ask(Unsent::of(
-                &UnsentPrompt::for_click(
-                    key,
-                    None,
-                    "The restack skill (rebase and resolve the conflicts)".to_owned(),
-                    Click::SendToFix,
-                )
-                .unclearable_by(unclearable_by),
-            )))
-        }
-        Ok(_) => Ok(Sent::Done),
-        Err(e) => {
-            toast_error(app, format!("{key} wasn\u{2019}t sent to its agent"), &e);
-            Err(e)
-        }
-    }
-}
-
 /// What `panel.card` takes: a board card's button (T-0220) the panel carries out once it shows the ticket, and
 /// whether the terminal's typed line is cleared first (Deliver now).
 #[derive(Debug, Clone, Deserialize, TS)]
@@ -1653,7 +1611,7 @@ mod tests {
             key,
             None,
             "The address-review skill".into(),
-            Click::SendBack {
+            strip::Click::SendBack {
                 note: String::new(),
             },
         );
@@ -1904,7 +1862,6 @@ mod tests {
         review.flags.conflicts_with = Some("main".into());
         let strip = with(&review).conflict.unwrap();
         assert_eq!(strip.line, "Conflicts with main \u{b7} 2 files (a.ts, b.ts)");
-        assert_eq!(strip.fix, Some("Send to agent to fix"));
     }
 
     #[test]

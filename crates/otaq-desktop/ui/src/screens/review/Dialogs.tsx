@@ -57,13 +57,6 @@ function afterSend(key: string, sent: PanelSent, again: () => Promise<unknown>) 
   });
 }
 
-/** Send to agent to fix (GIT-03), from the conflict result. */
-function sendToFix(key: string, clear = false): Promise<unknown> {
-  return (request("panel.send_to_fix", { key, clear }) as Promise<PanelSent>).then((sent) => {
-    afterSend(key, sent, () => sendToFix(key, true));
-  });
-}
-
 function Files({
   files,
   tone,
@@ -431,22 +424,14 @@ export function ResultDialog({
 }) {
   switch (result.kind) {
     case "conflict": {
-      const fix = () => {
-        close();
-        sendToFix(ticket).catch(ignore);
-      };
+      // The agent fixes it with no click (FLW-17): the dialog only says so.
       return (
         <Dialog
           title={result.title}
           width={480}
-          onConfirm={fix}
+          onConfirm={close}
           onCancel={close}
-          footer={
-            <>
-              <Button variant="ghost" label={result.close} onClick={close} />
-              <Button icon="undo-2" label={result.fix} onClick={fix} />
-            </>
-          }
+          footer={<Button label={result.close} onClick={close} />}
         >
           <div className="review-body" data-tone="error">
             <p className="review-text">{result.text}</p>

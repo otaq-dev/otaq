@@ -480,7 +480,8 @@ async fn action_for(
         R::TicketOpenPr(_) | R::TicketPrConfirm(_) | R::TicketPrCancel(_) | R::TicketPrRetry(_) => {
             Action::UserOnly("open or push pull requests")
         }
-        R::TicketSendToFix(_) => Action::UserOnly("send tickets back"),
+        R::TicketSendBackPr(_) => Action::UserOnly("send tickets back"),
+        R::TicketAddChildFromPr(_) => Action::UserOnly("add a child from PR comments"),
         R::SessionResize(_) | R::SessionInput(_) | R::SessionDeliverNow(_) | R::SessionFocus(_) => {
             Action::UserOnly("type into sessions")
         }

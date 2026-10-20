@@ -274,8 +274,8 @@ async fn send_back_is_refused_on_epics_and_outside_review() {
     world.stop().await;
 }
 
-/// T-0090: a Local merge conflict flags the ticket; Send to agent to fix types the restack skill and prime names
-/// the target.
+/// T-0090, FLW-17 (parity change 2 of M33): a click Local merge's conflict flags the ticket and sends it to Dev at
+/// once, no click: the restack skill is queued for its session ("Merge conflict · fixing") and prime names the target.
 #[tokio::test]
 async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
     use otaq_core::git::testing::commit;
@@ -291,14 +291,6 @@ async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
     world.force_status(&t, Status::WaitingForYou).await;
     let agent = world.agent_shell(&t).await;
 
-    // No conflict yet: nothing to fix.
-    let err = world
-        .review
-        .send_to_fix("SHOP-1", false, &me())
-        .await
-        .unwrap_err();
-    assert_eq!(err.refusal(), Some(Refusal::MoveRefused));
-
     let merged = world
         .review
         .local_merge("SHOP-1", "m", false, &me())
@@ -308,29 +300,23 @@ async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
         matches!(merged, LocalMergeOutcome::Conflict { .. }),
         "{merged:?}"
     );
-    let flagged = world.board.ticket("SHOP-1").await.unwrap();
-    assert_eq!(flagged.flags.conflicts_with.as_deref(), Some("main"));
-    assert_eq!(flagged.status, Status::WaitingForYou);
-
-    let after = done(
-        world
-            .review
-            .send_to_fix("SHOP-1", false, &me())
-            .await
-            .unwrap(),
+    let after = world.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(after.status, Status::MergeConflictFixing);
+    assert_eq!(
+        after.place,
+        otaq_core::domain::Place::stage_of(otaq_core::flow::default::DEV)
     );
-    assert_eq!(after.status, Status::Working);
+    assert_eq!(after.auto_merge_conflicts, 1);
     assert_eq!(
         after.flags.conflicts_with.as_deref(),
         Some("main"),
         "until it is back in Review"
     );
-    world
-        .wait_for_output(
-            &agent.session,
-            &format!("/{}", naming::copy_name("restack")),
-        )
-        .await;
+    let pending = world.deliveries.pending(&agent.session).await.unwrap();
+    assert_eq!(
+        pending.last().unwrap().text,
+        format!("/{}", naming::copy_name("restack"))
+    );
     let prime = otaq_core::prime::render(
         &world
             .board
@@ -487,9 +473,9 @@ async fn a_full_limit_queues_and_the_start_brings_the_build_back() {
     w.stop().await;
 }
 
-/// Send to agent to fix brings the build back before the restack skill is typed.
+/// A click Local merge's conflict brings the build back before the restack skill is queued (FLW-17, no click).
 #[tokio::test(flavor = "multi_thread")]
-async fn send_to_fix_brings_the_build_back() {
+async fn a_merge_conflict_brings_the_build_back() {
     use otaq_core::review::LocalMergeOutcome;
 
     let w = freed::world().await;
@@ -498,24 +484,22 @@ async fn send_to_fix_brings_the_build_back() {
     let (t, wt) = freed::freed(&w, "Pricing", "lib.ts").await;
     let key = t.key.to_string();
     otaq_core::git::testing::commit(&repo, "lib.ts", "main\n");
+    let agent = w.agent_shell(&t).await;
     let merged = w.review.local_merge(&key, "m", false, &me()).await.unwrap();
     assert!(
         matches!(merged, LocalMergeOutcome::Conflict { .. }),
         "{merged:?}"
     );
-    let agent = w.agent_shell(&t).await;
 
-    let after = done(w.review.send_to_fix(&key, false, &me()).await.unwrap());
-
-    assert_eq!(after.status, Status::Working);
+    assert_eq!(w.status(&key).await, Status::MergeConflictFixing);
     assert_eq!(freed::app_bin(&wt).as_deref(), Some("Pricing"));
     assert_eq!(freed::state(&w, &key).await, BuildState::Present);
     assert_eq!(freed::entries(&w, &project), Vec::<u64>::new());
-    w.wait_for_output(
-        &agent.session,
-        &format!("/{}", naming::copy_name("restack")),
-    )
-    .await;
+    let pending = w.deliveries.pending(&agent.session).await.unwrap();
+    assert_eq!(
+        pending.last().unwrap().text,
+        format!("/{}", naming::copy_name("restack"))
+    );
     w.stop().await;
 }
 

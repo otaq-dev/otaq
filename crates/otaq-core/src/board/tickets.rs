@@ -99,10 +99,10 @@ pub struct Ticket {
     /// or the round it last passed in ("Validated · round 2"). Each check counts its own (`check_counters`, d0063).
     #[serde(default)]
     pub validation_round: u32,
-    /// Auto-merge conflicts in a row (d0064).
+    /// The Delivery's conflicts in a row, in either mode (FLW-17, d0064); a merge resets them.
     #[serde(default)]
     pub auto_merge_conflicts: u32,
-    /// Auto-merge stopped: why (d0064).
+    /// The Delivery stopped: why (FLW-17, d0064).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_merge_stop: Option<crate::domain::AutoMergeStop>,
     /// Where the ticket works once started: branch, worktree, ports (T-0046, T-0048).
@@ -329,8 +329,12 @@ stored_enum! {
         SentBack = "sent_back",
         /// Local merge: Done · Merged; the payload has the target and the squash commit (T-0089).
         Merged = "merged",
-        /// Send to agent to fix: back to Dev to resolve a conflict with the target (T-0090).
+        /// A Delivery's conflict went to the nearest earlier Agent stage with `restack`, no click (FLW-17): payload
+        /// `target`, `to`.
         SentToFix = "sent_to_fix",
+        /// Send back with PR comments (FLW-16): payload `pr` (its number), `note`, `to`. History reads "Sent back
+        /// with PR comments".
+        SentBackWithPrComments = "sent_back_with_pr_comments",
         /// Reopen: Done · Closed → Backlog (T-0101).
         Reopened = "reopened",
         /// Park: Dev → Backlog with the work kept (T-0104).
@@ -368,9 +372,9 @@ stored_enum! {
         QuestionAnswered = "question_answered",
         /// A validation round ended (d0063): payload `round`, `outcome`, `counted`; its report is in `validations`.
         ValidationEnded = "validation_ended",
-        /// Auto-merge Local-merged the ticket (AMG-02): payload `target`.
+        /// An automatic local Delivery merged the ticket (FLW-15, AMG-02): payload `target`, `without_checks`.
         MergedAutomatically = "merged_automatically",
-        /// Auto-merge stopped (AMG-03, AMG-04): payload `stop`, `message`.
+        /// The Delivery stopped (FLW-17; AMG-03, AMG-04): payload `stop`, `message`.
         AutoMergeStopped = "auto_merge_stopped",
         /// An epic's queue mode changed (d0080): payload `from`, `to` (`none` / `whole` / `single`). History reads
         /// "Queued the whole epic", "Queued one child" or "Taken back".
@@ -832,6 +836,16 @@ impl Board {
         .await?
         .into_iter()
         .collect();
+        // An automatic Delivery under way (FLW-15): its PR flow runs with no dialog, so the card waits for nobody.
+        let delivering: std::collections::HashSet<String> = sqlx::query_scalar(
+            "SELECT f.ticket_id FROM pr_flows f JOIN tickets t ON t.id = f.ticket_id
+             WHERE t.project_id = ? AND f.automatic",
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect();
         // "answering SHOP-40.2" (MSG-03): the asker of the question a running answer session serves.
         let answering: std::collections::HashMap<String, String> = sqlx::query_as(
             "SELECT m.to_ticket_id, m.from_ticket_id FROM messages m
@@ -1078,6 +1092,9 @@ impl Board {
                         .and_then(|f| serde_json::from_str(f).ok())
                         .unwrap_or_default(),
                     merged_automatically: row.merged_automatically && status == Status::Merged,
+                    delivered_without_checks: row.delivered_without_checks
+                        && status == Status::Merged,
+                    delivering_automatically: delivering.contains(&row.id),
                     nothing_to_merge: row
                         .nothing_to_merge
                         .clone()

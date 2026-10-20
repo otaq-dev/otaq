@@ -345,7 +345,7 @@ fn the_m12_items_read_as_the_frame() {
             (
                 "SHOP-40".into(),
                 Family,
-                "Auto-merge stopped · keeps conflicting with wishlist after 3 tries in a row".into()
+                "Delivery stopped · keeps conflicting with wishlist after 3 tries in a row".into()
             ),
             ("SHOP-34".into(), Family, "validation ended without a result".into()),
             (

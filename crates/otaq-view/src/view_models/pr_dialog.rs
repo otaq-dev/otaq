@@ -418,6 +418,7 @@ mod tests {
                 confirmed: None,
                 reported: None,
                 started_at: 0,
+                automatic: false,
             }),
             target: "main".into(),
             branch: otaq_core::naming::branch("SHOP-18"),
