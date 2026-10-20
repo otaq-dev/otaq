@@ -25,6 +25,8 @@ pub struct FlowAgent {
     pub skills: Vec<String>,
     /// `default` (the account's default model, as shipped files say) or a model as M32 names it.
     pub model: String,
+    /// Why the flow has it, naming its source (FLW-04's preview); nothing else reads it.
+    pub why: Option<String>,
 }
 
 /// The stages of a project, in order.
@@ -52,6 +54,9 @@ pub struct Stage {
     /// An agent check's fails in a row before the card stops for the user (1–5).
     pub rounds: Option<u32>,
     pub delivery: Option<Delivery>,
+    /// Why the flow has this stage, naming its source ("From 41 /security-review runs in shop-web"): the preview's
+    /// why line (FLW-04). The engine and the checks never read it.
+    pub why: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

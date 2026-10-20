@@ -221,6 +221,7 @@ async fn world() -> World {
         instructions: String::new(),
         skills: vec!["work-ticket".into(), "commit".into()],
         model: "codex".into(),
+        why: None,
     }];
     w.board.use_flow_for_tests(&bill, &file).await;
     let rules = Agents::new(

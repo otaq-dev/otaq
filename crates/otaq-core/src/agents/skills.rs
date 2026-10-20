@@ -41,6 +41,13 @@ async fn copy_in(board: &Board, from: &Path) -> Result<ImportedSkill, BoardError
     })
 }
 
+/// Imports the skill folder `from` with no agent yet (a proposal's skill, imported on Apply, FLW-04): Otaq's copy
+/// and its record, which the caller gives to an agent.
+pub async fn import_folder(board: &Board, from: &Path) -> Result<ImportedSkill, BoardError> {
+    let _changing = board.lock_skill_changes().await;
+    copy_in(board, from).await
+}
+
 async fn remove_copy(board: &Board, id: &str) {
     if let Ok(copy) = board.data().skill_path(id) {
         blocking(move || folder::remove(&copy)).await;

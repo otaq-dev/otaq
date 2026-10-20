@@ -211,6 +211,9 @@ stored_enum! {
         NoWorktree = "no_worktree",
         /// The Open PR / Push skill's proposal is malformed or doesn't match the ticket's commits (REV-10).
         BadProposal = "bad_proposal",
+        /// A proposed flow breaks a rule, or Apply was asked while problems remain (FLW-03): one problem per line,
+        /// each naming its stage or agent.
+        BadFlow = "bad_flow",
         /// The branch name isn't a valid branch name.
         BadBranchName = "bad_branch_name",
         /// The branch name is taken, locally or on the remote (REV-10).

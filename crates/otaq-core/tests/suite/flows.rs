@@ -347,7 +347,7 @@ fn the_format_refuses_what_isnt_a_flow() {
     assert_eq!(
         refused("flow:\n  - id: dev\n    name: Dev\n    colour: blue\n"),
         "line 4 column 5: unknown field `colour`, expected one of id, name, kind, by, column, agent, skill, \
-         options, rounds, mode, delivers"
+         options, rounds, mode, delivers, why"
     );
     assert_eq!(
         refused("flows: []\n"),

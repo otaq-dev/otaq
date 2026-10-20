@@ -105,7 +105,8 @@ pub fn check_stage_of<'f>(flow: &'f Flow, ticket: &Ticket, skips: &[String]) -> 
 }
 
 /// The agent a ticket's new session of `role` runs (AGM-05): an Agent stage's ([`agent_stage_of`]), an agent check's
-/// ([`check_stage_of`]), or the role's agent for the epic lead and the Project agent.
+/// ([`check_stage_of`]), or the role's agent for the epic lead and the Project agent. A chosen option the stage no
+/// longer offers is dropped here, with its History note ([`Board::drop_removed_choice`]).
 pub async fn session_agent(
     board: &Board,
     ticket: &Ticket,
@@ -127,6 +128,8 @@ pub async fn session_agent(
             role.label()
         ))
     })?;
+    // A choice the flow no longer offers falls back to the stage's agent, with a History note (FLW-05).
+    board.drop_removed_choice(ticket, stage).await?;
     running_agent(board, ticket, &stage.id.clone()).await
 }
 

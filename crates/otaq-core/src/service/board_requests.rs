@@ -20,6 +20,7 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::caller::Caller;
 use crate::domain::{Actor, Kind};
 use crate::epic_lead::changes::LeadChange;
+use crate::flow::apply::FlowEvent;
 use crate::protocol::{
     ErrorBody, ErrorKind, Event, GlobalSettingsReply, ProjectSettingsReply, Reply, Request,
 };
@@ -1162,6 +1163,73 @@ pub(super) async fn handle(
                 move || async move { Ok(Reply::FlowVersions(board.flow_versions(&p.project).await?)) },
             )
         }
+        Request::FlowProposal(p) => boxed(move || async move {
+            let proposal = board.proposal(&p.project, shared.agents.models()).await?;
+            Ok(Reply::FlowProposal(proposal.map(Box::new)))
+        }),
+        Request::FlowProposeFrom(p) => boxed(move || async move {
+            let proposal = board
+                .propose_from(&p.project, &p.source, shared.agents.models())
+                .await?;
+            flow_event(
+                shared,
+                &proposal.project,
+                FlowEvent::Proposed {
+                    proposal: proposal.id,
+                },
+            );
+            Ok(Reply::FlowProposal(Some(Box::new(proposal))))
+        }),
+        Request::FlowApply(p) => boxed(move || async move {
+            let applied = board
+                .apply_proposal(&p.project, p.proposal, &p.choices, shared.agents.models())
+                .await?;
+            let key = board.project(&p.project).await?.key;
+            flow_event(
+                shared,
+                &key,
+                FlowEvent::ProposalClosed {
+                    proposal: applied.proposal,
+                },
+            );
+            if !applied.agents.is_empty() {
+                shared.events.publish(Event::AgentsChanged);
+            }
+            if applied.waiting.is_some() {
+                flow_event(shared, &key, FlowEvent::Waiting);
+            }
+            if let Some(version) = &applied.version {
+                flow_event(
+                    shared,
+                    &key,
+                    FlowEvent::Applied {
+                        version: version.version,
+                    },
+                );
+            }
+            shared.scheduler.wake();
+            Ok(Reply::FlowApplied(Box::new(applied)))
+        }),
+        Request::FlowCancelProposal(p) => boxed(move || async move {
+            if let Some(id) = board.cancel_proposal(&p.project).await? {
+                let key = board.project(&p.project).await?.key;
+                flow_event(shared, &key, FlowEvent::ProposalClosed { proposal: id });
+            }
+            Ok(Reply::Ok)
+        }),
+        Request::FlowWaiting(p) => boxed(move || async move {
+            Ok(Reply::FlowWaiting(
+                board.waiting_change(&p.project).await?.map(Box::new),
+            ))
+        }),
+        Request::FlowCancelWaiting(p) => boxed(move || async move {
+            if board.cancel_waiting(&p.project).await? {
+                let key = board.project(&p.project).await?.key;
+                flow_event(shared, &key, FlowEvent::Cancelled);
+                shared.scheduler.wake();
+            }
+            Ok(Reply::Ok)
+        }),
         Request::ProjectSettingsSet(p) => boxed(move || async move {
             match board.save_project_settings(&p.project, &p.settings).await {
                 Ok(()) => {
@@ -1245,6 +1313,14 @@ type Answer<'a> = Pin<Box<dyn Future<Output = Result<Reply, BoardError>> + Send 
 /// [`handle`] holds inline its own slot in `handle`'s frame; with about a hundred arms that frame reached 1.5 MB, and
 /// on Windows a request with a deep future of its own (a review submit starting a validator) overflowed the 2 MB
 /// tokio worker stack (T-0275). Built here, each arm's future lives on the heap and `handle` holds only the box.
+/// Tells the app about a change in `project`'s flow (FLW-03…FLW-06).
+fn flow_event(shared: &Shared, project: &str, change: FlowEvent) {
+    shared.events.publish(Event::FlowChanged {
+        project: project.to_owned(),
+        change,
+    });
+}
+
 fn boxed<'a, F>(make: impl FnOnce() -> F) -> Answer<'a>
 where
     F: Future<Output = Result<Reply, BoardError>> + Send + 'a,

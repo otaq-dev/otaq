@@ -57,6 +57,15 @@ pub fn import(data: &DataDir, folder: &Path, id: &str) -> Result<Copied, Refused
     }
 }
 
+/// The skill's name in the folder `folder` (its SKILL.md's `name:`), with [`import`]'s checks and no copy: a
+/// proposal's "importable folder" (FLW-03).
+pub fn name_of(folder: &Path) -> Result<String, Refused> {
+    if !folder.is_dir() {
+        return Err(Refused(format!("{} isn't a folder", folder.display())));
+    }
+    skill_name(&read_skill_file(folder)?).map_err(Refused)
+}
+
 /// Why Otaq's copy at `folder` can't be used, if it can't: it is gone, has no SKILL.md, or its front matter no
 /// longer reads (WSK-04: the shipped skill it stands for runs instead).
 pub fn copy_problem(folder: &Path) -> Option<String> {

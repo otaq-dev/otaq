@@ -197,6 +197,7 @@ pub fn epic_stop(flow: &Flow) -> Stage {
             options: Vec::new(),
             rounds: None,
             delivery: None,
+            why: None,
         });
     stop.options.clear();
     stop

@@ -584,6 +584,29 @@ pub enum Request {
     /// with [`Reply::FlowVersions`].
     #[serde(rename = "flow.versions")]
     FlowVersions(ProjectParams),
+    /// `{"project": "SHOP"}`: the project's open proposal, checked and compared with the flow as it will be now
+    /// (FLW-03, FLW-04). Answered with [`Reply::FlowProposal`], `null` when there is none.
+    #[serde(rename = "flow.proposal")]
+    FlowProposal(ProjectParams),
+    /// Apply in the preview (FLW-05, FLW-06): the open proposal `proposal`, with the user's `choices` (import clashes,
+    /// skill folders, local models). Answered with [`Reply::FlowApplied`].
+    #[serde(rename = "flow.apply")]
+    FlowApply(crate::flow::apply::ApplyParams),
+    /// `{"project": "SHOP"}`: Cancel in the preview drops the open proposal. Answered with [`Reply::Ok`].
+    #[serde(rename = "flow.cancel_proposal")]
+    FlowCancelProposal(ProjectParams),
+    /// `{"project": "SHOP"}`: the waiting change and the tickets it waits for (FLW-06). Answered with
+    /// [`Reply::FlowWaiting`], `null` when nothing waits.
+    #[serde(rename = "flow.waiting")]
+    FlowWaiting(ProjectParams),
+    /// `{"project": "SHOP"}`: Cancel change drops the waiting change (merged ones too); starts resume. Answered with
+    /// [`Reply::Ok`].
+    #[serde(rename = "flow.cancel_waiting")]
+    FlowCancelWaiting(ProjectParams),
+    /// A proposal by the user from an earlier version, another project, a preset, a file or the shipped agents file
+    /// (FLW-08…FLW-10); it replaces the open one. Answered with [`Reply::FlowProposal`].
+    #[serde(rename = "flow.propose_from")]
+    FlowProposeFrom(crate::flow::apply::ProposeFromParams),
 
     // Sessions (SES-04, SVC-05).
     /// With `key`, every session the ticket ever had (newest first); without, every session in the service's
@@ -1721,6 +1744,12 @@ impl Request {
             Self::ProjectSettingsSet(_) => "project_settings.set",
             Self::FlowCurrent(_) => "flow.current",
             Self::FlowVersions(_) => "flow.versions",
+            Self::FlowProposal(_) => "flow.proposal",
+            Self::FlowApply(_) => "flow.apply",
+            Self::FlowCancelProposal(_) => "flow.cancel_proposal",
+            Self::FlowWaiting(_) => "flow.waiting",
+            Self::FlowCancelWaiting(_) => "flow.cancel_waiting",
+            Self::FlowProposeFrom(_) => "flow.propose_from",
             Self::SessionList(_) => "session.list",
             Self::SessionAttach(_) => "session.attach",
             Self::SessionDetach(_) => "session.detach",
@@ -1860,6 +1889,9 @@ pub enum Reply {
     ProjectSettings(Box<ProjectSettingsReply>),
     FlowVersion(Box<crate::flow::FlowVersion>),
     FlowVersions(Vec<crate::flow::FlowVersion>),
+    FlowProposal(Option<Box<crate::flow::proposal::Proposal>>),
+    FlowApplied(Box<crate::flow::apply::Applied>),
+    FlowWaiting(Option<Box<crate::flow::apply::WaitingChange>>),
     Sessions(Vec<SessionInfo>),
     SessionAttached(Box<SessionAttach>),
     Delivery(Delivery),
@@ -2007,6 +2039,12 @@ pub enum Event {
     },
     /// A project was added, changed or removed. Refetch `project.list`.
     ProjectsChanged,
+    /// A project's flow: a proposal opened or closed, a change waits, a new flow applied, a waiting change cancelled
+    /// (FLW-03…FLW-06). Refetch `flow.proposal`, `flow.waiting` or the board.
+    FlowChanged {
+        project: String,
+        change: crate::flow::apply::FlowEvent,
+    },
     /// Output of a session this connection attached to (only sent to that connection). `data` is base64.
     SessionOutput {
         session: String,

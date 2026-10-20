@@ -15,6 +15,8 @@ const TABLES: &[&str] = &[
     "check_counters",
     "decisions",
     "events",
+    "flow_proposals",
+    "flow_waiting",
     "human_questions",
     "lead_notes",
     "lead_stuck",
@@ -722,6 +724,33 @@ async fn one_row_round_trips_through_every_table() {
     .await
     .unwrap();
     assert_eq!(fails, 2);
+
+    // An open flow proposal and a waiting flow change (T-0413).
+    sqlx::query(
+        "INSERT INTO flow_proposals (project_id, yaml, source_json, proposed_by_json, created_at)
+         VALUES (?, 'flow: []', '{\"kind\":\"agents_file\"}', '{\"by\":\"user\"}', ?)",
+    )
+    .bind(&project.id)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO flow_waiting (project_id, yaml, applied_by, changes_json, since)
+         VALUES (?, 'flow: []', 'user', '[\"QA after Security\"]', ?)",
+    )
+    .bind(&project.id)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let changes: String =
+        sqlx::query_scalar("SELECT changes_json FROM flow_waiting WHERE project_id = ?")
+            .bind(&project.id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(changes, r#"["QA after Security"]"#);
 
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");

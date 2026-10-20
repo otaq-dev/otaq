@@ -13,8 +13,8 @@
 //!     options: [Quick developer]
 //! ```
 //!
-//! Fields come in a fixed order (stages: `id name kind by column agent skill options rounds mode delivers`;
-//! agents: `name role instructions skills model`); a field with nothing in it is left out, except `column`.
+//! Fields come in a fixed order (stages: `id name kind by column agent skill options rounds mode delivers why`;
+//! agents: `name role instructions skills model why`); a field with nothing in it is left out, except `column`.
 //! `agents:` is left out when the file defines none. Comments are not kept.
 
 use std::fmt;
@@ -56,6 +56,7 @@ struct RawAgent {
     #[serde(default)]
     skills: Vec<String>,
     model: String,
+    why: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -73,6 +74,7 @@ struct RawStage {
     rounds: Option<u32>,
     mode: Option<DeliveryMode>,
     delivers: Option<Delivers>,
+    why: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -105,22 +107,33 @@ fn agent(a: RawAgent) -> FlowAgent {
         instructions: a.instructions,
         skills: a.skills,
         model: a.model,
+        why: why(a.why),
     }
 }
 
 /// Reads a flow file. The STG-02 rules are [`super::check`]'s; this only refuses what isn't a flow at all.
 pub fn read(text: &str) -> Result<FlowFile, FormatError> {
+    read_with_written_ids(text).map(|(file, _)| file)
+}
+
+/// [`read`], also saying which stages had their id written (in stage order): the others got one from their name,
+/// which a proposal matches to the flow it changes instead ([`super::proposal`]).
+pub fn read_with_written_ids(text: &str) -> Result<(FlowFile, Vec<bool>), FormatError> {
     let raw: RawFile = serde_saphyr::from_str(text).map_err(format_error)?;
     let agents = raw.agents.into_iter().map(agent).collect();
     let mut stages = Vec::with_capacity(raw.flow.len());
     for raw in raw.flow {
         stages.push(stage(raw)?);
     }
+    let written = stages.iter().map(|s| !s.id.is_empty()).collect();
     give_ids(&mut stages);
-    Ok(FlowFile {
-        agents,
-        flow: Flow { stages },
-    })
+    Ok((
+        FlowFile {
+            agents,
+            flow: Flow { stages },
+        },
+        written,
+    ))
 }
 
 /// Reads an agents file (`otaq-agents.yaml`, AGM-02): its `agents:`, as a flow file's.
@@ -152,6 +165,9 @@ fn write_agents_into(out: &mut String, agents: &[FlowAgent]) {
         }
         item.list("skills", agent.skills.iter().map(String::as_str));
         item.field("model", &agent.model);
+        if let Some(why) = &agent.why {
+            item.text("why", why);
+        }
     }
 }
 
@@ -182,6 +198,9 @@ pub fn write(file: &FlowFile) -> String {
         if let Some(delivery) = stage.delivery {
             item.field("mode", delivery.mode.as_str());
             item.field("delivers", delivery.delivers.as_str());
+        }
+        if let Some(why) = &stage.why {
+            item.text("why", why);
         }
     }
     out
@@ -301,7 +320,13 @@ fn stage(raw: RawStage) -> Result<Stage, FormatError> {
         options,
         rounds: raw.rounds,
         delivery,
+        why: why(raw.why),
     })
+}
+
+/// A `why:` as kept: trimmed, none when empty.
+fn why(text: Option<String>) -> Option<String> {
+    text.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty())
 }
 
 /// Gives a stage written without an id one from its name (`Code review` → `code-review`), unique in the flow.
@@ -323,7 +348,8 @@ fn give_ids(stages: &mut [Stage]) {
     }
 }
 
-fn slug(name: &str) -> String {
+/// A stage id from its name: `Code review` → `code-review`.
+pub(crate) fn slug(name: &str) -> String {
     let mut out = String::new();
     for c in name.chars().flat_map(char::to_lowercase) {
         if c.is_alphanumeric() {

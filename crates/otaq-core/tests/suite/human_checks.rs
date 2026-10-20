@@ -65,6 +65,7 @@ fn human_check(id: &str, name: &str) -> Stage {
         options: Vec::new(),
         rounds: None,
         delivery: None,
+        why: None,
     }
 }
 

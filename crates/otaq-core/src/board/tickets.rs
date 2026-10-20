@@ -447,6 +447,10 @@ stored_enum! {
         /// `stage_id`. History reads "Passed QA" · "by you". A Pass that offered the delivery choices logs the
         /// delivery's own event instead.
         Passed = "passed",
+        /// A stage started without the agent the ticket chose for it, which the flow no longer offers (FLW-05):
+        /// payload `stage` (its name), `stage_id`, `chose` and `runs` (the stage's own agent). History reads "Quick
+        /// developer is no longer an option for Dev · runs Rust developer".
+        ChoiceDropped = "choice_dropped",
     }
 }
 

@@ -254,6 +254,8 @@ async fn action_for(
         | R::ProjectSettingsGet(_)
         | R::FlowCurrent(_)
         | R::FlowVersions(_)
+        | R::FlowProposal(_)
+        | R::FlowWaiting(_)
         | R::SessionList(_)
         | R::SessionBeforeRestart(_)
         | R::InboxList
@@ -393,6 +395,10 @@ async fn action_for(
             parent: facts(board, &p.parent).await?,
         },
 
+        R::FlowApply(_)
+        | R::FlowCancelProposal(_)
+        | R::FlowCancelWaiting(_)
+        | R::FlowProposeFrom(_) => Action::UserOnly("change flows"),
         R::ServiceStop => Action::UserOnly("stop the background service"),
         R::DismissPermissionWarning => Action::UserOnly("change onboarding"),
         R::DismissTrustNote => Action::UserOnly("dismiss notices"),

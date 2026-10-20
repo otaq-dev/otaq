@@ -27,6 +27,10 @@
 //! before every launch ([`crate::agents::gate`]), so only a ticket whose agent would use a tool at its limit or
 //! not available (or a model no longer listed) waits as **Held**, and tickets on other tools keep starting. Held
 //! tickets are skipped; the gate lifts their holds when the cause goes, never on a tick.
+//!
+//! **A waiting flow change** (FLW-06, d0108): each pass first applies the waiting changes whose board is quiet
+//! ([`crate::board::Board::settle_flow_changes`]); a project whose change still waits starts nothing from Ready for
+//! Dev ([`plan_holding`]) until it applies or is cancelled.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -192,6 +196,18 @@ pub struct SchedulerStatus {
 /// those a PR Delivery session works on ([`running_count`]'s `busy`): neither is started.
 /// Ready tickets beyond the free slots wait as "waiting for a slot", oldest first when slots free up.
 pub fn plan(tickets: &[Ticket], starting: &HashSet<String>, gate: &Gate) -> Plan {
+    plan_holding(tickets, starting, gate, &HashSet::new())
+}
+
+/// [`plan`], with the keys of the projects whose flow change waits for a quiet board (FLW-06): their tickets in Ready
+/// for Dev don't start ("Waiting for the flow change"); tickets waiting between two Agent stages, and other
+/// projects, start as usual.
+pub fn plan_holding(
+    tickets: &[Ticket],
+    starting: &HashSet<String>,
+    gate: &Gate,
+    held: &HashSet<String>,
+) -> Plan {
     let mut plan = Plan::default();
     let mut ready: Vec<&Ticket> = Vec::new();
     for ticket in tickets {
@@ -206,6 +222,9 @@ pub fn plan(tickets: &[Ticket], starting: &HashSet<String>, gate: &Gate) -> Plan
         match state {
             ReadyState::ParentClosed { .. } => change(&mut plan, ticket, Status::ParentClosed),
             ReadyState::Waiting { .. } => change(&mut plan, ticket, Status::Queued),
+            ReadyState::Ready
+                if ticket.place.is_ready_for_dev()
+                    && held.contains(ticket.key.project.as_str()) => {}
             ReadyState::Ready => ready.push(ticket),
         }
     }
@@ -458,9 +477,24 @@ impl Scheduler {
     }
 
     async fn pass_locked(&self) -> Result<Plan, BoardError> {
+        // A waiting flow change applies once its board is quiet; until then its project's starts are held (FLW-06).
+        let settled = self.inner.board.settle_flow_changes().await?;
+        for version in &settled.applied {
+            self.inner.events.publish(Event::FlowChanged {
+                project: version.project.clone(),
+                change: crate::flow::apply::FlowEvent::Applied {
+                    version: version.version,
+                },
+            });
+        }
         let limits = self.inner.board.global_settings().await?.agent_limits;
         let (tickets, needs_you) = self.load(limits.enabled).await?;
-        let plan = plan(&tickets, &self.busy().await?, &Gate { limits, needs_you });
+        let plan = plan_holding(
+            &tickets,
+            &self.busy().await?,
+            &Gate { limits, needs_you },
+            &settled.held,
+        );
         for change in &plan.changes {
             if let Err(e) = self.apply(change).await {
                 tracing::warn!(ticket = %change.key, error = %e, "can't change the queued state");

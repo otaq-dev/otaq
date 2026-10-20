@@ -336,6 +336,15 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
         ),
         EventKind::AgentRowSet => stage_choices::row_change_line(p),
         EventKind::StageChoiceSet => choice_line(p),
+        // FLW-05: "Quick developer is no longer an option for Dev · runs Rust developer".
+        EventKind::ChoiceDropped => (
+            otaq_core::flow::apply::dropped_choice_line(
+                &text(p, "chose").unwrap_or_default(),
+                &text(p, "stage").unwrap_or_default(),
+                &text(p, "runs").unwrap_or_default(),
+            ),
+            None,
+        ),
         EventKind::FallbackUsed => (stage_choices::fallback_line(p), None),
         EventKind::SchemaOverlap => (
             match text(p, "other") {
@@ -1400,5 +1409,23 @@ mod tests {
             choice_line(&p).0,
             "Wishlist lead set SHOP-40.3's Grill: skip"
         );
+    }
+
+    /// FLW-05: a choice the flow no longer offers, dropped when its stage started.
+    #[test]
+    fn a_dropped_choice_line() {
+        let e = event(
+            EventKind::ChoiceDropped,
+            1,
+            serde_json::json!({
+                "stage": "Dev", "stage_id": "dev", "chose": "Quick developer", "runs": "Rust developer"
+            }),
+        );
+        let row = event_row(&e).unwrap();
+        assert_eq!(
+            row.title,
+            "Quick developer is no longer an option for Dev \u{b7} runs Rust developer"
+        );
+        assert_eq!(row.detail, None);
     }
 }
