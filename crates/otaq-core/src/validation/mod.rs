@@ -97,6 +97,9 @@ struct Inner {
     events: EventBus,
     /// Tickets whose agent took a turn since their validation started (VAL-08 tells it from VAL-02).
     agent_turned: Mutex<HashSet<String>>,
+    /// One checker start at a time per ticket: a tool's Resume and the hold lifting it causes both start a waiting
+    /// round's checker, and two overlapping starts would leave the round naming a checker that was stopped.
+    starting: Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Resumes a gone agent with a first prompt (Review's resume; set by the service).
     resume_agent: Mutex<Option<AgentResume>>,
     /// The check before every launch (set by the service; unset, nothing is checked).
@@ -144,6 +147,7 @@ impl Validation {
                 adapters,
                 events,
                 agent_turned: Mutex::new(HashSet::new()),
+                starting: Mutex::new(std::collections::HashMap::new()),
                 resume_agent: Mutex::new(None),
                 gate: std::sync::OnceLock::new(),
             }),
@@ -916,16 +920,8 @@ impl Validation {
     /// A validator's hold lifted (T-0357): the open round's validator starts, checked once more; a start that fails
     /// ends the round without a result, as a submit's would.
     pub async fn start_held(&self, ticket_id: &str) -> Result<(), BoardError> {
-        // Started meanwhile (the tool's Resume).
-        if self
-            .inner
-            .sessions
-            .running_of(ticket_id, SessionKind::Validator)
-            .is_some()
-        {
-            return Ok(());
-        }
-        if let Err(e) = self.start_validator(ticket_id).await {
+        // Started meanwhile (the tool's Resume): kept, not started again.
+        if let Err(e) = self.start_waiting_checker(ticket_id).await {
             tracing::warn!(ticket = ticket_id, error = %e, "the held validator didn't start");
             self.inner
                 .board
@@ -982,6 +978,37 @@ impl Validation {
     /// lifted hold), after the check before every launch: held, the round waits without one. Any validator still
     /// running for the ticket is stopped first: one per ticket.
     pub async fn start_validator(&self, ticket_id: &str) -> Result<ValidatorStart, BoardError> {
+        let lock = self.start_lock(ticket_id);
+        let _one_start = lock.lock().await;
+        self.start_validator_locked(ticket_id).await
+    }
+
+    /// Starts the checker of a round that waits for one (a lifted hold, a tool's Resume), unless one already runs
+    /// for the ticket: the first of two overlapping starts wins and the second keeps its checker.
+    async fn start_waiting_checker(&self, ticket_id: &str) -> Result<ValidatorStart, BoardError> {
+        let lock = self.start_lock(ticket_id);
+        let _one_start = lock.lock().await;
+        if let Some(running) = self
+            .inner
+            .sessions
+            .running_of(ticket_id, SessionKind::Validator)
+        {
+            return Ok(ValidatorStart::Started(Box::new(running)));
+        }
+        self.start_validator_locked(ticket_id).await
+    }
+
+    fn start_lock(&self, ticket_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.inner
+            .starting
+            .lock()
+            .expect("starting")
+            .entry(ticket_id.to_owned())
+            .or_default()
+            .clone()
+    }
+
+    async fn start_validator_locked(&self, ticket_id: &str) -> Result<ValidatorStart, BoardError> {
         let inner = &self.inner;
         let board = &inner.board;
         let ticket = board.ticket_by_id(ticket_id).await?;
@@ -1121,7 +1148,7 @@ impl Validation {
         let waiting = self.inner.board.validations_waiting_for_limit().await?;
         let mut started = Vec::new();
         for id in waiting {
-            match self.start_validator(&id).await {
+            match self.start_waiting_checker(&id).await {
                 Ok(ValidatorStart::Started(_)) => started.push(id),
                 Ok(ValidatorStart::Held(_)) => {}
                 Err(e) => {
