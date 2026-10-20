@@ -136,7 +136,8 @@ pub struct Row {
     /// **Show** for a hidden tool (`agent_tools.set_hidden {hidden: false}`).
     pub show: Option<String>,
     pub install: Option<CommandView>,
-    /// **Install** (`agent_tools.install`): runs `install`'s command in a terminal under the row, on the user's click.
+    /// **Install** (`agent_tools.install`): runs the tool's install command in a terminal under the row, on the user's
+    /// click. Every missing tool has it, also an optional one on onboarding whose [`Self::install`] isn't shown.
     pub install_button: Option<String>,
     /// Why there is no Install: "Needs Node.js (npm) first…".
     pub install_note: Option<String>,
@@ -265,15 +266,16 @@ pub fn row(s: &ToolStatus, place: Place, none_connected: bool) -> Row {
             command,
             copy: "Copy".to_owned(),
         });
-    let install_button = (install.is_some() && s.can_install).then(|| "Install".to_owned());
-    let install_note =
-        install
-            .as_ref()
-            .and(s.install_needs.as_deref())
-            .map(|manager| match manager {
-                "npm" => "Needs Node.js (npm) first. Install it, then Re-check.".to_owned(),
-                other => format!("Needs {other} first. Install it, then Re-check."),
-            });
+    // Install is offered for every missing tool, also an optional one on onboarding (where its command isn't shown).
+    let installable = s.state == AgentToolState::NotInstalled && s.install_command.is_some();
+    let install_button = (installable && s.can_install).then(|| "Install".to_owned());
+    let install_note = installable
+        .then_some(s.install_needs.as_deref())
+        .flatten()
+        .map(|manager| match manager {
+            "npm" => "Needs Node.js (npm) first. Install it, then Re-check.".to_owned(),
+            other => format!("Needs {other} first. Install it, then Re-check."),
+        });
     let update = matches!(s.state, AgentToolState::UpdateNeeded { .. })
         .then(|| s.install_command.clone())
         .flatten()
@@ -1035,6 +1037,22 @@ mod tests {
         let optional = row(&missing, Place::Onboarding, false);
         assert_eq!(optional.detail, "not installed · optional now");
         assert!(optional.install.is_none());
+        assert_eq!(
+            optional.install_button.as_deref(),
+            Some("Install"),
+            "an optional tool can still be installed"
+        );
+        let no_npm = ToolStatus {
+            can_install: false,
+            install_needs: Some("npm".to_owned()),
+            ..missing.clone()
+        };
+        let waiting = row(&no_npm, Place::Onboarding, false);
+        assert!(waiting.install_button.is_none());
+        assert_eq!(
+            waiting.install_note.as_deref(),
+            Some("Needs Node.js (npm) first. Install it, then Re-check.")
+        );
         let needed = row(&missing, Place::Onboarding, true);
         assert_eq!(needed.detail, "not installed");
         assert_eq!(needed.install.unwrap().command, "brew install codex");

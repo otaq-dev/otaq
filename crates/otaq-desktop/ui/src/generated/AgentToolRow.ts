@@ -36,7 +36,8 @@ sign_in: string | null,
  */
 show: string | null, install: AgentToolCommand | null, 
 /**
- * **Install** (`agent_tools.install`): runs `install`'s command in a terminal under the row, on the user's click.
+ * **Install** (`agent_tools.install`): runs the tool's install command in a terminal under the row, on the user's
+ * click. Every missing tool has it, also an optional one on onboarding whose [`Self::install`] isn't shown.
  */
 install_button: string | null, 
 /**
