@@ -94,7 +94,7 @@ fn main() -> ExitCode {
             file,
             kind,
             parent,
-            agents,
+            choices,
         }) => write::create(
             write::CreateArgs {
                 title,
@@ -105,7 +105,7 @@ fn main() -> ExitCode {
                 file,
                 epic: kind.as_deref() == Some("epic"),
                 parent,
-                agents,
+                choices,
             },
             &cli.global,
             &out,
@@ -116,7 +116,7 @@ fn main() -> ExitCode {
             description,
             priority,
             stdin,
-            agents,
+            choices,
         }) => write::update(
             write::UpdateArgs {
                 key,
@@ -124,7 +124,7 @@ fn main() -> ExitCode {
                 description,
                 priority,
                 stdin,
-                agents,
+                choices,
             },
             &cli.global,
             &out,

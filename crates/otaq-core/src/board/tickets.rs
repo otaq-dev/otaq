@@ -265,7 +265,10 @@ pub struct TicketUpdate {
     /// An empty string removes the External ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
-    /// An agent's change is the user's (`--by-user`, d0087): kept for stage choices (T-0407).
+    /// Stage choices (`--stage Dev=Quick developer`, AGM-11), checked before any field changes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<super::stage_choices::ChoicePick>,
+    /// An agent's choices are the user's (`--by-user`, d0087).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub by_user: bool,
 }
@@ -433,6 +436,12 @@ stored_enum! {
         /// role), `tool` and `model` (the fallback it runs on), `from_tool` and `reason` (`tool_limit`,
         /// `tool_unavailable`, `model_unavailable`). History reads "Started on Codex · Claude Code limit".
         FallbackUsed = "fallback_used",
+        /// A ticket's stage choice changed (AGM-08): payload `stage` (its name), `stage_id`, `choice` ("Quick
+        /// developer", "skip", "required"), `from` (before; null = nobody had chosen), `set_by` (`user`,
+        /// `project_agent`, `epic_lead`, `agent`), `by` ("you", "the Project agent", "Wishlist lead", "Griller"),
+        /// `reason` (an agent's) and, logged on an epic for a child, `child`. History reads "Dev: Quick developer
+        /// (set by the Project agent)" · "typo fix".
+        StageChoiceSet = "stage_choice_set",
     }
 }
 

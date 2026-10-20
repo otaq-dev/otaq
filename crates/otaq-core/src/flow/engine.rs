@@ -148,7 +148,7 @@ pub struct At<'f, 'a> {
     pub fails: u32,
     /// The current agent check's limit ([`rounds_of`]).
     pub rounds: u32,
-    /// The stages this ticket skips (its `skip` options; none are offered until M32).
+    /// The stages this ticket skips: its choices of `skip` ([`crate::board::Board::ticket_skips`], AGM-08).
     pub skips: &'a [String],
 }
 
@@ -183,6 +183,14 @@ impl<'f, 'a> At<'f, 'a> {
 /// Whether the ticket skips `stage` (it can, and chose to).
 fn skips(stage: &Stage, skips: &[String]) -> bool {
     stage.can_skip() && !stage.is_delivery() && skips.contains(&stage.id)
+}
+
+/// The ticket skips a human check of the flow: its Delivery is then in click mode (d0108: "a ticket that skipped a
+/// human check this way always reaches Delivery in click mode").
+fn skips_a_human_check(flow: &Flow, skipping: &[String]) -> bool {
+    flow.stages
+        .iter()
+        .any(|s| s.is_human_check() && skips(s, skipping))
 }
 
 /// What a ticket's agent-check counters do.
@@ -339,7 +347,8 @@ fn enter<'f>(at: &At<'f, '_>, skipped: Vec<&'f Stage>, stage: Option<&'f Stage>)
             step.start_check = stage.is_agent_check();
             step.automatic = stage
                 .delivery
-                .is_some_and(|d| d.mode == DeliveryMode::Automatic);
+                .is_some_and(|d| d.mode == DeliveryMode::Automatic)
+                && !skips_a_human_check(at.flow, at.skips);
             step
         }
     };

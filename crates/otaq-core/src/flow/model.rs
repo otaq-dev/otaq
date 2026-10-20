@@ -46,8 +46,8 @@ pub struct Stage {
     pub column: Column,
     pub agent: Option<String>,
     pub skill: Option<String>,
-    /// What a ticket may pick instead of the usual agent: another agent, or skipping the stage. Read, but not
-    /// offered until M32.
+    /// What a ticket may pick instead of the usual agent: another agent, or skipping the stage (its choices,
+    /// [`crate::board::stage_choices`]).
     pub options: Vec<StageOption>,
     /// An agent check's fails in a row before the card stops for the user (1–5).
     pub rounds: Option<u32>,

@@ -32,6 +32,7 @@ const TABLES: &[&str] = &[
     "stage_runs",
     "ticket_deps",
     "ticket_key_aliases",
+    "ticket_stage_choices",
     "tickets",
     "usage",
     "validations",
@@ -681,6 +682,25 @@ async fn one_row_round_trips_through_every_table() {
             .await
             .unwrap();
     assert_eq!((stage.as_str(), kind.as_str()), ("dev", "agent"));
+
+    // A stage choice (AGM-08, T-0407): the ticket's Validate runs on that agent, set by the Project agent.
+    sqlx::query(
+        "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, agent_id, set_by, by_name, reason, set_at) \
+         VALUES (?, 'validate', 'agent', ?, 'project_agent', 'Checkout slowness', 'small change', ?)",
+    )
+    .bind(&t18.id)
+    .bind(&light)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let choice: String =
+        sqlx::query_scalar("SELECT choice FROM ticket_stage_choices WHERE ticket_id = ?")
+            .bind(&t18.id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(choice, "agent");
 
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");

@@ -358,11 +358,12 @@ impl Starter {
         let actor = Actor::Agent(ticket.key.clone());
         // Not started: waiting again before the Agent stage it was starting (Ready for Dev before the first).
         let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+        let skips = board.ticket_skips(&ticket, &flow).await?;
         let waits_before = ticket
             .place
             .stage()
             .filter(|id| {
-                first_stage(&flow, &[])
+                first_stage(&flow, &skips)
                     .1
                     .is_none_or(|first| first.id != *id)
             })

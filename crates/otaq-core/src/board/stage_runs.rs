@@ -148,7 +148,13 @@ impl Board {
         } else {
             flow
         };
-        engine::step(At::new(&flow, &ticket.place, status), mv)
+        // The stages it skips by its choices (AGM-08): walked over with a skipped run.
+        let skips = self.ticket_skips(ticket, &flow).await?;
+        let at = At {
+            skips: &skips,
+            ..At::new(&flow, &ticket.place, status)
+        };
+        engine::step(at, mv)
             .map(|step| Moved::of(&step))
             .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))
     }

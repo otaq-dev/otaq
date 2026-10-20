@@ -78,6 +78,10 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "agent_tools.set_hidden" {
             params["hidden"] = json!(true);
         }
+        if method == "ticket.set_choice" {
+            params["stage"] = json!("Dev");
+            params["choice"] = json!("skip");
+        }
         if method == "decision.mark" {
             params["source"] = json!("PAY-1");
             params["text"] = json!("t");
@@ -287,6 +291,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentsReimportSkill(_)
         | Request::TicketAgents(_)
         | Request::BoardAgents(_)
+        | Request::TicketChoices(_)
+        | Request::TicketSetChoice(_)
         | Request::AgentToolsList
         | Request::AgentToolsRecheck(_)
         | Request::AgentToolsSetHidden(_)

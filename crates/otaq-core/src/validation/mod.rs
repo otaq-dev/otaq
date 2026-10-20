@@ -188,6 +188,7 @@ impl Validation {
         let extra = board.validation_rounds_extra(&ticket.id).await?;
         let flow = ticket_flow(&settings, &ticket);
         let rounds = check_rounds(&flow, &ticket, extra);
+        let skips = board.ticket_skips(&ticket, &flow).await?;
         let state = ValidationState {
             flow: &flow,
             place: &ticket.place,
@@ -196,6 +197,7 @@ impl Validation {
             rounds,
             auto_merge: auto_merge_applies(&ticket, &settings),
             conflicts: ticket.auto_merge_conflicts,
+            skips: &skips,
         };
         let event = if pass {
             ValidationEvent::Pass
@@ -348,6 +350,7 @@ impl Validation {
             .await?;
         let extra = board.validation_rounds_extra(&ticket.id).await?;
         let flow = ticket_flow(&settings, ticket);
+        let skips = board.ticket_skips(ticket, &flow).await?;
         transition(
             ValidationState {
                 flow: &flow,
@@ -357,6 +360,7 @@ impl Validation {
                 rounds: check_rounds(&flow, ticket, extra),
                 auto_merge: false,
                 conflicts: ticket.auto_merge_conflicts,
+                skips: &skips,
             },
             event,
         )
@@ -521,6 +525,7 @@ impl Validation {
             rounds: ticket.validation_round,
             auto_merge: false,
             conflicts: ticket.auto_merge_conflicts,
+            skips: &[],
         };
         let step = transition(failed, ValidationEvent::AnswerAgent)
             .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;
@@ -779,8 +784,12 @@ impl Validation {
             .board
             .effective_flow(ticket.key.project.as_str())
             .await?;
+        let skips = self.inner.board.ticket_skips(ticket, &flow).await?;
         Ok(crate::flow::engine::step(
-            crate::flow::engine::At::new(&flow, &ticket.place, Status::Working),
+            crate::flow::engine::At {
+                skips: &skips,
+                ..crate::flow::engine::At::new(&flow, &ticket.place, Status::Working)
+            },
             crate::flow::engine::Move::NextStage,
         )
         .ok()
@@ -824,6 +833,7 @@ impl Validation {
             ValidationTrigger::Agent => ValidationEvent::AgentSubmit,
             ValidationTrigger::User => ValidationEvent::UserNextStage,
         };
+        let skips = board.ticket_skips(&ticket, &flow).await?;
         let state = ValidationState {
             flow: &flow,
             place: &ticket.place,
@@ -832,6 +842,7 @@ impl Validation {
             rounds: check_rounds(&flow, &ticket, 0),
             auto_merge: false,
             conflicts: ticket.auto_merge_conflicts,
+            skips: &skips,
         };
         let step =
             transition(state, event).map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;

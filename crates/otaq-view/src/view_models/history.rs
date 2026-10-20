@@ -276,6 +276,19 @@ fn lead_stuck(p: &serde_json::Value) -> (String, Option<String>) {
     }
 }
 
+/// A stage choice (AGM-08): "Dev: Quick developer (set by the Project agent)" · "typo fix"; on an epic for a child,
+/// "Wishlist lead set SHOP-40.3's Dev: Quick developer".
+fn choice_line(p: &serde_json::Value) -> (String, Option<String>) {
+    let stage = text(p, "stage").unwrap_or_default();
+    let choice = text(p, "choice").unwrap_or_default();
+    let by = text(p, "by").unwrap_or_else(|| "you".to_owned());
+    let reason = text(p, "reason");
+    match text(p, "child") {
+        Some(child) => (format!("{by} set {child}'s {stage}: {choice}"), reason),
+        None => (format!("{stage}: {choice} (set by {by})"), reason),
+    }
+}
+
 fn text(payload: &serde_json::Value, field: &str) -> Option<String> {
     payload
         .get(field)
@@ -322,6 +335,7 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             text(p, "message").map(first_line),
         ),
         EventKind::AgentRowSet => agent_rows::row_change_line(p),
+        EventKind::StageChoiceSet => choice_line(p),
         EventKind::FallbackUsed => (agent_rows::fallback_line(p), None),
         EventKind::SchemaOverlap => (
             match text(p, "other") {
@@ -1358,5 +1372,28 @@ mod tests {
         assert_eq!(r.duration, "2 h 5 min");
         let r = session_row(&session("y", 0, Some(30_000), None), &[]);
         assert_eq!(r.duration, "0 min");
+    }
+
+    /// AGM-08: a stage choice's line, on the ticket and (for an epic lead's choice) on the epic.
+    #[test]
+    fn a_stage_choice_line() {
+        let p = serde_json::json!({
+            "stage": "Dev", "choice": "Quick developer", "set_by": "project_agent", "by": "the Project agent",
+            "reason": "typo fix"
+        });
+        assert_eq!(
+            choice_line(&p),
+            (
+                "Dev: Quick developer (set by the Project agent)".to_owned(),
+                Some("typo fix".to_owned())
+            )
+        );
+        let p = serde_json::json!({
+            "stage": "Grill", "choice": "skip", "by": "Wishlist lead", "reason": "docs only", "child": "SHOP-40.3"
+        });
+        assert_eq!(
+            choice_line(&p).0,
+            "Wishlist lead set SHOP-40.3's Grill: skip"
+        );
     }
 }

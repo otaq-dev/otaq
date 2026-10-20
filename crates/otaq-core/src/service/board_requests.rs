@@ -175,6 +175,44 @@ pub(super) async fn handle(
             agents.connected = shared.connected.connected();
             Ok(Reply::BoardAgents(Box::new(agents)))
         }),
+        // Stage choices (AGM-08, AGM-09).
+        Request::TicketChoices(p) => boxed(move || async move {
+            let choices = match (&p.key, &p.project) {
+                (Some(key), _) => board.ticket_choices(key).await?,
+                (None, Some(project)) => board.new_ticket_choices(project).await?,
+                (None, None) => return Err(BoardError::NotFound("a key or a project".into())),
+            };
+            Ok(Reply::TicketChoices(Box::new(choices)))
+        }),
+        Request::TicketSetChoice(p) => boxed(move || async move {
+            let ticket = board.ticket(&p.key).await?;
+            let chooser = super::permissions::chooser(caller, board).await;
+            let pick = crate::board::stage_choices::ChoicePick {
+                stage: p.stage.clone(),
+                choice: p.choice.clone(),
+                reason: None,
+            };
+            let project = ticket.key.project.to_string();
+            let writes = board
+                .check_choices(
+                    &project,
+                    Some(&ticket),
+                    (ticket.kind, ""),
+                    std::slice::from_ref(&pick),
+                    &chooser,
+                    false,
+                )
+                .await?;
+            if board
+                .write_choices(&ticket, &writes, &actor, lead_epic(caller))
+                .await?
+            {
+                publish_ticket_changed(shared, &ticket.key).await;
+            }
+            Ok(Reply::TicketChoices(Box::new(
+                board.ticket_choices(&p.key).await?,
+            )))
+        }),
         Request::AgentToolsList => {
             boxed(move || async move { Ok(Reply::AgentTools(Box::new(shared.connected.list()))) })
         }
@@ -292,11 +330,33 @@ pub(super) async fn handle(
         }),
         Request::TicketCreateBatch(p) => boxed(move || async move {
             let project = p.project.clone();
-            let created = mutate(
-                shared,
-                &project,
-                board.create_batch(&p.project, &p.tickets, &actor),
-            )
+            // Every ticket's choices are checked before anything is created (AGM-11).
+            let chooser = super::permissions::chooser(caller, board).await;
+            let mut writes = Vec::with_capacity(p.tickets.len());
+            for ticket in &p.tickets {
+                let label = format!("the new ticket \"{}\"", ticket.title);
+                writes.push(
+                    board
+                        .check_choices(
+                            &project,
+                            None,
+                            (ticket.kind, &label),
+                            &ticket.choices,
+                            &chooser,
+                            p.by_user,
+                        )
+                        .await?,
+                );
+            }
+            let created = mutate(shared, &project, async {
+                let tickets = board.create_batch(&p.project, &p.tickets, &actor).await?;
+                for (ticket, writes) in tickets.iter().zip(&writes) {
+                    board
+                        .write_choices(ticket, writes, &actor, lead_epic(caller))
+                        .await?;
+                }
+                Ok(tickets)
+            })
             .await;
             match created {
                 Ok(tickets) => {
@@ -313,12 +373,35 @@ pub(super) async fn handle(
         Request::TicketUpdate(p) => boxed(move || async move {
             let project = project_of(&p.key);
             let before = board.ticket(&p.key).await.ok();
-            let after = mutate(
-                shared,
-                &project,
-                board.update_ticket(&p.key, &p.update, &actor),
-            )
+            // The choices are checked before any field changes (AGM-11).
+            let writes = match &before {
+                Some(ticket) if !p.update.choices.is_empty() => {
+                    let chooser = super::permissions::chooser(caller, board).await;
+                    board
+                        .check_choices(
+                            ticket.key.project.as_str(),
+                            Some(ticket),
+                            (ticket.kind, ""),
+                            &p.update.choices,
+                            &chooser,
+                            p.update.by_user,
+                        )
+                        .await?
+                }
+                _ => Vec::new(),
+            };
+            let mut chosen = false;
+            let after = mutate(shared, &project, async {
+                let after = board.update_ticket(&p.key, &p.update, &actor).await?;
+                chosen = board
+                    .write_choices(&after, &writes, &actor, lead_epic(caller))
+                    .await?;
+                Ok(after)
+            })
             .await;
+            if chosen && let Ok(after) = &after {
+                publish_ticket_changed(shared, &after.key).await;
+            }
             // The user's description edit cancels a validation first (VAL-08); then the agent gets the note.
             let after = match (&before, after) {
                 (Some(before), Ok(after)) if !actor.is_agent() => {
@@ -334,7 +417,10 @@ pub(super) async fn handle(
                 queue_change_note(shared, before, after, &actor).await;
             }
             let fields = updated_fields(&p.update);
-            if let Ok(after) = &after {
+            // Choices alone are logged as choice changes, not as an edit.
+            if let Ok(after) = &after
+                && (!fields.is_empty() || p.update.choices.is_empty())
+            {
                 lead_changed(
                     shared,
                     caller,
@@ -1739,6 +1825,14 @@ async fn publish_ticket_changed(shared: &Shared, key: &crate::domain::TicketKey)
             id: ticket.id,
             key: ticket.key,
         });
+    }
+}
+
+/// The epic of an epic lead caller, whose choices for a child are logged on the epic too.
+fn lead_epic(caller: &Caller) -> Option<&str> {
+    match caller {
+        Caller::EpicLead { epic_id, .. } => Some(epic_id),
+        _ => None,
     }
 }
 

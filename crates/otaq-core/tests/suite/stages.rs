@@ -601,7 +601,8 @@ fn a_fail_walks_every_later_stage_again() {
     );
 }
 
-/// Grill skipped (its `skip` option taken): the start goes straight to Dev, and Grill has a skipped run.
+/// Grill skipped (its `skip` option taken): the start goes straight to Dev, and Grill has a skipped run. QA skipped
+/// too: its Delivery is in click mode (AGM-08).
 #[test]
 fn a_skipped_stage_gets_a_skipped_run() {
     let flow = every_kind();
@@ -630,8 +631,8 @@ fn a_skipped_stage_gets_a_skipped_run() {
         Some(("qa", RunResult::Skipped))
     );
     assert!(
-        into_ship.automatic,
-        "the automatic PR Delivery delivers with no click"
+        !into_ship.automatic,
+        "QA, a human check, was skipped: the automatic PR Delivery waits for a click (d0108)"
     );
 }
 

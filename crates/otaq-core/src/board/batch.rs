@@ -16,8 +16,7 @@
 //! - **Parent:** SHOP-40                  ← optional: the epic (an ID of this file or a key)
 //! - **Type:** epic                       ← optional: ticket (default) or epic
 //! - **Priority:** 2                      ← optional: 1 Urgent … 4 Low (default 3, a child follows its epic)
-//! - **Developer:** Light · docs-only    ← optional: the Developer row, " · " and the agent's reason (AGT-06)
-//! - **Validator:** Strong                ← optional: the Validator row; on an epic, "- **Epic lead:** …"
+//! - **Stage:** Dev=Quick developer · typo fix ← optional, repeatable: a stage choice, " · " and the agent's reason
 //! - **Size:** M                          ← any other "- **Name:** value" line at the top is ignored
 //!
 //! **What and why**                       ← the body: every other line of the section (this label removed)
@@ -57,6 +56,9 @@ pub struct BatchTicket {
     /// What it depends on: batch IDs or keys.
     #[serde(default)]
     pub depends_on: Vec<String>,
+    /// Its stage choices (`--stage Dev=Quick developer`, `- **Stage:** Dev=Quick developer · typo fix`; AGM-11).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<super::stage_choices::ChoicePick>,
 }
 
 /// A reference in a batch, resolved.
@@ -309,6 +311,15 @@ impl Section {
                         .map_err(|e| format!("{}: {e}", self.ticket.title))?,
                 );
             }
+            "stage" => {
+                let (pick, reason) = match value.split_once(" · ") {
+                    Some((pick, reason)) => (pick, Some(reason)),
+                    None => (value, None),
+                };
+                let pick = super::stage_choices::ChoicePick::parse(pick, reason)
+                    .map_err(|e| format!("{}: {e}", self.ticket.title))?;
+                self.ticket.choices.push(pick);
+            }
             "type" => {
                 self.ticket.kind = value
                     .trim()
@@ -482,6 +493,30 @@ Agents run the CLI without prompts.
             .unwrap();
         assert_eq!(t64.title, "Caller identity by process ancestry, `--actor`");
         assert_eq!(t64.depends_on, ["T-0007", "T-0050"]);
+    }
+
+    /// AGM-11: "- **Stage:** Dev=Quick developer · typo fix" lines, each a choice with an optional reason.
+    #[test]
+    fn stage_lines_are_choices() {
+        use crate::board::stage_choices::ChoicePick;
+        let tickets = parse_markdown(
+            "### Fix README typo\n- **Stage:** Dev=Quick developer · typo fix\n- **Stage:** Grill=skip\n\nTypo.\n",
+        )
+        .unwrap();
+        let pick = |stage: &str, choice: &str, reason: Option<&str>| ChoicePick {
+            stage: stage.into(),
+            choice: choice.into(),
+            reason: reason.map(Into::into),
+        };
+        assert_eq!(
+            tickets[0].choices,
+            [
+                pick("Dev", "Quick developer", Some("typo fix")),
+                pick("Grill", "skip", None)
+            ]
+        );
+        assert_eq!(tickets[0].body, "Typo.");
+        assert!(parse_markdown("### A\n- **Stage:** Dev\n").is_err());
     }
 
     #[test]

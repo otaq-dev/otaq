@@ -222,7 +222,7 @@ pub enum Request {
     /// agent rows (`agents`, `by_user`; AGT-06). Answered with [`Reply::Tickets`] (the new tickets, in order).
     #[serde(rename = "ticket.create_batch")]
     TicketCreateBatch(BatchParams),
-    /// Changes a ticket's fields and its agent rows (`agents`, `by_user`; AGT-06).
+    /// Changes a ticket's fields and its stage choices (`choices`, `by_user`; AGM-11).
     #[serde(rename = "ticket.update")]
     TicketUpdate(TicketUpdateParams),
     #[serde(rename = "ticket.move")]
@@ -813,6 +813,15 @@ pub enum Request {
     /// has the turn; T-0345). Answered with [`Reply::BoardAgents`].
     #[serde(rename = "board.agents")]
     BoardAgents(ProjectParams),
+    /// Stage choices (AGM-08, AGM-09; T-0407). `{"key": "SHOP-19"}`, or `{"project": "SHOP"}` for the ⌘N form: the
+    /// stages with options, each with what it offers, the ticket's choice and its lock. Answered with
+    /// [`Reply::TicketChoices`].
+    #[serde(rename = "ticket.choices")]
+    TicketChoices(TicketChoicesParams),
+    /// `{"key": "SHOP-19", "stage": "Dev", "choice": "Quick developer"}` (or `skip`, `required`): the user's choice
+    /// for one stage, until it starts. Answered with [`Reply::TicketChoices`].
+    #[serde(rename = "ticket.set_choice")]
+    TicketSetChoice(SetChoiceParams),
 
     // More agent tools (M23; d0086, d0088). The user's requests; each answers "not built yet" until its ticket lands.
     /// Every agent tool's state on Settings → Agent tools (T-0347; T-0348 adds the rest of each row). Answered
@@ -929,6 +938,23 @@ pub struct TicketAgentsParams {
     pub project: Option<String>,
     #[serde(default)]
     pub new_epic: bool,
+}
+
+/// `ticket.choices`: an existing ticket by `key`, else a new one in `project`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketChoicesParams {
+    #[serde(default)]
+    pub key: Option<String>,
+    #[serde(default)]
+    pub project: Option<String>,
+}
+
+/// `ticket.set_choice`: a stage by name or id, and an agent's name, `skip` or `required`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetChoiceParams {
+    pub key: String,
+    pub stage: String,
+    pub choice: String,
 }
 
 /// `{"id": "<question id>", "options": ["Logged-in users only", "Guests too"], "notes": [null, "Kept in the
@@ -1335,7 +1361,7 @@ pub struct BranchRenameParams {
 pub struct BatchParams {
     pub project: String,
     pub tickets: Vec<BatchTicket>,
-    /// The tickets' agent picks are the user's (`--by-user`, d0087): written *set by you*.
+    /// The tickets' stage choices are the user's (`--by-user`, d0087): written *set by you*.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub by_user: bool,
 }
@@ -1732,6 +1758,8 @@ impl Request {
             Self::AgentsReimportSkill(_) => "agents.reimport_skill",
             Self::TicketAgents(_) => "ticket.agents",
             Self::BoardAgents(_) => "board.agents",
+            Self::TicketChoices(_) => "ticket.choices",
+            Self::TicketSetChoice(_) => "ticket.set_choice",
             Self::AgentToolsList => "agent_tools.list",
             Self::AgentToolsRecheck(_) => "agent_tools.recheck",
             Self::AgentToolsSetHidden(_) => "agent_tools.set_hidden",
@@ -1856,6 +1884,7 @@ pub enum Reply {
     AgentDraft(Box<crate::agents::AgentFields>),
     TicketAgents(Box<crate::agents::facts::TicketAgents>),
     BoardAgents(Box<crate::agents::facts::BoardAgents>),
+    TicketChoices(Box<crate::board::stage_choices::TicketChoices>),
     AgentInUse(Box<crate::agents::InUse>),
     /// Every agent tool's row (`agent_tools.list`, `agent_tools.set_hidden`).
     AgentTools(Box<crate::agent_tools::connected::AgentToolsList>),

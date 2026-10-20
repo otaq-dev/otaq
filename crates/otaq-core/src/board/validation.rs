@@ -39,6 +39,8 @@ pub struct ValidationState<'a> {
     pub auto_merge: bool,
     /// Auto-merge conflicts in a row so far.
     pub conflicts: u32,
+    /// The stages the ticket skips by its choices ([`Board::ticket_skips`], AGM-08).
+    pub skips: &'a [String],
 }
 
 /// What happened.
@@ -209,6 +211,7 @@ pub fn transition(s: ValidationState<'_>, event: ValidationEvent) -> Result<Tran
     let at = At {
         fails: s.round,
         rounds: s.rounds,
+        skips: s.skips,
         ..At::new(s.flow, s.place, s.status)
     };
     let go = |mv: Move| {
@@ -221,7 +224,7 @@ pub fn transition(s: ValidationState<'_>, event: ValidationEvent) -> Result<Tran
     let agent_stage = || {
         s.place
             .stage()
-            .and_then(|id| engine::back_to(s.flow, id, &[]))
+            .and_then(|id| engine::back_to(s.flow, id, s.skips))
             .ok_or_else(not_now)
     };
     let review_stage = || {
@@ -1140,6 +1143,7 @@ mod tests {
             rounds: 3,
             auto_merge: false,
             conflicts: 0,
+            skips: &[],
         }
     }
 

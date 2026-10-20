@@ -1,5 +1,5 @@
-//! Which agent runs (AGM-05; d0108, d0088): a session in a stage runs the ticket's choice for that stage (T-0407),
-//! else **the stage's agent** (the agent the flow names); the Project agent and the epic lead run **the agent with
+//! Which agent runs (AGM-05; d0108, d0088): a session in a stage runs the ticket's choice for that stage (AGM-08,
+//! [`crate::board::stage_choices`]), else **the stage's agent** (the agent the flow names); the Project agent and the epic lead run **the agent with
 //! that role**. A flow names agents by name: the shipped default flow's names were bound to their agents' ids when it
 //! was applied (`agents.flow_names`), so a rename changes nothing; any other name (the test flow's) is looked up
 //! among the agents, ignoring case. An unknown name is a check error naming the stage ([`crate::flow::check_agents`]).
@@ -47,8 +47,8 @@ pub async fn stage_agent(board: &Board, stage: &Stage) -> Result<Agent, BoardErr
         .ok_or_else(|| unknown(stage, name))
 }
 
-/// The running agent of `ticket` in the stage `stage_id` (AGM-05): the ticket's choice for it (T-0407 adds choices),
-/// else the stage's agent.
+/// The running agent of `ticket` in the stage `stage_id` (AGM-05): the ticket's choice for it (AGM-08), else the
+/// stage's agent.
 pub async fn running_agent(
     board: &Board,
     ticket: &Ticket,
@@ -61,7 +61,10 @@ pub async fn running_agent(
             ticket.key.project.as_str()
         ))
     })?;
-    stage_agent(board, stage).await
+    match board.chosen_agent(ticket, stage).await? {
+        Some(agent) => Ok(agent),
+        None => stage_agent(board, stage).await,
+    }
 }
 
 /// The agent with `role` (AGM-01, AGM-05).
@@ -73,35 +76,36 @@ pub async fn role_agent(store: &Store, role: Role) -> Result<Agent, BoardError> 
 }
 
 /// The Agent stage a ticket's agent session starts or continues in: the one it waits before, the Agent stage it is in,
-/// else (from a check, coming back) the nearest earlier Agent stage, else the first one.
-pub fn agent_stage_of<'f>(flow: &'f Flow, ticket: &Ticket) -> Option<&'f Stage> {
+/// else (from a check, coming back) the nearest earlier Agent stage, else the first one it runs. `skips`: the stages
+/// it skips by its choices (AGM-08), never started.
+pub fn agent_stage_of<'f>(flow: &'f Flow, ticket: &Ticket, skips: &[String]) -> Option<&'f Stage> {
     let at = match &ticket.place {
         Place::Waiting(Some(id)) | Place::InStage(id) => flow.stage(id),
         _ => None,
     };
+    let first = || crate::flow::engine::first_stage(flow, skips).1;
     match at {
         Some(stage) if stage.is_agent_stage() => Some(stage),
-        Some(stage) => {
-            crate::flow::engine::back_to(flow, &stage.id, &[]).or_else(|| flow.first_agent_stage())
-        }
-        None => flow.first_agent_stage(),
+        Some(stage) => crate::flow::engine::back_to(flow, &stage.id, skips).or_else(first),
+        None => first(),
     }
 }
 
 /// The agent check a ticket's check session runs in: the one it is in, else the first agent check after its Agent
-/// stage, else the flow's first.
-pub fn check_stage_of<'f>(flow: &'f Flow, ticket: &Ticket) -> Option<&'f Stage> {
+/// stage it doesn't skip, else the flow's first.
+pub fn check_stage_of<'f>(flow: &'f Flow, ticket: &Ticket, skips: &[String]) -> Option<&'f Stage> {
     let at = ticket.place.stage().and_then(|id| flow.stage(id));
+    let runs = |s: &&Stage| s.is_agent_check() && !skips.contains(&s.id);
     match at {
         Some(stage) if stage.is_agent_check() => Some(stage),
         Some(stage) => {
             let index = flow.position(&stage.id)?;
             flow.stages[index..]
                 .iter()
-                .find(|s| s.is_agent_check())
-                .or_else(|| flow.stages.iter().find(|s| s.is_agent_check()))
+                .find(runs)
+                .or_else(|| flow.stages.iter().find(runs))
         }
-        None => flow.stages.iter().find(|s| s.is_agent_check()),
+        None => flow.stages.iter().find(runs),
     }
 }
 
@@ -116,9 +120,10 @@ pub async fn session_agent(
         return role_agent(board.store(), role).await;
     }
     let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+    let skips = board.ticket_skips(ticket, &flow).await?;
     let stage = match role {
-        SessionRole::Validator => check_stage_of(&flow, ticket),
-        _ => agent_stage_of(&flow, ticket),
+        SessionRole::Validator => check_stage_of(&flow, ticket, &skips),
+        _ => agent_stage_of(&flow, ticket, &skips),
     }
     .ok_or_else(|| {
         BoardError::NotFound(format!(

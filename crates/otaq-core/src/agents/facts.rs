@@ -12,8 +12,8 @@ use crate::board::{Board, BoardError};
 use crate::domain::{Kind, Status, TicketKey};
 use crate::usage::AgentTokens;
 
-/// A stage of the ticket's flow that runs an agent, and the agent it runs (the stage's agent; T-0407 adds the
-/// ticket's choice).
+/// A stage of the ticket's flow that runs an agent, and the agent it runs (the ticket's choice, else the stage's
+/// agent; AGM-05, AGM-08).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageAgent {
     pub stage_id: String,
@@ -183,6 +183,17 @@ pub async fn new_ticket_agents(
 pub async fn ticket_agents(board: &Board, key: &str) -> Result<TicketAgents, BoardError> {
     let ticket = board.ticket(key).await?;
     let mut agents = new_ticket_agents(board, ticket.key.project.as_str(), ticket.kind).await?;
+    // The agent the ticket chose for a stage instead of its usual one (AGM-08).
+    if ticket.kind == Kind::Ticket {
+        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+        for stage_agent in &mut agents.stages {
+            if let Some(stage) = flow.stage(&stage_agent.stage_id)
+                && let Some(chosen) = board.chosen_agent(&ticket, stage).await?
+            {
+                stage_agent.agent = Some(chosen);
+            }
+        }
+    }
     let store = board.store();
     let mut sessions = store.session_agents(&ticket.id).await?;
     for session in &mut sessions {

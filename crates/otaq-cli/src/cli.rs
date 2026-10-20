@@ -25,23 +25,17 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
-/// The agent rows of `create` and `update` (AGT-06): named agents by name, ignoring case; `default` empties a
-/// row.
+/// The stage choices of `create` and `update` (AGM-11, d0108): a stage with options (by name or id) and one of its
+/// options.
 #[derive(Debug, Default, Args)]
-pub struct AgentFlags {
-    /// The ticket's Developer: a named agent ("Light"), or `default`
-    #[arg(long, value_name = "AGENT")]
-    pub developer: Option<String>,
-    /// The ticket's Validator: a named agent, or `default`
-    #[arg(long, value_name = "AGENT")]
-    pub validator: Option<String>,
-    /// The epic's lead: a named agent, or `default`
-    #[arg(long, value_name = "AGENT")]
-    pub lead: Option<String>,
-    /// Why you picked these agents (agents only: "docs-only change")
+pub struct ChoiceFlags {
+    /// A stage choice, repeatable: "Dev=Quick developer", "Grill=skip", "QA=required"
+    #[arg(long = "stage", value_name = "STAGE=AGENT|skip")]
+    pub stages: Vec<String>,
+    /// Why you chose (agents only: "typo fix")
     #[arg(long, value_name = "TEXT")]
     pub reason: Option<String>,
-    /// The user named these agents themselves (agents only): they show as set by you
+    /// The user named these choices themselves (agents only): they show as set by you
     #[arg(long)]
     pub by_user: bool,
 }
@@ -198,9 +192,9 @@ pub enum Command {
         #[arg(long, value_name = "EPIC")]
         parent: Option<String>,
         #[command(flatten)]
-        agents: AgentFlags,
+        choices: ChoiceFlags,
     },
-    /// Change a ticket's title, description, priority or agents (default: $OTAQ_TICKET)
+    /// Change a ticket's title, description, priority or stage choices (default: $OTAQ_TICKET)
     Update {
         /// SHOP-18, or 18 in the current project
         key: Option<String>,
@@ -217,7 +211,7 @@ pub enum Command {
         #[arg(long)]
         stdin: bool,
         #[command(flatten)]
-        agents: AgentFlags,
+        choices: ChoiceFlags,
     },
     /// Ask the user (`ask human --stdin`; the ticket shows "Asks you") or a linked ticket's agent (`ask SHOP-18
     /// --stdin`)

@@ -105,6 +105,7 @@ mod sessions;
 mod settings;
 mod shell;
 mod signals;
+mod stage_choices;
 mod stage_delivery;
 mod stage_end;
 mod stage_kinds;

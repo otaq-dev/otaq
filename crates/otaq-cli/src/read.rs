@@ -3,9 +3,10 @@
 //!
 //! # `--json` shapes (stable; fields may be added, never renamed or removed)
 //!
-//! - `show`: `{"ticket": Ticket, "agents": [StageAgent], "decisions": [Decision], "children": [Ticket]?,
-//!   "history": [HistoryEvent]?, "messages": [Message]?}`: `agents` are the agent each of the ticket's stages runs,
-//!   or the epic's lead ([`StageAgentJson`], AGM-05); `decisions` the ticket's recorded decisions (DEC-02,
+//! - `show`: `{"ticket": Ticket, "agents": [StageAgent], "choices": [Choice], "decisions": [Decision],
+//!   "children": [Ticket]?, "history": [HistoryEvent]?, "messages": [Message]?}`: `agents` are the agent each of the
+//!   ticket's stages runs, or the epic's lead ([`StageAgentJson`], AGM-05); `choices` its stages with options and
+//!   its choice for each ([`ChoiceJson`], AGM-11); `decisions` the ticket's recorded decisions (DEC-02,
 //!   `otaq_core::decisions`),
 //!   `children` with `--children` (epics), `history` and `messages` (questions between linked tickets) with
 //!   `--long`.
@@ -21,13 +22,14 @@
 use otaq_core::agents::facts::TicketAgents;
 use otaq_core::board::readiness::Readiness;
 use otaq_core::board::snapshot::ProjectInfo;
+use otaq_core::board::stage_choices::{SetBy, TicketChoices};
 use otaq_core::board::tickets::{Base, HistoryEvent, Ticket};
 use otaq_core::client::Client;
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{Place, Priority, Status, StatusSet, TicketKey};
 use otaq_core::protocol::{
     ErrorBody, ErrorKind, KeyParams, ProjectParams, Reply, Request, TerminalParams,
-    TicketAgentsParams,
+    TicketAgentsParams, TicketChoicesParams,
 };
 use otaq_core::store::now_ms;
 use serde::Serialize;
@@ -113,7 +115,8 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
             other => return Err(unexpected(&other)),
         };
         let agents = ticket_agents(client, &ticket.key.to_string()).await?;
-        let mut human = show_text(&ticket, &tickets, Some(&agents));
+        let choices = ticket_choices(client, &ticket.key.to_string()).await?;
+        let mut human = show_text(&ticket, &tickets, Some(&agents), Some(&choices));
         if !decisions.is_empty() {
             // Only a lead marks: its mark is named after the ticket's epic ("Marked by Wishlist lead").
             let lead = ticket
@@ -135,6 +138,7 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
         let mut value = json!({
             "ticket": ticket,
             "agents": agents_json(&agents),
+            "choices": choices_json(&choices),
             "decisions": decisions,
         });
         if args.children {
@@ -373,6 +377,84 @@ pub fn agents_json(agents: &TicketAgents) -> Vec<StageAgentJson> {
         .collect()
 }
 
+/// The ticket's stages with options and its choices (`ticket.choices`, AGM-08).
+pub async fn ticket_choices(client: &Client, key: &str) -> Result<TicketChoices, ErrorBody> {
+    match request(
+        client,
+        Request::TicketChoices(TicketChoicesParams {
+            key: Some(key.to_owned()),
+            project: None,
+        }),
+    )
+    .await?
+    {
+        Reply::TicketChoices(c) => Ok(*c),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// One stage's choice in `--json` (AGM-11): `{"stage": "Dev", "choice": "Quick developer", "set_by":
+/// "project_agent", "by": "the Project agent", "reason": "typo fix", "locked": false, "options": ["Rust developer",
+/// "Quick developer"]}`. Every stage with options is listed; `set_by`, `by` and `reason` are missing when nobody
+/// chose (the usual one runs).
+#[derive(Debug, Serialize)]
+pub struct ChoiceJson {
+    pub stage: String,
+    pub choice: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub set_by: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub locked: bool,
+    pub options: Vec<String>,
+}
+
+/// The stages' choices as `--json` carries them.
+pub fn choices_json(choices: &TicketChoices) -> Vec<ChoiceJson> {
+    choices
+        .stages
+        .iter()
+        .map(|stage| {
+            let set_by = stage.choice.as_ref().map(|c| &c.set_by);
+            ChoiceJson {
+                stage: stage.stage.clone(),
+                choice: stage.label(),
+                set_by: set_by.map(|s| match s {
+                    SetBy::User => "user",
+                    SetBy::ProjectAgent { .. } => "project_agent",
+                    SetBy::EpicLead { .. } => "epic_lead",
+                    SetBy::Agent { .. } => "agent",
+                }),
+                by: set_by.map(SetBy::who),
+                reason: set_by.and_then(SetBy::reason).map(str::to_owned),
+                locked: stage.locked,
+                options: stage.words(),
+            }
+        })
+        .collect()
+}
+
+/// The choices someone made, one line each (AGM-11): "Choices:     Dev: Quick developer · set by the Project agent ·
+/// typo fix". Nothing when nobody chose.
+pub fn choices_text(choices: &TicketChoices) -> String {
+    let mut text = String::new();
+    for stage in choices.stages.iter().filter(|s| s.choice.is_some()) {
+        let label = if text.is_empty() { "Choices:" } else { "" };
+        let set_by = stage.choice.as_ref().map(|c| &c.set_by);
+        let mut line = format!("{}: {}", stage.stage, stage.label());
+        if let Some(set_by) = set_by {
+            line.push_str(&format!(" · set by {}", set_by.who()));
+            if let Some(reason) = set_by.reason().filter(|r| !r.is_empty()) {
+                line.push_str(&format!(" · {reason}"));
+            }
+        }
+        text.push_str(&format!("{label:<12} {line}\n"));
+    }
+    text
+}
+
 pub async fn get_ticket(client: &Client, key: &str) -> Result<Ticket, ErrorBody> {
     match request(
         client,
@@ -542,7 +624,12 @@ fn status_of(key: &TicketKey, tickets: &[Ticket]) -> String {
 }
 
 /// The full human view of one ticket.
-pub fn show_text(ticket: &Ticket, tickets: &[Ticket], agents: Option<&TicketAgents>) -> String {
+pub fn show_text(
+    ticket: &Ticket,
+    tickets: &[Ticket],
+    agents: Option<&TicketAgents>,
+    choices: Option<&TicketChoices>,
+) -> String {
     let mut text = format!("{} · {}\n", ticket.key, ticket.title);
     let kind = if ticket.is_epic() { "Epic · " } else { "" };
     let (status, column) = (ticket.status.label(), Column::of(ticket).label());
@@ -599,6 +686,9 @@ pub fn show_text(ticket: &Ticket, tickets: &[Ticket], agents: Option<&TicketAgen
         let label = format!("{}:", stage.stage);
         let agent = stage.agent.as_deref().unwrap_or("not one of your agents");
         text.push_str(&format!("{label:<12} {agent}\n"));
+    }
+    if let Some(choices) = choices {
+        text.push_str(&choices_text(choices));
     }
     if !ticket.body.trim().is_empty() {
         text.push_str(&format!("\nWhat and why\n{}\n", ticket.body.trim_end()));

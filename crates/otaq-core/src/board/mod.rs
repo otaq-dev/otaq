@@ -24,6 +24,7 @@ pub mod send_back;
 pub mod settings;
 pub mod snapshot;
 pub mod stack;
+pub mod stage_choices;
 pub mod stage_runs;
 pub mod tickets;
 pub mod validation;
@@ -239,6 +240,10 @@ stored_enum! {
         OriginalNotFound = "original_not_found",
         /// The agent has no such imported skill to re-import.
         NotImported = "not_imported",
+        /// A stage choice that isn't one of the stage's options, a stage without options, or an epic (AGM-08).
+        NotAnOption = "not_an_option",
+        /// The stage has started: its choice is locked (AGM-08).
+        ChoiceLocked = "choice_locked",
     }
 }
 

@@ -3,6 +3,7 @@
 
 use crate::board::batch::{BatchTicket, Ref};
 use crate::board::epic_flight::is_never_started;
+use crate::board::stage_choices::Chooser;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
 use crate::caller::Caller;
@@ -70,6 +71,42 @@ async fn stage_name(caller: &Caller, board: &Board) -> Option<String> {
             .and_then(|f| f.stage(&run.stage))
             .map_or(run.stage.clone(), |s| s.name.clone()),
     )
+}
+
+/// Who sets stage choices in a request (AGM-08, AGM-11): the user, the Project agent by its name, an epic lead
+/// ("Wishlist lead"), or a ticket's agent by the agent its session runs ("Griller").
+pub(super) async fn chooser(caller: &Caller, board: &Board) -> Chooser {
+    match caller {
+        Caller::User => Chooser::User,
+        Caller::ProjectAgent { agent, .. } => Chooser::ProjectAgent {
+            name: project_agent_name(board, agent).await,
+        },
+        Caller::EpicLead { epic_id, epic, .. } => Chooser::EpicLead {
+            name: board.ticket_by_id(epic_id).await.map_or_else(
+                |_| format!("{epic}'s lead"),
+                |e| crate::project_agents::lead::lead_name(&e.title),
+            ),
+        },
+        Caller::Agent {
+            ticket, session, ..
+        }
+        | Caller::Validator {
+            ticket, session, ..
+        } => {
+            let name: Option<Option<String>> =
+                sqlx::query_scalar("SELECT agent_name FROM sessions WHERE id = ?")
+                    .bind(session)
+                    .fetch_optional(board.store().pool())
+                    .await
+                    .ok()
+                    .flatten();
+            Chooser::TicketAgent {
+                name: name
+                    .flatten()
+                    .unwrap_or_else(|| format!("{ticket}'s agent")),
+            }
+        }
+    }
 }
 
 /// A Project agent's name ("New agent" until named, PAG-04).
@@ -143,6 +180,12 @@ async fn batch_action(
         .iter()
         .map(|epic| Action::CreateTicket { epic: epic.clone() })
         .collect();
+    // Choices first, so a ticket agent hears why it can't set them on a new ticket.
+    for (n, ticket) in tickets.iter().enumerate() {
+        if !ticket.choices.is_empty() {
+            actions.insert(0, Action::SetChoices(new(n)));
+        }
+    }
     for (n, ticket) in tickets.iter().enumerate() {
         for dep in &ticket.depends_on {
             let parent = match board.batch_ref(tickets, dep).await? {
@@ -243,7 +286,25 @@ async fn action_for(
         R::AgentsModelsRefresh(_) => Action::UserOnly("read the model lists again"),
         R::AgentsModelsRetry(_) => Action::UserOnly("read the model lists again"),
 
-        R::TicketUpdate(p) => Action::EditTicket(facts(board, &p.key).await?),
+        R::TicketUpdate(p) => {
+            let target = facts(board, &p.key).await?;
+            let fields = crate::board::tickets::TicketUpdate {
+                choices: Vec::new(),
+                by_user: false,
+                ..p.update.clone()
+            };
+            match (p.update.choices.is_empty(), fields == Default::default()) {
+                (true, _) => Action::EditTicket(target),
+                // Choices only: the choice rule alone.
+                (false, true) => Action::SetChoices(target),
+                (false, false) => Action::All(vec![
+                    Action::SetChoices(target.clone()),
+                    Action::EditTicket(target),
+                ]),
+            }
+        }
+        R::TicketSetChoice(p) => Action::SetChoices(facts(board, &p.key).await?),
+        R::TicketChoices(_) => Action::Read,
         R::TicketAskHuman(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionRecord(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionChange(_) => Action::UserOnly("change recorded decisions"),

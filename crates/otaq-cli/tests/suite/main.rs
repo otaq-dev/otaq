@@ -27,6 +27,7 @@ mod project_agent_attention;
 mod project_agents;
 mod read;
 mod skills;
+mod stage_choices;
 mod statusline;
 mod terminals;
 mod validate;

@@ -32,10 +32,10 @@
 //! park, approve, merge, close, delete, a started child, the epic itself, other tickets, `agent name`) is refused:
 //! "Wishlist lead can only change SHOP-40's children that haven't started" ([`lead_refusal`]).
 //!
-//! **Choosing agents** (`otaq create|update --developer|--validator|--lead`, AGT-06; d0086, d0087) is its own
-//! action, [`Action::PickAgents`]: a Project agent on the tickets it may change (Backlog), an epic lead on its
-//! epic's never-started children (not its own Epic lead row); ticket agents and validators never ("Ticket agents
-//! can't choose agents"). The per-ticket rows went with M32 (AGM-02); stage choices (T-0407) take this action.
+//! **Stage choices** (`otaq create|update --stage`, AGM-11; d0108, d0087) are their own action,
+//! [`Action::SetChoices`]: a Project agent on the tickets it may change (Backlog), an epic lead on its epic's
+//! never-started children (not the epic), a ticket agent on its own ticket; a validator never. Which stage each may
+//! choose for, and over whose choice, is [`crate::board::stage_choices::judge`]'s.
 //!
 //! **Reading a ticket's terminal** (`otaq show <KEY> --terminal`, CLI-09, d0087) is its own narrower action, not
 //! "read anything": a Project agent reads any ticket of its project, an epic lead its own epic's children; ticket
@@ -66,15 +66,6 @@ pub const ONLY_A_LEAD_MARKS: &str = "Only an epic's lead can mark a recorded dec
 /// The refusal of `suggest close|delete` from anyone but an epic's lead (LEAD-08).
 pub const ONLY_A_LEAD_SUGGESTS: &str =
     "Only an epic's lead can suggest closing or deleting a child";
-
-/// Every refusal of an agent pick from a ticket's agent or validator (AGT-06).
-pub const TICKET_AGENTS_CANT_PICK: &str = "Ticket agents can't choose agents";
-
-/// An agent's pick while there is one named agent (d0086, Q-H): agents make no picks then.
-pub const NOTHING_TO_PICK: &str = "There's only one agent, so there's nothing to pick";
-
-/// An agent's pick without a reason (AGT-06).
-pub const SAY_WHY: &str = "Say why with --reason";
 
 /// The refusal of a ticket's terminal to an epic lead outside its epic's children (CLI-09): "Wishlist lead can
 /// only read SHOP-40's children's terminals".
@@ -163,8 +154,9 @@ pub enum Action {
         target: TicketFacts,
         project: String,
     },
-    /// Sets this ticket's agent picks (AGT-06): stage choices from T-0407.
-    PickAgents(TicketFacts),
+    /// Sets this ticket's stage choices (`--stage`, AGM-11); each is then judged by
+    /// [`crate::board::stage_choices::judge`].
+    SetChoices(TicketFacts),
     /// Only the user may do this; `what` completes "SHOP-18's agent can't …" ("move tickets").
     UserOnly(&'static str),
     /// `check pass|fail` for this ticket: its agent check's session only.
@@ -227,7 +219,6 @@ pub fn authorize_in_stage(
             Action::ReadTerminal { target, .. } => {
                 refuse(format!("{who} can't read {}'s terminal", target.label))
             }
-            Action::PickAgents(_) => refuse(TICKET_AGENTS_CANT_PICK.to_owned()),
             Action::All(actions) => all(actions),
             _ => match stage {
                 Some(stage) => refuse(check_only_verdict(ticket, stage)),
@@ -247,7 +238,7 @@ pub fn authorize_in_stage(
         return match action {
             Action::Read => Ok(()),
             Action::CreateTicket { epic: Some(e) } if e == epic_id => Ok(()),
-            Action::EditTicket(target) | Action::PickAgents(target)
+            Action::EditTicket(target) | Action::SetChoices(target)
                 if lead_may_change(target, epic_id) =>
             {
                 Ok(())
@@ -294,7 +285,7 @@ pub fn authorize_in_stage(
                 names.caller.unwrap_or("The Project agent"),
                 names.project.unwrap_or(project),
             )),
-            Action::EditTicket(target) | Action::PickAgents(target) if target.backlog => Ok(()),
+            Action::EditTicket(target) | Action::SetChoices(target) if target.backlog => Ok(()),
             // A Backlog ticket may wait for any ticket ("SHOP-35 waits for SHOP-19").
             Action::Dependency { child, .. } if child.backlog => Ok(()),
             Action::All(actions) => all(actions),
@@ -311,6 +302,7 @@ pub fn authorize_in_stage(
         Action::Read | Action::CreateTicket { .. } => Ok(()),
         Action::ChangeTicket(target)
         | Action::EditTicket(target)
+        | Action::SetChoices(target)
         | Action::Answer { asked: target, .. }
             if target.id == *ticket_id =>
         {
@@ -318,6 +310,7 @@ pub fn authorize_in_stage(
         }
         Action::ChangeTicket(target)
         | Action::EditTicket(target)
+        | Action::SetChoices(target)
         | Action::Answer { asked: target, .. } => {
             refuse(format!("{ticket}'s agent can't change {}", target.label))
         }
@@ -338,7 +331,6 @@ pub fn authorize_in_stage(
             "{ticket}'s agent can't read {}'s terminal",
             target.label
         )),
-        Action::PickAgents(_) => refuse(TICKET_AGENTS_CANT_PICK.to_owned()),
         Action::UserOnly(what) => refuse(format!("{ticket}'s agent can't {what}; ask the user")),
         Action::Verdict(_) | Action::LeadCommand { .. } => unreachable!("handled above"),
         Action::All(actions) => all(actions),
@@ -966,11 +958,11 @@ mod tests {
             .is_err()
         );
     }
-    /// T-0338 (AGT-06, CLI-06, CLI-07): who may set agent rows at all. The user always; a Project agent on Backlog
-    /// tickets; an epic lead on its never-started children (not its own Epic lead row); ticket agents and
-    /// validators never.
+    /// AGM-11 (CLI-06, CLI-07): who may set stage choices at all. The user always; a Project agent on Backlog
+    /// tickets; an epic lead on its never-started children (not the epic); a ticket agent on its own ticket only; a
+    /// validator never.
     #[test]
-    fn who_may_pick_agents() {
+    fn who_may_set_stage_choices() {
         let backlog = TicketFacts {
             backlog: true,
             never_started: true,
@@ -1033,7 +1025,7 @@ mod tests {
                 &other_epic,
                 Some(lead_text),
             ),
-            ("lead, its own Epic lead row", &lead, &epic, Some(lead_text)),
+            ("lead, its epic", &lead, &epic, Some(lead_text)),
             (
                 "lead, a standalone ticket",
                 &lead,
@@ -1042,20 +1034,25 @@ mod tests {
             ),
         ];
         for (name, caller, target, expected) in rows {
-            let action = Action::PickAgents(target.clone());
+            let action = Action::SetChoices(target.clone());
             assert_eq!(
                 message(authorize_named(caller, names, &action)).as_deref(),
                 expected,
                 "{name}"
             );
         }
-        for caller in [&agent("SHOP-13", "t13"), &validator] {
-            for target in [&backlog, &ready] {
-                assert_eq!(
-                    message(authorize(caller, &Action::PickAgents(target.clone()))).as_deref(),
-                    Some(TICKET_AGENTS_CANT_PICK)
-                );
-            }
-        }
+        let choose = |caller: &Caller, target: &TicketFacts| {
+            message(authorize(caller, &Action::SetChoices(target.clone())))
+        };
+        // SHOP-13's own agent: its own ticket only.
+        assert_eq!(choose(&agent("SHOP-13", "t13"), &backlog), None);
+        assert_eq!(
+            choose(&agent("SHOP-13", "t13"), &ready).as_deref(),
+            Some("SHOP-13's agent can't change SHOP-20")
+        );
+        assert_eq!(
+            choose(&validator, &backlog).as_deref(),
+            Some("SHOP-13's check can only give its verdict")
+        );
     }
 }
