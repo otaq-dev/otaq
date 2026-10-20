@@ -317,8 +317,13 @@ stored_enum! {
         StartRetried = "start_retried",
         /// Something worth knowing about a start that didn't stop it (a dirty checkout left the base behind).
         StartNote = "start_note",
-        /// `otaq review submit`: the payload has the summary (T-0072).
+        /// `otaq stage next` (or `review submit`, or the user's Move to next stage) into a human check: the payload
+        /// has the summary (T-0072; Q263).
         ReviewSubmitted = "review_submitted",
+        /// An Agent stage ended with `otaq stage next` into anything but a human check (an agent check, the wait
+        /// before another Agent stage; Q263, AGM-10): the payload has the stage's name (`stage`), its id
+        /// (`stage_id`) and the summary.
+        StageFinished = "stage_finished",
         /// Send back: the comments and note went to the agent; the payload has the round (T-0086).
         SentBack = "sent_back",
         /// Local merge: Done · Merged; the payload has the target and the squash commit (T-0089).
@@ -878,13 +883,14 @@ impl Board {
                 *open_decisions.entry(epic).or_default() += n;
             }
         }
-        // The latest review submit of each ticket, for "Submitted by you" (d0052).
+        // The latest stage end of each ticket (into a human check or not), for "Submitted by you" (d0052).
         let submits: std::collections::HashMap<String, (String, String)> = sqlx::query_as(
             "SELECT e.ticket_id, e.actor, e.payload_json FROM events e JOIN tickets t ON t.id = e.ticket_id
-             WHERE t.project_id = ? AND e.kind = ? ORDER BY e.at, e.id",
+             WHERE t.project_id = ? AND e.kind IN (?, ?) ORDER BY e.at, e.id",
         )
         .bind(project_id)
         .bind(EventKind::ReviewSubmitted.as_str())
+        .bind(EventKind::StageFinished.as_str())
         .fetch_all(pool)
         .await?
         .into_iter()

@@ -89,7 +89,7 @@ pub enum RowAction {
         target: TicketKey,
     },
     /// The validation and Auto-merge items' own actions, inline (VAL-07, VAL-09, AMG-03, AMG-04; *10 → New item
-    /// types · group 1 (M12)*): Move to Review anyway, Give it another round, Answer the agent…, Retry validation,
+    /// types · group 1 (M12)*): Move on anyway, Give it another round, Answer the agent…, Retry validation,
     /// Retry merge, Move to Review.
     Validation(ValidationAction),
     /// A lead's suggestion: Close… / Delete… opens the usual confirmation (d0044, d0060) with the lead's reason

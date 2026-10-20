@@ -293,8 +293,17 @@ async fn a_lead_changes_its_never_started_children_with_history_on_both() {
             json!({"key": "SHOP-40.2", "message": "m"}),
         ),
         (
-            "ticket.review_submit",
+            "ticket.stage_next",
             json!({"key": "SHOP-40.3", "summary": "done"}),
+        ),
+        (
+            "ticket.stage_done",
+            json!({"key": "SHOP-40.3", "summary": "nothing to do"}),
+        ),
+        // Never on its own epic (AGM-10).
+        (
+            "ticket.stage_done",
+            json!({"key": "SHOP-40", "summary": "nothing to do"}),
         ),
         ("agent.name", json!({"name": "Wishlist planner"})),
     ] {

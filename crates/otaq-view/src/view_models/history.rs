@@ -363,9 +363,19 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             }),
         ),
         EventKind::MovedToEpic => ("Moved to epic".to_owned(), text(p, "epic")),
+        // `otaq stage done` (AGM-10): the agent's reason.
+        EventKind::Closed if p.get("nothing_to_merge").is_some() => (
+            "Closed \u{b7} nothing to merge".to_owned(),
+            text(p, "reason").map(first_line),
+        ),
         EventKind::Closed => ("Closed".to_owned(), Some(who(&e.actor))),
         EventKind::ReviewSubmitted => (
             "Submitted for review".to_owned(),
+            text(p, "summary").map(first_line),
+        ),
+        // An Agent stage's `stage next` into anything but a human check (Q263): "Finished Dev".
+        EventKind::StageFinished => (
+            format!("Finished {}", text(p, "stage").unwrap_or_default()),
             text(p, "summary").map(first_line),
         ),
         EventKind::Merged => (
@@ -1027,6 +1037,55 @@ mod tests {
     }
 
     /// A new child of a whole-queued epic (EPC-13).
+    /// T-0406 (Q263, AGM-10): "Finished Grill" and "Finished Dev" for stages that end on their way to anything but
+    /// a human check, "Submitted for review" before one, and `stage done`'s "Closed · nothing to merge" with the
+    /// reason.
+    #[test]
+    fn how_stages_ended() {
+        let rows = rows(
+            &[
+                event(
+                    EventKind::StageFinished,
+                    MIN,
+                    json!({"stage": "Grill", "stage_id": "grill", "summary": "Agreed: CSV.\nWith a header."}),
+                ),
+                event(
+                    EventKind::StageFinished,
+                    2 * MIN,
+                    json!({"stage": "Dev", "stage_id": "dev", "summary": "CSV export."}),
+                ),
+                event(
+                    EventKind::ReviewSubmitted,
+                    3 * MIN,
+                    json!({"summary": "CSV export, sorted."}),
+                ),
+                event(
+                    EventKind::Closed,
+                    4 * MIN,
+                    json!({"from": "working", "nothing_to_merge": true, "reason": "Already fixed in SHOP-31."}),
+                ),
+            ],
+            &[],
+            &[],
+        );
+        let lines: Vec<_> = rows
+            .iter()
+            .map(|r| (r.title.as_str(), r.detail.as_deref()))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                (
+                    "Closed \u{b7} nothing to merge",
+                    Some("Already fixed in SHOP-31.")
+                ),
+                ("Submitted for review", Some("CSV export, sorted.")),
+                ("Finished Dev", Some("CSV export.")),
+                ("Finished Grill", Some("Agreed: CSV.")),
+            ]
+        );
+    }
+
     #[test]
     fn a_joined_child_says_why() {
         let rows = rows(

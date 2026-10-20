@@ -122,7 +122,7 @@ impl Action {
             Self::Reopen => "Reopen",
             Self::OpenValidator => "Open terminal \u{b7} Validator",
             Self::AnswerValidator => "Answer in terminal \u{b7} Validator",
-            Self::MoveToReviewAnyway => "Move to Review anyway",
+            Self::MoveToReviewAnyway => "Move on anyway",
             Self::AnotherRound => "Give it another round",
             Self::AnswerAgent => "Answer the agent\u{2026}",
             Self::RetryValidation => "Retry validation",
@@ -279,7 +279,7 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
         }
         Status::Merged => vec![(A::ViewDiff, Secondary)],
         Status::ClosedNotMerged => vec![(A::Reopen, Secondary)],
-        // The M12 rows (d0063, d0064): Stop validation and Skip to Review are in the "…" menu.
+        // The M12 rows (d0063, d0064): Stop this check and Skip this check are in the "…" menu.
         Status::Checking => vec![(A::OpenValidator, Secondary), (A::Run, Secondary)],
         Status::CheckerNeedsYou => vec![(A::AnswerValidator, Attention)],
         Status::CheckFailed => vec![
@@ -376,9 +376,8 @@ pub fn validating(ticket: &Ticket) -> bool {
     matches!(ticket.status, Status::Checking | Status::CheckerNeedsYou)
 }
 
-/// The "…" menu: Stop validation and Skip to Review while it validates (d0063), Edit ticket, Pin / Unpin, Copy
-/// branch name, Copy attach command (with a session), Submit for review (skips validation) and Validate and submit
-/// (both hidden while it validates), Move to epic…, Close epic…, Close ticket…, and Delete… (enabled only for
+/// The "…" menu: Stop this check and Skip this check while it validates (d0063), Edit ticket, Pin / Unpin, Copy
+/// branch name, Copy attach command (with a session), Move to next stage (hidden while it validates), Move to epic…, Close epic…, Close ticket…, and Delete… (enabled only for
 /// never-started tickets, d0060).
 pub fn menu(
     ticket: &Ticket,
@@ -389,12 +388,12 @@ pub fn menu(
     let mut items = Vec::new();
     if validating(ticket) {
         items.push(
-            MenuItem::new(STOP_VALIDATION, "Stop validation")
+            MenuItem::new(STOP_VALIDATION, "Stop this check")
                 .icon(IconName::Square)
                 .hint("round not counted"),
         );
         items.push(
-            MenuItem::new(SKIP_TO_REVIEW, "Skip to Review")
+            MenuItem::new(SKIP_TO_REVIEW, "Skip this check")
                 .icon(IconName::SkipForward)
                 .hint("never auto-merged"),
         );
@@ -418,12 +417,7 @@ pub fn menu(
         items.push(MenuItem::new(COPY_ATTACH, "Copy attach command").icon(IconName::Copy));
     }
     if let Some(submit) = crate::view_models::close::submit_item(ticket) {
-        let validate = crate::view_models::close::validate_item(&submit);
-        items.push(MenuItem {
-            label: "Submit for review\u{2026} (skips validation)".to_owned(),
-            ..submit
-        });
-        items.push(validate);
+        items.push(submit);
     }
     if has_epics && can_move_to_epic(ticket) {
         items.push(MenuItem::new(card_menu::MOVE_TO_EPIC, "Move to epic…").icon(IconName::Layers));
@@ -616,22 +610,12 @@ mod tests {
                 "Pin to top",
                 "Copy branch name",
                 "Copy attach command",
-                "Submit for review… (skips validation)",
-                "Validate and submit",
+                "Move to next stage…",
                 "Close ticket…",
                 "Delete…"
             ]
         );
-        let validate = &items[5];
-        assert_eq!(
-            (validate.id.as_str(), validate.disabled, validate.icon),
-            (
-                crate::view_models::close::VALIDATE_AND_SUBMIT,
-                true,
-                Some(IconName::ShieldCheck)
-            ),
-            "mid-turn, like Submit for review"
-        );
+        assert!(items[4].disabled, "mid-turn");
     }
 
     /// The M12 rows of *Action bar · every state* (d0063, d0064).
@@ -671,7 +655,7 @@ mod tests {
         assert_eq!(A::MoveToReviewAnyway.icon(), Some(IconName::Eye));
     }
 
-    /// While it validates: Stop validation and Skip to Review first; both submit items hidden.
+    /// While it validates: Stop this check and Skip this check first; both submit items hidden.
     #[test]
     fn the_menu_while_validating() {
         let mut t = ticket("SHOP-29", "Coupon field", Status::Checking);
@@ -681,8 +665,8 @@ mod tests {
         assert_eq!(
             labels,
             [
-                "Stop validation",
-                "Skip to Review",
+                "Stop this check",
+                "Skip this check",
                 "Edit ticket",
                 "Pin to top",
                 "Copy branch name",
@@ -701,7 +685,7 @@ mod tests {
         assert!(
             items
                 .iter()
-                .any(|i| i.label == "Validate and submit" && !i.disabled)
+                .any(|i| i.label == "Move to next stage…" && !i.disabled)
         );
         t.status = Status::CheckerNeedsYou;
         assert_eq!(menu(&t, false, true, false)[0].id, STOP_VALIDATION);
@@ -738,7 +722,7 @@ mod tests {
     }
 
     /// AGT-05, update Y §3: Start failed on the model offers Change agent and Retry start; No result on the
-    /// validator's model Change validator, Retry validation and Move to Review anyway; each with its callout.
+    /// validator's model Change validator, Retry validation and Move on anyway; each with its callout.
     #[test]
     fn a_refused_model_changes_the_agent() {
         use crate::view_models::card_fixtures::{MODEL_ISSUE_MESSAGE, agent_variants};

@@ -180,7 +180,7 @@ async fn a_validator_cant_change_tickets_over_the_socket() {
         let answer = send(&w, &validator, method, params).await;
         assert_eq!(
             refusal(&answer),
-            ("not_allowed", "SHOP-29's validator can't change tickets"),
+            ("not_allowed", "SHOP-29's check can only give its verdict"),
             "{method}"
         );
     }

@@ -170,7 +170,8 @@ async fn which_tickets_merge_by_themselves() {
     w.stop().await;
 }
 
-/// The user's routes to Review and validation off never auto-merge.
+/// Skip this check and validation off never auto-merge. The user's Move to next stage runs the check like the
+/// agent's `stage next` (d0108 rule 10; it used to go straight to Review): its pass may auto-merge.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_users_routes_never_auto_merge() {
     let w = world().await;
@@ -180,11 +181,11 @@ async fn the_users_routes_never_auto_merge() {
     let submitted = working(&w, "Submitted", None, "a.ts").await;
     w.force_status(&submitted, Status::Idle).await;
     let after = w
-        .board
+        .validation
         .submit_by_user(&submitted.key.to_string(), "", &me())
         .await
         .unwrap();
-    assert_eq!(after.status, Status::WaitingForYou);
+    assert_eq!(after.status, Status::Checking);
 
     let skipped = working(&w, "Skipped", None, "b.ts").await;
     w.validation

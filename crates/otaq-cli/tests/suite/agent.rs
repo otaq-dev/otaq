@@ -1,5 +1,5 @@
-//! `otaq ask human` and `otaq review submit` (T-0072, ATT-01, REV-07) from inside an agent session,
-//! with a temporary git repository as the ticket's worktree.
+//! `otaq ask human`, `otaq stage next` / `review submit` and `otaq stage done` (T-0072, T-0406; ATT-01, REV-07,
+//! AGM-10) from inside an agent session, with a temporary git repository as the ticket's worktree.
 
 use std::path::Path;
 use std::process::Command as Process;
@@ -128,7 +128,7 @@ async fn review_submit_refuses_uncommitted_files_then_submits() {
         .await;
     assert_eq!(
         (ran.status, ran.stdout.as_str()),
-        (0, "SHOP-19 is Ready for Review.\n"),
+        (0, "Finished Dev. SHOP-19 is Ready for Review.\n"),
         "{ran:?}"
     );
     let row = w.board.store().ticket(&shop19.id).await.unwrap().unwrap();
@@ -383,9 +383,157 @@ async fn submit_with_validation_on_says_validation_runs() {
         .await;
     assert_eq!(
         (ran.status, ran.stdout.trim()),
-        (0, otaq_core::validation::SUBMITTED_VALIDATING),
+        (
+            0,
+            "Finished Dev. Validate is running; the result will come back to you here. End your turn."
+        ),
         "{ran:?}"
     );
     assert_eq!(w.status("SHOP-19").await, Status::Checking);
     w.stop().await;
+}
+
+/// T-0406 (AGM-10): `otaq stage next` and `otaq review submit` are one request: both refuse uncommitted files and
+/// move the ticket on, naming the stage it finished.
+#[tokio::test(flavor = "multi_thread")]
+async fn stage_next_and_review_submit_both_move_the_ticket_on() {
+    let w = TestService::start().await;
+    w.shop_sample().await;
+    validation_off(&w).await;
+    for (key, command) in [("SHOP-19", "stage next"), ("SHOP-27", "review submit")] {
+        let ticket = w.board.ticket(key).await.unwrap();
+        let worktree = w.give_worktree(&ticket).await;
+        let agent = w.agent_shell(&ticket).await;
+        let run = format!("'{CB}' {command} --stdin");
+        std::fs::write(worktree.join("file1.txt"), "changed\n").unwrap();
+        let ran = agent.run_with_stdin(&run, "Done.").await;
+        assert_eq!(
+            ran.stderr.trim(),
+            "error: 1 file is not committed. Commit it, or discard it if it's a scratch file",
+            "{command}"
+        );
+        assert_eq!(w.status(key).await, Status::Working, "{command}");
+        git(&worktree, &["commit", "-qam", "work"]);
+        let ran = agent.run_with_stdin(&run, "Done.").await;
+        assert_eq!(
+            (ran.status, ran.stdout.trim().to_owned()),
+            (0, format!("Finished Dev. {key} is Ready for Review.")),
+            "{command}: {ran:?}"
+        );
+        assert_eq!(w.status(key).await, Status::WaitingForYou, "{command}");
+        assert!(w.signals.turn(&agent.session).submitted_or_asked);
+    }
+    w.stop().await;
+}
+
+/// T-0406 (AGM-10, d0033): `otaq stage done` with no commits beyond the base closes the ticket as Closed · nothing
+/// to merge with the reason; the session ends after its turn, and Reopen brings the ticket back. With commits it is
+/// refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn stage_done_closes_a_ticket_with_nothing_to_merge() {
+    let w = TestService::start().await;
+    w.shop_sample().await;
+    let shop27 = w.board.ticket("SHOP-27").await.unwrap();
+    w.give_worktree_at_base(&shop27).await;
+    let agent = w.agent_shell(&shop27).await;
+    let ran = agent
+        .run_with_stdin(
+            &format!("'{CB}' stage done --stdin --json"),
+            "Already fixed in SHOP-12.\nNothing left to change.",
+        )
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let ticket: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert_eq!(ticket["status"], "closed_not_merged");
+    let ran = agent
+        .run_with_stdin(&format!("'{CB}' stage done --stdin"), "again")
+        .await;
+    assert_ne!(
+        ran.status, 0,
+        "a closed ticket is no longer in an Agent stage"
+    );
+    let history = w.board.history("SHOP-27").await.unwrap();
+    let closed = history
+        .iter()
+        .find(|e| e.kind == otaq_core::board::tickets::EventKind::Closed)
+        .unwrap();
+    assert_eq!(closed.payload["nothing_to_merge"], true);
+    assert_eq!(
+        closed.payload["reason"],
+        "Already fixed in SHOP-12.\nNothing left to change."
+    );
+    let runs = w.board.stage_runs("SHOP-27").await.unwrap();
+    let dev = runs.iter().rev().find(|r| r.stage == "dev").unwrap();
+    assert_eq!(
+        (dev.result, dev.summary.as_deref()),
+        (
+            Some(otaq_core::flow::engine::RunResult::Done),
+            Some("Already fixed in SHOP-12.\nNothing left to change.")
+        )
+    );
+
+    // Its turn ends: the Done cleanup ends the session. Typed, not awaited: the session ends under the command.
+    assert!(
+        w.sessions
+            .running_of(&shop27.id, otaq_core::session::SessionKind::Agent)
+            .is_some()
+    );
+    let payload = json!({"hook_event_name": "Stop", "background_tasks": [], "session_crons": []});
+    let line = format!("printf '%s' '{payload}' | '{CB}' hook --tool claude Stop\r");
+    w.sessions.input(&agent.session, line.as_bytes()).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while w
+            .sessions
+            .running_of(&shop27.id, otaq_core::session::SessionKind::Agent)
+            .is_some()
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the agent ends after its turn");
+    assert_eq!(w.status("SHOP-27").await, Status::ClosedNotMerged);
+
+    // Reopen (dragging it out of Done) works as for any closed ticket (d0033).
+    let reopened = w
+        .board
+        .reopen("SHOP-27", &otaq_core::domain::Actor::User("me".into()))
+        .await
+        .unwrap();
+    assert_eq!(reopened.status, Status::Backlog);
+
+    // With commits: refused, named with the count.
+    let shop19 = w.board.ticket("SHOP-19").await.unwrap();
+    let worktree = w.give_worktree_at_base(&shop19).await;
+    for n in 1..=2 {
+        std::fs::write(worktree.join(format!("f{n}.txt")), "x\n").unwrap();
+        git(&worktree, &["add", "."]);
+        git(&worktree, &["commit", "-qm", &format!("SHOP-19: step {n}")]);
+    }
+    let agent = w.agent_shell(&shop19).await;
+    let ran = agent
+        .run_with_stdin(&format!("'{CB}' stage done --stdin"), "nothing to do")
+        .await;
+    assert_ne!(ran.status, 0);
+    assert_eq!(
+        ran.stderr.trim(),
+        "error: SHOP-19 has 2 commits. Use `otaq stage next` so they're checked and delivered."
+    );
+    assert_eq!(w.status("SHOP-19").await, Status::Working);
+    w.stop().await;
+}
+
+/// T-0406 (AGM-10): `otaq validate pass|fail` is gone, with no other name.
+#[tokio::test(flavor = "multi_thread")]
+async fn validate_is_an_unknown_command() {
+    let out = Process::new(CB)
+        .args(["validate", "pass", "--stdin"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("unrecognized subcommand 'validate'"),
+        "{stderr}"
+    );
 }

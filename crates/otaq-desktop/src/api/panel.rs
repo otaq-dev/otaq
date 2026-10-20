@@ -983,8 +983,8 @@ fn validation_request(key: &str, action: ValidationAction, note: &str) -> Reques
     })
 }
 
-/// What `panel.menu` takes: a "…" menu item the service carries out (Pin / Unpin, Stop validation, Skip to
-/// Review, Validate and submit).
+/// What `panel.menu` takes: a "…" menu item the service carries out (Pin / Unpin, Stop this check, Skip this
+/// check).
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "PanelMenuParams")]
 pub struct MenuParams {
@@ -1008,10 +1008,6 @@ pub async fn menu_choice(app: &App, params: MenuParams) -> Result<(), RequestErr
         actions::SKIP_TO_REVIEW => (
             validation_request(&key, ValidationAction::Skip, ""),
             format!("{key} can\u{2019}t skip to Review"),
-        ),
-        close::VALIDATE_AND_SUBMIT => (
-            validation_request(&key, ValidationAction::ValidateAndSubmit, ""),
-            format!("{key} can\u{2019}t be validated"),
         ),
         other => return Err(RequestError::plain(format!("not a service item: {other}"))),
     };
@@ -1137,7 +1133,7 @@ pub async fn close_ticket(app: &App, params: Params) -> Result<(), RequestError>
         .map(|_| ())
 }
 
-/// *Submit for review · dialog* (CLS-05, d0052).
+/// *Submit for review · dialog* (CLS-05, d0052): the user's Move to next stage (d0108 rule 10).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "PanelSubmitDialog")]
 pub struct SubmitDialog {
@@ -1160,7 +1156,7 @@ pub async fn submit_dialog(app: &App, params: Params) -> Result<SubmitDialog, Re
         note_label: "Note for the review summary (optional)",
         note_placeholder: "What the reviewer should know",
         footer: text.footer,
-        confirm: "Submit for review",
+        confirm: "Move to next stage",
     })
 }
 
@@ -1172,7 +1168,7 @@ pub struct SubmitParams {
     pub note: String,
 }
 
-/// Submit for review: a refusal ("2 files are not committed…") shows inside the dialog.
+/// Move to next stage: a refusal ("2 files are not committed…") shows inside the dialog.
 pub async fn submit(app: &App, params: SubmitParams) -> Result<(), RequestError> {
     app.service
         .send(Request::TicketSubmitByUser(SubmitByUserParams {
@@ -2016,7 +2012,7 @@ mod tests {
             Some("agent 58k \u{b7} validation 9k (1 round)")
         );
         assert_eq!(labels(&view), ["Open terminal \u{b7} Validator", "Run"]);
-        assert_eq!(view.menu[0].label, "Stop validation");
+        assert_eq!(view.menu[0].label, "Stop this check");
         assert_eq!((view.answer_agent, view.approve_more), (None, None));
 
         let mut failed = fixture("SHOP-32", "Address autocomplete", Status::CheckFailed);
@@ -2025,7 +2021,7 @@ mod tests {
         assert_eq!(view.pill.label, "Validation failed 3 times");
         assert_eq!(
             labels(&view),
-            ["Move to Review anyway", "Give it another round", "Answer the agent\u{2026}"]
+            ["Move on anyway", "Give it another round", "Answer the agent\u{2026}"]
         );
         assert!(view.answer_agent.unwrap().footer.ends_with("(3 new rounds)."));
 
@@ -2064,7 +2060,7 @@ mod tests {
         let view = view_of(&facts(&t, std::slice::from_ref(&t), &[]));
         assert_eq!(
             labels(&view),
-            ["Change validator", "Retry validation", "Move to Review anyway"]
+            ["Change validator", "Retry validation", "Move on anyway"]
         );
         assert!(!view.refusal.unwrap().error, "turquoise, not red");
     }

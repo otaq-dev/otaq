@@ -722,19 +722,53 @@ async fn act(
         .await
 }
 
-/// Submit for review skips validation ("Submitted by you"); Validate and submit runs the agent's flow; both are
-/// refused while validating.
+/// T-0406 (d0108 rule 10): the user's Move to next stage counts as the agent's `stage next`: with Validation on the
+/// check runs (it used to skip validation; Validate and submit is gone), also from Interrupted; with Validation off
+/// the ticket is Ready for Review, "Submitted by you". Refused while validating.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_users_two_submits() {
-    use otaq_core::domain::{ReviewEntry, ValidationAction as A};
+async fn the_users_move_to_next_stage() {
+    use otaq_core::domain::ReviewEntry;
     let w = world().await;
     w.add_project("shop-web").await;
     let me = Actor::User("me".into());
 
+    for status in [Status::Idle, Status::Interrupted] {
+        let t = working(&w, "Checkout").await;
+        w.force_status(&t, status).await;
+        let after = w
+            .validation
+            .submit_by_user(&t.key.to_string(), "please check", &me)
+            .await
+            .unwrap();
+        assert_eq!(after.status, Status::Checking, "{status}");
+        assert_eq!(rounds(&w, &t).await[0].1, "user");
+        assert!(
+            w.sessions
+                .running_of(&t.id, SessionKind::Validator)
+                .is_some()
+        );
+        let refused = w
+            .validation
+            .submit_by_user(&t.key.to_string(), "", &me)
+            .await
+            .err();
+        assert!(refused.is_some(), "refused while validating");
+    }
+
+    w.board
+        .set_project_settings(
+            "SHOP",
+            &ProjectSettings {
+                validation: Some(false),
+                ..ProjectSettings::default()
+            },
+        )
+        .await
+        .unwrap();
     let t = working(&w, "Cart totals").await;
     w.force_status(&t, Status::Idle).await;
     let after = w
-        .board
+        .validation
         .submit_by_user(&t.key.to_string(), "", &me)
         .await
         .unwrap();
@@ -742,32 +776,10 @@ async fn the_users_two_submits() {
         (after.status, after.flags.review_entry.map(|e| e.entry)),
         (Status::WaitingForYou, Some(ReviewEntry::SubmittedByUser))
     );
-
-    let t = working(&w, "Checkout").await;
-    w.force_status(&t, Status::Idle).await;
-    let after = act(&w, &t, A::ValidateAndSubmit, "please check")
-        .await
-        .unwrap();
-    assert_eq!(after.status, Status::Checking);
-    assert_eq!(rounds(&w, &t).await[0].1, "user");
-    assert!(
-        w.sessions
-            .running_of(&t.id, SessionKind::Validator)
-            .is_some()
-    );
-    for refused in [
-        w.board
-            .submit_by_user(&t.key.to_string(), "", &me)
-            .await
-            .err(),
-        act(&w, &after, A::ValidateAndSubmit, "").await.err(),
-    ] {
-        assert!(refused.is_some(), "refused while validating");
-    }
     w.stop().await;
 }
 
-/// Stop validation and Skip to Review, only while validating.
+/// Stop this check and Skip this check, only while validating.
 #[tokio::test(flavor = "multi_thread")]
 async fn stop_and_skip() {
     use otaq_core::domain::{ReviewEntry, ValidationAction as A};
@@ -801,8 +813,8 @@ async fn stop_and_skip() {
     w.stop().await;
 }
 
-/// After the last failed round: Move to Review anyway, Give it another round, Answer the agent. After no
-/// result: Retry validation and Move to Review anyway ("Validation skipped by you").
+/// After the last failed round: Move on anyway, Give it another round, Answer the agent. After no
+/// result: Retry validation and Move on anyway ("Validation skipped by you").
 #[tokio::test(flavor = "multi_thread")]
 async fn after_a_failed_or_empty_validation() {
     use otaq_core::domain::{ReviewEntry, ValidationAction as A};
@@ -887,7 +899,7 @@ async fn after_a_failed_or_empty_validation() {
             .running_of(&t.id, SessionKind::Validator)
             .is_some()
     );
-    // …or Move to Review anyway: "Validation skipped by you".
+    // …or Move on anyway: "Validation skipped by you".
     w.validation
         .validator_signal(
             &t.id,

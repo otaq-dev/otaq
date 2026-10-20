@@ -55,10 +55,6 @@ use crate::store::tickets::set_state_since;
 pub const CANCELLED: &str =
     "Validation was cancelled because the code changed. Submit again when you're done.";
 
-/// What `otaq review submit` answers while validation runs (VAL-01).
-pub const SUBMITTED_VALIDATING: &str =
-    "Submitted. Validation is running; the result will come back to you here. End your turn.";
-
 /// Starts the No result text of a round whose validator's model the tool refused (AGT-05): "The validator couldn't
 /// run `claude-fable-5-1`: There's an issue with the selected model …". [`refused_its_model`] tells it apart.
 pub const VALIDATOR_COULDNT_RUN: &str = "The validator couldn't run";
@@ -160,7 +156,7 @@ impl Validation {
         let _ = self.inner.gate.set(gate);
     }
 
-    /// `otaq validate pass|fail --stdin` from the ticket's validator (VAL-03 … VAL-06): the report is stored
+    /// `otaq check pass|fail --stdin` from the ticket's checker (VAL-03 … VAL-06): the report is stored
     /// on the round. Pass: Ready for Review, "Validated · round N". Fail with rounds left: the findings go to the
     /// agent as an automatic message and it works again, "Validation failed · round N of M". The last round:
     /// "Validation failed M times", nothing delivered. The validator ends once its turn ends.
@@ -434,7 +430,7 @@ impl Validation {
         Ok(())
     }
 
-    /// The user's actions (VAL-06, VAL-07, VAL-09). None of the user's routes to Review auto-merges.
+    /// The user's actions on a check (VAL-06, VAL-07, VAL-09). None of these routes to Review auto-merges.
     pub async fn user_action(
         &self,
         key: &str,
@@ -445,26 +441,6 @@ impl Validation {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
         match action {
-            ValidationAction::ValidateAndSubmit => {
-                if !crate::board::review::USER_SUBMITS_FROM.contains(&ticket.status) {
-                    return Err(BoardError::refused(
-                        Refusal::MoveRefused,
-                        format!(
-                            "{} can't be validated now: it is {}",
-                            ticket.key,
-                            ticket.status.label()
-                        ),
-                    ));
-                }
-                return self
-                    .submit(
-                        key,
-                        &crate::board::review::user_summary(note),
-                        actor,
-                        ValidationTrigger::User,
-                    )
-                    .await;
-            }
             ValidationAction::Stop | ValidationAction::Skip => {
                 let event = if action == ValidationAction::Stop {
                     ValidationEvent::StopValidation
@@ -772,8 +748,49 @@ impl Validation {
         Ok(ended)
     }
 
-    /// The agent's `review submit` (or, with `trigger` user, Validate and submit): Validating… and a validator,
-    /// or Ready for Review when validation is off for the project.
+    /// The user's **Move to next stage** (CLS-05, d0108 rule 10): the agent's own `stage next`, started by the user
+    /// when the agent isn't mid-turn. Into an agent check the check runs (and Auto-merge may follow its pass);
+    /// anything else is [`Board::submit_by_user`]. The summary reads "Submitted by you" and the note.
+    pub async fn submit_by_user(
+        &self,
+        key: &str,
+        note: &str,
+        actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.ticket(key).await?;
+        crate::board::review::user_may_submit(&ticket)?;
+        if !self.next_is_agent_check(&ticket).await? {
+            return board.submit_by_user(key, note, actor).await;
+        }
+        self.submit(
+            key,
+            &crate::board::review::user_summary(note),
+            actor,
+            ValidationTrigger::User,
+        )
+        .await
+    }
+
+    /// Whether the ticket's next stage is an agent check (STG-06).
+    async fn next_is_agent_check(&self, ticket: &Ticket) -> Result<bool, BoardError> {
+        let flow = self
+            .inner
+            .board
+            .effective_flow(ticket.key.project.as_str())
+            .await?;
+        Ok(crate::flow::engine::step(
+            crate::flow::engine::At::new(&flow, &ticket.place, Status::Working),
+            crate::flow::engine::Move::NextStage,
+        )
+        .ok()
+        .and_then(|step| step.stage)
+        .is_some_and(crate::flow::Stage::is_agent_check))
+    }
+
+    /// The agent's `stage next` (or `review submit`; with `trigger` user, the user's Move to next stage): into an
+    /// agent check, Validating… and a checker; anything else (Ready for Review when validation is off, another Agent
+    /// stage) is [`Board::submit_for_review`].
     pub async fn submit(
         &self,
         key: &str,
@@ -783,23 +800,17 @@ impl Validation {
     ) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
-        let settings = board
-            .effective_settings(ticket.key.project.as_str())
-            .await?;
-        let flow = effective_flow(&settings);
+        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
         // The agent's "next stage" (STG-06): an agent check validates; anything else (Validation off: Review) is
         // the plain submit.
-        let next = crate::flow::engine::step(
-            crate::flow::engine::At::new(&flow, &ticket.place, Status::Working),
-            crate::flow::engine::Move::NextStage,
-        )
-        .ok()
-        .and_then(|step| step.stage)
-        .is_some_and(crate::flow::Stage::is_agent_check);
-        if !next {
+        if !self.next_is_agent_check(&ticket).await? {
             return board.submit_for_review(key, summary, actor).await;
         }
-        if !LIVE.contains(&ticket.status) && ticket.status != Status::MergeConflictFixing {
+        // The user's Move to next stage checked the statuses it starts from (Interrupted too).
+        if trigger == ValidationTrigger::Agent
+            && !LIVE.contains(&ticket.status)
+            && ticket.status != Status::MergeConflictFixing
+        {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
@@ -811,7 +822,7 @@ impl Validation {
         }
         let event = match trigger {
             ValidationTrigger::Agent => ValidationEvent::AgentSubmit,
-            ValidationTrigger::User => ValidationEvent::ValidateAndSubmit,
+            ValidationTrigger::User => ValidationEvent::UserNextStage,
         };
         let state = ValidationState {
             flow: &flow,

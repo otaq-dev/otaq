@@ -372,10 +372,15 @@ impl Shared {
         if signal.ends_turn() {
             let deliveries = self.deliveries.clone();
             let validation = self.validation.clone();
+            let review = self.review.clone();
             let (session, ticket_id) = (session.clone(), ticket_id.clone());
             tokio::spawn(async move {
                 if let Err(e) = validation.agent_turn_ended(&ticket_id).await {
                     tracing::warn!(session, error = %e, "can't check the code under validation");
+                }
+                // After `otaq stage done` from this session: the Done cleanup ends it now (AGM-10).
+                if let Err(e) = review.after_agent_turn(&ticket_id).await {
+                    tracing::warn!(session, error = %e, "can't clean up after stage done");
                 }
                 if let Err(e) = deliveries.deliver_if_ready(&session).await {
                     tracing::warn!(session, error = %e, "delivery failed");

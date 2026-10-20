@@ -1,5 +1,5 @@
-//! `otaq review submit` (REV-07; d0050, d0004): the agent's work goes to **Ready for Review** with its
-//! summary.
+//! `otaq stage next` (and its other name `otaq review submit`; REV-07, AGM-10; d0050, d0004, d0108): the agent ends
+//! its Agent stage with a summary and the ticket moves to the next stage: **Ready for Review** on the default flow.
 //!
 //! It is **refused while the worktree has uncommitted files**, tracked or untracked: "2 files are not committed.
 //! Commit them, or discard them if they're scratch files". The agent commits through the Commit skill; Otaq
@@ -7,7 +7,8 @@
 //!
 //! On submit the service records the review head (`review_head_sha`, the worktree's `HEAD`) and when the ticket
 //! entered review (`review_entered_at`), for "changed since you reviewed it" later (T-0097), and the summary in the
-//! ticket's history (`review_submitted`), where `otaq prime` finds it for the tickets that depend on it.
+//! ticket's history, where `otaq prime` finds it for the tickets that depend on it: `review_submitted` ("Submitted for
+//! review") when the next stage is a human check, else `stage_finished` ("Finished Dev", Q263).
 
 use std::path::Path;
 
@@ -32,6 +33,24 @@ pub const USER_SUBMITS_FROM: &[Status] = &[
     Status::Interrupted,
 ];
 
+/// The user's Move to next stage only when the agent isn't mid-turn (CLS-05): "SHOP-19 can't move to the next stage
+/// now: its agent is in the middle of a turn".
+pub fn user_may_submit(ticket: &Ticket) -> Result<(), BoardError> {
+    if USER_SUBMITS_FROM.contains(&ticket.status) {
+        return Ok(());
+    }
+    let why = match ticket.status {
+        Status::Working | Status::WorkingInBackground => {
+            "its agent is in the middle of a turn".to_owned()
+        }
+        other => format!("it is {}", other.label()),
+    };
+    Err(BoardError::refused(
+        Refusal::MoveRefused,
+        format!("{} can't move to the next stage now: {why}", ticket.key),
+    ))
+}
+
 /// The review summary of a user's submit: "Submitted by you", then the note.
 pub fn user_summary(note: &str) -> String {
     let note = note.trim();
@@ -51,6 +70,58 @@ pub fn user_note(summary: &str) -> String {
         .to_owned()
 }
 
+/// How an agent's stage ended (`otaq stage next` / `stage done`, AGM-10): the ticket afterwards and what the agent
+/// is told.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StageEnded {
+    pub ticket: Ticket,
+    pub text: String,
+}
+
+/// What `otaq stage next` answers (AGM-10), from the ticket `before` and `after` the move: the stage it finished and
+/// where it is now. "Finished Dev. Validate is running; the result will come back to you here. End your turn." /
+/// "Finished Dev. SHOP-18 is Ready for Review." / "Finished Grill. Dev starts next; end your turn."
+pub fn stage_next_text(flow: &crate::flow::Flow, before: &Ticket, after: &Ticket) -> String {
+    let name = |place: &crate::domain::Place| {
+        place
+            .stage()
+            .map(|id| flow.stage(id).map_or(id, |s| s.name.as_str()).to_owned())
+    };
+    let finished = name(&before.place).unwrap_or_else(|| "the stage".to_owned());
+    let next = after.place.stage().and_then(|id| flow.stage(id));
+    let next_name = name(&after.place).unwrap_or_default();
+    let now = match next {
+        _ if after.place.is_waiting() => format!("{next_name} starts next; end your turn."),
+        Some(stage) if stage.is_agent_check() => {
+            format!("{next_name} is running; the result will come back to you here. End your turn.")
+        }
+        Some(stage) if stage.is_human_check() => {
+            format!("{} is Ready for {next_name}.", after.key)
+        }
+        Some(_) => format!("{next_name} is next; end your turn."),
+        None => format!("{} is {}.", after.key, after.status.label()),
+    };
+    format!("Finished {finished}. {now}")
+}
+
+/// What `otaq stage done` answers (AGM-10): "SHOP-18 is closed: nothing to merge. End your turn."
+pub fn stage_done_text(after: &Ticket) -> String {
+    format!("{} is closed: nothing to merge. End your turn.", after.key)
+}
+
+/// The payload of a [`EventKind::StageFinished`]: the name and id of the stage `ticket` leaves, the summary and the
+/// head.
+pub(crate) fn stage_finished(
+    flow: &crate::flow::Flow,
+    ticket: &Ticket,
+    summary: &str,
+    head: &str,
+) -> serde_json::Value {
+    let id = ticket.place.stage().unwrap_or_default();
+    let name = flow.stage(id).map_or(id, |s| s.name.as_str());
+    json!({ "stage": name, "stage_id": id, "summary": summary.trim(), "head": head })
+}
+
 /// "2 files are not committed. Commit them, or discard them if they're scratch files".
 pub fn uncommitted_message(count: usize) -> String {
     if count == 1 {
@@ -63,9 +134,9 @@ pub fn uncommitted_message(count: usize) -> String {
 }
 
 impl Board {
-    /// `otaq review submit` is refused while the ticket has an unread note from its epic's lead (CLI-08, LEAD-10):
-    /// "Submit refused: 1 unread note from Wishlist lead. Run `otaq notes`, then submit again." The user's Submit
-    /// for review (CLS-05) doesn't ask.
+    /// `otaq stage next` and `stage done` are refused while the ticket has an unread note from its epic's lead
+    /// (CLI-08, LEAD-10): "Submit refused: 1 unread note from Wishlist lead. Run `otaq notes`, then submit again."
+    /// The user's Move to next stage (CLS-05) doesn't ask.
     pub async fn refuse_unread_notes(&self, key: &str) -> Result<(), BoardError> {
         let ticket = self.ticket(key).await?;
         let unread = crate::epic_lead::notes::unread(self, &ticket.id).await?;
@@ -99,29 +170,18 @@ impl Board {
         self.submit(ticket, summary, None, actor).await
     }
 
-    /// **Submit for review** by the user (CLS-05, d0052): when the agent isn't mid-turn (Idle, Asks you, Needs
-    /// you, Interrupted), with the same checks as the agent's submit. The summary reads "Submitted by you" and
-    /// the optional note; the session isn't stopped, so Send back works as usual.
-    pub async fn submit_by_user(
+    /// **Move to next stage** by the user (was Submit for review; CLS-05, d0052): when the agent isn't mid-turn
+    /// (Idle, Asks you, Needs you, Interrupted), with the same checks as the agent's submit. The summary reads
+    /// "Submitted by you" and the optional note; the session isn't stopped, so Send back works as usual.
+    pub(crate) async fn submit_by_user(
         &self,
         key: &str,
         note: &str,
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
         let ticket = self.ticket(key).await?;
-        if !USER_SUBMITS_FROM.contains(&ticket.status) {
-            let why = match ticket.status {
-                Status::Working | Status::WorkingInBackground => {
-                    "its agent is in the middle of a turn".to_owned()
-                }
-                other => format!("it is {}", other.label()),
-            };
-            return Err(BoardError::refused(
-                Refusal::MoveRefused,
-                format!("{} can't be submitted for review now: {why}", ticket.key),
-            ));
-        }
-        // Skips validation: "Submitted by you", never auto-merged (d0063).
+        user_may_submit(&ticket)?;
+        // Past no agent check ([`crate::validation::Validation::submit_by_user`] runs those): "Submitted by you".
         self.submit(
             ticket,
             &user_summary(note),
@@ -167,9 +227,8 @@ impl Board {
     ) -> Result<Ticket, BoardError> {
         let head = self.submit_head(&ticket).await?;
         let now = now_ms();
-        // The agent's "next stage", or the user's Submit for review past the checks (STG-06).
-        // The agent checks run through `crate::validation::Validation::submit`; this submit goes past them
-        // (none on a flow with Validation off).
+        // The agent's `stage next`, or the user's Move to next stage (STG-06), when no agent check comes next: those
+        // run through `crate::validation::Validation::submit` (none on a flow with Validation off).
         let step = self
             .moved(&ticket, Status::Working, Move::SubmitByUser)
             .await?;
@@ -177,6 +236,25 @@ impl Board {
         // On to another Agent stage: the ticket waits before it as a queued one does (STG-07), its wait counted from
         // now; the review's marks are a human check's.
         let waits = step.place.is_waiting();
+        // "Submitted for review" only into a human check; anything else is "Finished Dev" (Q263).
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        let into_human_check = !waits
+            && step
+                .place
+                .stage()
+                .and_then(|id| flow.stage(id))
+                .is_some_and(crate::flow::Stage::is_human_check);
+        let (kind, payload) = if into_human_check {
+            (
+                EventKind::ReviewSubmitted,
+                json!({ "summary": summary.trim(), "head": head }),
+            )
+        } else {
+            (
+                EventKind::StageFinished,
+                stage_finished(&flow, &ticket, summary, &head),
+            )
+        };
         let mut tx = self.store.begin_write().await?;
         step.record(&mut tx, &ticket.id, Some(summary)).await?;
         sqlx::query(concat!(
@@ -211,16 +289,9 @@ impl Board {
         .bind(&ticket.id)
         .execute(&mut *tx)
         .await?;
-        record_event(
-            &mut tx,
-            &ticket.id,
-            EventKind::ReviewSubmitted,
-            actor,
-            json!({ "summary": summary.trim(), "head": head }),
-        )
-        .await?;
+        record_event(&mut tx, &ticket.id, kind, actor, payload).await?;
         tx.commit().await?;
-        tracing::info!(key = %ticket.key, %actor, "submitted for review");
+        tracing::info!(key = %ticket.key, %actor, ?kind, "stage ended");
         self.ticket_by_id(&ticket.id).await
     }
 }

@@ -227,7 +227,7 @@ async fn notes_and_the_agents_prime_mark_read_and_submit_waits_for_them() {
 
     // Submit refused while unread, with the exact text; nothing moved.
     let submit = json!({"key": "SHOP-40.2", "summary": "Wishlist button done"});
-    let answer = send(&w, &agent, "ticket.review_submit", submit.clone()).await;
+    let answer = send(&w, &agent, "ticket.stage_next", submit.clone()).await;
     assert_eq!(
         refused(&answer),
         "Submit refused: 1 unread note from Wishlist lead. Run `otaq notes`, then submit again."
@@ -287,7 +287,7 @@ async fn notes_and_the_agents_prime_mark_read_and_submit_waits_for_them() {
     assert_eq!(stored.read_how, Some(ReadHow::Prime));
 
     // Accepted once read.
-    let answer = send(&w, &agent, "ticket.review_submit", submit).await;
+    let answer = send(&w, &agent, "ticket.stage_next", submit).await;
     ok(&answer);
     assert_ne!(w.status("SHOP-40.2").await, Status::Working);
     w.stop().await;
@@ -309,7 +309,8 @@ async fn the_users_submit_for_review_isnt_refused() {
 
     let answer = send_as_user(&w, "ticket.submit_by_user", json!({"key": "SHOP-40.2"})).await;
     ok(&answer);
-    assert_eq!(w.status("SHOP-40.2").await, Status::WaitingForYou);
+    // Move to next stage runs the Validate check, as the agent's `stage next` would (d0108 rule 10).
+    assert_eq!(w.status("SHOP-40.2").await, Status::Checking);
     w.stop().await;
 }
 

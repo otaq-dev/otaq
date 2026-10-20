@@ -404,6 +404,17 @@ pub(crate) async fn close_bookkeeping(
     from: Status,
     actor: &Actor,
 ) -> Result<(), BoardError> {
+    close_bookkeeping_noting(tx, ticket_id, from, actor, json!({})).await
+}
+
+/// [`close_bookkeeping`] with more fields in the Closed event (`otaq stage done`'s `nothing_to_merge` and reason).
+pub(crate) async fn close_bookkeeping_noting(
+    tx: &mut Transaction<'_, Sqlite>,
+    ticket_id: &str,
+    from: Status,
+    actor: &Actor,
+    note: serde_json::Value,
+) -> Result<(), BoardError> {
     let to = Status::ClosedNotMerged;
     let now = now_ms();
     sqlx::query(concat!(
@@ -419,12 +430,12 @@ pub(crate) async fn close_bookkeeping(
     .bind(ticket_id)
     .execute(&mut **tx)
     .await?;
-    record_event(
-        tx,
-        ticket_id,
-        EventKind::Closed,
-        actor,
-        json!({"from": from}),
-    )
+    record_event(tx, ticket_id, EventKind::Closed, actor, {
+        let mut payload = json!({"from": from});
+        if let (Some(payload), serde_json::Value::Object(note)) = (payload.as_object_mut(), note) {
+            payload.extend(note);
+        }
+        payload
+    })
     .await
 }

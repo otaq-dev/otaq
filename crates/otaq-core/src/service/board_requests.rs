@@ -601,10 +601,11 @@ pub(super) async fn handle(
             boxed(move || async move { lead_note(shared, caller, &p, &actor).await })
         }
         Request::TicketNotes(p) => boxed(move || async move { read_notes(shared, &p.key).await }),
-        Request::TicketReviewSubmit(p) => boxed(move || async move {
-            // Not while the lead's note is unread (CLI-08); the user's Submit for review is another request.
+        Request::TicketStageNext(p) => boxed(move || async move {
+            // Not while the lead's note is unread (CLI-08); the user's Move to next stage is another request.
             board.refuse_unread_notes(&p.key).await?;
             let project = project_of(&p.key);
+            let before = board.ticket(&p.key).await?;
             // From M12 the submit starts a validator when validation is on for the project (VAL-01).
             let submitted = mutate(
                 shared,
@@ -622,7 +623,41 @@ pub(super) async fn handle(
             {
                 shared.signals.mark_submitted_or_asked(session);
             }
-            submitted.map(|t| Reply::Ticket(Box::new(t)))
+            let ticket = submitted?;
+            let flow = board.effective_flow(&project).await?;
+            let text = crate::board::review::stage_next_text(&flow, &before, &ticket);
+            Ok(Reply::StageEnded(Box::new(
+                crate::board::review::StageEnded { ticket, text },
+            )))
+        }),
+        Request::TicketStageDone(p) => boxed(move || async move {
+            board.refuse_unread_notes(&p.key).await?;
+            let project = project_of(&p.key);
+            // From inside the ticket's own agent session, the session ends after its turn (the Done cleanup would
+            // otherwise end the command's own session before it answers).
+            let own_session = match caller {
+                Caller::Agent { session, .. } => Some(session.as_str()),
+                _ => None,
+            };
+            let done = mutate(
+                shared,
+                &project,
+                Box::pin(
+                    shared
+                        .review
+                        .stage_done(&p.key, &p.summary, own_session, &actor),
+                ),
+            )
+            .await;
+            if done.is_ok()
+                && let Caller::Agent { session, .. } = caller
+            {
+                shared.signals.mark_submitted_or_asked(session);
+            }
+            done.map(|ticket| {
+                let text = crate::board::review::stage_done_text(&ticket);
+                Reply::StageEnded(Box::new(crate::board::review::StageEnded { ticket, text }))
+            })
         }),
         Request::ValidationVerdict(p) => boxed(move || async move {
             let Caller::Validator { session, .. } = caller else {
@@ -940,7 +975,7 @@ pub(super) async fn handle(
             mutate(
                 shared,
                 &project,
-                board.submit_by_user(&p.key, &p.note, &actor),
+                Box::pin(shared.validation.submit_by_user(&p.key, &p.note, &actor)),
             )
             .await
             .map(|t| Reply::Ticket(Box::new(t)))

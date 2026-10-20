@@ -71,7 +71,7 @@ export interface OverlayParams {
   delete_ticket: { ticket: string; suggestion?: SuggestionConfirm };
   /** The Close ticket confirmation (T-0222); from a lead's suggestion, with its line (T-0292). */
   close_ticket: { ticket: string; suggestion?: SuggestionConfirm };
-  /** Submit for review with an optional note (T-0222). */
+  /** Move to next stage (was Submit for review) with an optional note (T-0222, T-0406). */
   submit_for_review: { ticket: string };
   /** Start from scratch after a failed resume: what is kept and lost (T-0235). */
   start_from_scratch: { ticket: string };

@@ -142,7 +142,7 @@ fn refused_drags_carry_a_reason() {
     for status in [Status::Backlog, Status::Working, Status::ClosedNotMerged] {
         assert_eq!(
             reason(&check_move(&t(status), T::ReadyForReview)),
-            "Only the agent or Submit for review moves a ticket to Ready for Review"
+            "Only the agent or Move to next stage moves a ticket to Ready for Review"
         );
     }
     for target in [T::Backlog, T::ReadyForDev, T::ReadyForReview, T::Approved] {

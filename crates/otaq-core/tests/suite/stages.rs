@@ -104,7 +104,8 @@ fn backlog_and_ready_for_dev() {
 }
 
 /// Working → Backlog (Park, after a confirmation); Working → Ready for Review (`review submit`, validation off);
-/// Working → Validating (validation on); Validate and submit; Submit for review skips validation.
+/// Working → Validating (validation on, also the user's Move to next stage); the engine's `SubmitByUser` (the
+/// board's Move to next stage when no agent check comes next) walks past Validate as skipped.
 #[test]
 fn from_dev() {
     let flow = default_flow();
@@ -165,8 +166,8 @@ fn from_dev() {
 }
 
 /// Validating → Working (fail with rounds left: the findings, the same session; code changed and Stop: not a
-/// round); → Ready for Review (pass "Validated · round N", Skip to Review "Validation skipped by you"); the last
-/// round failed, no verdict: turquoise in the check; then Move to Review anyway, Give it another round, Answer the
+/// round); → Ready for Review (pass "Validated · round N", Skip this check "Validation skipped by you"); the last
+/// round failed, no verdict: turquoise in the check; then Move on anyway, Give it another round, Answer the
 /// agent, Retry validation.
 #[test]
 fn from_validating() {
@@ -426,7 +427,7 @@ fn refused_drags() {
             Status::Working,
             DropTarget::ReadyForReview
         )),
-        "Only the agent or Submit for review moves a ticket to Ready for Review"
+        "Only the agent or Move to next stage moves a ticket to Ready for Review"
     );
     assert_eq!(
         reason(&drag(&stage(DEV), Status::Working, DropTarget::ReadyForDev)),
@@ -843,16 +844,35 @@ async fn a_full_run_records_every_stage() {
     w.stop().await;
 }
 
-/// The user's Submit for review skips Validate: its run is recorded as skipped, then Review runs; a Send back fails
-/// Review's run. With no live agent the ticket waits (Ready for Dev, as today): no run until Dev starts again.
+/// The user's Move to next stage runs Validate (d0108 rule 10; it used to skip it) and Skip this check records
+/// Validate's run as skipped, then Review runs; a Send back fails Review's run. With no live agent the ticket waits
+/// before Dev (the stand-in may start it there at once).
 #[tokio::test(flavor = "multi_thread")]
 async fn skipped_and_failed_runs() {
-    let w = TestService::start().await;
+    let w = TestService::start_with(|config| ServiceConfig {
+        launch: Some(stand_in()),
+        ..config
+    })
+    .await;
     pocket_notes(&w).await;
     let t = w.create("NOTE", "Export as CSV").await;
     w.give_worktree(&t).await;
     w.force_status(&t, Status::Idle).await;
-    w.board.submit_by_user("NOTE-1", "", &me()).await.unwrap();
+    let checking = w
+        .validation
+        .submit_by_user("NOTE-1", "", &me())
+        .await
+        .unwrap();
+    assert_eq!(checking.status, Status::Checking);
+    w.validation
+        .user_action(
+            "NOTE-1",
+            otaq_core::domain::ValidationAction::Skip,
+            "",
+            &me(),
+        )
+        .await
+        .unwrap();
     w.review
         .send_back("NOTE-1", "Use a comma", false, &me())
         .await
@@ -864,6 +884,7 @@ async fn skipped_and_failed_runs() {
         .unwrap()
         .into_iter()
         .map(|r| (r.stage, r.result))
+        .take(3)
         .collect();
     assert_eq!(
         runs,
@@ -874,7 +895,11 @@ async fn skipped_and_failed_runs() {
         ]
     );
     let back = w.board.ticket("NOTE-1").await.unwrap();
-    assert!(back.place.is_ready_for_dev(), "{:?}", back.place);
+    assert!(
+        back.place.is_ready_for_dev() || back.place == Place::stage_of(DEV),
+        "{:?}",
+        back.place
+    );
     w.stop().await;
 }
 

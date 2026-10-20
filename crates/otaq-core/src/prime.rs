@@ -370,13 +370,15 @@ impl Board {
         }))
     }
 
-    /// The summary of a ticket's latest `review submit`.
+    /// The summary of a ticket's latest `stage next` (into a human check or not, Q263).
     pub async fn review_summary(&self, ticket_id: &str) -> Result<Option<String>, BoardError> {
         let payload: Option<String> = sqlx::query_scalar(
-            "SELECT payload_json FROM events WHERE ticket_id = ? AND kind = ? ORDER BY at DESC, id DESC LIMIT 1",
+            "SELECT payload_json FROM events WHERE ticket_id = ? AND kind IN (?, ?)
+             ORDER BY at DESC, id DESC LIMIT 1",
         )
         .bind(ticket_id)
         .bind(EventKind::ReviewSubmitted.as_str())
+        .bind(EventKind::StageFinished.as_str())
         .fetch_optional(self.store().pool())
         .await?;
         Ok(payload
@@ -605,7 +607,7 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
     }
     out.push_str(&format!(
         "\n## The diff\n\n```diff\n{}\n```\n\n## Your verdict\n\nReport one line per finding with its file and \
-         line; notes start with \"Note:\". Finish with `{cmd} validate pass --stdin` or `{cmd} validate fail --stdin` \
+         line; notes start with \"Note:\". Finish with `{cmd} check pass --stdin` or `{cmd} check fail --stdin` \
          and the report on stdin.\n",
         ctx.diff.trim_end()
     ));

@@ -260,7 +260,7 @@ const M12: InboxView = {
           buttons: [
             {
               action: { kind: "move_to_review_anyway" },
-              label: "Move to Review anyway",
+              label: "Move on anyway",
               icon: "eye",
               primary: true,
             },
@@ -303,7 +303,7 @@ describe("the M12 items", () => {
     );
     expect(html).toContain("ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS");
     expect(html).toContain("↵ / ⌘J open Terminal · Validator side");
-    expect(html).toContain("Move to Review anyway");
+    expect(html).toContain("Move on anyway");
     expect(html).toContain("Give it another round");
     expect(html).toContain("Answer the agent…");
     expect(html).not.toContain("Tell the agent what to do");
@@ -655,7 +655,7 @@ const STUCK = row("SHOP-40.3", {
     view: "The agent keeps changing the API instead of the test.",
   },
   buttons: [
-    { action: { kind: "move_to_review_anyway" }, label: "Move to Review anyway", icon: "eye", primary: true },
+    { action: { kind: "move_to_review_anyway" }, label: "Move on anyway", icon: "eye", primary: true },
     { action: { kind: "another_round" }, label: "Give it another round", icon: "rotate-ccw", primary: false },
   ],
 });
@@ -735,7 +735,7 @@ describe("epic lead items", () => {
       "LEAD&#x27;S VIEW",
       "The agent keeps changing the API instead of the test.",
       "the lead isn’t woken a second time",
-      "Move to Review anyway",
+      "Move on anyway",
       "Wishlist lead · SHOP-40 Wishlist",
       "opens the epic panel on its Lead tab",
       "SUGGESTIONS · NO OS NOTIFICATION",

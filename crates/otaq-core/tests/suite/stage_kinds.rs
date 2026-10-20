@@ -277,7 +277,7 @@ fn refused(answer: &Value) -> &str {
 }
 
 /// STG-10: a session's role is the kind of its stage run's stage, whatever kind of session runs it. A session
-/// checking Security may not `review submit`; a Grill session may not `validate pass`.
+/// checking Security may not `stage next`; a Grill session may not `check pass`.
 #[tokio::test(flavor = "multi_thread")]
 async fn rights_follow_the_stage_run() {
     let w = TestService::start().await;
@@ -313,7 +313,7 @@ async fn rights_follow_the_stage_run() {
     let answer = send(
         &w,
         &checker,
-        "ticket.review_submit",
+        "ticket.stage_next",
         json!({"key": "SHOP-2", "summary": "Done"}),
     )
     .await;

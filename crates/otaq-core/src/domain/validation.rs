@@ -87,7 +87,8 @@ stored_enum! {
         Validated = "validated",
         /// No verdict, and the user moved it on: "Validation skipped by you".
         Skipped = "skipped",
-        /// The user's Submit for review, which skips validation: "Submitted by you" (d0052).
+        /// The user's Move to next stage into a human check with no agent check before it: "Submitted by you"
+        /// (d0052, d0108 rule 10; with an agent check next, the check runs and its pass is `Validated`).
         SubmittedByUser = "submitted_by_user",
         /// Failed every round, moved on by the user: "Failed M times · moved by you" (reads as "did not pass").
         FailedMoved = "failed_moved",
@@ -141,9 +142,9 @@ impl fmt::Display for ValidationRound {
 stored_enum! {
     /// Who started a validation round (`validations.trigger`).
     pub enum ValidationTrigger ("validation trigger") {
-        /// The agent's `review submit`.
+        /// The agent's `stage next` (or `review submit`).
         Agent = "agent",
-        /// The user's Validate and submit.
+        /// The user's Move to next stage.
         User = "user",
     }
 }
@@ -161,9 +162,9 @@ stored_enum! {
         Discarded = "discarded",
         /// The validator's session died with the service or the machine (REC-01).
         Interrupted = "interrupted",
-        /// The user's Skip to Review.
+        /// The user's Skip this check.
         Skipped = "skipped",
-        /// The user's Stop validation, Park or Close.
+        /// The user's Stop this check, Park or Close.
         Stopped = "stopped",
     }
 }
@@ -190,8 +191,6 @@ stored_enum! {
 stored_enum! {
     /// The user's actions on a validation (VAL-06, VAL-07, VAL-09): the panel's buttons and "…" menu items.
     pub enum ValidationAction ("validation action") {
-        /// The agent's flow, started by the user (agent not mid-turn): rounds and Auto-merge apply.
-        ValidateAndSubmit = "validate_and_submit",
         /// While validating: the validator stops, the round doesn't count, back to Agent Working.
         Stop = "stop",
         /// While validating: Ready for Review, "Validation skipped by you", never auto-merged.

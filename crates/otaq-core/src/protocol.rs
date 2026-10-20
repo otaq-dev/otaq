@@ -272,15 +272,22 @@ pub enum Request {
     /// [`Reply::Decision`].
     #[serde(rename = "decision.mark")]
     DecisionMark(DecisionMarkParams),
-    /// `otaq review submit`: Ready for Review with the summary; refused with uncommitted files (REV-07).
-    /// Answered with [`Reply::Ticket`].
-    #[serde(rename = "ticket.review_submit")]
-    TicketReviewSubmit(ReviewSubmitParams),
-    /// `otaq validate pass|fail --stdin`: the validator's verdict and report (VAL-03; validators only).
+    /// `otaq stage next --stdin` (and its other name `otaq review submit`): the agent ends its Agent stage with a
+    /// summary and the ticket moves to the next stage; refused with uncommitted files (REV-07) and an unread lead
+    /// note (CLI-08) (AGM-10). Answered with [`Reply::StageEnded`].
+    #[serde(rename = "ticket.stage_next")]
+    TicketStageNext(StageEndParams),
+    /// `otaq stage done --stdin` (AGM-10): the agent ends the ticket from its Agent stage as Closed · nothing to
+    /// merge, the summary its reason; refused when the ticket's branch has commits. Answered with
+    /// [`Reply::StageEnded`].
+    #[serde(rename = "ticket.stage_done")]
+    TicketStageDone(StageEndParams),
+    /// `otaq check pass|fail --stdin`: an agent check's verdict and report (VAL-03, AGM-10; its check session
+    /// only).
     #[serde(rename = "validation.verdict")]
     ValidationVerdict(VerdictParams),
-    /// The user's validation actions (VAL-06, VAL-07, VAL-09): Validate and submit, Stop validation, Skip to
-    /// Review, Move to Review anyway, Give it another round, Answer the agent, Retry validation.
+    /// The user's actions on a check (VAL-06, VAL-07, VAL-09, AGM-10): Stop this check, Skip this check, Move on
+    /// anyway, Give it another round, Answer the agent, Retry validation.
     #[serde(rename = "ticket.validation_action")]
     TicketValidationAction(ValidationActionParams),
     /// `otaq prime --validate`: what the validator works from (VAL-10).
@@ -365,7 +372,8 @@ pub enum Request {
     /// **Reopen** (CLS-03): Done · Closed → Backlog; Merged tickets are refused. Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.reopen")]
     TicketReopen(KeyParams),
-    /// **Submit for review** by the user (CLS-05): when the agent isn't mid-turn; refused with uncommitted files.
+    /// **Move to next stage** by the user (CLS-05, d0108 rule 10): the agent's `stage next` when the agent isn't
+    /// mid-turn (an agent check that comes next runs); refused with uncommitted files.
     /// Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.submit_by_user")]
     TicketSubmitByUser(SubmitByUserParams),
@@ -1278,9 +1286,10 @@ pub struct CommentsParams {
     pub round: Option<u32>,
 }
 
-/// `{"key": "SHOP-18", "summary": "…"}`.
+/// `{"key": "SHOP-18", "summary": "…"}`: how an agent ends its stage (`stage next`: the summary; `stage done`: the
+/// reason).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReviewSubmitParams {
+pub struct StageEndParams {
     pub key: String,
     #[serde(default)]
     pub summary: String,
@@ -1291,7 +1300,7 @@ pub struct ReviewSubmitParams {
 pub struct ValidationActionParams {
     pub key: String,
     pub action: crate::domain::ValidationAction,
-    /// Answer the agent's note; Validate and submit's optional note.
+    /// Answer the agent's note.
     #[serde(default)]
     pub note: String,
 }
@@ -1303,7 +1312,7 @@ pub struct NoteParams {
     pub note: String,
 }
 
-/// `{"key": "SHOP-29", "pass": false, "report": "…"}`: a validator's verdict (VAL-03).
+/// `{"key": "SHOP-29", "pass": false, "report": "…"}`: an agent check's verdict (VAL-03, `otaq check pass|fail`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VerdictParams {
     pub key: String,
@@ -1670,7 +1679,8 @@ impl Request {
             Self::DecisionList(_) => "decision.list",
             Self::DecisionChange(_) => "decision.change",
             Self::DecisionMark(_) => "decision.mark",
-            Self::TicketReviewSubmit(_) => "ticket.review_submit",
+            Self::TicketStageNext(_) => "ticket.stage_next",
+            Self::TicketStageDone(_) => "ticket.stage_done",
             Self::ValidationVerdict(_) => "validation.verdict",
             Self::TicketPrimeValidate(_) => "ticket.prime_validate",
             Self::TicketValidations(_) => "ticket.validations",
@@ -1835,6 +1845,9 @@ pub enum Reply {
     LeadLog(Box<crate::epic_lead::log::LeadLog>),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
+    /// The answer to `ticket.stage_next` and `ticket.stage_done` (AGM-10): the ticket and what the agent is told
+    /// ("Finished Dev. Validate is running; …").
+    StageEnded(Box<crate::board::review::StageEnded>),
     Validations(Vec<crate::board::validation::ValidationRecord>),
     Tickets(Vec<Ticket>),
     Readiness(Vec<Readiness>),

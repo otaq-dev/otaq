@@ -95,7 +95,7 @@ impl MoveCheck {
 
 /// The reason given when a ticket is dragged into Ready for Review.
 pub const ONLY_AGENT_SUBMITS: &str =
-    "Only the agent or Submit for review moves a ticket to Ready for Review";
+    "Only the agent or Move to next stage moves a ticket to Ready for Review";
 pub const MERGED_LOCKED: &str = "Merged tickets are locked";
 /// The refusal of Reopen on a merged ticket (CLS-03).
 pub const MERGED_LOCKED_REOPEN: &str = "Merged tickets are locked. Create a new ticket.";

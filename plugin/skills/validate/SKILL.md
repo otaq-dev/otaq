@@ -1,6 +1,6 @@
 ---
 name: validate
-description: Validate the Otaq ticket named by $OTAQ_TICKET as a read-only judge - get the context with `otaq prime --validate`, check the agent's change against the description, the checks and leftovers, then give the verdict with `otaq validate pass|fail --stdin`.
+description: Validate the Otaq ticket named by $OTAQ_TICKET as a read-only judge - get the context with `otaq prime --validate`, check the agent's change against the description, the checks and leftovers, then give the verdict with `otaq check pass|fail --stdin`.
 disable-model-invocation: true
 ---
 
@@ -39,7 +39,7 @@ the agent does the fixing.
 7. **Give the verdict** with the report on stdin, then end your turn:
 
    ```sh
-   otaq validate fail --stdin <<'REPORT'
+   otaq check fail --stdin <<'REPORT'
    src/cart.ts:42: the total ignores the discount the description asks for.
    src/cart.test.ts:10: `npm test` fails: expected 90, got 100.
    Note: Not covered by any ticket: removing items
@@ -49,7 +49,7 @@ the agent does the fixing.
    or, when nothing fails (notes are fine):
 
    ```sh
-   otaq validate pass --stdin <<'REPORT'
+   otaq check pass --stdin <<'REPORT'
    Checked: the discount applies to the total; `npm test` passes; no leftovers.
    Note: UI for adding items: covered by SHOP-40.2
    REPORT
@@ -61,5 +61,5 @@ the agent does the fixing.
   tracked files or anything outside the worktree (no installs, no migrations, no formatting fixes).
 - Don't file tickets and don't run `otaq review submit`: the user creates tickets from your notes.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments.
-- Always finish with `otaq validate pass --stdin` or `otaq validate fail --stdin`. Ending your turn without
+- Always finish with `otaq check pass --stdin` or `otaq check fail --stdin`. Ending your turn without
   a verdict leaves the ticket waiting for the user.

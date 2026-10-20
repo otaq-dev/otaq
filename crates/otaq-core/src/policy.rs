@@ -3,23 +3,22 @@
 //!
 //! An agent caller may:
 //! - **read anything** (`show`, `list`, `ready`, `blocked`, `dep tree`, `prime`, the board);
-//! - **change only its own ticket** (`update`, `review submit`, `ask`, `answer`, and from M10 `pr propose`,
-//!   `pr opened`, `branch rename`);
+//! - **change only its own ticket** (`update`, `stage next` / `review submit`, `stage done`, `ask`, `answer`, and
+//!   from M10 `pr propose`, `pr opened`, `branch rename`);
 //! - **create tickets**, which always land in Backlog (including epic children with `--parent`);
 //! - **add or remove dependencies** only from its own ticket, or between two tickets it created.
 //!
 //! Everything else is refused, for example "SHOP-18's agent can't change SHOP-12". The user (the app, their own
 //! terminals, the Project terminal, Shell and Run) passes every check (CLI-03), except reporting a verdict.
 //!
-//! A **validator** caller (d0063) reads anything and reports the verdict of its own ticket
-//! (`validate pass|fail`); every change is refused: "SHOP-29's validator can't change tickets". Only a
-//! validator reports a verdict: "Only a validator can report a verdict".
+//! A **validator** caller (an agent check's session, d0063) reads anything and gives the verdict of its own ticket
+//! (`check pass|fail`, AGM-10); everything else is refused: "SHOP-29's check can only give its verdict". Only an
+//! agent check gives a verdict: "Only an agent check can give a verdict".
 //!
 //! **By stage kind** (STG-10, d0108): a ticket session's role is the kind of its stage run's stage
 //! ([`crate::caller::by_stage`]): an Agent stage's session is a ticket agent (never a verdict), an agent check's is a
-//! validator (the verdict only). Outside the default flow's Dev and Validate the refusals name the stage
-//! ([`authorize_in_stage`]): "NOTE-4's Security check can only give its verdict", "NOTE-4's Grill session can't give
-//! a check verdict".
+//! validator (the verdict only). On every flow the refusals name the stage ([`authorize_in_stage`], Q269): "NOTE-1's
+//! Validate check can only give its verdict", "NOTE-1's Dev session can't give a check verdict".
 //!
 //! A **Project agent** caller (d0068, PAG-02) reads anything, creates tickets (always in Backlog, incl. epics,
 //! children, External ID and priority), and edits, links and prioritises tickets **still in Backlog** (never
@@ -51,8 +50,8 @@ use crate::caller::Caller;
 use crate::domain::{Actor, TicketKey};
 use crate::named_agents::{Role, RowLock, RowSetBy};
 
-/// The refusal of `validate pass|fail` from anyone but a validator.
-pub const ONLY_A_VALIDATOR: &str = "Only a validator can report a verdict";
+/// The refusal of `check pass|fail` from anyone but an agent check's session (AGM-10).
+pub const ONLY_A_VALIDATOR: &str = "Only an agent check can give a verdict";
 
 /// Every refusal of a Project agent (PAG-02).
 pub const BACKLOG_ONLY: &str = "Project agents can only change Backlog tickets";
@@ -179,7 +178,7 @@ pub enum Action {
     PickAgents(TicketFacts),
     /// Only the user may do this; `what` completes "SHOP-18's agent can't …" ("move tickets").
     UserOnly(&'static str),
-    /// `validate pass|fail` for this ticket: its validator only.
+    /// `check pass|fail` for this ticket: its agent check's session only.
     Verdict(TicketFacts),
     /// Several actions, all needed (a batch that creates tickets and links them).
     All(Vec<Action>),
@@ -207,9 +206,8 @@ pub fn agent_stage_no_verdict(ticket: &TicketKey, stage: &str) -> String {
     format!("{ticket}'s {stage} session can't give a check verdict")
 }
 
-/// [`authorize_named`] for a ticket session whose stage run is in the stage named `stage` (STG-10): its refusals
-/// name the stage ("NOTE-4's Security check can only give its verdict"). `None` keeps today's words ("validator",
-/// "agent"), as the default flow's Dev and Validate do.
+/// [`authorize_named`] for a ticket session whose stage run is in the stage named `stage` (STG-10, Q269): its
+/// refusals name the stage ("NOTE-1's Validate check can only give its verdict"). `None` (no stage run) says "check".
 pub fn authorize_in_stage(
     caller: &Caller,
     names: Names,
@@ -228,7 +226,7 @@ pub fn authorize_in_stage(
     {
         let who = match stage {
             Some(stage) => format!("{ticket}'s {stage} check"),
-            None => format!("{ticket}'s validator"),
+            None => format!("{ticket}'s check"),
         };
         return match action {
             Action::Read => Ok(()),
@@ -244,7 +242,7 @@ pub fn authorize_in_stage(
             Action::All(actions) => all(actions),
             _ => match stage {
                 Some(stage) => refuse(check_only_verdict(ticket, stage)),
-                None => refuse(format!("{who} can't change tickets")),
+                None => refuse(format!("{who} can only give its verdict")),
             },
         };
     }
@@ -810,7 +808,7 @@ mod tests {
     }
 
     /// T-0184 (CLI-05, d0063): a validator reads and reports on its own ticket; it changes nothing, and nobody
-    /// else reports a verdict.
+    /// else reports a verdict. Without a stage run it is "SHOP-29's check".
     #[test]
     fn validators_read_and_report_only() {
         let validator = Caller::Validator {
@@ -827,7 +825,7 @@ mod tests {
         );
         assert_eq!(
             message(authorize(&validator, &Action::Verdict(other.clone()))).as_deref(),
-            Some("SHOP-29's validator can only report on SHOP-29, not SHOP-12")
+            Some("SHOP-29's check can only report on SHOP-29, not SHOP-12")
         );
         // T-0195: it never creates tickets, also not from its own report's notes (the user's Create ticket).
         for action in [
@@ -842,7 +840,7 @@ mod tests {
         ] {
             assert_eq!(
                 message(authorize(&validator, &action)).as_deref(),
-                Some("SHOP-29's validator can't change tickets"),
+                Some("SHOP-29's check can only give its verdict"),
                 "{action:?}"
             );
         }
@@ -855,7 +853,7 @@ mod tests {
     }
 
     /// T-0402 (STG-10, d0108): a session's rights are its stage's kind's, and its refusals name the stage. A
-    /// Security check session gives its verdict only (no `review submit`); a Grill session never gives one.
+    /// Security check session gives its verdict only (no `stage next`); a Grill session never gives one.
     #[test]
     fn rights_by_stage_kind() {
         let security = Caller::Validator {
@@ -890,7 +888,23 @@ mod tests {
             in_stage(&grill, "Grill", &Action::ChangeTicket(own.clone())),
             None
         );
-        // Without a stage name (the default flow's Dev and Validate) the words are today's.
+        // The default flow's stages are named too (Q269).
+        let validate = Caller::Validator {
+            ticket: "NOTE-1".parse().unwrap(),
+            ticket_id: "t1".into(),
+            session: "s".into(),
+        };
+        let dev = agent("NOTE-1", "t1");
+        let note1 = facts("NOTE-1", "t1", "nevzat");
+        assert_eq!(
+            in_stage(&validate, "Validate", &Action::ChangeTicket(note1.clone())).as_deref(),
+            Some("NOTE-1's Validate check can only give its verdict")
+        );
+        assert_eq!(
+            in_stage(&dev, "Dev", &Action::Verdict(note1)).as_deref(),
+            Some("NOTE-1's Dev session can't give a check verdict")
+        );
+        // A session without a stage run.
         assert_eq!(
             message(authorize_in_stage(
                 &grill,
@@ -1000,7 +1014,7 @@ mod tests {
         };
         assert_eq!(
             message(authorize(&validator, &read(&note6, "NOTE"))).as_deref(),
-            Some("NOTE-6's validator can't read NOTE-6's terminal")
+            Some("NOTE-6's check can't read NOTE-6's terminal")
         );
         // A batch that reads a terminal needs the terminal rule too.
         assert!(

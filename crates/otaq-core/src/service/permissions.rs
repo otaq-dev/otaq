@@ -49,8 +49,8 @@ pub(super) async fn check(
     authorize_in_stage(caller, names, stage.as_deref(), &action)
 }
 
-/// The name of the stage a ticket session's stage run is in, for its refusals (STG-10): none for the default flow's
-/// Dev and Validate, whose sessions keep today's words.
+/// The name of the stage a ticket session's stage run is in, for its refusals (STG-10), on every flow (Q269, AGM-10):
+/// "NOTE-1's Validate check can only give its verdict". None for a session with no stage run.
 async fn stage_name(caller: &Caller, board: &Board) -> Option<String> {
     let (Caller::Agent {
         ticket, session, ..
@@ -64,9 +64,6 @@ async fn stage_name(caller: &Caller, board: &Board) -> Option<String> {
     let run = crate::caller::SessionStage::of(board.store().pool(), session)
         .await
         .ok()??;
-    if [crate::flow::default::DEV, crate::flow::default::VALIDATE].contains(&run.stage.as_str()) {
-        return None;
-    }
     let flow = board.effective_flow(ticket.project.as_str()).await.ok();
     Some(
         flow.as_ref()
@@ -286,7 +283,10 @@ async fn action_for(
         R::TicketAskHuman(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionRecord(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionChange(_) => Action::UserOnly("change recorded decisions"),
-        R::TicketReviewSubmit(p) => Action::ChangeTicket(facts(board, &p.key).await?),
+        // Ending a stage changes the agent's own ticket (CLI-02, AGM-10); a check session may only give its verdict.
+        R::TicketStageNext(p) | R::TicketStageDone(p) => {
+            Action::ChangeTicket(facts(board, &p.key).await?)
+        }
         R::ValidationVerdict(p) => Action::Verdict(facts(board, &p.key).await?),
         R::TicketValidationAction(_) => Action::UserOnly("act on a validation"),
         R::TicketCreateFromNote(_) => Action::UserOnly("create tickets from validation notes"),

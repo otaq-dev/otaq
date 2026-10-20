@@ -1,6 +1,6 @@
-//! Close ticket, Reopen and Submit for review in the UI (CLS-01, CLS-03, CLS-05; d0033, d0044, d0052; *05 → Close
-//! ticket · panel "…" menu, Close ticket · confirm, Submit for review · dialog, Closed · not merged · Reopen*):
-//! which menu items show, and the dialogs' texts.
+//! Close ticket, Reopen and Move to next stage (was Submit for review) in the UI (CLS-01, CLS-03, CLS-05; d0033,
+//! d0044, d0052, d0108; *05 → Close ticket · panel "…" menu, Close ticket · confirm, Submit for review · dialog,
+//! Closed · not merged · Reopen*): which menu items show, and the dialogs' texts.
 
 use otaq_core::board::review::USER_SUBMITS_FROM;
 use otaq_core::board::tickets::Ticket;
@@ -11,7 +11,6 @@ use crate::view_models::menu::MenuItem;
 
 pub const CLOSE_TICKET: &str = "close-ticket";
 pub const SUBMIT_FOR_REVIEW: &str = "submit-for-review";
-pub const VALIDATE_AND_SUBMIT: &str = "validate-and-submit";
 
 /// Close ticket is offered on every ticket that isn't finished (epics have Close epic…).
 pub fn can_close(ticket: &Ticket) -> bool {
@@ -28,7 +27,8 @@ pub fn close_item(ticket: &Ticket) -> Option<MenuItem> {
     })
 }
 
-/// "Submit for review…": on a ticket whose agent is at work or stopped; enabled only when it isn't mid-turn.
+/// "Move to next stage…" (was Submit for review): on a ticket whose agent is at work or stopped; enabled only when
+/// it isn't mid-turn. It counts as the agent's `stage next` (d0108 rule 10): an agent check that follows runs.
 pub fn submit_item(ticket: &Ticket) -> Option<MenuItem> {
     let shown = !ticket.is_epic()
         && crate::view_models::flow_columns::place_set(ticket).at_work()
@@ -37,23 +37,12 @@ pub fn submit_item(ticket: &Ticket) -> Option<MenuItem> {
     if !shown {
         return None;
     }
-    let item = MenuItem::new(SUBMIT_FOR_REVIEW, "Submit for review…").icon(IconName::Send);
+    let item = MenuItem::new(SUBMIT_FOR_REVIEW, "Move to next stage…").icon(IconName::Send);
     Some(if USER_SUBMITS_FROM.contains(&ticket.status) {
         item
     } else {
         item.disabled(true).hint("agent is working")
     })
-}
-
-/// "Validate and submit" (VAL-09): the agent's own submit flow, started by the user; shown and enabled like
-/// Submit for review (`submit`), so it is hidden while the ticket validates too.
-pub fn validate_item(submit: &MenuItem) -> MenuItem {
-    MenuItem {
-        id: VALIDATE_AND_SUBMIT.to_owned(),
-        label: "Validate and submit".to_owned(),
-        icon: Some(IconName::ShieldCheck),
-        ..submit.clone()
-    }
 }
 
 /// While it validates, Close and Park stop both sessions and discard the round (d0063, *Close / Park · while
@@ -147,11 +136,11 @@ pub fn submit_text(ticket: &Ticket, now: i64) -> SubmitText {
         }
     };
     SubmitText {
-        title: format!("Submit {} {} for review?", ticket.key, ticket.title),
+        title: format!("Move {} {} to the next stage?", ticket.key, ticket.title),
         intro,
-        // *Submit for review · dialog (0052, 0063)*.
-        footer: "Skips validation: no validator runs. The Review card shows \u{201c}Submitted by you\u{201d} with your \
-                 note, and Auto-merge never applies. Want a check first? Use Validate and submit."
+        // *Submit for review · dialog (0052, 0063)*, as the agent's own `stage next` (d0108 rule 10).
+        footer: "As if the agent finished: an agent check that comes next runs first, and Auto-merge may follow its \
+                 pass. The Review card shows \u{201c}Submitted by you\u{201d} with your note."
             .to_owned(),
     }
 }
@@ -376,14 +365,14 @@ mod tests {
         idle.status_since = Some(0);
         idle.signal = None;
         let text = submit_text(&idle, 120_000);
-        assert_eq!(text.title, "Submit SHOP-19 Price table for review?");
+        assert_eq!(text.title, "Move SHOP-19 Price table to the next stage?");
         assert_eq!(
             text.intro,
             "The agent ended its turn 2m ago. Its session stays; Send back continues it."
         );
         assert!(
             text.footer
-                .starts_with("Skips validation: no validator runs.")
+                .starts_with("As if the agent finished: an agent check that comes next runs first")
         );
         assert_eq!(
             submitted_line("Paging works, tests pending"),

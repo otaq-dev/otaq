@@ -15,9 +15,9 @@ use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::settings::{AutoMerge, ProjectSettings};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::client::{Client, ClientConfig};
-use otaq_core::domain::{Actor, BuildState, Status, ValidationTrigger};
+use otaq_core::domain::{Actor, BuildState, Status, ValidationAction, ValidationTrigger};
 use otaq_core::git::testing::{commit, git};
-use otaq_core::protocol::{Event, Reply, Request, SubmitByUserParams};
+use otaq_core::protocol::{Event, Reply, Request, SubmitByUserParams, ValidationActionParams};
 use otaq_core::recovery::cleanup::CleanupGroup;
 use otaq_core::review::LocalMergeOutcome;
 use otaq_core::service::ServiceConfig;
@@ -93,7 +93,7 @@ async fn shop_web(w: &TestService) -> Project {
     shop_web_with(w, |_| {}).await
 }
 
-/// A started ticket with one commit of its own and a build, waiting for the user (so Submit for review works).
+/// A started ticket with one commit of its own and a build, waiting for the user (so Move to next stage works).
 async fn started(w: &TestService, title: &str, file: &str) -> (Ticket, PathBuf) {
     let t = w.create("SHOP", title).await;
     let wt = w.start_worktree(&t).await;
@@ -118,12 +118,25 @@ async fn client(w: &TestService) -> Client {
     Client::connect(ClientConfig::new(&w.data)).await.unwrap()
 }
 
-/// **Submit for review** by the user, through the service as the app sends it.
+/// The user's **Move to next stage**, then **Skip this check**, through the service as the app sends them: since
+/// T-0406 Move to next stage runs the Validate check first (d0108 rule 10), so Skip brings the ticket to Review.
 async fn submit(w: &TestService, t: &Ticket) {
-    let reply = client(w)
-        .await
+    let client = client(w).await;
+    let reply = client
         .request(Request::TicketSubmitByUser(SubmitByUserParams {
             key: t.key.to_string(),
+            note: String::new(),
+        }))
+        .await
+        .unwrap();
+    match reply {
+        Reply::Ticket(after) => assert_eq!(after.status, Status::Checking),
+        other => panic!("{other:?}"),
+    }
+    let reply = client
+        .request(Request::TicketValidationAction(ValidationActionParams {
+            key: t.key.to_string(),
+            action: ValidationAction::Skip,
             note: String::new(),
         }))
         .await

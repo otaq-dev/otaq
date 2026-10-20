@@ -179,7 +179,7 @@ async fn validate_prime_plain() {
         "- depends on SHOP-19 · Price table (Working)",
         "## Agent instructions (global)\n\nRun `pnpm test` before submitting.",
         "## The diff\n\n```diff\n",
-        "`otaq validate pass --stdin` or `otaq validate fail --stdin`",
+        "`otaq check pass --stdin` or `otaq check fail --stdin`",
     ] {
         assert!(text.contains(part), "missing {part:?} in\n{text}");
     }

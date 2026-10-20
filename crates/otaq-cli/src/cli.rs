@@ -262,12 +262,16 @@ pub enum Command {
     /// An epic lead's commands (`suggest close|delete <KEY> --stdin`)
     #[command(flatten)]
     Lead(crate::lead::LeadCommand),
-    /// Submit the ticket for review (`review submit --stdin`) or read the review feedback (`review feedback`)
+    /// End your stage: `stage next --stdin` (the default: on to the next stage with a summary) or `stage done
+    /// --stdin` (nothing to deliver: Closed · nothing to merge, with your reason)
+    #[command(subcommand)]
+    Stage(StageCommand),
+    /// An agent check's verdict on its ticket, the report on stdin (`check pass|fail --stdin`, check sessions only)
+    #[command(subcommand)]
+    Check(CheckCommand),
+    /// Read the review feedback (`review feedback`); `review submit --stdin` is another name for `stage next`
     #[command(subcommand)]
     Review(ReviewCommand),
-    /// The validator's verdict on its ticket, the report on stdin (validator sessions only)
-    #[command(subcommand)]
-    Validate(ValidateCommand),
     /// A Project agent's own commands: `agent name "<3–4 words>"` (Project agent sessions only)
     #[command(subcommand)]
     Agent(AgentCommand),
@@ -337,8 +341,30 @@ pub enum DecisionCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
-pub enum ValidateCommand {
-    /// The change does what the ticket asks: Ready for Review (or Auto-merge)
+pub enum StageCommand {
+    /// Finish your stage with a summary on stdin: the ticket moves to the next stage (an agent check, Review…);
+    /// refused while files are uncommitted or a lead note is unread
+    Next {
+        /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
+        key: Option<String>,
+        /// Read the summary from stdin
+        #[arg(long)]
+        stdin: bool,
+    },
+    /// Nothing to deliver (no commits on the branch): the ticket is Closed · nothing to merge, your reason on stdin;
+    /// refused when the branch has commits
+    Done {
+        /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
+        key: Option<String>,
+        /// Read the reason from stdin
+        #[arg(long)]
+        stdin: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
+pub enum CheckCommand {
+    /// The change does what the ticket asks: on to the next stage (Review, or Auto-merge)
     Pass {
         /// Read the report from stdin
         #[arg(long)]
@@ -354,7 +380,7 @@ pub enum ValidateCommand {
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
 pub enum ReviewCommand {
-    /// Move the ticket to Ready for Review with a summary on stdin; refused while files are uncommitted
+    /// Another name for `stage next`: finish your stage with a summary on stdin
     Submit {
         /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,

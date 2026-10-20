@@ -222,7 +222,7 @@ fn button(action: &RowAction) -> Button {
 fn validation_button(action: ValidationAction) -> (&'static str, IconName) {
     use ValidationAction as A;
     match action {
-        A::MoveToReviewAnyway => ("Move to Review anyway", IconName::Eye),
+        A::MoveToReviewAnyway => ("Move on anyway", IconName::Eye),
         A::AnotherRound => ("Give it another round", IconName::RotateCcw),
         A::AnswerAgent => ("Answer the agent\u{2026}", IconName::MessageSquare),
         A::Retry => ("Retry validation", IconName::RotateCcw),
@@ -1421,7 +1421,7 @@ mod tests {
         assert_eq!(
             buttons(1),
             [
-                ("Move to Review anyway", true),
+                ("Move on anyway", true),
                 ("Give it another round", false),
                 ("Answer the agent\u{2026}", false)
             ]
@@ -1433,7 +1433,7 @@ mod tests {
         assert_eq!(rows[1].hint, None);
         assert_eq!(
             buttons(2),
-            [("Retry validation", true), ("Move to Review anyway", false)]
+            [("Retry validation", true), ("Move on anyway", false)]
         );
         assert_eq!(rows[2].note, None);
         assert_eq!(
@@ -1716,7 +1716,7 @@ mod tests {
         assert_eq!(
             buttons,
             [
-                ("Move to Review anyway", true),
+                ("Move on anyway", true),
                 ("Give it another round", false),
                 ("Answer the agent…", false)
             ]

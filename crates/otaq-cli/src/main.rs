@@ -148,12 +148,16 @@ fn main() -> ExitCode {
             &cli.global,
             &out,
         ),
-        Some(Command::Review(cli::ReviewCommand::Submit { key, stdin })) => {
-            agent::submit(key, stdin, &cli.global, &out)
+        Some(Command::Review(cli::ReviewCommand::Submit { key, stdin }))
+        | Some(Command::Stage(cli::StageCommand::Next { key, stdin })) => {
+            agent::stage_next(key, stdin, &cli.global, &out)
+        }
+        Some(Command::Stage(cli::StageCommand::Done { key, stdin })) => {
+            agent::stage_done(key, stdin, &cli.global, &out)
         }
         Some(Command::Decision(command)) => decision::run(command, &cli.global, &out),
         Some(Command::Lead(command)) => lead::run(command, &cli.global, &out),
-        Some(Command::Validate(command)) => agent::validate(command, &cli.global, &out),
+        Some(Command::Check(command)) => agent::check(command, &cli.global, &out),
         Some(Command::Agent(cli::AgentCommand::Name { name, rename })) => {
             agent::name(&name, rename, &cli.global, &out)
         }

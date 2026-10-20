@@ -47,13 +47,11 @@ pub struct ValidationState<'a> {
 pub enum ValidationEvent {
     /// The agent's `review submit`.
     AgentSubmit,
-    /// The user's Validate and submit.
-    ValidateAndSubmit,
-    /// The user's Submit for review: skips validation (d0052, d0063).
-    SubmitByUser,
+    /// The user's Move to next stage: the agent's own `stage next` (d0108 rule 10), also from Interrupted.
+    UserNextStage,
     Pass,
     Fail,
-    /// The validator's turn ended without `validate pass|fail`.
+    /// The validator's turn ended without `check pass|fail`.
     NoVerdict,
     /// The validator changed tracked files or committed (VAL-02).
     ValidatorChangedFiles,
@@ -115,7 +113,7 @@ pub struct Transition {
     pub extra_round: bool,
     /// Why Auto-merge stopped, when it did.
     pub stop: Option<AutoMergeStop>,
-    /// Stages walked over without running (Submit for review skips the checks): each gets a skipped run.
+    /// Stages walked over without running (a skip, or `Move::SubmitByUser` past them): each gets a skipped run.
     pub skipped: Vec<String>,
 }
 
@@ -235,19 +233,31 @@ pub fn transition(s: ValidationState<'_>, event: ValidationEvent) -> Result<Tran
     let to_stage = |stage: &crate::flow::Stage, status: Status| {
         Transition::at(status, Place::stage_of(&stage.id))
     };
-    Ok(match event {
-        E::AgentSubmit | E::ValidateAndSubmit if agent_works(s.status) => {
-            let t = go(Move::NextStage)?;
-            // A fix after an Auto-merge conflict validates again with the counter at 0 (AMG-03).
+    // The agent's (or the user's) next stage; the user's from Interrupted as if the agent were idle.
+    let go_next = || -> Result<Transition, NotNow> {
+        let t = if s.status == Status::Interrupted {
+            let idle = At {
+                status: Status::Idle,
+                ..at
+            };
+            engine::step(idle, Move::NextStage)
+                .map(|step| Transition::of(&step))
+                .map_err(|_| not_now())?
+        } else {
+            go(Move::NextStage)?
+        };
+        // A fix after an Auto-merge conflict validates again with the counter at 0 (AMG-03).
+        Ok(
             if t.start_validator && s.status == Status::MergeConflictFixing {
                 t.round(Round::Reset)
             } else {
                 t
-            }
-        }
-        E::SubmitByUser if agent_works(s.status) => {
-            go(Move::SubmitByUser)?.review(ReviewEntry::SubmittedByUser)
-        }
+            },
+        )
+    };
+    Ok(match event {
+        E::AgentSubmit if agent_works(s.status) => go_next()?,
+        E::UserNextStage if agent_works(s.status) || s.status == Status::Interrupted => go_next()?,
         E::Pass if validating(s.status) => {
             let mut t = go(Move::Pass)?.round(Round::Count);
             if t.enters_review() {
@@ -431,6 +441,9 @@ impl Board {
         } else {
             step.to
         };
+        // Into an agent check: "Finished Dev", not "Submitted for review" (Q263).
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        let finished = super::review::stage_finished(&flow, ticket, summary, head);
         let mut tx = self.store.begin_write().await?;
         stage_runs::end_open(&mut tx, &ticket.id, RunResult::Done, Some(summary)).await?;
         sqlx::query(concat!(
@@ -467,9 +480,9 @@ impl Board {
         record_event(
             &mut tx,
             &ticket.id,
-            EventKind::ReviewSubmitted,
+            EventKind::StageFinished,
             actor,
-            json!({ "summary": summary.trim(), "head": head, "validation": true }),
+            finished,
         )
         .await?;
         tx.commit().await?;
@@ -515,7 +528,7 @@ impl Board {
     }
 
     /// The validator couldn't start: "Validation ended without a result" with the reason, the round ends without
-    /// one (it doesn't count) and Retry validation or Move to Review anyway are the user's (VAL-07).
+    /// one (it doesn't count) and Retry validation or Move on anyway are the user's (VAL-07).
     pub(crate) async fn validator_did_not_start(
         &self,
         ticket_id: &str,
@@ -723,7 +736,7 @@ impl Board {
         Ok(query.execute(self.store.pool()).await?.rows_affected() > 0)
     }
 
-    /// Into Ready for Review without a verdict, by the user (Move to Review anyway, VAL-06, VAL-07): the last
+    /// Into Ready for Review without a verdict, by the user (Move on anyway, VAL-06, VAL-07): the last
     /// round's head is the reviewed head; never auto-merged. The ticket goes to the first human check after its
     /// stage (the default flow's Review).
     pub(crate) async fn move_to_review(
@@ -1204,11 +1217,11 @@ mod tests {
         transition(s, event).unwrap_or_else(|e| panic!("{e:?}"))
     }
 
-    /// Working → Validating on the agent's submit and on Validate and submit; with validation off, straight to
-    /// Ready for Review.
+    /// Working → Validating on the agent's `stage next` and on the user's Move to next stage; with validation off,
+    /// straight to Ready for Review.
     #[test]
     fn submit_starts_a_validator() {
-        for event in [E::AgentSubmit, E::ValidateAndSubmit] {
+        for event in [E::AgentSubmit, E::UserNextStage] {
             let t = go(state(Status::Working), event);
             assert_eq!(t.to, Status::Checking);
             assert!(t.start_validator && t.round == Round::Keep && t.outcome.is_none());
@@ -1220,25 +1233,17 @@ mod tests {
         assert!(transition(state(Status::Checking), E::AgentSubmit).is_err());
     }
 
-    /// Submit for review skips validation: "Submitted by you", never auto-merged.
+    /// T-0406 (d0108 rule 10): the user's Move to next stage counts as the agent's `stage next`: the check runs (it
+    /// used to skip validation), also from Interrupted; not while it validates.
     #[test]
-    fn submit_by_user_skips_validation() {
-        let t = go(
-            ValidationState {
-                auto_merge: true,
-                ..state(Status::Working)
-            },
-            E::SubmitByUser,
-        );
-        assert_eq!(
-            (t.to, t.entry, t.auto_merge),
-            (
-                Status::WaitingForYou,
-                Some(ReviewEntry::SubmittedByUser),
-                false
-            )
-        );
-        assert!(transition(state(Status::Checking), E::SubmitByUser).is_err());
+    fn the_users_move_to_next_stage_runs_the_check() {
+        for status in [Status::Idle, Status::Interrupted] {
+            let t = go(state(status), E::UserNextStage);
+            assert_eq!((t.to, t.entry), (Status::Checking, None), "{status:?}");
+            assert!(t.start_validator);
+        }
+        assert!(transition(state(Status::Interrupted), E::AgentSubmit).is_err());
+        assert!(transition(state(Status::Checking), E::UserNextStage).is_err());
     }
 
     /// Validating → Ready for Review "Validated · round N" on pass; with Auto-merge, the merge runs.
@@ -1331,7 +1336,7 @@ mod tests {
         );
     }
 
-    /// Code changed, Stop validation and Skip to Review: none counts as a round.
+    /// Code changed, Stop this check and Skip this check: none counts as a round.
     #[test]
     fn changes_stop_and_skip() {
         let t = go(state(Status::Checking), E::CodeChanged);
@@ -1368,7 +1373,7 @@ mod tests {
         }
     }
 
-    /// After the last failed round: Move to Review anyway, Give it another round, Answer the agent.
+    /// After the last failed round: Move on anyway, Give it another round, Answer the agent.
     #[test]
     fn after_the_last_failed_round() {
         let failed = state(Status::CheckFailed);
@@ -1389,7 +1394,7 @@ mod tests {
         );
     }
 
-    /// Ended without a result: Retry validation (a fresh validator, not a round) or Move to Review anyway
+    /// Ended without a result: Retry validation (a fresh validator, not a round) or Move on anyway
     /// ("Validation skipped by you").
     #[test]
     fn after_no_result() {

@@ -226,6 +226,24 @@ impl TestService {
         worktree
     }
 
+    /// [`Self::give_worktree`], with the ticket's base at the worktree's first commit, as the start sequence records
+    /// it: commits made in it count as the ticket's own (`otaq stage done`).
+    pub async fn give_worktree_at_base(&self, ticket: &Ticket) -> PathBuf {
+        let worktree = self.give_worktree(ticket).await;
+        let head = crate::git::Git::find()
+            .expect("git")
+            .run(&worktree, &["rev-parse", "HEAD"])
+            .await
+            .expect("worktree head");
+        sqlx::query("UPDATE tickets SET base_sha = ? WHERE id = ?")
+            .bind(head.trim())
+            .bind(&ticket.id)
+            .execute(self.board.store().pool())
+            .await
+            .expect("base set");
+        worktree
+    }
+
     /// Puts the ticket in Validating with an open round 1 judged by `session` (tests report the verdict from it).
     pub async fn validating_with(&self, ticket: &Ticket, session: &str) {
         self.force_status(ticket, Status::Checking).await;

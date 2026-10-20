@@ -192,7 +192,7 @@ async fn an_agent_records_on_its_own_ticket_only_and_a_validator_not_at_all() {
     assert_eq!(refused["error"]["kind"], "refused", "{refused}");
     assert_eq!(
         refused["error"]["message"],
-        "SHOP-1's validator can't change tickets"
+        "SHOP-1's check can only give its verdict"
     );
     assert_eq!(decisions::list(&w.board, "SHOP-1").await.unwrap().len(), 1);
     assert!(

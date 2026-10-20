@@ -3,7 +3,7 @@
 //! the result out (`board/validation.rs::transition`, `board/moves.rs::check_move` and the review moves).
 //!
 //! - [`step`]: what a [`Move`] does where a ticket stands: the agent's "next stage", an agent check's verdict, a
-//!   human check's Pass or Fail, a Delivery finishing, and the user's shortcuts (Skip to Review, Move on anyway…).
+//!   human check's Pass or Fail, a Delivery finishing, and the user's shortcuts (Skip this check, Move on anyway…).
 //!   A Fail returns the card to the nearest earlier Agent stage, which resumes its session; from there it walks
 //!   every later stage again. Each agent check counts its own fails in a row ([`Counters`]); a human Fail resets
 //!   them all. A human check directly followed by a click Delivery offers the delivery choices as its Pass.
@@ -96,10 +96,11 @@ pub fn rounds_of(stage: &Stage, extra: u32) -> u32 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Move {
-    /// The agent's "next stage" from an Agent stage (`review submit`), or the user's Validate and submit.
+    /// The agent's "next stage" from an Agent stage (`stage next`), or the user's Move to next stage.
     NextStage,
-    /// The user's Submit for review: past the agent checks that follow, which count as skipped, to the next stage
-    /// (d0052, d0063; never delivered automatically).
+    /// The board's move for the user's Move to next stage when no agent check comes next (an agent check runs
+    /// through `NextStage`, d0108 rule 10): to the next stage, any agent checks walked over counting as skipped
+    /// (d0052; never delivered automatically).
     SubmitByUser,
     /// An agent check's `pass`.
     Pass,
@@ -111,9 +112,9 @@ pub enum Move {
     CancelCheck,
     /// A fresh checker after no result.
     RetryCheck,
-    /// The user skips the running check (Skip to Review).
+    /// The user skips the running check (Skip this check).
     SkipCheck,
-    /// After the last allowed fail or no result: on to the next stage (Move to Review anyway).
+    /// After the last allowed fail or no result: on to the next stage (Move on anyway).
     MoveOnAnyway,
     /// After the last allowed fail: back to the agent with the findings, one more round allowed.
     AnotherRound,
@@ -206,8 +207,8 @@ pub struct Step<'f> {
     pub stage: Option<&'f Stage>,
     /// How the run of the stage the ticket was in ends; `None` when that run goes on.
     pub ended: Option<RunResult>,
-    /// Runs that start and end at once: stages walked over because the ticket skips them (or Submit for review
-    /// skipped), and a Delivery finished as soon as it was entered.
+    /// Runs that start and end at once: stages walked over because the ticket skips them (or `SubmitByUser`
+    /// walked past them), and a Delivery finished as soon as it was entered.
     pub passed_through: Vec<(&'f Stage, RunResult)>,
     pub counters: Counters,
     /// A fresh checker starts (an agent check was entered, or Retry).

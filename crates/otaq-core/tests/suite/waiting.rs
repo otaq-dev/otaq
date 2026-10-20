@@ -100,7 +100,7 @@ fn started(tickets: &[Ticket], gate: &Gate) -> Vec<String> {
 
 // ---- The engine and the scheduler ----
 
-/// Finishing Grill (the agent's submit, or the user's Submit for review) waits before Dev: Grill's run is done, the
+/// Finishing Grill (the agent's `stage next`, or the user's Move to next stage) waits before Dev: Grill's run is done, the
 /// card is queued before Dev, and only the scheduler's start enters Dev.
 #[test]
 fn finishing_grill_waits_before_dev() {

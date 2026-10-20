@@ -1,4 +1,4 @@
-//! `otaq validate pass|fail --stdin` and `otaq prime --validate` (T-0184; VAL-03, CLI-05; d0063), from
+//! `otaq check pass|fail --stdin` and `otaq prime --validate` (T-0184, T-0406; VAL-03, CLI-05, AGM-10; d0063), from
 //! a validator session (an ordinary `sh` started as one), from the ticket's agent and from the user.
 
 use std::process::Command;
@@ -20,11 +20,11 @@ async fn only_the_validator_reports_a_verdict() {
     let validator = w.shell(&shop19, SessionKind::Validator).await;
     let agent = w.agent_shell(&shop19).await;
     w.validating_with(&shop19, &validator.session).await;
-    let only = "Only a validator can report a verdict";
+    let only = "Only an agent check can give a verdict";
 
     // The user, from their own terminal.
     let out = Command::new(CB)
-        .args(["validate", "pass", "--stdin", "--json"])
+        .args(["check", "pass", "--stdin", "--json"])
         .env(DataDir::env_var(), w.data.root())
         .env(naming::ticket_env_var(), "SHOP-19")
         .current_dir(w.home.path())
@@ -33,16 +33,16 @@ async fn only_the_validator_reports_a_verdict() {
     assert!(!out.status.success());
     let e: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(e["error"]["message"], only);
-    // The ticket's agent.
+    // The ticket's agent: its Dev session never gives a verdict (Q269 names the stage).
     let ran = agent
-        .run_with_stdin(
-            &format!("'{CB}' validate pass --stdin --json"),
-            "looks fine",
-        )
+        .run_with_stdin(&format!("'{CB}' check pass --stdin --json"), "looks fine")
         .await;
     assert_ne!(ran.status, 0);
     let e: Value = serde_json::from_str(&ran.stdout).unwrap();
-    assert_eq!(e["error"]["message"], only);
+    assert_eq!(
+        e["error"]["message"],
+        "SHOP-19's Dev session can't give a check verdict"
+    );
     assert_eq!(w.status("SHOP-19").await, Status::Checking);
 
     // The validator: it reads its context, then fails the round; the findings go back to the agent.
@@ -54,7 +54,7 @@ async fn only_the_validator_reports_a_verdict() {
     );
     let ran = validator
         .run_with_stdin(
-            &format!("'{CB}' validate fail --stdin"),
+            &format!("'{CB}' check fail --stdin"),
             "src/prices.ts:3 not sorted",
         )
         .await;

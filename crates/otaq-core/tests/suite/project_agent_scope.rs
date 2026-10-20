@@ -135,8 +135,12 @@ async fn a_project_agent_changes_backlog_tickets_only_and_its_tickets_name_it() 
         ("ticket.delete", json!({"key": "SHOP-41"})),
         ("ticket.close", json!({"key": "SHOP-19", "confirm": true})),
         (
-            "ticket.review_submit",
+            "ticket.stage_next",
             json!({"key": "SHOP-41", "summary": "done"}),
+        ),
+        (
+            "ticket.stage_done",
+            json!({"key": "SHOP-41", "summary": "nothing to do"}),
         ),
         (
             "ticket.local_merge",

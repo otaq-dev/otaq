@@ -401,7 +401,7 @@ fn answer_question_changes_nothing_and_ends_with_answer() {
 
 /// T-0191 (PLG-08, d0063): the validate skill is the default Validate skill, user-invoked only, a read-only judge
 /// that reads `prime --validate`, checks the description, the checks and leftovers, writes notes for gaps another
-/// ticket covers or this one doesn't ask for, and ends with `validate pass|fail --stdin`.
+/// ticket covers or this one doesn't ask for, and ends with `check pass|fail --stdin`.
 #[test]
 fn validate_is_a_read_only_judge_that_ends_with_a_verdict() {
     let (name, body) = skill("validate");
@@ -430,8 +430,8 @@ fn validate_is_a_read_only_judge_that_ends_with_a_verdict() {
         "Note: UI for adding items: covered by SHOP-40.2".to_owned(),
         "**not asked for by this ticket**".to_owned(),
         "Note: Not covered by any ticket: removing items".to_owned(),
-        format!("{cmd} validate fail --stdin"),
-        format!("{cmd} validate pass --stdin"),
+        format!("{cmd} check fail --stdin"),
+        format!("{cmd} check pass --stdin"),
     ];
     let mut at = 0;
     for step in &order {

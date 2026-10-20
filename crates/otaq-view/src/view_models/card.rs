@@ -1998,7 +1998,7 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
             Some(IconName::RotateCcw),
             false,
         ),
-        // VAL-07: a fresh validator; Move to Review anyway stays in the panel.
+        // VAL-07: a fresh validator; Move on anyway stays in the panel.
         Status::CheckNoResult => a(
             CardActionKind::RetryValidation,
             "Retry validation",
@@ -2172,7 +2172,7 @@ pub fn same_file_hover(same: &[otaq_core::domain::SameFile]) -> Option<Hover> {
     })
 }
 
-/// Submit for review came with a note (d0052).
+/// Move to next stage came with a note (d0052).
 fn has_note(flags: &otaq_core::domain::Flags) -> bool {
     flags
         .submitted_by_you
@@ -2180,7 +2180,7 @@ fn has_note(flags: &otaq_core::domain::Flags) -> bool {
         .is_some_and(|note| !note.trim().is_empty())
 }
 
-/// The review entry is the user's Submit for review.
+/// The review entry is the user's Move to next stage.
 fn submitted_entry(flags: &otaq_core::domain::Flags) -> bool {
     flags
         .review_entry

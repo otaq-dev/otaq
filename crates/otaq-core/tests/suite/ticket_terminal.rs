@@ -269,7 +269,7 @@ async fn who_may_read_a_ticket_s_terminal() {
         .await;
     assert_eq!(
         refused(&from(&w, &shell, "SHOP-19").await),
-        "SHOP-19's validator can't read SHOP-19's terminal"
+        "SHOP-19's check can't read SHOP-19's terminal"
     );
     w.stop().await;
 }

@@ -162,7 +162,7 @@ async fn the_lead_suggests_and_marks_from_its_session_and_an_agent_cant() {
 }
 
 /// T-0281 (LEAD-10, CLI-08): `otaq note <KEY> --stdin` from the lead's session; the child's agent's `otaq review
-/// submit` is refused until its `otaq notes` printed the note.
+/// submit` (and `stage next` / `stage done`, T-0406) is refused until its `otaq notes` printed the note.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_lead_leaves_a_note_and_the_childs_agent_reads_it_before_submitting() {
     let w = world().await;
@@ -198,16 +198,19 @@ async fn the_lead_leaves_a_note_and_the_childs_agent_reads_it_before_submitting(
     );
 
     let agent = w.agent_shell(&api).await;
-    let ran = agent
-        .run_with_stdin(&format!("'{CB}' review submit --stdin"), "done")
-        .await;
-    assert_ne!(ran.status, 0);
-    assert!(
-        ran.stderr.contains(
-            "Submit refused: 1 unread note from Wishlist lead. Run `otaq notes`, then submit again."
-        ),
-        "{ran:?}"
-    );
+    // Every way to end the stage (AGM-10).
+    for command in ["review submit", "stage next", "stage done"] {
+        let ran = agent
+            .run_with_stdin(&format!("'{CB}' {command} --stdin"), "done")
+            .await;
+        assert_ne!(ran.status, 0);
+        assert!(
+            ran.stderr.contains(
+                "Submit refused: 1 unread note from Wishlist lead. Run `otaq notes`, then submit again."
+            ),
+            "{command}: {ran:?}"
+        );
+    }
     let ran = agent.run(&format!("'{CB}' notes")).await;
     assert_eq!(ran.status, 0, "{ran:?}");
     let out = ran.stdout.trim();
