@@ -45,7 +45,9 @@ import {
 import { asRequestError, watchView } from "../../service";
 import { pickFolder, request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { useSelection } from "../../app/selection";
 import { SettingsContext } from "./context";
+import { proposeFrom } from "./flowActions";
 import { ModelDropdown, type ModelPick, ModelPicker } from "./ModelPicker";
 
 /** How long typed instructions wait before they are saved. */
@@ -652,6 +654,8 @@ type Asking = { kind: "delete"; dialog: AgentDeleteDialog } | null;
 /** The global page's Agents topic: its page, or one agent's. It shows Otaq's copy of the model lists at once, then
  * asks the tools for their lists again (once per opening, d0086) and redraws with them. */
 export function AgentsSection() {
+  // The project on screen: the shipped agents file's preview is its (FLW-10).
+  const screenProject = useSelection().project;
   const settings = useContext(SettingsContext);
   // `undefined` outside Settings (the gallery, tests): the header's buttons are drawn above the page instead.
   const headerSlot = settings?.headerSlot;
@@ -814,14 +818,27 @@ export function AgentsSection() {
     }
   } else if (section) {
     header = (
-      <Button
-        variant="secondary"
-        icon="plus"
-        label={section.new_agent_label}
-        onClick={() => {
-          open({ id: null, duplicate: null, draft: null, change: null });
-        }}
-      />
+      <>
+        <Button
+          variant="secondary"
+          icon="plus"
+          label={section.new_agent_label}
+          onClick={() => {
+            open({ id: null, duplicate: null, draft: null, change: null });
+          }}
+        />
+        {/* Apply the shipped agents file again (FLW-10): the preview, for the project on screen. */}
+        <MoreMenu
+          label={section.more_label}
+          items={section.more.map((m) =>
+            m.id === "agents_file" && screenProject === null ? { ...m, disabled: true } : m,
+          )}
+          onChoose={(id) => {
+            if (id === "agents_file" && screenProject !== null)
+              proposeFrom(screenProject, { from: "agents_file" }).catch(failed);
+          }}
+        />
+      </>
     );
   }
 

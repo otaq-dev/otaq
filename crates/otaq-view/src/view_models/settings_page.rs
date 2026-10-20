@@ -6,7 +6,8 @@
 //!
 //! Section ids are the page registry's (`ui/src/app/registry/settings.ts`): the Settings screen draws the sections
 //! it has registered, so a later ticket adds a section here and registers its id there. M33 removed Validation &
-//! Auto-merge (FLW-01): validation, its rounds and the Delivery's mode are the project's flow's.
+//! Auto-merge (FLW-01): validation, its rounds and the Delivery's mode are the project's flow's, which a project's Flow
+//! section shows (FLW-07; [`super::flow_settings`], drawn from its own request).
 
 use otaq_core::attention::notify::{Kind, PermissionState};
 use otaq_core::board::projects::ProjectUpdate;
@@ -96,6 +97,8 @@ pub enum GlobalSection {
 pub enum ProjectSection {
     /// Name, key, repository, base branch.
     General,
+    /// The project's flow (FLW-07, T-0422): drawn from `settings.flow` ([`super::flow_settings`]), no rows here.
+    Flow,
     /// The notes every agent in the project gets (AGM-02).
     ProjectNotes,
     /// "Let finished tickets answer questions".
@@ -954,13 +957,17 @@ pub fn project_page(input: &ProjectInputs) -> Page {
         vec![row(
             "project_notes",
             "Notes every agent in this project gets",
-            "Given to every agent that works in this project, after its own instructions.",
+            format!(
+                "Added to every agent\u{2019}s instructions in {}, whatever stage it runs.",
+                info.name
+            ),
             multiline(
                 &s.project_notes,
                 "Notes for every agent here, e.g. \u{201c}Run the tests with make test.\u{201d}",
             ),
         )],
     );
+    let flow = section(ProjectSection::Flow, None, Vec::new());
     let answers = section(
         ProjectSection::Answers,
         None,
@@ -1067,6 +1074,7 @@ pub fn project_page(input: &ProjectInputs) -> Page {
             .into(),
         sections: vec![
             general,
+            flow,
             notes,
             answers,
             commands,
@@ -2335,6 +2343,7 @@ mod tests {
             ids,
             [
                 ProjectSection::General,
+                ProjectSection::Flow,
                 ProjectSection::ProjectNotes,
                 ProjectSection::Answers,
                 ProjectSection::Commands,

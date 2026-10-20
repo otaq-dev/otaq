@@ -30,6 +30,10 @@ use ts_rs::TS;
 use super::{RequestError, reply, unknown};
 use crate::App;
 
+mod flow;
+#[cfg(test)]
+pub use flow::export_types as export_flow_types;
+
 pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
     match method {
         "settings.view" => {
@@ -121,6 +125,8 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             let p: AgentId = parse(params)?;
             reply(&agent_delete(app, &p.id).await?)
         }
+        // Settings → Flow (T-0422; FLW-06…FLW-10): the section, the preset dialog, the actions.
+        m if m.starts_with("settings.flow") => flow::request(app, m, params).await,
         "settings.credits" => reply(&page::credits()),
         // Settings → About (d0071): the section, Otaq's own license, the third-party notices.
         "settings.about" => reply(&crate::about::view()),
@@ -276,7 +282,7 @@ pub fn export_agent_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError>
     AgentDeleteOutcome::export_all(cfg)
 }
 
-fn parse<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, RequestError> {
+pub(super) fn parse<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, RequestError> {
     let params = if params.is_null() {
         Value::Object(Default::default())
     } else {
@@ -530,7 +536,7 @@ async fn agent_delete(app: &App, id: &str) -> Result<AgentDeleteOutcome, Request
     }
 }
 
-fn unexpected(method: &str, reply: &Reply) -> RequestError {
+pub(super) fn unexpected(method: &str, reply: &Reply) -> RequestError {
     RequestError::plain(format!("unexpected answer to {method}: {reply:?}"))
 }
 

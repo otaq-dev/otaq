@@ -144,6 +144,9 @@ impl ToastItem {
             (Some(IconName::GitMerge), None)
         } else if self.title.starts_with(VALIDATION_CANCELLED) {
             (Some(IconName::Ban), Some(ToastIconTone::Secondary))
+        } else if self.title == crate::view_models::flow_settings::FLOW_CHANGE_CANCELLED {
+            // *11 → Applied, or cancelled*: the undo arrow, secondary.
+            (Some(IconName::Undo2), Some(ToastIconTone::Secondary))
         } else if self.title.starts_with(CLEANED_UP)
             || crate::view_models::warm_build::is_cleared_toast(&self.title)
         {

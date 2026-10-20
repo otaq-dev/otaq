@@ -37,6 +37,7 @@ function CellBanner({ lines, handlers }: { lines: LimitLine[]; handlers: LimitLi
     dismissable: false,
     tooltip: null,
     lines,
+    tickets: [],
   });
   if (drawn.length > 0) return <LimitLines lines={drawn} {...handlers} />;
   const line = lines[0];

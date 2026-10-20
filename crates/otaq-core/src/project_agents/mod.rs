@@ -61,6 +61,23 @@ pub const RECENT: i64 = 10;
 const FALLBACK_WORDS: usize = 4;
 const NAME_MAX_CHARS: usize = 40;
 
+/// What starts a Project agent on the `flow` skill instead of its own (FLW-11): `/flow` as the first message, alone
+/// or before a request ("/flow add a Security check"). Settings → Flow's **Change with the Project agent** sends it.
+pub const FLOW_COMMAND: &str = "/flow";
+
+/// The skill a first message runs and the request it carries: `/flow …` runs `flow`, anything else the project-agent
+/// skill with the whole message.
+pub fn first_skill(message: &str) -> (&'static str, Option<String>) {
+    let message = message.trim();
+    match message.strip_prefix(FLOW_COMMAND) {
+        Some(rest) if rest.is_empty() || rest.starts_with(char::is_whitespace) => {
+            let rest = rest.trim();
+            ("flow", (!rest.is_empty()).then(|| rest.to_owned()))
+        }
+        _ => (PROJECT_AGENT_SKILL, Some(message.to_owned())),
+    }
+}
+
 /// Why `project_agent.open` without words is refused: the first message is the go-ahead (d0087).
 pub const EMPTY_MESSAGE: &str = "Type a message to start the Project agent";
 
@@ -426,15 +443,17 @@ impl ProjectAgents {
             )
             .await?;
         let id = new_id();
-        // The agent's skills, copied into the project's folder while it runs (AGM-07).
+        // The agent's skills, copied into the project's folder while it runs (AGM-07); `/flow` runs the flow
+        // skill (FLW-11).
+        let (skill, asks) = first_skill(message);
         let first_prompt = self
             .copy_into_checkout(
                 &id,
                 Path::new(&project.repo_path),
                 Some(&agent),
                 Some(FirstPrompt::Skill {
-                    name: PROJECT_AGENT_SKILL.to_owned(),
-                    message: Some(message.to_owned()),
+                    name: skill.to_owned(),
+                    message: asks,
                 }),
             )
             .await;
@@ -1385,6 +1404,26 @@ mod tests {
             Some("Import the GitHub issues labelled ready")
         );
         assert_eq!(request_text("   ", &skill), None);
+    }
+
+    #[test]
+    fn slash_flow_runs_the_flow_skill() {
+        assert_eq!(first_skill("/flow"), ("flow", None));
+        assert_eq!(
+            first_skill(" /flow  add a Security check "),
+            ("flow", Some("add a Security check".to_owned()))
+        );
+        assert_eq!(
+            first_skill("/flowers are nice"),
+            (PROJECT_AGENT_SKILL, Some("/flowers are nice".to_owned()))
+        );
+        assert_eq!(
+            first_skill("Why is checkout slow?"),
+            (
+                PROJECT_AGENT_SKILL,
+                Some("Why is checkout slow?".to_owned())
+            )
+        );
     }
 
     #[test]

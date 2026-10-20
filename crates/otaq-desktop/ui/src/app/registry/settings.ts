@@ -34,6 +34,8 @@ export const GLOBAL_SECTIONS = every<GlobalSectionId>()([
 export const PROJECT_SECTIONS = every<ProjectSectionId>()([
   /** Name, key, repository, base branch. */
   "general",
+  /** The project's flow: the stage table and its actions (T-0422, FLW-07). */
+  "flow",
   /** The notes every agent in the project gets (AGM-02). */
   "project_notes",
   /** "Let finished tickets answer questions". */

@@ -50,7 +50,9 @@ pub use keymap::Keymap;
 #[cfg(test)]
 pub use lead::{Load as LeadTabLoad, Params as LeadTabParams};
 #[cfg(test)]
-pub use notices::{DismissBanner, HoldToast, NotificationOpen, ToastId, ToastPress};
+pub use notices::{
+    DismissBanner, HoldToast, NoticesProject, NotificationOpen, ToastId, ToastPress,
+};
 #[cfg(test)]
 pub use onboarding::{
     AddOutcome as AddProjectOutcome, FormParams as AddProjectParams, Start as OnboardingStart,
@@ -111,7 +113,7 @@ pub use sections::{
 #[cfg(test)]
 pub use settings::{
     AgentsOpen, SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams,
-    export_agent_types,
+    export_agent_types, export_flow_types,
 };
 #[cfg(test)]
 pub use shell::{

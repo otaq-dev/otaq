@@ -6,7 +6,7 @@
 use otaq_core::agent_tools::Tool;
 use otaq_core::board::epic_flight::EpicQueueOutcome;
 use otaq_core::protocol::{
-    EpicUndoQueueParams, KeyParams, Reply, Request, ResumeAllParams, ToolParams,
+    EpicUndoQueueParams, KeyParams, ProjectParams, Reply, Request, ResumeAllParams, ToolParams,
 };
 use otaq_view::view_models::banners::{PERMISSION_DOCS_URL, Situation, SituationKind};
 use otaq_view::view_models::limit_banner::{
@@ -63,6 +63,21 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             Ok(Value::Null)
         }
         "notices.open_notification_settings" => open_notification_settings(),
+        // The flow change banner (FLW-06): the project on screen, and Cancel change (no question; starts resume).
+        "notices.project" => {
+            app.notices.set_project(parse::<NoticesProject>(params)?.project);
+            Ok(Value::Null)
+        }
+        "notices.flow_cancel" => {
+            let project = parse::<NoticesProject>(params)?
+                .project
+                .or_else(|| app.notices.project())
+                .ok_or_else(|| RequestError::plain("no project on screen"))?;
+            app.service
+                .send(Request::FlowCancelWaiting(ProjectParams { project }))
+                .await?;
+            Ok(Value::Null)
+        }
         _ => Err(unknown(method)),
     }
 }
@@ -76,6 +91,14 @@ fn parse<T: for<'de> Deserialize<'de>>(params: Value) -> Result<T, RequestError>
 #[ts(rename = "BannerDismiss")]
 pub struct DismissBanner {
     pub kind: SituationKind,
+}
+
+/// `{"project": "SHOP"}`: the project on screen (`null` before one is added), or the one whose waiting flow change
+/// Cancel change drops.
+#[derive(Debug, Clone, Default, Deserialize, TS)]
+pub struct NoticesProject {
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 /// `{"id": 3}`: a toast.

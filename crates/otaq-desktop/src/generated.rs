@@ -165,6 +165,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // Settings → Agents and one agent's page (T-0410): the page writes its rows and marks too.
     crate::api::export_agent_types(&cfg)?;
     crate::api::AgentsOpen::export_all(&cfg)?;
+    // Settings → Flow, Use a preset… and the flow banner's requests (T-0422).
+    crate::api::export_flow_types(&cfg)?;
     // The panel's Stack, Messages and epic sections, the History tab and the epic dialogs (T-0223).
     crate::api::SectionParams::export_all(&cfg)?;
     crate::api::StackView::export_all(&cfg)?;

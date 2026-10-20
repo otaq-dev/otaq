@@ -2009,3 +2009,204 @@
   justify-content: flex-end;
   padding-bottom: 8px;
 }
+
+/* ---- A project's Flow (T-0422, FLW-07; *15 → Row · The project's Flow section*) ---- */
+
+.settings-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-flow-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-flow-changed {
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+.settings-flow > .settings-row-description {
+  margin: 0;
+}
+
+/* The waiting change (FLW-06): amber, as the board's banner. */
+.settings-flow-waiting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--st-paused);
+  border-radius: var(--r-md);
+  background: var(--st-paused-bg);
+  color: var(--st-paused);
+}
+
+.settings-flow-waiting-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  font: 400 12px/1.4 var(--font-ui);
+}
+
+.settings-flow-table {
+  margin-top: 4px;
+}
+
+.settings-flow-row {
+  display: grid;
+  grid-template-columns: minmax(0, 250fr) minmax(0, 290fr) minmax(0, 180fr);
+  align-items: start;
+  column-gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font: 400 12px var(--font-ui);
+}
+
+.settings-flow-head {
+  padding-block: 6px;
+  color: var(--text-muted);
+  font: 400 10px var(--font-mono);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.settings-flow-ends {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+.settings-flow-stage {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-flow-icon {
+  display: flex;
+  padding-top: 1px;
+  color: var(--text-secondary);
+}
+
+.settings-flow-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-flow-name {
+  font-weight: 600;
+}
+
+.settings-flow-kind {
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+.settings-flow-model {
+  color: var(--text-secondary);
+  font: 400 11px var(--font-mono);
+}
+
+.settings-flow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.settings-flow-copy {
+  display: inline-flex;
+}
+
+/* Use a preset… (*Row · Use a preset*): four cards in two columns. */
+.settings-presets {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.settings-preset {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font: 400 12px var(--font-ui);
+  text-align: start;
+  cursor: pointer;
+}
+
+.settings-preset:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+
+.settings-preset:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.settings-preset-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-preset-name {
+  font: 600 14px var(--font-ui);
+}
+
+.settings-preset-delivers {
+  color: var(--text-secondary);
+  font: 400 11px var(--font-ui);
+}
+
+.settings-preset-line {
+  color: var(--text-secondary);
+}
+
+.settings-preset-columns {
+  display: flex;
+  gap: 4px;
+}
+
+.settings-preset-column {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 2px;
+  border-radius: var(--r-sm);
+  background: var(--bg-column);
+  color: var(--text-secondary);
+  font: 400 11px/1.25 var(--font-ui);
+  text-align: center;
+}
+
+.settings-preset-file {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+}

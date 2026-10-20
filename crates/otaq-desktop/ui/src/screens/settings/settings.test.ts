@@ -82,7 +82,7 @@ describe("the Settings screen", () => {
       "about",
     ]);
     expect(app.settings.project.ids()).toContain("remove_project");
-    expect(app.settings.project.ids().slice(0, 2)).toEqual(["general", "project_notes"]);
+    expect(app.settings.project.ids().slice(0, 3)).toEqual(["general", "flow", "project_notes"]);
     expect(app.settings.project.ids()).not.toContain("validation");
     expect(app.shortcuts.run({ action: "settings" })).toBe(true);
     expect(overlays.store.get()).toEqual([{ id: "settings", params: undefined }]);

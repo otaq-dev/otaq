@@ -2,11 +2,17 @@
 import type { AgentListRow } from "./AgentListRow";
 import type { AgentsDefaultModel } from "./AgentsDefaultModel";
 import type { AgentsFallbacks } from "./AgentsFallbacks";
+import type { MenuItem } from "./MenuItem";
 
 /**
  * The Agents page (AGM-04; `s15-58` / `s15-59`): the default model, the fallbacks, the list.
  */
-export type AgentsSection = { title: string, intro: string, new_agent_label: string, default_model: AgentsDefaultModel, fallbacks: AgentsFallbacks | null, 
+export type AgentsSection = { title: string, intro: string, new_agent_label: string, 
+/**
+ * The header's ⋯ (FLW-10): Apply the shipped agents file again, which opens the preview for the project on
+ * screen.
+ */
+more_label: string, more: Array<MenuItem>, default_model: AgentsDefaultModel, fallbacks: AgentsFallbacks | null, 
 /**
  * NAME, MODEL, SKILLS, USED IN.
  */

@@ -6,8 +6,9 @@
 //! one-time note below it. The two notification banners (ATT-13, ATT-14, d0090): "macOS is blocking Otaq's
 //! notifications" (amber) right below the folder trust warning, above the permission warning; Otaq's calm "Allow
 //! notifications?" ask right below the folder trust note. The whole order: error › restart required › usage limit ›
-//! folder trust failed › notifications blocked › permission warning › folder trust note › notifications ask › service
-//! update ready › reconnecting.
+//! folder trust failed › notifications blocked › permission warning › flow change waiting › folder trust note ›
+//! notifications ask › service update ready › reconnecting. The flow change waiting (FLW-06, d0108; *11 → A flow change
+//! waiting*) is the project on screen's: amber, under the other warnings.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -39,6 +40,8 @@ pub enum SituationKind {
     /// Amber: macOS blocked a notification that mattered (ATT-14, d0090).
     NotificationsBlocked,
     PermissionWarning,
+    /// Amber: the project on screen has a flow change waiting for a quiet board (FLW-06); no ticket of it starts.
+    FlowWaiting,
     /// Calm: the one-time note that Otaq recorded Claude Code's trust for projects added earlier (PRJ-08).
     TrustNote,
     /// Calm: Otaq's own "Allow notifications?" before macOS's question (ATT-13, d0090).
@@ -91,6 +94,12 @@ pub enum Situation {
     NotificationsBlocked,
     /// The first agent started while macOS hasn't been asked (ATT-13).
     NotificationsAsk,
+    /// The project on screen's waiting flow change (FLW-06): what it changes ("QA after Security · Review can be
+    /// skipped") and the tickets it waits for, which Show the N tickets outlines.
+    FlowWaiting {
+        summary: String,
+        tickets: Vec<String>,
+    },
     ServiceUpdateReady {
         working: u32,
         waiting: u32,
@@ -119,6 +128,7 @@ impl Situation {
             Self::TrustNote { .. } => SituationKind::TrustNote,
             Self::NotificationsBlocked => SituationKind::NotificationsBlocked,
             Self::NotificationsAsk => SituationKind::NotificationsAsk,
+            Self::FlowWaiting { .. } => SituationKind::FlowWaiting,
             Self::ServiceUpdateReady { .. } => SituationKind::ServiceUpdateReady,
             Self::Reconnecting => SituationKind::Reconnecting,
         }
@@ -152,8 +162,9 @@ pub struct BannerRow {
     pub kind: SituationKind,
     pub title: String,
     pub text: String,
-    /// The Restart now button (update ready, restart required), Start service (stopped) or Resume all.
-    pub action: Option<&'static str>,
+    /// The Restart now button (update ready, restart required), Start service (stopped), Resume all or Show the N
+    /// tickets.
+    pub action: Option<String>,
     /// A second button: "Review & resume" (opens the after-restart summary sheet).
     pub secondary: Option<&'static str>,
     pub dismissable: bool,
@@ -162,6 +173,8 @@ pub struct BannerRow {
     pub tooltip: Option<BannerTooltip>,
     /// The usage limit's lines, one per tool.
     pub lines: Vec<LineView>,
+    /// The tickets Show the N tickets outlines (the flow change waiting).
+    pub tickets: Vec<String>,
 }
 
 /// A banner's tooltip: a bold line, then one line each (the reasons of several failed projects).
@@ -188,9 +201,9 @@ pub enum BannerTone {
 #[serde(rename_all = "snake_case")]
 pub enum BannerButtonId {
     /// Restart now, Start service, Resume all (after interrupted sessions), Read the docs, Allow (the notifications
-    /// ask) or Open System Settings (notifications blocked).
+    /// ask), Open System Settings (notifications blocked) or Show the N tickets (a flow change waiting).
     Action,
-    /// Review & resume, or the notifications ask's Not now.
+    /// Review & resume, the notifications ask's Not now, or Cancel change (a flow change waiting).
     Secondary,
     /// The usage limit's Resume.
     Resume,
@@ -223,6 +236,9 @@ pub struct BannerView {
     /// The usage limit's lines, one per tool (USG-10); empty for every other banner. The page draws these in place of
     /// the title, text and buttons when there are any.
     pub lines: Vec<LineView>,
+    /// The flow change waiting's tickets (FLW-06): Show the N tickets outlines them in amber and dims the rest.
+    /// Empty for every other banner.
+    pub tickets: Vec<String>,
 }
 
 impl BannerRow {
@@ -240,11 +256,12 @@ impl BannerRow {
             SituationKind::TrustNote => (BannerTone::Info, IconName::ShieldCheck),
             SituationKind::NotificationsBlocked => (BannerTone::Warning, IconName::TriangleAlert),
             SituationKind::NotificationsAsk => (BannerTone::Info, IconName::Bell),
+            SituationKind::FlowWaiting => (BannerTone::Warning, IconName::Hourglass),
             SituationKind::ServiceUpdateReady => (BannerTone::Info, IconName::RefreshCw),
             SituationKind::Reconnecting => (BannerTone::Neutral, IconName::RefreshCw),
         };
         let mut buttons = Vec::new();
-        if let Some(label) = self.action {
+        if let Some(label) = self.action.as_deref() {
             let restarts = matches!(
                 self.kind,
                 SituationKind::ServiceStopped
@@ -261,6 +278,7 @@ impl BannerRow {
                     (label, IconName::ExternalLink)
                 }
                 (SituationKind::NotificationsAsk, false) => (label, IconName::Bell),
+                (SituationKind::FlowWaiting, false) => (label, IconName::Eye),
                 (_, false) => (label, IconName::RotateCw),
             };
             buttons.push(BannerButton {
@@ -272,11 +290,10 @@ impl BannerRow {
             });
         }
         if let Some(label) = self.secondary {
-            // The ask's Not now closes it; Review & resume opens the summary.
-            let icon = if self.kind == SituationKind::NotificationsAsk {
-                IconName::X
-            } else {
-                IconName::ArrowRight
+            // The ask's Not now closes it, and Cancel change drops the change; Review & resume opens the summary.
+            let icon = match self.kind {
+                SituationKind::NotificationsAsk | SituationKind::FlowWaiting => IconName::X,
+                _ => IconName::ArrowRight,
             };
             buttons.push(BannerButton {
                 id: BannerButtonId::Secondary,
@@ -305,6 +322,7 @@ impl BannerRow {
             dismissable: self.dismissable,
             tooltip: self.tooltip.clone(),
             lines: self.lines.clone(),
+            tickets: self.tickets.clone(),
         }
     }
 }
@@ -415,6 +433,8 @@ fn row(situation: &Situation) -> BannerRow {
     let mut resume = None;
     let mut tooltip = None;
     let mut lines = Vec::new();
+    let mut tickets = Vec::new();
+    let mut show = None;
     let (title, text, action) = match situation {
         Situation::ServiceStopped => (
             "Background service stopped".to_owned(),
@@ -527,6 +547,20 @@ fn row(situation: &Situation) -> BannerRow {
             "With 5–10 agents, permission prompts will stop agents often. See allowlists · auto mode in the Claude Code docs".to_owned(),
             Some("Read the docs"),
         ),
+        // *11 → A flow change waiting*: Show the N tickets, then Cancel change (no question).
+        Situation::FlowWaiting {
+            summary,
+            tickets: waiting_for,
+        } => {
+            tickets = waiting_for.clone();
+            secondary = Some(CANCEL_CHANGE);
+            show = show_tickets(waiting_for.len());
+            (
+                FLOW_CHANGE_WAITING.to_owned(),
+                flow_waiting_text(summary, waiting_for.len()),
+                None,
+            )
+        }
         Situation::ServiceUpdateReady { working, waiting } => (
             "Service update ready".to_owned(),
             format!(
@@ -546,12 +580,51 @@ fn row(situation: &Situation) -> BannerRow {
         kind,
         title,
         text,
-        action,
+        action: action.map(str::to_owned).or(show),
         secondary,
         dismissable: kind.dismissable(),
         resume,
         tooltip,
         lines,
+        tickets,
+    }
+}
+
+/// The flow change banner's title (FLW-06).
+pub const FLOW_CHANGE_WAITING: &str = "Flow change waiting";
+/// Drops the waiting change, with no question (FLW-06): the banner's and Settings → Flow's.
+pub const CANCEL_CHANGE: &str = "Cancel change";
+
+/// "8 tickets", "1 ticket".
+pub fn tickets_count(count: usize) -> String {
+    if count == 1 {
+        "1 ticket".to_owned()
+    } else {
+        format!("{count} tickets")
+    }
+}
+
+/// The flow change banner's text (FLW-06): "QA after Security · 8 tickets still working. It applies when they’re
+/// through; until then no new ticket starts."
+pub fn flow_waiting_text(summary: &str, count: usize) -> String {
+    let tail = format!(
+        "{} still working. It applies when they\u{2019}re through; until then no new ticket starts.",
+        tickets_count(count)
+    );
+    if summary.is_empty() {
+        tail
+    } else {
+        format!("{summary} \u{b7} {tail}")
+    }
+}
+
+/// "Show the 8 tickets", "Show the ticket"; none while it waits for no ticket (it applies at the scheduler's next
+/// pass).
+pub fn show_tickets(count: usize) -> Option<String> {
+    match count {
+        0 => None,
+        1 => Some("Show the ticket".to_owned()),
+        n => Some(format!("Show the {n} tickets")),
     }
 }
 
@@ -620,6 +693,67 @@ mod tests {
             rows[0].text,
             "Restart now (3 agents working, 2 waiting) · or later, when it suits you"
         );
+    }
+
+    /// FLW-06 (*11 → A flow change waiting*): the banner's text and count, Show the N tickets with the tickets it
+    /// outlines, Cancel change; under the permission warning; it can't be closed.
+    #[test]
+    fn a_flow_change_waiting() {
+        let mut m = BannerModel::default();
+        let tickets: Vec<String> = (1..=8).map(|n| format!("SHOP-{n}")).collect();
+        m.raise(Situation::FlowWaiting {
+            summary: "QA after Security".into(),
+            tickets: tickets.clone(),
+        });
+        m.raise(Situation::PermissionWarning);
+        assert_eq!(
+            kinds(&m),
+            [SituationKind::PermissionWarning, SituationKind::FlowWaiting]
+        );
+        let view = m.rows()[1].view(false);
+        assert_eq!(view.tone, BannerTone::Warning);
+        assert_eq!(view.title, "Flow change waiting");
+        assert_eq!(
+            view.text,
+            "QA after Security \u{b7} 8 tickets still working. It applies when they\u{2019}re through; until then no \
+             new ticket starts."
+        );
+        let buttons: Vec<(BannerButtonId, &str)> = view
+            .buttons
+            .iter()
+            .map(|b| (b.id, b.label.as_str()))
+            .collect();
+        assert_eq!(
+            buttons,
+            [
+                (BannerButtonId::Action, "Show the 8 tickets"),
+                (BannerButtonId::Secondary, "Cancel change")
+            ]
+        );
+        assert_eq!(view.tickets, tickets);
+        assert!(!view.dismissable);
+        m.dismiss(SituationKind::FlowWaiting);
+        assert_eq!(m.rows().len(), 2, "stays until it applies or is cancelled");
+
+        // Two merged changes and one ticket; none left (it applies at the next pass): no Show.
+        m.raise(Situation::FlowWaiting {
+            summary: "QA after Security \u{b7} Review can be skipped".into(),
+            tickets: vec!["SHOP-3".into()],
+        });
+        let view = m.rows()[1].view(false);
+        assert!(view.text.starts_with(
+            "QA after Security \u{b7} Review can be skipped \u{b7} 1 ticket still working."
+        ));
+        assert_eq!(view.buttons[0].label, "Show the ticket");
+        m.raise(Situation::FlowWaiting {
+            summary: "QA after Security".into(),
+            tickets: Vec::new(),
+        });
+        let view = m.rows()[1].view(false);
+        assert_eq!(view.buttons.len(), 1);
+        assert_eq!(view.buttons[0].label, "Cancel change");
+        m.clear(SituationKind::FlowWaiting);
+        assert_eq!(kinds(&m), [SituationKind::PermissionWarning]);
     }
 
     #[test]
@@ -694,7 +828,7 @@ mod tests {
         });
         assert!(m.only_restart_allowed());
         let rows = m.rows();
-        assert_eq!(rows[0].action, Some("Restart now"));
+        assert_eq!(rows[0].action.as_deref(), Some("Restart now"));
         assert!(
             !rows[0].dismissable,
             "only Restart works; it can't be closed"
@@ -772,7 +906,7 @@ mod tests {
             "The background service started again at 02:14 after a reboot or crash. Nothing restarts on its own."
         );
         assert_eq!(
-            (row.action, row.secondary, row.dismissable),
+            (row.action.as_deref(), row.secondary, row.dismissable),
             (Some("Resume all"), Some("Review & resume"), true)
         );
         m.raise(Situation::SessionsInterrupted {

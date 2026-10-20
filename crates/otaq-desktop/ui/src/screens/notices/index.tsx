@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { OverlayProps, Screen } from "../../app/registry";
-import { openTicket } from "../../app/selection";
+import { openTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { Banner, ConfirmDialog, Toast, useEnterExit } from "../../components";
 import type { Banner as BannerView } from "../../generated/Banner";
@@ -15,6 +15,7 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { toolProblemAction } from "../panel/toolProblemRunner";
 import { type LimitLineHandlers, LimitLines } from "./LimitLines";
+import { flowBanner, flowShown, highlightRules } from "./flowShow";
 import { followNotifications, limitLinesOf, noticesStore, pressBanner, watchNotices } from "./notices";
 import "./notices.css";
 
@@ -81,11 +82,43 @@ export function BannerRows({
   );
 }
 
+/**
+ * Show the N tickets while it is on (FLW-06): the waiting change's tickets outlined, the rest dimmed. It goes off with
+ * the banner (the change applied or was cancelled), on another project and on Esc.
+ */
+function FlowShow({ banner, project }: { banner: BannerView | undefined; project: string | null }) {
+  const on = useStore(flowShown);
+  useEffect(() => {
+    flowShown.set(false);
+  }, [project]);
+  const waiting = banner !== undefined;
+  useEffect(() => {
+    if (!waiting) flowShown.set(false);
+  }, [waiting]);
+  useEffect(() => {
+    if (!on) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented) flowShown.set(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [on]);
+  const rules = on && banner ? highlightRules(banner.tickets) : "";
+  return rules === "" ? null : <style data-flow-show="">{rules}</style>;
+}
+
 /** The banner slot: follows the notices and the notification clicks while the page is up. */
 function BannerArea() {
   const notices = useStore(noticesStore);
+  const { project } = useSelection();
   useEffect(() => watchNotices(noticesStore.set), []);
   useEffect(() => followNotifications(), []);
+  // The flow change banner is the project on screen's (FLW-06).
+  useEffect(() => {
+    request("notices.project", { project }).catch(warnOnFailure("The project on screen"));
+  }, [project]);
   // While the service can't take input, the rail, board and panel are dimmed and ignore clicks (`notices.css`).
   const inputOff = notices !== undefined && !notices.input_enabled;
   useEffect(() => {
@@ -95,7 +128,13 @@ function BannerArea() {
       root.removeAttribute(INPUT_OFF);
     };
   }, [inputOff]);
-  return <BannerRows banners={notices?.banners ?? []} />;
+  const banners = notices?.banners ?? [];
+  return (
+    <>
+      <BannerRows banners={banners} />
+      <FlowShow banner={flowBanner(banners)} project={project} />
+    </>
+  );
 }
 
 function linkOf(toast: ToastView) {

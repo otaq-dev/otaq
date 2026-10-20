@@ -525,12 +525,21 @@ pub struct Section {
     pub title: String,
     pub intro: String,
     pub new_agent_label: String,
+    /// The header's ⋯ (FLW-10): Apply the shipped agents file again, which opens the preview for the project on
+    /// screen.
+    pub more_label: String,
+    pub more: Vec<MenuItem>,
     pub default_model: DefaultModel,
     pub fallbacks: Option<Fallbacks>,
     /// NAME, MODEL, SKILLS, USED IN.
     pub columns: Vec<String>,
     pub rows: Vec<TableRow>,
 }
+
+/// The header's ⋯ item (FLW-10): the preview with `otaq-agents.yaml`, Keep mine · Take theirs per changed agent; the
+/// way back after a broken edit.
+pub const AGENTS_FILE: &str = "agents_file";
+pub const APPLY_THE_SHIPPED_AGENTS_FILE_AGAIN: &str = "Apply the shipped agents file again";
 
 /// The ⋯ menu's items, by the id the page sends back.
 pub const DUPLICATE: &str = "duplicate";
@@ -632,6 +641,11 @@ pub fn section(input: &Inputs) -> Section {
                 that starts."
             .to_owned(),
         new_agent_label: "New agent".to_owned(),
+        more_label: "More agent actions".to_owned(),
+        more: vec![MenuItem {
+            icon: Some(IconName::RotateCcw),
+            ..MenuItem::new(AGENTS_FILE, APPLY_THE_SHIPPED_AGENTS_FILE_AGAIN)
+        }],
         default_model: DefaultModel {
             label: "Default model for new agents".to_owned(),
             description: "A new agent, or one a preset adds, starts with it.".to_owned(),
@@ -1024,6 +1038,15 @@ mod tests {
              that starts."
         );
         assert_eq!(page.new_agent_label, "New agent");
+        let more: Vec<(&str, &str)> = page
+            .more
+            .iter()
+            .map(|m| (m.id.as_str(), m.label.as_str()))
+            .collect();
+        assert_eq!(
+            more,
+            [("agents_file", "Apply the shipped agents file again")]
+        );
         assert_eq!(page.default_model.label, "Default model for new agents");
         assert_eq!(
             page.default_model.description,

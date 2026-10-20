@@ -14,6 +14,7 @@ import type { AgentPage } from "../../generated/AgentPage";
 import type { AgentsModelChoice } from "../../generated/AgentsModelChoice";
 import type { AgentsSection as AgentsSectionView } from "../../generated/AgentsSection";
 import type { MenuItem } from "../../generated/MenuItem";
+import { NOTHING_SELECTED, selection } from "../../app/selection";
 import { request } from "../../tauri";
 import { AgentsSection, optionValue } from "./Agents";
 import { SettingsContext, type SettingsContextValue } from "./context";
@@ -22,6 +23,8 @@ import { dropdownChoices, pickOf } from "./ModelPicker";
 vi.mock("../../tauri", () => ({
   request: vi.fn(),
   pickFolder: vi.fn(),
+  pickFlowFile: vi.fn(),
+  saveFlowFile: vi.fn(),
   subscribeEvents: vi.fn(() => Promise.resolve()),
   windowAction: vi.fn(),
 }));
@@ -83,6 +86,8 @@ const SECTION: AgentsSectionView = {
   title: "Agents",
   intro: "What each agent does: its instructions, its skills and its own model.",
   new_agent_label: "New agent",
+  more_label: "More agent actions",
+  more: [item("agents_file", "Apply the shipped agents file again")],
   default_model: {
     label: "Default model for new agents",
     description: "A new agent, or one a preset adds, starts with it.",
@@ -308,6 +313,19 @@ describe("the Agents page", () => {
     expect(document.querySelectorAll(".settings-agents-row:not(.settings-agents-head)")).toHaveLength(3);
     expect(document.querySelector(".settings-agents-role")?.textContent).toBe("Project agent");
     expect(document.body.textContent).toContain("From Otaq’s agents file");
+  });
+
+  it("⋯ → Apply the shipped agents file again proposes it for the project on screen (FLW-10)", async () => {
+    selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
+    const calls = await openSection({ "settings.flow_propose": () => null });
+    click(document.querySelector('[aria-label="More agent actions"]'));
+    click(byText(".menu-item", "Apply the shipped agents file again"));
+    await settle();
+    expect(calls).toContainEqual([
+      "settings.flow_propose",
+      { project: "NOTE", source: { from: "agents_file" } },
+    ]);
+    selection.set(NOTHING_SELECTED);
   });
 
   it("⋯ → Delete… of an agent in use is refused with OK only", async () => {
