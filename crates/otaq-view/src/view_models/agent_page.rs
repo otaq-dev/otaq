@@ -563,7 +563,7 @@ pub fn page(input: &Inputs) -> Page {
         id: agent.map(|a| a.id.clone()),
         title: agent.map_or(NEW_AGENT, |a| a.name.as_str()).to_owned(),
         role_tag: agent.and_then(|a| a.role).map(|r| r.label().to_owned()),
-        came_from: agent.map(|a| came_from(a, input.list.dropped.as_ref())),
+        came_from: agent.map(came_from),
         back_label: "Back to Agents".to_owned(),
         menu_label: MENU_LABEL.to_owned(),
         menu: if saved { agent_menu() } else { Vec::new() },
@@ -767,8 +767,11 @@ mod tests {
         let developer = page_of(&list, &tools, "developer", &uses);
         assert_eq!(developer.title, "Developer");
         assert_eq!(
-            developer.came_from.as_deref(),
-            Some("Has your Agent instructions")
+            developer.came_from,
+            Some(format!(
+                "Added by the {} default preset",
+                otaq_core::naming::PRODUCT_NAME
+            ))
         );
         assert_eq!(developer.name.label, "Name");
         assert_eq!(

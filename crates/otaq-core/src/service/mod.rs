@@ -415,7 +415,7 @@ fn spawn_default_model(connected: &ConnectedTools, store: &Store) {
     let tools = connected.connected();
     let store = store.clone();
     tokio::spawn(async move {
-        if let Err(e) = crate::agents::move_over::ensure_default_model(&store, &tools).await {
+        if let Err(e) = crate::agents::shipped::ensure_default_model(&store, &tools).await {
             tracing::warn!(error = %e, "can't set the default model for new agents");
         }
     });

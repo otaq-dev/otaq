@@ -2,7 +2,6 @@
 //! *03 → Empty column & empty board*): when it shows, its button and what it asks of the shell. Since d0087 the
 //! Project agent pane is always beside the board, so the card points at it (and at ⌘L) instead of offering a button.
 
-use otaq_core::board::settings::AutoMerge;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -59,7 +58,7 @@ pub struct Hint {
 }
 
 /// The empty board's centred card (*14 → 4 · Done · empty board*; *03 → Empty column & empty board*): New ticket, the
-/// text and a hint pointing at the pane's Project agent (d0068, d0087), and the line about Auto-merge (d0064).
+/// text and a hint pointing at the pane's Project agent (d0068, d0087).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "EmptyBoardView")]
 pub struct View {
@@ -67,28 +66,6 @@ pub struct View {
     pub text: String,
     pub buttons: Vec<Button>,
     pub hints: Vec<Hint>,
-    /// "Auto-merge is off. …", once the project's settings are read (`auto_merge_line`).
-    pub auto_merge: Option<String>,
-}
-
-/// The empty board's line about Auto-merge for the project's effective setting (`inactive`: set, but validation is
-/// off, so it does nothing).
-pub fn auto_merge_line(value: AutoMerge, inactive: bool) -> String {
-    match (value, inactive) {
-        (AutoMerge::Off, _) => {
-            "Auto-merge is off. Validated tickets wait for your review; turn it on in project settings."
-        }
-        (_, true) => {
-            "Auto-merge does nothing while Validation is off; turn Validation on in project settings."
-        }
-        (AutoMerge::EpicChildren, false) => {
-            "Auto-merge is on for epic children: validated ones merge into their epic branch, locally."
-        }
-        (AutoMerge::All, false) => {
-            "Auto-merge is on: validated tickets merge into their base branch, locally, never pushed."
-        }
-    }
-    .to_owned()
 }
 
 /// "shop-web is ready" for the project `name`. The hints name the user's keys; a hint whose action has no key is left
@@ -119,7 +96,6 @@ pub fn view(name: &str, keys: &KeyLabels) -> View {
             })
         })
         .collect(),
-        auto_merge: None,
     }
 }
 
@@ -208,16 +184,6 @@ mod tests {
             hints(&fixtures::removed("focus_pane", None, 0)),
             [("⌘N".to_owned(), "new ticket")]
         );
-    }
-
-    #[test]
-    fn the_auto_merge_line_says_what_happens() {
-        assert_eq!(
-            auto_merge_line(AutoMerge::Off, false),
-            "Auto-merge is off. Validated tickets wait for your review; turn it on in project settings."
-        );
-        assert!(auto_merge_line(AutoMerge::All, true).starts_with("Auto-merge does nothing"));
-        assert!(auto_merge_line(AutoMerge::EpicChildren, false).contains("epic children"));
     }
 
     #[test]

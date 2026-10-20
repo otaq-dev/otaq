@@ -64,9 +64,10 @@ pub struct Board {
     /// Held while a workflow skill setting changes (an import, Re-import, a reset, a settings save), so two
     /// changes never interleave and leave a copy no setting holds.
     skill_changes: std::sync::Arc<tokio::sync::Mutex<()>>,
-    /// Flows tests put projects on ([`Self::use_flow_for_tests`]), by project key; nothing stores them (M33 does).
-    pub(crate) test_flows:
-        std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, crate::flow::Flow>>>,
+    /// The stored flow documents read so far, by their text: a version is read from its YAML once
+    /// ([`Self::effective_flow`]).
+    pub(crate) flows:
+        std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, crate::flow::FlowFile>>>,
 }
 
 impl Board {
@@ -82,7 +83,7 @@ impl Board {
             trust: Trust::default(),
             data,
             skill_changes: Default::default(),
-            test_flows: Default::default(),
+            flows: Default::default(),
         }
     }
 

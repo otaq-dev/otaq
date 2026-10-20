@@ -57,6 +57,9 @@ impl CardEntry {
 pub struct DevSections {
     /// Pinned cards and cards that need the user, above the section headers (never folded).
     pub top: Vec<CardEntry>,
+    /// The header above the working cards ([`DEV_SECTION`]) while an agent check shares the column
+    /// (`column: with-previous`); none for a column that holds only its own stage (FLW-01: the default flow's Dev).
+    pub section: Option<&'static str>,
     pub working: Vec<CardEntry>,
     /// Cards in the Agent Working section, the floated ones included (section counts count by status).
     pub working_count: usize,
@@ -218,7 +221,7 @@ pub fn column_look(kind: ColumnKind) -> (IconName, &'static str) {
 /// The hint under Ready for Dev's title (*03 · Board — shop-web*).
 pub const READY_FOR_DEV_HINT: &str = "Starts when ready, in priority order";
 
-/// Dev's section header above its working cards.
+/// The section header above an Agent column's working cards while an agent check shares it.
 pub const DEV_SECTION: &str = "WORKING · VALIDATING";
 
 /// The Review column's section headers (*Row · Review column (0086 · V)*).
@@ -457,12 +460,10 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
             };
             match column.kind {
                 ColumnKind::Agent => {
-                    view.dev = Some(dev_sections(
-                        &states[0].order,
-                        all,
-                        input.dev_budget,
-                        &entries,
-                    ));
+                    view.dev = Some(DevSections {
+                        section: (column.parts.len() > 1).then_some(DEV_SECTION),
+                        ..dev_sections(&states[0].order, all, input.dev_budget, &entries)
+                    });
                 }
                 ColumnKind::HumanCheck => {
                     view.sections = states
@@ -549,6 +550,7 @@ fn dev_sections(
         .collect();
     DevSections {
         top: entries(&top),
+        section: None,
         working: entries(&working),
         working_count: order.cards.len(),
         fold,
@@ -844,7 +846,7 @@ mod tests {
         let columns = build(&input(&tickets, None));
         assert_eq!(column_keys(&columns[0]), ["SHOP-51"]);
         assert_eq!(column_keys(&columns[2]), ["SHOP-45.2"]);
-        assert_eq!(column_keys(&columns[4]), ["SHOP-45.1"]);
+        assert_eq!(column_keys(&columns[5]), ["SHOP-45.1"]);
 
         // SHOP-45.1 merged and SHOP-45.2 taken back: the track stays, 45.2 is not a Backlog card.
         let tickets = search([Status::Merged, Status::Backlog]);
@@ -889,10 +891,10 @@ mod tests {
         assert!(column_keys(&columns[0]).is_empty());
         assert_eq!(columns[0].count, "0");
         assert!(matches!(
-            columns[3].sections[0].cards.as_slice(),
+            columns[4].sections[0].cards.as_slice(),
             [CardEntry::Epic(e)] if e.key.to_string() == "SHOP-40"
         ));
-        assert_eq!(column_keys(&columns[4]), ["SHOP-40.1", "SHOP-40.2"]);
+        assert_eq!(column_keys(&columns[5]), ["SHOP-40.1", "SHOP-40.2"]);
     }
 
     /// SHOP-40 Wishlist in flight: 40.1 and 40.2 merged, 40.3 working, 40.5 closed; SHOP-17 and SHOP-30 merged
@@ -927,7 +929,7 @@ mod tests {
     fn merged_children_fold_into_one_line_in_done() {
         let tickets = wishlist_done();
         let columns = build(&input(&tickets, None));
-        let done = &columns[4];
+        let done = &columns[5];
         assert_eq!(
             keys(&done.cards),
             ["SHOP-40.5", "SHOP-17", "SHOP-40.1", "SHOP-40.2", "SHOP-30"],
@@ -942,13 +944,13 @@ mod tests {
             }]
         );
         assert_eq!(done.count, "4", "40.5, 17, the fold and 30");
-        assert!(columns[..4].iter().all(|c| c.folds.is_empty()));
+        assert!(columns[..5].iter().all(|c| c.folds.is_empty()));
 
         // The first merged child folds at once ("1 of 4"), and a closed child never does.
         let mut tickets = wishlist_done();
         tickets[2].status = Status::Working;
         tickets[2].place = otaq_core::domain::Place::stage_of("dev");
-        let done = &build(&input(&tickets, None))[4];
+        let done = &build(&input(&tickets, None))[5];
         assert_eq!(done.folds.len(), 1);
         assert_eq!(done.folds[0].label, "Wishlist · 1 of 4 merged");
         assert_eq!(done.count, "4");
@@ -962,22 +964,29 @@ mod tests {
         let done = &build(&BoardInput {
             visible: Some(&visible),
             ..input(&tickets, None)
-        })[4];
+        })[5];
         assert_eq!(keys(&done.cards), ["SHOP-17", "SHOP-40.2"]);
         assert_eq!(done.folds[0].keys.len(), 1);
         assert_eq!(done.folds[0].label, "Wishlist · 2 of 4 merged");
         assert_eq!((done.count.as_str(), done.hidden), ("2/4", 2));
     }
 
-    /// SHL-06: five columns; Review counts both sections.
+    /// SHL-06, FLW-01: six columns (Validate has its own); Review counts both sections.
     #[test]
-    fn five_columns_with_counts_and_epics_in_backlog() {
+    fn six_columns_with_counts_and_epics_in_backlog() {
         let tickets = board();
         let columns = build(&input(&tickets, None));
         let titles: Vec<_> = columns.iter().map(|c| c.title.as_str()).collect();
         assert_eq!(
             titles,
-            ["Backlog", "Ready for Dev", "Dev", "Review", "Done"]
+            [
+                "Backlog",
+                "Ready for Dev",
+                "Dev",
+                "Validate",
+                "Review",
+                "Done"
+            ]
         );
         let ids: Vec<_> = columns.iter().map(|c| c.id.clone()).collect();
         assert_eq!(
@@ -986,12 +995,13 @@ mod tests {
                 ColumnId::BACKLOG,
                 ColumnId::READY_FOR_DEV,
                 ColumnId::DEV,
+                ColumnId::new("validate"),
                 ColumnId::REVIEW,
                 ColumnId::DONE
             ]
         );
         let counts: Vec<_> = columns.iter().map(|c| c.count.as_str()).collect();
-        assert_eq!(counts, ["2", "4", "7", "1", "1"]);
+        assert_eq!(counts, ["2", "4", "7", "0", "1", "1"]);
         // The epic is a card with SHOP-40.3 as its row, not a second Backlog card.
         assert_eq!(keys(&columns[0].cards), ["SHOP-24", "SHOP-40"]);
         assert!(
@@ -1009,7 +1019,7 @@ mod tests {
         assert!(columns.iter().filter(|c| c.hint.is_some()).count() == 1);
         // Only Review has sections; its empty Approved section says so.
         assert!(columns.iter().filter(|c| !c.sections.is_empty()).count() == 1);
-        let review = &columns[3];
+        let review = &columns[4];
         assert!(review.cards.is_empty());
         let sections: Vec<_> = review
             .sections
@@ -1056,7 +1066,7 @@ mod tests {
             ticket("SHOP-27", "Search paging", Status::PrOpen),
         ];
         let columns = build(&input(&tickets, None));
-        let review = &columns[3];
+        let review = &columns[4];
         assert_eq!(review.count, "5");
         assert_eq!(
             keys(&review.sections[0].cards),
@@ -1071,7 +1081,7 @@ mod tests {
             visible: Some(&visible),
             ..input(&tickets, None)
         });
-        let review = &filtered[3];
+        let review = &filtered[4];
         assert_eq!(
             (review.count.as_str(), review.hidden),
             ("2/5", 3),
@@ -1085,6 +1095,54 @@ mod tests {
             (review.sections[1].count.as_str(), review.sections[1].hidden),
             ("1/2", 1)
         );
+    }
+
+    /// FLW-01 (T-0412's Done-when): the default board is Backlog · Ready for Dev · Dev · Validate · Review · Done; a
+    /// validating card is in Validate, Dev has no section header, Review keeps Ready for review · Approved. A flow
+    /// that folds its check into Dev (the test flow's `with-previous`) keeps the header.
+    #[test]
+    fn the_default_board_has_validate_in_its_own_column() {
+        use otaq_core::domain::Place;
+        let mut validating = ticket("SHOP-30", "Order history", Status::Checking);
+        validating.place = Place::stage_of("validate");
+        let tickets = vec![
+            ticket("SHOP-19", "Price table", Status::Working),
+            validating,
+            ticket("SHOP-18", "Checkout API", Status::WaitingForYou),
+        ];
+        let columns = build(&input(&tickets, None));
+        let titles: Vec<&str> = columns.iter().map(|c| c.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            [
+                "Backlog",
+                "Ready for Dev",
+                "Dev",
+                "Validate",
+                "Review",
+                "Done"
+            ]
+        );
+        let dev = columns[2].dev.as_ref().expect("Dev's cards");
+        assert_eq!(dev.section, None, "Dev has no sections");
+        assert_eq!(keys(&dev.working), ["SHOP-19"]);
+        assert!(columns[2].sections.is_empty());
+        let validate = columns[3].dev.as_ref().expect("Validate's cards");
+        assert_eq!(
+            (validate.section, keys(&validate.working)),
+            (None, vec!["SHOP-30".to_owned()])
+        );
+        assert_eq!(columns[3].count, "1");
+        let review: Vec<_> = columns[4].sections.iter().map(|s| s.title).collect();
+        assert_eq!(review, [READY_FOR_REVIEW_SECTION, APPROVED_SECTION]);
+
+        let flow = crate::view_models::flow_columns::every_kind();
+        let columns = build(&BoardInput {
+            flow: &flow,
+            ..input(&tickets, None)
+        });
+        let dev = columns.iter().find(|c| c.id.as_str() == "dev").unwrap();
+        assert_eq!(dev.dev.as_ref().unwrap().section, Some(DEV_SECTION));
     }
 
     #[test]
@@ -1124,8 +1182,8 @@ mod tests {
         assert!(!done_collapsed(None, 1920. - 64. - 460.), "1920");
         assert!(!done_collapsed(Some(false), 896.), "the user's choice wins");
         assert!(done_collapsed(Some(true), 1920.));
-        // Five open columns at 1360 are at least the minimum, with padding 2 × 10 and four gaps of 8.
-        const { assert!((DONE_OPEN_FROM_WIDTH - 20. - 32.) / 5. >= MIN_COLUMN_WIDTH) };
+        // Six open columns at 1360 are at least the minimum, with padding 2 × 10 and five gaps of 8.
+        const { assert!((DONE_OPEN_FROM_WIDTH - 20. - 40.) / 6. >= MIN_COLUMN_WIDTH) };
         let tickets = board();
         let columns = build(&BoardInput {
             done_collapsed: true,
@@ -1133,7 +1191,7 @@ mod tests {
             was_validating: &[],
             ..input(&tickets, None)
         });
-        assert!(columns[4].collapsed && !columns[0].collapsed);
+        assert!(columns[5].collapsed && !columns[0].collapsed);
         assert_eq!(dev_budget(900.), 8);
         assert_eq!(dev_budget(300.), 4);
     }

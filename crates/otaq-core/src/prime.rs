@@ -669,7 +669,7 @@ impl Board {
     }
 }
 
-/// The commit skill `agent` runs (d0050), by its own name: its imported skill standing for `commit`, else `commit`,
+/// The commit skill `agent` runs (d0050), by its own name: `commit` (its imported skill of that name, else Otaq's),
 /// when it is one of the agent's skills (so its copy is in the worktree); `None` for an agent with no commit skill.
 /// With no agent resolved, Otaq's own.
 fn commit_skill(sources: &crate::skills::Sources<'_>, agent: Option<&Agent>) -> Option<String> {
@@ -768,7 +768,10 @@ impl Board {
                     .map(linked)
                     .collect(),
             });
-        let rounds = self.effective_settings(&project).await?.validation_rounds;
+        let rounds = self
+            .effective_flow(&project)
+            .await?
+            .check_rounds(ticket.place.stage(), 0);
         let earlier_findings: Vec<(u32, String)> = sqlx::query_as::<_, (i64, String)>(
             "SELECT round, report FROM validations WHERE ticket_id = ? AND outcome = 'fail' AND report IS NOT NULL
              AND round <= ? ORDER BY started_at",

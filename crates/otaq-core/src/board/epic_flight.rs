@@ -33,7 +33,6 @@ use serde_json::json;
 use sqlx::{Sqlite, Transaction};
 
 use super::moves::{DropTarget, MoveAction, MoveCheck, check_move, queue_in, unqueue_in};
-use super::settings::AutoMerge;
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, Place, Status, StatusSet, TicketKey, stored_enum};
@@ -246,8 +245,6 @@ pub struct EpicQueueOutcome {
     pub queued: Vec<TicketKey>,
     /// Parked children that go back to Dev with their conversations (d0052), in key order.
     pub resumed: Vec<TicketKey>,
-    /// The project's effective Auto-merge is Off (d0064): each child will wait for the user's review.
-    pub auto_merge_off: bool,
     /// The project's name, e.g. shop-web.
     pub project: String,
     /// Queueing the whole epic started its lead (LEAD-02): "· its lead started". Undo doesn't stop it.
@@ -586,8 +583,6 @@ impl Board {
         }
         let project_key = epic.key.project.to_string();
         let project = self.project(&project_key).await?;
-        let auto_merge_off =
-            self.effective_settings(&project_key).await?.auto_merge == AutoMerge::Off;
         let with_epic = json!({"with_epic": epic.key});
         let mut tx = self.store.begin_write().await?;
         for child in children {
@@ -608,7 +603,6 @@ impl Board {
             epic: epic.key.clone(),
             queued: keys(false),
             resumed: keys(true),
-            auto_merge_off,
             project: project.name,
             lead_started: false,
         };

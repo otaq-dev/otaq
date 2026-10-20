@@ -4,7 +4,11 @@
 use std::collections::HashSet;
 
 use super::model::{Column, Delivers, DeliveryMode, Flow, Stage};
-use crate::board::settings::VALIDATION_ROUNDS;
+
+/// The rounds an agent check may have (d0063): 1–5; anything else is a [`Rule::Rounds`] problem.
+pub const VALIDATION_ROUNDS: std::ops::RangeInclusive<u32> = 1..=5;
+/// An agent check's rounds when its stage doesn't say.
+pub const DEFAULT_VALIDATION_ROUNDS: u32 = 3;
 
 /// The rule a problem breaks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

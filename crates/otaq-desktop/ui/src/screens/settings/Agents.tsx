@@ -1,6 +1,5 @@
 // Settings → Agents (T-0410; AGM-02, AGM-03, AGM-04, AGT-05's marks; d0108, d0078, d0086, d0092; *15 → Agents
-// (update AG §8)* `s15-58` / `s15-59`, the model picker `s15-30`, the mark `s15-32`): the move-over's notice, the
-// default model for new agents, the fallback per tool and the list (NAME · MODEL · SKILLS · USED IN, each row's ⋯
+// (update AG §8)* `s15-58` / `s15-59`, the model picker `s15-30`, the mark `s15-32`): the default model for new agents, the fallback per tool and the list (NAME · MODEL · SKILLS · USED IN, each row's ⋯
 // Duplicate / Delete…); and one agent's page in the same place (← name, its Model with the tool's effort, its Role, its
 // Instructions in the Markdown editor, its Skills with Import skill folder… and Re-import, Used in). Everything comes
 // from the views (`settings.agents`, `settings.agent` and the answers of the calls below); this keeps which page is
@@ -151,7 +150,6 @@ export interface AgentsActions {
   onMenu: (id: string, action: string) => void;
   onDefaultModel: (pick: ModelPick) => void;
   onFallback: (tool: string, pick: ModelPick) => void;
-  onDismissNotice: () => void;
 }
 
 function Row({ row, actions }: { row: AgentListRow; actions: AgentsActions }) {
@@ -213,7 +211,7 @@ function Row({ row, actions }: { row: AgentListRow; actions: AgentsActions }) {
   );
 }
 
-/** The Agents page as the view says (`s15-58`): notice, default model, fallbacks, the list. */
+/** The Agents page as the view says (`s15-58`): default model, fallbacks, the list. */
 export function AgentsSectionBody({
   section,
   actions,
@@ -221,20 +219,9 @@ export function AgentsSectionBody({
   section: AgentsSectionView;
   actions: AgentsActions;
 }) {
-  const notice = section.notice;
   return (
     <section className="settings-section settings-agents" data-section="agents" aria-label={section.title}>
       <p className="settings-intro">{section.intro}</p>
-      {notice && (
-        <div className="settings-agents-notice" role="status">
-          <Icon name="sparkles" size={15} />
-          <span className="settings-agents-notice-body">
-            <strong>{notice.title}</strong>
-            <span>{notice.text}</span>
-          </span>
-          <IconButton icon="x" label={notice.dismiss_label} onClick={actions.onDismissNotice} />
-        </div>
-      )}
       <div className="settings-agents-settings">
         <div className="settings-agents-setting">
           <span className="settings-row-text">
@@ -770,9 +757,6 @@ export function AgentsSection() {
     },
     onFallback: (tool, fallback) => {
       listed(request("settings.agents_fallback", { tool, fallback }));
-    },
-    onDismissNotice: () => {
-      listed(request("settings.agents_dismiss_notice"));
     },
   };
 

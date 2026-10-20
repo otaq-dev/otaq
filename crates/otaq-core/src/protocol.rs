@@ -570,6 +570,16 @@ pub enum Request {
     #[serde(rename = "project_settings.set")]
     ProjectSettingsSet(ProjectSettingsParams),
 
+    // A project's flow (FLW-01).
+    /// `{"project": "SHOP"}`: the flow the project runs, its current stored version. Answered with
+    /// [`Reply::FlowVersion`].
+    #[serde(rename = "flow.current")]
+    FlowCurrent(ProjectParams),
+    /// `{"project": "SHOP"}`: every flow the project applied, oldest first; the last is the current one. Answered
+    /// with [`Reply::FlowVersions`].
+    #[serde(rename = "flow.versions")]
+    FlowVersions(ProjectParams),
+
     // Sessions (SES-04, SVC-05).
     /// With `key`, every session the ticket ever had (newest first); without, every session in the service's
     /// memory. Answered with [`Reply::Sessions`].
@@ -804,10 +814,6 @@ pub enum Request {
     /// `original_not_found` when it is gone. Answered with [`Reply::Agent`].
     #[serde(rename = "agents.reimport_skill")]
     AgentsReimportSkill(ReimportSkillParams),
-    /// The user dismissed the move-over's notice on Settings → Agents (AGM-02); it never comes back. Answered with
-    /// [`Reply::Agents`].
-    #[serde(rename = "agents.dismiss_moved_over")]
-    AgentsDismissMovedOver,
     /// `{"key": "SHOP-19"}`, or `{"project": "SHOP", "new_epic": true}` for the ⌘N form: the agent each stage of the
     /// ticket's flow runs (an epic's lead), the sessions with their agents, the holds. Answered with
     /// [`Reply::TicketAgents`].
@@ -1707,6 +1713,8 @@ impl Request {
             Self::SettingsSet(_) => "settings.set",
             Self::ProjectSettingsGet(_) => "project_settings.get",
             Self::ProjectSettingsSet(_) => "project_settings.set",
+            Self::FlowCurrent(_) => "flow.current",
+            Self::FlowVersions(_) => "flow.versions",
             Self::SessionList(_) => "session.list",
             Self::SessionAttach(_) => "session.attach",
             Self::SessionDetach(_) => "session.detach",
@@ -1765,7 +1773,6 @@ impl Request {
             Self::AgentsFallback(_) => "agents.fallback",
             Self::AgentsImportSkill(_) => "agents.import_skill",
             Self::AgentsReimportSkill(_) => "agents.reimport_skill",
-            Self::AgentsDismissMovedOver => "agents.dismiss_moved_over",
             Self::TicketAgents(_) => "ticket.agents",
             Self::BoardAgents(_) => "board.agents",
             Self::TicketChoices(_) => "ticket.choices",
@@ -1845,6 +1852,8 @@ pub enum Reply {
     Cycles(Vec<Vec<TicketKey>>),
     GlobalSettings(Box<GlobalSettingsReply>),
     ProjectSettings(Box<ProjectSettingsReply>),
+    FlowVersion(Box<crate::flow::FlowVersion>),
+    FlowVersions(Vec<crate::flow::FlowVersion>),
     Sessions(Vec<SessionInfo>),
     SessionAttached(Box<SessionAttach>),
     Delivery(Delivery),

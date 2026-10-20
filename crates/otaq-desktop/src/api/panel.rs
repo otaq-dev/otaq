@@ -805,7 +805,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         None
     };
     let rounds = if ticket.status == otaq_core::domain::Status::CheckFailed {
-        validation_rounds(app, &ticket).await
+        check_rounds(app, &ticket).await
     } else {
         0
     };
@@ -855,17 +855,20 @@ async fn ticket_usage(app: &App, ticket: &Ticket) -> Option<TicketUsage> {
     }
 }
 
-/// The project's Validation rounds, after the global fallback.
-pub(super) async fn validation_rounds(app: &App, ticket: &Ticket) -> u32 {
+/// The rounds of the agent check the ticket counts (its project's flow; d0063), without the extra rounds.
+pub(super) async fn check_rounds(app: &App, ticket: &Ticket) -> u32 {
     match app
         .service
-        .send(Request::ProjectSettingsGet(ProjectParams {
+        .send(Request::FlowCurrent(ProjectParams {
             project: ticket.key.project.to_string(),
         }))
         .await
     {
-        Ok(Reply::ProjectSettings(reply)) => reply.effective.validation_rounds,
-        _ => otaq_core::board::settings::DEFAULT_VALIDATION_ROUNDS,
+        Ok(Reply::FlowVersion(version)) => version.file().map_or(
+            otaq_core::flow::check::DEFAULT_VALIDATION_ROUNDS,
+            |f| f.flow.check_rounds(ticket.place.stage(), 0),
+        ),
+        _ => otaq_core::flow::check::DEFAULT_VALIDATION_ROUNDS,
     }
 }
 

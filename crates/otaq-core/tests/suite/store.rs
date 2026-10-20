@@ -23,6 +23,7 @@ const TABLES: &[&str] = &[
     "pending_deliveries",
     "pr_flows",
     "project_agents",
+    "project_flows",
     "projects",
     "review_comments",
     "reviews",

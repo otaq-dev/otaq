@@ -9,7 +9,6 @@ use std::time::Duration;
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::moves::DropTarget;
-use otaq_core::board::settings::ProjectSettings;
 use otaq_core::domain::{Actor, Status};
 use otaq_core::flow::engine::RunResult;
 use otaq_core::review::LocalMergeOutcome;
@@ -154,16 +153,6 @@ async fn start_check_fail_resume_send_back_and_local_merge() {
     )
     .unwrap();
     let project = w.add_project("shop-web").await;
-    w.board
-        .set_project_settings(
-            "SHOP",
-            &ProjectSettings {
-                validation: Some(true),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
     let t = w.create("SHOP", "Sort notes by date").await;
     let key = t.key.to_string();
 

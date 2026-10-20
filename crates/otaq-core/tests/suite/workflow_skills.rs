@@ -125,7 +125,6 @@ async fn the_example_skill_is_copied_whole_with_its_modes() {
         skill.warnings,
         ["outside.md links outside the folder; not copied"]
     );
-    assert_eq!(skill.replaces, None, "added, standing for nothing");
     assert_eq!(
         after.skills.last(),
         Some(&SkillRef::Imported(skill.id.clone())),
@@ -151,27 +150,24 @@ async fn the_example_skill_is_copied_whole_with_its_modes() {
     );
     assert!(!copy.join("outside.md").exists());
 
-    // Standing for the shipped `commit` (as the move-over carries M31's), agents run the copy (WSK-03)…
-    sqlx::query("UPDATE agent_skills SET stands_for = 'commit' WHERE imported_id = ?")
-        .bind(&skill.id)
-        .execute(f.board.store().pool())
-        .await
-        .unwrap();
+    // A stage naming it by its own name runs the copy (WSK-03, Q296: a flow names the skill); `commit` stays the
+    // shipped one…
     let developer = agent(&f, "Developer").await;
     let sources = otaq_core::skills::Sources {
         shipped: None,
         data: f.board.data(),
     };
     assert_eq!(
-        sources.runs(Some(&developer), "commit"),
+        sources.runs(Some(&developer), "my-commit"),
         otaq_core::skills::Source {
             own: "my-commit".into(),
             folder: copy.clone()
         }
     );
-    // …and a missing or broken copy means the shipped skill (WSK-04).
+    assert_ne!(sources.runs(Some(&developer), "commit").folder, copy);
+    // …and a missing or broken copy means the shipped skill of that name (WSK-04).
     std::fs::write(copy.join("SKILL.md"), "no front matter any more\n").unwrap();
-    assert_eq!(sources.runs(Some(&developer), "commit").own, "commit");
+    assert_ne!(sources.runs(Some(&developer), "my-commit").folder, copy);
 }
 
 #[tokio::test]

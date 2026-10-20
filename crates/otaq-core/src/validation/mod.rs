@@ -32,7 +32,6 @@ use std::sync::{Arc, Mutex};
 use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole};
 use crate::agents::gate::{Gated, Held, LaunchGate, Scope};
 use crate::agents::{RunsOn, SessionRole, resolve};
-use crate::board::settings::{AutoMerge, EffectiveSettings};
 use crate::board::tickets::Ticket;
 use crate::board::validation::{
     Round, Transition, ValidationEvent, ValidationState, findings_message, transition,
@@ -41,7 +40,6 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::domain::validation::{CancelledBy, cancelled_toast};
 use crate::domain::{Actor, Place, Status, ValidationAction, ValidationTrigger};
 use crate::epic_lead::stuck::FirstStop;
-use crate::flow::effective_flow;
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
@@ -182,11 +180,8 @@ impl Validation {
         {
             return Err(self.changed_under_validation(&ticket).await?);
         }
-        let settings = board
-            .effective_settings(ticket.key.project.as_str())
-            .await?;
         let extra = board.validation_rounds_extra(&ticket.id).await?;
-        let flow = ticket_flow(&settings, &ticket);
+        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
         let rounds = check_rounds(&flow, &ticket, extra);
         let skips = board.ticket_skips(&ticket, &flow).await?;
         let state = ValidationState {
@@ -195,7 +190,7 @@ impl Validation {
             status: ticket.status,
             round: ticket.validation_round,
             rounds,
-            auto_merge: auto_merge_applies(&ticket, &settings),
+            auto_merge: auto_merge_applies(&ticket, &flow),
             conflicts: ticket.auto_merge_conflicts,
             skips: &skips,
         };
@@ -345,11 +340,8 @@ impl Validation {
         event: ValidationEvent,
     ) -> Result<crate::board::validation::Transition, BoardError> {
         let board = &self.inner.board;
-        let settings = board
-            .effective_settings(ticket.key.project.as_str())
-            .await?;
         let extra = board.validation_rounds_extra(&ticket.id).await?;
-        let flow = ticket_flow(&settings, ticket);
+        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
         let skips = board.ticket_skips(ticket, &flow).await?;
         transition(
             ValidationState {
@@ -1111,44 +1103,22 @@ fn lead_findings_message(ticket: &Ticket, findings: &str, lead: &str, note: &str
     )
 }
 
-/// Whether the project's Auto-merge applies to this ticket (AMG-01): Epic children only → epic children; All
-/// tickets → those and standalone tickets; never epics, never with validation off.
-pub fn auto_merge_applies(ticket: &Ticket, settings: &EffectiveSettings) -> bool {
-    settings.validation
-        && !ticket.is_epic()
-        && match settings.auto_merge {
-            AutoMerge::Off => false,
-            AutoMerge::EpicChildren => ticket.epic.is_some(),
-            AutoMerge::All => true,
-        }
-}
-
-/// The project's flow, and while the ticket is in a stage the flow no longer has (Validation turned off while it
-/// validated), the default flow it entered that stage in, so its round can end as before.
-fn ticket_flow(settings: &EffectiveSettings, ticket: &Ticket) -> crate::flow::Flow {
-    let flow = effective_flow(settings);
-    match ticket.place.stage() {
-        Some(id) if flow.stage(id).is_none() => effective_flow(&EffectiveSettings {
-            validation: true,
-            ..settings.clone()
-        }),
-        _ => flow,
-    }
+/// Whether a passed agent check merges the ticket without a click (AMG-01 until T-0419 replaces Auto-merge): its
+/// flow's Delivery stage is `mode: automatic` and `delivers: local`; never for an epic.
+pub fn auto_merge_applies(ticket: &Ticket, flow: &crate::flow::Flow) -> bool {
+    !ticket.is_epic()
+        && flow.stages.iter().any(|s| {
+            s.delivery.is_some_and(|d| {
+                d.mode == crate::flow::DeliveryMode::Automatic
+                    && d.delivers == crate::flow::Delivers::Local
+            })
+        })
 }
 
 /// The limit of the agent check the ticket is in, or (from its Agent stage) of the one it goes to next: the
-/// check's rounds (the project's Validation rounds on the derived flow) plus `extra`.
+/// check's rounds plus `extra` ([`crate::flow::Flow::check_rounds`]).
 fn check_rounds(flow: &crate::flow::Flow, ticket: &Ticket, extra: u32) -> u32 {
-    let check = ticket.place.stage().and_then(|id| {
-        flow.stage(id).filter(|s| s.is_agent_check()).or_else(|| {
-            let index = flow.position(id)?;
-            flow.stages[index + 1..].iter().find(|s| s.is_agent_check())
-        })
-    });
-    check.map_or(
-        crate::board::settings::DEFAULT_VALIDATION_ROUNDS + extra,
-        |s| crate::flow::engine::rounds_of(s, extra),
-    )
+    flow.check_rounds(ticket.place.stage(), extra)
 }
 
 /// Validating…, or its validator waits on a prompt.

@@ -20,8 +20,6 @@ export const GLOBAL_SECTIONS = every<GlobalSectionId>()([
   /** The agents, the default model and the fallbacks, and one agent's page (T-0410). */
   "agents",
   "agent_limits",
-  /** M12: Validation & Auto-merge (T-0240). */
-  "validation",
   "usage",
   "notifications",
   "data",
@@ -38,8 +36,6 @@ export const PROJECT_SECTIONS = every<ProjectSectionId>()([
   "general",
   /** The notes every agent in the project gets (AGM-02). */
   "project_notes",
-  /** M12 (T-0240). */
-  "validation",
   /** "Let finished tickets answer questions". */
   "answers",
   /** Setup and run commands, Open URL, env files. */

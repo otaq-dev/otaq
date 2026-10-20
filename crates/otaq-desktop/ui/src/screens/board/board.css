@@ -727,15 +727,6 @@
 }
 
 /* The Auto-merge line under the hints (*14 → 4 · Done · empty board*, d0064). */
-.board-empty-auto-merge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  color: var(--text-muted);
-  font: var(--text-meta);
-}
-
 /* No project at all (*02 → No projects yet*): centred on the app background, no columns. */
 .board-no-projects {
   position: absolute;

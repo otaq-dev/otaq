@@ -1144,6 +1144,16 @@ pub(super) async fn handle(
         Request::ProjectSettingsGet(p) => {
             boxed(move || async move { project_settings(board, &p.project).await })
         }
+        Request::FlowCurrent(p) => boxed(move || async move {
+            Ok(Reply::FlowVersion(Box::new(
+                board.current_flow(&p.project).await?,
+            )))
+        }),
+        Request::FlowVersions(p) => {
+            boxed(
+                move || async move { Ok(Reply::FlowVersions(board.flow_versions(&p.project).await?)) },
+            )
+        }
         Request::ProjectSettingsSet(p) => boxed(move || async move {
             match board.save_project_settings(&p.project, &p.settings).await {
                 Ok(()) => {
@@ -1215,8 +1225,7 @@ pub(super) async fn handle(
         | Request::AgentsDefaultModel(_)
         | Request::AgentsFallback(_)
         | Request::AgentsImportSkill(_)
-        | Request::AgentsReimportSkill(_)
-        | Request::AgentsDismissMovedOver => return None,
+        | Request::AgentsReimportSkill(_) => return None,
     };
     Some(answer.await.map_err(|e| error_body(&e)))
 }

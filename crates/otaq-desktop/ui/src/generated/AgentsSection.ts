@@ -2,12 +2,11 @@
 import type { AgentListRow } from "./AgentListRow";
 import type { AgentsDefaultModel } from "./AgentsDefaultModel";
 import type { AgentsFallbacks } from "./AgentsFallbacks";
-import type { AgentsNotice } from "./AgentsNotice";
 
 /**
- * The Agents page (AGM-04; `s15-58` / `s15-59`): the notice, the default model, the fallbacks, the list.
+ * The Agents page (AGM-04; `s15-58` / `s15-59`): the default model, the fallbacks, the list.
  */
-export type AgentsSection = { title: string, intro: string, new_agent_label: string, notice: AgentsNotice | null, default_model: AgentsDefaultModel, fallbacks: AgentsFallbacks | null, 
+export type AgentsSection = { title: string, intro: string, new_agent_label: string, default_model: AgentsDefaultModel, fallbacks: AgentsFallbacks | null, 
 /**
  * NAME, MODEL, SKILLS, USED IN.
  */

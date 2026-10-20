@@ -358,30 +358,23 @@ describe("drawn", () => {
     const toast: Toast = {
       id: 7,
       level: "success",
-      title:
-        "Moved 2 tickets to Ready for Dev. Auto-merge is off for shop-web, so each one waits for your review.",
+      title: "Moved 2 children of SHOP-45 to Ready for Dev",
       text: null,
       icon: null,
       icon_tone: null,
       link: {
         kind: "actions",
-        actions: [
-          {
-            label: "Turn on for epic children",
-            action: { kind: "epic_children_auto_merge", project: "SHOP", name: "shop-web", undo: null },
-          },
-          { label: "Undo", action: undo },
-        ],
+        actions: [{ label: "Undo", action: undo }],
       },
       ticket: null,
     };
     const html = renderToStaticMarkup(createElement(ToastStack, { toasts: [toast] }));
     expect(html).toMatch(
-      /toast-line.*toast-title">Moved 2 tickets to Ready for Dev.*toast-actions.*Turn on for epic children.*Undo/,
+      /toast-line.*toast-title">Moved 2 children of SHOP-45 to Ready for Dev.*toast-actions.*Undo/,
     );
     expect(html).not.toContain("toast-text");
     vi.mocked(request).mockResolvedValue(null);
-    actionsOf(toast)?.[1]?.onClick();
+    actionsOf(toast)?.[0]?.onClick();
     expect(vi.mocked(request)).toHaveBeenCalledWith("notices.toast_action", {
       id: 7,
       label: "Undo",

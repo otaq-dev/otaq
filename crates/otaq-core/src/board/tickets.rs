@@ -947,8 +947,16 @@ impl Board {
         let lead_notes_sent = crate::epic_lead::stuck::note_flags(self, project_id).await?;
         // "Updated by lead", "new · added by Wishlist lead" (LEAD-08).
         let by_lead = crate::epic_lead::changes::by_lead_flags(self, project_id).await?;
-        // "round 1 of 3": the project's rounds setting (d0063).
-        let rounds = self.validation_rounds_of(project_id).await?;
+        // "round 1 of 3": the rounds of the agent check each ticket counts, from the project's flow (d0063).
+        let project_key: Option<String> =
+            sqlx::query_scalar("SELECT key FROM projects WHERE id = ?")
+                .bind(project_id)
+                .fetch_optional(pool)
+                .await?;
+        let flow = match project_key {
+            Some(key) => self.effective_flow(&key).await?,
+            None => crate::flow::default_flow(),
+        };
 
         records
             .into_iter()
@@ -1042,8 +1050,8 @@ impl Board {
                         .and_then(|n| u32::try_from(*n).ok())
                         .unwrap_or(0),
                     review_entry: review_entry_flag(&row, status),
-                    validation_round: failed_round_marker(&row, status, rounds),
-                    validating_round: validating_round(&row, status, rounds),
+                    validation_round: failed_round_marker(&row, status, &flow),
+                    validating_round: validating_round(&row, status, &flow),
                     conflict_files: row
                         .conflict_files
                         .as_deref()
@@ -1284,12 +1292,12 @@ fn review_entry_flag(row: &TicketRow, status: Status) -> Option<crate::domain::R
     })
 }
 
-/// "Validation failed · round 1 of 3": the agent works again after a failed round (VAL-04). `rounds` is the
-/// project's setting; "Give it another round" adds to it.
+/// "Validation failed · round 1 of 3": the agent works again after a failed round (VAL-04). The rounds are the
+/// flow's check's; "Give it another round" adds to them.
 fn failed_round_marker(
     row: &TicketRow,
     status: Status,
-    rounds: u32,
+    flow: &crate::flow::Flow,
 ) -> Option<crate::domain::ValidationRound> {
     let round = u32::try_from(row.validation_round)
         .ok()
@@ -1305,20 +1313,28 @@ fn failed_round_marker(
     );
     (working && row.review_entry.is_none()).then(|| crate::domain::ValidationRound {
         round,
-        of: rounds + u32::try_from(row.validation_rounds_extra).unwrap_or(0),
+        of: rounds_of(row, flow),
     })
+}
+
+/// The limit of the agent check the ticket counts rounds for, with the rounds the user added.
+fn rounds_of(row: &TicketRow, flow: &crate::flow::Flow) -> u32 {
+    flow.check_rounds(
+        row.stage_id.as_deref(),
+        u32::try_from(row.validation_rounds_extra).unwrap_or(0),
+    )
 }
 
 /// "validator · round 1 of 3": the round the validator is checking (Validating…, Needs you · validator; d0063).
 fn validating_round(
     row: &TicketRow,
     status: Status,
-    rounds: u32,
+    flow: &crate::flow::Flow,
 ) -> Option<crate::domain::ValidationRound> {
     matches!(status, Status::Checking | Status::CheckerNeedsYou).then(|| {
         crate::domain::ValidationRound {
             round: u32::try_from(row.validation_round).unwrap_or(0) + 1,
-            of: rounds + u32::try_from(row.validation_rounds_extra).unwrap_or(0),
+            of: rounds_of(row, flow),
         }
     })
 }

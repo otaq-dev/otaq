@@ -73,7 +73,6 @@ describe("the Settings screen", () => {
       "agent_tools",
       "agents",
       "agent_limits",
-      "validation",
       "usage",
       "notifications",
       "data",
@@ -84,7 +83,7 @@ describe("the Settings screen", () => {
     ]);
     expect(app.settings.project.ids()).toContain("remove_project");
     expect(app.settings.project.ids().slice(0, 2)).toEqual(["general", "project_notes"]);
-    expect(app.settings.project.ids()).toContain("validation");
+    expect(app.settings.project.ids()).not.toContain("validation");
     expect(app.shortcuts.run({ action: "settings" })).toBe(true);
     expect(overlays.store.get()).toEqual([{ id: "settings", params: undefined }]);
   });
@@ -168,73 +167,6 @@ describe("the Settings screen", () => {
     expect(out).toContain("<textarea");
     expect(out).toContain("db/migrations/**");
     expect(out).toContain('aria-invalid="true"');
-  });
-
-  it("a project's validation rows: Use global, and Auto-merge disabled with its note", () => {
-    const section: SettingsSection<"validation"> = {
-      id: "validation",
-      title: null,
-      intro: null,
-      rows: [
-        {
-          field: "validation",
-          label: "Validation",
-          description: "Off for this project.",
-          control: { kind: "toggle", on: false },
-          dimmed: false,
-          reset: "Use global",
-          button: null,
-        },
-        {
-          field: "validation_rounds",
-          label: "Validation rounds",
-          description: "1–5.",
-          control: {
-            kind: "stepper",
-            value: 3,
-            min: 1,
-            max: 5,
-            suffix: "",
-            disabled: false,
-            empty: "Use global (3)",
-          },
-          dimmed: false,
-          reset: null,
-          button: null,
-        },
-        {
-          field: "auto_merge",
-          label: "Auto-merge",
-          description: "",
-          control: {
-            kind: "radio",
-            choices: [
-              {
-                id: "off",
-                label: "Off",
-                detail: "Validated tickets wait in Ready for Review for you. (default)",
-              },
-              { id: "all", label: "All tickets", detail: "Merged into the base branch." },
-            ],
-            value: null,
-            disabled: true,
-            empty: "Use global (Off)",
-            note: "Validation is off for otaq, so Auto-merge does nothing. Turn Validation on to use it.",
-          },
-          dimmed: false,
-          reset: null,
-          button: null,
-        },
-      ],
-      note: null,
-    };
-    const out = html(withPage(createElement(Section, { section })));
-    expect(out).toContain('<button type="button" class="settings-reset">Use global</button>');
-    expect(out).toContain("Use global (3)");
-    expect(out).toContain("Use global (Off)");
-    expect(out).toContain("Validation is off for otaq");
-    expect(out.match(/type="radio"[^>]*disabled=""/g)).toHaveLength(2);
-    expect(out).not.toContain(' checked=""');
   });
 
   it("opens the topic that holds a section, else the first", () => {

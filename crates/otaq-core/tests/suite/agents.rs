@@ -12,7 +12,6 @@ use otaq_core::agents::{
     ModelRef, Role, SessionRole, SkillRef, resolve,
 };
 use otaq_core::board::Refusal;
-use otaq_core::board::settings::ProjectSettings;
 use otaq_core::client::{Client, ClientConfig, ClientError};
 use otaq_core::flow::{self, FlowFile};
 use otaq_core::protocol::{Event, Reply, Request};
@@ -63,10 +62,10 @@ fn refusal<T: std::fmt::Debug>(
 }
 
 /// AGM-02 (fresh install): Otaq's agents file and the default flow's agents, every one on `default`, with their
-/// roles, skills and where they came from; nothing dropped; the default model not set until a tool connects.
+/// roles, skills and where they came from; the default model not set until a tool connects.
 #[tokio::test]
 async fn a_fresh_install_has_the_shipped_agents_on_default() {
-    let (f, agents) = world().await;
+    let (_f, agents) = world().await;
     let list = agents.list().await.unwrap();
     let summary: Vec<(&str, Option<Role>, &AgentModel, &CameFrom)> = list
         .agents
@@ -122,9 +121,6 @@ async fn a_fresh_install_has_the_shipped_agents_on_default() {
     assert_eq!(skills("Epic lead"), shipped(&["epic-lead"]));
     assert_eq!(list.default_model, None);
     assert!(list.fallbacks.is_empty());
-    let dropped = f.board.store().dropped().await.unwrap().expect("ran");
-    assert!(dropped.says_nothing());
-    assert_eq!(list.dropped, None, "a fresh install has nothing to tell");
 }
 
 /// AGM-01, Q256: names are trimmed and new ignoring case; `skip` and names starting with `_` are refused.
@@ -256,15 +252,8 @@ async fn delete_is_refused_while_a_stage_uses_the_agent() {
     );
     // shop-web turns Validation off: Validator is still the default flow's.
     f.board
-        .set_project_settings(
-            "SHOP",
-            &ProjectSettings {
-                validation: Some(false),
-                ..ProjectSettings::default()
-            },
-        )
-        .await
-        .unwrap();
+        .edit_flow_for_tests("SHOP", otaq_core::flow::default::testing::without_validate)
+        .await;
     let uses = agents.in_use(&validator.id).await.unwrap();
     assert_eq!(
         uses.refusal().unwrap(),
@@ -383,8 +372,8 @@ async fn a_model_change_clears_the_mark_and_duplicate_is_a_draft() {
     assert_eq!(draft.skills, developer.skills);
 }
 
-/// AGM-01: the default flow's names were bound to their agents when it was applied, so a rename changes nothing:
-/// SHOP's Dev stage still runs the renamed Developer.
+/// AGM-01: a rename changes nothing: it follows into every stored flow, so SHOP's Dev stage still runs the renamed
+/// Developer, by its new name.
 #[tokio::test]
 async fn a_rename_changes_nothing_for_the_flow() {
     let (f, agents) = world().await;
@@ -807,14 +796,6 @@ async fn the_requests_are_the_users() {
         panic!("agents.fallback")
     };
     assert_eq!(list.fallbacks.len(), 1);
-    let Reply::Agents(list) = client
-        .request(Request::AgentsDismissMovedOver)
-        .await
-        .unwrap()
-    else {
-        panic!("agents.dismiss_moved_over")
-    };
-    assert_eq!(list.dropped, None);
 
     // A ticket's agent is refused every one.
     let agent = w.agent_shell(&ticket).await;

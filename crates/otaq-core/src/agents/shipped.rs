@@ -5,13 +5,18 @@
 //!
 //! A file's `model:` is `default` (the account's default model; every shipped file says it), a tool's stored name
 //! (`claude`: its default model) or `<tool>:<model>` (`claude:opus`).
+//!
+//! The first start ([`apply_on_first_start`]) applies the agents file and the default flow's agents, and nothing
+//! else (FLW-01: nothing from M32 or earlier is moved over).
 
 use std::sync::LazyLock;
 
 use super::store::NewAgent;
-use super::{AgentModel, Role, SkillRef};
+use super::{AgentModel, CameFrom, ModelRef, Role, SkillRef};
+use crate::agent_tools::Tool;
 use crate::flow::FlowAgent;
 use crate::flow::yaml;
+use crate::store::{Store, StoreError};
 
 pub use crate::naming::{AGENTS_FILE, AGENTS_YAML};
 
@@ -76,10 +81,48 @@ pub fn new_agent(agent: &FlowAgent) -> NewAgent {
     }
 }
 
+/// Otaq's first start (AGM-02, FLW-01): with no agents stored yet, applies `otaq-agents.yaml` (Planner, Epic lead)
+/// and the default flow's `agents:` (Developer, Validator), in one transaction. A role agent can't be deleted, so
+/// the table is never empty again and a later start changes nothing. Whether it applied them.
+pub async fn apply_on_first_start(store: &Store) -> Result<bool, StoreError> {
+    let mut tx = store.begin_write().await?;
+    let any: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM agents)")
+        .fetch_one(&mut *tx)
+        .await?;
+    if any {
+        return Ok(false);
+    }
+    for agent in agents_file() {
+        Store::insert_agent_in(&mut tx, &new_agent(agent), &CameFrom::AgentsFile, None).await?;
+    }
+    for agent in &crate::flow::default_file().agents {
+        Store::insert_agent_in(&mut tx, &new_agent(agent), &CameFrom::DefaultPreset, None).await?;
+    }
+    tx.commit().await?;
+    tracing::info!("the shipped agents applied (AGM-02)");
+    Ok(true)
+}
+
+/// Sets the default model for new agents to the first connected tool with its default model when none is set (a
+/// fresh install: AGM-02's "else the first starter entry's tool with no model"). `connected` in
+/// [`Tool::ALL`]'s order. Whether it set one.
+pub async fn ensure_default_model(store: &Store, connected: &[Tool]) -> Result<bool, StoreError> {
+    let Some(&tool) = connected.first() else {
+        return Ok(false);
+    };
+    if store.default_model().await?.is_some() {
+        return Ok(false);
+    }
+    store
+        .set_default_model(&ModelRef { tool, model: None })
+        .await?;
+    tracing::info!(%tool, "the default model for new agents is the first connected tool's");
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent_tools::Tool;
 
     #[test]
     fn the_agents_file_reads_and_writes_back() {

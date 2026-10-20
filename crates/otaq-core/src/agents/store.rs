@@ -6,12 +6,12 @@
 use sqlx::{FromRow, Sqlite, Transaction};
 
 use super::{
-    Agent, AgentHold, AgentModel, CameFrom, Dropped, Fallbacks, HoldReason, ImportedSkill, Mark,
-    ModelRef, Role, SessionRole, SkillRef,
+    Agent, AgentHold, AgentModel, CameFrom, Fallbacks, HoldReason, ImportedSkill, Mark, ModelRef,
+    Role, SessionRole, SkillRef,
 };
 use crate::agent_tools::Tool;
 use crate::session::END_MODEL_REFUSED;
-use crate::store::settings::{AGENT_FALLBACK, AGENT_FLOW_NAMES, DEFAULT_MODEL, MOVED_OVER};
+use crate::store::settings::{AGENT_FALLBACK, DEFAULT_MODEL};
 use crate::store::{Store, StoreError, new_id, now_ms};
 
 /// The query's session (its columns prefixed with the literal, `"s."`) started: it didn't end "not started", that is
@@ -73,7 +73,6 @@ struct SkillRecord {
     imported_at: Option<i64>,
     fingerprint: Option<String>,
     warnings_json: String,
-    stands_for: Option<String>,
 }
 
 impl AgentRecord {
@@ -123,7 +122,6 @@ impl AgentRecord {
                         imported_at: skill.imported_at.unwrap_or_default(),
                         fingerprint: skill.fingerprint.clone().unwrap_or_default(),
                         warnings: serde_json::from_str(&skill.warnings_json).unwrap_or_default(),
-                        replaces: skill.stands_for.clone(),
                     });
                 }
                 (None, None) => {}
@@ -262,6 +260,14 @@ impl Store {
         clear_mark: bool,
     ) -> Result<(), StoreError> {
         let mut tx = self.begin_write().await?;
+        let old: Option<String> = sqlx::query_scalar("SELECT name FROM agents WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if let Some(old) = old.filter(|old| *old != fields.name) {
+            // Flows name agents by name: a rename follows into every stored flow (AGM-01).
+            Store::rename_agent_in_flows_in(&mut tx, &old, &fields.name).await?;
+        }
         let (tool, model) = model_columns(&fields.model);
         sqlx::query(
             "UPDATE agents SET name = ?, instructions = ?, tool = ?, model = ?, effort = ?, updated_at = ?
@@ -373,36 +379,6 @@ impl Store {
     pub async fn set_fallbacks(&self, fallbacks: &Fallbacks) -> Result<(), StoreError> {
         let json = serde_json::to_string(fallbacks).expect("fallbacks serialize");
         self.set_setting(AGENT_FALLBACK, &json).await
-    }
-
-    /// What the move-over dropped (AGM-02); `None` before it ran.
-    pub async fn dropped(&self) -> Result<Option<Dropped>, StoreError> {
-        Ok(self
-            .setting(MOVED_OVER)
-            .await?
-            .and_then(|json| serde_json::from_str(&json).ok()))
-    }
-
-    /// The user dismissed the move-over's notice: it never comes back.
-    pub async fn dismiss_dropped(&self) -> Result<(), StoreError> {
-        if let Some(mut dropped) = self.dropped().await? {
-            dropped.dismissed = true;
-            let json = serde_json::to_string(&dropped).expect("the record serializes");
-            self.set_setting(MOVED_OVER, &json).await?;
-        }
-        Ok(())
-    }
-
-    /// The agents a shipped flow file named when it was applied, by the name in the file (`Developer` → id): the
-    /// default flow's stages keep running them after a rename.
-    pub async fn flow_names(
-        &self,
-    ) -> Result<std::collections::HashMap<String, String>, StoreError> {
-        Ok(self
-            .setting(AGENT_FLOW_NAMES)
-            .await?
-            .and_then(|json| serde_json::from_str(&json).ok())
-            .unwrap_or_default())
     }
 
     /// Whether the ticket's agent has started: it has an Agent stage's session that didn't end in "not started" (its
@@ -544,8 +520,8 @@ async fn write_skills(
                 };
                 sqlx::query(
                     "INSERT INTO agent_skills (agent_id, position, imported_id, name, original, imported_at,
-                                               fingerprint, warnings_json, stands_for)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                               fingerprint, warnings_json)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 )
                 .bind(agent_id)
                 .bind(position)
@@ -555,7 +531,6 @@ async fn write_skills(
                 .bind(record.imported_at)
                 .bind(&record.fingerprint)
                 .bind(serde_json::to_string(&record.warnings).expect("warnings serialize"))
-                .bind(&record.replaces)
                 .execute(&mut **tx)
                 .await?;
             }

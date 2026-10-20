@@ -38,13 +38,13 @@ async fn prime_prints_the_context_and_clears_needs_you() {
     w.stop().await;
 }
 
-/// AGM-07: Developer's imported Commit skill (standing for `commit`, as the move-over carries M31's) is the skill prime
-/// names, by its copy's name in the caller's tool's syntax, the same whether or not the copy is written yet.
+/// AGM-07: Developer's imported Commit skill (its SKILL.md named `commit`, in place of the shipped one) is the skill
+/// prime names, by its copy's name in the caller's tool's syntax, the same whether or not the copy is written yet.
 #[tokio::test(flavor = "multi_thread")]
 async fn prime_names_developers_imported_commit_skill() {
     let w = TestService::start().await;
     w.shop_sample().await;
-    let folder = skill_folder(w.data.root(), "my-commit");
+    let folder = skill_folder(w.data.root(), "commit");
     w.import_step_skill(WorkflowStep::Commit, &folder).await;
     let shop12 = w.board.ticket("SHOP-12").await.unwrap();
     w.give_worktree(&shop12).await;
@@ -58,11 +58,11 @@ async fn prime_names_developers_imported_commit_skill() {
         .expect("the commit rule");
     assert_eq!(
         rule,
-        "2. Commit everything with `/otaq-my-commit` before you end your stage. Never push and never open a PR: the \
+        "2. Commit everything with `/otaq-commit` before you end your stage. Never push and never open a PR: the \
          user does that."
     );
     let ran = agent.run(&format!("'{CB}' prime --json")).await;
     let context: Value = serde_json::from_str(&ran.stdout).unwrap();
-    assert_eq!(context["commit_skill"], "/otaq-my-commit");
+    assert_eq!(context["commit_skill"], "/otaq-commit");
     w.stop().await;
 }

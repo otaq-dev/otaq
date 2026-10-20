@@ -14,7 +14,7 @@
 //! again. Then, once: the adapter's one-time setup ([`super::AgentTool::set_up_tool`], its report kept for the
 //! page) and its folder trust for every existing project with the one-time note naming it
 //! ([`Trust::record_existing`], d0085). While no default model for new agents is set, the first connected tool's
-//! default model becomes it ([`crate::agents::move_over::ensure_default_model`], AGM-02).
+//! default model becomes it ([`crate::agents::shipped::ensure_default_model`], AGM-02).
 
 use std::collections::{BTreeSet, HashMap};
 use std::ffi::OsString;
@@ -597,7 +597,7 @@ impl ConnectedTools {
                 .filter(|tool| !found.states.contains_key(tool))
                 .collect()
         };
-        if let Err(e) = crate::agents::move_over::ensure_default_model(&w.store, &connected).await {
+        if let Err(e) = crate::agents::shipped::ensure_default_model(&w.store, &connected).await {
             tracing::warn!(error = %e, "can't set the default model for new agents");
         }
         for &tool in connected.iter().filter(|tool| !known.contains(tool)) {

@@ -38,8 +38,7 @@ use otaq_core::board::snapshot::BoardSnapshot;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::flow::Flow;
 use otaq_core::protocol::{
-    CloseParams, EpicQueueParams, IdParams, KeyParams, LeadParams, MoveParams, ProjectParams,
-    ProjectSettingsReply, Reply,
+    CloseParams, EpicQueueParams, IdParams, KeyParams, LeadParams, MoveParams, ProjectParams, Reply,
     Request,
 };
 use otaq_view::view_models::board_page::{
@@ -47,7 +46,6 @@ use otaq_view::view_models::board_page::{
 };
 use otaq_view::view_models::card_menu::{self, Choice};
 use otaq_view::view_models::delete::{self as delete_text, DeleteText};
-use otaq_view::view_models::empty_board;
 use otaq_view::view_models::epic_actions;
 use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::search_page::{self, FilterState, SearchView};
@@ -141,29 +139,21 @@ async fn snapshot(app: &App, project: &str) -> Result<BoardSnapshot, RequestErro
     }
 }
 
-async fn settings(app: &App, project: &str) -> Option<Box<ProjectSettingsReply>> {
+/// The project's flow (FLW-01, STG-08): its current stored version, which the board's columns and drags follow; the
+/// default flow when it can't be read.
+async fn flow(app: &App, project: &str) -> Flow {
     match app
         .service
-        .send(Request::ProjectSettingsGet(ProjectParams {
+        .send(Request::FlowCurrent(ProjectParams {
             project: project.to_owned(),
         }))
         .await
     {
-        Ok(Reply::ProjectSettings(reply)) => Some(reply),
-        _ => None,
+        Ok(Reply::FlowVersion(version)) => version
+            .file()
+            .map_or_else(|_| otaq_core::flow::default_flow(), |f| f.flow),
+        _ => otaq_core::flow::default_flow(),
     }
-}
-
-/// The project's flow (STG-03, STG-08): the default adjusted by its settings, which the board's columns and drags
-/// follow; the default flow when the settings can't be read.
-fn flow_of(settings: Option<&ProjectSettingsReply>) -> Flow {
-    settings.map_or_else(otaq_core::flow::default_flow, |s| {
-        otaq_core::flow::effective_flow(&s.effective)
-    })
-}
-
-async fn flow(app: &App, project: &str) -> Flow {
-    flow_of(settings(app, project).await.as_deref())
 }
 
 async fn ticket(app: &App, key: &str) -> Result<Ticket, RequestError> {
@@ -248,9 +238,8 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         Ok(Reply::StartupReport(report)) => report.was_validating,
         _ => Vec::new(),
     };
-    let settings = settings(app, &params.project).await;
-    let flow = flow_of(settings.as_deref());
-    let mut page = board_page::page(
+    let flow = flow(app, &params.project).await;
+    let page = board_page::page(
         &tickets,
         &ProjectFacts {
             flow: &flow,
@@ -267,15 +256,6 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         otaq_core::store::now_ms(),
         &super::keymap::labels(app).await,
     );
-    // The empty board's Auto-merge line (T-0240) follows the project's settings.
-    if let Some(empty) = page.empty.as_mut()
-        && let Some(reply) = settings
-    {
-        empty.auto_merge = Some(empty_board::auto_merge_line(
-            reply.effective.auto_merge,
-            reply.effective.auto_merge_inactive,
-        ));
-    }
     Ok(page)
 }
 
@@ -594,14 +574,11 @@ mod tests {
         let params = json!({ "project": project.key, "width": 1376.0, "height": 856.0,
                              "done_collapsed": null, "dev_unfolded": false });
 
-        // No tickets yet: the empty board over the five columns.
+        // No tickets yet: the empty board over the six columns.
         let view = request(&h.app, "board.view", params.clone()).await.unwrap();
         assert_eq!(view["empty"]["title"], "shop-web is ready");
-        assert_eq!(
-            view["empty"]["auto_merge"],
-            "Auto-merge is off. Validated tickets wait for your review; turn it on in project settings."
-        );
-        assert_eq!(view["columns"].as_array().map(Vec::len), Some(5));
+        // Validate has its own column (FLW-01): Backlog · Ready for Dev · Dev · Validate · Review · Done.
+        assert_eq!(view["columns"].as_array().map(Vec::len), Some(6));
 
         let mut keys = Vec::new();
         for title in ["Update footer links", "Old idea"] {
@@ -628,7 +605,7 @@ mod tests {
         assert_eq!(view["empty"], Value::Null);
         assert_eq!(view["columns"][0]["count"], "2");
         assert_eq!(view["columns"][0]["cards"][0]["kind"], "ticket");
-        assert_eq!(view["columns"][3]["sections"][1]["empty"], "Nothing approved");
+        assert_eq!(view["columns"][4]["sections"][1]["empty"], "Nothing approved");
         assert_eq!(view["min_column_width"], 200.0);
 
         // An agent filter for an agent the service doesn't know filters nothing and shows no chip.
@@ -644,12 +621,13 @@ mod tests {
             .unwrap();
         assert_eq!(drag["targets"][0]["verdict"]["kind"], "home");
         assert_eq!(drag["targets"][1]["verdict"]["kind"], "allowed");
+        assert_eq!(drag["targets"][3]["target"], "validate");
         assert_eq!(
-            drag["targets"][3]["verdict"]["title"],
+            drag["targets"][4]["verdict"]["title"],
             "Only agents move tickets to Ready for Review"
         );
-        assert_eq!(drag["targets"][4]["target"], "approved");
-        assert_eq!(drag["targets"][4]["verdict"]["kind"], "forbidden");
+        assert_eq!(drag["targets"][5]["target"], "approved");
+        assert_eq!(drag["targets"][5]["verdict"]["kind"], "forbidden");
 
         // A refused drop does nothing.
         let outcome = request(
@@ -955,7 +933,7 @@ mod tests {
         assert_eq!(outcome["kind"], "moved");
         assert_eq!(
             toasts().await,
-            ["Moved 1 ticket to Ready for Dev. Auto-merge is off for shop-web, so each one waits for your review."]
+            [format!("Moved {} of Search to Ready for Dev", children[0])]
         );
         let Reply::Ticket(second) = send(&h, Request::TicketGet(KeyParams { key: children[1].clone() })).await
         else {

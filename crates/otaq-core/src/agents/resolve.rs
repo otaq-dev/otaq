@@ -1,8 +1,8 @@
 //! Which agent runs (AGM-05; d0108, d0088): a session in a stage runs the ticket's choice for that stage (AGM-08,
 //! [`crate::board::stage_choices`]), else **the stage's agent** (the agent the flow names); the Project agent and the epic lead run **the agent with
-//! that role**. A flow names agents by name: the shipped default flow's names were bound to their agents' ids when it
-//! was applied (`agents.flow_names`), so a rename changes nothing; any other name (the test flow's) is looked up
-//! among the agents, ignoring case. An unknown name is a check error naming the stage ([`crate::flow::check_agents`]).
+//! that role**. A flow names agents by name, looked up among the agents ignoring case; a rename renames the agent in
+//! every stored flow ([`crate::flow::store`]), so it changes nothing. An unknown name is a check error naming the
+//! stage ([`crate::flow::check_agents`]).
 //!
 //! The model is resolved by the check before every launch ([`super::gate`]): `default` becomes the default model,
 //! and the agent, tool, exact model and effort are saved on the session and its stage run.
@@ -14,13 +14,8 @@ use crate::domain::Place;
 use crate::flow::{Flow, Stage};
 use crate::store::{Store, StoreError};
 
-/// The agent a flow's `name` stands for: the one the shipped default flow bound it to, else the agent with that name.
+/// The agent a flow's `name` stands for: the agent with that name, ignoring case.
 pub async fn named(store: &Store, name: &str) -> Result<Option<Agent>, StoreError> {
-    if let Some(id) = store.flow_names().await?.get(name)
-        && let Some(agent) = store.agent(id).await?
-    {
-        return Ok(Some(agent));
-    }
     store.agent_named(name).await
 }
 

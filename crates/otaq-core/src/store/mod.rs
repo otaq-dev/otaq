@@ -46,8 +46,8 @@ impl Store {
         let pool = SqlitePoolOptions::new().connect_with(options).await?;
         MIGRATOR.run(&pool).await?;
         let store = Self { pool };
-        // M32's first start: the agents files applied and M31's settings moved over, once (AGM-02).
-        crate::agents::move_over::run(&store).await?;
+        // The first start: the shipped agents applied, once (AGM-02).
+        crate::agents::shipped::apply_on_first_start(&store).await?;
         Ok(store)
     }
 

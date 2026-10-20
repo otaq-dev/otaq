@@ -6,7 +6,6 @@
 
 use std::path::Path;
 
-use otaq_core::board::settings::ProjectSettings;
 use otaq_core::board::tickets::{EventKind, HistoryEvent, Ticket};
 use otaq_core::domain::{Actor, Place, Status, ValidationTrigger};
 use otaq_core::flow::{FlowFile, yaml};
@@ -27,17 +26,17 @@ async fn into_stage(w: &TestService, ticket: &Ticket, stage: &str) {
         .unwrap();
 }
 
+/// SHOP on the default flow (`on`), or on it without Validate.
 async fn validation(w: &TestService, on: bool) {
     w.board
-        .set_project_settings(
-            "SHOP",
-            &ProjectSettings {
-                validation: Some(on),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
+        .edit_flow_for_tests("SHOP", |file| {
+            if on {
+                *file = otaq_core::flow::default_file().clone();
+            } else {
+                otaq_core::flow::default::testing::without_validate(file);
+            }
+        })
+        .await;
 }
 
 /// The ticket's stage ends, newest first: (kind, the stage it names, the summary).

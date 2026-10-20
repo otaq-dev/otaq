@@ -1,6 +1,7 @@
 //! Auto-merge (T-0189; AMG-01 … AMG-05; d0064) against temporary repositories: a ticket passes validation (its
-//! validator is an ordinary `sh`; the verdict is reported from that session) and the project's Auto-merge decides
-//! what happens next. The repository's own folder stands for the user's checkout. A conflict handed back to the
+//! validator is an ordinary `sh`; the verdict is reported from that session) and the project's flow decides what
+//! happens next: a Delivery with `mode: automatic` and `delivers: local` merges it without a click (FLW-01; the
+//! Auto-merge setting is gone, T-0419 replaces this path). The repository's own folder stands for the user's checkout. A conflict handed back to the
 //! agent brings a build freed at Review back first (T-0309, M19-c).
 
 use crate::common::freed;
@@ -9,11 +10,11 @@ use std::path::PathBuf;
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
-use otaq_core::board::settings::{AutoMerge, ProjectSettings};
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::domain::{
     Actor, AutoMergeStop, BuildState, Kind, Status, ValidationAction, ValidationTrigger,
 };
+use otaq_core::flow::default::testing::{automatic_local_delivery, without_validate};
 use otaq_core::git::testing::{commit, git};
 use otaq_core::naming;
 use otaq_core::review::auto_merge::AutoMerged;
@@ -46,17 +47,11 @@ async fn world() -> TestService {
     .await
 }
 
-async fn auto_merge(w: &TestService, value: AutoMerge) {
+/// Puts SHOP on the default flow with an automatic local Delivery.
+async fn auto_merge(w: &TestService) {
     w.board
-        .set_project_settings(
-            "SHOP",
-            &ProjectSettings {
-                auto_merge: Some(value),
-                ..ProjectSettings::default()
-            },
-        )
-        .await
-        .unwrap();
+        .edit_flow_for_tests("SHOP", automatic_local_delivery)
+        .await;
 }
 
 /// A working ticket (or an epic's child) with one commit on `file` in its worktree.
@@ -119,8 +114,8 @@ async fn epic(w: &TestService) -> Ticket {
         .unwrap()
 }
 
-/// Off: Ready for Review. Epic children only: children merge into the epic branch, standalone tickets don't. All
-/// tickets: both. The merge is local and never pushed.
+/// A click Delivery (the default flow): Ready for Review. An automatic local Delivery: an epic child merges into its
+/// epic branch, a standalone ticket into its base. The merge is local and never pushed.
 #[tokio::test(flavor = "multi_thread")]
 async fn which_tickets_merge_by_themselves() {
     let w = world().await;
@@ -131,9 +126,8 @@ async fn which_tickets_merge_by_themselves() {
     let off = working(&w, "Off", None, "off.ts").await;
     assert_eq!(pass(&w, &off).await.status, Status::WaitingForYou);
 
-    auto_merge(&w, AutoMerge::EpicChildren).await;
+    auto_merge(&w).await;
     let child = working(&w, "Wishlist API", Some(&epic), "wishlist.ts").await;
-    let standalone = working(&w, "Footer", None, "footer.ts").await;
     let main = git(&repo, &["rev-parse", "main"]);
     let merged = pass(&w, &child).await;
     assert_eq!(merged.status, Status::Merged);
@@ -151,9 +145,7 @@ async fn which_tickets_merge_by_themselves() {
         format!("{}: Wishlist API", child.key)
     );
     assert_eq!(git(&repo, &["rev-parse", "main"]), main, "main untouched");
-    assert_eq!(pass(&w, &standalone).await.status, Status::WaitingForYou);
 
-    auto_merge(&w, AutoMerge::All).await;
     let all = working(&w, "Header", None, "header.ts").await;
     let merged = pass(&w, &all).await;
     assert_eq!(merged.status, Status::Merged);
@@ -170,13 +162,13 @@ async fn which_tickets_merge_by_themselves() {
     w.stop().await;
 }
 
-/// Skip this check and validation off never auto-merge. The user's Move to next stage runs the check like the
+/// Skip this check and a flow without Validate never auto-merge. The user's Move to next stage runs the check like the
 /// agent's `stage next` (d0108 rule 10; it used to go straight to Review): its pass may auto-merge.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_users_routes_never_auto_merge() {
     let w = world().await;
     w.add_project("shop-web").await;
-    auto_merge(&w, AutoMerge::All).await;
+    auto_merge(&w).await;
 
     let submitted = working(&w, "Submitted", None, "a.ts").await;
     w.force_status(&submitted, Status::Idle).await;
@@ -204,17 +196,7 @@ async fn the_users_routes_never_auto_merge() {
         .unwrap();
     assert_eq!(after.status, Status::WaitingForYou);
 
-    w.board
-        .set_project_settings(
-            "SHOP",
-            &ProjectSettings {
-                auto_merge: Some(AutoMerge::All),
-                validation: Some(false),
-                ..ProjectSettings::default()
-            },
-        )
-        .await
-        .unwrap();
+    w.board.edit_flow_for_tests("SHOP", without_validate).await;
     let off = working(&w, "Validation off", None, "c.ts").await;
     let after = w
         .validation
@@ -235,7 +217,7 @@ async fn the_users_routes_never_auto_merge() {
 async fn a_merge_cleans_up_and_starts_the_waiting_tickets() {
     let w = world().await;
     w.add_project("shop-web").await;
-    auto_merge(&w, AutoMerge::All).await;
+    auto_merge(&w).await;
     let parent = working(&w, "Checkout API", None, "api.ts").await;
     let agent = w.agent_shell(&parent).await;
     let waiting = w.create("SHOP", "Checkout page").await;
@@ -295,7 +277,7 @@ async fn conflicts_go_back_to_the_agent_until_the_third() {
     let w = world().await;
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
-    auto_merge(&w, AutoMerge::All).await;
+    auto_merge(&w).await;
     let t = working(&w, "Pricing", None, "lib.ts").await;
     let agent = w.agent_shell(&t).await;
     commit(&repo, "lib.ts", "main\n");
@@ -346,7 +328,7 @@ async fn a_dirty_checkout_stops_it() {
     let w = world().await;
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
-    auto_merge(&w, AutoMerge::All).await;
+    auto_merge(&w).await;
     let t = working(&w, "Checkout API", None, "api.ts").await;
     std::fs::write(repo.join("file1.txt"), "my edit\n").unwrap();
     let after = pass(&w, &t).await;
@@ -391,7 +373,7 @@ async fn a_diverged_base_stops_it() {
         .await
         .unwrap();
     let seed = w.repos.root().join("shop-web-seed");
-    auto_merge(&w, AutoMerge::All).await;
+    auto_merge(&w).await;
     let t = working(&w, "Checkout API", None, "api.ts").await;
     commit(&seed, "team.ts", "from the team\n");
     git(&seed, &["push", "--quiet", "origin", "main"]);
@@ -411,7 +393,10 @@ async fn a_diverged_base_stops_it() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_conflict_handed_to_the_agent_gets_the_build_back() {
     let w = freed::world().await;
-    let project = freed::shop_web(&w, |s| s.auto_merge = Some(AutoMerge::All)).await;
+    let project = freed::shop_web(&w, |_| {}).await;
+    w.board
+        .edit_flow_for_tests("SHOP", automatic_local_delivery)
+        .await;
     let repo = PathBuf::from(&project.repo_path);
     let (t, wt) = freed::freed(&w, "Pricing", "lib.ts").await;
     let key = t.key.to_string();

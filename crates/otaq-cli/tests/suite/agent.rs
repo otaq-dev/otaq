@@ -29,18 +29,11 @@ fn git(dir: &Path, args: &[&str]) {
     assert!(ok, "git {args:?}");
 }
 
-/// The pre-M12 path: validation off for shop-web, so a submit goes straight to Ready for Review (d0063).
+/// The pre-M12 path: shop-web's flow has no Validate, so a submit goes straight to Ready for Review (d0063).
 async fn validation_off(w: &TestService) {
     w.board
-        .set_project_settings(
-            "SHOP",
-            &otaq_core::board::settings::ProjectSettings {
-                validation: Some(false),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
+        .edit_flow_for_tests("SHOP", otaq_core::flow::default::testing::without_validate)
+        .await;
 }
 
 async fn stop_hook(agent: &AgentShell) {

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // Settings → Agents (T-0410; AGM-02…AGM-04): the page asks for Otaq's copy of the model lists and then reads them again
-// once; the move-over's notice goes on ✕; ⋯ → Delete… opens the refused dialog (OK only) or the plain question; a
+// once; ⋯ → Delete… opens the refused dialog (OK only) or the plain question; a
 // row opens its agent's page, whose Role moves the role, whose Name is saved when left, and whose Effort shows only
 // when the view has one; New agent's draft is saved by Add agent with what was typed; the model dropdowns pick a tool
 // and a model, or None, never a heading.
@@ -78,16 +78,11 @@ const CHOICES: AgentsModelChoice[] = [
   choice({ id: "status:codex", kind: "note", tool: "codex", label: "Loading Codex's models…" }),
 ];
 
-// The shapes `agents.rs` sends: the example after the move-over (its view-model test).
+// The shapes `agents.rs` sends: the example (its view-model test).
 const SECTION: AgentsSectionView = {
   title: "Agents",
   intro: "What each agent does: its instructions, its skills and its own model.",
   new_agent_label: "New agent",
-  notice: {
-    title: "Otaq now uses agents",
-    text: "Moved over: Strong, Light, your Agent instructions (now Developer’s). From the next version each project can choose its own agents per stage.",
-    dismiss_label: "Dismiss",
-  },
   default_model: {
     label: "Default model for new agents",
     description: "A new agent, or one a preset adds, starts with it.",
@@ -98,11 +93,11 @@ const SECTION: AgentsSectionView = {
   rows: [
     row("planner", "Planner", {
       role: "Project agent",
-      came_from: "Has your Project agent instructions",
+      came_from: "From Otaq’s agents file",
       used_in: "every project · the Project agent",
     }),
     row("validator", "Validator", { used_in: "pocket-notes · Validate" }),
-    row("strong", "Strong", { came_from: "Moved over from your named agents" }),
+    row("strong", "Strong", { came_from: "Added by you" }),
   ],
 };
 
@@ -312,18 +307,7 @@ describe("the Agents page", () => {
     ]);
     expect(document.querySelectorAll(".settings-agents-row:not(.settings-agents-head)")).toHaveLength(3);
     expect(document.querySelector(".settings-agents-role")?.textContent).toBe("Project agent");
-    expect(document.body.textContent).toContain("Moved over from your named agents");
-  });
-
-  it("dismisses the move-over notice, which the answer no longer has", async () => {
-    const calls = await openSection({
-      "settings.agents_dismiss_notice": () => ({ ...SECTION, notice: null }),
-    });
-    expect(document.querySelector(".settings-agents-notice")?.textContent).toContain("Otaq now uses agents");
-    click(document.querySelector('.settings-agents-notice [aria-label="Dismiss"]'));
-    await settle();
-    expect(calls).toContainEqual(["settings.agents_dismiss_notice", null]);
-    expect(document.querySelector(".settings-agents-notice")).toBeNull();
+    expect(document.body.textContent).toContain("From Otaq’s agents file");
   });
 
   it("⋯ → Delete… of an agent in use is refused with OK only", async () => {

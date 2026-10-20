@@ -3,8 +3,8 @@
 
 use crate::common::Fixture;
 use otaq_core::board::settings::{
-    AutoMerge, GlobalSettings, KeyboardChange, KeyboardSettings, ProjectSettings, Theme,
-    ThemeSetting, WorkflowStep, resource_without_create,
+    GlobalSettings, KeyboardChange, KeyboardSettings, ProjectSettings, Theme, ThemeSetting,
+    WorkflowStep, resource_without_create,
 };
 use otaq_core::git::testing::{git, snapshot};
 
@@ -236,90 +236,45 @@ async fn invalid_values_are_stored_and_flagged_and_the_repo_is_untouched() {
     );
 }
 
-/// T-0181 (VAL-13, AMG-01, PAG-03; d0063, d0064, d0068): the M12 settings' defaults.
+/// FLW-01 (d0108, no migration): Validation, Validation rounds and Auto-merge aren't settings any more. A value
+/// stored before is ignored, and the settings written back don't carry it.
 #[tokio::test]
-async fn m12_defaults() {
+async fn validation_and_auto_merge_are_no_settings() {
     let f = Fixture::shop().await;
-    let global = f.board.global_settings().await.unwrap();
-    assert!(global.validation);
-    assert_eq!(global.validation_rounds, 3);
-    assert_eq!(global.auto_merge, AutoMerge::Off);
-    let effective = f.board.effective_settings("SHOP").await.unwrap();
-    assert!(effective.validation && !effective.auto_merge_inactive);
-    assert_eq!(effective.validation_rounds, 3);
-    assert_eq!(effective.auto_merge, AutoMerge::Off);
-}
-
-/// Project overrides win; empty overrides use the global values; Auto-merge without validation is inactive;
-/// rounds outside 1–5 are flagged and never used.
-#[tokio::test]
-async fn m12_overrides_and_resolution() {
-    let f = Fixture::shop().await;
-    let global = GlobalSettings {
-        validation_rounds: 4,
-        auto_merge: AutoMerge::EpicChildren,
-        ..GlobalSettings::default()
-    };
-    f.board.set_global_settings(&global).await.unwrap();
-    let effective = f.board.effective_settings("SHOP").await.unwrap();
-    assert_eq!(
-        (effective.validation_rounds, effective.auto_merge),
-        (4, AutoMerge::EpicChildren)
-    );
-    let own = ProjectSettings {
-        validation: Some(false),
-        validation_rounds: Some(2),
-        auto_merge: Some(AutoMerge::All),
-        ..ProjectSettings::default()
-    };
-    f.board.set_project_settings("SHOP", &own).await.unwrap();
-    assert_eq!(f.board.project_settings("SHOP").await.unwrap(), own);
-    let effective = f.board.effective_settings("SHOP").await.unwrap();
-    assert!(!effective.validation);
-    assert_eq!(effective.validation_rounds, 2);
-    assert_eq!(effective.auto_merge, AutoMerge::All);
-    assert!(
-        effective.auto_merge_inactive,
-        "Auto-merge does nothing while validation is off"
-    );
-    // Flagged rounds are never used: the project's 6 falls back to the global value, the global 0 to 3.
-    let own = ProjectSettings {
-        validation_rounds: Some(6),
-        ..ProjectSettings::default()
-    };
-    f.board.set_project_settings("SHOP", &own).await.unwrap();
-    assert_eq!(
-        f.board
-            .effective_settings("SHOP")
+    let pool = f.board.store().pool();
+    for (key, value) in [
+        ("validation", "false"),
+        ("validation_rounds", "5"),
+        ("auto_merge", "\"all\""),
+    ] {
+        sqlx::query("INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, 0)")
+            .bind(key)
+            .bind(value)
+            .execute(pool)
             .await
-            .unwrap()
-            .validation_rounds,
-        4
-    );
-    let problems = f.board.project_setting_problems("SHOP").await.unwrap();
-    assert!(
-        problems
-            .iter()
-            .any(|p| p.field == "validation_rounds" && p.message == "Use 1 to 5 validation rounds"),
-        "{problems:?}"
-    );
-    f.board
-        .set_global_settings(&GlobalSettings {
-            validation_rounds: 0,
-            ..GlobalSettings::default()
-        })
-        .await
-        .unwrap();
+            .unwrap();
+    }
+    sqlx::query(
+        "UPDATE projects SET settings_json = '{\"validation\": false, \"auto_merge\": \"all\"}' WHERE key = 'SHOP'",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
     assert_eq!(
-        f.board
-            .effective_settings("SHOP")
-            .await
-            .unwrap()
-            .validation_rounds,
-        3
+        f.board.global_settings().await.unwrap(),
+        GlobalSettings::default()
     );
-    let problems = f.board.global_setting_problems().await.unwrap();
-    assert!(problems.iter().any(|p| p.field == "validation_rounds"));
+    assert_eq!(
+        f.board.project_settings("SHOP").await.unwrap(),
+        ProjectSettings::default()
+    );
+    let global = serde_json::to_value(GlobalSettings::default()).unwrap();
+    let project = serde_json::to_value(ProjectSettings::default()).unwrap();
+    for field in ["validation", "validation_rounds", "auto_merge"] {
+        assert!(global.get(field).is_none(), "{field}");
+        assert!(project.get(field).is_none(), "{field}");
+    }
+    assert!(f.board.global_setting_problems().await.unwrap().is_empty());
 }
 
 /// Schema paths (M19-e, d0087): each must be a relative glob inside the repository; a Remove or Template refresh

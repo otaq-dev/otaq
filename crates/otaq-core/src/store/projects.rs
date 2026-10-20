@@ -25,8 +25,10 @@ pub struct NewProject {
 }
 
 impl Store {
+    /// Stores a new project on the shipped default flow, its version 1 (FLW-01).
     pub async fn insert_project(&self, new: &NewProject) -> Result<Project, StoreError> {
         let id = new_id();
+        let mut tx = self.begin_write().await?;
         sqlx::query(
             "INSERT INTO projects (id, key, name, repo_path, base_branch, created_at)
              VALUES (?, ?, ?, ?, ?, ?)",
@@ -37,8 +39,15 @@ impl Store {
         .bind(&new.repo_path)
         .bind(&new.base_branch)
         .bind(now_ms())
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await?;
+        Self::insert_flow_version_in(
+            &mut tx,
+            &id,
+            &crate::flow::NewFlowVersion::default_for_new_project(),
+        )
+        .await?;
+        tx.commit().await?;
         self.project(&id)
             .await?
             .ok_or(StoreError::Database(sqlx::Error::RowNotFound))

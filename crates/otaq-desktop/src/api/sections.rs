@@ -571,8 +571,8 @@ pub async fn history_view(app: &App, params: Params) -> Result<Option<HistoryVie
     };
     let records = validations(app, &params.key).await;
     let rounds = match ticket(app, &params.key).await? {
-        Some(t) if !records.is_empty() => super::panel::validation_rounds(app, &t).await,
-        _ => otaq_core::board::settings::DEFAULT_VALIDATION_ROUNDS,
+        Some(t) if !records.is_empty() => super::panel::check_rounds(app, &t).await,
+        _ => otaq_core::flow::check::DEFAULT_VALIDATION_ROUNDS,
     };
     let rows = history::rows_with_rounds(&events, &sessions, &usage, &records, rounds);
     // The named agents each session ran on (AGT-05): left out when the rows can't be read.

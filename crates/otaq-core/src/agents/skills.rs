@@ -38,7 +38,6 @@ async fn copy_in(board: &Board, from: &Path) -> Result<ImportedSkill, BoardError
         imported_at: now_ms(),
         fingerprint: copied.fingerprint,
         warnings: copied.warnings,
-        replaces: None,
     })
 }
 

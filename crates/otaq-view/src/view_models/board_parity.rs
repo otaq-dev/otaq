@@ -1,7 +1,8 @@
 //! The board's parity check (STG-08, d0108: "a project that never changes its flow sees today's board"): today's
-//! `BoardView`, every card's drag answer and every drop's step for the M31 example (pocket-notes with Validation on,
-//! pocket-api with it off) and for a project with a card in every status, against a snapshot written before the
-//! columns came from the flow (`fixtures/board-parity.json`). `OTAQ_UPDATE_PARITY=1` rewrites it.
+//! `BoardView`, every card's drag answer and every drop's step for the M31 example (pocket-notes with Validate,
+//! pocket-api without) and for a project with a card in every status, against a snapshot written before the columns
+//! came from the flow (`fixtures/board-parity.json`), rewritten once by M33 for Validate's own column (FLW-01, the
+//! one expected change). `OTAQ_UPDATE_PARITY=1` rewrites it.
 
 #![cfg(test)]
 
@@ -98,7 +99,7 @@ fn every_status() -> Vec<Ticket> {
         .collect()
 }
 
-/// A project's derived flow (STG-03): Validation on with `rounds`, or off.
+/// The default flow with Validate's `rounds`, or without Validate (as M31's Validation settings derived it).
 fn derived(validation: Option<u32>) -> Flow {
     let mut flow = default_flow();
     match validation {
@@ -196,6 +197,7 @@ fn the_default_flow_draws_todays_board() {
     let now = snapshot();
     let update = otaq_core::naming::env_var("UPDATE_PARITY");
     if std::env::var_os(&update).is_some() {
+        let now = without_new_fields(now);
         std::fs::write(FIXTURE, serde_json::to_string_pretty(&now).unwrap() + "\n").unwrap();
         return;
     }
@@ -218,9 +220,16 @@ fn the_default_flow_names_its_kinds_and_the_approved_target() {
         .collect();
     assert_eq!(
         kinds,
-        ["backlog", "ready_for_dev", "agent", "human_check", "done"]
+        [
+            "backlog",
+            "ready_for_dev",
+            "agent",
+            "agent",
+            "human_check",
+            "done"
+        ]
     );
-    let targets: Vec<&Value> = page["columns"][3]["sections"]
+    let targets: Vec<&Value> = page["columns"][4]["sections"]
         .as_array()
         .unwrap()
         .iter()

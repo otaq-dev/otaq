@@ -158,8 +158,8 @@ pub struct Note {
 #[ts(rename = "BoardDevSections")]
 pub struct DevPage {
     pub top: Vec<BoardCard>,
-    /// "WORKING · VALIDATING".
-    pub section: String,
+    /// "WORKING · VALIDATING" while an agent check shares the column; none for the default flow's Dev (FLW-01).
+    pub section: Option<String>,
     pub working_count: String,
     pub working: Vec<BoardCard>,
     /// "2 more · working" while folded; a click unfolds.
@@ -458,7 +458,7 @@ fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
     let kind = view.kind;
     let dev = view.dev.map(|d: DevSections| DevPage {
         top: cards(d.top, tickets),
-        section: board::DEV_SECTION.to_owned(),
+        section: d.section.map(str::to_owned),
         working_count: d.working_count.to_string(),
         working: cards(d.working, tickets),
         fold: d.fold,
@@ -1250,9 +1250,10 @@ mod tests {
         );
     }
 
-    /// SHL-06: five columns in order; Review holds Ready for Review and Approved as two sections.
+    /// SHL-06, FLW-01: six columns in order (Validate its own); Review holds Ready for Review and Approved as two
+    /// sections.
     #[test]
-    fn five_columns_reach_the_page_worded() {
+    fn six_columns_reach_the_page_worded() {
         let tickets = sample();
         let page = page(
             &tickets,
@@ -1268,6 +1269,7 @@ mod tests {
                 ColumnId::BACKLOG,
                 ColumnId::READY_FOR_DEV,
                 ColumnId::DEV,
+                ColumnId::new("validate"),
                 ColumnId::REVIEW,
                 ColumnId::DONE
             ]
@@ -1275,7 +1277,14 @@ mod tests {
         let titles: Vec<&str> = page.columns.iter().map(|c| c.title.as_str()).collect();
         assert_eq!(
             titles,
-            ["Backlog", "Ready for Dev", "Dev", "Review", "Done"]
+            [
+                "Backlog",
+                "Ready for Dev",
+                "Dev",
+                "Validate",
+                "Review",
+                "Done"
+            ]
         );
         assert_eq!(page.min_column_width, 200.);
         assert_eq!(page.done_rail_width, 34.);
@@ -1304,8 +1313,8 @@ mod tests {
                 ..
             }
         ));
-        assert_eq!(dev.section, "WORKING · VALIDATING");
-        let review = &page.columns[3];
+        assert_eq!(dev.section, None, "Dev has no sections (FLW-01)");
+        let review = &page.columns[4];
         assert_eq!(review.count, "2", "both sections");
         assert!(review.cards.is_empty(), "the cards are in the sections");
         let [ready, approved] = review.sections.as_slice() else {
@@ -1349,7 +1358,7 @@ mod tests {
         );
         assert_eq!(approved.fold, "Fold Approved");
         assert_eq!(ready.unfold, "Unfold Ready for Review");
-        let done = &page.columns[4];
+        let done = &page.columns[5];
         assert!(!done.collapsed, "1376: Done open");
         assert_eq!(done.toggle.as_deref(), Some("Collapse Done"));
         let json = serde_json::to_value(&page).unwrap();
@@ -1384,7 +1393,7 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        let done = &board.columns[4];
+        let done = &board.columns[5];
         assert_eq!(
             done.folds,
             [DoneFold {
@@ -1398,7 +1407,7 @@ mod tests {
         assert_eq!(done.count, "3");
         let json = serde_json::to_value(&board).unwrap();
         assert_eq!(
-            json["columns"][4]["folds"][0]["label"],
+            json["columns"][5]["folds"][0]["label"],
             "Wishlist · 2 of 4 merged"
         );
         assert_eq!(json["columns"][0]["folds"], serde_json::json!([]));
@@ -1410,8 +1419,8 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert!(rail.columns[4].collapsed);
-        assert_eq!(rail.columns[4].count, "3");
+        assert!(rail.columns[5].collapsed);
+        assert_eq!(rail.columns[5].count, "3");
     }
 
     #[test]
@@ -1424,8 +1433,8 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert!(narrow.columns[4].collapsed);
-        assert_eq!(narrow.columns[4].toggle.as_deref(), Some("Expand Done"));
+        assert!(narrow.columns[5].collapsed);
+        assert_eq!(narrow.columns[5].toggle.as_deref(), Some("Expand Done"));
         let opened = page(
             &tickets,
             &facts(),
@@ -1436,7 +1445,7 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert!(!opened.columns[4].collapsed);
+        assert!(!opened.columns[5].collapsed);
     }
 
     #[test]
@@ -1502,12 +1511,12 @@ mod tests {
         assert_eq!(dev.count, "1/3");
         assert_eq!(dev.hidden.as_deref(), Some("2 hidden by filter"));
         assert!(filtered.columns[0].cards.is_empty());
-        assert_eq!(filtered.columns[3].count, "1/2");
+        assert_eq!(filtered.columns[4].count, "1/2");
         assert_eq!(
-            filtered.columns[3].sections[1].hidden.as_deref(),
+            filtered.columns[4].sections[1].hidden.as_deref(),
             Some("1 hidden by filter")
         );
-        let review: Vec<&str> = filtered.columns[3].sections[0]
+        let review: Vec<&str> = filtered.columns[4].sections[0]
             .cards
             .iter()
             .map(BoardCard::key)
@@ -1600,8 +1609,8 @@ mod tests {
             ["New ticket"],
             "no Project agent or terminal button"
         );
-        assert_eq!(page.columns.len(), 5);
-        let review = &page.columns[3];
+        assert_eq!(page.columns.len(), 6);
+        let review = &page.columns[4];
         let empties: Vec<(&str, &str)> = review
             .sections
             .iter()
@@ -1627,7 +1636,7 @@ mod tests {
     fn a_drag_answers_every_column_at_once() {
         let backlog = ticket("SHOP-24", "Update footer links", Status::Backlog);
         let answer = drag_answer(&backlog, &[]);
-        assert_eq!(answer.targets.len(), 6);
+        assert_eq!(answer.targets.len(), 7);
         let verdict = |id: DropTargetId| {
             answer
                 .targets
@@ -1656,7 +1665,7 @@ mod tests {
         );
         let json = serde_json::to_value(drag_answer(&backlog, &[])).unwrap();
         assert_eq!(json["targets"][0]["verdict"]["kind"], "home");
-        assert_eq!(json["targets"][4]["target"], "approved");
+        assert_eq!(json["targets"][5]["target"], "approved");
     }
 
     /// The verdict of `ticket` over `target`.
@@ -1779,6 +1788,7 @@ mod tests {
                 DropTargetId::BACKLOG,
                 DropTargetId::READY_FOR_DEV,
                 DropTargetId::DEV,
+                DropTargetId::new("validate"),
                 DropTargetId::REVIEW,
                 DropTargetId::APPROVED,
                 DropTargetId::DONE
@@ -1825,7 +1835,7 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert!(!open.columns[4].collapsed);
+        assert!(!open.columns[5].collapsed);
         let stations = |p: &BoardPage| -> Vec<(ColumnId, Option<IconName>, usize)> {
             p.strip.as_ref().unwrap().tracks[0]
                 .stations
@@ -1838,6 +1848,7 @@ mod tests {
             [
                 (ColumnId::READY_FOR_DEV, None, 0),
                 (ColumnId::DEV, None, 1),
+                (ColumnId::new("validate"), None, 0),
                 (ColumnId::REVIEW, None, 1),
                 (ColumnId::DONE, None, 1),
             ],
@@ -1850,9 +1861,9 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert!(folded.columns[4].collapsed);
+        assert!(folded.columns[5].collapsed);
         assert_eq!(
-            stations(&folded)[3],
+            stations(&folded)[4],
             (ColumnId::DONE, Some(IconName::CircleCheck), 1)
         );
         let opened = page(
@@ -1865,8 +1876,8 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert!(!opened.columns[4].collapsed, "the user's choice wins");
-        assert_eq!(stations(&opened)[3].1, None);
+        assert!(!opened.columns[5].collapsed, "the user's choice wins");
+        assert_eq!(stations(&opened)[4].1, None);
     }
 
     #[test]
@@ -1955,7 +1966,7 @@ mod tests {
             })
         );
         assert_eq!(by_agent.columns[0].count, "1/2");
-        assert_eq!(by_agent.columns[3].count, "1/2");
+        assert_eq!(by_agent.columns[4].count, "1/2");
 
         // With a search: both must match.
         let both = filtered(

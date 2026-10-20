@@ -9,8 +9,8 @@
 //!   session a hold or a token count is about).
 //! - [`Agents`]: the requests' rules (add, edit, duplicate, delete, in use, move a role, the default model, the
 //!   fallbacks, importing a skill).
-//! - [`store`]: the tables; [`move_over`]: the first start of M32 (AGM-02); [`shipped`]: Otaq's agents file and the
-//!   default flow's agents; [`in_use`]: what uses an agent; [`resolve`]: which agent a session runs (AGM-05);
+//! - [`store`]: the tables; [`shipped`]: Otaq's agents file and the default flow's agents, applied at the first
+//!   start; [`in_use`]: what uses an agent; [`resolve`]: which agent a session runs (AGM-05);
 //!   [`gate`]: the check before every launch and the fallback (AGM-03); [`limits`]: the plan-limit banner's lines,
 //!   Resume per tool and Use fallback now; [`mark`]: the amber mark of a model the tool refused; [`skills`]:
 //!   importing a skill folder onto an agent (WSK-02…WSK-04).
@@ -20,7 +20,6 @@ pub mod gate;
 pub mod in_use;
 pub mod limits;
 pub mod mark;
-pub mod move_over;
 pub mod resolve;
 pub mod shipped;
 pub mod skills;
@@ -37,7 +36,6 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::domain::stored_enum;
 use crate::session::{SessionAgent, StoredConversation};
 pub use in_use::InUse;
-pub use move_over::{Dropped, Moved, MovedSkill};
 
 stored_enum! {
     /// The two roles an agent can hold (AGM-01, d0108): Otaq starts "the agent with that role" for a project's
@@ -140,12 +138,6 @@ pub struct ImportedSkill {
     /// What the last import warned about (WSK-02: files the SKILL.md mentions that aren't in the folder).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
-    /// The shipped skill it replaces (`validate`): set by the move-over for M31's imported workflow skills (AGM-02:
-    /// "in place of the shipped ones"; d0108 rule 8: they become the default flow's stage skills). Read only where a
-    /// stage's or step's skill is resolved inside the running agent ([`crate::skills::Sources::runs`]): a stage whose
-    /// skill is that one runs this one. Stored in `agent_skills.stands_for`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub replaces: Option<String>,
 }
 
 /// An agent's model (AGM-01): `default` (the account's default model, resolved when a session starts, AGM-03), or a
@@ -223,7 +215,7 @@ pub enum CameFrom {
     AgentsFile,
     /// The default flow's own `agents:` (Developer, Validator).
     DefaultPreset,
-    /// Made by the user (New agent, Duplicate) or moved over from one of their named agents.
+    /// Made by the user (New agent, Duplicate).
     You,
     /// A project's flow defined it.
     Flow { project: String },
@@ -433,7 +425,7 @@ pub struct ToolFallback {
 }
 
 /// The answer to `agents.list`: every agent (oldest first), the default model for new agents (`None` until a tool
-/// connects), each tool's fallback, and what the move-over dropped while its notice isn't dismissed (AGM-02).
+/// connects) and each tool's fallback.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentList {
     pub agents: Vec<Agent>,
@@ -441,8 +433,6 @@ pub struct AgentList {
     pub default_model: Option<ModelRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fallbacks: Vec<ToolFallback>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dropped: Option<Dropped>,
 }
 
 /// A session that runs on its tool's fallback, by the user's click (AGM-03): the tool it would have run on and why
@@ -558,10 +548,6 @@ impl Agents {
                 .into_iter()
                 .map(|(tool, fallback)| ToolFallback { tool, fallback })
                 .collect(),
-            dropped: store
-                .dropped()
-                .await?
-                .filter(|d| !d.dismissed && !d.says_nothing()),
         })
     }
 
@@ -641,12 +627,6 @@ impl Agents {
         }
         self.board.store().move_role(role, to).await?;
         self.agent(to).await
-    }
-
-    /// The user dismissed the move-over's notice on Settings → Agents (AGM-02): it never comes back.
-    pub async fn dismiss_moved_over(&self) -> Result<(), BoardError> {
-        self.board.store().dismiss_dropped().await?;
-        Ok(())
     }
 
     /// Default model for new agents (AGM-03): a tool and a model from its list.

@@ -14,19 +14,12 @@ pub const TRUST_NOTE_PENDING: &str = "trust.note_pending";
 pub const TRUST_NOTE_DISMISSED: &str = "trust.note_dismissed";
 
 /// The default model for new agents (AGM-03, d0108): `{"tool": "claude", "model": "sonnet"}`; `model: default`
-/// resolves to it at session start. Absent until a tool connects (or the move-over set it from M31's Developer).
+/// resolves to it at session start. Absent until a tool connects.
 pub const DEFAULT_MODEL: &str = "agents.default_model";
 
 /// Each tool's fallback (AGM-03): `{"claude": {"tool": "codex", "model": "newest:gpt-sol"}}`. Used only on the
 /// user's click (Use fallback, Use fallback now).
 pub const AGENT_FALLBACK: &str = "agents.fallback";
-
-/// The agents a shipped flow file's names were bound to when it was applied (AGM-02): `{"Developer": id,
-/// "Validator": id}`, so the default flow keeps its agents after a rename.
-pub const AGENT_FLOW_NAMES: &str = "agents.flow_names";
-
-/// What the move-over dropped, and that it ran (AGM-02; [`crate::agents::move_over::Dropped`]).
-pub const MOVED_OVER: &str = "agents.moved_over";
 
 /// The agent tools the user set Hidden on Settings → Agent tools (d0086): a list of stored tool names
 /// (`["copilot"]`). A hidden tool doesn't count as connected.

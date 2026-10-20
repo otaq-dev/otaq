@@ -59,7 +59,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
                 .await?;
             reply(&view(app, None).await?)
         }
-        // Settings → Agents (T-0410; AGM-02, AGM-03, AGM-04): the page, its default model and fallbacks, the notice;
+        // Settings → Agents (T-0410; AGM-02, AGM-03, AGM-04): the page, its default model and fallbacks;
         // one agent's page, its changes, its role, its skills, Delete.
         "settings.agents" => {
             let p: AgentsOpen = parse(params)?;
@@ -80,10 +80,6 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
                     fallback: p.fallback,
                 }))
                 .await?;
-            reply(&agents_section(app, false).await?)
-        }
-        "settings.agents_dismiss_notice" => {
-            app.service.send(Request::AgentsDismissMovedOver).await?;
             reply(&agents_section(app, false).await?)
         }
         // The model picker's Retry (`GTuGI`): reads the tool's list again; the page asks for its view after.
@@ -763,8 +759,9 @@ mod tests {
         assert_eq!(view["nav"][1]["label"], "Agents");
         // Agent limits is a row of its own again (T-0410, `s15-58`); the workflow skills moved to the agents.
         assert_eq!(view["nav"][2]["label"], "Agent limits");
-        assert_eq!(view["nav"][3]["label"], "Validation & Auto-merge");
-        let data = &view["page"]["sections"][6];
+        // Validation & Auto-merge is gone (FLW-01).
+        assert_eq!(view["nav"][3]["label"], "Usage");
+        let data = &view["page"]["sections"][5];
         assert_eq!(data["id"], "data");
         assert_eq!(data["rows"][0]["control"]["kind"], "path");
 
@@ -775,13 +772,8 @@ mod tests {
         )
         .await
         .unwrap();
-        let renderer = edited["page"]["sections"][7]["rows"][3]["control"]["value"].clone();
+        let renderer = edited["page"]["sections"][6]["rows"][3]["control"]["value"].clone();
         assert_eq!(renderer, "dom");
-        // VAL-13: rounds accept only 1–5.
-        let edited = request(&h.app, "settings.edit", json!({ "field": "validation_rounds", "value": 9 }))
-            .await
-            .unwrap();
-        assert_eq!(edited["page"]["sections"][3]["rows"][1]["control"]["value"], 5);
         let (stored, _) = global(&h.app).await.unwrap();
         assert_eq!(
             stored.terminal_renderer,
@@ -963,7 +955,7 @@ mod tests {
     }
 
     /// Settings → Agents through the service (T-0410; AGM-01, AGM-03, AGM-04): a fresh install's four agents with
-    /// their roles, skills and where they are used, no notice and no default model before a tool connects; one agent's
+    /// their roles, skills and where they are used, and no default model before a tool connects; one agent's
     /// page and a saved change; None refused on the role's agent; a role moved; New agent's draft added; Delete
     /// refused for a stage's agent and allowed for an unused one.
     #[tokio::test(flavor = "multi_thread")]
@@ -973,7 +965,7 @@ mod tests {
         let ask = |method: &'static str, params: Value| request(&h.app, method, params);
         let section = ask("settings.agents", json!({ "refresh": true })).await.unwrap();
         assert_eq!(section["title"], "Agents");
-        assert_eq!(section["notice"], Value::Null, "a fresh install has nothing to tell");
+        assert!(section.get("notice").is_none(), "no move-over notice");
         let rows: Vec<(&str, &Value)> = section["rows"]
             .as_array()
             .unwrap()

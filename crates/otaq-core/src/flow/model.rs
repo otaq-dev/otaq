@@ -220,4 +220,34 @@ impl Flow {
             .rev()
             .find(|&i| self.stages.get(i).is_some_and(|s| s.column == Column::Own))
     }
+
+    /// The agent check whose rounds a ticket at `stage` counts (d0063, "round 1 of 3"): that stage when it is one,
+    /// else the next one after it (from Backlog or Ready for Dev, `None`: the first), else the last one before it.
+    pub fn round_check(&self, stage: Option<&str>) -> Option<&Stage> {
+        let at = stage.and_then(|id| self.position(id));
+        if let Some(here) = at
+            .and_then(|i| self.stages.get(i))
+            .filter(|s| s.is_agent_check())
+        {
+            return Some(here);
+        }
+        let from = at.map_or(0, |i| i + 1);
+        self.stages[from.min(self.stages.len())..]
+            .iter()
+            .find(|s| s.is_agent_check())
+            .or_else(|| {
+                self.stages[..from.min(self.stages.len())]
+                    .iter()
+                    .rev()
+                    .find(|s| s.is_agent_check())
+            })
+    }
+
+    /// The rounds of [`Self::round_check`] plus the `extra` rounds the user allowed; 3 plus `extra` without one.
+    pub fn check_rounds(&self, stage: Option<&str>, extra: u32) -> u32 {
+        self.round_check(stage)
+            .map_or(super::check::DEFAULT_VALIDATION_ROUNDS + extra, |s| {
+                super::engine::rounds_of(s, extra)
+            })
+    }
 }

@@ -742,18 +742,12 @@ async fn resume(
     (world, args, expected, session)
 }
 
-/// Imports the test skill folder `my-pr` onto Developer, standing in for its Open PR skill.
+/// Imports the test skill folder `my-pr` onto Developer, and the flow's Delivery names it as its Open PR skill.
 async fn import_open_pr(world: &World, folder: &Path) {
-    let developer = world.agent("Developer").await;
-    let agent = otaq_core::agents::skills::import(&world.w.board, &developer.id, folder)
-        .await
-        .unwrap();
-    let id = agent.imported.last().unwrap().id.clone();
-    sqlx::query("UPDATE agent_skills SET stands_for = 'open-pr' WHERE imported_id = ?")
-        .bind(&id)
-        .execute(world.w.board.store().pool())
-        .await
-        .unwrap();
+    world
+        .w
+        .import_step_skill(otaq_core::board::settings::WorkflowStep::OpenPr, folder)
+        .await;
 }
 
 async fn wait_for_agent(w: &TestService, id: &str, state: AgentState) {

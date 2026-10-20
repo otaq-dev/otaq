@@ -1,5 +1,4 @@
-//! Settings → Agents (AGM-02, AGM-03, AGM-04; d0108, d0088, d0086; `s15-58` / `s15-59`): the move-over's notice, the
-//! default model for new agents, the fallback per tool and the list of agents (name, role tag, came-from line, model
+//! Settings → Agents (AGM-02, AGM-03, AGM-04; d0108, d0088, d0086; `s15-58` / `s15-59`): the default model for new agents, the fallback per tool and the list of agents (name, role tag, came-from line, model
 //! with the tool's effort, skills, used in, the amber mark, ⋯ Duplicate / Delete…); one agent's page is
 //! [`super::agent_page`]. Also the shared pieces the other screens use: the formatters of a model ([`model_label`],
 //! [`agent_model`], [`short_model`]), the agent tools' lists ([`AgentTools`]) and the session roles as the page sends
@@ -8,9 +7,8 @@
 use otaq_core::agent_tools::follow::FollowChoice;
 use otaq_core::agent_tools::{ModelKind, ModelList, Tool};
 use otaq_core::agents::{
-    Agent, AgentList, AgentModel, Dropped, InUse, Mark, ModelRef, Role, SessionRole, SkillRef,
+    Agent, AgentList, AgentModel, InUse, Mark, ModelRef, Role, SessionRole, SkillRef,
 };
-use otaq_core::naming::PRODUCT_NAME;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -495,15 +493,6 @@ pub struct Fallbacks {
     pub lines: Vec<FallbackLine>,
 }
 
-/// The move-over's notice (AGM-02; `s15-58` "The move-over notice"), at the top of Agents until dismissed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "AgentsNotice")]
-pub struct Notice {
-    pub title: String,
-    pub text: String,
-    pub dismiss_label: String,
-}
-
 /// One agent in the list.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "AgentListRow")]
@@ -512,8 +501,7 @@ pub struct TableRow {
     pub name: String,
     /// "Project agent", "Epic lead": the role tag.
     pub role: Option<String>,
-    /// "From Otaq's agents file", "Added by the Otaq default preset", "Added by you"; while the move-over's notice
-    /// shows, what moved to it ("Has your Agent instructions", "Moved over from your named agents").
+    /// "From Otaq's agents file", "Added by the Otaq default preset", "Added by you".
     pub came_from: String,
     /// The model the Agents page's way ([`list_model`]).
     pub model: String,
@@ -530,14 +518,13 @@ pub struct TableRow {
     pub menu_label: String,
 }
 
-/// The Agents page (AGM-04; `s15-58` / `s15-59`): the notice, the default model, the fallbacks, the list.
+/// The Agents page (AGM-04; `s15-58` / `s15-59`): the default model, the fallbacks, the list.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "AgentsSection")]
 pub struct Section {
     pub title: String,
     pub intro: String,
     pub new_agent_label: String,
-    pub notice: Option<Notice>,
     pub default_model: DefaultModel,
     pub fallbacks: Option<Fallbacks>,
     /// NAME, MODEL, SKILLS, USED IN.
@@ -589,113 +576,14 @@ pub fn and_list(items: &[String]) -> String {
     }
 }
 
-/// "Developer's" (with the typographic apostrophe).
-fn owner(name: &str) -> String {
-    format!("{name}\u{2019}s")
-}
-
-/// What the move-over notice says (AGM-02, `s15-58`): "Moved over: Strong, Light, your Agent instructions (now
-/// Developer's), your Validate skill (now Validator's). Dropped: pocket-api's own Developer (Strong) and Commit skill
-/// · the Developer row of 1 ticket. From the next version each project can choose its own agents per stage." Agents
-/// are named as they are called now.
-pub fn notice(dropped: &Dropped, agents: &[Agent]) -> Notice {
-    let name = |id: &str| agents.iter().find(|a| a.id == id).map(|a| a.name.clone());
-    let moved = &dropped.moved;
-    let mut carried: Vec<String> = moved.named.iter().filter_map(|id| name(id)).collect();
-    if let Some(to) = moved.agent_instructions.as_deref().and_then(name) {
-        carried.push(format!("your Agent instructions (now {})", owner(&to)));
-    }
-    if let Some(to) = moved.project_agent_instructions.as_deref().and_then(name) {
-        carried.push(format!(
-            "your Project agent instructions (now {})",
-            owner(&to)
-        ));
-    }
-    for skill in &moved.skills {
-        if let Some(to) = name(&skill.agent) {
-            carried.push(format!("your {} skill (now {})", skill.step, owner(&to)));
-        }
-    }
-    let mut lost: Vec<String> = dropped
-        .projects
-        .iter()
-        .map(|project| {
-            let mut own: Vec<String> = project
-                .roles
-                .iter()
-                .map(|r| format!("{} ({})", r.role, r.agent))
-                .collect();
-            let steps: Vec<String> = project.skills.iter().map(|s| s.step.clone()).collect();
-            match steps.len() {
-                0 => {}
-                1 => own.push(format!("{} skill", steps[0])),
-                _ => own.push(format!("{} skills", and_list(&steps))),
-            }
-            if project.project_agent_instructions {
-                own.push("Project agent instructions".to_owned());
-            }
-            format!("{} own {}", owner(&project.name), and_list(&own))
-        })
-        .collect();
-    let mut roles: Vec<(&str, usize)> = Vec::new();
-    for row in &dropped.tickets {
-        match roles.iter_mut().find(|(role, _)| *role == row.role) {
-            Some((_, count)) => *count += 1,
-            None => roles.push((&row.role, 1)),
-        }
-    }
-    lost.extend(roles.into_iter().map(|(role, count)| match count {
-        1 => format!("the {role} row of 1 ticket"),
-        n => format!("the {role} rows of {n} tickets"),
-    }));
-    let mut text = Vec::new();
-    if !carried.is_empty() {
-        text.push(format!("Moved over: {}.", carried.join(", ")));
-    }
-    if !lost.is_empty() {
-        text.push(format!("Dropped: {}.", lost.join(" \u{b7} ")));
-    }
-    text.push("From the next version each project can choose its own agents per stage.".to_owned());
-    Notice {
-        title: format!("{PRODUCT_NAME} now uses agents"),
-        text: text.join(" "),
-        dismiss_label: "Dismiss".to_owned(),
-    }
-}
-
 /// The core's words with the frames' apostrophe: "From Otaq’s agents file".
 fn curly(text: &str) -> String {
     text.replace('\'', "\u{2019}")
 }
 
-/// An agent's came-from line: while the move-over's notice shows, what moved to it ("Has your Agent instructions",
-/// "Has your Validate skill", "Moved over from your named agents"); else where it came from.
-pub fn came_from(agent: &Agent, dropped: Option<&Dropped>) -> String {
-    let Some(moved) = dropped.map(|d| &d.moved) else {
-        return curly(&agent.came_from.label());
-    };
-    if moved.named.contains(&agent.id) {
-        return "Moved over from your named agents".to_owned();
-    }
-    let mut has = Vec::new();
-    if moved.agent_instructions.as_deref() == Some(&agent.id) {
-        has.push("Agent instructions".to_owned());
-    }
-    if moved.project_agent_instructions.as_deref() == Some(&agent.id) {
-        has.push("Project agent instructions".to_owned());
-    }
-    has.extend(
-        moved
-            .skills
-            .iter()
-            .filter(|s| s.agent == agent.id)
-            .map(|s| format!("{} skill", s.step)),
-    );
-    if has.is_empty() {
-        curly(&agent.came_from.label())
-    } else {
-        format!("Has your {}", and_list(&has))
-    }
+/// An agent's came-from line: "From Otaq’s agents file", "Added by you".
+pub fn came_from(agent: &Agent) -> String {
+    curly(&agent.came_from.label())
 }
 
 /// What the page is built from: `agents.list`, the tools, and what uses each agent (`agents.in_use`).
@@ -744,7 +632,6 @@ pub fn section(input: &Inputs) -> Section {
                 that starts."
             .to_owned(),
         new_agent_label: "New agent".to_owned(),
-        notice: list.dropped.as_ref().map(|d| notice(d, &list.agents)),
         default_model: DefaultModel {
             label: "Default model for new agents".to_owned(),
             description: "A new agent, or one a preset adds, starts with it.".to_owned(),
@@ -761,7 +648,7 @@ pub fn section(input: &Inputs) -> Section {
                 id: a.id.clone(),
                 name: a.name.clone(),
                 role: a.role.map(|r| r.label().to_owned()),
-                came_from: came_from(a, list.dropped.as_ref()),
+                came_from: came_from(a),
                 model: list_model(a, tools, default),
                 skills: skill_names(a),
                 used_in: used_in_cell(input.uses_of(a)),
@@ -782,10 +669,8 @@ pub mod fixtures {
     use otaq_core::agent_tools::models::ModelEntry;
     use otaq_core::agent_tools::{ModelKind, ModelList, Tool};
     use otaq_core::agents::in_use::StageUse;
-    use otaq_core::agents::move_over::{DroppedProject, DroppedRole, DroppedRow, DroppedSkill};
     use otaq_core::agents::{
-        Agent, AgentList, AgentModel, CameFrom, Dropped, ImportedSkill, InUse, ModelRef, Moved,
-        MovedSkill, Role, SkillRef,
+        Agent, AgentList, AgentModel, CameFrom, ImportedSkill, InUse, ModelRef, Role, SkillRef,
     };
 
     pub fn entry(id: &str, display: &str, kind: ModelKind, now: Option<&str>) -> ModelEntry {
@@ -972,9 +857,9 @@ pub mod fixtures {
         tools(&[Tool::Claude, Tool::Codex])
     }
 
-    /// The ticket file's example after the move-over (T-0405, AGM-02): Planner, Epic lead, Developer, Validator,
-    /// Strong and Light, the default model Light's, what moved and what was dropped, and what uses each agent
-    /// (pocket-notes validates, pocket-api doesn't).
+    /// The ticket file's example (T-0405, AGM-02): Planner, Epic lead, Developer, Validator (with the imported
+    /// `team-validate`), Strong and Light, the default model Light's, and what uses each agent (pocket-notes
+    /// validates, pocket-api doesn't).
     pub fn example() -> (AgentList, Vec<InUse>) {
         let with = |mut a: Agent, f: &dyn Fn(&mut Agent)| {
             f(&mut a);
@@ -1012,7 +897,6 @@ pub mod fixtures {
                     imported_at: 1,
                     fingerprint: String::new(),
                     warnings: Vec::new(),
-                    replaces: Some("validate".into()),
                 }];
             }),
             with(agent("strong", "Strong", Some("opus")), &|a| {
@@ -1024,40 +908,6 @@ pub mod fixtures {
                 a.skills.clone_from(&skills);
             }),
         ];
-        let dropped = Dropped {
-            at: 1,
-            projects: vec![DroppedProject {
-                key: "API".into(),
-                name: "pocket-api".into(),
-                roles: vec![DroppedRole {
-                    role: "Developer".into(),
-                    agent: "Strong".into(),
-                }],
-                skills: vec![DroppedSkill {
-                    step: "Commit".into(),
-                    name: "api-commit".into(),
-                }],
-                project_agent_instructions: false,
-            }],
-            tickets: vec![DroppedRow {
-                key: "NOTE-3".parse().unwrap(),
-                role: "Developer".into(),
-                agent: Some("Strong".into()),
-                set_by_user: true,
-                picked_by: None,
-                reason: None,
-            }],
-            moved: Moved {
-                named: vec!["strong".into(), "light".into()],
-                agent_instructions: Some("developer".into()),
-                project_agent_instructions: Some("planner".into()),
-                skills: vec![MovedSkill {
-                    step: "Validate".into(),
-                    agent: "validator".into(),
-                }],
-            },
-            dismissed: false,
-        };
         let stage = |project: &str, stage: &str| StageUse {
             project: Some(project.into()),
             stage: stage.into(),
@@ -1105,7 +955,6 @@ pub mod fixtures {
                 model: Some("haiku".into()),
             }),
             fallbacks: Vec::new(),
-            dropped: Some(dropped),
         };
         (list, uses)
     }
@@ -1113,6 +962,8 @@ pub mod fixtures {
 
 #[cfg(test)]
 mod tests {
+    use otaq_core::naming::PRODUCT_NAME;
+
     use super::fixtures::*;
     use super::*;
 
@@ -1154,10 +1005,10 @@ mod tests {
         );
     }
 
-    /// The example after the move-over (T-0410's Done-when): six agents with their roles, came-from lines, models,
-    /// skills and where they are used, and the notice naming what moved and what was dropped.
+    /// The example (T-0410's Done-when): six agents with their roles, came-from lines, models, skills and where they
+    /// are used.
     #[test]
-    fn the_examples_agents_page_after_the_move_over() {
+    fn the_examples_agents_page() {
         let (list, uses) = example();
         let tools = AgentTools::one(Some(claude_list()));
         let page = section(&Inputs {
@@ -1173,15 +1024,6 @@ mod tests {
              that starts."
         );
         assert_eq!(page.new_agent_label, "New agent");
-        let notice = page.notice.expect("the notice, until dismissed");
-        assert_eq!(notice.title, format!("{PRODUCT_NAME} now uses agents"));
-        assert_eq!(
-            notice.text,
-            "Moved over: Strong, Light, your Agent instructions (now Developer\u{2019}s), your Project agent \
-             instructions (now Planner\u{2019}s), your Validate skill (now Validator\u{2019}s). Dropped: \
-             pocket-api\u{2019}s own Developer (Strong) and Commit skill \u{b7} the Developer row of 1 ticket. From \
-             the next version each project can choose its own agents per stage."
-        );
         assert_eq!(page.default_model.label, "Default model for new agents");
         assert_eq!(
             page.default_model.description,
@@ -1225,7 +1067,7 @@ mod tests {
                 (
                     "Planner",
                     Some("Project agent"),
-                    "Has your Project agent instructions",
+                    &*format!("From {PRODUCT_NAME}\u{2019}s agents file"),
                     "Claude Code \u{b7} haiku",
                     s(&["project-agent"]),
                     "every project \u{b7} the Project agent"
@@ -1241,7 +1083,7 @@ mod tests {
                 (
                     "Developer",
                     None,
-                    "Has your Agent instructions",
+                    &*format!("Added by the {PRODUCT_NAME} default preset"),
                     "Claude Code \u{b7} haiku",
                     s(&["work-ticket", "commit"]),
                     "pocket-api \u{b7} Dev, pocket-api \u{b7} Done, pocket-notes \u{b7} Dev, pocket-notes \u{b7} Done"
@@ -1249,7 +1091,7 @@ mod tests {
                 (
                     "Validator",
                     None,
-                    "Has your Validate skill",
+                    &*format!("Added by the {PRODUCT_NAME} default preset"),
                     "Claude Code \u{b7} opus",
                     s(&["team-validate"]),
                     "pocket-notes \u{b7} Validate"
@@ -1257,7 +1099,7 @@ mod tests {
                 (
                     "Strong",
                     None,
-                    "Moved over from your named agents",
+                    "Added by you",
                     "Claude Code \u{b7} opus",
                     s(&["work-ticket", "commit"]),
                     "\u{2014}"
@@ -1265,7 +1107,7 @@ mod tests {
                 (
                     "Light",
                     None,
-                    "Moved over from your named agents",
+                    "Added by you",
                     "Claude Code \u{b7} haiku",
                     s(&["work-ticket", "commit"]),
                     "\u{2014}"
@@ -1274,49 +1116,6 @@ mod tests {
         );
         let menu: Vec<&str> = page.rows[0].menu.iter().map(|m| m.label.as_str()).collect();
         assert_eq!(menu, ["Duplicate", "Delete\u{2026}"]);
-    }
-
-    /// AGM-02: the notice shows once; dismissed (`agents.list` then has no record), it is gone and the came-from
-    /// lines say where each agent came from again.
-    #[test]
-    fn the_notice_is_gone_after_dismiss() {
-        let (mut list, uses) = example();
-        list.dropped = None;
-        let tools = AgentTools::one(Some(claude_list()));
-        let page = section(&Inputs {
-            list: &list,
-            tools: &tools,
-            uses: &uses,
-        });
-        assert_eq!(page.notice, None);
-        let lines: Vec<&str> = page.rows.iter().map(|r| r.came_from.as_str()).collect();
-        let file = format!("From {PRODUCT_NAME}\u{2019}s agents file");
-        let preset = format!("Added by the {PRODUCT_NAME} default preset");
-        assert_eq!(
-            lines,
-            [
-                file.as_str(),
-                file.as_str(),
-                preset.as_str(),
-                preset.as_str(),
-                "Added by you",
-                "Added by you"
-            ]
-        );
-        // A notice with nothing dropped still says what moved, without a Dropped part.
-        let (mut list, _) = example();
-        if let Some(d) = list.dropped.as_mut() {
-            d.projects.clear();
-            d.tickets.clear();
-            d.moved.skills.clear();
-            d.moved.project_agent_instructions = None;
-        }
-        let text = notice(list.dropped.as_ref().unwrap(), &list.agents).text;
-        assert_eq!(
-            text,
-            "Moved over: Strong, Light, your Agent instructions (now Developer\u{2019}s). From the next version each \
-             project can choose its own agents per stage."
-        );
     }
 
     /// AGM-03: the default model and one Fallback line per connected tool, each offering the other tools' lists and

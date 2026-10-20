@@ -1,11 +1,9 @@
 //! The flow format (STG-01, STG-02, STG-03, STG-12; d0108): the default file and the test flow read and write back
-//! unchanged, each STG-02 rule refuses its broken file in `tests/flows/broken/` with its message, and the derived
-//! flow follows the project's Validation settings.
+//! unchanged, and each STG-02 rule refuses its broken file in `tests/flows/broken/` with its message. A project's
+//! stored flow is `flow_store`'s.
 
 use std::path::{Path, PathBuf};
 
-use crate::common::Fixture;
-use otaq_core::board::settings::{GlobalSettings, ProjectSettings};
 use otaq_core::flow::{
     self, CheckBy, Column, Delivers, Delivery, DeliveryMode, Rule, StageKind, StageOption, check,
     yaml,
@@ -90,7 +88,7 @@ fn the_default_flow_is_dev_validate_review_done() {
         ),
         (
             StageKind::Check { by: CheckBy::Agent },
-            Column::WithPrevious,
+            Column::Own,
             Some("Validator"),
             Some("validate"),
             Some(3)
@@ -114,8 +112,8 @@ fn the_default_flow_is_dev_validate_review_done() {
             })
         )
     );
-    // Validate shows in Dev's column, Done in Review's (its Approved section).
-    assert_eq!(flow.column_owner(1), Some(0));
+    // Validate has its own column (FLW-01), Done shows in Review's (its Approved section).
+    assert_eq!(flow.column_owner(1), Some(1));
     assert_eq!(flow.column_owner(3), Some(2));
     assert_eq!(flow.first_agent_stage().map(|s| s.id.as_str()), Some("dev"));
 }
@@ -435,49 +433,4 @@ fn ids_are_kept_as_written_and_given_when_left_out() {
     let written = yaml::write(&read);
     assert_eq!(yaml::read(&written).unwrap(), read);
     assert_eq!(yaml::write(&yaml::read(&written).unwrap()), written);
-}
-
-#[tokio::test]
-async fn the_derived_flow_follows_validation() {
-    let f = Fixture::shop().await;
-    let ids =
-        |flow: &flow::Flow| -> Vec<String> { flow.stages.iter().map(|s| s.id.clone()).collect() };
-
-    // Defaults: Validation on, 3 rounds: the default flow as shipped.
-    let derived = f.board.effective_flow("SHOP").await.unwrap();
-    assert_eq!(derived, flow::default_flow());
-
-    let on = ProjectSettings {
-        validation: Some(true),
-        validation_rounds: Some(2),
-        ..ProjectSettings::default()
-    };
-    f.board.set_project_settings("SHOP", &on).await.unwrap();
-    let derived = f.board.effective_flow("SHOP").await.unwrap();
-    assert_eq!(ids(&derived), ["dev", "validate", "review", "deliver"]);
-    assert_eq!(derived.stage("validate").unwrap().rounds, Some(2));
-    assert_eq!(check(&derived), Ok(()));
-
-    let off = ProjectSettings {
-        validation: Some(false),
-        validation_rounds: Some(2),
-        ..ProjectSettings::default()
-    };
-    f.board.set_project_settings("SHOP", &off).await.unwrap();
-    let derived = f.board.effective_flow("SHOP").await.unwrap();
-    assert_eq!(ids(&derived), ["dev", "review", "deliver"]);
-    assert_eq!(check(&derived), Ok(()));
-
-    // Off globally, unset for the project: off too.
-    f.board
-        .set_project_settings("SHOP", &ProjectSettings::default())
-        .await
-        .unwrap();
-    let global = GlobalSettings {
-        validation: false,
-        ..GlobalSettings::default()
-    };
-    f.board.set_global_settings(&global).await.unwrap();
-    let derived = f.board.effective_flow("SHOP").await.unwrap();
-    assert_eq!(ids(&derived), ["dev", "review", "deliver"]);
 }

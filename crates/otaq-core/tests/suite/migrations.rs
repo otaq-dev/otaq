@@ -6,6 +6,7 @@ use std::borrow::Cow;
 use std::path::Path;
 use std::str::FromStr;
 
+use otaq_core::naming;
 use otaq_core::store::Store;
 use serde_json::json;
 use sqlx::migrate::Migrator;
@@ -1338,7 +1339,7 @@ async fn agent_rows_take_the_move_columns_and_holds_start_empty() {
     .await;
     pool.close().await;
 
-    // Up to 0044 only: from 0047 the move-over drops the rows (AGM-02, `the_move_over_*`).
+    // Up to 0044 only: 0050 drops the rows (FLW-01).
     let store = database_at(&path, 44).await;
     let row = sqlx::query(
         "SELECT named_agent_id, set_by, set_at, moved_from_agent_id, moved_from_name, moved_reason, moved_tool,
@@ -1893,16 +1894,13 @@ async fn has_table(pool: &SqlitePool, name: &str) -> bool {
     .unwrap()
 }
 
-/// Every row of the tables the move-over writes, as text: what a second start must leave as it is.
-async fn moved_over_state(store: &Store) -> Vec<String> {
+/// Every agent and skill row, as text: what a second start must leave as it is.
+async fn agent_rows(store: &Store) -> Vec<String> {
     let mut rows = Vec::new();
     for sql in [
-        "SELECT id || '|' || name || '|' || instructions || '|' || COALESCE(tool, '-') || '|' || COALESCE(model, '-')
-                || '|' || COALESCE(role, '-') || '|' || came_from || '|' || updated_at FROM agents ORDER BY id",
+        "SELECT id || '|' || name || '|' || came_from || '|' || updated_at FROM agents ORDER BY id",
         "SELECT agent_id || '|' || position || '|' || COALESCE(shipped, imported_id) FROM agent_skills
          ORDER BY agent_id, position",
-        "SELECT key || '|' || value_json FROM settings ORDER BY key",
-        "SELECT key || '|' || settings_json FROM projects ORDER BY key",
     ] {
         let found: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
             .fetch_all(store.pool())
@@ -1913,15 +1911,23 @@ async fn moved_over_state(store: &Store) -> Vec<String> {
     rows
 }
 
-/// T-0405 (AGM-02, AGM-13; d0108, user decisions 2026-10-20): the first start of M32 on an M31 database moves its
-/// settings over in one step, exactly as AGM-02 lists: the agents, models, instructions and skills of "After the
-/// update"; pocket-api's own Developer and Commit skill and NOTE-3's row recorded as dropped; pocket-notes' Agent
-/// instructions kept as its notes and the Validation settings kept; the old tables and settings gone; and a second
-/// start changes nothing.
+/// A column's presence.
+async fn has_column(pool: &SqlitePool, table: &str, column: &str) -> bool {
+    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pragma_table_info(?) WHERE name = ?)")
+        .bind(table)
+        .bind(column)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+/// T-0412 (FLW-01; d0108, no migration from M32): an M31 database's data isn't moved over. The first start installs
+/// `otaq-agents.yaml` and the default flow's agents and nothing else: M31's named agents, role defaults,
+/// instructions, workflow skills and ticket rows are gone, the Validation settings with them, and every project is on
+/// the default flow as its version 1. A second start changes nothing.
 #[tokio::test]
-async fn the_move_over_carries_m31s_agents_and_records_what_it_dropped() {
-    use otaq_core::agent_tools::Tool;
-    use otaq_core::agents::{AgentModel, CameFrom, ModelRef, Role, SkillRef};
+async fn an_m31_database_starts_clean_with_the_shipped_agents() {
+    use otaq_core::agents::{AgentModel, CameFrom};
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("otaq.db");
     let pool = database_at(&path, 46).await;
@@ -1930,194 +1936,123 @@ async fn the_move_over_carries_m31s_agents_and_records_what_it_dropped() {
 
     let store = Store::open(&path).await.unwrap();
     let agents = store.agents().await.unwrap();
-    let names: Vec<&str> = agents.iter().map(|a| a.name.as_str()).collect();
+    let shown: Vec<(&str, &CameFrom, bool)> = agents
+        .iter()
+        .map(|a| {
+            (
+                a.name.as_str(),
+                &a.came_from,
+                a.model == AgentModel::Default,
+            )
+        })
+        .collect();
     assert_eq!(
-        names,
+        shown,
         [
-            "Planner",
-            "Epic lead",
-            "Developer",
-            "Validator",
-            "Strong",
-            "Light"
+            ("Planner", &CameFrom::AgentsFile, true),
+            ("Epic lead", &CameFrom::AgentsFile, true),
+            ("Developer", &CameFrom::DefaultPreset, true),
+            ("Validator", &CameFrom::DefaultPreset, true),
         ]
     );
-    let agent = |name: &str| agents.iter().find(|a| a.name == name).unwrap();
-    let claude = |model: &str| AgentModel::Tool {
-        tool: Tool::Claude,
-        model: Some(model.into()),
-    };
-    let shipped = |names: &[&str]| -> Vec<SkillRef> {
-        names
+    assert!(
+        agents
             .iter()
-            .map(|n| SkillRef::Shipped((*n).into()))
-            .collect()
-    };
-    // The default model ← the app's Developer default's model (Light's).
-    assert_eq!(
-        store.default_model().await.unwrap(),
-        Some(ModelRef {
-            tool: Tool::Claude,
-            model: Some("haiku".into())
-        })
+            .all(|a| a.instructions.is_empty() && a.imported.is_empty())
     );
-    // Each role default's model → the matching agent; the instructions to Developer and Planner.
-    let developer = agent("Developer");
-    assert_eq!(developer.model, claude("haiku"));
-    assert_eq!(developer.instructions, "Run `just test` before committing");
-    assert_eq!(developer.skills, shipped(&["work-ticket", "commit"]));
-    assert_eq!(developer.came_from, CameFrom::DefaultPreset);
-    let validator = agent("Validator");
-    assert_eq!(validator.model, claude("opus"));
-    assert_eq!(validator.instructions, "");
-    // The global imported Validate skill in place of the shipped one.
-    assert_eq!(
-        validator.skills,
-        [SkillRef::Imported("team-validate".into())]
-    );
-    let validate = &validator.imported[0];
-    assert_eq!(
-        (
-            validate.name.as_str(),
-            validate.original.as_str(),
-            validate.replaces.as_deref()
-        ),
-        ("team-validate", "/team/validate", Some("validate"))
-    );
-    let lead = agent("Epic lead");
-    assert_eq!(
-        (&lead.model, lead.role),
-        (&claude("opus"), Some(Role::EpicLead))
-    );
-    let planner = agent("Planner");
-    assert_eq!(
-        (&planner.model, planner.role, planner.instructions.as_str()),
-        (
-            &claude("haiku"),
-            Some(Role::ProjectAgent),
-            "Keep tickets small"
-        )
-    );
-    assert_eq!(planner.skills, shipped(&["project-agent"]));
-    assert_eq!(planner.came_from, CameFrom::AgentsFile);
-    // Every named agent: its id, name and model, Developer's instructions and skills; no fallback (per tool now).
-    for (id, name, model) in [("strong", "Strong", "opus"), ("light", "Light", "haiku")] {
-        let a = agent(name);
-        assert_eq!(a.id, id);
-        assert_eq!(a.model, claude(model));
-        assert_eq!(a.instructions, developer.instructions);
-        assert_eq!(a.skills, developer.skills);
-        assert_eq!((a.role, &a.came_from), (None, &CameFrom::You));
-    }
-    assert!(store.fallbacks().await.unwrap().is_empty());
-    // The default flow's names are bound to the shipped agents.
-    let names = store.flow_names().await.unwrap();
-    assert_eq!(names.get("Developer"), Some(&developer.id));
-    assert_eq!(names.get("Validator"), Some(&validator.id));
-
-    // Dropped, and recorded for the notice: pocket-api's own Developer (Strong) and Commit skill, NOTE-3's row.
-    let dropped = store.dropped().await.unwrap().expect("ran");
-    assert!(!dropped.dismissed);
-    assert_eq!(dropped.projects.len(), 1, "{dropped:?}");
-    let api = &dropped.projects[0];
-    assert_eq!((api.key.as_str(), api.name.as_str()), ("API", "pocket-api"));
-    assert_eq!(
-        api.roles
-            .iter()
-            .map(|r| (r.role.as_str(), r.agent.as_str()))
-            .collect::<Vec<_>>(),
-        [("Developer", "Strong")]
-    );
-    assert_eq!(
-        api.skills
-            .iter()
-            .map(|s| (s.step.as_str(), s.name.as_str()))
-            .collect::<Vec<_>>(),
-        [("Commit", "api-commit")]
-    );
-    assert!(!api.project_agent_instructions);
-    assert_eq!(dropped.tickets.len(), 1);
-    let row = &dropped.tickets[0];
-    assert_eq!(
-        (
-            row.key.to_string(),
-            row.role.as_str(),
-            row.agent.as_deref(),
-            row.set_by_user
-        ),
-        ("NOTE-3".to_owned(), "Developer", Some("Strong"), true)
-    );
-    // And what moved, by agent id (T-0410's notice): the named agents, both instructions, the Validate skill.
-    let moved = &dropped.moved;
-    assert_eq!(moved.named, ["strong", "light"]);
-    assert_eq!(
-        moved.agent_instructions.as_deref(),
-        Some(developer.id.as_str())
-    );
-    assert_eq!(
-        moved.project_agent_instructions.as_deref(),
-        Some(planner.id.as_str())
-    );
-    assert_eq!(
-        moved
-            .skills
-            .iter()
-            .map(|s| (s.step.as_str(), s.agent.as_str()))
-            .collect::<Vec<_>>(),
-        [("Validate", validator.id.as_str())]
-    );
-
-    // Kept: pocket-notes' Agent instructions as its notes, both projects' Validation settings.
-    let notes = project_json(&store, "NOTE").await;
-    assert_eq!(notes["project_notes"], "use pnpm, not npm");
-    assert!(notes.get("agent_instructions").is_none());
-    assert_eq!(
-        (&notes["validation"], &notes["validation_rounds"]),
-        (&json!(true), &json!(2))
-    );
-    let api = project_json(&store, "API").await;
-    assert_eq!(api["validation"], json!(false));
-    assert!(api.get("agents").is_none() && api.get("workflow_skills").is_none());
-
-    // Gone: the old tables and settings.
+    assert_eq!(store.default_model().await.unwrap(), None);
     assert!(!has_table(store.pool(), "named_agents").await);
     assert!(!has_table(store.pool(), "ticket_agent_rows").await);
+    for key in ["NOTE", "API"] {
+        let json = project_json(&store, key).await;
+        for gone in ["validation", "validation_rounds", "auto_merge"] {
+            assert!(json.get(gone).is_none(), "{key}: {gone}");
+        }
+        let flow = store.current_flow(key).await.unwrap().expect("a flow");
+        assert_eq!(
+            (flow.version, flow.yaml.as_str(), flow.preset.as_deref()),
+            (1, naming::DEFAULT_FLOW_YAML, Some("otaq-default.yaml")),
+            "{key}"
+        );
+    }
+
+    let before = agent_rows(&store).await;
+    store.close().await;
+    let store = Store::open(&path).await.unwrap();
+    assert_eq!(agent_rows(&store).await, before);
+}
+
+/// T-0412 (FLW-01, Q296): 0050 drops what M32's move-over and the old settings kept: the Validation, Validation
+/// rounds and Auto-merge settings (global and per project), the move-over's record and the names it bound,
+/// `agent_skills.stands_for`; it gives every project the default flow as version 1, and leaves everything else.
+#[tokio::test]
+async fn migration_0050_drops_the_old_settings_and_gives_each_project_its_flow() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 49).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at, settings_json)
+         VALUES ('pn', 'pocket-notes', '/tmp/pocket-notes', 'NOTE', 'main', 1, 0,
+                 '{\"validation\": true, \"validation_rounds\": 2, \"auto_merge\": \"all\", \"project_notes\": \"pnpm\"}')",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO settings (key, value_json, updated_at)
+         VALUES ('validation', 'false', 0), ('validation_rounds', '4', 0), ('auto_merge', '\"epic_children\"', 0),
+                ('agents.moved_over', '{\"at\": 1}', 0), ('agents.flow_names', '{\"Developer\": \"d\"}', 0),
+                ('theme', '\"dracula\"', 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO agents (id, name, came_from, created_at, updated_at)
+         VALUES ('v', 'Validator', 'default_preset', 0, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO agent_skills (agent_id, position, imported_id, name, original, imported_at, fingerprint,
+                                   stands_for)
+         VALUES ('v', 0, 'team-validate', 'team-validate', '/team/validate', 1, 'f', 'validate')",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
     for key in [
-        "agents.defaults",
-        "agents.auto_fallback",
-        "agent_instructions",
-        "project_agent_instructions",
-        "workflow_skills",
+        "validation",
+        "validation_rounds",
+        "auto_merge",
+        "agents.moved_over",
+        "agents.flow_names",
     ] {
         assert_eq!(store.setting(key).await.unwrap(), None, "{key}");
     }
-    // NOTE-4's session still names Light, now an agent; its run keeps the agent's id.
-    let (agent_id, run_agent): (Option<String>, Option<String>) = sqlx::query_as(
-        "SELECT s.agent_id, r.agent_id FROM sessions s JOIN stage_runs r ON r.session_id = s.id WHERE s.id = 's4'",
-    )
-    .fetch_one(store.pool())
-    .await
-    .unwrap();
     assert_eq!(
-        (agent_id.as_deref(), run_agent.as_deref()),
-        (Some("light"), Some("light"))
+        store.setting("theme").await.unwrap().as_deref(),
+        Some("\"dracula\"")
     );
-
-    // A second start changes nothing.
-    let before = moved_over_state(&store).await;
-    store.close().await;
-    let store = Store::open(&path).await.unwrap();
-    assert_eq!(moved_over_state(&store).await, before);
-    assert_eq!(store.dropped().await.unwrap(), Some(dropped));
+    assert_eq!(
+        project_json(&store, "NOTE").await,
+        json!({"project_notes": "pnpm"})
+    );
+    assert!(!has_column(store.pool(), "agent_skills", "stands_for").await);
+    let validator = store.agent("v").await.unwrap().expect("kept");
+    assert_eq!(validator.imported[0].name, "team-validate");
+    let versions = store.flow_versions("NOTE").await.unwrap();
+    assert_eq!(versions.len(), 1);
+    assert_eq!(versions[0].yaml, naming::DEFAULT_FLOW_YAML);
+    assert_eq!(versions[0].applied_by, otaq_core::flow::AppliedBy::Shipped);
+    assert!(versions[0].current);
 }
 
-/// T-0405 (AGM-02): a fresh install (an empty M31 database, or none) applies the two files with nothing to carry and
-/// nothing to drop; the default model waits for the first connected tool.
+/// T-0405 (AGM-02): a fresh install applies the two files; the default model waits for the first connected tool.
 #[tokio::test]
-async fn a_fresh_install_applies_the_two_files_with_nothing_to_drop() {
+async fn a_fresh_install_applies_the_two_files() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("otaq.db");
-    database_at(&path, 46).await.close().await;
     let store = Store::open(&path).await.unwrap();
     let agents = store.agents().await.unwrap();
     let names: Vec<(&str, bool)> = agents
@@ -2138,7 +2073,6 @@ async fn a_fresh_install_applies_the_two_files_with_nothing_to_drop() {
             ("Validator", true)
         ]
     );
-    assert!(store.dropped().await.unwrap().unwrap().is_empty());
     assert_eq!(store.default_model().await.unwrap(), None);
     assert!(!has_table(store.pool(), "named_agents").await);
 }

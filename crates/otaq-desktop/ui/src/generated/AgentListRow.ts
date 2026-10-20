@@ -11,8 +11,7 @@ export type AgentListRow = { id: string, name: string,
  */
 role: string | null, 
 /**
- * "From Otaq's agents file", "Added by the Otaq default preset", "Added by you"; while the move-over's notice
- * shows, what moved to it ("Has your Agent instructions", "Moved over from your named agents").
+ * "From Otaq's agents file", "Added by the Otaq default preset", "Added by you".
  */
 came_from: string, 
 /**

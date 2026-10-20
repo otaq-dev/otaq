@@ -81,28 +81,16 @@ impl Sources<'_> {
             .collect()
     }
 
-    /// The skill a session runs for a stage's or step's skill `name` (Q261): `agent`'s imported skill standing for
-    /// it (AGM-02's move-over: an imported Validate skill in place of `validate`), else its skill of that name,
-    /// else the shipped one.
+    /// The skill a session runs for a stage's or step's skill `name` (Q261): `agent`'s imported skill of that name
+    /// (its SKILL.md's `name:`), else the shipped one. A flow names the stage's skill (`skill: team-validate`, Q296).
     pub fn runs(&self, agent: Option<&Agent>, name: &str) -> Source {
-        let Some(agent) = agent else {
-            return self.shipped(name);
-        };
-        let standing_for = agent.skills.iter().find_map(|skill| match skill {
-            SkillRef::Imported(id) => agent
-                .imported_skill(id)
-                .filter(|s| s.replaces.as_deref() == Some(name))
-                .and_then(|_| self.imported(agent, id)),
-            SkillRef::Shipped(_) => None,
-        });
-        let own_name = || {
-            agent.skills.iter().find_map(|skill| match skill {
-                SkillRef::Imported(id) => self.imported(agent, id).filter(|s| s.own == name),
-                SkillRef::Shipped(_) => None,
+        agent
+            .and_then(|agent| {
+                agent.skills.iter().find_map(|skill| match skill {
+                    SkillRef::Imported(id) => self.imported(agent, id).filter(|s| s.own == name),
+                    SkillRef::Shipped(_) => None,
+                })
             })
-        };
-        standing_for
-            .or_else(own_name)
             .unwrap_or_else(|| self.shipped(name))
     }
 }
@@ -214,9 +202,9 @@ impl Board {
         (prompt, written)
     }
 
-    /// The skill the PR path runs for `step` (Open PR, Push), by its own name: the Delivery stage's agent's
-    /// imported skill standing for it, else Otaq's (`open-pr`). The Open PR flow's lines and REV-11's "use your own
-    /// Open PR skill" name it (WSK-08).
+    /// The skill the PR path runs for `step` (Open PR, Push), by its own name: for Open PR the skill the flow's
+    /// Delivery stage names (`skill: my-pr`, Q296), else Otaq's (`open-pr`, `push`), as the Delivery stage's agent
+    /// has it. The Open PR flow's lines and REV-11's "use your own Open PR skill" name it (WSK-08).
     pub async fn delivery_skill(
         &self,
         project: &str,
@@ -225,10 +213,31 @@ impl Board {
         let agent = crate::agents::resolve::delivery_agent(self, project)
             .await
             .ok();
+        let name = self.delivery_skill_name(project, step).await?;
         let sources = Sources {
             shipped: None,
             data: self.data(),
         };
-        Ok(sources.runs(agent.as_ref(), step.own_skill()).own)
+        Ok(sources.runs(agent.as_ref(), &name).own)
+    }
+
+    /// The skill name the PR path runs for `step`: for Open PR the one the flow's Delivery stage names (Q296), else
+    /// the step's own (`open-pr`, `push`).
+    pub async fn delivery_skill_name(
+        &self,
+        project: &str,
+        step: crate::board::settings::WorkflowStep,
+    ) -> Result<String, crate::board::BoardError> {
+        let named = match step {
+            crate::board::settings::WorkflowStep::OpenPr => self
+                .effective_flow(project)
+                .await?
+                .stages
+                .iter()
+                .find(|s| s.is_delivery())
+                .and_then(|s| s.skill.clone()),
+            _ => None,
+        };
+        Ok(named.unwrap_or_else(|| step.own_skill().to_owned()))
     }
 }

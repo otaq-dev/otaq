@@ -10,7 +10,6 @@ use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::needs_you::NeedsYouItem;
-use otaq_core::board::settings::{AutoMerge, ProjectSettings};
 use otaq_core::board::tickets::{EventKind, Ticket};
 use otaq_core::caller::Caller;
 use otaq_core::domain::{Actor, AutoMergeStop, LeadNoteSent, Status, StuckStop, ValidationTrigger};
@@ -40,7 +39,7 @@ async fn world() -> TestService {
     })
     .await;
     w.shop_sample().await;
-    settings(&w, None).await;
+    settings(&w, false).await;
     w
 }
 
@@ -61,18 +60,15 @@ fn launch(data: &Path) -> LaunchContext {
     }
 }
 
-async fn settings(w: &TestService, auto_merge: Option<AutoMerge>) {
-    w.board
-        .set_project_settings(
-            "SHOP",
-            &ProjectSettings {
-                validation_rounds: Some(1),
-                auto_merge,
-                ..ProjectSettings::default()
-            },
-        )
-        .await
-        .unwrap();
+/// SHOP's flow: Validate with 1 round, and with `auto_merge` an automatic local Delivery.
+async fn settings(w: &TestService, auto_merge: bool) {
+    use otaq_core::flow::default::testing::{automatic_local_delivery, with_rounds};
+    w.board.edit_flow_for_tests("SHOP", with_rounds(1)).await;
+    if auto_merge {
+        w.board
+            .edit_flow_for_tests("SHOP", automatic_local_delivery)
+            .await;
+    }
 }
 
 fn me() -> Actor {
@@ -545,7 +541,7 @@ async fn pass(w: &TestService, key: &str) -> Ticket {
 #[tokio::test(flavor = "multi_thread")]
 async fn keeps_conflicting_goes_to_the_lead_once_and_its_note_retries_the_merge() {
     let w = world().await;
-    settings(&w, Some(AutoMerge::EpicChildren)).await;
+    settings(&w, true).await;
     let project = w.board.project("SHOP").await.unwrap();
     let repo = PathBuf::from(&project.repo_path);
     let (lead, lead_shell) = busy_lead(&w).await;
@@ -615,7 +611,7 @@ async fn keeps_conflicting_goes_to_the_lead_once_and_its_note_retries_the_merge(
 #[tokio::test(flavor = "multi_thread")]
 async fn a_held_conflict_handed_back_stops() {
     let w = world().await;
-    settings(&w, Some(AutoMerge::EpicChildren)).await;
+    settings(&w, true).await;
     let project = w.board.project("SHOP").await.unwrap();
     let repo = PathBuf::from(&project.repo_path);
     let (lead, _shell) = busy_lead(&w).await;

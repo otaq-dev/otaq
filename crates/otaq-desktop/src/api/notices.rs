@@ -5,10 +5,8 @@
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::board::epic_flight::EpicQueueOutcome;
-use otaq_core::board::settings::AutoMerge;
 use otaq_core::protocol::{
-    EpicUndoQueueParams, KeyParams, ProjectParams, ProjectSettingsParams, Reply,
-    Request, ResumeAllParams, ToolParams,
+    EpicUndoQueueParams, KeyParams, Reply, Request, ResumeAllParams, ToolParams,
 };
 use otaq_view::view_models::banners::{PERMISSION_DOCS_URL, Situation, SituationKind};
 use otaq_view::view_models::limit_banner::{
@@ -298,14 +296,6 @@ async fn toast_action(app: &App, press: ToastPress) -> Result<Value, RequestErro
                 Err(e) => Some(epic_toast::action_failed(&press.label, e.message)),
             }
         }
-        ToastAction::EpicChildrenAutoMerge {
-            project,
-            name,
-            undo,
-        } => Some(match epic_children_auto_merge(app, &project).await {
-            Ok(()) => epic_toast::auto_merge_on_toast(&name, undo.map(|b| *b)),
-            Err(e) => epic_toast::action_failed(&press.label, e.message),
-        }),
     };
     if let Some(toast) = toast {
         app.notices.toast(toast);
@@ -313,27 +303,8 @@ async fn toast_action(app: &App, press: ToastPress) -> Result<Value, RequestErro
     Ok(Value::Null)
 }
 
-/// Turn on for epic children: the project's Auto-merge override becomes Epic children only, the same write as
-/// Settings → the project → Auto-merge (d0064). Short-term (d0080): no other settings UI.
-async fn epic_children_auto_merge(app: &App, project: &str) -> Result<(), RequestError> {
-    let get = Request::ProjectSettingsGet(ProjectParams {
-        project: project.to_owned(),
-    });
-    let Reply::ProjectSettings(current) = app.service.send(get).await? else {
-        return Err(RequestError::plain("unexpected answer to project_settings.get"));
-    };
-    let mut settings = current.settings;
-    settings.auto_merge = Some(AutoMerge::EpicChildren);
-    let set = Request::ProjectSettingsSet(ProjectSettingsParams {
-        project: project.to_owned(),
-        settings: Box::new(settings),
-    });
-    app.service.send(set).await?;
-    Ok(())
-}
-
 /// Shows the queue toast for an epic queue the user made (a drop, ⌘D, the menu): "Moved 2 children of SHOP-45 to Ready for Dev ·
-/// Undo", and with Auto-merge Off "… · Turn on for epic children · Undo" (EPC-15). The epic's name is looked up for
+/// Undo" (EPC-15). The epic's name is looked up for
 /// the one-child wording ("Moved SHOP-45.1 of Search to Ready for Dev").
 pub(crate) async fn show_epic_queued(app: &App, outcome: &EpicQueueOutcome) {
     let get = Request::TicketGet(KeyParams {
@@ -506,7 +477,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn the_queue_toast_and_turn_on_for_epic_children() {
+    async fn the_queue_toast() {
         use otaq_core::board::projects::AddProject;
         use otaq_core::board::tickets::NewTicketInput;
         use otaq_core::domain::Kind;
@@ -554,7 +525,6 @@ mod tests {
             epic: epic.key.clone(),
             queued: vec![child(1)],
             resumed: Vec::new(),
-            auto_merge_off: false,
             project: "shop-web".into(),
             lead_started: false,
         };
@@ -566,43 +536,15 @@ mod tests {
         );
 
         outcome.queued.push(child(2));
-        outcome.auto_merge_off = true;
         show_epic_queued(&h.app, &outcome).await;
         let view = request(&h.app, "notices.view", Value::Null).await.unwrap();
         let toast = &view["toasts"][1];
         assert_eq!(
             toast["title"],
-            "Moved 2 tickets to Ready for Dev. Auto-merge is off for shop-web, so each one waits for your review."
+            format!("Moved 2 children of {} to Ready for Dev", epic.key)
         );
         let buttons = &toast["link"]["actions"];
-        assert_eq!(buttons[0]["label"], "Turn on for epic children");
-        assert_eq!(buttons[1]["label"], "Undo");
-
-        // Turn on: the project's own Auto-merge becomes Epic children only, and the toast says so, keeping Undo.
-        request(
-            &h.app,
-            "notices.toast_action",
-            json!({"id": toast["id"], "label": buttons[0]["label"], "action": buttons[0]["action"]}),
-        )
-        .await
-        .unwrap();
-        let Reply::ProjectSettings(stored) = h
-            .app
-            .service
-            .send(Request::ProjectSettingsGet(ProjectParams {
-                project: project.key.clone(),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("no settings");
-        };
-        assert_eq!(stored.settings.auto_merge, Some(AutoMerge::EpicChildren));
-        let view = request(&h.app, "notices.view", Value::Null).await.unwrap();
-        let titles = toast_titles(&view);
-        assert_eq!(titles.len(), 2, "the pressed toast went: {titles:?}");
-        assert_eq!(titles[1], "Auto-merge: epic children only for shop-web");
-        assert_eq!(view["toasts"][1]["link"]["actions"][0]["label"], "Undo");
+        assert_eq!(buttons[0]["label"], "Undo");
         h.service.stop_all().await;
     }
 

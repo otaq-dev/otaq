@@ -29,6 +29,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": "Drag to Ready for Dev to queue it.",
@@ -79,6 +87,14 @@
               "icon": "play",
               "kind": "allowed",
               "note": null
+            }
+          },
+          {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
             }
           },
           {
@@ -134,6 +150,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": null,
@@ -183,6 +207,14 @@
               "detail": null,
               "kind": "forbidden",
               "title": "It starts by itself when it can, in priority order"
+            }
+          },
+          {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
             }
           },
           {
@@ -238,6 +270,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": null,
@@ -287,6 +327,14 @@
               "detail": null,
               "kind": "forbidden",
               "title": "It starts by itself when it can, in priority order"
+            }
+          },
+          {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
             }
           },
           {
@@ -342,6 +390,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": null,
@@ -391,6 +447,14 @@
             "target": "dev",
             "verdict": {
               "kind": "home"
+            }
+          },
+          {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
             }
           },
           {
@@ -446,6 +510,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": null,
@@ -495,6 +567,14 @@
             "target": "dev",
             "verdict": {
               "kind": "home"
+            }
+          },
+          {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
             }
           },
           {
@@ -550,6 +630,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": null,
@@ -599,6 +687,14 @@
             "target": "dev",
             "verdict": {
               "kind": "home"
+            }
+          },
+          {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
             }
           },
           {
@@ -654,6 +750,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": null,
@@ -703,6 +807,14 @@
             "target": "dev",
             "verdict": {
               "kind": "home"
+            }
+          },
+          {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
             }
           },
           {
@@ -758,6 +870,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": null,
@@ -807,6 +927,14 @@
             "target": "dev",
             "verdict": {
               "kind": "home"
+            }
+          },
+          {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
             }
           },
           {
@@ -862,6 +990,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": null,
@@ -909,6 +1045,12 @@
           },
           {
             "target": "dev",
+            "verdict": {
+              "kind": "home"
+            }
+          },
+          {
+            "target": "validate",
             "verdict": {
               "kind": "home"
             }
@@ -966,6 +1108,12 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "kind": "home"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": null,
@@ -1013,6 +1161,12 @@
           },
           {
             "target": "dev",
+            "verdict": {
+              "kind": "home"
+            }
+          },
+          {
+            "target": "validate",
             "verdict": {
               "kind": "home"
             }
@@ -1070,6 +1224,12 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "kind": "home"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": null,
@@ -1120,6 +1280,14 @@
               "detail": null,
               "kind": "forbidden",
               "title": "Use Send back to return it to Dev with your comments"
+            }
+          },
+          {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
             }
           },
           {
@@ -1175,6 +1343,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "hint": "Drop to rework",
@@ -1224,6 +1400,14 @@
               "detail": null,
               "kind": "forbidden",
               "title": "Drag it back through Ready for Review: Approved tickets return with PR rework"
+            }
+          },
+          {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
             }
           },
           {
@@ -1279,6 +1463,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": "Fixing merged work means a new ticket.",
@@ -1331,6 +1523,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": null,
@@ -1364,7 +1564,8 @@
           "dev": "Move",
           "done": "Nothing",
           "ready_for_dev": "Move",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1375,7 +1576,8 @@
           "dev": "Move",
           "done": "Nothing",
           "ready_for_dev": "Move",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1386,7 +1588,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1397,7 +1600,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1408,7 +1612,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1419,7 +1624,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1430,7 +1636,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1441,7 +1648,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1452,7 +1660,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1463,7 +1672,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1474,7 +1684,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1485,7 +1696,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1496,7 +1708,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1507,7 +1720,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1518,7 +1732,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1529,7 +1744,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1540,7 +1756,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1551,7 +1768,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1562,7 +1780,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1573,7 +1792,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1584,7 +1804,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1595,7 +1816,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1606,7 +1828,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Move"
+          "review": "Move",
+          "validate": "Nothing"
         }
       },
       {
@@ -1617,7 +1840,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Move"
+          "review": "Move",
+          "validate": "Nothing"
         }
       },
       {
@@ -1628,7 +1852,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -1639,7 +1864,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       }
     ],
@@ -1946,17 +2172,15 @@
             "add": null,
             "cards": [],
             "collapsed": false,
-            "count": "14",
+            "count": "10",
             "dev": {
-              "fold": "5 more · working",
+              "fold": "3 more · working",
               "folded": [
-                "ALL-8",
                 "ALL-9",
                 "ALL-13",
-                "ALL-16",
-                "ALL-18"
+                "ALL-16"
               ],
-              "section": "WORKING · VALIDATING",
+              "section": null,
               "top": [
                 {
                   "card": {
@@ -2155,6 +2379,159 @@
                     "avatar": null,
                     "faded": null,
                     "flag": {
+                      "icon": "zap-off",
+                      "label": "Interrupted",
+                      "palette": "error"
+                    },
+                    "footer": {
+                      "action": {
+                        "icon": "play",
+                        "kind": "resume",
+                        "label": "Resume",
+                        "primary": true
+                      },
+                      "agent": null,
+                      "signal": null,
+                      "tokens": null
+                    },
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Interrupted"
+                    },
+                    "key": "ALL-14",
+                    "key_label": "ALL-14",
+                    "open_panel": "Open panel",
+                    "open_panel_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "options": [],
+                    "origin": null,
+                    "outline": "normal",
+                    "pinned": false,
+                    "priority": null,
+                    "situation": {
+                      "edge": "error",
+                      "hovers": [],
+                      "mono": false,
+                      "text": "Session lost after reboot",
+                      "text_tone": "error"
+                    },
+                    "sleeve": null,
+                    "title": "Interrupted"
+                  },
+                  "kind": "ticket",
+                  "needs_you": true
+                },
+                {
+                  "card": {
+                    "avatar": null,
+                    "faded": null,
+                    "flag": {
+                      "icon": "zap-off",
+                      "label": "Resume fail",
+                      "palette": "error"
+                    },
+                    "footer": {
+                      "action": {
+                        "icon": "rotate-ccw",
+                        "kind": "start_from_scratch",
+                        "label": "Start from scratch",
+                        "primary": true
+                      },
+                      "agent": null,
+                      "signal": null,
+                      "tokens": null
+                    },
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Resume failed"
+                    },
+                    "key": "ALL-15",
+                    "key_label": "ALL-15",
+                    "open_panel": "Open panel",
+                    "open_panel_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "options": [],
+                    "origin": null,
+                    "outline": "normal",
+                    "pinned": false,
+                    "priority": null,
+                    "situation": {
+                      "edge": "error",
+                      "hovers": [],
+                      "mono": false,
+                      "text": "Resume failed · retry or start from scratch",
+                      "text_tone": "error"
+                    },
+                    "sleeve": null,
+                    "title": "Resume failed"
+                  },
+                  "kind": "ticket",
+                  "needs_you": true
+                }
+              ],
+              "working": [
+                {
+                  "card": {
+                    "avatar": null,
+                    "faded": null,
+                    "flag": {
+                      "icon": "activity",
+                      "label": "Working",
+                      "palette": "working"
+                    },
+                    "footer": null,
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Working"
+                    },
+                    "key": "ALL-8",
+                    "key_label": "ALL-8",
+                    "open_panel": "Open panel",
+                    "open_panel_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "options": [],
+                    "origin": null,
+                    "outline": "normal",
+                    "pinned": false,
+                    "priority": null,
+                    "situation": null,
+                    "sleeve": null,
+                    "title": "Working"
+                  },
+                  "kind": "ticket",
+                  "needs_you": false
+                }
+              ],
+              "working_count": "10"
+            },
+            "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "folds": [],
+            "hidden": null,
+            "hint": null,
+            "icon": "activity",
+            "id": "dev",
+            "sections": [],
+            "title": "Dev",
+            "toggle": null
+          },
+          {
+            "add": null,
+            "cards": [],
+            "collapsed": false,
+            "count": "4",
+            "dev": {
+              "fold": null,
+              "folded": [],
+              "section": null,
+              "top": [
+                {
+                  "card": {
+                    "avatar": null,
+                    "faded": null,
+                    "flag": {
                       "icon": "hand",
                       "label": "Validator asks",
                       "palette": "attn"
@@ -2293,115 +2670,52 @@
                   },
                   "kind": "ticket",
                   "needs_you": true
-                },
-                {
-                  "card": {
-                    "avatar": null,
-                    "faded": null,
-                    "flag": {
-                      "icon": "zap-off",
-                      "label": "Interrupted",
-                      "palette": "error"
-                    },
-                    "footer": {
-                      "action": {
-                        "icon": "play",
-                        "kind": "resume",
-                        "label": "Resume",
-                        "primary": true
-                      },
-                      "agent": null,
-                      "signal": null,
-                      "tokens": null
-                    },
-                    "fresh": false,
-                    "hover": {
-                      "details": [],
-                      "status": "Interrupted"
-                    },
-                    "key": "ALL-14",
-                    "key_label": "ALL-14",
-                    "open_panel": "Open panel",
-                    "open_panel_keys": "↵",
-                    "open_terminal": "Open terminal",
-                    "options": [],
-                    "origin": null,
-                    "outline": "normal",
-                    "pinned": false,
-                    "priority": null,
-                    "situation": {
-                      "edge": "error",
-                      "hovers": [],
-                      "mono": false,
-                      "text": "Session lost after reboot",
-                      "text_tone": "error"
-                    },
-                    "sleeve": null,
-                    "title": "Interrupted"
-                  },
-                  "kind": "ticket",
-                  "needs_you": true
-                },
-                {
-                  "card": {
-                    "avatar": null,
-                    "faded": null,
-                    "flag": {
-                      "icon": "zap-off",
-                      "label": "Resume fail",
-                      "palette": "error"
-                    },
-                    "footer": {
-                      "action": {
-                        "icon": "rotate-ccw",
-                        "kind": "start_from_scratch",
-                        "label": "Start from scratch",
-                        "primary": true
-                      },
-                      "agent": null,
-                      "signal": null,
-                      "tokens": null
-                    },
-                    "fresh": false,
-                    "hover": {
-                      "details": [],
-                      "status": "Resume failed"
-                    },
-                    "key": "ALL-15",
-                    "key_label": "ALL-15",
-                    "open_panel": "Open panel",
-                    "open_panel_keys": "↵",
-                    "open_terminal": "Open terminal",
-                    "options": [],
-                    "origin": null,
-                    "outline": "normal",
-                    "pinned": false,
-                    "priority": null,
-                    "situation": {
-                      "edge": "error",
-                      "hovers": [],
-                      "mono": false,
-                      "text": "Resume failed · retry or start from scratch",
-                      "text_tone": "error"
-                    },
-                    "sleeve": null,
-                    "title": "Resume failed"
-                  },
-                  "kind": "ticket",
-                  "needs_you": true
                 }
               ],
-              "working": [],
-              "working_count": "14"
+              "working": [
+                {
+                  "card": {
+                    "avatar": null,
+                    "faded": null,
+                    "flag": {
+                      "icon": "shield-ellipsis",
+                      "label": "Validating…",
+                      "palette": "queued"
+                    },
+                    "footer": null,
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Validating…"
+                    },
+                    "key": "ALL-18",
+                    "key_label": "ALL-18",
+                    "open_panel": "Open panel",
+                    "open_panel_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "options": [],
+                    "origin": null,
+                    "outline": "normal",
+                    "pinned": false,
+                    "priority": null,
+                    "situation": null,
+                    "sleeve": null,
+                    "title": "Validating…"
+                  },
+                  "kind": "ticket",
+                  "needs_you": false
+                }
+              ],
+              "working_count": "4"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
-            "id": "dev",
+            "id": "validate",
             "sections": [],
-            "title": "Dev",
+            "title": "Validate",
             "toggle": null
           },
           {
@@ -2971,17 +3285,15 @@
             "add": null,
             "cards": [],
             "collapsed": false,
-            "count": "14",
+            "count": "10",
             "dev": {
-              "fold": "5 more · working",
+              "fold": "3 more · working",
               "folded": [
-                "ALL-8",
                 "ALL-9",
                 "ALL-13",
-                "ALL-16",
-                "ALL-18"
+                "ALL-16"
               ],
-              "section": "WORKING · VALIDATING",
+              "section": null,
               "top": [
                 {
                   "card": {
@@ -3180,6 +3492,159 @@
                     "avatar": null,
                     "faded": null,
                     "flag": {
+                      "icon": "zap-off",
+                      "label": "Interrupted",
+                      "palette": "error"
+                    },
+                    "footer": {
+                      "action": {
+                        "icon": "play",
+                        "kind": "resume",
+                        "label": "Resume",
+                        "primary": true
+                      },
+                      "agent": null,
+                      "signal": null,
+                      "tokens": null
+                    },
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Interrupted"
+                    },
+                    "key": "ALL-14",
+                    "key_label": "ALL-14",
+                    "open_panel": "Open panel",
+                    "open_panel_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "options": [],
+                    "origin": null,
+                    "outline": "normal",
+                    "pinned": false,
+                    "priority": null,
+                    "situation": {
+                      "edge": "error",
+                      "hovers": [],
+                      "mono": false,
+                      "text": "Session lost after reboot",
+                      "text_tone": "error"
+                    },
+                    "sleeve": null,
+                    "title": "Interrupted"
+                  },
+                  "kind": "ticket",
+                  "needs_you": true
+                },
+                {
+                  "card": {
+                    "avatar": null,
+                    "faded": null,
+                    "flag": {
+                      "icon": "zap-off",
+                      "label": "Resume fail",
+                      "palette": "error"
+                    },
+                    "footer": {
+                      "action": {
+                        "icon": "rotate-ccw",
+                        "kind": "start_from_scratch",
+                        "label": "Start from scratch",
+                        "primary": true
+                      },
+                      "agent": null,
+                      "signal": null,
+                      "tokens": null
+                    },
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Resume failed"
+                    },
+                    "key": "ALL-15",
+                    "key_label": "ALL-15",
+                    "open_panel": "Open panel",
+                    "open_panel_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "options": [],
+                    "origin": null,
+                    "outline": "normal",
+                    "pinned": false,
+                    "priority": null,
+                    "situation": {
+                      "edge": "error",
+                      "hovers": [],
+                      "mono": false,
+                      "text": "Resume failed · retry or start from scratch",
+                      "text_tone": "error"
+                    },
+                    "sleeve": null,
+                    "title": "Resume failed"
+                  },
+                  "kind": "ticket",
+                  "needs_you": true
+                }
+              ],
+              "working": [
+                {
+                  "card": {
+                    "avatar": null,
+                    "faded": null,
+                    "flag": {
+                      "icon": "activity",
+                      "label": "Working",
+                      "palette": "working"
+                    },
+                    "footer": null,
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Working"
+                    },
+                    "key": "ALL-8",
+                    "key_label": "ALL-8",
+                    "open_panel": "Open panel",
+                    "open_panel_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "options": [],
+                    "origin": null,
+                    "outline": "normal",
+                    "pinned": false,
+                    "priority": null,
+                    "situation": null,
+                    "sleeve": null,
+                    "title": "Working"
+                  },
+                  "kind": "ticket",
+                  "needs_you": false
+                }
+              ],
+              "working_count": "10"
+            },
+            "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "folds": [],
+            "hidden": null,
+            "hint": null,
+            "icon": "activity",
+            "id": "dev",
+            "sections": [],
+            "title": "Dev",
+            "toggle": null
+          },
+          {
+            "add": null,
+            "cards": [],
+            "collapsed": false,
+            "count": "4",
+            "dev": {
+              "fold": null,
+              "folded": [],
+              "section": null,
+              "top": [
+                {
+                  "card": {
+                    "avatar": null,
+                    "faded": null,
+                    "flag": {
                       "icon": "hand",
                       "label": "Validator asks",
                       "palette": "attn"
@@ -3318,115 +3783,52 @@
                   },
                   "kind": "ticket",
                   "needs_you": true
-                },
-                {
-                  "card": {
-                    "avatar": null,
-                    "faded": null,
-                    "flag": {
-                      "icon": "zap-off",
-                      "label": "Interrupted",
-                      "palette": "error"
-                    },
-                    "footer": {
-                      "action": {
-                        "icon": "play",
-                        "kind": "resume",
-                        "label": "Resume",
-                        "primary": true
-                      },
-                      "agent": null,
-                      "signal": null,
-                      "tokens": null
-                    },
-                    "fresh": false,
-                    "hover": {
-                      "details": [],
-                      "status": "Interrupted"
-                    },
-                    "key": "ALL-14",
-                    "key_label": "ALL-14",
-                    "open_panel": "Open panel",
-                    "open_panel_keys": "↵",
-                    "open_terminal": "Open terminal",
-                    "options": [],
-                    "origin": null,
-                    "outline": "normal",
-                    "pinned": false,
-                    "priority": null,
-                    "situation": {
-                      "edge": "error",
-                      "hovers": [],
-                      "mono": false,
-                      "text": "Session lost after reboot",
-                      "text_tone": "error"
-                    },
-                    "sleeve": null,
-                    "title": "Interrupted"
-                  },
-                  "kind": "ticket",
-                  "needs_you": true
-                },
-                {
-                  "card": {
-                    "avatar": null,
-                    "faded": null,
-                    "flag": {
-                      "icon": "zap-off",
-                      "label": "Resume fail",
-                      "palette": "error"
-                    },
-                    "footer": {
-                      "action": {
-                        "icon": "rotate-ccw",
-                        "kind": "start_from_scratch",
-                        "label": "Start from scratch",
-                        "primary": true
-                      },
-                      "agent": null,
-                      "signal": null,
-                      "tokens": null
-                    },
-                    "fresh": false,
-                    "hover": {
-                      "details": [],
-                      "status": "Resume failed"
-                    },
-                    "key": "ALL-15",
-                    "key_label": "ALL-15",
-                    "open_panel": "Open panel",
-                    "open_panel_keys": "↵",
-                    "open_terminal": "Open terminal",
-                    "options": [],
-                    "origin": null,
-                    "outline": "normal",
-                    "pinned": false,
-                    "priority": null,
-                    "situation": {
-                      "edge": "error",
-                      "hovers": [],
-                      "mono": false,
-                      "text": "Resume failed · retry or start from scratch",
-                      "text_tone": "error"
-                    },
-                    "sleeve": null,
-                    "title": "Resume failed"
-                  },
-                  "kind": "ticket",
-                  "needs_you": true
                 }
               ],
-              "working": [],
-              "working_count": "14"
+              "working": [
+                {
+                  "card": {
+                    "avatar": null,
+                    "faded": null,
+                    "flag": {
+                      "icon": "shield-ellipsis",
+                      "label": "Validating…",
+                      "palette": "queued"
+                    },
+                    "footer": null,
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Validating…"
+                    },
+                    "key": "ALL-18",
+                    "key_label": "ALL-18",
+                    "open_panel": "Open panel",
+                    "open_panel_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "options": [],
+                    "origin": null,
+                    "outline": "normal",
+                    "pinned": false,
+                    "priority": null,
+                    "situation": null,
+                    "sleeve": null,
+                    "title": "Validating…"
+                  },
+                  "kind": "ticket",
+                  "needs_you": false
+                }
+              ],
+              "working_count": "4"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
-            "id": "dev",
+            "id": "validate",
             "sections": [],
-            "title": "Dev",
+            "title": "Validate",
             "toggle": null
           },
           {
@@ -3996,17 +4398,15 @@
             "add": null,
             "cards": [],
             "collapsed": false,
-            "count": "14",
+            "count": "10",
             "dev": {
-              "fold": "5 more · working",
+              "fold": "3 more · working",
               "folded": [
-                "ALL-8",
                 "ALL-9",
                 "ALL-13",
-                "ALL-16",
-                "ALL-18"
+                "ALL-16"
               ],
-              "section": "WORKING · VALIDATING",
+              "section": null,
               "top": [
                 {
                   "card": {
@@ -4205,6 +4605,159 @@
                     "avatar": null,
                     "faded": null,
                     "flag": {
+                      "icon": "zap-off",
+                      "label": "Interrupted",
+                      "palette": "error"
+                    },
+                    "footer": {
+                      "action": {
+                        "icon": "play",
+                        "kind": "resume",
+                        "label": "Resume",
+                        "primary": true
+                      },
+                      "agent": null,
+                      "signal": null,
+                      "tokens": null
+                    },
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Interrupted"
+                    },
+                    "key": "ALL-14",
+                    "key_label": "ALL-14",
+                    "open_panel": "Open panel",
+                    "open_panel_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "options": [],
+                    "origin": null,
+                    "outline": "normal",
+                    "pinned": false,
+                    "priority": null,
+                    "situation": {
+                      "edge": "error",
+                      "hovers": [],
+                      "mono": false,
+                      "text": "Session lost after reboot",
+                      "text_tone": "error"
+                    },
+                    "sleeve": null,
+                    "title": "Interrupted"
+                  },
+                  "kind": "ticket",
+                  "needs_you": true
+                },
+                {
+                  "card": {
+                    "avatar": null,
+                    "faded": null,
+                    "flag": {
+                      "icon": "zap-off",
+                      "label": "Resume fail",
+                      "palette": "error"
+                    },
+                    "footer": {
+                      "action": {
+                        "icon": "rotate-ccw",
+                        "kind": "start_from_scratch",
+                        "label": "Start from scratch",
+                        "primary": true
+                      },
+                      "agent": null,
+                      "signal": null,
+                      "tokens": null
+                    },
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Resume failed"
+                    },
+                    "key": "ALL-15",
+                    "key_label": "ALL-15",
+                    "open_panel": "Open panel",
+                    "open_panel_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "options": [],
+                    "origin": null,
+                    "outline": "normal",
+                    "pinned": false,
+                    "priority": null,
+                    "situation": {
+                      "edge": "error",
+                      "hovers": [],
+                      "mono": false,
+                      "text": "Resume failed · retry or start from scratch",
+                      "text_tone": "error"
+                    },
+                    "sleeve": null,
+                    "title": "Resume failed"
+                  },
+                  "kind": "ticket",
+                  "needs_you": true
+                }
+              ],
+              "working": [
+                {
+                  "card": {
+                    "avatar": null,
+                    "faded": null,
+                    "flag": {
+                      "icon": "activity",
+                      "label": "Working",
+                      "palette": "working"
+                    },
+                    "footer": null,
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Working"
+                    },
+                    "key": "ALL-8",
+                    "key_label": "ALL-8",
+                    "open_panel": "Open panel",
+                    "open_panel_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "options": [],
+                    "origin": null,
+                    "outline": "normal",
+                    "pinned": false,
+                    "priority": null,
+                    "situation": null,
+                    "sleeve": null,
+                    "title": "Working"
+                  },
+                  "kind": "ticket",
+                  "needs_you": false
+                }
+              ],
+              "working_count": "10"
+            },
+            "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "folds": [],
+            "hidden": null,
+            "hint": null,
+            "icon": "activity",
+            "id": "dev",
+            "sections": [],
+            "title": "Dev",
+            "toggle": null
+          },
+          {
+            "add": null,
+            "cards": [],
+            "collapsed": false,
+            "count": "4",
+            "dev": {
+              "fold": null,
+              "folded": [],
+              "section": null,
+              "top": [
+                {
+                  "card": {
+                    "avatar": null,
+                    "faded": null,
+                    "flag": {
                       "icon": "hand",
                       "label": "Validator asks",
                       "palette": "attn"
@@ -4343,115 +4896,52 @@
                   },
                   "kind": "ticket",
                   "needs_you": true
-                },
-                {
-                  "card": {
-                    "avatar": null,
-                    "faded": null,
-                    "flag": {
-                      "icon": "zap-off",
-                      "label": "Interrupted",
-                      "palette": "error"
-                    },
-                    "footer": {
-                      "action": {
-                        "icon": "play",
-                        "kind": "resume",
-                        "label": "Resume",
-                        "primary": true
-                      },
-                      "agent": null,
-                      "signal": null,
-                      "tokens": null
-                    },
-                    "fresh": false,
-                    "hover": {
-                      "details": [],
-                      "status": "Interrupted"
-                    },
-                    "key": "ALL-14",
-                    "key_label": "ALL-14",
-                    "open_panel": "Open panel",
-                    "open_panel_keys": "↵",
-                    "open_terminal": "Open terminal",
-                    "options": [],
-                    "origin": null,
-                    "outline": "normal",
-                    "pinned": false,
-                    "priority": null,
-                    "situation": {
-                      "edge": "error",
-                      "hovers": [],
-                      "mono": false,
-                      "text": "Session lost after reboot",
-                      "text_tone": "error"
-                    },
-                    "sleeve": null,
-                    "title": "Interrupted"
-                  },
-                  "kind": "ticket",
-                  "needs_you": true
-                },
-                {
-                  "card": {
-                    "avatar": null,
-                    "faded": null,
-                    "flag": {
-                      "icon": "zap-off",
-                      "label": "Resume fail",
-                      "palette": "error"
-                    },
-                    "footer": {
-                      "action": {
-                        "icon": "rotate-ccw",
-                        "kind": "start_from_scratch",
-                        "label": "Start from scratch",
-                        "primary": true
-                      },
-                      "agent": null,
-                      "signal": null,
-                      "tokens": null
-                    },
-                    "fresh": false,
-                    "hover": {
-                      "details": [],
-                      "status": "Resume failed"
-                    },
-                    "key": "ALL-15",
-                    "key_label": "ALL-15",
-                    "open_panel": "Open panel",
-                    "open_panel_keys": "↵",
-                    "open_terminal": "Open terminal",
-                    "options": [],
-                    "origin": null,
-                    "outline": "normal",
-                    "pinned": false,
-                    "priority": null,
-                    "situation": {
-                      "edge": "error",
-                      "hovers": [],
-                      "mono": false,
-                      "text": "Resume failed · retry or start from scratch",
-                      "text_tone": "error"
-                    },
-                    "sleeve": null,
-                    "title": "Resume failed"
-                  },
-                  "kind": "ticket",
-                  "needs_you": true
                 }
               ],
-              "working": [],
-              "working_count": "14"
+              "working": [
+                {
+                  "card": {
+                    "avatar": null,
+                    "faded": null,
+                    "flag": {
+                      "icon": "shield-ellipsis",
+                      "label": "Validating…",
+                      "palette": "queued"
+                    },
+                    "footer": null,
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Validating…"
+                    },
+                    "key": "ALL-18",
+                    "key_label": "ALL-18",
+                    "open_panel": "Open panel",
+                    "open_panel_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "options": [],
+                    "origin": null,
+                    "outline": "normal",
+                    "pinned": false,
+                    "priority": null,
+                    "situation": null,
+                    "sleeve": null,
+                    "title": "Validating…"
+                  },
+                  "kind": "ticket",
+                  "needs_you": false
+                }
+              ],
+              "working_count": "4"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
             "folds": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
-            "id": "dev",
+            "id": "validate",
             "sections": [],
-            "title": "Dev",
+            "title": "Validate",
             "toggle": null
           },
           {
@@ -4834,7 +5324,7 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": "WORKING · VALIDATING",
+              "section": null,
               "top": [],
               "working": [
                 {
@@ -4995,7 +5485,7 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": "WORKING · VALIDATING",
+              "section": null,
               "top": [],
               "working": [
                 {
@@ -5156,7 +5646,7 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": "WORKING · VALIDATING",
+              "section": null,
               "top": [],
               "working": [
                 {
@@ -5305,6 +5795,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "kind": "home"
@@ -5353,6 +5851,14 @@
               "detail": null,
               "kind": "forbidden",
               "title": "It starts by itself when it can, in priority order"
+            }
+          },
+          {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
             }
           },
           {
@@ -5409,6 +5915,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": "Drag to Ready for Dev to queue it.",
@@ -5458,6 +5972,14 @@
             "target": "dev",
             "verdict": {
               "kind": "home"
+            }
+          },
+          {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
             }
           },
           {
@@ -5515,6 +6037,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": "Drag to Ready for Dev to queue it.",
@@ -5568,6 +6098,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": "Fixing merged work means a new ticket.",
@@ -5618,6 +6156,14 @@
             }
           },
           {
+            "target": "validate",
+            "verdict": {
+              "detail": null,
+              "kind": "forbidden",
+              "title": "Moving a card here isn’t available yet"
+            }
+          },
+          {
             "target": "review",
             "verdict": {
               "detail": null,
@@ -5653,7 +6199,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -5664,7 +6211,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -5675,7 +6223,8 @@
           "dev": "Move",
           "done": "Nothing",
           "ready_for_dev": "Move",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -5686,7 +6235,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -5697,7 +6247,8 @@
           "dev": "QueueEpic { epic: TicketKey { project: ProjectKey(\"NOTE\"), number: 10, child: None }, child: None }",
           "done": "Nothing",
           "ready_for_dev": "QueueEpic { epic: TicketKey { project: ProjectKey(\"NOTE\"), number: 10, child: None }, child: None }",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -5708,7 +6259,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       },
       {
@@ -5719,7 +6271,8 @@
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing"
+          "review": "Nothing",
+          "validate": "Nothing"
         }
       }
     ],
@@ -5861,7 +6414,7 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": "WORKING · VALIDATING",
+              "section": null,
               "top": [],
               "working": [
                 {
@@ -5944,6 +6497,29 @@
             "id": "dev",
             "sections": [],
             "title": "Dev",
+            "toggle": null
+          },
+          {
+            "add": null,
+            "cards": [],
+            "collapsed": false,
+            "count": "0",
+            "dev": {
+              "fold": null,
+              "folded": [],
+              "section": null,
+              "top": [],
+              "working": [],
+              "working_count": "0"
+            },
+            "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "folds": [],
+            "hidden": null,
+            "hint": null,
+            "icon": "activity",
+            "id": "validate",
+            "sections": [],
+            "title": "Validate",
             "toggle": null
           },
           {
@@ -6138,6 +6714,12 @@
                       "tooltip": "NOTE-10.2 Share settings · Working"
                     }
                   ]
+                },
+                {
+                  "check": null,
+                  "column": "validate",
+                  "merged": null,
+                  "stops": []
                 },
                 {
                   "check": null,
@@ -6307,7 +6889,7 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": "WORKING · VALIDATING",
+              "section": null,
               "top": [],
               "working": [
                 {
@@ -6390,6 +6972,29 @@
             "id": "dev",
             "sections": [],
             "title": "Dev",
+            "toggle": null
+          },
+          {
+            "add": null,
+            "cards": [],
+            "collapsed": false,
+            "count": "0",
+            "dev": {
+              "fold": null,
+              "folded": [],
+              "section": null,
+              "top": [],
+              "working": [],
+              "working_count": "0"
+            },
+            "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "folds": [],
+            "hidden": null,
+            "hint": null,
+            "icon": "activity",
+            "id": "validate",
+            "sections": [],
+            "title": "Validate",
             "toggle": null
           },
           {
@@ -6584,6 +7189,12 @@
                       "tooltip": "NOTE-10.2 Share settings · Working"
                     }
                   ]
+                },
+                {
+                  "check": null,
+                  "column": "validate",
+                  "merged": null,
+                  "stops": []
                 },
                 {
                   "check": null,
@@ -6753,7 +7364,7 @@
             "dev": {
               "fold": null,
               "folded": [],
-              "section": "WORKING · VALIDATING",
+              "section": null,
               "top": [],
               "working": [
                 {
@@ -6836,6 +7447,29 @@
             "id": "dev",
             "sections": [],
             "title": "Dev",
+            "toggle": null
+          },
+          {
+            "add": null,
+            "cards": [],
+            "collapsed": false,
+            "count": "0",
+            "dev": {
+              "fold": null,
+              "folded": [],
+              "section": null,
+              "top": [],
+              "working": [],
+              "working_count": "0"
+            },
+            "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "folds": [],
+            "hidden": null,
+            "hint": null,
+            "icon": "activity",
+            "id": "validate",
+            "sections": [],
+            "title": "Validate",
             "toggle": null
           },
           {
@@ -7030,6 +7664,12 @@
                       "tooltip": "NOTE-10.2 Share settings · Working"
                     }
                   ]
+                },
+                {
+                  "check": null,
+                  "column": "validate",
+                  "merged": null,
+                  "stops": []
                 },
                 {
                   "check": null,

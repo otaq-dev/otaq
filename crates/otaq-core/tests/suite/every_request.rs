@@ -241,6 +241,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::SettingsSet(_)
         | Request::ProjectSettingsGet(_)
         | Request::ProjectSettingsSet(_)
+        | Request::FlowCurrent(_)
+        | Request::FlowVersions(_)
         | Request::SessionList(_)
         | Request::SessionAttach(_)
         | Request::SessionDetach(_)
@@ -289,7 +291,6 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentsFallback(_)
         | Request::AgentsImportSkill(_)
         | Request::AgentsReimportSkill(_)
-        | Request::AgentsDismissMovedOver
         | Request::TicketAgents(_)
         | Request::BoardAgents(_)
         | Request::TicketChoices(_)

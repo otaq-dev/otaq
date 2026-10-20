@@ -7,7 +7,7 @@
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agent_tools::{LaunchContext, Tool};
 use otaq_core::board::Refusal;
-use otaq_core::board::settings::{ProjectSettings, WorkflowStep};
+use otaq_core::board::settings::WorkflowStep;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::{Actor, Status, ValidationTrigger};
@@ -161,15 +161,8 @@ async fn validation_off_goes_straight_to_review() {
     let w = world().await;
     w.add_project("shop-web").await;
     w.board
-        .set_project_settings(
-            "SHOP",
-            &ProjectSettings {
-                validation: Some(false),
-                ..ProjectSettings::default()
-            },
-        )
-        .await
-        .unwrap();
+        .edit_flow_for_tests("SHOP", otaq_core::flow::default::testing::without_validate)
+        .await;
     let t = working(&w, "Cart totals").await;
     let after = submit(&w, &t).await.unwrap();
     assert_eq!(after.status, Status::WaitingForYou);
@@ -292,15 +285,11 @@ async fn verdict(w: &TestService, t: &Ticket, pass: bool, report: &str) -> Ticke
 
 async fn set_rounds(w: &TestService, rounds: u32) {
     w.board
-        .set_project_settings(
+        .edit_flow_for_tests(
             "SHOP",
-            &ProjectSettings {
-                validation_rounds: Some(rounds),
-                ..ProjectSettings::default()
-            },
+            otaq_core::flow::default::testing::with_rounds(rounds),
         )
-        .await
-        .unwrap();
+        .await;
 }
 
 async fn outcomes(
@@ -762,15 +751,8 @@ async fn the_users_move_to_next_stage() {
     }
 
     w.board
-        .set_project_settings(
-            "SHOP",
-            &ProjectSettings {
-                validation: Some(false),
-                ..ProjectSettings::default()
-            },
-        )
-        .await
-        .unwrap();
+        .edit_flow_for_tests("SHOP", otaq_core::flow::default::testing::without_validate)
+        .await;
     let t = working(&w, "Cart totals").await;
     w.force_status(&t, Status::Idle).await;
     let after = w

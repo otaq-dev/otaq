@@ -111,43 +111,6 @@ function Stepper({ field, label, control }: { field: string; label: string; cont
   );
 }
 
-/** One choice of a few, each with its explanation (*15 → Auto-merge*); the note says why they're disabled. */
-function Radio({ field, label, control }: { field: string; label: string; control: Of<"radio"> }) {
-  const { edit } = useSettings();
-  return (
-    <div className="settings-radio" role="radiogroup" aria-label={label} aria-disabled={control.disabled}>
-      {control.choices.map((choice) => (
-        <label
-          key={choice.id}
-          htmlFor={`${fieldId(field)}-${choice.id}`}
-          className="settings-radio-choice"
-          data-disabled={control.disabled || undefined}
-        >
-          <input
-            id={`${fieldId(field)}-${choice.id}`}
-            type="radio"
-            name={fieldId(field)}
-            checked={control.value === choice.id}
-            disabled={control.disabled}
-            onChange={() => {
-              edit(field, choice.id);
-            }}
-          />
-          <span className="settings-radio-label">{choice.label}</span>
-          <span className="settings-radio-detail">{choice.detail}</span>
-        </label>
-      ))}
-      {control.empty !== null && <span className="settings-radio-empty">{control.empty}</span>}
-      {control.note !== null && (
-        <p className="settings-radio-note">
-          <Icon name="info" size={13} />
-          <span>{control.note}</span>
-        </p>
-      )}
-    </div>
-  );
-}
-
 function EnvFiles({ control }: { control: Of<"env_files"> }) {
   const { edit } = useSettings();
   const [adding, setAdding] = useState("");
@@ -383,8 +346,6 @@ function Control({ row }: { row: SettingsRow }) {
       );
     case "stepper":
       return <Stepper field={row.field} label={row.label} control={c} />;
-    case "radio":
-      return <Radio field={row.field} label={row.label} control={c} />;
     case "segmented":
       return (
         <Segmented

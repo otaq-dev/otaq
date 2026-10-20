@@ -3,9 +3,9 @@
 //! flagged ([`SettingProblem`]), never silently fixed.
 //!
 //! Global settings are rows of the `settings` table, one per top-level field below (JSON values; a missing row
-//! means the default). Project settings are the project's `settings_json`. Empty per-project values fall back
-//! to the global ones (validation, rounds, Auto-merge; d0063, d0064). From M32 the agent instructions, the Project
-//! agent instructions and the workflow skills are the agents' own (AGM-02, d0108); a project keeps its notes.
+//! means the default). Project settings are the project's `settings_json`. From M32 the agent instructions, the
+//! Project agent instructions and the workflow skills are the agents' own (AGM-02, d0108); a project keeps its notes.
+//! From M33 validation, its rounds and the Delivery's mode are the project's flow's (FLW-01, d0108), not settings.
 //!
 //! The features that use these values arrive in their own milestones (limits T-0080, notifications T-0117,
 //! Run T-0133, workflow skills T-0139, "let finished tickets answer" T-0153).
@@ -76,36 +76,6 @@ impl WorkflowStep {
         }
     }
 }
-
-stored_enum! {
-    /// Auto-merge (d0064): validated tickets Local-merge without a click. Off by default.
-    #[derive(Default)]
-    pub enum AutoMerge ("auto-merge") {
-        /// A validated ticket waits in Ready for Review.
-        #[default]
-        Off = "off",
-        /// A validated epic child merges into its epic branch (local, never pushed).
-        EpicChildren = "epic_children",
-        /// Standalone tickets merge into their base branch too (local, never pushed).
-        All = "all",
-    }
-}
-
-impl AutoMerge {
-    /// The settings screen's words (*15 · Settings*).
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Off => "Off",
-            Self::EpicChildren => "Epic children only",
-            Self::All => "All tickets",
-        }
-    }
-}
-
-/// Validation rounds the user may pick (d0063); anything else is flagged and never used.
-pub const VALIDATION_ROUNDS: std::ops::RangeInclusive<u32> = 1..=5;
-/// The rounds when none is set.
-pub const DEFAULT_VALIDATION_ROUNDS: u32 = 3;
 
 stored_enum! {
     /// One of the 15 bundled themes (d0069, d0070), stored as its name: the design's palette key, with Otaq's
@@ -220,12 +190,6 @@ const THEME_KEYS_0069: [&str; 3] = ["appearance", "dark_theme", "light_theme"];
 #[serde(default)]
 pub struct GlobalSettings {
     pub agent_limits: AgentLimits,
-    /// A separate validator checks every submit (d0063). On by default.
-    pub validation: bool,
-    /// Rounds before "Validation failed N times" (d0063): 1–5, 3 by default.
-    pub validation_rounds: u32,
-    /// Off by default (d0064).
-    pub auto_merge: AutoMerge,
     /// OS notifications for items that block an agent (d0016). On by default.
     pub notifications: bool,
     /// One checkbox per kind of notification under the main switch (d0090): all on by default.
@@ -255,9 +219,6 @@ impl Default for GlobalSettings {
     fn default() -> Self {
         Self {
             agent_limits: AgentLimits::default(),
-            validation: true,
-            validation_rounds: DEFAULT_VALIDATION_ROUNDS,
-            auto_merge: AutoMerge::Off,
             notifications: true,
             notification_kinds: NotificationKinds::default(),
             notification_sound: true,
@@ -433,13 +394,6 @@ pub struct ProjectSettings {
     pub project_notes: String,
     /// Let finished tickets answer other agents' questions (d0030). On by default.
     pub let_finished_tickets_answer: bool,
-    /// Validation on or off for this project; `None` uses the global setting (d0063). Stored as `null` so the
-    /// field-by-field read keeps a set value.
-    pub validation: Option<bool>,
-    /// `None` uses the global rounds.
-    pub validation_rounds: Option<u32>,
-    /// `None` uses the global Auto-merge (d0064).
-    pub auto_merge: Option<AutoMerge>,
     /// Set in everything Otaq starts in the project, in row order (ENV-01, d0082). Empty by default.
     pub env_vars: Vec<EnvVar>,
     /// "Start new worktrees from a warm build" (WRM-05, d0082). On by default; warm builds are on only where the
@@ -465,9 +419,6 @@ impl Default for ProjectSettings {
             env_files: Vec::new(),
             project_notes: String::new(),
             let_finished_tickets_answer: true,
-            validation: None,
-            validation_rounds: None,
-            auto_merge: None,
             env_vars: Vec::new(),
             warm_builds: true,
             resource_create: String::new(),
@@ -559,41 +510,11 @@ pub fn env_var_problems(env_vars: &[EnvVar], os: Os) -> Vec<Option<String>> {
 /// The key of [`ProjectSettings::project_notes`] in a project's stored settings.
 pub const PROJECT_NOTES: &str = "project_notes";
 
-/// The values a project's agents actually use, after falling back to the global settings.
+/// The values a project's agents actually use.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EffectiveSettings {
     /// The project's notes for every agent (AGM-02, AGM-06).
     pub project_notes: String,
-    pub validation: bool,
-    /// Always within 1–5: a flagged value falls back to the global one, then to 3.
-    pub validation_rounds: u32,
-    pub auto_merge: AutoMerge,
-    /// Auto-merge is set but does nothing because validation is off for the project (the settings say so,
-    /// d0064).
-    pub auto_merge_inactive: bool,
-}
-
-/// The rounds a project uses: its own when valid, else the global value when valid, else 3 (a flagged value is
-/// never used).
-pub fn effective_rounds(own: Option<u32>, global: u32) -> u32 {
-    own.into_iter()
-        .chain([global])
-        .find(|r| VALIDATION_ROUNDS.contains(r))
-        .unwrap_or(DEFAULT_VALIDATION_ROUNDS)
-}
-
-/// Why a rounds value can't be used, if it can't.
-fn rounds_problem(rounds: u32) -> Option<SettingProblem> {
-    (!VALIDATION_ROUNDS.contains(&rounds)).then(|| {
-        problem(
-            "validation_rounds",
-            &format!(
-                "Use {} to {} validation rounds",
-                VALIDATION_ROUNDS.start(),
-                VALIDATION_ROUNDS.end()
-            ),
-        )
-    })
 }
 
 /// A stored value that is flagged as invalid. `field` names the setting (`env_files`, `open_url`, …).
@@ -676,22 +597,6 @@ impl Board {
         Ok(())
     }
 
-    /// The effective validation rounds of the project with this id (cards show "round 1 of 3").
-    pub(crate) async fn validation_rounds_of(&self, project_id: &str) -> Result<u32, BoardError> {
-        let global = self.global_settings().await?;
-        let json: Option<String> =
-            sqlx::query_scalar("SELECT settings_json FROM projects WHERE id = ?")
-                .bind(project_id)
-                .fetch_optional(self.store.pool())
-                .await?;
-        let own: ProjectSettings =
-            read_or_default(serde_json::from_str(&json.unwrap_or_default()).unwrap_or_default());
-        Ok(effective_rounds(
-            own.validation_rounds,
-            global.validation_rounds,
-        ))
-    }
-
     /// The project variables that apply (ENV-02), of the project with this id, read now (never cached): a
     /// change reaches what starts after it. An unknown project has none.
     pub async fn project_env(&self, project_id: &str) -> Result<Vec<(String, String)>, BoardError> {
@@ -721,9 +626,8 @@ impl Board {
 
     /// The values a project's agents, validators and Project agents use.
     pub async fn effective_settings(&self, project: &str) -> Result<EffectiveSettings, BoardError> {
-        let global = self.global_settings().await?;
         let own = self.project_settings(project).await?;
-        Ok(effective(&global, &own))
+        Ok(effective(&own))
     }
 
     /// `settings.set`: stores the global settings.
@@ -756,7 +660,6 @@ impl Board {
                 "Back-pressure needs at least 1 item",
             ));
         }
-        problems.extend(rounds_problem(settings.validation_rounds));
         if !TERMINAL_FONT_SIZES.contains(&settings.terminal_font_size) {
             problems.push(problem(
                 "terminal_font_size",
@@ -784,7 +687,6 @@ impl Board {
                 problems.push(problem("env_files", &message));
             }
         }
-        problems.extend(settings.validation_rounds.and_then(rounds_problem));
         for (index, message) in env_var_problems(&settings.env_vars, Os::current())
             .into_iter()
             .enumerate()
@@ -807,16 +709,10 @@ impl Board {
     }
 }
 
-/// Resolves a project's settings against the global ones ([`Board::effective_settings`] reads them).
-pub fn effective(global: &GlobalSettings, own: &ProjectSettings) -> EffectiveSettings {
-    let validation = own.validation.unwrap_or(global.validation);
-    let auto_merge = own.auto_merge.unwrap_or(global.auto_merge);
+/// What a project's own settings give its agents ([`Board::effective_settings`] reads them).
+pub fn effective(own: &ProjectSettings) -> EffectiveSettings {
     EffectiveSettings {
         project_notes: own.project_notes.clone(),
-        validation,
-        validation_rounds: effective_rounds(own.validation_rounds, global.validation_rounds),
-        auto_merge,
-        auto_merge_inactive: auto_merge != AutoMerge::Off && !validation,
     }
 }
 
@@ -1101,7 +997,7 @@ mod tests {
         assert!(!settings.description_source_mode);
         assert_eq!(settings.terminal_font_size, 15);
         let old: GlobalSettings =
-            serde_json::from_value(serde_json::json!({"validation": false})).unwrap();
+            serde_json::from_value(serde_json::json!({"notifications": false})).unwrap();
         assert!(!old.description_source_mode);
         let settings: GlobalSettings =
             read_or_default(serde_json::json!({"description_source_mode": true}));

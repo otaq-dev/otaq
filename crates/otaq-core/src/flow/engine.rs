@@ -88,7 +88,7 @@ pub fn status_set(kind: StageKind) -> StatusSet {
 pub fn rounds_of(stage: &Stage, extra: u32) -> u32 {
     stage
         .rounds
-        .unwrap_or(crate::board::settings::DEFAULT_VALIDATION_ROUNDS)
+        .unwrap_or(crate::flow::check::DEFAULT_VALIDATION_ROUNDS)
         + extra
 }
 
@@ -158,7 +158,7 @@ impl<'f, 'a> At<'f, 'a> {
         let rounds = place
             .stage()
             .and_then(|id| flow.stage(id))
-            .map_or(crate::board::settings::DEFAULT_VALIDATION_ROUNDS, |s| {
+            .map_or(crate::flow::check::DEFAULT_VALIDATION_ROUNDS, |s| {
                 rounds_of(s, 0)
             });
         Self {
@@ -638,6 +638,18 @@ pub fn drag(
         // Dropped on the column it shows in: an agent check folded into its Agent stage's column.
         (Target::Stage(a), Target::Stage(b))
             if at_work(a) && a.column == Column::WithPrevious && owner(flow, a) == Some(b) =>
+        {
+            MoveCheck::Unchanged
+        }
+        // An agent check in its own column (the default flow's Validate, FLW-01) dropped on the Agent stage before
+        // it: nothing happens, as when Validate was folded into Dev (drags back with instructions are T-0421's).
+        (Target::Stage(a), Target::Stage(b))
+            if a.is_agent_check()
+                && b.is_agent_stage()
+                && flow
+                    .position(&b.id)
+                    .zip(flow.position(&a.id))
+                    .is_some_and(|(b, a)| b < a) =>
         {
             MoveCheck::Unchanged
         }

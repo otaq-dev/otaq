@@ -643,7 +643,9 @@ impl Prs {
             .await
             .ok();
         let prompt = FirstPrompt::Skill {
-            name: step.own_skill().to_owned(),
+            name: board
+                .delivery_skill_name(ticket.key.project.as_str(), step)
+                .await?,
             message: None,
         };
         Ok(board

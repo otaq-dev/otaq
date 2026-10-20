@@ -398,22 +398,25 @@ async fn a_dev_session_on_each_tool_gets_its_agents_skills() {
     w.stop().await;
 }
 
-/// An imported skill keeps its own folder's contents in its copy, by its own name; standing for `commit` (the
-/// move-over), `prime` names it as each tool does.
+/// An imported skill keeps its own folder's contents in its copy, by its own name; named `commit`, it is the
+/// agent's commit skill and `prime` names it as each tool does.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_imported_skill_keeps_its_own_files() {
     let World { w, _dir } = world().await;
     let folder = my_commit(w.data.root());
+    let skill = folder.join("SKILL.md");
+    let text = std::fs::read_to_string(&skill).unwrap();
+    std::fs::write(&skill, text.replacen("name: my-commit", "name: commit", 1)).unwrap();
     w.import_step_skill(WorkflowStep::Commit, &folder).await;
     let t = w.create("SHOP", "Sort notes by date").await;
     let out = started(&w, &t).await;
     assert!(
-        out.contains("AGENTS otaq-my-commit otaq-work-ticket ."),
+        out.contains("AGENTS otaq-commit otaq-work-ticket ."),
         "{out}"
     );
     let worktree = worktree_of(&w.board.ticket("SHOP-1").await.unwrap());
     for root in SKILL_ROOTS {
-        let copy = worktree.join(root).join("otaq-my-commit");
+        let copy = worktree.join(root).join("otaq-commit");
         assert_eq!(
             std::fs::read_to_string(copy.join("reference.md")).unwrap(),
             "notes: sort by date\n"
@@ -421,10 +424,10 @@ async fn an_imported_skill_keeps_its_own_files() {
         assert_eq!(mode(&copy.join("scripts/check-staged.sh")), 0o755);
     }
     for (tool, named) in [
-        (Tool::Claude, "/otaq-my-commit"),
-        (Tool::Codex, "$otaq-my-commit"),
-        (Tool::Copilot, "/otaq-my-commit"),
-        (Tool::OpenCode, "otaq-my-commit"),
+        (Tool::Claude, "/otaq-commit"),
+        (Tool::Codex, "$otaq-commit"),
+        (Tool::Copilot, "/otaq-commit"),
+        (Tool::OpenCode, "otaq-commit"),
     ] {
         let primed = w
             .board
@@ -451,9 +454,9 @@ async fn the_grill_stage_starts_with_otaq_grill() {
 }
 
 /// The validator: its check's own skill and its agent's skills are copied before its launch and its first prompt
-/// runs `/otaq-validate`. With the move-over example (Validator holds the imported `team-validate` in place of
-/// `validate`, `replaces: validate`), it runs `/otaq-team-validate` and `otaq-validate` isn't copied: the agent's
-/// skills are. Only ignored paths change, so its verdict counts (VAL-02, d0063).
+/// runs `/otaq-validate`. With Validator holding the imported `team-validate` in place of `validate` and the flow's
+/// Validate naming it (`skill: team-validate`, Q296), it runs `/otaq-team-validate` and `otaq-validate` isn't
+/// copied: the agent's skills are. Only ignored paths change, so its verdict counts (VAL-02, d0063).
 #[tokio::test(flavor = "multi_thread")]
 async fn the_validator_runs_its_checks_skill_and_stays_read_only() {
     let World { w, _dir } = world().await;

@@ -15,7 +15,6 @@ use otaq_core::board::epic_flight::{
 };
 use otaq_core::board::needs_you::{NeedsYouGroup, ProjectTickets, group_of, needs_you_items};
 use otaq_core::board::projects::AddProject;
-use otaq_core::board::settings::{AutoMerge, ProjectSettings};
 use otaq_core::board::tickets::{Base, NewTicketInput, Ticket};
 use otaq_core::domain::{
     Actor, AutoMergeStop, Flags, Kind, Place, Status, TicketKey, ValidationTrigger,
@@ -240,15 +239,11 @@ async fn an_auto_merge_conflict_is_fixed_in_the_agent_stage() {
     let project = pocket_notes(&w).await;
     let repo = PathBuf::from(&project.repo_path);
     w.board
-        .set_project_settings(
+        .edit_flow_for_tests(
             "NOTE",
-            &ProjectSettings {
-                auto_merge: Some(AutoMerge::All),
-                ..ProjectSettings::default()
-            },
+            otaq_core::flow::default::testing::automatic_local_delivery,
         )
-        .await
-        .unwrap();
+        .await;
     let t = w.create("NOTE", "Sort notes by date").await;
     let wt = w.start_worktree(&t).await;
     commit(&wt, "sort.rs", "by date\n");

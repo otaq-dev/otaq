@@ -144,43 +144,75 @@ impl TestService {
     }
 
     /// Imports the skill `folder` onto the agent that runs `step` on the default flow (Developer; Validator for
-    /// Validate), standing in for the step's shipped skill as the move-over carries M31's workflow skills (AGM-02).
+    /// Validate) in place of the step's shipped skill, and for Validate and Open PR names it on that stage of every
+    /// project's flow (Q296: a flow names the stage's skill). A Commit or Push skill runs when it is named as the
+    /// step's skill (`commit`, `push`: [`crate::skills::Sources::runs`]).
     pub async fn import_step_skill(
         &self,
         step: crate::board::settings::WorkflowStep,
         folder: &std::path::Path,
     ) -> crate::agents::Agent {
+        use crate::board::settings::WorkflowStep;
         let agent = self.step_agent(step).await;
         let imported = crate::agents::skills::import(&self.board, &agent.id, folder)
             .await
             .expect("skill imported");
-        let id = imported.imported.last().expect("the import").id.clone();
-        self.edit_agent(&agent.name, |page| {
-            for skill in page.imported.iter_mut().filter(|s| s.id == id) {
-                skill.replaces = Some(step.own_skill().to_owned());
-            }
-            let own = crate::agents::SkillRef::Shipped(step.own_skill().to_owned());
-            page.skills.retain(|s| *s != own);
-        })
-        .await
+        let name = imported.imported.last().expect("the import").name.clone();
+        let agent = self
+            .edit_agent(&agent.name, |page| {
+                let own = crate::agents::SkillRef::Shipped(step.own_skill().to_owned());
+                page.skills.retain(|s| *s != own);
+            })
+            .await;
+        if matches!(step, WorkflowStep::Validate | WorkflowStep::OpenPr) {
+            self.name_stage_skill(step, Some(&name)).await;
+        }
+        agent
     }
 
-    /// Puts the agent that runs `step` back on the shipped skill: its imported one for the step goes.
+    /// Names `skill` on the stage of every project's flow that runs `step` (Validate, or the Delivery for Open PR);
+    /// `None` puts the stage back on Otaq's skill.
+    async fn name_stage_skill(
+        &self,
+        step: crate::board::settings::WorkflowStep,
+        skill: Option<&str>,
+    ) {
+        use crate::board::settings::WorkflowStep;
+        for project in self.board.store().projects().await.expect("projects") {
+            self.board
+                .edit_flow_for_tests(&project.key, |file| {
+                    for stage in &mut file.flow.stages {
+                        let runs = match step {
+                            WorkflowStep::Validate => stage.id == crate::flow::default::VALIDATE,
+                            WorkflowStep::OpenPr => stage.is_delivery(),
+                            _ => false,
+                        };
+                        if runs {
+                            stage.skill = match (step, skill) {
+                                (_, Some(skill)) => Some(skill.to_owned()),
+                                (WorkflowStep::Validate, None) => Some(step.own_skill().to_owned()),
+                                (_, None) => None,
+                            };
+                        }
+                    }
+                })
+                .await;
+        }
+    }
+
+    /// Puts the agent that runs `step` back on the shipped skill: its imported ones go, and the stage names Otaq's
+    /// skill again.
     pub async fn drop_step_skill(&self, step: crate::board::settings::WorkflowStep) {
         let agent = self.step_agent(step).await;
         self.edit_agent(&agent.name, |page| {
-            let gone: Vec<String> = page
-                .imported
-                .iter()
-                .filter(|s| s.replaces.as_deref() == Some(step.own_skill()))
-                .map(|s| s.id.clone())
-                .collect();
+            let gone: Vec<String> = page.imported.iter().map(|s| s.id.clone()).collect();
             page.skills.retain(
                 |s| !matches!(s, crate::agents::SkillRef::Imported(id) if gone.contains(id)),
             );
-            page.imported.retain(|s| !gone.contains(&s.id));
+            page.imported.clear();
         })
         .await;
+        self.name_stage_skill(step, None).await;
     }
 
     async fn step_agent(&self, step: crate::board::settings::WorkflowStep) -> crate::agents::Agent {

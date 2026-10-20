@@ -452,8 +452,7 @@ async fn respond(
         | Request::AgentsDefaultModel(_)
         | Request::AgentsFallback(_)
         | Request::AgentsImportSkill(_)
-        | Request::AgentsReimportSkill(_)
-        | Request::AgentsDismissMovedOver) => {
+        | Request::AgentsReimportSkill(_)) => {
             match agents_requests::handle(request, shared).await {
                 Ok(reply) => (reply, Then::Continue),
                 Err(error) => return (Message::error(id, error), Then::Continue),

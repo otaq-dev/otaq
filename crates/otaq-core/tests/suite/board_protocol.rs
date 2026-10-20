@@ -324,10 +324,7 @@ async fn themes_travel_in_the_settings_requests() {
     let mut settings = reply.settings;
     assert_eq!(settings.theme, ThemeSetting::default());
     settings.theme = ThemeSetting::Picked(Theme::Dracula);
-    // The M12 settings travel too (T-0181).
-    settings.validation = false;
-    settings.validation_rounds = 5;
-    settings.auto_merge = otaq_core::board::settings::AutoMerge::All;
+    settings.terminal_font_size = 15;
     client
         .request(Request::SettingsSet(settings.clone()))
         .await

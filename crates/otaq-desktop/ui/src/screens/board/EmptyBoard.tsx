@@ -5,7 +5,6 @@
 import { Button, Kbd } from "../../components";
 import { useRegistries } from "../../app/registry";
 import type { EmptyBoardView } from "../../generated/EmptyBoardView";
-import { Icon } from "../../theme/Icon";
 
 export function EmptyBoard({ view }: { view: EmptyBoardView }) {
   const app = useRegistries();
@@ -35,12 +34,6 @@ export function EmptyBoard({ view }: { view: EmptyBoardView }) {
             </span>
           ))}
         </div>
-        {view.auto_merge !== null && (
-          <p className="board-empty-auto-merge">
-            <Icon name="git-merge" size={13} />
-            <span>{view.auto_merge}</span>
-          </p>
-        )}
       </div>
     </div>
   );

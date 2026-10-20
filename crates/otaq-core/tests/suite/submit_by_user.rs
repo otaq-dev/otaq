@@ -3,7 +3,6 @@
 //! with it on the check runs first (d0108 rule 10, `validation::the_users_move_to_next_stage`).
 
 use otaq_core::board::Refusal;
-use otaq_core::board::settings::ProjectSettings;
 use otaq_core::domain::{Actor, Status};
 use otaq_core::git::testing::{commit, git};
 use otaq_core::service::testing::TestService;
@@ -15,15 +14,8 @@ fn me() -> Actor {
 async fn shop_web_without_validation(w: &TestService) {
     w.add_project("shop-web").await;
     w.board
-        .set_project_settings(
-            "SHOP",
-            &ProjectSettings {
-                validation: Some(false),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
+        .edit_flow_for_tests("SHOP", otaq_core::flow::default::testing::without_validate)
+        .await;
 }
 
 #[tokio::test]

@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
-use otaq_core::board::settings::{AutoMerge, ProjectSettings};
+use otaq_core::board::settings::ProjectSettings;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::{Actor, BuildState, Status, ValidationAction, ValidationTrigger};
@@ -527,7 +527,13 @@ async fn done_after_a_free_moves_nothing_and_resets_the_state() {
 #[tokio::test(flavor = "multi_thread")]
 async fn free_and_auto_merge_never_both_move_the_build() {
     let w = world(false).await;
-    let project = shop_web_with(&w, |s| s.auto_merge = Some(AutoMerge::All)).await;
+    let project = shop_web_with(&w, |_| {}).await;
+    w.board
+        .edit_flow_for_tests(
+            "SHOP",
+            otaq_core::flow::default::testing::automatic_local_delivery,
+        )
+        .await;
     let (t, wt) = started(&w, "Footer links", "footer.ts").await;
     let key = t.key.to_string();
     w.force_status(&t, Status::Working).await;

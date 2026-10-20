@@ -16,7 +16,7 @@ flow:
     name: Validate
     kind: check
     by: agent
-    column: with-previous
+    column: own
     agent: Validator
     skill: validate
     rounds: 3

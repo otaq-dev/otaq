@@ -17,7 +17,6 @@ export const GLOBAL: readonly GlobalSection[] = [
   "agent_tools",
   "agents",
   "agent_limits",
-  "validation",
   "usage",
   "notifications",
   "data",
@@ -29,7 +28,6 @@ export const GLOBAL: readonly GlobalSection[] = [
 export const PROJECT: readonly ProjectSection[] = [
   "general",
   "project_notes",
-  "validation",
   "answers",
   "commands",
   "ticket_resources",

@@ -6,9 +6,9 @@ import type { BoardCard } from "./BoardCard";
  */
 export type BoardDevSections = { top: Array<BoardCard>, 
 /**
- * "WORKING · VALIDATING".
+ * "WORKING · VALIDATING" while an agent check shares the column; none for the default flow's Dev (FLW-01).
  */
-section: string, working_count: string, working: Array<BoardCard>, 
+section: string | null, working_count: string, working: Array<BoardCard>, 
 /**
  * "2 more · working" while folded; a click unfolds.
  */

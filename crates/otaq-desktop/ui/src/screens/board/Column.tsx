@@ -535,7 +535,7 @@ export function Column({
               strong={strong}
               handlers={handlers}
             />
-            {column.dev.working_count !== "0" && (
+            {column.dev.section !== null && column.dev.working_count !== "0" && (
               <div className="board-section">
                 <span className="board-section-title">{column.dev.section}</span>
                 <span className="board-section-count">{column.dev.working_count}</span>

@@ -602,13 +602,14 @@ mod tests {
             ]
         );
         assert_eq!(gift.not_queued[0].label, "60.3");
-        // A station per page column but Backlog, empty ones too: one Review station (SHL-06).
+        // A station per page column but Backlog, empty ones too: Validate's own (FLW-01), one Review station (SHL-06).
         let columns: Vec<_> = gift.stations.iter().map(|s| s.column.clone()).collect();
         assert_eq!(
             columns,
             [
                 ColumnId::READY_FOR_DEV,
                 ColumnId::DEV,
+                ColumnId::new("validate"),
                 ColumnId::REVIEW,
                 ColumnId::DONE
             ]
@@ -622,9 +623,9 @@ mod tests {
         };
         assert_eq!(
             merged(wishlist),
-            [None, None, None, Some("1 merged".into())]
+            [None, None, None, None, Some("1 merged".into())]
         );
-        assert_eq!(merged(gift), [None, None, None, None]);
+        assert_eq!(merged(gift), [None, None, None, None, None]);
     }
 
     #[test]
@@ -819,17 +820,17 @@ mod tests {
         let checks = |strip: &Strip| -> Vec<Option<IconName>> {
             strip.tracks[0].stations.iter().map(|s| s.check).collect()
         };
-        assert_eq!(checks(&strip), [None; 4]);
+        assert_eq!(checks(&strip), [None; 5]);
         let rail = strip.clone().with_done_rail(true);
         assert_eq!(
             checks(&rail),
-            [None, None, None, Some(IconName::CircleCheck)]
+            [None, None, None, None, Some(IconName::CircleCheck)]
         );
         assert_eq!(
-            rail.tracks[0].stations[3].merged.as_deref(),
+            rail.tracks[0].stations[4].merged.as_deref(),
             Some("1 merged")
         );
-        assert_eq!(checks(&rail.with_done_rail(false)), [None; 4]);
+        assert_eq!(checks(&rail.with_done_rail(false)), [None; 5]);
     }
 
     #[test]

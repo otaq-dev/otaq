@@ -347,20 +347,35 @@ mod tests {
         columns.iter().map(|c| c.id.clone()).collect()
     }
 
-    /// STG-08: the default flow's five columns with today's ids, Validate folded into Dev and the Delivery a
+    /// STG-08, FLW-01: the default flow's six columns with today's ids and Validate's own, and the Delivery a
     /// section of Review whose drop target is `approved`.
     #[test]
     fn the_default_flow_gives_todays_columns() {
         let flow = default_flow();
         let columns = Columns::of(&flow);
+        // FLW-01: Validate has its own column between Dev and Review.
         assert_eq!(
             ids(&columns),
-            ["backlog", "ready_for_dev", "dev", "review", "done"]
+            [
+                "backlog",
+                "ready_for_dev",
+                "dev",
+                "validate",
+                "review",
+                "done"
+            ]
         );
         let titles: Vec<&str> = columns.iter().map(|c| c.title.as_str()).collect();
         assert_eq!(
             titles,
-            ["Backlog", "Ready for Dev", "Dev", "Review", "Done"]
+            [
+                "Backlog",
+                "Ready for Dev",
+                "Dev",
+                "Validate",
+                "Review",
+                "Done"
+            ]
         );
         let parts = |id: &str| -> Vec<(String, String)> {
             columns
@@ -371,13 +386,8 @@ mod tests {
                 .map(|p| (p.id.clone(), p.stage.id.clone()))
                 .collect()
         };
-        assert_eq!(
-            parts("dev"),
-            [
-                ("dev".into(), "dev".into()),
-                ("validate".into(), "validate".into())
-            ]
-        );
+        assert_eq!(parts("dev"), [("dev".into(), "dev".into())]);
+        assert_eq!(parts("validate"), [("validate".into(), "validate".into())]);
         assert_eq!(
             parts("review"),
             [
@@ -391,6 +401,7 @@ mod tests {
                 "backlog",
                 "ready_for_dev",
                 "dev",
+                "validate",
                 "review",
                 "approved",
                 "done"
@@ -410,13 +421,16 @@ mod tests {
         assert_eq!(
             columns.drop_target("validate"),
             None,
-            "no target of its own"
+            "no target of its own (drags to any stage are T-0421's)"
         );
 
-        // Without Validate (pocket-api) the columns are the same.
+        // A flow without Validate has no Validate column (d0108 changelog 2026-10-20).
         let mut off = default_flow();
         off.stages.retain(|s| s.id != "validate");
-        assert_eq!(ids(&Columns::of(&off)), ids(&columns));
+        assert_eq!(
+            ids(&Columns::of(&off)),
+            ["backlog", "ready_for_dev", "dev", "review", "done"]
+        );
     }
 
     /// STG-08 on the test flow: Grill, Dev with Validate in it, Security, QA and the Delivery stage each a column
