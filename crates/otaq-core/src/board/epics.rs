@@ -12,6 +12,7 @@ use serde_json::json;
 use sqlx::{Sqlite, Transaction};
 
 use super::deps::check_same_base;
+use super::epic_flight::epic_stop;
 use super::tickets::{Base, EventKind, Ticket, allocate_child_number, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, Status, StatusSet, TicketKey};
@@ -195,7 +196,9 @@ impl Board {
     }
 
     /// Epics are delivery units (EPC-04, d0059): when every child is Done with at least one merged into the epic
-    /// branch, the epic moves to Ready for Review (its branch head is the reviewed head); when every child ended
+    /// branch, the epic moves to its stop (STG-11, d0108 rule 7: the flow's last human check, the default flow's
+    /// Ready for Review, or the implicit Review epic when the flow has none; [`super::epic_flight::epic_stop`]),
+    /// where its branch head is the reviewed head; when every child ended
     /// Closed, the epic is Done · Closed · not merged (d0044). Bookkeeping, run after a child's state changes.
     /// Returns the epic's new status when it moved.
     pub async fn reevaluate_epic(
@@ -212,6 +215,7 @@ impl Board {
             return Ok(None);
         }
         let merged = children.iter().any(|c| c.status == Status::Merged);
+        let stop = epic_stop(&self.effective_flow(epic.key.project.as_str()).await?);
         let mut tx = self.store.begin_write().await?;
         let to = if merged {
             let head = match epic.work.as_ref().and_then(|w| w.branch.clone()) {
@@ -234,8 +238,7 @@ impl Board {
                 set_state_since!(),
                 " WHERE id = ?"
             ))
-            // The default flow's human check (T-0403 moves the epic's place onto the flow's last human check).
-            .bind(crate::flow::engine::default_stage(to, None))
+            .bind(&stop.id)
             .bind(to.as_str())
             .bind(head)
             .bind(now)
@@ -268,8 +271,9 @@ impl Board {
         Ok(Some(to))
     }
 
-    /// Adding (or reopening) a child returns an epic in Ready for Review or Approved to Backlog until that child
-    /// is merged (EPC-05).
+    /// Adding (or reopening) a child returns an epic at its stop (Ready for Review, Review epic) or in its Delivery
+    /// (Approved) to Backlog until that child is merged (EPC-05). The only way back for an epic: it can't be dragged
+    /// back (d0108).
     pub async fn epic_back_to_backlog(&self, epic: &str, actor: &Actor) -> Result<(), BoardError> {
         let epic = self.epic(epic).await?;
         if !matches!(

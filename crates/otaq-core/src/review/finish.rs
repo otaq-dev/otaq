@@ -7,6 +7,10 @@
 //! removed, and after a merge the project's template is refreshed (M19-d,
 //! [`TicketEnv::release_resources`](crate::ticket_env::TicketEnv::release_resources)). Run and Shell (M9) stop
 //! through the [`on_ticket_finished`](super::Review::on_ticket_finished) hook.
+//!
+//! **Only on Merged or Closed** (STG-11, d0108): a ticket stays in its Delivery stage until it is delivered, and
+//! keeps its worktree there (To deliver, PR open: a Send back with PR comments works in it again). Entering a human
+//! check or the Delivery only frees the build ([`crate::ticket_env::free`]).
 
 use std::future::Future;
 use std::path::{Path, PathBuf};

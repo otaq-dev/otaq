@@ -11,6 +11,12 @@
 //!   Move to Review are the user's.
 //!
 //! A manual Local merge keeps its confirmation and "Send to agent to fix" (AMG-05).
+//!
+//! **On stages** (STG-11, d0108): Auto-merge stays a rule on top of the flow until M33 makes it an automatic
+//! Delivery. It runs when a validated ticket would enter its human check (the default flow's Review), as the
+//! Delivery the user would pick there. A conflict sends it to the nearest Agent stage before that check (Dev),
+//! whose session fixes it: the card is in that stage, "Merge conflict · fixing", and holds a slot; the third stops
+//! it there, turquoise (rule 12 of d0108's second gap review).
 
 use super::{LocalMergeOutcome, Return, Review, other};
 use crate::board::BoardError;

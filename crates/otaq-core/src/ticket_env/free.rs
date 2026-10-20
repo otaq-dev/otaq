@@ -1,4 +1,5 @@
-//! **Free** (M19-c, d0086): when a ticket enters Review, its build output (the gitignored files, not the env files)
+//! **Free** (M19-c, d0086, STG-11): when a ticket enters a human check or its Delivery stage (the default flow's
+//! Review, and PR open), its build output (the gitignored files, not the env files)
 //! leaves the worktree for the stock, so the next ticket can start from it. The worktree, branch, ports and agent
 //! session stay as they are.
 //!
@@ -13,15 +14,22 @@
 use std::path::{Path, PathBuf};
 
 use crate::board::tickets::Ticket;
-use crate::domain::{BuildState, Status, TicketKey};
+use crate::domain::{BuildState, Status, StatusSet, TicketKey};
 use crate::protocol::Event;
 use crate::session::{SessionKind, Sessions};
 use crate::ticket_env::TicketEnv;
 use crate::ticket_env::stock::Added;
 use crate::warm::keep;
 
-/// The statuses whose build is freed: Ready for Review and Approved (an approved ticket stays freed).
-pub const FREED_IN: [Status; 2] = [Status::WaitingForYou, Status::PrOpen];
+/// The statuses whose build is freed: every status of a human check or a Delivery stage (STG-11; the default flow's
+/// Ready for Review, and Approved · PR open, where an approved ticket stays freed). [`freed_in`] says the same by
+/// status set.
+pub const FREED_IN: [Status; 3] = [Status::WaitingForYou, Status::ToDeliver, Status::PrOpen];
+
+/// Whether a ticket with this status has its build freed: it waits in a human check or a Delivery stage (STG-11).
+pub fn freed_in(status: Status) -> bool {
+    matches!(status.set(), StatusSet::HumanCheck | StatusSet::Delivery)
+}
 
 /// What a Free did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,10 +56,7 @@ pub(crate) fn has_live_terminal(sessions: &Sessions, ticket_id: &str) -> bool {
 /// worktree. Returns the worktree.
 pub(crate) fn to_free(ticket: &Ticket) -> Option<PathBuf> {
     let work = ticket.work.as_ref()?;
-    if !FREED_IN.contains(&ticket.status)
-        || ticket.is_epic()
-        || work.build_state != BuildState::Present
-    {
+    if !freed_in(ticket.status) || ticket.is_epic() || work.build_state != BuildState::Present {
         return None;
     }
     work.worktree.as_deref().map(PathBuf::from)
@@ -146,4 +151,17 @@ async fn move_out(
         Added::Kept { entry } => Some(entry),
         Added::Dropped | Added::Evicted { .. } => None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// STG-11: the list the other modules read holds exactly the human check's and the Delivery's statuses.
+    #[test]
+    fn freed_in_every_human_check_and_delivery_status() {
+        for status in Status::ALL {
+            assert_eq!(FREED_IN.contains(status), freed_in(*status), "{status}");
+        }
+    }
 }

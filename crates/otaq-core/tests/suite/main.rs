@@ -107,6 +107,7 @@ mod sessions;
 mod settings;
 mod shell;
 mod signals;
+mod stage_delivery;
 mod stages;
 mod start;
 mod stock;

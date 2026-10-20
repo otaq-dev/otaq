@@ -11,10 +11,12 @@
 //! 1b. an epic lead's suggestions to close or delete a child (LEAD-08, d0083): no OS notification, they block no
 //!    agent;
 //! 2. Interrupted, Start interrupted, Resume failed, Parent closed;
-//! 3. Ready for Review, tickets and epics.
+//! 3. waiting in a human check or a click Delivery (STG-11, d0108): on the default flow Ready for Review, tickets
+//!    and epics (an epic at its own stop, Review epic included), and To deliver.
 //!
 //! Inside a group, tickets that block more tickets come first, then the oldest (the longest in that status),
-//! then key order. A status belongs to a group by [`group_of`] alone, so the states that later milestones set
+//! then key order. In group 3 a ticket waiting at its Delivery comes before one in a human check, closest to Done
+//! first (no default-flow ticket waits at its Delivery: its Review → Approve offers the choices). A status belongs to a group by [`group_of`] alone, so the states that later milestones set
 //! (Interrupted, Resume failed) slot in as their tickets land.
 //!
 //! A ticket whose terminal has focus raises no item (ATT-03, [`crate::domain::Flags::your_turn`]); the item
@@ -30,7 +32,7 @@ use super::validation::AUTO_MERGE_CONFLICT_LIMIT;
 use super::{Board, BoardError};
 use crate::attention::Suppression;
 use crate::domain::validation::{NO_RESULT, failed_times};
-use crate::domain::{AutoMergeStop, StartStep, Status, TicketKey};
+use crate::domain::{AutoMergeStop, StartStep, Status, StatusSet, TicketKey};
 use crate::named_agents::Role;
 use crate::signals::hooks::HELPER_PROMPT_PREFIX;
 
@@ -44,7 +46,7 @@ pub enum NeedsYouGroup {
     Suggestions,
     /// Interrupted, Start interrupted, Resume failed, Parent closed.
     Stopped,
-    /// Ready for Review.
+    /// Waiting in a human check or a click Delivery: Ready for Review (and To deliver).
     Review,
 }
 
@@ -62,9 +64,33 @@ pub fn group_of(status: Status) -> Option<NeedsYouGroup> {
         | Status::StartInterrupted
         | Status::ResumeFailed
         | Status::ParentClosed => Some(NeedsYouGroup::Stopped),
-        Status::WaitingForYou => Some(NeedsYouGroup::Review),
+        // A human check waits for the user's Pass or Fail; To deliver for the Local merge or Open PR click. In M31
+        // every Delivery is click mode (the derived flow, STG-03), so To deliver always waits for a click.
+        status if status.set() == StatusSet::HumanCheck || status == Status::ToDeliver => {
+            Some(NeedsYouGroup::Review)
+        }
         _ => None,
     }
+}
+
+/// Group 3's order (d0108 smaller rule 13): closest to Done first, so a ticket waiting at its Delivery comes before
+/// one in a human check. 0 for every other item.
+fn closest_to_done(item: &NeedsYouItem) -> u8 {
+    match (item.group, item.status.set()) {
+        (NeedsYouGroup::Review, StatusSet::HumanCheck) => 1,
+        _ => 0,
+    }
+}
+
+/// The inbox order: by group, then (group 3) closest to Done, then the tickets that block more, the oldest, and key
+/// order.
+fn inbox_order(a: &NeedsYouItem, b: &NeedsYouItem) -> std::cmp::Ordering {
+    a.group
+        .cmp(&b.group)
+        .then(closest_to_done(a).cmp(&closest_to_done(b)))
+        .then(b.blocked.cmp(&a.blocked))
+        .then(a.since.cmp(&b.since))
+        .then(a.key.cmp(&b.key))
 }
 
 /// One thing that waits for the user.
@@ -193,13 +219,7 @@ pub fn needs_you_items_with(
             })
         })
         .collect();
-    items.sort_by(|a, b| {
-        a.group
-            .cmp(&b.group)
-            .then(b.blocked.cmp(&a.blocked))
-            .then(a.since.cmp(&b.since))
-            .then(a.key.cmp(&b.key))
-    });
+    items.sort_by(inbox_order);
     items
 }
 
@@ -455,13 +475,7 @@ impl Board {
                 m.id = item.id.clone();
             }
         }
-        items.sort_by(|a, b| {
-            a.group
-                .cmp(&b.group)
-                .then(b.blocked.cmp(&a.blocked))
-                .then(a.since.cmp(&b.since))
-                .then(a.key.cmp(&b.key))
-        });
+        items.sort_by(inbox_order);
         Ok(items)
     }
 }
