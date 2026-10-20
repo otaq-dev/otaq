@@ -207,6 +207,119 @@ fn skills_end_stages_with_the_stage_commands() {
     }
 }
 
+/// The text of the shipped skill `name`.
+fn read_skill(name: &str) -> String {
+    let (_, path) = skill_files()
+        .into_iter()
+        .find(|(n, _)| n == name)
+        .unwrap_or_else(|| panic!("no skill {name}"));
+    std::fs::read_to_string(path).unwrap()
+}
+
+/// T-0415 (FLW-21, d0108 "Grill first"): `grill` asks one question at a time with `ask human`, writes the
+/// agreement with `update`, ends with `stage next`, and never edits files.
+#[test]
+fn grill_asks_writes_the_agreement_and_moves_on() {
+    let cmd = naming::COMMAND_NAME;
+    let grill = read_skill("grill");
+    for step in [
+        format!("{cmd} ask human"),
+        format!("{cmd} update"),
+        format!("{cmd} stage next --stdin"),
+        "one question at a time".to_owned(),
+        "never edit files".to_owned(),
+    ] {
+        assert!(grill.contains(&step), "grill must say {step:?}");
+    }
+    let ask = grill.find(&format!("{cmd} ask human")).unwrap();
+    let update = grill.find(&format!("{cmd} update")).unwrap();
+    let next = grill.find(&format!("{cmd} stage next")).unwrap();
+    assert!(
+        ask < update && update < next,
+        "ask, then update, then stage next"
+    );
+    assert!(
+        !grill.contains(&format!("{cmd} check ")),
+        "grill gives no verdict"
+    );
+}
+
+/// T-0415 (FLW-11, FLW-21; d0108 "The CLI proposes a whole document", "Every why line names its source"): `flow`
+/// reads with `flow show`, proposes with `flow propose --stdin`, waits for the answer as its next message, and
+/// documents every field of the format.
+#[test]
+fn flow_teaches_show_propose_the_format_and_the_wait() {
+    let cmd = naming::COMMAND_NAME;
+    let flow = read_skill("flow");
+    for text in [
+        format!("{cmd} flow show"),
+        format!("{cmd} flow propose --stdin"),
+        format!("{cmd} flow presets"),
+        "names its source".to_owned(),
+        "next message".to_owned(),
+        "Ask for more changes".to_owned(),
+    ] {
+        assert!(flow.contains(&text), "flow must say {text:?}");
+    }
+    let fields = [
+        "id", "name", "kind", "by", "column", "agent", "skill", "options", "rounds", "mode",
+        "delivers",
+    ];
+    for field in fields {
+        assert!(
+            flow.contains(&format!("| `{field}` |")),
+            "flow must document `{field}`"
+        );
+    }
+    for field in ["role", "instructions", "skills", "why", "model"] {
+        assert!(
+            flow.contains(&format!("**`{field}`**")),
+            "flow must document the agent's `{field}`"
+        );
+    }
+}
+
+/// T-0415 (FLW-11): the `flow` skill's whole example is a flow `propose` reads and the checks pass, the same as the
+/// Grill first preset.
+#[test]
+fn the_flow_skills_whole_example_reads_and_passes_the_checks() {
+    let flow = read_skill("flow");
+    let from = flow.find("A whole example").expect("a whole example");
+    let start = from + flow[from..].find("```yaml\n").unwrap() + "```yaml\n".len();
+    let end = start + flow[start..].find("```").unwrap();
+    let file = otaq_core::flow::yaml::read(&flow[start..end]).expect("the example reads");
+    assert_eq!(otaq_core::flow::check(&file.flow), Ok(()));
+    let grill_first = otaq_core::flow::presets::preset("grill-first.yaml").unwrap();
+    assert_eq!(file, grill_first.read());
+}
+
+/// T-0415 (FLW-21, FLW-15; d0108 rule 8, d0050): `open-pr` describes both modes: click (the user confirms in the
+/// dialog) and automatic (started with `automatic: …`, Otaq confirms at once, no dialog); `push`, which pushes again
+/// to the same PR after a Send back, does too. The words are T-0419's (`pr::service`).
+#[test]
+fn open_pr_and_push_describe_click_and_automatic_mode() {
+    let cmd = naming::COMMAND_NAME;
+    for (name, confirmed) in [
+        ("open-pr", "The pull request was confirmed automatically"),
+        ("push", "The push was confirmed automatically"),
+    ] {
+        let text = read_skill(name);
+        for needle in [
+            "**Click mode:**".to_owned(),
+            "**Automatic mode:**".to_owned(),
+            "starts with the word `automatic`".to_owned(),
+            "- Mode: automatic (no dialog): nobody reviews your proposal; Otaq confirms it at once"
+                .to_owned(),
+            confirmed.to_owned(),
+            format!("{cmd} pr propose --stdin"),
+            format!("{cmd} pr opened"),
+        ] {
+            assert!(text.contains(&needle), "{name} must say {needle:?}");
+        }
+    }
+    assert!(read_skill("open-pr").contains(&format!("`{}` skill", naming::copy_name("push"))));
+}
+
 #[test]
 fn the_quoting_check_matches_yaml() {
     assert!(quoted(r#"'Otaq''s skill with "<KEY>: <what>" messages'"#));

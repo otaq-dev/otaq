@@ -333,8 +333,9 @@ fn restack_rebases_resolves_commits_and_submits() {
     }
 }
 
-/// T-0140 (REV-10, PLG-05, d0050): open-pr proposes after prime, waits for the user's confirmation, and only then
-/// pushes and reports the PR; provider detection follows the remote URL.
+/// T-0140 (REV-10, PLG-05, d0050; T-0415 FLW-21): open-pr proposes after prime, waits for the confirmation (the
+/// user's in click mode, Otaq's at once in automatic mode), and only then pushes and reports the PR; provider
+/// detection follows the remote URL.
 #[test]
 fn open_pr_proposes_first_and_pushes_only_after_the_confirmation() {
     let (name, body) = skill("open-pr");
@@ -362,7 +363,7 @@ fn open_pr_proposes_first_and_pushes_only_after_the_confirmation() {
         at += found;
     }
     for needle in [
-        "Never push before Otaq tells you the user confirmed",
+        "Never push before Otaq tells you the proposal is confirmed",
         "visualstudio.com",
         &format!("{}/SHOP-18-", naming::PLUGIN_NAMESPACE),
         "Never store, print or ask for a token",

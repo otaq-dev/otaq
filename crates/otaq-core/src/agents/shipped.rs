@@ -26,6 +26,8 @@ pub const SKILLS: &[&str] = &[
     "answer-question",
     "commit",
     "epic-lead",
+    "flow",
+    "grill",
     "open-pr",
     "project-agent",
     "push",
@@ -132,7 +134,14 @@ mod tests {
         assert_eq!(yaml::write_agents(agents), AGENTS_YAML);
         let planner = new_agent(&agents[0]);
         assert_eq!(planner.role, Some(Role::ProjectAgent));
-        assert_eq!(planner.skills, [SkillRef::Shipped("project-agent".into())]);
+        // Planner changes flows too (FLW-11).
+        assert_eq!(
+            planner.skills,
+            [
+                SkillRef::Shipped("project-agent".into()),
+                SkillRef::Shipped("flow".into())
+            ]
+        );
         assert_eq!(planner.model, AgentModel::Default);
         assert_eq!(new_agent(&agents[1]).role, Some(Role::EpicLead));
     }

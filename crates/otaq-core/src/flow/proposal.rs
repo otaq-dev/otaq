@@ -1586,6 +1586,7 @@ mod tests {
     kind: delivery
     column: with-previous
     agent: Developer
+    skill: open-pr
     mode: click
     delivers: either
 ";

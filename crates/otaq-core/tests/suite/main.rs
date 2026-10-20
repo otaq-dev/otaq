@@ -89,6 +89,7 @@ mod plugin_texts;
 mod ports;
 mod pr_comments;
 mod pr_provider;
+mod presets;
 mod prime;
 mod priority;
 mod project_agent_scope;

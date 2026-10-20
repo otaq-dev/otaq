@@ -117,7 +117,7 @@ async fn a_fresh_install_has_the_shipped_agents_on_default() {
     };
     assert_eq!(skills("Developer"), shipped(&["work-ticket", "commit"]));
     assert_eq!(skills("Validator"), shipped(&["validate"]));
-    assert_eq!(skills("Planner"), shipped(&["project-agent"]));
+    assert_eq!(skills("Planner"), shipped(&["project-agent", "flow"]));
     assert_eq!(skills("Epic lead"), shipped(&["epic-lead"]));
     assert_eq!(list.default_model, None);
     assert!(list.fallbacks.is_empty());

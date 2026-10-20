@@ -1978,7 +1978,11 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
         let flow = store.current_flow(key).await.unwrap().expect("a flow");
         assert_eq!(
             (flow.version, flow.yaml.as_str(), flow.preset.as_deref()),
-            (1, naming::DEFAULT_FLOW_YAML, Some("otaq-default.yaml")),
+            (
+                1,
+                default_as_0050_stored().as_str(),
+                Some("otaq-default.yaml")
+            ),
             "{key}"
         );
     }
@@ -1987,6 +1991,15 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
     store.close().await;
     let store = Store::open(&path).await.unwrap();
     assert_eq!(agent_rows(&store).await, before);
+}
+
+/// The default flow as 0050 stored it for the projects already there: before T-0415 named `open-pr` on its Delivery
+/// (Q254), which changes nothing (the PR path runs `open-pr` when the Delivery names no skill).
+fn default_as_0050_stored() -> String {
+    let stored =
+        naming::DEFAULT_FLOW_YAML.replace("    skill: open-pr\n    mode: click", "    mode: click");
+    assert_ne!(stored, naming::DEFAULT_FLOW_YAML);
+    stored
 }
 
 /// T-0412 (FLW-01, Q296): 0050 drops what M32's move-over and the old settings kept: the Validation, Validation
@@ -2050,7 +2063,7 @@ async fn migration_0050_drops_the_old_settings_and_gives_each_project_its_flow()
     assert_eq!(validator.imported[0].name, "team-validate");
     let versions = store.flow_versions("NOTE").await.unwrap();
     assert_eq!(versions.len(), 1);
-    assert_eq!(versions[0].yaml, naming::DEFAULT_FLOW_YAML);
+    assert_eq!(versions[0].yaml, default_as_0050_stored());
     assert_eq!(versions[0].applied_by, otaq_core::flow::AppliedBy::Shipped);
     assert!(versions[0].current);
 }

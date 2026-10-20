@@ -32,7 +32,7 @@ fn plugin(root: &Path) -> PathBuf {
     let skills = find_plugin_dir(Path::new("/nonexistent"))
         .unwrap()
         .join("skills");
-    for name in ["project-agent", "epic-lead"] {
+    for name in ["project-agent", "flow", "epic-lead"] {
         let to = plugin.join("skills").join(name);
         std::fs::create_dir_all(&to).unwrap();
         std::fs::copy(skills.join(name).join("SKILL.md"), to.join("SKILL.md")).unwrap();
@@ -96,9 +96,20 @@ async fn until_copies(repo: &Path, names: &[&str]) {
     );
 }
 
-/// A Project agent: its agent's skill (`otaq-project-agent`) is in the checkout before it starts and its first
-/// prompt runs it; a second agent shares it; the copy stays while either runs and goes when the last ends, with the
-/// folders it made; `git status` is clean throughout and nothing else in the checkout or its `.git` changes.
+/// Waits until `path` no longer exists.
+async fn until_gone(path: &Path) {
+    let gone = tokio::time::timeout(Duration::from_secs(20), async {
+        while path.exists() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(gone.is_ok(), "{} is still there", path.display());
+}
+
+/// A Project agent: its agent's skills (`otaq-project-agent`, `otaq-flow`) are in the checkout before it starts and
+/// its first prompt runs `otaq-project-agent`; a second agent shares them; the copies stay while either runs and go
+/// when the last ends, with the folders they made; `git status` is clean throughout and nothing else in the checkout or its `.git` changes.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_project_agents_skills_stay_while_it_runs() {
     let dir = TempDir::new().unwrap();
@@ -118,7 +129,12 @@ async fn a_project_agents_skills_stay_while_it_runs() {
         out.contains("/otaq-project-agent Why is checkout slow?"),
         "{out}"
     );
-    assert!(out.contains("CLAUDE otaq-project-agent ."), "{out}");
+    // Planner's skills: `project-agent` and `flow` (FLW-11).
+    assert!(
+        out.contains("CLAUDE otaq-flow otaq-project-agent ."),
+        "{out}"
+    );
+    assert!(copied(&repo, "otaq-flow"));
     assert!(copied(&repo, "otaq-project-agent"));
     assert!(clean(&repo));
 
@@ -137,14 +153,15 @@ async fn a_project_agents_skills_stay_while_it_runs() {
 
     w.project_agents.close(&second.id, true).await.unwrap();
     until_copies(&repo, &[]).await;
-    assert!(!repo.join(".agents").exists());
-    assert!(!repo.join(".claude").exists());
+    // The folders go right after the last copy (two copies now: `otaq-flow` too).
+    until_gone(&repo.join(".agents")).await;
+    until_gone(&repo.join(".claude")).await;
     assert!(clean(&repo));
     assert_eq!(files_but_copies(&repo), before, "nothing else changed");
 
     // Resume writes it again.
     w.project_agents.resume(&second.id).await.unwrap();
-    until_copies(&repo, &["otaq-project-agent"]).await;
+    until_copies(&repo, &["otaq-flow", "otaq-project-agent"]).await;
     assert!(clean(&repo));
     w.stop().await;
 }

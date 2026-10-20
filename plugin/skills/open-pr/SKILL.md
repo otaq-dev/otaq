@@ -1,18 +1,36 @@
 ---
 name: open-pr
-description: Otaq's default Open PR workflow skill - get the context with `otaq prime`, propose the branch name, commit messages, PR title and description with `otaq pr propose --stdin`, and only after the user confirms push the branch and open the PR with `gh` or `az`, then report it with `otaq pr opened <url>`.
+description: Otaq's Open PR skill for a ticket's Delivery stage - get the context with `otaq prime`, propose the branch name, commit messages, PR title and description with `otaq pr propose --stdin`, and only once Otaq says it is confirmed push the branch and open the PR with `gh` or `az`, then report it with `otaq pr opened <url>`. In click mode the user confirms in a dialog; in automatic mode Otaq confirms at once, with no dialog.
 disable-model-invocation: true
 ---
 
 # Open a pull request for your Otaq ticket
 
-The user approved your ticket (its key is in `$OTAQ_TICKET`, for example `SHOP-18`) and clicked **Open PR**. You
-prepare the pull request; **the user confirms it before anything is pushed**. This happens in two turns:
+Your ticket (its key is in `$OTAQ_TICKET`, for example `SHOP-18`) reached its **Delivery stage**, and that stage
+delivers it as a pull request. You prepare the pull request, then push it and open it. This happens in two turns:
 
 - **Turn 1 — propose.** You look at the work and propose a branch name, a message for each commit, a PR title and a
-  description. Then you stop. Otaq shows your proposal to the user, who can edit every part of it.
-- **Turn 2 — push.** Once the user confirms, Otaq renames the branch and rewords the commits itself, then types a
-  message telling you to push. Only then do you push and open the PR.
+  description. Then you stop.
+- **Turn 2 — push.** Once the proposal is confirmed, Otaq renames the branch and rewords the commits itself, then
+  types a message telling you to push. Only then do you push and open the PR.
+
+## Click mode or automatic mode
+
+How you were started says which one this is:
+
+- **Click mode:** you were started with this skill alone; the user clicked **Open PR**. Otaq shows your proposal in
+  a dialog, the user can edit every part of it, and **nothing is pushed until they confirm**. The message that starts
+  turn 2 reads "The user confirmed the pull request".
+- **Automatic mode:** the text after this skill starts with the word `automatic` ("automatic: this project's flow
+  opens the PR with no dialog…"), and `prime`'s "Pull request" section has the line
+  `- Mode: automatic (no dialog): nobody reviews your proposal; Otaq confirms it at once`. The flow opens the PR with
+  no click and no dialog; the user chose that when they applied the flow. **Nobody reviews your proposal**: Otaq
+  checks it, confirms it as it is (`otaq pr propose` says "…'s proposal is confirmed: this flow opens the PR with no
+  dialog. End your turn: you'll be told to push."), and then types the message that starts turn 2: "The pull request
+  was confirmed automatically". So propose exactly what you want pushed, following the user's rules to the letter.
+
+The steps are the same in both modes. After a Send back with PR comments, the new commits go to the same PR through
+the `otaq-push` skill, not this one.
 
 ## Turn 1: propose
 
@@ -24,9 +42,9 @@ prepare the pull request; **the user confirms it before anything is pushed**. Th
    context (step 1), proposing before pushing (step 5) or reporting the PR (step 9).
 3. **Check the provider.** `prime` names it from the `origin` remote URL: `github.com` is **GitHub** (you will use
    `gh`); `dev.azure.com` or `*.visualstudio.com` is **Azure DevOps** (you will use `az repos`). For any other remote,
-   **stop**: propose nothing, push nothing, and reply "This remote isn't GitHub or Azure DevOps, so the built-in Open PR
-   skill can't open the PR. Use your own Open PR skill (add it to the agent's skills in Settings → Agents)." Then end
-   your turn.
+   **stop**: propose nothing, push nothing, and tell the user with `otaq ask human --stdin`: "This remote isn't GitHub
+   or Azure DevOps, so the built-in Open PR skill can't open the PR. Use your own Open PR skill (name it as the
+   Delivery stage's skill in the flow, or add it to the agent's skills in Settings → Agents)." Then end your turn.
 4. **Write the proposal.**
    - **Branch name:** follow the user's rules if the Agent instructions give any (for example
      `bugfix/SHOP-18-login-redirect`, or `feature/PAY-123-wishlist` from the External ID). Otherwise use
@@ -53,12 +71,14 @@ prepare the pull request; **the user confirms it before anything is pushed**. Th
 
    `sha` is the commit's ID as `prime` lists it (short or full). The list must hold every listed commit, in order. If
    the command refuses the proposal, fix what it names and propose again.
-6. **End your turn.** Don't push and don't wait in a loop. The user reviews the proposal in Otaq.
+6. **End your turn.** Don't push and don't wait in a loop. In click mode the user reviews the proposal in Otaq; in
+   automatic mode Otaq's confirmation arrives as your next message.
 
 ## Turn 2: push and open the PR
 
-Otaq types a message such as "The user confirmed the pull request" into this session once the user clicks **Push &
-open PR**. If the user cancels instead, nothing happens and nothing is pushed.
+Otaq types a message into this session once the proposal is confirmed: "The user confirmed the pull request" (click
+mode, after the user clicked **Push & open PR**) or "The pull request was confirmed automatically" (automatic mode).
+Either one is your go-ahead. If the user cancels the dialog instead, nothing happens and nothing is pushed.
 
 7. **Read what was confirmed.** Run `otaq prime` again. Its "Pull request" section now shows the **confirmed**
    branch name, title and description. The user may have edited them: use them exactly as shown. Otaq has already
@@ -89,11 +109,11 @@ open PR**. If the user cancels instead, nothing happens and nothing is pushed.
    `otaq ask human --stdin` (for example "gh isn't logged in. Run `gh auth login`, then tell me to retry.") and end
    your turn.
 9. **Report the PR:** `otaq pr opened <url>`, for example
-   `otaq pr opened https://github.com/acme/shop-web/pull/481`. The ticket then shows "PR #481". End your turn.
+   `otaq pr opened https://github.com/acme/shop-web/pull/481`. The ticket then shows "PR #481 open". End your turn.
 
 ## Rules
 
-- **Never push before Otaq tells you the user confirmed.** Turn 1 only proposes.
+- **Never push before Otaq tells you the proposal is confirmed.** Turn 1 only proposes, in both modes.
 - Push only the confirmed branch, to `origin`, and never with `--force`. Never merge the PR yourself.
 - Don't change files or commits in either turn. If something must change, ask the user with
   `otaq ask human --stdin` instead.

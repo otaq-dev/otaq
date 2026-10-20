@@ -6,8 +6,8 @@
 //!
 //! Every tool is a stand-in: `claude` is `sh` and `codex`, `copilot` and `opencode` are `sh` scripts in Otaq's bin
 //! folder, each printing its arguments and the copies in the folder it starts in. The plugin folder is a temporary
-//! one holding the repository's shipped skills and a stand-in `grill` (M33 ships the real one). Skill folders, repos,
-//! `OTAQ_HOME` and the tools' home are temporary: no test starts a real tool.
+//! one holding the repository's shipped skills. Skill folders, repos, `OTAQ_HOME` and the tools' home are temporary:
+//! no test starts a real tool.
 
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
@@ -59,7 +59,7 @@ fn copy_dir(from: &Path, to: &Path) {
 }
 
 /// A plugin folder as the installed app has it, under `root`: Claude Code's and Copilot's hooks plugins (their
-/// manifests), the repository's shipped skills, and a stand-in `grill` skill.
+/// manifests) and the repository's shipped skills.
 fn plugin(root: &Path) -> PathBuf {
     let plugin = root.join("plugin");
     for tool in ["claude", "copilot"] {
@@ -69,13 +69,6 @@ fn plugin(root: &Path) -> PathBuf {
     }
     let repo = find_plugin_dir(Path::new("/nonexistent")).expect("the repository's plugin");
     copy_dir(&repo.join("skills"), &plugin.join("skills"));
-    let grill = plugin.join("skills").join("grill");
-    std::fs::create_dir_all(&grill).unwrap();
-    std::fs::write(
-        grill.join("SKILL.md"),
-        "---\nname: grill\ndescription: Asks one question at a time (stand-in).\n---\nAsk.\n",
-    )
-    .unwrap();
     plugin
 }
 
@@ -440,7 +433,7 @@ async fn an_imported_skill_keeps_its_own_files() {
 }
 
 /// The test flow's Grill (Q261): the ticket's first session runs Grill's own skill, `/otaq-grill`, with Griller's
-/// skills copied (a stand-in `grill` in the plugin folder: M33 writes the real one).
+/// skills copied (Otaq's shipped `grill`).
 #[tokio::test(flavor = "multi_thread")]
 async fn the_grill_stage_starts_with_otaq_grill() {
     let World { w, _dir } = world().await;
