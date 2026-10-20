@@ -151,7 +151,7 @@ pub struct Validator {
     pub read_only: bool,
     /// The state label and hint for every phase and focus, as [`View::strips`].
     pub strips: Vec<Strip>,
-    /// `otaq attach SHOP-29 --validator` while it runs.
+    /// `otaq attach SHOP-29 --stage validate` while it runs.
     pub attach_command: String,
 }
 
@@ -267,7 +267,10 @@ pub fn validator_of(
         dot,
         read_only: !running,
         strips,
-        attach_command: strip::validator_attach_command(&ticket.key, running),
+        attach_command: strip::validator_attach_command(
+            &ticket.key,
+            ticket.place.stage().filter(|_| running),
+        ),
     }
 }
 
@@ -811,7 +814,7 @@ mod tests {
         assert_eq!(v.terminal_label, "SHOP-19 · validator terminal");
         assert!(!v.read_only);
         assert_eq!(v.dot, Some(StripTone::Working));
-        assert_eq!(v.attach_command, format!("{} --validator", strip::attach_command(&view_key())));
+        assert_eq!(v.attach_command, format!("{} --stage validate", strip::attach_command(&view_key())));
         assert_eq!(strip(&view, Phase::Live, false).state.label, "Live");
         assert_eq!(view.lands_on, Side::Validator);
         assert_eq!(view.agent_dot, None, "the agent waits for the verdict");

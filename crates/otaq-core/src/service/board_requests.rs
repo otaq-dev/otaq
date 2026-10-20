@@ -1381,8 +1381,9 @@ async fn change_decision(
 }
 
 /// `otaq show <KEY> --terminal` (SHL-10, d0087): the ticket's agent session (running, or the last ended one still
-/// in memory), or with `validator` its running validator, replayed into plain text. Read-only; nothing is kept
-/// between requests. While the ticket validates, the agent's text starts with a line pointing at `--validator`.
+/// in memory), or with `--stage` the session of the agent running that stage (FLW-20), replayed into plain text.
+/// Read-only; nothing is kept between requests. While an agent check runs, the agent's text starts with a line
+/// pointing at its `--stage`.
 async fn terminal(
     shared: &Shared,
     p: &crate::protocol::TerminalParams,
@@ -1390,25 +1391,34 @@ async fn terminal(
     use crate::session::screen;
     let ticket = shared.board.ticket(&p.key).await?;
     let key = &ticket.key;
-    let validator = shared
+    let (kind, stage) = match &p.stage {
+        Some(name) => {
+            let (kind, stage) = stage_session(&shared.board, &ticket, name).await?;
+            (kind, Some(stage.name))
+        }
+        None => (SessionKind::Agent, None),
+    };
+    let check = shared
         .sessions
         .running_of(&ticket.id, SessionKind::Validator);
-    let (session, bytes, size) = if p.validator {
-        match validator.as_ref().and_then(|_| {
-            shared
-                .sessions
-                .output_of(&ticket.id, SessionKind::Validator)
-        }) {
+    let (session, bytes, size) = if kind == SessionKind::Validator {
+        match check
+            .as_ref()
+            .and_then(|_| shared.sessions.output_of(&ticket.id, kind))
+        {
             Some(output) => output,
             None => {
                 return Err(BoardError::refused(
                     Refusal::SessionEnded,
-                    format!("{key} has no running validator"),
+                    format!(
+                        "{key}'s {} check isn't running",
+                        stage.as_deref().unwrap_or_default()
+                    ),
                 ));
             }
         }
     } else {
-        match shared.sessions.output_of(&ticket.id, SessionKind::Agent) {
+        match shared.sessions.output_of(&ticket.id, kind) {
             Some(output) => output,
             None => {
                 // Output never goes to disk (d0045): a stored session means a restart cleared it.
@@ -1416,7 +1426,7 @@ async fn terminal(
                     "SELECT 1 FROM sessions WHERE ticket_id = ? AND kind = ? LIMIT 1",
                 )
                 .bind(&ticket.id)
-                .bind(SessionKind::Agent.as_str())
+                .bind(kind.as_str())
                 .fetch_optional(shared.board.store().pool())
                 .await?;
                 let message = match stored {
@@ -1428,8 +1438,13 @@ async fn terminal(
         }
     };
     let mut text = screen::render(&bytes, size);
-    if !p.validator && validator.is_some() {
-        text = format!("{key} is validating \u{b7} its validator's terminal: --validator\n{text}");
+    if p.stage.is_none()
+        && check.is_some()
+        && let Some(id) = ticket.place.stage()
+    {
+        let flow = shared.board.effective_flow(key.project.as_str()).await?;
+        let name = flow.stage(id).map_or(id, |s| s.name.as_str());
+        text = format!("{key} is in {name} \u{b7} its terminal: --stage {id}\n{text}");
     }
     Ok(Reply::TicketTerminal(Box::new(
         crate::protocol::TicketTerminal {
@@ -1438,6 +1453,53 @@ async fn terminal(
             text,
         },
     )))
+}
+
+/// `--stage <name>` on `otaq show --terminal` and `otaq attach` (FLW-20, d0108): the stage `name` names in the
+/// ticket's flow (its id, or its name ignoring case) and the kind of the session its agent runs in: an Agent stage's
+/// or a Delivery's is the ticket's agent session (an epic's delivery session), an agent check's is the check's.
+/// Refused unless the ticket is in that stage; a check by you has no agent.
+pub(super) async fn stage_session(
+    board: &Board,
+    ticket: &Ticket,
+    name: &str,
+) -> Result<(SessionKind, crate::flow::Stage), BoardError> {
+    let project = ticket.key.project.as_str();
+    let flow = board.effective_flow(project).await?;
+    let wanted = name.trim();
+    let folded = wanted.to_lowercase();
+    let Some(stage) = flow
+        .stages
+        .iter()
+        .find(|s| s.id == wanted || s.name.to_lowercase() == folded)
+    else {
+        let names: Vec<&str> = flow.stages.iter().map(|s| s.name.as_str()).collect();
+        return Err(BoardError::NotFound(format!(
+            "{project}'s flow has no stage {wanted} (its stages: {})",
+            names.join(", ")
+        )));
+    };
+    let key = &ticket.key;
+    if ticket.place.stage() != Some(stage.id.as_str()) {
+        return Err(BoardError::refused(
+            Refusal::SessionEnded,
+            format!("{key} isn't in {}", stage.name),
+        ));
+    }
+    let kind = match stage.kind {
+        crate::flow::StageKind::Check {
+            by: crate::flow::CheckBy::You,
+        } => {
+            return Err(BoardError::refused(
+                Refusal::SessionEnded,
+                format!("{key}'s {} is your check: no agent runs it", stage.name),
+            ));
+        }
+        crate::flow::StageKind::Check { .. } => SessionKind::Validator,
+        crate::flow::StageKind::Delivery if ticket.is_epic() => SessionKind::Delivery,
+        crate::flow::StageKind::Agent | crate::flow::StageKind::Delivery => SessionKind::Agent,
+    };
+    Ok((kind, stage.clone()))
 }
 
 /// `otaq prime`: the ticket's context. Its own agent reads the unread lead notes in it, so they are marked read

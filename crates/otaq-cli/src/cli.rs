@@ -105,9 +105,9 @@ pub enum Command {
     Attach {
         /// The ticket: SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,
-        /// The ticket's running validator instead of its agent
-        #[arg(long)]
-        validator: bool,
+        /// The agent running this stage of the ticket's flow (its name or id): `--stage security` while it checks
+        #[arg(long, value_name = "STAGE")]
+        stage: Option<String>,
     },
     /// The current ticket's context for its agent: details, parents, rules and your Agent instructions
     Prime {
@@ -141,9 +141,9 @@ pub enum Command {
         /// Print the ticket's terminal as the user sees it, as plain text (read-only)
         #[arg(long, conflicts_with_all = ["long", "children"])]
         terminal: bool,
-        /// With --terminal: the ticket's running validator's terminal instead
-        #[arg(long, requires = "terminal")]
-        validator: bool,
+        /// With --terminal: the terminal of the agent running this stage (its name or id) instead
+        #[arg(long, value_name = "STAGE", requires = "terminal")]
+        stage: Option<String>,
     },
     /// List the current project's tickets (-P to name the project)
     List {
@@ -782,36 +782,40 @@ mod tests {
     fn attach_takes_an_optional_key() {
         let cli = parse(&["attach", "SHOP-18"]).unwrap();
         assert!(
-            matches!(cli.command, Some(Command::Attach { key: Some(k), validator: false }) if k == "SHOP-18")
+            matches!(cli.command, Some(Command::Attach { key: Some(k), stage: None }) if k == "SHOP-18")
         );
         let cli = parse(&["attach"]).unwrap();
         assert!(matches!(
             cli.command,
             Some(Command::Attach {
                 key: None,
-                validator: false
+                stage: None
             })
         ));
-        let cli = parse(&["attach", "SHOP-29", "--validator"]).unwrap();
+        let cli = parse(&["attach", "SHOP-29", "--stage", "security"]).unwrap();
         assert!(
-            matches!(cli.command, Some(Command::Attach { key: Some(k), validator: true }) if k == "SHOP-29")
+            matches!(cli.command, Some(Command::Attach { key: Some(k), stage: Some(s) }) if k == "SHOP-29" && s == "security")
         );
         let cli = parse(&["-P", "SHOP", "attach", "18"]).unwrap();
         assert_eq!(cli.global.project.as_deref(), Some("SHOP"));
+        // FLW-20: `--validator` is gone, with no alias.
+        assert!(parse(&["attach", "SHOP-29", "--validator"]).is_err());
     }
 
-    /// `show --terminal` (SHL-10): not with `--long` or `--children`; `--validator` only with it.
+    /// `show --terminal` (SHL-10): not with `--long` or `--children`; `--stage` only with it; `--validator` is gone
+    /// (FLW-20).
     #[test]
     fn show_terminal_stands_alone() {
-        let cli = parse(&["show", "NOTE-6", "--terminal", "--validator"]).unwrap();
+        let cli = parse(&["show", "NOTE-6", "--terminal", "--stage", "Security"]).unwrap();
         assert!(matches!(
             cli.command,
-            Some(Command::Show { key: Some(ref k), terminal: true, validator: true, .. }) if k == "NOTE-6"
+            Some(Command::Show { key: Some(ref k), terminal: true, stage: Some(ref s), .. }) if k == "NOTE-6" && s == "Security"
         ));
         for wrong in [
             &["show", "--terminal", "--long"][..],
             &["show", "--terminal", "--children"],
-            &["show", "--validator"],
+            &["show", "--stage", "security"],
+            &["show", "NOTE-6", "--terminal", "--validator"],
         ] {
             assert!(parse(wrong).is_err(), "{wrong:?}");
         }

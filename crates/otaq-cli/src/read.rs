@@ -155,11 +155,12 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
     }))
 }
 
-/// `otaq show <KEY> --terminal` (SHL-10, CLI-09): the ticket's agent terminal (or with `--validator` its running
-/// validator's) as the user sees it, as plain text. Read-only: the service decides who may (CLI-03).
+/// `otaq show <KEY> --terminal` (SHL-10, CLI-09): the ticket's agent terminal (or with `--stage` the terminal of the
+/// agent running that stage, FLW-20) as the user sees it, as plain text. Read-only: the service decides who may
+/// (CLI-03).
 pub fn terminal(
     key: Option<String>,
-    validator: bool,
+    stage: Option<String>,
     global: &GlobalArgs,
     out: &Output,
 ) -> Result<(), ErrorBody> {
@@ -169,7 +170,7 @@ pub fn terminal(
             client,
             Request::TicketTerminal(TerminalParams {
                 key: key.to_string(),
-                validator,
+                stage,
             }),
         )
         .await?;

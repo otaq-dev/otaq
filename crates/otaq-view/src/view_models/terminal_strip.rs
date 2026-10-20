@@ -250,13 +250,12 @@ pub fn validator_label(round: Option<u32>) -> String {
     }
 }
 
-/// `otaq attach SHOP-29 --validator` while the validator runs; the agent's command once it ended (only a
-/// running validator can be attached).
-pub fn validator_attach_command(key: &TicketKey, running: bool) -> String {
-    if running {
-        format!("{} --validator", attach_command(key))
-    } else {
-        attach_command(key)
+/// `otaq attach SHOP-29 --stage validate` while the check runs (`running` names the check's stage, FLW-20); the
+/// agent's command once it ended (only a running check can be attached).
+pub fn validator_attach_command(key: &TicketKey, running: Option<&str>) -> String {
+    match running {
+        Some(stage) => format!("{} --stage {stage}", attach_command(key)),
+        None => attach_command(key),
     }
 }
 
@@ -521,11 +520,11 @@ mod tests {
     fn the_validator_side_reads_its_round_and_how_it_ended() {
         assert_eq!(validator_label(Some(2)), "Validator · round 2");
         assert_eq!(
-            validator_attach_command(&key(), true),
-            format!("{} attach SHOP-23 --validator", naming::COMMAND_NAME)
+            validator_attach_command(&key(), Some("validate")),
+            format!("{} attach SHOP-23 --stage validate", naming::COMMAND_NAME)
         );
         assert_eq!(
-            validator_attach_command(&key(), false),
+            validator_attach_command(&key(), None),
             attach_command(&key())
         );
         let live = validator_state(&Phase::Live, Status::Checking, None);

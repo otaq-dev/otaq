@@ -315,6 +315,17 @@ impl TestService {
         .expect("status set");
     }
 
+    /// Puts a ticket straight into `status` in the stage `stage` of its project's flow (a test flow's stage).
+    pub async fn force_stage(&self, ticket: &Ticket, stage: &str, status: Status) {
+        self.force_status(ticket, status).await;
+        sqlx::query("UPDATE tickets SET stage_id = ? WHERE id = ?")
+            .bind(stage)
+            .bind(&ticket.id)
+            .execute(self.board.store().pool())
+            .await
+            .expect("stage set");
+    }
+
     /// Gives `ticket` a worktree: a fresh repository with one commit on `main`, standing in for the one the start
     /// sequence makes. Returns its folder.
     pub async fn give_worktree(&self, ticket: &Ticket) -> PathBuf {

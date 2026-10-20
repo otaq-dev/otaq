@@ -201,7 +201,7 @@ async fn an_ended_session_holds_no_focus() {
 }
 
 /// T-0194 (ATT-03, d0063): the rule applies per session. While the validator's terminal has focus (the app's
-/// Validator side, or `otaq attach SHOP-1 --validator`), its permission prompt raises no turquoise and no inbox
+/// Validator side, or `otaq attach SHOP-1 --stage validate`), its permission prompt raises no turquoise and no inbox
 /// item; looking at the agent's terminal doesn't calm it.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_validators_terminal_calms_only_the_validator() {
@@ -238,7 +238,7 @@ async fn the_validators_terminal_calms_only_the_validator() {
         "the agent's terminal doesn't calm it"
     );
 
-    // The user switches to the Validator side (or attaches with --validator): calm, no item.
+    // The user switches to the Validator side (or attaches with --stage validate): calm, no item.
     focus(&app, &agent_shell.session, false).await;
     let attach = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
     focus(&attach, &validator.session, true).await;

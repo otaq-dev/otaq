@@ -1,70 +1,52 @@
 //! `otaq attach` (T-0055) against a service running in the test, with `cat` as the session's program and
 //! the command itself inside a PTY: scrollback then live output, typing, resizing, detaching (the session keeps
-//! running), and the error cases.
+//! running), `--stage` (FLW-20) on the test flow, and the error cases.
 
 use std::io::{Read, Write};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use otaq_core::board::projects::AddProject;
-use otaq_core::board::tickets::NewTicketInput;
+use otaq_core::board::tickets::Ticket;
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::Actor;
-use otaq_core::git::testing::TempRepos;
+use otaq_core::domain::Status;
+use otaq_core::flow::yaml;
 use otaq_core::naming;
-use otaq_core::service::{Service, ServiceConfig, Stopper};
-use otaq_core::session::{SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
+use otaq_core::service::testing::TestService;
+use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, TerminalSize};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
+/// shop-web on the test flow (`otaq-core/tests/flows/every-kind.yaml`), SHOP-1 with an agent session and a check
+/// session (both `cat`), SHOP-2 with none.
 struct World {
-    home: tempfile::TempDir,
-    _repos: TempRepos,
-    stopper: Stopper,
-    task: tokio::task::JoinHandle<()>,
-    sessions: Sessions,
+    service: TestService,
+    shop1: Ticket,
     session: String,
-    /// SHOP-1's validator (d0063), also `cat`.
+    /// SHOP-1's check (d0063), also `cat`.
     validator: String,
 }
 
 impl World {
     async fn new() -> Self {
-        let home = tempfile::tempdir().unwrap();
-        let data = DataDir::new(home.path());
-        let service = Service::bind(ServiceConfig::new(data)).await.unwrap();
-        let (stopper, board, sessions) = (service.stopper(), service.board(), service.sessions());
-        let task = tokio::spawn(service.serve());
-        let repos = TempRepos::new();
-        let repo = repos.repo("shop-web", 1);
-        let project = board
-            .add_project(&AddProject {
-                path: repo.display().to_string(),
-                ..Default::default()
-            })
-            .await
-            .unwrap();
-        let me = Actor::User("me".into());
-        let mut tickets = Vec::new();
-        for title in ["with a session", "without one"] {
-            let input = NewTicketInput {
-                project: "SHOP".into(),
-                title: title.into(),
-                ..Default::default()
-            };
-            tickets.push(board.create_ticket(&input, &me).await.unwrap());
-        }
+        let service = TestService::start().await;
+        let project = service.add_project("shop-web").await;
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../otaq-core/tests/flows/every-kind.yaml");
+        let file = yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap();
+        service.board.use_flow_for_tests("SHOP", &file).await;
+        let shop1 = service.create("SHOP", "with a session").await;
+        service.create("SHOP", "without one").await;
         let spawn = |kind| SpawnSpec {
             kind,
             project_id: project.id.clone(),
             project_key: "SHOP".into(),
             ticket: Some(SessionTicket {
-                id: tickets[0].id.clone(),
-                key: tickets[0].key.clone(),
+                id: shop1.id.clone(),
+                key: shop1.key.clone(),
             }),
             program: "cat".into(),
             args: vec![],
-            cwd: repo.clone(),
+            cwd: project.repo_path.clone().into(),
             env: vec![],
             size: TerminalSize::default(),
             tool: None,
@@ -74,31 +56,39 @@ impl World {
             effort: None,
             fallback: None,
         };
-        let info = sessions.spawn(spawn(SessionKind::Agent)).await.unwrap();
-        let validator = sessions.spawn(spawn(SessionKind::Validator)).await.unwrap();
+        let info = service
+            .sessions
+            .spawn(spawn(SessionKind::Agent))
+            .await
+            .unwrap();
+        let validator = service
+            .sessions
+            .spawn(spawn(SessionKind::Validator))
+            .await
+            .unwrap();
         Self {
-            home,
-            _repos: repos,
-            stopper,
-            task,
-            sessions,
+            service,
+            shop1,
             session: info.id,
             validator: validator.id,
         }
+    }
+
+    fn home(&self) -> &std::path::Path {
+        self.service.data.root()
     }
 
     fn command(&self, args: &[&str]) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_otaq"));
         command
             .args(args)
-            .env(DataDir::env_var(), self.home.path())
+            .env(DataDir::env_var(), self.home())
             .env_remove(naming::ticket_env_var());
         command
     }
 
     async fn stop(self) {
-        self.stopper.stop();
-        self.task.await.unwrap();
+        self.service.stop().await;
     }
 }
 
@@ -124,7 +114,10 @@ async fn wait_for(seen: &Arc<Mutex<Vec<u8>>>, needle: &str) {
 #[tokio::test(flavor = "multi_thread")]
 async fn attach_shows_scrollback_relays_typing_and_detaches() {
     let w = World::new().await;
-    w.sessions.write(&w.session, b"before attach\n").unwrap();
+    w.service
+        .sessions
+        .write(&w.session, b"before attach\n")
+        .unwrap();
 
     let pty = native_pty_system()
         .openpty(PtySize {
@@ -136,7 +129,7 @@ async fn attach_shows_scrollback_relays_typing_and_detaches() {
         .unwrap();
     let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_otaq"));
     cmd.args(["attach", "SHOP-1"]);
-    cmd.env(DataDir::env_var(), w.home.path());
+    cmd.env(DataDir::env_var(), w.home());
     let mut child = pty.slave.spawn_command(cmd).unwrap();
     drop(pty.slave);
     let mut reader = pty.master.try_clone_reader().unwrap();
@@ -162,7 +155,7 @@ async fn attach_shows_scrollback_relays_typing_and_detaches() {
     wait_for(&seen, "before attach").await;
     // Attached counts as looking at the ticket (ATT-03).
     tokio::time::timeout(Duration::from_secs(10), async {
-        while !w.sessions.is_focused(&w.session).unwrap() {
+        while !w.service.sessions.is_focused(&w.session).unwrap() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })
@@ -172,7 +165,8 @@ async fn attach_shows_scrollback_relays_typing_and_detaches() {
     writer.write_all(b"typed in attach\r").unwrap();
     wait_for(&seen, "typed in attach").await;
     let session_out =
-        String::from_utf8_lossy(&w.sessions.attach(&w.session).unwrap().scrollback).into_owned();
+        String::from_utf8_lossy(&w.service.sessions.attach(&w.session).unwrap().scrollback)
+            .into_owned();
     assert!(session_out.contains("typed in attach"), "{session_out:?}");
 
     // Resizing the terminal resizes the PTY.
@@ -185,7 +179,7 @@ async fn attach_shows_scrollback_relays_typing_and_detaches() {
         })
         .unwrap();
     tokio::time::timeout(Duration::from_secs(10), async {
-        while w.sessions.info(&w.session).unwrap().size
+        while w.service.sessions.info(&w.session).unwrap().size
             != Some(TerminalSize {
                 cols: 100,
                 rows: 30,
@@ -222,9 +216,9 @@ async fn attach_shows_scrollback_relays_typing_and_detaches() {
     let status = status.unwrap().unwrap();
     assert!(status.success(), "{status:?}");
     wait_for(&seen, "detached from SHOP-1").await;
-    assert!(w.sessions.info(&w.session).unwrap().is_running());
+    assert!(w.service.sessions.info(&w.session).unwrap().is_running());
     assert!(
-        !w.sessions.is_focused(&w.session).unwrap(),
+        !w.service.sessions.is_focused(&w.session).unwrap(),
         "detaching lets go"
     );
     w.stop().await;
@@ -262,9 +256,18 @@ async fn errors_name_the_ticket_and_exit_non_zero() {
                 none,
             ),
             (w2.command(&["attach"]), "name a ticket"),
+            // FLW-20: a stage the ticket isn't in, a stage the flow hasn't, and the removed flag.
+            (
+                w2.command(&["attach", "SHOP-2", "--stage", "security"]),
+                "SHOP-2 isn't in Security",
+            ),
+            (
+                w2.command(&["attach", "SHOP-2", "--stage", "nope"]),
+                "SHOP's flow has no stage nope (its stages: Grill, Dev, Validate, Security, QA, Done)",
+            ),
             (
                 w2.command(&["attach", "SHOP-2", "--validator"]),
-                "SHOP-2 has no running validator",
+                "unexpected argument '--validator'",
             ),
             (w2.command(&["attach", "SHOP-99"]), "SHOP-99"),
         ];
@@ -294,12 +297,32 @@ fn without_a_service_attach_says_so() {
     );
 }
 
-/// `otaq attach <KEY> --validator` (T-0183, VAL-11) opens the ticket's running validator, not its agent.
+/// `otaq attach <KEY> --stage <name>` (FLW-20; was T-0183's `--validator`) opens the session of the agent running
+/// that stage: in Dev a Security check is refused; in Security it opens the check's terminal, not the agent's.
 #[tokio::test(flavor = "multi_thread")]
-async fn attach_validator_reaches_the_validator() {
+async fn attach_stage_reaches_the_check_running_it() {
     let w = World::new().await;
-    w.sessions.write(&w.session, b"the agent\n").unwrap();
-    w.sessions.write(&w.validator, b"the validator\n").unwrap();
+    w.service.force_status(&w.shop1, Status::Working).await;
+    let out = w
+        .command(&["attach", "SHOP-1", "--stage", "security"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "{out:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stderr),
+        "error: SHOP-1 isn't in Security\n"
+    );
+    w.service
+        .force_stage(&w.shop1, "security", Status::Checking)
+        .await;
+    w.service
+        .sessions
+        .write(&w.session, b"the agent\n")
+        .unwrap();
+    w.service
+        .sessions
+        .write(&w.validator, b"the validator\n")
+        .unwrap();
     let pty = native_pty_system()
         .openpty(PtySize {
             rows: 24,
@@ -309,8 +332,8 @@ async fn attach_validator_reaches_the_validator() {
         })
         .unwrap();
     let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_otaq"));
-    cmd.args(["attach", "SHOP-1", "--validator"]);
-    cmd.env(DataDir::env_var(), w.home.path());
+    cmd.args(["attach", "SHOP-1", "--stage", "Security"]);
+    cmd.env(DataDir::env_var(), w.home());
     let mut child = pty.slave.spawn_command(cmd).unwrap();
     drop(pty.slave);
     let mut reader = pty.master.try_clone_reader().unwrap();
@@ -336,7 +359,7 @@ async fn attach_validator_reaches_the_validator() {
         "the validator's terminal, not the agent's"
     );
     tokio::time::timeout(Duration::from_secs(10), async {
-        while !w.sessions.is_focused(&w.validator).unwrap() {
+        while !w.service.sessions.is_focused(&w.validator).unwrap() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })

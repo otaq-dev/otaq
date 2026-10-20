@@ -4,7 +4,7 @@
 use std::process::{Command, Output};
 
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::Actor;
+use otaq_core::domain::{Actor, Status};
 use otaq_core::naming;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, TerminalSize};
@@ -323,6 +323,104 @@ async fn show_terminal_prints_the_screen_as_plain_text() {
     assert_eq!(
         error["error"]["message"],
         "SHOP-13 has no terminal output: its agent hasn't started."
+    );
+    w.stop().await;
+}
+
+/// `show --terminal --stage <name>` (T-0416, FLW-20) on the test flow: refused while the ticket is in Dev; in
+/// Security, the check's terminal, and the plain form's first line names the stage; `--validator` is unknown.
+#[tokio::test(flavor = "multi_thread")]
+async fn show_terminal_stage_reads_the_check_running_it() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../otaq-core/tests/flows/every-kind.yaml");
+    let file = otaq_core::flow::yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap();
+    w.board.use_flow_for_tests("SHOP", &file).await;
+    let ticket = w.create("SHOP", "Escape the search query").await;
+    w.force_status(&ticket, Status::Working).await;
+    let print = |kind, text: &str| SpawnSpec {
+        kind,
+        project_id: project.id.clone(),
+        project_key: project.key.clone(),
+        ticket: Some(SessionTicket {
+            id: ticket.id.clone(),
+            key: ticket.key.clone(),
+        }),
+        program: "sh".into(),
+        args: vec!["-c".into(), format!("printf '{text}'; exec cat")],
+        cwd: project.repo_path.clone().into(),
+        env: vec![],
+        size: TerminalSize { cols: 40, rows: 8 },
+        tool: None,
+        tool_session_id: None,
+        model: None,
+        agent: None,
+        effort: None,
+        fallback: None,
+    };
+    let agent = w
+        .sessions
+        .spawn(print(SessionKind::Agent, "the agent<end>"))
+        .await
+        .unwrap();
+    w.wait_for_output(&agent.id, "<end>").await;
+
+    // In Dev: refused, a non-zero exit.
+    let out = cb(&w, &["show", "SHOP-1", "--terminal", "--stage", "security"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stderr),
+        "error: SHOP-1 isn't in Security\n"
+    );
+    assert_eq!(
+        stdout(&cb(&w, &["show", "SHOP-1", "--terminal", "--stage", "dev"])),
+        "the agent<end>\n"
+    );
+
+    // In Security while its check runs.
+    w.force_stage(&ticket, "security", Status::Checking).await;
+    let check = w
+        .sessions
+        .spawn(print(SessionKind::Validator, "the check<end>"))
+        .await
+        .unwrap();
+    w.wait_for_output(&check.id, "<end>").await;
+    assert_eq!(
+        stdout(&cb(
+            &w,
+            &["show", "SHOP-1", "--terminal", "--stage", "security"]
+        )),
+        "the check<end>\n"
+    );
+    let shown = json(&cb(
+        &w,
+        &[
+            "show",
+            "SHOP-1",
+            "--terminal",
+            "--stage",
+            "Security",
+            "--json",
+        ],
+    ));
+    assert_eq!(shown["session"], check.id);
+    assert_eq!(
+        stdout(&cb(&w, &["show", "SHOP-1", "--terminal"])),
+        "SHOP-1 is in Security \u{b7} its terminal: --stage security\nthe agent<end>\n"
+    );
+    let out = cb(&w, &["show", "SHOP-1", "--terminal", "--stage", "dev"]);
+    assert_eq!(
+        String::from_utf8_lossy(&out.stderr),
+        "error: SHOP-1 isn't in Dev\n"
+    );
+
+    // `--validator` is gone: a usage error.
+    let out = cb(&w, &["show", "SHOP-1", "--terminal", "--validator"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("unexpected argument '--validator'"),
+        "{out:?}"
     );
     w.stop().await;
 }

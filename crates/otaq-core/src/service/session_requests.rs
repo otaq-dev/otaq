@@ -129,13 +129,37 @@ pub(super) async fn handle(
     }
 }
 
-/// A session by id, the newest session of a kind (agent by default) of a ticket by key, or a project's Project
-/// terminal.
+/// A session by id, the newest session of a kind (agent by default) of a ticket by key or the one running its stage
+/// (FLW-20), or a project's Project terminal.
 async fn session_id(shared: &Shared, target: SessionTarget) -> Result<String, ErrorBody> {
-    let kind = target.kind.unwrap_or(SessionKind::Agent);
+    let mut kind = target.kind.unwrap_or(SessionKind::Agent);
     match (target.session, target.key, target.project) {
         (Some(id), _, _) => Ok(id),
         (None, Some(key), _) => {
+            if let Some(stage) = &target.stage {
+                let full = shared
+                    .board
+                    .ticket(&key)
+                    .await
+                    .map_err(|e| error_body(&e))?;
+                let (of_stage, stage) =
+                    super::board_requests::stage_session(&shared.board, &full, stage)
+                        .await
+                        .map_err(|e| error_body(&e))?;
+                kind = of_stage;
+                if kind == SessionKind::Validator {
+                    return shared
+                        .sessions
+                        .running_of(&full.id, kind)
+                        .map(|s| s.id)
+                        .ok_or_else(|| {
+                            ErrorBody::new(
+                                ErrorKind::NotFound,
+                                format!("{}'s {} check isn't running", full.key, stage.name),
+                            )
+                        });
+                }
+            }
             let ticket = ticket(shared, &key).await?;
             shared
                 .sessions

@@ -1389,13 +1389,13 @@ pub struct KeyParams {
     pub key: String,
 }
 
-/// `{"key": "SHOP-22"}`: the ticket's agent session; `{"key": "SHOP-29", "validator": true}`: its running
-/// validator's.
+/// `{"key": "SHOP-22"}`: the ticket's agent session; `{"key": "SHOP-29", "stage": "security"}`: the session of the
+/// agent running that stage (its id or name, any case), refused unless the ticket is in it (FLW-20).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TerminalParams {
     pub key: String,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub validator: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
 }
 
 /// The answer to `ticket.terminal`: the screen and the lines above it as plain text
@@ -1499,7 +1499,8 @@ pub struct SessionListParams {
 }
 
 /// A session by id (`{"session": "…"}`), a ticket's newest agent session by key (`{"key": "SHOP-18"}`), its newest
-/// session of another kind (`{"key": "SHOP-18", "kind": "shell"}`), or a project's Project terminal
+/// session of another kind (`{"key": "SHOP-18", "kind": "shell"}`), the one running a stage (`{"key": "SHOP-29",
+/// "stage": "security"}`), or a project's Project terminal
 /// (`{"project": "SHOP", "kind": "project"}`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionTarget {
@@ -1510,6 +1511,10 @@ pub struct SessionTarget {
     /// The kind of the ticket's session (agent when not given).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<crate::session::SessionKind>,
+    /// With `key`: the session of the agent running this stage of the ticket's flow (its id or name, any case),
+    /// refused unless the ticket is in it (FLW-20); `kind` is then not given.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
     /// A project's key, for its Project terminal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,

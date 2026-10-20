@@ -84,7 +84,7 @@ const VALIDATING: TerminalTabView = {
     dot: "working",
     read_only: false,
     strips: strips().map((s) => ({ ...s, state: { ...s.state, label: `validator ${s.state.label}` } })),
-    attach_command: "otaq attach SHOP-19 --validator",
+    attach_command: "otaq attach SHOP-19 --stage validate",
   },
 };
 
@@ -137,7 +137,7 @@ describe("the Agent / Validator switch", () => {
     expect(stripFor(VALIDATING, "live", false, "validator")?.state.label).toBe("validator live");
     expect(bodyOf({ ...VALIDATING, recovery: { kind: "loading", text: "…" } }, "validator")).toBe("terminal");
     const html = render(VALIDATING, LIVE, false, "validator");
-    expect(html).toContain("otaq attach SHOP-19 --validator");
+    expect(html).toContain("otaq attach SHOP-19 --stage validate");
     expect(html).not.toContain("…/wt/shop-web/SHOP-19");
     expect(html).not.toContain("Instructions: shop-web");
   });

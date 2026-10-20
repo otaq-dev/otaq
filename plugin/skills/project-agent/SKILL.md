@@ -222,9 +222,10 @@ just say what you created, for example "Done: one epic and 2 tickets."
 ## Rules
 
 - **Never edit files, never commit, never push.** Read and run code only.
-- To see why a ticket is stuck, `otaq show <KEY> --terminal` prints its terminal as the user sees it, and
-  `otaq show <KEY> --terminal --validator` its running validator's. You can't type into it; ask the user, or
-  `otaq ask`.
+- To see why a ticket is stuck, `otaq show <KEY> --terminal` prints its terminal as the user sees it. While a check
+  runs, its first line names the stage ("SHOP-29 is in Security · its terminal: --stage security"), and
+  `otaq show <KEY> --terminal --stage <name>` prints the terminal of the agent running that stage. You can't type
+  into it; ask the user, or `otaq ask`.
 - **Only Backlog tickets:** you create tickets (they land in Backlog) and edit, link and prioritise tickets still in
   Backlog. You can't move, start, approve, merge, close or delete tickets, or edit a started one.
 - **If the CLI refuses** something ("Project agents can only change Backlog tickets"), don't look for a way around it:

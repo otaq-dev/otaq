@@ -104,9 +104,10 @@ fn no_skill_text_names_a_skill_in_one_tools_syntax() {
     }
 }
 
-/// T-0409 (AGM-12, AGM-10, AGM-11; d0108): no shipped skill names a removed command or flag. Stages end with
-/// `stage next` / `stage done`, checks with `check pass|fail`, and tickets set stage choices with `--stage`. The
-/// only `--validator` left is `show --terminal --validator` (a running check's terminal), which isn't an agent pick.
+/// T-0409, T-0416 (AGM-12, AGM-10, AGM-11, FLW-20, FLW-21; d0108): no shipped skill names a removed command or
+/// flag. Stages end with `stage next` / `stage done`, checks with `check pass|fail`, tickets set stage choices with
+/// `--stage`, and a running check's terminal is `--terminal --stage <name>`. `--validator` is gone everywhere, from
+/// every file of the plugin.
 #[test]
 fn no_skill_names_a_removed_command_or_flag() {
     let ns = naming::PLUGIN_NAMESPACE;
@@ -119,12 +120,54 @@ fn no_skill_names_a_removed_command_or_flag() {
         format!("/{ns}:"),
     ];
     for (name, path) in skill_files() {
-        let text = std::fs::read_to_string(&path)
-            .unwrap()
-            .replace("--terminal --validator", "--terminal");
+        let text = std::fs::read_to_string(&path).unwrap();
         for word in &gone {
             assert!(!text.contains(word.as_str()), "{name} names {word:?}");
         }
+    }
+    let plugin =
+        find_plugin_dir(Path::new("/nonexistent")).expect("the repository's plugin folder");
+    for path in files_under(&plugin) {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        assert!(
+            !text.contains("--validator"),
+            "{} names --validator",
+            path.display()
+        );
+    }
+}
+
+/// Every file under `dir`, at any depth.
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            files.extend(files_under(&path));
+        } else {
+            files.push(path);
+        }
+    }
+    files
+}
+
+/// T-0416 (FLW-21): the Project agent and the epic lead read a running check's terminal with `--stage`.
+#[test]
+fn the_reading_skills_teach_the_stage_terminal() {
+    let cmd = naming::COMMAND_NAME;
+    let readers: Vec<_> = skill_files()
+        .into_iter()
+        .filter(|(n, _)| n == "project-agent" || n == "epic-lead")
+        .collect();
+    assert_eq!(readers.len(), 2);
+    for (name, path) in readers {
+        let text = std::fs::read_to_string(path).unwrap();
+        assert!(
+            text.contains(&format!("`{cmd} show <KEY> --terminal --stage <name>`")),
+            "{name} must teach --stage"
+        );
     }
 }
 
