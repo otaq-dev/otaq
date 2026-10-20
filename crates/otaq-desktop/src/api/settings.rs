@@ -285,7 +285,7 @@ fn parse<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, RequestErro
     serde_json::from_value(params).map_err(|e| RequestError::plain(e.to_string()))
 }
 
-async fn agent_list(app: &App) -> Result<AgentList, RequestError> {
+pub(super) async fn agent_list(app: &App) -> Result<AgentList, RequestError> {
     match app.service.send(Request::AgentsList).await? {
         Reply::Agents(list) => Ok(*list),
         other => Err(unexpected("agents.list", &other)),
@@ -295,7 +295,7 @@ async fn agent_list(app: &App) -> Result<AgentList, RequestError> {
 /// The agent tools (`agent_tools.list`; the avatars follow it), each tool's cached model list (T-0335), the connected
 /// ones read again first when `refresh`, and the tools whose read gave none. When the tools can't be listed, the
 /// first one counts as connected, as before M23.
-async fn agent_tools(app: &App, refresh: bool) -> Result<agents::AgentTools, RequestError> {
+pub(super) async fn agent_tools(app: &App, refresh: bool) -> Result<agents::AgentTools, RequestError> {
     let connected: Vec<Tool> = match super::agent_tools::list(app, Request::AgentToolsList).await {
         Ok(list) => list
             .tools

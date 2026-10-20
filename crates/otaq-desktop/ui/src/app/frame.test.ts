@@ -87,11 +87,28 @@ describe("the frame", () => {
   it("has rail | pane | main with the tabs, each empty slot showing its name; the panel only with a ticket open", () => {
     const app = createRegistries();
     // Before `layout.view` answers: no pane and no tabs yet.
-    expect(slots(render(app))).toEqual(["header", "rail", "banners", "board", "overlays", "toasts"]);
+    expect(slots(render(app))).toEqual([
+      "header",
+      "rail",
+      "banners",
+      "board",
+      "main_overlays",
+      "overlays",
+      "toasts",
+    ]);
 
     layoutView.set(VIEW);
     const closed = render(app);
-    expect(slots(closed)).toEqual(["header", "rail", "banners", "pane", "board", "overlays", "toasts"]);
+    expect(slots(closed)).toEqual([
+      "header",
+      "rail",
+      "banners",
+      "pane",
+      "board",
+      "main_overlays",
+      "overlays",
+      "toasts",
+    ]);
     for (const name of ["Header", "Rail", "Board"]) expect(closed).toContain(`>${name}</div>`);
     expect(closed).toContain('aria-selected="true"><span class="icon"');
     expect(closed).toContain('<span class="frame-tab-label">Board</span>');
@@ -109,6 +126,7 @@ describe("the frame", () => {
       "pane",
       "board",
       "panel",
+      "main_overlays",
       "overlays",
       "toasts",
     ]);
@@ -152,7 +170,7 @@ describe("the frame", () => {
 
   it("the Files tab shows its quiet line until M24, in place of the board", () => {
     const html = body(1440, { ...INITIAL_LAYOUT, tab: "files" });
-    expect(slots(html)).toEqual(["header", "rail", "banners", "pane", "files"]);
+    expect(slots(html)).toEqual(["header", "rail", "banners", "pane", "files", "main_overlays"]);
     expect(html).toContain('<p class="frame-files-empty">The Files view comes in a later update.</p>');
     expect(html).toMatch(
       /aria-selected="true"><span class="icon"[^>]*><\/span><span class="frame-tab-label">Files/,
@@ -162,12 +180,12 @@ describe("the frame", () => {
   it("while the Files view is parked: no tab row, the board right under the header, a stored Files tab on the board", () => {
     tabCounts.set({ board: "26" });
     const html = body(1440, INITIAL_LAYOUT, false, PARKED);
-    expect(slots(html)).toEqual(["header", "rail", "banners", "pane", "board"]);
+    expect(slots(html)).toEqual(["header", "rail", "banners", "pane", "board", "main_overlays"]);
     expect(html).not.toContain("frame-tabs");
     expect(html).not.toContain('role="tablist"');
     expect(html).toContain('<div class="frame-main"><div class="frame-board" data-slot="board">');
     const stored = body(1440, { ...INITIAL_LAYOUT, tab: "files" }, false, PARKED);
-    expect(slots(stored)).toEqual(["header", "rail", "banners", "pane", "board"]);
+    expect(slots(stored)).toEqual(["header", "rail", "banners", "pane", "board", "main_overlays"]);
     expect(stored).not.toContain("frame-files");
     expect(shownTab({ ...INITIAL_LAYOUT, tab: "files" }, PARKED)).toBe("board");
     expect(shownTab({ ...INITIAL_LAYOUT, tab: "files" }, VIEW)).toBe("files");

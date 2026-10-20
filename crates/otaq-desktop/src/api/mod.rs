@@ -39,6 +39,8 @@ pub use editor::{
     SourceModeParams as EditorSourceModeParams, View as EditorView,
 };
 #[cfg(test)]
+pub use flow_preview::export_types as export_flow_preview_types;
+#[cfg(test)]
 pub use inbox::{
     ActRequest as InboxActParams, AnswerRequest as InboxAnswerParams, Load as InboxLoad,
     Next as InboxNext, RunBarRequest as InboxRunBarParams,
@@ -183,6 +185,7 @@ areas! {
     agent_tools,
     limits,
     palette,
+    flow_preview,
 }
 
 /// Reads the user's answer once the service answers, then sends the counts every [`crate::usage::FLUSH_EVERY`]

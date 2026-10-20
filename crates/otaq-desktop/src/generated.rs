@@ -299,6 +299,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::AgentToolDisconnectOutcome::export_all(&cfg)?;
     // The Tools step's gallery (T-0365).
     otaq_view::view_models::onboarding_page::ToolsGallery::export_all(&cfg)?;
+    // The flow preview (T-0420): its view, the picks and every request.
+    crate::api::export_flow_preview_types(&cfg)?;
     Ok(())
 }
 

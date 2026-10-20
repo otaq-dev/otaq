@@ -103,6 +103,9 @@ export interface OverlayParams {
   gallery: undefined;
   /** A description over the whole window (T-0260); `owner` is the form or Ticket tab that draws into it. */
   full_view: { owner: string };
+  /** The flow preview of a project's open proposal (T-0420, FLW-04), over the main area beside the Project agent
+   * pane; `focus`: the user opened it (Settings → Flow), so the keyboard moves into it. */
+  flow_preview: { project: string; focus?: boolean };
 }
 
 export type OverlayId = keyof OverlayParams;
@@ -144,7 +147,15 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   shortcuts: true,
   gallery: true,
   full_view: true,
+  // The pane beside it stays usable: typing and shortcuts go on (FLW-04).
+  flow_preview: false,
 };
+
+/**
+ * The overlays drawn over the main area only (FLW-04's preview), not the whole window: the rail, the header and the
+ * Project agent pane stay visible and usable beside them. The frame draws them in the main area's own layer.
+ */
+export const OVERLAY_MAIN_AREA: Partial<Record<OverlayId, true>> = { flow_preview: true };
 
 export const OVERLAY_IDS = Object.keys(OVERLAY_MODAL) as OverlayId[];
 

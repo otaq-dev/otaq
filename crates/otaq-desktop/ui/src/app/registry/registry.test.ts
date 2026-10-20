@@ -75,7 +75,7 @@ describe("the fixed ids", () => {
   });
 
   it("overlays: every id has its modality; the inbox and popovers don't hold shortcuts back", () => {
-    expect(OVERLAY_IDS).toHaveLength(32);
+    expect(OVERLAY_IDS).toHaveLength(33);
     const nonModal = OVERLAY_IDS.filter((id) => !OVERLAY_MODAL[id]);
     expect(nonModal).toEqual([
       "inbox",
@@ -85,6 +85,7 @@ describe("the fixed ids", () => {
       "terminals",
       "activity",
       "all_clear",
+      "flow_preview",
     ]);
   });
 
@@ -142,6 +143,8 @@ describe("the fixed ids", () => {
         case "onboarding":
         case "full_view":
           return "page";
+        case "flow_preview":
+          return "sheet";
       }
     };
     expect(PANEL_TABS.map(tabIcon)).toHaveLength(7);
