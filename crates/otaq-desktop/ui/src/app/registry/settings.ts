@@ -17,7 +17,7 @@ const every =
 export const GLOBAL_SECTIONS = every<GlobalSectionId>()([
   /** M23: the agent tools (T-0360's view; T-0365 draws it). */
   "agent_tools",
-  /** The agents and the default model (T-0405's view, read-only until T-0410). */
+  /** The agents, the default model and the fallbacks, and one agent's page (T-0410). */
   "agents",
   "agent_limits",
   /** M12: Validation & Auto-merge (T-0240). */

@@ -43,6 +43,9 @@ pub struct Dropped {
     /// The tickets' rows, by key.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tickets: Vec<DroppedRow>,
+    /// What was carried over to agents ("Moved over: Strong, Light, your Agent instructions (now Developer's)…").
+    #[serde(default)]
+    pub moved: Moved,
     /// The user dismissed the notice.
     #[serde(default)]
     pub dismissed: bool,
@@ -53,6 +56,37 @@ impl Dropped {
     pub fn is_empty(&self) -> bool {
         self.projects.is_empty() && self.tickets.is_empty()
     }
+
+    /// Nothing to tell: nothing moved over and nothing dropped (a fresh install).
+    pub fn says_nothing(&self) -> bool {
+        self.is_empty() && self.moved == Moved::default()
+    }
+}
+
+/// What the move-over carried to agents (AGM-02), for the notice and the agents' came-from lines while it shows.
+/// Agents by id, so a rename since reads right.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Moved {
+    /// The agents made from M31's named agents, in their order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub named: Vec<String>,
+    /// The agent that got the global Agent instructions (Developer).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_instructions: Option<String>,
+    /// The agent that got the Project agent instructions (Planner).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_agent_instructions: Option<String>,
+    /// The global imported workflow skills, each with the agent that got it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skills: Vec<MovedSkill>,
+}
+
+/// A global imported workflow skill now on an agent: "your Validate skill (now Validator's)".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MovedSkill {
+    /// The step as people read it ("Validate").
+    pub step: String,
+    pub agent: String,
 }
 
 /// One project's dropped overrides: "pocket-api: its own Developer (Strong) and Commit skill".
@@ -283,12 +317,19 @@ async fn move_over(tx: &mut Transaction<'_, Sqlite>) -> Result<Dropped, StoreErr
     };
     let flow_agents = &flow::default_file().agents;
     let mut built: Vec<(NewAgent, CameFrom, Option<String>)> = Vec::new();
+    // What went where, by the built agent's place: the notice names them once written (ids).
+    let mut instructions_to = None;
+    let mut planner_instructions_to = None;
+    let mut skills_to: Vec<(String, usize)> = Vec::new();
     for agent in shipped::agents_file() {
         let mut new = shipped::new_agent(agent);
         match new.role {
             Some(super::Role::ProjectAgent) => {
                 new.model = as_model(default_of("project_agent"));
                 new.instructions = project_agent_instructions.clone();
+                if !project_agent_instructions.is_empty() {
+                    planner_instructions_to = Some(built.len());
+                }
             }
             Some(super::Role::EpicLead) => new.model = as_model(default_of("epic_lead")),
             None => {}
@@ -308,17 +349,22 @@ async fn move_over(tx: &mut Transaction<'_, Sqlite>) -> Result<Dropped, StoreErr
         if runs(flow::default::DEV) {
             new.model = as_model(default_of("developer"));
             new.instructions = instructions.clone();
-            for (field, _, stands) in &m31::STEPS[..3] {
+            if !instructions.is_empty() {
+                instructions_to = Some(built.len());
+            }
+            for (field, label, stands) in &m31::STEPS[..3] {
                 if let Some(skill) = import_of(skills.get(field)) {
                     put_skill(&mut new, imported(skill, stands));
+                    skills_to.push(((*label).to_owned(), built.len()));
                 }
             }
             developer_index = Some(built.len());
         } else if runs(flow::default::VALIDATE) {
             new.model = as_model(default_of("validator"));
-            let (field, _, stands) = m31::STEPS[3];
+            let (field, label, stands) = m31::STEPS[3];
             if let Some(skill) = import_of(skills.get(field)) {
                 put_skill(&mut new, imported(skill, stands));
+                skills_to.push((label.to_owned(), built.len()));
             }
         }
         built.push((new, CameFrom::DefaultPreset, None));
@@ -356,12 +402,31 @@ async fn move_over(tx: &mut Transaction<'_, Sqlite>) -> Result<Dropped, StoreErr
 
     // Write them, and the names the default flow's stages run.
     let mut flow_names = HashMap::new();
+    let mut ids = Vec::new();
     for (new, came_from, id) in &built {
         let id = Store::insert_agent_in(tx, new, came_from, id.as_deref()).await?;
         if *came_from == CameFrom::DefaultPreset {
-            flow_names.insert(new.name.clone(), id);
+            flow_names.insert(new.name.clone(), id.clone());
         }
+        ids.push(id);
     }
+    let moved = Moved {
+        named: built
+            .iter()
+            .zip(&ids)
+            .filter(|((.., from), _)| from.is_some())
+            .map(|(_, id)| id.clone())
+            .collect(),
+        agent_instructions: instructions_to.map(|i| ids[i].clone()),
+        project_agent_instructions: planner_instructions_to.map(|i| ids[i].clone()),
+        skills: skills_to
+            .into_iter()
+            .map(|(step, i)| MovedSkill {
+                step,
+                agent: ids[i].clone(),
+            })
+            .collect(),
+    };
     put_setting_in(
         tx,
         AGENT_FLOW_NAMES,
@@ -392,6 +457,7 @@ async fn move_over(tx: &mut Transaction<'_, Sqlite>) -> Result<Dropped, StoreErr
         .collect();
     let mut dropped = Dropped {
         at: now_ms(),
+        moved,
         ..Dropped::default()
     };
     let projects: Vec<(String, String, String, String)> =

@@ -2047,6 +2047,25 @@ async fn the_move_over_carries_m31s_agents_and_records_what_it_dropped() {
         ),
         ("NOTE-3".to_owned(), "Developer", Some("Strong"), true)
     );
+    // And what moved, by agent id (T-0410's notice): the named agents, both instructions, the Validate skill.
+    let moved = &dropped.moved;
+    assert_eq!(moved.named, ["strong", "light"]);
+    assert_eq!(
+        moved.agent_instructions.as_deref(),
+        Some(developer.id.as_str())
+    );
+    assert_eq!(
+        moved.project_agent_instructions.as_deref(),
+        Some(planner.id.as_str())
+    );
+    assert_eq!(
+        moved
+            .skills
+            .iter()
+            .map(|s| (s.step.as_str(), s.agent.as_str()))
+            .collect::<Vec<_>>(),
+        [("Validate", validator.id.as_str())]
+    );
 
     // Kept: pocket-notes' Agent instructions as its notes, both projects' Validation settings.
     let notes = project_json(&store, "NOTE").await;

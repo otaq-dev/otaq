@@ -123,10 +123,8 @@ async fn a_fresh_install_has_the_shipped_agents_on_default() {
     assert_eq!(list.default_model, None);
     assert!(list.fallbacks.is_empty());
     let dropped = f.board.store().dropped().await.unwrap().expect("ran");
-    assert!(dropped.is_empty());
-    assert_eq!(list.dropped, Some(dropped), "until dismissed");
-    f.board.store().dismiss_dropped().await.unwrap();
-    assert_eq!(agents.list().await.unwrap().dropped, None);
+    assert!(dropped.says_nothing());
+    assert_eq!(list.dropped, None, "a fresh install has nothing to tell");
 }
 
 /// AGM-01, Q256: names are trimmed and new ignoring case; `skip` and names starting with `_` are refused.
@@ -220,6 +218,19 @@ async fn one_agent_per_role_and_the_role_moves() {
         .map(|a| a.name)
         .collect();
     assert_eq!(holders, ["Strong"]);
+    // The Epic lead's role can't go to the Project agent: the Project agent's role would be left with no agent.
+    assert_eq!(
+        refusal(agents.move_role(Role::EpicLead, &strong.id).await),
+        (
+            Refusal::AgentInUse,
+            "Strong is your Project agent. Give the role to another agent first".into()
+        )
+    );
+    // Giving it the role it holds changes nothing.
+    agents
+        .move_role(Role::ProjectAgent, &strong.id)
+        .await
+        .unwrap();
     agents.delete(&planner.id).await.unwrap();
     assert!(agents.agent(&planner.id).await.is_err());
 }
@@ -796,6 +807,14 @@ async fn the_requests_are_the_users() {
         panic!("agents.fallback")
     };
     assert_eq!(list.fallbacks.len(), 1);
+    let Reply::Agents(list) = client
+        .request(Request::AgentsDismissMovedOver)
+        .await
+        .unwrap()
+    else {
+        panic!("agents.dismiss_moved_over")
+    };
+    assert_eq!(list.dropped, None);
 
     // A ticket's agent is refused every one.
     let agent = w.agent_shell(&ticket).await;

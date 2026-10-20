@@ -1,7 +1,6 @@
 //! Settings (SET-01, PRJ-03, PRJ-04; d0003, d0023, d0040, d0055; *15 · Settings*): one window with a section
-//! nav; the global page (Agent instructions, Data, Appearance, Tools) and one page per project (name, key,
-//! repository, base branch, agent instructions override, setup and run commands, Open URL, env files, Remove
-//! project). Everything is stored in the app's database, never in a repository (d0023). Values the service
+//! nav; the global page (Data, Appearance, Tools) and one page per project (name, key, repository, base branch,
+//! the notes every agent in the project gets, setup and run commands, Open URL, env files, Remove project). Everything is stored in the app's database, never in a repository (d0023). Values the service
 //! flags (a missing env file, a URL that isn't one) show in red with its reason; the nav marks the project.
 //! Sections for later features are added by their tickets (limits T-0082 is in, workflow skills T-0139, usage
 //! T-0126, notifications T-0117, PR provider T-0141, "let finished tickets answer" T-0153).
@@ -22,10 +21,8 @@ pub enum Page {
 }
 
 /// The global page's sections, in nav order, with their nav icon (*15 · Settings → Nav*).
-pub const GLOBAL_SECTIONS: [(&str, IconName); 8] = [
+pub const GLOBAL_SECTIONS: [(&str, IconName); 6] = [
     ("Agent limits", IconName::Gauge),
-    ("Agent instructions", IconName::ScrollText),
-    ("Workflow skills", IconName::Workflow),
     ("Usage", IconName::Coins),
     ("Notifications", IconName::Bell),
     ("Data", IconName::Database),
@@ -383,8 +380,6 @@ mod tests {
             icons,
             [
                 "gauge",
-                "scroll-text",
-                "workflow",
                 "coins",
                 "bell",
                 "database",
@@ -396,8 +391,8 @@ mod tests {
         let bill = items.last().unwrap();
         assert_eq!(bill.label, "billing-api");
         assert!(bill.on && bill.alert);
-        assert!(items[..8].iter().all(|i| !i.on && i.page == Page::Global));
-        let items = model.nav_items(&Page::Global, 3, &[info(0)]);
+        assert!(items[..6].iter().all(|i| !i.on && i.page == Page::Global));
+        let items = model.nav_items(&Page::Global, 1, &[info(0)]);
         let on: Vec<_> = items
             .iter()
             .filter(|i| i.on)
@@ -408,8 +403,8 @@ mod tests {
             ["Usage"],
             "one row is on: the section clicked or in view"
         );
-        assert_eq!(items[3].section, Some(3));
-        assert_eq!(items[8].section, None);
+        assert_eq!(items[1].section, Some(1));
+        assert_eq!(items[6].section, None);
     }
 
     #[test]

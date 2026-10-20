@@ -1,6 +1,6 @@
 // Area 15 · Settings (T-0234): the Settings overlay (⌘,), and the global and project sections it draws, one
-// registered component per section id (T-0240 registered Validation & Auto-merge and the Project agent instructions;
-// T-0365 Agent tools; T-0395 Keyboard shortcuts).
+// registered component per section id (T-0240 registered Validation & Auto-merge; T-0365 Agent tools; T-0395 Keyboard
+// shortcuts; T-0410 Agents with one agent's page).
 import { openOverlay } from "../../app/overlays";
 import type { Screen } from "../../app/registry";
 import type { GlobalSection, ProjectSection } from "../../app/registry";

@@ -9,6 +9,7 @@ pub mod add_project;
 pub mod after_restart;
 pub mod agent_activity;
 pub mod agent_edits;
+pub mod agent_page;
 pub mod agent_pane;
 pub mod agent_rows;
 pub mod agent_tools_page;

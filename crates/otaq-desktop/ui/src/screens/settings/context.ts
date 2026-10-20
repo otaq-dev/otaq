@@ -1,6 +1,6 @@
 // What every Settings section reads: the open page from the Rust view and the calls back to it. The Settings overlay
 // provides it; the section components (registered per id) take their rows from it.
-import { createContext, useContext } from "react";
+import { type ReactNode, createContext, useContext } from "react";
 
 import type { SettingsButtonAction } from "../../generated/SettingsButtonAction";
 import type { SettingsNavRow } from "../../generated/SettingsNavRow";
@@ -18,6 +18,11 @@ export interface SettingsContextValue {
   /** The header's place for a topic's own buttons (Keyboard shortcuts' Reset all, T-0395); `null` until it is
    * drawn, absent in the gallery. */
   headerSlot?: HTMLElement | null;
+  /** Puts a topic's own heading in place of its nav label (one agent's page, T-0410); `null` gives the label back.
+   * Absent in the gallery. */
+  setHeading?: (heading: ReactNode | null) => void;
+  /** Counts the nav clicks: a topic showing a page of its own (one agent) goes back to its first page on one. */
+  visit?: number;
 }
 
 export const SettingsContext = createContext<SettingsContextValue | null>(null);

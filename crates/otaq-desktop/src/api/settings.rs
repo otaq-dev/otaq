@@ -4,24 +4,26 @@
 //! tools check, the PR provider, the branches. Everything is stored by the service, never in a repository.
 
 use otaq_core::agent_tools::Tool;
-use otaq_core::agents::AgentList;
+use otaq_core::agents::{AgentList, InUse, ModelRef};
+use otaq_core::board::Refusal;
 use otaq_core::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::protocol::{
-    KeyParams, ModelsParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply, Request,
+    AgentEditParams, DefaultModelParams, FallbackParams, IdParams, ImportSkillParams, KeyParams, ModelsParams,
+    MoveRoleParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, ReimportSkillParams, Reply, Request,
 };
 use otaq_view::view_models::about;
 use otaq_view::view_models::editor_fields::base_choices;
 use otaq_view::view_models::licenses;
 use otaq_view::view_models::menu::MenuItem;
-use otaq_view::view_models::agents;
+use otaq_view::view_models::{agent_page, agents};
 use otaq_view::view_models::settings::data_paths;
 use otaq_view::view_models::settings_page::{
     self as page, GlobalInputs, Os, ProjectChange, ProjectInputs, Reveal, WarmInputs,
 };
 use otaq_view::view_models::warm_build;
 use otaq_view::icons::IconName;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
@@ -57,10 +59,71 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
                 .await?;
             reply(&view(app, None).await?)
         }
-        // Settings → Agents (AGM-04): the list, read-only until T-0410 draws its editing.
+        // Settings → Agents (T-0410; AGM-02, AGM-03, AGM-04): the page, its default model and fallbacks, the notice;
+        // one agent's page, its changes, its role, its skills, Delete.
         "settings.agents" => {
             let p: AgentsOpen = parse(params)?;
             reply(&agents_section(app, p.refresh).await?)
+        }
+        "settings.agents_default_model" => {
+            let p: ModelRef = parse(params)?;
+            app.service
+                .send(Request::AgentsDefaultModel(DefaultModelParams { model: p }))
+                .await?;
+            reply(&agents_section(app, false).await?)
+        }
+        "settings.agents_fallback" => {
+            let p: AgentsFallback = parse(params)?;
+            app.service
+                .send(Request::AgentsFallback(FallbackParams {
+                    tool: p.tool,
+                    fallback: p.fallback,
+                }))
+                .await?;
+            reply(&agents_section(app, false).await?)
+        }
+        "settings.agents_dismiss_notice" => {
+            app.service.send(Request::AgentsDismissMovedOver).await?;
+            reply(&agents_section(app, false).await?)
+        }
+        // The model picker's Retry (`GTuGI`): reads the tool's list again; the page asks for its view after.
+        "settings.agents_models_retry" => {
+            let p: ModelsParams = parse(params)?;
+            app.service.send(Request::AgentsModelsRetry(p)).await?;
+            reply(&Value::Null)
+        }
+        "settings.agent" => reply(&agent_page(app, parse(params)?).await?),
+        "settings.agent_add" => {
+            let p: AgentAdd = parse(params)?;
+            reply(&agent_add(app, p.draft).await?)
+        }
+        "settings.agent_role" => {
+            let p: AgentRoleSet = parse(params)?;
+            reply(&agent_role(app, &p.id, &p.role).await?)
+        }
+        "settings.agent_import" => {
+            let p: AgentImport = parse(params)?;
+            let request = Request::AgentsImportSkill(ImportSkillParams {
+                id: p.id.clone(),
+                folder: p.folder.into(),
+            });
+            reply(&agent_skill(app, &p.id, request).await?)
+        }
+        "settings.agent_reimport" => {
+            let p: AgentReimport = parse(params)?;
+            let request = Request::AgentsReimportSkill(ReimportSkillParams {
+                id: p.id.clone(),
+                skill: p.skill,
+            });
+            reply(&agent_skill(app, &p.id, request).await?)
+        }
+        "settings.agent_delete_dialog" => {
+            let p: AgentId = parse(params)?;
+            reply(&delete_dialog(app, &p.id).await?)
+        }
+        "settings.agent_delete" => {
+            let p: AgentId = parse(params)?;
+            reply(&agent_delete(app, &p.id).await?)
         }
         "settings.credits" => reply(&page::credits()),
         // Settings → About (d0071): the section, Otaq's own license, the third-party notices.
@@ -134,6 +197,89 @@ pub struct AgentsOpen {
     pub refresh: bool,
 }
 
+/// `settings.agents_fallback`: a tool's fallback; none clears it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentsFallback {
+    pub tool: Tool,
+    #[serde(default)]
+    pub fallback: Option<ModelRef>,
+}
+
+/// `settings.agent`: a saved agent's page (`id`), or a draft's: New agent (nothing), Duplicate (`duplicate`: the
+/// agent copied) or the draft the page holds (`draft`). `change` applies one change first: saved at once on a saved
+/// agent, kept in the draft otherwise.
+#[derive(Debug, Clone, Default, Deserialize, TS)]
+#[ts(rename = "AgentPageParams")]
+pub struct AgentOpen {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub duplicate: Option<String>,
+    #[serde(default)]
+    pub draft: Option<agent_page::Draft>,
+    #[serde(default)]
+    pub change: Option<agent_page::Change>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentAdd {
+    pub draft: agent_page::Draft,
+}
+
+/// `settings.agent_role`: the role as stored (`project-agent`, `epic-lead`), or empty for None.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentRoleSet {
+    pub id: String,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentImport {
+    pub id: String,
+    pub folder: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentReimport {
+    pub id: String,
+    pub skill: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentId {
+    pub id: String,
+}
+
+/// How Add agent went: added (the new agent's page), or refused (the draft's page with the reason under its field).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+#[ts(rename = "AgentAddOutcome")]
+pub enum AgentAddOutcome {
+    Added { page: Box<agent_page::Page> },
+    Refused { page: Box<agent_page::Page> },
+}
+
+/// How Delete went: deleted (the fresh list), or something started using it since the dialog asked.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+#[ts(rename = "AgentDeleteOutcome")]
+pub enum AgentDeleteOutcome {
+    Deleted { section: Box<agents::Section> },
+    Refused { dialog: agent_page::DeleteDialog },
+}
+
+/// The types Settings → Agents reads and sends, for `generated.rs` (T-0410).
+#[cfg(test)]
+pub fn export_agent_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
+    agents::Section::export_all(cfg)?;
+    agent_page::Page::export_all(cfg)?;
+    agent_page::Change::export_all(cfg)?;
+    agent_page::DeleteDialog::export_all(cfg)?;
+    AgentOpen::export_all(cfg)?;
+    AgentAddOutcome::export_all(cfg)?;
+    AgentDeleteOutcome::export_all(cfg)
+}
+
 fn parse<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, RequestError> {
     let params = if params.is_null() {
         Value::Object(Default::default())
@@ -189,11 +335,203 @@ async fn agent_tools(app: &App, refresh: bool) -> Result<agents::AgentTools, Req
     })
 }
 
-/// The section; `refresh` is the page opening: it reads the connected tools' lists again first.
+/// What uses an agent (`agents.in_use`).
+async fn in_use(app: &App, id: &str) -> Result<InUse, RequestError> {
+    match app
+        .service
+        .send(Request::AgentsInUse(IdParams { id: id.to_owned() }))
+        .await?
+    {
+        Reply::AgentInUse(uses) => Ok(*uses),
+        other => Err(unexpected("agents.in_use", &other)),
+    }
+}
+
+/// The page; `refresh` is the page opening: it reads the connected tools' lists again first.
 async fn agents_section(app: &App, refresh: bool) -> Result<agents::Section, RequestError> {
     let list = agent_list(app).await?;
     let tools = agent_tools(app, refresh).await?;
-    Ok(agents::section(&list, &tools))
+    let mut uses = Vec::new();
+    for agent in &list.agents {
+        uses.push(in_use(app, &agent.id).await?);
+    }
+    Ok(agents::section(&agents::Inputs {
+        list: &list,
+        tools: &tools,
+        uses: &uses,
+    }))
+}
+
+/// A refusal the page writes under its field; anything else is the request's error.
+fn refused(e: RequestError) -> Result<agent_page::Refused, RequestError> {
+    match e.refusal.as_deref() {
+        Some(code) => Ok(agent_page::Refused {
+            field: agent_page::field_of(Some(code)),
+            message: e.message,
+        }),
+        None => Err(e),
+    }
+}
+
+/// One agent's page from what the service has now: `draft` (a draft, or a saved agent's change the service refused)
+/// in place of the saved fields.
+async fn page_of(
+    app: &App,
+    id: Option<&str>,
+    draft: Option<agent_page::Draft>,
+    refused: Option<agent_page::Refused>,
+    moved: Option<String>,
+) -> Result<agent_page::Page, RequestError> {
+    let list = agent_list(app).await?;
+    let tools = agent_tools(app, false).await?;
+    let agent = match id {
+        Some(id) => Some(
+            list.agents
+                .iter()
+                .find(|a| a.id == id)
+                .ok_or_else(|| RequestError::plain(format!("no agent {id}")))?,
+        ),
+        None => None,
+    };
+    let uses = match agent {
+        Some(a) => Some(in_use(app, &a.id).await?),
+        None => None,
+    };
+    let draft = draft
+        .or_else(|| agent.map(agent_page::Draft::of))
+        .unwrap_or_default();
+    Ok(agent_page::page(&agent_page::Inputs {
+        list: &list,
+        tools: &tools,
+        id,
+        draft: &draft,
+        uses: uses.as_ref(),
+        refused: refused.as_ref(),
+        moved,
+        now: otaq_core::store::now_ms(),
+    }))
+}
+
+/// `settings.agent`: a saved agent's change is saved at once (`agents.edit`); a draft's stays in the draft.
+async fn agent_page(app: &App, p: AgentOpen) -> Result<agent_page::Page, RequestError> {
+    if let Some(id) = &p.id {
+        let Some(change) = p.change else {
+            return page_of(app, Some(id), None, None, None).await;
+        };
+        let list = agent_list(app).await?;
+        let agent = list
+            .agents
+            .iter()
+            .find(|a| a.id == *id)
+            .ok_or_else(|| RequestError::plain(format!("no agent {id}")))?;
+        let draft = agent_page::apply(agent_page::Draft::of(agent), change);
+        let request = Request::AgentsEdit(AgentEditParams {
+            id: id.clone(),
+            fields: draft.fields(),
+        });
+        return match app.service.send(request).await {
+            Ok(_) => page_of(app, Some(id), None, None, None).await,
+            Err(e) => page_of(app, Some(id), Some(draft), Some(refused(e)?), None).await,
+        };
+    }
+    let draft = match (p.draft, p.duplicate) {
+        (Some(draft), _) => draft,
+        (None, Some(of)) => match app.service.send(Request::AgentsDuplicate(IdParams { id: of })).await? {
+            Reply::AgentDraft(fields) => agent_page::Draft::from_fields(&fields),
+            other => return Err(unexpected("agents.duplicate", &other)),
+        },
+        (None, None) => agent_page::Draft::default(),
+    };
+    let draft = match p.change {
+        Some(change) => agent_page::apply(draft, change),
+        None => draft,
+    };
+    page_of(app, None, Some(draft), None, None).await
+}
+
+async fn agent_add(app: &App, draft: agent_page::Draft) -> Result<AgentAddOutcome, RequestError> {
+    match app.service.send(Request::AgentsAdd(draft.fields())).await {
+        Ok(Reply::Agent(agent)) => Ok(AgentAddOutcome::Added {
+            page: Box::new(page_of(app, Some(&agent.id), None, None, None).await?),
+        }),
+        Ok(other) => Err(unexpected("agents.add", &other)),
+        Err(e) => Ok(AgentAddOutcome::Refused {
+            page: Box::new(page_of(app, None, Some(draft), Some(refused(e)?), None).await?),
+        }),
+    }
+}
+
+/// The page's Role: another role is given to this agent (`agents.move_role`), and the page says whose it was; None
+/// on the agent holding a role is refused as AGM-01 says.
+async fn agent_role(app: &App, id: &str, role: &str) -> Result<agent_page::Page, RequestError> {
+    let list = agent_list(app).await?;
+    let agent = list
+        .agents
+        .iter()
+        .find(|a| a.id == id)
+        .ok_or_else(|| RequestError::plain(format!("no agent {id}")))?;
+    let Some(role) = agent_page::role_of(role) else {
+        let refusal = agent.role.map(|held| agent_page::Refused {
+            field: agent_page::Field::Role,
+            message: agent_page::sentence(held.holder_refusal(&agent.name)),
+        });
+        return page_of(app, Some(id), None, refusal, None).await;
+    };
+    if agent.role == Some(role) {
+        return page_of(app, Some(id), None, None, None).await;
+    }
+    let before = list
+        .agents
+        .iter()
+        .find(|a| a.role == Some(role))
+        .map(|a| a.name.clone());
+    let request = Request::AgentsMoveRole(MoveRoleParams {
+        role,
+        agent: id.to_owned(),
+    });
+    match app.service.send(request).await {
+        Ok(_) => {
+            let moved = agent_page::moved_line(role, &agent.name, before.as_deref());
+            page_of(app, Some(id), None, None, Some(moved)).await
+        }
+        Err(e) => {
+            let refusal = agent_page::Refused {
+                field: agent_page::Field::Role,
+                message: agent_page::sentence(refused(e)?.message),
+            };
+            page_of(app, Some(id), None, Some(refusal), None).await
+        }
+    }
+}
+
+/// Import skill folder… and Re-import: the page again, with a refused import's reason under Skills.
+async fn agent_skill(app: &App, id: &str, request: Request) -> Result<agent_page::Page, RequestError> {
+    match app.service.send(request).await {
+        Ok(_) => page_of(app, Some(id), None, None, None).await,
+        Err(e) => {
+            let mut why = refused(e)?;
+            why.field = agent_page::Field::Skills;
+            why.message = agent_page::not_imported(&why.message);
+            page_of(app, Some(id), None, Some(why), None).await
+        }
+    }
+}
+
+/// What Delete… opens: refused with what uses it, or the plain question (`agents.in_use` asks first).
+async fn delete_dialog(app: &App, id: &str) -> Result<agent_page::DeleteDialog, RequestError> {
+    Ok(agent_page::delete_dialog(id, &in_use(app, id).await?))
+}
+
+async fn agent_delete(app: &App, id: &str) -> Result<AgentDeleteOutcome, RequestError> {
+    match app.service.send(Request::AgentsDelete(IdParams { id: id.to_owned() })).await {
+        Ok(_) => Ok(AgentDeleteOutcome::Deleted {
+            section: Box::new(agents_section(app, false).await?),
+        }),
+        Err(e) if e.refusal.as_deref() == Some(Refusal::AgentInUse.as_str()) => Ok(AgentDeleteOutcome::Refused {
+            dialog: delete_dialog(app, id).await?,
+        }),
+        Err(e) => Err(e),
+    }
 }
 
 fn unexpected(method: &str, reply: &Reply) -> RequestError {
@@ -423,8 +761,9 @@ mod tests {
         assert_eq!(view["page"]["title"], "General");
         assert_eq!(view["nav"][0]["label"], "Agent tools");
         assert_eq!(view["nav"][1]["label"], "Agents");
-        // Agent limits are on the Agents page, not a row of their own; the workflow skills moved to the agents.
-        assert_eq!(view["nav"][2]["label"], "Validation & Auto-merge");
+        // Agent limits is a row of its own again (T-0410, `s15-58`); the workflow skills moved to the agents.
+        assert_eq!(view["nav"][2]["label"], "Agent limits");
+        assert_eq!(view["nav"][3]["label"], "Validation & Auto-merge");
         let data = &view["page"]["sections"][6];
         assert_eq!(data["id"], "data");
         assert_eq!(data["rows"][0]["control"]["kind"], "path");
@@ -623,16 +962,18 @@ mod tests {
         h.service.stop_all().await;
     }
 
-    /// Settings → Agents through the service (AGM-04, read-only until T-0410): a fresh install's four agents, their
-    /// skills and roles, and the default model before any tool connects.
+    /// Settings → Agents through the service (T-0410; AGM-01, AGM-03, AGM-04): a fresh install's four agents with
+    /// their roles, skills and where they are used, no notice and no default model before a tool connects; one agent's
+    /// page and a saved change; None refused on the role's agent; a role moved; New agent's draft added; Delete
+    /// refused for a stage's agent and allowed for an unused one.
     #[tokio::test(flavor = "multi_thread")]
-    async fn the_agents_section_lists_a_fresh_installs_agents() {
+    async fn the_agents_page_lists_edits_moves_a_role_adds_and_deletes() {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
-        let section = request(&h.app, "settings.agents", json!({ "refresh": true }))
-            .await
-            .unwrap();
+        let ask = |method: &'static str, params: Value| request(&h.app, method, params);
+        let section = ask("settings.agents", json!({ "refresh": true })).await.unwrap();
         assert_eq!(section["title"], "Agents");
+        assert_eq!(section["notice"], Value::Null, "a fresh install has nothing to tell");
         let rows: Vec<(&str, &Value)> = section["rows"]
             .as_array()
             .unwrap()
@@ -650,10 +991,63 @@ mod tests {
         );
         assert_eq!(section["rows"][2]["skills"], json!(["work-ticket", "commit"]));
         assert_eq!(section["rows"][2]["model"], "default");
+        assert_eq!(section["rows"][0]["used_in"], "every project \u{b7} the Project agent");
+        assert_eq!(section["default_model"]["dropdown"]["value"], "The first agent tool you connect");
+        let id = |n: usize| section["rows"][n]["id"].as_str().unwrap().to_owned();
+        let (planner, developer) = (id(0), id(2));
+
+        // One agent's page, and a change saved at once.
+        let page = ask("settings.agent", json!({ "id": developer })).await.unwrap();
+        assert_eq!(page["title"], "Developer");
+        assert_eq!(page["model"]["tool_value"], "Default model");
+        let page = ask(
+            "settings.agent",
+            json!({ "id": developer, "change": { "field": "instructions", "value": "Run the tests." } }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(page["instructions"]["value"], "Run the tests.");
+        let page = ask("settings.agent", json!({ "id": developer, "change": { "field": "name", "value": "Planner" } }))
+            .await
+            .unwrap();
+        assert_eq!(page["name"]["problem"], "Another agent is already called Planner");
+        assert_eq!(page["draft"]["name"], "Planner", "the refused name stays typed");
+
+        // The role: None is refused on its agent; another agent takes it, and the page says whose it was.
+        let page = ask("settings.agent_role", json!({ "id": planner, "role": "" })).await.unwrap();
         assert_eq!(
-            section["default_model"],
-            "Default model for new agents: the first agent tool you connect"
+            page["role"]["problem"],
+            "Planner is your Project agent. Give the role to another agent first."
         );
+        let page = ask("settings.agent_role", json!({ "id": developer, "role": "project-agent" }))
+            .await
+            .unwrap();
+        assert_eq!(page["role"]["moved"], "Developer is now your Project agent \u{b7} Planner has no role");
+        assert_eq!(page["role_tag"], "Project agent");
+
+        // New agent: a draft until Add agent.
+        let draft = ask("settings.agent", json!({ "change": { "field": "add_skill", "value": "work-ticket" } }))
+            .await
+            .unwrap();
+        assert_eq!(draft["title"], "New agent");
+        assert_eq!(draft["draft"]["skills"], json!(["shipped:work-ticket"]));
+        let mut fields = draft["draft"].clone();
+        fields["name"] = json!("Quick");
+        let added = ask("settings.agent_add", json!({ "draft": fields })).await.unwrap();
+        assert_eq!(added["outcome"], "added");
+        assert_eq!(added["page"]["came_from"], "Added by you");
+        let quick = added["page"]["id"].as_str().unwrap().to_owned();
+
+        // Delete: refused for a stage's agent (the default flow's Dev), the plain question for an unused one.
+        let validator = id(3);
+        let refused = ask("settings.agent_delete_dialog", json!({ "id": validator })).await.unwrap();
+        assert_eq!(refused["kind"], "refused");
+        assert_eq!(refused["title"], "Can\u{2019}t delete Validator");
+        let confirm = ask("settings.agent_delete_dialog", json!({ "id": quick })).await.unwrap();
+        assert_eq!(confirm["kind"], "confirm");
+        let deleted = ask("settings.agent_delete", json!({ "id": quick })).await.unwrap();
+        assert_eq!(deleted["outcome"], "deleted");
+        assert_eq!(deleted["section"]["rows"].as_array().unwrap().len(), 4);
         h.service.stop_all().await;
     }
 }

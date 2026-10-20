@@ -108,6 +108,7 @@ pub use sections::{
 #[cfg(test)]
 pub use settings::{
     AgentsOpen, SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams,
+    export_agent_types,
 };
 #[cfg(test)]
 pub use shell::{

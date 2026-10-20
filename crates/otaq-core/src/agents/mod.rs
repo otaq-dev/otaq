@@ -37,7 +37,7 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::domain::stored_enum;
 use crate::session::{SessionAgent, StoredConversation};
 pub use in_use::InUse;
-pub use move_over::Dropped;
+pub use move_over::{Dropped, Moved, MovedSkill};
 
 stored_enum! {
     /// The two roles an agent can hold (AGM-01, d0108): Otaq starts "the agent with that role" for a project's
@@ -556,7 +556,10 @@ impl Agents {
                 .into_iter()
                 .map(|(tool, fallback)| ToolFallback { tool, fallback })
                 .collect(),
-            dropped: store.dropped().await?.filter(|d| !d.dismissed),
+            dropped: store
+                .dropped()
+                .await?
+                .filter(|d| !d.dismissed && !d.says_nothing()),
         })
     }
 
@@ -624,11 +627,24 @@ impl Agents {
     }
 
     /// Gives `role` to the agent `to` (AGM-01: "the role can be moved to another agent"), in one step: the agent
-    /// that held it loses it.
+    /// that held it loses it. Refused when `to` holds the other role, which would be left without its agent ("Epic
+    /// lead is your Epic lead. Give the role to another agent first").
     pub async fn move_role(&self, role: Role, to: &str) -> Result<Agent, BoardError> {
-        self.agent(to).await?;
+        let agent = self.agent(to).await?;
+        if let Some(held) = agent.role.filter(|held| *held != role) {
+            return Err(BoardError::refused(
+                Refusal::AgentInUse,
+                held.holder_refusal(&agent.name),
+            ));
+        }
         self.board.store().move_role(role, to).await?;
         self.agent(to).await
+    }
+
+    /// The user dismissed the move-over's notice on Settings → Agents (AGM-02): it never comes back.
+    pub async fn dismiss_moved_over(&self) -> Result<(), BoardError> {
+        self.board.store().dismiss_dropped().await?;
+        Ok(())
     }
 
     /// Default model for new agents (AGM-03): a tool and a model from its list.

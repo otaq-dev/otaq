@@ -533,13 +533,11 @@ const DRAWN: [GlobalSection; 11] = [
     GlobalSection::About,
 ];
 
-/// The nav row a global section is drawn under: Agent limits sits on the Agents page, every other section is a
-/// topic of its own.
+/// The nav row a global section is drawn under. Every section is a topic of its own: from T-0410 Agent limits has
+/// its own row again, as the nav of `s15-58` draws it, and Agents holds only the agents (its own page and one
+/// agent's).
 pub fn topic_of(id: GlobalSection) -> GlobalSection {
-    match id {
-        GlobalSection::AgentLimits => GlobalSection::Agents,
-        other => other,
-    }
+    id
 }
 
 /// The nav: one row per global topic the page has, then every project.
@@ -580,12 +578,12 @@ fn nav_label(id: GlobalSection) -> (&'static str, IconName) {
         GlobalSection::Agents => ("Agents", IconName::Bot),
         GlobalSection::AgentLimits => shared(0),
         GlobalSection::Validation => ("Validation & Auto-merge", IconName::ShieldCheck),
-        GlobalSection::Usage => shared(3),
-        GlobalSection::Notifications => shared(4),
-        GlobalSection::Data => shared(5),
-        GlobalSection::Appearance => shared(6),
+        GlobalSection::Usage => shared(1),
+        GlobalSection::Notifications => shared(2),
+        GlobalSection::Data => shared(3),
+        GlobalSection::Appearance => shared(4),
         GlobalSection::KeyboardShortcuts => ("Keyboard shortcuts", IconName::Keyboard),
-        GlobalSection::Tools => shared(7),
+        GlobalSection::Tools => shared(5),
         GlobalSection::About => ("About", IconName::Info),
     }
 }
@@ -1078,7 +1076,7 @@ pub fn project_page(input: &ProjectInputs) -> Page {
         None,
         vec![row(
             "project_notes",
-            "Project notes",
+            "Notes every agent in this project gets",
             "Given to every agent that works in this project, after its own instructions.",
             multiline(
                 &s.project_notes,
@@ -2443,7 +2441,7 @@ mod tests {
             &["BILL".into()],
         )
         .nav;
-        assert_eq!(nav.len(), 11);
+        assert_eq!(nav.len(), 12);
         // Agent tools first, then Agents (M22, `bVdGw`; M23, `bGHVl`).
         assert_eq!(
             (nav[0].label.as_str(), nav[0].icon),
@@ -2453,13 +2451,17 @@ mod tests {
             (nav[1].label.as_str(), nav[1].icon),
             ("Agents", IconName::Bot)
         );
-        // The Agents page holds Agent limits; every other topic is its own page.
+        // Every topic is its own page: Agent limits has its own row again (T-0410, `s15-58`'s nav).
         assert_eq!(
             nav[1].target,
             Target::Global {
                 section: GlobalSection::Agents,
-                sections: vec![GlobalSection::Agents, GlobalSection::AgentLimits],
+                sections: vec![GlobalSection::Agents],
             }
+        );
+        assert_eq!(
+            (nav[2].label.as_str(), nav[2].icon),
+            ("Agent limits", IconName::Gauge)
         );
         assert_eq!(
             nav[0].target,
@@ -2469,23 +2471,23 @@ mod tests {
             }
         );
         assert_eq!(
-            (nav[2].label.as_str(), nav[2].icon),
+            (nav[3].label.as_str(), nav[3].icon),
             ("Validation & Auto-merge", IconName::ShieldCheck)
         );
-        assert_eq!(nav[3].label, "Usage");
+        assert_eq!(nav[4].label, "Usage");
         // Keyboard shortcuts after Appearance (M29, T-0395; design `s15-46`).
-        assert_eq!(nav[6].label, "Appearance");
+        assert_eq!(nav[7].label, "Appearance");
         assert_eq!(
-            (nav[7].label.as_str(), nav[7].icon),
+            (nav[8].label.as_str(), nav[8].icon),
             ("Keyboard shortcuts", IconName::Keyboard)
         );
         // About is the last global row (d0071).
         assert_eq!(
-            (nav[9].label.as_str(), nav[9].icon),
+            (nav[10].label.as_str(), nav[10].icon),
             ("About", IconName::Info)
         );
-        assert_eq!(nav[10].target, Target::Project { key: "BILL".into() });
-        assert!(nav[10].alert);
+        assert_eq!(nav[11].target, Target::Project { key: "BILL".into() });
+        assert!(nav[11].alert);
     }
 
     #[test]

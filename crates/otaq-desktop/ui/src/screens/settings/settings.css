@@ -1210,152 +1210,213 @@
   color: var(--st-error);
 }
 
-/* ---- Agents (T-0343, T-0366; *15* `bVdGw`, `cnRA5`, `soGMU`, `t1sI3`, `OCna6`, `XlyOa`, `Z4gQQQ`, `k8WyHN`, `ObF25`,
- * `GTuGI`, `WFHlh`, `O7UTA`, `Wjp2r`, `mQijC`) ---- */
+/* ---- Agents (T-0410; AGM-02…AGM-04; *15 → Agents (update AG §8)* `s15-58` / `s15-59`, the model picker `s15-30`,
+ * the mark `s15-32`): the notice, the default model and the fallbacks, the list; one agent's page ---- */
 
-.settings-agents > .settings-section-title {
-  padding: 16px 0 4px;
-  font: 400 10px var(--font-mono);
+.settings-agents > .settings-intro {
+  margin-top: 0;
 }
 
-/* Two classes: the gallery's own headings (`.gallery-section h4`) don't restyle it there. */
-.settings-agents .settings-agents-heading {
-  margin: 0;
-  padding: 22px 0 6px;
-  color: var(--text-secondary);
-  font: 400 10px var(--font-mono);
-  letter-spacing: 0.8px;
-}
-
-.settings-agents .settings-agents-heading[data-ruled] {
-  border-bottom: 1px solid var(--border);
-}
-
-.settings-agents-table {
-  overflow: hidden;
-  border: 1px solid var(--border);
+/* The move-over's notice: the accent's tint, a sparkle, the title over its text, ✕. */
+.settings-agents-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 16px 0 4px;
+  padding: 10px 10px 12px 14px;
+  border: 1px solid var(--accent);
   border-radius: var(--r-lg);
-  background: var(--bg-card);
-}
-
-/* NAME 130 · MODEL 230 · USE FOR 294 · ⋯ 32 at the frame's 746 px, shared out as the page widens; with several tools
- * NAME 110 · TOOL · MODEL 250 · USE FOR 160 · FALLBACK 118 · ⋯ 32 (`cnRA5`). */
-.settings-agents-row {
-  display: grid;
-  grid-template-columns: minmax(0, 130fr) minmax(0, 230fr) minmax(0, 294fr) 32px;
-  align-items: center;
-  column-gap: 12px;
-  padding: 9px 12px;
-  border-top: 1px solid var(--border);
-  font: 400 12px var(--font-ui);
-}
-
-.settings-agents-table[data-columns="4"] .settings-agents-row {
-  grid-template-columns: minmax(0, 110fr) minmax(0, 250fr) minmax(0, 160fr) minmax(0, 118fr) 32px;
-}
-
-.settings-agents-row[data-open] {
-  background: var(--bg-column);
-}
-
-/* The entry a tool connecting added (`t1sI3`): the accent's tint until the page is left. */
-.settings-agents-row[data-added] {
   background: var(--accent-soft);
+  color: var(--text-secondary);
+  font: 400 12.5px/1.5 var(--font-ui);
 }
 
-.settings-agents-added {
-  margin-left: auto;
+.settings-agents-notice > .icon {
+  flex: none;
+  margin-top: 2px;
   color: var(--accent);
+}
+
+.settings-agents-notice-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-agents-notice-body strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Default model for new agents, Fallback per tool: the label and its line on the left, the controls on the right. */
+.settings-agents-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 0;
+}
+
+.settings-agents-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 264px) minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: start;
+}
+
+.settings-agents-setting .settings-row-label {
+  color: var(--text-primary);
+  font: 500 13px var(--font-ui);
+}
+
+.settings-agents-setting .settings-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.settings-agents-setting .settings-row-description {
+  color: var(--text-secondary);
   font: 400 11.5px var(--font-ui);
 }
 
+.settings-agents-fallbacks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-agents-fallback-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 200px;
+  align-items: center;
+  column-gap: 12px;
+  color: var(--text-secondary);
+  font: 400 12.5px var(--font-ui);
+}
+
+.settings-agents-dropdown {
+  width: 240px;
+  max-width: 100%;
+}
+
+.settings-agents-fallback-line .settings-agents-dropdown {
+  width: 200px;
+}
+
+/* The list: NAME · MODEL · SKILLS · USED IN, ruled rows, ⋯ on hover or focus. */
+.settings-agents-table {
+  border-top: 1px solid var(--border);
+}
+
+.settings-agents-row {
+  display: grid;
+  grid-template-columns: minmax(0, 200fr) minmax(0, 182fr) minmax(0, 192fr) minmax(0, 170fr) 28px;
+  align-items: center;
+  column-gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font: 400 12px var(--font-ui);
+}
+
 .settings-agents-head {
-  padding-block: 7px;
-  border-top: 0;
-  background: var(--bg-column);
+  padding-block: 8px;
   color: var(--text-muted);
   font: 400 10px var(--font-mono);
-  letter-spacing: 0.6px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
 }
 
-.settings-agents-name {
+.settings-agents-open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-agents-open:hover .settings-agents-title > span:first-child {
+  text-decoration: underline;
+}
+
+.settings-agents-title {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 0;
   color: var(--text-primary);
-  font: 600 12.5px var(--font-ui);
+  font: 500 13px var(--font-ui);
 }
 
-.settings-agents-name > .icon,
-.settings-agent-mark-line > .icon,
-.settings-agent-mark-title > .icon {
-  flex: none;
-  color: var(--st-paused);
-}
-
-.settings-agents-model,
-.settings-agents-use {
-  color: var(--text-secondary);
-}
-
-/* "CC Claude Code · Opus · always the newest": the tool muted, the model after it in the primary colour. */
-.settings-agents-tool-model {
-  display: flex;
+.settings-agents-role {
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.settings-agents-tool {
-  flex: none;
-  color: var(--text-secondary);
-}
-
-.settings-agents-tool + .settings-agents-model {
-  overflow: hidden;
-  color: var(--text-primary);
-  text-overflow: ellipsis;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: 500 11px var(--font-ui);
   white-space: nowrap;
 }
 
-.settings-agents-fallback {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--text-primary);
+.settings-agents-came {
+  color: var(--text-secondary);
+  font: 400 11.5px var(--font-ui);
 }
 
-.settings-agents-fallback > .icon {
-  flex: none;
-  color: var(--text-muted);
-}
-
-.settings-agents-fallback[data-none] {
-  color: var(--text-muted);
+.settings-agents-model {
+  color: var(--text-secondary);
+  font: 400 11.5px/1.45 var(--font-mono);
 }
 
 .settings-agents-model[data-marked] {
   color: var(--text-primary);
 }
 
-.settings-agents-model[data-mono] {
-  font: 400 11.5px var(--font-mono);
+.settings-agents-skills {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.settings-agents-skill,
+.settings-agent-place {
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font: 400 11px/1.5 var(--font-mono);
+}
+
+.settings-agents-use {
+  color: var(--text-secondary);
+  font: 400 12px/1.4 var(--font-ui);
 }
 
 .settings-agents-more {
-  display: flex;
-  justify-content: flex-end;
+  opacity: 0;
+}
+
+.settings-agents-row:hover .settings-agents-more,
+.settings-agents-more:focus-within {
+  opacity: 1;
 }
 
 .settings-agents-mark {
   display: flex;
-  flex-wrap: wrap;
+  grid-column: 1 / -1;
   align-items: center;
   gap: 6px;
-  grid-column: 2 / -1;
-  padding: 2px 0 1px;
+  padding-top: 4px;
   font: 400 11.5px var(--font-ui);
 }
 
@@ -1363,6 +1424,11 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  color: var(--text-primary);
+}
+
+.settings-agent-mark-line > .icon {
+  flex: none;
   color: var(--st-paused);
 }
 
@@ -1374,158 +1440,243 @@
   color: var(--text-muted);
 }
 
-.settings-agents-mark .settings-link {
-  font-size: 11.5px;
-}
-
-.settings-agents-add {
-  display: flex;
-  padding-top: 10px;
-}
-
-.settings-agents-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-top: 8px;
-  padding: 10px 12px;
-  border-radius: var(--r-lg);
-  background: var(--bg-column);
-}
-
-.settings-agents-note > .icon {
-  flex: none;
-  margin-top: 1px;
-  color: var(--text-muted);
-}
-
-.settings-agents-note-text {
+/* One agent: ← name and its role tag in the header, the came-from line under it. */
+.settings-agent-heading {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 3px;
-  color: var(--text-secondary);
-  font: 400 12px/1.4 var(--font-ui);
-}
-
-.settings-agents-note-text strong {
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-/* A role: label and description to the left, the 300 px picker at the right (`bVdGw`). */
-.settings-agents-default {
-  align-items: center;
-  padding: 14px 0;
-}
-
-.settings-agents-default > .settings-row-text {
-  flex: 1;
-  width: auto;
   min-width: 0;
 }
 
-.settings-agents-default .settings-row-label {
-  font-weight: 500;
+.settings-agent-heading-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-.settings-agents-picker {
+.settings-agent-heading h2 {
+  overflow: hidden;
   flex: none;
-  width: 300px;
+  max-width: 100%;
+  margin: 0;
+  font: 600 18px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.settings-agents-collapsed {
+.settings-agent-heading > .settings-agents-came {
+  padding-left: 36px;
+}
+
+.settings-agent-page {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding-bottom: 24px;
+}
+
+.settings-agent-label {
+  margin-top: 8px;
+  color: var(--text-primary);
+  font: 500 12.5px var(--font-ui);
+}
+
+.settings-agent-hint {
+  color: var(--text-secondary);
+  font: 400 11.5px/1.4 var(--font-ui);
+}
+
+.settings-agent-problem {
+  color: var(--st-error);
+  font: 400 11.5px/1.4 var(--font-ui);
+}
+
+.settings-agent-model {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-agent-model > .select {
+  width: 170px;
+}
+
+.settings-agent-model .settings-model-picker {
+  width: 170px;
+}
+
+.settings-agent-effort {
   display: inline-flex;
   align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font: 400 12.5px var(--font-ui);
+}
+
+.settings-agent-effort > .select {
+  width: 120px;
+}
+
+.settings-agent-default-now {
+  color: var(--text-secondary);
+  font: 400 12px var(--font-mono);
+}
+
+.settings-agent-page .segmented {
+  align-self: flex-start;
+}
+
+.settings-agent-moved {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--st-approved-bg);
+  color: var(--text-primary);
+  font: 400 12.5px var(--font-ui);
+}
+
+.settings-agent-moved > .icon {
+  flex: none;
+  color: var(--st-approved);
+}
+
+.settings-agent-instructions {
+  min-height: 140px;
+}
+
+.settings-agent-skills {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+}
+
+.settings-agent-skills:empty {
+  display: none;
+}
+
+.settings-agent-skill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-agent-skill > .icon {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.settings-agent-skill-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-agent-skill-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-agent-skill-name {
+  color: var(--text-primary);
+  font: 500 13px var(--font-mono);
+}
+
+.settings-agent-skill-source {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font: 400 11.5px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-agent-skill-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font: 400 11.5px var(--font-ui);
+}
+
+.settings-agent-skill-warning > .icon {
+  flex: none;
+  color: var(--st-paused);
+}
+
+.settings-agent-skill-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.settings-agent-used {
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   color: var(--text-secondary);
   font: 400 12px var(--font-ui);
 }
 
-.settings-agents-defaults-note {
-  margin: 0;
-  padding-top: 10px;
-  color: var(--text-muted);
-  font: 400 11.5px/1.4 var(--font-ui);
+.settings-agent-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--bg-column);
+  color: var(--text-primary);
+  font: 400 12.5px var(--font-ui);
 }
 
-/* "DEFAULTS · UNCHANGED" under the table after a tool connected (`t1sI3`). */
-.settings-agents-unchanged {
+.settings-agent-note > .icon {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.settings-agent-mark {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding-top: 12px;
-  color: var(--text-secondary);
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--st-paused-bg);
   font: 400 12px var(--font-ui);
 }
 
-.settings-agents-unchanged-heading {
-  color: var(--text-muted);
-  font: 400 10px var(--font-mono);
-  letter-spacing: 0.8px;
+.settings-agent-mark-message {
+  color: var(--text-secondary);
+  font: 400 11.5px/1.45 var(--font-mono);
 }
 
-/* The Fallbacks block (`cnRA5`, `bVdGw`): the box at the left of its label and help; dimmed while disabled. */
-.settings-agents-fallbacks {
-  padding: 12px 0 0;
-}
-
-.settings-agents-fallbacks-box {
-  display: inline-flex;
-}
-
-.settings-agents-fallbacks .choice {
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.settings-agents-fallbacks .choice > .checkbox {
+.settings-agent-add {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
   margin-top: 12px;
 }
 
-.settings-agents-fallbacks-text {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.settings-agents-fallbacks-text .settings-row-label {
-  font-weight: 500;
-}
-
-.settings-agents-fallbacks[data-disabled] .settings-agents-fallbacks-text {
-  opacity: 0.55;
-}
-
-/* The agent and model pickers (closed: 28 px, the picked name or model, what it means muted). */
-.settings-agent-picker,
+/* The model picker and the model dropdowns (closed: 28 px, the picked model, what it means muted). */
 .settings-model-field,
-.settings-agent-tool {
+.settings-agents-dropdown {
   height: 28px;
   padding: 0 8px;
 }
 
-.settings-agent-picker[data-read-only],
-.settings-agent-tool[data-read-only] {
+.settings-agents-dropdown[data-read-only] {
   cursor: default;
 }
 
-.settings-agent-value {
-  gap: 6px;
-}
-
-.settings-agent-value > .icon {
-  color: var(--text-muted);
-}
-
-.settings-agent-name {
-  overflow: hidden;
-  flex: none;
-  font: 500 12px var(--font-ui);
-  text-overflow: ellipsis;
-}
-
-.settings-agent-model,
 .settings-model-detail {
   overflow: hidden;
   color: var(--text-muted);
@@ -1606,7 +1757,7 @@
 }
 
 .settings-model-field .select-value,
-.settings-agent-tool .select-value {
+.settings-agents-dropdown .select-value {
   font-size: 12px;
 }
 
@@ -1681,116 +1832,6 @@
   padding: 4px 8px 6px;
   color: var(--text-muted);
   font: 400 11.5px var(--font-ui);
-}
-
-/* The dialogs. */
-.settings-agent-dialog {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.settings-agent-dialog .field-label {
-  color: var(--text-primary);
-  font-size: 12px;
-}
-
-.settings-agent-dialog .field-note {
-  font-size: 11.5px;
-  line-height: 1.4;
-}
-
-.settings-agent-dialog .text-input {
-  height: 28px;
-  font-size: 12px;
-}
-
-.settings-agent-mark-box {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: var(--st-paused-bg);
-}
-
-.settings-agent-mark-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-primary);
-  font: 500 12px var(--font-ui);
-}
-
-.settings-agent-tool-problem {
-  margin-top: 4px;
-  font: 400 11.5px var(--font-ui);
-}
-
-.settings-agent-mark-quote {
-  color: var(--text-secondary);
-  font: 400 11.5px/1.45 var(--font-mono);
-}
-
-.settings-agent-dialog-delete {
-  display: inline-flex;
-  margin-left: 12px;
-}
-
-.settings-agent-delete-text {
-  color: var(--text-primary);
-}
-
-.settings-agent-uses,
-.settings-agent-delete-note {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: var(--bg-column);
-  font: 400 12px var(--font-ui);
-}
-
-.settings-agent-use {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.settings-agent-use > .icon,
-.settings-agent-delete-note > .icon {
-  flex: none;
-  color: var(--text-muted);
-}
-
-.settings-agent-delete-note {
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 8px;
-  color: var(--text-secondary);
-  font-size: 11.5px;
-  line-height: 1.45;
-}
-
-.settings-agent-tickets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  max-height: 160px;
-  overflow-y: auto;
-}
-
-.settings-agent-ticket {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-}
-
-ul.settings-agent-tickets {
-  margin: 0;
-  padding: 0;
-  list-style: none;
 }
 
 .settings-choice .menu-item-line > .icon[role="img"] {
@@ -2047,149 +2088,9 @@ ul.settings-agent-tickets {
   background: var(--term-bg);
 }
 
-/* ---- Workflow skills (T-0380; WSK-01, WSK-02, WSK-04, WSK-07; *15 → update AC* `G4P2FV`, `prAII`, `D12DJ0`): one
- * row per step across the page's width ---- */
-
-.settings-skills {
+/* Outside Settings (the gallery) the topic's header buttons sit above the page. */
+.settings-agents-header {
   display: flex;
-  flex-direction: column;
-  width: 100%;
-}
-
-.settings-skills .settings-skills-heading {
-  margin: 0;
-  padding: 22px 0 6px;
-  font: 400 10px var(--font-mono);
-}
-
-.settings-skills-list {
-  border-top: 1px solid var(--border);
-}
-
-.settings-skill {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.settings-skill-step {
-  flex: none;
-  width: 72px;
-  padding-top: 2px;
-  color: var(--text-primary);
-  font: 500 13px var(--font-ui);
-}
-
-.settings-skill-body {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-}
-
-.settings-skill-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.settings-skill-value {
-  color: var(--text-primary);
-  font: 400 12.5px var(--font-mono);
-}
-
-.settings-skill-value[data-muted] {
-  color: var(--text-secondary);
-}
-
-.settings-skill-tag {
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--bg-column);
-  color: var(--text-secondary);
-  font: 500 10.5px var(--font-ui);
-}
-
-.settings-skill-tag[data-look="warning"] {
-  background: var(--st-paused-bg);
-  color: var(--st-paused);
-}
-
-.settings-skill-tag[data-look="error"] {
-  background: var(--st-error-bg);
-  color: var(--st-error);
-}
-
-.settings-skill-source,
-.settings-skill-line {
-  display: flex;
-  gap: 5px;
-  color: var(--text-muted);
-  font: 400 11.5px var(--font-ui);
-}
-
-.settings-skill-source {
-  align-items: center;
-}
-
-.settings-skill-folder {
-  font-family: var(--font-mono);
-}
-
-.settings-skill-line {
-  gap: 6px;
-}
-
-.settings-skill-line > .icon {
-  flex: none;
-  margin-top: 2px;
-}
-
-.settings-skill-line[data-look="warning"] {
-  color: var(--st-paused);
-}
-
-.settings-skill-line[data-look="error"] {
-  color: var(--st-error);
-}
-
-.settings-skill-line .settings-link {
-  font: 500 11.5px var(--font-ui);
-}
-
-.settings-skill-actions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 6px;
-}
-
-.settings-skills-hint {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding-top: 12px;
-  color: var(--text-muted);
-  font: 400 11.5px var(--font-ui);
-}
-
-.settings-skill-confirm-note {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 12px 0 0;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: var(--bg-column);
-  color: var(--text-secondary);
-  font: 400 11.5px var(--font-ui);
-}
-
-.settings-skill-confirm-note .icon {
-  flex: none;
-  color: var(--text-muted);
+  justify-content: flex-end;
+  padding-bottom: 8px;
 }

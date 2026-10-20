@@ -53,6 +53,10 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<Reply, E
         Request::AgentsReimportSkill(p) => crate::agents::skills::reimport(board, &p.id, &p.skill)
             .await
             .map(|a| changed(Reply::Agent(Box::new(a)))),
+        Request::AgentsDismissMovedOver => match agents.dismiss_moved_over().await {
+            Ok(()) => list().await.map(changed),
+            Err(e) => Err(e),
+        },
         other => {
             return Err(ErrorBody::new(
                 ErrorKind::BadRequest,

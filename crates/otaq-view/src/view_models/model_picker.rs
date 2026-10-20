@@ -1,4 +1,5 @@
-//! The model picker of the Add and Edit agent dialogs (T-0340, T-0361; AGT-02, d0086; *15 → Add agent · model
+//! The model picker of one agent's page and of the Agents page's model dropdowns (T-0410; before it the Add and Edit
+//! agent dialogs, T-0340, T-0361; AGT-02, d0086; *15 → Add agent · model
 //! picker open* `k8WyHN` / `L1mzD`, *Edit agent · Codex (M23)* `ObF25` / `l5T21`, *Model list states (M23)* `GTuGI` /
 //! `GUoan`, *Old GPT · no longer listed* `OCna6` / `aPdlu`), built from Otaq's copy of the agent's tool's own list
 //! (T-0335's `ModelList`). Only what the list has can be picked and nothing can be typed (d0086): "Tool default"

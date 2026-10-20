@@ -49,6 +49,7 @@ icons! {
     Archive = "archive";
     ArrowDown = "arrow-down";
     ArrowDownToLine = "arrow-down-to-line";
+    ArrowLeft = "arrow-left";
     ArrowRight = "arrow-right";
     ArrowUp = "arrow-up";
     ArrowUpRight = "arrow-up-right";
@@ -260,6 +261,7 @@ mod tests {
         "archive",
         "arrow-down",
         "arrow-down-to-line",
+        "arrow-left",
         "arrow-right",
         "arrow-up",
         "arrow-up-right",

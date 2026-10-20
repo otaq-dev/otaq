@@ -448,7 +448,8 @@ async fn action_for(
         | R::AgentsDefaultModel(_)
         | R::AgentsFallback(_)
         | R::AgentsImportSkill(_)
-        | R::AgentsReimportSkill(_) => Action::UserOnly("change agents"),
+        | R::AgentsReimportSkill(_)
+        | R::AgentsDismissMovedOver => Action::UserOnly("change agents"),
         // Agent tools, limits per tool and fallbacks are the user's (d0086).
         R::AgentToolsList
         | R::AgentToolsRecheck(_)

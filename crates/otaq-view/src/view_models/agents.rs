@@ -1,15 +1,22 @@
-//! Settings → Agents as the page draws it until T-0410 draws the new page (AGM-04; d0108, d0088): the list of agents
-//! (name, role, where it came from, model as Settings shows it with the tool's effort, skills, the amber mark) and the
-//! default model; editing comes with T-0410's page. Also the shared pieces the other screens use: the one formatter of
-//! a model as Settings shows it ([`model_label`], [`agent_model`]), the agent tools' lists ([`AgentTools`]) and the
-//! session roles as the page sends them back ([`RoleId`]).
+//! Settings → Agents (AGM-02, AGM-03, AGM-04; d0108, d0088, d0086; `s15-58` / `s15-59`): the move-over's notice, the
+//! default model for new agents, the fallback per tool and the list of agents (name, role tag, came-from line, model
+//! with the tool's effort, skills, used in, the amber mark, ⋯ Duplicate / Delete…); one agent's page is
+//! [`super::agent_page`]. Also the shared pieces the other screens use: the formatters of a model ([`model_label`],
+//! [`agent_model`], [`short_model`]), the agent tools' lists ([`AgentTools`]) and the session roles as the page sends
+//! them back ([`RoleId`]).
 
+use otaq_core::agent_tools::follow::FollowChoice;
 use otaq_core::agent_tools::{ModelKind, ModelList, Tool};
-use otaq_core::agents::{Agent, AgentList, AgentModel, Mark, ModelRef, SessionRole, SkillRef};
+use otaq_core::agents::{
+    Agent, AgentList, AgentModel, Dropped, InUse, Mark, ModelRef, Role, SessionRole, SkillRef,
+};
+use otaq_core::naming::PRODUCT_NAME;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::menu::MenuItem;
 use super::tool_avatar::{AvatarTool, ToolAvatarView, shown_with};
+use crate::icons::IconName;
 
 /// The tool default as a field or a table cell shows it.
 pub const TOOL_DEFAULT_LABEL: &str = "Tool default";
@@ -250,35 +257,317 @@ pub fn mark_view(mark: &Mark) -> MarkView {
     }
 }
 
-/// One agent in the list.
+/// A model the short way the Agents page writes it (`s15-58`): a follow choice by its alias ("sonnet"), a family by
+/// "newest <family>" ("newest GPT Sol"), Copilot's tiers by their name ("Auto · balance"), an exact model by its id,
+/// else "tool default".
+pub fn short_model(model: Option<&str>, list: Option<&ModelList>) -> String {
+    if is_tool_default(model, list) {
+        return TOOL_DEFAULT.to_owned();
+    }
+    let id = model.unwrap_or_default().trim();
+    match list.and_then(|l| l.entry(id)) {
+        Some(e) if e.kind == ModelKind::Follow => match FollowChoice::parse(id) {
+            Some(_) if e.resolves_to.is_some() => format!("newest {}", e.display_name),
+            Some(_) => e.display_name.clone(),
+            None => id.to_owned(),
+        },
+        _ => id.to_owned(),
+    }
+}
+
+/// A tool and a model the Agents page's way: "Claude Code · sonnet", "Codex · newest GPT Sol".
+pub fn tool_model(model: &ModelRef, tools: &AgentTools) -> String {
+    format!(
+        "{} \u{b7} {}",
+        tool_name(model.tool),
+        short_model(model.model.as_deref(), tools.list(model.tool))
+    )
+}
+
+/// An agent's model in the list and on its page (AGM-01, AGM-03): "Claude Code · opus · effort high", or on the
+/// default model "default · Claude Code · sonnet" (just "default" before a tool connects).
+pub fn list_model(agent: &Agent, tools: &AgentTools, default: Option<&ModelRef>) -> String {
+    match &agent.model {
+        AgentModel::Default => match default {
+            Some(model) => format!("{DEFAULT} \u{b7} {}", tool_model(model, tools)),
+            None => DEFAULT.to_owned(),
+        },
+        AgentModel::Tool { tool, model } => {
+            let mut text = tool_model(
+                &ModelRef {
+                    tool: *tool,
+                    model: model.clone(),
+                },
+                tools,
+            );
+            if let Some(effort) = &agent.effort {
+                text.push_str(&format!(" \u{b7} effort {effort}"));
+            }
+            text
+        }
+    }
+}
+
+/// What uses an agent, one place each (AGM-01): "every project · the Project agent", "every project · epics",
+/// "pocket-api · Dev", "shop-web · Dev (option)".
+pub fn used_in(uses: &InUse) -> Vec<String> {
+    let role = uses.role.map(|role| {
+        match role {
+            Role::ProjectAgent => "every project \u{b7} the Project agent",
+            Role::EpicLead => "every project \u{b7} epics",
+        }
+        .to_owned()
+    });
+    let stages = uses.stages.iter().map(|s| {
+        let label = curly(&s.label());
+        if s.option {
+            format!("{label} (option)")
+        } else {
+            label
+        }
+    });
+    role.into_iter().chain(stages).collect()
+}
+
+/// The list's Used in cell: the places joined, "—" for none.
+fn used_in_cell(uses: Option<&InUse>) -> String {
+    match uses.map(used_in).filter(|u| !u.is_empty()) {
+        Some(places) => places.join(", "),
+        None => NOTHING.to_owned(),
+    }
+}
+
+/// An empty cell.
+pub const NOTHING: &str = "\u{2014}";
+
+/// One choice of a tool-and-model dropdown (the default model, a fallback): a tool's heading, a model, a note in
+/// place of a tool's models (loading, couldn't load), or the fallback's "None".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AgentsModelChoice")]
+pub struct ModelChoice {
+    /// Unique in the list: what the page sends back is `tool` and `model`.
+    pub id: String,
+    pub kind: ChoiceKind,
+    #[ts(type = "string | null")]
+    pub tool: Option<Tool>,
+    /// `None`: the tool's default.
+    pub model: Option<String>,
+    pub label: String,
+    /// The muted part: "now claude-opus-5-5".
+    pub detail: Option<String>,
+    pub mono: bool,
+    pub selected: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "AgentsChoiceKind")]
+pub enum ChoiceKind {
+    Heading,
+    Option,
+    Note,
+}
+
+/// A dropdown of a tool and a model from that tool's list (AGM-03): every connected tool under its name, each with
+/// its own list as the model picker has it. Read-only while no tool is connected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AgentsModelDropdown")]
+pub struct ModelDropdown {
+    /// The field's text: "Claude Code · sonnet", "None".
+    pub value: String,
+    pub choices: Vec<ModelChoice>,
+    pub read_only: bool,
+}
+
+/// The fallback's "None".
+pub const NONE: &str = "None";
+
+/// The dropdown over `tools` (in d0086's order), `picked` selected; `none` adds the fallback's "None" first.
+fn dropdown(
+    on: &[Tool],
+    tools: &AgentTools,
+    picked: Option<&ModelRef>,
+    none: bool,
+    empty: &str,
+) -> ModelDropdown {
+    let mut choices = Vec::new();
+    if none {
+        choices.push(ModelChoice {
+            id: "none".to_owned(),
+            kind: ChoiceKind::Option,
+            tool: None,
+            model: None,
+            label: NONE.to_owned(),
+            detail: None,
+            mono: false,
+            selected: picked.is_none(),
+        });
+    }
+    for &tool in on {
+        choices.push(ModelChoice {
+            id: format!("heading:{tool}"),
+            kind: ChoiceKind::Heading,
+            tool: Some(tool),
+            model: None,
+            label: tool_name(tool).to_owned(),
+            detail: None,
+            mono: false,
+            selected: false,
+        });
+        let mine = picked.filter(|p| p.tool == tool);
+        let picker = super::model_picker::picker(
+            tool,
+            tools.state(tool),
+            mine.and_then(|p| p.model.as_deref()),
+            false,
+            None,
+        );
+        for item in picker.groups.iter().flat_map(|g| &g.items) {
+            choices.push(ModelChoice {
+                id: format!("{tool}:{}", item.value.as_deref().unwrap_or_default()),
+                kind: ChoiceKind::Option,
+                tool: Some(tool),
+                model: item.value.clone(),
+                label: item.label.clone(),
+                detail: item.detail.clone(),
+                mono: item.mono,
+                selected: mine.is_some() && item.selected,
+            });
+        }
+        if let Some(status) = &picker.status {
+            choices.push(ModelChoice {
+                id: format!("status:{tool}"),
+                kind: ChoiceKind::Note,
+                tool: Some(tool),
+                model: None,
+                label: status.text.clone(),
+                detail: None,
+                mono: false,
+                selected: false,
+            });
+        }
+    }
+    ModelDropdown {
+        value: match picked {
+            Some(model) => tool_model(model, tools),
+            None if none => NONE.to_owned(),
+            None => empty.to_owned(),
+        },
+        read_only: on.is_empty(),
+        choices,
+    }
+}
+
+/// The connected tools, in d0086's order.
+fn connected(tools: &AgentTools) -> Vec<Tool> {
+    Tool::ALL
+        .iter()
+        .copied()
+        .filter(|t| tools.is_connected(*t))
+        .collect()
+}
+
+/// Default model for new agents (AGM-03).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AgentsDefaultModel")]
+pub struct DefaultModel {
+    pub label: String,
+    pub description: String,
+    pub dropdown: ModelDropdown,
+}
+
+/// One line of Fallback per tool: "When Claude Code hits its limit →" and its dropdown of the other tools.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AgentsFallbackLine")]
+pub struct FallbackLine {
+    #[ts(type = "string")]
+    pub tool: Tool,
+    pub label: String,
+    pub dropdown: ModelDropdown,
+}
+
+/// Fallback per tool (AGM-03), with two or more tools connected: a fallback must be on another tool.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AgentsFallbacks")]
+pub struct Fallbacks {
+    pub label: String,
+    pub description: String,
+    pub lines: Vec<FallbackLine>,
+}
+
+/// The move-over's notice (AGM-02; `s15-58` "The move-over notice"), at the top of Agents until dismissed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AgentsNotice")]
+pub struct Notice {
+    pub title: String,
+    pub text: String,
+    pub dismiss_label: String,
+}
+
+/// One agent in the list.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "AgentListRow")]
 pub struct TableRow {
     pub id: String,
     pub name: String,
     /// "Project agent", "Epic lead": the role tag.
     pub role: Option<String>,
-    /// "From Otaq's agents file", "Added by the Otaq default preset", "Added by you".
+    /// "From Otaq's agents file", "Added by the Otaq default preset", "Added by you"; while the move-over's notice
+    /// shows, what moved to it ("Has your Agent instructions", "Moved over from your named agents").
     pub came_from: String,
-    /// The model as Settings shows it ([`agent_model`]).
+    /// The model the Agents page's way ([`list_model`]).
     pub model: String,
     /// Its skills by name, in order: a shipped one by its name, an imported one by its `name:`.
     pub skills: Vec<String>,
+    /// "pocket-api · Dev, pocket-api · Done", "—".
+    pub used_in: String,
     pub mark: Option<MarkView>,
+    /// After the mark: "Edit…" opens the agent's page (`s15-32`).
+    pub mark_link: Option<String>,
+    /// The ⋯ menu: Duplicate, Delete….
+    pub menu: Vec<MenuItem>,
+    /// The ⋯ button's name: "More for Strong".
+    pub menu_label: String,
 }
 
-/// The Agents section: the default model and the list (AGM-04; T-0410 draws the page with its editing).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+/// The Agents page (AGM-04; `s15-58` / `s15-59`): the notice, the default model, the fallbacks, the list.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "AgentsSection")]
 pub struct Section {
-    pub title: &'static str,
-    /// "Default model for new agents: Claude Code · sonnet"; "… the first agent tool you connect" before one is.
-    pub default_model: String,
+    pub title: String,
+    pub intro: String,
+    pub new_agent_label: String,
+    pub notice: Option<Notice>,
+    pub default_model: DefaultModel,
+    pub fallbacks: Option<Fallbacks>,
+    /// NAME, MODEL, SKILLS, USED IN.
+    pub columns: Vec<String>,
     pub rows: Vec<TableRow>,
 }
 
+/// The ⋯ menu's items, by the id the page sends back.
+pub const DUPLICATE: &str = "duplicate";
+pub const DELETE: &str = "delete";
+pub const MENU_LABEL: &str = "More actions";
+
+/// Duplicate, Delete… (AGT-02's menu, kept by AGM-04).
+pub fn agent_menu() -> Vec<MenuItem> {
+    vec![
+        MenuItem {
+            icon: Some(IconName::Copy),
+            ..MenuItem::new(DUPLICATE, "Duplicate")
+        },
+        MenuItem {
+            icon: Some(IconName::Trash2),
+            danger: true,
+            separated: true,
+            ..MenuItem::new(DELETE, "Delete\u{2026}")
+        },
+    ]
+}
+
 /// The skills of `agent` by name.
-fn skill_names(agent: &Agent) -> Vec<String> {
+pub fn skill_names(agent: &Agent) -> Vec<String> {
     agent
         .skills
         .iter()
@@ -291,19 +580,180 @@ fn skill_names(agent: &Agent) -> Vec<String> {
         .collect()
 }
 
-/// The section from `agents.list`.
-pub fn section(list: &AgentList, tools: &AgentTools) -> Section {
+/// "a", "a and b", "a, b and c".
+pub fn and_list(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// "Developer's" (with the typographic apostrophe).
+fn owner(name: &str) -> String {
+    format!("{name}\u{2019}s")
+}
+
+/// What the move-over notice says (AGM-02, `s15-58`): "Moved over: Strong, Light, your Agent instructions (now
+/// Developer's), your Validate skill (now Validator's). Dropped: pocket-api's own Developer (Strong) and Commit skill
+/// · the Developer row of 1 ticket. From the next version each project can choose its own agents per stage." Agents
+/// are named as they are called now.
+pub fn notice(dropped: &Dropped, agents: &[Agent]) -> Notice {
+    let name = |id: &str| agents.iter().find(|a| a.id == id).map(|a| a.name.clone());
+    let moved = &dropped.moved;
+    let mut carried: Vec<String> = moved.named.iter().filter_map(|id| name(id)).collect();
+    if let Some(to) = moved.agent_instructions.as_deref().and_then(name) {
+        carried.push(format!("your Agent instructions (now {})", owner(&to)));
+    }
+    if let Some(to) = moved.project_agent_instructions.as_deref().and_then(name) {
+        carried.push(format!(
+            "your Project agent instructions (now {})",
+            owner(&to)
+        ));
+    }
+    for skill in &moved.skills {
+        if let Some(to) = name(&skill.agent) {
+            carried.push(format!("your {} skill (now {})", skill.step, owner(&to)));
+        }
+    }
+    let mut lost: Vec<String> = dropped
+        .projects
+        .iter()
+        .map(|project| {
+            let mut own: Vec<String> = project
+                .roles
+                .iter()
+                .map(|r| format!("{} ({})", r.role, r.agent))
+                .collect();
+            let steps: Vec<String> = project.skills.iter().map(|s| s.step.clone()).collect();
+            match steps.len() {
+                0 => {}
+                1 => own.push(format!("{} skill", steps[0])),
+                _ => own.push(format!("{} skills", and_list(&steps))),
+            }
+            if project.project_agent_instructions {
+                own.push("Project agent instructions".to_owned());
+            }
+            format!("{} own {}", owner(&project.name), and_list(&own))
+        })
+        .collect();
+    let mut roles: Vec<(&str, usize)> = Vec::new();
+    for row in &dropped.tickets {
+        match roles.iter_mut().find(|(role, _)| *role == row.role) {
+            Some((_, count)) => *count += 1,
+            None => roles.push((&row.role, 1)),
+        }
+    }
+    lost.extend(roles.into_iter().map(|(role, count)| match count {
+        1 => format!("the {role} row of 1 ticket"),
+        n => format!("the {role} rows of {n} tickets"),
+    }));
+    let mut text = Vec::new();
+    if !carried.is_empty() {
+        text.push(format!("Moved over: {}.", carried.join(", ")));
+    }
+    if !lost.is_empty() {
+        text.push(format!("Dropped: {}.", lost.join(" \u{b7} ")));
+    }
+    text.push("From the next version each project can choose its own agents per stage.".to_owned());
+    Notice {
+        title: format!("{PRODUCT_NAME} now uses agents"),
+        text: text.join(" "),
+        dismiss_label: "Dismiss".to_owned(),
+    }
+}
+
+/// The core's words with the frames' apostrophe: "From Otaq’s agents file".
+fn curly(text: &str) -> String {
+    text.replace('\'', "\u{2019}")
+}
+
+/// An agent's came-from line: while the move-over's notice shows, what moved to it ("Has your Agent instructions",
+/// "Has your Validate skill", "Moved over from your named agents"); else where it came from.
+pub fn came_from(agent: &Agent, dropped: Option<&Dropped>) -> String {
+    let Some(moved) = dropped.map(|d| &d.moved) else {
+        return curly(&agent.came_from.label());
+    };
+    if moved.named.contains(&agent.id) {
+        return "Moved over from your named agents".to_owned();
+    }
+    let mut has = Vec::new();
+    if moved.agent_instructions.as_deref() == Some(&agent.id) {
+        has.push("Agent instructions".to_owned());
+    }
+    if moved.project_agent_instructions.as_deref() == Some(&agent.id) {
+        has.push("Project agent instructions".to_owned());
+    }
+    has.extend(
+        moved
+            .skills
+            .iter()
+            .filter(|s| s.agent == agent.id)
+            .map(|s| format!("{} skill", s.step)),
+    );
+    if has.is_empty() {
+        curly(&agent.came_from.label())
+    } else {
+        format!("Has your {}", and_list(&has))
+    }
+}
+
+/// What the page is built from: `agents.list`, the tools, and what uses each agent (`agents.in_use`).
+pub struct Inputs<'a> {
+    pub list: &'a AgentList,
+    pub tools: &'a AgentTools,
+    pub uses: &'a [InUse],
+}
+
+impl Inputs<'_> {
+    /// What uses `agent` (by name: `InUse` names it).
+    pub fn uses_of(&self, agent: &Agent) -> Option<&InUse> {
+        self.uses.iter().find(|u| u.agent == agent.name)
+    }
+}
+
+/// The page from `agents.list`.
+pub fn section(input: &Inputs) -> Section {
+    let (list, tools) = (input.list, input.tools);
     let default = list.default_model.as_ref();
+    let on = connected(tools);
+    let fallbacks = (on.len() > 1).then(|| Fallbacks {
+        label: "Fallback per tool".to_owned(),
+        description: "Used when a tool hits its plan limit.".to_owned(),
+        lines: on
+            .iter()
+            .map(|&tool| {
+                let others: Vec<Tool> = on.iter().copied().filter(|t| *t != tool).collect();
+                let picked = list
+                    .fallbacks
+                    .iter()
+                    .find(|f| f.tool == tool)
+                    .map(|f| &f.fallback);
+                FallbackLine {
+                    tool,
+                    label: format!("When {} hits its limit \u{2192}", tool_name(tool)),
+                    dropdown: dropdown(&others, tools, picked, true, NONE),
+                }
+            })
+            .collect(),
+    });
     Section {
-        title: "Agents",
-        default_model: match default {
-            Some(model) => format!(
-                "Default model for new agents: {} \u{b7} {}",
-                tool_name(model.tool),
-                model_label(model.model.as_deref(), tools.list(model.tool))
-            ),
-            None => "Default model for new agents: the first agent tool you connect".to_owned(),
+        title: "Agents".to_owned(),
+        intro: "What each agent does: its instructions, its skills and its own model. Agents are shared by all your \
+                projects. Two agents hold a role: the Project agent and the Epic lead. Edits apply to the next session \
+                that starts."
+            .to_owned(),
+        new_agent_label: "New agent".to_owned(),
+        notice: list.dropped.as_ref().map(|d| notice(d, &list.agents)),
+        default_model: DefaultModel {
+            label: "Default model for new agents".to_owned(),
+            description: "A new agent, or one a preset adds, starts with it.".to_owned(),
+            dropdown: dropdown(&on, tools, default, false, NO_DEFAULT),
         },
+        fallbacks,
+        columns: ["Name", "Model", "Skills", "Used in"]
+            .map(str::to_owned)
+            .to_vec(),
         rows: list
             .agents
             .iter()
@@ -311,20 +761,32 @@ pub fn section(list: &AgentList, tools: &AgentTools) -> Section {
                 id: a.id.clone(),
                 name: a.name.clone(),
                 role: a.role.map(|r| r.label().to_owned()),
-                came_from: a.came_from.label(),
-                model: agent_model(a, tools, default),
+                came_from: came_from(a, list.dropped.as_ref()),
+                model: list_model(a, tools, default),
                 skills: skill_names(a),
+                used_in: used_in_cell(input.uses_of(a)),
                 mark: a.mark.as_ref().map(mark_view),
+                mark_link: a.mark.as_ref().map(|_| "Edit\u{2026}".to_owned()),
+                menu: agent_menu(),
+                menu_label: format!("More for {}", a.name),
             })
             .collect(),
     }
 }
 
+/// The default model's field before a tool connects.
+pub const NO_DEFAULT: &str = "The first agent tool you connect";
+
 /// The agent tools' model lists the tests share.
 pub mod fixtures {
     use otaq_core::agent_tools::models::ModelEntry;
     use otaq_core::agent_tools::{ModelKind, ModelList, Tool};
-    use otaq_core::agents::{Agent, AgentModel, CameFrom};
+    use otaq_core::agents::in_use::StageUse;
+    use otaq_core::agents::move_over::{DroppedProject, DroppedRole, DroppedRow, DroppedSkill};
+    use otaq_core::agents::{
+        Agent, AgentList, AgentModel, CameFrom, Dropped, ImportedSkill, InUse, ModelRef, Moved,
+        MovedSkill, Role, SkillRef,
+    };
 
     pub fn entry(id: &str, display: &str, kind: ModelKind, now: Option<&str>) -> ModelEntry {
         ModelEntry {
@@ -509,89 +971,240 @@ pub mod fixtures {
     pub fn two_tools() -> super::AgentTools {
         tools(&[Tool::Claude, Tool::Codex])
     }
+
+    /// The ticket file's example after the move-over (T-0405, AGM-02): Planner, Epic lead, Developer, Validator,
+    /// Strong and Light, the default model Light's, what moved and what was dropped, and what uses each agent
+    /// (pocket-notes validates, pocket-api doesn't).
+    pub fn example() -> (AgentList, Vec<InUse>) {
+        let with = |mut a: Agent, f: &dyn Fn(&mut Agent)| {
+            f(&mut a);
+            a
+        };
+        let instructions = "Run `just test` before committing";
+        let skills = vec![
+            SkillRef::Shipped("work-ticket".into()),
+            SkillRef::Shipped("commit".into()),
+        ];
+        let agents = vec![
+            with(agent("planner", "Planner", Some("haiku")), &|a| {
+                a.role = Some(Role::ProjectAgent);
+                a.came_from = CameFrom::AgentsFile;
+                a.instructions = "Keep tickets small".into();
+                a.skills = vec![SkillRef::Shipped("project-agent".into())];
+            }),
+            with(agent("lead", "Epic lead", Some("opus")), &|a| {
+                a.role = Some(Role::EpicLead);
+                a.came_from = CameFrom::AgentsFile;
+                a.skills = vec![SkillRef::Shipped("epic-lead".into())];
+            }),
+            with(agent("developer", "Developer", Some("haiku")), &|a| {
+                a.came_from = CameFrom::DefaultPreset;
+                a.instructions = instructions.into();
+                a.skills.clone_from(&skills);
+            }),
+            with(agent("validator", "Validator", Some("opus")), &|a| {
+                a.came_from = CameFrom::DefaultPreset;
+                a.skills = vec![SkillRef::Imported("team-validate".into())];
+                a.imported = vec![ImportedSkill {
+                    id: "team-validate".into(),
+                    name: "team-validate".into(),
+                    original: "/team/validate".into(),
+                    imported_at: 1,
+                    fingerprint: String::new(),
+                    warnings: Vec::new(),
+                    stands_for: Some("validate".into()),
+                }];
+            }),
+            with(agent("strong", "Strong", Some("opus")), &|a| {
+                a.instructions = instructions.into();
+                a.skills.clone_from(&skills);
+            }),
+            with(agent("light", "Light", Some("haiku")), &|a| {
+                a.instructions = instructions.into();
+                a.skills.clone_from(&skills);
+            }),
+        ];
+        let dropped = Dropped {
+            at: 1,
+            projects: vec![DroppedProject {
+                key: "API".into(),
+                name: "pocket-api".into(),
+                roles: vec![DroppedRole {
+                    role: "Developer".into(),
+                    agent: "Strong".into(),
+                }],
+                skills: vec![DroppedSkill {
+                    step: "Commit".into(),
+                    name: "api-commit".into(),
+                }],
+                project_agent_instructions: false,
+            }],
+            tickets: vec![DroppedRow {
+                key: "NOTE-3".parse().unwrap(),
+                role: "Developer".into(),
+                agent: Some("Strong".into()),
+                set_by_user: true,
+                picked_by: None,
+                reason: None,
+            }],
+            moved: Moved {
+                named: vec!["strong".into(), "light".into()],
+                agent_instructions: Some("developer".into()),
+                project_agent_instructions: Some("planner".into()),
+                skills: vec![MovedSkill {
+                    step: "Validate".into(),
+                    agent: "validator".into(),
+                }],
+            },
+            dismissed: false,
+        };
+        let stage = |project: &str, stage: &str| StageUse {
+            project: Some(project.into()),
+            stage: stage.into(),
+            option: false,
+        };
+        let uses = vec![
+            InUse {
+                agent: "Planner".into(),
+                role: Some(Role::ProjectAgent),
+                stages: Vec::new(),
+            },
+            InUse {
+                agent: "Epic lead".into(),
+                role: Some(Role::EpicLead),
+                stages: Vec::new(),
+            },
+            InUse {
+                agent: "Developer".into(),
+                role: None,
+                stages: vec![
+                    stage("pocket-api", "Dev"),
+                    stage("pocket-api", "Done"),
+                    stage("pocket-notes", "Dev"),
+                    stage("pocket-notes", "Done"),
+                ],
+            },
+            InUse {
+                agent: "Validator".into(),
+                role: None,
+                stages: vec![stage("pocket-notes", "Validate")],
+            },
+            InUse {
+                agent: "Strong".into(),
+                ..InUse::default()
+            },
+            InUse {
+                agent: "Light".into(),
+                ..InUse::default()
+            },
+        ];
+        let list = AgentList {
+            agents,
+            default_model: Some(ModelRef {
+                tool: Tool::Claude,
+                model: Some("haiku".into()),
+            }),
+            fallbacks: Vec::new(),
+            dropped: Some(dropped),
+        };
+        (list, uses)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::fixtures::*;
     use super::*;
-    use otaq_core::agents::{AgentList, CameFrom, ImportedSkill, Role};
-    use otaq_core::naming::PRODUCT_NAME;
 
     #[test]
-    fn models_read_as_settings_shows_them() {
+    fn models_read_the_agents_pages_way() {
         let list = claude_list();
-        assert_eq!(model_label(None, Some(&list)), "tool default");
-        assert_eq!(model_label(Some("default"), Some(&list)), "tool default");
         assert_eq!(
             model_label(Some("opus"), Some(&list)),
             "Opus \u{b7} always the newest"
         );
-        assert_eq!(model_label(Some("claude-x"), Some(&list)), "claude-x");
+        assert_eq!(short_model(None, Some(&list)), "tool default");
+        assert_eq!(short_model(Some("opus"), Some(&list)), "opus");
+        assert_eq!(short_model(Some("claude-x"), Some(&list)), "claude-x");
+        assert_eq!(
+            short_model(Some("newest:gpt-sol"), Some(&codex_list())),
+            "newest GPT Sol"
+        );
+        assert_eq!(
+            short_model(Some("auto@balance"), Some(&copilot_list())),
+            "Auto \u{b7} balance"
+        );
         let tools = AgentTools::one(Some(list));
         let mut strong = agent("s", "Strong", Some("opus"));
         strong.effort = Some("high".into());
         assert_eq!(
-            agent_model(&strong, &tools, None),
-            "Opus \u{b7} always the newest \u{b7} effort high"
+            list_model(&strong, &tools, None),
+            "Claude Code \u{b7} opus \u{b7} effort high"
         );
         let mut planner = agent("p", "Planner", None);
         planner.model = AgentModel::Default;
-        assert_eq!(agent_model(&planner, &tools, None), "default");
-        let haiku = ModelRef {
-            tool: Tool::ALL[0],
-            model: Some("haiku".into()),
+        assert_eq!(list_model(&planner, &tools, None), "default");
+        let sonnet = ModelRef {
+            tool: Tool::Claude,
+            model: Some("sonnet".into()),
         };
         assert_eq!(
-            agent_model(&planner, &tools, Some(&haiku)),
-            "default \u{b7} Claude Code \u{b7} Haiku \u{b7} always the newest"
-        );
-        let two = two_tools();
-        assert_eq!(
-            agent_model(
-                &on(Tool::Codex, agent("g", "GPT", Some("gpt-5.5"))),
-                &two,
-                None
-            ),
-            "Codex \u{b7} gpt-5.5"
+            list_model(&planner, &tools, Some(&sonnet)),
+            "default \u{b7} Claude Code \u{b7} sonnet"
         );
     }
 
+    /// The example after the move-over (T-0410's Done-when): six agents with their roles, came-from lines, models,
+    /// skills and where they are used, and the notice naming what moved and what was dropped.
     #[test]
-    fn the_section_lists_every_agent_with_its_role_origin_model_and_skills() {
-        let mut planner = agent("p", "Planner", None);
-        planner.model = AgentModel::Default;
-        planner.role = Some(Role::ProjectAgent);
-        planner.came_from = CameFrom::AgentsFile;
-        planner.skills = vec![SkillRef::Shipped("project-agent".into())];
-        let mut validator = agent("v", "Validator", Some("opus"));
-        validator.came_from = CameFrom::DefaultPreset;
-        validator.skills = vec![SkillRef::Imported("c1".into())];
-        validator.imported = vec![ImportedSkill {
-            id: "c1".into(),
-            name: "team-validate".into(),
-            original: "/team/validate".into(),
-            imported_at: 1,
-            fingerprint: String::new(),
-            warnings: Vec::new(),
-            stands_for: Some("validate".into()),
-        }];
-        let list = AgentList {
-            agents: vec![planner, validator],
-            default_model: Some(ModelRef {
-                tool: Tool::ALL[0],
-                model: Some("haiku".into()),
-            }),
-            fallbacks: Vec::new(),
-            dropped: None,
-        };
-        let section = section(&list, &AgentTools::one(Some(claude_list())));
+    fn the_examples_agents_page_after_the_move_over() {
+        let (list, uses) = example();
+        let tools = AgentTools::one(Some(claude_list()));
+        let page = section(&Inputs {
+            list: &list,
+            tools: &tools,
+            uses: &uses,
+        });
+        assert_eq!(page.title, "Agents");
         assert_eq!(
-            section.default_model,
-            "Default model for new agents: Claude Code \u{b7} Haiku \u{b7} always the newest"
+            page.intro,
+            "What each agent does: its instructions, its skills and its own model. Agents are shared by all your \
+             projects. Two agents hold a role: the Project agent and the Epic lead. Edits apply to the next session \
+             that starts."
         );
-        type Shown<'a> = (&'a str, Option<&'a str>, &'a str, &'a str, Vec<String>);
-        let rows: Vec<Shown> = section
+        assert_eq!(page.new_agent_label, "New agent");
+        let notice = page.notice.expect("the notice, until dismissed");
+        assert_eq!(notice.title, format!("{PRODUCT_NAME} now uses agents"));
+        assert_eq!(
+            notice.text,
+            "Moved over: Strong, Light, your Agent instructions (now Developer\u{2019}s), your Project agent \
+             instructions (now Planner\u{2019}s), your Validate skill (now Validator\u{2019}s). Dropped: \
+             pocket-api\u{2019}s own Developer (Strong) and Commit skill \u{b7} the Developer row of 1 ticket. From \
+             the next version each project can choose its own agents per stage."
+        );
+        assert_eq!(page.default_model.label, "Default model for new agents");
+        assert_eq!(
+            page.default_model.description,
+            "A new agent, or one a preset adds, starts with it."
+        );
+        assert_eq!(
+            page.default_model.dropdown.value,
+            "Claude Code \u{b7} haiku"
+        );
+        assert_eq!(
+            page.fallbacks, None,
+            "one tool: a fallback must be on another tool"
+        );
+        assert_eq!(page.columns, ["Name", "Model", "Skills", "Used in"]);
+        type Shown<'a> = (
+            &'a str,
+            Option<&'a str>,
+            &'a str,
+            &'a str,
+            Vec<String>,
+            &'a str,
+        );
+        let rows: Vec<Shown> = page
             .rows
             .iter()
             .map(|r| {
@@ -601,29 +1214,178 @@ mod tests {
                     r.came_from.as_str(),
                     r.model.as_str(),
                     r.skills.clone(),
+                    r.used_in.as_str(),
                 )
             })
             .collect();
-        let from_file = format!("From {PRODUCT_NAME}'s agents file");
-        let from_preset = format!("Added by the {PRODUCT_NAME} default preset");
+        let s = |names: &[&str]| names.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>();
         assert_eq!(
             rows,
             [
                 (
                     "Planner",
                     Some("Project agent"),
-                    from_file.as_str(),
-                    "default \u{b7} Claude Code \u{b7} Haiku \u{b7} always the newest",
-                    vec!["project-agent".to_owned()]
+                    "Has your Project agent instructions",
+                    "Claude Code \u{b7} haiku",
+                    s(&["project-agent"]),
+                    "every project \u{b7} the Project agent"
+                ),
+                (
+                    "Epic lead",
+                    Some("Epic lead"),
+                    &*format!("From {PRODUCT_NAME}\u{2019}s agents file"),
+                    "Claude Code \u{b7} opus",
+                    s(&["epic-lead"]),
+                    "every project \u{b7} epics"
+                ),
+                (
+                    "Developer",
+                    None,
+                    "Has your Agent instructions",
+                    "Claude Code \u{b7} haiku",
+                    s(&["work-ticket", "commit"]),
+                    "pocket-api \u{b7} Dev, pocket-api \u{b7} Done, pocket-notes \u{b7} Dev, pocket-notes \u{b7} Done"
                 ),
                 (
                     "Validator",
                     None,
-                    from_preset.as_str(),
-                    "Opus \u{b7} always the newest",
-                    vec!["team-validate".to_owned()]
+                    "Has your Validate skill",
+                    "Claude Code \u{b7} opus",
+                    s(&["team-validate"]),
+                    "pocket-notes \u{b7} Validate"
+                ),
+                (
+                    "Strong",
+                    None,
+                    "Moved over from your named agents",
+                    "Claude Code \u{b7} opus",
+                    s(&["work-ticket", "commit"]),
+                    "\u{2014}"
+                ),
+                (
+                    "Light",
+                    None,
+                    "Moved over from your named agents",
+                    "Claude Code \u{b7} haiku",
+                    s(&["work-ticket", "commit"]),
+                    "\u{2014}"
                 ),
             ]
         );
+        let menu: Vec<&str> = page.rows[0].menu.iter().map(|m| m.label.as_str()).collect();
+        assert_eq!(menu, ["Duplicate", "Delete\u{2026}"]);
+    }
+
+    /// AGM-02: the notice shows once; dismissed (`agents.list` then has no record), it is gone and the came-from
+    /// lines say where each agent came from again.
+    #[test]
+    fn the_notice_is_gone_after_dismiss() {
+        let (mut list, uses) = example();
+        list.dropped = None;
+        let tools = AgentTools::one(Some(claude_list()));
+        let page = section(&Inputs {
+            list: &list,
+            tools: &tools,
+            uses: &uses,
+        });
+        assert_eq!(page.notice, None);
+        let lines: Vec<&str> = page.rows.iter().map(|r| r.came_from.as_str()).collect();
+        let file = format!("From {PRODUCT_NAME}\u{2019}s agents file");
+        let preset = format!("Added by the {PRODUCT_NAME} default preset");
+        assert_eq!(
+            lines,
+            [
+                file.as_str(),
+                file.as_str(),
+                preset.as_str(),
+                preset.as_str(),
+                "Added by you",
+                "Added by you"
+            ]
+        );
+        // A notice with nothing dropped still says what moved, without a Dropped part.
+        let (mut list, _) = example();
+        if let Some(d) = list.dropped.as_mut() {
+            d.projects.clear();
+            d.tickets.clear();
+            d.moved.skills.clear();
+            d.moved.project_agent_instructions = None;
+        }
+        let text = notice(list.dropped.as_ref().unwrap(), &list.agents).text;
+        assert_eq!(
+            text,
+            "Moved over: Strong, Light, your Agent instructions (now Developer\u{2019}s). From the next version each \
+             project can choose its own agents per stage."
+        );
+    }
+
+    /// AGM-03: the default model and one Fallback line per connected tool, each offering the other tools' lists and
+    /// None.
+    #[test]
+    fn the_default_model_and_a_fallback_per_tool() {
+        let (mut list, uses) = example();
+        list.fallbacks = vec![otaq_core::agents::ToolFallback {
+            tool: Tool::Claude,
+            fallback: ModelRef {
+                tool: Tool::Codex,
+                model: Some("newest:gpt-sol".into()),
+            },
+        }];
+        let tools = two_tools();
+        let page = section(&Inputs {
+            list: &list,
+            tools: &tools,
+            uses: &uses,
+        });
+        let fallbacks = page.fallbacks.expect("two tools");
+        assert_eq!(
+            (fallbacks.label.as_str(), fallbacks.description.as_str()),
+            ("Fallback per tool", "Used when a tool hits its plan limit.")
+        );
+        let lines: Vec<(&str, &str)> = fallbacks
+            .lines
+            .iter()
+            .map(|l| (l.label.as_str(), l.dropdown.value.as_str()))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                (
+                    "When Claude Code hits its limit \u{2192}",
+                    "Codex \u{b7} newest GPT Sol"
+                ),
+                ("When Codex hits its limit \u{2192}", "None")
+            ]
+        );
+        // Claude Code's line offers None, then Codex's list only.
+        let choices = &fallbacks.lines[0].dropdown.choices;
+        assert_eq!(choices[0].label, "None");
+        assert!(choices.iter().all(|c| c.tool != Some(Tool::Claude)));
+        let picked: Vec<&str> = choices
+            .iter()
+            .filter(|c| c.selected)
+            .map(|c| c.label.as_str())
+            .collect();
+        assert_eq!(picked, ["GPT Sol \u{b7} always the newest"]);
+        // The default model offers both tools' lists, under their names.
+        let headings: Vec<&str> = page
+            .default_model
+            .dropdown
+            .choices
+            .iter()
+            .filter(|c| c.kind == ChoiceKind::Heading)
+            .map(|c| c.label.as_str())
+            .collect();
+        assert_eq!(headings, ["Claude Code", "Codex"]);
+        // Before a tool connects there is nothing to pick.
+        list.default_model = None;
+        let none = AgentTools::default();
+        let page = section(&Inputs {
+            list: &list,
+            tools: &none,
+            uses: &uses,
+        });
+        assert!(page.default_model.dropdown.read_only);
+        assert_eq!(page.default_model.dropdown.value, NO_DEFAULT);
     }
 }

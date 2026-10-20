@@ -289,6 +289,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentsFallback(_)
         | Request::AgentsImportSkill(_)
         | Request::AgentsReimportSkill(_)
+        | Request::AgentsDismissMovedOver
         | Request::TicketAgents(_)
         | Request::BoardAgents(_)
         | Request::TicketChoices(_)

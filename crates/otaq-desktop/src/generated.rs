@@ -162,8 +162,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::keyboard_page::Press::export_all(&cfg)?;
     otaq_view::view_models::keyboard_page::RecordAnswer::export_all(&cfg)?;
     otaq_view::view_models::keyboard_page::Gallery::export_all(&cfg)?;
-    // Settings → Agents (T-0405, read-only until T-0410): the section writes its rows and marks too.
-    otaq_view::view_models::agents::Section::export_all(&cfg)?;
+    // Settings → Agents and one agent's page (T-0410): the page writes its rows and marks too.
+    crate::api::export_agent_types(&cfg)?;
     crate::api::AgentsOpen::export_all(&cfg)?;
     // The panel's Stack, Messages and epic sections, the History tab and the epic dialogs (T-0223).
     crate::api::SectionParams::export_all(&cfg)?;
