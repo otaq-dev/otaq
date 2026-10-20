@@ -10,7 +10,6 @@
 //! `answer_options.rs`; the page keeps only the selection and the draft.
 
 use otaq_core::agent_tools::Tool;
-use otaq_core::agents::SessionRole as Role;
 use otaq_core::board::needs_you::NeedsYouGroup;
 use otaq_core::board::questions::Choice;
 use otaq_core::domain::{LeadNoteSent, StuckStop, TicketKey, ValidationAction};
@@ -21,7 +20,6 @@ use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::theme::Palette;
-use crate::view_models::agents::RoleId;
 use crate::view_models::answer::{self as answers, AnswerKind};
 use crate::view_models::answer_options::{self, AnswerOptions};
 use crate::view_models::inbox::{
@@ -57,10 +55,10 @@ fn note_hint(label: impl Into<String>) -> KeyHint {
 #[ts(rename = "InboxRowAction")]
 pub enum Action {
     RetryStart,
-    /// Start failed / No result on a refused model (AGT-05): the page opens the panel with this row's picker open
-    /// (`panel.view`'s `focus_agent_row`); nothing goes to `inbox.act`.
-    ChangeAgent {
-        role: RoleId,
+    /// Start failed / No result on a refused model (AGT-05): Open agent… opens Settings → Agents on `agent`'s page;
+    /// nothing goes to `inbox.act`.
+    OpenAgent {
+        agent: Option<String>,
     },
     ReopenParent {
         parent: String,
@@ -141,8 +139,8 @@ impl Action {
     pub fn of(action: &RowAction) -> Self {
         match action {
             RowAction::RetryStart => Self::RetryStart,
-            RowAction::ChangeAgent(role) => Self::ChangeAgent {
-                role: (*role).into(),
+            RowAction::OpenAgent { agent, .. } => Self::OpenAgent {
+                agent: agent.clone(),
             },
             RowAction::ReopenParent(p) => Self::ReopenParent {
                 parent: p.to_string(),
@@ -188,10 +186,11 @@ pub struct Button {
 fn button(action: &RowAction) -> Button {
     let (label, icon, primary) = match action {
         RowAction::RetryStart => ("Retry start".to_owned(), IconName::RotateCcw, false),
-        RowAction::ChangeAgent(Role::Validator) => {
-            ("Change validator".to_owned(), IconName::Bot, true)
-        }
-        RowAction::ChangeAgent(_) => ("Change agent".to_owned(), IconName::Bot, true),
+        RowAction::OpenAgent { .. } => (
+            crate::view_models::tool_problems::OPEN_AGENT.to_owned(),
+            IconName::Bot,
+            true,
+        ),
         RowAction::ReopenParent(_) => ("Reopen parent".to_owned(), IconName::RotateCcw, true),
         RowAction::RemoveDependency(_) => ("Remove dependency".to_owned(), IconName::Unlink, false),
         RowAction::UsageLimit => ("Mark as usage limit".to_owned(), IconName::Gauge, false),
@@ -1140,6 +1139,7 @@ pub fn notes_gallery() -> View {
 mod tests {
     use std::time::Instant;
 
+    use otaq_core::agents::SessionRole as Role;
     use otaq_core::attention::inbox::{InboxCounts, InboxList};
     use otaq_core::board::needs_you::NeedsYouItem;
     use otaq_core::board::questions::HumanQuestion;
@@ -1867,21 +1867,23 @@ mod tests {
         );
     }
 
-    /// The Change agent / Change validator buttons (AGT-05): their labels, primary, and the role the page opens.
+    /// Open agent… (AGT-05, d0108 second gap review rule 7): its label, primary, and the agent the page opens.
     #[test]
-    fn change_agent_goes_back_with_its_role() {
-        let b = button(&RowAction::ChangeAgent(Role::Developer));
-        assert_eq!((b.label.as_str(), b.primary), ("Change agent", true));
+    fn open_agent_goes_back_with_its_agent() {
+        let b = button(&RowAction::OpenAgent {
+            role: Role::Developer,
+            agent: Some("griller".into()),
+        });
+        assert_eq!((b.label.as_str(), b.primary), ("Open agent\u{2026}", true));
         assert_eq!(
             serde_json::to_value(&b.action).unwrap(),
-            serde_json::json!({ "kind": "change_agent", "role": "developer" })
+            serde_json::json!({ "kind": "open_agent", "agent": "griller" })
         );
-        let b = button(&RowAction::ChangeAgent(Role::Validator));
-        assert_eq!(b.label, "Change validator");
-        assert_eq!(
-            serde_json::to_value(&b.action).unwrap(),
-            serde_json::json!({ "kind": "change_agent", "role": "validator" })
-        );
+        let b = button(&RowAction::OpenAgent {
+            role: Role::Validator,
+            agent: None,
+        });
+        assert_eq!(b.label, "Open agent\u{2026}");
         assert_eq!(b.action.validation(), None);
     }
 
@@ -1918,6 +1920,7 @@ mod tests {
             },
             enabled: true,
             primary: false,
+            tooltip: None,
         };
         let limits = [
             ToolLimit {

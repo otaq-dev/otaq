@@ -6,7 +6,7 @@
 // i · At max height, scrolled*). Used by the modal (new ticket, ⌘N) and the Ticket tab.
 import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
 
-import { AgentBlock, Button, Field, Kbd, Segmented, Select, StatusPill } from "../../components";
+import { Button, Field, Kbd, Segmented, Select, StageChoices, StatusPill } from "../../components";
 import type { EditorDepChip } from "../../generated/EditorDepChip";
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorPickerRow } from "../../generated/EditorPickerRow";
@@ -197,15 +197,34 @@ function DepsField({ view, chips, refusal, onAdd, onRemove }: DepsProps) {
 }
 
 /**
- * The Agents block (AGT-04, AGM-05; *08 → Row · Agents field*): the agent each stage of a new ticket's flow runs (an
- * epic's Epic lead once Type is Epic), and an existing ticket's, read-only until T-0411 draws the ticket's choices.
+ * "Stage choices" under Priority (AGM-09; *08 → Row · Stage choices (update AG §9)*): a select per stage with options,
+ * each on its stage's own agent until picked; none on the default flow and once Type is Epic. The picks stay in the
+ * form and go with Create or Save (`form.choices`).
  */
-function AgentsField({ view, form }: { view: EditorView; form: EditorForm }) {
-  const block = view.create && form.epic_kind ? view.epic_agents : view.agents;
-  if (block === null) return null;
+function ChoicesField({
+  view,
+  form,
+  onChange,
+}: {
+  view: EditorView;
+  form: EditorForm;
+  onChange: (form: EditorForm) => void;
+}) {
+  if (view.choices === null || form.epic_kind) return null;
+  const picks = Object.fromEntries(form.choices.map((c) => [c.stage_id, c.choice]));
   return (
     <div className="editor-field">
-      <AgentBlock block={block} look="form" onPick={ignore} />
+      <StageChoices
+        view={view.choices}
+        look="form"
+        picks={picks}
+        onPick={(stage, choice) => {
+          onChange({
+            ...form,
+            choices: [...form.choices.filter((c) => c.stage_id !== stage), { stage_id: stage, choice }],
+          });
+        }}
+      />
     </div>
   );
 }
@@ -478,7 +497,7 @@ export function EditorFields({
           }}
         />
       </div>
-      <AgentsField view={view} form={form} />
+      <ChoicesField view={view} form={form} onChange={onChange} />
       {view.create && (
         <div className="editor-row">
           <div className="editor-field">
@@ -490,7 +509,7 @@ export function EditorFields({
               options={[t.kind_ticket, t.kind_epic]}
               selected={form.epic_kind ? 1 : 0}
               onSelect={(i) => {
-                // A ticket's rows and an epic's lead row are different rows: a pick doesn't carry over.
+                // An epic has no stage choices: its picks don't carry over.
                 if ((i === 1) !== form.epic_kind) {
                   onChange({ ...form, epic_kind: i === 1, epic: i === 1 ? null : form.epic });
                 }

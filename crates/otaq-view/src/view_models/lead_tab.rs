@@ -1190,7 +1190,7 @@ mod tests {
                 .collect()
         };
         assert_eq!(labels(8), ["Sign in\u{2026}"]);
-        assert_eq!(labels(10), ["Change agent"]);
+        assert_eq!(labels(10), ["Open agent\u{2026}"]);
         // An ended-in-review lead doesn't wait on its tool.
         let tools = tool_problems::fixtures::at_limit(tool_problems::fixtures::CLAUDE, None);
         let t = view(&Facts {

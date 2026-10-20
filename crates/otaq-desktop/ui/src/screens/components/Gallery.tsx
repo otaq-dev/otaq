@@ -27,7 +27,6 @@ import {
   type ButtonVariant,
   Checkbox,
   CountBadge,
-  AgentBlock,
   DecisionItem,
   DecisionsList,
   Field,
@@ -47,11 +46,13 @@ import {
   type ShownState,
   StackList,
   StackRow,
+  StageChoices,
   StatusPill,
   Tabs,
   TextArea,
   TextInput,
   ThemePicker,
+  TicketPath,
   Toast,
   Toggle,
   ToolAvatar,
@@ -79,7 +80,6 @@ import type { InboxLeadGallery } from "../../generated/InboxLeadGallery";
 import type { LeadGallery } from "../../generated/LeadGallery";
 import type { LeadSplit } from "../../generated/LeadSplit";
 import type { LeadTabGallery } from "../../generated/LeadTabGallery";
-import type { AgentRowsGallery } from "../../generated/AgentRowsGallery";
 import type { LegendTier } from "../../generated/LegendTier";
 import type { PaneGallery } from "../../generated/PaneGallery";
 import type { DrawerGallery } from "../../generated/DrawerGallery";
@@ -88,6 +88,7 @@ import type { ToolAvatarGallery } from "../../generated/ToolAvatarGallery";
 import type { TrustGallery } from "../../generated/TrustGallery";
 import type { NotificationsGallery } from "../../generated/NotificationsGallery";
 import type { ShortcutsGallery } from "../../generated/ShortcutsGallery";
+import type { StageChoicesGallery } from "../../generated/StageChoicesGallery";
 import type { OptionNotesGallery } from "../../generated/OptionNotesGallery";
 import type { InboxView } from "../../generated/InboxView";
 import {
@@ -1340,21 +1341,21 @@ function LeadTabs() {
   );
 }
 
-const loadAgentRows = () => request("gallery.agent_rows") as Promise<AgentRowsGallery>;
+const loadStageChoices = () => request("gallery.stage_choices") as Promise<StageChoicesGallery>;
 
-/** *05 → Column 1 · locked rows, Column 2, Row · Developer and Validator rows*, *08 → Row · Agents field* (T-0344):
- * every row state from `gallery.agent_rows`, as the panel shows it (with its header's token line) and as the editor's
- * form does; picks are only recorded. */
-function AgentRowsSection() {
-  const { view, error } = useServiceView(loadAgentRows, []);
+/** *08 → Row · Stage choices (update AG §9)*, *05 → Row · Stage choices and path* (T-0411): the ⌘N form's pickers,
+ * the panel's choices and path mid-flow, after a Fail, finished, a choice you set and the default flow, from
+ * `gallery.stage_choices`; picks are only recorded. */
+function StageChoicesSection() {
+  const { view, error } = useServiceView(loadStageChoices, []);
   const [picked, setPicked] = useState<string | null>(null);
   if (error) return <p role="alert">{error.message}</p>;
   if (!view) return null;
   return (
-    <Section title="05/08 · Agent rows: every state, one agent, locked, moved on (T-0344)">
-      <Caption>Last pick: {picked ?? "—"}</Caption>
+    <Section title="05/08 · Stage choices and the path (T-0411)">
+      <Caption>Last pick: {picked ?? "\u2014"}</Caption>
       <div className="gallery-wrap gallery-wrap-wide">
-        {view.samples.map((sample) => (
+        {view.samples.map((sample, n) => (
           <div key={sample.caption} className="gallery-stack-tight gallery-agent-rows">
             <Caption>{sample.caption}</Caption>
             {sample.token_line !== null && (
@@ -1373,17 +1374,16 @@ function AgentRowsSection() {
                 }}
               />
             ))}
-            {(["panel", "form"] as const).map((look) => (
-              <div key={look} className="gallery-agent-rows-look" data-look={look}>
-                <AgentBlock
-                  block={sample.block}
-                  look={look}
-                  onPick={(role, agent) => {
-                    setPicked(`${sample.caption}: ${role} → ${agent ?? "project default"}`);
-                  }}
-                />
-              </div>
-            ))}
+            {sample.choices !== null && (
+              <StageChoices
+                view={sample.choices}
+                look={n === 0 ? "form" : "panel"}
+                onPick={(stage, choice) => {
+                  setPicked(`${sample.caption}: ${stage} → ${choice}`);
+                }}
+              />
+            )}
+            {sample.path !== null && <TicketPath view={sample.path} />}
           </div>
         ))}
       </div>
@@ -2420,7 +2420,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <Decisions />
         <DecisionChange />
         <LeadTabs />
-        <AgentRowsSection />
+        <StageChoicesSection />
         <InboxLead />
         <OptionNotes />
         <EnvVarsSection />

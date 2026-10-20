@@ -21,7 +21,7 @@ use otaq_core::agents::facts::TicketAgents;
 use otaq_core::usage::TicketUsage;
 use otaq_core::protocol::{
     CloseParams, CommentsParams, DepParams, KeyParams, LeadParams, MoveParams, ProjectAgentAnswerParams,
-    ProjectParams, Reply, Request, SendToFixParams, SessionListParams, SubmitByUserParams, UsageParams,
+    ProjectParams, Reply, Request, SendToFixParams, SessionListParams, SetChoiceParams, SubmitByUserParams, UsageParams,
     ValidationActionParams,
 };
 use otaq_core::review::ReturnOutcome;
@@ -32,9 +32,8 @@ use otaq_view::key_labels::KeyLabels;
 use otaq_view::keymap::KeyAction;
 use otaq_view::view_models::answer::{self, AnswerOutcome};
 use otaq_view::view_models::answer_options::AnswerOptions;
-use otaq_view::view_models::agent_rows::{self, Block};
+use otaq_view::view_models::stage_choices::{self, ChoicesView, PathView};
 use otaq_view::view_models::tool_problems::{Callout, Tools};
-use otaq_view::view_models::agents::RoleId;
 use otaq_view::view_models::approve;
 use otaq_view::view_models::card::{
     CardActionKind, TOKENS_UNKNOWN, age_label, tokens_label,
@@ -78,6 +77,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "panel.remove_dependency" => reply(&remove_dependency(app, parse(params)?).await?),
         "panel.setup_log" => reply(&setup_log(parse(params)?)),
         "panel.answer_agent" => reply(&answer_agent(app, parse(params)?).await?),
+        "panel.set_choice" => reply(&set_choice(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -106,11 +106,17 @@ fn key_of(text: &str) -> Result<TicketKey, RequestError> {
 #[ts(rename = "PanelParams")]
 pub struct Params {
     pub key: String,
-    /// `panel.view` only: open the Ticket tab with this row's picker open (Change agent / Change validator,
-    /// T-0345); the view hands it back as `focus_agent_row`.
-    #[serde(default)]
-    #[ts(optional)]
-    pub focus_agent_row: Option<RoleId>,
+}
+
+/// `panel.set_choice`: the user's choice for one stage, until it starts (AGM-08, AGM-09).
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "PanelChoiceParams")]
+pub struct ChoiceParams {
+    pub key: String,
+    /// The stage's id.
+    pub stage: String,
+    /// An agent's name, `skip` or `required`.
+    pub choice: String,
 }
 
 /// A tooltip: its name and the user's key for it.
@@ -356,7 +362,7 @@ pub struct View {
     /// The tool refused a model (Start failed, No result): its callout above the bar, in place of `start_problem`.
     pub refusal: Option<Refusal>,
     /// The held roles (§7.2, SCH-04 `[M23]`): "Model unavailable", "Codex isn't available · logged out", "Claude
-    /// Code limit reached · resets 3:45 pm", with Use fallback, Change agent / Change validator, Sign in….
+    /// Code limit reached · resets 3:45 pm", with Use fallback, Open agent…, Sign in….
     pub holds: Vec<Callout>,
     pub mark_closed: Option<Confirm>,
     /// The compact running pill next to the tokens while the Run is up (*13 → Card & panel-header controls*).
@@ -365,10 +371,12 @@ pub struct View {
     /// The ticket's agent session runs.
     pub live_agent: bool,
     pub sizes: Sizes,
-    /// The Ticket tab's "Agents" block (AGT-04); an epic's Epic lead row and its children.
-    pub agents: Option<Block>,
-    /// Open the Ticket tab with this row's picker open (from the open request).
-    pub focus_agent_row: Option<RoleId>,
+    /// The ticket's stage choices (AGM-09, `s05-36`): none on a flow without options and for an epic.
+    pub choices: Option<ChoicesView>,
+    /// The ticket's path (AGM-09): every stage with its agent and model; none for an epic.
+    pub path: Option<PathView>,
+    /// The agent Open agent… opens (a held session's, or the one whose model the tool refused).
+    pub open_agent: Option<String>,
 }
 
 /// "● :4020 ↗ ▢": the Run's port, Open (only with an Open URL) and Stop.
@@ -602,7 +610,7 @@ pub fn view_of(f: &Facts) -> View {
         signal,
         tokens,
         token_split: match f.agents {
-            Some(agents) => agent_rows::token_line(agents, f.tools),
+            Some(agents) => stage_choices::token_line(agents, f.tools),
             None => f.usage.and_then(|u| validation_panel::token_split(ticket, u)),
         },
         previous: vm::neighbour(f.tickets, &ticket.key, -1).map(|k| k.to_string()),
@@ -648,7 +656,7 @@ pub fn view_of(f: &Facts) -> View {
         refusal,
         holds: f
             .agents
-            .map(|t| agent_rows::callouts(t, f.tools))
+            .map(|t| stage_choices::callouts(t, f.tools))
             .unwrap_or_default(),
         mark_closed,
         run: otaq_view::view_models::run::header_pill(f.run).map(|(port, url)| RunPill {
@@ -677,8 +685,9 @@ pub fn view_of(f: &Facts) -> View {
             .collect(),
         live_agent: live,
         sizes: SIZES,
-        agents: f.agents.map(|t| agent_rows::block(t, f.tools)),
-        focus_agent_row: None,
+        choices: f.agents.and_then(stage_choices::panel_choices),
+        path: f.agents.and_then(|t| stage_choices::path(t, f.tools)),
+        open_agent: f.agents.and_then(|t| open_agent(ticket, t)),
     }
 }
 
@@ -827,10 +836,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         keys,
     });
     Ok(Load {
-        view: Some(View {
-            focus_agent_row: params.focus_agent_row,
-            ..view
-        }),
+        view: Some(view),
         gone,
     })
 }
@@ -1476,6 +1482,40 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
     }
 }
 
+/// The agent Open agent… opens (AGM-03, d0108 second gap review rule 7): a held session's agent, else the agent of the
+/// last session of the role whose model the tool refused (AGT-05).
+fn open_agent(ticket: &Ticket, t: &TicketAgents) -> Option<String> {
+    t.holds.iter().find_map(|h| h.agent_id.clone()).or_else(|| {
+        let role = otaq_core::board::needs_you::change_agent(ticket)?;
+        t.sessions
+            .iter()
+            .rev()
+            .find(|s| s.role == role)
+            .and_then(|s| s.agent_id.clone())
+    })
+}
+
+/// `panel.set_choice`: the user's pick in the panel's Choices (`ticket.set_choice`); refused (a stage that started
+/// meanwhile) with a toast. The panel follows the ticket's change.
+pub async fn set_choice(app: &App, params: ChoiceParams) -> Result<(), RequestError> {
+    let key = params.key.clone();
+    match app
+        .service
+        .send(Request::TicketSetChoice(SetChoiceParams {
+            key: params.key,
+            stage: params.stage,
+            choice: params.choice,
+        }))
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            toast_error(app, format!("{key}\u{2019}s choice wasn\u{2019}t changed"), &e);
+            Err(e)
+        }
+    }
+}
+
 /// What `panel.reopen_parent` and `panel.remove_dependency` take.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "PanelParentParams")]
@@ -2043,15 +2083,15 @@ mod tests {
         assert_eq!(view.approve_more, Some("Approve choices"));
     }
 
-    /// T-0345 (AGT-05): a refused model's callout above the bar, in place of the start callout, with Change agent
-    /// first; No result's with Change validator.
+    /// T-0345 (AGT-05), d0108 second gap review rule 7: a refused model's callout above the bar, in place of the
+    /// start callout, with Open agent… first; No result's too.
     #[test]
-    fn a_refused_model_has_its_callout_and_change_agent() {
+    fn a_refused_model_has_its_callout_and_open_agent() {
         use otaq_view::view_models::card_fixtures::agent_variants;
         let fixture = |name: &str| agent_variants().into_iter().find(|v| v.name == name).unwrap().ticket;
         let t = fixture("Start failed on the model");
         let view = view_of(&facts(&t, std::slice::from_ref(&t), &[]));
-        assert_eq!(labels(&view), ["Change agent", "Retry start"]);
+        assert_eq!(labels(&view), ["Open agent\u{2026}", "Retry start"]);
         assert_eq!(view.start_problem, None);
         let r = view.refusal.unwrap();
         assert_eq!(r.heading, "Claude Code couldn\u{2019}t run the model", "no sessions in these facts");
@@ -2060,42 +2100,57 @@ mod tests {
         let view = view_of(&facts(&t, std::slice::from_ref(&t), &[]));
         assert_eq!(
             labels(&view),
-            ["Change validator", "Retry validation", "Move on anyway"]
+            ["Open agent\u{2026}", "Retry validation", "Move on anyway"]
         );
         assert!(!view.refusal.unwrap().error, "turquoise, not red");
     }
 
-    /// M23: the held rows' callouts above the bar, the rows with their tools and the token line by agent and tool.
+    /// AGM-09, AGM-03 (`s05-36`, `s03-54`): the panel's Choices and Path mid-flow; a held session's callout with Use
+    /// fallback and Open agent…, which opens the held agent.
     #[test]
-    fn several_tools_show_the_holds_and_the_tools() {
-        use otaq_view::view_models::agent_rows::fixtures::{
-            several_tools, shop_29_swapped, shop_49_model_unavailable,
-        };
-        let tools = several_tools();
-        let held = shop_49_model_unavailable();
-        let t = fixture("SHOP-49", "Export orders as CSV", Status::Queued);
+    fn the_panel_shows_the_choices_the_path_and_the_holds() {
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::agents::{AgentHold, HoldReason, SessionRole};
+        use otaq_view::view_models::stage_choices::fixtures::{shop_29, tools};
+        let tools = tools();
+        let mid = shop_29();
+        let t = fixture("SHOP-29", "Coupon field", Status::Working);
+        let view = view_of(&Facts {
+            agents: Some(&mid),
+            tools: &tools,
+            ..facts(&t, std::slice::from_ref(&t), &[])
+        });
+        let choices = view.choices.unwrap();
+        assert_eq!(choices.heading, "Choices");
+        assert_eq!(choices.set_by.as_deref(), Some("set by the Project agent"));
+        assert_eq!(view.path.unwrap().rows[1].detail, "Rust developer \u{b7} working");
+        assert!(view.holds.is_empty());
+        assert_eq!(view.open_agent, None);
+        let mut held = shop_29();
+        held.runs.clear();
+        held.holds = vec![AgentHold {
+            id: "h44".into(),
+            ticket_id: Some("t44".into()),
+            project_id: None,
+            role: SessionRole::Developer,
+            reason: HoldReason::ToolUnavailable,
+            tool: Tool::Claude,
+            model: Some("sonnet".into()),
+            agent_id: Some("griller".into()),
+            fallback_tool: Some(Tool::Codex),
+            fallback_held: false,
+            fallback_asked: false,
+            since: 0,
+        }];
+        let t = fixture("SHOP-44", "Saved carts", Status::Queued);
         let view = view_of(&Facts {
             agents: Some(&held),
             tools: &tools,
             ..facts(&t, std::slice::from_ref(&t), &[])
         });
-        assert_eq!(view.holds.len(), 1);
-        assert_eq!(view.holds[0].heading, "Model unavailable");
-        assert_eq!(view.holds[0].buttons[0].label, "Change agent");
-        let swapped = shop_29_swapped();
-        let t = fixture("SHOP-29", "Coupon field", Status::Checking);
-        let view = view_of(&Facts {
-            agents: Some(&swapped),
-            tools: &tools,
-            ..facts(&t, std::slice::from_ref(&t), &[])
-        });
-        assert!(view.holds.is_empty());
-        assert_eq!(
-            view.token_split.as_deref(),
-            Some("Strong \u{b7} Claude Code 61k \u{b7} Verifier \u{b7} Copilot 23k (1 round)")
-        );
-        let rows = view.agents.unwrap().rows;
-        assert_eq!(rows[1].swap.as_deref(), Some("asked for gpt-5.5, ran on auto"));
+        let labels: Vec<&str> = view.holds[0].buttons.iter().map(|b| b.label.as_str()).collect();
+        assert_eq!(labels, ["Use fallback", "Open agent\u{2026}"]);
+        assert_eq!(view.open_agent.as_deref(), Some("griller"));
     }
 
     #[test]

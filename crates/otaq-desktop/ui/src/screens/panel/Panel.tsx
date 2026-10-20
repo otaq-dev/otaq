@@ -26,28 +26,26 @@ import { openOverlay } from "../../app/overlays";
 import { useRegistries, useShortcut } from "../../app/registry";
 import { PANEL_SECTIONS, PANEL_TOP, PANEL_UNDER_TABS, panelTabNumbered } from "../../app/registry/panel";
 import {
-  agentRowFocusRequests,
   closeTicket,
   openTicket,
-  requestAgentRowFocus,
   requestTerminalFocus,
   requestTicketEdit,
   selection,
   showTab,
-  takeAgentRowFocus,
   terminalFocusRequests,
   useSelection,
 } from "../../app/selection";
 import { createStore, useStore } from "../../app/store";
 import {
-  AgentBlock,
   AnchoredMenu,
   Button,
   IconButton,
   PriorityLabel,
+  StageChoices,
   StatusPill,
   Tabs,
   TextArea,
+  TicketPath,
   ToolProblemCallout,
   Tooltip,
 } from "../../components";
@@ -56,6 +54,7 @@ import type { PanelAnswerAgent } from "../../generated/PanelAnswerAgent";
 import type { PanelButton } from "../../generated/PanelButton";
 import type { PanelButtonLook } from "../../generated/PanelButtonLook";
 import type { PanelCardParams } from "../../generated/PanelCardParams";
+import type { PanelChoiceParams } from "../../generated/PanelChoiceParams";
 import type { PanelHint } from "../../generated/PanelHint";
 import type { PanelLoad } from "../../generated/PanelLoad";
 import type { PanelNotice } from "../../generated/PanelNotice";
@@ -73,6 +72,7 @@ import { Icon } from "../../theme/Icon";
 import { startRun } from "../run/logic";
 import {
   actionRoute,
+  agentSettings,
   canSend,
   cardRoute,
   CLOSE_TICKET,
@@ -595,7 +595,7 @@ function ResizeEdge({ view, width, cls }: { view: PanelView; width: number; cls:
 /**
  * The held roles' callouts above the bar (§7.2, SCH-04 `[M23]`; *05 → Column 3 · several tools (M23)*): "Model
  * unavailable", "Codex isn't available · hidden in Settings", "Claude Code limit reached · resets 3:45 pm", with Use
- * fallback, Change agent / Change validator, Sign in… and Show in Agent tools.
+ * fallback, Open agent…, Sign in… and Show in Agent tools.
  */
 function Holds({ view }: { view: PanelView }) {
   if (view.holds.length === 0) return null;
@@ -616,21 +616,27 @@ function Holds({ view }: { view: PanelView }) {
 }
 
 /**
- * The Agents rows under the action bar, in every panel state (AGT-04, AGM-05; *05 → Row · Developer and Validator
- * rows*, *08 → Epic panel · lead running*): the agent each stage runs, an epic's Epic lead; read-only until T-0411.
- * `focus` (the open request's `focus_agent_row`) marks that row.
+ * The ticket's choices and its path under the action bar, in every panel state (AGM-09; *05 → Row · Stage choices and
+ * path (update AG §9)*): a pick goes to the service at once (`panel.set_choice`), and the panel follows the ticket's
+ * change. None for an epic; only the path on a flow without options.
  */
-function Agents({ view }: { view: PanelView }) {
-  if (view.agents === null) return null;
+function ChoicesAndPath({ view }: { view: PanelView }) {
+  if (view.choices === null && view.path === null) return null;
   return (
     <div className="panel-agents">
-      <AgentBlock
-        key={view.key}
-        block={view.agents}
-        look="panel"
-        focus={view.focus_agent_row}
-        onPick={ignore}
-      />
+      {view.choices !== null && (
+        <StageChoices
+          key={view.key}
+          view={view.choices}
+          look="panel"
+          onPick={(stage, choice) => {
+            request("panel.set_choice", { key: view.key, stage, choice } satisfies PanelChoiceParams).catch(
+              ignore,
+            );
+          }}
+        />
+      )}
+      {view.path !== null && <TicketPath view={view.path} />}
     </div>
   );
 }
@@ -708,8 +714,8 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
         showTab("run");
         void startRun(view.key);
         return;
-      case "agent_row":
-        requestAgentRowFocus(view.key, route.role);
+      case "open_agent":
+        openOverlay("settings", agentSettings(view.open_agent));
         return;
     }
   };
@@ -810,8 +816,8 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
       case "run_tab":
         showTab("run");
         return;
-      case "agent_row":
-        requestAgentRowFocus(view.key, route.role);
+      case "open_agent":
+        openOverlay("settings", agentSettings(view.open_agent));
         return;
       case "none":
         return;
@@ -823,12 +829,6 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the card's click arrives from outside React (a store), once
     if (taken) runCard(taken.kind);
   }, [pendingCard, view.key]);
-  // Change agent / Change validator (T-0345): the Ticket tab, and the row's picker opens (`Agents`); taken once.
-  useEffect(() => {
-    if (view.focus_agent_row === null) return;
-    showTab("ticket");
-    takeAgentRowFocus(view.key);
-  }, [view.focus_agent_row, view.key]);
   const shown = shownTab(
     view.tabs.map((t) => t.tab),
     tab,
@@ -1002,7 +1002,7 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
           />
         )}
       </div>
-      <Agents view={view} />
+      <ChoicesAndPath view={view} />
       {view.notice && <Notice view={view} notice={view.notice} />}
       {PANEL_SECTIONS.map((id) => {
         if (id === "messages" && view.epic) return null;
@@ -1094,18 +1094,7 @@ export function SidePanel() {
   const cls = useSizeClass();
   const main = useStore(mainWidth);
   const key = ticket ?? "";
-  // A Change agent / Change validator request for this ticket opens with that row's picker (`focus_agent_row`).
-  // The panel takes it once shown, so the next request for the same row is a new load again.
-  const focusRequest = useStore(agentRowFocusRequests);
-  const focusRole = focusRequest?.ticket === key ? focusRequest.role : undefined;
-  const load = useCallback(
-    () =>
-      request("panel.view", {
-        key,
-        ...(focusRole !== undefined && { focus_agent_row: focusRole }),
-      }) as Promise<PanelLoad>,
-    [key, focusRole],
-  );
+  const load = useCallback(() => request("panel.view", { key }) as Promise<PanelLoad>, [key]);
   const { view: load_ } = useServiceView(load, PANEL_EVENTS);
   const view = load_?.view ?? null;
   const sizes = useStore(lastSizes);

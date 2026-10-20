@@ -4,18 +4,14 @@
 import type { OverlayStack } from "../../app/overlays";
 import type { SuggestionConfirm } from "../../app/registry";
 import {
-  type AgentRowFocusRequest,
-  agentRowFocusRequests,
   closeTicket,
   openTicket,
-  requestAgentRowFocus,
   requestTerminalFocus,
   type Selection,
   selectProject,
   type TerminalFocusRequest,
 } from "../../app/selection";
 import { createStore, type Store } from "../../app/store";
-import type { AgentRole } from "../../generated/AgentRole";
 import type { InboxActParams } from "../../generated/InboxActParams";
 import type { InboxNext } from "../../generated/InboxNext";
 import type { InboxOption } from "../../generated/InboxOption";
@@ -95,16 +91,11 @@ export function openRow(row: InboxRowView, routes: OpenRoutes): void {
   showAgentInPane(row.project, row.agent.id, routes.pane);
 }
 
-/** Change agent / Change validator (AGT-05): the ticket's panel on its Ticket tab, with that row's picker open; nothing
- * goes to `inbox.act`. */
-export function changeAgent(
-  row: InboxRowView,
-  role: AgentRole,
-  routes: OpenRoutes,
-  focus: Store<AgentRowFocusRequest | null> = agentRowFocusRequests,
-): void {
-  openItem(row.project, row.key, "ticket", routes);
-  requestAgentRowFocus(row.key, role, focus, routes.selection);
+/** Open agent… (AGT-05, d0108 second gap review rule 7): Settings → Agents on the agent whose model the tool refused
+ * (its list when the agent isn't known); the inbox closes and nothing goes to `inbox.act`. */
+export function openAgent(agent: string | null, routes: OpenRoutes): void {
+  routes.overlays.close("inbox");
+  routes.overlays.open("settings", agent === null ? { section: "agents" } : { section: "agents", agent });
 }
 
 /** Counts up whenever the ⌘J run changes, so the run bar asks again. */
@@ -129,8 +120,8 @@ export function landNext(next: InboxNext, routes: OpenRoutes, changes: Store<num
 /** A row's button, as `inbox.act` takes it; a new kind from Rust fails the linter here until it has a case. */
 export function describeAction(action: InboxRowAction): string {
   switch (action.kind) {
-    case "change_agent":
-      return `${action.kind} ${action.role}`;
+    case "open_agent":
+      return `${action.kind} ${action.agent ?? ""}`;
     case "retry_start":
     case "usage_limit":
       return action.kind;

@@ -3,4 +3,4 @@
 /**
  * A button of the action bar. `PanelAction` on the page, which sends it back to do it (T-0222).
  */
-export type PanelAction = "start" | "edit" | "open_terminal" | "run" | "answer_in_terminal" | "view_parent" | "resume" | "retry_resume" | "start_from_scratch" | "retry_start" | "approve" | "send_back" | "open_pr_in_browser" | "mark_merged" | "mark_closed" | "view_diff" | "reopen" | "open_validator" | "answer_validator" | "move_to_review_anyway" | "another_round" | "answer_agent" | "retry_validation" | "retry_merge" | "move_to_review" | "resume_lead" | "change_agent" | "change_validator";
+export type PanelAction = "start" | "edit" | "open_terminal" | "run" | "answer_in_terminal" | "view_parent" | "resume" | "retry_resume" | "start_from_scratch" | "retry_start" | "approve" | "send_back" | "open_pr_in_browser" | "mark_merged" | "mark_closed" | "view_diff" | "reopen" | "open_validator" | "answer_validator" | "move_to_review_anyway" | "another_round" | "answer_agent" | "retry_validation" | "retry_merge" | "move_to_review" | "resume_lead" | "open_agent";

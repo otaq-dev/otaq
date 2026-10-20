@@ -1050,6 +1050,10 @@ impl Board {
                         .and_then(|f| serde_json::from_str(f).ok())
                         .unwrap_or_default(),
                     merged_automatically: row.merged_automatically && status == Status::Merged,
+                    nothing_to_merge: row
+                        .nothing_to_merge
+                        .clone()
+                        .filter(|_| status == Status::ClosedNotMerged),
                     open_decisions: open_decisions
                         .get(&row.id)
                         .filter(|_| status == Status::WaitingForYou)

@@ -16,6 +16,7 @@ import type { AgentsSection as AgentsSectionView } from "../../generated/AgentsS
 import type { MenuItem } from "../../generated/MenuItem";
 import { request } from "../../tauri";
 import { AgentsSection, optionValue } from "./Agents";
+import { SettingsContext, type SettingsContextValue } from "./context";
 import { dropdownChoices, pickOf } from "./ModelPicker";
 
 vi.mock("../../tauri", () => ({
@@ -372,6 +373,17 @@ describe("one agent's page", () => {
     await settle();
     return calls;
   }
+
+  it("opens on the agent Settings was opened on (Open agent…, T-0411)", async () => {
+    const calls = answer({ "settings.agents": () => SECTION, "settings.agent": () => agentPage() });
+    const context = { agent: "strong" } as unknown as SettingsContextValue;
+    show(createElement(SettingsContext, { value: context }, createElement(AgentsSection)));
+    await settle();
+    expect(calls).toContainEqual([
+      "settings.agent",
+      { id: "strong", duplicate: null, draft: null, change: null },
+    ]);
+  });
 
   it("opens from its row and moves a role with one request, saying whose it was", async () => {
     const role = agentPage().role;

@@ -417,12 +417,22 @@ pub(crate) async fn close_bookkeeping_noting(
 ) -> Result<(), BoardError> {
     let to = Status::ClosedNotMerged;
     let now = now_ms();
+    // `otaq stage done`'s reason, for the card's "Closed · nothing to merge" (Q276).
+    let nothing_to_merge = (note.get("nothing_to_merge") == Some(&serde_json::Value::Bool(true)))
+        .then(|| {
+            note.get("reason")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned()
+        });
     sqlx::query(concat!(
-        "UPDATE tickets SET stage_id = NULL, state = ?, outcome = 'closed', updated_by = ?, updated_at = ?, ",
+        "UPDATE tickets SET stage_id = NULL, state = ?, outcome = 'closed', nothing_to_merge = ?, updated_by = ?, ",
+        "updated_at = ?, ",
         set_state_since!(),
         " WHERE id = ?"
     ))
     .bind(to.as_str())
+    .bind(nothing_to_merge)
     .bind(actor.to_string())
     .bind(now)
     .bind(to.as_str())

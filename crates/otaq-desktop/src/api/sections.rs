@@ -22,7 +22,7 @@ use otaq_view::icons::IconName;
 use otaq_view::view_models::clock::local_hhmm;
 use otaq_view::view_models::epic_actions::{self, EpicChoice};
 use otaq_view::view_models::epic_review;
-use otaq_view::view_models::agent_rows;
+use otaq_view::view_models::stage_choices;
 use otaq_view::view_models::history::{self, HistoryRow};
 use otaq_core::epic_lead::log::LeadLog;
 use otaq_view::view_models::messages::{self, Line, Thread, Tone};
@@ -579,7 +579,7 @@ pub async fn history_view(app: &App, params: Params) -> Result<Option<HistoryVie
     let rows = match super::editor::agent_facts(app, super::editor::of_ticket(&params.key)).await {
         Some(agents) => {
             let tools = super::editor::agent_tools(app).await;
-            history::with_agents(rows, &agent_rows::history_lines(&agents, &tools))
+            history::with_agents(rows, &stage_choices::history_lines(&agents, &tools))
         }
         None => rows,
     };

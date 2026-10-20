@@ -218,6 +218,9 @@ pub struct StageChoice {
     pub choice: Choice,
     pub set_by: SetBy,
     pub set_at: i64,
+    /// What it read before its last change ("Quick developer"), from History; `None` when it was first set then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
 }
 
 /// One agent a stage offers, as the flow names it, and the agent that name stands for (`None` when it isn't one of
@@ -549,6 +552,31 @@ impl Board {
         .bind(ticket_id)
         .fetch_all(self.store().pool())
         .await?;
+        // Each stage's last change in History says what it read before (AGM-09's "Quick developer → Rust developer").
+        let events: Vec<(String,)> = sqlx::query_as(
+            "SELECT payload_json FROM events WHERE ticket_id = ? AND kind = ? ORDER BY at, rowid",
+        )
+        .bind(ticket_id)
+        .bind(EventKind::StageChoiceSet.as_str())
+        .fetch_all(self.store().pool())
+        .await?;
+        let mut last_from: std::collections::HashMap<String, Option<String>> =
+            std::collections::HashMap::new();
+        for (payload,) in events {
+            let Ok(payload) = serde_json::from_str::<Value>(&payload) else {
+                continue;
+            };
+            if payload.get("child").is_some() {
+                continue;
+            }
+            if let Some(stage_id) = payload.get("stage_id").and_then(Value::as_str) {
+                let from = payload
+                    .get("from")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                last_from.insert(stage_id.to_owned(), from);
+            }
+        }
         let mut choices = Vec::new();
         for (stage_id, choice, agent_id, set_by, by_name, reason, set_at) in rows {
             let Some(offered) = options.iter().find(|o| o.stage_id == stage_id) else {
@@ -571,6 +599,7 @@ impl Board {
                 _ => continue,
             };
             choices.push(StageChoice {
+                from: last_from.get(&stage_id).cloned().flatten(),
                 stage_id,
                 choice,
                 set_by: SetBy::read(&set_by, by_name, reason),
@@ -965,6 +994,7 @@ mod tests {
             choice: Choice::Usual,
             set_by: SetBy::User,
             set_at: 0,
+            from: None,
         };
         let agent_choice = StageChoice {
             set_by: SetBy::ProjectAgent {

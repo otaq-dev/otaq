@@ -174,6 +174,10 @@ pub struct Flags {
     /// Done through Auto-merge: "Merged automatically" (d0064).
     #[serde(default, skip_serializing_if = "is_false")]
     pub merged_automatically: bool,
+    /// Closed by an agent's `otaq stage done` (AGM-10): "Closed · nothing to merge", with the agent's reason (empty
+    /// when it gave none). Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nothing_to_merge: Option<String>,
     /// A Backlog ticket (not an epic) whose dependencies are all merged: the quiet "Ready to start" hint. It never
     /// starts by itself (d0066, SCH-02).
     #[serde(default, skip_serializing_if = "is_false")]
@@ -340,6 +344,7 @@ mod tests {
             findings: vec!["src/cart.ts:12 the total ignores the coupon".into()],
             conflict_files: vec!["lib/wishlist.ts".into()],
             merged_automatically: true,
+            nothing_to_merge: Some("Already fixed in SHOP-31.".into()),
             ready_to_start: true,
             your_turn: true,
             same_file: vec![SameFile {

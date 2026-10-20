@@ -127,8 +127,8 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
 
   const page = view?.page;
   const context = useMemo<SettingsContextValue | null>(
-    () => (page ? { page, project, edit, act, headerSlot, setHeading, visit } : null),
-    [page, project, edit, act, headerSlot, visit],
+    () => (page ? { page, project, edit, act, headerSlot, setHeading, visit, agent: params?.agent } : null),
+    [page, project, edit, act, headerSlot, visit, params?.agent],
   );
 
   const globalRows = view?.nav.filter((r) => r.target.page === "global") ?? [];

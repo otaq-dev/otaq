@@ -623,6 +623,7 @@ pub fn on_fallback(
     otaq_core::agents::facts::RunsOnTool {
         tool,
         model: None,
+        passed: None,
         fallback: Some(otaq_core::agents::FallbackFrom { tool: from, reason }),
     }
 }

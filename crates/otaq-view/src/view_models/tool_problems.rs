@@ -181,8 +181,9 @@ pub enum Action {
     UseFallback { role: RoleId },
     /// `limits.use_fallback_now { tool }`: every ticket waiting on `tool` starts on its fallback (AGM-03).
     UseFallbackNow { tool: String },
-    /// The row's picker opens in the Ticket tab (`focus_agent_row`).
-    ChangeAgent { role: RoleId },
+    /// Open agent…: Settings → Agents on `agent`'s page (AGM-03, d0108 second gap review rule 7; replaces Change
+    /// agent, Q280); the list when the agent isn't known.
+    OpenAgent { agent: Option<String> },
     /// The pane's empty state on `agent` (a named agent's id); it starts when you send (CHANGES-v §4).
     NewAgent { agent: String },
     /// Settings → Agents at the project's Project agent default, `agent` (Q-O).
@@ -228,22 +229,19 @@ pub struct Callout {
     pub buttons: Vec<Button>,
 }
 
-pub const CHANGE_AGENT: &str = "Change agent";
-pub const CHANGE_VALIDATOR: &str = "Change validator";
+pub const OPEN_AGENT: &str = "Open agent\u{2026}";
 pub const SIGN_IN: &str = "Sign in\u{2026}";
 pub const SHOW_IN_AGENT_TOOLS: &str = "Show in Agent tools";
 pub const MODEL_UNAVAILABLE: &str = "Model unavailable";
 pub const RESUME_AFTER_RESET: &str = "Resume after reset";
 
-fn change(role: SessionRole) -> Button {
+/// Open agent… on `agent` (its id).
+fn open_agent(agent: Option<&str>) -> Button {
     Button {
-        label: if role == SessionRole::Validator {
-            CHANGE_VALIDATOR
-        } else {
-            CHANGE_AGENT
-        }
-        .to_owned(),
-        action: Action::ChangeAgent { role: role.into() },
+        label: OPEN_AGENT.to_owned(),
+        action: Action::OpenAgent {
+            agent: agent.map(str::to_owned),
+        },
         primary: false,
     }
 }
@@ -275,24 +273,14 @@ fn find<'a>(agents: &'a [Agent], id: Option<&str>) -> Option<&'a Agent> {
     id.and_then(|id| agents.iter().find(|a| a.id == id))
 }
 
-/// "Pick another agent for this ticket", for the role held.
-fn pick_another(role: SessionRole) -> &'static str {
-    match role {
-        SessionRole::Developer => "Pick another agent for this ticket",
-        SessionRole::Validator => "Pick another validator for this ticket",
-        SessionRole::EpicLead => "Pick another agent for this epic\u{2019}s lead",
-        SessionRole::ProjectAgent => "Pick another Project agent",
-    }
-}
-
 /// The model as Settings shows it, for "Codex no longer lists gpt-5.4".
 fn model_text(hold: &AgentHold, tools: &Tools) -> String {
     model_label(hold.model.as_deref(), tools.list(hold.tool))
 }
 
 /// "its fallback Claude Code can't start either": a held role whose tool's fallback is blocked too, on the card
-/// ("Codex not available · its fallback Claude Code can't start either · Change agent") and in the panel (Q155: one
-/// wording).
+/// ("Griller's model can't run: Codex isn't available · its fallback Claude Code can't start either") and in the panel
+/// (Q155: one wording).
 pub fn fallback_blocked_too(fallback: &str) -> String {
     format!("its fallback {fallback} can\u{2019}t start either")
 }
@@ -336,9 +324,9 @@ pub fn hold_callout(hold: &AgentHold, agents: &[Agent], tools: &Tools) -> Callou
             primary: true,
         });
     }
-    let mut change = change(hold.role);
-    change.primary = buttons.is_empty();
-    buttons.push(change);
+    let mut open = open_agent(hold.agent_id.as_deref());
+    open.primary = buttons.is_empty();
+    buttons.push(open);
     // "Claude Code and its fallback Codex are both at their limits".
     let both = hold
         .fallback_held
@@ -361,10 +349,14 @@ pub fn hold_callout(hold: &AgentHold, agents: &[Agent], tools: &Tools) -> Callou
                 Tone::Amber,
                 MODEL_UNAVAILABLE.to_owned(),
                 Some(format!(
-                    "{} no longer lists {model}, the model of {name}. {}, or edit {name} in Settings \u{2192} \
-                     Agents.",
+                    "{} no longer lists {model}, the model of {name}. Give {name} another model in Settings \u{2192} \
+                     Agents{}.",
                     tool_word(tool),
-                    pick_another(hold.role)
+                    if hold.fallback_tool.is_some() && !hold.fallback_held {
+                        ", or use the fallback"
+                    } else {
+                        ""
+                    }
                 )),
             )
         }
@@ -529,7 +521,7 @@ pub fn first_message_notice(
             )),
             model: Some(model),
             buttons: vec![Button {
-                label: CHANGE_AGENT.to_owned(),
+                label: OPEN_AGENT.to_owned(),
                 action: Action::AgentSettings {
                     project: project.to_owned(),
                     agent: hold.agent_id.clone(),
@@ -589,7 +581,7 @@ pub fn lead_notice(
             HoldReason::ModelUnavailable => (
                 Tone::Amber,
                 MODEL_UNAVAILABLE.to_owned(),
-                vec![change(SessionRole::EpicLead)],
+                vec![open_agent(hold.agent_id.as_deref())],
             ),
         };
         let callout = hold_callout(hold, agents, tools);
@@ -810,9 +802,9 @@ mod tests {
     }
 
     /// *SHOP-49 · Model unavailable*: amber, the model on hover, Use fallback when the tool's fallback can take it,
-    /// Change agent; Change validator for the Validator.
+    /// Open agent… on the held agent's page, for any held session (d0108 second gap review rule 7).
     #[test]
-    fn a_model_no_longer_listed_offers_change_agent() {
+    fn a_model_no_longer_listed_offers_open_agent() {
         let mut hold = hold(
             SessionRole::Developer,
             HoldReason::ModelUnavailable,
@@ -829,12 +821,12 @@ mod tests {
         assert_eq!(
             c.text.as_deref(),
             Some(
-                "Codex no longer lists gpt-5.4, the model of Old GPT. Pick another agent for this ticket, or edit \
-                 Old GPT in Settings \u{2192} Agents."
+                "Codex no longer lists gpt-5.4, the model of Old GPT. Give Old GPT another model in Settings \
+                 \u{2192} Agents."
             )
         );
         assert_eq!(c.model.as_deref(), Some("gpt-5.4"));
-        assert_eq!(labels(&c), ["Change agent"]);
+        assert_eq!(labels(&c), ["Open agent\u{2026}"]);
         assert!(c.buttons[0].primary);
         assert!(c.avatar.is_some());
         let validator = AgentHold {
@@ -842,17 +834,20 @@ mod tests {
             ..hold.clone()
         };
         let c = hold_callout(&validator, &agents(), &several());
-        assert_eq!(labels(&c), ["Change validator"]);
+        assert_eq!(labels(&c), ["Open agent\u{2026}"]);
         assert_eq!(
             c.buttons[0].action,
-            Action::ChangeAgent {
-                role: RoleId::Validator
+            Action::OpenAgent {
+                agent: Some("old-gpt".into())
             }
         );
-        assert!(c.text.unwrap().contains("Pick another validator"));
         hold.fallback_tool = Some(CODEX);
         let c = hold_callout(&hold, &agents(), &several());
-        assert_eq!(labels(&c), ["Use fallback (Claude Code)", "Change agent"]);
+        assert_eq!(
+            labels(&c),
+            ["Use fallback (Claude Code)", "Open agent\u{2026}"]
+        );
+        assert!(c.text.unwrap().ends_with(", or use the fallback."));
         // One tool connected: no avatar.
         assert!(
             hold_callout(&hold, &agents(), &Tools::one(None))
@@ -878,7 +873,7 @@ mod tests {
             labels(&c),
             [
                 "Use fallback (Claude Code)",
-                "Change agent",
+                "Open agent\u{2026}",
                 "Sign in\u{2026}"
             ]
         );
@@ -901,7 +896,7 @@ mod tests {
         // Without a fallback that can take it: Change agent leads.
         hold.fallback_tool = None;
         let c = hold_callout(&hold, &agents(), &codex_logged_out());
-        assert_eq!(labels(&c), ["Change agent", "Sign in\u{2026}"]);
+        assert_eq!(labels(&c), ["Open agent\u{2026}", "Sign in\u{2026}"]);
         assert!(c.buttons[0].primary);
         // Its fallback is blocked too: the card's words (Q155).
         hold.fallback_held = true;
@@ -919,7 +914,7 @@ mod tests {
             c.heading,
             "Codex isn\u{2019}t available \u{b7} hidden in Settings"
         );
-        assert_eq!(labels(&c), ["Change agent", "Show in Agent tools"]);
+        assert_eq!(labels(&c), ["Open agent\u{2026}", "Show in Agent tools"]);
     }
 
     /// A limit is neutral with its reset; both blocked says so (*fallback at its limit*).
@@ -937,7 +932,7 @@ mod tests {
             (c.tone, c.heading.as_str()),
             (Tone::Neutral, "Claude Code limit reached")
         );
-        assert_eq!(labels(&c), ["Use fallback (Codex)", "Change agent"]);
+        assert_eq!(labels(&c), ["Use fallback (Codex)", "Open agent\u{2026}"]);
         hold.fallback_tool = None;
         hold.fallback_held = true;
         let c = hold_callout(&hold, &agents(), &at_limit(CLAUDE, None));
@@ -945,7 +940,7 @@ mod tests {
             c.text.as_deref(),
             Some("Claude Code and its fallback Codex are both at their limits")
         );
-        assert_eq!(labels(&c), ["Change agent"]);
+        assert_eq!(labels(&c), ["Open agent\u{2026}"]);
     }
 
     #[test]
@@ -1026,7 +1021,7 @@ mod tests {
         h.project_id = Some("p".into());
         let c = first_message_notice(&h, "SHOP", &agents(), &several(), None);
         assert_eq!(c.heading, "Model unavailable");
-        assert_eq!(labels(&c), ["Change agent"]);
+        assert_eq!(labels(&c), ["Open agent\u{2026}"]);
         assert_eq!(
             c.buttons[0].action,
             Action::AgentSettings {
@@ -1085,14 +1080,9 @@ mod tests {
         let c = held(HoldReason::ModelUnavailable, &several());
         assert_eq!(
             (c.heading.as_str(), labels(&c)),
-            ("Model unavailable", vec!["Change agent"])
+            ("Model unavailable", vec!["Open agent\u{2026}"])
         );
-        assert_eq!(
-            c.buttons[0].action,
-            Action::ChangeAgent {
-                role: RoleId::EpicLead
-            }
-        );
+        assert!(matches!(c.buttons[0].action, Action::OpenAgent { .. }));
         // A running lead on a logged-out tool, and at its limit.
         let mut tools = several();
         tools.statuses[0] = status(CLAUDE, AgentToolState::FoundNotSignedIn { version: None });

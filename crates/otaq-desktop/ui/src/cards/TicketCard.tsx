@@ -175,7 +175,7 @@ function FooterAgent({ agent }: { agent: CardAgent }) {
 /** The footer (*Ticket Card v2 → Footer*): the agent part on the left, the tokens and the last signal on the right
  * while an agent runs, or the card's one action as a small button. */
 function Footer({ footer, onAction }: { footer: CardFooter; onAction?: TicketCardProps["onAction"] }) {
-  const { agent, tokens, signal, action } = footer;
+  const { agent, tokens, signal, action, second } = footer;
   const tokenValue = tokens && (
     <span className="card-footer-value">
       <Icon name="coins" size={11} />
@@ -208,6 +208,15 @@ function Footer({ footer, onAction }: { footer: CardFooter; onAction?: TicketCar
             compact
             onClick={() => onAction?.(action.kind)}
           />
+          {/* Open agent… beside Use fallback (*03 → A model that can't run*). */}
+          {second && (
+            <Button
+              label={second.label}
+              variant={second.primary ? "primary" : "secondary"}
+              compact
+              onClick={() => onAction?.(second.kind)}
+            />
+          )}
         </span>
       )}
     </div>

@@ -9,13 +9,12 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { overlays, useOpenOverlays } from "../../app/overlays";
 import { registered, registerScreens } from "../../app/registry";
 import { NOTHING_SELECTED, requestTicketEdit, selection, ticketEditRequests } from "../../app/selection";
-import type { AgentBlock } from "../../generated/AgentBlock";
-import type { AgentRowView } from "../../generated/AgentRowView";
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorReadView } from "../../generated/EditorReadView";
 import type { EditorTexts } from "../../generated/EditorTexts";
 import type { EditorView } from "../../generated/EditorView";
 import type { PriorityView } from "../../generated/PriorityView";
+import type { StageChoicesView } from "../../generated/StageChoicesView";
 import { FullViewHost } from "../../markdown";
 import { editor } from ".";
 import { EditorFields, RefusalBox } from "./Fields";
@@ -128,6 +127,7 @@ const FORM: EditorForm = {
   deps: [],
   base_branch: "main",
   external_id: "",
+  choices: [],
 };
 
 const VIEW: EditorView = {
@@ -181,8 +181,7 @@ const VIEW: EditorView = {
   unsaved_warning: null,
   read: null,
   source_mode: false,
-  agents: null,
-  epic_agents: null,
+  choices: null,
 };
 
 const READ: EditorReadView = {
@@ -731,36 +730,51 @@ describe("the editor", () => {
   });
 });
 
-describe("the Agents block in the form (T-0344, T-0405)", () => {
-  const row = (role: AgentRowView["role"], label: string, value: string): AgentRowView => ({
-    role,
-    label,
-    value,
-    detail: "tool default",
+describe("the Stage choices in the form (T-0411, AGM-09)", () => {
+  const item = (id: string, checked: boolean) => ({
+    id,
+    label: id,
+    icon: null,
+    shortcut: null,
+    danger: false,
+    disabled: false,
+    hint: null,
+    separated: false,
+    checked,
+    header: false,
+  });
+  /** shop-web's flow (*08 → Row · Stage choices*): Grill and Review skippable, Dev with Quick developer. */
+  const CHOICES: StageChoicesView = {
+    heading: "Stage choices",
     set_by: null,
-    let_agents_pick: null,
-    lock: null,
-    picker: null,
-    change: null,
-    moved_on: null,
-    next_lead: null,
-    avatar: null,
-    swap: null,
-    moved: null,
-  });
-  const agents = (rows: AgentRowView[], hint = "the agent each stage runs"): AgentBlock => ({
-    heading: "Agents",
-    hint,
-    rows,
-    note: null,
-    note_icon: null,
-    children: [],
-    children_heading: null,
-    children_note: null,
-    picked: null,
-  });
-  const TICKET = agents([row("developer", "Dev", "Developer"), row("validator", "Validate", "Validator")]);
-  const EPIC = agents([row("lead", "Epic lead", "Epic lead")], "who leads the epic's children");
+    rows: [
+      {
+        stage_id: "grill",
+        label: "Grill:",
+        value: "required",
+        items: [item("required", true), item("skip", false)],
+        lock: null,
+        change: null,
+      },
+      {
+        stage_id: "dev",
+        label: "Dev:",
+        value: "Rust developer",
+        items: [item("Rust developer", true), item("Quick developer", false)],
+        lock: null,
+        change: null,
+      },
+      {
+        stage_id: "review",
+        label: "Review:",
+        value: "required",
+        items: [item("required", true), item("skip", false)],
+        lock: null,
+        change: null,
+      },
+    ],
+    note: "Only stages with options in shop-web’s flow. You can change them until that stage starts.",
+  };
 
   let shown: EditorForm = FORM;
   function Form({ view }: { view: EditorView }) {
@@ -785,14 +799,29 @@ describe("the Agents block in the form (T-0344, T-0405)", () => {
     });
   };
 
-  it("⌘N: each stage's agent, read-only; Type Epic shows the one Epic lead row", () => {
-    const host = mount(createElement(Form, { view: { ...VIEW, agents: TICKET, epic_agents: EPIC } }));
-    expect(host.textContent).toContain("the agent each stage runs");
-    expect(host.querySelectorAll(".agent-row")).toHaveLength(2);
-    expect(host.querySelector('[role="option"]')).toBeNull();
+  it("⌘N: a picker per stage with options; a pick stays in the form; none for an epic or without options", () => {
+    const host = mount(createElement(Form, { view: { ...VIEW, choices: CHOICES } }));
+    expect(host.textContent).toContain("Stage choices");
+    expect([...host.querySelectorAll(".stage-choice-label")].map((l) => l.textContent)).toEqual([
+      "Grill:",
+      "Dev:",
+      "Review:",
+    ]);
+    expect(host.textContent).toContain("Only stages with options in shop-web’s flow.");
+    press([...host.querySelectorAll(".stage-choice-select button")][1]);
+    press(
+      [...document.querySelectorAll('[role="menuitemradio"]')].find((i) =>
+        i.textContent.includes("Quick developer"),
+      ),
+    );
+    expect(shown.choices).toEqual([{ stage_id: "dev", choice: "Quick developer" }]);
+    expect([...host.querySelectorAll(".stage-choice-select button")][1]?.textContent).toContain(
+      "Quick developer",
+    );
     press([...host.querySelectorAll("button")].find((b) => b.textContent === "Epic"));
     expect(shown.epic_kind).toBe(true);
-    expect(host.querySelectorAll(".agent-row")).toHaveLength(1);
-    expect(host.textContent).toContain("who leads the epic's children");
+    expect(host.querySelector(".stage-choices")).toBeNull();
+    const none = mount(createElement(Form, { view: VIEW }));
+    expect(none.querySelector(".stage-choices")).toBeNull();
   });
 });

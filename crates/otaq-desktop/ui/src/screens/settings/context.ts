@@ -23,6 +23,8 @@ export interface SettingsContextValue {
   setHeading?: (heading: ReactNode | null) => void;
   /** Counts the nav clicks: a topic showing a page of its own (one agent) goes back to its first page on one. */
   visit?: number;
+  /** The agent Settings was opened on: Agents opens its page (Open agent…, T-0411). */
+  agent?: string;
 }
 
 export const SettingsContext = createContext<SettingsContextValue | null>(null);

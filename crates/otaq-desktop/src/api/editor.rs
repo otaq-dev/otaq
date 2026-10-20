@@ -15,14 +15,16 @@ use otaq_core::domain::{Actor, Kind, Priority, TicketKey};
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::models::ModelList;
 use otaq_core::agents::facts::TicketAgents;
+use otaq_core::board::stage_choices::{ChoicePick, TicketChoices};
+use otaq_core::board::tickets::TicketUpdate;
 use otaq_core::protocol::{
     DepParams, KeyParams, ModelsParams, ProjectParams, Reply, Request, SessionListParams,
-    TicketAgentsParams, TicketUpdateParams,
+    TicketAgentsParams, TicketChoicesParams, TicketUpdateParams,
 };
 use otaq_core::session::{SessionInfo, SessionKind};
 use otaq_view::icons::IconName;
 use otaq_view::view_models::agent_activity;
-use otaq_view::view_models::agent_rows::{self, Block};
+use otaq_view::view_models::stage_choices::{self, ChoicesView};
 use otaq_view::view_models::tool_problems::Tools;
 use otaq_view::view_models::agent_edits::{changed, compare, origin_line};
 use otaq_view::view_models::editor::{EditorModel, TITLE_REQUIRED};
@@ -107,6 +109,17 @@ pub struct Form {
     pub deps: Vec<String>,
     pub base_branch: Option<String>,
     pub external_id: String,
+    /// The stage choices picked in the form (AGM-09): sent with the new ticket, or with the save.
+    #[serde(default)]
+    pub choices: Vec<FormChoice>,
+}
+
+/// One stage choice picked in the form: the stage's id and the word (`Quick developer`, `skip`, `required`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(rename = "EditorChoice")]
+pub struct FormChoice {
+    pub stage_id: String,
+    pub choice: String,
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -292,10 +305,9 @@ pub struct View {
     pub read: Option<ReadView>,
     /// The description opens as its raw Markdown source, the mode last chosen with the "Markdown" toggle (d0078 D9).
     pub source_mode: bool,
-    /// The "Agents" block (AGT-04): a ticket's Developer and Validator rows, an epic's Epic lead row.
-    pub agents: Option<Block>,
-    /// Create only: the block once Type is Epic (one Epic lead row).
-    pub epic_agents: Option<Block>,
+    /// "Stage choices" under Priority (AGM-09, `s08-29`): a picker per stage with options, none on the default flow
+    /// and for an epic (the page hides it once Type is Epic).
+    pub choices: Option<ChoicesView>,
 }
 
 fn texts(create: bool) -> Texts {
@@ -396,6 +408,7 @@ fn form_of(model: &EditorModel) -> Form {
         deps: model.deps.iter().map(ToString::to_string).collect(),
         base_branch: model.base_branch.clone(),
         external_id: model.external_id.clone(),
+        choices: Vec::new(),
     }
 }
 
@@ -441,8 +454,7 @@ pub fn create_view(project: &ProjectInfo, epic: Option<TicketKey>, tickets: &[Ti
         unsaved_warning: None,
         read: None,
         source_mode: false,
-        agents: None,
-        epic_agents: None,
+        choices: None,
     }
 }
 
@@ -509,8 +521,7 @@ pub fn edit_view(
             marked,
         }),
         source_mode: false,
-        agents: None,
-        epic_agents: None,
+        choices: None,
     }
 }
 
@@ -614,15 +625,9 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
             };
             let info = project(app, &key).await?;
             let all = tickets(app, &key).await?;
-            let tools = agent_tools(app).await;
-            let new = |epic| TicketAgentsParams {
-                key: None,
-                project: Some(key.clone()),
-                new_epic: epic,
-            };
+            let choices = stage_choices_of(app, None, Some(&key)).await;
             View {
-                agents: agent_block(app, new(false), &tools).await,
-                epic_agents: agent_block(app, new(true), &tools).await,
+                choices: choices.and_then(|c| stage_choices::form_choices(&c, &info.name)),
                 ..create_view(&info, epic, &all)
             }
         }
@@ -633,9 +638,9 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
             let all = tickets(app, &project_key).await?;
             let edits = agent_edits(app, &key).await;
             let live = live_agent(app, &key).await;
-            let tools = agent_tools(app).await;
+            let choices = stage_choices_of(app, Some(&key), None).await;
             View {
-                agents: agent_block(app, of_ticket(&key), &tools).await,
+                choices: choices.and_then(|c| stage_choices::form_choices(&c, &info.name)),
                 ..edit_view(&ticket, &info.name, &all, &edits, live, now_ms())
             }
         }
@@ -795,6 +800,18 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
                 }
             };
             let key = created.key.to_string();
+            // The stage choices picked in the form (AGM-09), the user's, checked before any is written (AGM-11).
+            if model.kind == Kind::Ticket
+                && let Some(choices) = stage_choices_of(app, None, Some(&project)).await
+            {
+                let picks = stage_choices::picks_to_send(&choices, &picked(&form.choices));
+                if let Err(e) = set_choices(app, &key, picks).await {
+                    return Ok(SaveOutcome::Refused {
+                        refusal: Refusal::of(&e, RefusalField::Form),
+                        created: Some(key),
+                    });
+                }
+            }
             for parent in &model.deps {
                 if let Err(e) = app
                     .service
@@ -818,8 +835,18 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
             if model.title_error().is_some() {
                 return Ok(SaveOutcome::TitleMissing);
             }
-            let Some(update) = model.update_input() else {
-                return Ok(SaveOutcome::Saved { key, note: None });
+            // The choices that changed and can still change, with the save (checked before any field changes).
+            let choices = match stage_choices_of(app, Some(&key), None).await {
+                Some(current) => changed_choices(&current, &picked(&params.form.choices)),
+                None => Vec::new(),
+            };
+            let update = match model.update_input() {
+                Some(update) => TicketUpdate { choices, ..update },
+                None if !choices.is_empty() => TicketUpdate {
+                    choices,
+                    ..TicketUpdate::default()
+                },
+                None => return Ok(SaveOutcome::Saved { key, note: None }),
             };
             let live = live_agent(app, &key).await;
             match app
@@ -911,10 +938,81 @@ pub(super) async fn tool_states(app: &App) -> Tools {
     }
 }
 
-async fn agent_block(app: &App, params: TicketAgentsParams, tools: &Tools) -> Option<Block> {
-    agent_facts(app, params)
+// ---------------------------------------------------------------------------------------------------------------
+// Stage choices (AGM-09)
+
+/// `ticket.choices` of a ticket, or of a new one in `project`; `None` when the service can't say (the field is then
+/// left out).
+async fn stage_choices_of(
+    app: &App,
+    key: Option<&str>,
+    project: Option<&str>,
+) -> Option<TicketChoices> {
+    match app
+        .service
+        .send(Request::TicketChoices(TicketChoicesParams {
+            key: key.map(str::to_owned),
+            project: project.map(str::to_owned),
+        }))
         .await
-        .map(|t| agent_rows::block(&t, tools))
+    {
+        Ok(Reply::TicketChoices(c)) => Some(*c),
+        _ => None,
+    }
+}
+
+fn picked(form: &[FormChoice]) -> Vec<(String, String)> {
+    form.iter()
+        .map(|c| (c.stage_id.clone(), c.choice.clone()))
+        .collect()
+}
+
+/// The picks that change an existing ticket's choices: not locked, and not what the stage reads now.
+pub fn changed_choices(current: &TicketChoices, picks: &[(String, String)]) -> Vec<ChoicePick> {
+    picks
+        .iter()
+        .filter(|(stage, pick)| {
+            current
+                .stages
+                .iter()
+                .find(|s| &s.stage_id == stage)
+                .is_some_and(|s| !s.locked && s.words().contains(pick) && *pick != s.label())
+        })
+        .map(|(stage, choice)| ChoicePick {
+            stage: stage.clone(),
+            choice: choice.clone(),
+            reason: None,
+        })
+        .collect()
+}
+
+/// Writes a new ticket's picks in one `ticket.update` (all checked before any is written).
+async fn set_choices(
+    app: &App,
+    key: &str,
+    picks: Vec<(String, String)>,
+) -> Result<(), RequestError> {
+    if picks.is_empty() {
+        return Ok(());
+    }
+    let choices = picks
+        .into_iter()
+        .map(|(stage, choice)| ChoicePick {
+            stage,
+            choice,
+            reason: None,
+        })
+        .collect();
+    app.service
+        .send(Request::TicketUpdate(TicketUpdateParams {
+            key: key.to_owned(),
+            update: TicketUpdate {
+                choices,
+                ..TicketUpdate::default()
+            },
+        }))
+        .await
+        .map(|_| ())
 }
 
 async fn project_base(app: &App, project: &str) -> Result<String, RequestError> {
@@ -1137,6 +1235,7 @@ mod tests {
             deps: Vec::new(),
             base_branch: None,
             external_id: String::new(),
+            choices: Vec::new(),
         }
     }
 
@@ -1411,10 +1510,10 @@ mod tests {
         h.service.stop_all().await;
     }
 
-    /// The Agents block through a real service (AGT-04, AGM-05): the default flow's stages with the agents its file
-    /// names, read-only; the epic's lead; the panel shows the same rows and the open request's `focus_agent_row`.
+    /// AGM-09 through a real service, on the default flow: no stage has options, so the form shows no Stage choices
+    /// and the panel only the ticket's path (no Choices); a stage choice the flow doesn't offer is refused on save.
     #[tokio::test]
-    async fn the_agents_block_reads_the_flows_stages() {
+    async fn the_default_flow_shows_only_the_path() {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let repos = TempRepos::new();
@@ -1435,33 +1534,35 @@ mod tests {
         };
         let create = json!({ "mode": "create", "project": project, "epic": null });
         let view = table(&h.app, "editor.open", create.clone()).await.unwrap();
-        let block = &view["agents"];
-        assert_eq!(block["hint"], agent_rows::TICKET_HINT);
-        let rows: Vec<(&str, &str)> = block["rows"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|r| (r["label"].as_str().unwrap(), r["value"].as_str().unwrap()))
-            .collect();
-        assert_eq!(rows, [("Dev", "Developer"), ("Validate", "Validator")]);
-        assert_eq!(block["rows"][0]["picker"], Value::Null, "read-only");
-        assert_eq!(view["epic_agents"]["rows"][0]["label"], "Epic lead");
-        assert_eq!(view["epic_agents"]["rows"][0]["value"], "Epic lead");
+        assert_eq!(view["choices"], Value::Null);
 
         let saved = table(&h.app, "editor.save", json!({ "target": create, "form": form("Price table") }))
             .await
             .unwrap();
         let key = saved["key"].as_str().unwrap().to_owned();
-        let load = table(
-            &h.app,
-            "panel.view",
-            json!({ "key": key, "focus_agent_row": "validator" }),
-        )
-        .await
-        .unwrap();
-        assert_eq!(load["view"]["focus_agent_row"], "validator");
-        assert_eq!(load["view"]["agents"]["rows"][1]["value"], "Validator");
+        let edit = json!({ "mode": "edit", "key": key });
+        assert_eq!(table(&h.app, "editor.open", edit).await.unwrap()["choices"], Value::Null);
+        let load = table(&h.app, "panel.view", json!({ "key": key })).await.unwrap();
+        assert_eq!(load["view"]["choices"], Value::Null);
+        let summary = load["view"]["path"]["summary"].as_str().unwrap();
+        assert!(summary.starts_with("Dev \u{b7} Developer \u{b7} "), "{summary}");
+        assert!(summary.ends_with("\u{b7} Review \u{b7} Done"), "{summary}");
+        let stages: Vec<&str> = load["view"]["path"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["stage"].as_str().unwrap())
+            .collect();
+        assert_eq!(stages, ["Dev", "Validate", "Review", "Done"]);
         assert_eq!(load["view"]["token_split"], Value::Null, "nothing ran yet");
+        // The panel's pick on a stage without options is refused, with nothing changed.
+        let refused = table(
+            &h.app,
+            "panel.set_choice",
+            json!({ "key": key, "stage": "dev", "choice": "Developer" }),
+        )
+        .await;
+        assert!(refused.is_err());
         h.service.stop_all().await;
     }
 }

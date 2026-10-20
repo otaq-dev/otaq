@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { createOverlayStack } from "../../app/overlays";
 import { createRegistries, registered, registerScreens, RegistriesContext } from "../../app/registry";
-import { type AgentRowFocusRequest, createSelection, type TerminalFocusRequest } from "../../app/selection";
+import { createSelection, type TerminalFocusRequest } from "../../app/selection";
 import { createStore } from "../../app/store";
 import type { InboxOption } from "../../generated/InboxOption";
 import type { InboxRowView } from "../../generated/InboxRowView";
@@ -16,7 +16,7 @@ import { AllClearBody } from "./AllClear";
 import { InboxBody } from "./Inbox";
 import {
   canSend,
-  changeAgent,
+  openAgent,
   describeAction,
   initialPick,
   landNext,
@@ -202,15 +202,16 @@ describe("the inbox's own rules", () => {
     expect(r.focus.get()).toEqual({ ticket: "SHOP-22", seq: 1 });
   });
 
-  it("Change agent opens the ticket's Ticket tab with that row's picker asked for (AGT-05)", () => {
+  it("Open agent… opens Settings → Agents on the agent whose model was refused (AGT-05, AGM-03)", () => {
     const r = routes();
-    const focus = createStore<AgentRowFocusRequest | null>(null);
     r.overlays.open("inbox");
-    changeAgent(row("SHOP-48"), "developer", r, focus);
-    expect(r.selection.get()).toMatchObject({ ticket: "SHOP-48", tab: "ticket" });
-    expect(r.overlays.store.get()).toEqual([]);
-    expect(focus.get()).toEqual({ ticket: "SHOP-48", role: "developer", seq: 1 });
-    expect(describeAction({ kind: "change_agent", role: "validator" })).toBe("change_agent validator");
+    openAgent("fable", r);
+    expect(r.overlays.store.get()).toEqual([
+      { id: "settings", params: { section: "agents", agent: "fable" } },
+    ]);
+    openAgent(null, r);
+    expect(r.overlays.store.get()).toEqual([{ id: "settings", params: { section: "agents" } }]);
+    expect(describeAction({ kind: "open_agent", agent: "fable" })).toBe("open_agent fable");
   });
 
   it("⌘J lands on the next item, or shows All clear and closes the panel", () => {
@@ -545,6 +546,7 @@ describe("the inbox's markup", () => {
                 action: { kind: "sign_in", tool: "codex" },
                 enabled: true,
                 primary: false,
+                tooltip: null,
               },
             },
           ],

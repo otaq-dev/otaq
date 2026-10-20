@@ -704,6 +704,22 @@ export function AgentsSection() {
     };
   }, []);
 
+  // Opened on one agent (Open agent… on a card): its page, once.
+  const openedOn = useRef(false);
+  const startAgent = settings?.agent;
+  useEffect(() => {
+    if (startAgent === undefined || openedOn.current) return;
+    openedOn.current = true;
+    request("settings.agent", { id: startAgent, duplicate: null, draft: null, change: null }).then(
+      (fresh) => {
+        setPage(fresh as AgentPage);
+      },
+      (e: unknown) => {
+        setError(asRequestError(e));
+      },
+    );
+  }, [startAgent]);
+
   const back = useCallback(() => {
     setPage(null);
     setError(null);

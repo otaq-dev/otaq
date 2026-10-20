@@ -104,9 +104,13 @@ pub enum RowAction {
     DismissSuggestion {
         id: String,
     },
-    /// The tool refused this role's model (AGT-05): Change agent (a Start failed ticket's Developer) or Change
-    /// validator (No result), in place of the item's first action. The panel opens with that row's picker open.
-    ChangeAgent(Role),
+    /// The tool refused this role's model (AGT-05: a Start failed ticket's, a check's No result): Open agent…, in place
+    /// of the item's first action (d0108 second gap review rule 7, Q280). Settings → Agents opens on `agent`'s page
+    /// (the session's agent, [`open_agents`]).
+    OpenAgent {
+        role: Role,
+        agent: Option<String>,
+    },
 }
 
 /// The line the close and delete confirmations add for a lead's suggestion.
@@ -464,11 +468,13 @@ fn row(
             .map(RowAction::Validation)
             .collect(),
     };
-    // Start failed offers Change agent (Retry start only in the panel); No result Change validator first.
+    // A refused model offers Open agent… first (Retry start only in the panel).
     let actions = match (item.change_agent, actions.split_first()) {
-        (Some(role), Some((_, rest))) => std::iter::once(RowAction::ChangeAgent(role))
-            .chain(rest.iter().cloned())
-            .collect(),
+        (Some(role), Some((_, rest))) => {
+            std::iter::once(RowAction::OpenAgent { role, agent: None })
+                .chain(rest.iter().cloned())
+                .collect()
+        }
         _ => actions,
     };
     InboxRow {
@@ -519,16 +525,37 @@ pub fn name_tools(
         if row.resolved {
             continue;
         }
-        let Some(role) = row.actions.iter().find_map(|a| match a {
-            RowAction::ChangeAgent(role) => Some(*role),
-            _ => None,
-        }) else {
+        let Some(role) = refused_role(row) else {
             continue;
         };
         let Some(tool) = tool_of(&row.key, role) else {
             continue;
         };
         row.reason = tool_named(&row.reason, role, tool.name());
+    }
+}
+
+/// The role whose model the tool refused on `row` (its Open agent…).
+pub fn refused_role(row: &InboxRow) -> Option<Role> {
+    row.actions.iter().find_map(|a| match a {
+        RowAction::OpenAgent { role, .. } => Some(*role),
+        _ => None,
+    })
+}
+
+/// Fills each Open agent… with the agent whose model was refused (`agent_of`: the session's agent's id), so it opens
+/// that agent's page.
+pub fn open_agents(
+    groups: &mut [InboxGroupView],
+    agent_of: &dyn Fn(&TicketKey, Role) -> Option<String>,
+) {
+    for row in groups.iter_mut().flat_map(|g| g.rows.iter_mut()) {
+        let key = row.key.clone();
+        for action in &mut row.actions {
+            if let RowAction::OpenAgent { role, agent } = action {
+                *agent = agent_of(&key, *role);
+            }
+        }
     }
 }
 
@@ -1171,10 +1198,10 @@ mod tests {
         assert!(!header_button(0).active);
     }
 
-    /// AGT-05, update Y §3: the Start failed item offers Change agent (not Retry start); a No result on the
-    /// validator's model Change validator in place of Retry validation; other items as today.
+    /// AGT-05, update Y §3, d0108 second gap review rule 7: the Start failed item offers Open agent… (not Retry
+    /// start); a No result on the validator's model Open agent… in place of Retry validation; other items as today.
     #[test]
-    fn a_refused_model_offers_change_agent() {
+    fn a_refused_model_offers_open_agent() {
         use ValidationAction as A;
         let actions = |status, group, change_agent| {
             let mut it = item("SHOP-48", "Add gift wrap option", status, group, MIN);
@@ -1187,7 +1214,10 @@ mod tests {
                 NeedsYouGroup::Stopped,
                 Some(Role::Developer)
             ),
-            [RowAction::ChangeAgent(Role::Developer)]
+            [RowAction::OpenAgent {
+                role: Role::Developer,
+                agent: None
+            }]
         );
         assert_eq!(
             actions(
@@ -1196,7 +1226,10 @@ mod tests {
                 Some(Role::Validator)
             ),
             [
-                RowAction::ChangeAgent(Role::Validator),
+                RowAction::OpenAgent {
+                    role: Role::Validator,
+                    agent: None
+                },
                 RowAction::Validation(A::MoveToReviewAnyway)
             ]
         );

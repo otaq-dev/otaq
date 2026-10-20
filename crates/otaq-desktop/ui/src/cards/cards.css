@@ -289,9 +289,11 @@
   color: var(--st-paused);
 }
 
-/* The one action: a 24 px button, 8 px sides, 11.5 px label (*Ticket Card v2 → Footer → Action*). */
+/* The one action: a 24 px button, 8 px sides, 11.5 px label (*Ticket Card v2 → Footer → Action*); a second one
+ * beside it (Use fallback · Open agent…, *03 → A model that can't run*). */
 .card-footer .card-action {
   flex: none;
+  gap: 6px;
 }
 
 .card-footer .card-action > .button {

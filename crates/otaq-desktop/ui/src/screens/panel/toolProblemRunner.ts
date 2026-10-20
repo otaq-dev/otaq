@@ -1,7 +1,6 @@
 // The app's own way of carrying out a tool problem's button (`toolProblems.ts`): the service, Settings, the Terminals
 // drawer, the agent row's picker and the pane.
 import { openOverlay } from "../../app/overlays";
-import { requestAgentRowFocus } from "../../app/selection";
 import type { ToolProblemAction } from "../../generated/ToolProblemAction";
 import { request } from "../../tauri";
 import { startNewAgentOn } from "../pane/logic";
@@ -14,9 +13,6 @@ export const APP_RUNNER: ToolProblemRunner = {
     openOverlay("settings", params);
   },
   showDrawerTab,
-  focusAgentRow: (ticket, role) => {
-    requestAgentRowFocus(ticket, role);
-  },
   newAgentOn: (project, agent) => {
     startNewAgentOn(project, agent);
   },

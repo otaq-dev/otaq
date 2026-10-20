@@ -61,19 +61,23 @@ pub fn fallback_toast(tickets: usize, tool: Tool) -> String {
     )
 }
 
-/// "Use fallback now (Codex)", "Use fallback now (Codex · gpt-5.5)".
-pub fn use_fallback_now(fallback: &ModelRef, lists: &[(Tool, ModelList)]) -> String {
+/// The banner's button for a tool at its limit or not available (`s11-15`): the tool's waiting tickets start on its
+/// fallback (Settings → Agents), on this click only (AGM-03). The only button here that moves tickets.
+pub const USE_FALLBACK_NOW: &str = "Use fallback now";
+
+/// The fallback as the button's hover names it: "Codex", "Codex · gpt-5.5".
+fn fallback_word(fallback: &ModelRef, lists: &[(Tool, ModelList)]) -> String {
     let list = lists
         .iter()
         .find(|(t, _)| *t == fallback.tool)
         .map(|(_, l)| l);
     match &fallback.model {
         Some(_) => format!(
-            "Use fallback now ({} \u{b7} {})",
+            "{} \u{b7} {}",
             tool_word(fallback.tool),
             model_label(fallback.model.as_deref(), list)
         ),
-        None => format!("Use fallback now ({})", tool_word(fallback.tool)),
+        None => tool_word(fallback.tool).to_owned(),
     }
 }
 
@@ -114,6 +118,8 @@ pub struct LineButton {
     pub action: Action,
     pub enabled: bool,
     pub primary: bool,
+    /// On hover: where Use fallback now starts the tickets ("Starts the waiting tickets on Codex · gpt-5.5").
+    pub tooltip: Option<String>,
 }
 
 /// One tool's line as the page draws it. `LimitLine` on the page.
@@ -472,6 +478,7 @@ fn view(
             action: Action::ResumeTool { tool: tool.clone() },
             enabled: resume.enabled,
             primary: resume.primary,
+            tooltip: None,
         });
     }
     if let moves::Situation::Unavailable {
@@ -486,6 +493,7 @@ fn view(
                 action: Action::SignIn { tool: tool.clone() },
                 enabled: true,
                 primary: false,
+                tooltip: None,
             });
         } else if *hidden {
             buttons.push(LineButton {
@@ -494,6 +502,7 @@ fn view(
                 action: Action::ShowInAgentTools,
                 enabled: true,
                 primary: false,
+                tooltip: None,
             });
         }
     }
@@ -504,11 +513,15 @@ fn view(
         .filter(|_| several && l.waiting > 0 && l.fallback_can_start)
     {
         buttons.push(LineButton {
-            label: use_fallback_now(fallback, lists),
-            icon: IconName::ArrowRight,
+            label: USE_FALLBACK_NOW.to_owned(),
+            icon: IconName::ArrowRightLeft,
             action: Action::UseFallbackNow { tool: tool.clone() },
             enabled: true,
             primary: false,
+            tooltip: Some(format!(
+                "Starts the waiting tickets on {}",
+                fallback_word(fallback, lists)
+            )),
         });
     }
     LineView {
@@ -1015,12 +1028,10 @@ mod tests {
             "amber"
         );
         let labels: Vec<&str> = l.view.buttons.iter().map(|b| b.label.as_str()).collect();
+        assert_eq!(labels, ["Sign in\u{2026}", "Use fallback now"]);
         assert_eq!(
-            labels,
-            [
-                "Sign in\u{2026}",
-                "Use fallback now (Claude Code \u{b7} sonnet)"
-            ]
+            l.view.buttons[1].tooltip.as_deref(),
+            Some("Starts the waiting tickets on Claude Code \u{b7} sonnet")
         );
         assert_eq!(
             l.view.buttons[0].action,
@@ -1098,7 +1109,7 @@ mod tests {
             .iter()
             .map(|b| b.label.as_str())
             .collect();
-        assert_eq!(labels, ["Resume Claude Code", "Use fallback now (Codex)"]);
+        assert_eq!(labels, ["Resume Claude Code", "Use fallback now"]);
         // A fallback that can't start now isn't offered; nor with one tool connected.
         let blocked = one_line(&several(vec![ToolLine {
             fallback_can_start: false,
@@ -1138,6 +1149,32 @@ mod tests {
         assert!(l.view.text.ends_with(&n.body));
         let both = notify::tool_unavailable(Tool::Codex, 2, 3);
         assert_eq!(both.body, "2 tickets waiting · 3 tickets on the fallback");
+    }
+
+    /// AGM-03, d0108 smaller rule 7 (`s11-15`): Use fallback now is the banner's only button that moves tickets (the
+    /// others resume the tool, sign in or open Settings), offered once tickets wait and the fallback can start.
+    #[test]
+    fn use_fallback_now_is_the_only_button_that_moves_tickets() {
+        let mut moving = 0;
+        for cell in gallery().cells {
+            for line in cell.lines {
+                for b in &line.buttons {
+                    match &b.action {
+                        Action::UseFallbackNow { tool } => {
+                            moving += 1;
+                            assert_eq!(b.label, "Use fallback now");
+                            assert_eq!(b.icon, IconName::ArrowRightLeft);
+                            assert_eq!(tool, &line.tool);
+                        }
+                        Action::ResumeTool { .. }
+                        | Action::SignIn { .. }
+                        | Action::ShowInAgentTools => {}
+                        other => panic!("{other:?} on the banner"),
+                    }
+                }
+            }
+        }
+        assert!(moving > 0);
     }
 
     #[test]

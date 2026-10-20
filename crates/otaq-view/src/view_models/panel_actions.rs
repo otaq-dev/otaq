@@ -73,10 +73,9 @@ pub enum Action {
     /// An epic whose lead ended (by restart, or its agent tool exited): the same conversation (LEAD-12, d0083).
     /// Added by the epic panel's view, not by [`all_buttons`].
     ResumeLead,
-    /// Start failed on the model (AGT-05): the Developer row's picker opens (`focus_agent_row`); a pick starts it.
-    ChangeAgent,
-    /// No result on the validator's model: the Validator row's picker opens.
-    ChangeValidator,
+    /// A model the tool refused (AGT-05: Start failed, or a check's No result on the model): Settings → Agents on
+    /// that agent's page (d0108 second gap review rule 7; replaces Change agent, Q280).
+    OpenAgent,
 }
 
 /// How a button looks. `PanelButtonLook` on the page.
@@ -129,8 +128,7 @@ impl Action {
             Self::RetryMerge => "Retry merge",
             Self::MoveToReview => "Move to Review",
             Self::ResumeLead => "Resume lead",
-            Self::ChangeAgent => "Change agent",
-            Self::ChangeValidator => "Change validator",
+            Self::OpenAgent => "Open agent\u{2026}",
         }
     }
 
@@ -158,7 +156,7 @@ impl Action {
             Self::ViewDiff => IconName::FileDiff,
             Self::Reopen | Self::ResumeLead => IconName::RotateCcw,
             // *05 → Start failed on the model*, *No result: the validator's model*: labels only.
-            Self::Approve | Self::MarkClosed | Self::ChangeAgent | Self::ChangeValidator => {
+            Self::Approve | Self::MarkClosed | Self::OpenAgent => {
                 return None;
             }
         })
@@ -180,7 +178,7 @@ impl Action {
             Self::Resume | Self::RetryResume | Self::StartFromScratch => None,
             Self::OpenPrInBrowser | Self::MarkMerged | Self::MarkClosed => None,
             Self::Reopen | Self::ResumeLead => None,
-            Self::ChangeAgent | Self::ChangeValidator => None,
+            Self::OpenAgent => None,
             Self::OpenValidator
             | Self::AnswerValidator
             | Self::MoveToReviewAnyway
@@ -250,9 +248,9 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
             }
             bar
         }
-        // Start failed on the model (update Y §3): Change agent, and Retry start beside it.
+        // Start failed on the model (update Y §3): Open agent…, and Retry start beside it.
         Status::StartInterrupted if card::start_refusal(ticket).is_some() => {
-            vec![(A::ChangeAgent, Primary), (A::RetryStart, Secondary)]
+            vec![(A::OpenAgent, Primary), (A::RetryStart, Secondary)]
         }
         Status::StartInterrupted => vec![(A::RetryStart, Primary)],
         Status::Working | Status::WorkingInBackground | Status::WaitingForLimitReset => {
@@ -287,9 +285,9 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
             (A::AnotherRound, Secondary),
             (A::AnswerAgent, Secondary),
         ],
-        // No result on the validator's model: Change validator first, then today's two.
+        // No result on the validator's model: Open agent… first, then today's two.
         Status::CheckNoResult if card::validator_refusal(ticket).is_some() => vec![
-            (A::ChangeValidator, Primary),
+            (A::OpenAgent, Primary),
             (A::RetryValidation, Secondary),
             (A::MoveToReviewAnyway, Secondary),
         ],
@@ -300,16 +298,6 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
         Status::DeliveryStopped => vec![(A::RetryMerge, Primary), (A::MoveToReview, Secondary)],
         // The agent fixes the Auto-merge conflict in its own terminal.
         Status::MergeConflictFixing => vec![(A::OpenTerminal, Secondary)],
-    }
-}
-
-/// The row whose picker Change agent / Change validator opens (`panel.view`'s `focus_agent_row`).
-pub fn agent_row(action: Action) -> Option<otaq_core::agents::SessionRole> {
-    use otaq_core::agents::SessionRole as Role;
-    match action {
-        Action::ChangeAgent => Some(Role::Developer),
-        Action::ChangeValidator => Some(Role::Validator),
-        _ => None,
     }
 }
 
@@ -719,13 +707,18 @@ mod tests {
             }],
             tokens: Vec::new(),
             holds: Vec::new(),
+            place: None,
+            path: Vec::new(),
+            runs: Vec::new(),
+            choices: Vec::new(),
         }
     }
 
-    /// AGT-05, update Y §3: Start failed on the model offers Change agent and Retry start; No result on the
-    /// validator's model Change validator, Retry validation and Move on anyway; each with its callout.
+    /// AGT-05, update Y §3, d0108 second gap review rule 7: Start failed on the model offers Open agent… and Retry
+    /// start; No result on the validator's model Open agent…, Retry validation and Move on anyway; each with its
+    /// callout.
     #[test]
-    fn a_refused_model_changes_the_agent() {
+    fn a_refused_model_opens_the_agent() {
         use crate::view_models::card_fixtures::{MODEL_ISSUE_MESSAGE, agent_variants};
         let fixture = |name: &str| {
             agent_variants()
@@ -738,7 +731,7 @@ mod tests {
         assert_eq!(
             buttons(&start),
             [
-                (A::ChangeAgent, Look::Primary),
+                (A::OpenAgent, Look::Primary),
                 (A::RetryStart, Look::Secondary)
             ]
         );
@@ -758,7 +751,7 @@ mod tests {
         assert_eq!(
             buttons(&no_result),
             [
-                (A::ChangeValidator, Look::Primary),
+                (A::OpenAgent, Look::Primary),
                 (A::RetryValidation, Look::Secondary),
                 (A::MoveToReviewAnyway, Look::Secondary),
             ]
@@ -769,20 +762,7 @@ mod tests {
             "The validator couldn\u{2019}t run claude-fable-5-1 \u{b7} not counted as a round"
         );
         assert!(!r.error);
-        assert_eq!(A::ChangeAgent.label(), "Change agent");
-        assert_eq!(A::ChangeValidator.label(), "Change validator");
-        assert_eq!(
-            (
-                agent_row(A::ChangeAgent),
-                agent_row(A::ChangeValidator),
-                agent_row(A::RetryStart)
-            ),
-            (
-                Some(otaq_core::agents::SessionRole::Developer),
-                Some(otaq_core::agents::SessionRole::Validator),
-                None
-            )
-        );
+        assert_eq!(A::OpenAgent.label(), "Open agent\u{2026}");
         // Other start problems and No results: as before, no callout.
         assert_eq!(shown(Status::StartInterrupted), [A::RetryStart]);
         assert_eq!(

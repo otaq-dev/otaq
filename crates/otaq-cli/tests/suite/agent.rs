@@ -462,6 +462,12 @@ async fn stage_done_closes_a_ticket_with_nothing_to_merge() {
         closed.payload["reason"],
         "Already fixed in SHOP-12.\nNothing left to change."
     );
+    // The card says so too (Q276): the reason is on the ticket while it is Closed.
+    let closed_ticket = w.board.ticket("SHOP-27").await.unwrap();
+    assert_eq!(
+        closed_ticket.flags.nothing_to_merge.as_deref(),
+        Some("Already fixed in SHOP-12.\nNothing left to change.")
+    );
     let runs = w.board.stage_runs("SHOP-27").await.unwrap();
     let dev = runs.iter().rev().find(|r| r.stage == "dev").unwrap();
     assert_eq!(
@@ -501,6 +507,7 @@ async fn stage_done_closes_a_ticket_with_nothing_to_merge() {
         .await
         .unwrap();
     assert_eq!(reopened.status, Status::Backlog);
+    assert_eq!(reopened.flags.nothing_to_merge, None);
 
     // With commits: refused, named with the count.
     let shop19 = w.board.ticket("SHOP-19").await.unwrap();

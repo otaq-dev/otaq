@@ -6,8 +6,8 @@ use std::ffi::OsStr;
 
 use otaq_core::naming;
 use otaq_view::view_models::{
-    activity, agent_pane, agent_rows, agent_tools_page, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
-    limit_banner, onboarding_page, settings_page, tool_avatar,
+    activity, agent_pane, agent_tools_page, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
+    limit_banner, onboarding_page, settings_page, stage_choices, tool_avatar,
 };
 use serde_json::Value;
 
@@ -50,8 +50,9 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.drawer" => reply(&super::drawer::gallery()),
         // 15 · Settings → Agents: fresh install, a list you made, the picker, the mark, ⋯ and Delete, the project
         // block (T-0340; T-0343 draws it).
-        // 05/08 · Agent rows: every row state, one agent, locked, moved on (T-0341; drawn by T-0344).
-        "gallery.agent_rows" => reply(&agent_rows::gallery()),
+        // 05/08 · Stage choices and the path: the ⌘N form, mid-flow, after a Fail, finished, a choice you set, the
+        // default flow (T-0411).
+        "gallery.stage_choices" => reply(&stage_choices::gallery()),
         // 15 · Settings → Agent tools: every state per tool, the notes, Disconnect's dialog (T-0360; T-0365 draws it).
         "gallery.agent_tools" => reply(&agent_tools_page::gallery()),
         // 14 · The Tools step with agent tools: the sample, none connected, one connected, hidden and warned (T-0365).
@@ -142,10 +143,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(board["review"][0]["column"]["sections"][1]["id"], "approved");
-        let rows = crate::api::request(&h.app, "gallery.agent_rows", Value::Null)
+        let choices = crate::api::request(&h.app, "gallery.stage_choices", Value::Null)
             .await
             .unwrap();
-        assert_eq!(rows["samples"][1]["block"]["rows"][0]["value"], "Strong");
+        assert_eq!(choices["samples"][0]["choices"]["rows"][1]["value"], "Rust developer");
+        assert_eq!(choices["samples"][1]["path"]["rows"][1]["detail"], "Rust developer \u{b7} working");
         let notifications = crate::api::request(&h.app, "gallery.notifications", Value::Null)
             .await
             .unwrap();

@@ -3,7 +3,6 @@
 // size class in the frame's `shellLayout`, with the expanded view), the picked answer, and which buttons open a tab or
 // a dialog on the page instead of calling the service.
 import type { ClassDrags } from "../../app/layout";
-import type { AgentRole } from "../../generated/AgentRole";
 import type { CardActionKind } from "../../generated/CardActionKind";
 import type { PanelAction } from "../../generated/PanelAction";
 import type { PanelAnswerRow } from "../../generated/PanelAnswerRow";
@@ -84,8 +83,8 @@ export type ActionRoute =
   | { kind: "overlay"; id: "local_merge" | "send_back" | "start_from_scratch" }
   | { kind: "mark_closed" }
   | { kind: "run" }
-  // Change agent / Change validator (T-0345): the Ticket tab with that row's picker open.
-  | { kind: "agent_row"; role: AgentRole };
+  // Open agent… (AGM-03, d0108 second gap review rule 7): Settings → Agents on the panel's `open_agent`.
+  | { kind: "open_agent" };
 
 // No `default`: a new action fails ESLint's switch-exhaustiveness-check until it gets its route.
 export function actionRoute(action: PanelAction): ActionRoute {
@@ -130,11 +129,14 @@ export function actionRoute(action: PanelAction): ActionRoute {
       return { kind: "mark_closed" };
     case "run":
       return { kind: "run" };
-    case "change_agent":
-      return { kind: "agent_row", role: "developer" };
-    case "change_validator":
-      return { kind: "agent_row", role: "validator" };
+    case "open_agent":
+      return { kind: "open_agent" };
   }
+}
+
+/** Settings → Agents on `agent`'s page (Open agent…), or on the list when the agent isn't known. */
+export function agentSettings(agent: string | null): { section: "agents"; agent?: string } {
+  return agent === null ? { section: "agents" } : { section: "agents", agent };
 }
 
 /** Where a "…" menu item goes; ids are `panel_actions.rs`'s, `close.rs`'s, `card_menu.rs`'s and `delete.rs`'s. */
@@ -193,7 +195,7 @@ export type CardRoute =
   | { kind: "overlay"; id: "start_from_scratch" | "open_pr" }
   | { kind: "mark_closed" }
   | { kind: "run_tab" }
-  | { kind: "agent_row"; role: AgentRole }
+  | { kind: "open_agent" }
   | { kind: "none" };
 
 export function cardRoute(kind: CardActionKind): CardRoute {
@@ -224,11 +226,9 @@ export function cardRoute(kind: CardActionKind): CardRoute {
     // RUN-01: the `▶ :4020` chip shows the Run tab (its Open and Stop).
     case "run_chip":
       return { kind: "run_tab" };
-    // AGT-05: the panel the click opens shows the Ticket tab with that row's picker open (T-0345).
-    case "change_agent":
-      return { kind: "agent_row", role: "developer" };
-    case "change_validator":
-      return { kind: "agent_row", role: "validator" };
+    // AGM-03: Open agent… opens Settings → Agents on the agent that can't run (the panel's `open_agent`).
+    case "open_agent":
+      return { kind: "open_agent" };
     // Answer, Reply and Open (Ticket Card v2): the panel the click opens is where it is dealt with.
     case "open":
     case "review":

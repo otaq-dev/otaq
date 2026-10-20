@@ -428,13 +428,15 @@ const claudeLine = (over: Partial<LimitLine> = {}): LimitLine => ({
       action: { kind: "resume_tool", tool: "claude" },
       enabled: false,
       primary: false,
+      tooltip: null,
     },
     {
-      label: "Use fallback now (Codex)",
-      icon: "arrow-right",
+      label: "Use fallback now",
+      icon: "arrow-right-left",
       action: { kind: "use_fallback_now", tool: "claude" },
       enabled: true,
       primary: false,
+      tooltip: "Starts the waiting tickets on Codex",
     },
   ],
   ...over,
@@ -454,6 +456,7 @@ const codexLine: LimitLine = {
       action: { kind: "sign_in", tool: "codex" },
       enabled: true,
       primary: false,
+      tooltip: null,
     },
   ],
 };
@@ -480,7 +483,7 @@ describe("the limit banner per tool", () => {
       /data-tone="neutral" data-tool="claude".*Claude Code limit reached.*Resume Claude Code/,
     );
     expect(html).toMatch(/data-tone="warning" data-tool="codex".*Codex isn’t available.*Sign in…/);
-    expect(html).toContain("Use fallback now (Codex)");
+    expect(html).toContain(">Use fallback now<");
     expect(html).not.toContain(">Resume<");
     expect(html).not.toContain('data-tone="attention"');
   });

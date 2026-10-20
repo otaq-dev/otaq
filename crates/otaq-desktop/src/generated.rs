@@ -103,6 +103,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::PanelParentParams::export_all(&cfg)?;
     crate::api::PanelCardParams::export_all(&cfg)?;
     crate::api::PanelAnswerAgentParams::export_all(&cfg)?;
+    crate::api::PanelChoiceParams::export_all(&cfg)?;
     // The Terminals drawer and its header button (T-0242); the view also writes its tabs.
     crate::api::DrawerParams::export_all(&cfg)?;
     crate::api::DrawerView::export_all(&cfg)?;
@@ -188,8 +189,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::EditorCompareParams::export_all(&cfg)?;
     crate::api::EditorCompareEntry::export_all(&cfg)?;
     crate::api::EditorSourceModeParams::export_all(&cfg)?;
-    // The agent rows' gallery (T-0341); `AgentBlock` comes with the editor and panel views.
-    otaq_view::view_models::agent_rows::Gallery::export_all(&cfg)?;
+    // The stage choices' and the path's gallery (T-0411); their views come with the editor and panel views.
+    otaq_view::view_models::stage_choices::Gallery::export_all(&cfg)?;
     // The Diff tab (T-0225): the tab, a file's lines and the comments; then the requests' own types.
     crate::api::DiffLoad::export_all(&cfg)?;
     otaq_view::view_models::diff_page::FileView::export_all(&cfg)?;

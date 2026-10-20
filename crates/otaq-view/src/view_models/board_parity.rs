@@ -173,7 +173,22 @@ fn without_new_fields(mut snapshot: Value) -> Value {
             }
         }
     }
+    drop_footer_seconds(&mut snapshot);
     snapshot
+}
+
+/// The card footer's `second` button (T-0411: Open agent… beside Use fallback), added after the snapshot.
+fn drop_footer_seconds(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            if map.contains_key("action") && map.contains_key("tokens") {
+                map.remove("second");
+            }
+            map.values_mut().for_each(drop_footer_seconds);
+        }
+        Value::Array(items) => items.iter_mut().for_each(drop_footer_seconds),
+        _ => {}
+    }
 }
 
 #[test]

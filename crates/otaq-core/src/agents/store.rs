@@ -444,7 +444,7 @@ impl Store {
     ) -> Result<Vec<RunningAgent>, StoreError> {
         let rows: Vec<RunningRecord> = sqlx::query_as(
             "SELECT s.ticket_id, s.kind, s.agent_name AS name, s.tool, COALESCE(s.model_ran, s.model) AS model,
-                    s.fallback_from, s.fallback_reason
+                    s.model AS passed, s.fallback_from, s.fallback_reason
              FROM sessions s JOIN tickets t ON t.id = s.ticket_id
              WHERE t.project_id = ? AND s.state = 'running' AND s.agent_name IS NOT NULL
                AND s.kind IN ('agent', 'answer', 'delivery', 'validator')
@@ -464,6 +464,7 @@ impl Store {
                 name: r.name,
                 tool: r.tool.and_then(|t| t.parse().ok()),
                 model: r.model,
+                passed: r.passed,
                 fallback: fallback_of(r.fallback_from.as_deref(), r.fallback_reason.as_deref()),
             })
             .collect())
@@ -745,6 +746,7 @@ struct RunningRecord {
     name: String,
     tool: Option<String>,
     model: Option<String>,
+    passed: Option<String>,
     fallback_from: Option<String>,
     fallback_reason: Option<String>,
 }
@@ -758,7 +760,10 @@ pub struct RunningAgent {
     pub name: String,
     /// `None` for a row of a tool this build doesn't know (or written before tools were stored).
     pub tool: Option<Tool>,
+    /// The model the tool reported, else the one passed.
     pub model: Option<String>,
+    /// The model as passed (`None`: the tool's default).
+    pub passed: Option<String>,
     /// It runs on its tool's fallback (AGM-03).
     pub fallback: Option<super::FallbackFrom>,
 }

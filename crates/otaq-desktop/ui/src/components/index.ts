@@ -4,14 +4,6 @@
 // moment of interaction (UIT-04). See the crate README, "Components"; the gallery shows each one.
 import "./components.css";
 
-export {
-  AgentBlock,
-  AgentRow,
-  shownRow,
-  type AgentBlockProps,
-  type AgentRowLook,
-  type AgentRowProps,
-} from "./AgentRow";
 export { Banner, type BannerAction, type BannerProps, type BannerTone } from "./Banner";
 export {
   Button,
@@ -43,6 +35,13 @@ export { CountBadge, MetaChip, StatusPill, type ChipTone, type CountTone, type M
 export { Popover, useDismiss, type PopoverProps } from "./Popover";
 export { PriorityChip, PriorityLabel } from "./Priority";
 export { Select, type SelectProps } from "./Select";
+export {
+  StageChoices,
+  TicketPath,
+  shownChoice,
+  type StageChoicesLook,
+  type StageChoicesProps,
+} from "./StageChoices";
 export { StackList, StackRow, type StackListProps, type StackRowProps } from "./StackList";
 export { Segmented, Tabs, Toggle, type TabIndicator, type TabItem, type TabsProps } from "./Tabs";
 export { pickTheme, ThemePicker, useThemePicker, type ThemePickerProps } from "./ThemePicker";

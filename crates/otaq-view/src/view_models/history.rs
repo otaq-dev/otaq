@@ -12,8 +12,8 @@ use otaq_core::usage::SessionUsage;
 
 use crate::icons::IconName;
 use crate::theme::Palette;
-use crate::view_models::agent_rows::{self, HistoryLine};
 use crate::view_models::clock;
+use crate::view_models::stage_choices::{self, HistoryLine};
 use crate::view_models::validation_report::{self, Report};
 
 /// One line of the History table.
@@ -334,9 +334,9 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             "Template refresh failed".to_owned(),
             text(p, "message").map(first_line),
         ),
-        EventKind::AgentRowSet => agent_rows::row_change_line(p),
+        EventKind::AgentRowSet => stage_choices::row_change_line(p),
         EventKind::StageChoiceSet => choice_line(p),
-        EventKind::FallbackUsed => (agent_rows::fallback_line(p), None),
+        EventKind::FallbackUsed => (stage_choices::fallback_line(p), None),
         EventKind::SchemaOverlap => (
             match text(p, "other") {
                 Some(other) => format!("Schema path shared with {other}"),

@@ -44,6 +44,7 @@ const SHOP_22: TicketCardView = {
     tokens: null,
     signal: null,
     action: { kind: "open", label: "Answer", icon: null, primary: false },
+    second: null,
   },
   hover: { status: "Needs you · permission", details: ["Tokens: 64k"] },
   sleeve: null,
@@ -187,6 +188,7 @@ describe("the Ticket Card v2 draws its view", () => {
       tokens: null,
       signal: null,
       action: { kind: "review" as const, label: "Review", icon: "eye" as const, primary: true },
+      second: null,
     };
     const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
     expect(out).toContain('data-variant="primary"');
@@ -200,6 +202,7 @@ describe("the Ticket Card v2 draws its view", () => {
       tokens: null,
       signal: null,
       action: null,
+      second: null,
     };
     const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
     expect(out).toContain('<span class="card-footer-agent">Fable test · set by you</span>');
@@ -213,12 +216,27 @@ describe("the Ticket Card v2 draws its view", () => {
     );
   });
 
+  it("a card that can't run offers Use fallback and Open agent… side by side (AGM-03)", () => {
+    const footer = {
+      agent: null,
+      tokens: null,
+      signal: null,
+      action: { kind: "use_fallback" as const, label: "Use fallback", icon: null, primary: false },
+      second: { kind: "open_agent" as const, label: "Open agent…", icon: null, primary: false },
+    };
+    const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
+    const footerHtml = out.slice(out.indexOf('class="card-action"'));
+    expect(footerHtml.indexOf("Use fallback")).toBeGreaterThan(-1);
+    expect(footerHtml.indexOf("Open agent…")).toBeGreaterThan(footerHtml.indexOf("Use fallback"));
+  });
+
   it("a running agent's footer: tokens and the last signal, amber when old", () => {
     const footer = {
       agent: null,
       tokens: { text: "182k", tooltip: null },
       signal: { text: "4m", stale: true },
       action: null,
+      second: null,
     };
     const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
     expect(out).toContain("182k");

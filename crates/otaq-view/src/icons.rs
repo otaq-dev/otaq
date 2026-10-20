@@ -51,6 +51,7 @@ icons! {
     ArrowDownToLine = "arrow-down-to-line";
     ArrowLeft = "arrow-left";
     ArrowRight = "arrow-right";
+    ArrowRightLeft = "arrow-right-left";
     ArrowUp = "arrow-up";
     ArrowUpRight = "arrow-up-right";
     Ban = "ban";
