@@ -9,6 +9,8 @@
 //! for a project (ONB-03, ONB-04, ONB-08; d0108): what the agent will look at, or "Nothing to look at yet".
 //! `onboarding.flow` answers the whole Flow step for the project just added (ONB-04; the go-ahead, the presets), asking
 //! what there is once. The step's proposal is `flow_preview.view` with its onboarding buttons (ONB-06).
+//! `onboarding.flow_dialog` answers the same go-ahead, shorter, for the Add project dialog after a project is added
+//! later (ONB-08); its proposal opens in the usual preview.
 
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::snapshot::ProjectInfo;
@@ -39,6 +41,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "onboarding.add" => reply(&add(app, parse(params)?).await?),
         "onboarding.sources" => reply(&sources(app, parse(params)?).await?),
         "onboarding.flow" => reply(&flow(app, parse(params)?).await?),
+        "onboarding.flow_dialog" => reply(&flow_dialog(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -243,6 +246,19 @@ async fn flow(app: &App, params: SourcesParams) -> Result<FlowStep, RequestError
     let (key, name) = (project.key.clone(), project.name.clone());
     let look = sources(app, params).await?;
     Ok(onboarding_page::flow_step(&key, &name, &look))
+}
+
+/// The Add project dialog's go-ahead for the project just added (`{"project": "BILL"}`): "billing-api’s flow", like
+/// for the first project added before it (ONB-08).
+async fn flow_dialog(app: &App, params: SourcesParams) -> Result<FlowStep, RequestError> {
+    let projects = projects(app).await?;
+    let project = projects
+        .iter()
+        .find(|p| p.key == params.project)
+        .ok_or_else(|| RequestError::plain(format!("no such project: {}", params.project)))?;
+    let (key, name) = (project.key.clone(), project.name.clone());
+    let look = sources(app, params).await?;
+    Ok(onboarding_page::flow_dialog(&key, &name, &projects, &look))
 }
 
 /// The Flow step's types (T-0429): the step and its gallery.

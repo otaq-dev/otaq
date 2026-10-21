@@ -59,6 +59,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.onboarding_tools" => reply(&onboarding_page::tools_gallery()),
         // 14 · The Flow step: the go-ahead and Nothing to look at yet with the presets (T-0429).
         "gallery.onboarding_flow" => reply(&onboarding_page::flow_gallery()),
+        // 14 · The Add project dialog's go-ahead and Nothing to look at yet (T-0431).
+        "gallery.onboarding_flow_dialog" => reply(&onboarding_page::flow_dialog_gallery()),
         // 11 · The usage-limit banner's line per tool, Move waiting to…, a tool that isn't available (T-0364).
         "gallery.limit_lines" => reply(&limit_banner::gallery()),
         // The notification banners and Settings → Notifications in every state (T-0372).
@@ -161,6 +163,14 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(lines["cells"][0]["lines"][0]["title"], "Claude Code limit reached");
+        let dialog = crate::api::request(&h.app, "gallery.onboarding_flow_dialog", Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(dialog["cells"][0]["step"]["title"], "billing-api\u{2019}s flow");
+        assert_eq!(
+            dialog["cells"][0]["step"]["intro"],
+            "Look at how you work here, like for shop-web."
+        );
         h.service.stop_all().await;
     }
 }

@@ -334,6 +334,13 @@
   gap: 14px;
 }
 
+/* The Add project dialog's go-ahead and presets, once the project is added (*s14-18*, ONB-08). */
+.add-project-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .add-project-folder {
   display: flex;
   align-items: center;

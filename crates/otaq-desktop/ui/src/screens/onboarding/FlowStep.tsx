@@ -94,7 +94,15 @@ export function FlowGoAhead(props: GoAheadProps) {
 }
 
 /** One preset (*the four presets*): its name and how it delivers, its line and the small diagram of its columns. */
-function Preset({ card, disabled, onPick }: { card: PresetCard; disabled: boolean; onPick: () => void }) {
+export function Preset({
+  card,
+  disabled,
+  onPick,
+}: {
+  card: PresetCard;
+  disabled: boolean;
+  onPick: () => void;
+}) {
   return (
     <button type="button" className="flow-step-preset" disabled={disabled} onClick={onPick}>
       <span className="flow-step-preset-head">

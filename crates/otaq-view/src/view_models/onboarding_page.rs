@@ -861,6 +861,25 @@ pub fn flow_step(project: &str, project_name: &str, look: &FlowLook) -> FlowStep
     }
 }
 
+/// *s14-18*/*s14-19* (ONB-08): the go-ahead inside the Add project dialog, for a project added later. The same step,
+/// shorter: "billing-api’s flow", "Look at how you work here, like for shop-web." (the first project added before it,
+/// in `projects`' order, by when each was added), and the line without its parenthesis. With no other project (every
+/// one removed, or onboarding skipped), the Flow step's intro. The presets are the Flow step's.
+pub fn flow_dialog(
+    project: &str,
+    project_name: &str,
+    projects: &[ProjectInfo],
+    look: &FlowLook,
+) -> FlowStep {
+    let mut step = flow_step(project, project_name, look);
+    step.title = format!("{project_name}\u{2019}s flow");
+    if let Some(first) = projects.iter().find(|p| p.key != project) {
+        step.intro = format!("Look at how you work here, like for {}.", first.name);
+    }
+    step.line = look.short_line.clone();
+    step
+}
+
 /// One Flow step of the gallery.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OnboardingFlowGalleryCell")]
@@ -896,6 +915,45 @@ pub fn flow_gallery() -> FlowGallery {
     .map(|(name, any)| FlowGalleryCell {
         name: name.to_owned(),
         step: flow_step("SHOP", "shop-web", &flow_sources::view(&sources(any))),
+    })
+    .collect();
+    FlowGallery { cells }
+}
+
+/// The Add project dialog's go-ahead in the component gallery (T-0431; *s14-18*, *s14-19*): billing-api on GitLab,
+/// after shop-web, and Nothing to look at yet.
+pub fn flow_dialog_gallery() -> FlowGallery {
+    use otaq_core::onboarding::Sources;
+    let [claude, ..] = super::agent_tools_page::fixtures::tools();
+    let shop = ProjectInfo {
+        key: "SHOP".into(),
+        name: "shop-web".into(),
+        repo_path: "~/code/shop-web".into(),
+        base_branch: "main".into(),
+        agents_working: 0,
+        needs_you: 0,
+    };
+    let sources = |any: bool| Sources {
+        project_name: "billing-api".into(),
+        history: any,
+        commits: any,
+        gh: false,
+        glab: any,
+        tool: claude,
+    };
+    let cells = [
+        ("Add project · the go-ahead", true),
+        ("Add project · Nothing to look at yet", false),
+    ]
+    .into_iter()
+    .map(|(name, any)| FlowGalleryCell {
+        name: name.to_owned(),
+        step: flow_dialog(
+            "BILL",
+            "billing-api",
+            std::slice::from_ref(&shop),
+            &flow_sources::view(&sources(any)),
+        ),
     })
     .collect();
     FlowGallery { cells }
@@ -1163,6 +1221,122 @@ mod tests {
         );
         assert_eq!(columns(3), ["Ready for Dev", "Dev", "Validate", "Done"]);
         assert_eq!(flow_gallery().cells.len(), 2);
+    }
+
+    fn project(key: &str, name: &str) -> ProjectInfo {
+        ProjectInfo {
+            key: key.into(),
+            name: name.into(),
+            repo_path: format!("/code/{name}"),
+            base_branch: "main".into(),
+            agents_working: 0,
+            needs_you: 0,
+        }
+    }
+
+    fn look_at(project_name: &str, history: bool, commits: bool, glab: bool) -> FlowLook {
+        use otaq_core::onboarding::Sources;
+        let [claude, ..] = crate::view_models::agent_tools_page::fixtures::tools();
+        flow_sources::view_on(
+            otaq_core::tools::Os::Mac,
+            &Sources {
+                project_name: project_name.into(),
+                history,
+                commits,
+                gh: false,
+                glab,
+                tool: claude,
+            },
+        )
+    }
+
+    #[test]
+    fn the_add_project_dialogs_go_ahead_s14_18() {
+        // billing-api, on GitLab with glab signed in, added after shop-web.
+        let projects = [project("SHOP", "shop-web"), project("BILL", "billing-api")];
+        let step = flow_dialog(
+            "BILL",
+            "billing-api",
+            &projects,
+            &look_at("billing-api", true, true, true),
+        );
+        assert_eq!(step.project, "BILL");
+        assert_eq!(step.title, "billing-api’s flow");
+        assert_eq!(step.intro, "Look at how you work here, like for shop-web.");
+        assert_eq!(
+            step.line,
+            "Claude looks at how you use Claude Code on this Mac, this repo and GitLab, and proposes a flow for \
+             billing-api."
+        );
+        assert_eq!(
+            step.provider,
+            "What the agent reads goes to your model provider, and it uses tokens."
+        );
+        assert_eq!(
+            [
+                step.skip.as_str(),
+                step.use_preset.as_str(),
+                step.propose.as_str()
+            ],
+            [
+                "Skip, use the default",
+                "Use a preset instead",
+                "Look and propose a flow"
+            ]
+        );
+        assert!(step.can_propose);
+        assert!(!step.opens_on_presets);
+        assert_eq!(step.presets.cards.len(), 4);
+    }
+
+    #[test]
+    fn the_dialog_for_the_examples_pocket_api_names_claude_code_only() {
+        // pocket-api, added after pocket-notes: Claude Code history, no commits yet, neither gh nor glab.
+        let projects = [
+            project("NOTE", "pocket-notes"),
+            project("SCRATCH", "scratch"),
+            project("API", "pocket-api"),
+        ];
+        let step = flow_dialog(
+            "API",
+            "pocket-api",
+            &projects,
+            &look_at("pocket-api", true, false, false),
+        );
+        assert_eq!(step.title, "pocket-api’s flow");
+        // The first project added, not the most recent one.
+        assert_eq!(
+            step.intro,
+            "Look at how you work here, like for pocket-notes."
+        );
+        assert_eq!(
+            step.line,
+            "Claude looks at how you use Claude Code on this Mac and proposes a flow for pocket-api."
+        );
+        assert!(step.can_propose);
+        // Nothing at all: the dialog opens on the presets, with the reason.
+        let nothing = flow_dialog(
+            "API",
+            "pocket-api",
+            &projects,
+            &look_at("pocket-api", false, false, false),
+        );
+        assert!(nothing.opens_on_presets);
+        assert!(!nothing.can_propose);
+        assert_eq!(nothing.title, "pocket-api’s flow");
+        assert!(nothing.presets.reason.is_some());
+        // No other project: the Flow step's intro.
+        let alone = flow_dialog(
+            "API",
+            "pocket-api",
+            &projects[2..],
+            &look_at("pocket-api", true, false, false),
+        );
+        assert_eq!(
+            alone.intro,
+            flow_step("API", "pocket-api", &look(true)).intro
+        );
+        assert_eq!(flow_dialog_gallery().cells.len(), 2);
     }
 
     #[test]

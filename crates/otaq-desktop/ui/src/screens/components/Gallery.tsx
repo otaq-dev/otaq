@@ -134,6 +134,7 @@ import { LimitLinesGallery } from "../notices/LimitLinesGallery";
 import { LeadTabBody } from "../lead_tab/LeadTab";
 import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
 import { FlowGoAhead, FlowPresets } from "../onboarding/FlowStep";
+import { FlowDialogButtons, FlowDialogGoAhead, FlowDialogPresets } from "../onboarding/AddProjectDialog";
 import { ToolsList } from "../onboarding/Tools";
 import "../onboarding/onboarding.css";
 import "./gallery.css";
@@ -1591,6 +1592,8 @@ const loadTrust = () => request("gallery.trust") as Promise<TrustGallery>;
 const loadAgentTools = () => request("gallery.agent_tools") as Promise<AgentToolsGallery>;
 const loadOnboardingTools = () => request("gallery.onboarding_tools") as Promise<OnboardingToolsGallery>;
 const loadOnboardingFlow = () => request("gallery.onboarding_flow") as Promise<OnboardingFlowGallery>;
+const loadOnboardingFlowDialog = () =>
+  request("gallery.onboarding_flow_dialog") as Promise<OnboardingFlowGallery>;
 
 const THEMES = ["otaq-light", "otaq-dark"] as const;
 
@@ -1752,6 +1755,65 @@ function OnboardingFlowGallerySection() {
               </div>
             );
           })}
+        </div>
+      ))}
+    </Section>
+  );
+}
+
+/** *14 → Row · Another project, and the presets* `s14-18`/`s14-19` (T-0431, ONB-08): the Add project dialog's go-ahead
+ * for billing-api on GitLab and its Nothing to look at yet, drawn as the dialog box without its backdrop, from
+ * `gallery.onboarding_flow_dialog` in Otaq Light and Dark. Calls are only recorded. */
+function OnboardingFlowDialogGallerySection() {
+  const { view, error } = useServiceView(loadOnboardingFlowDialog, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const record = (what: string) => () => {
+    setPicked(what);
+  };
+  return (
+    <Section title="14 · Add project: the go-ahead in the dialog, Nothing to look at yet (T-0431)">
+      <Caption>Last call: {picked ?? "—"}</Caption>
+      {THEMES.map((theme) => (
+        <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+          <Caption>{theme.toUpperCase()}</Caption>
+          {view.cells.map((cell) => (
+            <div key={cell.name} className="gallery-stack-tight">
+              <Caption>{cell.name.toUpperCase()}</Caption>
+              <div className="dialog" style={{ width: 640 }}>
+                <div className="dialog-content">
+                  <h2 className="dialog-title">{cell.step.title}</h2>
+                  <div className="dialog-body add-project-flow">
+                    {cell.step.opens_on_presets ? (
+                      <FlowDialogPresets
+                        step={cell.step}
+                        busy={false}
+                        onPick={(file) => {
+                          setPicked(file);
+                        }}
+                      />
+                    ) : (
+                      <FlowDialogGoAhead step={cell.step} />
+                    )}
+                  </div>
+                </div>
+                <div className="dialog-footer">
+                  <span className="dialog-hint">
+                    <Kbd keys="esc" />
+                    <span>close</span>
+                  </span>
+                  <FlowDialogButtons
+                    step={cell.step}
+                    busy={false}
+                    onSkip={record("Skip, use the default")}
+                    onPresets={record("Use a preset instead")}
+                    onLook={record("Look and propose a flow")}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       ))}
     </Section>
@@ -2485,6 +2547,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <AgentToolsGallerySection />
         <OnboardingToolsGallerySection />
         <OnboardingFlowGallerySection />
+        <OnboardingFlowDialogGallerySection />
         <BoardReviewSection />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">
           <ThemeSection />

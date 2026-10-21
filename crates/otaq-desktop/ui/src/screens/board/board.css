@@ -731,7 +731,6 @@ div.board-rail {
   font: var(--text-meta);
 }
 
-/* The Auto-merge line under the hints (*14 → 4 · Done · empty board*, d0064). */
 /* No project at all (*02 → No projects yet*): centred on the app background, no columns. */
 .board-no-projects {
   position: absolute;
