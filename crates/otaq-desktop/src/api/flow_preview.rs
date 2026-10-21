@@ -5,7 +5,10 @@
 //! `flow.cancel_proposal`, `flow.ask_for_changes`), each delivered to the Project agent that proposed it.
 //! `flow_preview.propose { project, source }` is the way in for Settings → Flow's actions (`flow.propose_from`): the
 //! page opens the preview on the project it names. Onboarding's Flow step asks the same view with `onboarding`, for
-//! its own buttons (ONB-06: Use the default · Ask for changes · Use this flow).
+//! its own buttons (ONB-06: Use the default · Ask for changes · Use this flow). `flow_preview.compare { project,
+//! choices, first }` is Flow setup's (ASK-07): every open proposal of the project (`onboarding.flow_setup`), side by
+//! side once there are two, or one beside a tool still working or stopped; Use this flow is `flow_preview.apply` with
+//! that proposal's number.
 
 use otaq_core::board::tickets::Ticket;
 use otaq_core::flow::apply::{ApplyParams, ProposeFrom, ProposeFromParams};
@@ -14,6 +17,8 @@ use otaq_core::flow::propose::AskForChangesParams;
 use otaq_core::flow::{Flow, FlowVersion};
 use otaq_core::protocol::{ProjectParams, Reply, Request};
 use otaq_view::view_models::flow_preview::{self, Choices, View};
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -24,6 +29,7 @@ use crate::App;
 pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
     match method {
         "flow_preview.view" => reply(&view(app, parse(params)?).await?),
+        "flow_preview.compare" => reply(&compare(app, parse(params)?).await?),
         "flow_preview.apply" => reply(&apply(app, parse(params)?).await?),
         "flow_preview.cancel" => {
             let p: ProjectOnly = parse(params)?;
@@ -48,6 +54,9 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
 pub fn export_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     ViewParams::export_all(cfg)?;
     OnboardingPreview::export_all(cfg)?;
+    CompareParams::export_all(cfg)?;
+    // Also writes `FlowCompareProposal`.
+    flow_preview::CompareView::export_all(cfg)?;
     Load::export_all(cfg)?;
     ApplyRequest::export_all(cfg)?;
     AskRequest::export_all(cfg)?;
@@ -89,6 +98,21 @@ pub struct ViewParams {
 pub struct OnboardingPreview {
     #[serde(default)]
     pub first: Option<u32>,
+}
+
+/// `{"project": "SHOP", "choices": {"3": {…}}, "first": {"a-cc": 2}}`: a project's proposals in Flow setup, with the
+/// picks so far by proposal and, by flow agent, the proposal the page showed first (a later one reads "updated after
+/// your answer").
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "FlowCompareParams")]
+pub struct CompareParams {
+    pub project: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub choices: Option<BTreeMap<u32, Choices>>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub first: Option<BTreeMap<String, u32>>,
 }
 
 /// What `flow_preview.view` answers: the preview, or none once the proposal is gone (applied, cancelled or replaced
@@ -250,6 +274,44 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
             None => view,
         }),
     })
+}
+
+/// Flow setup's proposals (ASK-07), each built as [`view`] builds one.
+pub async fn compare(app: &App, params: CompareParams) -> Result<flow_preview::CompareView, RequestError> {
+    let setup = match app
+        .service
+        .send(Request::OnboardingFlowSetup(ProjectParams {
+            project: params.project.clone(),
+        }))
+        .await?
+    {
+        Reply::FlowSetup(setup) => *setup,
+        other => return Err(unexpected("onboarding.flow_setup", &other)),
+    };
+    let current = current(app, &setup.project).await;
+    let base = base(app, &setup.project, current.as_ref()).await;
+    let tickets = tickets(app, &setup.project).await?;
+    let agents = super::settings::agent_list(app).await?;
+    let tools = super::settings::agent_tools(app, false).await?;
+    let picks = params.choices.unwrap_or_default();
+    let none = Choices::default();
+    let now = otaq_core::store::now_ms();
+    Ok(flow_preview::compare(
+        &setup,
+        |proposal| {
+            flow_preview::view(&flow_preview::Facts {
+                proposal,
+                current: current.as_ref(),
+                base: &base,
+                tickets: &tickets,
+                agents: &agents,
+                tools: &tools,
+                choices: picks.get(&proposal.id).unwrap_or(&none),
+                now,
+            })
+        },
+        &params.first.unwrap_or_default(),
+    ))
 }
 
 /// Apply: the service checks the proposal again with the picks, and refuses with why (shown in the preview).
@@ -566,6 +628,64 @@ mod tests {
             .await
             .unwrap();
         assert!(!view_of(&load).is_null(), "still open");
+        h.service.stop_all().await;
+    }
+
+    /// Flow setup's proposals (ASK-07): shop-web in Flow setup with a preset looked at shows it alone, with the step's
+    /// buttons; Use this flow is `flow_preview.apply` with its number, which settles Flow setup.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn compare_lists_flow_setups_proposals_and_apply_settles_it() {
+        let h = Harness::new(None);
+        let repos = TempRepos::new();
+        h.wait_for("connected", connected).await;
+        h.app
+            .service
+            .send(Request::ProjectAdd(AddProject {
+                path: repos.repo("shop-web", 1).display().to_string(),
+                key: Some("SHOP".into()),
+                flow_setup: true,
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        let empty = request(&h.app, "flow_preview.compare", json!({ "project": "SHOP" }))
+            .await
+            .unwrap();
+        assert_eq!(empty["compare"], false);
+        assert_eq!(empty["proposals"], json!([]));
+        let proposed = request(
+            &h.app,
+            "flow_preview.propose",
+            json!({ "project": "SHOP", "source": { "from": "preset", "file": "grill-first.yaml" } }),
+        )
+        .await
+        .unwrap();
+        let shown = request(&h.app, "flow_preview.compare", json!({ "project": "SHOP" }))
+            .await
+            .unwrap();
+        assert_eq!(shown["compare"], false);
+        assert!(shown["closes_others"].is_null());
+        let one = &shown["proposals"][0];
+        assert!(one["tool"].is_null() && one["agent"].is_null(), "the user's own");
+        assert_eq!(one["view"]["proposal"], proposed["proposal"]);
+        assert_eq!(one["view"]["title"], "Grill first for shop-web");
+        assert_eq!(one["view"]["cancel"], "Use the default");
+        assert_eq!(one["view"]["apply"]["label"], "Use this flow");
+        request(
+            &h.app,
+            "flow_preview.apply",
+            json!({ "project": "SHOP", "proposal": proposed["proposal"], "choices": one["view"]["choices"] }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            columns(&h).await,
+            ["Backlog", "Ready for Dev", "Grill", "Dev", "Validate", "Review", "Done"]
+        );
+        let after = request(&h.app, "flow_preview.compare", json!({ "project": "SHOP" }))
+            .await
+            .unwrap();
+        assert_eq!(after["proposals"], json!([]));
         h.service.stop_all().await;
     }
 }

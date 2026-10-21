@@ -9,6 +9,10 @@
 //! (Apply stays off until each is fixed: a skill folder or a local model picked here), the import clashes (Keep mine ·
 //! Take theirs · Add as), and when it applies. The user's picks ([`Choices`]) live in the page until Apply sends them;
 //! this view is rebuilt with them on every pick.
+//!
+//! **In Flow setup** ([`onboarding`], [`compare`]; ASK-07, *14 → Row · Flow step: the proposal* `s14-16`/`s14-17`) a
+//! flow agent's proposal reads "Recommended by Claude Code"; two or more sit side by side with every why line, each
+//! with Ask for changes · Use this flow, and one Use the default under them.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -26,6 +30,7 @@ use otaq_core::flow::{
     Stage, StageKind, StageOption, yaml,
 };
 use otaq_core::naming::PRODUCT_NAME;
+use otaq_core::project_agents::first_flow::{FlowSetup, FlowSetupRow};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -1135,13 +1140,43 @@ pub const USE_THIS_FLOW: &str = "Use this flow";
 pub const ASK_FOR_CHANGES: &str = "Ask for changes";
 /// Onboarding's Use the default (Cancel: the agent gets Cancel).
 pub const USE_THE_DEFAULT: &str = "Use the default";
-/// The subtitle once the agent proposed again after the user's answer.
-pub const UPDATED_AFTER_YOUR_ANSWER: &str = "Updated after your answer";
+/// The subtitle's second part once the agent proposed again after the user's answer.
+pub const UPDATED_AFTER_YOUR_ANSWER: &str = "updated after your answer";
 
-/// The preview inside onboarding's Flow step (ONB-06, d0108; *s14-16*, *s14-17*): Use the default · Ask for changes ·
-/// Use this flow in place of Cancel · Ask for more changes · Apply, and the agent named in the subtitle ("Proposed by
-/// Flow setup (Project agent)"). `first` is the proposal the step showed first: a later one is the agent's answer
-/// ("Updated after your answer"). "No changes" (the default itself) closes as Use the default.
+/// "Recommended by OpenCode" (ASK-07): a flow agent's proposal is labelled by its tool.
+pub fn recommended_by(tool: Tool) -> String {
+    format!("Recommended by {}", tool.display_name())
+}
+
+/// The agents a whole flow's stages name (their agents and agent options), each once.
+fn agents_used(proposal: &Proposal) -> usize {
+    let Ok(file) = yaml::read(&proposal.yaml) else {
+        return 0;
+    };
+    let mut names = HashSet::new();
+    for stage in &file.flow.stages {
+        names.extend(stage.agent.iter().map(|a| a.to_lowercase()));
+        names.extend(stage.options.iter().filter_map(|o| match o {
+            StageOption::Agent(name) => Some(name.to_lowercase()),
+            StageOption::Skip => None,
+        }));
+    }
+    names.len()
+}
+
+/// "None: it uses 6 agents already in Otaq" (ASK-07): a whole flow that adds no agent.
+pub fn uses_agents_already(n: usize) -> String {
+    match n {
+        1 => format!("None: it uses 1 agent already in {PRODUCT_NAME}"),
+        n => format!("None: it uses {n} agents already in {PRODUCT_NAME}"),
+    }
+}
+
+/// The preview inside Flow setup (ONB-06, ASK-07, d0108; *s14-16*, *s14-17*): Use the default · Ask for changes · Use
+/// this flow in place of Cancel · Ask for more changes · Apply, and a flow agent's proposal labelled by its tool
+/// ("Recommended by Claude Code"). `first` is the proposal the step showed first: a later one is the agent's answer
+/// ("· updated after your answer"). "No changes" (the default itself) closes as Use the default. A whole flow that
+/// adds no agent says how many it uses already.
 pub fn onboarding(mut view: View, proposal: &Proposal, first: Option<u32>) -> View {
     if let Some(ask) = &mut view.ask {
         ask.label = ASK_FOR_CHANGES.to_owned();
@@ -1155,19 +1190,127 @@ pub fn onboarding(mut view: View, proposal: &Proposal, first: Option<u32>) -> Vi
     if view.close.is_some() {
         view.close = Some(USE_THE_DEFAULT.to_owned());
     }
-    if let ProposedBy::ProjectAgent { name, .. } = &proposal.proposed_by
+    if let ProposedBy::ProjectAgent { tool, .. } = &proposal.proposed_by
         && view.same.is_none()
     {
-        let by = if first.is_some_and(|f| f != proposal.id) {
-            UPDATED_AFTER_YOUR_ANSWER.to_owned()
-        } else if name.trim().is_empty() {
-            "Proposed by the Project agent".to_owned()
+        let tail = if first.is_some_and(|f| f != proposal.id) {
+            UPDATED_AFTER_YOUR_ANSWER
         } else {
-            format!("Proposed by {name} (Project agent)")
+            NOTHING_CHANGES
         };
-        view.subtitle = format!("{by} \u{b7} {NOTHING_CHANGES}");
+        view.subtitle = format!("{} \u{b7} {tail}", recommended_by(*tool));
+    }
+    let adds_none = view.agents.as_ref().is_none_or(|a| a.rows.is_empty());
+    if view.table.is_some() && adds_none {
+        let used = agents_used(proposal);
+        if used > 0 {
+            view.agents = Some(AgentsSection {
+                heading: AGENTS_IT_ADDS.to_owned(),
+                rows: Vec::new(),
+                already: Some(uses_agents_already(used)),
+            });
+        }
     }
     view
+}
+
+/// "Picking one closes the other: its agent is told you chose another flow, and ends." under proposals compared;
+/// `others` is how many flow agents the pick closes.
+pub fn closes_others(others: usize) -> String {
+    match others {
+        1 => "Picking one closes the other: its agent is told you chose another flow, and ends.".to_owned(),
+        _ => "Picking one closes the others: their agents are told you chose another flow, and they end."
+            .to_owned(),
+    }
+}
+
+/// One proposal among those compared: its preview, and the flow agent it is answered to (Ask for changes focuses its
+/// terminal tab).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FlowCompareProposal")]
+pub struct CompareProposal {
+    /// The proposing tool's id (`claude`, `opencode`); none for the user's own (a preset).
+    pub tool: Option<String>,
+    /// The flow agent's id; none for the user's own.
+    pub agent: Option<String>,
+    pub view: View,
+}
+
+/// The proposals of a project in Flow setup (ASK-07, `s14-16`/`s14-17`): one shows as the usual preview; two or more,
+/// or one beside a tool still working or stopped, sit side by side with every why line, each with Ask for changes ·
+/// Use this flow, and one Use the default under them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FlowCompareView")]
+pub struct CompareView {
+    pub project: String,
+    /// Side by side; `false` while one proposal shows alone (as the usual preview, its terminal beside it).
+    pub compare: bool,
+    /// The open proposals, oldest first.
+    pub proposals: Vec<CompareProposal>,
+    /// The tools still working or stopped (ids `claude`, `opencode`), whose agents-at-work rows show beside the
+    /// proposals while comparing (ASK-06).
+    pub others: Vec<String>,
+    /// "Picking one closes the other: …" while comparing.
+    pub closes_others: Option<String>,
+    /// Use the default under the proposals while comparing.
+    pub use_default: Option<String>,
+}
+
+/// Whether a tool's row shows beside the proposals: its flow agent works, or stopped (at the limit, or ended without
+/// a proposal).
+fn beside_proposals(row: &FlowSetupRow) -> bool {
+    matches!(
+        row,
+        FlowSetupRow::Working { .. }
+            | FlowSetupRow::PlanLimit { agent: Some(_), .. }
+            | FlowSetupRow::Ended { .. }
+    )
+}
+
+/// The proposals of a Flow setup, each built by `preview` (the usual [`view`]) and shown as [`onboarding`]'s. `first`
+/// holds, by flow agent, the proposal the page showed first: a later one reads "updated after your answer".
+pub fn compare(
+    setup: &FlowSetup,
+    preview: impl Fn(&Proposal) -> View,
+    first: &BTreeMap<String, u32>,
+) -> CompareView {
+    let others: Vec<String> = setup
+        .tools
+        .iter()
+        .filter(|t| beside_proposals(&t.row))
+        .map(|t| t.tool.as_str().to_owned())
+        .collect();
+    let shown = setup.proposals.len() + others.len();
+    let side_by_side = !setup.proposals.is_empty() && shown > 1;
+    let proposals = setup
+        .proposals
+        .iter()
+        .map(|p| {
+            let (tool, agent) = match &p.proposed_by {
+                ProposedBy::ProjectAgent { tool, agent, .. } => {
+                    (Some(tool.as_str().to_owned()), Some(agent.clone()))
+                }
+                ProposedBy::User => (None, None),
+            };
+            let shown_first = agent.as_ref().and_then(|a| first.get(a)).copied();
+            let mut view = onboarding(preview(p), p, shown_first);
+            if side_by_side {
+                // Use the default sits once under them; the board is empty, so when it applies goes too.
+                view.cancel = None;
+                view.close = None;
+                view.applies = None;
+            }
+            CompareProposal { tool, agent, view }
+        })
+        .collect();
+    CompareView {
+        project: setup.project.clone(),
+        compare: side_by_side,
+        proposals,
+        others,
+        closes_others: side_by_side.then(|| closes_others(shown - 1)),
+        use_default: side_by_side.then(|| USE_THE_DEFAULT.to_owned()),
+    }
 }
 
 #[cfg(test)]
@@ -2147,8 +2290,9 @@ flow:
         assert_eq!(back, apply);
     }
 
-    /// `s14-16`/`s14-17`: the onboarding preview's buttons, the agent named, and "Updated after your answer" once
-    /// it proposed again; a preset (the user's) has no Ask for changes.
+    /// `s14-16`/`s14-17` *the proposal (one tool)* and *after Ask for changes*: the onboarding preview's buttons, the
+    /// tool named, and "updated after your answer" once it proposed again; a preset (the user's) has no Ask for
+    /// changes.
     #[test]
     fn the_onboarding_buttons_s14_16() {
         let p = proposal(
@@ -2167,7 +2311,7 @@ flow:
         assert_eq!(v.title, "A flow for shop-web");
         assert_eq!(
             v.subtitle,
-            "Proposed by Flow setup (Project agent) \u{b7} nothing changes until you apply it"
+            "Recommended by Claude Code \u{b7} nothing changes until you apply it"
         );
         assert_eq!(v.cancel.as_deref(), Some("Use the default"));
         assert_eq!(
@@ -2201,7 +2345,7 @@ flow:
         );
         assert_eq!(
             updated.subtitle,
-            "Updated after your answer \u{b7} nothing changes until you apply it"
+            "Recommended by Claude Code \u{b7} updated after your answer"
         );
 
         // A preset picked in the step: the user's own, so no Ask for changes and no agent waiting.
@@ -2231,6 +2375,395 @@ flow:
         assert_eq!(
             v.apply.as_ref().map(|a| a.label.as_str()),
             Some("Use this flow")
+        );
+    }
+
+    /// `s14-16`'s OpenCode proposal: its agents on the tool's own default model.
+    const OPENCODE: &str = r#"agents:
+  - name: Builder
+    skills: [work-ticket]
+    model: opencode
+  - name: Checker
+    skills: [validate]
+    model: opencode
+  - name: PR opener
+    skills: [open-pr]
+    model: opencode
+flow:
+  - name: Dev
+    kind: agent
+    agent: Builder
+    skill: work-ticket
+    why: "Most of your OpenCode sessions in shop-web end with the tests passing (OpenCode)"
+  - name: Validate
+    kind: check
+    by: agent
+    agent: Checker
+    skill: validate
+    rounds: 3
+    why: "AGENTS.md asks for the tests and a lint pass before every PR (this repo)"
+  - name: Review
+    kind: check
+    by: you
+    why: "CONTRIBUTING.md asks for one review before merging (this repo)"
+  - name: Done
+    kind: delivery
+    agent: PR opener
+    mode: automatic
+    delivers: pr
+    why: "No evidence found; added from the Team PR preset"
+"#;
+
+    /// A flow agent's proposal: `agent` on `tool`, numbered `id`.
+    fn by_tool(id: u32, yaml_text: &str, agent: &str, tool: Tool) -> Proposal {
+        let mut p = proposal(
+            "shop-web",
+            yaml_text,
+            Source::Document { file: None },
+            ProposedBy::ProjectAgent {
+                agent: agent.into(),
+                session: format!("s-{agent}"),
+                name: otaq_core::project_agents::first_flow::flow_agent_name(tool),
+                tool,
+            },
+            &default_flow(),
+        );
+        p.id = id;
+        p
+    }
+
+    fn setup(
+        tools: Vec<(Tool, FlowSetupRow)>,
+        proposals: Vec<Proposal>,
+    ) -> otaq_core::project_agents::first_flow::FlowSetup {
+        otaq_core::project_agents::first_flow::FlowSetup {
+            project: "SHOP".into(),
+            project_name: "shop-web".into(),
+            since: Some(NOW),
+            tools: tools
+                .into_iter()
+                .map(
+                    |(tool, row)| otaq_core::project_agents::first_flow::FlowSetupTool {
+                        tool,
+                        row,
+                    },
+                )
+                .collect(),
+            proposals,
+        }
+    }
+
+    fn compared(
+        s: &otaq_core::project_agents::first_flow::FlowSetup,
+        first: &BTreeMap<String, u32>,
+    ) -> CompareView {
+        let shipped = version(AppliedBy::Shipped, 0);
+        compare(
+            s,
+            |p| build(p, Some(&shipped), &[], &Choices::default()),
+            first,
+        )
+    }
+
+    fn whys(v: &View) -> Vec<&str> {
+        v.table
+            .as_ref()
+            .map(|t| t.rows.iter().filter_map(|r| r.why.as_deref()).collect())
+            .unwrap_or_default()
+    }
+
+    /// `s14-16` *the proposal (one tool)*: one proposal alone shows as the usual preview, labelled by its tool, with
+    /// Use the default and when it applies; *after Ask for changes*: "updated after your answer".
+    #[test]
+    fn one_proposal_alone_s14_16() {
+        let claude = by_tool(3, SHOP_WEB, "a-cc", Tool::Claude);
+        let s = setup(
+            vec![(
+                Tool::Claude,
+                FlowSetupRow::Proposed {
+                    agent: "a-cc".into(),
+                    proposal: 3,
+                },
+            )],
+            vec![claude],
+        );
+        let v = compared(&s, &BTreeMap::new());
+        assert!(!v.compare);
+        assert!(v.others.is_empty() && v.closes_others.is_none() && v.use_default.is_none());
+        let [one] = v.proposals.as_slice() else {
+            panic!("one proposal")
+        };
+        assert_eq!(one.tool.as_deref(), Some("claude"));
+        assert_eq!(one.agent.as_deref(), Some("a-cc"));
+        assert_eq!(
+            one.view.subtitle,
+            "Recommended by Claude Code \u{b7} nothing changes until you apply it"
+        );
+        assert_eq!(one.view.cancel.as_deref(), Some("Use the default"));
+        assert_eq!(
+            one.view.applies.as_deref(),
+            Some("Applies now: shop-web has no tickets yet.")
+        );
+        assert_eq!(whys(&one.view).len(), 6);
+
+        // After Ask for changes: the agent proposed again (3 replaced 2, which the page showed first).
+        let first = BTreeMap::from([("a-cc".to_owned(), 2)]);
+        let v = compared(&s, &first);
+        assert_eq!(
+            v.proposals[0].view.subtitle,
+            "Recommended by Claude Code \u{b7} updated after your answer"
+        );
+        // The proposal the page showed first, again: unchanged.
+        let first = BTreeMap::from([("a-cc".to_owned(), 3)]);
+        assert_eq!(
+            compared(&s, &first).proposals[0].view.subtitle,
+            "Recommended by Claude Code \u{b7} nothing changes until you apply it"
+        );
+    }
+
+    /// `s14-16` *two proposals to compare*: side by side, each labelled by its tool, with every why line, Ask for
+    /// changes · Use this flow on each and no Use the default of its own; one Use the default and the closing line
+    /// under them. OpenCode's agents are on its own default model.
+    #[test]
+    fn two_proposals_compared_s14_16() {
+        let s = setup(
+            vec![
+                (
+                    Tool::Claude,
+                    FlowSetupRow::Proposed {
+                        agent: "a-cc".into(),
+                        proposal: 3,
+                    },
+                ),
+                (
+                    Tool::OpenCode,
+                    FlowSetupRow::Proposed {
+                        agent: "a-oc".into(),
+                        proposal: 4,
+                    },
+                ),
+            ],
+            vec![
+                by_tool(3, SHOP_WEB, "a-cc", Tool::Claude),
+                by_tool(4, OPENCODE, "a-oc", Tool::OpenCode),
+            ],
+        );
+        let v = compared(&s, &BTreeMap::new());
+        assert!(v.compare);
+        assert!(v.others.is_empty());
+        assert_eq!(
+            v.closes_others.as_deref(),
+            Some(
+                "Picking one closes the other: its agent is told you chose another flow, and ends."
+            )
+        );
+        assert_eq!(v.use_default.as_deref(), Some("Use the default"));
+        let [cc, oc] = v.proposals.as_slice() else {
+            panic!("two proposals")
+        };
+        assert_eq!(
+            (cc.tool.as_deref(), cc.agent.as_deref(), cc.view.proposal),
+            (Some("claude"), Some("a-cc"), 3)
+        );
+        assert_eq!(
+            (oc.tool.as_deref(), oc.agent.as_deref(), oc.view.proposal),
+            (Some("opencode"), Some("a-oc"), 4)
+        );
+        assert_eq!(cc.view.title, "A flow for shop-web");
+        assert_eq!(
+            cc.view.subtitle,
+            "Recommended by Claude Code \u{b7} nothing changes until you apply it"
+        );
+        assert_eq!(
+            oc.view.subtitle,
+            "Recommended by OpenCode \u{b7} nothing changes until you apply it"
+        );
+        // Every why line, on both.
+        assert_eq!(
+            whys(&cc.view),
+            [
+                "You asked for clarification before coding in 34 of 50 sessions (Claude Code: shop-web, billing-api)",
+                "Most of your sessions in shop-web end with /work-ticket and /commit-compact (Claude Code)",
+                "Most of your shop-web sessions run the tests before /commit-compact (Claude Code)",
+                "From 41 /security-review runs in shop-web and billing-api",
+                "Your PRs on GitHub always get one review before merging (gh)",
+                "No evidence found; added from the Team PR preset",
+            ]
+        );
+        assert_eq!(
+            whys(&oc.view),
+            [
+                "Most of your OpenCode sessions in shop-web end with the tests passing (OpenCode)",
+                "AGENTS.md asks for the tests and a lint pass before every PR (this repo)",
+                "CONTRIBUTING.md asks for one review before merging (this repo)",
+                "No evidence found; added from the Team PR preset",
+            ]
+        );
+        let models: Vec<Option<&str>> = oc
+            .view
+            .table
+            .as_ref()
+            .unwrap()
+            .rows
+            .iter()
+            .map(|r| r.model.as_deref())
+            .collect();
+        assert_eq!(
+            models,
+            [
+                Some("OpenCode \u{b7} tool default"),
+                Some("OpenCode \u{b7} tool default"),
+                None,
+                Some("OpenCode \u{b7} tool default"),
+            ]
+        );
+        let added: Vec<&str> = oc
+            .view
+            .agents
+            .as_ref()
+            .unwrap()
+            .rows
+            .iter()
+            .map(|r| r.name.as_str())
+            .collect();
+        assert_eq!(added, ["Builder", "Checker", "PR opener"]);
+        for p in [cc, oc] {
+            assert_eq!(p.view.cancel, None, "Use the default sits under them");
+            assert_eq!(p.view.applies, None);
+            assert_eq!(
+                p.view.ask.as_ref().map(|a| a.label.as_str()),
+                Some("Ask for changes")
+            );
+            assert_eq!(
+                p.view.apply.as_ref().map(|a| (a.label.as_str(), a.enabled)),
+                Some(("Use this flow", true))
+            );
+            assert_eq!(
+                p.view.agent_waits.as_deref(),
+                Some("The agent waits for your answer in its terminal")
+            );
+            assert_eq!(
+                p.view
+                    .warnings
+                    .iter()
+                    .map(|w| w.text.as_str())
+                    .collect::<Vec<_>>(),
+                ["Done opens a PR on GitHub without asking you."]
+            );
+        }
+    }
+
+    /// `s14-16` *one proposal ready, the other stopped*: OpenCode stopped at its plan limit shows its row beside
+    /// Claude Code's proposal; a tool not asked or not signed in doesn't.
+    #[test]
+    fn one_ready_one_stopped_s14_16() {
+        let s = setup(
+            vec![
+                (
+                    Tool::Claude,
+                    FlowSetupRow::Proposed {
+                        agent: "a-cc".into(),
+                        proposal: 3,
+                    },
+                ),
+                (Tool::Codex, FlowSetupRow::NotAsked),
+                (Tool::Copilot, FlowSetupRow::NotSignedIn),
+                (
+                    Tool::OpenCode,
+                    FlowSetupRow::PlanLimit {
+                        agent: Some("a-oc".into()),
+                        resets_at: Some(NOW + 3_600_000),
+                    },
+                ),
+            ],
+            vec![by_tool(3, SHOP_WEB, "a-cc", Tool::Claude)],
+        );
+        let v = compared(&s, &BTreeMap::new());
+        assert!(v.compare);
+        assert_eq!(v.others, ["opencode"]);
+        assert_eq!(v.proposals.len(), 1);
+        assert_eq!(whys(&v.proposals[0].view).len(), 6);
+        assert_eq!(v.proposals[0].view.cancel, None);
+        assert_eq!(
+            v.closes_others.as_deref(),
+            Some(
+                "Picking one closes the other: its agent is told you chose another flow, and ends."
+            )
+        );
+        assert_eq!(v.use_default.as_deref(), Some("Use the default"));
+
+        // Still working, or ended without a proposal: beside the ready one too. Nothing proposed yet: nothing to compare.
+        let working = setup(
+            vec![
+                (
+                    Tool::Claude,
+                    FlowSetupRow::Working {
+                        agent: "a-cc".into(),
+                        since: NOW,
+                    },
+                ),
+                (
+                    Tool::OpenCode,
+                    FlowSetupRow::Ended {
+                        agent: "a-oc".into(),
+                    },
+                ),
+            ],
+            Vec::new(),
+        );
+        let v = compared(&working, &BTreeMap::new());
+        assert!(!v.compare && v.proposals.is_empty());
+        assert_eq!(v.others, ["claude", "opencode"]);
+    }
+
+    /// Three proposals: the closing line in the plural.
+    #[test]
+    fn three_proposals_close_the_others() {
+        let s = setup(
+            Vec::new(),
+            vec![
+                by_tool(3, SHOP_WEB, "a-cc", Tool::Claude),
+                by_tool(4, OPENCODE, "a-oc", Tool::OpenCode),
+                by_tool(5, OPENCODE, "a-cx", Tool::Codex),
+            ],
+        );
+        let v = compared(&s, &BTreeMap::new());
+        assert!(v.compare);
+        assert_eq!(
+            v.closes_others.as_deref(),
+            Some(
+                "Picking one closes the others: their agents are told you chose another flow, and they end."
+            )
+        );
+        assert_eq!(
+            v.proposals[2].view.subtitle,
+            "Recommended by Codex \u{b7} nothing changes until you apply it"
+        );
+    }
+
+    /// A whole flow that adds no agent: "None: it uses 6 agents already in Otaq".
+    #[test]
+    fn a_flow_that_adds_no_agent() {
+        let mut p = by_tool(3, SHOP_WEB, "a-cc", Tool::Claude);
+        for a in &mut p.diff.agents {
+            a.change = AgentChangeKind::Same;
+        }
+        let shipped = version(AppliedBy::Shipped, 0);
+        let v = onboarding(
+            build(&p, Some(&shipped), &[], &Choices::default()),
+            &p,
+            None,
+        );
+        let agents = v.agents.as_ref().expect("AGENTS IT ADDS");
+        assert_eq!(agents.heading, "AGENTS IT ADDS");
+        assert!(agents.rows.is_empty());
+        assert_eq!(
+            agents.already,
+            Some(format!("None: it uses 6 agents already in {PRODUCT_NAME}"))
+        );
+        assert_eq!(
+            uses_agents_already(1),
+            format!("None: it uses 1 agent already in {PRODUCT_NAME}")
         );
     }
 }

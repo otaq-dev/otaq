@@ -3,6 +3,8 @@
 // `otaq-view`'s `flow_preview.rs`).
 import { openOverlay } from "../../app/overlays";
 import { createStore, type Store } from "../../app/store";
+import type { FlowCompareProposal } from "../../generated/FlowCompareProposal";
+import type { FlowCompareView } from "../../generated/FlowCompareView";
 import type { FlowPreviewChoices } from "../../generated/FlowPreviewChoices";
 import type { FlowPreviewClashPick } from "../../generated/FlowPreviewClashPick";
 import type { FlowPreviewProposed } from "../../generated/FlowPreviewProposed";
@@ -53,6 +55,23 @@ export function pickedTool(choices: FlowPreviewChoices, agent: string): string |
 /** Apply, with the picks as the view gives them back (every clash with its pick). */
 export function applyPreview(view: FlowPreviewView, ask: Ask = request): Promise<unknown> {
   return ask("flow_preview.apply", { project: view.project, proposal: view.proposal, choices: view.choices });
+}
+
+/** Use this flow on one of the proposals compared (ASK-07): `flow.apply` with its number, which closes the others. */
+export function applyProposal(proposal: FlowCompareProposal, ask: Ask = request): Promise<unknown> {
+  return applyPreview(proposal.view, ask);
+}
+
+/**
+ * The proposal each flow agent showed first (`flow_preview.compare`'s `first`), with those of `view` not yet in it: a
+ * later proposal from the same agent is its answer ("updated after your answer"). The same map when nothing is new.
+ */
+export function rememberFirsts(first: Record<string, number>, view: FlowCompareView): Record<string, number> {
+  const added = view.proposals.filter((p) => p.agent !== null && !(p.agent in first));
+  if (added.length === 0) return first;
+  const next = { ...first };
+  for (const p of added) if (p.agent !== null) next[p.agent] = p.view.proposal;
+  return next;
 }
 
 /** Cancel (and Close on "No changes"): the proposal goes; a Project agent gets Cancel as its answer. */

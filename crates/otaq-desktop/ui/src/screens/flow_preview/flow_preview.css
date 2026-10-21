@@ -411,3 +411,54 @@
   flex: 1;
   min-width: 0;
 }
+
+/*
+ * The proposals compared (T-0435, ASK-07; `s14-16`/`s14-17`, *two proposals to compare*): two 630 px cards side by
+ * side with every why line, a tool still working or stopped beside them, then the closing line and Use the default.
+ * Three or four scroll sideways rather than squeezing the stage table.
+ */
+.flow-compare {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 1280px;
+  max-width: 100%;
+  margin: 0 auto;
+  color: var(--text-primary);
+}
+
+.flow-compare-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  overflow-x: auto;
+}
+
+.flow-preview.flow-compare-proposal,
+.flow-compare-other {
+  flex: 1 1 0;
+  min-width: 420px;
+  max-width: 630px;
+}
+
+.flow-preview.flow-compare-proposal {
+  width: auto;
+  max-height: none;
+}
+
+.flow-compare-other > * {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.flow-compare-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.flow-compare-spacer {
+  flex: 1;
+}
