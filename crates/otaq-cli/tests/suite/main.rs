@@ -21,6 +21,7 @@ mod install_local;
 mod lead;
 mod limit;
 mod notify_check;
+mod onboarding;
 mod open_pr;
 mod opencode_hook;
 mod pr;
