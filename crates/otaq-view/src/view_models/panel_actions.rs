@@ -4,9 +4,10 @@
 //! The primary button is always the one thing that unblocks the ticket. Actions whose features arrive in later
 //! milestones are listed here with the ticket that enables them and stay **hidden** (not disabled) until then.
 
+use otaq_core::agents::facts::TicketAgents;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Column, Kind, Status};
-use otaq_core::named_agents::rows::TicketAgents;
+use otaq_core::domain::StatusSet;
+use otaq_core::domain::{Kind, Status};
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -41,10 +42,19 @@ pub enum Action {
     StartFromScratch,
     /// Start interrupted (T-0063).
     RetryStart,
-    /// Ready for Review (M6, T-0095).
+    /// Ready for Review on the default flow, an epic in its human check, a To deliver ticket: the delivery choices
+    /// (M6, T-0095).
     Approve,
-    /// Ready for Review (M6, T-0094).
+    /// Ready for Review on the default flow (M6, T-0094): the Send back dialog.
     SendBack,
+    /// Your check (FLW-14): Pass moves it on, or offers the delivery choices when a click Delivery comes next.
+    Pass,
+    /// Your check: the Fail dialog (FLW-14; was Send back, M6, T-0094).
+    Fail,
+    /// PR open (FLW-16): the "Send SHOP-26 back with PR comments?" dialog.
+    SendBackPr,
+    /// An epic's PR open (FLW-16): a Backlog child holding the PR's unresolved comments.
+    AddChildFromPr,
     /// PR open (M10, T-0150).
     OpenPrInBrowser,
     MarkMerged,
@@ -58,7 +68,7 @@ pub enum Action {
     /// Needs you · validator: the turquoise "Answer in terminal · Validator".
     AnswerValidator,
     /// Validation failed N times or ended without a result: Ready for Review without a pass (VAL-07).
-    MoveToReviewAnyway,
+    MoveOnAnyway,
     /// Validation failed N times: the findings go to the agent with one more round.
     AnotherRound,
     /// Validation failed N times: the user's note goes with the findings (opens the note box).
@@ -72,10 +82,9 @@ pub enum Action {
     /// An epic whose lead ended (by restart, or its agent tool exited): the same conversation (LEAD-12, d0083).
     /// Added by the epic panel's view, not by [`all_buttons`].
     ResumeLead,
-    /// Start failed on the model (AGT-05): the Developer row's picker opens (`focus_agent_row`); a pick starts it.
-    ChangeAgent,
-    /// No result on the validator's model: the Validator row's picker opens.
-    ChangeValidator,
+    /// A model the tool refused (AGT-05: Start failed, or a check's No result on the model): Settings → Agents on
+    /// that agent's page (d0108 second gap review rule 7; replaces Change agent, Q280).
+    OpenAgent,
 }
 
 /// How a button looks. `PanelButtonLook` on the page.
@@ -114,6 +123,10 @@ impl Action {
             Self::RetryStart => "Retry start",
             Self::Approve => "Approve · Local merge",
             Self::SendBack => "Send back",
+            Self::Pass => crate::view_models::card::PASS,
+            Self::Fail => crate::view_models::card::FAIL,
+            Self::SendBackPr => crate::view_models::card::SEND_BACK_WITH_PR_COMMENTS,
+            Self::AddChildFromPr => "Add a child from PR comments",
             Self::OpenPrInBrowser => "Open PR in browser",
             Self::MarkMerged => "Mark merged",
             Self::MarkClosed => "Mark closed",
@@ -121,15 +134,14 @@ impl Action {
             Self::Reopen => "Reopen",
             Self::OpenValidator => "Open terminal \u{b7} Validator",
             Self::AnswerValidator => "Answer in terminal \u{b7} Validator",
-            Self::MoveToReviewAnyway => "Move to Review anyway",
+            Self::MoveOnAnyway => "Move on anyway",
             Self::AnotherRound => "Give it another round",
             Self::AnswerAgent => "Answer the agent\u{2026}",
             Self::RetryValidation => "Retry validation",
             Self::RetryMerge => "Retry merge",
             Self::MoveToReview => "Move to Review",
             Self::ResumeLead => "Resume lead",
-            Self::ChangeAgent => "Change agent",
-            Self::ChangeValidator => "Change validator",
+            Self::OpenAgent => "Open agent\u{2026}",
         }
     }
 
@@ -142,7 +154,7 @@ impl Action {
             | Self::OpenValidator
             | Self::AnswerValidator => IconName::SquareTerminal,
             // *Action bar · every state → Validation failed 3 times, … ended without a result, Auto-merge stopped*.
-            Self::MoveToReviewAnyway | Self::MoveToReview => IconName::Eye,
+            Self::MoveOnAnyway | Self::MoveToReview => IconName::Eye,
             Self::AnotherRound | Self::RetryValidation | Self::RetryMerge => IconName::RotateCcw,
             Self::AnswerAgent => IconName::MessageSquare,
             Self::Run => IconName::Play,
@@ -151,13 +163,14 @@ impl Action {
             // Resume failed: Retry and Start from scratch (*16 → Resume · in progress → resumed → failed*).
             Self::RetryResume => IconName::RefreshCw,
             Self::RetryStart | Self::StartFromScratch => IconName::RotateCcw,
-            Self::SendBack => IconName::Undo2,
+            Self::SendBack | Self::Fail | Self::SendBackPr => IconName::Undo2,
+            Self::AddChildFromPr => IconName::Plus,
             Self::OpenPrInBrowser => IconName::ExternalLink,
             Self::MarkMerged => IconName::GitMerge,
             Self::ViewDiff => IconName::FileDiff,
             Self::Reopen | Self::ResumeLead => IconName::RotateCcw,
             // *05 → Start failed on the model*, *No result: the validator's model*: labels only.
-            Self::Approve | Self::MarkClosed | Self::ChangeAgent | Self::ChangeValidator => {
+            Self::Approve | Self::Pass | Self::MarkClosed | Self::OpenAgent => {
                 return None;
             }
         })
@@ -174,15 +187,19 @@ impl Action {
             | Self::RetryStart
             | Self::ViewDiff
             | Self::SendBack
+            | Self::Fail
+            | Self::Pass
+            | Self::SendBackPr
+            | Self::AddChildFromPr
             | Self::Approve => None,
             Self::Run => Some("T-0134"),
             Self::Resume | Self::RetryResume | Self::StartFromScratch => None,
             Self::OpenPrInBrowser | Self::MarkMerged | Self::MarkClosed => None,
             Self::Reopen | Self::ResumeLead => None,
-            Self::ChangeAgent | Self::ChangeValidator => None,
+            Self::OpenAgent => None,
             Self::OpenValidator
             | Self::AnswerValidator
-            | Self::MoveToReviewAnyway
+            | Self::MoveOnAnyway
             | Self::AnotherRound
             | Self::AnswerAgent
             | Self::RetryValidation
@@ -202,37 +219,65 @@ pub fn approve_label(open_decisions: u32) -> String {
     }
 }
 
+/// The Pass button's label (FLW-14, DEC-05): "Pass", or "Pass · keeps 1 decision" while the review has open recorded
+/// decisions.
+pub fn pass_label(open_decisions: u32) -> String {
+    match open_decisions {
+        0 => Action::Pass.label().to_owned(),
+        1 => "Pass \u{b7} keeps 1 decision".to_owned(),
+        n => format!("Pass \u{b7} keeps {n} decisions"),
+    }
+}
+
+/// The Fail button's label: "Fail", or "Fail (2)" with the pending review comments it sends (as Send back's, REV-04).
+pub fn fail_label(pending: usize) -> String {
+    match pending {
+        0 => Action::Fail.label().to_owned(),
+        n => format!("{} ({n})", Action::Fail.label()),
+    }
+}
+
 /// With open decisions Local merge / Open PR move into the ▾ menu, so the button opens that choice instead of the
 /// Local merge confirmation.
 pub fn approve_opens_menu(open_decisions: u32) -> bool {
     open_decisions > 0
 }
 
-/// The bar's buttons for a ticket, in order, with how each looks. Includes the ones that arrive later.
+/// The bar's buttons for a ticket on the default flow, in order, with how each looks. Includes the ones that arrive
+/// later.
 pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
+    all_buttons_in(ticket, false)
+}
+
+/// [`all_buttons`] in a flow that isn't the default's shape (`custom`, `flow_columns::keeps_default_look`): Pass ·
+/// Fail on a human check (FLW-14). The default flow keeps today's Approve and Send back (d0108, STG-06). Every flow
+/// offers Send back with PR comments on an open PR and an epic's Add a child from PR comments (FLW-16).
+pub fn all_buttons_in(ticket: &Ticket, custom: bool) -> Vec<(Action, Look)> {
     use Action as A;
     use Look::*;
     let s = ticket.status;
     if ticket.kind == Kind::Epic {
         // No Start on an epic: its children start (d0059). Its review flow is T-0109.
-        return match ticket.column {
-            Column::Backlog => vec![(A::Edit, Secondary)],
-            // A delivery unit in Review: Approve, never Send back (EPC-05).
-            Column::ReadyForReview => vec![(A::Approve, Primary)],
-            // The epic's PR (EPC-08): the same manual outcomes as a ticket's (REV-13).
-            Column::Approved if s == Status::PrOpen => vec![
+        // By the kind of stage it is in (STG-08): its Backlog, its human check, its Delivery, Done.
+        return match crate::view_models::flow_columns::place_set(ticket) {
+            StatusSet::Backlog => vec![(A::Edit, Secondary)],
+            // A delivery unit in its human check: Approve, never Send back (EPC-05).
+            StatusSet::HumanCheck => vec![(A::Approve, Primary)],
+            // The epic's PR (EPC-08): the same manual outcomes as a ticket's (REV-13), and its comments as a child
+            // (FLW-16).
+            StatusSet::Delivery if s == Status::PrOpen => vec![
                 (A::OpenPrInBrowser, Secondary),
+                (A::AddChildFromPr, Secondary),
                 (A::MarkMerged, Primary),
                 (A::MarkClosed, Danger),
             ],
-            Column::Done if s == Status::ClosedNotMerged => vec![(A::Reopen, Secondary)],
+            StatusSet::Done if s == Status::ClosedNotMerged => vec![(A::Reopen, Secondary)],
             _ => Vec::new(),
         };
     }
     match s {
         Status::Backlog => vec![(A::Start, Primary), (A::Edit, Secondary)],
         Status::Parked => vec![(A::Start, Primary), (A::Edit, Secondary)],
-        Status::EpicInProgress => Vec::new(),
         // Held because the base diverged: once pushed or pulled, Retry start (d0059).
         Status::Held
             if ticket
@@ -249,9 +294,9 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
             }
             bar
         }
-        // Start failed on the model (update Y §3): Change agent, and Retry start beside it.
+        // Start failed on the model (update Y §3): Open agent…, and Retry start beside it.
         Status::StartInterrupted if card::start_refusal(ticket).is_some() => {
-            vec![(A::ChangeAgent, Primary), (A::RetryStart, Secondary)]
+            vec![(A::OpenAgent, Primary), (A::RetryStart, Secondary)]
         }
         Status::StartInterrupted => vec![(A::RetryStart, Primary)],
         Status::Working | Status::WorkingInBackground | Status::WaitingForLimitReset => {
@@ -261,7 +306,11 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
         Status::Interrupted => vec![(A::Resume, Primary)],
         // *16 → Resume · in progress → resumed → failed*: Start from scratch is the primary, Retry beside it.
         Status::ResumeFailed => vec![(A::RetryResume, Secondary), (A::StartFromScratch, Primary)],
-        Status::ReadyForReview => vec![(A::Approve, Primary), (A::SendBack, Secondary)],
+        // Your check (FLW-14): Pass offers today's delivery choices when a click Delivery comes next.
+        Status::WaitingForYou if custom => vec![(A::Pass, Primary), (A::Fail, Secondary)],
+        Status::WaitingForYou => vec![(A::Approve, Primary), (A::SendBack, Secondary)],
+        // Waits for the Delivery click (not on the default flow): Local merge or Open PR.
+        Status::ToDeliver => vec![(A::Approve, Primary)],
         Status::PrOpen => {
             // Epic children never offer the PR actions; they merge locally (d0059).
             if ticket.epic.is_some() {
@@ -269,6 +318,7 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
             } else {
                 vec![
                     (A::OpenPrInBrowser, Secondary),
+                    (A::SendBackPr, Secondary),
                     (A::MarkMerged, Primary),
                     (A::MarkClosed, Danger),
                 ]
@@ -276,37 +326,24 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
         }
         Status::Merged => vec![(A::ViewDiff, Secondary)],
         Status::ClosedNotMerged => vec![(A::Reopen, Secondary)],
-        // The M12 rows (d0063, d0064): Stop validation and Skip to Review are in the "…" menu.
-        Status::Validating => vec![(A::OpenValidator, Secondary), (A::Run, Secondary)],
-        Status::ValidatorNeedsYou => vec![(A::AnswerValidator, Attention)],
-        Status::ValidationFailed => vec![
-            (A::MoveToReviewAnyway, Primary),
+        // The M12 rows (d0063, d0064): Stop this check and Skip this check are in the "…" menu.
+        Status::Checking => vec![(A::OpenValidator, Secondary), (A::Run, Secondary)],
+        Status::CheckerNeedsYou => vec![(A::AnswerValidator, Attention)],
+        Status::CheckFailed => vec![
+            (A::MoveOnAnyway, Primary),
             (A::AnotherRound, Secondary),
             (A::AnswerAgent, Secondary),
         ],
-        // No result on the validator's model: Change validator first, then today's two.
-        Status::ValidationNoResult if card::validator_refusal(ticket).is_some() => vec![
-            (A::ChangeValidator, Primary),
+        // No result on the validator's model: Open agent… first, then today's two.
+        Status::CheckNoResult if card::validator_refusal(ticket).is_some() => vec![
+            (A::OpenAgent, Primary),
             (A::RetryValidation, Secondary),
-            (A::MoveToReviewAnyway, Secondary),
+            (A::MoveOnAnyway, Secondary),
         ],
-        Status::ValidationNoResult => vec![
-            (A::RetryValidation, Primary),
-            (A::MoveToReviewAnyway, Secondary),
-        ],
-        Status::AutoMergeStopped => vec![(A::RetryMerge, Primary), (A::MoveToReview, Secondary)],
+        Status::CheckNoResult => vec![(A::RetryValidation, Primary), (A::MoveOnAnyway, Secondary)],
+        Status::DeliveryStopped => vec![(A::RetryMerge, Primary), (A::MoveToReview, Secondary)],
         // The agent fixes the Auto-merge conflict in its own terminal.
         Status::MergeConflictFixing => vec![(A::OpenTerminal, Secondary)],
-    }
-}
-
-/// The row whose picker Change agent / Change validator opens (`panel.view`'s `focus_agent_row`).
-pub fn agent_row(action: Action) -> Option<otaq_core::named_agents::Role> {
-    use otaq_core::named_agents::Role;
-    match action {
-        Action::ChangeAgent => Some(Role::Developer),
-        Action::ChangeValidator => Some(Role::Validator),
-        _ => None,
     }
 }
 
@@ -350,7 +387,7 @@ fn refused_model(agents: &TicketAgents) -> Option<&str> {
         .sessions
         .iter()
         .rev()
-        .find(|s| s.role == otaq_core::named_agents::Role::Developer && !s.running)
+        .find(|s| s.role == otaq_core::agents::SessionRole::Developer && !s.running)
         .and_then(|s| s.model_ran.as_deref().or(s.model.as_deref()))
 }
 
@@ -370,15 +407,11 @@ pub const SKIP_TO_REVIEW: &str = "skip-to-review";
 
 /// Validating… and Needs you · validator: the validator runs (VAL-06).
 pub fn validating(ticket: &Ticket) -> bool {
-    matches!(
-        ticket.status,
-        Status::Validating | Status::ValidatorNeedsYou
-    )
+    matches!(ticket.status, Status::Checking | Status::CheckerNeedsYou)
 }
 
-/// The "…" menu: Stop validation and Skip to Review while it validates (d0063), Edit ticket, Pin / Unpin, Copy
-/// branch name, Copy attach command (with a session), Submit for review (skips validation) and Validate and submit
-/// (both hidden while it validates), Move to epic…, Close epic…, Close ticket…, and Delete… (enabled only for
+/// The "…" menu: Stop this check and Skip this check while it validates (d0063), Edit ticket, Pin / Unpin, Copy
+/// branch name, Copy attach command (with a session), Move to next stage (hidden while it validates), Move to epic…, Close epic…, Close ticket…, and Delete… (enabled only for
 /// never-started tickets, d0060).
 pub fn menu(
     ticket: &Ticket,
@@ -389,12 +422,12 @@ pub fn menu(
     let mut items = Vec::new();
     if validating(ticket) {
         items.push(
-            MenuItem::new(STOP_VALIDATION, "Stop validation")
+            MenuItem::new(STOP_VALIDATION, "Stop this check")
                 .icon(IconName::Square)
                 .hint("round not counted"),
         );
         items.push(
-            MenuItem::new(SKIP_TO_REVIEW, "Skip to Review")
+            MenuItem::new(SKIP_TO_REVIEW, "Skip this check")
                 .icon(IconName::SkipForward)
                 .hint("never auto-merged"),
         );
@@ -418,12 +451,7 @@ pub fn menu(
         items.push(MenuItem::new(COPY_ATTACH, "Copy attach command").icon(IconName::Copy));
     }
     if let Some(submit) = crate::view_models::close::submit_item(ticket) {
-        let validate = crate::view_models::close::validate_item(&submit);
-        items.push(MenuItem {
-            label: "Submit for review\u{2026} (skips validation)".to_owned(),
-            ..submit
-        });
-        items.push(validate);
+        items.push(submit);
     }
     if has_epics && can_move_to_epic(ticket) {
         items.push(MenuItem::new(card_menu::MOVE_TO_EPIC, "Move to epic…").icon(IconName::Layers));
@@ -470,7 +498,7 @@ mod tests {
             "as before: Local merge's confirmation"
         );
         assert!(approve_opens_menu(1) && approve_opens_menu(3));
-        let shop23 = ticket("SHOP-23", "Split user full name", Status::ReadyForReview);
+        let shop23 = ticket("SHOP-23", "Split user full name", Status::WaitingForYou);
         let menu: Vec<_> = options(&shop23, "main", &[], None)
             .into_iter()
             .map(|o| o.choice)
@@ -502,19 +530,48 @@ mod tests {
         assert_eq!(all(Status::Interrupted), [(A::Resume, Primary)]);
         assert_eq!(all(Status::StartInterrupted), [(A::RetryStart, Primary)]);
         assert_eq!(
-            all(Status::ReadyForReview),
+            all(Status::WaitingForYou),
             [(A::Approve, Primary), (A::SendBack, Secondary)]
         );
         assert_eq!(
             all(Status::PrOpen),
             [
                 (A::OpenPrInBrowser, Secondary),
+                (A::SendBackPr, Secondary),
                 (A::MarkMerged, Primary),
                 (A::MarkClosed, Danger)
             ]
         );
         assert_eq!(all(Status::Merged), [(A::ViewDiff, Secondary)]);
         assert_eq!(all(Status::ClosedNotMerged), [(A::Reopen, Secondary)]);
+    }
+
+    /// FLW-14, FLW-16 (`s03-46`): in another flow a human check offers Pass · Fail; an open PR Send back with PR
+    /// comments and an epic's open PR Add a child from PR comments on every flow.
+    #[test]
+    fn other_flows_pass_fail_and_send_back_pr_comments() {
+        use Look::*;
+        let custom = |t: &Ticket| all_buttons_in(t, true);
+        let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
+        assert_eq!(custom(&review), [(A::Pass, Primary), (A::Fail, Secondary)]);
+        let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
+        pr.flags.pr_number = Some(481);
+        assert_eq!(
+            custom(&pr),
+            [
+                (A::OpenPrInBrowser, Secondary),
+                (A::SendBackPr, Secondary),
+                (A::MarkMerged, Primary),
+                (A::MarkClosed, Danger)
+            ]
+        );
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::PrOpen);
+        epic.kind = Kind::Epic;
+        epic.place = otaq_core::domain::Place::stage_of("deliver");
+        assert_eq!(custom(&epic)[1], (A::AddChildFromPr, Secondary));
+        assert!(all_buttons(&epic).contains(&(A::AddChildFromPr, Secondary)));
+        assert_eq!(A::Pass.label(), "Pass");
+        assert_eq!(A::SendBackPr.label(), "Send back with PR comments");
     }
 
     #[test]
@@ -525,11 +582,16 @@ mod tests {
             [A::OpenTerminal],
             "Run comes with M9"
         );
-        assert_eq!(shown(Status::ReadyForReview), [A::Approve, A::SendBack]);
+        assert_eq!(shown(Status::WaitingForYou), [A::Approve, A::SendBack]);
         assert_eq!(
             shown(Status::PrOpen),
-            [A::OpenPrInBrowser, A::MarkMerged, A::MarkClosed],
-            "M10"
+            [
+                A::OpenPrInBrowser,
+                A::SendBackPr,
+                A::MarkMerged,
+                A::MarkClosed
+            ],
+            "M10, FLW-16"
         );
         assert_eq!(shown(Status::Interrupted), [A::Resume]);
         assert_eq!(
@@ -616,22 +678,12 @@ mod tests {
                 "Pin to top",
                 "Copy branch name",
                 "Copy attach command",
-                "Submit for review… (skips validation)",
-                "Validate and submit",
+                "Move to next stage…",
                 "Close ticket…",
                 "Delete…"
             ]
         );
-        let validate = &items[5];
-        assert_eq!(
-            (validate.id.as_str(), validate.disabled, validate.icon),
-            (
-                crate::view_models::close::VALIDATE_AND_SUBMIT,
-                true,
-                Some(IconName::ShieldCheck)
-            ),
-            "mid-turn, like Submit for review"
-        );
+        assert!(items[4].disabled, "mid-turn");
     }
 
     /// The M12 rows of *Action bar · every state* (d0063, d0064).
@@ -639,50 +691,47 @@ mod tests {
     fn the_validation_rows() {
         use Look::*;
         assert_eq!(
-            all(Status::Validating),
+            all(Status::Checking),
             [(A::OpenValidator, Secondary), (A::Run, Secondary)]
         );
-        assert_eq!(shown(Status::Validating), [A::OpenValidator]);
+        assert_eq!(shown(Status::Checking), [A::OpenValidator]);
         assert_eq!(
-            all(Status::ValidatorNeedsYou),
+            all(Status::CheckerNeedsYou),
             [(A::AnswerValidator, Attention)]
         );
         assert_eq!(
-            all(Status::ValidationFailed),
+            all(Status::CheckFailed),
             [
-                (A::MoveToReviewAnyway, Primary),
+                (A::MoveOnAnyway, Primary),
                 (A::AnotherRound, Secondary),
                 (A::AnswerAgent, Secondary)
             ]
         );
         assert_eq!(
-            all(Status::ValidationNoResult),
-            [
-                (A::RetryValidation, Primary),
-                (A::MoveToReviewAnyway, Secondary)
-            ]
+            all(Status::CheckNoResult),
+            [(A::RetryValidation, Primary), (A::MoveOnAnyway, Secondary)]
         );
         assert_eq!(
-            all(Status::AutoMergeStopped),
+            all(Status::DeliveryStopped),
             [(A::RetryMerge, Primary), (A::MoveToReview, Secondary)]
         );
         assert_eq!(A::OpenValidator.label(), "Open terminal \u{b7} Validator");
         assert_eq!(A::AnswerAgent.label(), "Answer the agent\u{2026}");
-        assert_eq!(A::MoveToReviewAnyway.icon(), Some(IconName::Eye));
+        assert_eq!(A::MoveOnAnyway.icon(), Some(IconName::Eye));
     }
 
-    /// While it validates: Stop validation and Skip to Review first; both submit items hidden.
+    /// While it validates: Stop this check and Skip this check first; both submit items hidden.
     #[test]
     fn the_menu_while_validating() {
-        let mut t = ticket("SHOP-29", "Coupon field", Status::Validating);
+        let mut t = ticket("SHOP-29", "Coupon field", Status::Checking);
         t.started_at = Some(1);
         let items = menu(&t, false, true, false);
         let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
         assert_eq!(
             labels,
             [
-                "Stop validation",
-                "Skip to Review",
+                "Stop this check",
+                "Skip this check",
                 "Edit ticket",
                 "Pin to top",
                 "Copy branch name",
@@ -701,46 +750,52 @@ mod tests {
         assert!(
             items
                 .iter()
-                .any(|i| i.label == "Validate and submit" && !i.disabled)
+                .any(|i| i.label == "Move to next stage…" && !i.disabled)
         );
-        t.status = Status::ValidatorNeedsYou;
+        t.status = Status::CheckerNeedsYou;
         assert_eq!(menu(&t, false, true, false)[0].id, STOP_VALIDATION);
     }
 
     /// SHOP-48's facts after the refusal: one ended Developer session on Fable test, `fable` → `claude-fable-5-1`.
     fn refused_session() -> TicketAgents {
-        use otaq_core::named_agents::rows::SessionAgentRun;
+        use otaq_core::agents::store::SessionAgentRun;
         TicketAgents {
             key: Some("SHOP-48".parse().unwrap()),
             kind: otaq_core::domain::Kind::Ticket,
             status: Some(Status::StartInterrupted),
             agents: Vec::new(),
-            rows: Vec::new(),
+            stages: Vec::new(),
+            lead: None,
             sessions: vec![SessionAgentRun {
                 id: "s1".into(),
-                role: otaq_core::named_agents::Role::Developer,
+                role: otaq_core::agents::SessionRole::Developer,
                 running: false,
                 started_at: 1,
                 ended_at: Some(2),
                 tool: None,
-                named_agent_id: Some("fable".into()),
-                named_agent_name: Some("Fable test".into()),
+                agent_id: Some("fable".into()),
+                agent_name: Some("Fable test".into()),
                 model: Some("fable".into()),
                 model_ran: Some("claude-fable-5-1".into()),
+                effort: None,
                 tokens: None,
                 round_outcome: None,
                 moved_on: None,
             }],
             tokens: Vec::new(),
-            children: Vec::new(),
             holds: Vec::new(),
+            place: None,
+            path: Vec::new(),
+            runs: Vec::new(),
+            choices: Vec::new(),
         }
     }
 
-    /// AGT-05, update Y §3: Start failed on the model offers Change agent and Retry start; No result on the
-    /// validator's model Change validator, Retry validation and Move to Review anyway; each with its callout.
+    /// AGT-05, update Y §3, d0108 second gap review rule 7: Start failed on the model offers Open agent… and Retry
+    /// start; No result on the validator's model Open agent…, Retry validation and Move on anyway; each with its
+    /// callout.
     #[test]
-    fn a_refused_model_changes_the_agent() {
+    fn a_refused_model_opens_the_agent() {
         use crate::view_models::card_fixtures::{MODEL_ISSUE_MESSAGE, agent_variants};
         let fixture = |name: &str| {
             agent_variants()
@@ -753,7 +808,7 @@ mod tests {
         assert_eq!(
             buttons(&start),
             [
-                (A::ChangeAgent, Look::Primary),
+                (A::OpenAgent, Look::Primary),
                 (A::RetryStart, Look::Secondary)
             ]
         );
@@ -773,9 +828,9 @@ mod tests {
         assert_eq!(
             buttons(&no_result),
             [
-                (A::ChangeValidator, Look::Primary),
+                (A::OpenAgent, Look::Primary),
                 (A::RetryValidation, Look::Secondary),
-                (A::MoveToReviewAnyway, Look::Secondary),
+                (A::MoveOnAnyway, Look::Secondary),
             ]
         );
         let r = refusal(&no_result, None).unwrap();
@@ -784,25 +839,12 @@ mod tests {
             "The validator couldn\u{2019}t run claude-fable-5-1 \u{b7} not counted as a round"
         );
         assert!(!r.error);
-        assert_eq!(A::ChangeAgent.label(), "Change agent");
-        assert_eq!(A::ChangeValidator.label(), "Change validator");
-        assert_eq!(
-            (
-                agent_row(A::ChangeAgent),
-                agent_row(A::ChangeValidator),
-                agent_row(A::RetryStart)
-            ),
-            (
-                Some(otaq_core::named_agents::Role::Developer),
-                Some(otaq_core::named_agents::Role::Validator),
-                None
-            )
-        );
+        assert_eq!(A::OpenAgent.label(), "Open agent\u{2026}");
         // Other start problems and No results: as before, no callout.
         assert_eq!(shown(Status::StartInterrupted), [A::RetryStart]);
         assert_eq!(
-            shown(Status::ValidationNoResult),
-            [A::RetryValidation, A::MoveToReviewAnyway]
+            shown(Status::CheckNoResult),
+            [A::RetryValidation, A::MoveOnAnyway]
         );
         assert_eq!(
             refusal(&ticket("SHOP-28", "t", Status::StartInterrupted), None),

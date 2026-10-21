@@ -13,6 +13,11 @@
 //! `setsid`, reparented to `launchd`) is no longer recognised. Claude Code runs its tools, hooks and background
 //! tasks as descendants of the session, so its commands always are.
 //!
+//! **The role comes from the stage** (STG-10, d0108): a ticket's session has the rights of the kind of the stage its
+//! stage run is in ([`by_stage`]): a session in an Agent stage is the ticket's agent (never a verdict), a session in
+//! an agent check is its checker (the verdict only), whatever kind of session runs it. A session with no stage run
+//! (an answer-only session, an epic's delivery) keeps the role of its kind.
+//!
 //! Windows: Git Bash (which Claude Code runs commands with) replaces a process by starting a new one and ending
 //! the old, so the Windows parent chain can break inside a session. There a session's processes are also found
 //! by its job object, which holds everything started inside it ([`crate::process::Group::contains`]); the
@@ -168,6 +173,82 @@ pub fn resolve(pid: Option<u32>, sessions: &Sessions) -> Caller {
             session: root.session,
         },
         None => Caller::User,
+    }
+}
+
+/// The stage a ticket's session ran in, from its stage run (STG-05).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionStage {
+    /// The stage's id.
+    pub stage: String,
+    /// The run's kind: `agent`, `check` (an agent check), `you` or `delivery`.
+    pub kind: String,
+}
+
+impl SessionStage {
+    /// The latest stage run `session` ran in, if any.
+    pub async fn of(pool: &sqlx::SqlitePool, session: &str) -> Result<Option<Self>, sqlx::Error> {
+        let row: Option<(String, String)> = sqlx::query_as(
+            "SELECT stage_id, kind FROM stage_runs WHERE session_id = ?
+             ORDER BY started_at DESC, rowid DESC LIMIT 1",
+        )
+        .bind(session)
+        .fetch_optional(pool)
+        .await?;
+        Ok(row.map(|(stage, kind)| Self { stage, kind }))
+    }
+
+    /// It ran an agent check: its session is the checker.
+    pub fn is_check(&self) -> bool {
+        self.kind
+            == crate::flow::engine::run_kind(crate::flow::StageKind::Check {
+                by: crate::flow::CheckBy::Agent,
+            })
+    }
+
+    /// It ran an Agent stage: its session is the ticket's agent.
+    pub fn is_agent_stage(&self) -> bool {
+        self.kind == crate::flow::engine::run_kind(crate::flow::StageKind::Agent)
+    }
+}
+
+/// `caller`'s role from the kind of its session's stage run (STG-10): a ticket session that ran an agent check is
+/// that ticket's checker ([`Caller::Validator`]), one that ran an Agent stage its agent ([`Caller::Agent`]). Other
+/// callers, and sessions with no stage run, are left as [`resolve`] found them.
+pub async fn by_stage(caller: Caller, pool: &sqlx::SqlitePool) -> Caller {
+    let (Caller::Agent {
+        ticket,
+        ticket_id,
+        session,
+    }
+    | Caller::Validator {
+        ticket,
+        ticket_id,
+        session,
+    }) = &caller
+    else {
+        return caller;
+    };
+    let stage = match SessionStage::of(pool, session).await {
+        Ok(stage) => stage,
+        Err(e) => {
+            tracing::warn!(session, error = %e, "can't read a session's stage run");
+            None
+        }
+    };
+    let (ticket, ticket_id, session) = (ticket.clone(), ticket_id.clone(), session.clone());
+    match stage {
+        Some(stage) if stage.is_check() => Caller::Validator {
+            ticket,
+            ticket_id,
+            session,
+        },
+        Some(stage) if stage.is_agent_stage() => Caller::Agent {
+            ticket,
+            ticket_id,
+            session,
+        },
+        _ => caller,
     }
 }
 

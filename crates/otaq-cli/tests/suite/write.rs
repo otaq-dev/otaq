@@ -6,7 +6,7 @@ use std::process::{Command, Output, Stdio};
 
 use otaq_core::board::tickets::NewTicketInput;
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{Actor, Column, Kind};
+use otaq_core::domain::{Actor, Kind};
 use otaq_core::naming;
 use otaq_core::service::testing::TestService;
 use serde_json::Value;
@@ -77,7 +77,7 @@ async fn create_with_every_flag() {
     );
     let ticket: Value = serde_json::from_str(&ok(&out)).unwrap();
     assert_eq!(ticket["key"], "SHOP-41");
-    assert_eq!(ticket["column"], Column::Backlog.as_str());
+    assert_eq!(ticket["place"], "backlog");
     assert_eq!(ticket["body"], "Let buyers add gift wrap.");
     assert!(
         ticket.get("done_when").is_none(),
@@ -316,7 +316,7 @@ async fn update_changes_only_the_given_fields() {
     assert_eq!(e["kind"], "usage");
     assert_eq!(
         e["message"],
-        "nothing to change: give --title, -d, -p, --stdin, --developer, --validator or --lead"
+        "nothing to change: give --title, -d, -p or --stdin"
     );
     w.stop().await;
 }
@@ -339,7 +339,7 @@ async fn agent_created_tickets_and_agent_edits() {
     assert_eq!(ran.status, 0, "{ran:?}");
     let created: Value = serde_json::from_str(&ran.stdout).unwrap();
     assert_eq!(created["created_by"], "agent:SHOP-19");
-    assert_eq!(created["column"], "backlog");
+    assert_eq!(created["place"], "backlog");
     assert_eq!(created["body"], "Show `EUR` and \"USD\".");
 
     let ran = agent

@@ -6,7 +6,8 @@
 //!   child whose first stop waits for the lead answers that stop instead ([`super::stuck`], LEAD-07).
 //! - `otaq notes` (the child's agent; the Commit skill runs it before each commit) prints the unread notes and marks
 //!   them read; `otaq prime` lists them at the top and marks them read too.
-//! - `otaq review submit` is refused while one is unread ([`submit_refusal`]); the user's Submit for review isn't.
+//! - `otaq stage next` / `review submit` / `stage done` are refused while one is unread ([`submit_refusal`]); the
+//!   user's Move to next stage isn't.
 //! - When the child goes idle with an unread note, the service types it in as an automatic message (§9.3,
 //!   [`type_in`]) and marks it read; that is input for the agent, so the child doesn't become an Idle stop.
 //!
@@ -551,10 +552,10 @@ mod tests {
         assert!(idle_at_stop(Status::Working));
         assert!(idle_at_stop(Status::WorkingInBackground));
         for status in [
-            Status::Validating,
+            Status::Checking,
             Status::AsksYou,
             Status::Idle,
-            Status::ReadyForReview,
+            Status::WaitingForYou,
         ] {
             assert!(!idle_at_stop(status), "{status:?}");
         }

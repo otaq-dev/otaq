@@ -3,6 +3,7 @@
 //! the skill's steps are fed through the CLI (`pr propose`, `pr opened`), and Otaq applies the confirmed
 //! edits itself (reword with unchanged trees, rename, lock) before anything is pushed.
 
+use otaq_core::service::testing::said;
 use std::path::{Path, PathBuf};
 
 use otaq_core::board::projects::AddProject;
@@ -15,7 +16,7 @@ use otaq_core::pr::flow::{BranchCheck, FlowState};
 use otaq_core::pr::proposal::{CommitMessage, Proposal};
 use otaq_core::pr::service::PrOutcome;
 use otaq_core::service::testing::{AgentShell, TestService};
-use otaq_core::workflow_skills::testing::skill_folder;
+use otaq_core::skills::testing::skill_folder;
 use serde_json::{Value, json};
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
@@ -47,17 +48,20 @@ async fn setup() -> Setup {
         .unwrap();
     // origin is a local folder, not GitHub or Azure DevOps: the project uses its own Open PR skill.
     let folder = skill_folder(w.data.root(), "my-pr");
-    w.board
-        .import_workflow_skill(Some("SHOP"), WorkflowStep::OpenPr, &folder)
-        .await
-        .unwrap();
+    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
     let ticket = w.create("SHOP", "Login redirect").await;
     let worktree = w.start_worktree(&ticket).await;
     commit(&worktree, "login.ts", "redirect\n");
     commit(&worktree, "login.test.ts", "test\n");
     w.force_status(&ticket, Status::Working).await;
     w.board
-        .submit_for_review("SHOP-1", "Redirects after login.", &me())
+        .submit_for_review(
+            "SHOP-1",
+            said(&w.board, "SHOP-1", "Redirects after login.")
+                .await
+                .as_ref(),
+            &me(),
+        )
         .await
         .unwrap();
     let ticket = w.board.ticket("SHOP-1").await.unwrap();
@@ -105,15 +109,21 @@ async fn open_pr_proposes_confirms_rewords_renames_and_reports() {
     // The click types the Open PR skill into the live session; the ticket stays in Ready for Review.
     let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-    // An imported skill: its copy in the worktree (WSK-05, WSK-06; d0092).
-    w.wait_for_output(&s.agent.session, "`.agents/skills/otaq-custom-open-pr/`")
-        .await;
+    // An imported skill: its copy in the worktree, run by its copy's name (AGM-07).
+    w.wait_for_output(
+        &s.agent.session,
+        &format!("/{}", naming::copy_name("my-pr")),
+    )
+    .await;
     assert!(
         s.worktree
-            .join(".agents/skills/otaq-custom-open-pr/SKILL.md")
+            .join(format!(
+                ".agents/skills/{}/SKILL.md",
+                naming::copy_name("my-pr")
+            ))
             .is_file()
     );
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     let flow = w.board.pr_flow(&s.ticket.id).await.unwrap().unwrap();
     assert_eq!(flow.state, FlowState::Preparing);
 
@@ -267,20 +277,14 @@ async fn cancel_and_refusals_leave_the_ticket_in_review() {
     let w = &s.w;
 
     // With the built-in Open PR skill, a remote that isn't GitHub or Azure DevOps refuses (REV-11).
-    w.board
-        .reset_workflow_skill(Some("SHOP"), WorkflowStep::OpenPr, true)
-        .await
-        .unwrap();
+    w.drop_step_skill(WorkflowStep::OpenPr).await;
     let refused = w.prs.open("SHOP-1", false, false, &me()).await.unwrap_err();
     assert!(
         refused.to_string().contains("PR provider not detected"),
         "{refused}"
     );
     let folder = skill_folder(w.data.root(), "my-pr");
-    w.board
-        .import_workflow_skill(Some("SHOP"), WorkflowStep::OpenPr, &folder)
-        .await
-        .unwrap();
+    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
 
     // Uncommitted files refuse first (REV-08).
     std::fs::write(s.worktree.join("scratch.txt"), "x").unwrap();
@@ -301,7 +305,7 @@ async fn cancel_and_refusals_leave_the_ticket_in_review() {
     let outcome = w.prs.open("SHOP-1", true, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
     let ticket = w.prs.cancel("SHOP-1", &me()).await.unwrap();
-    assert_eq!(ticket.status, Status::ReadyForReview);
+    assert_eq!(ticket.status, Status::WaitingForYou);
     assert!(w.board.pr_flow(&s.ticket.id).await.unwrap().is_none());
     let history = w.board.history("SHOP-1").await.unwrap();
     assert!(history.iter().any(|e| e.kind.as_str() == "pr_cancelled"));
@@ -363,14 +367,20 @@ async fn rework_then_push_to_pr_rewords_only_the_new_commits() {
         .move_ticket("SHOP-1", DropTarget::ReadyForReview, false, &me())
         .await
         .unwrap();
-    assert_eq!(ticket.status, Status::ReadyForReview);
+    assert_eq!(ticket.status, Status::WaitingForYou);
     assert_eq!(ticket.flags.pr_number, Some(7));
     assert!(ticket.flags.pr_rework, "back for rework");
     w.force_status(&ticket, Status::Working).await;
     commit(&s.worktree, "deep.ts", "deep links\n");
     commit(&s.worktree, "deep.test.ts", "test\n");
     w.board
-        .submit_for_review("SHOP-1", "Covers deep links.", &me())
+        .submit_for_review(
+            "SHOP-1",
+            said(&w.board, "SHOP-1", "Covers deep links.")
+                .await
+                .as_ref(),
+            &me(),
+        )
         .await
         .unwrap();
     assert!(
@@ -381,7 +391,7 @@ async fn rework_then_push_to_pr_rewords_only_the_new_commits() {
     // Approve offers Push to PR: the Push skill runs; only the two new commits are editable.
     let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-    w.wait_for_output(&s.agent.session, &naming::skill("push"))
+    w.wait_for_output(&s.agent.session, &format!("/{}", naming::copy_name("push")))
         .await;
     let view = w.board.pr_flow_view("SHOP-1").await.unwrap();
     assert_eq!(
@@ -521,7 +531,7 @@ async fn a_reported_problem_goes_to_the_dialog_and_retry_asks_again() {
         )
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     let flow = w.board.pr_flow(&s.ticket.id).await.unwrap().unwrap();
     assert_eq!(
         flow.reported.as_deref(),

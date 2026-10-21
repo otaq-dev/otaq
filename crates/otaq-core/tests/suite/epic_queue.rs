@@ -12,7 +12,7 @@ use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::Refusal;
 use otaq_core::board::epic_flight::{EpicPlace, EpicQueueMode, EpicQueueOutcome, epic_place};
 use otaq_core::board::moves::DropTarget;
-use otaq_core::board::settings::{AgentLimits, AutoMerge, ProjectSettings};
+use otaq_core::board::settings::AgentLimits;
 use otaq_core::board::tickets::{EventKind, Ticket};
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::{Status, TicketKey};
@@ -53,13 +53,12 @@ async fn queueing_the_epic_queues_every_never_started_child() {
     let outcome = f.board.queue_epic(&key(&epic), &me()).await.unwrap();
     assert_eq!(keys(&outcome.queued), [key(&api), key(&page)]);
     assert!(outcome.resumed.is_empty());
-    assert!(outcome.auto_merge_off, "Auto-merge is Off by default");
     assert_eq!(outcome.project, "shop-web");
     assert_eq!(
         serde_json::to_value(&outcome).unwrap(),
         json!({
             "epic": key(&epic), "queued": [key(&api), key(&page)], "resumed": [],
-            "auto_merge_off": true, "project": "shop-web", "lead_started": false
+            "project": "shop-web", "lead_started": false
         }),
         "what the toast reads"
     );
@@ -231,24 +230,6 @@ async fn the_limit_holds() {
 }
 
 #[tokio::test]
-async fn the_outcome_says_whether_auto_merge_is_off() {
-    let f = Fixture::shop().await;
-    let (epic, _api, _page) = search(&f).await;
-    f.board
-        .set_project_settings(
-            "SHOP",
-            &ProjectSettings {
-                auto_merge: Some(AutoMerge::EpicChildren),
-                ..ProjectSettings::default()
-            },
-        )
-        .await
-        .unwrap();
-    let outcome = f.board.queue_epic(&key(&epic), &me()).await.unwrap();
-    assert!(!outcome.auto_merge_off);
-}
-
-#[tokio::test]
 async fn what_cannot_be_queued_is_refused() {
     let f = Fixture::shop().await;
     let (epic, api, page) = search(&f).await;
@@ -276,7 +257,7 @@ async fn what_cannot_be_queued_is_refused() {
     );
 
     // Its delivery card keeps today's rules.
-    f.force_status(&epic, Status::ReadyForReview).await;
+    f.force_status(&epic, Status::WaitingForYou).await;
     let err = f.board.queue_epic(&key(&epic), &me()).await.unwrap_err();
     assert_eq!(err.refusal(), Some(Refusal::MoveRefused));
 }

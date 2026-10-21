@@ -4,7 +4,6 @@
 //! to this module: the connection options (WAL, `foreign_keys`) and `?` placeholders in query text.
 
 pub mod agents;
-pub mod named_agents;
 pub mod projects;
 pub mod recents;
 pub mod settings;
@@ -46,7 +45,10 @@ impl Store {
             .journal_mode(SqliteJournalMode::Wal);
         let pool = SqlitePoolOptions::new().connect_with(options).await?;
         MIGRATOR.run(&pool).await?;
-        Ok(Self { pool })
+        let store = Self { pool };
+        // The first start: the shipped agents applied, once (AGM-02).
+        crate::agents::shipped::apply_on_first_start(&store).await?;
+        Ok(store)
     }
 
     pub fn pool(&self) -> &SqlitePool {

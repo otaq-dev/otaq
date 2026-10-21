@@ -54,7 +54,7 @@ pub fn queue_facts(ticket: &Ticket, all: &[Ticket]) -> QueueFacts {
 }
 
 fn merge_pending(parent: &WaitingParent) -> bool {
-    matches!(parent.status, Status::ReadyForReview | Status::PrOpen)
+    matches!(parent.status, Status::WaitingForYou | Status::PrOpen)
 }
 
 /// The panel's notice for a Queued ticket: the card's text as a sentence ("Waits for SHOP-18, SHOP-19 to merge
@@ -156,7 +156,7 @@ mod tests {
             "both parents still at work: meta row"
         );
         // B · SHOP-18 in Review: the line updates and becomes a callout.
-        let all = chain(Status::ReadyForReview, Status::Working);
+        let all = chain(Status::WaitingForYou, Status::Working);
         let shop20 = facts("SHOP-20", &all);
         assert_eq!(
             shop20.waits_for.as_deref(),
@@ -171,7 +171,7 @@ mod tests {
 
     #[test]
     fn storyboard_3_and_4() {
-        let all = chain(Status::Merged, Status::ReadyForReview);
+        let all = chain(Status::Merged, Status::WaitingForYou);
         assert_eq!(
             facts("SHOP-20", &all).waits_for.as_deref(),
             Some("waits for SHOP-19 to merge (in Review)")
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn panel_notice_reuses_the_card_text() {
-        let all = chain(Status::ReadyForReview, Status::Working);
+        let all = chain(Status::WaitingForYou, Status::Working);
         assert_eq!(
             panel_notice(&all[3], &all).as_deref(),
             Some("Waits for SHOP-18, SHOP-19 to merge (SHOP-18 in Review).")

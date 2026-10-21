@@ -1,7 +1,10 @@
-//! The scheduler (SCH-01, SCH-02; d0007, d0016, d0049, d0065, d0066): a loop in the service that starts the
-//! Ready for Dev (Queued) tickets once every dependency is merged (beads-style readiness,
-//! [`crate::board::readiness`]), in the **start order**: pinned → priority 1→4 → ready the longest
-//! ([`crate::board::order::start_order`]). It keeps each queued ticket's `ready_since` up to date.
+//! The scheduler (SCH-01, SCH-02, STG-07; d0007, d0016, d0049, d0065, d0066, d0108): a loop in the service that
+//! starts the tickets **waiting before an Agent stage** (Queued) once every dependency is merged (beads-style
+//! readiness, [`crate::board::readiness`]), in the **start order**: pinned → priority 1→4 → ready the longest
+//! ([`crate::board::order::start_order`]). It keeps each queued ticket's `ready_since` up to date. The wait is the
+//! same before every Agent stage (d0108): Ready for Dev before the first, and between two Agent stages before the
+//! next (a ticket that finished Grill waits before Dev, keeping its worktree); the start enters the stage it waited
+//! before ([`crate::start::sequence`]).
 //!
 //! It runs a pass on every state change (the service's event bus) plus a slow tick ([`DEFAULT_TICK`]) that
 //! catches anything missed. A pass is [`plan`]: pure, from all projects' tickets. The scheduler:
@@ -13,15 +16,21 @@
 //!   sequence claims a ticket before it reads its status.
 //!
 //! **Optional limits** (SCH-03; d0016, d0042), off by default, global across projects (d0024): with
-//! `max_concurrency` on, a pass starts at most `max − running` tickets ([`HOLDS_A_SLOT`]); with back-pressure
+//! `max_concurrency` on, a pass starts at most `max − running` tickets; **every ticket with a live agent session
+//! holds a slot, whatever its stage** (d0108 second gap review rule 8: [`HOLDS_A_SLOT`], starts that are running,
+//! and PR Delivery sessions, [`Scheduler::busy`]), and waiting cards don't; with back-pressure
 //! reached (that many needs-you items), it starts none. Ready tickets that don't start show "Waiting for a slot".
 //! Limits only hold back **starts**: nothing running is stopped or paused, and an agent the user unblocks
 //! always continues. Settings changes wake the scheduler, so they apply at once.
 //!
 //! **Per-tool holds** (SCH-04 `[M23]`, USG-10; d0086): the scheduler holds nothing itself. Each start runs the check
-//! before every launch ([`crate::named_agents::gate`]), so only a ticket whose agent would use a tool at its limit or
+//! before every launch ([`crate::agents::gate`]), so only a ticket whose agent would use a tool at its limit or
 //! not available (or a model no longer listed) waits as **Held**, and tickets on other tools keep starting. Held
 //! tickets are skipped; the gate lifts their holds when the cause goes, never on a tick.
+//!
+//! **A waiting flow change** (FLW-06, d0108): each pass first applies the waiting changes whose board is quiet
+//! ([`crate::board::Board::settle_flow_changes`]); a project whose change still waits starts nothing from Ready for
+//! Dev ([`plan_holding`]) until it applies or is cancelled.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -77,8 +86,8 @@ pub struct Plan {
     pub ready_since: Vec<(String, Option<i64>)>,
 }
 
-/// The Queued sub-states the scheduler looks at. Held (a diverged base, or the check before the launch) and Start
-/// interrupted are left alone: the user's Retry, or the gate's lift, puts them back.
+/// The waiting statuses the scheduler looks at, before any Agent stage (STG-07). Held (a diverged base, or the check
+/// before the launch) and Start interrupted are left alone: the user's Retry, or the gate's lift, puts them back.
 const SCHEDULED: &[Status] = &[Status::Queued, Status::WaitingForSlot, Status::ParentClosed];
 
 /// Whether the check before the launch held this ticket because its agent's tool is at its limit (SCH-04 `[M23]`):
@@ -95,9 +104,12 @@ fn scheduled(ticket: &Ticket) -> bool {
     SCHEDULED.contains(&ticket.status)
 }
 
-/// The tickets that hold a slot of the optional agent limit (d0016, d0042): Agent Working **including** the
-/// needs-you family, Working in background and Waiting for limit reset. Review and Parked tickets don't, and
-/// neither do Interrupted or Resume failed ones (no agent runs). Tickets whose start is running hold one too.
+/// The statuses that hold a slot of the optional agent limit (d0016, d0042; d0108 rule 8: a live agent session,
+/// whatever the stage): any Agent stage's Working **including** the needs-you family, Working in background and
+/// Waiting for limit reset; any agent check's (one slot per ticket, not per session); a `restack` fix (Merge
+/// conflict · fixing, rule 12) and a Delivery's stop. Waiting cards (before any Agent stage), human checks,
+/// Delivery waits and Parked tickets don't, and neither do Interrupted or Resume failed ones (no agent runs).
+/// Tickets whose start is running, and PR Delivery sessions, hold one too ([`running_count`]).
 pub const HOLDS_A_SLOT: &[Status] = &[
     Status::Working,
     Status::WorkingInBackground,
@@ -106,12 +118,12 @@ pub const HOLDS_A_SLOT: &[Status] = &[
     Status::Idle,
     Status::WaitingForLimitReset,
     // One slot per ticket, not per session: the validator doesn't take a second one (d0063).
-    Status::Validating,
-    Status::ValidatorNeedsYou,
-    Status::ValidationFailed,
-    Status::ValidationNoResult,
+    Status::Checking,
+    Status::CheckerNeedsYou,
+    Status::CheckFailed,
+    Status::CheckNoResult,
     Status::MergeConflictFixing,
-    Status::AutoMergeStopped,
+    Status::DeliveryStopped,
 ];
 
 /// What may hold new starts back (SCH-03): the optional limits and the number of needs-you items
@@ -141,24 +153,27 @@ impl Gate {
 /// of `repo_tickets` in Ready for Dev whose dependencies are done and that wait only for a slot
 /// ([`Status::WaitingForSlot`]) or their tool's limit ([`held_by_tool_limit`]); at least 1. `all_tickets` holds their
 /// projects' tickets, for readiness. A ticket waiting for a dependency, a closed parent or a diverged base isn't
-/// counted: it can't start soon.
+/// counted: it can't start soon, and neither is one waiting before a later Agent stage: it keeps its worktree.
 pub fn stock_limit<'a>(
     repo_tickets: impl IntoIterator<Item = &'a Ticket>,
     all_tickets: &[Ticket],
 ) -> usize {
     repo_tickets
         .into_iter()
+        .filter(|t| t.place.is_ready_for_dev())
         .filter(|t| t.status == Status::WaitingForSlot || held_by_tool_limit(t))
         .filter(|t| readiness(t, all_tickets).is_ready())
         .count()
         .max(1)
 }
 
-/// How many agents hold a slot: tickets in [`HOLDS_A_SLOT`] plus those whose start is running.
-pub fn running_count(tickets: &[Ticket], starting: &HashSet<String>) -> usize {
+/// How many agents hold a slot: tickets in [`HOLDS_A_SLOT`] plus `busy`, the ids of tickets with a live agent
+/// session their status doesn't show: their start is running, or a PR Delivery session works on them
+/// ([`Scheduler::busy`]). One slot per ticket.
+pub fn running_count(tickets: &[Ticket], busy: &HashSet<String>) -> usize {
     tickets
         .iter()
-        .filter(|t| HOLDS_A_SLOT.contains(&t.status) || starting.contains(&t.id))
+        .filter(|t| HOLDS_A_SLOT.contains(&t.status) || busy.contains(&t.id))
         .count()
 }
 
@@ -177,9 +192,22 @@ pub struct SchedulerStatus {
     pub starts_paused: bool,
 }
 
-/// Decides one pass from every project's tickets. `starting` holds the ids of tickets whose start runs now.
-/// Ready tickets beyond the free slots wait in Queued as "waiting for a slot", oldest first when slots free up.
+/// Decides one pass from every project's tickets. `starting` holds the ids of tickets whose start runs now, and of
+/// those a PR Delivery session works on ([`running_count`]'s `busy`): neither is started.
+/// Ready tickets beyond the free slots wait as "waiting for a slot", oldest first when slots free up.
 pub fn plan(tickets: &[Ticket], starting: &HashSet<String>, gate: &Gate) -> Plan {
+    plan_holding(tickets, starting, gate, &HashSet::new())
+}
+
+/// [`plan`], with the keys of the projects whose flow change waits for a quiet board (FLW-06): their tickets in Ready
+/// for Dev don't start ("Waiting for the flow change"); tickets waiting between two Agent stages, and other
+/// projects, start as usual.
+pub fn plan_holding(
+    tickets: &[Ticket],
+    starting: &HashSet<String>,
+    gate: &Gate,
+    held: &HashSet<String>,
+) -> Plan {
     let mut plan = Plan::default();
     let mut ready: Vec<&Ticket> = Vec::new();
     for ticket in tickets {
@@ -194,6 +222,9 @@ pub fn plan(tickets: &[Ticket], starting: &HashSet<String>, gate: &Gate) -> Plan
         match state {
             ReadyState::ParentClosed { .. } => change(&mut plan, ticket, Status::ParentClosed),
             ReadyState::Waiting { .. } => change(&mut plan, ticket, Status::Queued),
+            ReadyState::Ready
+                if ticket.place.is_ready_for_dev()
+                    && held.contains(ticket.key.project.as_str()) => {}
             ReadyState::Ready => ready.push(ticket),
         }
     }
@@ -351,12 +382,11 @@ impl Scheduler {
         let held = Status::Held;
         let mut tx = self.inner.board.store().begin_write().await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
+            "UPDATE tickets SET state = ?, start_problem_step = ?, start_problem_message = ?,
                                 updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(held.column().as_str())
         .bind(held.as_str())
         .bind(StartStep::SyncBase.as_str())
         .bind(message)
@@ -387,7 +417,7 @@ impl Scheduler {
         let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
         Ok(SchedulerStatus {
             limits,
-            holding: count(running_count(&tickets, &self.inner.starts.starting())),
+            holding: count(running_count(&tickets, &self.busy().await?)),
             waiting_for_slot: count(
                 tickets
                     .iter()
@@ -399,6 +429,18 @@ impl Scheduler {
         })
     }
 
+    /// The tickets with a live agent session their status doesn't show (d0108 rule 8): those whose start is running,
+    /// and those a **PR Delivery session** works on, from the Open PR or Push click until the PR is reported or the
+    /// flow cancelled (`pr_flows`; the card waits in Review meanwhile, or an epic's delivery session runs).
+    pub async fn busy(&self) -> Result<HashSet<String>, BoardError> {
+        let mut busy = self.inner.starts.starting();
+        let delivering: Vec<(String,)> = sqlx::query_as("SELECT ticket_id FROM pr_flows")
+            .fetch_all(self.inner.board.store().pool())
+            .await?;
+        busy.extend(delivering.into_iter().map(|(id,)| id));
+        Ok(busy)
+    }
+
     /// Every project's tickets, and the number of needs-you items when `count_needs_you`.
     async fn load(&self, count_needs_you: bool) -> Result<(Vec<Ticket>, usize), BoardError> {
         let board = &self.inner.board;
@@ -408,13 +450,19 @@ impl Scheduler {
             loaded.push(board.tickets(&project.key).await?);
         }
         let needs_you = if count_needs_you {
+            let mut flows = Vec::with_capacity(projects.len());
+            for project in &projects {
+                flows.push(board.effective_flow(&project.key).await?);
+            }
             let views: Vec<ProjectTickets<'_>> = projects
                 .iter()
                 .zip(&loaded)
-                .map(|(p, tickets)| ProjectTickets {
+                .zip(&flows)
+                .map(|((p, tickets), flow)| ProjectTickets {
                     key: &p.key,
                     name: &p.name,
                     tickets,
+                    flow,
                 })
                 .collect();
             needs_you_count(&needs_you_items_with(
@@ -429,12 +477,23 @@ impl Scheduler {
     }
 
     async fn pass_locked(&self) -> Result<Plan, BoardError> {
+        // A waiting flow change applies once its board is quiet; until then its project's starts are held (FLW-06).
+        let settled = self.inner.board.settle_flow_changes().await?;
+        for version in &settled.applied {
+            self.inner.events.publish(Event::FlowChanged {
+                project: version.project.clone(),
+                change: crate::flow::apply::FlowEvent::Applied {
+                    version: version.version,
+                },
+            });
+        }
         let limits = self.inner.board.global_settings().await?.agent_limits;
         let (tickets, needs_you) = self.load(limits.enabled).await?;
-        let plan = plan(
+        let plan = plan_holding(
             &tickets,
-            &self.inner.starts.starting(),
+            &self.busy().await?,
             &Gate { limits, needs_you },
+            &settled.held,
         );
         for change in &plan.changes {
             if let Err(e) = self.apply(change).await {
@@ -507,11 +566,10 @@ impl Scheduler {
         let now = now_ms();
         let mut tx = self.inner.board.store().begin_write().await?;
         let updated = sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, updated_at = ?, ",
+            "UPDATE tickets SET state = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ? AND state = ?"
         ))
-        .bind(change.to.column().as_str())
         .bind(change.to.as_str())
         .bind(now)
         .bind(change.to.as_str())

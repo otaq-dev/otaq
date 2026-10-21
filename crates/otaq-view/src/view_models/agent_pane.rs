@@ -22,8 +22,8 @@
 //! the empty pane (Model unavailable · Change agent opens Settings → Agents at the Project agent default, Q-O).
 
 use otaq_core::agent_tools::Tool;
+use otaq_core::agents::Agent;
 use otaq_core::domain::{Status, TicketKey};
-use otaq_core::named_agents::NamedAgent;
 use otaq_core::project_agents::{AgentState, CreatedAndChanged, ProjectAgent, ProjectAgentList};
 use serde::Serialize;
 use ts_rs::TS;
@@ -129,11 +129,12 @@ pub fn agent_name(name: &str, tool: Tool, tools: &Tools) -> String {
     }
 }
 
-/// What a new Project agent starts on: the named agent the role resolves to for the project, else (no named agents
-/// yet) the new-session tool under its own name.
-fn starts_on(new_agent: Option<&NamedAgent>) -> (String, Tool, Option<&str>) {
-    match new_agent {
-        Some(agent) => (agent.name.clone(), agent.tool, agent.model.as_deref()),
+/// What a new Project agent starts on: the Project agent role's agent on its tool and model, else (no agent, or no
+/// default model yet) the new-session tool under its own name.
+fn starts_on(new_agent: Option<&Agent>, tools: &Tools) -> (String, Tool, Option<String>) {
+    let on = new_agent.and_then(|a| Some((a, a.model.on(tools.default_model.as_ref())?)));
+    match on {
+        Some((agent, on)) => (agent.name.clone(), on.tool, on.model),
         None => {
             let tool = new_agent_tool();
             (AvatarTool::from(tool).name().to_owned(), tool, None)
@@ -143,14 +144,14 @@ fn starts_on(new_agent: Option<&NamedAgent>) -> (String, Tool, Option<&str>) {
 
 /// The name of what a new Project agent starts on ([`starts_on`]): "Strong", or "Claude Code" before any named agent
 /// exists. Ask the agent's tooltip names it too.
-pub fn new_agent_name(new_agent: Option<&NamedAgent>) -> String {
-    starts_on(new_agent).0
+pub fn new_agent_name(new_agent: Option<&Agent>, tools: &Tools) -> String {
+    starts_on(new_agent, tools).0
 }
 
 /// A Project agent's named agent, as its session saved it at start (T-0336); the tool's name for a session from
 /// before named agents.
 fn ran_on(agent: &ProjectAgent, tools: &Tools) -> String {
-    match agent.session.as_ref().and_then(|s| s.named_agent.as_ref()) {
+    match agent.session.as_ref().and_then(|s| s.agent.as_ref()) {
         Some(named) => agent_name(&named.name, agent.tool, tools),
         None => AvatarTool::from(agent.tool).name().to_owned(),
     }
@@ -200,8 +201,9 @@ fn new_agent_tool() -> Tool {
 
 /// The empty pane, naming what the first message starts: `new_agent`, the Project agent role's named agent for the
 /// project (`None` before any named agent exists).
-pub fn empty(project_name: &str, new_agent: Option<&NamedAgent>, tools: &Tools) -> Empty {
-    let (name, tool, model) = starts_on(new_agent);
+pub fn empty(project_name: &str, new_agent: Option<&Agent>, tools: &Tools) -> Empty {
+    let (name, tool, model) = starts_on(new_agent, tools);
+    let model = model.as_deref();
     // "Strong"; "Standard · Codex" once two tools are connected, in the line and the hint alike (`SbFln`).
     let name = agent_name(&name, tool, tools);
     Empty {
@@ -483,9 +485,9 @@ pub struct Facts<'a> {
     pub created: Option<&'a CreatedAndChanged>,
     pub edited: &'a [EditedTicket],
     pub project_name: &'a str,
-    /// The named agent the Project agent role resolves to for the project (`named_agents::resolve`), which the
+    /// The named agent the Project agent role resolves to for the project (`agents::resolve::role_agent`), which the
     /// empty pane's first message starts; `None` before any named agent exists.
-    pub new_agent: Option<&'a NamedAgent>,
+    pub new_agent: Option<&'a Agent>,
     pub window_width: Option<f32>,
     pub now_ms: i64,
     /// The user's keys, for the buttons' and the footer's keys (KEY-08).
@@ -493,17 +495,11 @@ pub struct Facts<'a> {
     /// The agent tools (several: the tool in the lines, avatars; their problems: the notices).
     pub tools: &'a Tools,
     /// Every named agent (where "New agent on …" starts, a held message's agent).
-    pub named_agents: &'a [NamedAgent],
+    pub agent_list: &'a [Agent],
     /// The empty pane after "New agent on …": the named agent it starts instead of the default.
-    pub start_on: Option<&'a NamedAgent>,
+    pub start_on: Option<&'a Agent>,
     /// The project's key (Settings → Agents for its Project agent default, Q-O).
     pub project: &'a str,
-}
-
-/// The named agent a Project agent's session started on, from the list.
-fn named_of<'a>(agent: &ProjectAgent, named: &'a [NamedAgent]) -> Option<&'a NamedAgent> {
-    let id = agent.session.as_ref()?.named_agent.as_ref()?.id.as_str();
-    named.iter().find(|a| a.id == id)
 }
 
 pub fn view(f: &Facts) -> PaneView {
@@ -535,13 +531,7 @@ pub fn view(f: &Facts) -> PaneView {
         notice: tool_problems::agent_notice(
             a.tool,
             f.tools,
-            tool_problems::new_agent_on(
-                a.tool,
-                named_of(a, f.named_agents),
-                f.new_agent,
-                f.named_agents,
-                f.tools,
-            ),
+            tool_problems::new_agent_on(a.tool, f.new_agent, f.agent_list, f.tools),
         ),
         line: AgentLine {
             avatar: avatar(f.tools, a.tool, a.model.as_deref()),
@@ -587,15 +577,10 @@ fn empty_of(f: &Facts) -> Empty {
         .agents
         .holds
         .iter()
-        .find(|h| h.role == otaq_core::named_agents::Role::ProjectAgent)
+        .find(|h| h.role == otaq_core::agents::SessionRole::ProjectAgent)
         .map(|hold| {
-            let held = f
-                .named_agents
-                .iter()
-                .find(|a| Some(a.id.as_str()) == hold.named_agent_id.as_deref());
-            let on =
-                tool_problems::new_agent_on(hold.tool, held, f.new_agent, f.named_agents, f.tools);
-            tool_problems::first_message_notice(hold, f.project, f.named_agents, f.tools, on)
+            let on = tool_problems::new_agent_on(hold.tool, f.new_agent, f.agent_list, f.tools);
+            tool_problems::first_message_notice(hold, f.project, f.agent_list, f.tools, on)
         });
     Empty {
         notice,
@@ -711,7 +696,7 @@ pub fn gallery() -> Gallery {
             now_ms: NOW,
             keys: KeyLabels::base(Platform::Mac),
             tools: &one,
-            named_agents: &[],
+            agent_list: &[],
             start_on: None,
             project: "NOTE",
         }),
@@ -732,7 +717,7 @@ pub fn gallery() -> Gallery {
                     now_ms: NOW,
                     keys: KeyLabels::base(Platform::Mac),
                     tools: &one,
-                    named_agents: &[],
+                    agent_list: &[],
                     start_on: None,
                     project: "NOTE",
                 }),
@@ -756,12 +741,10 @@ pub fn gallery() -> Gallery {
 /// The gallery's M23 pane states (18 `VDJkG`): Standard · Codex on the empty pane, its tool logged out and at its
 /// limit, and a first message held for Model unavailable.
 fn several_tools_states(now: i64) -> Vec<GalleryState> {
-    use otaq_core::named_agents::{HoldReason, Role};
+    use otaq_core::agents::{HoldReason, SessionRole as Role};
     use tool_problems::fixtures::{self as tf, CODEX};
 
-    let mut standard = sample_agent("Standard", None);
-    standard.tool = CODEX;
-    standard.fallback = Some("sonnet".into());
+    let standard = crate::view_models::agents::fixtures::on(CODEX, sample_agent("Standard", None));
     let sonnet = sample_agent("Sonnet", Some("sonnet"));
     let named = vec![standard.clone(), sonnet];
     let mut checkout = otaq_core::project_agents::ProjectAgent {
@@ -805,7 +788,7 @@ fn several_tools_states(now: i64) -> Vec<GalleryState> {
             now_ms: now,
             keys: KeyLabels::base(Platform::Mac),
             tools,
-            named_agents: &named,
+            agent_list: &named,
             start_on: None,
             project: "SHOP",
         }),
@@ -872,19 +855,9 @@ fn gallery_agent(id: &str, name: &str) -> ProjectAgent {
     }
 }
 
-/// A named agent for the gallery and tests.
-fn sample_agent(name: &str, model: Option<&str>) -> NamedAgent {
-    NamedAgent {
-        id: name.to_lowercase(),
-        name: name.to_owned(),
-        tool: Tool::ALL[0],
-        model: model.map(str::to_owned),
-        use_for: String::new(),
-        fallback: None,
-        mark: None,
-        created_at: 0,
-        updated_at: 0,
-    }
+/// An agent on the first tool, for the gallery and tests.
+fn sample_agent(name: &str, model: Option<&str>) -> Agent {
+    crate::view_models::agents::fixtures::agent(&name.to_lowercase(), name, model)
 }
 
 /// A Project agent's session started on the named agent `name`, for the gallery and tests.
@@ -901,11 +874,13 @@ fn session_on(name: &str) -> otaq_core::session::SessionInfo {
         tool: Some(Tool::ALL[0]),
         tool_session_id: None,
         model: None,
-        named_agent: Some(otaq_core::session::SessionAgent {
+        agent: Some(otaq_core::session::SessionAgent {
             id: name.to_lowercase(),
             name: name.to_owned(),
         }),
         model_ran: None,
+        effort: None,
+        fallback: None,
         size: None,
     }
 }
@@ -1104,7 +1079,7 @@ mod tests {
             now_ms: 0,
             keys: KeyLabels::base(Platform::Mac),
             tools: one_tool(),
-            named_agents: &[],
+            agent_list: &[],
             start_on: None,
             project: "NOTE",
         }
@@ -1534,10 +1509,11 @@ mod tests {
         a
     }
 
-    fn named() -> Vec<NamedAgent> {
-        let mut standard = sample_agent("Standard", None);
-        standard.tool = tool_problems::fixtures::CODEX;
-        standard.fallback = Some("sonnet".into());
+    fn named() -> Vec<Agent> {
+        let standard = crate::view_models::agents::fixtures::on(
+            tool_problems::fixtures::CODEX,
+            sample_agent("Standard", None),
+        );
         vec![standard, sample_agent("Sonnet", Some("sonnet"))]
     }
 
@@ -1548,7 +1524,7 @@ mod tests {
         let agents = list(Vec::new());
         let e = view(&Facts {
             tools: &tools,
-            named_agents: &named,
+            agent_list: &named,
             new_agent: Some(&named[0]),
             ..facts(&agents, None)
         })
@@ -1570,7 +1546,7 @@ mod tests {
         let notice = |tools: &Tools| {
             view(&Facts {
                 tools,
-                named_agents: &named,
+                agent_list: &named,
                 new_agent: Some(&named[0]),
                 ..facts(&agents, Some("c1"))
             })
@@ -1599,7 +1575,7 @@ mod tests {
     /// Q-O: the held first message's notice, and the empty pane after "New agent on Sonnet".
     #[test]
     fn a_held_first_message_and_new_agent_on() {
-        use otaq_core::named_agents::{HoldReason, Role};
+        use otaq_core::agents::{HoldReason, SessionRole as Role};
         let tools = tool_problems::fixtures::several();
         let named = named();
         let mut agents = list(Vec::new());
@@ -1614,7 +1590,7 @@ mod tests {
         agents.holds = vec![hold];
         let base = Facts {
             tools: &tools,
-            named_agents: &named,
+            agent_list: &named,
             new_agent: Some(&named[0]),
             project: "SHOP",
             ..facts(&agents, None)

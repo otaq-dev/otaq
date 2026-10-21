@@ -7,8 +7,9 @@
 //! - The gitignored paths come from `git ls-files --others --ignored --exclude-standard --directory`: a folder is one
 //!   entry, so a folder of a hundred thousand files is one rename. Every gitignored file is treated the same.
 //! - The project's env files are left out, and stay in the worktree (a folder holding one moves around it): they are
-//!   copied fresh at each start (SES-01 step 4). So are the worktree copies of workflow skills (`otaq-custom-*`,
-//!   WSK-05): they are written fresh before each session that runs one, and are never kept or seeded (d0082).
+//!   copied fresh at each start (SES-01 step 4). So are Otaq's skill copies (marked folders under
+//!   `.agents/skills/` and `.claude/skills/`, AGM-07, and M27's `otaq-custom-*`): each session writes its own, and they
+//!   are never kept or seeded (d0082).
 //! - The record: built at (`HEAD`), base (`merge-base HEAD <base branch>`, for "forward only"), from (the ticket)
 //!   and the time. The stock decides whether it is kept.
 //! - The times file ([`TrackedTimes`]): every tracked file's modified time in the worktree (a symlink's own), so a
@@ -111,7 +112,8 @@ pub(crate) async fn collect(
         .iter()
         .map(|f| normal(Path::new(f.trim())))
         .filter(|f| !f.as_os_str().is_empty())
-        .chain(crate::workflow_skills::worktree::all_folders())
+        // Otaq's skill copies are never kept (d0082): each session writes its own (AGM-07).
+        .chain(crate::skills::copy::copies_to_skip(worktree))
         .collect();
     let git = board.project_git(&project.key).await.map_err(failed)?;
     let listed = git

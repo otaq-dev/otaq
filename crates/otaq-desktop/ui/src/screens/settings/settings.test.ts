@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement, type ReactElement } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -12,10 +11,7 @@ import type { SettingsPage } from "../../generated/SettingsPage";
 import type { SettingsSection } from "../../generated/SettingsSection";
 import { settings } from ".";
 import { SettingsContext, sectionOf, topicRow } from "./context";
-import { Section, sectionComponent, SkillRowView, skillMenu, skillStep } from "./Rows";
-import type { SettingsSkillRow } from "../../generated/SettingsSkillRow";
-import type { SettingsContextValue } from "./context";
-import { pickFolder, request } from "../../tauri";
+import { Section, sectionComponent } from "./Rows";
 
 vi.mock("../../tauri", async (original) => ({
   ...(await original<typeof import("../../tauri")>()),
@@ -77,10 +73,6 @@ describe("the Settings screen", () => {
       "agent_tools",
       "agents",
       "agent_limits",
-      "agent_instructions",
-      "workflow_skills",
-      "validation",
-      "project_agent_instructions",
       "usage",
       "notifications",
       "data",
@@ -90,9 +82,8 @@ describe("the Settings screen", () => {
       "about",
     ]);
     expect(app.settings.project.ids()).toContain("remove_project");
-    expect(app.settings.project.ids().slice(0, 2)).toEqual(["general", "agents"]);
-    expect(app.settings.project.ids()).toContain("validation");
-    expect(app.settings.project.ids()).toContain("project_agent_instructions");
+    expect(app.settings.project.ids().slice(0, 3)).toEqual(["general", "flow", "project_notes"]);
+    expect(app.settings.project.ids()).not.toContain("validation");
     expect(app.shortcuts.run({ action: "settings" })).toBe(true);
     expect(overlays.store.get()).toEqual([{ id: "settings", params: undefined }]);
   });
@@ -178,73 +169,6 @@ describe("the Settings screen", () => {
     expect(out).toContain('aria-invalid="true"');
   });
 
-  it("a project's validation rows: Use global, and Auto-merge disabled with its note", () => {
-    const section: SettingsSection<"validation"> = {
-      id: "validation",
-      title: null,
-      intro: null,
-      rows: [
-        {
-          field: "validation",
-          label: "Validation",
-          description: "Off for this project.",
-          control: { kind: "toggle", on: false },
-          dimmed: false,
-          reset: "Use global",
-          button: null,
-        },
-        {
-          field: "validation_rounds",
-          label: "Validation rounds",
-          description: "1–5.",
-          control: {
-            kind: "stepper",
-            value: 3,
-            min: 1,
-            max: 5,
-            suffix: "",
-            disabled: false,
-            empty: "Use global (3)",
-          },
-          dimmed: false,
-          reset: null,
-          button: null,
-        },
-        {
-          field: "auto_merge",
-          label: "Auto-merge",
-          description: "",
-          control: {
-            kind: "radio",
-            choices: [
-              {
-                id: "off",
-                label: "Off",
-                detail: "Validated tickets wait in Ready for Review for you. (default)",
-              },
-              { id: "all", label: "All tickets", detail: "Merged into the base branch." },
-            ],
-            value: null,
-            disabled: true,
-            empty: "Use global (Off)",
-            note: "Validation is off for otaq, so Auto-merge does nothing. Turn Validation on to use it.",
-          },
-          dimmed: false,
-          reset: null,
-          button: null,
-        },
-      ],
-      note: null,
-    };
-    const out = html(withPage(createElement(Section, { section })));
-    expect(out).toContain('<button type="button" class="settings-reset">Use global</button>');
-    expect(out).toContain("Use global (3)");
-    expect(out).toContain("Use global (Off)");
-    expect(out).toContain("Validation is off for otaq");
-    expect(out.match(/type="radio"[^>]*disabled=""/g)).toHaveLength(2);
-    expect(out).not.toContain(' checked=""');
-  });
-
   it("opens the topic that holds a section, else the first", () => {
     const row = (label: string, sections: GlobalSectionId[]): SettingsNavRow => ({
       label,
@@ -252,11 +176,8 @@ describe("the Settings screen", () => {
       target: { page: "global", section: sections[0] ?? "about", sections },
       alert: false,
     });
-    const rows = [
-      row("Agent tools", ["agent_tools"]),
-      row("Agents", ["agents", "agent_limits", "agent_instructions"]),
-    ];
-    expect(topicRow(rows, "agent_instructions")?.label).toBe("Agents");
+    const rows = [row("Agent tools", ["agent_tools"]), row("Agents", ["agents", "agent_limits"])];
+    expect(topicRow(rows, "agent_limits")?.label).toBe("Agents");
     expect(topicRow(rows, "agents")?.label).toBe("Agents");
     expect(topicRow(rows, null)?.label).toBe("Agent tools");
     expect(topicRow([], null)).toBeUndefined();
@@ -473,311 +394,5 @@ describe("Settings → Agent tools", () => {
     );
     expect(refused).toContain("Codex has 2 agents running. End them first.");
     expect(refused).toMatch(/<button[^>]*disabled=""[^>]*>/);
-  });
-});
-
-// ---- Settings → Workflow skills (T-0380; WSK-01, WSK-02, WSK-04, WSK-07; d0092, d0058) ----
-
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-// The shape `settings_page.rs` sends for an imported Commit (its test `workflow_skills_imported_row`).
-const MY_COMMIT: SettingsSkillRow = {
-  field: "workflow_skills.commit",
-  step: "commit",
-  label: "Commit",
-  name: "my-commit",
-  name_muted: false,
-  tag: { label: "Imported", look: "quiet" },
-  folder: "~/team-skills/my-commit",
-  source: "· imported today, 10:42",
-  lines: [
-    {
-      icon: "info",
-      text: "Otaq uses its own copy. Changes to the original apply after Re-import.",
-      look: "quiet",
-      link: null,
-    },
-  ],
-  button: { label: "Re-import", icon: "refresh-cw", action: "reimport", disabled: false },
-  menu: [
-    { action: "reveal", label: "Show Otaq’s copy in Finder", icon: "folder-open", separated: false },
-    { action: "import", label: "Import a different folder…", icon: "folder-input", separated: false },
-    { action: "reset", label: "Use built-in (otaq:commit)", icon: "rotate-ccw", separated: true },
-  ],
-  menu_label: "More for Commit",
-  picker_title: "Import skill folder",
-  reimport: {
-    title: "Re-import my-commit?",
-    text: "Otaq replaces its copy with the folder at ~/team-skills/my-commit. Sessions already running keep the copy they started with; the next launch uses the new one.",
-    note: "Edits made to Otaq’s copy in ~/.otaq/skills/c1 are lost.",
-    confirm: "Re-import",
-    destructive: false,
-  },
-  reset: {
-    title: "Use the built-in otaq:commit?",
-    text: "Commit goes back to Otaq’s built-in skill and Otaq’s copy of my-commit is deleted. The original at ~/team-skills/my-commit isn’t touched.",
-    note: "Otaq’s copy has edits that aren’t in the original. Going back to the built-in deletes them.",
-    confirm: "Use built-in",
-    destructive: true,
-  },
-};
-
-const BUILT_IN: SettingsSkillRow = {
-  ...MY_COMMIT,
-  name: "otaq:commit",
-  tag: { label: "Built-in", look: "quiet" },
-  folder: null,
-  source: "Otaq’s default",
-  lines: [],
-  button: { label: "Import skill folder…", icon: "folder-input", action: "import", disabled: false },
-  menu: [],
-  reimport: null,
-  reset: null,
-};
-
-/** The same row with its copy missing: Import again in the red line; `again` is what it does. */
-const missing = (again: "import_again" | "import"): SettingsSkillRow => ({
-  ...MY_COMMIT,
-  tag: { label: "Skill missing", look: "error" },
-  lines: [
-    {
-      icon: "circle-alert",
-      text: "Skill missing ·",
-      look: "error",
-      link: { label: "Import again", icon: null, action: again, disabled: false },
-    },
-  ],
-  button: null,
-});
-
-describe("Settings → Workflow skills", () => {
-  let root: Root;
-  let box: HTMLElement;
-  let calls: [string, Record<string, unknown>][];
-  let answer: "done" | "confirm";
-
-  const mount = (row: SettingsSkillRow) => {
-    calls = [];
-    answer = "done";
-    box = document.createElement("div");
-    document.body.append(box);
-    root = createRoot(box);
-    const value: SettingsContextValue = {
-      page: PAGE,
-      project: null,
-      edit: () => undefined,
-      act: () => undefined,
-      skill: (method, params) => {
-        calls.push([method, params]);
-        return Promise.resolve(answer);
-      },
-    };
-    act(() => {
-      root.render(createElement(SettingsContext, { value }, createElement(SkillRowView, { row })));
-    });
-  };
-  const unmount = () => {
-    act(() => {
-      root.unmount();
-    });
-    box.remove();
-    document.body.innerHTML = "";
-    vi.mocked(pickFolder).mockReset();
-    vi.mocked(request).mockClear();
-  };
-  const settle = () =>
-    act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-  const button = (text: string) => {
-    const found = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === text);
-    if (!found) throw new Error(`no button ${text}`);
-    return found;
-  };
-  const click = (target: Element) => {
-    act(() => {
-      (target as HTMLElement).click();
-    });
-  };
-  const key = (target: Element, k: string) => {
-    act(() => {
-      target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
-    });
-  };
-  const dialogTitle = () => document.querySelector(".dialog-title")?.textContent ?? null;
-
-  afterEach(() => {
-    if (box.isConnected) unmount();
-  });
-
-  it("draws the row from the view: name, tag, folder, the copy note, Re-import and ⋯", () => {
-    mount(MY_COMMIT);
-    const row = document.querySelector(".settings-skill");
-    expect(row?.querySelector(".settings-skill-value")?.textContent).toBe("my-commit");
-    expect(row?.querySelector(".settings-skill-tag")?.getAttribute("data-look")).toBe("quiet");
-    expect(row?.querySelector(".settings-skill-folder")?.textContent).toBe("~/team-skills/my-commit");
-    expect(row?.textContent).toContain("Changes to the original apply after Re-import.");
-    expect(document.querySelector('[aria-label="More for Commit"]')).not.toBeNull();
-    // "use your own Open PR skill" focuses the first button inside the row's actions.
-    expect(row?.querySelector("#settings-field-workflow_skills-commit button")?.textContent).toContain(
-      "Re-import",
-    );
-  });
-
-  it("Import skill folder… opens the picker and sends the folder; a cancelled picker sends nothing", async () => {
-    mount(BUILT_IN);
-    vi.mocked(pickFolder).mockResolvedValueOnce(null);
-    click(button("Import skill folder…"));
-    await settle();
-    expect(pickFolder).toHaveBeenCalledWith("Import skill folder");
-    expect(calls).toEqual([]);
-    vi.mocked(pickFolder).mockResolvedValueOnce("/tmp/m27/team-skills/my-commit");
-    click(button("Import skill folder…"));
-    await settle();
-    expect(calls).toEqual([
-      ["settings.skill_import", { project: null, step: "commit", folder: "/tmp/m27/team-skills/my-commit" }],
-    ]);
-    expect(dialogTitle()).toBeNull();
-  });
-
-  it("a refusal is the red line under the step; nothing else on the row changes", () => {
-    mount({
-      ...BUILT_IN,
-      lines: [
-        {
-          icon: "circle-alert",
-          text: "Not imported: ~/team-skills/commit-helpers has no SKILL.md.",
-          look: "error",
-          link: null,
-        },
-      ],
-    });
-    const line = document.querySelector('.settings-skill-line[data-look="error"]');
-    expect(line?.textContent).toBe("Not imported: ~/team-skills/commit-helpers has no SKILL.md.");
-    expect(document.querySelector(".settings-skill-tag")?.textContent).toBe("Built-in");
-    expect(calls).toEqual([]);
-  });
-
-  it("Re-import asks first; Cancel sends nothing, the accent Re-import sends it", () => {
-    mount(MY_COMMIT);
-    click(button("Re-import"));
-    expect(dialogTitle()).toBe("Re-import my-commit?");
-    expect(document.querySelector(".dialog")?.textContent).toContain("Edits made to Otaq’s copy");
-    expect(calls).toEqual([]);
-    click(button("Cancel"));
-    expect(dialogTitle()).toBeNull();
-    expect(calls).toEqual([]);
-    click(button("Re-import"));
-    const confirm = [...document.querySelectorAll(".dialog button")].find(
-      (b) => b.textContent.trim() === "Re-import",
-    );
-    expect(confirm?.getAttribute("data-variant")).toBe("primary");
-    click(confirm as Element);
-    expect(calls).toEqual([["settings.skill_reimport", { project: null, step: "commit" }]]);
-  });
-
-  it("a disabled Re-import (the original is gone) does nothing", () => {
-    mount({
-      ...MY_COMMIT,
-      button: { label: "Re-import", icon: "refresh-cw", action: "reimport", disabled: true },
-    });
-    expect(button("Re-import").disabled).toBe(true);
-    click(button("Re-import"));
-    expect(dialogTitle()).toBeNull();
-  });
-
-  it("Use built-in goes back at once; with needs_confirmation the red dialog asks, then it is sent confirmed", async () => {
-    mount(MY_COMMIT);
-    click(document.querySelector('[aria-label="More for Commit"]') as Element);
-    click(button("Use built-in (otaq:commit)"));
-    await settle();
-    expect(calls).toEqual([["settings.skill_reset", { project: null, step: "commit", confirmed: false }]]);
-    expect(dialogTitle()).toBeNull();
-
-    answer = "confirm";
-    calls.length = 0;
-    click(document.querySelector('[aria-label="More for Commit"]') as Element);
-    click(button("Use built-in (otaq:commit)"));
-    await settle();
-    expect(dialogTitle()).toBe("Use the built-in otaq:commit?");
-    const red = [...document.querySelectorAll(".dialog button")].find(
-      (b) => b.textContent.trim() === "Use built-in",
-    );
-    expect(red?.getAttribute("data-variant")).toBe("destructive");
-    click(red as Element);
-    expect(calls).toEqual([
-      ["settings.skill_reset", { project: null, step: "commit", confirmed: false }],
-      ["settings.skill_reset", { project: null, step: "commit", confirmed: true }],
-    ]);
-  });
-
-  it("Import again re-imports from the original, or opens the picker when it is gone", async () => {
-    mount(missing("import_again"));
-    expect(document.querySelector(".settings-skill-tag")?.getAttribute("data-look")).toBe("error");
-    click(button("Import again"));
-    await settle();
-    expect(calls).toEqual([["settings.skill_reimport", { project: null, step: "commit" }]]);
-    expect(pickFolder).not.toHaveBeenCalled();
-    unmount();
-    mount(missing("import"));
-    vi.mocked(pickFolder).mockResolvedValueOnce("/tmp/m27/moved/my-commit");
-    click(button("Import again"));
-    await settle();
-    expect(pickFolder).toHaveBeenCalledTimes(1);
-    expect(calls).toEqual([
-      ["settings.skill_import", { project: null, step: "commit", folder: "/tmp/m27/moved/my-commit" }],
-    ]);
-  });
-
-  it("Show Otaq's copy opens it in the file manager", () => {
-    mount(MY_COMMIT);
-    click(document.querySelector('[aria-label="More for Commit"]') as Element);
-    click(button("Show Otaq’s copy in Finder"));
-    expect(request).toHaveBeenCalledWith("settings.reveal", {
-      target: { skill: { project: null, step: "commit" } },
-    });
-  });
-
-  it("the keyboard reaches every action and the menu (0058): buttons, ↓ ↵ in the menu, Esc back to ⋯", async () => {
-    mount(MY_COMMIT);
-    const actions = [...document.querySelectorAll<HTMLButtonElement>(".settings-skill button")];
-    expect(actions.map((b) => b.getAttribute("aria-label") ?? b.textContent.trim())).toEqual([
-      "Re-import",
-      "More for Commit",
-    ]);
-    expect(actions.every((b) => b.tabIndex >= 0 && !b.disabled)).toBe(true);
-    const more = actions[1] as HTMLButtonElement;
-    click(more);
-    const menu = document.querySelector('[role="menu"]') as HTMLElement;
-    expect(document.activeElement).toBe(menu);
-    key(menu, "Escape");
-    expect(document.querySelector('[role="menu"]')).toBeNull();
-    expect(document.activeElement).toBe(more);
-    click(more);
-    const again = document.querySelector('[role="menu"]') as HTMLElement;
-    key(again, "ArrowDown");
-    key(again, "ArrowDown");
-    vi.mocked(pickFolder).mockResolvedValueOnce(null);
-    key(again, "Enter");
-    await settle();
-    // Import a different folder… opens the picker.
-    expect(pickFolder).toHaveBeenCalledWith("Import skill folder");
-  });
-
-  it("each action's plan and the menu rows", () => {
-    expect(skillStep(MY_COMMIT, "import", "NOTE")).toEqual({
-      kind: "pick",
-      title: "Import skill folder",
-      params: { project: "NOTE", step: "commit" },
-    });
-    expect(skillStep(MY_COMMIT, "reimport", null)).toEqual({ kind: "ask", dialog: "reimport" });
-    expect(skillStep(MY_COMMIT, "reset", "NOTE")).toEqual({
-      kind: "send",
-      method: "settings.skill_reset",
-      params: { project: "NOTE", step: "commit", confirmed: false },
-    });
-    const menu = skillMenu(MY_COMMIT.menu);
-    expect(menu.map((m) => m.id)).toEqual(["reveal", "import", "reset"]);
-    expect(menu[2]).toMatchObject({ separated: true, danger: false });
   });
 });

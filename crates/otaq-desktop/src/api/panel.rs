@@ -17,14 +17,13 @@ use otaq_core::board::questions::Choice;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{TicketKey, ValidationAction};
 use otaq_core::project_agents::lead::{Lead, LeadStatus};
-use otaq_core::named_agents::rows::TicketAgents;
+use otaq_core::agents::facts::TicketAgents;
 use otaq_core::usage::TicketUsage;
 use otaq_core::protocol::{
     CloseParams, CommentsParams, DepParams, KeyParams, LeadParams, MoveParams, ProjectAgentAnswerParams,
-    ProjectParams, Reply, Request, SendToFixParams, SessionListParams, SubmitByUserParams, UsageParams,
-    UseFallbackParams, ValidationActionParams,
+    ProjectParams, Reply, Request, SessionListParams, SetChoiceParams, SubmitByUserParams, UsageParams,
+    ValidationActionParams,
 };
-use otaq_core::review::ReturnOutcome;
 use otaq_core::session::deliveries::Delivery;
 use otaq_core::session::{SessionInfo, SessionKind};
 use otaq_view::icons::IconName;
@@ -32,15 +31,14 @@ use otaq_view::key_labels::KeyLabels;
 use otaq_view::keymap::KeyAction;
 use otaq_view::view_models::answer::{self, AnswerOutcome};
 use otaq_view::view_models::answer_options::AnswerOptions;
-use otaq_view::view_models::agent_rows::{self, Block};
+use otaq_view::view_models::stage_choices::{self, ChoicesView, PathView};
 use otaq_view::view_models::tool_problems::{Callout, Tools};
-use otaq_view::view_models::named_agents::RoleId;
 use otaq_view::view_models::approve;
+use otaq_view::view_models::comments;
 use otaq_view::view_models::card::{
     CardActionKind, TOKENS_UNKNOWN, age_label, tokens_label,
 };
 use otaq_view::view_models::close;
-use otaq_view::view_models::comments;
 use otaq_view::view_models::epic_actions;
 use otaq_view::view_models::layout::ClassWidths;
 use otaq_view::view_models::menu::MenuItem;
@@ -50,7 +48,7 @@ use otaq_view::view_models::pr_dialog;
 use otaq_view::view_models::priority::{self, PriorityView};
 use otaq_view::view_models::queue;
 use otaq_view::view_models::status::{self, PillView};
-use otaq_view::view_models::terminal_strip::{self as strip, Click, UnsentPrompt};
+use otaq_view::view_models::terminal_strip::{self as strip, UnsentPrompt};
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
 use otaq_view::view_models::validation_panel;
 use serde::{Deserialize, Serialize};
@@ -72,13 +70,12 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "panel.submit" => reply(&submit(app, parse(params)?).await?),
         "panel.mark_closed" => reply(&mark_closed(app, parse(params)?).await?),
         "panel.answer" => reply(&answer(app, parse(params)?).await?),
-        "panel.send_to_fix" => reply(&send_to_fix(app, parse(params)?).await?),
         "panel.card" => reply(&card(app, parse(params)?).await?),
         "panel.reopen_parent" => reply(&reopen_parent(app, parse(params)?).await?),
         "panel.remove_dependency" => reply(&remove_dependency(app, parse(params)?).await?),
         "panel.setup_log" => reply(&setup_log(parse(params)?)),
         "panel.answer_agent" => reply(&answer_agent(app, parse(params)?).await?),
-        "panel.agent_row" => reply(&super::editor::agent_row(app, parse(params)?).await?),
+        "panel.set_choice" => reply(&set_choice(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -107,11 +104,17 @@ fn key_of(text: &str) -> Result<TicketKey, RequestError> {
 #[ts(rename = "PanelParams")]
 pub struct Params {
     pub key: String,
-    /// `panel.view` only: open the Ticket tab with this row's picker open (Change agent / Change validator,
-    /// T-0345); the view hands it back as `focus_agent_row`.
-    #[serde(default)]
-    #[ts(optional)]
-    pub focus_agent_row: Option<RoleId>,
+}
+
+/// `panel.set_choice`: the user's choice for one stage, until it starts (AGM-08, AGM-09).
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "PanelChoiceParams")]
+pub struct ChoiceParams {
+    pub key: String,
+    /// The stage's id.
+    pub stage: String,
+    /// An agent's name, `skip` or `required`.
+    pub choice: String,
 }
 
 /// A tooltip: its name and the user's key for it.
@@ -237,12 +240,12 @@ pub struct Notice {
     pub choices: Vec<ParentChoice>,
 }
 
-/// "Conflicts with main · 2 files (…)" in the header (GIT-04), with Send to agent to fix when it applies.
+/// "Conflicts with main · 2 files (…)" in the header (GIT-04). A Delivery's conflict goes to the agent with no click
+/// (FLW-17), so the strip only says it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "PanelConflict")]
 pub struct ConflictStrip {
     pub line: String,
-    pub fix: Option<&'static str>,
 }
 
 /// A refused model's callout above the bar (AGT-05; T-0345): "Claude Code couldn't run claude-fable-5-1" and the
@@ -357,7 +360,7 @@ pub struct View {
     /// The tool refused a model (Start failed, No result): its callout above the bar, in place of `start_problem`.
     pub refusal: Option<Refusal>,
     /// The held roles (§7.2, SCH-04 `[M23]`): "Model unavailable", "Codex isn't available · logged out", "Claude
-    /// Code limit reached · resets 3:45 pm", with Use fallback, Change agent / Change validator, Sign in….
+    /// Code limit reached · resets 3:45 pm", with Use fallback, Open agent…, Sign in….
     pub holds: Vec<Callout>,
     pub mark_closed: Option<Confirm>,
     /// The compact running pill next to the tokens while the Run is up (*13 → Card & panel-header controls*).
@@ -366,10 +369,12 @@ pub struct View {
     /// The ticket's agent session runs.
     pub live_agent: bool,
     pub sizes: Sizes,
-    /// The Ticket tab's "Agents" block (AGT-04); an epic's Epic lead row and its children.
-    pub agents: Option<Block>,
-    /// Open the Ticket tab with this row's picker open (from the open request).
-    pub focus_agent_row: Option<RoleId>,
+    /// The ticket's stage choices (AGM-09, `s05-36`): none on a flow without options and for an epic.
+    pub choices: Option<ChoicesView>,
+    /// The ticket's path (AGM-09): every stage with its agent and model; none for an epic.
+    pub path: Option<PathView>,
+    /// The agent Open agent… opens (a held session's, or the one whose model the tool refused).
+    pub open_agent: Option<String>,
 }
 
 /// "● :4020 ↗ ▢": the Run's port, Open (only with an Open URL) and Stop.
@@ -415,6 +420,11 @@ pub struct Facts<'a> {
     pub tools: &'a Tools,
     /// The user's keys: the tabs', Expand's and the arrows' tooltips (KEY-08).
     pub keys: KeyLabels,
+    /// Its project's flow isn't the default's shape: Pass · Fail, Send back with PR comments (FLW-14, FLW-16); the
+    /// default flow keeps today's bar (d0108, STG-06).
+    pub custom_flow: bool,
+    /// Its ticket comments: the Ticket tab's count (CMT-10).
+    pub comments: usize,
 }
 
 fn running_agent(sessions: &[SessionInfo]) -> bool {
@@ -512,12 +522,14 @@ pub fn view_of(f: &Facts) -> View {
     let resume_lead = (ticket.is_epic() && resumes_lead(f.lead)).then_some((Action::ResumeLead, Look::Primary));
     let buttons: Vec<Button> = resume_lead
         .into_iter()
-        .chain(actions::all_buttons(ticket))
+        .chain(actions::all_buttons_in(ticket, f.custom_flow))
         .filter(|(a, _)| a.arrives_with().is_none() || *a == Action::Run)
         .map(|(action, look)| Button {
             action,
             label: match action {
                 Action::SendBack => comments::send_back_label(f.pending),
+                Action::Fail => actions::fail_label(f.pending),
+                Action::Pass => actions::pass_label(f.decisions),
                 Action::Approve => actions::approve_label(f.decisions),
                 Action::ViewParent => ticket.depends_on.first().map_or_else(
                     || action.label().to_owned(),
@@ -585,7 +597,7 @@ pub fn view_of(f: &Facts) -> View {
         pill: {
             let mut pill = PillView::of(status::shown(ticket));
             if !ticket.flags.your_turn
-                && let Some(label) = validation_panel::pill_label(ticket)
+                && let Some(label) = validation_panel::pill_label(ticket, f.custom_flow)
             {
                 pill.label = label;
             }
@@ -603,7 +615,7 @@ pub fn view_of(f: &Facts) -> View {
         signal,
         tokens,
         token_split: match f.agents {
-            Some(agents) => agent_rows::token_line(agents, f.tools),
+            Some(agents) => stage_choices::token_line(agents, f.tools),
             None => f.usage.and_then(|u| validation_panel::token_split(ticket, u)),
         },
         previous: vm::neighbour(f.tickets, &ticket.key, -1).map(|k| k.to_string()),
@@ -643,13 +655,12 @@ pub fn view_of(f: &Facts) -> View {
             .filter(|_| ticket.flags.conflicts_with.is_some())
             .map(|c| ConflictStrip {
                 line: approve::conflict_line(c),
-                fix: approve::offers_fix(ticket, Some(c)).then_some("Send to agent to fix"),
             }),
         start_problem,
         refusal,
         holds: f
             .agents
-            .map(|t| agent_rows::callouts(t, f.tools))
+            .map(|t| stage_choices::callouts(t, f.tools))
             .unwrap_or_default(),
         mark_closed,
         run: otaq_view::view_models::run::header_pill(f.run).map(|(port, url)| RunPill {
@@ -660,7 +671,7 @@ pub fn view_of(f: &Facts) -> View {
             url,
             stop_hint: "Stop",
         }),
-        tabs: vm::indicators(ticket, f.sessions, f.lead.map(|l| &l.status))
+        tabs: vm::indicators(ticket, f.sessions, f.lead.map(|l| &l.status), f.comments)
             .into_iter()
             .enumerate()
             .map(|(i, (tab, indicator))| match (tab, f.run) {
@@ -678,8 +689,9 @@ pub fn view_of(f: &Facts) -> View {
             .collect(),
         live_agent: live,
         sizes: SIZES,
-        agents: f.agents.map(|t| agent_rows::block(t, f.tools)),
-        focus_agent_row: None,
+        choices: f.agents.and_then(stage_choices::panel_choices),
+        path: f.agents.and_then(|t| stage_choices::path(t, f.tools)),
+        open_agent: f.agents.and_then(|t| open_agent(ticket, t)),
     }
 }
 
@@ -776,7 +788,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     };
     let has_log = ticket.status == otaq_core::domain::Status::StartInterrupted
         && setup_log_path(&params.key).is_some();
-    let pending = if ticket.status == otaq_core::domain::Status::ReadyForReview {
+    let pending = if ticket.status == otaq_core::domain::Status::WaitingForYou {
         match app
             .service
             .send(Request::ReviewComments(CommentsParams {
@@ -796,8 +808,8 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     } else {
         None
     };
-    let rounds = if ticket.status == otaq_core::domain::Status::ValidationFailed {
-        validation_rounds(app, &ticket).await
+    let rounds = if ticket.status == otaq_core::domain::Status::CheckFailed {
+        check_rounds(app, &ticket).await
     } else {
         0
     };
@@ -810,6 +822,10 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     let agents = super::editor::agent_facts(app, super::editor::of_ticket(&params.key)).await;
     let tools = super::editor::agent_tools(app).await;
     let keys = super::keymap::labels(app).await;
+    let custom_flow = !otaq_view::view_models::flow_columns::keeps_default_look(
+        &super::board::flow(app, ticket.key.project.as_str()).await,
+    );
+    let comments = super::ticket_comments::count(app, &params.key).await;
     let view = view_of(&Facts {
         ticket: &ticket,
         tickets: &all,
@@ -826,12 +842,11 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         agents: agents.as_ref(),
         tools: &tools,
         keys,
+        custom_flow,
+        comments,
     });
     Ok(Load {
-        view: Some(View {
-            focus_agent_row: params.focus_agent_row,
-            ..view
-        }),
+        view: Some(view),
         gone,
     })
 }
@@ -850,17 +865,20 @@ async fn ticket_usage(app: &App, ticket: &Ticket) -> Option<TicketUsage> {
     }
 }
 
-/// The project's Validation rounds, after the global fallback.
-pub(super) async fn validation_rounds(app: &App, ticket: &Ticket) -> u32 {
+/// The rounds of the agent check the ticket counts (its project's flow; d0063), without the extra rounds.
+pub(super) async fn check_rounds(app: &App, ticket: &Ticket) -> u32 {
     match app
         .service
-        .send(Request::ProjectSettingsGet(ProjectParams {
+        .send(Request::FlowCurrent(ProjectParams {
             project: ticket.key.project.to_string(),
         }))
         .await
     {
-        Ok(Reply::ProjectSettings(reply)) => reply.effective.validation_rounds,
-        _ => otaq_core::board::settings::DEFAULT_VALIDATION_ROUNDS,
+        Ok(Reply::FlowVersion(version)) => version.file().map_or(
+            otaq_core::flow::check::DEFAULT_VALIDATION_ROUNDS,
+            |f| f.flow.check_rounds(ticket.place.stage(), 0),
+        ),
+        _ => otaq_core::flow::check::DEFAULT_VALIDATION_ROUNDS,
     }
 }
 
@@ -923,9 +941,14 @@ pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError>
             Request::TicketMarkMerged(k),
             format!("Mark merged of {key} failed"),
         ),
-        Action::MoveToReviewAnyway => (
-            validation_request(&key, ValidationAction::MoveToReviewAnyway, ""),
-            format!("{key} can\u{2019}t be moved to Review"),
+        Action::MoveOnAnyway => (
+            validation_request(&key, ValidationAction::MoveOnAnyway, ""),
+            format!("{key} can\u{2019}t be moved on"),
+        ),
+        // FLW-16: a Backlog child with the epic's unresolved PR comments.
+        Action::AddChildFromPr => (
+            Request::TicketAddChildFromPr(k),
+            format!("{key}\u{2019}s PR comments didn\u{2019}t become a child"),
         ),
         Action::AnotherRound => (
             validation_request(&key, ValidationAction::AnotherRound, ""),
@@ -983,8 +1006,8 @@ fn validation_request(key: &str, action: ValidationAction, note: &str) -> Reques
     })
 }
 
-/// What `panel.menu` takes: a "…" menu item the service carries out (Pin / Unpin, Stop validation, Skip to
-/// Review, Validate and submit).
+/// What `panel.menu` takes: a "…" menu item the service carries out (Pin / Unpin, Stop this check, Skip this
+/// check).
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "PanelMenuParams")]
 pub struct MenuParams {
@@ -1008,10 +1031,6 @@ pub async fn menu_choice(app: &App, params: MenuParams) -> Result<(), RequestErr
         actions::SKIP_TO_REVIEW => (
             validation_request(&key, ValidationAction::Skip, ""),
             format!("{key} can\u{2019}t skip to Review"),
-        ),
-        close::VALIDATE_AND_SUBMIT => (
-            validation_request(&key, ValidationAction::ValidateAndSubmit, ""),
-            format!("{key} can\u{2019}t be validated"),
         ),
         other => return Err(RequestError::plain(format!("not a service item: {other}"))),
     };
@@ -1137,7 +1156,7 @@ pub async fn close_ticket(app: &App, params: Params) -> Result<(), RequestError>
         .map(|_| ())
 }
 
-/// *Submit for review · dialog* (CLS-05, d0052).
+/// *Submit for review · dialog* (CLS-05, d0052): the user's Move to next stage (d0108 rule 10).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "PanelSubmitDialog")]
 pub struct SubmitDialog {
@@ -1160,7 +1179,7 @@ pub async fn submit_dialog(app: &App, params: Params) -> Result<SubmitDialog, Re
         note_label: "Note for the review summary (optional)",
         note_placeholder: "What the reviewer should know",
         footer: text.footer,
-        confirm: "Submit for review",
+        confirm: "Move to next stage",
     })
 }
 
@@ -1172,7 +1191,7 @@ pub struct SubmitParams {
     pub note: String,
 }
 
-/// Submit for review: a refusal ("2 files are not committed…") shows inside the dialog.
+/// Move to next stage: a refusal ("2 files are not committed…") shows inside the dialog.
 pub async fn submit(app: &App, params: SubmitParams) -> Result<(), RequestError> {
     app.service
         .send(Request::TicketSubmitByUser(SubmitByUserParams {
@@ -1355,45 +1374,6 @@ async fn answer_lead(app: &App, epic: &Ticket, params: &AnswerParams) -> Result<
     }
 }
 
-/// What `panel.send_to_fix` takes.
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "PanelSendToFixParams")]
-pub struct SendToFix {
-    pub key: String,
-    #[serde(default)]
-    pub clear: bool,
-}
-
-/// Send to agent to fix (GIT-04): the ticket returns to Dev and its agent rebases.
-pub async fn send_to_fix(app: &App, params: SendToFix) -> Result<Sent, RequestError> {
-    let key = key_of(&params.key)?;
-    match app
-        .service
-        .send(Request::TicketSendToFix(SendToFixParams {
-            key: params.key,
-            clear_first: params.clear,
-        }))
-        .await
-    {
-        Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. })) => {
-            Ok(Sent::Ask(Unsent::of(
-                &UnsentPrompt::for_click(
-                    key,
-                    None,
-                    "The restack skill (rebase and resolve the conflicts)".to_owned(),
-                    Click::SendToFix,
-                )
-                .unclearable_by(unclearable_by),
-            )))
-        }
-        Ok(_) => Ok(Sent::Done),
-        Err(e) => {
-            toast_error(app, format!("{key} wasn\u{2019}t sent to its agent"), &e);
-            Err(e)
-        }
-    }
-}
-
 /// What `panel.card` takes: a board card's button (T-0220) the panel carries out once it shows the ticket, and
 /// whether the terminal's typed line is cleared first (Deliver now).
 #[derive(Debug, Clone, Deserialize, TS)]
@@ -1451,13 +1431,22 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
             validation(V::MoveToReview),
             format!("{key} can\u{2019}t be moved to Review"),
         ),
-        // A held role's fallback takes it (AGT-08, T-0362).
-        kind @ (CardActionKind::UseFallback | CardActionKind::UseValidatorFallback) => (
-            Request::TicketUseFallback(UseFallbackParams {
+        // FLW-13: Move on anyway after the last failed round; Skip this check at the plan limit with no fallback.
+        CardActionKind::MoveOnAnyway => (validation(V::MoveOnAnyway), format!("{key} can\u{2019}t be moved on")),
+        CardActionKind::SkipCheck => (validation(V::Skip), format!("{key}\u{2019}s check can\u{2019}t be skipped")),
+        // FLW-16: an epic's PR comments as a Backlog child.
+        CardActionKind::AddChildFromPr => (
+            Request::TicketAddChildFromPr(KeyParams {
                 key: params.key.clone(),
-                role: kind.fallback_role().expect("a fallback action"),
             }),
-            format!("{key} didn\u{2019}t move to its fallback"),
+            format!("{key}\u{2019}s PR comments didn\u{2019}t become a child"),
+        ),
+        // A held role's fallback takes it (AGT-08, T-0362).
+        CardActionKind::UseFallback | CardActionKind::UseValidatorFallback => (
+            Request::TicketUseFallback(KeyParams {
+                key: params.key.clone(),
+            }),
+            format!("{key} didn\u{2019}t start on its fallback"),
         ),
         other => {
             return Err(RequestError::plain(format!(
@@ -1477,6 +1466,40 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
         Ok(_) => Ok(Sent::Done),
         Err(e) => {
             toast_error(app, failed, &e);
+            Err(e)
+        }
+    }
+}
+
+/// The agent Open agent… opens (AGM-03, d0108 second gap review rule 7): a held session's agent, else the agent of the
+/// last session of the role whose model the tool refused (AGT-05).
+fn open_agent(ticket: &Ticket, t: &TicketAgents) -> Option<String> {
+    t.holds.iter().find_map(|h| h.agent_id.clone()).or_else(|| {
+        let role = otaq_core::board::needs_you::change_agent(ticket)?;
+        t.sessions
+            .iter()
+            .rev()
+            .find(|s| s.role == role)
+            .and_then(|s| s.agent_id.clone())
+    })
+}
+
+/// `panel.set_choice`: the user's pick in the panel's Choices (`ticket.set_choice`); refused (a stage that started
+/// meanwhile) with a toast. The panel follows the ticket's change.
+pub async fn set_choice(app: &App, params: ChoiceParams) -> Result<(), RequestError> {
+    let key = params.key.clone();
+    match app
+        .service
+        .send(Request::TicketSetChoice(SetChoiceParams {
+            key: params.key,
+            stage: params.stage,
+            choice: params.choice,
+        }))
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            toast_error(app, format!("{key}\u{2019}s choice wasn\u{2019}t changed"), &e);
             Err(e)
         }
     }
@@ -1582,6 +1605,8 @@ pub fn notes_gallery() -> NotesGallery {
                     agents: None,
                     tools,
                     keys: KeyLabels::default(),
+                    custom_flow: false,
+                    comments: 0,
                 })
             })
             .collect(),
@@ -1616,7 +1641,7 @@ mod tests {
             key,
             None,
             "The address-review skill".into(),
-            Click::SendBack {
+            strip::Click::SendBack {
                 note: String::new(),
             },
         );
@@ -1649,7 +1674,9 @@ mod tests {
             tool: None,
             tool_session_id: None,
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
             model_ran: None,
             size: None,
         }
@@ -1676,6 +1703,8 @@ mod tests {
             agents: None,
             tools: one_tool(),
             keys: KeyLabels::base(otaq_view::keymap::Platform::Mac),
+            custom_flow: false,
+            comments: 0,
         }
     }
 
@@ -1791,7 +1820,7 @@ mod tests {
 
     #[test]
     fn a_queued_child_names_its_parent() {
-        let parent = fixture("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let parent = fixture("SHOP-18", "Checkout API", Status::WaitingForYou);
         let mut child = fixture("SHOP-20", "Checkout page", Status::Queued);
         child.depends_on = vec![parent.key.clone()];
         let all = vec![parent, child.clone()];
@@ -1848,7 +1877,7 @@ mod tests {
 
     #[test]
     fn conflicts_show_in_review_with_the_fix() {
-        let mut review = fixture("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let mut review = fixture("SHOP-18", "Checkout API", Status::WaitingForYou);
         let conflict = Conflict {
             target: "main".into(),
             files: vec!["a.ts".into(), "b.ts".into()],
@@ -1865,7 +1894,6 @@ mod tests {
         review.flags.conflicts_with = Some("main".into());
         let strip = with(&review).conflict.unwrap();
         assert_eq!(strip.line, "Conflicts with main \u{b7} 2 files (a.ts, b.ts)");
-        assert_eq!(strip.fix, Some("Send to agent to fix"));
     }
 
     #[test]
@@ -1966,7 +1994,7 @@ mod tests {
 
     #[test]
     fn send_back_counts_the_pending_comments() {
-        let review = fixture("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let review = fixture("SHOP-18", "Checkout API", Status::WaitingForYou);
         let all = vec![review.clone()];
         let view = view_of(&Facts {
             pending: 2,
@@ -1983,6 +2011,24 @@ mod tests {
         assert_eq!(labels(&view), ["Approve \u{b7} keeps 1 decision", "Send back"]);
         assert!(view.approve_opens_menu);
         assert_eq!(view.approve_more, Some("Approve choices"));
+        // In another flow (FLW-14): Pass and Fail, Fail sending the pending comments.
+        let custom = |pending, decisions| -> Vec<String> {
+            let view = view_of(&Facts {
+                pending,
+                decisions,
+                custom_flow: true,
+                ..facts(&review, &all, &[])
+            });
+            labels(&view).into_iter().map(str::to_owned).collect()
+        };
+        assert_eq!(custom(2, 0), ["Pass", "Fail (2)"]);
+        assert_eq!(custom(0, 1), ["Pass \u{b7} keeps 1 decision", "Fail"]);
+        let view = view_of(&Facts {
+            custom_flow: true,
+            ..facts(&review, &all, &[])
+        });
+        assert_eq!(view.approve_more, None, "no Approve ▾ beside Pass");
+        assert_eq!(view.pill.label, "Your check");
     }
 
     /// *Row · validation (0063)*: the round in the header, the token split, Answer the agent's box, the Auto-merge
@@ -1991,7 +2037,7 @@ mod tests {
     fn the_validation_states_carry_their_extras() {
         use otaq_core::domain::ValidationRound;
         use otaq_core::usage::Tokens;
-        let mut t = fixture("SHOP-29", "Coupon field", Status::Validating);
+        let mut t = fixture("SHOP-29", "Coupon field", Status::Checking);
         t.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
         let tokens = |input| {
             Some(Tokens {
@@ -2016,20 +2062,20 @@ mod tests {
             Some("agent 58k \u{b7} validation 9k (1 round)")
         );
         assert_eq!(labels(&view), ["Open terminal \u{b7} Validator", "Run"]);
-        assert_eq!(view.menu[0].label, "Stop validation");
+        assert_eq!(view.menu[0].label, "Stop this check");
         assert_eq!((view.answer_agent, view.approve_more), (None, None));
 
-        let mut failed = fixture("SHOP-32", "Address autocomplete", Status::ValidationFailed);
+        let mut failed = fixture("SHOP-32", "Address autocomplete", Status::CheckFailed);
         failed.validation_round = 3;
         let view = view_of(&facts(&failed, std::slice::from_ref(&failed), &[]));
         assert_eq!(view.pill.label, "Validation failed 3 times");
         assert_eq!(
             labels(&view),
-            ["Move to Review anyway", "Give it another round", "Answer the agent\u{2026}"]
+            ["Move on anyway", "Give it another round", "Answer the agent\u{2026}"]
         );
         assert!(view.answer_agent.unwrap().footer.ends_with("(3 new rounds)."));
 
-        let mut stopped = fixture("SHOP-40.2", "Wishlist page", Status::AutoMergeStopped);
+        let mut stopped = fixture("SHOP-40.2", "Wishlist page", Status::DeliveryStopped);
         stopped.auto_merge_stop = Some(otaq_core::domain::AutoMergeStop::CheckoutDirty);
         stopped.signal = Some(otaq_core::board::tickets::AgentSignal {
             text: Some("shop-web has uncommitted changes on main. Clean up and retry.".into()),
@@ -2042,20 +2088,20 @@ mod tests {
             Some("shop-web has uncommitted changes on main. Clean up and retry.")
         );
 
-        let review = fixture("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let review = fixture("SHOP-18", "Checkout API", Status::WaitingForYou);
         let view = view_of(&facts(&review, std::slice::from_ref(&review), &[]));
         assert_eq!(view.approve_more, Some("Approve choices"));
     }
 
-    /// T-0345 (AGT-05): a refused model's callout above the bar, in place of the start callout, with Change agent
-    /// first; No result's with Change validator.
+    /// T-0345 (AGT-05), d0108 second gap review rule 7: a refused model's callout above the bar, in place of the
+    /// start callout, with Open agent… first; No result's too.
     #[test]
-    fn a_refused_model_has_its_callout_and_change_agent() {
+    fn a_refused_model_has_its_callout_and_open_agent() {
         use otaq_view::view_models::card_fixtures::agent_variants;
         let fixture = |name: &str| agent_variants().into_iter().find(|v| v.name == name).unwrap().ticket;
         let t = fixture("Start failed on the model");
         let view = view_of(&facts(&t, std::slice::from_ref(&t), &[]));
-        assert_eq!(labels(&view), ["Change agent", "Retry start"]);
+        assert_eq!(labels(&view), ["Open agent\u{2026}", "Retry start"]);
         assert_eq!(view.start_problem, None);
         let r = view.refusal.unwrap();
         assert_eq!(r.heading, "Claude Code couldn\u{2019}t run the model", "no sessions in these facts");
@@ -2064,42 +2110,57 @@ mod tests {
         let view = view_of(&facts(&t, std::slice::from_ref(&t), &[]));
         assert_eq!(
             labels(&view),
-            ["Change validator", "Retry validation", "Move to Review anyway"]
+            ["Open agent\u{2026}", "Retry validation", "Move on anyway"]
         );
         assert!(!view.refusal.unwrap().error, "turquoise, not red");
     }
 
-    /// M23: the held rows' callouts above the bar, the rows with their tools and the token line by agent and tool.
+    /// AGM-09, AGM-03 (`s05-36`, `s03-54`): the panel's Choices and Path mid-flow; a held session's callout with Use
+    /// fallback and Open agent…, which opens the held agent.
     #[test]
-    fn several_tools_show_the_holds_and_the_tools() {
-        use otaq_view::view_models::agent_rows::fixtures::{
-            several_tools, shop_29_swapped, shop_49_model_unavailable,
-        };
-        let tools = several_tools();
-        let held = shop_49_model_unavailable();
-        let t = fixture("SHOP-49", "Export orders as CSV", Status::Queued);
+    fn the_panel_shows_the_choices_the_path_and_the_holds() {
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::agents::{AgentHold, HoldReason, SessionRole};
+        use otaq_view::view_models::stage_choices::fixtures::{shop_29, tools};
+        let tools = tools();
+        let mid = shop_29();
+        let t = fixture("SHOP-29", "Coupon field", Status::Working);
+        let view = view_of(&Facts {
+            agents: Some(&mid),
+            tools: &tools,
+            ..facts(&t, std::slice::from_ref(&t), &[])
+        });
+        let choices = view.choices.unwrap();
+        assert_eq!(choices.heading, "Choices");
+        assert_eq!(choices.set_by.as_deref(), Some("set by the Project agent"));
+        assert_eq!(view.path.unwrap().rows[1].detail, "Rust developer \u{b7} working");
+        assert!(view.holds.is_empty());
+        assert_eq!(view.open_agent, None);
+        let mut held = shop_29();
+        held.runs.clear();
+        held.holds = vec![AgentHold {
+            id: "h44".into(),
+            ticket_id: Some("t44".into()),
+            project_id: None,
+            role: SessionRole::Developer,
+            reason: HoldReason::ToolUnavailable,
+            tool: Tool::Claude,
+            model: Some("sonnet".into()),
+            agent_id: Some("griller".into()),
+            fallback_tool: Some(Tool::Codex),
+            fallback_held: false,
+            fallback_asked: false,
+            since: 0,
+        }];
+        let t = fixture("SHOP-44", "Saved carts", Status::Queued);
         let view = view_of(&Facts {
             agents: Some(&held),
             tools: &tools,
             ..facts(&t, std::slice::from_ref(&t), &[])
         });
-        assert_eq!(view.holds.len(), 1);
-        assert_eq!(view.holds[0].heading, "Model unavailable");
-        assert_eq!(view.holds[0].buttons[0].label, "Change agent");
-        let swapped = shop_29_swapped();
-        let t = fixture("SHOP-29", "Coupon field", Status::Validating);
-        let view = view_of(&Facts {
-            agents: Some(&swapped),
-            tools: &tools,
-            ..facts(&t, std::slice::from_ref(&t), &[])
-        });
-        assert!(view.holds.is_empty());
-        assert_eq!(
-            view.token_split.as_deref(),
-            Some("Strong \u{b7} Claude Code 61k \u{b7} Verifier \u{b7} Copilot 23k (1 round)")
-        );
-        let rows = view.agents.unwrap().rows;
-        assert_eq!(rows[1].swap.as_deref(), Some("asked for gpt-5.5, ran on auto"));
+        let labels: Vec<&str> = view.holds[0].buttons.iter().map(|b| b.label.as_str()).collect();
+        assert_eq!(labels, ["Use fallback", "Open agent\u{2026}"]);
+        assert_eq!(view.open_agent.as_deref(), Some("griller"));
     }
 
     #[test]
@@ -2117,7 +2178,11 @@ mod tests {
         let mut pr = fixture("SHOP-26", "Order history", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         let view = view_of(&facts(&pr, std::slice::from_ref(&pr), &[]));
-        assert_eq!(labels(&view), ["Open PR in browser", "Mark merged", "Mark closed"]);
+        // FLW-16 on every flow.
+        assert_eq!(
+            labels(&view),
+            ["Open PR in browser", "Send back with PR comments", "Mark merged", "Mark closed"]
+        );
         assert_eq!(view.mark_closed.unwrap().title, "Mark PR #481 as closed?");
     }
 
@@ -2151,6 +2216,7 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }))
             .await
             .unwrap()

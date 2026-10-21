@@ -9,10 +9,6 @@ export type AgentMarkView = { before: string,
  */
 model: string | null, after: string, 
 /**
- * The tool's own message, in quotes, in the dialog (`WFHlh`).
+ * The tool's own message, in quotes.
  */
-message: string | null, 
-/**
- * "Edit…" beside it in the table.
- */
-edit_label: string, };
+message: string | null, };

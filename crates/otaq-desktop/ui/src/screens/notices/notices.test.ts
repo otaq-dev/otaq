@@ -3,12 +3,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { actionsOf, BannerRows, LINE_HANDLERS, RestartBody, ToastStack } from ".";
-import { menuKey } from "../../components/logic";
 import type { LimitLine } from "../../generated/LimitLine";
-import type { MoveWaitingMenu } from "../../generated/MoveWaitingMenu";
 import type { ToolAvatarView } from "../../generated/ToolAvatarView";
 import { request } from "../../tauri";
-import { MoveWaitingList } from "./LimitLines";
 import { createOverlayStack } from "../../app/overlays";
 import { INITIAL_LAYOUT, type ShellLayout } from "../../app/layout";
 import { createSelection, type TerminalFocusRequest } from "../../app/selection";
@@ -24,7 +21,6 @@ import type { PaneFocusRequest, ShownAgents } from "../pane/logic";
 import {
   followNotifications,
   limitLinesOf,
-  moveMenuItems,
   onlyRestartAllowed,
   openTarget,
   pressBanner,
@@ -362,30 +358,23 @@ describe("drawn", () => {
     const toast: Toast = {
       id: 7,
       level: "success",
-      title:
-        "Moved 2 tickets to Ready for Dev. Auto-merge is off for shop-web, so each one waits for your review.",
+      title: "Moved 2 children of SHOP-45 to Ready for Dev",
       text: null,
       icon: null,
       icon_tone: null,
       link: {
         kind: "actions",
-        actions: [
-          {
-            label: "Turn on for epic children",
-            action: { kind: "epic_children_auto_merge", project: "SHOP", name: "shop-web", undo: null },
-          },
-          { label: "Undo", action: undo },
-        ],
+        actions: [{ label: "Undo", action: undo }],
       },
       ticket: null,
     };
     const html = renderToStaticMarkup(createElement(ToastStack, { toasts: [toast] }));
     expect(html).toMatch(
-      /toast-line.*toast-title">Moved 2 tickets to Ready for Dev.*toast-actions.*Turn on for epic children.*Undo/,
+      /toast-line.*toast-title">Moved 2 children of SHOP-45 to Ready for Dev.*toast-actions.*Undo/,
     );
     expect(html).not.toContain("toast-text");
     vi.mocked(request).mockResolvedValue(null);
-    actionsOf(toast)?.[1]?.onClick();
+    actionsOf(toast)?.[0]?.onClick();
     expect(vi.mocked(request)).toHaveBeenCalledWith("notices.toast_action", {
       id: 7,
       label: "Undo",
@@ -418,16 +407,6 @@ const avatar = (tool: "claude_code" | "codex", letters: string): ToolAvatarView 
   hover: tool === "claude_code" ? "Claude Code" : "Codex",
 });
 
-const MOVE: MoveWaitingMenu = {
-  label: "Move waiting to…",
-  title: "MOVE 4 WAITING TICKETS TO",
-  tool: "claude",
-  items: [
-    { agent: "standard", name: "Standard", detail: "Codex · gpt-5.5", avatar: avatar("codex", "CX") },
-    { agent: "strong-gpt", name: "Strong GPT", detail: "Codex · gpt-5.5-pro", avatar: avatar("codex", "CX") },
-  ],
-};
-
 const claudeLine = (over: Partial<LimitLine> = {}): LimitLine => ({
   tool: "claude",
   avatar: avatar("claude_code", "CC"),
@@ -442,9 +421,17 @@ const claudeLine = (over: Partial<LimitLine> = {}): LimitLine => ({
       action: { kind: "resume_tool", tool: "claude" },
       enabled: false,
       primary: false,
+      tooltip: null,
+    },
+    {
+      label: "Use fallback now",
+      icon: "arrow-right-left",
+      action: { kind: "use_fallback_now", tool: "claude" },
+      enabled: true,
+      primary: false,
+      tooltip: "Starts the waiting tickets on Codex",
     },
   ],
-  move_waiting: MOVE,
   ...over,
 });
 
@@ -454,7 +441,7 @@ const codexLine: LimitLine = {
   tone: "warning",
   icon: "triangle-alert",
   title: "Codex isn’t available",
-  text: "signed out · 5 tickets moved to Sonnet",
+  text: "signed out · 5 tickets on Claude Code",
   buttons: [
     {
       label: "Sign in…",
@@ -462,9 +449,9 @@ const codexLine: LimitLine = {
       action: { kind: "sign_in", tool: "codex" },
       enabled: true,
       primary: false,
+      tooltip: null,
     },
   ],
-  move_waiting: null,
 };
 
 const limitBanner = (lines: LimitLine[]): Banner =>
@@ -480,7 +467,7 @@ const limitBanner = (lines: LimitLine[]): Banner =>
   });
 
 describe("the limit banner per tool", () => {
-  it("draws one line per tool with its avatar, Resume <tool>, Sign in… and Move waiting to…", () => {
+  it("draws one line per tool with its avatar, Resume <tool>, Sign in… and Use fallback now", () => {
     const b = limitBanner([claudeLine(), codexLine]);
     expect(limitLinesOf(b)).toHaveLength(2);
     const html = renderToStaticMarkup(createElement(BannerRows, { banners: [b] }));
@@ -489,47 +476,32 @@ describe("the limit banner per tool", () => {
       /data-tone="neutral" data-tool="claude".*Claude Code limit reached.*Resume Claude Code/,
     );
     expect(html).toMatch(/data-tone="warning" data-tool="codex".*Codex isn’t available.*Sign in…/);
-    expect(html.match(/aria-haspopup="menu"/g)).toHaveLength(1);
-    expect(html).toContain("Move waiting to…");
+    expect(html).toContain(">Use fallback now<");
     expect(html).not.toContain(">Resume<");
     expect(html).not.toContain('data-tone="attention"');
   });
 
-  it("the one-tool banner stays M22's: no avatar, no lines, no Move waiting to…", () => {
-    const one = limitBanner([claudeLine({ avatar: null, move_waiting: null })]);
+  it("the one-tool banner stays M22's: no avatar, no lines, no Use fallback now", () => {
+    const one = limitBanner([claudeLine({ avatar: null, buttons: claudeLine().buttons.slice(0, 1) })]);
     expect(limitLinesOf(one)).toEqual([]);
     const html = renderToStaticMarkup(createElement(BannerRows, { banners: [one] }));
     expect(html).not.toContain("notices-line");
-    expect(html).not.toContain("Move waiting to…");
+    expect(html).not.toContain("Use fallback now");
     expect(html).not.toContain("tool-avatar");
     expect(html).toContain(">Resume<");
   });
 
-  it("Resume <tool> calls limits.resume_tool with its tool; a picked agent calls limits.move_waiting", () => {
+  it("Resume <tool> calls limits.resume_tool with its tool; Use fallback now calls limits.use_fallback_now", () => {
     const ask = vi.mocked(request);
     ask.mockReset();
     ask.mockResolvedValue(null);
     LINE_HANDLERS.onAction({ kind: "resume_tool", tool: "claude" });
     LINE_HANDLERS.onAction({ kind: "resume_tool", tool: "codex" });
-    LINE_HANDLERS.onMove("claude", "strong-gpt");
+    LINE_HANDLERS.onAction({ kind: "use_fallback_now", tool: "claude" });
     expect(ask.mock.calls).toEqual([
       ["limits.resume_tool", { tool: "claude" }],
       ["limits.resume_tool", { tool: "codex" }],
-      ["limits.move_waiting", { tool: "claude", agent: "strong-gpt" }],
+      ["limits.use_fallback_now", { tool: "claude" }],
     ]);
-  });
-
-  it("Move waiting to…'s list: its title, the agents; arrows skip the title, Enter picks, Esc closes", () => {
-    const html = renderToStaticMarkup(
-      createElement(MoveWaitingList, { menu: MOVE, onChoose: () => undefined, onClose: () => undefined }),
-    );
-    expect(html).toMatch(/role="menu".*MOVE 4 WAITING TICKETS TO.*CX.*Standard.*Codex · gpt-5.5.*Strong GPT/);
-    const items = moveMenuItems(MOVE);
-    expect(items.map((i) => i.header)).toEqual([true, false, false]);
-    expect(menuKey(items, null, "ArrowDown")).toEqual({ kind: "highlight", index: 1 });
-    expect(menuKey(items, 2, "ArrowDown")).toEqual({ kind: "highlight", index: 1 });
-    expect(menuKey(items, 1, "ArrowUp")).toEqual({ kind: "highlight", index: 2 });
-    expect(menuKey(items, 2, "Enter")).toEqual({ kind: "choose", id: "strong-gpt" });
-    expect(menuKey(items, 1, "Escape")).toEqual({ kind: "close" });
   });
 });

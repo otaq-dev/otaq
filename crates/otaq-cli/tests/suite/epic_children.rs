@@ -8,7 +8,7 @@ use std::process::{Command, Output};
 use otaq_core::board::epic_flight::{EpicPlace, EpicQueueMode, epic_place};
 use otaq_core::board::tickets::{EventKind, NewTicketInput, Ticket};
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{Actor, Column, Status};
+use otaq_core::domain::{Actor, Place, Status};
 use otaq_core::naming;
 use otaq_core::service::testing::TestService;
 use serde_json::Value;
@@ -91,7 +91,7 @@ async fn an_agents_child_joins_a_whole_queued_epic() {
     assert_eq!(ran.status, 0, "{ran:?}");
     let child: Value = serde_json::from_str(&ran.stdout).unwrap();
     assert_eq!(child["key"], "SHOP-40.4");
-    assert_eq!(child["column"], Column::ReadyForDev.as_str());
+    assert_eq!(child["place"], "waiting");
     assert_eq!(child["status"], Status::Queued.as_str());
     assert_eq!(child["created_by"], "agent:SHOP-40.2");
     assert_eq!(child["joined_queue_by"], "agent:SHOP-40.2");
@@ -110,7 +110,7 @@ async fn an_agents_child_joins_a_whole_queued_epic() {
     ));
     let child: Value = serde_json::from_str(&out).unwrap();
     assert_eq!(child["key"], "SHOP-40.5");
-    assert_eq!(child["column"], Column::Backlog.as_str());
+    assert_eq!(child["place"], "backlog");
     assert!(child.get("joined_queue_by").is_none(), "{child}");
     assert!(joined_events(&w, "SHOP-40.5").await.is_empty());
     let child = w.board.ticket("SHOP-40.5").await.unwrap();
@@ -124,7 +124,7 @@ async fn the_users_child_joins_by_you() {
     let w = TestService::start().await;
     w.shop_sample().await;
     let waits = add_child(&w, "Wishlist count").await;
-    assert_eq!(waits.column, Column::Backlog);
+    assert_eq!(waits.place, Place::Backlog);
     assert_eq!(waits.joined_queue_by, None);
 
     w.board
@@ -156,14 +156,14 @@ async fn adding_after_review_makes_a_track_and_queues_the_child() {
         w.force_status(&child, Status::Merged).await;
     }
     let epic = w.board.ticket("SHOP-40").await.unwrap();
-    w.force_status(&epic, Status::ReadyForReview).await;
+    w.force_status(&epic, Status::WaitingForYou).await;
     assert_eq!(place(&w).await, EpicPlace::Delivery);
 
     let child = add_child(&w, "Wishlist sharing").await;
-    assert_eq!(child.column, Column::ReadyForDev);
+    assert_eq!(child.place, Place::Waiting(None));
     assert_eq!(child.joined_queue_by, Some(me()));
     let epic = w.board.ticket("SHOP-40").await.unwrap();
-    assert_eq!(epic.column, Column::Backlog);
+    assert_eq!(epic.place, Place::Backlog);
     assert_eq!(epic.epic_queue_mode, EpicQueueMode::Whole, "kept");
     assert_eq!(place(&w).await, EpicPlace::Track);
     w.stop().await;
@@ -184,14 +184,14 @@ async fn reopening_after_review_makes_a_track_with_the_child_in_backlog() {
     let merged = w.board.ticket("SHOP-40.3").await.unwrap();
     w.force_status(&merged, Status::Merged).await;
     let epic = w.board.ticket("SHOP-40").await.unwrap();
-    w.force_status(&epic, Status::ReadyForReview).await;
+    w.force_status(&epic, Status::WaitingForYou).await;
 
     let reopened = w.board.reopen("SHOP-40.2", &me()).await.unwrap();
-    assert_eq!(reopened.column, Column::Backlog);
+    assert_eq!(reopened.place, Place::Backlog);
     assert_eq!(reopened.joined_queue_by, None);
     assert!(joined_events(&w, "SHOP-40.2").await.is_empty());
     let epic = w.board.ticket("SHOP-40").await.unwrap();
-    assert_eq!(epic.column, Column::Backlog);
+    assert_eq!(epic.place, Place::Backlog);
     assert_eq!(place(&w).await, EpicPlace::Track);
     w.stop().await;
 }

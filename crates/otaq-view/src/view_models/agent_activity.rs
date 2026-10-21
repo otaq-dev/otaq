@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use otaq_core::board::change_note::change_parts;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Actor, Column, TicketKey};
+use otaq_core::domain::{Actor, TicketKey};
 use otaq_core::signals::LIVE;
 
 /// Tickets an agent creates within this quiet time make one toast (a `create -f` batch arrives as one burst).
@@ -19,14 +19,14 @@ pub const CREATED_BY_AGENT: &str = "created by agent";
 /// The card's origin label for a ticket a ticket's agent created, while it waits in Backlog. A Project agent's
 /// tickets name the agent instead ([`project_agent_label`]).
 pub fn origin_label(ticket: &Ticket) -> Option<&'static str> {
-    (matches!(ticket.created_by, Actor::Agent(_)) && ticket.column == Column::Backlog)
+    (matches!(ticket.created_by, Actor::Agent(_)) && ticket.place.is_backlog())
         .then_some(CREATED_BY_AGENT)
 }
 
 /// "by Project agent “Checkout slowness”" on a Backlog card a Project agent created (d0068), with the agent's
 /// current name; "by a Project agent" once it isn't listed any more.
 pub fn project_agent_label(ticket: &Ticket, name: Option<&str>) -> Option<String> {
-    if !matches!(ticket.created_by, Actor::ProjectAgent(_)) || ticket.column != Column::Backlog {
+    if !matches!(ticket.created_by, Actor::ProjectAgent(_)) || !ticket.place.is_backlog() {
         return None;
     }
     Some(match name {
@@ -41,7 +41,7 @@ pub const FRESH_MS: i64 = 8_000;
 /// A Project agent created it moments ago: Backlog highlights it (*18 → live board feedback*).
 pub fn fresh_from_project_agent(ticket: &Ticket, now_ms: i64) -> bool {
     matches!(ticket.created_by, Actor::ProjectAgent(_))
-        && ticket.column == Column::Backlog
+        && ticket.place.is_backlog()
         && (0..FRESH_MS).contains(&(now_ms - ticket.created_at))
 }
 
@@ -142,7 +142,7 @@ mod tests {
         );
         let mut started = by_agent("SHOP-29", "Add cart analytics");
         started.status = Status::Working;
-        started.column = Column::Dev;
+        started.place = otaq_core::domain::Place::stage_of("dev");
         assert_eq!(origin_label(&started), None);
     }
 
@@ -181,7 +181,7 @@ mod tests {
             project_agent_label(&t, None).as_deref(),
             Some("by a Project agent")
         );
-        t.column = Column::Dev;
+        t.place = otaq_core::domain::Place::stage_of("dev");
         assert_eq!(project_agent_label(&t, Some("x")), None);
         assert!(!fresh_from_project_agent(&t, 3_000));
     }
@@ -235,7 +235,7 @@ mod tests {
             Status::Queued,
             Status::Parked,
             Status::Backlog,
-            Status::ReadyForReview,
+            Status::WaitingForYou,
         ] {
             let mut t = after.clone();
             t.status = status;

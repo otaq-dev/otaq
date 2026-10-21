@@ -1,8 +1,8 @@
 // Settings (⌘,; *15 · Settings*): one modal window, 1040 × 720, a nav on the left (the global topics, then every
-// project) and one page on the right. Each global topic is its own page, titled with its nav label, showing only that
-// topic's sections (Agents also holds Agent limits and Agent instructions); a project has its own page. The nav, the
+// project) and one page on the right. Each global topic is its own page, titled with its nav label (or the heading the
+// topic puts there: one agent's page), showing only that topic's sections; a project has its own page. The nav, the
 // page and every row come from `settings.view`; an edit answers with the fresh view. Esc or × closes it.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
 import { type OverlayProps, useRegistries } from "../../app/registry";
@@ -12,13 +12,12 @@ import type { SettingsButtonAction } from "../../generated/SettingsButtonAction"
 import type { SettingsNavRow } from "../../generated/SettingsNavRow";
 import type { SettingsValue } from "../../generated/SettingsValue";
 import type { SettingsView } from "../../generated/SettingsView";
-import type { SkillOutcome } from "../../generated/SkillOutcome";
 import type { ThemeCreditsDialog } from "../../generated/ThemeCreditsDialog";
 import type { RequestError } from "../../generated/RequestError";
 import { asRequestError, watchView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { SettingsContext, type SettingsContextValue, type SkillMethod, topicRow } from "./context";
+import { SettingsContext, type SettingsContextValue, topicRow } from "./context";
 import { CreditsDialog, RemoveDialog } from "./Dialogs";
 
 type Open =
@@ -46,6 +45,9 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
   const [dialog, setDialog] = useState<Open>(null);
   // Where a topic puts its own header buttons (Keyboard shortcuts' Reset all).
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+  // A topic's own heading in place of its nav label (one agent's page on Agents).
+  const [heading, setHeading] = useState<ReactNode | null>(null);
+  const [visit, setVisit] = useState(0);
   // The open global topic, as any of its sections: Settings opened on a section opens the topic that holds it.
   const [topic, setTopic] = useState<string | null>(params?.section ?? null);
   // The section Settings was opened on, scrolled to once its topic's page is drawn.
@@ -82,27 +84,6 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
       );
     },
     [project],
-  );
-
-  // Settings → Workflow skills (WSK-01, WSK-04): an import, Re-import or reset answers with the fresh view, or asks
-  // first (`needs_confirmation`).
-  const skill = useCallback(
-    (method: SkillMethod, params: Record<string, unknown>) =>
-      request(method, params).then(
-        (answer) => {
-          const outcome = answer as SkillOutcome;
-          if (outcome.outcome === "done") {
-            setView(outcome.view);
-            setError(null);
-          }
-          return outcome.outcome;
-        },
-        (e: unknown) => {
-          setError(asRequestError(e));
-          return null;
-        },
-      ),
-    [],
   );
 
   const act = useCallback(
@@ -144,10 +125,24 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
     [close, project],
   );
 
+  // A project's page at one of its sections (What this agent reads' Edit in <project>'s settings →).
+  // Each opening counts, so the same section scrolls again; `scrolledTo` keeps the last one done.
+  const [projectSection, setProjectSection] = useState<{ section: string; n: number } | null>(null);
+  const scrolledTo = useRef(0);
+  const openProject = useCallback((key: string, section: string) => {
+    setProjectSection((p) => ({ section, n: (p?.n ?? 0) + 1 }));
+    setHeading(null);
+    setVisit((v) => v + 1);
+    setProject(key);
+  }, []);
+
   const page = view?.page;
   const context = useMemo<SettingsContextValue | null>(
-    () => (page ? { page, project, edit, act, skill, headerSlot } : null),
-    [page, project, edit, act, skill, headerSlot],
+    () =>
+      page
+        ? { page, project, edit, act, headerSlot, setHeading, visit, agent: params?.agent, openProject }
+        : null,
+    [page, project, edit, act, headerSlot, visit, params?.agent, openProject],
   );
 
   const globalRows = view?.nav.filter((r) => r.target.page === "global") ?? [];
@@ -168,15 +163,17 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
           return entry ? [{ id: s.id, Component: entry.Component }] : [];
         });
 
-  // Opened on a section further down its topic's page (Agent instructions on Agents): scroll to it once it's drawn.
+  // Opened on a section further down its topic's page (or a project's): scroll to it once it's drawn.
   useLayoutEffect(() => {
-    const wanted = scrollPending.current;
-    if (wanted === null || page?.page !== "global") return;
+    const fresh = projectSection !== null && projectSection.n !== scrolledTo.current ? projectSection : null;
+    const wanted = scrollPending.current ?? fresh?.section ?? null;
+    if (wanted === null || !page) return;
     const i = sections.findIndex((s) => s.id === wanted);
     const element = body.current?.querySelectorAll<HTMLElement>(":scope > .settings-section-slot")[i];
     if (!element || !body.current) return;
     body.current.scrollTop = i === 0 ? 0 : element.offsetTop;
     scrollPending.current = null;
+    if (fresh) scrolledTo.current = fresh.n;
   });
 
   // Esc closes Settings, unless a menu or a dialog inside it takes it.
@@ -197,6 +194,8 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
 
   const go = (row: SettingsNavRow) => {
     scrollPending.current = null;
+    setHeading(null);
+    setVisit((v) => v + 1);
     if (row.target.page === "project") setProject(row.target.key);
     else {
       setTopic(row.target.section);
@@ -242,7 +241,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
         </nav>
         <div className="settings-main">
           <header className="settings-header">
-            <h2>{page?.page === "global" ? openRow?.label : page?.title}</h2>
+            {heading ?? <h2>{page?.page === "global" ? openRow?.label : page?.title}</h2>}
             <div ref={setHeaderSlot} className="settings-header-actions" />
             <IconButton icon="x" label={view?.close_label ?? ""} onClick={close} />
           </header>

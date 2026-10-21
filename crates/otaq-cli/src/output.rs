@@ -34,6 +34,11 @@ impl Output {
         Self { mode }
     }
 
+    /// The default mode: human text (not `--json`, `--quiet` or `--silent`).
+    pub fn is_human(&self) -> bool {
+        self.mode == Mode::Human
+    }
+
     /// What a successful command prints in each mode: `human` text, the `json` value, or the `id` alone.
     pub fn render<T: Serialize>(&self, human: &str, json: &T, id: Option<&str>) -> Option<String> {
         match self.mode {

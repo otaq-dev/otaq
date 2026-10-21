@@ -1,6 +1,6 @@
 // What every Settings section reads: the open page from the Rust view and the calls back to it. The Settings overlay
 // provides it; the section components (registered per id) take their rows from it.
-import { createContext, useContext } from "react";
+import { type ReactNode, createContext, useContext } from "react";
 
 import type { SettingsButtonAction } from "../../generated/SettingsButtonAction";
 import type { SettingsNavRow } from "../../generated/SettingsNavRow";
@@ -15,17 +15,20 @@ export interface SettingsContextValue {
   /** Saves one field (`settings.edit`); the fresh view replaces the page. */
   edit: (field: string, value: SettingsValue) => void;
   act: (action: SettingsButtonAction) => void;
-  /** Settings → Workflow skills' calls (T-0380): the fresh view replaces the page (a refusal is written under its
-   * step); answers `"confirm"` when the row's dialog must ask first, `null` when it failed. Absent in the gallery's
-   * other sections. */
-  skill?: (method: SkillMethod, params: Record<string, unknown>) => Promise<"done" | "confirm" | null>;
   /** The header's place for a topic's own buttons (Keyboard shortcuts' Reset all, T-0395); `null` until it is
    * drawn, absent in the gallery. */
   headerSlot?: HTMLElement | null;
+  /** Puts a topic's own heading in place of its nav label (one agent's page, T-0410); `null` gives the label back.
+   * Absent in the gallery. */
+  setHeading?: (heading: ReactNode | null) => void;
+  /** Counts the nav clicks: a topic showing a page of its own (one agent) goes back to its first page on one. */
+  visit?: number;
+  /** The agent Settings was opened on: Agents opens its page (Open agent…, T-0411). */
+  agent?: string;
+  /** Opens a project's page at one of its sections (What this agent reads' Edit in <project>'s settings →, T-0440).
+   * Absent in the gallery. */
+  openProject?: (project: string, section: string) => void;
 }
-
-/** The Workflow skills' calls (`api/settings.rs`). */
-export type SkillMethod = "settings.skill_import" | "settings.skill_reimport" | "settings.skill_reset";
 
 export const SettingsContext = createContext<SettingsContextValue | null>(null);
 

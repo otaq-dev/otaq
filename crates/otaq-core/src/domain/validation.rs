@@ -1,5 +1,6 @@
-//! Validation and Auto-merge (SDD §7.2 M12 rows, §14.0, §14.8; d0063, d0064): how a ticket reached Review, the
-//! outcome of a validation round, why Auto-merge stopped, and the exact texts the board shows for them.
+//! Validation and the Delivery's stops (SDD §7.2 M12 rows, §14.0, FLW-15, FLW-17; d0063, d0064, d0108): how a ticket
+//! reached Review, the outcome of a validation round, why a Delivery stopped, and the exact texts the board shows for
+//! them.
 //!
 //! Texts with a number or a branch ("Validation failed 3 times", "Keeps conflicting with `main`") are built
 //! here, so the card, the panel, the inbox and the CLI read the same.
@@ -18,9 +19,9 @@ pub const VALIDATOR_NEEDS_YOU: &str = "Needs you · validator";
 pub const NO_RESULT: &str = "Validation ended without a result";
 /// The validator changed tracked files or committed: its verdict is thrown away (VAL-02).
 pub const DISCARDED: &str = "Validation discarded: the validator changed files";
-/// Auto-merge's free rebase conflicted; the agent is rebasing with `restack` (AMG-03).
+/// A Delivery's free rebase conflicted; the agent is rebasing with `restack`, no click (FLW-17).
 pub const MERGE_CONFLICT_FIXING: &str = "Merge conflict · fixing";
-/// Done through Auto-merge (AMG-02).
+/// Done through an automatic local Delivery (FLW-15, AMG-02).
 pub const MERGED_AUTOMATICALLY: &str = "Merged automatically";
 
 /// "Validation failed 3 times": the last round failed (VAL-06).
@@ -59,11 +60,21 @@ pub fn cancelled_toast(key: &str, by: CancelledBy) -> (String, String) {
     )
 }
 
-/// The Auto-merge toast (frame *11 → Success toasts*): "SHOP-40.1 merged automatically into the Wishlist branch" ·
-/// "Validated · round 1 · local, not pushed · SHOP-40.2 can start". `into` is "the Wishlist branch" for an epic
-/// child, else the base branch; `started` are the waiting tickets that started after the merge.
-pub fn merged_toast(key: &str, into: &str, round: u32, started: &[String]) -> (String, String) {
-    let mut message = format!("Validated · round {round} · local, not pushed");
+/// The automatic local Delivery's toast (frame *11 → Success toasts*): "SHOP-40.1 merged automatically into the
+/// Wishlist branch" · "Validated · round 1 · local, not pushed · SHOP-40.2 can start". `into` is "the Wishlist branch"
+/// for an epic child, else the base branch; `round` is the round that passed, `None` with no check passed before the
+/// Delivery ("Delivered without checks", d0108 rule 8); `started` are the waiting tickets that started after the
+/// merge.
+pub fn merged_toast(
+    key: &str,
+    into: &str,
+    round: Option<u32>,
+    started: &[String],
+) -> (String, String) {
+    let mut message = match round {
+        Some(round) => format!("Validated · round {round} · local, not pushed"),
+        None => format!("{DELIVERED_WITHOUT_CHECKS} · local, not pushed"),
+    };
     match started {
         [] => {}
         [one] => message.push_str(&format!(" · {one} can start")),
@@ -74,7 +85,10 @@ pub fn merged_toast(key: &str, into: &str, round: u32, started: &[String]) -> (S
     (format!("{key} merged automatically into {into}"), message)
 }
 
-/// "Keeps conflicting with `main`": the third Auto-merge conflict in a row (AMG-03).
+/// "Delivered without checks": an automatic Delivery with no check passed before it (d0108 rule 8).
+pub const DELIVERED_WITHOUT_CHECKS: &str = "Delivered without checks";
+
+/// "Keeps conflicting with `main`": a Delivery's third conflict in a row (FLW-17, AMG-03).
 pub fn keeps_conflicting(target: &str) -> String {
     format!("Keeps conflicting with `{target}`")
 }
@@ -83,11 +97,12 @@ stored_enum! {
     /// How a ticket reached Ready for Review (d0063). `None` on tickets that got there before M12 or with
     /// validation off.
     pub enum ReviewEntry ("review entry") {
-        /// Passed validation: "Validated · round N". Only these may auto-merge (d0064).
+        /// Passed validation: "Validated · round N".
         Validated = "validated",
         /// No verdict, and the user moved it on: "Validation skipped by you".
         Skipped = "skipped",
-        /// The user's Submit for review, which skips validation: "Submitted by you" (d0052).
+        /// The user's Move to next stage into a human check with no agent check before it: "Submitted by you"
+        /// (d0052, d0108 rule 10; with an agent check next, the check runs and its pass is `Validated`).
         SubmittedByUser = "submitted_by_user",
         /// Failed every round, moved on by the user: "Failed M times · moved by you" (reads as "did not pass").
         FailedMoved = "failed_moved",
@@ -104,11 +119,6 @@ impl ReviewEntry {
             Self::SubmittedByUser => "Submitted by you".to_owned(),
             Self::FailedMoved => format!("Failed {} · moved by you", times_word(round)),
         }
-    }
-
-    /// Auto-merge applies only to validated tickets (AMG-01).
-    pub fn may_auto_merge(self) -> bool {
-        self == Self::Validated
     }
 }
 
@@ -139,11 +149,34 @@ impl fmt::Display for ValidationRound {
 }
 
 stored_enum! {
+    /// How the user moved a card past an agent check (`check_counters.moved_past`, FLW-13): either way the card
+    /// reaches its Delivery in click mode (d0108 "Move on anyway"; Q277).
+    pub enum MovedPast ("moved past") {
+        /// Move on anyway after the check's last allowed round failed: "Failed Security 3 times · moved by you".
+        Failed = "failed",
+        /// Skip this check (on a running check, or one held for the plan limit with no usable fallback), or Move on
+        /// anyway after it ended without a result: "Skipped Security · by you".
+        Skipped = "skipped",
+    }
+}
+
+impl MovedPast {
+    /// Why the card's Delivery waits for a click: "Failed Security 3 times · moved by you", "Skipped Security · by
+    /// you". `fails` are the check's fails in a row when the card was moved on.
+    pub fn reason(self, check: &str, fails: u32) -> String {
+        match self {
+            Self::Failed => format!("Failed {check} {} · moved by you", times_word(fails)),
+            Self::Skipped => format!("Skipped {check} · by you"),
+        }
+    }
+}
+
+stored_enum! {
     /// Who started a validation round (`validations.trigger`).
     pub enum ValidationTrigger ("validation trigger") {
-        /// The agent's `review submit`.
+        /// The agent's `stage next` (or `review submit`).
         Agent = "agent",
-        /// The user's Validate and submit.
+        /// The user's Move to next stage.
         User = "user",
     }
 }
@@ -161,9 +194,9 @@ stored_enum! {
         Discarded = "discarded",
         /// The validator's session died with the service or the machine (REC-01).
         Interrupted = "interrupted",
-        /// The user's Skip to Review.
+        /// The user's Skip this check.
         Skipped = "skipped",
-        /// The user's Stop validation, Park or Close.
+        /// The user's Stop this check, Park or Close.
         Stopped = "stopped",
     }
 }
@@ -176,7 +209,8 @@ impl ValidationOutcome {
 }
 
 stored_enum! {
-    /// Why Auto-merge stopped and turned the card turquoise (AMG-03, AMG-04).
+    /// Why a Delivery stopped and turned the card turquoise (FLW-17; AMG-03, AMG-04). Kept by its old name: the
+    /// stored column is `auto_merge_stop`.
     pub enum AutoMergeStop ("auto-merge stop") {
         /// Three conflicts in a row: "Keeps conflicting with `<target>`".
         KeepsConflicting = "keeps_conflicting",
@@ -190,23 +224,22 @@ stored_enum! {
 stored_enum! {
     /// The user's actions on a validation (VAL-06, VAL-07, VAL-09): the panel's buttons and "…" menu items.
     pub enum ValidationAction ("validation action") {
-        /// The agent's flow, started by the user (agent not mid-turn): rounds and Auto-merge apply.
-        ValidateAndSubmit = "validate_and_submit",
         /// While validating: the validator stops, the round doesn't count, back to Agent Working.
         Stop = "stop",
         /// While validating: Ready for Review, "Validation skipped by you", never auto-merged.
         Skip = "skip",
         /// After the last failed round, or no result: Ready for Review without a pass, never auto-merged.
-        MoveToReviewAnyway = "move_to_review_anyway",
+        MoveOnAnyway = "move_on_anyway",
         /// After the last failed round: the findings go to the agent, one more round is allowed.
         AnotherRound = "another_round",
         /// After the last failed round: the user's note goes with the findings, the counter restarts at 0.
         AnswerAgent = "answer_agent",
         /// After no result: a fresh validator, not a round.
         Retry = "retry",
-        /// After an Auto-merge stop: run the merge again (d0064).
+        /// After a Delivery's stop (FLW-17): back to the Delivery, which runs again when it is automatic.
         RetryMerge = "retry_merge",
-        /// After an Auto-merge stop: Ready for Review, still "Validated · round N", not merged again.
+        /// After a Delivery's stop: back to where the user delivers (the default flow's Review, still "Validated ·
+        /// round N"), not merged again.
         MoveToReview = "move_to_review",
     }
 }
@@ -240,35 +273,36 @@ mod tests {
                 "Failed 2 times · moved by you"
             ]
         );
-        assert!(ReviewEntry::Validated.may_auto_merge());
-        assert!(
-            ReviewEntry::ALL
-                .iter()
-                .filter(|e| e.may_auto_merge())
-                .count()
-                == 1
-        );
     }
 
     /// The toasts of frame *11 → Success toasts* (T-0196).
     #[test]
     fn toasts() {
         assert_eq!(
-            merged_toast("SHOP-40.1", "the Wishlist branch", 1, &["SHOP-40.2".into()]),
+            merged_toast(
+                "SHOP-40.1",
+                "the Wishlist branch",
+                Some(1),
+                &["SHOP-40.2".into()]
+            ),
             (
                 "SHOP-40.1 merged automatically into the Wishlist branch".to_owned(),
                 "Validated · round 1 · local, not pushed · SHOP-40.2 can start".to_owned()
             )
         );
         assert_eq!(
-            merged_toast("SHOP-18", "main", 2, &[]).1,
+            merged_toast("SHOP-18", "main", Some(2), &[]).1,
             "Validated · round 2 · local, not pushed"
+        );
+        assert_eq!(
+            merged_toast("SHOP-18", "main", None, &[]).1,
+            "Delivered without checks · local, not pushed"
         );
         assert_eq!(
             merged_toast(
                 "SHOP-1",
                 "main",
-                1,
+                Some(1),
                 &["SHOP-2".into(), "SHOP-3".into(), "SHOP-4".into()]
             )
             .1,
@@ -284,6 +318,23 @@ mod tests {
         assert_eq!(
             cancelled_toast("SHOP-29", CancelledBy::Description).0,
             "Validation cancelled: SHOP-29’s description changed"
+        );
+    }
+
+    /// T-0417 (FLW-13): why a card moved past a check reaches its Delivery in click mode.
+    #[test]
+    fn moved_past_reasons() {
+        assert_eq!(
+            MovedPast::Failed.reason("Security", 3),
+            "Failed Security 3 times · moved by you"
+        );
+        assert_eq!(
+            MovedPast::Failed.reason("Validate", 1),
+            "Failed Validate 1 time · moved by you"
+        );
+        assert_eq!(
+            MovedPast::Skipped.reason("Security", 0),
+            "Skipped Security · by you"
         );
     }
 

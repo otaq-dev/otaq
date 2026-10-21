@@ -12,7 +12,6 @@ use serde_json::json;
 
 use super::Shared;
 use crate::agent_tools::SetupOutcome;
-use crate::board::agent_picks::{PickTarget, Picker, check_picks};
 use crate::board::change_note::change_note;
 use crate::board::questions::validate_options;
 use crate::board::readiness::project_readiness;
@@ -21,6 +20,10 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::caller::Caller;
 use crate::domain::{Actor, Kind};
 use crate::epic_lead::changes::LeadChange;
+use crate::flow::apply::FlowEvent;
+use crate::flow::apply_now::ApplyNowAnswer;
+use crate::flow::proposal::ProposedBy;
+use crate::flow::propose;
 use crate::protocol::{
     ErrorBody, ErrorKind, Event, GlobalSettingsReply, ProjectSettingsReply, Reply, Request,
 };
@@ -52,8 +55,8 @@ pub(super) async fn handle(
         Request::ProjectAdd(add) => boxed(move || async move {
             let (project, trust) = board.add_project_trusted(&add).await?;
             shared.events.publish(Event::ProjectsChanged);
-            // Onboarding ends with a project: the starter entry, if a tool got connected since the start (AGT-01).
-            super::spawn_starter(&shared.connected, &shared.adapters, &shared.store);
+            // Onboarding ends with a project: the default model, if a tool got connected since the start (AGM-02).
+            super::spawn_default_model(&shared.connected, &shared.store);
             // A failed trust lists the project in the notices (PRJ-08).
             if matches!(trust, Some(SetupOutcome::Failed { .. })) {
                 shared.events.publish(Event::TrustChanged);
@@ -94,6 +97,11 @@ pub(super) async fn handle(
                 .await
                 .map(Reply::PrProvider)
         }),
+        Request::OnboardingSources(p) => boxed(move || async move {
+            crate::onboarding::sources(board, &shared.connected, &p.project)
+                .await
+                .map(Reply::OnboardingSources)
+        }),
         Request::BoardSnapshot(p) => {
             boxed(move || async move { board.board_snapshot(&p.project).await.map(Reply::Board) })
         }
@@ -121,7 +129,7 @@ pub(super) async fn handle(
         Request::UsageSummary(p) => boxed(move || async move {
             let mut summary = shared.usage.summary(p.project.as_deref()).await?;
             summary.tool_lines =
-                crate::named_agents::moves::tool_lines(crate::named_agents::moves::LineSources {
+                crate::agents::limits::tool_lines(crate::agents::limits::LineSources {
                     board,
                     gate: &shared.gate,
                     plan_limit: &shared.plan_limit,
@@ -153,9 +161,9 @@ pub(super) async fn handle(
             )
         }
         Request::TicketAgents(p) => boxed(move || async move {
-            let agents = &shared.named_agents;
+            use crate::agents::facts;
             let answer = match (&p.key, &p.project) {
-                (Some(key), _) => match agents.ticket_agents(key).await {
+                (Some(key), _) => match facts::ticket_agents(board, key).await {
                     Ok(mut t) => {
                         let id = shared.board.ticket_id(key).await?;
                         t.tokens = shared.usage.agents_of(&id).await?;
@@ -165,16 +173,54 @@ pub(super) async fn handle(
                 },
                 (None, Some(project)) => {
                     let kind = if p.new_epic { Kind::Epic } else { Kind::Ticket };
-                    agents.new_ticket_agents(project, kind).await
+                    facts::new_ticket_agents(board, project, kind).await
                 }
                 (None, None) => Err(BoardError::NotFound("a key or a project".into())),
             };
             answer.map(|t| Reply::TicketAgents(Box::new(t)))
         }),
         Request::BoardAgents(p) => boxed(move || async move {
-            let mut agents = shared.named_agents.board_agents(&p.project).await?;
+            let mut agents = crate::agents::facts::board_agents(board, &p.project).await?;
             agents.connected = shared.connected.connected();
             Ok(Reply::BoardAgents(Box::new(agents)))
+        }),
+        // Stage choices (AGM-08, AGM-09).
+        Request::TicketChoices(p) => boxed(move || async move {
+            let choices = match (&p.key, &p.project) {
+                (Some(key), _) => board.ticket_choices(key).await?,
+                (None, Some(project)) => board.new_ticket_choices(project).await?,
+                (None, None) => return Err(BoardError::NotFound("a key or a project".into())),
+            };
+            Ok(Reply::TicketChoices(Box::new(choices)))
+        }),
+        Request::TicketSetChoice(p) => boxed(move || async move {
+            let ticket = board.ticket(&p.key).await?;
+            let chooser = super::permissions::chooser(caller, board).await;
+            let pick = crate::board::stage_choices::ChoicePick {
+                stage: p.stage.clone(),
+                choice: p.choice.clone(),
+                reason: None,
+            };
+            let project = ticket.key.project.to_string();
+            let writes = board
+                .check_choices(
+                    &project,
+                    Some(&ticket),
+                    (ticket.kind, ""),
+                    std::slice::from_ref(&pick),
+                    &chooser,
+                    false,
+                )
+                .await?;
+            if board
+                .write_choices(&ticket, &writes, &actor, lead_epic(caller))
+                .await?
+            {
+                publish_ticket_changed(shared, &ticket.key).await;
+            }
+            Ok(Reply::TicketChoices(Box::new(
+                board.ticket_choices(&p.key).await?,
+            )))
         }),
         Request::AgentToolsList => {
             boxed(move || async move { Ok(Reply::AgentTools(Box::new(shared.connected.list()))) })
@@ -202,38 +248,8 @@ pub(super) async fn handle(
             shared.connected.disconnect(p.tool).await?;
             Ok(Reply::AgentTools(Box::new(shared.connected.list())))
         }),
-        // Imported workflow skills (d0092). A change is a settings change: windows refetch.
-        Request::WorkflowSkillsStatus(p) => boxed(move || async move {
-            board
-                .workflow_skills_status(p.project.as_deref())
-                .await
-                .map(Reply::WorkflowSkills)
-        }),
-        Request::WorkflowSkillsImport(p) => boxed(move || async move {
-            let s = &p.setting;
-            let status = board
-                .import_workflow_skill(s.project.as_deref(), s.step, &p.folder)
-                .await?;
-            publish_skill_change(shared, s.project.as_deref());
-            Ok(Reply::WorkflowSkill(Box::new(status)))
-        }),
-        Request::WorkflowSkillsReimport(p) => boxed(move || async move {
-            let status = board
-                .reimport_workflow_skill(p.project.as_deref(), p.step)
-                .await?;
-            publish_skill_change(shared, p.project.as_deref());
-            Ok(Reply::WorkflowSkill(Box::new(status)))
-        }),
-        Request::WorkflowSkillsReset(p) => boxed(move || async move {
-            let s = &p.setting;
-            let status = board
-                .reset_workflow_skill(s.project.as_deref(), s.step, p.confirmed)
-                .await?;
-            publish_skill_change(shared, s.project.as_deref());
-            Ok(Reply::WorkflowSkill(Box::new(status)))
-        }),
         Request::LimitsResumeTool(p) => boxed(move || async move {
-            let resumed = crate::named_agents::moves::resume_tool(
+            let resumed = crate::agents::limits::resume_tool(
                 &shared.plan_limit,
                 &shared.validation,
                 &shared.gate,
@@ -245,19 +261,15 @@ pub(super) async fn handle(
             }
             Ok(Reply::Resumed(resumed))
         }),
-        Request::LimitsMoveWaiting(p) => boxed(move || async move {
-            crate::named_agents::moves::move_waiting(
-                board,
-                &shared.gate,
-                &shared.events,
-                p.tool,
-                &p.agent,
-            )
-            .await
-            .map(Reply::MovedWaiting)
+        Request::LimitsUseFallbackNow(p) => boxed(move || async move {
+            let started = shared.gate.use_fallback_now(p.tool).await?;
+            for key in &started {
+                publish_ticket_changed(shared, key).await;
+            }
+            Ok(Reply::StartedOnFallback(started))
         }),
         Request::TicketUseFallback(p) => boxed(move || async move {
-            shared.gate.use_fallback(&p.key, p.role).await?;
+            shared.gate.use_fallback(&p.key).await?;
             Ok(Reply::Ok)
         }),
         // What macOS allows Otaq's notifications, the ask and the blocked banner (ATT-13, ATT-14; d0090).
@@ -274,10 +286,6 @@ pub(super) async fn handle(
         }),
         Request::NotificationsDismissBlocked => boxed(move || async move {
             shared.notifications.dismiss_blocked().await?;
-            Ok(Reply::Ok)
-        }),
-        Request::SettingsAutoFallback(p) => boxed(move || async move {
-            shared.gate.set_automatic(p.on).await?;
             Ok(Reply::Ok)
         }),
         Request::RecentItems(p) => boxed(move || async move {
@@ -335,18 +343,21 @@ pub(super) async fn handle(
         }),
         Request::TicketCreateBatch(p) => boxed(move || async move {
             let project = p.project.clone();
-            // Every ticket's picks are checked before anything is created (AGT-06).
-            let picker_name = super::permissions::picker_name(caller, board).await;
-            let picker = picker_of(picker_name.as_deref(), p.by_user);
+            // Every ticket's choices are checked before anything is created (AGM-11).
+            let chooser = super::permissions::chooser(caller, board).await;
             let mut writes = Vec::with_capacity(p.tickets.len());
             for ticket in &p.tickets {
                 let label = format!("the new ticket \"{}\"", ticket.title);
-                let target = PickTarget::New {
-                    kind: ticket.kind,
-                    label: &label,
-                };
                 writes.push(
-                    check_picks(board, &shared.named_agents, target, &ticket.agents, picker)
+                    board
+                        .check_choices(
+                            &project,
+                            None,
+                            (ticket.kind, &label),
+                            &ticket.choices,
+                            &chooser,
+                            p.by_user,
+                        )
                         .await?,
                 );
             }
@@ -354,7 +365,7 @@ pub(super) async fn handle(
                 let tickets = board.create_batch(&p.project, &p.tickets, &actor).await?;
                 for (ticket, writes) in tickets.iter().zip(&writes) {
                     board
-                        .write_picks(ticket, writes, &actor, lead_epic(caller))
+                        .write_choices(ticket, writes, &actor, lead_epic(caller))
                         .await?;
                 }
                 Ok(tickets)
@@ -375,38 +386,41 @@ pub(super) async fn handle(
         Request::TicketUpdate(p) => boxed(move || async move {
             let project = project_of(&p.key);
             let before = board.ticket(&p.key).await.ok();
-            // The picks are checked before any field changes (AGT-06).
+            // The choices are checked before any field changes (AGM-11).
             let writes = match &before {
-                Some(ticket) if !p.update.agents.is_empty() => {
-                    let picker_name = super::permissions::picker_name(caller, board).await;
-                    let picker = picker_of(picker_name.as_deref(), p.update.by_user);
-                    let target = PickTarget::Existing(ticket);
-                    check_picks(
-                        board,
-                        &shared.named_agents,
-                        target,
-                        &p.update.agents,
-                        picker,
-                    )
-                    .await?
+                Some(ticket) if !p.update.choices.is_empty() => {
+                    let chooser = super::permissions::chooser(caller, board).await;
+                    board
+                        .check_choices(
+                            ticket.key.project.as_str(),
+                            Some(ticket),
+                            (ticket.kind, ""),
+                            &p.update.choices,
+                            &chooser,
+                            p.update.by_user,
+                        )
+                        .await?
                 }
                 _ => Vec::new(),
             };
-            let mut picked = false;
+            // An agent's or a lead's edit names it in History (CMT-14); the user's is "You".
+            let author = match caller {
+                Caller::User | Caller::ProjectAgent { .. } => None,
+                _ => board.caller_author(caller, &actor).await.ok(),
+            };
+            let mut chosen = false;
             let after = mutate(shared, &project, async {
-                let after = board.update_ticket(&p.key, &p.update, &actor).await?;
-                picked = board
-                    .write_picks(&after, &writes, &actor, lead_epic(caller))
+                let after = board
+                    .update_ticket_by(&p.key, &p.update, &actor, author.as_ref())
+                    .await?;
+                chosen = board
+                    .write_choices(&after, &writes, &actor, lead_epic(caller))
                     .await?;
                 Ok(after)
             })
             .await;
-            if picked && let Ok(after) = &after {
-                shared.events.publish(Event::TicketChanged {
-                    project: project.clone(),
-                    id: after.id.clone(),
-                    key: after.key.clone(),
-                });
+            if chosen && let Ok(after) = &after {
+                publish_ticket_changed(shared, &after.key).await;
             }
             // The user's description edit cancels a validation first (VAL-08); then the agent gets the note.
             let after = match (&before, after) {
@@ -423,9 +437,9 @@ pub(super) async fn handle(
                 queue_change_note(shared, before, after, &actor).await;
             }
             let fields = updated_fields(&p.update);
-            // Picks alone are logged as row changes, not as an edit.
+            // Choices alone are logged as choice changes, not as an edit.
             if let Ok(after) = &after
-                && (!fields.is_empty() || p.update.agents.is_empty())
+                && (!fields.is_empty() || p.update.choices.is_empty())
             {
                 lead_changed(
                     shared,
@@ -448,6 +462,28 @@ pub(super) async fn handle(
             .await;
             // Entering Queued only queues: the scheduler starts it once it's ready (its change event wakes it).
             moved.map(|t| Reply::Ticket(Box::new(t)))
+        }),
+        Request::TicketDrag(p) => boxed(move || async move {
+            let project = project_of(&p.key);
+            let answers = crate::review::drag::DragAnswers {
+                note: &p.note,
+                report: p.report.as_ref(),
+                confirmed: p.confirmed,
+                clear_first: p.clear_first,
+            };
+            mutate(
+                shared,
+                &project,
+                Box::pin(shared.review.drag(
+                    &p.key,
+                    &p.target,
+                    answers,
+                    &shared.validation,
+                    &actor,
+                )),
+            )
+            .await
+            .map(Reply::Returned)
         }),
         Request::TicketHistory(p) => {
             boxed(move || async move { board.history(&p.key).await.map(Reply::History) })
@@ -497,17 +533,36 @@ pub(super) async fn handle(
                 Err(e) => Err(e),
             }
         }),
-        Request::TicketSendBack(p) => boxed(move || async move {
+        request @ (Request::TicketCommentPost(_)
+        | Request::TicketCommentEdit(_)
+        | Request::TicketCommentDelete(_)
+        | Request::TicketComments(_)
+        | Request::TicketReport(_)) => {
+            boxed(
+                move || async move { ticket_comment_request(shared, caller, &actor, request).await },
+            )
+        }
+        Request::TicketFail(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(
                 shared,
                 &project,
                 shared
                     .review
-                    .send_back(&p.key, &p.note, p.clear_first, &actor),
+                    .fail(&p.key, &p.note, p.report.clone(), p.clear_first, &actor),
             )
             .await
             .map(Reply::Returned)
+        }),
+        Request::TicketPass(p) => boxed(move || async move {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                shared.review.pass(&p.key, &shared.validation, &actor),
+            )
+            .await
+            .map(Reply::Passed)
         }),
         Request::TicketConflict(p) => boxed(move || async move {
             match board.ticket(&p.key).await {
@@ -539,15 +594,37 @@ pub(super) async fn handle(
             .await
             .map(Reply::LocalMerge)
         }),
-        Request::TicketSendToFix(p) => boxed(move || async move {
+        Request::TicketSendBackPr(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(
                 shared,
                 &project,
-                shared.review.send_to_fix(&p.key, p.clear_first, &actor),
+                shared.review.send_back_pr(
+                    &p.key,
+                    &p.note,
+                    p.report.clone(),
+                    p.clear_first,
+                    &actor,
+                ),
             )
             .await
             .map(Reply::Returned)
+        }),
+        // The PR's comments are fetched only on this click (REV-05, d0017).
+        Request::TicketAddChildFromPr(p) => boxed(move || async move {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                crate::review::delivery::add_child_from_pr(
+                    board,
+                    &p.key,
+                    &shared.config.tools.path,
+                    &actor,
+                ),
+            )
+            .await
+            .map(|t| Reply::Ticket(Box::new(t)))
         }),
         // PR comments are fetched only here, while the agent asks for its feedback (REV-05, d0017).
         Request::ReviewFeedback(p) => boxed(move || async move {
@@ -605,28 +682,72 @@ pub(super) async fn handle(
             boxed(move || async move { lead_note(shared, caller, &p, &actor).await })
         }
         Request::TicketNotes(p) => boxed(move || async move { read_notes(shared, &p.key).await }),
-        Request::TicketReviewSubmit(p) => boxed(move || async move {
-            // Not while the lead's note is unread (CLI-08); the user's Submit for review is another request.
+        Request::TicketStageNext(p) => boxed(move || async move {
+            // Not while the lead's note is unread (CLI-08); the user's Move to next stage is another request.
             board.refuse_unread_notes(&p.key).await?;
+            refuse_unprimed(board, caller, &p.key).await?;
             let project = project_of(&p.key);
+            let before = board.ticket(&p.key).await?;
+            // The summary is the agent's comment (CMT-05): checked and its report copied before anything moves.
+            let hand_over = stage_end_hand_over(shared, caller, &actor, &before, &p).await?;
             // From M12 the submit starts a validator when validation is on for the project (VAL-01).
             let submitted = mutate(
                 shared,
                 &project,
                 Box::pin(shared.validation.submit(
                     &p.key,
-                    &p.summary,
+                    hand_over.as_ref(),
                     &actor,
                     crate::domain::ValidationTrigger::Agent,
                 )),
             )
             .await;
+            let submitted =
+                crate::board::hand_over::settled(board, hand_over.as_ref(), submitted).await;
             if submitted.is_ok()
                 && let Caller::Agent { session, .. } = caller
             {
                 shared.signals.mark_submitted_or_asked(session);
             }
-            submitted.map(|t| Reply::Ticket(Box::new(t)))
+            let ticket = submitted?;
+            let flow = board.effective_flow(&project).await?;
+            let text = crate::board::review::stage_next_text(&flow, &before, &ticket);
+            Ok(Reply::StageEnded(Box::new(
+                crate::board::review::StageEnded { ticket, text },
+            )))
+        }),
+        Request::TicketStageDone(p) => boxed(move || async move {
+            board.refuse_unread_notes(&p.key).await?;
+            refuse_unprimed(board, caller, &p.key).await?;
+            let project = project_of(&p.key);
+            // From inside the ticket's own agent session, the session ends after its turn (the Done cleanup would
+            // otherwise end the command's own session before it answers).
+            let own_session = match caller {
+                Caller::Agent { session, .. } => Some(session.as_str()),
+                _ => None,
+            };
+            let before = board.ticket(&p.key).await?;
+            let hand_over = stage_end_hand_over(shared, caller, &actor, &before, &p).await?;
+            let done = mutate(
+                shared,
+                &project,
+                Box::pin(
+                    shared
+                        .review
+                        .stage_done(&p.key, hand_over.as_ref(), own_session, &actor),
+                ),
+            )
+            .await;
+            let done = crate::board::hand_over::settled(board, hand_over.as_ref(), done).await;
+            if done.is_ok()
+                && let Caller::Agent { session, .. } = caller
+            {
+                shared.signals.mark_submitted_or_asked(session);
+            }
+            done.map(|ticket| {
+                let text = crate::board::review::stage_done_text(&ticket);
+                Reply::StageEnded(Box::new(crate::board::review::StageEnded { ticket, text }))
+            })
         }),
         Request::ValidationVerdict(p) => boxed(move || async move {
             let Caller::Validator { session, .. } = caller else {
@@ -635,18 +756,27 @@ pub(super) async fn handle(
                     crate::policy::ONLY_A_VALIDATOR,
                 ));
             };
+            board.refuse_unprimed(&p.key, session).await?;
             let project = project_of(&p.key);
-            mutate(
+            // The verdict is the checker's comment (CMT-05), refused whole when too long or its report is missing.
+            let ticket = board.ticket(&p.key).await?;
+            let author = board.session_author(session).await?;
+            let hand_over = board
+                .hand_over(&ticket, author, &p.report, p.report_file.clone())
+                .await?;
+            let verdict = mutate(
                 shared,
                 &project,
                 Box::pin(
                     shared
                         .validation
-                        .verdict(&p.key, p.pass, &p.report, session),
+                        .verdict(&p.key, p.pass, hand_over.as_ref(), session),
                 ),
             )
-            .await
-            .map(|t| Reply::Ticket(Box::new(t)))
+            .await;
+            crate::board::hand_over::settled(board, hand_over.as_ref(), verdict)
+                .await
+                .map(|t| Reply::Ticket(Box::new(t)))
         }),
         Request::TicketValidationAction(p) => boxed(move || async move {
             let project = project_of(&p.key);
@@ -682,16 +812,16 @@ pub(super) async fn handle(
             .map(|t| Reply::Ticket(Box::new(t)))
         }),
         Request::TicketPrimeValidate(p) => boxed(move || async move {
-            Box::pin(board.validate_prime(&p.key))
-                .await
-                .map(|c| Reply::PrimeValidate(Box::new(c)))
+            let context = Box::pin(board.validate_prime(&p.key)).await?;
+            record_prime(board, caller, &context.ticket.id).await?;
+            Ok(Reply::PrimeValidate(Box::new(context)))
         }),
         Request::TicketPrPropose(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(
                 shared,
                 &project,
-                board.pr_propose(&p.key, &p.proposal, &actor),
+                shared.prs.propose(&p.key, &p.proposal, &actor),
             )
             .await
             .map(|t| Reply::Ticket(Box::new(t)))
@@ -944,7 +1074,7 @@ pub(super) async fn handle(
             mutate(
                 shared,
                 &project,
-                board.submit_by_user(&p.key, &p.note, &actor),
+                Box::pin(shared.validation.submit_by_user(&p.key, &p.note, &actor)),
             )
             .await
             .map(|t| Reply::Ticket(Box::new(t)))
@@ -1115,6 +1245,181 @@ pub(super) async fn handle(
         Request::ProjectSettingsGet(p) => {
             boxed(move || async move { project_settings(board, &p.project).await })
         }
+        Request::FlowCurrent(p) => boxed(move || async move {
+            Ok(Reply::FlowVersion(Box::new(
+                board.current_flow(&p.project).await?,
+            )))
+        }),
+        Request::FlowVersions(p) => {
+            boxed(
+                move || async move { Ok(Reply::FlowVersions(board.flow_versions(&p.project).await?)) },
+            )
+        }
+        Request::FlowProposal(p) => boxed(move || async move {
+            let proposal = board.proposal(&p.project, shared.agents.models()).await?;
+            Ok(Reply::FlowProposal(proposal.map(Box::new)))
+        }),
+        Request::FlowProposeFrom(p) => boxed(move || async move {
+            let proposal = board
+                .propose_from(&p.project, &p.source, shared.agents.models())
+                .await?;
+            flow_event(
+                shared,
+                &proposal.project,
+                FlowEvent::Proposed {
+                    proposal: proposal.id,
+                },
+            );
+            Ok(Reply::FlowProposal(Some(Box::new(proposal))))
+        }),
+        Request::FlowApply(p) => boxed(move || async move {
+            let by = board.proposed_by(&p.project, p.proposal).await?;
+            let applied = board
+                .apply_proposal(&p.project, p.proposal, &p.choices, shared.agents.models())
+                .await?;
+            if let Some(by) = &by {
+                let waiting = applied.waiting.as_ref().map(|w| w.summary());
+                propose::deliver_answer(
+                    &shared.deliveries,
+                    by,
+                    applied.proposal,
+                    &propose::Answer::Applied { waiting },
+                )
+                .await;
+            }
+            let key = board.project(&p.project).await?.key;
+            flow_event(
+                shared,
+                &key,
+                FlowEvent::ProposalClosed {
+                    proposal: applied.proposal,
+                },
+            );
+            if !applied.agents.is_empty() {
+                shared.events.publish(Event::AgentsChanged);
+            }
+            if applied.waiting.is_some() {
+                flow_event(shared, &key, FlowEvent::Waiting);
+            }
+            if let Some(version) = &applied.version {
+                flow_event(
+                    shared,
+                    &key,
+                    FlowEvent::Applied {
+                        version: version.version,
+                    },
+                );
+            }
+            // Use this flow, or a preset applied, settles a Flow setup: the other proposals close and their agents
+            // are told and end; the chosen agent stays (ASK-03, ASK-04).
+            let keep = match &by {
+                Some(ProposedBy::ProjectAgent { agent, .. }) => Some(agent.as_str()),
+                _ => None,
+            };
+            shared.project_agents.settle_flow_setup(&key, keep).await?;
+            shared.scheduler.wake();
+            Ok(Reply::FlowApplied(Box::new(applied)))
+        }),
+        Request::FlowCancelProposal(p) => boxed(move || async move {
+            let by = board.proposal_row(&p.project).await?.map(|r| r.proposed_by);
+            if let Some(id) = board.cancel_proposal(&p.project).await? {
+                let key = board.project(&p.project).await?.key;
+                flow_event(shared, &key, FlowEvent::ProposalClosed { proposal: id });
+                if let Some(by) = &by {
+                    let answer = propose::Answer::Cancelled;
+                    propose::deliver_answer(&shared.deliveries, by, id, &answer).await;
+                }
+            }
+            Ok(Reply::Ok)
+        }),
+        Request::FlowAskForChanges(p) => boxed(move || async move {
+            let by = board
+                .ask_for_changes(&p.project, p.proposal, &p.text)
+                .await?;
+            let key = board.project(&p.project).await?.key;
+            flow_event(
+                shared,
+                &key,
+                FlowEvent::ProposalClosed {
+                    proposal: p.proposal,
+                },
+            );
+            let answer = propose::Answer::MoreChanges(p.text.clone());
+            propose::deliver_answer(&shared.deliveries, &by, p.proposal, &answer).await;
+            Ok(Reply::Ok)
+        }),
+        Request::FlowShow(p) => boxed(move || async move {
+            Ok(Reply::FlowDocument(Box::new(
+                board.flow_document(&p.project).await?,
+            )))
+        }),
+        Request::FlowPropose(p) => boxed(move || async move {
+            let by = match caller {
+                Caller::ProjectAgent { agent, session, .. } => {
+                    let proposer = shared.project_agents.get(agent).await?;
+                    ProposedBy::ProjectAgent {
+                        agent: agent.clone(),
+                        session: session.clone(),
+                        name: proposer.name,
+                        tool: proposer.tool,
+                    }
+                }
+                _ => ProposedBy::User,
+            };
+            let proposal = board
+                .propose(&p.project, &p.source, &by, shared.agents.models())
+                .await?;
+            flow_event(
+                shared,
+                &proposal.project,
+                FlowEvent::Proposed {
+                    proposal: proposal.id,
+                },
+            );
+            Ok(Reply::FlowProposal(Some(Box::new(proposal))))
+        }),
+        Request::FlowWaiting(p) => boxed(move || async move {
+            Ok(Reply::FlowWaiting(
+                board.waiting_change(&p.project).await?.map(Box::new),
+            ))
+        }),
+        Request::FlowCancelWaiting(p) => boxed(move || async move {
+            if board.cancel_waiting(&p.project).await? {
+                let key = board.project(&p.project).await?.key;
+                flow_event(shared, &key, FlowEvent::Cancelled);
+                shared.scheduler.wake();
+            }
+            Ok(Reply::Ok)
+        }),
+        Request::FlowApplyNowPlan(p) => boxed(move || async move {
+            Ok(Reply::ApplyNowPlan(
+                shared
+                    .review
+                    .apply_now_plan(&p.project)
+                    .await?
+                    .map(Box::new),
+            ))
+        }),
+        Request::FlowApplyNow(p) => boxed(move || async move {
+            let key = board.project(&p.project).await?.key;
+            let answer = mutate(
+                shared,
+                &key,
+                shared.review.apply_now(&p, &shared.validation, &actor),
+            )
+            .await?;
+            if let ApplyNowAnswer::Applied { version, .. } = &answer {
+                flow_event(
+                    shared,
+                    &key,
+                    FlowEvent::Applied {
+                        version: version.version,
+                    },
+                );
+                shared.scheduler.wake();
+            }
+            Ok(Reply::AppliedNow(Box::new(answer)))
+        }),
         Request::ProjectSettingsSet(p) => boxed(move || async move {
             match board.save_project_settings(&p.project, &p.settings).await {
                 Ok(()) => {
@@ -1163,6 +1468,9 @@ pub(super) async fn handle(
         | Request::ProjectTerminalCreated(_)
         | Request::ProjectTerminalDismiss(_)
         | Request::ProjectAgentOpen(_)
+        | Request::OnboardingAsk(_)
+        | Request::OnboardingFlowSetup(_)
+        | Request::OnboardingUseDefault(_)
         | Request::ProjectAgentList(_)
         | Request::ProjectAgentClose(_)
         | Request::ProjectAgentCloseEnded(_)
@@ -1183,10 +1491,12 @@ pub(super) async fn handle(
         | Request::AgentsDuplicate(_)
         | Request::AgentsDelete(_)
         | Request::AgentsInUse(_)
-        | Request::ProjectAgentDefaults(_)
-        | Request::AgentsSetDefault(_)
-        | Request::ProjectSetAgentDefault(_)
-        | Request::TicketAgentRow(_) => return None,
+        | Request::AgentsMoveRole(_)
+        | Request::AgentsDefaultModel(_)
+        | Request::AgentsFallback(_)
+        | Request::AgentsImportSkill(_)
+        | Request::AgentsReimportSkill(_)
+        | Request::AgentsReads(_) => return None,
     };
     Some(answer.await.map_err(|e| error_body(&e)))
 }
@@ -1198,19 +1508,19 @@ type Answer<'a> = Pin<Box<dyn Future<Output = Result<Reply, BoardError>> + Send 
 /// [`handle`] holds inline its own slot in `handle`'s frame; with about a hundred arms that frame reached 1.5 MB, and
 /// on Windows a request with a deep future of its own (a review submit starting a validator) overflowed the 2 MB
 /// tokio worker stack (T-0275). Built here, each arm's future lives on the heap and `handle` holds only the box.
+/// Tells the app about a change in `project`'s flow (FLW-03…FLW-06).
+fn flow_event(shared: &Shared, project: &str, change: FlowEvent) {
+    shared.events.publish(Event::FlowChanged {
+        project: project.to_owned(),
+        change,
+    });
+}
+
 fn boxed<'a, F>(make: impl FnOnce() -> F) -> Answer<'a>
 where
     F: Future<Output = Result<Reply, BoardError>> + Send + 'a,
 {
     Box::pin(make())
-}
-
-/// A workflow skill setting changed: the global one is a settings change (`settings_changed`); a project's needs
-/// no event (its page refetches what it changed).
-fn publish_skill_change(shared: &Shared, project: Option<&str>) {
-    if project.is_none() {
-        shared.events.publish(Event::SettingsChanged);
-    }
 }
 
 async fn global_settings(board: &Board) -> Result<Reply, BoardError> {
@@ -1359,8 +1669,9 @@ async fn change_decision(
 }
 
 /// `otaq show <KEY> --terminal` (SHL-10, d0087): the ticket's agent session (running, or the last ended one still
-/// in memory), or with `validator` its running validator, replayed into plain text. Read-only; nothing is kept
-/// between requests. While the ticket validates, the agent's text starts with a line pointing at `--validator`.
+/// in memory), or with `--stage` the session of the agent running that stage (FLW-20), replayed into plain text.
+/// Read-only; nothing is kept between requests. While an agent check runs, the agent's text starts with a line
+/// pointing at its `--stage`.
 async fn terminal(
     shared: &Shared,
     p: &crate::protocol::TerminalParams,
@@ -1368,25 +1679,34 @@ async fn terminal(
     use crate::session::screen;
     let ticket = shared.board.ticket(&p.key).await?;
     let key = &ticket.key;
-    let validator = shared
+    let (kind, stage) = match &p.stage {
+        Some(name) => {
+            let (kind, stage) = stage_session(&shared.board, &ticket, name).await?;
+            (kind, Some(stage.name))
+        }
+        None => (SessionKind::Agent, None),
+    };
+    let check = shared
         .sessions
         .running_of(&ticket.id, SessionKind::Validator);
-    let (session, bytes, size) = if p.validator {
-        match validator.as_ref().and_then(|_| {
-            shared
-                .sessions
-                .output_of(&ticket.id, SessionKind::Validator)
-        }) {
+    let (session, bytes, size) = if kind == SessionKind::Validator {
+        match check
+            .as_ref()
+            .and_then(|_| shared.sessions.output_of(&ticket.id, kind))
+        {
             Some(output) => output,
             None => {
                 return Err(BoardError::refused(
                     Refusal::SessionEnded,
-                    format!("{key} has no running validator"),
+                    format!(
+                        "{key}'s {} check isn't running",
+                        stage.as_deref().unwrap_or_default()
+                    ),
                 ));
             }
         }
     } else {
-        match shared.sessions.output_of(&ticket.id, SessionKind::Agent) {
+        match shared.sessions.output_of(&ticket.id, kind) {
             Some(output) => output,
             None => {
                 // Output never goes to disk (d0045): a stored session means a restart cleared it.
@@ -1394,7 +1714,7 @@ async fn terminal(
                     "SELECT 1 FROM sessions WHERE ticket_id = ? AND kind = ? LIMIT 1",
                 )
                 .bind(&ticket.id)
-                .bind(SessionKind::Agent.as_str())
+                .bind(kind.as_str())
                 .fetch_optional(shared.board.store().pool())
                 .await?;
                 let message = match stored {
@@ -1406,8 +1726,13 @@ async fn terminal(
         }
     };
     let mut text = screen::render(&bytes, size);
-    if !p.validator && validator.is_some() {
-        text = format!("{key} is validating \u{b7} its validator's terminal: --validator\n{text}");
+    if p.stage.is_none()
+        && check.is_some()
+        && let Some(id) = ticket.place.stage()
+    {
+        let flow = shared.board.effective_flow(key.project.as_str()).await?;
+        let name = flow.stage(id).map_or(id, |s| s.name.as_str());
+        text = format!("{key} is in {name} \u{b7} its terminal: --stage {id}\n{text}");
     }
     Ok(Reply::TicketTerminal(Box::new(
         crate::protocol::TicketTerminal {
@@ -1416,6 +1741,53 @@ async fn terminal(
             text,
         },
     )))
+}
+
+/// `--stage <name>` on `otaq show --terminal` and `otaq attach` (FLW-20, d0108): the stage `name` names in the
+/// ticket's flow (its id, or its name ignoring case) and the kind of the session its agent runs in: an Agent stage's
+/// or a Delivery's is the ticket's agent session (an epic's delivery session), an agent check's is the check's.
+/// Refused unless the ticket is in that stage; a check by you has no agent.
+pub(super) async fn stage_session(
+    board: &Board,
+    ticket: &Ticket,
+    name: &str,
+) -> Result<(SessionKind, crate::flow::Stage), BoardError> {
+    let project = ticket.key.project.as_str();
+    let flow = board.effective_flow(project).await?;
+    let wanted = name.trim();
+    let folded = wanted.to_lowercase();
+    let Some(stage) = flow
+        .stages
+        .iter()
+        .find(|s| s.id == wanted || s.name.to_lowercase() == folded)
+    else {
+        let names: Vec<&str> = flow.stages.iter().map(|s| s.name.as_str()).collect();
+        return Err(BoardError::NotFound(format!(
+            "{project}'s flow has no stage {wanted} (its stages: {})",
+            names.join(", ")
+        )));
+    };
+    let key = &ticket.key;
+    if ticket.place.stage() != Some(stage.id.as_str()) {
+        return Err(BoardError::refused(
+            Refusal::SessionEnded,
+            format!("{key} isn't in {}", stage.name),
+        ));
+    }
+    let kind = match stage.kind {
+        crate::flow::StageKind::Check {
+            by: crate::flow::CheckBy::You,
+        } => {
+            return Err(BoardError::refused(
+                Refusal::SessionEnded,
+                format!("{key}'s {} is your check: no agent runs it", stage.name),
+            ));
+        }
+        crate::flow::StageKind::Check { .. } => SessionKind::Validator,
+        crate::flow::StageKind::Delivery if ticket.is_epic() => SessionKind::Delivery,
+        crate::flow::StageKind::Agent | crate::flow::StageKind::Delivery => SessionKind::Agent,
+    };
+    Ok((kind, stage.clone()))
 }
 
 /// `otaq prime`: the ticket's context. Its own agent reads the unread lead notes in it, so they are marked read
@@ -1436,10 +1808,9 @@ async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, Boa
         .board
         .prime_context(key, shared.adapters.of_session(tool))
         .await?;
-    context.agents = crate::prime::named_agents(
+    context.choices = crate::prime::reader_choices(
         &shared.board,
-        context.ticket.key.project.as_str(),
-        &shared.adapters,
+        crate::prime::ChoicesFor::Ticket(&context.ticket),
         &shared.models,
     )
     .await?;
@@ -1456,7 +1827,35 @@ async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, Boa
         .await?;
         publish_ticket_changed(shared, &context.ticket.key).await;
     }
+    record_prime(&shared.board, caller, &context.ticket.id).await?;
     Ok(Reply::Prime(Box::new(context)))
+}
+
+/// The ticket's own agent or checker read its prime: its stage run is primed (CMT-08). Anyone else's prime (the user,
+/// another ticket's agent, a lead) records nothing.
+async fn record_prime(board: &Board, caller: &Caller, ticket_id: &str) -> Result<(), BoardError> {
+    match caller {
+        Caller::Agent {
+            ticket_id: own,
+            session,
+            ..
+        }
+        | Caller::Validator {
+            ticket_id: own,
+            session,
+            ..
+        } if own == ticket_id => board.record_prime(ticket_id, session).await,
+        _ => Ok(()),
+    }
+}
+
+/// The read gate on an agent's `stage next` / `stage done` (CMT-08): the user's own (a terminal of theirs) isn't
+/// gated.
+async fn refuse_unprimed(board: &Board, caller: &Caller, key: &str) -> Result<(), BoardError> {
+    match caller {
+        Caller::Agent { session, .. } => board.refuse_unprimed(key, session).await,
+        _ => Ok(()),
+    }
 }
 
 /// `otaq note <KEY> [--view "…"] --stdin` (LEAD-10): the lead's unread note for a running child of its epic, with
@@ -1538,7 +1937,6 @@ fn stuck(shared: &Shared) -> crate::epic_lead::stuck::Stuck {
         leads: shared.project_agents.leads(),
         signals: shared.signals.clone(),
         validation: shared.validation.clone(),
-        review: shared.review.clone(),
         deliveries: shared.deliveries.clone(),
         sessions: shared.sessions.clone(),
         events: shared.events.clone(),
@@ -1594,10 +1992,9 @@ async fn lead_questions_waiting(shared: &Shared, caller: &Caller) -> Result<Repl
 /// `otaq prime --epic` (LEAD-03): the epic lead's context.
 async fn epic_prime(shared: &Shared, key: &str) -> Result<Reply, BoardError> {
     let mut context = crate::epic_lead::prime::context(&shared.board, key).await?;
-    context.agents = crate::prime::named_agents(
+    context.choices = crate::prime::reader_choices(
         &shared.board,
-        context.epic.key.project.as_str(),
-        &shared.adapters,
+        crate::prime::ChoicesFor::NewTickets(context.epic.key.project.as_str()),
         &shared.models,
     )
     .await?;
@@ -1747,7 +2144,7 @@ async fn lead_changed(
 async fn queue_change_note(shared: &Shared, before: &Ticket, after: &Ticket, actor: &Actor) {
     let validating = matches!(
         after.status,
-        crate::domain::Status::Validating | crate::domain::Status::ValidatorNeedsYou
+        crate::domain::Status::Checking | crate::domain::Status::CheckerNeedsYou
     );
     if actor.is_agent() || !(LIVE.contains(&after.status) || validating) {
         return;
@@ -1779,6 +2176,74 @@ async fn comment_changed(
     Ok(Reply::ReviewComment(comment))
 }
 
+/// The comment an agent's `stage next` / `stage done` hands over (CMT-05, CMT-06): its summary with the
+/// `--report-file`, by the calling session's agent (the user's own terminal: the user). Refused before anything moves.
+async fn stage_end_hand_over(
+    shared: &Shared,
+    caller: &Caller,
+    actor: &Actor,
+    ticket: &crate::board::tickets::Ticket,
+    p: &crate::protocol::StageEndParams,
+) -> Result<Option<crate::board::hand_over::HandOver>, BoardError> {
+    let board = &shared.board;
+    let author = board.caller_author(caller, actor).await?;
+    board
+        .hand_over(ticket, author, &p.summary, p.report_file.clone())
+        .await
+}
+
+/// The ticket comment requests (CMT-01…CMT-06, d0109); the policy judged the caller first (CMT-04). Each change
+/// publishes `ticket_changed`.
+async fn ticket_comment_request(
+    shared: &Shared,
+    caller: &Caller,
+    actor: &Actor,
+    request: Request,
+) -> Result<Reply, BoardError> {
+    let board = &shared.board;
+    let (key, reply) = match request {
+        Request::TicketComments(p) => {
+            return board
+                .ticket_comments(&p.key)
+                .await
+                .map(Reply::TicketComments);
+        }
+        Request::TicketReport(p) => {
+            let report = board.ticket_report(&p.key, p.n).await?;
+            // A deleted comment's report is the user's (History); agents that start later never read it (Q375).
+            if report.deleted && !matches!(caller, Caller::User) {
+                return Err(BoardError::refused(
+                    Refusal::NotAllowed,
+                    format!("Comment {} on {} was deleted.", report.n, report.key),
+                ));
+            }
+            return Ok(Reply::TicketReport(Box::new(report)));
+        }
+        Request::TicketCommentPost(p) => {
+            let author = board.caller_author(caller, actor).await?;
+            let posted = board
+                .post_ticket_comment(&p.key, &author, &p.body, p.report, actor)
+                .await?;
+            (p.key, posted)
+        }
+        Request::TicketCommentEdit(p) => {
+            let edited = board
+                .edit_ticket_comment(&p.key, p.n, &p.body, actor)
+                .await?;
+            (p.key, edited)
+        }
+        Request::TicketCommentDelete(p) => {
+            let deleted = board.delete_ticket_comment(&p.key, p.n, actor).await?;
+            (p.key, deleted)
+        }
+        _ => unreachable!("only ticket comment requests come here"),
+    };
+    if let Ok(ticket) = board.ticket(&key).await {
+        publish_ticket_changed(shared, &ticket.key).await;
+    }
+    Ok(Reply::TicketComment(Box::new(reply)))
+}
+
 /// The ticket's validation rounds with each validator's tokens (History, VAL-12).
 async fn validation_records(
     shared: &Shared,
@@ -1807,26 +2272,17 @@ async fn publish_ticket_changed(shared: &Shared, key: &crate::domain::TicketKey)
     }
 }
 
-/// The project part of a ticket key (`SHOP-18` → `SHOP`). Aliases keep their project, so this holds for them too.
-fn project_of(key: &str) -> String {
-    key.split_once('-').map_or(key, |(p, _)| p).to_owned()
-}
-
-/// Who picks agents in a request (AGT-06): the user, or an agent by its name; `by_user` makes an agent's picks the
-/// user's.
-fn picker_of(name: Option<&str>, by_user: bool) -> Picker<'_> {
-    match name {
-        Some(name) => Picker::Agent { name, by_user },
-        None => Picker::User,
-    }
-}
-
-/// The epic of an epic lead caller, whose picks are logged on the epic too.
+/// The epic of an epic lead caller, whose choices for a child are logged on the epic too.
 fn lead_epic(caller: &Caller) -> Option<&str> {
     match caller {
         Caller::EpicLead { epic_id, .. } => Some(epic_id),
         _ => None,
     }
+}
+
+/// The project part of a ticket key (`SHOP-18` → `SHOP`). Aliases keep their project, so this holds for them too.
+fn project_of(key: &str) -> String {
+    key.split_once('-').map_or(key, |(p, _)| p).to_owned()
 }
 
 /// Runs a mutation of one project's tickets and publishes the changes it made.

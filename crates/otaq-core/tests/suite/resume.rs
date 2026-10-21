@@ -254,15 +254,15 @@ async fn a_send_back_whose_resume_failed_gets_its_skill_on_retry() {
     w.add_project("shop-web").await;
     let t = w.create("SHOP", "Search results paging").await;
     w.start_worktree(&t).await;
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     w.record_ended_agent(&t, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
         .await;
     let conversation = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
-    let skill = otaq_core::naming::skill("address-review");
+    let skill = format!("/{}", otaq_core::naming::copy_name("address-review"));
 
     // Send back resumes the ended conversation with the skill; the conversation is gone.
     w.review
-        .send_back("SHOP-1", "", false, &me())
+        .fail("SHOP-1", "", None, false, &me())
         .await
         .unwrap();
     until_status(&w, "SHOP-1", Status::ResumeFailed).await;
@@ -273,13 +273,17 @@ async fn a_send_back_whose_resume_failed_gets_its_skill_on_retry() {
         "never ran"
     );
 
-    // Retry resumes again with the skill (here it fails again: the stand-in always does).
+    // Retry resumes again with the skill and what came back (here it fails again: the stand-in always does).
     w.review.retry_resume("SHOP-1", &me()).await.unwrap();
     until_status(&w, "SHOP-1", Status::ResumeFailed).await;
     let latest = &sessions(&w, "SHOP-1").await[0];
     let out =
         String::from_utf8_lossy(&w.sessions.attach(&latest.id).unwrap().scrollback).into_owned();
-    assert_eq!(first_prompt(&out, conversation), skill, "{out}");
+    assert_eq!(
+        first_prompt(&out, conversation),
+        format!("{skill} SHOP-1 was sent back to Dev. Run `otaq prime`."),
+        "{out}"
+    );
 
     // Start from scratch begins with the ticket prompt (d0018): the skill is dropped (Q25).
     w.review
@@ -362,7 +366,7 @@ async fn resume_all_takes_exactly_the_interrupted_tickets() {
         ("SHOP", "a", Status::Interrupted),
         ("SHOP", "b", Status::StartInterrupted),
         ("SHOP", "c", Status::ResumeFailed),
-        ("SHOP", "d", Status::ReadyForReview),
+        ("SHOP", "d", Status::WaitingForYou),
         ("SHOP", "e", Status::PrOpen),
         ("SHOP", "f", Status::Working),
         ("BILL", "g", Status::Interrupted),
@@ -386,7 +390,7 @@ async fn resume_all_takes_exactly_the_interrupted_tickets() {
         ("SHOP-1", Status::Working),
         ("SHOP-2", Status::StartInterrupted),
         ("SHOP-3", Status::ResumeFailed),
-        ("SHOP-4", Status::ReadyForReview),
+        ("SHOP-4", Status::WaitingForYou),
         ("SHOP-5", Status::PrOpen),
         ("BILL-1", Status::Working),
     ] {

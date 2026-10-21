@@ -10,22 +10,25 @@
 //! - `create "Title"`: the new `Ticket`; `create -f`: `[Ticket]` in file order.
 //! - `update`: the `Ticket` as it is afterwards.
 //!
-//! Each `Ticket` also carries `"agents"`: its agent rows as `show --json` has them (`crate::read::AgentRowJson`,
-//! AGT-06).
+//! Each `Ticket` also carries `"agents"`: the agent each stage runs, and `"choices"`: its stage choices, as `show
+//! --json` has them (`crate::read::StageAgentJson`, `crate::read::ChoiceJson`; AGM-05, AGM-11).
+//!
+//! **Stage choices** (AGM-11, d0108, d0087): `--stage "<stage>=<agent|skip>"` (repeatable; `required` sets a
+//! skippable stage back), `--reason` for an agent's choice, `--by-user` when the user named them. The service judges
+//! who may set which (`otaq_core::board::stage_choices`).
 
 use std::io::Read;
 use std::path::PathBuf;
 
-use otaq_core::board::agent_picks::AgentPick;
 use otaq_core::board::batch::{BatchTicket, parse_markdown};
+use otaq_core::board::stage_choices::ChoicePick;
 use otaq_core::board::tickets::{Ticket, TicketUpdate};
 use otaq_core::client::Client;
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{Kind, Priority};
-use otaq_core::named_agents::Role;
 use otaq_core::protocol::{BatchParams, ErrorBody, ErrorKind, Reply, Request, TicketUpdateParams};
 
-use crate::cli::{AgentFlags, GlobalArgs};
+use crate::cli::{ChoiceFlags, GlobalArgs};
 use crate::output::Output;
 use crate::read::{self, unexpected};
 use crate::service::{self, client_error, internal};
@@ -40,7 +43,7 @@ pub struct CreateArgs {
     pub file: Option<PathBuf>,
     pub epic: bool,
     pub parent: Option<String>,
-    pub agents: AgentFlags,
+    pub choices: ChoiceFlags,
 }
 
 pub struct UpdateArgs {
@@ -49,49 +52,27 @@ pub struct UpdateArgs {
     pub description: Option<String>,
     pub priority: Option<Priority>,
     pub stdin: bool,
-    pub agents: AgentFlags,
+    pub choices: ChoiceFlags,
 }
 
 fn usage(message: impl Into<String>) -> ErrorBody {
     ErrorBody::new(ErrorKind::Usage, message)
 }
 
-/// The rows `--developer`, `--validator` and `--lead` set, each with `--reason` (AGT-06). `kind` is the ticket's
-/// when the command knows it (`create`): a ticket has Developer and Validator rows, an epic an Epic lead row.
-fn picks(flags: &AgentFlags, kind: Option<Kind>) -> Result<Vec<AgentPick>, ErrorBody> {
-    let picks: Vec<AgentPick> = [
-        (Role::Developer, &flags.developer),
-        (Role::Validator, &flags.validator),
-        (Role::EpicLead, &flags.lead),
-    ]
-    .into_iter()
-    .filter_map(|(role, agent)| {
-        Some(AgentPick {
-            role,
-            agent: agent.clone()?,
-            reason: flags.reason.clone(),
-        })
-    })
-    .collect();
-    match kind {
-        Some(Kind::Epic) if picks.iter().any(|p| p.role != Role::EpicLead) => {
-            return Err(usage(
-                "an epic has an Epic lead row: give --lead, not --developer or --validator",
-            ));
-        }
-        Some(Kind::Ticket) if picks.iter().any(|p| p.role == Role::EpicLead) => {
-            return Err(usage(
-                "--lead is for epics (--type epic); a ticket has --developer and --validator",
-            ));
-        }
-        _ => {}
+/// The `--stage` flags as choices, each with `--reason`. `--reason` alone is a usage error, and so is `--by-user`
+/// unless a file (`file`) brings the choices.
+fn picks(flags: &ChoiceFlags, file: bool) -> Result<Vec<ChoicePick>, ErrorBody> {
+    if flags.stages.is_empty() && flags.reason.is_some() {
+        return Err(usage("--reason goes with --stage"));
     }
-    if picks.is_empty() && (flags.reason.is_some() || flags.by_user) {
-        return Err(usage(
-            "--reason and --by-user go with --developer, --validator or --lead",
-        ));
+    if flags.stages.is_empty() && flags.by_user && !file {
+        return Err(usage("--by-user goes with --stage (or -f)"));
     }
-    Ok(picks)
+    flags
+        .stages
+        .iter()
+        .map(|stage| ChoicePick::parse(stage, flags.reason.as_deref()).map_err(usage))
+        .collect()
 }
 
 /// The body from `-d` or `--stdin` (not both).
@@ -112,8 +93,10 @@ fn body(description: Option<String>, stdin: bool) -> Result<Option<String>, Erro
 
 pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
+    let choices = picks(&args.choices, args.file.is_some())?;
     let (tickets, single) = match &args.file {
         Some(file) => {
+            // `--by-user` makes the file's choices the user's.
             if args.title.is_some()
                 || args.parent.is_some()
                 || !args.deps.is_empty()
@@ -121,13 +104,10 @@ pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
                 || args.epic
                 || args.description.is_some()
                 || args.stdin
-                || args.agents.developer.is_some()
-                || args.agents.validator.is_some()
-                || args.agents.lead.is_some()
-                || args.agents.reason.is_some()
+                || !choices.is_empty()
             {
                 return Err(usage(
-                    "-f takes everything from the file; give no title or other flags (only --by-user)",
+                    "-f takes everything from the file; give no title or other flags",
                 ));
             }
             let text = std::fs::read_to_string(file)
@@ -155,7 +135,7 @@ pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
                 priority: args.priority,
                 parent: args.parent.clone(),
                 depends_on: args.deps.clone(),
-                agents: picks(&args.agents, Some(kind))?,
+                choices,
             };
             (vec![ticket], true)
         }
@@ -163,15 +143,11 @@ pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
     service::runtime()?.block_on(async {
         let client = service::connect(&data, global).await?;
         let (project, tickets) = resolve_refs(&client, &data, global, tickets).await?;
-        let picked: Vec<Vec<Role>> = tickets
-            .iter()
-            .map(|t| t.agents.iter().map(|p| p.role).collect())
-            .collect();
         let created = match client
             .request(Request::TicketCreateBatch(BatchParams {
                 project,
                 tickets,
-                by_user: args.agents.by_user,
+                by_user: args.choices.by_user,
             }))
             .await
             .map_err(client_error)?
@@ -181,8 +157,8 @@ pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
         };
         let mut human = Vec::with_capacity(created.len());
         let mut values = Vec::with_capacity(created.len());
-        for (ticket, roles) in created.iter().zip(&picked) {
-            let (line, value) = with_rows(&client, ticket, roles).await?;
+        for ticket in &created {
+            let (line, value) = with_rows(&client, ticket).await?;
             human.push(format!("Created {line}"));
             values.push(value);
         }
@@ -196,23 +172,20 @@ pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
     })
 }
 
-/// A created or updated ticket as `create` and `update` print it: "SHOP-41 · Light: docs-only change" when the
-/// command set rows (`roles`), else "SHOP-41 · Fix README typo"; and its `--json` with its `agents` rows.
+/// A created or updated ticket as `create` and `update` print it: "SHOP-41 · Fix README typo"; and its `--json`
+/// with the agent each of its stages runs and its stage choices.
 async fn with_rows(
     client: &Client,
     ticket: &Ticket,
-    roles: &[Role],
 ) -> Result<(String, serde_json::Value), ErrorBody> {
     let agents = read::ticket_agents(client, &ticket.key.to_string()).await?;
+    let choices = read::ticket_choices(client, &ticket.key.to_string()).await?;
     let mut value = serde_json::to_value(ticket).map_err(|e| internal(e.to_string()))?;
     value["agents"] =
-        serde_json::to_value(read::rows_json(&agents)).map_err(|e| internal(e.to_string()))?;
-    let line = if roles.is_empty() {
-        format!("{} · {}", ticket.key, ticket.title)
-    } else {
-        format!("{} · {}", ticket.key, read::picks_text(roles, &agents))
-    };
-    Ok((line, value))
+        serde_json::to_value(read::agents_json(&agents)).map_err(|e| internal(e.to_string()))?;
+    value["choices"] =
+        serde_json::to_value(read::choices_json(&choices)).map_err(|e| internal(e.to_string()))?;
+    Ok((format!("{} · {}", ticket.key, ticket.title), value))
 }
 
 /// The project the batch goes to, and its references with bare numbers made full keys. Batch IDs stay.
@@ -260,24 +233,26 @@ async fn resolve_refs(
 
 pub fn update(args: UpdateArgs, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
+    let choices = picks(&args.choices, false)?;
     let body = body(args.description, args.stdin)?;
     let update = TicketUpdate {
         title: args.title,
         body,
         priority: args.priority,
-        agents: picks(&args.agents, None)?,
-        by_user: args.agents.by_user,
+        choices,
+        by_user: args.choices.by_user,
         ..Default::default()
     };
-    if update == TicketUpdate::default() {
-        return Err(usage(
-            "nothing to change: give --title, -d, -p, --stdin, --developer, --validator or --lead",
-        ));
+    let fields = TicketUpdate {
+        by_user: false,
+        ..update.clone()
+    };
+    if fields == TicketUpdate::default() {
+        return Err(usage("nothing to change: give --title, -d, -p or --stdin"));
     }
     service::runtime()?.block_on(async {
         let client = service::connect(&data, global).await?;
         let key = target::resolve_key(&client, &data, args.key, global).await?;
-        let roles: Vec<Role> = update.agents.iter().map(|p| p.role).collect();
         let ticket: Ticket = match client
             .request(Request::TicketUpdate(TicketUpdateParams {
                 key: key.to_string(),
@@ -289,7 +264,7 @@ pub fn update(args: UpdateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
             Reply::Ticket(t) => *t,
             other => return Err(unexpected(&other)),
         };
-        let (line, value) = with_rows(&client, &ticket, &roles).await?;
+        let (line, value) = with_rows(&client, &ticket).await?;
         out.print(
             &format!("Updated {line}"),
             &value,

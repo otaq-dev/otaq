@@ -14,17 +14,18 @@ use otaq_core::board::tickets::{Base, Field, Ticket};
 use otaq_core::domain::{Actor, Kind, Priority, TicketKey};
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::models::ModelList;
-use otaq_core::named_agents::rows::TicketAgents;
+use otaq_core::agents::facts::TicketAgents;
+use otaq_core::board::stage_choices::{ChoicePick, TicketChoices};
+use otaq_core::board::tickets::TicketUpdate;
 use otaq_core::protocol::{
-    AgentRowParams, DepParams, KeyParams, ModelsParams, ProjectParams, Reply, Request, SessionListParams,
-    TicketAgentsParams, TicketUpdateParams,
+    DepParams, KeyParams, ModelsParams, ProjectParams, Reply, Request, SessionListParams,
+    TicketAgentsParams, TicketChoicesParams, TicketUpdateParams,
 };
 use otaq_core::session::{SessionInfo, SessionKind};
 use otaq_view::icons::IconName;
 use otaq_view::view_models::agent_activity;
-use otaq_view::view_models::agent_rows::{self, Block};
+use otaq_view::view_models::stage_choices::{self, ChoicesView};
 use otaq_view::view_models::tool_problems::Tools;
-use otaq_view::view_models::named_agents::RoleId;
 use otaq_view::view_models::agent_edits::{changed, compare, origin_line};
 use otaq_view::view_models::editor::{EditorModel, TITLE_REQUIRED};
 use otaq_view::view_models::editor_fields::{
@@ -49,7 +50,6 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "editor.link" => reply(&link(app, parse(params)?).await?),
         "editor.branches" => reply(&branches(app, parse(params)?).await?),
         "editor.compare" => reply(&compare_view(app, parse(params)?).await?),
-        "editor.agent_row" => reply(&agent_row(app, parse(params)?).await?),
         "editor.source_mode" => {
             set_source_mode(app, parse(params)?).await?;
             reply(&Value::Null)
@@ -109,17 +109,17 @@ pub struct Form {
     pub deps: Vec<String>,
     pub base_branch: Option<String>,
     pub external_id: String,
-    /// Create only: the agent rows picked in the form (*set by you*), set right after the ticket is created (an
-    /// existing ticket sets each pick with `editor.agent_row`).
-    pub agents: Vec<AgentPick>,
+    /// The stage choices picked in the form (AGM-09): sent with the new ticket, or with the save.
+    #[serde(default)]
+    pub choices: Vec<FormChoice>,
 }
 
-/// A row picked in the ⌘N form: the role and the named agent's id.
+/// One stage choice picked in the form: the stage's id and the word (`Quick developer`, `skip`, `required`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(rename = "EditorAgentPick")]
-pub struct AgentPick {
-    pub role: RoleId,
-    pub agent: String,
+#[ts(rename = "EditorChoice")]
+pub struct FormChoice {
+    pub stage_id: String,
+    pub choice: String,
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -159,6 +159,8 @@ pub struct Texts {
     pub epic_hint: &'static str,
     pub epic_none: &'static str,
     pub body: &'static str,
+    /// The description's label in the Ticket tab's read mode, over the comments (CMT-10, `s05-41`).
+    pub plan: &'static str,
     pub body_hint: &'static str,
     pub body_placeholder: &'static str,
     pub deps: &'static str,
@@ -307,10 +309,9 @@ pub struct View {
     pub read: Option<ReadView>,
     /// The description opens as its raw Markdown source, the mode last chosen with the "Markdown" toggle (d0078 D9).
     pub source_mode: bool,
-    /// The "Agents" block (AGT-04): a ticket's Developer and Validator rows, an epic's Epic lead row.
-    pub agents: Option<Block>,
-    /// Create only: the block once Type is Epic (one Epic lead row).
-    pub epic_agents: Option<Block>,
+    /// "Stage choices" under Priority (AGM-09, `s08-29`): a picker per stage with options, none on the default flow
+    /// and for an epic (the page hides it once Type is Epic).
+    pub choices: Option<ChoicesView>,
 }
 
 fn texts(create: bool) -> Texts {
@@ -327,6 +328,7 @@ fn texts(create: bool) -> Texts {
         epic_hint: "optional \u{b7} fixed once created (it sets the key)",
         epic_none: "No epic",
         body: "What and why",
+        plan: "Description \u{b7} the plan",
         body_hint: "Markdown \u{b7} paste keeps formatting",
         body_placeholder: "Context, constraints, links\u{2026}",
         deps: "Depends on",
@@ -412,7 +414,7 @@ fn form_of(model: &EditorModel) -> Form {
         deps: model.deps.iter().map(ToString::to_string).collect(),
         base_branch: model.base_branch.clone(),
         external_id: model.external_id.clone(),
-        agents: Vec::new(),
+        choices: Vec::new(),
     }
 }
 
@@ -458,8 +460,7 @@ pub fn create_view(project: &ProjectInfo, epic: Option<TicketKey>, tickets: &[Ti
         unsaved_warning: None,
         read: None,
         source_mode: false,
-        agents: None,
-        epic_agents: None,
+        choices: None,
     }
 }
 
@@ -526,8 +527,7 @@ pub fn edit_view(
             marked,
         }),
         source_mode: false,
-        agents: None,
-        epic_agents: None,
+        choices: None,
     }
 }
 
@@ -631,15 +631,9 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
             };
             let info = project(app, &key).await?;
             let all = tickets(app, &key).await?;
-            let tools = agent_tools(app).await;
-            let new = |epic| TicketAgentsParams {
-                key: None,
-                project: Some(key.clone()),
-                new_epic: epic,
-            };
+            let choices = stage_choices_of(app, None, Some(&key)).await;
             View {
-                agents: agent_block(app, new(false), &tools).await,
-                epic_agents: agent_block(app, new(true), &tools).await,
+                choices: choices.and_then(|c| stage_choices::form_choices(&c, &info.name)),
                 ..create_view(&info, epic, &all)
             }
         }
@@ -650,9 +644,9 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
             let all = tickets(app, &project_key).await?;
             let edits = agent_edits(app, &key).await;
             let live = live_agent(app, &key).await;
-            let tools = agent_tools(app).await;
+            let choices = stage_choices_of(app, Some(&key), None).await;
             View {
-                agents: agent_block(app, of_ticket(&key), &tools).await,
+                choices: choices.and_then(|c| stage_choices::form_choices(&c, &info.name)),
                 ..edit_view(&ticket, &info.name, &all, &edits, live, now_ms())
             }
         }
@@ -709,8 +703,6 @@ pub enum RefusalField {
     Deps,
     Base,
     Form,
-    /// An agent row (a locked row, AGT-04).
-    Agents,
 }
 
 /// A refusal as the editor shows it (*08 → Cycle prevention, Depends on · different base rejected*): a title by
@@ -814,10 +806,14 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
                 }
             };
             let key = created.key.to_string();
-            for pick in &form.agents {
-                if let Err(e) = set_row(app, &key, pick.role, Some(pick.agent.clone())).await {
+            // The stage choices picked in the form (AGM-09), the user's, checked before any is written (AGM-11).
+            if model.kind == Kind::Ticket
+                && let Some(choices) = stage_choices_of(app, None, Some(&project)).await
+            {
+                let picks = stage_choices::picks_to_send(&choices, &picked(&form.choices));
+                if let Err(e) = set_choices(app, &key, picks).await {
                     return Ok(SaveOutcome::Refused {
-                        refusal: Refusal::of(&e, RefusalField::Agents),
+                        refusal: Refusal::of(&e, RefusalField::Form),
                         created: Some(key),
                     });
                 }
@@ -845,8 +841,18 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
             if model.title_error().is_some() {
                 return Ok(SaveOutcome::TitleMissing);
             }
-            let Some(update) = model.update_input() else {
-                return Ok(SaveOutcome::Saved { key, note: None });
+            // The choices that changed and can still change, with the save (checked before any field changes).
+            let choices = match stage_choices_of(app, Some(&key), None).await {
+                Some(current) => changed_choices(&current, &picked(&params.form.choices)),
+                None => Vec::new(),
+            };
+            let update = match model.update_input() {
+                Some(update) => TicketUpdate { choices, ..update },
+                None if !choices.is_empty() => TicketUpdate {
+                    choices,
+                    ..TicketUpdate::default()
+                },
+                None => return Ok(SaveOutcome::Saved { key, note: None }),
             };
             let live = live_agent(app, &key).await;
             match app
@@ -872,7 +878,7 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// The Agents block and editor.agent_row (AGT-04)
+// The Agents block (AGT-04, AGM-05)
 
 /// `ticket.agents` of an existing ticket.
 pub(super) fn of_ticket(key: &str) -> TicketAgentsParams {
@@ -904,10 +910,19 @@ async fn model_list(app: &App, tool: Tool) -> Option<ModelList> {
 }
 
 /// The agent tools as the rows, the panel, the pane and recovery read them (M23): every tool's state
-/// (`agent_tools.list`), every tool's active limit (`usage.activity`), and each connected tool's cached model list. When the
-/// service can't list the tools, the first tool counts as the one connected, as before M23.
+/// (`agent_tools.list`), every tool's active limit (`usage.activity`), each connected tool's cached model list, and
+/// each tool's fallback and the default model (`agents.list`, AGM-03). When the service can't list the tools, the
+/// first tool counts as the one connected, as before M23.
 pub(super) async fn agent_tools(app: &App) -> Tools {
     let mut tools = tool_states(app).await;
+    if let Ok(Reply::Agents(list)) = app.service.send(Request::AgentsList).await {
+        tools.fallbacks = list
+            .fallbacks
+            .into_iter()
+            .map(|f| (f.tool, f.fallback))
+            .collect();
+        tools.default_model = list.default_model;
+    }
     // Every tool's active limit (USG-10), from Activity's per-tool data.
     if let Ok(Reply::Activity(activity)) = app.service.send(Request::UsageActivity).await {
         tools.limits = activity.tools.into_iter().filter_map(|t| t.limit).collect();
@@ -929,58 +944,81 @@ pub(super) async fn tool_states(app: &App) -> Tools {
     }
 }
 
-async fn agent_block(app: &App, params: TicketAgentsParams, tools: &Tools) -> Option<Block> {
-    agent_facts(app, params)
+// ---------------------------------------------------------------------------------------------------------------
+// Stage choices (AGM-09)
+
+/// `ticket.choices` of a ticket, or of a new one in `project`; `None` when the service can't say (the field is then
+/// left out).
+async fn stage_choices_of(
+    app: &App,
+    key: Option<&str>,
+    project: Option<&str>,
+) -> Option<TicketChoices> {
+    match app
+        .service
+        .send(Request::TicketChoices(TicketChoicesParams {
+            key: key.map(str::to_owned),
+            project: project.map(str::to_owned),
+        }))
         .await
-        .map(|t| agent_rows::block(&t, tools))
+    {
+        Ok(Reply::TicketChoices(c)) => Some(*c),
+        _ => None,
+    }
 }
 
-async fn set_row(
+fn picked(form: &[FormChoice]) -> Vec<(String, String)> {
+    form.iter()
+        .map(|c| (c.stage_id.clone(), c.choice.clone()))
+        .collect()
+}
+
+/// The picks that change an existing ticket's choices: not locked, and not what the stage reads now.
+pub fn changed_choices(current: &TicketChoices, picks: &[(String, String)]) -> Vec<ChoicePick> {
+    picks
+        .iter()
+        .filter(|(stage, pick)| {
+            current
+                .stages
+                .iter()
+                .find(|s| &s.stage_id == stage)
+                .is_some_and(|s| !s.locked && s.words().contains(pick) && *pick != s.label())
+        })
+        .map(|(stage, choice)| ChoicePick {
+            stage: stage.clone(),
+            choice: choice.clone(),
+            reason: None,
+        })
+        .collect()
+}
+
+/// Writes a new ticket's picks in one `ticket.update` (all checked before any is written).
+async fn set_choices(
     app: &App,
     key: &str,
-    role: RoleId,
-    agent: Option<String>,
+    picks: Vec<(String, String)>,
 ) -> Result<(), RequestError> {
+    if picks.is_empty() {
+        return Ok(());
+    }
+    let choices = picks
+        .into_iter()
+        .map(|(stage, choice)| ChoicePick {
+            stage,
+            choice,
+            reason: None,
+        })
+        .collect();
     app.service
-        .send(Request::TicketAgentRow(AgentRowParams {
+        .send(Request::TicketUpdate(TicketUpdateParams {
             key: key.to_owned(),
-            role: role.into(),
-            agent,
+            update: TicketUpdate {
+                choices,
+                ..TicketUpdate::default()
+            },
         }))
         .await
         .map(|_| ())
-}
-
-/// What `editor.agent_row` (and `panel.agent_row`) take: a pick in a row's picker (*set by you*), or `agent`
-/// `null` for "Project default (…)" and Let agents pick again.
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "AgentRowParams")]
-pub struct AgentRowRequest {
-    pub key: String,
-    pub role: RoleId,
-    pub agent: Option<String>,
-}
-
-/// How a pick went: the block as it is now, or the refusal (a row that locked meanwhile).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[serde(tag = "outcome", rename_all = "snake_case")]
-#[ts(rename = "AgentRowSet")]
-pub enum AgentRowOutcome {
-    Set { agents: Option<Block> },
-    Refused { refusal: Refusal },
-}
-
-/// Sets one row through `ticket.agent_row`, answering the refreshed block.
-pub async fn agent_row(app: &App, params: AgentRowRequest) -> Result<AgentRowOutcome, RequestError> {
-    if let Err(e) = set_row(app, &params.key, params.role, params.agent).await {
-        return Ok(AgentRowOutcome::Refused {
-            refusal: Refusal::of(&e, RefusalField::Agents),
-        });
-    }
-    let tools = agent_tools(app).await;
-    Ok(AgentRowOutcome::Set {
-        agents: agent_block(app, of_ticket(&params.key), &tools).await,
-    })
 }
 
 async fn project_base(app: &App, project: &str) -> Result<String, RequestError> {
@@ -1190,6 +1228,7 @@ mod tests {
             base_branch: "main".into(),
             agents_working: 0,
             needs_you: 0,
+            flow_setup_since: None,
         }
     }
 
@@ -1203,7 +1242,7 @@ mod tests {
             deps: Vec::new(),
             base_branch: None,
             external_id: String::new(),
-            agents: Vec::new(),
+            choices: Vec::new(),
         }
     }
 
@@ -1313,7 +1352,7 @@ mod tests {
     /// *08 → Editing while it validates (SHOP-29)*.
     #[test]
     fn editing_while_it_validates_warns_first() {
-        let mut t = fixture("SHOP-29", "Coupon field", Status::Validating);
+        let mut t = fixture("SHOP-29", "Coupon field", Status::Checking);
         t.base_locked = true;
         let view = edit_view(&t, "shop-web", &[t.clone()], &AgentEdits::default(), true, 0);
         assert_eq!(
@@ -1382,6 +1421,7 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }))
             .await
             .unwrap()
@@ -1478,11 +1518,10 @@ mod tests {
         h.service.stop_all().await;
     }
 
-    /// The Agents block through a real service (AGT-04): one agent reads only; with two, ⌘N's pick is set on the
-    /// new ticket (*set by you*), `editor.agent_row` changes a row, and the panel shows the same rows, the open
-    /// request's `focus_agent_row` and, once History has the row's change, its line.
+    /// AGM-09 through a real service, on the default flow: no stage has options, so the form shows no Stage choices
+    /// and the panel only the ticket's path (no Choices); a stage choice the flow doesn't offer is refused on save.
     #[tokio::test]
-    async fn the_agents_block_reads_and_sets_rows() {
+    async fn the_default_flow_shows_only_the_path() {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let repos = TempRepos::new();
@@ -1494,6 +1533,7 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }))
             .await
             .unwrap()
@@ -1501,104 +1541,37 @@ mod tests {
             Reply::ProjectAdded { project: p, .. } => p.key,
             other => panic!("{other:?}"),
         };
-        let ask = async |request: Value| {
-            h.app
-                .service
-                .send(serde_json::from_value(request).unwrap())
-                .await
-                .unwrap()
-        };
-        let add = async |name: &str| match ask(
-            json!({ "method": "agents.add", "params": { "name": name, "tool": "claude" } }),
-        )
-        .await
-        {
-            Reply::Agent(a) => a.id,
-            other => panic!("{other:?}"),
-        };
-        let cc = add("Claude Code").await;
-        for role in ["developer", "validator", "lead", "project_agent"] {
-            ask(json!({ "method": "agents.set_default", "params": { "role": role, "agent": cc } }))
-                .await;
-        }
         let create = json!({ "mode": "create", "project": project, "epic": null });
         let view = table(&h.app, "editor.open", create.clone()).await.unwrap();
-        let block = &view["agents"];
-        assert_eq!(block["hint"], "who writes the code and who checks it");
-        assert_eq!(block["rows"][0]["value"], "Claude Code");
-        assert_eq!(block["rows"][0]["picker"], Value::Null, "one agent: read-only");
-        assert_eq!(block["note"], agent_rows::ONLY_AGENT);
-        assert_eq!(view["epic_agents"]["rows"][0]["label"], "Epic lead");
+        assert_eq!(view["choices"], Value::Null);
 
-        let strong = add("Strong").await;
-        let mut f = form("Price table");
-        f.agents = vec![AgentPick {
-            role: RoleId::Developer,
-            agent: strong.clone(),
-        }];
-        let saved = table(&h.app, "editor.save", json!({ "target": create, "form": f }))
+        let saved = table(&h.app, "editor.save", json!({ "target": create, "form": form("Price table") }))
             .await
             .unwrap();
         let key = saved["key"].as_str().unwrap().to_owned();
-        let view = table(&h.app, "editor.open", json!({ "mode": "edit", "key": key }))
-            .await
-            .unwrap();
-        let dev = &view["agents"]["rows"][0];
-        assert_eq!(dev["value"], "Strong");
-        assert_eq!(dev["set_by"]["text"], "set by you");
-        assert_eq!(dev["let_agents_pick"], "Let agents pick again");
-        assert_eq!(view["agents"]["note"], agent_rows::NOT_STARTED);
-        assert_eq!(view["agents"]["rows"][1]["value"], "Project default (Claude Code)");
-
-        let set = table(
-            &h.app,
-            "editor.agent_row",
-            json!({ "key": key, "role": "developer", "agent": null }),
-        )
-        .await
-        .unwrap();
-        assert_eq!(set["outcome"], "set");
-        assert_eq!(set["agents"]["rows"][0]["value"], "Project default (Claude Code)");
-        let set = table(
-            &h.app,
-            "panel.agent_row",
-            json!({ "key": key, "role": "validator", "agent": strong }),
-        )
-        .await
-        .unwrap();
-        assert_eq!(set["agents"]["rows"][1]["value"], "Strong");
-        let refused = table(
-            &h.app,
-            "panel.agent_row",
-            json!({ "key": key, "role": "lead", "agent": strong }),
-        )
-        .await
-        .unwrap();
-        assert_eq!(refused["outcome"], "refused");
-        assert_eq!(refused["refusal"]["field"], "agents");
-
-        let load = table(
-            &h.app,
-            "panel.view",
-            json!({ "key": key, "focus_agent_row": "validator" }),
-        )
-        .await
-        .unwrap();
-        assert_eq!(load["view"]["focus_agent_row"], "validator");
-        assert_eq!(load["view"]["agents"]["rows"][1]["set_by"]["text"], "set by you");
-        assert_eq!(load["view"]["token_split"], Value::Null, "nothing ran yet");
+        let edit = json!({ "mode": "edit", "key": key });
+        assert_eq!(table(&h.app, "editor.open", edit).await.unwrap()["choices"], Value::Null);
         let load = table(&h.app, "panel.view", json!({ "key": key })).await.unwrap();
-        assert_eq!(load["view"]["focus_agent_row"], Value::Null);
-
-        let history = table(&h.app, "sections.history", json!({ "key": key })).await.unwrap();
-        let titles: Vec<&str> = history["rows"]
+        assert_eq!(load["view"]["choices"], Value::Null);
+        let summary = load["view"]["path"]["summary"].as_str().unwrap();
+        assert!(summary.starts_with("Dev \u{b7} Developer \u{b7} "), "{summary}");
+        assert!(summary.ends_with("\u{b7} Review \u{b7} Done"), "{summary}");
+        let stages: Vec<&str> = load["view"]["path"]["rows"]
             .as_array()
             .unwrap()
             .iter()
-            .filter_map(|r| r["title"].as_str())
+            .map(|r| r["stage"].as_str().unwrap())
             .collect();
-        assert!(titles.contains(&"Developer: Strong (set by you)"), "{titles:?}");
-        assert!(titles.contains(&"Validator: Strong (set by you)"), "{titles:?}");
+        assert_eq!(stages, ["Dev", "Validate", "Review", "Done"]);
+        assert_eq!(load["view"]["token_split"], Value::Null, "nothing ran yet");
+        // The panel's pick on a stage without options is refused, with nothing changed.
+        let refused = table(
+            &h.app,
+            "panel.set_choice",
+            json!({ "key": key, "stage": "dev", "choice": "Developer" }),
+        )
+        .await;
+        assert!(refused.is_err());
         h.service.stop_all().await;
     }
 }

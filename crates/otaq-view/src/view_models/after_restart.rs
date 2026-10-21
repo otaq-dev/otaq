@@ -316,7 +316,7 @@ fn agents_part(
                 agent: a
                     .session
                     .as_ref()
-                    .and_then(|s| s.named_agent.as_ref())
+                    .and_then(|s| s.agent.as_ref())
                     .map(|n| n.name.clone()),
             };
             AgentRow {
@@ -624,7 +624,7 @@ mod tests {
         });
         let mut needs_you = card_fixtures::ticket("SHOP-22", "Login", Status::Interrupted);
         needs_you.interrupted_from = Some(Status::AsksYou);
-        let review = card_fixtures::ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let review = card_fixtures::ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         let tickets = vec![working, needs_you, review];
         let page = summary(
             &report(&["SHOP-27", "SHOP-22"], &["SHOP-18"]),

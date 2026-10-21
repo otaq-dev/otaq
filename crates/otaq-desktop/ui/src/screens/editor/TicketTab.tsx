@@ -3,7 +3,8 @@
 // menu or + Add dependency, through `ticketEditRequests`) opens the form in place. Saving a working ticket tells its
 // agent what changed: the note says so, with Open terminal. While it validates, the form warns first that saving
 // cancels the validation (VAL-08, *Editing while it validates*). Expand on the description's label row shows it over the
-// whole window (T-0260, d0078 D11). The agent's recorded decisions sit under it, read-only (T-0288, DEC-03).
+// whole window (T-0260, d0078 D11). The agent's recorded decisions sit under it, read-only (T-0288, DEC-03), then the
+// ticket's comments and their box (T-0446, CMT-10) under "Description · the plan".
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { TicketProps } from "../../app/registry";
@@ -18,6 +19,7 @@ import { useServiceView } from "../../service";
 import { TicketDecisions } from "../sections/Decisions";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { CommentThread } from "./CommentThread";
 import { EditorFields } from "./Fields";
 import { EDITOR_EVENTS, SAVE_KEYS } from "./logic";
 import { useFormKeys } from "./Modal";
@@ -187,7 +189,7 @@ export function TicketTab({ ticket }: TicketProps) {
             texts={t}
             labels={{
               title: t.title,
-              body: t.body,
+              body: t.plan,
               priority: t.priority,
               deps: t.deps,
               base: t.base,
@@ -198,6 +200,7 @@ export function TicketTab({ ticket }: TicketProps) {
           />
         )}
         {mode.kind === "read" && <TicketDecisions ticket={ticket} />}
+        {mode.kind === "read" && <CommentThread ticket={ticket} />}
       </div>
       <div className="editor-footer">
         <span className="editor-spacer" />

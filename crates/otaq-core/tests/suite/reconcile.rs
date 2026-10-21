@@ -113,7 +113,7 @@ async fn a_restart_interrupts_tickets_at_work_and_notes_review_tickets() {
         .ask_human(&agent2, &asks.id, "Which email provider should I use?")
         .await
         .unwrap();
-    w.force_status(&review, Status::ReadyForReview).await;
+    w.force_status(&review, Status::WaitingForYou).await;
     w.force_status(&background, Status::WorkingInBackground)
         .await;
 
@@ -141,7 +141,7 @@ async fn a_restart_interrupts_tickets_at_work_and_notes_review_tickets() {
     let question = t.question.unwrap();
     assert_eq!((question.options.len(), question.recommended), (2, Some(1)));
     // Review: not Interrupted, no inbox item of its own beyond Ready for Review, a History note.
-    assert_eq!(w.status("SHOP-3").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-3").await, Status::WaitingForYou);
     assert_eq!(
         events_of(&w, "SHOP-3", EventKind::SessionEnded).await.len(),
         1
@@ -209,7 +209,7 @@ async fn shell_sessions_are_stopped_by_restart_and_never_started_again() {
     let w = TestService::start().await;
     w.add_project("shop-web").await;
     let t = w.create("SHOP", "Coupon codes").await;
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     let shell = w.shell(&t, SessionKind::Shell).await;
     let w = w.restart().await;
     let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));

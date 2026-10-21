@@ -20,7 +20,7 @@ pub fn ticket(key: &str, title: &str, status: Status) -> Ticket {
         priority: Default::default(),
         priority_inherited: false,
         epic: None,
-        column: status.column(),
+        place: otaq_core::domain::Place::of(status, None, None),
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
@@ -108,6 +108,7 @@ fn keys(list: &[&str]) -> Vec<otaq_core::domain::TicketKey> {
 /// need other tools or named agents (M22, M23); then *Interaction states*. Names are the frame's; "(0066)" and
 /// "(0083)" drop the "agent picked" footer M21 leaves out.
 pub fn variants() -> Vec<Variant> {
+    use otaq_core::board::human_check::Arrival;
     use otaq_core::board::tickets::AgentSignal;
     use otaq_core::domain::{AutoMergeStop, ReviewEntry, ReviewEntryFlag, ValidationRound};
     let signal = |text: &str| AgentSignal {
@@ -235,7 +236,7 @@ pub fn variants() -> Vec<Variant> {
     t.flags.tokens = Some(311_000);
     out.push(v("Interrupted (0018)", t, base()));
 
-    let mut t = ticket("SHOP-33", "Shipping estimate", Status::ValidatorNeedsYou);
+    let mut t = ticket("SHOP-33", "Shipping estimate", Status::CheckerNeedsYou);
     t.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
     live(&mut t, 60, 64_000);
     t.signal = Some(signal("Allow Bash(pnpm test)?"));
@@ -245,13 +246,13 @@ pub fn variants() -> Vec<Variant> {
         base().with_signal(&t, NOW),
     ));
 
-    let mut t = ticket("SHOP-32", "Address autocomplete", Status::ValidationFailed);
+    let mut t = ticket("SHOP-32", "Address autocomplete", Status::CheckFailed);
     t.validation_round = 3;
-    t.flags.findings = vec!["Arrow keys do nothing in the list".into()];
+    t.flags.verdict = Some("Fail: Arrow keys do nothing in the list".into());
     t.flags.tokens = Some(64_000);
     out.push(v("Validation failed 3 times (0063)", t, base()));
 
-    let mut t = ticket("SHOP-34", "Tax display", Status::ValidationNoResult);
+    let mut t = ticket("SHOP-34", "Tax display", Status::CheckNoResult);
     t.flags.tokens = Some(64_000);
     out.push(v("Validation ended without a result", t, base()));
 
@@ -266,7 +267,7 @@ pub fn variants() -> Vec<Variant> {
         },
     ));
 
-    let mut t = ticket("SHOP-29", "Coupon field", Status::Validating);
+    let mut t = ticket("SHOP-29", "Coupon field", Status::Checking);
     t.status_since = Some(NOW - 2 * 60_000);
     t.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
     live(&mut t, 3 * 60, 23_000);
@@ -275,10 +276,7 @@ pub fn variants() -> Vec<Variant> {
     let mut t = ticket("SHOP-30", "Order history page", Status::Working);
     t.validation_round = 2;
     t.flags.validation_round = Some(ValidationRound { round: 2, of: 3 });
-    t.flags.findings = vec![
-        "src/orders/page.tsx:41 the list isn't paginated".into(),
-        "no test for the empty state".into(),
-    ];
+    t.flags.verdict = Some("Fail: the list isn't paginated".into());
     live(&mut t, 20, 141_000);
     out.push(v("Validation failed · round 2 of 3", t, base()));
 
@@ -292,7 +290,7 @@ pub fn variants() -> Vec<Variant> {
     live(&mut t, 10, 77_000);
     out.push(v("Merge conflict · fixing (0064)", t, sleeved(4)));
 
-    let mut t = child("SHOP-40.4", "Wishlist share link", Status::AutoMergeStopped);
+    let mut t = child("SHOP-40.4", "Wishlist share link", Status::DeliveryStopped);
     t.auto_merge_stop = Some(AutoMergeStop::KeepsConflicting);
     t.auto_merge_conflicts = 3;
     t.flags.conflicts_with = Some(otaq_core::naming::branch("SHOP-40"));
@@ -337,10 +335,23 @@ pub fn variants() -> Vec<Variant> {
         },
     ));
 
+    // How each got into Review, as the board reads it from the stage runs (FLW-14).
     let review = |name, entry, round, diff: bool| {
-        let mut t = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let mut t = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         t.validation_round = round;
         t.flags.review_entry = Some(ReviewEntryFlag { entry, round });
+        let stage = "Validate".to_owned();
+        t.flags.arrival = Some(match entry {
+            ReviewEntry::Validated => Arrival::Passed {
+                stage,
+                round: Some(round),
+            },
+            ReviewEntry::FailedMoved => Arrival::FailedMovedOn {
+                stage,
+                times: round,
+            },
+            _ => Arrival::Skipped { stage, by: None },
+        });
         v(
             name,
             t,
@@ -508,40 +519,22 @@ pub fn lead_note() -> LeadNoteSent {
 pub const MODEL_ISSUE_MESSAGE: &str = "There's an issue with the selected model (claude-fable-5-1). It may not \
                                        exist or you may not have access to it.";
 
-/// shop-web's named agents in the M22 cards (update Y, "a list you made"): Claude Code, Strong, Light, Sonnet and
-/// Fable test; the project's Developer default is Strong.
-pub fn named(developer: &str) -> AgentFacts {
+/// shop-web's agents in the M22 cards (update Y, "a list you made"): five of them. Before T-0411 a card names no
+/// agent before its start (AGM-09), so `_developer` (the Dev stage's agent) shows nowhere yet.
+pub fn named(_developer: &str) -> AgentFacts {
     AgentFacts {
         count: 5,
-        developer: Some(developer.into()),
-        validator: Some("Claude Code".into()),
         ..AgentFacts::default()
     }
 }
 
-/// *04 → Variants · one tool (M22)* (`uUqnz`) and the picked-by cards of *Ticket Card v2 · all variants* (`SPy9r`),
-/// then the running footer with two or more named agents and with one (Q-A). The gallery's "M22 · Named agents".
+/// *04 → Variants · one tool (M22)* (`uUqnz`): a refused model, a card before its start naming no agent (AGM-09),
+/// then the running footer with two or more agents and with one (Q-A). The gallery's "M22 · Named agents".
 pub fn agent_variants() -> Vec<Variant> {
     use otaq_core::board::tickets::{AgentSignal, StartProblem};
     use otaq_core::domain::StartStep;
-    use otaq_core::named_agents::RowSetBy;
-    let picked = || RowSetBy::Agent {
-        picked_by: "Checkout slowness".into(),
-        reason: "docs-only change".into(),
-    };
     let with = |agents: AgentFacts| CardExtras { agents, ..base() };
     let mut out = Vec::new();
-
-    let mut t = ticket("SHOP-48", "Add gift wrap option", Status::Backlog);
-    t.flags.ready_to_start = true;
-    out.push(v(
-        "Set by you \u{b7} before the drag",
-        t,
-        with(AgentFacts {
-            off_default: Some(RowSetBy::User),
-            ..named("Fable test")
-        }),
-    ));
 
     let mut t = ticket("SHOP-48", "Add gift wrap option", Status::StartInterrupted);
     t.start_problem = Some(StartProblem {
@@ -551,13 +544,10 @@ pub fn agent_variants() -> Vec<Variant> {
     out.push(v(
         "Start failed on the model",
         t.clone(),
-        with(AgentFacts {
-            off_default: Some(RowSetBy::User),
-            ..named("Fable test")
-        }),
+        with(named("Fable test")),
     ));
 
-    let mut t = ticket("SHOP-29", "Coupon field", Status::ValidationNoResult);
+    let mut t = ticket("SHOP-29", "Coupon field", Status::CheckNoResult);
     t.signal = Some(AgentSignal {
         text: Some(otaq_core::validation::couldnt_run_text(
             "claude-fable-5-1",
@@ -571,10 +561,7 @@ pub fn agent_variants() -> Vec<Variant> {
         "No result \u{b7} the validator\u{2019}s model",
         t.clone(),
         CardExtras {
-            agents: AgentFacts {
-                validator: Some("Fable test".into()),
-                ..named("Claude Code")
-            },
+            agents: named("Claude Code"),
             ..base()
         }
         .with_signal(&t, NOW),
@@ -588,32 +575,6 @@ pub fn agent_variants() -> Vec<Variant> {
         with(named("Strong")),
     ));
 
-    let mut t = ticket("SHOP-41", "Fix README typo", Status::Backlog);
-    t.priority = Priority::Low;
-    t.flags.ready_to_start = true;
-    out.push(v(
-        "Ready to start \u{b7} agent picked (0066, 0086)",
-        t,
-        with(AgentFacts {
-            off_default: Some(picked()),
-            ..named("Light")
-        }),
-    ));
-
-    let mut t = ticket("SHOP-41", "Fix README typo", Status::Backlog);
-    t.created_by = Actor::ProjectAgent("pa-1".into());
-    out.push(v(
-        "Created by a Project agent \u{b7} agent picked",
-        t,
-        CardExtras {
-            agent_name: Some("Checkout slowness".into()),
-            ..with(AgentFacts {
-                off_default: Some(picked()),
-                ..named("Light")
-            })
-        },
-    ));
-
     let mut working = ticket("SHOP-19", "Price table", Status::Working);
     working.started_at = Some(NOW - 3_600_000);
     working.flags.last_signal_at = Some(NOW - 40_000);
@@ -622,7 +583,6 @@ pub fn agent_variants() -> Vec<Variant> {
         "Working \u{b7} two or more named agents",
         working.clone(),
         with(AgentFacts {
-            off_default: Some(RowSetBy::User),
             running_developer: Some("Strong".into()),
             ..named("Strong")
         }),
@@ -639,43 +599,304 @@ pub fn agent_variants() -> Vec<Variant> {
     out
 }
 
+/// The cards of checks and deliveries in any flow (FLW-13…FLW-17; `s03-44`, `s03-46`, `s03-48`, `s03-54`): shop-web's
+/// Security check (Security reviewer on opus), its Review, its Done · PR delivery by Shipper, and billing-api's
+/// click Delivery (drawn on the default flow in `s03-46`; built for other flows only, d0108 keeps the default board).
+/// The gallery's "M33 · Checks and deliveries".
+pub fn flow_variants() -> Vec<Variant> {
+    use otaq_core::agent_tools::Tool;
+    use otaq_core::agents::facts::RunsOnTool;
+    use otaq_core::agents::{HoldReason, SessionRole as Role};
+    use otaq_core::board::human_check::Arrival;
+    use otaq_core::domain::{AutoMergeStop, ValidationRound};
+    use otaq_core::flow::model::Delivers;
+    let agents = |validator: Option<(&str, &str)>, developer: Option<(&str, &str)>| AgentFacts {
+        count: 7,
+        running_validator: validator.map(|(name, _)| name.to_owned()),
+        validator_on: validator.map(|(_, model)| RunsOnTool {
+            tool: Tool::Claude,
+            model: None,
+            passed: Some(model.to_owned()),
+            fallback: None,
+        }),
+        running_developer: developer.map(|(name, _)| name.to_owned()),
+        developer_on: developer.map(|(_, model)| RunsOnTool {
+            tool: Tool::Claude,
+            model: None,
+            passed: Some(model.to_owned()),
+            fallback: None,
+        }),
+        ..AgentFacts::default()
+    };
+    let shop = |delivers| CardExtras {
+        delivers: Some(delivers),
+        delivery_agent: Some("Shipper".into()),
+        agents: AgentFacts {
+            count: 7,
+            ..AgentFacts::default()
+        },
+        ..base()
+    };
+    let security = |t: &mut Ticket| t.flags.check = Some("Security".into());
+    let mut out = Vec::new();
+
+    // `s03-44`: an agent check in any flow.
+    let mut t = ticket("SHOP-19", "Price table", Status::Checking);
+    security(&mut t);
+    t.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
+    t.flags.tokens = Some(18_000);
+    out.push(v(
+        "Checking \u{b7} Security",
+        t,
+        CardExtras {
+            agents: agents(Some(("Security reviewer", "opus")), None),
+            ..base()
+        },
+    ));
+
+    let mut t = ticket("SHOP-29", "Coupon field", Status::Working);
+    security(&mut t);
+    t.validation_round = 2;
+    t.flags.validation_round = Some(ValidationRound { round: 2, of: 3 });
+    t.flags.last_signal_at = Some(NOW - 20_000);
+    t.flags.tokens = Some(141_000);
+    out.push(v(
+        "Security failed \u{b7} back in Dev",
+        t,
+        CardExtras {
+            agents: agents(None, Some(("Rust developer", "sonnet"))),
+            ..base()
+        },
+    ));
+
+    let mut t = ticket("SHOP-32", "Address autocomplete", Status::CheckFailed);
+    security(&mut t);
+    t.validation_round = 3;
+    t.flags.verdict = Some("Fail: unescaped SQL in search".into());
+    out.push(v("Security failed \u{d7}3", t, shop(Delivers::Pr)));
+
+    // `s03-46`, `s03-54`: your check.
+    let check = |key: &str, title: &str, arrival| {
+        let mut t = ticket(key, title, Status::WaitingForYou);
+        t.flags.arrival = Some(arrival);
+        t
+    };
+    out.push(v(
+        "Your check \u{b7} passed Security",
+        check(
+            "SHOP-18",
+            "Checkout API",
+            Arrival::Passed {
+                stage: "Security".into(),
+                round: Some(2),
+            },
+        ),
+        shop(Delivers::Pr),
+    ));
+    out.push(v(
+        "Your check \u{b7} skipped Security",
+        check(
+            "SHOP-23",
+            "Split user full name",
+            Arrival::Skipped {
+                stage: "Security".into(),
+                by: None,
+            },
+        ),
+        shop(Delivers::Pr),
+    ));
+    out.push(v(
+        "Your check \u{b7} skipped by the Project agent",
+        check(
+            "SHOP-27",
+            "Fix README typo",
+            Arrival::Skipped {
+                stage: "Grill".into(),
+                by: Some("Planner".into()),
+            },
+        ),
+        shop(Delivers::Pr),
+    ));
+    out.push(v(
+        "Your check \u{b7} moved back",
+        check("SHOP-19", "Price table", Arrival::MovedBack),
+        shop(Delivers::Pr),
+    ));
+
+    // `s03-46`: deliveries waiting for a click, and an open PR.
+    let mut t = ticket("BILL-26", "Invoice PDF export", Status::ToDeliver);
+    t.flags.arrival = Some(Arrival::Passed {
+        stage: "Review".into(),
+        round: None,
+    });
+    out.push(v(
+        "Ready to merge \u{b7} passed Review",
+        t,
+        CardExtras {
+            delivers: Some(Delivers::Either),
+            ..base()
+        },
+    ));
+    let mut t = ticket("BILL-30", "Refund webhook", Status::ToDeliver);
+    t.flags.moved_past_check = Some("Failed Validate 3 times \u{b7} moved by you".into());
+    out.push(v(
+        "Ready to merge \u{b7} moved past Validate",
+        t,
+        CardExtras {
+            delivers: Some(Delivers::Either),
+            ..base()
+        },
+    ));
+    let mut t = ticket("SHOP-45", "Gift cards", Status::ToDeliver);
+    t.flags.moved_past_check = Some("Failed Security 3 times \u{b7} moved by you".into());
+    out.push(v(
+        "Ready for PR \u{b7} moved past Security",
+        t,
+        shop(Delivers::Pr),
+    ));
+    let mut t = ticket("SHOP-23", "Split user full name", Status::ToDeliver);
+    t.flags.moved_past_check = Some("Skipped Security \u{b7} by you".into());
+    out.push(v(
+        "Ready for PR \u{b7} skipped Security",
+        t,
+        shop(Delivers::Pr),
+    ));
+    let mut t = ticket("SHOP-41", "Saved addresses", Status::ToDeliver);
+    t.flags.delivering_automatically = true;
+    out.push(v(
+        "Ready for PR \u{b7} delivering automatically",
+        t,
+        shop(Delivers::Pr),
+    ));
+    let mut t = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
+    t.flags.pr_number = Some(481);
+    t.status_since = Some(NOW - 2 * 3_600_000);
+    out.push(v(
+        "PR #481 open \u{b7} opened by Shipper",
+        t,
+        shop(Delivers::Pr),
+    ));
+
+    // `s03-46`: conflicts at the Delivery.
+    let mut t = ticket("SHOP-34", "Tax display", Status::MergeConflictFixing);
+    t.flags.last_signal_at = Some(NOW - 10_000);
+    t.flags.tokens = Some(77_000);
+    out.push(v(
+        "Merge conflict \u{b7} fixing in Dev",
+        t,
+        CardExtras {
+            agents: agents(None, Some(("Rust developer", "sonnet"))),
+            ..base()
+        },
+    ));
+    let stopped = |key: &str, title: &str, epic: bool| {
+        let mut t = ticket(key, title, Status::DeliveryStopped);
+        t.auto_merge_stop = Some(AutoMergeStop::KeepsConflicting);
+        t.auto_merge_conflicts = 3;
+        if epic {
+            t.epic = Some("SHOP-40".parse().expect("key"));
+        }
+        t
+    };
+    out.push(v(
+        "Conflicts \u{d7}3 \u{b7} the epic\u{2019}s branch",
+        stopped("SHOP-40.4", "Wishlist share link", true),
+        CardExtras {
+            sleeve: wishlist(4, false),
+            ..base()
+        },
+    ));
+    out.push(v(
+        "Conflicts \u{d7}3 \u{b7} main",
+        stopped("SHOP-38", "Cart totals rounding", false),
+        base(),
+    ));
+
+    // `s03-48`: Done.
+    let mut t = ticket("DOCS-7", "Fix broken anchors", Status::Merged);
+    t.flags.merged_automatically = true;
+    t.flags.delivered_without_checks = true;
+    out.push(v("Delivered without checks", t, base()));
+
+    // `s03-54`: a check held for the plan limit, with and without a fallback that can run.
+    let limit = |fallback: bool| {
+        let mut h = hold(
+            Role::Validator,
+            HoldReason::ToolLimit,
+            Tool::Claude,
+            Some("opus"),
+            "Security reviewer",
+            fallback.then_some(Tool::Codex),
+            fallback,
+            false,
+        );
+        h.can_skip_check = !fallback;
+        h
+    };
+    for (name, fallback) in [
+        ("Plan limit \u{b7} a fallback is set", true),
+        ("Plan limit \u{b7} no fallback can run", false),
+    ] {
+        let mut t = ticket("SHOP-19", "Price table", Status::Checking);
+        security(&mut t);
+        out.push(v(
+            name,
+            t,
+            CardExtras {
+                agents: AgentFacts {
+                    count: 7,
+                    holds: vec![limit(fallback)],
+                    ..AgentFacts::default()
+                },
+                ..base()
+            },
+        ));
+    }
+    // Each in a flow other than the default (`keeps_default_look`), as the frames draw them.
+    for v in &mut out {
+        v.extras.custom_flow = true;
+    }
+    out
+}
+
 /// A role held before it starts (T-0357's `agent_holds`, as `board.agents` names it).
 #[allow(clippy::too_many_arguments)]
 pub fn hold(
-    role: otaq_core::named_agents::Role,
-    reason: otaq_core::named_agents::HoldReason,
+    role: otaq_core::agents::SessionRole,
+    reason: otaq_core::agents::HoldReason,
     tool: otaq_core::agent_tools::Tool,
     model: Option<&str>,
     agent: &str,
-    fallback: Option<&str>,
+    fallback: Option<otaq_core::agent_tools::Tool>,
     can_use_fallback: bool,
     fallback_held: bool,
-) -> otaq_core::named_agents::rows::CardHold {
-    otaq_core::named_agents::rows::CardHold {
+) -> otaq_core::agents::facts::CardHold {
+    otaq_core::agents::facts::CardHold {
         role,
         reason,
         tool,
         model: model.map(str::to_owned),
         agent: Some(agent.to_owned()),
-        fallback: fallback.map(str::to_owned),
+        agent_id: None,
+        fallback: fallback.map(|tool| otaq_core::agents::ModelRef { tool, model: None }),
         can_use_fallback,
         fallback_held,
+        can_skip_check: false,
         resets_at: None,
     }
 }
 
-/// A row a fallback moved (or the user's Move waiting to…).
-pub fn moved(
-    from: &str,
-    reason: otaq_core::named_agents::MoveReason,
+/// A session running on `tool`, its tool `from`'s fallback, for `reason` (AGM-03).
+pub fn on_fallback(
     tool: otaq_core::agent_tools::Tool,
-) -> otaq_core::named_agents::RowMove {
-    otaq_core::named_agents::RowMove {
-        from_id: Some(from.to_lowercase()),
-        from_name: from.to_owned(),
-        reason,
-        tool: Some(tool),
-        at: NOW - 10 * 60_000,
+    from: otaq_core::agent_tools::Tool,
+    reason: otaq_core::agents::HoldReason,
+) -> otaq_core::agents::facts::RunsOnTool {
+    otaq_core::agents::facts::RunsOnTool {
+        tool,
+        model: None,
+        passed: None,
+        fallback: Some(otaq_core::agents::FallbackFrom { tool: from, reason }),
     }
 }
 
@@ -686,9 +907,9 @@ pub fn moved(
 pub fn tool_variants() -> Vec<Variant> {
     use crate::view_models::tool_avatar::{AvatarTool, ToolAvatarView};
     use otaq_core::agent_tools::Tool;
+    use otaq_core::agents::{HoldReason as H, SessionRole as Role};
     use otaq_core::board::tickets::StartProblem;
     use otaq_core::domain::{StartStep, ValidationRound};
-    use otaq_core::named_agents::{HoldReason as H, MoveReason, Role, RowSetBy};
     let av = |tool: AvatarTool, model: Option<&str>| Some(ToolAvatarView::of(tool, model));
     let tools = |developer: Option<ToolAvatarView>, agents: AgentFacts| CardExtras {
         several_tools: true,
@@ -708,21 +929,6 @@ pub fn tool_variants() -> Vec<Variant> {
     };
     let mut out = Vec::new();
 
-    let mut t = ticket("SHOP-48", "Add gift wrap option", Status::Backlog);
-    t.priority = Priority::High;
-    t.flags.ready_to_start = true;
-    out.push(v(
-        "Set by you \u{b7} several tools",
-        t,
-        tools(
-            av(AvatarTool::ClaudeCode, Some("claude-fable-5-1")),
-            AgentFacts {
-                off_default: Some(RowSetBy::User),
-                ..named("Fable test")
-            },
-        ),
-    ));
-
     let mut t = ticket("SHOP-48", "Add gift wrap option", Status::StartInterrupted);
     t.priority = Priority::High;
     t.start_problem = Some(StartProblem {
@@ -734,10 +940,7 @@ pub fn tool_variants() -> Vec<Variant> {
         t,
         tools(
             av(AvatarTool::ClaudeCode, Some("claude-fable-5-1")),
-            AgentFacts {
-                off_default: Some(RowSetBy::User),
-                ..named("Fable test")
-            },
+            named("Fable test"),
         ),
     ));
 
@@ -779,7 +982,7 @@ pub fn tool_variants() -> Vec<Variant> {
         ),
     ));
 
-    let mut t = ticket("SHOP-30", "Order history page", Status::Validating);
+    let mut t = ticket("SHOP-30", "Order history page", Status::Checking);
     t.priority = Priority::High;
     t.started_at = Some(NOW - 3_600_000);
     out.push(v(
@@ -790,7 +993,6 @@ pub fn tool_variants() -> Vec<Variant> {
             ..tools(
                 av(AvatarTool::ClaudeCode, None),
                 AgentFacts {
-                    validator: Some("Old GPT".into()),
                     holds: vec![hold(
                         Role::Validator,
                         H::ModelUnavailable,
@@ -807,7 +1009,7 @@ pub fn tool_variants() -> Vec<Variant> {
         },
     ));
 
-    let mut swapped = ticket("SHOP-29", "Coupon field", Status::Validating);
+    let mut swapped = ticket("SHOP-29", "Coupon field", Status::Checking);
     swapped.priority = Priority::High;
     swapped.started_at = Some(NOW - 3_600_000);
     swapped.status_since = Some(NOW - 2 * 60_000);
@@ -821,7 +1023,6 @@ pub fn tool_variants() -> Vec<Variant> {
             ..tools(
                 av(AvatarTool::ClaudeCode, None),
                 AgentFacts {
-                    validator: Some("Verifier".into()),
                     running_validator: Some("Verifier".into()),
                     ..named("Strong")
                 },
@@ -866,7 +1067,7 @@ pub fn tool_variants() -> Vec<Variant> {
                     Tool::Claude,
                     Some("claude-opus-5-5"),
                     "Strong",
-                    Some("Strong GPT"),
+                    Some(Tool::Codex),
                     true,
                     false,
                 )],
@@ -892,7 +1093,7 @@ pub fn tool_variants() -> Vec<Variant> {
                     Tool::Codex,
                     None,
                     "Standard",
-                    Some("Sonnet"),
+                    Some(Tool::Claude),
                     true,
                     false,
                 )],
@@ -901,7 +1102,7 @@ pub fn tool_variants() -> Vec<Variant> {
         ),
     ));
 
-    let mut t = ticket("SHOP-33", "Shipping estimate", Status::Validating);
+    let mut t = ticket("SHOP-33", "Shipping estimate", Status::Checking);
     t.started_at = Some(NOW - 3_600_000);
     out.push(v(
         "Validator held \u{b7} tool not available",
@@ -911,14 +1112,13 @@ pub fn tool_variants() -> Vec<Variant> {
             ..tools(
                 av(AvatarTool::ClaudeCode, None),
                 AgentFacts {
-                    validator: Some("Verifier".into()),
                     holds: vec![hold(
                         Role::Validator,
                         H::ToolUnavailable,
                         Tool::Copilot,
                         None,
                         "Verifier",
-                        Some("Strong"),
+                        Some(Tool::Claude),
                         true,
                         false,
                     )],
@@ -934,13 +1134,13 @@ pub fn tool_variants() -> Vec<Variant> {
     t.flags.last_signal_at = Some(NOW - 30_000);
     t.flags.tokens = Some(80_000);
     out.push(v(
-        "Moved by a fallback (0086)",
+        "On its tool\u{2019}s fallback (AGM-03)",
         t,
         tools(
             av(AvatarTool::Codex, Some("gpt-5.5")),
             AgentFacts {
                 running_developer: Some("Strong GPT".into()),
-                developer_move: Some(moved("Strong", MoveReason::ToolLimit, Tool::Claude)),
+                developer_on: Some(on_fallback(Tool::Codex, Tool::Claude, H::ToolLimit)),
                 ..named("Strong GPT")
             },
         ),
@@ -960,7 +1160,7 @@ pub fn tool_variants() -> Vec<Variant> {
                     Tool::Claude,
                     Some("claude-opus-5-5"),
                     "Strong",
-                    Some("Strong GPT"),
+                    Some(Tool::Codex),
                     false,
                     true,
                 )],
@@ -969,23 +1169,22 @@ pub fn tool_variants() -> Vec<Variant> {
         ),
     ));
 
-    let mut t = ticket("SHOP-29", "Coupon field", Status::Validating);
+    let mut t = ticket("SHOP-29", "Coupon field", Status::Checking);
     t.started_at = Some(NOW - 3_600_000);
     t.flags.tokens = Some(6_000);
     out.push(v(
-        "Validator moved by its fallback",
+        "Validator on its tool\u{2019}s fallback",
         t,
         CardExtras {
             validator: av(AvatarTool::ClaudeCode, Some("claude-opus-5-5")),
             ..tools(
                 av(AvatarTool::Copilot, None),
                 AgentFacts {
-                    validator: Some("Strong".into()),
                     running_validator: Some("Strong".into()),
-                    validator_move: Some(moved(
-                        "Verifier",
-                        MoveReason::ToolUnavailable,
+                    validator_on: Some(on_fallback(
+                        Tool::Claude,
                         Tool::Copilot,
+                        H::ToolUnavailable,
                     )),
                     ..named("Standard")
                 },
@@ -1102,9 +1301,9 @@ pub fn lead_variants() -> Vec<Variant> {
     t.flags.unread_notes = Some(unread());
     out.push(v("Dev · both on one card", t, sleeve(4)));
 
-    let mut t = child("SHOP-40.3", "Wishlist page", Status::ValidationFailed);
+    let mut t = child("SHOP-40.3", "Wishlist page", Status::CheckFailed);
     t.validation_round = 3;
-    t.flags.findings = vec!["orders.test.ts expects list".into()];
+    t.flags.verdict = Some("orders.test.ts expects list".into());
     t.flags.tokens = Some(163_000);
     t.flags.lead_note_sent = Some(lead_note());
     out.push(v(
@@ -1159,7 +1358,7 @@ pub fn epic_variants() -> Vec<EpicVariant> {
         tickets: t,
         branch: None,
     });
-    let (e, t) = wishlist(Status::ReadyForReview, [Status::Merged; 3]);
+    let (e, t) = wishlist(Status::WaitingForYou, [Status::Merged; 3]);
     out.push(EpicVariant {
         name: "Epic · Ready for Review",
         epic: e,

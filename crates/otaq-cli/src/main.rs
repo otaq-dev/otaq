@@ -4,9 +4,11 @@
 mod agent;
 mod attach;
 mod cli;
+mod comment;
 mod daemon;
 mod decision;
 mod deps;
+mod flow;
 mod hook;
 mod launch;
 mod lead;
@@ -38,7 +40,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         None => launch::launch_app(),
         Some(Command::Daemon(command)) => daemon::run(command, &out),
-        Some(Command::Attach { key, validator }) => attach::run(key, validator, &cli.global),
+        Some(Command::Attach { key, stage }) => attach::run(key, stage, &cli.global),
         Some(Command::Prime {
             epic: Some(epic), ..
         }) => prime::epic(epic, &cli.global, &out),
@@ -51,9 +53,9 @@ fn main() -> ExitCode {
         Some(Command::Show {
             key,
             terminal: true,
-            validator,
+            stage,
             ..
-        }) => read::terminal(key, validator, &cli.global, &out),
+        }) => read::terminal(key, stage, &cli.global, &out),
         Some(Command::Show {
             key,
             long,
@@ -94,7 +96,7 @@ fn main() -> ExitCode {
             file,
             kind,
             parent,
-            agents,
+            choices,
         }) => write::create(
             write::CreateArgs {
                 title,
@@ -105,7 +107,7 @@ fn main() -> ExitCode {
                 file,
                 epic: kind.as_deref() == Some("epic"),
                 parent,
-                agents,
+                choices,
             },
             &cli.global,
             &out,
@@ -116,7 +118,7 @@ fn main() -> ExitCode {
             description,
             priority,
             stdin,
-            agents,
+            choices,
         }) => write::update(
             write::UpdateArgs {
                 key,
@@ -124,7 +126,7 @@ fn main() -> ExitCode {
                 description,
                 priority,
                 stdin,
-                agents,
+                choices,
             },
             &cli.global,
             &out,
@@ -148,12 +150,24 @@ fn main() -> ExitCode {
             &cli.global,
             &out,
         ),
-        Some(Command::Review(cli::ReviewCommand::Submit { key, stdin })) => {
-            agent::submit(key, stdin, &cli.global, &out)
-        }
+        Some(Command::Review(cli::ReviewCommand::Submit {
+            key,
+            stdin,
+            report_file,
+        }))
+        | Some(Command::Stage(cli::StageCommand::Next {
+            key,
+            stdin,
+            report_file,
+        })) => agent::stage_next(key, stdin, report_file, &cli.global, &out),
+        Some(Command::Stage(cli::StageCommand::Done {
+            key,
+            stdin,
+            report_file,
+        })) => agent::stage_done(key, stdin, report_file, &cli.global, &out),
         Some(Command::Decision(command)) => decision::run(command, &cli.global, &out),
         Some(Command::Lead(command)) => lead::run(command, &cli.global, &out),
-        Some(Command::Validate(command)) => agent::validate(command, &cli.global, &out),
+        Some(Command::Check(command)) => agent::check(command, &cli.global, &out),
         Some(Command::Agent(cli::AgentCommand::Name { name, rename })) => {
             agent::name(&name, rename, &cli.global, &out)
         }
@@ -164,8 +178,12 @@ fn main() -> ExitCode {
         Some(Command::Branch(command)) => pr::branch(command, &cli.global, &out),
         Some(Command::Answer { id, stdin }) => agent::answer(id, stdin, &cli.global, &out),
         Some(Command::Questions { key }) => agent::questions(key, &cli.global, &out),
+        Some(Command::Comment(args)) => comment::comment(args, &cli.global, &out),
+        Some(Command::Comments { key }) => comment::list(key, &cli.global, &out),
+        Some(Command::Report { args, path }) => comment::report(args, path, &cli.global, &out),
         Some(Command::Dep(command)) => deps::run(command, &cli.global, &out),
         Some(Command::Project(command)) => read::project(command, &cli.global, &out),
+        Some(Command::Flow(command)) => flow::run(command, &cli.global, &out),
         Some(Command::Hook { tool, event }) => {
             hook::run(&tool, &event);
             Ok(())

@@ -7,7 +7,7 @@ use super::needs_you::{ProjectTickets, needs_you_items_with};
 use super::order::sort_column;
 use super::tickets::Ticket;
 use super::{Board, BoardError};
-use crate::domain::{Column, TicketKey};
+use crate::domain::{StatusSet, TicketKey};
 use crate::store::now_ms;
 use crate::store::projects::Project;
 
@@ -23,12 +23,16 @@ pub struct ProjectInfo {
     /// The project's needs-you items, the inbox count of the project switcher (ATT-10): needs-you family,
     /// Interrupted, Start interrupted, Resume failed, Parent closed, Ready for Review.
     pub needs_you: u32,
+    /// Since when it is in Flow setup (ASK-04): it shows no board ("pocket-api · Flow setup"); `None` once its flow
+    /// is settled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flow_setup_since: Option<i64>,
 }
 
-/// One column, cards in board order (SDD §7.5).
+/// One group of cards, in board order (SDD §7.5): the statuses of one of [`StatusSet::BOARD`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ColumnSnapshot {
-    pub column: Column,
+    pub column: StatusSet,
     pub cards: Vec<Ticket>,
 }
 
@@ -36,8 +40,8 @@ pub struct ColumnSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoardSnapshot {
     pub project: ProjectInfo,
-    /// The six state columns, left to right (the board draws Ready for Review and Approved as one Review
-    /// column, d0087).
+    /// The six groups, left to right (the board draws the human check and the Delivery as one Review column,
+    /// d0087, d0108).
     pub columns: Vec<ColumnSnapshot>,
 }
 
@@ -54,7 +58,7 @@ impl BoardSnapshot {
 
 /// Builds the columns from a project's tickets.
 pub fn columns(tickets: &[Ticket]) -> Vec<ColumnSnapshot> {
-    Column::ALL
+    StatusSet::BOARD
         .iter()
         .map(|column| {
             let order = sort_column(*column, tickets);
@@ -110,11 +114,13 @@ impl Board {
         .fetch_one(self.store.pool())
         .await?;
         // The project's inbox count (ATT-10): the same items the inbox lists for it.
+        let flow = self.effective_flow(&project.key).await?;
         let needs_you = needs_you_items_with(
             &[ProjectTickets {
                 key: &project.key,
                 name: &project.name,
                 tickets,
+                flow: &flow,
             }],
             now_ms(),
             &self.limit_stops().snapshot(),
@@ -127,6 +133,7 @@ impl Board {
             base_branch: project.base_branch.clone(),
             agents_working: u32::try_from(working).unwrap_or(0),
             needs_you: u32::try_from(needs_you).unwrap_or(u32::MAX),
+            flow_setup_since: project.flow_setup_since,
         })
     }
 }

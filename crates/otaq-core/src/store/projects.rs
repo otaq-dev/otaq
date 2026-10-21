@@ -1,10 +1,8 @@
 //! Thin access to the `projects` table. Validation and key rules live in `board::projects` (T-0021).
 
-use serde_json::Value;
 use sqlx::FromRow;
 
 use super::{Store, StoreError, new_id, now_ms};
-use crate::named_agents::RoleDefaults;
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
 pub struct Project {
@@ -16,6 +14,8 @@ pub struct Project {
     pub next_ticket_number: i64,
     pub settings_json: String,
     pub created_at: i64,
+    /// Since when the project is in Flow setup (ASK-04, d0108): no board and no tickets until its flow is settled.
+    pub flow_setup_since: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -24,14 +24,18 @@ pub struct NewProject {
     pub name: String,
     pub repo_path: String,
     pub base_branch: String,
+    /// It starts in Flow setup (the user's Add project, ASK-04).
+    pub flow_setup: bool,
 }
 
 impl Store {
+    /// Stores a new project on the shipped default flow, its version 1 (FLW-01).
     pub async fn insert_project(&self, new: &NewProject) -> Result<Project, StoreError> {
         let id = new_id();
+        let mut tx = self.begin_write().await?;
         sqlx::query(
-            "INSERT INTO projects (id, key, name, repo_path, base_branch, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO projects (id, key, name, repo_path, base_branch, created_at, flow_setup_since)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&new.key)
@@ -39,8 +43,16 @@ impl Store {
         .bind(&new.repo_path)
         .bind(&new.base_branch)
         .bind(now_ms())
-        .execute(self.pool())
+        .bind(new.flow_setup.then(now_ms))
+        .execute(&mut *tx)
         .await?;
+        Self::insert_flow_version_in(
+            &mut tx,
+            &id,
+            &crate::flow::NewFlowVersion::default_for_new_project(),
+        )
+        .await?;
+        tx.commit().await?;
         self.project(&id)
             .await?
             .ok_or(StoreError::Database(sqlx::Error::RowNotFound))
@@ -95,6 +107,17 @@ impl Store {
         Ok(())
     }
 
+    /// Ends the project's Flow setup (ASK-04): its flow is settled. Whether it was in Flow setup.
+    pub async fn end_flow_setup(&self, id: &str) -> Result<bool, StoreError> {
+        let done = sqlx::query(
+            "UPDATE projects SET flow_setup_since = NULL WHERE id = ? AND flow_setup_since IS NOT NULL",
+        )
+        .bind(id)
+        .execute(self.pool())
+        .await?;
+        Ok(done.rows_affected() > 0)
+    }
+
     /// Deletes the project row; its tickets, sessions and everything hanging off them go with it (ON DELETE
     /// CASCADE). Never touches the repository.
     pub async fn delete_project(&self, id: &str) -> Result<(), StoreError> {
@@ -102,50 +125,6 @@ impl Store {
             .bind(id)
             .execute(self.pool())
             .await?;
-        Ok(())
-    }
-}
-
-/// The key of a project's role default overrides in its `settings_json`: `{"developer": id, …}` as the app-wide
-/// ones, each absent = "Use app default" (AGT-03, d0088).
-pub const PROJECT_AGENT_DEFAULTS: &str = "agents";
-
-impl Project {
-    /// The project's role default overrides; each absent = "Use app default".
-    pub fn agent_defaults(&self) -> RoleDefaults {
-        serde_json::from_str::<Value>(&self.settings_json)
-            .ok()
-            .and_then(|mut settings| settings.get_mut(PROJECT_AGENT_DEFAULTS).map(Value::take))
-            .and_then(|value| serde_json::from_value(value).ok())
-            .unwrap_or_default()
-    }
-}
-
-impl Store {
-    /// Stores the project's role default overrides, keeping its other settings.
-    pub async fn set_project_agent_defaults(
-        &self,
-        id: &str,
-        defaults: &RoleDefaults,
-    ) -> Result<(), StoreError> {
-        let mut tx = self.begin_write().await?;
-        let json: Option<String> =
-            sqlx::query_scalar("SELECT settings_json FROM projects WHERE id = ?")
-                .bind(id)
-                .fetch_optional(&mut *tx)
-                .await?;
-        let mut settings = json
-            .and_then(|json| serde_json::from_str::<Value>(&json).ok())
-            .filter(Value::is_object)
-            .unwrap_or_else(|| Value::Object(Default::default()));
-        settings[PROJECT_AGENT_DEFAULTS] =
-            serde_json::to_value(defaults).expect("defaults serialize");
-        sqlx::query("UPDATE projects SET settings_json = ? WHERE id = ?")
-            .bind(settings.to_string())
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
         Ok(())
     }
 }

@@ -7,9 +7,7 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::*;
-use crate::agent_tools::SkillRef;
-use crate::agent_tools::test_support::{context, follow_validate, stand_in, validate_folder};
-use crate::board::settings::WorkflowStep;
+use crate::agent_tools::test_support::{context, stand_in};
 
 fn opencode(bin: &Path, home: Option<&Path>) -> OpenCode {
     OpenCode::new(context(bin, home))
@@ -48,42 +46,18 @@ fn input_quirks() {
     assert!(adapter.swaps_refused_model());
 }
 
+/// AGM-07: a skill by its copy's name (OpenCode loads a skill by its name with its skill tool), the same for a shipped and an imported one; no plugin namespace.
 #[test]
-fn skills() {
+fn skills_by_their_copys_name() {
     let bin = tempfile::tempdir().unwrap();
     let adapter = opencode(bin.path(), None);
-    // The skill's name: OpenCode has no syntax of its own for running a skill from text (T-0354).
-    assert_eq!(adapter.skill_reference("commit"), "commit");
-    assert_eq!(adapter.skill_delivery(), SkillDelivery::LaunchConfig);
-}
-
-/// ADP-05, WSK-06 (d0092): Otaq's own workflow skills in this tool's syntax; an imported one by its copy in the
-/// worktree, worded the same on every tool.
-#[test]
-fn workflow_skills_by_syntax_or_worktree_folder() {
-    let bin = tempfile::tempdir().unwrap();
-    let adapter = opencode(bin.path(), None);
-    for step in WorkflowStep::ALL {
-        assert_eq!(
-            adapter.workflow_skill(step, false),
-            SkillRef::Own(adapter.skill_reference(step.own_skill()))
-        );
-    }
     assert_eq!(
-        adapter.workflow_skill(WorkflowStep::Push, false).prompt(),
-        "push"
+        adapter.skill_reference("commit"),
+        format!("{}-commit", crate::naming::COMMAND_NAME)
     );
     assert_eq!(
-        adapter.workflow_skill(WorkflowStep::Validate, true),
-        SkillRef::Folder {
-            folder: validate_folder()
-        }
-    );
-    assert_eq!(
-        adapter
-            .workflow_skill(WorkflowStep::Validate, true)
-            .prompt(),
-        follow_validate()
+        adapter.skill_reference("team-validate"),
+        format!("{}-team-validate", crate::naming::COMMAND_NAME)
     );
 }
 

@@ -36,7 +36,9 @@ fn spec(f: &Fixture, ticket: Option<SessionTicket>, script: &str) -> SpawnSpec {
         tool: None,
         tool_session_id: None,
         model: None,
-        named_agent: None,
+        agent: None,
+        effort: None,
+        fallback: None,
     }
 }
 
@@ -320,7 +322,9 @@ async fn protocol_list_attach_resize_detach() {
             tool: None,
             tool_session_id: None,
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
         })
         .await
         .unwrap();
@@ -492,7 +496,9 @@ async fn keystrokes_from_several_clients_reach_cat_and_track_unsent_text() {
             tool: None,
             tool_session_id: None,
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
         })
         .await
         .unwrap();
@@ -575,13 +581,14 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
                 ticket: Some(t.key.clone()),
                 epic: None,
                 port: 4019,
-                first_prompt: Some(FirstPrompt::OtaqSkill {
+                first_prompt: Some(FirstPrompt::Skill {
                     name: WORK_TICKET_SKILL.into(),
                     message: None,
                 }),
                 resume: None,
                 model: None,
                 title: None,
+                effort: None,
             },
         )
         .unwrap();
@@ -601,7 +608,9 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
             tool: Some(cmd.tool),
             tool_session_id: cmd.tool_session_id.clone(),
             model: cmd.model.clone(),
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
         })
         .await
         .unwrap();
@@ -616,12 +625,12 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
     let name = otaq_core::naming::COMMAND_NAME;
     for line in [
         "ARG=--plugin-dir".to_owned(),
-        "ARG=/opt/cb/plugin".to_owned(),
+        "ARG=/opt/cb/plugin/claude".to_owned(),
         "ARG=--allowedTools".to_owned(),
         format!("ARG=Bash({name}:*)"),
         "ARG=--session-id".to_owned(),
         format!("ARG={tool_session_id}"),
-        format!("ARG=/{name}:work-ticket"),
+        format!("ARG=/{name}-work-ticket"),
         format!("{}=SHOP-1", otaq_core::naming::ticket_env_var()),
         "PORT=4019".to_owned(),
         "PATH=/opt/cb/bin:".to_owned(),
@@ -706,7 +715,9 @@ async fn attaching_again_on_one_connection_keeps_the_running_feed_whole() {
             tool: None,
             tool_session_id: None,
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
         })
         .await
         .unwrap();

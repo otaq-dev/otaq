@@ -3,6 +3,7 @@
 //! never `claude`), proposes one commit per merged child, and ends with `pr opened` or Cancel, removing the
 //! worktree unless it has uncommitted changes.
 
+use otaq_core::service::testing::said;
 use std::path::{Path, PathBuf};
 
 use otaq_core::agent_tools::LaunchContext;
@@ -16,7 +17,7 @@ use otaq_core::pr::proposal::Proposal;
 use otaq_core::pr::service::PrOutcome;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
-use otaq_core::workflow_skills::testing::skill_folder;
+use otaq_core::skills::testing::skill_folder;
 use serde_json::json;
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
@@ -67,10 +68,7 @@ async fn setup() -> Setup {
         .unwrap();
     // origin is a local folder: the project uses its own Open PR skill (REV-11).
     let folder = skill_folder(w.data.root(), "my-pr");
-    w.board
-        .import_workflow_skill(Some("SHOP"), WorkflowStep::OpenPr, &folder)
-        .await
-        .unwrap();
+    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
     let epic = w
         .board
         .create_ticket(
@@ -106,7 +104,13 @@ async fn setup() -> Setup {
         commit(&worktree, &format!("part{n}.ts"), "x\n");
         w.force_status(&child, Status::Working).await;
         w.board
-            .submit_for_review(&child.key.to_string(), "Done.", &me())
+            .submit_for_review(
+                &child.key.to_string(),
+                said(&w.board, &child.key.to_string(), "Done.")
+                    .await
+                    .as_ref(),
+                &me(),
+            )
             .await
             .unwrap();
         let merged = w
@@ -125,7 +129,7 @@ async fn setup() -> Setup {
         );
     }
     let epic = w.board.ticket(&epic.key.to_string()).await.unwrap();
-    assert_eq!(epic.status, Status::ReadyForReview, "every child merged");
+    assert_eq!(epic.status, Status::WaitingForYou, "every child merged");
     Setup { w, epic, repo }
 }
 
@@ -143,8 +147,8 @@ async fn open_pr_on_an_epic_runs_a_delivery_session_and_ends_it() {
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
     let session = delivery(w, &s.epic).expect("a delivery session");
     let printed = w.wait_for_output(&session, "delivery:").await;
-    // The imported skill, written into the delivery worktree before the launch (WSK-05, WSK-06).
-    let named = "`.agents/skills/otaq-custom-open-pr/`";
+    // The imported skill, written into the delivery worktree before the launch, run by its copy's name (AGM-07).
+    let named = "/otaq-my-pr";
     let printed = if printed.contains(named) {
         printed
     } else {
@@ -157,7 +161,7 @@ async fn open_pr_on_an_epic_runs_a_delivery_session_and_ends_it() {
         assert!(
             worktree
                 .join(root)
-                .join("skills/otaq-custom-open-pr/SKILL.md")
+                .join("skills/otaq-my-pr/SKILL.md")
                 .is_file()
         );
     }
@@ -242,7 +246,7 @@ async fn cancel_ends_the_delivery_session_and_keeps_a_dirty_worktree() {
     std::fs::write(worktree.join("notes.txt"), "left behind").unwrap();
 
     let epic = w.prs.cancel("SHOP-1", &me()).await.unwrap();
-    assert_eq!(epic.status, Status::ReadyForReview);
+    assert_eq!(epic.status, Status::WaitingForYou);
     assert!(delivery(w, &epic).is_none(), "the session ended");
     assert!(worktree.join("notes.txt").exists(), "kept: it has changes");
     let scan = w.cleanup.scan().await.unwrap();

@@ -1,11 +1,19 @@
-//! The user's review actions that reach a ticket's agent session (REV-04, GIT-03; d0034, d0038, d0048).
+//! The user's review actions that reach a ticket's agent session (REV-04, GIT-03, FLW-14; d0034, d0038, d0048,
+//! d0108).
 //!
-//! **Send back** returns a ticket from Ready for Review straight to Dev with the round's comments and note
-//! (d0034). The click is the go-ahead (d0018), so it is never held, except by the optional agent limit:
-//! - the session is **live**: `/otaq:address-review` is typed into it at once through the user-click path
-//!   (unsent text in its input line answers "needs confirmation" first, d0048) and the ticket is Agent Working;
+//! **Pass** on any human check ([`Review::pass`]) moves the card on, or, directly before a click Delivery, offers the
+//! delivery choices (today's Approve → Local merge / Open PR).
+//!
+//! **Fail** ([`Review::fail`], Send back on the default flow) returns a ticket waiting in a human check to the nearest
+//! earlier Agent stage with the round's line comments and the note, the note posted first as the user's comment
+//! (d0034, d0108 rule 6, d0109); it then walks every later stage again. The click is the go-ahead (d0018), so it is
+//! never held, except by the optional agent limit:
+//! - the session is **live**: `/otaq-address-review` is typed into it, copied into the worktree first (AGM-07), with
+//!   what came back and never its text ("SHOP-18 was sent back to Dev with 2 line comments and a comment. Run `otaq
+//!   prime`, then `otaq review feedback`.", CMT-05), at once through the user-click path (unsent text in its input
+//!   line answers "needs confirmation" first, d0048) and the ticket is Agent Working;
 //! - the session is **gone**: the same click resumes the stored conversation on its tool, in the
-//!   ticket's worktree with the skill as its first prompt;
+//!   ticket's worktree with the skill and that text as its first prompt;
 //! - the agent limit is **on and full**: the ticket waits in Queued; the scheduler starts it when a slot frees,
 //!   and the skill is typed (or the conversation resumed) then.
 //!
@@ -14,8 +22,10 @@
 //! A build freed at Review comes back first (M19-c): at the click for a live session, before the skill is typed;
 //! by the start for a resumed or queued one. A failure there never refuses the click.
 
-pub mod auto_merge;
+mod apply_now;
 mod close;
+pub mod delivery;
+pub mod drag;
 pub mod finish;
 pub mod park;
 pub mod pr_state;
@@ -27,11 +37,16 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use crate::board::conflicts::{Conflict, ConflictReason};
+use crate::board::hand_over::{HandOver, settled};
+use crate::board::reports::ReportSource;
 use crate::board::review::{ApproveCheck, EPIC_NO_SEND_BACK};
 use crate::board::tickets::Ticket;
+use crate::board::validation::Transition;
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, Status, TicketKey};
+use crate::domain::{Actor, Status, TicketKey, ValidationTrigger};
+use crate::flow::Delivers;
+use crate::flow::engine::Counters;
 use crate::git::merge::{MergeOutcome, MergeRequest};
 use crate::ports::PortPool;
 use crate::scheduler::Scheduler;
@@ -43,7 +58,8 @@ use crate::ticket_env::fetch::FetchWhy;
 
 /// The skill Send back runs (REV-04).
 pub const ADDRESS_REVIEW_SKILL: &str = "address-review";
-/// The skill Send to agent to fix runs: rebase onto the target and resolve the conflicts (GIT-03).
+/// The skill a Delivery's conflict runs, with no click: rebase onto the target and resolve the conflicts (GIT-03,
+/// FLW-17).
 pub const RESTACK_SKILL: &str = "restack";
 
 /// The answer to a click that returns a ticket to its agent.
@@ -62,6 +78,20 @@ pub enum ReturnOutcome {
         unclearable_by: Option<String>,
     },
 }
+
+/// The answer to a Pass on a human check (FLW-14).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum PassOutcome {
+    /// Directly before a click Delivery: nothing changed; the user picks Local merge or Open PR (`either`: both),
+    /// as today's Approve offers them.
+    Choose { delivers: Delivers },
+    /// The card moved on (the ticket afterwards).
+    Moved { ticket: Box<Ticket> },
+}
+
+/// The summary a Pass into an agent check records for the human check it leaves.
+pub const PASSED_BY_YOU: &str = "Passed by you";
 
 /// The answer to a Local merge click (GIT-03, REV-08).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,8 +112,9 @@ pub enum LocalMergeOutcome {
     RefusedDiverged { message: String },
     /// "shop-web has uncommitted changes on main. Clean up and retry."
     RefusedDirtyCheckout { message: String },
-    /// The free rebase conflicted: nothing was merged; the ticket stays in Ready for Review with Send to agent
-    /// to fix.
+    /// The free rebase conflicted: nothing was merged; the ticket went back to its nearest earlier Agent stage,
+    /// whose session fixes it with `restack` (no click), or stopped there after the third conflict in a row
+    /// (FLW-17). An epic's conflict stays on its card.
     Conflict { target: String, files: Vec<String> },
     /// New commits since the review (REV-06): nothing was done; approve again with `approve_anyway`, or Send
     /// back.
@@ -149,12 +180,15 @@ impl Review {
         &self.inner.board
     }
 
-    /// **Send back** (REV-04): the pending comments and `note` go to the agent, which continues in Dev.
-    /// `clear_first` is the user's "Clear it and send" after a "needs confirmation" answer.
-    pub async fn send_back(
+    /// **Fail** on a human check (FLW-14; Send back on the default flow, REV-04): `note` (with `report`, the dialog's
+    /// pasted text) is the user's comment and the pending line comments go with it to the nearest earlier Agent
+    /// stage's session, which continues there; every agent check's counter restarts. `clear_first` is the user's
+    /// "Clear it and send" after a "needs confirmation" answer. A note over the limit refuses the whole Fail.
+    pub async fn fail(
         &self,
         key: &str,
         note: &str,
+        report: Option<ReportSource>,
         clear_first: bool,
         actor: &Actor,
     ) -> Result<ReturnOutcome, BoardError> {
@@ -162,7 +196,7 @@ impl Review {
         if ticket.is_epic() {
             return Err(BoardError::refused(Refusal::MoveRefused, EPIC_NO_SEND_BACK));
         }
-        if ticket.status != Status::ReadyForReview {
+        if ticket.status != Status::WaitingForYou {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
@@ -172,13 +206,101 @@ impl Review {
                 ),
             ));
         }
-        self.return_to_agent(&ticket, Return::SendBack { note }, clear_first, actor)
+        let hand_over = self
+            .inner
+            .board
+            .user_hand_over(&ticket, note, report, actor)
+            .await?;
+        let action = Return::SendBack {
+            hand_over: hand_over.as_ref(),
+        };
+        self.return_to_agent(&ticket, action, clear_first, actor)
             .await
     }
 
+    /// **Pass** on a human check (FLW-14, STG-06): directly before a click Delivery it changes nothing and offers the
+    /// delivery choices (an epic child's: Local merge only, d0108 rule 7); otherwise the card moves to the next stage
+    /// the ticket runs: another human check, an agent check (its checker starts, through `validation`), the wait
+    /// before an Agent stage (the scheduler starts it), or its Delivery.
+    pub async fn pass(
+        &self,
+        key: &str,
+        validation: &crate::validation::Validation,
+        actor: &Actor,
+    ) -> Result<PassOutcome, BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.ticket(key).await?;
+        let moved = board.pass_step(&ticket).await?;
+        if let Some(delivers) = moved.choose {
+            let delivers = match ticket.epic {
+                Some(_) => Delivers::Local,
+                None => delivers,
+            };
+            return Ok(PassOutcome::Choose { delivers });
+        }
+        if moved.start_check {
+            // As a submit into an agent check: the round opens on the reviewed head, then its checker starts.
+            let head = board.submit_head(&ticket).await?;
+            board.record_pass_runs(&ticket, &moved).await?;
+            let into = Transition {
+                to: moved.status,
+                place: moved.place.clone(),
+                entry: None,
+                counters: Counters::Keep,
+                outcome: None,
+                start_validator: true,
+                deliver_findings: false,
+                tell_cancelled: false,
+                extra_round: false,
+                skipped: Vec::new(),
+            };
+            board
+                .enter_validation(
+                    &ticket,
+                    &into,
+                    &head,
+                    PASSED_BY_YOU,
+                    None,
+                    ValidationTrigger::User,
+                    false,
+                    actor,
+                )
+                .await?;
+            validation.start_held(&ticket.id).await?;
+        } else {
+            board.record_pass(&ticket, &moved, actor).await?;
+            if moved.place.is_waiting() {
+                self.inner.scheduler.wake();
+            }
+            // Into an automatic Delivery: it delivers now, unless the card was moved past a check (FLW-15).
+            board.delivery().arrived(&ticket.id).await;
+        }
+        Ok(PassOutcome::Moved {
+            ticket: Box::new(board.ticket(key).await?),
+        })
+    }
+
     /// **Local merge** (GIT-03): the user's approve action that spends no tokens. `message` is the confirmed
-    /// squash message ([`Board::merge_proposal`] proposes one).
+    /// squash message ([`Board::merge_proposal`] proposes one). A conflict goes to the agent with `restack` at once,
+    /// no click (FLW-17, [`Self::delivery_conflict`]).
     pub async fn local_merge(
+        &self,
+        key: &str,
+        message: &str,
+        approve_anyway: bool,
+        actor: &Actor,
+    ) -> Result<LocalMergeOutcome, BoardError> {
+        let outcome = self.merge(key, message, approve_anyway, actor).await?;
+        if let LocalMergeOutcome::Conflict { target, .. } = &outcome {
+            let ticket = self.inner.board.ticket(key).await?;
+            self.delivery_conflict(&ticket, target, actor).await?;
+        }
+        Ok(outcome)
+    }
+
+    /// The Local merge itself, from a human check that offers it or from the Delivery stage (the click, or an
+    /// automatic Delivery): a conflict is only recorded on the ticket.
+    async fn merge(
         &self,
         key: &str,
         message: &str,
@@ -189,7 +311,7 @@ impl Review {
         let board = &inner.board;
         let _one_at_a_time = inner.merging.lock().await;
         let ticket = board.ticket(key).await?;
-        if ticket.status != Status::ReadyForReview {
+        if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver) {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
@@ -319,32 +441,6 @@ impl Review {
         })
     }
 
-    /// **Send to agent to fix** (GIT-03, d0038): a ticket whose branch conflicts with its target goes back to Dev
-    /// with the `restack` skill, like Send back (the click spends the tokens).
-    pub async fn send_to_fix(
-        &self,
-        key: &str,
-        clear_first: bool,
-        actor: &Actor,
-    ) -> Result<ReturnOutcome, BoardError> {
-        let board = &self.inner.board;
-        let ticket = board.ticket(key).await?;
-        let conflict = board.conflict(&ticket.id).await?;
-        let target = match (&conflict, ticket.status) {
-            (Some(c), Status::ReadyForReview) if c.reason == ConflictReason::Merge => {
-                c.target.clone()
-            }
-            _ => {
-                return Err(BoardError::refused(
-                    Refusal::MoveRefused,
-                    format!("{} has no conflict to fix in Ready for Review", ticket.key),
-                ));
-            }
-        };
-        self.return_to_agent(&ticket, Return::Fix { target: &target }, clear_first, actor)
-            .await
-    }
-
     /// After a merge into `target` (GIT-04, d0038): a read-only test merge of every ticket in Ready for Review that
     /// merges into it; "conflicts with `target`" is set or cleared. No files touched, no tokens.
     pub async fn flag_conflicts(
@@ -356,7 +452,7 @@ impl Review {
         let board = &self.inner.board;
         let git = board.git()?;
         for ticket in board.tickets(project).await? {
-            if ticket.status != Status::ReadyForReview {
+            if ticket.status != Status::WaitingForYou {
                 continue;
             }
             let Ok(merge) = board.merge_target(&ticket).await else {
@@ -400,8 +496,9 @@ impl Review {
         Ok(status.limits.enabled && status.holding >= status.limits.max_concurrency.max(1))
     }
 
-    /// The action's bookkeeping: moves the ticket to `to` (Agent Working or Queued) with the skill still to
-    /// run, if any.
+    /// The action's bookkeeping: posts the user's comment, moves the ticket to `to` (Agent Working or Queued) with the
+    /// skill still to run, if any. Returns what the agent is told after the skill (stored already for a queued
+    /// ticket).
     async fn record(
         &self,
         ticket: &Ticket,
@@ -409,27 +506,49 @@ impl Review {
         to: Status,
         skill: Option<&str>,
         actor: &Actor,
-    ) -> Result<(), BoardError> {
+    ) -> Result<Option<String>, BoardError> {
         let board = &self.inner.board;
         match action {
-            Return::SendBack { note } => board
-                .record_send_back(ticket, note, to, skill, actor)
+            Return::SendBack { hand_over } => board
+                .record_send_back(ticket, *hand_over, to, skill, actor)
                 .await
-                .map(|_| ()),
-            Return::Fix { target } => {
-                board
-                    .record_send_to_fix(ticket, target, to, skill, actor)
-                    .await
-            }
+                .map(|sent| sent.told),
+            Return::Fix { target } => board
+                .record_conflict_fix(ticket, target, to, skill, actor)
+                .await
+                .map(|()| None),
+            Return::PrComments { hand_over } => board
+                .record_send_back_pr(ticket, *hand_over, to, skill, actor)
+                .await
+                .map(Some),
+            Return::DragBack(back) => back.record(board, ticket, to, skill, actor).await,
         }
     }
 
     /// Returns a ticket to its agent with the action's skill: types it into the live session, resumes the
-    /// conversation with it, or queues the ticket while the limit is full.
+    /// conversation with it, or queues the ticket while the limit is full. The user's comment's report, if any, is
+    /// discarded when nothing was posted (unsent text asked first, or a refusal).
     async fn return_to_agent(
         &self,
         ticket: &Ticket,
         action: Return<'_>,
+        clear_first: bool,
+        actor: &Actor,
+    ) -> Result<ReturnOutcome, BoardError> {
+        let hand_over = action.hand_over();
+        let outcome = self.return_with(ticket, &action, clear_first, actor).await;
+        if matches!(outcome, Ok(ReturnOutcome::NeedsConfirmation { .. }))
+            && let Some(hand_over) = hand_over
+        {
+            hand_over.discard_unposted(&self.inner.board).await;
+        }
+        settled(&self.inner.board, hand_over, outcome).await
+    }
+
+    async fn return_with(
+        &self,
+        ticket: &Ticket,
+        action: &Return<'_>,
         clear_first: bool,
         actor: &Actor,
     ) -> Result<ReturnOutcome, BoardError> {
@@ -456,7 +575,7 @@ impl Review {
         let key = ticket.key.to_string();
         match (&live, full) {
             (_, true) => {
-                self.record(ticket, &action, Status::Queued, Some(skill), actor)
+                self.record(ticket, action, Status::Queued, Some(skill), actor)
                     .await?;
                 inner.scheduler.wake();
             }
@@ -467,9 +586,23 @@ impl Review {
                     .ticket_env
                     .fetch_for_agent(ticket, action.fetch_why(), actor)
                     .await;
-                self.record(ticket, &action, Status::Working, None, actor)
+                let told = self
+                    .record(ticket, action, Status::Working, None, actor)
                     .await?;
-                let text = inner.deliveries.skill_reference(&session.id, skill);
+                let worktree = ticket
+                    .work
+                    .as_ref()
+                    .and_then(|w| w.worktree.as_deref())
+                    .map(std::path::Path::new);
+                let skill_line = inner
+                    .deliveries
+                    .skill_line(&inner.board, &session.id, worktree, skill)
+                    .await;
+                // The skill, then what came back (never the note's text: the agent reads it in `prime`, CMT-05).
+                let text = match told {
+                    Some(told) => format!("{skill_line} {told}"),
+                    None => skill_line,
+                };
                 let typed = if clear_first {
                     inner
                         .deliveries
@@ -491,7 +624,7 @@ impl Review {
                 }
             }
             (None, false) => {
-                self.record(ticket, &action, Status::Queued, Some(skill), actor)
+                self.record(ticket, action, Status::Queued, Some(skill), actor)
                     .await?;
                 match inner.starter.start(&key, actor).await? {
                     StartOutcome::Started(_) | StartOutcome::Skipped => {}
@@ -509,21 +642,39 @@ impl Review {
 
 /// What returns a ticket to its agent.
 enum Return<'a> {
-    SendBack { note: &'a str },
+    /// The user's note as their comment, if they wrote one.
+    SendBack { hand_over: Option<&'a HandOver> },
+    /// A Delivery's conflict (FLW-17).
     Fix { target: &'a str },
+    /// Send back with PR comments (FLW-16): the agent reads them with `otaq review feedback`.
+    PrComments { hand_over: Option<&'a HandOver> },
+    /// A drag back to an earlier Agent stage with the user's instructions (FLW-18).
+    DragBack(drag::Back<'a>),
 }
 
-impl Return<'_> {
+impl<'a> Return<'a> {
+    fn hand_over(&self) -> Option<&'a HandOver> {
+        match self {
+            Self::SendBack { hand_over } | Self::PrComments { hand_over } => *hand_over,
+            Self::DragBack(back) => back.hand_over,
+            Self::Fix { .. } => None,
+        }
+    }
+
     fn skill(&self) -> &'static str {
         match self {
-            Self::SendBack { .. } => ADDRESS_REVIEW_SKILL,
+            Self::SendBack { .. } | Self::PrComments { .. } | Self::DragBack(_) => {
+                ADDRESS_REVIEW_SKILL
+            }
             Self::Fix { .. } => RESTACK_SKILL,
         }
     }
 
     fn fetch_why(&self) -> FetchWhy {
         match self {
-            Self::SendBack { .. } => FetchWhy::SendBack,
+            Self::SendBack { .. } | Self::PrComments { .. } | Self::DragBack(_) => {
+                FetchWhy::SendBack
+            }
             Self::Fix { .. } => FetchWhy::Fix,
         }
     }

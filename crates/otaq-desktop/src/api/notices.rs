@@ -5,14 +5,12 @@
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::board::epic_flight::EpicQueueOutcome;
-use otaq_core::board::settings::AutoMerge;
 use otaq_core::protocol::{
-    EpicUndoQueueParams, KeyParams, MoveWaitingParams, ProjectParams, ProjectSettingsParams, Reply,
-    Request, ResumeAllParams, ToolParams,
+    EpicUndoQueueParams, KeyParams, ProjectParams, Reply, Request, ResumeAllParams, ToolParams,
 };
 use otaq_view::view_models::banners::{PERMISSION_DOCS_URL, Situation, SituationKind};
 use otaq_view::view_models::limit_banner::{
-    MOVE_FAILED, RESUME_ALL_FAILED, RESUME_FAILED, moved_toast, resumed,
+    FALLBACK_FAILED, RESUME_ALL_FAILED, RESUME_FAILED, fallback_toast, resumed,
 };
 use otaq_view::view_models::restart::RestartDialog;
 use otaq_view::view_models::epic_toast;
@@ -65,6 +63,21 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             Ok(Value::Null)
         }
         "notices.open_notification_settings" => open_notification_settings(),
+        // The flow change banner (FLW-06): the project on screen, and Cancel change (no question; starts resume).
+        "notices.project" => {
+            app.notices.set_project(parse::<NoticesProject>(params)?.project);
+            Ok(Value::Null)
+        }
+        "notices.flow_cancel" => {
+            let project = parse::<NoticesProject>(params)?
+                .project
+                .or_else(|| app.notices.project())
+                .ok_or_else(|| RequestError::plain("no project on screen"))?;
+            app.service
+                .send(Request::FlowCancelWaiting(ProjectParams { project }))
+                .await?;
+            Ok(Value::Null)
+        }
         _ => Err(unknown(method)),
     }
 }
@@ -80,13 +93,12 @@ pub struct DismissBanner {
     pub kind: SituationKind,
 }
 
-/// `{"tool": "claude", "agent": "strong-gpt"}`: Move waiting to… on `tool`'s line, the agent picked in its menu.
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "LimitMoveWaiting")]
-pub struct LimitMoveWaiting {
-    #[ts(type = "string")]
-    pub tool: otaq_core::agent_tools::Tool,
-    pub agent: String,
+/// `{"project": "SHOP"}`: the project on screen (`null` before one is added), or the one whose waiting flow change
+/// Cancel change drops.
+#[derive(Debug, Clone, Default, Deserialize, TS)]
+pub struct NoticesProject {
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 /// `{"id": 3}`: a toast.
@@ -232,37 +244,35 @@ pub(super) async fn resume_tool(app: &App, tool: Tool) -> Result<Value, RequestE
     Ok(Value::Null)
 }
 
-/// Move waiting to… (AGT-08): `tool`'s not-yet-started tickets move to `agent` and start (`limits.move_waiting`);
-/// a toast says how many ("4 tickets moved to Strong GPT").
-pub(super) async fn move_waiting(app: &App, params: LimitMoveWaiting) -> Result<Value, RequestError> {
-    let request = Request::LimitsMoveWaiting(MoveWaitingParams {
-        tool: params.tool,
-        agent: params.agent.clone(),
-    });
-    let toast = match app.service.send(request).await {
-        Ok(Reply::MovedWaiting(keys)) => {
-            let name = moved_to_name(app, &params.agent).await;
-            NewToast::new(ToastLevel::Success, moved_toast(keys.len(), &name), None)
+/// Use fallback now (AGM-03): `tool`'s waiting tickets start on its fallback (`limits.use_fallback_now`); a toast
+/// says how many ("4 tickets started on Codex").
+pub(super) async fn use_fallback_now(app: &App, tool: Tool) -> Result<Value, RequestError> {
+    let toast = match app
+        .service
+        .send(Request::LimitsUseFallbackNow(ToolParams { tool }))
+        .await
+    {
+        Ok(Reply::StartedOnFallback(keys)) => {
+            let on = match app.service.send(Request::AgentsList).await {
+                Ok(Reply::Agents(list)) => list
+                    .fallbacks
+                    .iter()
+                    .find(|f| f.tool == tool)
+                    .map(|f| f.fallback.tool),
+                _ => None,
+            };
+            let title = match on {
+                Some(on) => fallback_toast(keys.len(), on),
+                None => format!("{} started on the fallback", keys.len()),
+            };
+            NewToast::new(ToastLevel::Success, title, None)
         }
         Ok(_) => return Ok(Value::Null),
-        Err(e) => NewToast::new(ToastLevel::Error, MOVE_FAILED, Some(e.message)),
+        Err(e) => NewToast::new(ToastLevel::Error, FALLBACK_FAILED, Some(e.message)),
     };
     app.notices.toast(toast);
     refresh_limits(app).await;
     Ok(Value::Null)
-}
-
-/// The name the banner's menu showed for `agent` (its id when no line lists it any more).
-async fn moved_to_name(app: &App, agent: &str) -> String {
-    let named = match app.service.send(Request::AgentsList).await {
-        Ok(Reply::Agents(list)) => list
-            .agents
-            .into_iter()
-            .find(|a| a.id == agent)
-            .map(|a| a.name),
-        _ => None,
-    };
-    named.unwrap_or_else(|| agent.to_owned())
 }
 
 /// Fetches the banner's lines again, after Resume or a move.
@@ -309,14 +319,6 @@ async fn toast_action(app: &App, press: ToastPress) -> Result<Value, RequestErro
                 Err(e) => Some(epic_toast::action_failed(&press.label, e.message)),
             }
         }
-        ToastAction::EpicChildrenAutoMerge {
-            project,
-            name,
-            undo,
-        } => Some(match epic_children_auto_merge(app, &project).await {
-            Ok(()) => epic_toast::auto_merge_on_toast(&name, undo.map(|b| *b)),
-            Err(e) => epic_toast::action_failed(&press.label, e.message),
-        }),
     };
     if let Some(toast) = toast {
         app.notices.toast(toast);
@@ -324,27 +326,8 @@ async fn toast_action(app: &App, press: ToastPress) -> Result<Value, RequestErro
     Ok(Value::Null)
 }
 
-/// Turn on for epic children: the project's Auto-merge override becomes Epic children only, the same write as
-/// Settings → the project → Auto-merge (d0064). Short-term (d0080): no other settings UI.
-async fn epic_children_auto_merge(app: &App, project: &str) -> Result<(), RequestError> {
-    let get = Request::ProjectSettingsGet(ProjectParams {
-        project: project.to_owned(),
-    });
-    let Reply::ProjectSettings(current) = app.service.send(get).await? else {
-        return Err(RequestError::plain("unexpected answer to project_settings.get"));
-    };
-    let mut settings = current.settings;
-    settings.auto_merge = Some(AutoMerge::EpicChildren);
-    let set = Request::ProjectSettingsSet(ProjectSettingsParams {
-        project: project.to_owned(),
-        settings: Box::new(settings),
-    });
-    app.service.send(set).await?;
-    Ok(())
-}
-
 /// Shows the queue toast for an epic queue the user made (a drop, ⌘D, the menu): "Moved 2 children of SHOP-45 to Ready for Dev ·
-/// Undo", and with Auto-merge Off "… · Turn on for epic children · Undo" (EPC-15). The epic's name is looked up for
+/// Undo" (EPC-15). The epic's name is looked up for
 /// the one-child wording ("Moved SHOP-45.1 of Search to Ready for Dev").
 pub(crate) async fn show_epic_queued(app: &App, outcome: &EpicQueueOutcome) {
     let get = Request::TicketGet(KeyParams {
@@ -517,7 +500,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn the_queue_toast_and_turn_on_for_epic_children() {
+    async fn the_queue_toast() {
         use otaq_core::board::projects::AddProject;
         use otaq_core::board::tickets::NewTicketInput;
         use otaq_core::domain::Kind;
@@ -533,6 +516,7 @@ mod tests {
                 path: repos.repo("shop-web", 1).display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }))
             .await
             .unwrap()
@@ -565,7 +549,6 @@ mod tests {
             epic: epic.key.clone(),
             queued: vec![child(1)],
             resumed: Vec::new(),
-            auto_merge_off: false,
             project: "shop-web".into(),
             lead_started: false,
         };
@@ -577,43 +560,15 @@ mod tests {
         );
 
         outcome.queued.push(child(2));
-        outcome.auto_merge_off = true;
         show_epic_queued(&h.app, &outcome).await;
         let view = request(&h.app, "notices.view", Value::Null).await.unwrap();
         let toast = &view["toasts"][1];
         assert_eq!(
             toast["title"],
-            "Moved 2 tickets to Ready for Dev. Auto-merge is off for shop-web, so each one waits for your review."
+            format!("Moved 2 children of {} to Ready for Dev", epic.key)
         );
         let buttons = &toast["link"]["actions"];
-        assert_eq!(buttons[0]["label"], "Turn on for epic children");
-        assert_eq!(buttons[1]["label"], "Undo");
-
-        // Turn on: the project's own Auto-merge becomes Epic children only, and the toast says so, keeping Undo.
-        request(
-            &h.app,
-            "notices.toast_action",
-            json!({"id": toast["id"], "label": buttons[0]["label"], "action": buttons[0]["action"]}),
-        )
-        .await
-        .unwrap();
-        let Reply::ProjectSettings(stored) = h
-            .app
-            .service
-            .send(Request::ProjectSettingsGet(ProjectParams {
-                project: project.key.clone(),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("no settings");
-        };
-        assert_eq!(stored.settings.auto_merge, Some(AutoMerge::EpicChildren));
-        let view = request(&h.app, "notices.view", Value::Null).await.unwrap();
-        let titles = toast_titles(&view);
-        assert_eq!(titles.len(), 2, "the pressed toast went: {titles:?}");
-        assert_eq!(titles[1], "Auto-merge: epic children only for shop-web");
-        assert_eq!(view["toasts"][1]["link"]["actions"][0]["label"], "Undo");
+        assert_eq!(buttons[0]["label"], "Undo");
         h.service.stop_all().await;
     }
 

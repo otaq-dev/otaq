@@ -23,7 +23,7 @@ fn t(key: &str, title: &str, status: Status, minutes_ago: i64) -> Ticket {
         priority: Default::default(),
         priority_inherited: false,
         epic: None,
-        column: status.column(),
+        place: otaq_core::domain::Place::of(status, None, None),
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
@@ -102,7 +102,7 @@ fn shop_web() -> Vec<Ticket> {
         ),
         t("SHOP-17", "Add Stripe client", Status::Merged, 600),
         deps(
-            t("SHOP-18", "Checkout API", Status::ReadyForReview, 25),
+            t("SHOP-18", "Checkout API", Status::WaitingForYou, 25),
             &["SHOP-17"],
         ),
         t("SHOP-19", "Price table", Status::Working, 30),
@@ -137,7 +137,7 @@ fn shop_web() -> Vec<Ticket> {
 fn billing_api() -> Vec<Ticket> {
     vec![
         t("BILL-4", "Invoice PDF export", Status::Working, 10),
-        t("BILL-5", "VAT rounding fix", Status::ReadyForReview, 60),
+        t("BILL-5", "VAT rounding fix", Status::WaitingForYou, 60),
         t("BILL-6", "Late fee rule", Status::Held, 15),
     ]
 }
@@ -148,11 +148,13 @@ fn items(shop: &[Ticket], bill: &[Ticket]) -> Vec<(String, NeedsYouGroup, String
             key: "SHOP",
             name: "shop-web",
             tickets: shop,
+            flow: &otaq_core::flow::default_file().flow,
         },
         ProjectTickets {
             key: "BILL",
             name: "billing-api",
             tickets: bill,
+            flow: &otaq_core::flow::default_file().flow,
         },
     ];
     needs_you_items(&projects, NOW)
@@ -223,6 +225,7 @@ fn every_field_of_an_item() {
         key: "SHOP",
         name: "shop-web",
         tickets: &shop,
+        flow: &otaq_core::flow::default_file().flow,
     }];
     let list = needs_you_items(&projects, NOW);
     let first = &list[0];
@@ -255,11 +258,13 @@ fn back_pressure_counts_every_group() {
             key: "SHOP",
             name: "shop-web",
             tickets: &shop,
+            flow: &otaq_core::flow::default_file().flow,
         },
         ProjectTickets {
             key: "BILL",
             name: "billing-api",
             tickets: &bill,
+            flow: &otaq_core::flow::default_file().flow,
         },
     ];
     let list = needs_you_items(&projects, NOW);
@@ -298,31 +303,24 @@ fn the_m12_items_read_as_the_frame() {
     let validator = needs_you(
         "SHOP-33",
         "Shipping estimate",
-        Status::ValidatorNeedsYou,
+        Status::CheckerNeedsYou,
         "Allow Bash(pnpm test)?",
         1,
     );
-    let mut failed = t(
-        "SHOP-32",
-        "Address autocomplete",
-        Status::ValidationFailed,
-        12,
-    );
+    let mut failed = t("SHOP-32", "Address autocomplete", Status::CheckFailed, 12);
     failed.validation_round = 3;
-    failed.flags.findings = vec![
-        "The description asks for keyboard navigation; arrow keys do nothing".into(),
-        "src/a.ts:3 leftover console.log".into(),
-    ];
-    let no_result = t("SHOP-34", "Tax display", Status::ValidationNoResult, 4);
+    failed.flags.verdict =
+        Some("The description asks for keyboard navigation; arrow keys do nothing".into());
+    let no_result = t("SHOP-34", "Tax display", Status::CheckNoResult, 4);
     let mut stopped = needs_you(
         "SHOP-40",
         "Wishlist share link",
-        Status::AutoMergeStopped,
+        Status::DeliveryStopped,
         "Keeps conflicting with `wishlist`",
         7,
     );
     stopped.auto_merge_stop = Some(AutoMergeStop::KeepsConflicting);
-    let mut review = t("SHOP-18", "Checkout API", Status::ReadyForReview, 25);
+    let mut review = t("SHOP-18", "Checkout API", Status::WaitingForYou, 25);
     review.flags.review_entry = Some(ReviewEntryFlag {
         entry: ReviewEntry::Validated,
         round: 2,
@@ -345,7 +343,7 @@ fn the_m12_items_read_as_the_frame() {
             (
                 "SHOP-40".into(),
                 Family,
-                "Auto-merge stopped · keeps conflicting with wishlist after 3 tries in a row".into()
+                "Delivery stopped · keeps conflicting with wishlist after 3 tries in a row".into()
             ),
             ("SHOP-34".into(), Family, "validation ended without a result".into()),
             (
@@ -388,9 +386,9 @@ async fn the_board_derives_items_across_projects_with_status_times() {
     assert!(queued.status_since.unwrap() >= before, "set by the move");
 
     let pool = f.board.store().pool();
-    for (ticket, status) in [(&ask, Status::AsksYou), (&review, Status::ReadyForReview)] {
-        sqlx::query("UPDATE tickets SET board_column = ?, state = ?, state_since = ? WHERE id = ?")
-            .bind(status.column().as_str())
+    for (ticket, status) in [(&ask, Status::AsksYou), (&review, Status::WaitingForYou)] {
+        sqlx::query("UPDATE tickets SET stage_id = ?, state = ?, state_since = ? WHERE id = ?")
+            .bind(otaq_core::flow::engine::default_stage(status, None))
             .bind(status.as_str())
             .bind(NOW - 5 * MIN)
             .bind(&ticket.id)

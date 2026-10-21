@@ -1,4 +1,4 @@
-//! Copilot's hooks file (ADP-08, ADP-03; T-0352): `plugin-copilot/hooks/hooks.json` passes `--tool copilot` for
+//! Copilot's hooks file (ADP-08, ADP-03; T-0352): `plugin/copilot/hooks/hooks.json` passes `--tool copilot` for
 //! `Notification`, `Stop`, `UserPromptSubmit`, `SessionStart` (Claude Code's names, which Copilot maps, with
 //! snake_case payloads except Notification's camelCase `sessionId`) and Copilot's own `errorOccurred`. Every payload
 //! is logged raw at debug level (ADP-11). Copilot's signals all come through hooks: no watched file.

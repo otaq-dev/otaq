@@ -3,12 +3,13 @@
 
 use crate::board::batch::{BatchTicket, Ref};
 use crate::board::epic_flight::is_never_started;
+use crate::board::stage_choices::Chooser;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
 use crate::caller::Caller;
 use crate::epic_lead::questions;
 use crate::policy::{
-    Action, Names, ONLY_A_LEAD_MARKS, ONLY_A_LEAD_SUGGESTS, TicketFacts, authorize_named,
+    Action, Names, ONLY_A_LEAD_MARKS, ONLY_A_LEAD_SUGGESTS, TicketFacts, authorize_in_stage,
 };
 use crate::protocol::Request;
 
@@ -45,20 +46,66 @@ pub(super) async fn check(
         caller: caller_name.as_deref(),
         project: project_name.as_deref(),
     };
-    authorize_named(caller, names, &action)
+    let stage = stage_name(caller, board).await;
+    authorize_in_stage(caller, names, stage.as_deref(), &action)
 }
 
-/// The name an agent caller's picks carry (AGT-06): a Project agent's own name ("Checkout slowness"), an epic
-/// lead's "Wishlist lead". `None` for the user; ticket agents and validators may not pick.
-pub(super) async fn picker_name(caller: &Caller, board: &Board) -> Option<String> {
+/// The name of the stage a ticket session's stage run is in, for its refusals (STG-10), on every flow (Q269, AGM-10):
+/// "NOTE-1's Validate check can only give its verdict". None for a session with no stage run.
+async fn stage_name(caller: &Caller, board: &Board) -> Option<String> {
+    let (Caller::Agent {
+        ticket, session, ..
+    }
+    | Caller::Validator {
+        ticket, session, ..
+    }) = caller
+    else {
+        return None;
+    };
+    let run = crate::caller::SessionStage::of(board.store().pool(), session)
+        .await
+        .ok()??;
+    let flow = board.effective_flow(ticket.project.as_str()).await.ok();
+    Some(
+        flow.as_ref()
+            .and_then(|f| f.stage(&run.stage))
+            .map_or(run.stage.clone(), |s| s.name.clone()),
+    )
+}
+
+/// Who sets stage choices in a request (AGM-08, AGM-11): the user, the Project agent by its name, an epic lead
+/// ("Wishlist lead"), or a ticket's agent by the agent its session runs ("Griller").
+pub(super) async fn chooser(caller: &Caller, board: &Board) -> Chooser {
     match caller {
-        Caller::ProjectAgent { agent, .. } => Some(project_agent_name(board, agent).await),
-        Caller::EpicLead { epic_id, .. } => board
-            .ticket_by_id(epic_id)
-            .await
-            .ok()
-            .map(|epic| crate::project_agents::lead::lead_name(&epic.title)),
-        _ => None,
+        Caller::User => Chooser::User,
+        Caller::ProjectAgent { agent, .. } => Chooser::ProjectAgent {
+            name: project_agent_name(board, agent).await,
+        },
+        Caller::EpicLead { epic_id, epic, .. } => Chooser::EpicLead {
+            name: board.ticket_by_id(epic_id).await.map_or_else(
+                |_| format!("{epic}'s lead"),
+                |e| crate::project_agents::lead::lead_name(&e.title),
+            ),
+        },
+        Caller::Agent {
+            ticket, session, ..
+        }
+        | Caller::Validator {
+            ticket, session, ..
+        } => {
+            let name: Option<Option<String>> =
+                sqlx::query_scalar("SELECT agent_name FROM sessions WHERE id = ?")
+                    .bind(session)
+                    .fetch_optional(board.store().pool())
+                    .await
+                    .ok()
+                    .flatten();
+            Chooser::TicketAgent {
+                name: name
+                    .flatten()
+                    .unwrap_or_else(|| format!("{ticket}'s agent")),
+            }
+        }
     }
 }
 
@@ -86,7 +133,7 @@ async fn facts_of(board: &Board, ticket: Ticket) -> Result<TicketFacts, BoardErr
         None => None,
     };
     Ok(TicketFacts {
-        backlog: ticket.column == crate::domain::Column::Backlog && !ticket.has_started(),
+        backlog: ticket.place.is_backlog() && !ticket.has_started(),
         never_started: is_never_started(&ticket),
         epic_id,
         id: ticket.id,
@@ -133,10 +180,10 @@ async fn batch_action(
         .iter()
         .map(|epic| Action::CreateTicket { epic: epic.clone() })
         .collect();
-    // Picks first, so a ticket agent hears "Ticket agents can't choose agents".
+    // Choices first, so a ticket agent hears why it can't set them on a new ticket.
     for (n, ticket) in tickets.iter().enumerate() {
-        if !ticket.agents.is_empty() {
-            actions.insert(0, Action::PickAgents(new(n)));
+        if !ticket.choices.is_empty() {
+            actions.insert(0, Action::SetChoices(new(n)));
         }
     }
     for (n, ticket) in tickets.iter().enumerate() {
@@ -205,6 +252,10 @@ async fn action_for(
         | R::DepCycles(_)
         | R::SettingsGet
         | R::ProjectSettingsGet(_)
+        | R::FlowCurrent(_)
+        | R::FlowVersions(_)
+        | R::FlowProposal(_)
+        | R::FlowWaiting(_)
         | R::SessionList(_)
         | R::SessionBeforeRestart(_)
         | R::InboxList
@@ -242,24 +293,29 @@ async fn action_for(
         R::TicketUpdate(p) => {
             let target = facts(board, &p.key).await?;
             let fields = crate::board::tickets::TicketUpdate {
-                agents: Vec::new(),
+                choices: Vec::new(),
                 by_user: false,
                 ..p.update.clone()
             };
-            match (p.update.agents.is_empty(), fields == Default::default()) {
+            match (p.update.choices.is_empty(), fields == Default::default()) {
                 (true, _) => Action::EditTicket(target),
-                // Picks only: the pick rule alone ("Ticket agents can't choose agents").
-                (false, true) => Action::PickAgents(target),
+                // Choices only: the choice rule alone.
+                (false, true) => Action::SetChoices(target),
                 (false, false) => Action::All(vec![
-                    Action::PickAgents(target.clone()),
+                    Action::SetChoices(target.clone()),
                     Action::EditTicket(target),
                 ]),
             }
         }
+        R::TicketSetChoice(p) => Action::SetChoices(facts(board, &p.key).await?),
+        R::TicketChoices(_) => Action::Read,
         R::TicketAskHuman(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionRecord(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionChange(_) => Action::UserOnly("change recorded decisions"),
-        R::TicketReviewSubmit(p) => Action::ChangeTicket(facts(board, &p.key).await?),
+        // Ending a stage changes the agent's own ticket (CLI-02, AGM-10); a check session may only give its verdict.
+        R::TicketStageNext(p) | R::TicketStageDone(p) => {
+            Action::ChangeTicket(facts(board, &p.key).await?)
+        }
         R::ValidationVerdict(p) => Action::Verdict(facts(board, &p.key).await?),
         R::TicketValidationAction(_) => Action::UserOnly("act on a validation"),
         R::TicketCreateFromNote(_) => Action::UserOnly("create tickets from validation notes"),
@@ -339,15 +395,33 @@ async fn action_for(
             parent: facts(board, &p.parent).await?,
         },
 
+        // The preview's buttons are the user's (FLW-04, FLW-06); proposing is a Project agent's too (FLW-03).
+        R::FlowApply(_)
+        | R::FlowCancelProposal(_)
+        | R::FlowCancelWaiting(_)
+        | R::FlowApplyNowPlan(_)
+        | R::FlowApplyNow(_)
+        | R::FlowProposeFrom(_)
+        | R::FlowAskForChanges(_) => Action::UserOnly("change flows"),
+        R::FlowShow(_) => Action::Read,
+        R::FlowPropose(p) => Action::ProposeFlow {
+            project: board.project(&p.project).await?.key,
+        },
         R::ServiceStop => Action::UserOnly("stop the background service"),
         R::DismissPermissionWarning => Action::UserOnly("change onboarding"),
+        // Asking spends the user's tokens on their tool (ASK-02) and settling ends agents: the user's clicks only.
+        R::OnboardingSources(_) | R::OnboardingFlowSetup(_) => {
+            Action::UserOnly("look at a project's Flow setup")
+        }
+        R::OnboardingAsk(_) => Action::UserOnly("ask an agent tool for a flow"),
+        R::OnboardingUseDefault(_) => Action::UserOnly("settle a project's flow"),
         R::DismissTrustNote => Action::UserOnly("dismiss notices"),
         R::NotificationsAskAnswered => Action::UserOnly("answer the notifications ask"),
         R::NotificationsDismissBlocked => Action::UserOnly("dismiss notices"),
         R::ProjectAdd(_) | R::ProjectUpdate(_) | R::ProjectRemove(_) => {
             Action::UserOnly("change projects")
         }
-        R::TicketMove(_) => Action::UserOnly("move tickets"),
+        R::TicketMove(_) | R::TicketDrag(_) => Action::UserOnly("move tickets"),
         R::TicketPin(_) | R::TicketUnpin(_) => Action::UserOnly("pin tickets"),
         R::TicketAgentEditsSeen(_) => Action::UserOnly("mark agent edits as seen"),
         R::TicketDelete(_) => Action::UserOnly("delete tickets"),
@@ -387,17 +461,20 @@ async fn action_for(
         R::ProjectTerminalDismiss(_) => Action::UserOnly("dismiss the Project terminal's summary"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),
-        // Named agents are the user's (AGT-02, AGT-03); agents set rows through `otaq create/update` (T-0338).
+        // Agents, the default model and the fallbacks are the user's (AGM-01, AGM-03, AGM-04).
         R::AgentsList
         | R::AgentsAdd(_)
         | R::AgentsEdit(_)
         | R::AgentsDuplicate(_)
         | R::AgentsDelete(_)
         | R::AgentsInUse(_)
-        | R::ProjectAgentDefaults(_)
-        | R::AgentsSetDefault(_)
-        | R::ProjectSetAgentDefault(_) => Action::UserOnly("change named agents"),
-        R::TicketAgentRow(_) => Action::UserOnly("set agent rows"),
+        | R::AgentsMoveRole(_)
+        | R::AgentsDefaultModel(_)
+        | R::AgentsFallback(_)
+        | R::AgentsImportSkill(_)
+        | R::AgentsReimportSkill(_) => Action::UserOnly("change agents"),
+        // What an agent reads is shown on the user's Settings → Agents (AGR-01).
+        R::AgentsReads(_) => Action::UserOnly("read what an agent reads"),
         // Agent tools, limits per tool and fallbacks are the user's (d0086).
         R::AgentToolsList
         | R::AgentToolsRecheck(_)
@@ -405,29 +482,38 @@ async fn action_for(
         | R::AgentToolsSignIn(_)
         | R::AgentToolsInstall(_)
         | R::AgentToolsDisconnect(_) => Action::UserOnly("manage agent tools"),
-        R::LimitsResumeTool(_) | R::LimitsMoveWaiting(_) => {
-            Action::UserOnly("resume or move waiting work")
+        R::LimitsResumeTool(_) | R::LimitsUseFallbackNow(_) => {
+            Action::UserOnly("resume or use the fallback")
         }
-        R::TicketUseFallback(_) => Action::UserOnly("use fallback agents"),
-        R::SettingsAutoFallback(_) => Action::UserOnly("change settings"),
+        R::TicketUseFallback(_) => Action::UserOnly("use the fallback"),
         R::RecentItems(_) => Action::UserOnly("use the command palette"),
-        // Imported workflow skills are the user's (d0092).
-        R::WorkflowSkillsStatus(_)
-        | R::WorkflowSkillsImport(_)
-        | R::WorkflowSkillsReimport(_)
-        | R::WorkflowSkillsReset(_) => Action::UserOnly("change workflow skills"),
         R::ReviewCommentAdd(_)
         | R::ReviewCommentReply(_)
         | R::ReviewCommentEdit(_)
         | R::ReviewCommentDelete(_) => Action::UserOnly("write review comments"),
-        R::TicketSendBack(_) => Action::UserOnly("send tickets back"),
+        // Ticket comments (CMT-04): read by anyone; written by the policy's rules, edits judged by their author.
+        R::TicketComments(_) | R::TicketReport(_) => Action::Read,
+        R::TicketCommentPost(p) => Action::Comment {
+            target: facts(board, &p.key).await?,
+            own: None,
+        },
+        R::TicketCommentEdit(crate::protocol::TicketCommentEditParams { key, n, .. })
+        | R::TicketCommentDelete(crate::protocol::TicketCommentParams { key, n }) => {
+            Action::Comment {
+                target: facts(board, key).await?,
+                own: Some(board.is_own_comment(caller, key, *n).await?),
+            }
+        }
+        R::TicketFail(_) => Action::UserOnly("send tickets back"),
+        R::TicketPass(_) => Action::UserOnly("pass human checks"),
         R::TicketLocalMerge(_) => Action::UserOnly("merge tickets"),
         R::TicketMarkMerged(_) | R::TicketMarkClosed(_) => Action::UserOnly("mark pull requests"),
         R::MessageResume(_) => Action::UserOnly("resume finished tickets to answer"),
         R::TicketOpenPr(_) | R::TicketPrConfirm(_) | R::TicketPrCancel(_) | R::TicketPrRetry(_) => {
             Action::UserOnly("open or push pull requests")
         }
-        R::TicketSendToFix(_) => Action::UserOnly("send tickets back"),
+        R::TicketSendBackPr(_) => Action::UserOnly("send tickets back"),
+        R::TicketAddChildFromPr(_) => Action::UserOnly("add a child from PR comments"),
         R::SessionResize(_) | R::SessionInput(_) | R::SessionDeliverNow(_) | R::SessionFocus(_) => {
             Action::UserOnly("type into sessions")
         }

@@ -14,8 +14,8 @@ use sqlx::{FromRow, Sqlite, Transaction};
 use super::epic_flight::EpicQueueMode;
 use super::{Board, BoardError, Refusal};
 use crate::domain::{
-    Actor, BuildState, Column, Flags, Kind, Priority, ProjectKey, ResourceState, SchemaOverlap,
-    StartStep, Status, TicketKey, stored_enum,
+    Actor, BuildState, Flags, Kind, Place, Priority, ProjectKey, ResourceState, SchemaOverlap,
+    StartStep, Status, StatusSet, TicketKey, stored_enum,
 };
 use crate::store::projects::Project;
 use crate::store::tickets::TicketRow;
@@ -59,7 +59,10 @@ pub struct Ticket {
     /// The epic this ticket belongs to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epic: Option<TicketKey>,
-    pub column: Column,
+    /// Where it is: Backlog, waiting before an Agent stage, a stage of its flow, or Done (STG-04). In JSON
+    /// `"place"` and, in or before a stage, `"stage"` (the stage's id).
+    #[serde(flatten)]
+    pub place: Place,
     pub status: Status,
     pub base: Base,
     /// The base can't change any more (the ticket has been to Dev; for an epic, a child has).
@@ -92,13 +95,14 @@ pub struct Ticket {
     /// When the queued ticket became ready to start: the start order's last key, "ready the longest" (SCH-01).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ready_since: Option<i64>,
-    /// Validation rounds counted since the last reset (d0063).
+    /// The round of the agent check its markers count for ([`Flags::check`], FLW-13): that check's fails in a row,
+    /// or the round it last passed in ("Validated · round 2"). Each check counts its own (`check_counters`, d0063).
     #[serde(default)]
     pub validation_round: u32,
-    /// Auto-merge conflicts in a row (d0064).
+    /// The Delivery's conflicts in a row, in either mode (FLW-17, d0064); a merge resets them.
     #[serde(default)]
     pub auto_merge_conflicts: u32,
-    /// Auto-merge stopped: why (d0064).
+    /// The Delivery stopped: why (FLW-17, d0064).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_merge_stop: Option<crate::domain::AutoMergeStop>,
     /// Where the ticket works once started: branch, worktree, ports (T-0046, T-0048).
@@ -196,6 +200,12 @@ pub struct StartProblem {
 }
 
 impl Ticket {
+    /// The group of the board the ticket shows in ([`StatusSet::BOARD`]), from its status: the default flow's
+    /// columns, until the board's columns come from the flow (STG-08).
+    pub fn board_group(&self) -> StatusSet {
+        self.status.set().board_group()
+    }
+
     pub fn is_epic(&self) -> bool {
         self.kind == Kind::Epic
     }
@@ -256,10 +266,10 @@ pub struct TicketUpdate {
     /// An empty string removes the External ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
-    /// Agent rows to set (`otaq update --developer Light`, AGT-06); checked and written by the service.
+    /// Stage choices (`--stage Dev=Quick developer`, AGM-11), checked before any field changes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub agents: Vec<super::agent_picks::AgentPick>,
-    /// An agent's picks are the user's (`--by-user`, d0087): written *set by you*.
+    pub choices: Vec<super::stage_choices::ChoicePick>,
+    /// An agent's choices are the user's (`--by-user`, d0087).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub by_user: bool,
 }
@@ -308,17 +318,26 @@ stored_enum! {
         StartRetried = "start_retried",
         /// Something worth knowing about a start that didn't stop it (a dirty checkout left the base behind).
         StartNote = "start_note",
-        /// `otaq review submit`: the payload has the summary (T-0072).
+        /// `otaq stage next` (or `review submit`, or the user's Move to next stage) into a human check: the payload
+        /// has the summary (T-0072; Q263).
         ReviewSubmitted = "review_submitted",
+        /// An Agent stage ended with `otaq stage next` into anything but a human check (an agent check, the wait
+        /// before another Agent stage; Q263, AGM-10): the payload has the stage's name (`stage`), its id
+        /// (`stage_id`) and the summary.
+        StageFinished = "stage_finished",
         /// Send back: the comments and note went to the agent; the payload has the round (T-0086).
         SentBack = "sent_back",
         /// Local merge: Done · Merged; the payload has the target and the squash commit (T-0089).
         Merged = "merged",
-        /// Send to agent to fix: back to Dev to resolve a conflict with the target (T-0090).
+        /// A Delivery's conflict went to the nearest earlier Agent stage with `restack`, no click (FLW-17): payload
+        /// `target`, `to`.
         SentToFix = "sent_to_fix",
+        /// Send back with PR comments (FLW-16): payload `pr` (its number), `note`, `to`. History reads "Sent back
+        /// with PR comments".
+        SentBackWithPrComments = "sent_back_with_pr_comments",
         /// Reopen: Done · Closed → Backlog (T-0101).
         Reopened = "reopened",
-        /// Park: Dev → Backlog with the work kept (T-0104).
+        /// Park: Dev → Backlog with the work kept (T-0104); payload `from`, `to` and `stage_id`, the stage it left.
         Parked = "parked",
         /// The rebase of a reopened ticket's branch onto the current base, on its way to Dev (GIT-06).
         Rebased = "rebased",
@@ -353,9 +372,9 @@ stored_enum! {
         QuestionAnswered = "question_answered",
         /// A validation round ended (d0063): payload `round`, `outcome`, `counted`; its report is in `validations`.
         ValidationEnded = "validation_ended",
-        /// Auto-merge Local-merged the ticket (AMG-02): payload `target`.
+        /// An automatic local Delivery merged the ticket (FLW-15, AMG-02): payload `target`, `without_checks`.
         MergedAutomatically = "merged_automatically",
-        /// Auto-merge stopped (AMG-03, AMG-04): payload `stop`, `message`.
+        /// The Delivery stopped (FLW-17; AMG-03, AMG-04): payload `stop`, `message`.
         AutoMergeStopped = "auto_merge_stopped",
         /// An epic's queue mode changed (d0080): payload `from`, `to` (`none` / `whole` / `single`). History reads
         /// "Queued the whole epic", "Queued one child" or "Taken back".
@@ -412,11 +431,43 @@ stored_enum! {
         /// schema-path glob) and `files` (what `other` adds under it). Recorded once per new overlap; files are never
         /// touched. History reads "Schema path shared with SHOP-21" · "db/migrations/**".
         SchemaOverlap = "schema_overlap",
-        /// A ticket's or an epic's agent row changed (AGT-04, d0086): payload `role`, `agent` (the name now; null
-        /// = emptied, "Let agents pick again"), `from` (the name before), `set_by` (`user` / `agent` with
-        /// `picked_by` and `reason`) and, logged on an epic for a child, `child` (`named_agents::rows::row_event`).
-        /// History reads "Developer: Strong (set by you)", "Wishlist lead re-picked SHOP-40.3: Strong → Light".
+        /// A ticket's or an epic's agent row changed (AGT-04, d0086; rows went with M32, AGM-02, and History still
+        /// reads the ones recorded before): payload `role`, `agent` (the name now; null = emptied), `from` (the name
+        /// before), `set_by` (`user` / `agent` with `picked_by` and `reason`) and, logged on an epic for a child,
+        /// `child`. History reads "Developer: Strong (set by you)", "Wishlist lead re-picked SHOP-40.3: Strong →
+        /// Light".
         AgentRowSet = "agent_row_set",
+        /// A held session started on its tool's fallback, by the user's click (AGM-03): payload `role` (the session
+        /// role), `tool` and `model` (the fallback it runs on), `from_tool` and `reason` (`tool_limit`,
+        /// `tool_unavailable`, `model_unavailable`). History reads "Started on Codex · Claude Code limit".
+        FallbackUsed = "fallback_used",
+        /// A ticket's stage choice changed (AGM-08): payload `stage` (its name), `stage_id`, `choice` ("Quick
+        /// developer", "skip", "required"), `from` (before; null = nobody had chosen), `set_by` (`user`,
+        /// `project_agent`, `epic_lead`, `agent`), `by` ("you", "the Project agent", "Wishlist lead", "Griller"),
+        /// `reason` (an agent's) and, logged on an epic for a child, `child`. History reads "Dev: Quick developer
+        /// (set by the Project agent)" · "typo fix".
+        StageChoiceSet = "stage_choice_set",
+        /// The user's Pass on a human check that moved the card on (FLW-14, d0108): payload `stage` (its name),
+        /// `stage_id`. History reads "Passed QA" · "by you". A Pass that offered the delivery choices logs the
+        /// delivery's own event instead.
+        Passed = "passed",
+        /// A stage started without the agent the ticket chose for it, which the flow no longer offers (FLW-05):
+        /// payload `stage` (its name), `stage_id`, `chose` and `runs` (the stage's own agent). History reads "Quick
+        /// developer is no longer an option for Dev · runs Rust developer".
+        ChoiceDropped = "choice_dropped",
+        /// The user dragged the card to another stage (FLW-18): payload `stage` (where it went, by name),
+        /// `stage_id`, `from` (the stage it left, by name), `back` (true for a drag back), `skipped` (the names of
+        /// the stages a forward drag walked over), `run_by_you` (a drag back into a stage the ticket skips by its
+        /// choice: it runs once) and `note` (the instructions or the check's note). History reads "Moved back to
+        /// Dev" · "Grill · run by you" (or the note, or "by you"), "Moved to Review" · "Skipped Validate · by you".
+        Dragged = "dragged",
+        /// A ticket comment was posted (CMT-14, d0109): payload `n`, `excerpt` (the start of its text), `report`
+        /// (`bytes`, `lines`, or null) and `author` (as [`super::ticket_comments::CommentAuthor`]).
+        CommentPosted = "comment_posted",
+        /// A ticket comment's text changed: payload `n`, `before`, `after` and `author` (the comment's).
+        CommentEdited = "comment_edited",
+        /// A ticket comment was deleted: payload `n`, `body` (what it said), `report` and `author`; its report stays.
+        CommentDeleted = "comment_deleted",
     }
 }
 
@@ -450,6 +501,7 @@ impl Board {
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
         let project = self.project(&input.project).await?;
+        super::projects::refuse_in_flow_setup(&project)?;
         let title = required_title(&input.title)?;
         let epic = match &input.epic {
             Some(epic) => Some(self.epic_for_child(&project, epic, input).await?),
@@ -482,7 +534,7 @@ impl Board {
         };
         sqlx::query(
             "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, body, priority,
-                                  external_id, board_column, state, base_branch, created_by, created_at,
+                                  external_id, stage_id, state, base_branch, created_by, created_at,
                                   updated_at, started_at, queued_at, branch_locked, joined_queue_by)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
@@ -502,7 +554,8 @@ impl Board {
                 .map(|p| i64::from(p.number())),
         )
         .bind(&external_id)
-        .bind(status.column().as_str())
+        // Backlog, or waiting before the first Agent stage: no stage yet.
+        .bind(None::<&str>)
         .bind(status.as_str())
         .bind(&base_branch)
         .bind(actor.to_string())
@@ -554,6 +607,18 @@ impl Board {
         key: &str,
         update: &TicketUpdate,
         actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
+        self.update_ticket_by(key, update, actor, None).await
+    }
+
+    /// [`Self::update_ticket`] naming who made the change in History (CMT-14): an agent's or a lead's edit records its
+    /// comment author ("Griller · Grill edited the description"); the user's needs none.
+    pub async fn update_ticket_by(
+        &self,
+        key: &str,
+        update: &TicketUpdate,
+        actor: &Actor,
+        author: Option<&super::ticket_comments::CommentAuthor>,
     ) -> Result<Ticket, BoardError> {
         let ticket = self.ticket(key).await?;
         let mut changes = Vec::new();
@@ -665,7 +730,10 @@ impl Board {
             &ticket.id,
             EventKind::Updated,
             actor,
-            json!({ "changes": changes }),
+            match author {
+                Some(author) => json!({ "changes": changes, "author": author }),
+                None => json!({ "changes": changes }),
+            },
         )
         .await?;
         tx.commit().await?;
@@ -797,6 +865,16 @@ impl Board {
         .await?
         .into_iter()
         .collect();
+        // An automatic Delivery under way (FLW-15): its PR flow runs with no dialog, so the card waits for nobody.
+        let delivering: std::collections::HashSet<String> = sqlx::query_scalar(
+            "SELECT f.ticket_id FROM pr_flows f JOIN tickets t ON t.id = f.ticket_id
+             WHERE t.project_id = ? AND f.automatic",
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect();
         // "answering SHOP-40.2" (MSG-03): the asker of the question a running answer session serves.
         let answering: std::collections::HashMap<String, String> = sqlx::query_as(
             "SELECT m.to_ticket_id, m.from_ticket_id FROM messages m
@@ -868,22 +946,31 @@ impl Board {
                 *open_decisions.entry(epic).or_default() += n;
             }
         }
-        // The latest review submit of each ticket, for "Submitted by you" (d0052).
+        // The latest stage end of each ticket (into a human check or not), for "Submitted by you" (d0052).
         let submits: std::collections::HashMap<String, (String, String)> = sqlx::query_as(
             "SELECT e.ticket_id, e.actor, e.payload_json FROM events e JOIN tickets t ON t.id = e.ticket_id
-             WHERE t.project_id = ? AND e.kind = ? ORDER BY e.at, e.id",
+             WHERE t.project_id = ? AND e.kind IN (?, ?) ORDER BY e.at, e.id",
         )
         .bind(project_id)
         .bind(EventKind::ReviewSubmitted.as_str())
+        .bind(EventKind::StageFinished.as_str())
         .fetch_all(pool)
         .await?
         .into_iter()
         .map(|(id, actor, payload): (String, String, String)| (id, (actor, payload)))
         .collect();
         // The last failed round's report of each ticket, for "· 2 findings" and the first finding (d0063).
-        let failed_reports: std::collections::HashMap<String, String> = sqlx::query_as(
-            "SELECT v.ticket_id, v.report FROM validations v JOIN tickets t ON t.id = v.ticket_id
-             WHERE t.project_id = ? AND v.outcome = ? AND v.report IS NOT NULL
+        // Each ticket's last failed check round and its verdict: the newest comment its checker posted in that round
+        // (an agent comment from the check's stage, with the round's number; CMT-05, CMT-10). A later failed round
+        // without one shows none, never an older round's.
+        let verdicts: std::collections::HashMap<String, Option<String>> = sqlx::query_as(
+            "SELECT v.ticket_id,
+                    (SELECT c.body FROM ticket_comments c JOIN stage_runs r ON r.validation_id = v.id
+                     WHERE c.ticket_id = v.ticket_id AND c.author_kind = 'agent' AND c.stage_id = r.stage_id
+                       AND c.round = v.round AND c.deleted_at IS NULL
+                     ORDER BY c.n DESC LIMIT 1)
+             FROM validations v JOIN tickets t ON t.id = v.ticket_id
+             WHERE t.project_id = ? AND v.outcome = ?
              ORDER BY v.started_at, v.id",
         )
         .bind(project_id)
@@ -920,8 +1007,20 @@ impl Board {
         let lead_notes_sent = crate::epic_lead::stuck::note_flags(self, project_id).await?;
         // "Updated by lead", "new · added by Wishlist lead" (LEAD-08).
         let by_lead = crate::epic_lead::changes::by_lead_flags(self, project_id).await?;
-        // "round 1 of 3": the project's rounds setting (d0063).
-        let rounds = self.validation_rounds_of(project_id).await?;
+        // "round 1 of 3": the rounds of the agent check each ticket counts, from the project's flow (d0063).
+        let project_key: Option<String> =
+            sqlx::query_scalar("SELECT key FROM projects WHERE id = ?")
+                .bind(project_id)
+                .fetch_optional(pool)
+                .await?;
+        let flow = match project_key {
+            Some(key) => self.effective_flow(&key).await?,
+            None => crate::flow::default_flow(),
+        };
+        // Each agent check's own counter (FLW-13).
+        let check_counts = super::validation::project_check_counts(pool, project_id).await?;
+        // How cards came to wait in a human check or at their Delivery (FLW-14).
+        let mut arrivals = self.project_arrivals(project_id, &flow).await?;
 
         records
             .into_iter()
@@ -971,15 +1070,17 @@ impl Board {
                 });
                 let submitted_by_you = submits
                     .get(&row.id)
-                    .filter(|_| row.state == Status::ReadyForReview.as_str())
+                    .filter(|_| row.state == Status::WaitingForYou.as_str())
                     .filter(|(actor, _)| actor.parse::<Actor>().is_ok_and(|a| !a.is_agent()))
-                    .map(|(_, payload)| {
-                        let summary = serde_json::from_str::<Value>(payload)
-                            .ok()
-                            .and_then(|p| p.get("summary")?.as_str().map(str::to_owned))
-                            .unwrap_or_default();
-                        super::review::user_note(&summary)
-                    });
+                    // The user's note is their comment now (CMT-05): the card says only that they submitted it.
+                    .map(|_| String::new());
+                let place = Place::of(
+                    status,
+                    row.stage_id.as_deref(),
+                    row.interrupted_from.as_deref().and_then(|s| s.parse().ok()),
+                );
+                let counts = check_counts.get(&row.id).cloned().unwrap_or_default();
+                let counted = CountedCheck::of(&flow, &place, &counts);
                 let mut flags = Flags {
                     your_turn: status.is_needs_you_family() && self.focus.covers(&row.id, status),
                     run_port: self.run_ports().get(&row.id),
@@ -993,13 +1094,13 @@ impl Board {
                     },
                     resuming_conversation: (row.parked
                         || row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME))
-                        && matches!(status.column(), Column::ReadyForDev | Column::Dev),
+                        && (status.is_queued() || status.at_work()),
                     submitted_by_you,
                     conflicts_with: row.conflicts_with.clone(),
                     sent_back,
                     pinned_at: row.pinned_at,
                     pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),
-                    pr_rework: row.pr_rework && status == Status::ReadyForReview,
+                    pr_rework: row.pr_rework && status == Status::WaitingForYou,
                     updated_by_agent: agent_edited.contains(&row.id),
                     last_signal_at: row.last_signal_at,
                     answering: answering
@@ -1014,18 +1115,28 @@ impl Board {
                         .get(&row.id)
                         .and_then(|n| u32::try_from(*n).ok())
                         .unwrap_or(0),
-                    review_entry: review_entry_flag(&row, status),
-                    validation_round: failed_round_marker(&row, status, rounds),
-                    validating_round: validating_round(&row, status, rounds),
+                    review_entry: review_entry_flag(&row, status, &counted),
+                    validation_round: failed_round_marker(&row, status, &counted),
+                    validating_round: validating_round(status, &counted),
+                    check: counted.name.clone(),
+                    moved_past_check: counts.moved_past_reason(&flow),
+                    arrival: arrivals.remove(&row.id),
                     conflict_files: row
                         .conflict_files
                         .as_deref()
                         .and_then(|f| serde_json::from_str(f).ok())
                         .unwrap_or_default(),
                     merged_automatically: row.merged_automatically && status == Status::Merged,
+                    delivered_without_checks: row.delivered_without_checks
+                        && status == Status::Merged,
+                    delivering_automatically: delivering.contains(&row.id),
+                    nothing_to_merge: row
+                        .nothing_to_merge
+                        .clone()
+                        .filter(|_| status == Status::ClosedNotMerged),
                     open_decisions: open_decisions
                         .get(&row.id)
-                        .filter(|_| status == Status::ReadyForReview)
+                        .filter(|_| status == Status::WaitingForYou)
                         .and_then(|n| u32::try_from(*n).ok())
                         .unwrap_or(0),
                     asked_lead: questions
@@ -1048,11 +1159,10 @@ impl Board {
                         .and_then(|open| Some(open.question.via_lead.as_ref()?.lead.clone())),
                     ..Flags::default()
                 };
-                if flags.validation_round.is_some() || status == Status::ValidationFailed {
-                    flags.findings = failed_reports
+                if flags.validation_round.is_some() || status == Status::CheckFailed {
+                    flags.verdict = verdicts
                         .get(&row.id)
-                        .map(|report| findings_of(report))
-                        .unwrap_or_default();
+                        .and_then(|body| first_line(body.as_deref()?));
                 }
                 let port = |p: Option<i64>| p.and_then(|p| u16::try_from(p).ok());
                 let work = Work {
@@ -1088,7 +1198,7 @@ impl Board {
                     .as_deref()
                     .filter(|_| status == Status::Interrupted)
                     .and_then(|s| s.parse::<Status>().ok())
-                    .filter(|s| s.is_needs_you_family() || *s == Status::Validating);
+                    .filter(|s| s.is_needs_you_family() || *s == Status::Checking);
                 let signal = (status.is_needs_you_family()
                     || status == Status::WorkingInBackground
                     || interrupted_from.is_some())
@@ -1127,7 +1237,7 @@ impl Board {
                     priority_inherited: row.epic_id.is_some()
                         && !own_priority.contains_key(row.id.as_str()),
                     epic,
-                    column: status.column(),
+                    place,
                     status,
                     base,
                     base_locked: row.branch_locked,
@@ -1146,7 +1256,7 @@ impl Board {
                     status_since: row.state_since,
                     queued_at: row.queued_at,
                     ready_since: row.ready_since,
-                    validation_round: u32::try_from(row.validation_round).unwrap_or(0),
+                    validation_round: counted.count.shown_round(),
                     auto_merge_conflicts: u32::try_from(row.auto_merge_conflicts).unwrap_or(0),
                     auto_merge_stop: row.auto_merge_stop.as_deref().and_then(|s| s.parse().ok()),
                     epic_queue_mode: (kind == Kind::Epic)
@@ -1219,7 +1329,11 @@ impl Board {
 /// Whether a new child of this epic joins the queue (EPC-13): its epic is queued as a whole and not done.
 fn joins_epic_queue(epic: &TicketRecord) -> bool {
     epic.row.epic_queue_mode.parse::<EpicQueueMode>().ok() == Some(EpicQueueMode::Whole)
-        && epic.row.board_column != Column::Done.as_str()
+        && epic
+            .row
+            .state
+            .parse::<Status>()
+            .is_ok_and(|s| s.set() != StatusSet::Done)
 }
 
 /// `SHOP` + 40 + 1 → `SHOP-40.1`; child number 0 means no child.
@@ -1232,29 +1346,58 @@ pub(crate) fn key_from_parts(project: &str, number: i64, child: i64) -> Option<T
     })
 }
 
+/// The agent check a ticket's round markers count for (FLW-13): its name, its counter and its rounds (the stage's,
+/// with the extra ones the user allowed).
+struct CountedCheck {
+    name: Option<String>,
+    count: super::validation::CheckCount,
+    rounds: u32,
+}
+
+impl CountedCheck {
+    fn of(
+        flow: &crate::flow::Flow,
+        place: &Place,
+        counts: &super::validation::CheckCounts,
+    ) -> Self {
+        let check = counts.counting(flow, place);
+        let count = check.map(|c| counts.of(&c.id)).unwrap_or_default();
+        let in_it = check.is_some_and(|c| place.stage() == Some(c.id.as_str()));
+        Self {
+            name: check
+                .filter(|_| in_it || count.fails > 0 || count.passed_round.is_some())
+                .map(|c| c.name.clone()),
+            rounds: flow.check_rounds(check.map(|c| c.id.as_str()), count.extra),
+            count,
+        }
+    }
+}
+
 /// "Validated · round 2" and the like: how the ticket reached Review (d0063). Shown in Review, Approved and Done.
-fn review_entry_flag(row: &TicketRow, status: Status) -> Option<crate::domain::ReviewEntryFlag> {
+fn review_entry_flag(
+    row: &TicketRow,
+    status: Status,
+    counted: &CountedCheck,
+) -> Option<crate::domain::ReviewEntryFlag> {
     let entry: crate::domain::ReviewEntry = row.review_entry.as_deref()?.parse().ok()?;
     matches!(
-        status.column(),
-        Column::ReadyForReview | Column::Approved | Column::Done
+        status.set(),
+        StatusSet::HumanCheck | StatusSet::Delivery | StatusSet::Done
     )
     .then(|| crate::domain::ReviewEntryFlag {
         entry,
-        round: u32::try_from(row.validation_round).unwrap_or(0),
+        round: counted.count.shown_round(),
     })
 }
 
-/// "Validation failed · round 1 of 3": the agent works again after a failed round (VAL-04). `rounds` is the
-/// project's setting; "Give it another round" adds to it.
+/// "Validation failed · round 1 of 3": the agent works again after a failed round (VAL-04), counted on the check
+/// that failed it. The rounds are that check's; "Give it another round" adds to them.
 fn failed_round_marker(
     row: &TicketRow,
     status: Status,
-    rounds: u32,
+    counted: &CountedCheck,
 ) -> Option<crate::domain::ValidationRound> {
-    let round = u32::try_from(row.validation_round)
-        .ok()
-        .filter(|r| *r > 0)?;
+    let round = Some(counted.count.fails).filter(|r| *r > 0)?;
     let working = matches!(
         status,
         Status::Working
@@ -1264,35 +1407,31 @@ fn failed_round_marker(
             | Status::Idle
             | Status::WaitingForLimitReset
     );
-    (working && row.review_entry.is_none()).then(|| crate::domain::ValidationRound {
+    (working && row.review_entry.is_none()).then_some(crate::domain::ValidationRound {
         round,
-        of: rounds + u32::try_from(row.validation_rounds_extra).unwrap_or(0),
+        of: counted.rounds,
     })
 }
 
 /// "validator · round 1 of 3": the round the validator is checking (Validating…, Needs you · validator; d0063).
 fn validating_round(
-    row: &TicketRow,
     status: Status,
-    rounds: u32,
+    counted: &CountedCheck,
 ) -> Option<crate::domain::ValidationRound> {
-    matches!(status, Status::Validating | Status::ValidatorNeedsYou).then(|| {
+    matches!(status, Status::Checking | Status::CheckerNeedsYou).then(|| {
         crate::domain::ValidationRound {
-            round: u32::try_from(row.validation_round).unwrap_or(0) + 1,
-            of: rounds + u32::try_from(row.validation_rounds_extra).unwrap_or(0),
+            round: counted.count.fails + 1,
+            of: counted.rounds,
         }
     })
 }
 
-/// A report's findings: its non-empty lines that aren't notes, without list bullets (VAL-04).
-fn findings_of(report: &str) -> Vec<String> {
-    report
-        .lines()
-        .filter(|line| super::validation::note_of(line).is_none())
-        .map(|line| line.trim().trim_start_matches(['-', '*']).trim())
-        .filter(|line| !line.is_empty())
+/// A comment's first line with text, trimmed: what a card shows of a verdict.
+fn first_line(body: &str) -> Option<String> {
+    body.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
         .map(str::to_owned)
-        .collect()
 }
 
 /// Takes the project's next ticket number. Numbers are never handed out twice (d0029).

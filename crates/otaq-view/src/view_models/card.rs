@@ -14,10 +14,10 @@
 //! - **Origin line** of a card an agent created ("Created by Checkout slowness", violet, d0068).
 //! - **Footer, only when it has something to say:** while an agent runs, the tokens its tool reports and the last
 //!   signal ("182k · 40s"; "not reported" when Otaq can't read the usage file, d0086); and the card's one action.
-//!   Its **agent part** (M22, AGT-04, update Y §8; [`footer_agent`]): a not-started card whose Developer row isn't
-//!   the project default names it, "Fable test · set by you" (neutral) or "Light · picked by Checkout slowness"
-//!   (violet); while an agent runs, the named agent of whoever has the turn ("Strong 182k · 40s"); a model the tool
-//!   refused names the agent that couldn't run it. Nothing names an agent while there is only one (d0086).
+//!   Its **agent part** (M22, AGT-04, AGM-09; [`footer_agent`]): while an agent runs, the agent of whoever has the
+//!   turn and its model ("Rust developer · sonnet"); a ticket waiting before an Agent stage says where it starts
+//!   ("Grill · Griller · sonnet"); a held role names the agent it would start on. No choice line before the start
+//!   (the panel and the form show the choices), and nothing names an agent while there is only one (d0086).
 //! - **Hover:** the full status ("Needs you · permission"), and what the card has no room for.
 //!
 //! **The flag order** (head slot, highest first, [`Rank`]): Validator / Needs you / Asks you (also via lead) / Idle
@@ -31,19 +31,22 @@
 //! v2 · all variants*): once two tools are connected the head's avatar shows the tool of whoever has the turn. A
 //! role held before it starts ([`AgentFacts::holds`], T-0357's `agent_holds`) takes the head with **Unavailable**
 //! (amber: its tool isn't available, or its model is no longer listed) or **Limit** (neutral: its tool is at its
-//! limit), never turquoise and never an inbox item; its line says why and what helps ("Codex not available · Use
-//! fallback (Sonnet) · Change agent"), and the card's action is Use fallback or Change agent / Change validator. A
-//! row a fallback moved says so while it runs, amber ("Moved from Strong · Claude Code limit"). A swapped model
-//! changes nothing on the card (the panel says it).
+//! limit), never turquoise and never an inbox item. A model that can't run (its tool not available, the model no
+//! longer listed) says **Can't start** ("Griller's model can't run: Claude Code isn't available"); the card offers
+//! **Use fallback** (when the tool's fallback can take it) and **Open agent…** (AGM-03, d0108 second gap review rule
+//! 7). A session on its tool's fallback says so while it runs, amber ("On Codex · Claude Code limit", AGM-03). A
+//! swapped model changes nothing on the card (the panel says it).
 //!
 //! Data that the service doesn't fill yet comes in through [`CardExtras`]; fixtures fill it.
 
+use otaq_core::agents::facts::{BoardAgents, CardAgents, CardHold, CardStart, RunsOnTool};
+use otaq_core::agents::{HoldReason, SessionRole as Role};
 use otaq_core::board::epic_flight::is_never_started;
+use otaq_core::board::human_check::Arrival;
 use otaq_core::board::needs_you::change_agent;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Actor, Priority, Status, TicketKey};
-use otaq_core::named_agents::rows::{BoardAgents, CardAgents, CardHold};
-use otaq_core::named_agents::{CameFrom, HoldReason, MoveReason, Role, RowMove, RowSetBy};
+use otaq_core::flow::model::Delivers;
 use otaq_core::signals::background::{minutes, wakeup_text};
 use otaq_core::signals::{HELPER_PROMPT_PREFIX, is_stale};
 
@@ -53,7 +56,7 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::theme::{Palette, Status as Legend};
 use crate::view_models::tool_avatar::{AvatarTool, ToolAvatarView};
-use crate::view_models::{priority, status};
+use crate::view_models::{priority, status, ticket_comments};
 
 /// The last signal in the footer turns amber after this long ("not you, but soon", *Foundations → amber*); past
 /// the core's threshold ([`otaq_core::signals::STALE_AFTER_MS`], ATT-05) the situation line says so instead.
@@ -116,48 +119,49 @@ pub struct CardExtras {
     pub agents: AgentFacts,
     /// Two or more agent tools are connected (`board.agents`'s `connected`): the head shows the avatar (SHL-08).
     pub several_tools: bool,
+    /// What its Delivery delivers, from its project's flow (an epic child always merges locally; FLW-15): a To
+    /// deliver card is "Ready to merge" or "Ready for PR".
+    pub delivers: Option<Delivers>,
+    /// The agent of its project's Delivery stage, who opens and pushes the PR: "Opened by Shipper · 2 h ago".
+    pub delivery_agent: Option<String>,
+    /// Its project's flow isn't the default's shape ([`crate::view_models::flow_columns::keeps_default_look`]): its
+    /// human checks, To deliver cards and failed checks read as `s03-44`…`s03-54` draw them. On the default flow
+    /// those cards stay today's (d0108: "a project that never changes its flow sees today's board"; STG-06); the
+    /// renames and new features (PR comments, conflicts) show on every flow.
+    pub custom_flow: bool,
 }
 
 /// What the card knows about its agents (`board.agents`, AGT-04): the footer's agent part ([`footer_agent`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentFacts {
-    /// How many named agents there are: with one, the card names none (d0086, "only what's needed").
+    /// How many agents there are: with one, the card names none (d0086, "only what's needed").
     pub count: usize,
-    /// The named agent the Developer and the Validator run on now.
-    pub developer: Option<String>,
-    pub validator: Option<String>,
-    /// The Developer row points at another agent than the project default: who set it.
-    pub off_default: Option<RowSetBy>,
-    /// The named agent of the running developer session and of the running validator.
+    /// The agent of the running developer session and of the running validator.
     pub running_developer: Option<String>,
     pub running_validator: Option<String>,
     /// The roles held before they start (M23): a Developer's while it waits in Ready for Dev, a Validator's in Dev.
     pub holds: Vec<CardHold>,
-    /// Where the Developer and the Validator rows moved from (a fallback, or Move waiting to…).
-    pub developer_move: Option<RowMove>,
-    pub validator_move: Option<RowMove>,
+    /// The tool and model each running session runs on, and the fallback it runs on (AGM-03).
+    pub developer_on: Option<RunsOnTool>,
+    pub validator_on: Option<RunsOnTool>,
+    /// Waiting before an Agent stage: where it starts (AGM-09).
+    pub starts: Option<CardStart>,
+    /// The agent whose model the tool refused (Open agent…).
+    pub refused_agent: Option<String>,
 }
 
 impl AgentFacts {
-    /// From the service's facts for one card, with the number of named agents.
+    /// From the service's facts for one card, with the number of agents.
     pub fn of(card: &CardAgents, count: usize) -> Self {
         Self {
             count,
-            developer: card.developer.as_ref().map(|r| r.agent.name.clone()),
-            validator: card.validator.as_ref().map(|r| r.agent.name.clone()),
-            off_default: card
-                .developer
-                .as_ref()
-                .filter(|_| card.developer_off_default)
-                .and_then(|r| match &r.came_from {
-                    CameFrom::Row { set_by } => Some(set_by.clone()),
-                    _ => None,
-                }),
             running_developer: card.running_developer.clone(),
             running_validator: card.running_validator.clone(),
             holds: card.holds.clone(),
-            developer_move: card.developer_move.clone(),
-            validator_move: card.validator_move.clone(),
+            developer_on: card.running_developer_on.clone(),
+            validator_on: card.running_validator_on.clone(),
+            starts: card.starts.clone(),
+            refused_agent: card.refused_agent.clone(),
         }
     }
 
@@ -169,24 +173,23 @@ impl AgentFacts {
 
 impl CardExtras {
     /// The card's agents from `board.agents` (T-0345, T-0362): the footer's facts, whether several tools are
-    /// connected, and the avatars: each role's running session's tool and model, else the tool its row resolves
-    /// to now (a not-started, held or refused card shows the tool it would run on).
+    /// connected, and the avatars: each role's running session's tool and model, else a held role's tool.
     pub fn with_agents(mut self, board: &BoardAgents, key: &TicketKey) -> Self {
         self.several_tools = board.connected.len() > 1;
         let Some(card) = board.cards.iter().find(|c| &c.key == key) else {
             return self;
         };
         self.agents = AgentFacts::of(card, board.agent_count);
-        let avatar = |on: &Option<otaq_core::named_agents::rows::RunsOnTool>,
-                      resolved: &Option<otaq_core::named_agents::Resolved>| {
-            match (on, resolved) {
-                (Some(on), _) => Some(ToolAvatarView::of(on.tool, on.model.as_deref())),
-                (None, Some(r)) => Some(ToolAvatarView::of(r.agent.tool, r.agent.model.as_deref())),
-                (None, None) => None,
-            }
+        let avatar = |on: &Option<RunsOnTool>, role: Role| match on {
+            Some(on) => Some(ToolAvatarView::of(on.tool, on.model.as_deref())),
+            None => card
+                .holds
+                .iter()
+                .find(|h| h.role == role)
+                .map(|h| ToolAvatarView::of(h.tool, h.model.as_deref())),
         };
-        self.developer = avatar(&card.running_developer_on, &card.developer);
-        self.validator = avatar(&card.running_validator_on, &card.validator);
+        self.developer = avatar(&card.running_developer_on, Role::Developer);
+        self.validator = avatar(&card.running_validator_on, Role::Validator);
         self
     }
 
@@ -291,6 +294,11 @@ pub enum Tone {
     Accent,
     /// Secondary text (the situation's words next to a coloured edge).
     Secondary,
+    /// A green edge with calm text: how it passed ("Passed Security · round 2", `s03-46`).
+    Passed,
+    /// An amber edge with calm text: a skip, a move by the user, a conflict being fixed ("Skipped Security · by you",
+    /// "Merge conflict · fixing", "Delivered without checks"; `s03-46`, `s03-48`).
+    Paused,
 }
 
 impl Tone {
@@ -367,15 +375,30 @@ pub enum CardActionKind {
     RetryMerge,
     /// Auto-merge stopped: back to Ready for Review, still validated, not merged again.
     MoveToReview,
-    /// Start failed on the model (AGT-05): the panel opens with the Developer row's picker open; a pick there starts
-    /// the ticket as Retry start would (Q-B).
-    ChangeAgent,
-    /// No result on the validator's model: the panel opens with the Validator row's picker open.
-    ChangeValidator,
+    /// A model that can't run (AGM-03; d0108 second gap review rule 7): Settings → Agents opens on that agent's page
+    /// (the card's [`open_agent`]); replaces Change agent (Q280).
+    OpenAgent,
     /// A Developer held for its tool (AGT-08, d0086): its fallback takes it (`ticket.use_fallback`).
     UseFallback,
     /// A Validator round held for its tool: its fallback takes it.
     UseValidatorFallback,
+    /// Your check (FLW-14): Pass moves it on, or offers the delivery choices when a click Delivery comes next
+    /// (`ticket.pass`).
+    Pass,
+    /// Your check: the Fail dialog ("Fail Review on SHOP-18?").
+    Fail,
+    /// A To deliver card (FLW-15): the Local merge confirmation…
+    LocalMerge,
+    /// …or the Open PR dialog.
+    OpenPr,
+    /// A PR open (FLW-16): the "Send SHOP-26 back with PR comments?" dialog.
+    SendBackPr,
+    /// An epic's PR open (FLW-16): a Backlog child holding the PR's unresolved comments.
+    AddChildFromPr,
+    /// An agent check's last round failed (FLW-13): on to the next stage; its Delivery waits for a click.
+    MoveOnAnyway,
+    /// An agent check held for the plan limit with no usable fallback (FLW-13, Q277).
+    SkipCheck,
 }
 
 impl CardActionKind {
@@ -386,25 +409,8 @@ impl CardActionKind {
             Self::RetryValidation => Some(A::Retry),
             Self::RetryMerge => Some(A::RetryMerge),
             Self::MoveToReview => Some(A::MoveToReview),
-            _ => None,
-        }
-    }
-
-    /// The role Use fallback moves (`ticket.use_fallback`'s `role`).
-    pub fn fallback_role(self) -> Option<Role> {
-        match self {
-            Self::UseFallback => Some(Role::Developer),
-            Self::UseValidatorFallback => Some(Role::Validator),
-            _ => None,
-        }
-    }
-
-    /// The row whose picker Change agent / Change validator opens in the panel (`panel.view`'s
-    /// `focus_agent_row`).
-    pub fn agent_row(self) -> Option<Role> {
-        match self {
-            Self::ChangeAgent => Some(Role::Developer),
-            Self::ChangeValidator => Some(Role::Validator),
+            Self::MoveOnAnyway => Some(A::MoveOnAnyway),
+            Self::SkipCheck => Some(A::Skip),
             _ => None,
         }
     }
@@ -544,6 +550,11 @@ pub struct Footer {
     pub tokens: Option<Tokens>,
     pub signal: Option<Signal>,
     pub action: Option<CardAction>,
+    /// A second button after the action: Open agent… next to Use fallback (`s03-54`).
+    pub second: Option<CardAction>,
+    /// The two buttons stand one under the other, each its own width: Send back with PR comments over Mark merged,
+    /// Skip this check over Open agent… (`s03-46`, `s03-54`).
+    pub stacked: bool,
 }
 
 /// The full status on hover ("Needs you · permission") and the facts the card has no room for ("Tokens: 241k",
@@ -635,7 +646,7 @@ fn runs(status: Status) -> bool {
         status,
         Status::Working
             | Status::WorkingInBackground
-            | Status::Validating
+            | Status::Checking
             | Status::MergeConflictFixing
     )
 }
@@ -782,7 +793,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             }
         }
         // The validator's permission prompt (VAL-11).
-        Status::ValidatorNeedsYou => Part::flag(
+        Status::CheckerNeedsYou => Part::flag(
             flag(
                 R::NeedsYou,
                 VALIDATOR_ASKS,
@@ -892,8 +903,9 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             }),
             Tone::Error,
         ),
-        // The last round failed: its first finding, else the count (VAL-06).
-        Status::ValidationFailed => {
+        // The last round failed: its verdict, pointing at the checker's comment (VAL-06, CMT-10; `s05-41`: "10,000 row
+        // limit isn't enforced · see comment").
+        Status::CheckFailed if !x.custom_flow => {
             let n = ticket.validation_round.max(1);
             Part::flag(
                 flag(
@@ -904,16 +916,35 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                 ),
                 Some(
                     flags
-                        .findings
-                        .first()
-                        .cloned()
+                        .verdict
+                        .as_deref()
+                        .map(ticket_comments::verdict_line)
                         .unwrap_or_else(|| validation::failed_times(n)),
                 ),
                 Tone::Attention,
             )
         }
+        Status::CheckFailed => {
+            let n = ticket.validation_round.max(1);
+            let times = check_failed_times(flags.check.as_deref(), n);
+            Part::flag(
+                flag(
+                    R::Stopped,
+                    &format!("Failed \u{d7}{n}"),
+                    &times,
+                    Legend::ValidationFailed,
+                ),
+                Some(match flags.verdict.as_deref() {
+                    Some(verdict) => {
+                        format!("{times} \u{b7} {}", ticket_comments::verdict_line(verdict))
+                    }
+                    None => times.clone(),
+                }),
+                Tone::Attention,
+            )
+        }
         // The validator's model was refused (AGT-05): not a round; its message on hover.
-        Status::ValidationNoResult if let Some((model, message)) = validator_refusal(ticket) => {
+        Status::CheckNoResult if let Some((model, message)) = validator_refusal(ticket) => {
             Part::flag(
                 flag(
                     R::Stopped,
@@ -933,7 +964,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             )))
         }
         // No verdict, or a discarded one: the core's text says which (VAL-02, VAL-07).
-        Status::ValidationNoResult => Part::flag(
+        Status::CheckNoResult => Part::flag(
             flag(
                 R::Stopped,
                 "No result",
@@ -947,8 +978,9 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             ),
             Tone::Attention,
         ),
-        // "Keeps conflicting with <epic branch> · 3 tries", or the Local merge's message (AMG-03, AMG-04).
-        Status::AutoMergeStopped => {
+        // "Keeps conflicting with main" / "… with the epic's branch" after 3 conflicts in a row (FLW-17, `s03-46`), or
+        // the Local merge's message.
+        Status::DeliveryStopped => {
             let n = ticket.auto_merge_conflicts.max(1);
             let (label, full) = match ticket.auto_merge_stop {
                 Some(AutoMergeStop::BaseDiverged) => ("Diverged".to_owned(), "Base diverged"),
@@ -957,14 +989,12 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             };
             Part::flag(
                 flag(R::Stopped, &label, full, Legend::AutoMergeStopped),
-                Some(match (ticket.auto_merge_stop, &flags.conflicts_with) {
-                    (Some(AutoMergeStop::KeepsConflicting), Some(target)) => {
-                        format!("Keeps conflicting with {target} \u{b7} {n} tries")
-                    }
+                Some(match ticket.auto_merge_stop {
+                    Some(AutoMergeStop::KeepsConflicting) => keeps_conflicting(ticket, x),
                     _ => x
                         .question
                         .clone()
-                        .unwrap_or_else(|| Status::AutoMergeStopped.label().to_owned()),
+                        .unwrap_or_else(|| Status::DeliveryStopped.label().to_owned()),
                 }),
                 Tone::Attention,
             )
@@ -991,8 +1021,9 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             x.held_reason.clone().unwrap_or_else(|| "Held".into()),
             Tone::Warning,
         ),
-        // Calm, like working (*Validating… (0063)*): which round and how long.
-        Status::Validating => Part::flag(
+        // Calm, like working (*Validating… (0063)*): which round and how long. Any other agent check reads
+        // "Checking" (FLW-13, `s03-44`).
+        Status::Checking if is_validate(flags.check.as_deref()) => Part::flag(
             flag(
                 R::Busy,
                 "Validating\u{2026}",
@@ -1003,15 +1034,35 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             validating_text(ticket, now_ms),
             Tone::Muted,
         ),
-        // The agent rebases with restack (AMG-03).
-        Status::MergeConflictFixing => Part::flag(
+        Status::Checking => Part::flag(
             flag(
                 R::Busy,
-                "Conflict",
-                validation::MERGE_CONFLICT_FIXING,
-                Legend::MergeConflictFixing,
-            )
-            .colored(Palette::Working),
+                CHECKING,
+                &format!(
+                    "{CHECKING} \u{b7} {}",
+                    flags.check.as_deref().unwrap_or_default()
+                ),
+                Legend::Validating,
+            ),
+            validating_text(ticket, now_ms),
+            Tone::Muted,
+        ),
+        // The agent of the nearest earlier Agent stage rebases with restack, no click (FLW-17; amber, `s03-46`).
+        Status::MergeConflictFixing => Part::flag(
+            {
+                let f = flag(
+                    R::Busy,
+                    "Conflict",
+                    validation::MERGE_CONFLICT_FIXING,
+                    Legend::MergeConflictFixing,
+                );
+                // Today's calm pill on the default flow.
+                if x.custom_flow {
+                    f
+                } else {
+                    f.colored(Palette::Working)
+                }
+            },
             Some(match flags.conflict_files.as_slice() {
                 [] => validation::MERGE_CONFLICT_FIXING.to_owned(),
                 [file] => format!("{} \u{b7} {file}", validation::MERGE_CONFLICT_FIXING),
@@ -1021,7 +1072,11 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                     rest.len()
                 ),
             }),
-            Tone::Muted,
+            if x.custom_flow {
+                Tone::Paused
+            } else {
+                Tone::Muted
+            },
         ),
         Status::Working => Part::flag(
             flag(R::Working, "Working", "Working", Legend::AgentWorking),
@@ -1044,21 +1099,34 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             }),
             Tone::Muted,
         ),
-        Status::ReadyForReview => return review_part(ticket),
+        Status::WaitingForYou if !x.custom_flow => return review_part(ticket),
+        Status::WaitingForYou => return your_check_part(ticket),
+        Status::ToDeliver if !x.custom_flow => return None,
+        Status::ToDeliver => return delivery_part(ticket, x),
+        // Stays in its Delivery stage until marked merged (FLW-16, `s03-46`): "PR #481 open · Opened by Shipper · 2 h
+        // ago".
         Status::PrOpen => {
             let n = flags.pr_number?;
+            let open = format!("PR #{n} open");
             Part::flag(
-                flag(
-                    R::Outcome,
-                    &format!("PR #{n}"),
-                    &format!("PR #{n} open"),
-                    Legend::PrOpen,
-                ),
-                Some(pr_not_watched()),
+                flag(R::Outcome, &open, &open, Legend::PrOpen),
+                Some(pr_opened_line(ticket, x, now_ms)),
                 Tone::Muted,
             )
-            .lost(format!("PR #{n}"))
+            .lost(open.clone())
         }
+        // Closed by an agent's `otaq stage done` (AGM-10, Q276): "Nothing to merge · already fixed in SHOP-31".
+        Status::ClosedNotMerged if let Some(reason) = &flags.nothing_to_merge => Part::flag(
+            flag(
+                R::Outcome,
+                "Closed",
+                "Closed \u{b7} nothing to merge",
+                Legend::ClosedNotMerged,
+            )
+            .colored(Palette::Queued),
+            Some(nothing_to_merge_line(reason)),
+            Tone::Muted,
+        ),
         Status::ClosedNotMerged => Part::flag(
             flag(
                 R::Outcome,
@@ -1070,6 +1138,10 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             Some("closed without merging".into()),
             Tone::Muted,
         ),
+        // An automatic Delivery with no check passed before it (d0108 rule 8, `s03-48`): amber, once.
+        Status::Merged if flags.delivered_without_checks => {
+            Part::quiet(validation::DELIVERED_WITHOUT_CHECKS, Tone::Paused)
+        }
         Status::Merged if flags.merged_automatically => Part::quiet(
             match &x.sleeve {
                 Some(s) => format!("{} \u{b7} {}", validation::MERGED_AUTOMATICALLY, s.name),
@@ -1085,7 +1157,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         Status::Queued if x.starting => Part::quiet("Starting\u{2026}", Tone::Muted),
         Status::Queued => Part::quiet(x.waits_for.clone()?, Tone::Muted),
         Status::Backlog if flags.ready_to_start => Part::quiet(READY_TO_START, Tone::Muted),
-        Status::Backlog | Status::EpicInProgress | Status::Merged => return None,
+        Status::Backlog | Status::Merged => return None,
     })
 }
 
@@ -1154,6 +1226,141 @@ fn review_part(ticket: &Ticket) -> Option<Part> {
     })
 }
 
+/// A card in a human check (FLW-14, `s03-46`; `s03-54`): "Your check".
+pub const YOUR_CHECK: &str = "Your check";
+/// A To deliver card (FLW-15, `s03-46`): its Delivery waits for the user's Local merge (14 characters, the frame's
+/// own flag like [`PARENT_CLOSED`])…
+pub const READY_TO_MERGE: &str = "Ready to merge";
+/// …or Open PR.
+pub const READY_FOR_PR: &str = "Ready for PR";
+/// A running agent check other than the default flow's Validate (FLW-13, `s03-44`).
+pub const CHECKING: &str = "Checking";
+/// The default flow's agent check, whose cards keep today's words ("Validating…", "Validation failed 3 times").
+pub const VALIDATE: &str = "Validate";
+
+/// Whether the check the card counts for is the default flow's Validate (or unnamed): today's words.
+fn is_validate(check: Option<&str>) -> bool {
+    check.is_none_or(|c| c == VALIDATE)
+}
+
+/// "1 time", "3 times".
+fn times(n: u32) -> String {
+    if n == 1 {
+        "1 time".to_owned()
+    } else {
+        format!("{n} times")
+    }
+}
+
+/// "Security failed 3 times" (`s03-44`); on Validate today's "Validation failed 3 times".
+pub fn check_failed_times(check: Option<&str>, n: u32) -> String {
+    match check.filter(|c| !is_validate(Some(c))) {
+        Some(check) => format!("{check} failed {}", times(n)),
+        None => otaq_core::domain::validation::failed_times(n),
+    }
+}
+
+/// "Security failed · round 2 of 3" while the agent fixes the findings (`s03-44`); on Validate today's "Validation
+/// failed · round 1 of 3".
+pub fn check_failed_round(
+    check: Option<&str>,
+    round: otaq_core::domain::ValidationRound,
+) -> String {
+    match check.filter(|c| !is_validate(Some(c))) {
+        Some(check) => format!(
+            "{check} failed \u{b7} round {} of {}",
+            round.round, round.of
+        ),
+        None => round.to_string(),
+    }
+}
+
+/// The colour of how a card got where it is: green for a pass, amber for a skip or a move by the user (`s03-46`).
+fn arrival_tone(arrival: &Arrival) -> Tone {
+    match arrival {
+        Arrival::Passed { .. } => Tone::Passed,
+        Arrival::Finished { .. } => Tone::Muted,
+        Arrival::Skipped { .. } | Arrival::FailedMovedOn { .. } | Arrival::MovedBack => {
+            Tone::Paused
+        }
+    }
+}
+
+/// Your check (FLW-14, `s03-46`, `s03-54`): "Your check" and how it got here ("Passed Security · round 2", "Skipped
+/// Security · by you", "Moved back by you"); Pass and Fail are its buttons.
+fn your_check_part(ticket: &Ticket) -> Option<Part> {
+    let flag = HeadFlag::new(
+        Rank::Outcome,
+        YOUR_CHECK,
+        YOUR_CHECK,
+        Legend::ReadyForReview,
+    );
+    Some(match &ticket.flags.arrival {
+        Some(arrival) => Part::flag(flag, Some(arrival.label()), arrival_tone(arrival)),
+        None => Part::flag(flag, None, Tone::Muted),
+    })
+}
+
+/// A To deliver card (FLW-15, `s03-46`, `s03-54`): "Ready to merge" or "Ready for PR", with why it waits for a click
+/// ("Failed Security 3 times · moved by you · open the PR when ready") or how it got here ("Passed Review"). An
+/// automatic Delivery under way says its agent opens the PR.
+fn delivery_part(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
+    let flags = &ticket.flags;
+    let pr = x.delivers == Some(Delivers::Pr);
+    let label = if pr { READY_FOR_PR } else { READY_TO_MERGE };
+    let flag = HeadFlag::new(Rank::Outcome, label, label, Legend::ReadyForReview);
+    if flags.delivering_automatically {
+        let text = match &x.delivery_agent {
+            Some(agent) => format!("{agent} is opening the PR"),
+            None => "The PR is being opened".to_owned(),
+        };
+        return Some(Part::flag(flag, Some(text), Tone::Muted));
+    }
+    let when = if pr {
+        "open the PR when ready"
+    } else {
+        "merge when ready"
+    };
+    Some(match (&flags.moved_past_check, &flags.arrival) {
+        (Some(reason), _) => {
+            Part::flag(flag, Some(format!("{reason} \u{b7} {when}")), Tone::Paused)
+        }
+        (None, Some(arrival)) => Part::flag(flag, Some(arrival.label()), arrival_tone(arrival)),
+        (None, None) => Part::flag(flag, None, Tone::Muted),
+    })
+}
+
+/// "Opened by Shipper · 2 h ago" (FLW-15, `s03-46`): the Delivery stage's agent and when the PR opened; with one
+/// agent (nobody to name, d0086) or no time, today's line that Otaq doesn't watch PRs.
+fn pr_opened_line(ticket: &Ticket, x: &CardExtras, now_ms: i64) -> String {
+    match (&x.delivery_agent, ticket.status_since) {
+        (Some(agent), Some(since)) if x.agents.count > 1 => {
+            let age = crate::view_models::inbox::age(now_ms - since);
+            let ago = if age == "now" {
+                "just now".to_owned()
+            } else {
+                format!("{age} ago")
+            };
+            format!("Opened by {agent} \u{b7} {ago}")
+        }
+        _ => pr_not_watched(),
+    }
+}
+
+/// "Keeps conflicting with main", "Keeps conflicting with the epic's branch" (FLW-17, `s03-46`).
+fn keeps_conflicting(ticket: &Ticket, x: &CardExtras) -> String {
+    let target = ticket
+        .flags
+        .conflicts_with
+        .as_ref()
+        .or(x.project_base.as_ref());
+    match (&ticket.epic, target) {
+        (Some(_), _) => "Keeps conflicting with the epic\u{2019}s branch".to_owned(),
+        (None, Some(target)) => format!("Keeps conflicting with {target}"),
+        (None, None) => "Keeps conflicting".to_owned(),
+    }
+}
+
 impl CardViewModel {
     pub fn from(ticket: &Ticket, extras: &CardExtras, now_ms: i64) -> Self {
         Self::build(ticket, extras, now_ms, extras.several_tools)
@@ -1192,7 +1399,7 @@ impl CardViewModel {
         if let Some(base) = flags.conflicts_with.as_ref().filter(|_| {
             !matches!(
                 status,
-                Status::MergeConflictFixing | Status::AutoMergeStopped
+                Status::MergeConflictFixing | Status::DeliveryStopped
             )
         }) {
             parts.push(
@@ -1264,22 +1471,28 @@ impl CardViewModel {
             .then_some(ticket.question.as_ref())
             .flatten()
             .and_then(crate::view_models::answer_options::AnswerOptions::of);
-        let action = if options.as_ref().is_some_and(|o| o.pick.is_some()) {
-            Some(CardAction {
-                kind: CardActionKind::SendAnswer,
-                label: "Send answer",
-                icon: Some(IconName::CornerDownLeft),
-                primary: true,
-            })
+        let (action, second) = if options.as_ref().is_some_and(|o| o.pick.is_some()) {
+            (
+                Some(CardAction {
+                    kind: CardActionKind::SendAnswer,
+                    label: "Send answer",
+                    icon: Some(IconName::CornerDownLeft),
+                    primary: true,
+                }),
+                None,
+            )
         } else {
-            action(shown_status, kept.is_some(), ticket, x)
+            (
+                action(shown_status, kept.is_some(), ticket, x),
+                second_action(shown_status, ticket, x),
+            )
         };
         let footer = footer(
             ticket,
             status,
             stale,
             now_ms,
-            action,
+            (action, second),
             footer_agent(ticket, status, x).map(Box::new),
         );
         let outline = if status.is_needs_you_family() || kept.is_some() {
@@ -1316,6 +1529,8 @@ impl CardViewModel {
             sleeve: x.sleeve.clone(),
             outline,
             faded: match status {
+                // "Delivered without checks" is said at full strength (`s03-48`).
+                Status::Merged if flags.delivered_without_checks => None,
                 Status::Merged => Some(0.55),
                 Status::ClosedNotMerged => Some(0.8),
                 _ => None,
@@ -1329,7 +1544,7 @@ impl CardViewModel {
 /// Whose avatar the head shows (*Has the turn*): the validator while the ticket validates, the validator asks or
 /// its round is held, else the developer.
 fn turn(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<ToolAvatarView> {
-    let validator = matches!(status, Status::Validating | Status::ValidatorNeedsYou)
+    let validator = matches!(status, Status::Checking | Status::CheckerNeedsYou)
         || held(ticket, status, x).is_some_and(|h| h.role == Role::Validator);
     match validator {
         true => x.validator.clone(),
@@ -1342,18 +1557,10 @@ fn turn(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<ToolAvatarVie
 pub fn held<'a>(ticket: &Ticket, status: Status, x: &'a CardExtras) -> Option<&'a CardHold> {
     match status {
         Status::Queued | Status::Held | Status::WaitingForSlot => x.agents.hold(Role::Developer),
-        _ if ticket.status.column() == otaq_core::domain::Column::Dev => {
+        _ if crate::view_models::flow_columns::place_set(ticket).at_work() => {
             x.agents.hold(Role::Validator)
         }
         _ => None,
-    }
-}
-
-/// "Change agent", or "Change validator" for a Validator.
-fn change_label(role: Role) -> &'static str {
-    match role {
-        Role::Validator => "Change validator",
-        _ => "Change agent",
     }
 }
 
@@ -1366,55 +1573,72 @@ pub fn hold_reason_text(reason: HoldReason, tool: &str) -> String {
     }
 }
 
-/// The flag and line of a held role (0086, SDD §7.2): Unavailable (amber) for a tool that isn't available or a model
-/// no longer listed, Limit (neutral) for a tool at its limit; the line names the cause and what helps.
+/// The flag and line of a held role (0086, SDD §7.2; *03 → A model that can't run*): **Can't start** (red) for a
+/// model that can't run, its tool not available or the model no longer listed ("Griller's model can't run: Claude
+/// Code isn't available"); Limit (neutral) for a tool at its limit ("Claude Code limit · resets 3:45 pm"). The
+/// buttons say what helps (Use fallback, Open agent…).
 fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
     let tool = AvatarTool::from(h.tool).name();
-    let change = change_label(h.role);
-    // A limit with its tool's reset: "Claude Code limit · resets 3:45 pm" (Q154).
-    let cause = match h.resets_at {
-        Some(at) if h.reason == HoldReason::ToolLimit => format!(
-            "{} \u{b7} resets {}",
-            hold_reason_text(h.reason, tool),
-            crate::view_models::clock::reset_label(at, now_ms)
-        ),
-        _ => hold_reason_text(h.reason, tool),
+    let fallback = h
+        .fallback
+        .as_ref()
+        .map(|f| AvatarTool::from(f.tool).name().to_owned());
+    // One step, no chains: a fallback that can't start either leaves it waiting (0086).
+    let blocked_too = fallback
+        .as_deref()
+        .filter(|_| h.fallback_held)
+        .map(crate::view_models::tool_problems::fallback_blocked_too);
+    let agent = h.agent.as_deref().unwrap_or("The agent");
+    let cant_run = |why: String| {
+        let mut text = format!("{agent}\u{2019}s model can\u{2019}t run: {why}");
+        if let Some(too) = &blocked_too {
+            text.push_str(&format!(" \u{b7} {too}"));
+        }
+        text
     };
-    let agent = h.agent.as_deref().unwrap_or(tool);
-    let text = match (h.reason, &h.fallback) {
-        (HoldReason::ModelUnavailable, _) => format!("{cause} \u{b7} {change}"),
-        // One step, no chains: both blocked, it waits (0086).
-        (HoldReason::ToolLimit, Some(fallback)) if h.fallback_held => {
-            format!("{agent} and its fallback {fallback} are both at their limits")
-        }
-        (HoldReason::ToolUnavailable, Some(fallback)) if h.fallback_held => {
-            format!(
-                "{cause} \u{b7} {} \u{b7} {change}",
-                crate::view_models::tool_problems::fallback_blocked_too(fallback)
-            )
-        }
-        (_, Some(fallback)) if h.can_use_fallback => {
-            format!("{cause} \u{b7} Use fallback ({fallback}) \u{b7} {change}")
-        }
-        _ => format!("{cause} \u{b7} {change}"),
-    };
-    let flag = |label: &str, palette: Palette, icon: IconName| HeadFlag {
+    let flag = |label: &str, full: String, palette: Palette, icon: IconName| HeadFlag {
         rank: Rank::Limit,
         label: label.to_owned(),
-        full: cause.clone(),
+        full,
         palette,
         icon,
     };
     match h.reason {
-        HoldReason::ToolLimit => Part::flag(
-            flag("At limit", Palette::Queued, IconName::Hourglass),
-            Some(text),
-            Tone::Muted,
-        ),
+        HoldReason::ToolLimit => {
+            // A limit with its tool's reset: "Claude Code limit · resets 3:45 pm" (Q154).
+            let cause = match h.resets_at {
+                Some(at) => format!(
+                    "{} \u{b7} resets {}",
+                    hold_reason_text(h.reason, tool),
+                    crate::view_models::clock::reset_label(at, now_ms)
+                ),
+                None => hold_reason_text(h.reason, tool),
+            };
+            let text = match (&fallback, h.fallback_held) {
+                (Some(fallback), true) => {
+                    format!("{tool} and its fallback {fallback} are both at their limits")
+                }
+                // A check that can be skipped instead (FLW-13, `s03-54`).
+                (None, _) if h.can_skip_check => {
+                    format!("{cause} \u{b7} {tool} has no fallback")
+                }
+                _ => cause.clone(),
+            };
+            Part::flag(
+                flag("At limit", cause, Palette::Queued, IconName::Hourglass),
+                Some(text),
+                Tone::Muted,
+            )
+        }
         HoldReason::ToolUnavailable => Part::flag(
-            flag(UNAVAILABLE, Palette::Paused, IconName::TriangleAlert),
-            Some(text),
-            Tone::Warning,
+            flag(
+                CANT_START,
+                format!("{CANT_START} \u{b7} {tool} isn\u{2019}t available"),
+                Palette::Error,
+                IconName::CircleAlert,
+            ),
+            Some(cant_run(format!("{tool} isn\u{2019}t available"))),
+            Tone::Error,
         ),
         // The model on hover: "Old GPT · Codex · gpt-5.4 is no longer in Codex's list".
         HoldReason::ModelUnavailable => {
@@ -1423,14 +1647,23 @@ fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
                 named.push(tool.to_owned());
             }
             named.extend(h.model.clone());
+            let why = match &h.model {
+                Some(model) => format!("{tool} no longer lists {model}"),
+                None => MODEL_UNAVAILABLE.to_owned(),
+            };
             Part::flag(
-                flag(UNAVAILABLE, Palette::Paused, IconName::TriangleAlert),
-                Some(text),
-                Tone::Warning,
+                flag(
+                    CANT_START,
+                    format!("{CANT_START} \u{b7} {MODEL_UNAVAILABLE}"),
+                    Palette::Error,
+                    IconName::CircleAlert,
+                ),
+                Some(cant_run(why)),
+                Tone::Error,
             )
             .hover(Some(Hover {
-                icon: IconName::TriangleAlert,
-                tone: Tone::Warning,
+                icon: IconName::CircleAlert,
+                tone: Tone::Error,
                 title: format!(
                     "{} is no longer in {tool}\u{2019}s list",
                     named.join(" \u{b7} ")
@@ -1441,42 +1674,54 @@ fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
     }
 }
 
-/// The amber line of a row a fallback moved, while it runs (0086, *Moved by a fallback*): "Moved from Strong ·
-/// Claude Code limit", "Validator moved from Verifier · Copilot not available". The user's own move says nothing.
+/// The amber line of a session on its tool's fallback, while it runs (AGM-03): "On Codex · Claude Code limit",
+/// "Validator on Codex · Copilot not available".
 fn moved_part(status: Status, x: &CardExtras) -> Option<Part> {
-    let (moved, prefix) = match status {
-        Status::Validating => (x.agents.validator_move.as_ref()?, "Validator moved"),
-        Status::Working | Status::WorkingInBackground => {
-            (x.agents.developer_move.as_ref()?, "Moved")
-        }
+    let (on, prefix) = match status {
+        Status::Checking => (x.agents.validator_on.as_ref()?, "Validator on"),
+        Status::Working | Status::WorkingInBackground => (x.agents.developer_on.as_ref()?, "On"),
         _ => return None,
     };
-    let why = moved_reason(moved)?;
+    let from = on.fallback.as_ref()?;
+    let why = hold_reason_text(from.reason, AvatarTool::from(from.tool).name());
     Some(Part::quiet(
-        format!("{prefix} from {} \u{b7} {why}", moved.from_name),
+        format!("{prefix} {} \u{b7} {why}", AvatarTool::from(on.tool).name()),
         Tone::Warning,
     ))
 }
 
-/// Why a row moved: "Claude Code limit", "Codex not available"; `None` for the user's own move.
-pub fn moved_reason(moved: &RowMove) -> Option<String> {
-    let tool = AvatarTool::from(moved.tool?).name();
-    match moved.reason {
-        MoveReason::ToolUnavailable => Some(format!("{tool} not available")),
-        MoveReason::ToolLimit => Some(format!("{tool} limit")),
-        MoveReason::UserMove => None,
+/// "Nothing to merge · already fixed in SHOP-31": the agent's reason as the line goes on (its first line, without
+/// the closing full stop, starting lower case).
+pub fn nothing_to_merge_line(reason: &str) -> String {
+    let first = reason
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or_default()
+        .trim_end_matches('.');
+    let mut chars = first.chars();
+    match chars.next() {
+        // "Already fixed" reads lower case after the dot; "PR #12 …" stays as it is.
+        Some(c) if chars.clone().next().is_some_and(char::is_lowercase) => format!(
+            "Nothing to merge \u{b7} {}{}",
+            c.to_lowercase(),
+            chars.as_str()
+        ),
+        Some(_) => format!("Nothing to merge \u{b7} {first}"),
+        None => "Nothing to merge".to_owned(),
     }
 }
 
-/// The head flag of a held role whose tool isn't available or whose model is no longer listed (≤ 12 characters).
-pub const UNAVAILABLE: &str = "Unavailable";
+/// The head flag of a held role whose model can't run: its tool isn't available, or its model is no longer listed
+/// (≤ 12 characters; `s03-54`).
+pub const CANT_START: &str = "Can\u{2019}t start";
 /// The line's words for a model no longer in its tool's list (SDD §7.2).
 pub const MODEL_UNAVAILABLE: &str = "Model unavailable";
 
 /// The old callout's markers on a card that isn't stopped: the first that applies (they never pile up).
 fn marker(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
     let flags = &ticket.flags;
-    if ticket.status == Status::ReadyForReview && flags.pr_rework {
+    if ticket.status == Status::WaitingForYou && flags.pr_rework {
         // PR rework (d0041): dragged back from Approved; Send back starts the agent.
         return Some(Part::quiet(
             "Back for rework \u{b7} Send back to start the agent",
@@ -1529,12 +1774,12 @@ fn marker(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
         return Some(Part::quiet(text, Tone::Epic));
     }
     if let Some(marker) = flags.validation_round {
-        // The findings went back to the agent (VAL-04).
+        // The agent fixes what the check found (VAL-04): the verdict, pointing at the checker's comment (CMT-10,
+        // `s05-41`); without one, the round, counted on the check that failed it (FLW-13).
         return Some(Part::quiet(
-            match flags.findings.len() {
-                0 => marker.to_string(),
-                1 => format!("{marker} \u{b7} 1 finding"),
-                n => format!("{marker} \u{b7} {n} findings"),
+            match flags.verdict.as_deref() {
+                Some(verdict) => ticket_comments::verdict_line(verdict),
+                None => check_failed_round(flags.check.as_deref(), marker),
             },
             Tone::Muted,
         ));
@@ -1698,7 +1943,7 @@ fn footer(
     status: Status,
     stale: bool,
     now_ms: i64,
-    action: Option<CardAction>,
+    (action, second): (Option<CardAction>, Option<CardAction>),
     agent: Option<Box<FooterAgent>>,
 ) -> Option<Footer> {
     let flags = &ticket.flags;
@@ -1711,73 +1956,73 @@ fn footer(
             text: age_label(now_ms - at),
             stale: now_ms - at >= SIGNAL_AMBER_MS,
         });
+    let stacked = second.is_some()
+        && action.as_ref().is_some_and(|a| {
+            matches!(
+                a.kind,
+                CardActionKind::SendBackPr | CardActionKind::SkipCheck
+            )
+        });
     (agent.is_some() || tokens.is_some() || signal.is_some() || action.is_some()).then_some(
         Footer {
             agent,
             tokens,
             signal,
             action,
+            second,
+            stacked,
         },
     )
 }
 
-/// The footer's agent part (update Y §8, AGT-04): never while there is only one named agent (d0086). A model the
-/// tool refused names the agent that couldn't run it (Start failed: the Developer's, No result: the Validator's);
-/// while an agent runs, whoever has the turn's (the validator while it validates); a not-started card whose
-/// Developer row isn't the project default, that agent and who set it. On the project default, nothing.
+/// The footer's agent part (update Y §8, AGT-04, AGM-09; *03 → Two projects, two flows*): never while there is only
+/// one agent (d0086). While an agent runs, whoever has the turn's with its model ("Rust developer · sonnet", the
+/// validator while it validates); a ticket waiting before an Agent stage says where it starts ("Grill · Griller ·
+/// sonnet"); a held role names the agent it would start on. No choice line before the start.
 pub fn footer_agent(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<FooterAgent> {
     let a = &x.agents;
     if a.count < 2 {
         return None;
     }
-    let plain = |name: &String| FooterAgent {
-        text: name.clone(),
+    let plain = |text: String| FooterAgent {
+        text,
         picked: false,
         tooltip: None,
     };
-    match change_agent(ticket) {
-        Some(Role::Developer) => return a.developer.as_ref().map(plain),
-        Some(Role::Validator) => return a.validator.as_ref().map(plain),
-        _ => {}
-    }
-    // A held role names the agent it would start on.
     if let Some(hold) = held(ticket, status, x) {
-        let name = match hold.role {
-            Role::Validator => hold.agent.as_ref().or(a.validator.as_ref()),
-            _ => hold.agent.as_ref().or(a.developer.as_ref()),
-        };
-        return name.map(plain);
+        return hold.agent.clone().map(plain);
     }
     if runs(status) {
-        let name = match status {
-            Status::Validating => a.running_validator.as_ref().or(a.validator.as_ref()),
-            _ => a.running_developer.as_ref().or(a.developer.as_ref()),
+        let (name, on) = match status {
+            Status::Checking => (a.running_validator.as_ref(), a.validator_on.as_ref()),
+            _ => (a.running_developer.as_ref(), a.developer_on.as_ref()),
         };
-        // A validator a fallback took: "Strong (Verifier's fallback)" (*Validator moved by its fallback*).
-        let fallback_of = a
-            .validator_move
-            .as_ref()
-            .filter(|m| status == Status::Validating && m.reason != MoveReason::UserMove);
-        return name.map(|name| match fallback_of {
-            Some(m) => plain(&format!("{name} ({}\u{2019}s fallback)", m.from_name)),
-            None => plain(name),
-        });
+        let name = name?;
+        return Some(plain(
+            match on.and_then(|on| on.passed.as_deref().or(on.model.as_deref())) {
+                Some(model) => format!("{name} \u{b7} {}", footer_model(Some(model))),
+                None => name.clone(),
+            },
+        ));
     }
-    let not_started =
-        ticket.started_at.is_none() && !matches!(status, Status::Merged | Status::ClosedNotMerged);
-    let name = a.developer.as_ref().filter(|_| not_started)?;
-    Some(match a.off_default.as_ref()? {
-        RowSetBy::User => FooterAgent {
-            text: format!("{name} \u{b7} set by you"),
-            picked: false,
-            tooltip: None,
-        },
-        RowSetBy::Agent { picked_by, reason } => FooterAgent {
-            text: format!("{name} \u{b7} picked by {picked_by}"),
-            picked: true,
-            tooltip: Some(reason.trim().to_owned()).filter(|r| !r.is_empty()),
-        },
-    })
+    if ticket.place.is_waiting() && !ticket.status.is_needs_you_family() {
+        let start = a.starts.as_ref()?;
+        return Some(plain(match &start.model {
+            Some(model) => format!(
+                "{} \u{b7} {} \u{b7} {}",
+                start.stage,
+                start.agent,
+                footer_model(model.model.as_deref())
+            ),
+            None => format!("{} \u{b7} {}", start.stage, start.agent),
+        }));
+    }
+    None
+}
+
+/// A model as the footer names it ([`crate::view_models::stage_choices::short_model`]; the card has no lists).
+fn footer_model(model: Option<&str>) -> String {
+    crate::view_models::stage_choices::short_model(model, None)
 }
 
 /// The tool the user's agents run on (M22: the one connected tool), by the name people read.
@@ -1893,12 +2138,67 @@ fn details(
     if let Some(provider) = x.pr_provider.clone().or_else(|| pr_provider_label(ticket)) {
         details.push(provider);
     }
-    if status != Status::ReadyForReview
+    if status != Status::WaitingForYou
         && let Some(entry) = flags.review_entry
     {
         details.push(entry.entry.label(entry.round));
     }
     details
+}
+
+/// "Use fallback": a held session starts on its tool's fallback (AGM-03).
+pub const USE_FALLBACK: &str = "Use fallback";
+/// "Open agent…": Settings → Agents on the agent whose model can't run (d0108 second gap review rule 7).
+pub const OPEN_AGENT: &str = "Open agent\u{2026}";
+
+/// "Skip this check" on a check held for the plan limit with no usable fallback (FLW-13, `s03-54`).
+pub const SKIP_THIS_CHECK: &str = "Skip this check";
+/// The buttons of a human check (FLW-14, `s03-46`).
+pub const PASS: &str = "Pass";
+pub const FAIL: &str = "Fail";
+/// A PR open (FLW-16, `s03-46`).
+pub const SEND_BACK_WITH_PR_COMMENTS: &str = "Send back with PR comments";
+/// An agent check's last round failed (FLW-13, `s03-44`; d0108 "Move on anyway").
+pub const MOVE_ON_ANYWAY: &str = "Move on anyway";
+
+/// The second button: Open agent… after Use fallback or Skip this check on a held session (`s03-54`), Fail after
+/// Pass, Mark merged after Send back with PR comments (`s03-46`).
+fn second_action(status: Status, ticket: &Ticket, x: &CardExtras) -> Option<CardAction> {
+    let quiet = |kind, label| {
+        Some(CardAction {
+            kind,
+            label,
+            icon: None,
+            primary: false,
+        })
+    };
+    if let Some(hold) = held(ticket, status, x) {
+        return (hold.can_use_fallback || hold.can_skip_check)
+            .then_some(())
+            .and_then(|()| quiet(CardActionKind::OpenAgent, OPEN_AGENT));
+    }
+    match status {
+        Status::WaitingForYou if x.custom_flow && your_check_buttons(ticket) => {
+            quiet(CardActionKind::Fail, FAIL)
+        }
+        Status::PrOpen if ticket.flags.pr_number.is_some() && ticket.epic.is_none() => {
+            quiet(CardActionKind::MarkMerged, "Mark merged")
+        }
+        _ => None,
+    }
+}
+
+/// Whether a card in a human check offers Pass · Fail: not while it is back for PR rework or holds new commits for
+/// its open PR (Push to PR, REV-14).
+fn your_check_buttons(ticket: &Ticket) -> bool {
+    !ticket.is_epic() && ticket.flags.pr_number.is_none() && !ticket.flags.pr_rework
+}
+
+/// The agent Open agent… opens: a held session's, else the one whose model the tool refused.
+pub fn open_agent(ticket: &Ticket, x: &CardExtras) -> Option<String> {
+    held(ticket, ticket.status, x)
+        .and_then(|h| h.agent_id.clone())
+        .or_else(|| x.agents.refused_agent.clone())
 }
 
 /// The card's one action (*Ticket Card v2 → footer*): Answer, Reply, Open, Resume, Review, Mark merged, Retry
@@ -1915,51 +2215,42 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
     };
     // Answer, Reply and Open unblock the card: the frame's filled button.
     let open = |label| a(CardActionKind::Open, label, None, true);
-    // A model the tool refused (AGT-05): change the agent; Retry start / Retry validation stay in the panel.
-    // A held role (M23): its fallback when it can take it, else Change agent / Change validator; quiet buttons.
+    // A model the tool refused (AGT-05): open its agent; Retry start / Retry validation stay in the panel.
+    // A held role (M23, AGM-03): its fallback when it can take it, then Open agent… ([`second_action`]); quiet
+    // buttons.
     if let Some(hold) = held(ticket, status, x) {
         return match (hold.role, hold.can_use_fallback) {
             (Role::Validator, true) => a(
                 CardActionKind::UseValidatorFallback,
-                "Use fallback",
+                USE_FALLBACK,
                 None,
                 false,
             ),
-            (_, true) => a(CardActionKind::UseFallback, "Use fallback", None, false),
-            (Role::Validator, false) => a(
-                CardActionKind::ChangeValidator,
-                "Change validator",
-                None,
-                false,
-            ),
-            (_, false) => a(CardActionKind::ChangeAgent, "Change agent", None, false),
+            (_, true) => a(CardActionKind::UseFallback, USE_FALLBACK, None, false),
+            // A check at the plan limit with no usable fallback can be skipped instead (FLW-13, Q277).
+            (_, false) if hold.can_skip_check => {
+                a(CardActionKind::SkipCheck, SKIP_THIS_CHECK, None, false)
+            }
+            (_, false) => a(CardActionKind::OpenAgent, OPEN_AGENT, None, false),
         };
     }
-    match change_agent(ticket) {
-        Some(Role::Developer) => {
-            return a(CardActionKind::ChangeAgent, "Change agent", None, true);
-        }
-        Some(Role::Validator) => {
-            return a(
-                CardActionKind::ChangeValidator,
-                "Change validator",
-                None,
-                true,
-            );
-        }
-        _ => {}
+    if change_agent(ticket).is_some() {
+        return a(CardActionKind::OpenAgent, OPEN_AGENT, None, true);
     }
     if kept {
         // Answered from the panel: that answer resumes it.
         return match status {
-            Status::NeedsYou | Status::ValidatorNeedsYou => open("Answer"),
+            Status::NeedsYou | Status::CheckerNeedsYou => open("Answer"),
             _ => open("Reply"),
         };
     }
     match status {
-        Status::NeedsYou | Status::ValidatorNeedsYou => open("Answer"),
+        Status::NeedsYou | Status::CheckerNeedsYou => open("Answer"),
         Status::AsksYou | Status::Idle => open("Reply"),
-        Status::ParentClosed | Status::ValidationFailed | Status::AutoMergeStopped => open("Open"),
+        Status::ParentClosed | Status::DeliveryStopped => open("Open"),
+        Status::CheckFailed if !x.custom_flow => open("Open"),
+        // Only Move on anyway (FLW-13, `s03-44`); another round and Answer the agent stay in the panel.
+        Status::CheckFailed => a(CardActionKind::MoveOnAnyway, MOVE_ON_ANYWAY, None, false),
         Status::Interrupted => a(CardActionKind::Resume, "Resume", Some(IconName::Play), true),
         // *16 → Resume failed*: Start from scratch, the frame's primary; Retry stays in the panel.
         Status::ResumeFailed => a(
@@ -1975,15 +2266,32 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
             true,
         ),
         // Back from PR rework and submitted again: the new commits go to the PR (REV-14).
-        Status::ReadyForReview if has_pr && !ticket.flags.pr_rework => a(
+        Status::WaitingForYou if has_pr && !ticket.flags.pr_rework => a(
             CardActionKind::PushToPr,
             "Push to PR",
             Some(IconName::Upload),
             true,
         ),
-        Status::ReadyForReview if has_pr => None,
-        Status::ReadyForReview => a(CardActionKind::Review, "Review", Some(IconName::Eye), true),
-        // Mark closed stays in the panel and the card's menu.
+        Status::WaitingForYou if has_pr => None,
+        // Your check (FLW-14): Pass, then Fail ([`second_action`]).
+        Status::WaitingForYou if x.custom_flow && !ticket.is_epic() => {
+            a(CardActionKind::Pass, PASS, None, true)
+        }
+        Status::WaitingForYou => a(CardActionKind::Review, "Review", Some(IconName::Eye), true),
+        // To deliver (FLW-15): the click the Delivery waits for; nothing while an automatic one runs.
+        Status::ToDeliver if ticket.flags.delivering_automatically || !x.custom_flow => None,
+        Status::ToDeliver if x.delivers == Some(Delivers::Pr) => {
+            a(CardActionKind::OpenPr, "Open PR", None, true)
+        }
+        Status::ToDeliver => a(CardActionKind::LocalMerge, "Local merge", None, true),
+        // Send back with PR comments, then Mark merged (FLW-16); Mark closed stays in the panel and the card's menu.
+        // An epic child never has a PR.
+        Status::PrOpen if has_pr && ticket.epic.is_none() => a(
+            CardActionKind::SendBackPr,
+            SEND_BACK_WITH_PR_COMMENTS,
+            None,
+            false,
+        ),
         Status::PrOpen if has_pr => a(CardActionKind::MarkMerged, "Mark merged", None, false),
         Status::ClosedNotMerged => a(
             CardActionKind::Reopen,
@@ -1997,8 +2305,8 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
             Some(IconName::RotateCcw),
             false,
         ),
-        // VAL-07: a fresh validator; Move to Review anyway stays in the panel.
-        Status::ValidationNoResult => a(
+        // VAL-07: a fresh validator; Move on anyway stays in the panel.
+        Status::CheckNoResult => a(
             CardActionKind::RetryValidation,
             "Retry validation",
             Some(IconName::RotateCcw),
@@ -2079,7 +2387,7 @@ fn second_stop(ticket: &Ticket) -> Option<&otaq_core::domain::LeadNoteSent> {
     ticket.flags.lead_note_sent.as_ref().filter(|_| {
         matches!(
             at,
-            Status::ValidationFailed | Status::AutoMergeStopped | Status::Idle
+            Status::CheckFailed | Status::DeliveryStopped | Status::Idle
         )
     })
 }
@@ -2171,7 +2479,7 @@ pub fn same_file_hover(same: &[otaq_core::domain::SameFile]) -> Option<Hover> {
     })
 }
 
-/// Submit for review came with a note (d0052).
+/// Move to next stage came with a note (d0052).
 fn has_note(flags: &otaq_core::domain::Flags) -> bool {
     flags
         .submitted_by_you
@@ -2179,7 +2487,7 @@ fn has_note(flags: &otaq_core::domain::Flags) -> bool {
         .is_some_and(|note| !note.trim().is_empty())
 }
 
-/// The review entry is the user's Submit for review.
+/// The review entry is the user's Move to next stage.
 fn submitted_entry(flags: &otaq_core::domain::Flags) -> bool {
     flags
         .review_entry
@@ -2277,7 +2585,7 @@ pub const SCHEMA_OVERLAP_HINT: &str = "Whichever merges second may need its migr
 /// or after approval.
 pub fn decisions_label(ticket: &Ticket) -> Option<String> {
     let n = ticket.flags.open_decisions;
-    (n > 0 && ticket.status == Status::ReadyForReview)
+    (n > 0 && ticket.status == Status::WaitingForYou)
         .then(|| format!("{n} decision{}", if n == 1 { "" } else { "s" }))
 }
 
@@ -2311,7 +2619,7 @@ mod tests {
     use super::*;
     use crate::view_models::card_fixtures::{self, NOW, ticket};
     use crate::view_models::tool_avatar::AvatarTool;
-    use otaq_core::domain::{Column, ValidationRound};
+    use otaq_core::domain::ValidationRound;
 
     fn main_project() -> CardExtras {
         CardExtras {
@@ -2348,6 +2656,7 @@ mod tests {
                 .map(|s| format!("{}{}", s.text, if s.stale { "!" } else { "" })),
         );
         parts.extend(f.action.as_ref().map(|a| format!("[{}]", a.label)));
+        parts.extend(f.second.as_ref().map(|a| format!("[{}]", a.label)));
         Some(parts.join(" "))
     }
 
@@ -2357,6 +2666,7 @@ mod tests {
             .chain(card_fixtures::lead_variants())
             .chain(card_fixtures::sleeve_variants())
             .chain(card_fixtures::agent_variants())
+            .chain(card_fixtures::flow_variants())
             .find(|v| v.name == name)
             .unwrap_or_else(|| panic!("no fixture {name}"));
         let vm = CardViewModel::from(&v.ticket, &v.extras, NOW);
@@ -2465,7 +2775,7 @@ mod tests {
             (
                 "Validation failed 3 times (0063)",
                 Some("Failed ×3"),
-                Some("Arrow keys do nothing in the list"),
+                Some("Arrow keys do nothing in the list \u{b7} see comment"),
                 Some("[Open]"),
             ),
             (
@@ -2492,7 +2802,7 @@ mod tests {
             (
                 "Validation failed · round 2 of 3",
                 Some("Working"),
-                Some("Validation failed · round 2 of 3 · 2 findings"),
+                Some("the list isn't paginated \u{b7} see comment"),
                 Some("141k 20s"),
             ),
             (
@@ -2504,7 +2814,8 @@ mod tests {
             (
                 "Keeps conflicting (0064)",
                 Some("Conflicts ×3"),
-                Some("Keeps conflicting with {epic branch} · 3 tries"),
+                // FLW-17 (`s03-46`).
+                Some("Keeps conflicting with the epic’s branch"),
                 Some("[Open]"),
             ),
             (
@@ -2545,9 +2856,9 @@ mod tests {
             ),
             (
                 "Approved · PR open (0017)",
-                Some("PR #481"),
+                Some("PR #481 open"),
                 Some("{pr line}"),
-                Some("[Mark merged]"),
+                Some("[Send back with PR comments] [Mark merged]"),
             ),
             ("Merged", None, None, None),
             (
@@ -2597,6 +2908,254 @@ mod tests {
         let named: Vec<&str> = rows.iter().map(|r| r.0).collect();
         assert_eq!(plain, named);
         assert_eq!(fixtures.len(), rows.len() + 5);
+    }
+
+    /// The cards of checks and deliveries in any flow (FLW-13…FLW-17), as `s03-44`, `s03-46`, `s03-48` and `s03-54`
+    /// word them: the head flag, the situation line and the footer.
+    #[test]
+    fn every_m33_card_of_the_frames() {
+        type Row = (
+            &'static str,
+            Option<&'static str>,
+            Option<&'static str>,
+            Option<&'static str>,
+        );
+        let rows: &[Row] = &[
+            (
+                "Checking \u{b7} Security",
+                Some("Checking"),
+                Some("round 1 of 3"),
+                Some("Security reviewer \u{b7} opus 18k"),
+            ),
+            (
+                "Security failed \u{b7} back in Dev",
+                Some("Working"),
+                Some("Security failed \u{b7} round 2 of 3"),
+                Some("Rust developer \u{b7} sonnet 141k 20s"),
+            ),
+            (
+                "Security failed \u{d7}3",
+                Some("Failed \u{d7}3"),
+                Some("Security failed 3 times \u{b7} unescaped SQL in search \u{b7} see comment"),
+                Some("[Move on anyway]"),
+            ),
+            (
+                "Your check \u{b7} passed Security",
+                Some("Your check"),
+                Some("Passed Security \u{b7} round 2"),
+                Some("[Pass] [Fail]"),
+            ),
+            (
+                "Your check \u{b7} skipped Security",
+                Some("Your check"),
+                Some("Skipped Security \u{b7} by you"),
+                Some("[Pass] [Fail]"),
+            ),
+            (
+                "Your check \u{b7} skipped by the Project agent",
+                Some("Your check"),
+                Some("Skipped Grill \u{b7} by Planner"),
+                Some("[Pass] [Fail]"),
+            ),
+            (
+                "Your check \u{b7} moved back",
+                Some("Your check"),
+                Some("Moved back by you"),
+                Some("[Pass] [Fail]"),
+            ),
+            (
+                "Ready to merge \u{b7} passed Review",
+                Some("Ready to merge"),
+                Some("Passed Review"),
+                Some("[Local merge]"),
+            ),
+            (
+                "Ready to merge \u{b7} moved past Validate",
+                Some("Ready to merge"),
+                Some("Failed Validate 3 times \u{b7} moved by you \u{b7} merge when ready"),
+                Some("[Local merge]"),
+            ),
+            (
+                "Ready for PR \u{b7} moved past Security",
+                Some("Ready for PR"),
+                Some("Failed Security 3 times \u{b7} moved by you \u{b7} open the PR when ready"),
+                Some("[Open PR]"),
+            ),
+            (
+                "Ready for PR \u{b7} skipped Security",
+                Some("Ready for PR"),
+                Some("Skipped Security \u{b7} by you \u{b7} open the PR when ready"),
+                Some("[Open PR]"),
+            ),
+            (
+                "Ready for PR \u{b7} delivering automatically",
+                Some("Ready for PR"),
+                Some("Shipper is opening the PR"),
+                None,
+            ),
+            (
+                "PR #481 open \u{b7} opened by Shipper",
+                Some("PR #481 open"),
+                Some("Opened by Shipper \u{b7} 2 h ago"),
+                Some("[Send back with PR comments] [Mark merged]"),
+            ),
+            (
+                "Merge conflict \u{b7} fixing in Dev",
+                Some("Conflict"),
+                Some("Merge conflict \u{b7} fixing"),
+                Some("Rust developer \u{b7} sonnet 77k 10s"),
+            ),
+            (
+                "Conflicts \u{d7}3 \u{b7} the epic\u{2019}s branch",
+                Some("Conflicts \u{d7}3"),
+                Some("Keeps conflicting with the epic\u{2019}s branch"),
+                Some("[Open]"),
+            ),
+            (
+                "Conflicts \u{d7}3 \u{b7} main",
+                Some("Conflicts \u{d7}3"),
+                Some("Keeps conflicting with main"),
+                Some("[Open]"),
+            ),
+            (
+                "Delivered without checks",
+                None,
+                Some("Delivered without checks"),
+                None,
+            ),
+            (
+                "Plan limit \u{b7} a fallback is set",
+                Some("At limit"),
+                Some("Claude Code limit"),
+                Some("Security reviewer [Use fallback] [Open agent\u{2026}]"),
+            ),
+            (
+                "Plan limit \u{b7} no fallback can run",
+                Some("At limit"),
+                Some("Claude Code limit \u{b7} Claude Code has no fallback"),
+                Some("Security reviewer [Skip this check] [Open agent\u{2026}]"),
+            ),
+        ];
+        let names: Vec<&str> = card_fixtures::flow_variants()
+            .iter()
+            .map(|v| v.name)
+            .collect();
+        assert_eq!(names, rows.iter().map(|r| r.0).collect::<Vec<_>>());
+        for (name, flag, situation, footer) in rows {
+            let (_, vm) = variant(name);
+            assert_eq!(flag_of(&vm), *flag, "{name}: flag");
+            assert_eq!(line(&vm), *situation, "{name}: situation");
+            assert_eq!(foot(&vm).as_deref(), *footer, "{name}: footer");
+        }
+    }
+
+    /// The frames' colours for the M33 cards (`s03-44`, `s03-46`, `s03-48`): a green edge for a pass, amber for a skip,
+    /// a move by you, a conflict being fixed and a delivery without checks; turquoise for the stops that need you.
+    #[test]
+    fn the_m33_cards_colours() {
+        let look = |name| {
+            let (_, vm) = variant(name);
+            let s = vm.situation.expect("a line");
+            (
+                vm.flag.map(|f| f.palette),
+                s.edge,
+                s.text_tone,
+                vm.outline,
+                vm.faded,
+            )
+        };
+        use Palette as P;
+        assert_eq!(
+            look("Checking \u{b7} Security"),
+            (
+                Some(P::Working),
+                Tone::Muted,
+                Tone::Secondary,
+                Outline::Normal,
+                None
+            )
+        );
+        assert_eq!(
+            look("Security failed \u{d7}3"),
+            (
+                Some(P::Attn),
+                Tone::Attention,
+                Tone::Secondary,
+                Outline::Attention,
+                None
+            )
+        );
+        assert_eq!(
+            look("Your check \u{b7} passed Security"),
+            (
+                Some(P::Review),
+                Tone::Passed,
+                Tone::Secondary,
+                Outline::Normal,
+                None
+            )
+        );
+        for name in [
+            "Your check \u{b7} skipped Security",
+            "Your check \u{b7} moved back",
+        ] {
+            assert_eq!(
+                look(name),
+                (
+                    Some(P::Review),
+                    Tone::Paused,
+                    Tone::Secondary,
+                    Outline::Normal,
+                    None
+                ),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            look("Ready for PR \u{b7} moved past Security"),
+            (
+                Some(P::Review),
+                Tone::Paused,
+                Tone::Secondary,
+                Outline::Normal,
+                None
+            )
+        );
+        assert_eq!(
+            look("PR #481 open \u{b7} opened by Shipper").0,
+            Some(P::Review)
+        );
+        assert_eq!(
+            look("Merge conflict \u{b7} fixing in Dev"),
+            (
+                Some(P::Paused),
+                Tone::Paused,
+                Tone::Secondary,
+                Outline::Normal,
+                None
+            )
+        );
+        assert_eq!(
+            look("Conflicts \u{d7}3 \u{b7} main"),
+            (
+                Some(P::Attn),
+                Tone::Attention,
+                Tone::Secondary,
+                Outline::Attention,
+                None
+            )
+        );
+        assert_eq!(
+            look("Delivered without checks"),
+            (None, Tone::Paused, Tone::Secondary, Outline::Normal, None),
+            "amber, not faded"
+        );
+        // Send back with PR comments over Mark merged, Skip this check over Open agent…; Pass · Fail side by side.
+        let stacked = |name| variant(name).1.footer.expect("a footer").stacked;
+        assert!(stacked("PR #481 open \u{b7} opened by Shipper"));
+        assert!(stacked("Plan limit \u{b7} no fallback can run"));
+        assert!(!stacked("Your check \u{b7} passed Security"));
+        assert!(!stacked("Plan limit \u{b7} a fallback is set"));
     }
 
     /// The colours and the mono line of the frame: the edge is the winning state's, the text coloured only for red,
@@ -2703,27 +3262,27 @@ mod tests {
         };
         let st = |s| of(ticket("SHOP-1", "x", s), main_project());
         let stop = |stop| {
-            let mut t = ticket("SHOP-1", "x", Status::AutoMergeStopped);
+            let mut t = ticket("SHOP-1", "x", Status::DeliveryStopped);
             t.auto_merge_stop = Some(stop);
             t.auto_merge_conflicts = 3;
             of(t, main_project())
         };
-        let mut failed = ticket("SHOP-1", "x", Status::ValidationFailed);
+        let mut failed = ticket("SHOP-1", "x", Status::CheckFailed);
         failed.validation_round = 3;
-        let mut conflicts = ticket("SHOP-1", "x", Status::ReadyForReview);
+        let mut conflicts = ticket("SHOP-1", "x", Status::WaitingForYou);
         conflicts.flags.conflicts_with = Some("main".into());
         let mut port = ticket("SHOP-1", "x", Status::Working);
         port.flags.run_port = Some(4020);
         let mut pr = ticket("SHOP-1", "x", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         let review = |entry| {
-            let mut t = ticket("SHOP-1", "x", Status::ReadyForReview);
+            let mut t = ticket("SHOP-1", "x", Status::WaitingForYou);
             t.flags.review_entry = Some(otaq_core::domain::ReviewEntryFlag { entry, round: 3 });
             of(t, main_project())
         };
         use otaq_core::domain::ReviewEntry as E;
         let flags = [
-            st(Status::ValidatorNeedsYou),
+            st(Status::CheckerNeedsYou),
             st(Status::NeedsYou),
             st(Status::AsksYou),
             st(Status::Idle),
@@ -2735,7 +3294,7 @@ mod tests {
             stop(AutoMergeStop::BaseDiverged),
             stop(AutoMergeStop::CheckoutDirty),
             of(failed, main_project()),
-            st(Status::ValidationNoResult),
+            st(Status::CheckNoResult),
             st(Status::WaitingForLimitReset),
             of(
                 ticket("SHOP-1", "x", Status::Held),
@@ -2744,7 +3303,7 @@ mod tests {
                     ..main_project()
                 },
             ),
-            st(Status::Validating),
+            st(Status::Checking),
             st(Status::MergeConflictFixing),
             of(conflicts, main_project()),
             review(E::Validated),
@@ -2781,7 +3340,7 @@ mod tests {
                 "Validated",
                 "Skipped",
                 "Did not pass",
-                "PR #481",
+                "PR #481 open",
                 "Closed",
                 ":4020",
                 "Working",
@@ -2858,7 +3417,7 @@ mod tests {
         let (mut t, _) = variant("Approved · PR open (0017)");
         t.flags.run_port = Some(4020);
         let vm = card(&t);
-        assert_eq!(flag_of(&vm), Some("PR #481"));
+        assert_eq!(flag_of(&vm), Some("PR #481 open"));
         assert_eq!(
             line(&vm),
             Some(format!("{} · also running :4020", pr_not_watched()).as_str())
@@ -2925,20 +3484,20 @@ mod tests {
                 .avatar
                 .map(|a| a.letters)
         };
-        assert_eq!(shown(Status::Validating).as_deref(), Some("CX"));
-        assert_eq!(shown(Status::ValidatorNeedsYou).as_deref(), Some("CX"));
+        assert_eq!(shown(Status::Checking).as_deref(), Some("CX"));
+        assert_eq!(shown(Status::CheckerNeedsYou).as_deref(), Some("CX"));
         for status in [
             Status::Working,
             Status::NeedsYou,
-            Status::ValidationFailed,
-            Status::ValidationNoResult,
-            Status::ReadyForReview,
+            Status::CheckFailed,
+            Status::CheckNoResult,
+            Status::WaitingForYou,
         ] {
             assert_eq!(shown(status).as_deref(), Some("CC"), "{status}");
         }
         // Hidden while one tool is connected.
         let hidden = CardViewModel::from(
-            &ticket("SHOP-29", "Coupon field", Status::Validating),
+            &ticket("SHOP-29", "Coupon field", Status::Checking),
             &x,
             NOW,
         );
@@ -3026,11 +3585,11 @@ mod tests {
         t.created_by = Actor::Agent("SHOP-40.2".parse().unwrap());
         assert_eq!(card(&t).origin.as_deref(), Some("Created by SHOP-40.2"));
         t.status = Status::Working;
-        t.column = Column::Dev;
+        t.place = otaq_core::domain::Place::stage_of("dev");
         assert_eq!(card(&t).origin, None);
         t.created_by = Actor::User("me".into());
         t.status = Status::Backlog;
-        t.column = Column::Backlog;
+        t.place = otaq_core::domain::Place::Backlog;
         assert_eq!(card(&t).origin, None);
     }
 
@@ -3116,7 +3675,7 @@ mod tests {
                 |_, _| {},
                 "Resume failed",
             ),
-            ("validating", Status::Validating, |_, _| {}, "Validating…"),
+            ("validating", Status::Checking, |_, _| {}, "Validating…"),
             (
                 "round",
                 Status::Working,
@@ -3125,19 +3684,19 @@ mod tests {
             ),
             (
                 "validator",
-                Status::ValidatorNeedsYou,
+                Status::CheckerNeedsYou,
                 |_, _| {},
                 "Needs you · validator",
             ),
             (
                 "failed",
-                Status::ValidationFailed,
+                Status::CheckFailed,
                 |t, _| t.validation_round = 3,
                 "Validation failed 3 times",
             ),
             (
                 "no result",
-                Status::ValidationNoResult,
+                Status::CheckNoResult,
                 |_, _| {},
                 "without a result",
             ),
@@ -3149,25 +3708,25 @@ mod tests {
             ),
             (
                 "keeps",
-                Status::AutoMergeStopped,
+                Status::DeliveryStopped,
                 |t, _| t.auto_merge_stop = Some(otaq_core::domain::AutoMergeStop::KeepsConflicting),
                 "Keeps conflicting",
             ),
             (
                 "diverged",
-                Status::AutoMergeStopped,
+                Status::DeliveryStopped,
                 |t, _| t.auto_merge_stop = Some(otaq_core::domain::AutoMergeStop::BaseDiverged),
                 "Base diverged",
             ),
             (
                 "dirty",
-                Status::AutoMergeStopped,
+                Status::DeliveryStopped,
                 |t, _| t.auto_merge_stop = Some(otaq_core::domain::AutoMergeStop::CheckoutDirty),
                 "Checkout dirty",
             ),
             (
                 "review",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 |_, _| {},
                 "Ready for Review",
             ),
@@ -3199,7 +3758,7 @@ mod tests {
             ),
             (
                 "validated",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 |t, _| {
                     t.flags.review_entry = Some(ReviewEntryFlag {
                         entry: E::Validated,
@@ -3210,7 +3769,7 @@ mod tests {
             ),
             (
                 "skipped",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 |t, _| {
                     t.flags.review_entry = Some(ReviewEntryFlag {
                         entry: E::Skipped,
@@ -3221,7 +3780,7 @@ mod tests {
             ),
             (
                 "submitted",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 |t, _| {
                     t.flags.review_entry = Some(ReviewEntryFlag {
                         entry: E::SubmittedByUser,
@@ -3232,7 +3791,7 @@ mod tests {
             ),
             (
                 "failed moved",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 |t, _| {
                     t.flags.review_entry = Some(ReviewEntryFlag {
                         entry: E::FailedMoved,
@@ -3266,7 +3825,7 @@ mod tests {
             ),
             (
                 "conflicts",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 |t, _| t.flags.conflicts_with = Some("main".into()),
                 "Conflicts with main",
             ),
@@ -3284,7 +3843,7 @@ mod tests {
             ),
             (
                 "run",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 |t, _| t.flags.run_port = Some(4020),
                 "Serving :4020",
             ),
@@ -3347,7 +3906,7 @@ mod tests {
             ),
             (
                 "decisions",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 |t, _| t.flags.open_decisions = 1,
                 "1 decision",
             ),
@@ -3616,9 +4175,13 @@ mod tests {
             ..Default::default()
         });
         let vm = card(&t);
-        assert_eq!(flag_of(&vm), Some("PR #481"));
+        assert_eq!(flag_of(&vm), Some("PR #481 open"));
         assert!(vm.hover.details.contains(&"GitHub".to_owned()));
-        assert_eq!(foot(&vm).as_deref(), Some("[Mark merged]"));
+        // FLW-16 on every flow.
+        assert_eq!(
+            foot(&vm).as_deref(),
+            Some("[Send back with PR comments] [Mark merged]")
+        );
         t.flags.changed_since_review = true;
         assert!(
             line(&card(&t))
@@ -3627,8 +4190,8 @@ mod tests {
         );
         t.flags.changed_since_review = false;
 
-        t.status = Status::ReadyForReview;
-        t.column = t.status.column();
+        t.status = Status::WaitingForYou;
+        t.place = otaq_core::domain::Place::stage_of("dev");
         t.flags.pr_rework = true;
         let vm = card(&t);
         assert_eq!(
@@ -3778,7 +4341,7 @@ mod tests {
     #[test]
     fn schema_overlap_and_decisions() {
         use otaq_core::domain::SchemaOverlap;
-        let mut t = ticket("SHOP-18", "Add orders table", Status::ReadyForReview);
+        let mut t = ticket("SHOP-18", "Add orders table", Status::WaitingForYou);
         assert_eq!(line(&card(&t)), None);
         let overlap = |other: &str, file: &str| SchemaOverlap {
             other: other.parse().unwrap(),
@@ -3842,13 +4405,13 @@ mod tests {
     #[test]
     fn the_validation_and_merge_stops() {
         // Without a report, the count.
-        let mut t = ticket("SHOP-32", "Address autocomplete", Status::ValidationFailed);
+        let mut t = ticket("SHOP-32", "Address autocomplete", Status::CheckFailed);
         t.validation_round = 1;
         let vm = card(&t);
         assert_eq!(flag_of(&vm), Some("Failed ×1"));
         assert_eq!(line(&vm), Some("Validation failed 1 time"));
         // A discarded verdict says why (VAL-02).
-        let mut t = ticket("SHOP-34", "Tax display", Status::ValidationNoResult);
+        let mut t = ticket("SHOP-34", "Tax display", Status::CheckNoResult);
         t.signal = Some(otaq_core::board::tickets::AgentSignal {
             text: Some(otaq_core::domain::validation::DISCARDED.into()),
             since: None,
@@ -3881,7 +4444,7 @@ mod tests {
             (AutoMergeStop::BaseDiverged, "Diverged"),
             (AutoMergeStop::CheckoutDirty, "Dirty repo"),
         ] {
-            let mut t = ticket("BILL-6", "Late fee rule", Status::AutoMergeStopped);
+            let mut t = ticket("BILL-6", "Late fee rule", Status::DeliveryStopped);
             t.auto_merge_stop = Some(stop);
             let x = CardExtras {
                 question: Some("the message".into()),
@@ -3895,7 +4458,7 @@ mod tests {
             assert_eq!(vm.outline, Outline::Attention);
         }
         // A submitted note keeps its line next to the entry (d0052).
-        let mut t = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let mut t = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         t.flags.review_entry = Some(otaq_core::domain::ReviewEntryFlag {
             entry: otaq_core::domain::ReviewEntry::SubmittedByUser,
             round: 0,
@@ -3927,7 +4490,7 @@ mod tests {
         // Only on a never-started child.
         let (mut t, _) = variant("Ready for Dev · Updated by Wishlist lead");
         t.status = Status::Working;
-        t.column = Column::Dev;
+        t.place = otaq_core::domain::Place::stage_of("review");
         assert_eq!(line(&card(&t)), Some("after SHOP-40.4"));
 
         let (mut t, vm) = variant("Dev · Lead's note sent (round 0 of 3)");
@@ -3944,7 +4507,7 @@ mod tests {
                 .unwrap()
                 .starts_with("Lead's note sent · validation round 1 of 3: ")
         );
-        t.status = Status::ReadyForReview;
+        t.status = Status::WaitingForYou;
         assert_eq!(lead_note_callout(&t), None);
 
         // After the second stop, the note is on hover.
@@ -3952,7 +4515,9 @@ mod tests {
         assert_eq!(flag_of(&vm), Some("Failed ×3"));
         assert_eq!(
             line(&vm),
-            Some("orders.test.ts expects list · Lead's note sent once · hover for it")
+            Some(
+                "orders.test.ts expects list · see comment · Lead's note sent once · hover for it"
+            )
         );
         let hover = &vm.situation.as_ref().unwrap().hovers[0];
         assert_eq!(hover.title, "Wishlist lead");
@@ -3974,8 +4539,8 @@ mod tests {
         assert!(s.hovers[0].title.ends_with("· unread"));
         assert_eq!(s.hovers[1].sections.last().unwrap().text, SAME_FILE_HINT);
         // The unread note only on a running child; the same file "+1" with two others.
-        t.status = Status::ReadyForReview;
-        t.column = Column::ReadyForReview;
+        t.status = Status::WaitingForYou;
+        t.place = otaq_core::domain::Place::of(t.status, None, None);
         t.flags.same_file.push(otaq_core::domain::SameFile {
             other: "SHOP-40.3".parse().unwrap(),
             files: vec!["app/wishlist/page.tsx".into()],
@@ -4016,40 +4581,22 @@ mod tests {
     fn the_m22_cards_name_their_agents() {
         let rows = [
             (
-                "Set by you \u{b7} before the drag",
-                None,
-                Some("Ready to start"),
-                Some("Fable test \u{b7} set by you"),
-            ),
-            (
                 "Start failed on the model",
                 Some("Start failed"),
                 Some("Claude Code couldn\u{2019}t run the model"),
-                Some("Fable test [Change agent]"),
+                Some("[Open agent\u{2026}]"),
             ),
             (
                 "No result \u{b7} the validator\u{2019}s model",
                 Some("No result"),
                 Some("Validator couldn\u{2019}t run its model"),
-                Some("Fable test [Change validator]"),
+                Some("[Open agent\u{2026}]"),
             ),
             (
                 "Project default \u{b7} no footer",
                 None,
                 Some("Ready to start"),
                 None,
-            ),
-            (
-                "Ready to start \u{b7} agent picked (0066, 0086)",
-                None,
-                Some("Ready to start"),
-                Some("Light \u{b7} picked by Checkout slowness (violet)"),
-            ),
-            (
-                "Created by a Project agent \u{b7} agent picked",
-                None,
-                None,
-                Some("Light \u{b7} picked by Checkout slowness (violet)"),
             ),
             (
                 "Working \u{b7} two or more named agents",
@@ -4073,21 +4620,12 @@ mod tests {
                 "{name}"
             );
         }
-        let (_, created) = variant("Created by a Project agent \u{b7} agent picked");
-        assert_eq!(
-            created.origin.as_deref(),
-            Some("Created by Checkout slowness")
-        );
-        let picked = created.footer.unwrap().agent.unwrap();
-        assert_eq!(picked.tooltip.as_deref(), Some("docs-only change"));
-        let (_, mine) = variant("Set by you \u{b7} before the drag");
-        assert_eq!(mine.footer.unwrap().agent.unwrap().tooltip, None);
     }
 
-    /// Start failed on the model (AGT-05): red, the tool's message on the line's hover and the flag's, Change agent
-    /// opens the Developer row's picker; No result keeps turquoise and opens the Validator's.
+    /// Start failed on the model (AGT-05): red, the tool's message on the line's hover and the flag's, Open agent…
+    /// opens the agent whose model the tool refused; No result keeps turquoise and opens the validator's.
     #[test]
-    fn a_refused_model_says_what_couldnt_run_and_changes_the_agent() {
+    fn a_refused_model_says_what_couldnt_run_and_opens_the_agent() {
         let (t, vm) = variant("Start failed on the model");
         let flag = vm.flag.as_ref().unwrap();
         assert_eq!(flag.palette, Palette::Error);
@@ -4110,10 +4648,9 @@ mod tests {
         assert_eq!(hover.sections[0].text, card_fixtures::MODEL_ISSUE_MESSAGE);
         let action = vm.footer.as_ref().unwrap().action.as_ref().unwrap();
         assert_eq!(
-            (action.kind, action.primary),
-            (CardActionKind::ChangeAgent, true)
+            (action.kind, action.primary, action.label),
+            (CardActionKind::OpenAgent, true, "Open agent\u{2026}")
         );
-        assert_eq!(action.kind.agent_row(), Some(Role::Developer));
         assert_eq!(start_refusal(&t), Some(card_fixtures::MODEL_ISSUE_MESSAGE));
 
         let (t, vm) = variant("No result \u{b7} the validator\u{2019}s model");
@@ -4125,8 +4662,7 @@ mod tests {
             "The validator couldn\u{2019}t run claude-fable-5-1"
         );
         let action = vm.footer.as_ref().unwrap().action.as_ref().unwrap();
-        assert_eq!(action.kind, CardActionKind::ChangeValidator);
-        assert_eq!(action.kind.agent_row(), Some(Role::Validator));
+        assert_eq!(action.kind, CardActionKind::OpenAgent);
         assert_eq!(
             validator_refusal(&t),
             Some((
@@ -4135,8 +4671,8 @@ mod tests {
             ))
         );
         assert_eq!(
-            serde_json::to_value(CardActionKind::ChangeAgent).unwrap(),
-            "change_agent"
+            serde_json::to_value(CardActionKind::OpenAgent).unwrap(),
+            "open_agent"
         );
 
         // Another start problem and another No result keep today's line and action.
@@ -4151,11 +4687,7 @@ mod tests {
             vm.footer.unwrap().action.unwrap().kind,
             CardActionKind::RetryStart
         );
-        let vm = card(&ticket(
-            "SHOP-34",
-            "Tax display",
-            Status::ValidationNoResult,
-        ));
+        let vm = card(&ticket("SHOP-34", "Tax display", Status::CheckNoResult));
         assert_eq!(
             vm.footer.unwrap().action.unwrap().kind,
             CardActionKind::RetryValidation
@@ -4197,8 +4729,7 @@ mod tests {
         }
     }
 
-    /// A limit's hold says when its tool resets, when that is known (Q154): "Claude Code limit · resets 3:45 pm ·
-    /// Change agent".
+    /// A limit's hold says when its tool resets, when that is known (Q154): "Claude Code limit · resets 3:45 pm".
     #[test]
     fn a_limits_hold_says_when_its_tool_resets() {
         let v = card_fixtures::tool_variants()
@@ -4212,7 +4743,7 @@ mod tests {
         assert_eq!(
             vm.situation.unwrap().text,
             format!(
-                "Claude Code limit \u{b7} resets {} \u{b7} Change agent",
+                "Claude Code limit \u{b7} resets {}",
                 crate::view_models::clock::reset_label(at, NOW)
             )
         );
@@ -4220,7 +4751,8 @@ mod tests {
 
     /// What each M23 card says (*04 → Variants · several tools (M23)*, the fallback and limit cards of `SPy9r`):
     /// avatar, head flag and its colour, the situation line and its edge, the hover's title, the footer, and the
-    /// action's kind. Unavailable is amber, Limit neutral, moves amber; never turquoise.
+    /// action's kind. A model that can't run is red (Can't start, with Use fallback and Open agent…, `s03-54`), Limit
+    /// neutral, moves amber; never turquoise.
     #[test]
     fn the_m23_cards_hold_move_and_name_the_tool() {
         type Row = (
@@ -4234,17 +4766,7 @@ mod tests {
             Option<(CardActionKind, bool)>,
         );
         use CardActionKind as K;
-        let want: [Row; 13] = [
-            (
-                "Set by you \u{b7} several tools",
-                "CC",
-                None,
-                "Ready to start",
-                Tone::Muted,
-                None,
-                "Fable test \u{b7} set by you",
-                None,
-            ),
+        let want: [Row; 12] = [
             (
                 "Start failed \u{b7} several tools",
                 "CC",
@@ -4252,8 +4774,8 @@ mod tests {
                 "Claude Code couldn\u{2019}t run the model",
                 Tone::Error,
                 Some("Claude Code couldn\u{2019}t run the model"),
-                "Fable test [Change agent]",
-                Some((K::ChangeAgent, true)),
+                "[Open agent\u{2026}]",
+                Some((K::OpenAgent, true)),
             ),
             (
                 "Start failed \u{b7} Codex",
@@ -4262,28 +4784,28 @@ mod tests {
                 "Codex couldn\u{2019}t run the model",
                 Tone::Error,
                 Some("Codex couldn\u{2019}t run the model"),
-                "Standard [Change agent]",
-                Some((K::ChangeAgent, true)),
+                "[Open agent\u{2026}]",
+                Some((K::OpenAgent, true)),
             ),
             (
                 "Model unavailable",
                 "CX",
-                Some(("Unavailable", Palette::Paused)),
-                "Model unavailable \u{b7} Change agent",
-                Tone::Warning,
+                Some(("Can\u{2019}t start", Palette::Error)),
+                "Old GPT\u{2019}s model can\u{2019}t run: Codex no longer lists gpt-5.4",
+                Tone::Error,
                 Some("Old GPT \u{b7} Codex \u{b7} gpt-5.4 is no longer in Codex\u{2019}s list"),
-                "Old GPT [Change agent]",
-                Some((K::ChangeAgent, false)),
+                "Old GPT [Open agent\u{2026}]",
+                Some((K::OpenAgent, false)),
             ),
             (
                 "Model unavailable \u{b7} the validator",
                 "CX",
-                Some(("Unavailable", Palette::Paused)),
-                "Model unavailable \u{b7} Change validator",
-                Tone::Warning,
+                Some(("Can\u{2019}t start", Palette::Error)),
+                "Old GPT\u{2019}s model can\u{2019}t run: Codex no longer lists gpt-5.4",
+                Tone::Error,
                 Some("Old GPT \u{b7} Codex \u{b7} gpt-5.4 is no longer in Codex\u{2019}s list"),
-                "Old GPT [Change validator]",
-                Some((K::ChangeValidator, false)),
+                "Old GPT [Open agent\u{2026}]",
+                Some((K::OpenAgent, false)),
             ),
             (
                 "Swapped model \u{b7} not on the card",
@@ -4299,47 +4821,47 @@ mod tests {
                 "Tool at its limit, no fallback (0086)",
                 "CC",
                 Some(("At limit", Palette::Queued)),
-                "Claude Code limit \u{b7} Change agent",
+                "Claude Code limit",
                 Tone::Muted,
                 None,
-                "Light [Change agent]",
-                Some((K::ChangeAgent, false)),
+                "Light [Open agent\u{2026}]",
+                Some((K::OpenAgent, false)),
             ),
             (
                 "Tool at its limit \u{b7} fallback off",
                 "CC",
                 Some(("At limit", Palette::Queued)),
-                "Claude Code limit \u{b7} Use fallback (Strong GPT) \u{b7} Change agent",
+                "Claude Code limit",
                 Tone::Muted,
                 None,
-                "Strong [Use fallback]",
+                "Strong [Use fallback] [Open agent\u{2026}]",
                 Some((K::UseFallback, false)),
             ),
             (
                 "Tool not available \u{b7} fallback off (0086)",
                 "CX",
-                Some(("Unavailable", Palette::Paused)),
-                "Codex not available \u{b7} Use fallback (Sonnet) \u{b7} Change agent",
-                Tone::Warning,
+                Some(("Can\u{2019}t start", Palette::Error)),
+                "Standard\u{2019}s model can\u{2019}t run: Codex isn\u{2019}t available",
+                Tone::Error,
                 None,
-                "Standard [Use fallback]",
+                "Standard [Use fallback] [Open agent\u{2026}]",
                 Some((K::UseFallback, false)),
             ),
             (
                 "Validator held \u{b7} tool not available",
                 "CP",
-                Some(("Unavailable", Palette::Paused)),
-                "GitHub Copilot not available \u{b7} Use fallback (Strong) \u{b7} Change validator",
-                Tone::Warning,
+                Some(("Can\u{2019}t start", Palette::Error)),
+                "Verifier\u{2019}s model can\u{2019}t run: GitHub Copilot isn\u{2019}t available",
+                Tone::Error,
                 None,
-                "Verifier [Use fallback]",
+                "Verifier [Use fallback] [Open agent\u{2026}]",
                 Some((K::UseValidatorFallback, false)),
             ),
             (
-                "Moved by a fallback (0086)",
+                "On its tool\u{2019}s fallback (AGM-03)",
                 "CX",
                 Some(("Working", Palette::Working)),
-                "Moved from Strong \u{b7} Claude Code limit",
+                "On Codex \u{b7} Claude Code limit",
                 Tone::Warning,
                 None,
                 "Strong GPT 80k 30s",
@@ -4349,20 +4871,20 @@ mod tests {
                 "Fallback also at its limit",
                 "CC",
                 Some(("At limit", Palette::Queued)),
-                "Strong and its fallback Strong GPT are both at their limits",
+                "Claude Code and its fallback Codex are both at their limits",
                 Tone::Muted,
                 None,
-                "Strong [Change agent]",
-                Some((K::ChangeAgent, false)),
+                "Strong [Open agent\u{2026}]",
+                Some((K::OpenAgent, false)),
             ),
             (
-                "Validator moved by its fallback",
+                "Validator on its tool\u{2019}s fallback",
                 "CC",
                 Some(("Validating\u{2026}", Palette::Queued)),
-                "Validator moved from Verifier \u{b7} GitHub Copilot not available",
+                "Validator on Claude Code \u{b7} GitHub Copilot not available",
                 Tone::Warning,
                 None,
-                "Strong (Verifier\u{2019}s fallback) 6k",
+                "Strong 6k",
                 None,
             ),
         ];
@@ -4416,6 +4938,162 @@ mod tests {
         }
     }
 
+    /// AGM-09 (`s03-38`, `s03-42`): a running card's footer names the agent and the model passed; a ticket waiting
+    /// before an Agent stage says where it starts; nothing names a choice before it starts (Backlog).
+    #[test]
+    fn footers_name_the_agent_and_its_model() {
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::agents::ModelRef;
+        let running = CardExtras {
+            agents: AgentFacts {
+                running_developer: Some("Rust developer".into()),
+                developer_on: Some(RunsOnTool {
+                    tool: Tool::Claude,
+                    model: Some("claude-sonnet-5-5".into()),
+                    passed: Some("sonnet".into()),
+                    fallback: None,
+                }),
+                running_validator: Some("Validator".into()),
+                validator_on: Some(RunsOnTool {
+                    tool: Tool::Codex,
+                    model: Some("gpt-5.5".into()),
+                    passed: Some("gpt-5.5".into()),
+                    fallback: None,
+                }),
+                ..card_fixtures::named("Rust developer")
+            },
+            ..main_project()
+        };
+        let agent_of = |status, x: &CardExtras| {
+            CardViewModel::from(&ticket("SHOP-33", "Shipping estimate", status), x, NOW)
+                .footer
+                .and_then(|f| f.agent)
+                .map(|a| a.text)
+        };
+        assert_eq!(
+            agent_of(Status::Working, &running).as_deref(),
+            Some("Rust developer \u{b7} sonnet")
+        );
+        assert_eq!(
+            agent_of(Status::Checking, &running).as_deref(),
+            Some("Validator \u{b7} gpt-5.5")
+        );
+        let waiting = CardExtras {
+            agents: AgentFacts {
+                starts: Some(CardStart {
+                    stage: "Grill".into(),
+                    agent: "Griller".into(),
+                    model: Some(ModelRef {
+                        tool: Tool::Claude,
+                        model: Some("sonnet".into()),
+                    }),
+                }),
+                ..card_fixtures::named("Griller")
+            },
+            ..main_project()
+        };
+        assert_eq!(
+            agent_of(Status::Queued, &waiting).as_deref(),
+            Some("Grill \u{b7} Griller \u{b7} sonnet")
+        );
+        assert_eq!(agent_of(Status::Backlog, &waiting), None);
+        // One agent only: nothing (d0086).
+        let one = CardExtras {
+            agents: AgentFacts {
+                count: 1,
+                ..running.agents.clone()
+            },
+            ..main_project()
+        };
+        assert_eq!(agent_of(Status::Working, &one), None);
+    }
+
+    /// AGM-03, `s03-54`: a held session whose fallback can take it offers Use fallback and Open agent…, which opens
+    /// the held agent; a refused model opens the agent that ran it.
+    #[test]
+    fn a_card_that_cant_run_offers_the_fallback_and_its_agent() {
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::agents::HoldReason as H;
+        let mut hold = card_fixtures::hold(
+            Role::Developer,
+            H::ToolUnavailable,
+            Tool::Claude,
+            None,
+            "Griller",
+            Some(Tool::Codex),
+            true,
+            false,
+        );
+        hold.agent_id = Some("griller".into());
+        let x = CardExtras {
+            agents: AgentFacts {
+                holds: vec![hold],
+                ..card_fixtures::named("Griller")
+            },
+            ..main_project()
+        };
+        let t = ticket("SHOP-44", "Saved carts", Status::Queued);
+        let vm = CardViewModel::from(&t, &x, NOW);
+        assert_eq!(flag_of(&vm), Some("Can\u{2019}t start"));
+        assert_eq!(
+            line(&vm),
+            Some("Griller\u{2019}s model can\u{2019}t run: Claude Code isn\u{2019}t available")
+        );
+        let footer = vm.footer.unwrap();
+        assert_eq!(
+            (
+                footer.action.map(|a| (a.kind, a.label)),
+                footer.second.map(|a| (a.kind, a.label))
+            ),
+            (
+                Some((CardActionKind::UseFallback, "Use fallback")),
+                Some((CardActionKind::OpenAgent, "Open agent\u{2026}"))
+            )
+        );
+        assert_eq!(open_agent(&t, &x).as_deref(), Some("griller"));
+        let refused = CardExtras {
+            agents: AgentFacts {
+                refused_agent: Some("fable".into()),
+                ..card_fixtures::named("Fable test")
+            },
+            ..main_project()
+        };
+        assert_eq!(
+            open_agent(
+                &ticket("SHOP-48", "Gift wrap", Status::StartInterrupted),
+                &refused
+            )
+            .as_deref(),
+            Some("fable")
+        );
+    }
+
+    /// Q276, AGM-10 (`s03-48`): a ticket closed by `otaq stage done` says "Closed · nothing to merge" with the
+    /// agent's reason.
+    #[test]
+    fn a_ticket_closed_with_nothing_to_merge_says_so() {
+        let mut t = ticket(
+            "SHOP-48",
+            "Fix rounding in cart total",
+            Status::ClosedNotMerged,
+        );
+        t.flags.nothing_to_merge = Some("Already fixed in SHOP-31.".into());
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some("Closed"));
+        assert_eq!(vm.hover.status, "Closed \u{b7} nothing to merge");
+        assert_eq!(
+            line(&vm),
+            Some("Nothing to merge \u{b7} already fixed in SHOP-31")
+        );
+        assert_eq!(
+            nothing_to_merge_line("PR #12 already did it"),
+            "Nothing to merge \u{b7} PR #12 already did it"
+        );
+        assert_eq!(nothing_to_merge_line(""), "Nothing to merge");
+        t.flags.nothing_to_merge = None;
+        assert_eq!(line(&card(&t)), Some("closed without merging"));
+    }
+
     /// With one tool connected the same cards show no avatar and name no tool beside the agent (d0086): the model's
     /// hover reads "Old GPT · gpt-5.4 …".
     #[test]
@@ -4455,7 +5133,7 @@ mod tests {
     #[test]
     fn holds_and_moves_show_where_they_apply() {
         use otaq_core::agent_tools::Tool;
-        use otaq_core::named_agents::HoldReason as H;
+        use otaq_core::agents::HoldReason as H;
         let developer = card_fixtures::hold(
             Role::Developer,
             H::ToolUnavailable,
@@ -4476,16 +5154,16 @@ mod tests {
         };
         for status in [Status::Queued, Status::Held, Status::WaitingForSlot] {
             let vm = CardViewModel::from(&ticket("SHOP-36", "Cache", status), &x, NOW);
-            assert_eq!(flag_of(&vm), Some(UNAVAILABLE), "{status}");
+            assert_eq!(flag_of(&vm), Some(CANT_START), "{status}");
             assert_eq!(
                 line(&vm),
-                Some("Codex not available \u{b7} Change agent"),
+                Some("Standard\u{2019}s model can\u{2019}t run: Codex isn\u{2019}t available"),
                 "{status}"
             );
         }
-        for status in [Status::Backlog, Status::Working, Status::ReadyForReview] {
+        for status in [Status::Backlog, Status::Working, Status::WaitingForYou] {
             let vm = CardViewModel::from(&ticket("SHOP-36", "Cache", status), &x, NOW);
-            assert_ne!(flag_of(&vm), Some(UNAVAILABLE), "{status}");
+            assert_ne!(flag_of(&vm), Some(CANT_START), "{status}");
         }
         // A validator's hold while the developer's agent asks: the question wins the head, the hold joins the line.
         let validator = card_fixtures::hold(
@@ -4510,7 +5188,7 @@ mod tests {
         assert_eq!(flag_of(&vm), Some("Asks you"));
         assert_eq!(
             line(&vm),
-            Some("Which Stripe API version? \u{b7} GitHub Copilot limit \u{b7} Change validator")
+            Some("Which Stripe API version? \u{b7} GitHub Copilot limit")
         );
         // The held round of a validator at its tool's limit waits as "Waiting for limit reset" (T-0357): the hold's
         // words, neutral.
@@ -4520,49 +5198,32 @@ mod tests {
             NOW,
         );
         assert_eq!(flag_of(&vm), Some("At limit"));
-        assert_eq!(
-            line(&vm),
-            Some("GitHub Copilot limit \u{b7} Change validator")
-        );
+        assert_eq!(line(&vm), Some("GitHub Copilot limit"));
         assert_eq!(
             vm.footer.unwrap().action.unwrap().kind,
-            CardActionKind::ChangeValidator
+            CardActionKind::OpenAgent
         );
-        // Moves: the user's own says nothing; nothing once the ticket no longer runs.
-        let mv = |reason| CardExtras {
+        // On the fallback: said while it runs; nothing once the ticket no longer runs.
+        let on = |reason| CardExtras {
             several_tools: true,
             agents: AgentFacts {
-                developer_move: Some(card_fixtures::moved("Strong", reason, Tool::Claude)),
+                developer_on: Some(card_fixtures::on_fallback(
+                    Tool::Codex,
+                    Tool::Claude,
+                    reason,
+                )),
                 ..card_fixtures::named("Strong GPT")
             },
             ..main_project()
         };
         let working = ticket("SHOP-31", "Hotfix", Status::Working);
         assert_eq!(
-            line(&CardViewModel::from(
-                &working,
-                &mv(MoveReason::ToolUnavailable),
-                NOW
-            )),
-            Some("Moved from Strong \u{b7} Claude Code not available")
+            line(&CardViewModel::from(&working, &on(H::ToolUnavailable), NOW)),
+            Some("On Codex \u{b7} Claude Code not available")
         );
-        let user = card_fixtures::moved("Strong", MoveReason::UserMove, Tool::Claude);
-        assert_eq!(moved_reason(&user), None);
+        let review = ticket("SHOP-31", "Hotfix", Status::WaitingForYou);
         assert_eq!(
-            line(&CardViewModel::from(
-                &working,
-                &mv(MoveReason::UserMove),
-                NOW
-            )),
-            None
-        );
-        let review = ticket("SHOP-31", "Hotfix", Status::ReadyForReview);
-        assert_eq!(
-            line(&CardViewModel::from(
-                &review,
-                &mv(MoveReason::ToolLimit),
-                NOW
-            )),
+            line(&CardViewModel::from(&review, &on(H::ToolLimit), NOW)),
             None
         );
     }
@@ -4598,45 +5259,30 @@ mod tests {
     }
 
     /// `board.agents` reaches the card (T-0362): avatars only with two tools connected; the running session's tool
-    /// and model, else the tool the row resolves to; the head follows whoever has the turn.
+    /// and model, else a held role's tool; the head follows whoever has the turn.
     #[test]
-    fn the_board_brings_tools_holds_and_moves() {
+    fn the_board_brings_tools_holds_and_fallbacks() {
         use otaq_core::agent_tools::Tool;
-        use otaq_core::named_agents::rows::{CardAgents, RunsOnTool};
-        use otaq_core::named_agents::{NamedAgent, Resolved};
-        let agent = |name: &str, tool| Resolved {
-            agent: NamedAgent {
-                id: name.to_lowercase(),
-                name: name.into(),
-                tool,
-                model: Some("gpt-5.5".into()),
-                use_for: String::new(),
-                fallback: None,
-                mark: None,
-                created_at: 0,
-                updated_at: 0,
-            },
-            came_from: CameFrom::AppDefault,
-        };
+        use otaq_core::agents::HoldReason as H;
+        use otaq_core::agents::facts::{CardAgents, RunsOnTool};
         let card = CardAgents {
             key: "SHOP-29".parse().unwrap(),
-            developer: Some(agent("Standard", Tool::Codex)),
-            validator: Some(agent("Verifier", Tool::Copilot)),
-            developer_off_default: false,
-            running_developer: None,
+            running_developer: Some("Standard".into()),
             running_validator: Some("Verifier".into()),
-            running_developer_on: None,
+            running_developer_on: Some(card_fixtures::on_fallback(
+                Tool::Codex,
+                Tool::Claude,
+                H::ToolLimit,
+            )),
             running_validator_on: Some(RunsOnTool {
                 tool: Tool::Copilot,
                 model: Some("auto".into()),
+                passed: Some("gpt-5.5".into()),
+                fallback: None,
             }),
             holds: Vec::new(),
-            developer_move: Some(card_fixtures::moved(
-                "Strong",
-                MoveReason::ToolLimit,
-                Tool::Claude,
-            )),
-            validator_move: None,
+            starts: None,
+            refused_agent: None,
         };
         let board = |connected: Vec<Tool>| BoardAgents {
             agent_count: 3,
@@ -4646,8 +5292,8 @@ mod tests {
         let key: TicketKey = "SHOP-29".parse().unwrap();
         let x = main_project().with_agents(&board(vec![Tool::Claude, Tool::Codex]), &key);
         assert!(x.several_tools);
-        assert_eq!(x.agents.developer_move, card.developer_move);
-        assert_eq!(x.developer.as_ref().unwrap().hover, "Codex \u{b7} gpt-5.5");
+        assert_eq!(x.agents.developer_on, card.running_developer_on);
+        assert_eq!(x.developer.as_ref().unwrap().hover, "Codex");
         assert_eq!(
             x.validator.as_ref().unwrap().hover,
             "GitHub Copilot \u{b7} auto"
@@ -4657,13 +5303,13 @@ mod tests {
                 .avatar
                 .map(|a| a.letters)
         };
-        assert_eq!(head(Status::Validating, &x).as_deref(), Some("CP"));
+        assert_eq!(head(Status::Checking, &x).as_deref(), Some("CP"));
         assert_eq!(head(Status::Working, &x).as_deref(), Some("CX"));
         // One tool connected, or an older service that sends none: no avatar.
         for connected in [vec![Tool::Claude], Vec::new()] {
             let one = main_project().with_agents(&board(connected), &key);
             assert!(!one.several_tools);
-            assert_eq!(head(Status::Validating, &one), None);
+            assert_eq!(head(Status::Checking, &one), None);
         }
         // A card the board doesn't list keeps its extras.
         let other: TicketKey = "SHOP-1".parse().unwrap();
@@ -4673,54 +5319,5 @@ mod tests {
                 .agents,
             AgentFacts::default()
         );
-    }
-
-    /// The facts from `board.agents`: a row off the default carries who set it, a row on it nothing.
-    #[test]
-    fn agent_facts_come_from_the_service() {
-        use otaq_core::named_agents::rows::CardAgents;
-        use otaq_core::named_agents::{NamedAgent, Resolved};
-        let agent = |name: &str| NamedAgent {
-            id: name.to_lowercase(),
-            name: name.into(),
-            tool: otaq_core::agent_tools::Tool::ALL[0],
-            model: None,
-            use_for: String::new(),
-            fallback: None,
-            mark: None,
-            created_at: 0,
-            updated_at: 0,
-        };
-        let by = RowSetBy::Agent {
-            picked_by: "Checkout slowness".into(),
-            reason: "docs-only change".into(),
-        };
-        let card = CardAgents {
-            key: "SHOP-41".parse().unwrap(),
-            developer: Some(Resolved {
-                agent: agent("Light"),
-                came_from: CameFrom::Row { set_by: by.clone() },
-            }),
-            validator: Some(Resolved {
-                agent: agent("Claude Code"),
-                came_from: CameFrom::AppDefault,
-            }),
-            developer_off_default: true,
-            running_developer: None,
-            running_validator: None,
-            running_developer_on: None,
-            running_validator_on: None,
-            holds: Vec::new(),
-            developer_move: None,
-            validator_move: None,
-        };
-        let facts = AgentFacts::of(&card, 5);
-        assert_eq!(facts.off_default, Some(by));
-        assert_eq!(facts.developer.as_deref(), Some("Light"));
-        let on_default = CardAgents {
-            developer_off_default: false,
-            ..card
-        };
-        assert_eq!(AgentFacts::of(&on_default, 5).off_default, None);
     }
 }

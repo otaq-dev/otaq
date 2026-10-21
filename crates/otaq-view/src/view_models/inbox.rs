@@ -12,11 +12,11 @@
 
 use std::time::{Duration, Instant};
 
+use otaq_core::agents::SessionRole as Role;
 use otaq_core::attention::inbox::InboxList;
 use otaq_core::board::needs_you::{NeedsYouGroup, NeedsYouItem, SuggestionItem};
 use otaq_core::domain::{LeadNoteSent, Status, TicketKey, ValidationAction};
 use otaq_core::epic_lead::suggest::SuggestionKind;
-use otaq_core::named_agents::Role;
 use otaq_core::project_agents::AgentNeedsYou;
 use serde::Serialize;
 use ts_rs::TS;
@@ -57,7 +57,8 @@ pub fn group_title(group: NeedsYouGroup) -> &'static str {
         NeedsYouGroup::Family => "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS",
         NeedsYouGroup::Suggestions => "SUGGESTIONS · NO OS NOTIFICATION",
         NeedsYouGroup::Stopped => "INTERRUPTED & PARENT CLOSED",
-        NeedsYouGroup::Review => "READY FOR REVIEW",
+        // FLW-14 (`s10-17`): every human check and click-mode Delivery, in any flow.
+        NeedsYouGroup::Review => "WAITING FOR YOU IN A CHECK OR A DELIVERY",
     }
 }
 
@@ -89,7 +90,7 @@ pub enum RowAction {
         target: TicketKey,
     },
     /// The validation and Auto-merge items' own actions, inline (VAL-07, VAL-09, AMG-03, AMG-04; *10 → New item
-    /// types · group 1 (M12)*): Move to Review anyway, Give it another round, Answer the agent…, Retry validation,
+    /// types · group 1 (M12)*): Move on anyway, Give it another round, Answer the agent…, Retry validation,
     /// Retry merge, Move to Review.
     Validation(ValidationAction),
     /// A lead's suggestion: Close… / Delete… opens the usual confirmation (d0044, d0060) with the lead's reason
@@ -104,9 +105,13 @@ pub enum RowAction {
     DismissSuggestion {
         id: String,
     },
-    /// The tool refused this role's model (AGT-05): Change agent (a Start failed ticket's Developer) or Change
-    /// validator (No result), in place of the item's first action. The panel opens with that row's picker open.
-    ChangeAgent(Role),
+    /// The tool refused this role's model (AGT-05: a Start failed ticket's, a check's No result): Open agent…, in place
+    /// of the item's first action (d0108 second gap review rule 7, Q280). Settings → Agents opens on `agent`'s page
+    /// (the session's agent, [`open_agents`]).
+    OpenAgent {
+        role: Role,
+        agent: Option<String>,
+    },
 }
 
 /// The line the close and delete confirmations add for a lead's suggestion.
@@ -122,9 +127,9 @@ pub fn suggested_line(s: &SuggestionItem) -> String {
 pub fn validation_actions(status: Status) -> Vec<ValidationAction> {
     use ValidationAction as A;
     match status {
-        Status::ValidationFailed => vec![A::MoveToReviewAnyway, A::AnotherRound, A::AnswerAgent],
-        Status::ValidationNoResult => vec![A::Retry, A::MoveToReviewAnyway],
-        Status::AutoMergeStopped => vec![A::RetryMerge, A::MoveToReview],
+        Status::CheckFailed => vec![A::MoveOnAnyway, A::AnotherRound, A::AnswerAgent],
+        Status::CheckNoResult => vec![A::Retry, A::MoveOnAnyway],
+        Status::DeliveryStopped => vec![A::RetryMerge, A::MoveToReview],
         _ => Vec::new(),
     }
 }
@@ -143,6 +148,9 @@ pub struct InboxRow {
     pub blocks: Option<String>,
     /// The legend entry for the icon and its colours.
     pub legend: Legend,
+    /// The pill's words when they aren't the legend's: a group 3 row names its stage ("Review", "QA") or the click its
+    /// Delivery waits for ("Open PR", "Local merge"; FLW-14, `s10-17`).
+    pub pill_label: Option<String>,
     /// A needs-you ticket interrupted by a restart: "session ended by restart · answering resumes it".
     pub restart_note: Option<&'static str>,
     pub actions: Vec<RowAction>,
@@ -380,6 +388,7 @@ fn row(
             },
             blocks: None,
             legend,
+            pill_label: None,
             restart_note: None,
             actions: if resolved {
                 Vec::new()
@@ -422,6 +431,7 @@ fn row(
             },
             blocks: None,
             legend,
+            pill_label: None,
             restart_note: None,
             actions: if resolved {
                 Vec::new()
@@ -464,11 +474,13 @@ fn row(
             .map(RowAction::Validation)
             .collect(),
     };
-    // Start failed offers Change agent (Retry start only in the panel); No result Change validator first.
+    // A refused model offers Open agent… first (Retry start only in the panel).
     let actions = match (item.change_agent, actions.split_first()) {
-        (Some(role), Some((_, rest))) => std::iter::once(RowAction::ChangeAgent(role))
-            .chain(rest.iter().cloned())
-            .collect(),
+        (Some(role), Some((_, rest))) => {
+            std::iter::once(RowAction::OpenAgent { role, agent: None })
+                .chain(rest.iter().cloned())
+                .collect()
+        }
         _ => actions,
     };
     InboxRow {
@@ -488,11 +500,12 @@ fn row(
         },
         blocks: (item.blocked > 0 && !resolved).then(|| format!("blocks {}", item.blocked)),
         legend,
+        pill_label: stage_pill(item),
         restart_note: (item.interrupted_from.is_some() && !resolved)
             .then_some("session ended by restart · answering resumes it"),
         actions: if resolved { Vec::new() } else { actions },
         resolved,
-        tab: if item.status == Status::ReadyForReview {
+        tab: if item.status == Status::WaitingForYou {
             Tab::Diff
         } else {
             Tab::Terminal
@@ -501,10 +514,25 @@ fn row(
         question: item.question.clone(),
         message: None,
         sent_note: None,
-        opens_validator: item.status == Status::ValidatorNeedsYou && !resolved,
+        opens_validator: item.status == Status::CheckerNeedsYou && !resolved,
         lead_note: item.lead_note.clone().filter(|_| !resolved),
         suggestion: None,
     }
+}
+
+/// A group 3 row's pill (FLW-14, `s10-17`): the human check it waits in ("Review", "QA"), or at its Delivery the click
+/// it waits for ("Open PR", "Local merge"; a Delivery that offers both is named by its stage).
+fn stage_pill(item: &NeedsYouItem) -> Option<String> {
+    use otaq_core::flow::model::Delivers;
+    let w = item
+        .waiting_in
+        .as_ref()
+        .filter(|_| item.group == NeedsYouGroup::Review)?;
+    Some(match w.delivers {
+        Some(Delivers::Pr) => "Open PR".to_owned(),
+        Some(Delivers::Local) => "Local merge".to_owned(),
+        Some(Delivers::Either) | None => w.name.clone(),
+    })
 }
 
 /// With several tools connected, a refused model's row names the tool (M23; *04 → Start failed · several tools*):
@@ -519,16 +547,37 @@ pub fn name_tools(
         if row.resolved {
             continue;
         }
-        let Some(role) = row.actions.iter().find_map(|a| match a {
-            RowAction::ChangeAgent(role) => Some(*role),
-            _ => None,
-        }) else {
+        let Some(role) = refused_role(row) else {
             continue;
         };
         let Some(tool) = tool_of(&row.key, role) else {
             continue;
         };
         row.reason = tool_named(&row.reason, role, tool.name());
+    }
+}
+
+/// The role whose model the tool refused on `row` (its Open agent…).
+pub fn refused_role(row: &InboxRow) -> Option<Role> {
+    row.actions.iter().find_map(|a| match a {
+        RowAction::OpenAgent { role, .. } => Some(*role),
+        _ => None,
+    })
+}
+
+/// Fills each Open agent… with the agent whose model was refused (`agent_of`: the session's agent's id), so it opens
+/// that agent's page.
+pub fn open_agents(
+    groups: &mut [InboxGroupView],
+    agent_of: &dyn Fn(&TicketKey, Role) -> Option<String>,
+) {
+    for row in groups.iter_mut().flat_map(|g| g.rows.iter_mut()) {
+        let key = row.key.clone();
+        for action in &mut row.actions {
+            if let RowAction::OpenAgent { role, agent } = action {
+                *agent = agent_of(&key, *role);
+            }
+        }
     }
 }
 
@@ -572,6 +621,7 @@ pub fn run_items(items: &[NeedsYouItem], agents: &[AgentNeedsYou]) -> Vec<NeedsY
             suggestion: None,
             lead_note: None,
             change_agent: None,
+            waiting_in: None,
         })
     });
     let at = items
@@ -603,6 +653,63 @@ mod tests {
 
     const MIN: i64 = 60_000;
 
+    /// FLW-14 (`s10-17`): "Waiting for you in a check or a delivery", each row's pill naming its stage, or the click
+    /// its Delivery waits for.
+    #[test]
+    fn group_3_rows_name_their_stage() {
+        use otaq_core::board::needs_you::WaitingIn;
+        use otaq_core::flow::model::Delivers;
+        let pill = |status, name: &str, delivers| {
+            let mut i = item(
+                "SHOP-18",
+                "Checkout API",
+                status,
+                NeedsYouGroup::Review,
+                MIN,
+            );
+            i.waiting_in = Some(WaitingIn {
+                stage: name.to_lowercase(),
+                name: name.into(),
+                rank: 0,
+                delivers,
+            });
+            row(&i, false, &|_| None).pill_label
+        };
+        assert_eq!(
+            group_title(NeedsYouGroup::Review),
+            "WAITING FOR YOU IN A CHECK OR A DELIVERY"
+        );
+        assert_eq!(
+            pill(Status::WaitingForYou, "Review", None).as_deref(),
+            Some("Review")
+        );
+        assert_eq!(
+            pill(Status::WaitingForYou, "QA", None).as_deref(),
+            Some("QA")
+        );
+        assert_eq!(
+            pill(Status::ToDeliver, "Done", Some(Delivers::Pr)).as_deref(),
+            Some("Open PR")
+        );
+        assert_eq!(
+            pill(Status::ToDeliver, "Done", Some(Delivers::Local)).as_deref(),
+            Some("Local merge")
+        );
+        assert_eq!(
+            pill(Status::ToDeliver, "Done", Some(Delivers::Either)).as_deref(),
+            Some("Done")
+        );
+        // Other groups keep their legend's words.
+        let failed = item(
+            "SHOP-32",
+            "Address autocomplete",
+            Status::CheckFailed,
+            NeedsYouGroup::Family,
+            MIN,
+        );
+        assert_eq!(row(&failed, false, &|_| None).pill_label, None);
+    }
+
     /// *10 → New item types · group 1 (M12)*: each validation and Auto-merge item carries its own actions inline;
     /// the validator's permission prompt is answered in its terminal.
     #[test]
@@ -629,22 +736,22 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(
-            actions(Status::ValidationFailed),
-            v(&[A::MoveToReviewAnyway, A::AnotherRound, A::AnswerAgent])
+            actions(Status::CheckFailed),
+            v(&[A::MoveOnAnyway, A::AnotherRound, A::AnswerAgent])
         );
         assert_eq!(
-            actions(Status::ValidationNoResult),
-            v(&[A::Retry, A::MoveToReviewAnyway])
+            actions(Status::CheckNoResult),
+            v(&[A::Retry, A::MoveOnAnyway])
         );
         assert_eq!(
-            actions(Status::AutoMergeStopped),
+            actions(Status::DeliveryStopped),
             v(&[A::RetryMerge, A::MoveToReview])
         );
         let validator = row(
             &item(
                 "SHOP-33",
                 "Shipping estimate",
-                Status::ValidatorNeedsYou,
+                Status::CheckerNeedsYou,
                 NeedsYouGroup::Family,
                 MIN,
             ),
@@ -663,7 +770,7 @@ mod tests {
             &item(
                 "SHOP-34",
                 "Tax display",
-                Status::ValidationNoResult,
+                Status::CheckNoResult,
                 NeedsYouGroup::Family,
                 MIN,
             ),
@@ -740,6 +847,7 @@ mod tests {
             suggestion: None,
             lead_note: None,
             change_agent: None,
+            waiting_in: None,
         }
     }
 
@@ -793,7 +901,7 @@ mod tests {
                 "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS",
                 "SUGGESTIONS · NO OS NOTIFICATION",
                 "INTERRUPTED & PARENT CLOSED",
-                "READY FOR REVIEW"
+                "WAITING FOR YOU IN A CHECK OR A DELIVERY"
             ]
         );
         let row = &groups[1].rows[0];
@@ -824,7 +932,7 @@ mod tests {
         let mut stuck = item(
             "SHOP-40.3",
             "Wishlist page",
-            Status::ValidationFailed,
+            Status::CheckFailed,
             NeedsYouGroup::Family,
             6 * MIN,
         );
@@ -840,7 +948,7 @@ mod tests {
         assert_eq!(r.lead_note, stuck.lead_note);
         assert_eq!(
             r.actions,
-            validation_actions(Status::ValidationFailed)
+            validation_actions(Status::CheckFailed)
                 .into_iter()
                 .map(RowAction::Validation)
                 .collect::<Vec<_>>()
@@ -923,14 +1031,14 @@ mod tests {
             item(
                 "SHOP-18",
                 "Checkout API",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 Review,
                 25 * MIN,
             ),
             item(
                 "BILL-5",
                 "VAT rounding fix",
-                Status::ReadyForReview,
+                Status::WaitingForYou,
                 Review,
                 60 * MIN,
             ),
@@ -987,7 +1095,7 @@ mod tests {
                     vec!["SHOP-25".into(), "SHOP-28".into()]
                 ),
                 (
-                    "READY FOR REVIEW",
+                    "WAITING FOR YOU IN A CHECK OR A DELIVERY",
                     2,
                     None,
                     vec!["SHOP-18".into(), "BILL-5".into()]
@@ -1171,10 +1279,10 @@ mod tests {
         assert!(!header_button(0).active);
     }
 
-    /// AGT-05, update Y §3: the Start failed item offers Change agent (not Retry start); a No result on the
-    /// validator's model Change validator in place of Retry validation; other items as today.
+    /// AGT-05, update Y §3, d0108 second gap review rule 7: the Start failed item offers Open agent… (not Retry
+    /// start); a No result on the validator's model Open agent… in place of Retry validation; other items as today.
     #[test]
-    fn a_refused_model_offers_change_agent() {
+    fn a_refused_model_offers_open_agent() {
         use ValidationAction as A;
         let actions = |status, group, change_agent| {
             let mut it = item("SHOP-48", "Add gift wrap option", status, group, MIN);
@@ -1187,17 +1295,23 @@ mod tests {
                 NeedsYouGroup::Stopped,
                 Some(Role::Developer)
             ),
-            [RowAction::ChangeAgent(Role::Developer)]
+            [RowAction::OpenAgent {
+                role: Role::Developer,
+                agent: None
+            }]
         );
         assert_eq!(
             actions(
-                Status::ValidationNoResult,
+                Status::CheckNoResult,
                 NeedsYouGroup::Family,
                 Some(Role::Validator)
             ),
             [
-                RowAction::ChangeAgent(Role::Validator),
-                RowAction::Validation(A::MoveToReviewAnyway)
+                RowAction::OpenAgent {
+                    role: Role::Validator,
+                    agent: None
+                },
+                RowAction::Validation(A::MoveOnAnyway)
             ]
         );
         assert_eq!(
@@ -1205,10 +1319,10 @@ mod tests {
             [RowAction::RetryStart]
         );
         assert_eq!(
-            actions(Status::ValidationNoResult, NeedsYouGroup::Family, None),
+            actions(Status::CheckNoResult, NeedsYouGroup::Family, None),
             [
                 RowAction::Validation(A::Retry),
-                RowAction::Validation(A::MoveToReviewAnyway)
+                RowAction::Validation(A::MoveOnAnyway)
             ]
         );
     }
@@ -1229,6 +1343,7 @@ mod tests {
                 key: "SHOP",
                 name: "shop-web",
                 tickets: &held,
+                flow: &otaq_core::flow::default_file().flow,
             }],
             0,
         );
@@ -1250,7 +1365,7 @@ mod tests {
         let mut validator = item(
             "SHOP-29",
             "Coupon field",
-            Status::ValidationNoResult,
+            Status::CheckNoResult,
             NeedsYouGroup::Family,
             MIN,
         );

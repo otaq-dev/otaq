@@ -4,6 +4,7 @@
 //! reopened ticket's new worktree takes the build nearest to its rebased commit (T-0309, M19-c).
 
 use crate::common::freed;
+use otaq_core::service::testing::said;
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -109,7 +110,10 @@ async fn a_reopened_ticket_rebases_and_starts_a_new_session() {
     let out = w.wait_for_output(&session.id, "ARGS").await;
     assert!(out.contains("--session-id"), "{out}");
     assert!(!out.contains("--resume"), "never a resume: {out}");
-    assert!(out.contains(&naming::skill("work-ticket")), "{out}");
+    assert!(
+        out.contains(&format!("/{}", naming::copy_name("work-ticket"))),
+        "{out}"
+    );
     assert_ne!(
         session.tool_session_id.as_deref(),
         Some("0199-old-conversation")
@@ -181,7 +185,11 @@ async fn a_conflicting_rebase_is_announced_through_prime_and_the_agent_still_sta
     std::fs::write(wt.join("lib.ts"), "main\nticket\n").unwrap();
     git(&wt, &["commit", "--quiet", "-am", "resolve"]);
     w.board
-        .submit_for_review("SHOP-1", "resolved", &Actor::Agent(t.key.clone()))
+        .submit_for_review(
+            "SHOP-1",
+            said(&w.board, "SHOP-1", "resolved").await.as_ref(),
+            &Actor::Agent(t.key.clone()),
+        )
         .await
         .unwrap();
     assert_eq!(w.board.conflict(&t.id).await.unwrap(), None);
@@ -230,7 +238,7 @@ async fn merged_tickets_are_locked_and_a_reopened_child_returns_its_epic_to_back
         .await
         .unwrap();
     w.force_status(&child, Status::ClosedNotMerged).await;
-    w.force_status(&epic, Status::ReadyForReview).await;
+    w.force_status(&epic, Status::WaitingForYou).await;
     w.board.reopen(&child.key.to_string(), &me()).await.unwrap();
     assert_eq!(w.status(&child.key.to_string()).await, Status::Backlog);
     assert_eq!(w.status(&epic.key.to_string()).await, Status::Backlog);

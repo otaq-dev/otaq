@@ -1,9 +1,15 @@
 // One board column (*03 · Board — shop-web → Body → Board*): the header with icon, title and count (Done's fold
-// button, Backlog's plus), Ready for Dev's hint, the cards (Dev: the floated cards, the "WORKING · VALIDATING"
-// section and the "N more · working" fold; Review: its two sections, below), the empty hint, Backlog's "Add ticket"
-// row, and the "7 above · 6 need you" chip of a column scrolled down (*Very full column*). Done folded is the 34 px
-// rail. The Review column (*Row · Review column (0086 · V)*, d0087) holds "READY FOR REVIEW" and "APPROVED": each
-// label folds its section (the count stays), an empty section says so, and Approved is a drop target of its own: a
+// button, Backlog's plus), Ready for Dev's hint, the cards (Dev: the floated cards and the "N more · working" fold;
+// Review: its two sections, below), the empty hint, Backlog's "Add ticket" row, and the "7 above · 6 need you" chip
+// of a column scrolled down (*Very full column*). Done folded is the 34 px rail, and so is an empty stage of a long
+// flow that doesn't fit (FLW-12), which has no click of its own. Which of these a column is comes from its `kind`
+// (STG-08: the columns are the project's flow's), never its id. The header (FLW-12; *Row · Stage kinds on the column
+// header*): one 13 px icon by the stage's kind, muted on any flow but the default's (whose icons keep their status
+// colours); the stages folded into an agent column after its count ("Dev 3 · Validating 1"); hovering the title
+// shows who runs it (agent, model, options).
+// The Review column (*Row · Review column (0086 · V)*, d0087) holds "READY FOR REVIEW" and "APPROVED": each
+// label folds its section (the count stays), an empty section says so, and Approved (the section with a `target`
+// of its own) is a drop target of its own: a
 // Ready for Review card dragged over it lights it with the hint, and while such a card is dragged an empty Approved
 // says how. Approved's "doesn't watch PRs" line is on its cards (Card v2), so the section doesn't repeat it.
 // Everything it says is `BoardColumn`'s; while a card is dragged over it, it takes the verdict's outline. Under the
@@ -27,6 +33,7 @@ import { Tooltip } from "../../components";
 import type { BoardCard } from "../../generated/BoardCard";
 import type { BoardColumn } from "../../generated/BoardColumn";
 import type { BoardColumnId } from "../../generated/BoardColumnId";
+import type { BoardColumnKind } from "../../generated/BoardColumnKind";
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
 import type { BoardDoneFold } from "../../generated/BoardDoneFold";
 import type { BoardEpicFocus } from "../../generated/BoardEpicFocus";
@@ -55,12 +62,13 @@ export interface CardHandlers {
   hover: (key: string, over: boolean) => void;
 }
 
-/** The column icon's colour (*03*: each column's icon in its status colour). */
-const ICON_INK: Record<BoardColumnId, string> = {
+/** The column icon's colour (*03*: each column's icon in its status colour), by what the column holds. */
+const ICON_INK: Record<BoardColumnKind, string> = {
   backlog: "var(--st-queued)",
   ready_for_dev: "var(--st-queued)",
-  dev: "var(--st-working)",
-  review: "var(--st-review)",
+  agent: "var(--st-working)",
+  human_check: "var(--st-review)",
+  delivery: "var(--st-approved)",
   done: "var(--st-done)",
 };
 
@@ -286,9 +294,10 @@ export interface ColumnProps {
   /** Review: the sections folded by the user (kept per project, `prefs.ts`). */
   foldedSections?: readonly BoardReviewSectionId[];
   onToggleSection?: (section: BoardReviewSectionId) => void;
-  /** Review, while a card is dragged: the Approved section's verdict, and whether the card is over it. */
+  /** Review, while a card is dragged: the verdict of its section with a target of its own (Approved), and whether
+   * the card is over it. */
   approved?: { verdict: DragVerdict | undefined; over: boolean } | undefined;
-  /** The column's element (and Review's Approved section's), measured when a drag starts. */
+  /** The column's element (and its sections' with a target of their own: Approved), measured when a drag starts. */
   element: (target: BoardDropTarget, el: HTMLElement | null) => void;
 }
 
@@ -306,7 +315,7 @@ export function sectionLook(
 interface ReviewSectionProps extends Omit<CardListProps, "cards"> {
   section: BoardReviewSection;
   folded: boolean;
-  /** Approved only, while a card is dragged. */
+  /** A section with a target of its own (Approved), while a card is dragged. */
   drag: { verdict: DragVerdict | undefined; over: boolean } | undefined;
   onToggle: () => void;
   element: ColumnProps["element"];
@@ -324,9 +333,9 @@ function ReviewSection({ section, folded, drag, onToggle, element, ...list }: Re
       data-section={section.id}
       data-verdict={look}
       ref={
-        section.id === "approved"
+        section.target !== null
           ? (el) => {
-              element("approved", el);
+              if (section.target !== null) element(section.target, el);
             }
           : undefined
       }
@@ -350,36 +359,90 @@ function ReviewSection({ section, folded, drag, onToggle, element, ...list }: Re
   );
 }
 
-function DoneRail({
+/** The icon's colour: muted on a flow that isn't the default's shape (FLW-12), else its kind's status colour. */
+export function iconInk(column: Pick<BoardColumn, "kind" | "quiet_icon">): string {
+  return column.quiet_icon ? "var(--text-muted)" : ICON_INK[column.kind];
+}
+
+/** Done folded, or an empty stage of a long flow: only Done's rail (the one with a `toggle`) opens on a click. */
+function Rail({
   column,
   members,
   onToggle,
   element,
 }: Pick<ColumnProps, "column" | "element"> & { members: string[]; onToggle: () => void }) {
+  const ref = (el: HTMLElement | null) => {
+    element(column.id, el);
+  };
+  const body = (
+    <>
+      <span style={{ color: iconInk(column) }}>
+        <Icon name={column.icon} size={13} />
+      </span>
+      <span className="board-rail-count">{column.count}</span>
+      <span className="board-rail-title">{column.title}</span>
+      {/* The chain's members folded in the rail (*Chain highlight → SHOP-17 chip*). */}
+      {members.map((key) => (
+        <span key={key} className="board-rail-chain">
+          {key}
+        </span>
+      ))}
+    </>
+  );
+  if (column.toggle === null)
+    return (
+      <Tooltip text={column.title}>
+        <div
+          className="board-rail"
+          data-column={column.id}
+          ref={ref}
+          role="group"
+          aria-label={`${column.title} ${column.count}`}
+        >
+          {body}
+        </div>
+      </Tooltip>
+    );
   return (
-    <Tooltip text={column.toggle ?? column.title}>
+    <Tooltip text={column.toggle}>
       <button
         type="button"
         className="board-rail"
-        ref={(el) => {
-          element(column.id, el);
-        }}
+        data-column={column.id}
+        ref={ref}
         aria-label={`${column.title} ${column.count}`}
         onClick={onToggle}
       >
-        <span style={{ color: ICON_INK[column.id] }}>
-          <Icon name={column.icon} size={13} />
-        </span>
-        <span className="board-rail-count">{column.count}</span>
-        <span className="board-rail-title">{column.title}</span>
-        {/* The chain's members folded in the rail (*Chain highlight → SHOP-17 chip*). */}
-        {members.map((key) => (
-          <span key={key} className="board-rail-chain">
-            {key}
-          </span>
-        ))}
+        {body}
       </button>
     </Tooltip>
+  );
+}
+
+/** The header's icon, title (with who runs it on hover), count and folded stages. */
+function HeaderTitle({ column }: { column: BoardColumn }) {
+  const title = <span className="board-column-title">{column.title}</span>;
+  return (
+    <>
+      <span className="board-column-icon" style={{ color: iconInk(column) }}>
+        <Icon name={column.icon} size={13} />
+      </span>
+      {column.tooltip !== null ? (
+        <Tooltip text={column.tooltip.title} detail={column.tooltip.detail}>
+          {title}
+        </Tooltip>
+      ) : (
+        title
+      )}
+      <span className="board-column-count">{column.count}</span>
+      {column.folded.map((f) => (
+        <span key={f.tag} className="board-column-folded">
+          <span className="board-column-count">·</span>
+          <span className="board-column-folded-tag">{f.tag}</span>
+          <span className="board-column-count">{f.count}</span>
+        </span>
+      ))}
+    </>
   );
 }
 
@@ -443,7 +506,7 @@ export function Column({
 
   if (column.collapsed)
     return (
-      <DoneRail
+      <Rail
         column={column}
         members={membersIn(
           chain,
@@ -463,14 +526,11 @@ export function Column({
       }}
       aria-label={column.title}
       data-column={column.id}
+      data-kind={column.kind}
       data-verdict={dragging ? verdictLook(verdict) : undefined}
     >
       <header className="board-column-header">
-        <span className="board-column-icon" style={{ color: ICON_INK[column.id] }}>
-          <Icon name={column.icon} size={13} />
-        </span>
-        <span className="board-column-title">{column.title}</span>
-        <span className="board-column-count">{column.count}</span>
+        <HeaderTitle column={column} />
         <span className="board-spacer" />
         {column.add !== null && (
           <Tooltip text={column.add}>
@@ -529,12 +589,6 @@ export function Column({
               strong={strong}
               handlers={handlers}
             />
-            {column.dev.working_count !== "0" && (
-              <div className="board-section">
-                <span className="board-section-title">{column.dev.section}</span>
-                <span className="board-section-count">{column.dev.working_count}</span>
-              </div>
-            )}
             <CardList
               cards={column.dev.working}
               column={column.id}
@@ -565,7 +619,7 @@ export function Column({
               key={section.id}
               section={section}
               folded={foldedSections.includes(section.id)}
-              drag={section.id === "approved" ? approved : undefined}
+              drag={section.target !== null ? approved : undefined}
               onToggle={() => {
                 onToggleSection?.(section.id);
               }}

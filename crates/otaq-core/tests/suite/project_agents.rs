@@ -23,6 +23,11 @@ use otaq_core::store::now_ms;
 use otaq_core::usage::limit::{LimitHit, LimitKind};
 use serde_json::{Value, json};
 
+/// A skill as Claude Code runs it: `/otaq-work-ticket` (AGM-07).
+fn claude_skill(name: &str) -> String {
+    format!("/{}", naming::copy_name(name))
+}
+
 fn fake_launch() -> LaunchContext {
     let script = format!(
         "printf 'ARGS %s\\n' \"$*\"; printf 'ROLE=%s TICKET=%s PORT=%s\\n' \"${role}\" \"${{{ticket}-none}}\" \
@@ -173,9 +178,9 @@ async fn opening_starts_claude_with_the_role_the_skill_and_the_message_several_a
             .trim_end();
         assert!(
             args.ends_with(&format!(
-                "--session-id {} /{}:project-agent {message}",
+                "--session-id {} /{}-project-agent {message}",
                 agent.tool_session_id.as_deref().unwrap(),
-                naming::PLUGIN_NAMESPACE
+                naming::COMMAND_NAME
             )),
             "{out}"
         );
@@ -315,7 +320,7 @@ async fn without_a_name_the_first_words_of_the_message_name_it_after_its_first_t
     prompt(
         &w,
         &a,
-        &format!("{} {message}", naming::skill("project-agent")),
+        &format!("{} {message}", claude_skill("project-agent")),
     )
     .await;
     assert_eq!(first_request(&w, &a.id).await.as_deref(), Some(message));
@@ -434,7 +439,7 @@ async fn an_agent_that_exits_ends_and_resume_continues_its_conversation() {
         "{out}"
     );
     assert!(
-        !out.contains(&naming::skill("project-agent")),
+        !out.contains(&claude_skill("project-agent")),
         "no skill on resume: {out}"
     );
     // Resuming a running agent changes nothing.
@@ -452,7 +457,7 @@ async fn after_a_restart_agents_are_ended_by_restart_and_resume() {
         &used,
         &format!(
             "{} Import the GitHub issues labelled ready",
-            naming::skill("project-agent")
+            claude_skill("project-agent")
         ),
     )
     .await;
@@ -648,7 +653,7 @@ async fn the_startup_report_names_ended_agents_and_validating_tickets() {
     let used = open(&w, "Audit the footer").await;
     let other = open(&w, "Find slow queries").await;
     let validating = w.create("SHOP", "Cart totals").await;
-    w.force_status(&validating, otaq_core::domain::Status::Validating)
+    w.force_status(&validating, otaq_core::domain::Status::Checking)
         .await;
     let w = w.restart_with(with_fake_claude).await;
 
@@ -756,7 +761,7 @@ async fn close_ended_closes_only_the_projects_ended_agents() {
 /// M23 (T-0363): a first message held before its start comes with the project's list, for the pane's notice.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_list_carries_a_held_first_message() {
-    use otaq_core::named_agents::{AgentHold, HoldReason, Role};
+    use otaq_core::agents::{AgentHold, HoldReason, SessionRole};
     let w = world().await;
     let project = w.board.project("SHOP").await.unwrap();
     assert!(
@@ -771,13 +776,14 @@ async fn the_list_carries_a_held_first_message() {
         id: "h1".into(),
         ticket_id: None,
         project_id: Some(project.id.clone()),
-        role: Role::ProjectAgent,
+        role: SessionRole::ProjectAgent,
         reason: HoldReason::ModelUnavailable,
         tool: Tool::ALL[1],
         model: Some("gpt-5.4".into()),
-        named_agent_id: None,
-        fallback_agent_id: None,
+        agent_id: None,
+        fallback_tool: None,
         fallback_held: false,
+        fallback_asked: false,
         since: 1,
     };
     w.board.store().set_agent_hold(&hold).await.unwrap();

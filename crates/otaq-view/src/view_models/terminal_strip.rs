@@ -250,13 +250,12 @@ pub fn validator_label(round: Option<u32>) -> String {
     }
 }
 
-/// `otaq attach SHOP-29 --validator` while the validator runs; the agent's command once it ended (only a
-/// running validator can be attached).
-pub fn validator_attach_command(key: &TicketKey, running: bool) -> String {
-    if running {
-        format!("{} --validator", attach_command(key))
-    } else {
-        attach_command(key)
+/// `otaq attach SHOP-29 --stage validate` while the check runs (`running` names the check's stage, FLW-20); the
+/// agent's command once it ended (only a running check can be attached).
+pub fn validator_attach_command(key: &TicketKey, running: Option<&str>) -> String {
+    match running {
+        Some(stage) => format!("{} --stage {stage}", attach_command(key)),
+        None => attach_command(key),
     }
 }
 
@@ -271,7 +270,7 @@ pub fn validator_state(
         tone: StripTone::Muted,
     };
     match phase {
-        Phase::Live if status == Status::ValidatorNeedsYou => StripState {
+        Phase::Live if status == Status::CheckerNeedsYou => StripState {
             label: "Waiting for you",
             tone: StripTone::Attention,
         },
@@ -331,7 +330,7 @@ pub fn validator_hint(
             "Read-only · this validator has ended",
             HintTone::Muted,
         ),
-        _ => hint(phase, focused, Status::Validating, false, 0),
+        _ => hint(phase, focused, Status::Checking, false, 0),
     }
 }
 
@@ -385,8 +384,6 @@ pub enum Click {
     SendBack {
         note: String,
     },
-    /// Send to agent to fix (GIT-03).
-    SendToFix,
     /// Open PR / Push to PR: the skill is typed (REV-10).
     OpenPr,
     /// The PR dialog's confirm: the push instruction is typed.
@@ -521,23 +518,23 @@ mod tests {
     fn the_validator_side_reads_its_round_and_how_it_ended() {
         assert_eq!(validator_label(Some(2)), "Validator · round 2");
         assert_eq!(
-            validator_attach_command(&key(), true),
-            format!("{} attach SHOP-23 --validator", naming::COMMAND_NAME)
+            validator_attach_command(&key(), Some("validate")),
+            format!("{} attach SHOP-23 --stage validate", naming::COMMAND_NAME)
         );
         assert_eq!(
-            validator_attach_command(&key(), false),
+            validator_attach_command(&key(), None),
             attach_command(&key())
         );
-        let live = validator_state(&Phase::Live, Status::Validating, None);
+        let live = validator_state(&Phase::Live, Status::Checking, None);
         assert_eq!((live.label, live.tone), ("Live", StripTone::Working));
-        let asks = validator_state(&Phase::Live, Status::ValidatorNeedsYou, None);
+        let asks = validator_state(&Phase::Live, Status::CheckerNeedsYou, None);
         assert_eq!(
             (asks.label, asks.tone),
             ("Waiting for you", StripTone::Attention)
         );
         let failed = validator_state(
             &Phase::Ended,
-            Status::ValidationFailed,
+            Status::CheckFailed,
             Some(ValidationOutcome::Fail),
         );
         assert_eq!(
@@ -591,7 +588,7 @@ mod tests {
             "Reconnecting…"
         );
         assert_eq!(
-            state(&Phase::Ended, Status::ReadyForReview, false).0,
+            state(&Phase::Ended, Status::WaitingForYou, false).0,
             "Ended"
         );
         // The terminal has focus and the agent waits: only "your turn" (ATT-03).
@@ -704,7 +701,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            text(Phase::Ended, false, Status::ReadyForReview, false, 0),
+            text(Phase::Ended, false, Status::WaitingForYou, false, 0),
             Some((s("Read-only · the session ended"), Muted))
         );
         assert_eq!(

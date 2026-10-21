@@ -1,5 +1,5 @@
 //! The data folder, `~/.otaq/` on every platform (d0055): the database, `wt/<repo-name>/<KEY>` worktrees,
-//! `warm/<repo-name>` warm builds (d0082), `skills/<id>` imported workflow skills (d0092), `logs/` and the service socket. Nothing is ever written into the user's repositories (d0023).
+//! `warm/<repo-name>` warm builds (d0082), `skills/<id>` imported workflow skills (d0092), `reports/<repo-name>/<KEY>` comment reports (d0109), `logs/` and the service socket. Nothing is ever written into the user's repositories (d0023).
 //!
 //! `OTAQ_HOME` points the whole folder somewhere else. Tests always set it to a temporary directory, so
 //! they never read or write the real `~/.otaq/`.
@@ -100,6 +100,30 @@ impl DataDir {
             .join(naming::resource_dir_name())
             .join(repo)
             .join(key))
+    }
+
+    /// The folder holding every comment's report (CMT-03, d0109), grouped by repository and ticket.
+    pub fn reports_dir(&self) -> PathBuf {
+        self.root.join("reports")
+    }
+
+    /// The report of one ticket comment (CMT-03): `reports/<repo-name>/<KEY>/<comment id>.txt`, for example
+    /// `reports/shop-web/SHOP-34/0f3a….txt`. Otaq's own copy, never in the repository (d0023).
+    pub fn report_path(
+        &self,
+        repo_name: &str,
+        key: &TicketKey,
+        comment_id: &str,
+    ) -> Result<PathBuf, DataDirError> {
+        let repo = path_component(repo_name)?;
+        let key = key.to_string();
+        let key = path_component(&key)?;
+        let id = path_component(comment_id)?;
+        Ok(self
+            .reports_dir()
+            .join(repo)
+            .join(key)
+            .join(format!("{id}.txt")))
     }
 
     /// Otaq's own scratch worktree for a repository (`scratch/<repo-name>`), where Local merges happen,

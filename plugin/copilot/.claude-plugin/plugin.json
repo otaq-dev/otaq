@@ -1,0 +1,9 @@
+{
+  "name": "otaq",
+  "version": "0.1.0",
+  "description": "Otaq agent signals for GitHub Copilot: hooks that pass --tool copilot, nothing else. Otaq copies the skills its agents use into their working folder as otaq-<name>.",
+  "author": {
+    "name": "The Otaq Authors"
+  },
+  "license": "FSL-1.1-MIT"
+}

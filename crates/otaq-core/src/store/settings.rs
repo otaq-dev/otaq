@@ -13,10 +13,13 @@ pub const TRUST_NOTE_PENDING: &str = "trust.note_pending";
 /// The user dismissed the folder trust note: it never comes back (PRJ-08).
 pub const TRUST_NOTE_DISMISSED: &str = "trust.note_dismissed";
 
-/// The app-wide role defaults (AGT-03, d0088): `{"developer": id, "validator": id, "epic_lead": id, "project_agent":
-/// id}`, each a named agent's id. Written by the starter entry and `agents.set_default`; a project's overrides are
-/// in its own settings ([`super::projects::PROJECT_AGENT_DEFAULTS`]).
-pub const AGENT_DEFAULTS: &str = "agents.defaults";
+/// The default model for new agents (AGM-03, d0108): `{"tool": "claude", "model": "sonnet"}`; `model: default`
+/// resolves to it at session start. Absent until a tool connects.
+pub const DEFAULT_MODEL: &str = "agents.default_model";
+
+/// Each tool's fallback (AGM-03): `{"claude": {"tool": "codex", "model": "newest:gpt-sol"}}`. Used only on the
+/// user's click (Use fallback, Use fallback now).
+pub const AGENT_FALLBACK: &str = "agents.fallback";
 
 /// The agent tools the user set Hidden on Settings → Agent tools (d0086): a list of stored tool names
 /// (`["copilot"]`). A hidden tool doesn't count as connected.
@@ -31,9 +34,6 @@ pub const TRUST_NOTE_TOOLS: &str = "trust.note_tools";
 
 /// The tools whose connecting raised the folder trust note once already: it is raised once per tool (d0086).
 pub const TRUST_NOTE_RAISED: &str = "trust.note_raised";
-
-/// "Use fallback agents automatically" (AGT-08, d0086): `true` or `false`; absent = off.
-pub const AUTO_FALLBACK: &str = "agents.auto_fallback";
 
 /// Otaq's own "Allow notifications?" line is up (ATT-13, d0090): `true`, set when the first agent session starts while
 /// macOS hasn't been asked; removed once answered.

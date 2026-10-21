@@ -147,10 +147,16 @@ pub struct SessionInfo {
     /// The model passed to the tool at launch; `None` when none was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// The named agent it runs on, as resolved at its start (or copied from the conversation it resumes; AGT-05).
-    /// `None` for the user's terminals.
+    /// The agent it runs, as resolved at its start (or copied from the conversation it resumes; AGM-05). `None` for
+    /// the user's terminals.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub named_agent: Option<SessionAgent>,
+    pub agent: Option<SessionAgent>,
+    /// The tool's effort level passed at launch (AGM-01); `None` when none was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    /// It runs on its tool's fallback, by the user's click (AGM-03): the tool it would have run on and why.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<crate::agents::FallbackFrom>,
     /// The exact model the tool reported running (`claude-opus-5-5`), the first one it reported; `None` until it
     /// does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -159,8 +165,8 @@ pub struct SessionInfo {
     pub size: Option<TerminalSize>,
 }
 
-/// The named agent a session ran on (ADP-04, AGT-05): its id (no foreign key: a session outlives its agent) and its
-/// name at the session's start ("Light", shown "Light (deleted)" once it is gone).
+/// The agent a session ran (ADP-04, AGM-05): its id (no foreign key: a session outlives its agent) and its name at
+/// the session's start ("Developer", shown "Developer (deleted)" once it is gone).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SessionAgent {
     pub id: String,
@@ -190,14 +196,15 @@ pub struct SessionTicket {
 }
 
 /// A stored conversation to continue (Resume, Park, Send back, answers; d0045, d0088): the agent tool it ran
-/// on, the tool's own id, the model as launched and the named agent, so Resume reopens the same tool and model
-/// (ADP-04) and the resumed session's row names the same agent, whatever the named agent is set to now (0088).
+/// on, the tool's own id, the model and effort as launched and the agent, so Resume reopens the same tool and model
+/// (ADP-04, AGM-03) and the resumed session's row names the same agent, whatever the agent is set to now (0088).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredConversation {
     pub tool: Tool,
     pub id: String,
     pub model: Option<String>,
-    pub named_agent: Option<SessionAgent>,
+    pub effort: Option<String>,
+    pub agent: Option<SessionAgent>,
 }
 
 impl StoredConversation {
@@ -211,11 +218,14 @@ impl StoredConversation {
             tool: session.tool?,
             id: session.tool_session_id.clone()?,
             model: session.model.clone(),
-            named_agent: session.named_agent.clone(),
+            effort: session.effort.clone(),
+            agent: session.agent.clone(),
         })
     }
 
-    /// The conversation of ticket `ticket_id`'s newest agent session whose tool id is known.
+    /// The conversation of ticket `ticket_id`'s newest agent session whose tool id is known: Resume's (STG-09).
+    /// By stage run (d0108): a session that ran an Agent stage counts whatever its kind, and when the ticket is in
+    /// (or waits before) an Agent stage, that stage's own session comes first.
     pub async fn latest_agent(
         pool: &sqlx::SqlitePool,
         ticket_id: &str,
@@ -226,25 +236,33 @@ impl StoredConversation {
             Option<String>,
             Option<String>,
             Option<String>,
+            Option<String>,
         );
         let row: Option<Row> = sqlx::query_as(
-            "SELECT tool, tool_session_id, model, named_agent_id, named_agent_name FROM sessions
-             WHERE ticket_id = ? AND kind = 'agent' AND tool IS NOT NULL AND tool_session_id IS NOT NULL
-                   AND COALESCE(end_reason, '') <> ?
-             ORDER BY started_at DESC, id DESC LIMIT 1",
+            "SELECT s.tool, s.tool_session_id, s.model, s.effort, s.agent_id, s.agent_name FROM sessions s
+             WHERE s.ticket_id = ?1 AND s.tool IS NOT NULL AND s.tool_session_id IS NOT NULL
+                   AND COALESCE(s.end_reason, '') <> ?2
+                   AND (s.kind = 'agent'
+                        OR EXISTS (SELECT 1 FROM stage_runs r WHERE r.session_id = s.id AND r.kind = 'agent'))
+             ORDER BY EXISTS (SELECT 1 FROM stage_runs r JOIN tickets t ON t.id = r.ticket_id
+                              WHERE r.session_id = s.id AND r.kind = 'agent' AND r.stage_id = t.stage_id) DESC,
+                      s.started_at DESC, s.id DESC LIMIT 1",
         )
         .bind(ticket_id)
         .bind(END_MODEL_REFUSED)
         .fetch_optional(pool)
         .await?;
-        Ok(row.and_then(|(tool, id, model, agent_id, agent_name)| {
-            Some(Self {
-                tool: tool.parse().ok()?,
-                id,
-                model,
-                named_agent: SessionAgent::of_columns(agent_id, agent_name),
-            })
-        }))
+        Ok(
+            row.and_then(|(tool, id, model, effort, agent_id, agent_name)| {
+                Some(Self {
+                    tool: tool.parse().ok()?,
+                    id,
+                    model,
+                    effort,
+                    agent: SessionAgent::of_columns(agent_id, agent_name),
+                })
+            }),
+        )
     }
 }
 
@@ -281,11 +299,11 @@ pub async fn moved_on(
     let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT s.model_ran,
                 (SELECT b.model_ran FROM sessions b
-                 WHERE b.ticket_id = s.ticket_id AND b.kind = s.kind AND b.named_agent_id = s.named_agent_id
+                 WHERE b.ticket_id = s.ticket_id AND b.kind = s.kind AND b.agent_id = s.agent_id
                    AND b.model_ran IS NOT NULL
                    AND (b.started_at < s.started_at OR (b.started_at = s.started_at AND b.id < s.id))
                  ORDER BY b.started_at DESC, b.id DESC LIMIT 1)
-         FROM sessions s WHERE s.id = ? AND s.ticket_id IS NOT NULL AND s.named_agent_id IS NOT NULL",
+         FROM sessions s WHERE s.id = ? AND s.ticket_id IS NOT NULL AND s.agent_id IS NOT NULL",
     )
     .bind(session)
     .fetch_optional(pool)
@@ -314,8 +332,12 @@ pub struct SpawnSpec {
     pub tool: Option<Tool>,
     pub tool_session_id: Option<String>,
     pub model: Option<String>,
-    /// The named agent it runs on (AGT-05); `None` for the user's terminals.
-    pub named_agent: Option<SessionAgent>,
+    /// The agent it runs (AGM-05); `None` for the user's terminals.
+    pub agent: Option<SessionAgent>,
+    /// The tool's effort level passed (AGM-01).
+    pub effort: Option<String>,
+    /// It runs on its tool's fallback (AGM-03).
+    pub fallback: Option<crate::agents::FallbackFrom>,
 }
 
 /// [`Sessions::spawn`] after a launch's step ([`Sessions::prepared`]).
@@ -648,7 +670,9 @@ impl Sessions {
             tool: spec.tool,
             tool_session_id: spec.tool_session_id.clone(),
             model: spec.model.clone(),
-            named_agent: spec.named_agent.clone(),
+            agent: spec.agent.clone(),
+            effort: spec.effort.clone(),
+            fallback: spec.fallback.clone(),
             model_ran: None,
             size: Some(spec.size),
         };
@@ -658,8 +682,8 @@ impl Sessions {
         } else {
             sqlx::query(
             "INSERT INTO sessions (id, project_id, ticket_id, kind, pty_id, tool, tool_session_id, model, state,
-                                   started_at, named_agent_id, named_agent_name)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                   started_at, agent_id, agent_name, effort, fallback_from, fallback_reason)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&info.id)
         .bind(&spec.project_id)
@@ -671,8 +695,11 @@ impl Sessions {
         .bind(&info.model)
         .bind(info.state.as_str())
         .bind(info.started_at)
-        .bind(info.named_agent.as_ref().map(|a| &a.id))
-        .bind(info.named_agent.as_ref().map(|a| &a.name))
+        .bind(info.agent.as_ref().map(|a| &a.id))
+        .bind(info.agent.as_ref().map(|a| &a.name))
+        .bind(&info.effort)
+        .bind(info.fallback.as_ref().map(|f| f.tool.as_str()))
+        .bind(info.fallback.as_ref().map(|f| f.reason.as_str()))
         .execute(self.inner.store.pool())
         .await
         .map(drop)
@@ -1093,7 +1120,8 @@ impl Sessions {
     pub async fn history(&self, ticket: &SessionTicket) -> Result<Vec<SessionInfo>, SessionError> {
         let rows: Vec<SessionRow> = sqlx::query_as(
             "SELECT s.id, s.kind, p.key AS project_key, s.state, s.started_at, s.ended_at, s.end_reason,
-                    s.tool, s.tool_session_id, s.model, s.named_agent_id, s.named_agent_name, s.model_ran
+                    s.tool, s.tool_session_id, s.model, s.agent_id, s.agent_name, s.model_ran, s.effort,
+                    s.fallback_from, s.fallback_reason
              FROM sessions s JOIN projects p ON p.id = s.project_id
              WHERE s.ticket_id = ? ORDER BY s.started_at DESC, s.id DESC",
         )
@@ -1194,7 +1222,8 @@ impl Sessions {
         }
         let row: Row = sqlx::query_as(
             "SELECT s.id, s.kind, p.key AS project_key, s.state, s.started_at, s.ended_at, s.end_reason,
-                    s.tool, s.tool_session_id, s.model, s.named_agent_id, s.named_agent_name, s.model_ran,
+                    s.tool, s.tool_session_id, s.model, s.agent_id, s.agent_name, s.model_ran, s.effort,
+                    s.fallback_from, s.fallback_reason,
                     t.number, t.child_number
              FROM sessions s JOIN projects p ON p.id = s.project_id LEFT JOIN tickets t ON t.id = s.ticket_id
              WHERE s.id = ?",
@@ -1493,9 +1522,12 @@ struct SessionRow {
     tool: Option<String>,
     tool_session_id: Option<String>,
     model: Option<String>,
-    named_agent_id: Option<String>,
-    named_agent_name: Option<String>,
+    agent_id: Option<String>,
+    agent_name: Option<String>,
     model_ran: Option<String>,
+    effort: Option<String>,
+    fallback_from: Option<String>,
+    fallback_reason: Option<String>,
 }
 
 impl SessionRow {
@@ -1512,7 +1544,12 @@ impl SessionRow {
             tool: self.tool.and_then(|t| t.parse().ok()),
             tool_session_id: self.tool_session_id,
             model: self.model,
-            named_agent: SessionAgent::of_columns(self.named_agent_id, self.named_agent_name),
+            agent: SessionAgent::of_columns(self.agent_id, self.agent_name),
+            effort: self.effort,
+            fallback: crate::agents::store::fallback_of(
+                self.fallback_from.as_deref(),
+                self.fallback_reason.as_deref(),
+            ),
             model_ran: self.model_ran,
             size: None,
         })

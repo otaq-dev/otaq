@@ -28,8 +28,8 @@ use serde_json::Value;
 use super::{
     AgentTool, BoxFuture, Detection, InputQuirks, LaunchError, LaunchPlan, LaunchRequest,
     ModelList, ModelListError, OneOffCommand, OneOffLine, OneOffRequest, Os, SetupEntry,
-    SetupOutcome, SetupReport, SignalContext, SkillDelivery, TokenSource, Tool, ToolContext,
-    ToolEvent, TranscriptEntry, WindowsSource,
+    SetupOutcome, SetupReport, SignalContext, TokenSource, Tool, ToolContext, ToolEvent,
+    TranscriptEntry, WindowsSource,
 };
 use crate::agent_tools::catalog::FamilySource;
 use crate::agent_tools::events::LimitWindow;
@@ -37,6 +37,12 @@ use crate::usage::limit::LimitKind;
 
 /// The name shown to people.
 pub(super) const DISPLAY_NAME: &str = "OpenCode";
+
+/// OpenCode has no effort setting of its own (AGM-01): `opencode run --help` (v2.0.17, read with a throwaway HOME)
+/// lists none, and a model's reasoning level is one of its **variants**, part of the model itself
+/// (`--model provider/model#variant`, https://opencode.ai/docs/models/#variants), which the model picker already
+/// offers. So an OpenCode agent gets no Effort field.
+pub(super) const EFFORT_LEVELS: &[&str] = &[];
 
 /// The short name used in sentences ("OpenCode's saved conversation").
 pub(super) const SHORT_NAME: &str = "OpenCode";
@@ -244,10 +250,6 @@ impl AgentTool for OpenCode {
 
     fn skill_reference(&self, skill: &str) -> String {
         launch::skill_reference(skill)
-    }
-
-    fn skill_delivery(&self) -> SkillDelivery {
-        SkillDelivery::LaunchConfig
     }
 
     fn family_source(&self) -> Option<FamilySource> {

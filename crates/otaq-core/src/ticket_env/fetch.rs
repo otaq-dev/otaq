@@ -1,5 +1,5 @@
 //! **Bring back** (M19-c, d0086): a ticket whose build was freed at Review gets a build back in its worktree before
-//! it is worked on again: Send back, Send to agent to fix (the user's or Auto-merge's), a Run or a new Shell, or a
+//! it is worked on again: Send back, a Delivery's conflict going to the agent (FLW-17), a Run or a new Shell, or a
 //! start that resumes it.
 //!
 //! Under the ticket's lock it reads the ticket again. A build still in the worktree (`present`) is left alone, so

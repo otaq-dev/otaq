@@ -1,0 +1,464 @@
+/*
+ * The flow preview (T-0420; *18 → Row · The preview: next to the Project agent* `s18-27`, `s18-29`, `s18-31`,
+ * `s18-35`): a 600 px sheet near the top of the main area over a dimmed board; the pane beside it isn't covered.
+ * Colours are the theme's tokens (Otaq Light and Dark, AA per 0096).
+ */
+.flow-preview-scrim {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 60px 16px 24px;
+  box-sizing: border-box;
+  background: rgb(14 15 17 / 30%);
+}
+
+.flow-preview {
+  display: flex;
+  flex-direction: column;
+  width: 600px;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-floating);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.flow-preview-head {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 18px 20px 12px;
+}
+
+.flow-preview-titles {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.flow-preview-titles h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.flow-preview-titles p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.flow-preview-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  padding: 0 20px 16px;
+  overflow-y: auto;
+}
+
+/* A line in a tinted box: info (when it applies), ok (the same flow), amber and red (warnings, problems, clashes). */
+.flow-preview-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg-app);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.flow-preview-note > .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+
+.flow-preview-note[data-tone="ok"] {
+  background: var(--st-approved-bg);
+}
+
+.flow-preview-note[data-tone="ok"] > .icon {
+  color: var(--st-approved);
+}
+
+.flow-preview-note[data-tone="amber"] {
+  background: var(--st-paused-bg);
+}
+
+.flow-preview-note[data-tone="amber"] > .icon {
+  color: var(--st-paused);
+}
+
+.flow-preview-note[data-tone="red"] {
+  background: var(--st-error-bg);
+}
+
+.flow-preview-note[data-tone="red"] > .icon {
+  color: var(--st-error);
+}
+
+.flow-preview-note-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.flow-preview-note-text p {
+  margin: 0;
+}
+
+.flow-preview-problem-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.flow-preview-picked {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.flow-preview-model-fix {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.flow-preview-clash {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+/* A whole flow: STAGE · AGENT · MODEL · OPTIONS A TICKET CAN PICK. */
+.flow-preview-table {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+}
+
+.flow-preview-table-head,
+.flow-preview-stage-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 0.9fr);
+  gap: 12px;
+}
+
+.flow-preview-table-head {
+  padding: 8px 0 6px;
+  color: var(--text-muted);
+  font-size: 10px;
+  letter-spacing: 0.6px;
+}
+
+.flow-preview-always {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 8px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.flow-preview-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.flow-preview-stage-name {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.flow-preview-stage-name > .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--text-secondary);
+}
+
+.flow-preview-stage-name > span,
+.flow-preview-stage-agent {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.flow-preview-stage-name strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.flow-preview-stage-name small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.flow-preview-stage-agent {
+  font-size: 12.5px;
+}
+
+.flow-preview-stage-agent small {
+  color: var(--text-secondary);
+  font-size: 11.5px;
+}
+
+.flow-preview-stage-agent[data-muted],
+.flow-preview-stage-options[data-muted] {
+  color: var(--text-muted);
+}
+
+.flow-preview-stage-options {
+  font-size: 12px;
+}
+
+/* A why line: the source of a stage or an agent, in violet like the agent's own findings. */
+.flow-preview-why {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding-left: 22px;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+}
+
+.flow-preview-why > .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--st-investigate);
+}
+
+/* A change: one line per stage change or agent field, its "Used in" or when it applies under it. */
+.flow-preview-changes {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.flow-preview-change {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.flow-preview-change-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.flow-preview-change-line > .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--st-investigate);
+}
+
+.flow-preview-change small {
+  padding-left: 21px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.flow-preview-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.flow-preview-agents h3 {
+  margin: 0 0 4px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.6px;
+}
+
+.flow-preview-agent-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 4px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.flow-preview-agent-line:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.flow-preview-agent-line:disabled {
+  cursor: default;
+}
+
+.flow-preview-agent-line > .icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.flow-preview-agent-name {
+  flex: none;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.flow-preview-agent-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-preview-agent-tag {
+  flex: none;
+  color: var(--st-investigate);
+  font-size: 10.5px;
+}
+
+.flow-preview-agent-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 4px 8px 25px;
+}
+
+.flow-preview-agent-instructions {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.flow-preview-agent-skills {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  font-size: 11.5px;
+}
+
+.flow-preview-agent-skills > span:first-child {
+  color: var(--text-muted);
+}
+
+.flow-preview-already {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.flow-preview-error {
+  margin: 0;
+  color: var(--st-error);
+  font-size: 12px;
+}
+
+.flow-preview-foot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.flow-preview-waits {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.flow-preview-asking .text-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+ * The proposals compared (T-0435, ASK-07; `s14-16`/`s14-17`, *two proposals to compare*): two 630 px cards side by
+ * side with every why line, a tool still working or stopped beside them, then the closing line and Use the default.
+ * Three or four scroll sideways rather than squeezing the stage table.
+ */
+.flow-compare {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 1280px;
+  max-width: 100%;
+  margin: 0 auto;
+  color: var(--text-primary);
+}
+
+.flow-compare-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  overflow-x: auto;
+}
+
+.flow-preview.flow-compare-proposal,
+.flow-compare-other {
+  flex: 1 1 0;
+  min-width: 420px;
+  max-width: 630px;
+}
+
+.flow-preview.flow-compare-proposal {
+  width: auto;
+  max-height: none;
+}
+
+.flow-compare-other > * {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.flow-compare-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.flow-compare-spacer {
+  flex: 1;
+}

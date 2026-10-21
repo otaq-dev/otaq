@@ -4,7 +4,7 @@
 use crate::common::{Fixture, me};
 use otaq_core::board::order::{blocked_counts, fold_dev, sort_column, start_order, start_pin};
 use otaq_core::board::tickets::{Base, Ticket};
-use otaq_core::domain::{Actor, Column, Flags, Kind, Priority, Status, TicketKey};
+use otaq_core::domain::{Actor, Flags, Kind, Priority, Status, StatusSet, TicketKey};
 
 fn t(key: &str, status: Status, created_at: i64) -> Ticket {
     Ticket {
@@ -16,7 +16,7 @@ fn t(key: &str, status: Status, created_at: i64) -> Ticket {
         priority: Default::default(),
         priority_inherited: false,
         epic: None,
-        column: status.column(),
+        place: otaq_core::domain::Place::of(status, None, None),
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
@@ -93,7 +93,7 @@ fn sample() -> Vec<Ticket> {
 #[test]
 fn dev_order() {
     let tickets = sample();
-    let order = sort_column(Column::Dev, &tickets);
+    let order = sort_column(StatusSet::AgentStage, &tickets);
     assert_eq!(
         keys(&order.cards),
         [
@@ -113,7 +113,7 @@ fn ready_for_dev_order() {
     let mut tickets = sample();
     tickets.push(t("SHOP-30", Status::ParentClosed, 14));
     assert_eq!(
-        keys(&sort_column(Column::ReadyForDev, &tickets).cards),
+        keys(&sort_column(StatusSet::Waiting, &tickets).cards),
         ["SHOP-28", "SHOP-30", "SHOP-29", "SHOP-20", "SHOP-21"]
     );
 }
@@ -151,7 +151,7 @@ fn start_order_pins_then_priority_then_ready_the_longest() {
         ]
     );
     assert_eq!(
-        keys(&sort_column(Column::ReadyForDev, &tickets).cards),
+        keys(&sort_column(StatusSet::Waiting, &tickets).cards),
         order,
         "the column shows the start order"
     );
@@ -190,7 +190,7 @@ fn a_pinned_epics_children_start_first() {
         queued.sort_by_cached_key(|x| start_order(x, tickets));
         let started: Vec<String> = queued.iter().map(|x| x.key.to_string()).collect();
         assert_eq!(
-            keys(&sort_column(Column::ReadyForDev, tickets).cards),
+            keys(&sort_column(StatusSet::Waiting, tickets).cards),
             started,
             "the column shows the start order"
         );
@@ -229,19 +229,23 @@ fn blocks_more_counts_direct_and_indirect_dependents() {
 #[test]
 fn pins_in_every_column_most_recent_first() {
     let tickets = vec![
-        t("SHOP-30", Status::ReadyForReview, 1),
-        pinned(t("SHOP-31", Status::ReadyForReview, 2), 10),
-        pinned(t("SHOP-32", Status::ReadyForReview, 3), 20),
+        t("SHOP-30", Status::WaitingForYou, 1),
+        pinned(t("SHOP-31", Status::WaitingForYou, 2), 10),
+        pinned(t("SHOP-32", Status::WaitingForYou, 3), 20),
         pinned(t("SHOP-33", Status::Queued, 4), 30),
         t("SHOP-34", Status::Queued, 5),
     ];
     assert_eq!(
-        keys(&sort_column(Column::ReadyForReview, &tickets).cards),
+        keys(&sort_column(StatusSet::HumanCheck, &tickets).cards),
         ["SHOP-32", "SHOP-31", "SHOP-30"]
     );
-    assert!(sort_column(Column::Dev, &tickets).cards.is_empty());
+    assert!(
+        sort_column(StatusSet::AgentStage, &tickets)
+            .cards
+            .is_empty()
+    );
     assert_eq!(
-        keys(&sort_column(Column::ReadyForDev, &tickets).cards),
+        keys(&sort_column(StatusSet::Waiting, &tickets).cards),
         ["SHOP-33", "SHOP-34"],
         "pins are first in Ready for Dev too"
     );
@@ -250,7 +254,7 @@ fn pins_in_every_column_most_recent_first() {
 #[test]
 fn fold_never_hides_needs_you_cards() {
     let tickets = sample();
-    let order = sort_column(Column::Dev, &tickets);
+    let order = sort_column(StatusSet::AgentStage, &tickets);
     let fold = fold_dev(&order, &tickets, 5);
     // 3 needs-you cards always shown, 2 more slots: SHOP-19 (pinned) and SHOP-18.
     assert_eq!(
@@ -275,7 +279,7 @@ async fn pin_and_unpin() {
     let a = f.create("A").await;
     let b = f.create("B").await;
     let c = f.create("C").await;
-    let order = |tickets: &[Ticket]| keys(&sort_column(Column::Backlog, tickets).cards);
+    let order = |tickets: &[Ticket]| keys(&sort_column(StatusSet::Backlog, tickets).cards);
 
     f.board.pin(&b.key.to_string(), &me()).await.unwrap();
     f.board.pin(&c.key.to_string(), &me()).await.unwrap();
@@ -292,8 +296,8 @@ async fn pin_and_unpin() {
     let unpinned = f.board.unpin(&b.key.to_string(), &me()).await.unwrap();
     assert!(!unpinned.flags.is_pinned());
     assert_eq!(
-        (unpinned.column, unpinned.status),
-        (Column::Backlog, Status::Backlog),
+        (unpinned.board_group(), unpinned.status),
+        (StatusSet::Backlog, Status::Backlog),
         "pinning changes no state"
     );
     assert_eq!(
@@ -314,7 +318,7 @@ async fn pin_and_unpin() {
         .unwrap();
     let tickets = f.board.tickets("SHOP").await.unwrap();
     assert_eq!(
-        keys(&sort_column(Column::ReadyForDev, &tickets).cards),
+        keys(&sort_column(StatusSet::Waiting, &tickets).cards),
         ["SHOP-3"]
     );
     assert!(f.ticket("SHOP-3").await.flags.is_pinned());

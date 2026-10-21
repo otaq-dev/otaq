@@ -20,7 +20,6 @@ pub struct TicketRow {
     /// 1–4 (d0065); `NULL` for an epic child that follows its epic (migration 0023).
     pub priority: Option<i64>,
     pub external_id: Option<String>,
-    pub board_column: String,
     pub state: String,
     pub outcome: Option<String>,
     pub pinned_at: Option<i64>,
@@ -69,13 +68,15 @@ pub struct TicketRow {
     pub pr_rework: bool,
     /// T-0178: when this queued ticket became ready to start (migration 0024); set by the scheduler.
     pub ready_since: Option<i64>,
-    /// T-0182 (migration 0025): how it reached Review, validation rounds, Auto-merge.
+    /// T-0182 (migration 0025): how it reached Review, Auto-merge (the rounds are per check from migration 0051).
     pub review_entry: Option<String>,
-    pub validation_round: i64,
-    pub validation_rounds_extra: i64,
     pub auto_merge_conflicts: i64,
     pub auto_merge_stop: Option<String>,
     pub merged_automatically: bool,
+    /// T-0411 (migration 0049): the reason of an agent's `stage done` close (Closed · nothing to merge).
+    pub nothing_to_merge: Option<String>,
+    /// T-0419 (migration 0053): an automatic Delivery delivered it with no check passed before it.
+    pub delivered_without_checks: bool,
     /// T-0262 (migration 0030): an epic's queue mode, `none` / `whole` / `single` (d0080), and when it was set.
     pub epic_queue_mode: String,
     pub epic_queue_mode_at: Option<i64>,
@@ -91,6 +92,9 @@ pub struct TicketRow {
     pub resource_problem: Option<String>,
     /// T-0304 (migration 0041): JSON `[{other, path}]`, Review tickets adding files under the same schema path.
     pub schema_overlap: Option<String>,
+    /// T-0400 (migration 0046): the flow stage the ticket is in, or the Agent stage it waits before; `NULL` in
+    /// Backlog, Ready for Dev and Done (STG-04).
+    pub stage_id: Option<String>,
 }
 
 /// The SQL that keeps `tickets.state_since` (when the ticket entered its status) in an `UPDATE tickets SET …`
@@ -113,7 +117,8 @@ pub struct NewTicket {
     pub kind: String,
     pub title: String,
     pub body: String,
-    pub board_column: String,
+    /// The stage it is in (`None` in Backlog, Ready for Dev and Done).
+    pub stage_id: Option<String>,
     pub state: String,
     pub created_by: String,
 }
@@ -124,7 +129,7 @@ impl Store {
         let now = now_ms();
         sqlx::query(
             "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, body,
-                                  board_column, state, created_by, created_at, updated_at, state_since)
+                                  stage_id, state, created_by, created_at, updated_at, state_since)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
@@ -135,7 +140,7 @@ impl Store {
         .bind(&new.kind)
         .bind(&new.title)
         .bind(&new.body)
-        .bind(&new.board_column)
+        .bind(&new.stage_id)
         .bind(&new.state)
         .bind(&new.created_by)
         .bind(now)

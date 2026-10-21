@@ -1,28 +1,34 @@
-//! The board's columns (UI-02, SHL-06; *03 · Board & columns*; d0087): five columns with counts, Backlog · Ready
-//! for Dev · Dev · Review · Done. The states and their stored columns are the core's six (§7); only the page groups
-//! them: the Review column holds Ready for Review and Approved as two sections ([`SectionView`]), each with its own
-//! count and its own cards in the old columns' order, and the column counts both. Ready for Dev shows the queued
-//! cards (d0066); Dev the cards that need the user (and pins) on top, then the Agent Working section; the "N more ·
-//! working" fold that never hides needs-you cards (T-0027); the Done column that collapses to a 34 px rail; epic
-//! cards in Backlog; and the empty-column hints. Order comes from the core ([`otaq_core::board::order`]), so the
-//! board, the service and the tests agree.
+//! The board's columns (UI-02, SHL-06, STG-08; *03 · Board & columns*; d0087, d0108): the project's flow's columns
+//! with counts ([`flow_columns`]), on the default flow Backlog · Ready for Dev · Dev · Review · Done. A human
+//! check's column holds its stage and the Delivery folded into it as two sections ([`SectionView`]: Ready for
+//! Review and Approved), each with its own count and its own cards in its status set's order, and the column counts
+//! both. Ready for Dev shows the queued cards (d0066); an agent column (Dev) the cards that need the user (and pins)
+//! on top, then the Agent Working section; the "N more · working" fold that never hides needs-you cards (T-0027);
+//! the Done column that collapses to a 34 px rail; epic cards in Backlog; and the empty-column hints. Order comes
+//! from the core ([`otaq_core::board::order`]), so the board, the service and the tests agree.
 //!
 //! Each child is on the board exactly once (EPC-11, d0080): an epic is a card in Backlog only in its Card place
 //! and a delivery card in Review / Done; in its Track place the strip draws it instead. Epic children never show
 //! as cards in Backlog: they are rows of the epic card, or "not queued" stops on its track. In Done an epic's
 //! merged children fold into one line (EPC-16, [`DoneFold`]); its closed children stay cards.
 
-use otaq_core::board::epic_flight::{EpicPlace, children_of, epic_place};
-use otaq_core::board::order::{ColumnOrder, fold_dev, sort_column};
+use otaq_core::agents::{Agent, AgentList, AgentModel};
+use otaq_core::board::epic_flight::{EpicPlace, REVIEW_EPIC, children_of, epic_place};
+use otaq_core::board::order::{ColumnOrder, fold_dev};
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Column, Kind, Status, TicketKey};
+use otaq_core::domain::{Kind, Place, Status, StatusSet, TicketKey};
+use otaq_core::flow::check::DEFAULT_VALIDATION_ROUNDS;
+use otaq_core::flow::{CheckBy, Delivers, DeliveryMode, Flow, Stage, StageKind, StageOption};
 
 use crate::icons::IconName;
-use crate::view_models::board_page::ColumnId;
+use crate::view_models::agents::model_label;
+use crate::view_models::board_page::{ColumnId, DropTargetId, ReviewSectionId};
 use crate::view_models::card::{CardExtras, CardViewModel};
 use crate::view_models::epic_card::EpicViewModel;
+use crate::view_models::flow_columns::{ColumnKind, Columns, FlowColumn, keeps_default_look};
 use crate::view_models::queue::queue_facts;
-use otaq_core::named_agents::rows::BoardAgents;
+use crate::view_models::tool_problems::tool_word;
+use otaq_core::agents::facts::BoardAgents;
 
 /// From this board width Done opens as a column; below it Done is its rail (SHL-01; CHANGES-v §1: "At ≥ 1360 px of
 /// board width Done opens as a column"). The board width is the main area's: the pane and the project rail are not
@@ -32,8 +38,19 @@ pub const DONE_OPEN_FROM_WIDTH: f32 = 1360.;
 /// The columns fill the board's width; below this width per column the board scrolls sideways (SHL-01).
 pub const MIN_COLUMN_WIDTH: f32 = 200.;
 
-/// Done as a rail.
+/// Done as a rail, and an empty stage of a long flow.
 pub const DONE_RAIL_WIDTH: f32 = 34.;
+
+/// A flow with this many columns or more is long (FLW-12; the designer's "8+ columns"): its columns keep the
+/// compact width, and when they don't fit, an empty stage folds to its rail and the stage strip names every column.
+pub const LONG_FLOW_COLUMNS: usize = 8;
+
+/// A long flow's columns (FLW-12: "columns keep 184 px and the board scrolls sideways").
+pub const COMPACT_COLUMN_WIDTH: f32 = 184.;
+
+/// The board's padding on each side and the gap between its columns (`board.css`).
+const BOARD_PADDING: f32 = 10.;
+const COLUMN_GAP: f32 = 8.;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CardEntry {
@@ -50,10 +67,11 @@ impl CardEntry {
     }
 }
 
-/// Dev's parts, top to bottom.
+/// Dev's parts, top to bottom. A stage folded into the column (`column: with-previous`) has no section of its own:
+/// the header counts it ([`FoldedView`]) and its cards carry their stage's tag.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DevSections {
-    /// Pinned cards and cards that need the user, above the section headers (never folded).
+    /// Pinned cards and cards that need the user, on top (never folded).
     pub top: Vec<CardEntry>,
     pub working: Vec<CardEntry>,
     /// Cards in the Agent Working section, the floated ones included (section counts count by status).
@@ -64,14 +82,20 @@ pub struct DevSections {
     pub folded: Vec<TicketKey>,
 }
 
-/// One section of the Review column (*Row · Review column (0086 · V)*): Ready for Review or Approved, with its own
-/// count and cards in that state's order (§7.5). Folding it is the page's state; the count stays.
+/// One section of a human check's column (*Row · Review column (0086 · V)*): the human check's (Ready for Review)
+/// or the Delivery's folded into it (Approved), with its own count and cards in that status set's order (§7.5).
+/// Folding it is the page's state; the count stays.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SectionView {
-    /// The state it holds: [`Column::ReadyForReview`] or [`Column::Approved`].
-    pub column: Column,
+    pub id: ReviewSectionId,
+    /// A section after the column's own is a drop target of its own (Approved); the first is the column.
+    pub target: Option<DropTargetId>,
+    /// It holds a Delivery stage's cards (the Approved section).
+    pub delivery: bool,
     /// "READY FOR REVIEW", "APPROVED".
     pub title: &'static str,
+    /// "Ready for Review", "Approved": the fold tooltip's name.
+    pub name: &'static str,
     /// "2", or "1/2" with a filter.
     pub count: String,
     pub cards: Vec<CardEntry>,
@@ -83,24 +107,57 @@ pub struct SectionView {
     pub drag_hint: Option<&'static str>,
 }
 
+/// A stage folded into an agent column (`column: with-previous`, FLW-12, Q270): the header adds "· Validating 1"
+/// after the column's own count, and the stage strip lists "Validate 1" under the column.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoldedView {
+    /// The word its cards carry: "Validating" for a Validate check, else the stage's name.
+    pub tag: String,
+    /// The stage's name.
+    pub name: String,
+    /// "1", "1/2" under a filter.
+    pub count: String,
+}
+
+/// Who runs a column's stages, on hovering its title (FLW-12; *Row · Stage kinds on the column header*): "Grill ·
+/// Griller · grill" over "Claude Code · sonnet" and "Options: skip"; a folded stage adds its line ("Validate ·
+/// Validator · Codex · gpt-5.5 · shown in Dev").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeaderTooltip {
+    pub title: String,
+    pub detail: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColumnView {
     pub id: ColumnId,
-    pub title: &'static str,
+    pub kind: ColumnKind,
+    /// The stage's name ("Dev", "Review", "Done · PR"), or "Backlog", "Ready for Dev", "Done".
+    pub title: String,
     pub icon: IconName,
+    /// The icon in the muted colour (FLW-12: a flow that isn't the default's shape); else in its status colour.
+    pub quiet_icon: bool,
     /// "12" or, with a filter, "3/12" (T-0038); with an epic focused, its cards over all (Q55). Review: both
-    /// sections.
+    /// sections. An agent column with a folded stage: its own stage's cards ("Dev 3 · Validating 1").
     pub count: String,
-    /// Every column but Dev and Review.
+    /// The stages folded into the column, each with its count: an agent column's header names them; a human
+    /// check's column shows them as its sections.
+    pub folded: Vec<FoldedView>,
+    /// Who runs it; `None` for Backlog, Ready for Dev and Done.
+    pub tooltip: Option<HeaderTooltip>,
+    /// Its cards over all, whatever the filter: an empty stage of a long flow folds to its rail.
+    pub total: usize,
+    /// Every column but the agent and human check columns.
     pub cards: Vec<CardEntry>,
+    /// An agent column's (Dev's) parts.
     pub dev: Option<DevSections>,
-    /// Review only: Ready for Review, then Approved.
+    /// A human check's column: Ready for Review, then Approved.
     pub sections: Vec<SectionView>,
-    /// Under the title: Ready for Dev's "Starts when ready, in priority order".
+    /// Under the title: Ready for Dev's "Starts when ready, in priority order" ("Starts when ready" in a long flow).
     pub hint: Option<&'static str>,
     /// Shown when the column is empty.
     pub empty_hint: &'static str,
-    /// Done only: drawn as a narrow rail.
+    /// Drawn as a narrow rail: Done folded, or an empty stage of a long flow that doesn't fit ([`lay_out`]).
     pub collapsed: bool,
     /// Cards a filter hides in this column ("6 hidden by filter").
     pub hidden: usize,
@@ -174,42 +231,66 @@ fn items(keys: &[TicketKey], folds: &[DoneFold]) -> usize {
     keys.len() - folds.iter().map(|f| f.keys.len() - 1).sum::<usize>()
 }
 
-/// The column's title, icon and empty hint.
-pub fn column_look(id: ColumnId) -> (&'static str, IconName, &'static str) {
-    match id {
-        ColumnId::Backlog => (
-            "Backlog",
+/// A column's icon and empty hint (FLW-12): by the kind of the stage that owns it. `quiet` is a flow that isn't the
+/// default's shape: an Agent stage is a bot and a human check a person (on the default flow they keep today's
+/// activity and eye); an agent check is a shield, on any flow (Validate's own column, FLW-01); a Delivery is a merge
+/// or a PR.
+pub fn column_look(column: &FlowColumn, quiet: bool) -> (IconName, &'static str) {
+    let owner = column.parts.first().map(|p| p.stage);
+    match column.kind {
+        ColumnKind::Backlog => (
             IconName::CircleDashed,
             "Write a ticket here: what to build and when it’s done.",
         ),
-        ColumnId::ReadyForDev => (
-            "Ready for Dev",
+        ColumnKind::ReadyForDev => (
             IconName::Hourglass,
             "Drag a ticket here from Backlog to start it when it’s ready.",
         ),
-        ColumnId::Dev => (
-            "Dev",
-            IconName::Activity,
+        ColumnKind::Agent if owner.is_some_and(Stage::is_agent_check) => {
+            (IconName::ShieldCheck, AGENT_CHECK_EMPTY)
+        }
+        ColumnKind::Agent => (
+            if quiet {
+                IconName::Bot
+            } else {
+                IconName::Activity
+            },
             "Tickets move here when their agent starts. Each agent works in its own worktree.",
         ),
-        ColumnId::Review => (
-            "Review",
-            IconName::Eye,
+        ColumnKind::HumanCheck => (
+            if quiet {
+                IconName::UserCheck
+            } else {
+                IconName::Eye
+            },
             "Agents move their ticket here when they submit it for your review.",
         ),
-        ColumnId::Done => (
-            "Done",
+        ColumnKind::Delivery => (
+            match owner.and_then(|s| s.delivery) {
+                Some(d) if d.delivers == Delivers::Pr => IconName::GitPullRequest,
+                _ => IconName::GitMerge,
+            },
+            "Approved tickets wait here until they’re delivered.",
+        ),
+        ColumnKind::Done => (
             IconName::CircleCheck,
             "Merged and closed tickets end up here.",
         ),
     }
 }
 
+/// An empty agent check's column (Validate's own, FLW-01). No frame draws it: the designer's notes have it.
+pub const AGENT_CHECK_EMPTY: &str = "An agent checks each ticket here before it moves on.";
+
 /// The hint under Ready for Dev's title (*03 · Board — shop-web*).
 pub const READY_FOR_DEV_HINT: &str = "Starts when ready, in priority order";
 
-/// Dev's section header above its working cards.
-pub const DEV_SECTION: &str = "WORKING · VALIDATING";
+/// Ready for Dev's hint in a long flow's compact column (*Row · A flow with many stages*).
+pub const READY_FOR_DEV_SHORT_HINT: &str = "Starts when ready";
+
+/// What a Ready for Dev card that would start says while a flow change waits for a quiet board (FLW-06, *Row · A
+/// flow change waiting*): [`BoardInput::starts_held`].
+pub use otaq_core::flow::apply::WAITING_FOR_THE_FLOW_CHANGE;
 
 /// The Review column's section headers (*Row · Review column (0086 · V)*).
 pub const READY_FOR_REVIEW_SECTION: &str = "READY FOR REVIEW";
@@ -261,6 +342,8 @@ pub fn dev_budget(board_height: f32) -> usize {
 }
 
 pub struct BoardInput<'a> {
+    /// The project's flow: its columns (STG-08).
+    pub flow: &'a Flow,
     pub tickets: &'a [Ticket],
     /// Tickets shown (a filter, T-0038); `None` shows all.
     pub visible: Option<&'a [TicketKey]>,
@@ -278,15 +361,27 @@ pub struct BoardInput<'a> {
     pub was_validating: &'a [TicketKey],
     /// The cards' named agents (`board.agents`, T-0345); `None` names none.
     pub agents: Option<&'a BoardAgents>,
+    /// Every agent (`agents.list`): the headers' tooltips name each stage's tool and model (FLW-12); `None` names
+    /// only the agents.
+    pub agent_list: Option<&'a AgentList>,
+    /// Why no ticket starts from Ready for Dev ([`WAITING_FOR_THE_FLOW_CHANGE`] while a flow change waits, FLW-06):
+    /// a card that would start says it in place of "Starting…". `None` while starts run.
+    pub starts_held: Option<&'a str>,
 }
 
-/// Whether the ticket is a card in its column (EPC-11): an epic only in its Card or Delivery place, an epic child
-/// anywhere but Backlog. `all` is the ticket's project.
+/// An epic waiting at the implicit Review epic stop (a flow with no human check, d0108 rule 7): its track shows it
+/// (FLW-19, Q273), so it is no card.
+pub fn at_review_epic(ticket: &Ticket) -> bool {
+    ticket.kind == Kind::Epic && ticket.place.is_in(REVIEW_EPIC)
+}
+
+/// Whether the ticket is a card in its column (EPC-11): an epic only in its Card or Delivery place (and not at the
+/// Review epic stop its track shows), an epic child anywhere but Backlog. `all` is the ticket's project.
 pub fn is_card(ticket: &Ticket, all: &[Ticket]) -> bool {
     if ticket.kind == Kind::Epic {
-        epic_place(ticket, all) != EpicPlace::Track
+        epic_place(ticket, all) != EpicPlace::Track && !at_review_epic(ticket)
     } else {
-        ticket.epic.is_none() || ticket.column != Column::Backlog
+        ticket.epic.is_none() || !ticket.place.is_backlog()
     }
 }
 
@@ -303,16 +398,24 @@ struct StateCards {
 }
 
 impl StateCards {
-    fn of(column: Column, input: &BoardInput, cards: &[&TicketKey], shown: &[&TicketKey]) -> Self {
+    /// The cards of `column`'s `part` (or of the whole column).
+    fn of(
+        columns: &Columns,
+        column: &str,
+        part: Option<&str>,
+        input: &BoardInput,
+        cards: &[&TicketKey],
+        shown: &[&TicketKey],
+    ) -> Self {
         let all = input.tickets;
         // Order over the whole project ("blocks more" counts every dependent), cards only; the counts count the
         // cards the column shows.
-        let full = sort_column(column, all);
+        let full = columns.order(column, part, cards, all);
         let keep = |keys: &[TicketKey], of: &[&TicketKey]| -> Vec<TicketKey> {
             keys.iter().filter(|k| of.contains(k)).cloned().collect()
         };
-        let (shown_cards, folds) = done_folds(&keep(&full.cards, shown), all);
-        let every = keep(&full.cards, cards);
+        let (shown_cards, folds) = done_folds(&keep(&full, shown), all);
+        let every = full;
         let total = items(&every, &done_folds(&every, all).1);
         let visible = items(&shown_cards, &folds);
         let strong = input.strong.map(|strong| {
@@ -321,7 +424,8 @@ impl StateCards {
         });
         Self {
             order: ColumnOrder {
-                column,
+                // The core's order type; the board only reads its cards.
+                column: StatusSet::AgentStage,
                 cards: shown_cards,
             },
             folds,
@@ -341,6 +445,16 @@ fn count_text(visible: usize, total: usize, strong: Option<usize>, filtered: boo
     }
 }
 
+/// The agent that opens a project's PRs: its Delivery stage's, else its first Agent stage's
+/// (`agents::resolve::delivery_agent`).
+fn delivery_agent(flow: &Flow) -> Option<String> {
+    flow.stages
+        .iter()
+        .find(|s| s.is_delivery() && s.agent.is_some())
+        .or_else(|| flow.first_agent_stage())
+        .and_then(|s| s.agent.clone())
+}
+
 pub fn build(input: &BoardInput) -> Vec<ColumnView> {
     let all = input.tickets;
     let cards: Vec<&TicketKey> = all
@@ -353,13 +467,23 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
         None => cards.clone(),
     };
     let filtered = input.visible.is_some();
+    // The default flow's board keeps today's cards (d0108, STG-06); other flows draw the M33 ones.
+    let custom_flow = !crate::view_models::flow_columns::keeps_default_look(input.flow);
     let entry = |key: &TicketKey| -> Option<CardEntry> {
         let t = all.iter().find(|t| &t.key == key)?;
         Some(if t.kind == Kind::Epic {
-            CardEntry::Epic(EpicViewModel::from(t, all, None))
+            CardEntry::Epic(EpicViewModel::from(t, all, None).with_pr_comments(t))
         } else {
-            // What a Queued card waits for, from the core's readiness: updates as each parent moves (T-0083).
-            let queue = queue_facts(t, all);
+            // What a Queued card waits for, from the core's readiness: updates as each parent moves (T-0083). One
+            // that would start says why it doesn't while starts are held (FLW-06).
+            let mut queue = queue_facts(t, all);
+            if let Some(reason) = input
+                .starts_held
+                .filter(|_| queue.starting && t.place == Place::Waiting(None))
+            {
+                queue.starting = false;
+                queue.waits_for = Some(reason.to_owned());
+            }
             let extras = CardExtras {
                 waits_for: queue.waits_for,
                 waits_for_merge: queue.waits_for_merge,
@@ -379,6 +503,11 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                     .flatten(),
                 held_by_limit: otaq_core::scheduler::held_by_tool_limit(t),
                 was_validating: input.was_validating.contains(&t.key),
+                // Its Delivery (FLW-15): Ready to merge or Ready for PR, and who opens the PR.
+                delivers: otaq_core::board::epic_flight::delivery_of(input.flow, t)
+                    .map(|d| d.delivers),
+                delivery_agent: delivery_agent(input.flow),
+                custom_flow,
                 agent_name: match &t.created_by {
                     otaq_core::domain::Actor::ProjectAgent(id) => input
                         .agent_names
@@ -399,54 +528,75 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
         })
     };
     let entries = |keys: &[TicketKey]| keys.iter().filter_map(entry).collect::<Vec<_>>();
-    ColumnId::ALL
+    let columns = Columns::of(input.flow);
+    let quiet = !keeps_default_look(input.flow);
+    columns
         .iter()
-        .map(|&id| {
-            let states: Vec<StateCards> = id
-                .states()
-                .iter()
-                .map(|&column| StateCards::of(column, input, &cards, &shown))
-                .collect();
-            let total: usize = states.iter().map(|s| s.total).sum();
-            let visible: usize = states.iter().map(|s| s.visible).sum();
-            let strong = input
-                .strong
-                .map(|_| states.iter().filter_map(|s| s.strong).sum());
-            let (title, icon, empty_hint) = column_look(id);
+        .map(|column| {
+            let id = column.id.as_str();
+            let whole = StateCards::of(&columns, id, None, input, &cards, &shown);
+            // Each stage's own cards, where the column shows more than one.
+            let parts: Vec<StateCards> = match column.parts.len() {
+                0 | 1 => Vec::new(),
+                _ => column
+                    .parts
+                    .iter()
+                    .map(|p| StateCards::of(&columns, id, Some(&p.id), input, &cards, &shown))
+                    .collect(),
+            };
+            let (icon, empty_hint) = column_look(column, quiet);
+            // An agent column counts its own stage, then each folded one (Q270).
+            let own = match (column.kind, parts.first()) {
+                (ColumnKind::Agent, Some(own)) => own,
+                _ => &whole,
+            };
             let mut view = ColumnView {
-                id,
-                title,
+                id: ColumnId::new(id),
+                kind: column.kind,
+                title: column.title.clone(),
                 icon,
-                count: count_text(visible, total, strong, filtered),
+                quiet_icon: quiet,
+                count: count_text(own.visible, own.total, own.strong, filtered),
+                folded: Vec::new(),
+                tooltip: header_tooltip(column, input.agent_list),
+                total: whole.total,
                 cards: Vec::new(),
                 dev: None,
                 sections: Vec::new(),
-                hint: (id == ColumnId::ReadyForDev).then_some(READY_FOR_DEV_HINT),
+                hint: (column.kind == ColumnKind::ReadyForDev).then_some(READY_FOR_DEV_HINT),
                 empty_hint,
-                collapsed: id == ColumnId::Done && input.done_collapsed,
-                hidden: total - visible,
+                collapsed: column.kind == ColumnKind::Done && input.done_collapsed,
+                hidden: whole.total - whole.visible,
                 folds: Vec::new(),
             };
-            match id {
-                ColumnId::Dev => {
-                    view.dev = Some(dev_sections(
-                        &states[0].order,
-                        all,
-                        input.dev_budget,
-                        &entries,
-                    ));
+            view.folded = column
+                .parts
+                .iter()
+                .zip(&parts)
+                .skip(1)
+                .map(|(part, s)| FoldedView {
+                    tag: folded_tag(part.stage),
+                    name: part.stage.name.clone(),
+                    count: count_text(s.visible, s.total, s.strong, filtered),
+                })
+                .collect();
+            match column.kind {
+                ColumnKind::Agent => {
+                    view.dev = Some(dev_sections(&whole.order, all, input.dev_budget, &entries));
                 }
-                ColumnId::Review => {
-                    view.sections = states
+                // A human check's column with a stage folded into it has a section per stage (Review: Ready for
+                // Review · Approved); alone, it lists its cards.
+                ColumnKind::HumanCheck if !parts.is_empty() => {
+                    view.sections = parts
                         .into_iter()
-                        .map(|s| section(s, filtered, &entries))
+                        .zip(&column.parts)
+                        .enumerate()
+                        .map(|(i, (s, part))| section(s, column, i, part.stage, filtered, &entries))
                         .collect();
                 }
                 _ => {
-                    let [state] = <[StateCards; 1]>::try_from(states)
-                        .unwrap_or_else(|_| unreachable!("one state per column but Review"));
-                    view.cards = entries(&state.order.cards);
-                    view.folds = state.folds;
+                    view.cards = entries(&whole.order.cards);
+                    view.folds = whole.folds;
                 }
             }
             view
@@ -454,18 +604,208 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
         .collect()
 }
 
+/// The word a folded stage's cards carry, as its owner's header counts it: "Validating" for a check by an agent
+/// named Validate (its cards' "Validating…" pill), else the stage's name ("Security").
+fn folded_tag(stage: &Stage) -> String {
+    if stage.is_agent_check() && stage.name == "Validate" {
+        "Validating".to_owned()
+    } else {
+        stage.name.clone()
+    }
+}
+
+/// The header's tooltip: the owner's line, its tool and model, its options, then a line per folded stage.
+pub fn header_tooltip(column: &FlowColumn, agents: Option<&AgentList>) -> Option<HeaderTooltip> {
+    let (owner, folded) = column.parts.split_first()?;
+    let stage = owner.stage;
+    let agent = |s: &Stage| -> Option<&Agent> {
+        let name = s.agent.as_deref()?;
+        agents?
+            .agents
+            .iter()
+            .find(|a| a.name.eq_ignore_ascii_case(name))
+    };
+    let mut detail: Vec<String> = Vec::new();
+    // A Local merge runs no agent (d0108 second gap review rule 6).
+    let runs_agent = stage.delivery.is_none_or(|d| d.delivers != Delivers::Local);
+    if runs_agent {
+        let mut runs: Vec<String> = agent(stage)
+            .and_then(|a| runs_on(a, agents?))
+            .into_iter()
+            .collect();
+        if stage.is_agent_check() {
+            let rounds = stage.rounds.unwrap_or(DEFAULT_VALIDATION_ROUNDS);
+            let unit = if rounds == 1 { "round" } else { "rounds" };
+            runs.push(format!("up to {rounds} {unit}"));
+        }
+        if !runs.is_empty() {
+            detail.push(runs.join(" \u{b7} "));
+        }
+    }
+    if !stage.options.is_empty() {
+        let options: Vec<&str> = stage
+            .options
+            .iter()
+            .map(|o| match o {
+                StageOption::Agent(name) => name.as_str(),
+                StageOption::Skip => "skip",
+            })
+            .collect();
+        detail.push(format!("Options: {}", options.join(", ")));
+    }
+    for part in folded {
+        let s = part.stage;
+        let mut line: Vec<String> = vec![s.name.clone()];
+        line.extend(s.agent.clone());
+        line.extend(agent(s).and_then(|a| runs_on(a, agents?)));
+        line.push(format!("shown in {}", stage.name));
+        detail.push(line.join(" \u{b7} "));
+    }
+    let mut title: Vec<String> = vec![stage.name.clone()];
+    match stage.kind {
+        StageKind::Check { by: CheckBy::You } => title.push("your check".to_owned()),
+        StageKind::Delivery => {
+            if let Some(delivery) = stage.delivery {
+                let mode = match delivery.mode {
+                    DeliveryMode::Automatic => "automatic",
+                    DeliveryMode::Click => "click",
+                };
+                title.push(match delivery.delivers {
+                    Delivers::Pr => format!("PR, {mode}"),
+                    Delivers::Local => format!("Local merge, {mode}"),
+                    Delivers::Either => mode.to_owned(),
+                });
+            }
+        }
+        _ => {}
+    }
+    if runs_agent && !stage.is_human_check() {
+        title.extend(stage.agent.clone());
+        title.extend(stage.skill.clone());
+    }
+    Some(HeaderTooltip {
+        title: title.join(" \u{b7} "),
+        detail,
+    })
+}
+
+/// "Claude Code · sonnet" (with "· effort high" where the agent sets one): the agent's own model, else the default
+/// model. `None` while neither is set.
+fn runs_on(agent: &Agent, list: &AgentList) -> Option<String> {
+    let (tool, model) = match &agent.model {
+        AgentModel::Tool { tool, model } => (*tool, model.clone()),
+        AgentModel::Default => {
+            let model = list.default_model.as_ref()?;
+            (model.tool, model.model.clone())
+        }
+    };
+    let mut line = vec![
+        tool_word(tool).to_owned(),
+        model_label(model.as_deref(), None),
+    ];
+    line.extend(agent.effort.as_ref().map(|e| format!("effort {e}")));
+    Some(line.join(" \u{b7} "))
+}
+
+/// One column in the stage strip (FLW-12; *Row · A flow with many stages*): its title and count, and the stages
+/// folded into it with theirs ("Dev 1" over "Validate 1").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StripColumn {
+    pub column: ColumnId,
+    pub title: String,
+    pub count: String,
+    /// (name, count).
+    pub folded: Vec<(String, String)>,
+}
+
+/// How the columns are laid out at the board's width (FLW-12, SHL-01).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Layout {
+    /// The least width of an open column: 200 px, 184 in a long flow.
+    pub column_width: f32,
+    /// The strip above a long flow's board that doesn't fit, naming every column.
+    pub strip: Option<Vec<StripColumn>>,
+}
+
+/// Whether `open` columns of `column_width` and `rails` rails fit `width` (the board's, its padding included).
+fn fits(width: f32, open: usize, rails: usize, column_width: f32) -> bool {
+    let n = open + rails;
+    let gaps = n.saturating_sub(1) as f32 * COLUMN_GAP;
+    2. * BOARD_PADDING + open as f32 * column_width + rails as f32 * DONE_RAIL_WIDTH + gaps <= width
+}
+
+/// Lays `columns` out at the board's `width` (FLW-12): a flow under [`LONG_FLOW_COLUMNS`] columns as today; a long
+/// flow's columns keep [`COMPACT_COLUMN_WIDTH`] (Ready for Dev's hint shortens), and when they don't fit, every
+/// empty stage folds to its rail and, if they still don't fit, the stage strip names every column.
+pub fn lay_out(columns: &mut [ColumnView], width: f32) -> Layout {
+    if columns.len() < LONG_FLOW_COLUMNS {
+        return Layout {
+            column_width: MIN_COLUMN_WIDTH,
+            strip: None,
+        };
+    }
+    let rails = |columns: &[ColumnView]| columns.iter().filter(|c| c.collapsed).count();
+    let open = |columns: &[ColumnView]| columns.len() - rails(columns);
+    for column in columns.iter_mut() {
+        if column.kind == ColumnKind::ReadyForDev {
+            column.hint = Some(READY_FOR_DEV_SHORT_HINT);
+        }
+    }
+    if !fits(width, open(columns), rails(columns), COMPACT_COLUMN_WIDTH) {
+        for column in columns.iter_mut() {
+            let stage = matches!(
+                column.kind,
+                ColumnKind::Agent | ColumnKind::HumanCheck | ColumnKind::Delivery
+            );
+            if stage && column.total == 0 {
+                column.collapsed = true;
+            }
+        }
+    }
+    let strip = (!fits(width, open(columns), rails(columns), COMPACT_COLUMN_WIDTH)).then(|| {
+        columns
+            .iter()
+            .map(|c| StripColumn {
+                column: c.id.clone(),
+                title: c.title.clone(),
+                count: c.count.clone(),
+                folded: c
+                    .folded
+                    .iter()
+                    .map(|f| (f.name.clone(), f.count.clone()))
+                    .collect(),
+            })
+            .collect()
+    });
+    Layout {
+        column_width: COMPACT_COLUMN_WIDTH,
+        strip,
+    }
+}
+
 fn section(
     state: StateCards,
+    column: &FlowColumn,
+    index: usize,
+    stage: &Stage,
     filtered: bool,
     entries: &dyn Fn(&[TicketKey]) -> Vec<CardEntry>,
 ) -> SectionView {
-    let approved = state.order.column == Column::Approved;
+    let approved = stage.is_delivery();
+    let id = column.parts[index].id.clone();
     SectionView {
-        column: state.order.column,
+        target: (index > 0).then(|| DropTargetId::new(id.clone())),
+        id: ReviewSectionId(id.into()),
+        delivery: approved,
         title: if approved {
             APPROVED_SECTION
         } else {
             READY_FOR_REVIEW_SECTION
+        },
+        name: if approved {
+            "Approved"
+        } else {
+            "Ready for Review"
         },
         count: count_text(state.visible, state.total, state.strong, filtered),
         cards: entries(&state.order.cards),
@@ -549,7 +889,7 @@ mod tests {
             t20,
             ticket("SHOP-21", "Order confirmation email", Status::Queued),
             ticket("SHOP-29", "Coupons", Status::Held),
-            ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
+            ticket("SHOP-18", "Checkout API", Status::WaitingForYou),
             ticket("SHOP-17", "Add Stripe client", Status::Merged),
         ]
     }
@@ -560,6 +900,7 @@ mod tests {
 
     fn input(tickets: &[Ticket], budget: Option<usize>) -> BoardInput<'_> {
         BoardInput {
+            flow: &otaq_core::flow::default_file().flow,
             tickets,
             visible: None,
             strong: None,
@@ -570,7 +911,87 @@ mod tests {
             agent_names: &[],
             was_validating: &[],
             agents: None,
+            agent_list: None,
+            starts_held: None,
         }
+    }
+
+    /// STG-08 on the test flow: Grill, Dev (Validate in it), Security, QA and the Delivery each have their own
+    /// column between Ready for Dev and Done; a card waiting between Grill and Dev shows in Dev's column with its
+    /// waiting status, a validating one in Dev too, a Security check in Security, QA's card in QA's section.
+    #[test]
+    fn the_test_flow_draws_a_column_per_own_stage() {
+        use otaq_core::domain::Place;
+        let flow = crate::view_models::flow_columns::every_kind();
+        let at = |key: &str, status, place: Place| {
+            let mut t = ticket(key, "Work", status);
+            t.place = place;
+            t
+        };
+        let tickets = vec![
+            at("NOTE-1", Status::Working, Place::stage_of("grill")),
+            at("NOTE-2", Status::Queued, Place::Waiting(Some("dev".into()))),
+            at("NOTE-3", Status::Checking, Place::stage_of("validate")),
+            at("NOTE-4", Status::Checking, Place::stage_of("security")),
+            at("NOTE-5", Status::WaitingForYou, Place::stage_of("qa")),
+            at("NOTE-6", Status::PrOpen, Place::stage_of("ship")),
+            at("NOTE-7", Status::Queued, Place::Waiting(None)),
+        ];
+        let columns = build(&BoardInput {
+            flow: &flow,
+            ..input(&tickets, None)
+        });
+        let ids: Vec<&str> = columns.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "backlog",
+                "ready_for_dev",
+                "grill",
+                "dev",
+                "security",
+                "qa",
+                "ship",
+                "done"
+            ]
+        );
+        let dev_keys = |id: &str| {
+            let dev = columns
+                .iter()
+                .find(|c| c.id.as_str() == id)
+                .unwrap()
+                .dev
+                .clone()
+                .unwrap();
+            keys(&dev.top)
+                .into_iter()
+                .chain(keys(&dev.working))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(dev_keys("grill"), ["NOTE-1"]);
+        assert_eq!(
+            dev_keys("dev"),
+            ["NOTE-3", "NOTE-2"],
+            "checks, then the card waiting before Dev"
+        );
+        assert_eq!(dev_keys("security"), ["NOTE-4"]);
+        let qa = &columns[5];
+        assert!(qa.sections.is_empty(), "nothing folded into QA: its cards");
+        assert_eq!(keys(&qa.cards), ["NOTE-5"]);
+        assert_eq!(keys(&columns[6].cards), ["NOTE-6"]);
+        assert_eq!(keys(&columns[1].cards), ["NOTE-7"]);
+        let waiting = columns[3]
+            .dev
+            .as_ref()
+            .unwrap()
+            .working
+            .iter()
+            .find_map(|e| match e {
+                CardEntry::Ticket(vm) if vm.key.to_string() == "NOTE-2" => Some(vm.clone()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(waiting.hover.status, Status::Queued.label());
     }
 
     /// T-0075: a working card that turns turquoise moves up to the top of Dev, below the pinned card, and back
@@ -724,7 +1145,7 @@ mod tests {
         let columns = build(&input(&tickets, None));
         assert_eq!(column_keys(&columns[0]), ["SHOP-51"]);
         assert_eq!(column_keys(&columns[2]), ["SHOP-45.2"]);
-        assert_eq!(column_keys(&columns[4]), ["SHOP-45.1"]);
+        assert_eq!(column_keys(&columns[5]), ["SHOP-45.1"]);
 
         // SHOP-45.1 merged and SHOP-45.2 taken back: the track stays, 45.2 is not a Backlog card.
         let tickets = search([Status::Merged, Status::Backlog]);
@@ -757,7 +1178,7 @@ mod tests {
     /// EPC-04: SHOP-40 in Review is its delivery card there, as before; its merged children stay in Done.
     #[test]
     fn an_epic_in_review_is_its_delivery_card() {
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::ReadyForReview);
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
         epic.kind = Kind::Epic;
         let mut tickets = vec![epic];
         for key in ["SHOP-40.1", "SHOP-40.2"] {
@@ -769,10 +1190,10 @@ mod tests {
         assert!(column_keys(&columns[0]).is_empty());
         assert_eq!(columns[0].count, "0");
         assert!(matches!(
-            columns[3].sections[0].cards.as_slice(),
+            columns[4].sections[0].cards.as_slice(),
             [CardEntry::Epic(e)] if e.key.to_string() == "SHOP-40"
         ));
-        assert_eq!(column_keys(&columns[4]), ["SHOP-40.1", "SHOP-40.2"]);
+        assert_eq!(column_keys(&columns[5]), ["SHOP-40.1", "SHOP-40.2"]);
     }
 
     /// SHOP-40 Wishlist in flight: 40.1 and 40.2 merged, 40.3 working, 40.5 closed; SHOP-17 and SHOP-30 merged
@@ -807,7 +1228,7 @@ mod tests {
     fn merged_children_fold_into_one_line_in_done() {
         let tickets = wishlist_done();
         let columns = build(&input(&tickets, None));
-        let done = &columns[4];
+        let done = &columns[5];
         assert_eq!(
             keys(&done.cards),
             ["SHOP-40.5", "SHOP-17", "SHOP-40.1", "SHOP-40.2", "SHOP-30"],
@@ -822,13 +1243,13 @@ mod tests {
             }]
         );
         assert_eq!(done.count, "4", "40.5, 17, the fold and 30");
-        assert!(columns[..4].iter().all(|c| c.folds.is_empty()));
+        assert!(columns[..5].iter().all(|c| c.folds.is_empty()));
 
         // The first merged child folds at once ("1 of 4"), and a closed child never does.
         let mut tickets = wishlist_done();
         tickets[2].status = Status::Working;
-        tickets[2].column = Column::Dev;
-        let done = &build(&input(&tickets, None))[4];
+        tickets[2].place = otaq_core::domain::Place::stage_of("dev");
+        let done = &build(&input(&tickets, None))[5];
         assert_eq!(done.folds.len(), 1);
         assert_eq!(done.folds[0].label, "Wishlist · 1 of 4 merged");
         assert_eq!(done.count, "4");
@@ -842,27 +1263,44 @@ mod tests {
         let done = &build(&BoardInput {
             visible: Some(&visible),
             ..input(&tickets, None)
-        })[4];
+        })[5];
         assert_eq!(keys(&done.cards), ["SHOP-17", "SHOP-40.2"]);
         assert_eq!(done.folds[0].keys.len(), 1);
         assert_eq!(done.folds[0].label, "Wishlist · 2 of 4 merged");
         assert_eq!((done.count.as_str(), done.hidden), ("2/4", 2));
     }
 
-    /// SHL-06: five columns; Review counts both sections.
+    /// SHL-06, FLW-01: six columns (Validate has its own); Review counts both sections.
     #[test]
-    fn five_columns_with_counts_and_epics_in_backlog() {
+    fn six_columns_with_counts_and_epics_in_backlog() {
         let tickets = board();
         let columns = build(&input(&tickets, None));
-        let titles: Vec<_> = columns.iter().map(|c| c.title).collect();
+        let titles: Vec<_> = columns.iter().map(|c| c.title.as_str()).collect();
         assert_eq!(
             titles,
-            ["Backlog", "Ready for Dev", "Dev", "Review", "Done"]
+            [
+                "Backlog",
+                "Ready for Dev",
+                "Dev",
+                "Validate",
+                "Review",
+                "Done"
+            ]
         );
-        let ids: Vec<_> = columns.iter().map(|c| c.id).collect();
-        assert_eq!(ids, ColumnId::ALL);
+        let ids: Vec<_> = columns.iter().map(|c| c.id.clone()).collect();
+        assert_eq!(
+            ids,
+            [
+                ColumnId::BACKLOG,
+                ColumnId::READY_FOR_DEV,
+                ColumnId::DEV,
+                ColumnId::new("validate"),
+                ColumnId::REVIEW,
+                ColumnId::DONE
+            ]
+        );
         let counts: Vec<_> = columns.iter().map(|c| c.count.as_str()).collect();
-        assert_eq!(counts, ["2", "4", "7", "1", "1"]);
+        assert_eq!(counts, ["2", "4", "7", "0", "1", "1"]);
         // The epic is a card with SHOP-40.3 as its row, not a second Backlog card.
         assert_eq!(keys(&columns[0].cards), ["SHOP-24", "SHOP-40"]);
         assert!(
@@ -880,23 +1318,23 @@ mod tests {
         assert!(columns.iter().filter(|c| c.hint.is_some()).count() == 1);
         // Only Review has sections; its empty Approved section says so.
         assert!(columns.iter().filter(|c| !c.sections.is_empty()).count() == 1);
-        let review = &columns[3];
+        let review = &columns[4];
         assert!(review.cards.is_empty());
         let sections: Vec<_> = review
             .sections
             .iter()
-            .map(|s| (s.column, s.title, s.count.as_str(), keys(&s.cards)))
+            .map(|s| (s.id.clone(), s.title, s.count.as_str(), keys(&s.cards)))
             .collect();
         assert_eq!(
             sections,
             [
                 (
-                    Column::ReadyForReview,
+                    ReviewSectionId::READY_FOR_REVIEW,
                     READY_FOR_REVIEW_SECTION,
                     "1",
                     vec!["SHOP-18".to_owned()]
                 ),
-                (Column::Approved, APPROVED_SECTION, "0", vec![]),
+                (ReviewSectionId::APPROVED, APPROVED_SECTION, "0", vec![]),
             ]
         );
         assert_eq!(review.sections[1].empty, "Nothing approved");
@@ -913,21 +1351,21 @@ mod tests {
     /// counts both sections, under a filter too.
     #[test]
     fn review_sections_keep_their_own_order_and_counts() {
-        let mut pinned = ticket("SHOP-31", "Hotfix", Status::ReadyForReview);
+        let mut pinned = ticket("SHOP-31", "Hotfix", Status::WaitingForYou);
         pinned.flags.pinned_at = Some(20);
-        let mut older_pin = ticket("SHOP-32", "Footer", Status::ReadyForReview);
+        let mut older_pin = ticket("SHOP-32", "Footer", Status::WaitingForYou);
         older_pin.flags.pinned_at = Some(10);
         let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         let tickets = vec![
-            ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
+            ticket("SHOP-18", "Checkout API", Status::WaitingForYou),
             older_pin,
             pinned,
             pr,
             ticket("SHOP-27", "Search paging", Status::PrOpen),
         ];
         let columns = build(&input(&tickets, None));
-        let review = &columns[3];
+        let review = &columns[4];
         assert_eq!(review.count, "5");
         assert_eq!(
             keys(&review.sections[0].cards),
@@ -942,7 +1380,7 @@ mod tests {
             visible: Some(&visible),
             ..input(&tickets, None)
         });
-        let review = &filtered[3];
+        let review = &filtered[4];
         assert_eq!(
             (review.count.as_str(), review.hidden),
             ("2/5", 3),
@@ -956,6 +1394,59 @@ mod tests {
             (review.sections[1].count.as_str(), review.sections[1].hidden),
             ("1/2", 1)
         );
+    }
+
+    /// FLW-01 (T-0412's Done-when): the default board is Backlog · Ready for Dev · Dev · Validate · Review · Done; a
+    /// validating card is in Validate, Dev has no section header, Review keeps Ready for review · Approved. A flow
+    /// that folds its check into Dev (the test flow's `with-previous`) keeps the header.
+    #[test]
+    fn the_default_board_has_validate_in_its_own_column() {
+        use otaq_core::domain::Place;
+        let mut validating = ticket("SHOP-30", "Order history", Status::Checking);
+        validating.place = Place::stage_of("validate");
+        let tickets = vec![
+            ticket("SHOP-19", "Price table", Status::Working),
+            validating,
+            ticket("SHOP-18", "Checkout API", Status::WaitingForYou),
+        ];
+        let columns = build(&input(&tickets, None));
+        let titles: Vec<&str> = columns.iter().map(|c| c.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            [
+                "Backlog",
+                "Ready for Dev",
+                "Dev",
+                "Validate",
+                "Review",
+                "Done"
+            ]
+        );
+        let dev = columns[2].dev.as_ref().expect("Dev's cards");
+        assert!(columns[2].folded.is_empty(), "nothing folded into Dev");
+        assert_eq!(keys(&dev.working), ["SHOP-19"]);
+        assert!(columns[2].sections.is_empty());
+        let validate = columns[3].dev.as_ref().expect("Validate's cards");
+        assert_eq!(keys(&validate.working), ["SHOP-30"]);
+        assert_eq!(columns[3].count, "1");
+        let review: Vec<_> = columns[4].sections.iter().map(|s| s.title).collect();
+        assert_eq!(review, [READY_FOR_REVIEW_SECTION, APPROVED_SECTION]);
+
+        let flow = crate::view_models::flow_columns::every_kind();
+        let columns = build(&BoardInput {
+            flow: &flow,
+            ..input(&tickets, None)
+        });
+        let dev = columns.iter().find(|c| c.id.as_str() == "dev").unwrap();
+        assert_eq!(
+            dev.folded,
+            [FoldedView {
+                tag: "Validating".into(),
+                name: "Validate".into(),
+                count: "1".into()
+            }]
+        );
+        assert_eq!(dev.count, "1", "Dev's own card");
     }
 
     #[test]
@@ -995,8 +1486,8 @@ mod tests {
         assert!(!done_collapsed(None, 1920. - 64. - 460.), "1920");
         assert!(!done_collapsed(Some(false), 896.), "the user's choice wins");
         assert!(done_collapsed(Some(true), 1920.));
-        // Five open columns at 1360 are at least the minimum, with padding 2 × 10 and four gaps of 8.
-        const { assert!((DONE_OPEN_FROM_WIDTH - 20. - 32.) / 5. >= MIN_COLUMN_WIDTH) };
+        // Six open columns at 1360 are at least the minimum, with padding 2 × 10 and five gaps of 8.
+        const { assert!((DONE_OPEN_FROM_WIDTH - 20. - 40.) / 6. >= MIN_COLUMN_WIDTH) };
         let tickets = board();
         let columns = build(&BoardInput {
             done_collapsed: true,
@@ -1004,7 +1495,7 @@ mod tests {
             was_validating: &[],
             ..input(&tickets, None)
         });
-        assert!(columns[4].collapsed && !columns[0].collapsed);
+        assert!(columns[5].collapsed && !columns[0].collapsed);
         assert_eq!(dev_budget(900.), 8);
         assert_eq!(dev_budget(300.), 4);
     }
@@ -1071,5 +1562,372 @@ mod tests {
         assert_eq!(columns[0].count, "1/2");
         assert_eq!(columns[0].hidden, 0);
         assert_eq!(columns[2].count, "0/7");
+    }
+
+    /// FLW-12 on the default flow: today's icons in their status colours, but Validate's shield (FLW-01); a tooltip
+    /// for each stage column; the full Ready for Dev hint; no rails but Done's and no stage strip at 1440 or 1280.
+    #[test]
+    fn the_default_board_keeps_todays_headers() {
+        use crate::view_models::agents::fixtures::{agent, on};
+        let tickets = board();
+        let list = AgentList {
+            agents: vec![
+                agent("a1", "Developer", Some("sonnet")),
+                on(
+                    otaq_core::agent_tools::Tool::Codex,
+                    agent("a2", "Validator", Some("gpt-5.5")),
+                ),
+            ],
+            default_model: None,
+            fallbacks: Vec::new(),
+        };
+        let mut columns = build(&BoardInput {
+            agent_list: Some(&list),
+            ..input(&tickets, None)
+        });
+        let looks: Vec<(IconName, bool)> = columns.iter().map(|c| (c.icon, c.quiet_icon)).collect();
+        assert_eq!(
+            looks,
+            [
+                (IconName::CircleDashed, false),
+                (IconName::Hourglass, false),
+                (IconName::Activity, false),
+                (IconName::ShieldCheck, false),
+                (IconName::Eye, false),
+                (IconName::CircleCheck, false),
+            ]
+        );
+        assert_eq!(columns[3].empty_hint, AGENT_CHECK_EMPTY);
+        assert!(
+            columns
+                .iter()
+                .all(|c| c.folded.is_empty() || c.kind == ColumnKind::HumanCheck)
+        );
+        let tip = |i: usize| columns[i].tooltip.clone();
+        assert_eq!(tip(0), None);
+        assert_eq!(tip(1), None);
+        assert_eq!(
+            tip(2),
+            Some(HeaderTooltip {
+                title: "Dev · Developer · work-ticket".into(),
+                detail: vec!["Claude Code · sonnet".into()],
+            })
+        );
+        assert_eq!(
+            tip(3),
+            Some(HeaderTooltip {
+                title: "Validate · Validator · validate".into(),
+                detail: vec!["Codex · gpt-5.5 · up to 3 rounds".into()],
+            })
+        );
+        assert_eq!(
+            tip(4),
+            Some(HeaderTooltip {
+                title: "Review · your check".into(),
+                detail: vec!["Done · Developer · Claude Code · sonnet · shown in Review".into()],
+            })
+        );
+        assert_eq!(tip(5), None);
+        // Today's layout at every width: the board scrolls at 200 px a column, nothing folds but Done.
+        for width in [1440. - 64. - 400., 1280. - 64. - 320., 1920. - 64.] {
+            let layout = lay_out(&mut columns, width);
+            assert_eq!(
+                layout,
+                Layout {
+                    column_width: MIN_COLUMN_WIDTH,
+                    strip: None
+                }
+            );
+        }
+        assert_eq!(columns[1].hint, Some(READY_FOR_DEV_HINT));
+        assert!(columns.iter().all(|c| !c.collapsed));
+    }
+
+    /// FLW-12 on the test flow: muted kind icons (bot, shield, person, PR), Dev counting its own card then
+    /// "Validating 1", the Delivery named "Done · PR", and the tooltips with agent, tool, model and options.
+    #[test]
+    fn the_test_flow_headers_name_kinds_folds_and_the_delivery() {
+        use crate::view_models::agents::fixtures::agent;
+        let flow = crate::view_models::flow_columns::every_kind();
+        let at = |key: &str, status, place: Place| {
+            let mut t = ticket(key, "Work", status);
+            t.place = place;
+            t
+        };
+        let tickets = vec![
+            at("NOTE-1", Status::Working, Place::stage_of("dev")),
+            at("NOTE-2", Status::Working, Place::stage_of("dev")),
+            at("NOTE-3", Status::Checking, Place::stage_of("validate")),
+            at("NOTE-4", Status::Checking, Place::stage_of("security")),
+        ];
+        let list = AgentList {
+            agents: vec![
+                agent("g", "Griller", Some("sonnet")),
+                agent("r", "Rust developer", Some("sonnet")),
+                agent("s", "Security reviewer", Some("opus")),
+                agent("p", "Shipper", Some("haiku")),
+            ],
+            default_model: None,
+            fallbacks: Vec::new(),
+        };
+        let columns = build(&BoardInput {
+            flow: &flow,
+            agent_list: Some(&list),
+            ..input(&tickets, None)
+        });
+        let heads: Vec<(&str, IconName, bool)> = columns
+            .iter()
+            .map(|c| (c.title.as_str(), c.icon, c.quiet_icon))
+            .collect();
+        assert_eq!(
+            heads,
+            [
+                ("Backlog", IconName::CircleDashed, true),
+                ("Ready for Dev", IconName::Hourglass, true),
+                ("Grill", IconName::Bot, true),
+                ("Dev", IconName::Bot, true),
+                ("Security", IconName::ShieldCheck, true),
+                ("QA", IconName::UserCheck, true),
+                ("Done · PR", IconName::GitPullRequest, true),
+                ("Done", IconName::CircleCheck, true),
+            ]
+        );
+        let dev = &columns[3];
+        assert_eq!(dev.count, "2", "Dev's own cards");
+        assert_eq!(
+            dev.folded,
+            [FoldedView {
+                tag: "Validating".into(),
+                name: "Validate".into(),
+                count: "1".into()
+            }]
+        );
+        assert_eq!(dev.total, 3);
+        assert_eq!(
+            dev.tooltip,
+            Some(HeaderTooltip {
+                title: "Dev · Rust developer · work-ticket".into(),
+                detail: vec![
+                    "Claude Code · sonnet".into(),
+                    "Options: Quick developer".into(),
+                    // Validator isn't in the list: its line names the agent only.
+                    "Validate · Validator · shown in Dev".into(),
+                ],
+            })
+        );
+        let tip = |i: usize| columns[i].tooltip.clone().unwrap();
+        assert_eq!(tip(2).title, "Grill · Griller · grill");
+        assert_eq!(tip(2).detail, ["Claude Code · sonnet", "Options: skip"]);
+        assert_eq!(
+            tip(4).title,
+            "Security · Security reviewer · security-review"
+        );
+        assert_eq!(tip(4).detail, ["Claude Code · opus · up to 2 rounds"]);
+        assert_eq!(tip(5).title, "QA · your check");
+        assert_eq!(tip(5).detail, ["Options: skip"]);
+        assert_eq!(tip(6).title, "Done · PR, automatic · Shipper · open-pr");
+        assert_eq!(tip(6).detail, ["Claude Code · haiku"]);
+
+        // A filter counts each part on its own: "1/2 · Validating 0/1".
+        let visible: Vec<TicketKey> = vec!["NOTE-1".parse().unwrap()];
+        let filtered = build(&BoardInput {
+            flow: &flow,
+            visible: Some(&visible),
+            ..input(&tickets, None)
+        });
+        assert_eq!(filtered[3].count, "1/2");
+        assert_eq!(filtered[3].folded[0].count, "0/1");
+        assert_eq!(filtered[3].hidden, 2);
+    }
+
+    /// shop-web's ten columns (*Row · A flow with many stages*): Backlog · Ready for Dev · Grill · Dev (Validate in
+    /// it) · Security · QA · Review · Docs · Done · PR · Done.
+    fn ten_stages() -> Flow {
+        let yaml = "\
+flow:
+  - {id: grill, name: Grill, kind: agent, agent: Griller, skill: grill, options: [skip]}
+  - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
+  - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agent: Validator, skill: validate, rounds: 3}
+  - {id: security, name: Security, kind: check, by: agent, agent: Security reviewer, skill: security-review, rounds: 3}
+  - {id: qa, name: QA, kind: check, by: you}
+  - {id: review, name: Review, kind: check, by: you}
+  - {id: docs, name: Docs, kind: agent, agent: Doc writer, skill: docs}
+  - {id: ship, name: Done, kind: delivery, agent: Shipper, skill: open-pr, mode: automatic, delivers: pr}
+";
+        otaq_core::flow::yaml::read(yaml).unwrap().flow
+    }
+
+    /// FLW-12, a long flow: at 1440 with the pane open the columns keep 184 px, the empty Grill and Docs fold to
+    /// rails (Done too, by width), Ready for Dev's hint shortens and the strip names every column, Validate under
+    /// Dev. At 1920 with the pane hidden the rails make it fit: no strip. A card in Grill opens its column again.
+    #[test]
+    fn a_long_flow_folds_empty_stages_and_shows_the_strip() {
+        let flow = ten_stages();
+        let at = |key: &str, status, place: Place| {
+            let mut t = ticket(key, "Work", status);
+            t.place = place;
+            t
+        };
+        let mut tickets = vec![
+            at("SHOP-41", Status::Backlog, Place::Backlog),
+            at("SHOP-35", Status::Queued, Place::Waiting(None)),
+            at("SHOP-33", Status::Working, Place::stage_of("dev")),
+            at("SHOP-30", Status::Checking, Place::stage_of("validate")),
+            at("SHOP-19", Status::Checking, Place::stage_of("security")),
+            at("SHOP-23", Status::WaitingForYou, Place::stage_of("qa")),
+            at("SHOP-18", Status::WaitingForYou, Place::stage_of("review")),
+            at("SHOP-26", Status::PrOpen, Place::stage_of("ship")),
+        ];
+        for key in ["SHOP-1", "SHOP-2", "SHOP-3", "SHOP-4"] {
+            tickets.push(at(key, Status::Merged, Place::Done));
+        }
+        let board = |tickets: &[Ticket], width: f32| {
+            let mut columns = build(&BoardInput {
+                flow: &flow,
+                done_collapsed: done_collapsed(None, width),
+                ..input(tickets, None)
+            });
+            let layout = lay_out(&mut columns, width);
+            (columns, layout)
+        };
+        let (columns, layout) = board(&tickets, 1440. - 64. - 400.);
+        assert_eq!(columns.len(), 10);
+        assert_eq!(layout.column_width, COMPACT_COLUMN_WIDTH);
+        let rails: Vec<&str> = columns
+            .iter()
+            .filter(|c| c.collapsed)
+            .map(|c| c.title.as_str())
+            .collect();
+        assert_eq!(rails, ["Grill", "Docs", "Done"]);
+        assert_eq!(columns[1].hint, Some(READY_FOR_DEV_SHORT_HINT));
+        type Item = (String, String, Vec<(String, String)>);
+        let strip: Vec<Item> = layout
+            .strip
+            .expect("the strip")
+            .into_iter()
+            .map(|c| (c.title, c.count, c.folded))
+            .collect();
+        let item = |title: &str, count: &str| (title.to_owned(), count.to_owned(), Vec::new());
+        assert_eq!(
+            strip,
+            [
+                item("Backlog", "1"),
+                item("Ready for Dev", "1"),
+                item("Grill", "0"),
+                (
+                    "Dev".to_owned(),
+                    "1".to_owned(),
+                    vec![("Validate".to_owned(), "1".to_owned())]
+                ),
+                item("Security", "1"),
+                item("QA", "1"),
+                item("Review", "1"),
+                item("Docs", "0"),
+                item("Done · PR", "1"),
+                item("Done", "4"),
+            ]
+        );
+
+        // Wide enough once the empty stages are rails: no strip.
+        let (columns, layout) = board(&tickets, 1920. - 64.);
+        assert_eq!(layout.strip, None);
+        let rails = columns.iter().filter(|c| c.collapsed).count();
+        assert_eq!(rails, 2, "Grill and Docs; Done is open");
+        // Wider still, everything fits open: nothing folds.
+        let (columns, layout) = board(&tickets, 2600.);
+        assert!(columns.iter().all(|c| !c.collapsed) && layout.strip.is_none());
+
+        // A card in Grill: its column opens.
+        tickets.push(at("SHOP-44", Status::Working, Place::stage_of("grill")));
+        let (columns, _) = board(&tickets, 1440. - 64. - 400.);
+        let grill = columns.iter().find(|c| c.title == "Grill").unwrap();
+        assert!(!grill.collapsed);
+    }
+
+    /// FLW-06 (the Ready for Dev footer): while a flow change holds starts, a card that would start says why; one
+    /// that waits for a parent keeps saying so.
+    #[test]
+    fn held_starts_say_they_wait_for_the_flow_change() {
+        let tickets = board();
+        let held = build(&BoardInput {
+            starts_held: Some(WAITING_FOR_THE_FLOW_CHANGE),
+            ..input(&tickets, None)
+        });
+        let card = |key: &str| -> CardViewModel {
+            held[1]
+                .cards
+                .iter()
+                .find_map(|e| match e {
+                    CardEntry::Ticket(vm) if vm.key.to_string() == key => Some(vm.clone()),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        assert_eq!(
+            card("SHOP-21").situation.unwrap().text,
+            WAITING_FOR_THE_FLOW_CHANGE
+        );
+        assert_eq!(
+            card("SHOP-20").situation.unwrap().text,
+            "waits for SHOP-18 to merge (in Review)"
+        );
+        // Without a hold it starts.
+        let free = build(&input(&tickets, None));
+        let CardEntry::Ticket(vm) = &free[1].cards[1] else {
+            panic!()
+        };
+        assert_eq!(vm.key.to_string(), "SHOP-21");
+        assert!(vm.situation.clone().unwrap().text.starts_with("Starting"));
+    }
+
+    /// FLW-19, Q273: an epic of a flow with no human check, done with its children, waits at Review epic on its
+    /// track, not as a card.
+    #[test]
+    fn an_epic_at_review_epic_is_on_its_track_not_a_card() {
+        let mut flow = crate::view_models::flow_columns::every_kind();
+        flow.stages.retain(|s| !s.is_human_check());
+        let mut epic = ticket("SHOP-12", "Plugin API", Status::WaitingForYou);
+        epic.kind = Kind::Epic;
+        epic.place = Place::stage_of(REVIEW_EPIC);
+        let mut tickets = vec![epic];
+        for key in ["SHOP-12.1", "SHOP-12.2"] {
+            let mut t = ticket(key, "Child", Status::Merged);
+            t.epic = Some("SHOP-12".parse().unwrap());
+            t.place = Place::Done;
+            tickets.push(t);
+        }
+        let columns = build(&BoardInput {
+            flow: &flow,
+            ..input(&tickets, None)
+        });
+        assert!(
+            columns
+                .iter()
+                .all(|c| !column_keys(c).contains(&"SHOP-12".to_owned())),
+            "no epic card"
+        );
+        let strip =
+            crate::view_models::epic_strip::Strip::from(&tickets, &flow).expect("its track");
+        let track = &strip.tracks[0];
+        let ship = track
+            .stations
+            .iter()
+            .find(|s| s.column.as_str() == "ship")
+            .unwrap();
+        let first = &ship.stops[0];
+        assert_eq!(
+            (first.key.as_str(), first.label.as_str(), first.icon),
+            ("SHOP-12", "Review epic", IconName::UserCheck)
+        );
+        assert_eq!(
+            first.state,
+            crate::view_models::epic_strip::StopState::InReview
+        );
+        assert_eq!(first.tooltip, "SHOP-12 Plugin API · Review epic");
+
+        // On the default flow the epic waits in Review as its card, as today.
+        tickets[0].place = Place::stage_of("review");
+        let columns = build(&input(&tickets, None));
+        assert!(column_keys(&columns[4]).contains(&"SHOP-12".to_owned()));
     }
 }

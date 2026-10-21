@@ -76,9 +76,9 @@ echo "==> Assembling $app_name ($bundle_id, version $version)"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 cp "$from/otaq-app" "$from/otaq" "$bundle/Contents/MacOS/"
 cp "$root/crates/otaq-desktop/icons/icon.icns" "$bundle/Contents/Resources/icon.icns"
-# Every plugin folder the agent tools look for: plugin/ (Claude Code, and Codex's and OpenCode's parts inside it)
-# and plugin-copilot/ beside it. cp -R keeps plugin-copilot/skills a relative link to ../plugin/skills.
-cp -R "$root/plugin" "$root/plugin-copilot" "$bundle/Contents/Resources/"
+# Otaq's plugin folder: the shipped skills (plugin/skills, copied into each session's folder) and each agent tool's
+# hooks plugin (plugin/claude, plugin/codex, plugin/copilot, plugin/opencode).
+cp -R "$root/plugin" "$bundle/Contents/Resources/"
 find "$bundle/Contents/Resources" -name .DS_Store -delete
 
 # LSMinimumSystemVersion: the value Tauri's bundler writes by default (bundle > macOS > minimumSystemVersion).

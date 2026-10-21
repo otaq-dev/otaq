@@ -43,6 +43,22 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "lead.note" {
             params["text"] = json!("t");
         }
+        if method == "flow.apply" {
+            params["proposal"] = json!(3);
+        }
+        if method == "flow.propose_from" {
+            params["source"] = json!({"from": "previous"});
+        }
+        if method == "flow.propose" {
+            params["source"] = json!({"from": "project", "project": "NOPE"});
+        }
+        if method == "flow.apply_now" {
+            params["stamp"] = json!("s");
+        }
+        if method == "flow.ask_for_changes" {
+            params["proposal"] = json!(3);
+            params["text"] = json!("t");
+        }
         if method == "hook" {
             params["tool"] = json!("claude");
         }
@@ -54,19 +70,29 @@ fn sample(method: &str, unit: bool) -> Request {
             params["tool"] = json!("claude");
         }
         if method == "agents.add" || method == "agents.edit" {
-            params["tool"] = json!("claude");
+            params["model"] = json!({"kind": "default"});
         }
-        if [
-            "agents.set_default",
-            "project.set_agent_default",
-            "ticket.agent_row",
-        ]
-        .contains(&method)
-        {
-            params["role"] = json!("developer");
+        if method == "agents.move_role" {
+            params["role"] = json!("epic-lead");
             params["agent"] = json!("nope");
         }
-        if method.starts_with("agent_tools.") || method.starts_with("limits.") {
+        if method == "agents.default_model" {
+            params["model"] = json!({"tool": "claude"});
+        }
+        if method == "agents.import_skill" {
+            params["folder"] = json!("/nonexistent");
+        }
+        if method == "agents.reimport_skill" {
+            params["skill"] = json!("nope");
+        }
+        if method == "agents.reads" {
+            params["agent"] = json!("nope");
+        }
+        if method.starts_with("agent_tools.")
+            || method.starts_with("limits.")
+            || method == "agents.fallback"
+            || method == "onboarding.ask"
+        {
             params["tool"] = json!("codex");
         }
         // git has no login: refused, so the sample never runs an install or login command.
@@ -77,18 +103,12 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "agent_tools.set_hidden" {
             params["hidden"] = json!(true);
         }
-        if method == "limits.move_waiting" {
-            params["agent"] = json!("nope");
+        if method == "ticket.set_choice" {
+            params["stage"] = json!("Dev");
+            params["choice"] = json!("skip");
         }
-        if method == "ticket.use_fallback" {
-            params["role"] = json!("developer");
-        }
-        if method == "settings.auto_fallback" {
-            params["on"] = json!(true);
-        }
-        if method.starts_with("workflow_skills.") {
-            params["step"] = json!("commit");
-            params["folder"] = json!("/nonexistent");
+        if method.starts_with("ticket.comment_") || method == "ticket.report" {
+            params["n"] = json!(1);
         }
         if method == "decision.mark" {
             params["source"] = json!("PAY-1");
@@ -129,6 +149,10 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::Subscribe
         | Request::ToolsCheck
         | Request::OnboardingState
+        | Request::OnboardingSources(_)
+        | Request::OnboardingAsk(_)
+        | Request::OnboardingFlowSetup(_)
+        | Request::OnboardingUseDefault(_)
         | Request::DismissPermissionWarning
         | Request::DismissTrustNote
         | Request::NotificationsState
@@ -148,6 +172,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::TicketCreateBatch(_)
         | Request::TicketUpdate(_)
         | Request::TicketMove(_)
+        | Request::TicketDrag(_)
         | Request::TicketPin(_)
         | Request::TicketUnpin(_)
         | Request::TicketAgentEdits(_)
@@ -178,13 +203,20 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::ReviewCommentEdit(_)
         | Request::ReviewCommentDelete(_)
         | Request::ReviewComments(_)
-        | Request::TicketSendBack(_)
+        | Request::TicketCommentPost(_)
+        | Request::TicketCommentEdit(_)
+        | Request::TicketCommentDelete(_)
+        | Request::TicketComments(_)
+        | Request::TicketReport(_)
+        | Request::TicketFail(_)
+        | Request::TicketPass(_)
         | Request::ReviewFeedback(_)
         | Request::TicketMergeProposal(_)
         | Request::TicketLocalMerge(_)
         | Request::TicketApproveCheck(_)
         | Request::TicketConflict(_)
-        | Request::TicketSendToFix(_)
+        | Request::TicketSendBackPr(_)
+        | Request::TicketAddChildFromPr(_)
         | Request::TicketPrime(_)
         | Request::TicketAskHuman(_)
         | Request::DecisionRecord(_)
@@ -199,7 +231,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::SuggestionDismiss(_)
         | Request::LeadNote(_)
         | Request::TicketNotes(_)
-        | Request::TicketReviewSubmit(_)
+        | Request::TicketStageNext(_)
+        | Request::TicketStageDone(_)
         | Request::ValidationVerdict(_)
         | Request::TicketPrimeValidate(_)
         | Request::TicketValidationAction(_)
@@ -248,6 +281,19 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::SettingsSet(_)
         | Request::ProjectSettingsGet(_)
         | Request::ProjectSettingsSet(_)
+        | Request::FlowCurrent(_)
+        | Request::FlowVersions(_)
+        | Request::FlowProposal(_)
+        | Request::FlowApply(_)
+        | Request::FlowCancelProposal(_)
+        | Request::FlowWaiting(_)
+        | Request::FlowCancelWaiting(_)
+        | Request::FlowApplyNowPlan(_)
+        | Request::FlowApplyNow(_)
+        | Request::FlowProposeFrom(_)
+        | Request::FlowShow(_)
+        | Request::FlowPropose(_)
+        | Request::FlowAskForChanges(_)
         | Request::SessionList(_)
         | Request::SessionAttach(_)
         | Request::SessionDetach(_)
@@ -292,12 +338,16 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentsDuplicate(_)
         | Request::AgentsDelete(_)
         | Request::AgentsInUse(_)
-        | Request::ProjectAgentDefaults(_)
-        | Request::AgentsSetDefault(_)
-        | Request::ProjectSetAgentDefault(_)
-        | Request::TicketAgentRow(_)
+        | Request::AgentsMoveRole(_)
+        | Request::AgentsDefaultModel(_)
+        | Request::AgentsFallback(_)
+        | Request::AgentsImportSkill(_)
+        | Request::AgentsReimportSkill(_)
+        | Request::AgentsReads(_)
         | Request::TicketAgents(_)
         | Request::BoardAgents(_)
+        | Request::TicketChoices(_)
+        | Request::TicketSetChoice(_)
         | Request::AgentToolsList
         | Request::AgentToolsRecheck(_)
         | Request::AgentToolsSetHidden(_)
@@ -305,14 +355,9 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentToolsInstall(_)
         | Request::AgentToolsDisconnect(_)
         | Request::LimitsResumeTool(_)
-        | Request::LimitsMoveWaiting(_)
+        | Request::LimitsUseFallbackNow(_)
         | Request::TicketUseFallback(_)
-        | Request::SettingsAutoFallback(_)
-        | Request::RecentItems(_)
-        | Request::WorkflowSkillsStatus(_)
-        | Request::WorkflowSkillsImport(_)
-        | Request::WorkflowSkillsReimport(_)
-        | Request::WorkflowSkillsReset(_) => false,
+        | Request::RecentItems(_) => false,
     }
 }
 

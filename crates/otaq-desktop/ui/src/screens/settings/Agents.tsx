@@ -1,153 +1,143 @@
-// Settings → Agents (T-0343, T-0366; AGT-01…AGT-03, AGT-05's marks, AGT-08; d0086, d0077; *15 · Settings* `bVdGw`,
-// `FYvzM`, `cnRA5`, `soGMU`, `t1sI3`, `OCna6`, `XlyOa`, `Z4gQQQ`): the Named agents table (NAME · MODEL · USE FOR with
-// one tool; NAME · TOOL · MODEL · USE FOR · FALLBACK with several, each tool with its avatar), each row's ⋯ menu
-// (Edit…, Duplicate, Delete…), the amber marks (`st-paused`: a model that can't run, a tool that isn't connected), a
-// row a tool connecting added ("added") with "DEFAULTS · UNCHANGED" under the table, the fresh-install note while one
-// entry exists, Add agent, the four role defaults, and the Fallbacks block ("Use fallback agents automatically",
-// disabled with its reason while one tool is connected); and the project's Agents block (`mQijC`), collapsed at "Uses
-// app defaults · Change" until the project overrides a role. Everything comes from the views (`settings.agents`,
-// `settings.project_agents` and the answers of the calls below); this keeps the open menu and dialog.
-import { useCallback, useEffect, useRef, useState } from "react";
+// Settings → Agents (T-0410; AGM-02, AGM-03, AGM-04, AGT-05's marks; d0108, d0078, d0086, d0092; *15 → Agents
+// (update AG §8)* `s15-58` / `s15-59`, the model picker `s15-30`, the mark `s15-32`): the default model for new agents, the fallback per tool and the list (NAME · MODEL · SKILLS · USED IN, each row's ⋯
+// Duplicate / Delete…); and one agent's page in the same place (← name, its Model with the tool's effort, its Role, its
+// Instructions in the Markdown editor, its Skills with Import skill folder… and Re-import, Used in). Everything comes
+// from the views (`settings.agents`, `settings.agent` and the answers of the calls below); this keeps which page is
+// open, the open menu and dialog, and the text being typed until it is saved.
+import { type ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
-import { closeOverlay } from "../../app/overlays";
-import { AnchoredMenu, Button, Checkbox, IconButton, ToolAvatar, Tooltip } from "../../components";
+import {
+  AnchoredMenu,
+  Button,
+  ConfirmDialog,
+  IconButton,
+  Segmented,
+  Select,
+  TextInput,
+} from "../../components";
+import type { AgentAddOutcome } from "../../generated/AgentAddOutcome";
+import type { AgentChange } from "../../generated/AgentChange";
 import type { AgentDeleteDialog } from "../../generated/AgentDeleteDialog";
 import type { AgentDeleteOutcome } from "../../generated/AgentDeleteOutcome";
-import type { AgentDialog as AgentDialogView } from "../../generated/AgentDialog";
-import type { AgentDraft } from "../../generated/AgentDraft";
-import type { AgentMenuAction } from "../../generated/AgentMenuAction";
-import type { AgentMenuItem } from "../../generated/AgentMenuItem";
-import type { AgentRole } from "../../generated/AgentRole";
-import type { AgentSaveOutcome } from "../../generated/AgentSaveOutcome";
-import type { AgentsFallbacks } from "../../generated/AgentsFallbacks";
+import type { AgentInstructionsField } from "../../generated/AgentInstructionsField";
+import type { AgentListRow } from "../../generated/AgentListRow";
+import type { AgentMarkView } from "../../generated/AgentMarkView";
+import type { AgentOption } from "../../generated/AgentOption";
+import type { AgentPage } from "../../generated/AgentPage";
+import type { AgentPageParams } from "../../generated/AgentPageParams";
+import type { AgentReadsTarget } from "../../generated/AgentReadsTarget";
+import type { AgentReadsView } from "../../generated/AgentReadsView";
+import type { AgentSkillDialog } from "../../generated/AgentSkillDialog";
+import type { AgentSkillRow } from "../../generated/AgentSkillRow";
 import type { AgentsSection as AgentsSectionView } from "../../generated/AgentsSection";
-import type { AgentTableRow } from "../../generated/AgentTableRow";
 import type { MenuItem } from "../../generated/MenuItem";
-import type { ProjectAgentsBlock } from "../../generated/ProjectAgentsBlock";
 import type { RequestError } from "../../generated/RequestError";
+import {
+  MarkdownSurface,
+  MarkdownToolbar,
+  openingMode,
+  rememberMode,
+  SourceArea,
+  SourceToggle,
+  useFocusOnLeave,
+  useMarkdownEditor,
+  useSourceMode,
+} from "../../markdown";
 import { asRequestError, watchView } from "../../service";
-import { request } from "../../tauri";
+import { pickFolder, request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { openKey } from "../sections/Report";
-import { AgentDeleteDialogView, AgentDialog, MarkLine } from "./AgentDialog";
-import { AgentPickerField } from "./ModelPicker";
+import { useSelection } from "../../app/selection";
+import { AgentReadsBody, AgentReadsHeading } from "./AgentReads";
+import { SettingsContext } from "./context";
+import { proposeFrom } from "./flowActions";
+import { ModelDropdown, type ModelPick, ModelPicker } from "./ModelPicker";
 
-/** A row's ⋯ items as menu rows; the last agent's Delete… is disabled with its reason under it. */
-export function menuItems(items: readonly AgentMenuItem[]): MenuItem[] {
-  return items.map((item) => ({
-    id: item.action,
-    label: item.label,
-    icon: item.icon,
+/** How long typed instructions wait before they are saved. */
+export const INSTRUCTIONS_SAVE_MS = 800;
+
+/** The amber line of a mark, the model in mono. */
+export function MarkLine({ mark }: { mark: AgentMarkView }) {
+  return (
+    <span className="settings-agent-mark-line">
+      <Icon name="triangle-alert" size={12} />
+      <span>
+        {mark.before}
+        {mark.model !== null && <code>{mark.model}</code>}
+        {mark.after}
+      </span>
+    </span>
+  );
+}
+
+/** A small select's choices (the tool, the effort) as menu rows, the current one checked. */
+export function optionItems(options: readonly AgentOption[]): MenuItem[] {
+  return options.map((o) => ({
+    id: o.id,
+    label: o.label,
+    icon: null,
     shortcut: null,
-    danger: item.danger,
-    disabled: !item.enabled,
-    hint: item.tooltip,
-    separated: item.separated,
+    danger: false,
+    disabled: false,
+    hint: null,
+    separated: false,
+    checked: o.selected,
+    header: false,
+  }));
+}
+
+/** The shipped skills Add skill offers, as menu rows. */
+export function skillItems(names: readonly string[]): MenuItem[] {
+  return names.map((name) => ({
+    id: name,
+    label: name,
+    icon: null,
+    shortcut: null,
+    danger: false,
+    disabled: false,
+    hint: null,
+    separated: false,
     checked: false,
     header: false,
   }));
 }
 
-/** What the section asks the page to do. */
-export interface AgentsActions {
-  onAdd: () => void;
-  onMenu: (row: AgentTableRow, action: AgentMenuAction) => void;
-  onDefault: (role: AgentRole, agent: string) => void;
-  /** "Use fallback agents automatically" (`settings.auto_fallback`). */
-  onAutoFallback: (on: boolean) => void;
+/** What a picked option sends: its id, or none for the empty id (the default model, the tool's effort). */
+export function optionValue(id: string): string | null {
+  return id === "" ? null : id;
 }
 
-function TableRow({ row, onMenu }: { row: AgentTableRow; onMenu: AgentsActions["onMenu"] }) {
+/** A row's ⋯ button and its menu (Duplicate, Delete…). */
+function MoreMenu({
+  label,
+  items,
+  onChoose,
+}: {
+  label: string;
+  items: readonly MenuItem[];
+  onChoose: (id: string) => void;
+}) {
   const more = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   return (
-    <div
-      className="settings-agents-row"
-      role="row"
-      data-open={open || undefined}
-      data-added={row.added !== null || undefined}
-    >
-      <span className="settings-agents-name" role="cell">
-        <span>{row.name}</span>
-        {row.mark && (
-          <Icon
-            name="triangle-alert"
-            size={12}
-            label={row.mark.before + (row.mark.model ?? "") + row.mark.after}
-          />
-        )}
-        {row.added !== null && row.fallback === null && (
-          <span className="settings-agents-added">{row.added}</span>
-        )}
-      </span>
-      <span className="settings-agents-tool-model" role="cell">
-        {row.tool && <ToolAvatar avatar={row.tool} />}
-        {row.tool_name !== null && <span className="settings-agents-tool">{row.tool_name} ·</span>}
-        <span
-          className="settings-agents-model"
-          data-mono={row.model_mono || undefined}
-          data-marked={row.mark ? true : undefined}
-        >
-          {row.model}
-        </span>
-      </span>
-      <span className="settings-agents-use" role="cell">
-        {row.use_for}
-      </span>
-      {row.fallback !== null && (
-        <span
-          className="settings-agents-fallback"
-          role="cell"
-          data-none={row.fallback === "none" || undefined}
-        >
-          {row.fallback !== "none" && <Icon name="corner-down-right" size={12} />}
-          <span>{row.fallback}</span>
-          {/* At the row's end, as `t1sI3` draws it. */}
-          {row.added !== null && <span className="settings-agents-added">{row.added}</span>}
-        </span>
-      )}
-      <span className="settings-agents-more" role="cell">
-        <IconButton
-          ref={more}
-          icon="ellipsis"
-          label={row.menu_label}
-          onClick={() => {
-            setOpen((o) => !o);
-          }}
-        />
-      </span>
-      {row.tool_problem !== null && (
-        <span className="settings-agents-mark">
-          <span className="settings-agent-mark-line">
-            <Icon name="triangle-alert" size={12} />
-            <span>{row.tool_problem}</span>
-          </span>
-        </span>
-      )}
-      {row.mark && (
-        <span className="settings-agents-mark">
-          <MarkLine mark={row.mark} />
-          <span className="settings-agents-dot">·</span>
-          <button
-            type="button"
-            className="settings-link"
-            onClick={() => {
-              onMenu(row, "edit");
-            }}
-          >
-            {row.mark.edit_label}
-          </button>
-        </span>
-      )}
+    <>
+      <IconButton
+        ref={more}
+        icon="ellipsis"
+        label={label}
+        onClick={() => {
+          setOpen((o) => !o);
+        }}
+      />
       {open && (
         <AnchoredMenu
           anchor={more}
           align="end"
-          label={row.menu_label}
-          items={menuItems(row.menu)}
-          width={180}
+          label={label}
+          items={items}
           onChoose={(id) => {
-            onMenu(row, id as AgentMenuAction);
+            setOpen(false);
+            onChoose(id);
           }}
           onClose={(how) => {
             setOpen(false);
@@ -155,260 +145,539 @@ function TableRow({ row, onMenu }: { row: AgentTableRow; onMenu: AgentsActions["
           }}
         />
       )}
+    </>
+  );
+}
+
+/** What the page asks the section to do. */
+export interface AgentsActions {
+  onOpen: (params: AgentPageParams) => void;
+  onMenu: (id: string, action: string) => void;
+  onDefaultModel: (pick: ModelPick) => void;
+  onFallback: (tool: string, pick: ModelPick) => void;
+}
+
+function Row({ row, actions }: { row: AgentListRow; actions: AgentsActions }) {
+  const open = () => {
+    actions.onOpen({ id: row.id, duplicate: null, draft: null, change: null });
+  };
+  return (
+    <div className="settings-agents-row" role="row">
+      <span className="settings-agents-name" role="cell">
+        <button type="button" className="settings-agents-open" onClick={open}>
+          <span className="settings-agents-title">
+            <span>{row.name}</span>
+            {row.role !== null && (
+              <span className="settings-agents-role">
+                <Icon name="circle-check" size={11} />
+                {row.role}
+              </span>
+            )}
+          </span>
+          <span className="settings-agents-came">{row.came_from}</span>
+        </button>
+      </span>
+      <span className="settings-agents-model" role="cell" data-marked={row.mark ? true : undefined}>
+        {row.model}
+      </span>
+      <span className="settings-agents-skills" role="cell">
+        {row.skills.map((skill) => (
+          <code key={skill} className="settings-agents-skill">
+            {skill}
+          </code>
+        ))}
+      </span>
+      <span className="settings-agents-use" role="cell">
+        {row.used_in}
+      </span>
+      <span className="settings-agents-more" role="cell">
+        <MoreMenu
+          label={row.menu_label}
+          items={row.menu}
+          onChoose={(action) => {
+            actions.onMenu(row.id, action);
+          }}
+        />
+      </span>
+      {row.mark && (
+        <span className="settings-agents-mark">
+          <MarkLine mark={row.mark} />
+          {row.mark_link !== null && (
+            <>
+              <span className="settings-agents-dot">·</span>
+              <button type="button" className="settings-link" onClick={open}>
+                {row.mark_link}
+              </button>
+            </>
+          )}
+        </span>
+      )}
     </div>
   );
 }
 
-/** The whole section as the view says, with the page's calls. */
+/** The Agents page as the view says (`s15-58`): default model, fallbacks, the list. */
 export function AgentsSectionBody({
   section,
-  onAdd,
-  onMenu,
-  onDefault,
-  onAutoFallback,
-}: { section: AgentsSectionView } & AgentsActions) {
+  actions,
+}: {
+  section: AgentsSectionView;
+  actions: AgentsActions;
+}) {
   return (
     <section className="settings-section settings-agents" data-section="agents" aria-label={section.title}>
-      <h3 className="settings-section-title">{section.title}</h3>
       <p className="settings-intro">{section.intro}</p>
-      <h4 className="settings-agents-heading">{section.table_title}</h4>
-      <div
-        className="settings-agents-table"
-        role="table"
-        aria-label={section.table_title}
-        data-columns={section.columns.length}
-      >
+      <div className="settings-agents-settings">
+        <div className="settings-agents-setting">
+          <span className="settings-row-text">
+            <span className="settings-row-label">{section.default_model.label}</span>
+            <span className="settings-row-description">{section.default_model.description}</span>
+          </span>
+          <span className="settings-agents-setting-control">
+            <ModelDropdown
+              label={section.default_model.label}
+              dropdown={section.default_model.dropdown}
+              onPick={actions.onDefaultModel}
+            />
+          </span>
+        </div>
+        {section.fallbacks && (
+          <div className="settings-agents-setting">
+            <span className="settings-row-text">
+              <span className="settings-row-label">{section.fallbacks.label}</span>
+              <span className="settings-row-description">{section.fallbacks.description}</span>
+            </span>
+            <span className="settings-agents-fallbacks">
+              {section.fallbacks.lines.map((line) => (
+                <span key={line.tool} className="settings-agents-fallback-line">
+                  <span>{line.label}</span>
+                  <ModelDropdown
+                    label={line.label}
+                    dropdown={line.dropdown}
+                    onPick={(pick) => {
+                      actions.onFallback(line.tool, pick);
+                    }}
+                  />
+                </span>
+              ))}
+            </span>
+          </div>
+        )}
+      </div>
+      <div className="settings-agents-table" role="table" aria-label={section.title}>
         <div className="settings-agents-row settings-agents-head" role="row">
           {section.columns.map((column) => (
             <span key={column} role="columnheader">
               {column}
             </span>
           ))}
-          <span role="columnheader" />
         </div>
         {section.rows.map((row) => (
-          <TableRow key={row.id} row={row} onMenu={onMenu} />
+          <Row key={row.id} row={row} actions={actions} />
         ))}
       </div>
-      <span className="settings-agents-add">
-        <Button variant="secondary" icon="plus" label={section.add_label} onClick={onAdd} />
-      </span>
-      {section.defaults_unchanged && (
-        <div className="settings-agents-unchanged" role="note">
-          <span className="settings-agents-unchanged-heading">{section.defaults_unchanged.heading}</span>
-          <span>{section.defaults_unchanged.text}</span>
-        </div>
-      )}
-      {section.fresh_note && (
-        <div className="settings-agents-note" role="note">
-          <Icon name="lightbulb" size={14} />
-          <span className="settings-agents-note-text">
-            <strong>{section.fresh_note.title}</strong>
-            <span>{section.fresh_note.text}</span>
-          </span>
-          <Button variant="secondary" compact label={section.fresh_note.add_label} onClick={onAdd} />
-        </div>
-      )}
-      <h4 className="settings-agents-heading" data-ruled>
-        {section.defaults_title}
-      </h4>
-      {section.defaults.map((row) => (
-        <div key={row.role} className="settings-row settings-agents-default">
-          <div className="settings-row-text">
-            <span className="settings-row-label">{row.label}</span>
-            <span className="settings-row-description">{row.description}</span>
-          </div>
-          <div className="settings-agents-picker">
-            <AgentPickerField
-              label={row.label}
-              picker={row.picker}
-              onPick={(agent) => {
-                if (agent !== null) onDefault(row.role, agent);
-              }}
-            />
-          </div>
-        </div>
-      ))}
-      <p className="settings-agents-defaults-note">{section.defaults_note}</p>
-      <Fallbacks block={section.fallbacks} onChange={onAutoFallback} />
     </section>
   );
 }
 
-/** The Fallbacks block (AGT-08, `cnRA5`, `bVdGw`): the check box with its help, and the note under it; while one tool
- * is connected the box is disabled and hovering it says why. */
-function Fallbacks({ block, onChange }: { block: AgentsFallbacks; onChange: (on: boolean) => void }) {
-  const box = (
-    <span className="settings-agents-fallbacks-box">
-      <Checkbox
-        checked={block.on}
-        disabled={!block.enabled}
-        label={
-          <span className="settings-agents-fallbacks-text">
-            <span className="settings-row-label">{block.label}</span>
-            <span className="settings-row-description">{block.help}</span>
+/** What one agent's page asks for. */
+export interface PageActions {
+  onChange: (change: AgentChange) => void;
+  onRole: (role: string) => void;
+  onAdd: (name: string, instructions: string) => void;
+  onCancel: () => void;
+  onImport: () => void;
+  onReimport: (skill: string) => void;
+  onRetry: (tool: string) => void;
+}
+
+/** One skill: its name in mono, where an imported one came from, its warnings, Re-import (asks first) and Remove. */
+function SkillLine({ row, actions }: { row: AgentSkillRow; actions: PageActions }) {
+  const [asking, setAsking] = useState<AgentSkillDialog | null>(null);
+  return (
+    <div className="settings-agent-skill">
+      <Icon name="folder" size={14} />
+      <span className="settings-agent-skill-text">
+        <span className="settings-agent-skill-line">
+          <code className="settings-agent-skill-name">{row.name}</code>
+          {row.source !== null && <span className="settings-agent-skill-source">{row.source}</span>}
+        </span>
+        {row.warnings.map((w) => (
+          <span key={w} className="settings-agent-skill-warning">
+            <Icon name="triangle-alert" size={12} />
+            <span>{w}</span>
           </span>
-        }
-        onChange={onChange}
+        ))}
+      </span>
+      {row.reimport !== null && (
+        <Button
+          variant="secondary"
+          compact
+          icon="refresh-cw"
+          label={row.reimport_label}
+          onClick={() => {
+            setAsking(row.reimport);
+          }}
+        />
+      )}
+      <IconButton
+        icon="x"
+        label={`${row.remove_label} ${row.name}`}
+        onClick={() => {
+          actions.onChange({ field: "remove_skill", value: row.key });
+        }}
       />
-    </span>
+      {asking && (
+        <ConfirmDialog
+          title={asking.title}
+          body={asking.text}
+          confirmLabel={asking.confirm}
+          cancelLabel={asking.cancel}
+          onConfirm={() => {
+            setAsking(null);
+            if (row.reimport_id !== null) actions.onReimport(row.reimport_id);
+          }}
+          onCancel={() => {
+            setAsking(null);
+          }}
+        />
+      )}
+    </div>
   );
+}
+
+/** One agent's page (`s15-58` "One agent", "Giving a role to another agent"). Name and instructions are typed here and
+ * saved when the name field is left, and a moment after the instructions stop changing; everything else is saved at
+ * once (a draft keeps them until Add agent). */
+export function AgentPageBody({ page, actions }: { page: AgentPage; actions: PageActions }) {
+  const [name, setName] = useState(page.name.value);
+  const [instructions, setInstructions] = useState(page.instructions.value);
+  // A fresh page with another name (saved, or a refused one sent back) replaces what is typed.
+  const [shownName, setShownName] = useState(page.name.value);
+  if (shownName !== page.name.value) {
+    setShownName(page.name.value);
+    setName(page.name.value);
+  }
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saved = page.id !== null;
+  useEffect(
+    () => () => {
+      if (pending.current !== null) clearTimeout(pending.current);
+    },
+    [],
+  );
+  const model = page.model;
+  const role = page.role;
+  const roleIndex = role
+    ? Math.max(
+        0,
+        role.options.findIndex((o) => o.selected),
+      )
+    : 0;
+  return (
+    <section className="settings-section settings-agent-page" data-section="agent" aria-label={page.title}>
+      {page.mark && (
+        <div className="settings-agent-mark">
+          <MarkLine mark={page.mark} />
+          {page.mark.message !== null && (
+            <span className="settings-agent-mark-message">“{page.mark.message}”</span>
+          )}
+        </div>
+      )}
+      <label className="settings-agent-label" htmlFor="agent-name">
+        {page.name.label}
+      </label>
+      <TextInput
+        id="agent-name"
+        value={name}
+        invalid={page.name.problem !== null}
+        onChange={setName}
+        onBlur={() => {
+          if (saved && name !== page.name.value) actions.onChange({ field: "name", value: name });
+        }}
+      />
+      {page.name.problem !== null && <span className="settings-agent-problem">{page.name.problem}</span>}
+
+      <span className="settings-agent-label">{model.label}</span>
+      <span className="settings-agent-model">
+        <Select
+          label={model.tool_label}
+          value={model.tool_value}
+          items={optionItems(model.tools)}
+          onChange={(id) => {
+            actions.onChange({ field: "tool", value: optionValue(id) });
+          }}
+        />
+        {model.picker && (
+          <ModelPicker
+            label={model.label}
+            picker={model.picker}
+            onPick={(picked) => {
+              actions.onChange({ field: "model", value: picked });
+            }}
+            onRetry={actions.onRetry}
+          />
+        )}
+        {model.default_now !== null && (
+          <span className="settings-agent-default-now">{model.default_now}</span>
+        )}
+        {model.effort && (
+          <span className="settings-agent-effort">
+            <span>{model.effort.label}</span>
+            <Select
+              label={model.effort.label}
+              value={model.effort.value}
+              items={optionItems(model.effort.options)}
+              onChange={(id) => {
+                actions.onChange({ field: "effort", value: optionValue(id) });
+              }}
+            />
+          </span>
+        )}
+      </span>
+      {model.problem !== null ? (
+        <span className="settings-agent-problem">{model.problem}</span>
+      ) : (
+        model.picker?.status === null &&
+        model.picker.value.no_longer_listed !== null && (
+          <span className="settings-agent-hint">{model.picker.hint}</span>
+        )
+      )}
+
+      {role && (
+        <>
+          <span className="settings-agent-label">{role.label}</span>
+          <Segmented
+            label={role.label}
+            options={role.options.map((o) => o.label)}
+            selected={roleIndex}
+            onSelect={(i) => {
+              const picked = role.options[i];
+              if (picked && !picked.selected) actions.onRole(picked.id);
+            }}
+          />
+          <span className="settings-agent-hint">{role.hint}</span>
+          {role.problem !== null && <span className="settings-agent-problem">{role.problem}</span>}
+          {role.moved !== null && (
+            <span className="settings-agent-moved" role="status">
+              <Icon name="circle-check" size={14} />
+              <span>{role.moved}</span>
+            </span>
+          )}
+        </>
+      )}
+
+      <span className="settings-agent-label">{page.instructions.label}</span>
+      <Instructions
+        field={page.instructions}
+        value={instructions}
+        onChange={(text) => {
+          setInstructions(text);
+          if (!saved) return;
+          if (pending.current !== null) clearTimeout(pending.current);
+          pending.current = setTimeout(() => {
+            pending.current = null;
+            actions.onChange({ field: "instructions", value: text });
+          }, INSTRUCTIONS_SAVE_MS);
+        }}
+      />
+
+      <span className="settings-agent-label">{page.skills.label}</span>
+      <div className="settings-agent-skills">
+        {page.skills.rows.map((row) => (
+          <SkillLine key={row.key} row={row} actions={actions} />
+        ))}
+      </div>
+      {page.skills.problem !== null && <span className="settings-agent-problem">{page.skills.problem}</span>}
+      <span className="settings-agent-skill-buttons">
+        {page.skills.import_label !== null && (
+          <Button
+            variant="secondary"
+            icon="folder-input"
+            label={page.skills.import_label}
+            onClick={actions.onImport}
+          />
+        )}
+        {page.skills.add_options.length > 0 && (
+          <AddSkill
+            label={page.skills.add_label}
+            options={page.skills.add_options}
+            onAdd={(skill) => {
+              actions.onChange({ field: "add_skill", value: skill });
+            }}
+          />
+        )}
+      </span>
+
+      {page.used_in && (
+        <>
+          <span className="settings-agent-label">{page.used_in.label}</span>
+          <span className="settings-agent-used">
+            {page.used_in.items.map((item) => (
+              <code key={item} className="settings-agent-place">
+                {item}
+              </code>
+            ))}
+            {page.used_in.empty !== null && <span>{page.used_in.empty}</span>}
+          </span>
+        </>
+      )}
+      {page.note !== null && (
+        <p className="settings-agent-note">
+          <Icon name="info" size={14} />
+          <span>{page.note}</span>
+        </p>
+      )}
+      {page.problem !== null && <span className="settings-agent-problem">{page.problem}</span>}
+      {page.add && (
+        <span className="settings-agent-add">
+          <Button variant="ghost" label={page.add.cancel_label} onClick={actions.onCancel} />
+          <Button
+            variant="primary"
+            label={page.add.add_label}
+            onClick={() => {
+              actions.onAdd(name, instructions);
+            }}
+          />
+        </span>
+      )}
+    </section>
+  );
+}
+
+/** Instructions in the Markdown editor (d0078), with its toolbar and its Markdown source switch (D9), which opens in the
+ * mode last chosen and is remembered for every editor. */
+function Instructions({
+  field,
+  value,
+  onChange,
+}: {
+  field: AgentInstructionsField;
+  value: string;
+  onChange: (text: string) => void;
+}) {
+  const mode = useSourceMode(value, openingMode(false));
+  const editor = useMarkdownEditor({
+    value: mode.editorValue,
+    onChange,
+    placeholder: field.placeholder,
+    label: field.label,
+  });
+  useFocusOnLeave(editor, mode);
+  const toggle = (on: boolean) => {
+    mode.toggle();
+    rememberMode(on);
+    request("editor.source_mode", { on }).catch(() => undefined);
+  };
+  return (
+    <MarkdownSurface
+      editor={editor}
+      className="settings-agent-instructions"
+      toolbar={
+        <MarkdownToolbar
+          disabled={mode.on}
+          expand={<></>}
+          sourceToggle={<SourceToggle on={mode.on} label={field.markdown_label} onChange={toggle} />}
+        />
+      }
+      {...(mode.on
+        ? {
+            source: (
+              <SourceArea value={value} label={field.label} takeFocus={mode.switched} onChange={onChange} />
+            ),
+          }
+        : {})}
+    />
+  );
+}
+
+/** Add skill: a button that opens the shipped skills the agent doesn't have. */
+function AddSkill({
+  label,
+  options,
+  onAdd,
+}: {
+  label: string;
+  options: readonly string[];
+  onAdd: (skill: string) => void;
+}) {
+  const button = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
   return (
     <>
-      <h4 className="settings-agents-heading" data-ruled>
-        {block.title}
-      </h4>
-      <div className="settings-agents-fallbacks" data-disabled={!block.enabled || undefined}>
-        {block.enabled ? box : <Tooltip text={block.note}>{box}</Tooltip>}
-        <p className="settings-agents-defaults-note">{block.note}</p>
-      </div>
+      <Button
+        ref={button}
+        variant="secondary"
+        icon="plus"
+        label={label}
+        onClick={() => {
+          setOpen((o) => !o);
+        }}
+      />
+      {open && (
+        <AnchoredMenu
+          anchor={button}
+          align="start"
+          label={label}
+          items={skillItems(options)}
+          onChoose={(id) => {
+            setOpen(false);
+            onAdd(id);
+          }}
+          onClose={() => {
+            setOpen(false);
+          }}
+        />
+      )}
     </>
   );
 }
 
-type Open =
-  | { kind: "edit"; dialog: AgentDialogView; key: number }
-  | { kind: "delete"; dialog: AgentDeleteDialog }
-  | null;
-
-/** A key of Show tickets opens its ticket's panel; Settings closes so it can be seen. */
-function openTicket(key: string): void {
-  closeOverlay("settings");
-  openKey(key);
+/** One agent's heading in the Settings header: ← name, its role tag, where it came from. */
+function AgentHeading({ page, onBack }: { page: AgentPage; onBack: () => void }) {
+  return (
+    <span className="settings-agent-heading">
+      <span className="settings-agent-heading-line">
+        <IconButton icon="arrow-left" label={page.back_label} onClick={onBack} />
+        <h2>{page.title}</h2>
+        {page.role_tag !== null && (
+          <span className="settings-agents-role">
+            <Icon name="circle-check" size={11} />
+            {page.role_tag}
+          </span>
+        )}
+      </span>
+      {page.came_from !== null && <span className="settings-agents-came">{page.came_from}</span>}
+    </span>
+  );
 }
 
-/** The dialogs of the section, and the calls behind them; `onSection` takes a fresh section from a save. */
-export function useAgentDialogs(
-  onSection: (section: AgentsSectionView) => void,
-  onError: (e: RequestError) => void,
-) {
-  const [open, setOpen] = useState<Open>(null);
-  // The newest live check wins: an older answer arriving late is dropped.
-  const asked = useRef(0);
-  const opened = useRef(0);
-  const fail = useCallback(
-    (e: unknown) => {
-      onError(asRequestError(e));
-    },
-    [onError],
-  );
-  const showDialog = useCallback(
-    (params: { id?: string; duplicate?: string }) => {
-      request("settings.agent_dialog", params).then((d) => {
-        opened.current += 1;
-        setOpen({ kind: "edit", dialog: d as AgentDialogView, key: opened.current });
-      }, fail);
-    },
-    [fail],
-  );
-  const askDelete = useCallback(
-    (id: string) => {
-      request("settings.agent_delete_dialog", { id }).then((d) => {
-        setOpen({ kind: "delete", dialog: d as AgentDeleteDialog });
-      }, fail);
-    },
-    [fail],
-  );
-  const onMenu = useCallback(
-    (row: AgentTableRow, action: AgentMenuAction) => {
-      switch (action) {
-        case "edit":
-          showDialog({ id: row.id });
-          return;
-        case "duplicate":
-          showDialog({ duplicate: row.id });
-          return;
-        case "delete":
-          askDelete(row.id);
-          return;
-      }
-    },
-    [showDialog, askDelete],
-  );
-  const close = () => {
-    setOpen(null);
-  };
-  let dialog = null;
-  if (open?.kind === "edit") {
-    const id = open.dialog.id;
-    // The newest call's answer replaces the dialog (typing, a Tool change, Retry).
-    const ask = (method: string, params: unknown) => {
-      const mine = ++asked.current;
-      request(method, params).then((d) => {
-        if (mine !== asked.current) return;
-        setOpen((o) =>
-          o?.kind === "edit" && o.key === open.key ? { ...o, dialog: d as AgentDialogView } : o,
-        );
-      }, fail);
-    };
-    dialog = (
-      <AgentDialog
-        key={open.key}
-        dialog={open.dialog}
-        onDraft={(draft: AgentDraft) => {
-          ask("settings.agent_dialog", { id, draft });
-        }}
-        onTool={(tool, draft) => {
-          ask("settings.agent_dialog", { id, draft, tool });
-        }}
-        onRetry={(tool, draft) => {
-          ask("settings.agent_models_retry", { tool, dialog: { id, duplicate: null, draft, tool: null } });
-        }}
-        onSave={(draft) => {
-          asked.current += 1;
-          request("settings.agent_save", { id, draft }).then((r) => {
-            const outcome = r as AgentSaveOutcome;
-            if (outcome.outcome === "saved") {
-              onSection(outcome.section);
-              setOpen(null);
-            } else {
-              setOpen((o) => (o?.kind === "edit" ? { ...o, dialog: outcome.dialog } : o));
-            }
-          }, fail);
-        }}
-        onCancel={close}
-        onDelete={askDelete}
-      />
-    );
-  } else if (open?.kind === "delete") {
-    dialog = (
-      <AgentDeleteDialogView
-        dialog={open.dialog}
-        onClose={close}
-        onOpenTicket={openTicket}
-        onDelete={(id) => {
-          request("settings.agent_delete", { id }).then((r) => {
-            const outcome = r as AgentDeleteOutcome;
-            if (outcome.outcome === "deleted") {
-              onSection(outcome.section);
-              setOpen(null);
-            } else {
-              setOpen({ kind: "delete", dialog: outcome.dialog });
-            }
-          }, fail);
-        }}
-      />
-    );
-  }
-  return {
-    dialog,
-    onAdd: () => {
-      showDialog({});
-    },
-    onMenu,
-  };
-}
+type Asking = { kind: "delete"; dialog: AgentDeleteDialog } | null;
 
-/** The global page's Agents section. It shows Otaq's copy of the model list at once, then asks the tool for its
- * list again (once per opening, d0086) and redraws with it. */
+/** The global page's Agents topic: its page, or one agent's. It shows Otaq's copy of the model lists at once, then
+ * asks the tools for their lists again (once per opening, d0086) and redraws with them. */
 export function AgentsSection() {
+  // The project on screen: the shipped agents file's preview is its (FLW-10).
+  const screenProject = useSelection().project;
+  const settings = useContext(SettingsContext);
+  // `undefined` outside Settings (the gallery, tests): the header's buttons are drawn above the page instead.
+  const headerSlot = settings?.headerSlot;
+  const setHeading = settings?.setHeading;
   const [section, setSection] = useState<AgentsSectionView | null>(null);
+  const [page, setPage] = useState<AgentPage | null>(null);
+  // What this agent reads, open over its page (AGR-01).
+  const [reads, setReads] = useState<AgentReadsView | null>(null);
   const [error, setError] = useState<RequestError | null>(null);
+  const [asking, setAsking] = useState<Asking>(null);
+  const failed = (e: unknown) => {
+    setError(asRequestError(e));
+  };
+
   useEffect(
     () =>
       watchView(
         () => request("settings.agents", { refresh: false }) as Promise<AgentsSectionView>,
-        // A tool connected or hidden in Agent tools changes the columns, the pickers and the Fallbacks block.
+        // A tool connected or hidden in Agent tools changes the default model and the models' words.
         ["agents_changed", "agent_tools_changed"],
         (state) => {
           if (state.view) setSection(state.view);
@@ -430,135 +699,261 @@ export function AgentsSection() {
       live = false;
     };
   }, []);
-  const { dialog, onAdd, onMenu } = useAgentDialogs(setSection, setError);
-  const onDefault = (role: AgentRole, agent: string) => {
-    request("settings.agent_default", { role, agent }).then(
-      (s) => {
-        setSection(s as AgentsSectionView);
+
+  // Opened on one agent (Open agent… on a card): its page, once.
+  const openedOn = useRef(false);
+  const startAgent = settings?.agent;
+  useEffect(() => {
+    if (startAgent === undefined || openedOn.current) return;
+    openedOn.current = true;
+    request("settings.agent", { id: startAgent, duplicate: null, draft: null, change: null }).then(
+      (fresh) => {
+        setPage(fresh as AgentPage);
       },
       (e: unknown) => {
         setError(asRequestError(e));
       },
     );
-  };
-  const onAutoFallback = (on: boolean) => {
-    request("settings.auto_fallback", { on }).then(
-      (s) => {
-        setSection(s as AgentsSectionView);
-      },
-      (e: unknown) => {
-        setError(asRequestError(e));
-      },
+  }, [startAgent]);
+
+  const back = useCallback(() => {
+    setPage(null);
+    setReads(null);
+    setError(null);
+  }, []);
+  const backToPage = useCallback(() => {
+    setReads(null);
+    setError(null);
+  }, []);
+  // A nav click goes back to the list.
+  const visit = settings?.visit;
+  const [seenVisit, setSeenVisit] = useState(visit);
+  if (seenVisit !== visit) {
+    setSeenVisit(visit);
+    setPage(null);
+    setReads(null);
+  }
+  // The header shows the open agent, and the topic's label again without one.
+  useEffect(() => {
+    setHeading?.(
+      reads ? (
+        <AgentReadsHeading view={reads} onBack={backToPage} />
+      ) : page ? (
+        <AgentHeading page={page} onBack={back} />
+      ) : null,
     );
+  }, [page, reads, setHeading, back, backToPage]);
+  useEffect(() => () => setHeading?.(null), [setHeading]);
+
+  const show = (p: Promise<unknown>) => {
+    p.then((fresh) => {
+      setPage(fresh as AgentPage);
+      setError(null);
+    }, failed);
   };
-  return (
-    <>
-      {error && (
-        <p className="settings-problem" role="alert">
-          {error.message}
-        </p>
-      )}
-      {section && (
-        <AgentsSectionBody
-          section={section}
-          onAdd={onAdd}
-          onMenu={onMenu}
-          onDefault={onDefault}
-          onAutoFallback={onAutoFallback}
+  const open = (params: AgentPageParams) => {
+    show(request("settings.agent", params));
+  };
+  // What this agent reads, on `project` (the picked one; first the project on screen, else the first).
+  const openReads = (id: string, project: string | null) => {
+    request("settings.agent_reads", { id, project }).then((fresh) => {
+      setReads(fresh as AgentReadsView);
+      setError(null);
+    }, failed);
+  };
+  const readsLink = (view: AgentReadsView, target: AgentReadsTarget) => {
+    if (target.kind === "agent") backToPage();
+    else if (target.kind === "project_notes") settings?.openProject?.(target.project, "project_notes");
+    else if (view.project !== null)
+      request("settings.agent_reads_reveal", {
+        id: view.agent_id,
+        project: view.project,
+        skill: target.skill,
+      }).catch(failed);
+  };
+  const listed = (p: Promise<unknown>) => {
+    p.then((fresh) => {
+      setSection(fresh as AgentsSectionView);
+      setError(null);
+    }, failed);
+  };
+  const askDelete = (id: string) => {
+    request("settings.agent_delete_dialog", { id }).then((d) => {
+      setAsking({ kind: "delete", dialog: d as AgentDeleteDialog });
+    }, failed);
+  };
+  const menu = (id: string, action: string) => {
+    if (action === "duplicate") open({ id: null, duplicate: id, draft: null, change: null });
+    else if (action === "delete") askDelete(id);
+  };
+
+  const actions: AgentsActions = {
+    onOpen: open,
+    onMenu: menu,
+    onDefaultModel: (pick) => {
+      if (pick) listed(request("settings.agents_default_model", pick));
+    },
+    onFallback: (tool, fallback) => {
+      listed(request("settings.agents_fallback", { tool, fallback }));
+    },
+  };
+
+  const pageActions = (p: AgentPage): PageActions => ({
+    onChange: (change) => {
+      show(
+        request("settings.agent", {
+          id: p.id,
+          duplicate: null,
+          draft: p.id === null ? p.draft : null,
+          change,
+        }),
+      );
+    },
+    onRole: (role) => {
+      if (p.id !== null) show(request("settings.agent_role", { id: p.id, role }));
+    },
+    onAdd: (name, instructions) => {
+      request("settings.agent_add", { draft: { ...p.draft, name, instructions } }).then((outcome) => {
+        setPage((outcome as AgentAddOutcome).page);
+        setError(null);
+      }, failed);
+    },
+    onCancel: back,
+    onImport: () => {
+      const id = p.id;
+      if (id === null) return;
+      void pickFolder(p.skills.picker_title).then((folder) => {
+        if (folder !== null) show(request("settings.agent_import", { id, folder }));
+      }, failed);
+    },
+    onReimport: (skill) => {
+      if (p.id !== null) show(request("settings.agent_reimport", { id: p.id, skill }));
+    },
+    onRetry: (tool) => {
+      request("settings.agents_models_retry", { tool }).then(() => {
+        open({ id: p.id, duplicate: null, draft: p.id === null ? p.draft : null, change: null });
+      }, failed);
+    },
+  });
+
+  let header: ReactNode = null;
+  if (page && !reads) {
+    const id = page.id;
+    header = id !== null && (
+      <>
+        {page.reads_label !== null && (
+          <Button
+            variant="secondary"
+            compact
+            icon="eye"
+            label={page.reads_label}
+            onClick={() => {
+              openReads(id, screenProject);
+            }}
+          />
+        )}
+        {page.menu.length > 0 && (
+          <MoreMenu
+            label={page.menu_label}
+            items={page.menu}
+            onChoose={(a) => {
+              menu(id, a);
+            }}
+          />
+        )}
+      </>
+    );
+  } else if (!page && section) {
+    header = (
+      <>
+        <Button
+          variant="secondary"
+          icon="plus"
+          label={section.new_agent_label}
+          onClick={() => {
+            open({ id: null, duplicate: null, draft: null, change: null });
+          }}
         />
-      )}
-      {dialog}
-    </>
-  );
-}
-
-/** The project's block as the view says: collapsed until Change (or an override) opens it. */
-export function ProjectAgentsBody({
-  block,
-  onPick,
-}: {
-  block: ProjectAgentsBlock;
-  onPick: (role: AgentRole, agent: string | null) => void;
-}) {
-  const [changing, setChanging] = useState(false);
-  const expanded = block.expanded || changing;
-  return (
-    <section className="settings-section settings-agents" data-section="agents" aria-label={block.title}>
-      <h3 className="settings-section-title">{block.title}</h3>
-      {!expanded ? (
-        <div className="settings-row settings-agents-default">
-          <div className="settings-row-text">
-            <span className="settings-row-label">{block.collapsed_title}</span>
-          </div>
-          <span className="settings-agents-collapsed">
-            <span>{block.collapsed_text}</span>
-            <button
-              type="button"
-              className="settings-link"
-              onClick={() => {
-                setChanging(true);
-              }}
-            >
-              {block.change_label}
-            </button>
-          </span>
-        </div>
-      ) : (
-        block.rows.map((row) => (
-          <div key={row.role} className="settings-row settings-agents-default">
-            <div className="settings-row-text">
-              <span className="settings-row-label">{row.label}</span>
-            </div>
-            <div className="settings-agents-picker">
-              <AgentPickerField
-                label={row.label}
-                picker={row.picker}
-                onPick={(agent) => {
-                  onPick(row.role, agent);
-                }}
-              />
-            </div>
-          </div>
-        ))
-      )}
-    </section>
-  );
-}
-
-/** A project page's Agents section (AGT-03). */
-export function ProjectAgents({ project }: { project: string }) {
-  const [block, setBlock] = useState<ProjectAgentsBlock | null>(null);
-  const [error, setError] = useState<RequestError | null>(null);
-  useEffect(
-    () =>
-      watchView(
-        () => request("settings.project_agents", { project }) as Promise<ProjectAgentsBlock>,
-        ["agents_changed", "projects_changed"],
-        (state) => {
-          if (state.view) setBlock(state.view);
-          setError(state.error ?? null);
-        },
-      ),
-    [project],
-  );
-  const onPick = (role: AgentRole, agent: string | null) => {
-    request("settings.project_agent_default", { project, role, agent }).then(
-      (b) => {
-        setBlock(b as ProjectAgentsBlock);
-      },
-      (e: unknown) => {
-        setError(asRequestError(e));
-      },
+        {/* Apply the shipped agents file again (FLW-10): the preview, for the project on screen. */}
+        <MoreMenu
+          label={section.more_label}
+          items={section.more.map((m) =>
+            m.id === "agents_file" && screenProject === null ? { ...m, disabled: true } : m,
+          )}
+          onChoose={(id) => {
+            if (id === "agents_file" && screenProject !== null)
+              proposeFrom(screenProject, { from: "agents_file" }).catch(failed);
+          }}
+        />
+      </>
     );
-  };
+  }
+
   return (
     <>
+      {headerSlot && header ? createPortal(header, headerSlot) : null}
+      {headerSlot === undefined && header && <div className="settings-agents-header">{header}</div>}
       {error && (
         <p className="settings-problem" role="alert">
           {error.message}
         </p>
       )}
-      {block && <ProjectAgentsBody key={block.project} block={block} onPick={onPick} />}
+      {reads ? (
+        <AgentReadsBody
+          view={reads}
+          actions={{
+            onProject: (project) => {
+              openReads(reads.agent_id, project);
+            },
+            onLink: (target) => {
+              readsLink(reads, target);
+            },
+          }}
+        />
+      ) : page ? (
+        <AgentPageBody key={page.id ?? "draft"} page={page} actions={pageActions(page)} />
+      ) : (
+        section && <AgentsSectionBody section={section} actions={actions} />
+      )}
+      {asking?.kind === "delete" &&
+        (asking.dialog.kind === "refused" ? (
+          <ConfirmDialog
+            title={asking.dialog.title}
+            body={asking.dialog.text}
+            confirmLabel={null}
+            cancelLabel={asking.dialog.ok_label}
+            hint="close"
+            onConfirm={() => {
+              setAsking(null);
+            }}
+            onCancel={() => {
+              setAsking(null);
+            }}
+          />
+        ) : (
+          <ConfirmDialog
+            title={asking.dialog.title}
+            body={asking.dialog.text}
+            confirmLabel={asking.dialog.delete_label}
+            cancelLabel={asking.dialog.cancel_label}
+            destructive
+            onConfirm={() => {
+              if (asking.dialog.kind !== "confirm") return;
+              const id = asking.dialog.id;
+              setAsking(null);
+              request("settings.agent_delete", { id }).then((o) => {
+                const outcome = o as AgentDeleteOutcome;
+                if (outcome.outcome === "deleted") {
+                  setSection(outcome.section);
+                  setPage(null);
+                } else setAsking({ kind: "delete", dialog: outcome.dialog });
+              }, failed);
+            }}
+            onCancel={() => {
+              setAsking(null);
+            }}
+          />
+        ))}
     </>
   );
 }

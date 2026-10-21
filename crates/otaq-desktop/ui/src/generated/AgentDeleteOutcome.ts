@@ -3,6 +3,6 @@ import type { AgentDeleteDialog } from "./AgentDeleteDialog";
 import type { AgentsSection } from "./AgentsSection";
 
 /**
- * How Delete went: deleted (the fresh section), or something started using it since the dialog asked.
+ * How Delete went: deleted (the fresh list), or something started using it since the dialog asked.
  */
 export type AgentDeleteOutcome = { "outcome": "deleted", section: AgentsSection, } | { "outcome": "refused", dialog: AgentDeleteDialog, };

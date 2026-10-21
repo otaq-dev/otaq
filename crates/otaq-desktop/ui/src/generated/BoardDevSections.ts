@@ -2,13 +2,9 @@
 import type { BoardCard } from "./BoardCard";
 
 /**
- * Dev's parts: the floated cards (pins and needs-you) above the section header, then the working cards and the fold.
+ * Dev's parts: the floated cards (pins and needs-you), then the working cards and the fold.
  */
-export type BoardDevSections = { top: Array<BoardCard>, 
-/**
- * "WORKING · VALIDATING".
- */
-section: string, working_count: string, working: Array<BoardCard>, 
+export type BoardDevSections = { top: Array<BoardCard>, working_count: string, working: Array<BoardCard>, 
 /**
  * "2 more · working" while folded; a click unfolds.
  */

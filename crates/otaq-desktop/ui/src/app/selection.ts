@@ -1,7 +1,6 @@
 // The selection screens share (T-0212): the project on screen, the ticket open in the side panel and its tab, and
 // the terminal that has the keyboard. One store for the whole page; each screen reads it with `useSelection()` and
 // changes it with the functions below (or `selection.update`).
-import type { AgentRole } from "../generated/AgentRole";
 import type { PanelTab } from "../generated/PanelTab";
 import { createStore, type Store, useStore } from "./store";
 
@@ -109,35 +108,4 @@ export function requestTicketEdit(
 ): void {
   openTicket(ticket, "ticket", shown);
   store.update((last) => ({ ticket, seq: (last?.seq ?? 0) + 1 }));
-}
-
-/** A request to open a ticket's panel with one agent row's picker open (Change agent / Change validator, T-0345). */
-export interface AgentRowFocusRequest {
-  ticket: string;
-  role: AgentRole;
-  /** Counts up with each request, so asking twice for the same row is two requests. */
-  seq: number;
-}
-
-/** The newest agent row request; the panel sends it as `panel.view`'s `focus_agent_row` and takes it once shown. */
-export const agentRowFocusRequests: Store<AgentRowFocusRequest | null> =
-  createStore<AgentRowFocusRequest | null>(null);
-
-/** Opens `ticket` on its Ticket tab with the `role` row's picker open and focused (T-0344 draws it). */
-export function requestAgentRowFocus(
-  ticket: string,
-  role: AgentRole,
-  store: Store<AgentRowFocusRequest | null> = agentRowFocusRequests,
-  shown: Store<Selection> = selection,
-): void {
-  openTicket(ticket, "ticket", shown);
-  store.update((last) => ({ ticket, role, seq: (last?.seq ?? 0) + 1 }));
-}
-
-/** The panel showing `ticket` takes the request meant for it, once. */
-export function takeAgentRowFocus(
-  ticket: string,
-  store: Store<AgentRowFocusRequest | null> = agentRowFocusRequests,
-): void {
-  if (store.get()?.ticket === ticket) store.set(null);
 }

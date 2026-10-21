@@ -131,8 +131,8 @@ impl Fixture {
 
     /// Puts a ticket straight into `status`, as if the board had got it there.
     pub async fn force_status(&self, ticket: &Ticket, status: otaq_core::domain::Status) {
-        sqlx::query("UPDATE tickets SET board_column = ?, state = ? WHERE id = ?")
-            .bind(status.column().as_str())
+        sqlx::query("UPDATE tickets SET stage_id = ?, state = ? WHERE id = ?")
+            .bind(otaq_core::flow::engine::default_stage(status, None))
             .bind(status.as_str())
             .bind(&ticket.id)
             .execute(self.board.store().pool())
@@ -202,4 +202,17 @@ pub fn test_cloner(data: &DataDir) -> Box<dyn Cloner> {
         println!("note: the test disk can't clone; a copying stand-in clones instead");
         Box::new(CopyCloner)
     }
+}
+
+/// The ticket's last comment (CMT-05: a hand-over's note or summary), if it has one.
+pub async fn last_comment(
+    board: &Board,
+    key: &str,
+) -> Option<otaq_core::board::ticket_comments::TicketComment> {
+    board
+        .ticket_comments(key)
+        .await
+        .expect("the comments")
+        .comments
+        .pop()
 }

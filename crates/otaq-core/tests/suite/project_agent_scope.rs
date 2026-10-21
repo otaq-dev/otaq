@@ -83,7 +83,7 @@ async fn a_project_agent_changes_backlog_tickets_only_and_its_tickets_name_it() 
     .await;
     let ticket = &created["reply"]["ticket"];
     assert_eq!(ticket["key"], "SHOP-41", "{created}");
-    assert_eq!(ticket["column"], "backlog");
+    assert_eq!(ticket["place"], "backlog");
     assert_eq!(ticket["created_by"], me.as_str());
     let edited = send(
         &w,
@@ -135,8 +135,12 @@ async fn a_project_agent_changes_backlog_tickets_only_and_its_tickets_name_it() 
         ("ticket.delete", json!({"key": "SHOP-41"})),
         ("ticket.close", json!({"key": "SHOP-19", "confirm": true})),
         (
-            "ticket.review_submit",
+            "ticket.stage_next",
             json!({"key": "SHOP-41", "summary": "done"}),
+        ),
+        (
+            "ticket.stage_done",
+            json!({"key": "SHOP-41", "summary": "nothing to do"}),
         ),
         (
             "ticket.local_merge",
@@ -247,12 +251,11 @@ async fn prime_project_prints_every_ticket_worktrees_and_the_instructions() {
         .execute(w.board.store().pool())
         .await
         .unwrap();
-    let mut settings = w.board.project_settings("SHOP").await.unwrap();
-    settings.project_agent_instructions = "Split into tickets of about one day.".into();
-    w.board
-        .set_project_settings("SHOP", &settings)
-        .await
-        .unwrap();
+    // AGM-02: the Project agent instructions are the Project agent role's agent's own.
+    w.edit_agent("Planner", |a| {
+        a.instructions = "Split into tickets of about one day.".into();
+    })
+    .await;
     let (_, shell) = open(&w).await;
     let answer = send(
         &w,
@@ -291,7 +294,7 @@ async fn prime_project_prints_every_ticket_worktrees_and_the_instructions() {
     assert!(text.contains(BACKLOG_ONLY), "{text}");
     assert!(
         text.ends_with(
-            "## Project agent instructions (project shop-web)\n\nSplit into tickets of about one day.\n"
+            "## Project agent instructions (Planner)\n\nSplit into tickets of about one day.\n"
         ),
         "{text}"
     );

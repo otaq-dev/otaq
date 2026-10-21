@@ -22,8 +22,6 @@ export type ToolProblemStep =
   /** The tool's own login in a terminal of the Terminals drawer (`agent_tools.sign_in`). */
   | { kind: "sign_in"; tool: string }
   | { kind: "settings"; params: NonNullable<OverlayParams["settings"]> }
-  /** The row's picker opens in the Ticket tab (`focus_agent_row`). */
-  | { kind: "agent_row"; ticket: string; role: AgentRole }
   /** The pane's empty state on `agent`; it starts when the user sends. */
   | { kind: "new_agent"; project: string; agent: string }
   | { kind: "none" };
@@ -50,22 +48,30 @@ export function toolProblemStep(action: ToolProblemAction, place: ToolProblemPla
     case "resume_tool":
       // Resume after reset: the callout's own tool's waiting agents continue (USG-10).
       return { kind: "request", method: "limits.resume_tool", params: { tool: action.tool } };
+    case "use_fallback_now":
+      // Use fallback now: the tool's waiting tickets start on its fallback, by this click only (AGM-03).
+      return { kind: "request", method: "limits.use_fallback_now", params: { tool: action.tool } };
     case "use_fallback": {
       const kind = fallbackKind(action.role);
       if (kind === null || place.ticket === undefined) return { kind: "none" };
       const params: PanelCardParams = { key: place.ticket, kind, clear: false };
       return { kind: "request", method: "panel.card", params };
     }
-    case "change_agent":
-      return place.ticket === undefined
-        ? { kind: "none" }
-        : { kind: "agent_row", ticket: place.ticket, role: action.role };
+    // Open agent… (AGM-03): Settings → Agents on that agent's page.
+    case "open_agent":
+      return {
+        kind: "settings",
+        params: action.agent === null ? { section: "agents" } : { section: "agents", agent: action.agent },
+      };
     case "new_agent":
       return place.project === undefined
         ? { kind: "none" }
         : { kind: "new_agent", project: place.project, agent: action.agent };
     case "agent_settings":
-      return { kind: "settings", params: { project: action.project, section: "agents" } };
+      return {
+        kind: "settings",
+        params: action.agent === null ? { section: "agents" } : { section: "agents", agent: action.agent },
+      };
   }
 }
 
@@ -75,7 +81,6 @@ export interface ToolProblemRunner {
   openSettings: (params: NonNullable<OverlayParams["settings"]>) => void;
   /** Opens the drawer on the tab the pending request answers with. */
   showDrawerTab: (pending: Promise<unknown>) => void;
-  focusAgentRow: (ticket: string, role: AgentRole) => void;
   newAgentOn: (project: string, agent: string) => void;
 }
 
@@ -98,9 +103,6 @@ export function runToolProblemAction(
       return;
     case "settings":
       run.openSettings(step.params);
-      return;
-    case "agent_row":
-      run.focusAgentRow(step.ticket, step.role);
       return;
     case "new_agent":
       run.newAgentOn(step.project, step.agent);

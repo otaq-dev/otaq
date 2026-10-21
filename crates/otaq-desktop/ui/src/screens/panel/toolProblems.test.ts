@@ -1,6 +1,6 @@
-// Where a tool problem's buttons go (T-0367): Use fallback calls its request, Change agent opens the right picker,
-// Sign in… opens the tool's login in the drawer, New agent on … opens the empty pane on that agent, Show in Agent tools
-// and the Project agent's Change agent open Settings. Nothing starts by itself (d0018, d0087).
+// Where a tool problem's buttons go (T-0367, T-0411): Use fallback calls its request, Open agent… opens Settings →
+// Agents on the agent, Sign in… opens the tool's login in the drawer, New agent on … opens the empty pane on that
+// agent, Show in Agent tools opens Settings. Nothing starts by itself (d0018, d0087).
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -15,7 +15,6 @@ function runner(answer: unknown = null) {
     request: vi.fn((): Promise<unknown> => Promise.resolve(answer)),
     openSettings: vi.fn(),
     showDrawerTab: vi.fn(),
-    focusAgentRow: vi.fn(),
     newAgentOn: vi.fn(),
   } satisfies ToolProblemRunner;
 }
@@ -30,7 +29,7 @@ const HIDDEN: CalloutView = {
   model: null,
   buttons: [
     { label: "Use fallback (Sonnet)", action: { kind: "use_fallback", role: "developer" }, primary: true },
-    { label: "Change agent", action: { kind: "change_agent", role: "developer" }, primary: false },
+    { label: "Open agent…", action: { kind: "open_agent", agent: "standard" }, primary: false },
     { label: "Show in Agent tools", action: { kind: "show_in_agent_tools" }, primary: false },
   ],
 };
@@ -63,13 +62,13 @@ describe("Use fallback", () => {
   });
 });
 
-describe("Change agent", () => {
-  it("opens the held role's picker in the Ticket tab", () => {
+describe("Open agent…", () => {
+  it("opens Settings → Agents on the held agent's page (AGM-03)", () => {
     const run = runner();
-    runToolProblemAction({ kind: "change_agent", role: "validator" }, { ticket: "SHOP-30" }, run);
-    expect(run.focusAgentRow).toHaveBeenCalledWith("SHOP-30", "validator");
-    runToolProblemAction({ kind: "change_agent", role: "lead" }, { ticket: "SHOP-40" }, run);
-    expect(run.focusAgentRow).toHaveBeenLastCalledWith("SHOP-40", "lead");
+    runToolProblemAction({ kind: "open_agent", agent: "verifier" }, { ticket: "SHOP-30" }, run);
+    expect(run.openSettings).toHaveBeenCalledWith({ section: "agents", agent: "verifier" });
+    runToolProblemAction({ kind: "open_agent", agent: null }, { ticket: "SHOP-40" }, run);
+    expect(run.openSettings).toHaveBeenLastCalledWith({ section: "agents" });
     expect(run.request).not.toHaveBeenCalled();
   });
 
@@ -80,7 +79,7 @@ describe("Change agent", () => {
       { project: "SHOP" },
       run,
     );
-    expect(run.openSettings).toHaveBeenCalledWith({ project: "SHOP", section: "agents" });
+    expect(run.openSettings).toHaveBeenCalledWith({ section: "agents", agent: "old-gpt" });
   });
 });
 
@@ -118,7 +117,7 @@ describe("the callout", () => {
     for (const text of [
       "hidden in Settings",
       "Use fallback (Sonnet)",
-      "Change agent",
+      "Open agent…",
       "Show in Agent tools",
     ]) {
       expect(html).toContain(text);

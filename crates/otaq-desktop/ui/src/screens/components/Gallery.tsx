@@ -27,7 +27,6 @@ import {
   type ButtonVariant,
   Checkbox,
   CountBadge,
-  AgentBlock,
   DecisionItem,
   DecisionsList,
   Field,
@@ -47,11 +46,13 @@ import {
   type ShownState,
   StackList,
   StackRow,
+  StageChoices,
   StatusPill,
   Tabs,
   TextArea,
   TextInput,
   ThemePicker,
+  TicketPath,
   Toast,
   Toggle,
   ToolAvatar,
@@ -68,8 +69,9 @@ import type { DecisionChangeGallery } from "../../generated/DecisionChangeGaller
 import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import type { DecisionGallery } from "../../generated/DecisionGallery";
 import type { EnvVarsGallery } from "../../generated/EnvVarsGallery";
-import type { AgentsGallery } from "../../generated/AgentsGallery";
 import type { AgentToolsGallery } from "../../generated/AgentToolsGallery";
+import type { FlowAtWorkGallery } from "../../generated/FlowAtWorkGallery";
+import type { OnboardingFlowGallery } from "../../generated/OnboardingFlowGallery";
 import type { OnboardingToolsGallery } from "../../generated/OnboardingToolsGallery";
 import type { WarmSwitchGallery } from "../../generated/WarmSwitchGallery";
 import type { GalleryView } from "../../generated/GalleryView";
@@ -80,7 +82,6 @@ import type { InboxLeadGallery } from "../../generated/InboxLeadGallery";
 import type { LeadGallery } from "../../generated/LeadGallery";
 import type { LeadSplit } from "../../generated/LeadSplit";
 import type { LeadTabGallery } from "../../generated/LeadTabGallery";
-import type { AgentRowsGallery } from "../../generated/AgentRowsGallery";
 import type { LegendTier } from "../../generated/LegendTier";
 import type { PaneGallery } from "../../generated/PaneGallery";
 import type { DrawerGallery } from "../../generated/DrawerGallery";
@@ -88,9 +89,8 @@ import type { PillView } from "../../generated/PillView";
 import type { ToolAvatarGallery } from "../../generated/ToolAvatarGallery";
 import type { TrustGallery } from "../../generated/TrustGallery";
 import type { NotificationsGallery } from "../../generated/NotificationsGallery";
-import type { SettingsSkillDialog } from "../../generated/SettingsSkillDialog";
-import type { WorkflowSkillsGallery } from "../../generated/WorkflowSkillsGallery";
 import type { ShortcutsGallery } from "../../generated/ShortcutsGallery";
+import type { StageChoicesGallery } from "../../generated/StageChoicesGallery";
 import type { OptionNotesGallery } from "../../generated/OptionNotesGallery";
 import type { InboxView } from "../../generated/InboxView";
 import {
@@ -126,21 +126,17 @@ import "../shortcuts/shortcuts.css";
 import { SettingsContext, type SettingsContextValue } from "../settings/context";
 import { WarmOffDialog } from "../settings/Dialogs";
 import { EnvVarsRow } from "../settings/EnvVars";
-import { AgentsSectionBody, ProjectAgentsBody } from "../settings/Agents";
-import { AgentDeleteDialogView, AgentDialog } from "../settings/AgentDialog";
 import { AgentToolsPageBody, DisconnectDialogView } from "../settings/AgentTools";
 import { type ShortcutsCalls, ShortcutsView } from "../settings/Keyboard";
-import {
-  Section as SettingsSectionRows,
-  SkillDialogView,
-  SkillRowView,
-  WarmBuildRow,
-} from "../settings/Rows";
+import { Section as SettingsSectionRows, WarmBuildRow } from "../settings/Rows";
 import "../settings/settings.css";
 import { ActivityGallery } from "../shell/ActivityGallery";
 import { LimitLinesGallery } from "../notices/LimitLinesGallery";
 import { LeadTabBody } from "../lead_tab/LeadTab";
 import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
+import { AgentsAtWork } from "../onboarding/FlowAtWork";
+import { FlowGoAhead, FlowPresets } from "../onboarding/FlowStep";
+import { FlowDialogButtons, FlowDialogGoAhead, FlowDialogPresets } from "../onboarding/AddProjectDialog";
 import { ToolsList } from "../onboarding/Tools";
 import "../onboarding/onboarding.css";
 import "./gallery.css";
@@ -1032,6 +1028,9 @@ function Cards() {
       <Section title="04 · Variants · several tools (M23) at 1280 (T-0367)">
         <CardGrid cells={view.tools} width={view.width_1280} onPick={setPicked} />
       </Section>
+      <Section title="03 · Cards in a check and a delivery · any flow (M33, T-0424)">
+        <CardGrid cells={view.flows} width={view.width} onPick={setPicked} />
+      </Section>
     </>
   );
 }
@@ -1350,21 +1349,21 @@ function LeadTabs() {
   );
 }
 
-const loadAgentRows = () => request("gallery.agent_rows") as Promise<AgentRowsGallery>;
+const loadStageChoices = () => request("gallery.stage_choices") as Promise<StageChoicesGallery>;
 
-/** *05 → Column 1 · locked rows, Column 2, Row · Developer and Validator rows*, *08 → Row · Agents field* (T-0344):
- * every row state from `gallery.agent_rows`, as the panel shows it (with its header's token line) and as the editor's
- * form does; picks are only recorded. */
-function AgentRowsSection() {
-  const { view, error } = useServiceView(loadAgentRows, []);
+/** *08 → Row · Stage choices (update AG §9)*, *05 → Row · Stage choices and path* (T-0411): the ⌘N form's pickers,
+ * the panel's choices and path mid-flow, after a Fail, finished, a choice you set and the default flow, from
+ * `gallery.stage_choices`; picks are only recorded. */
+function StageChoicesSection() {
+  const { view, error } = useServiceView(loadStageChoices, []);
   const [picked, setPicked] = useState<string | null>(null);
   if (error) return <p role="alert">{error.message}</p>;
   if (!view) return null;
   return (
-    <Section title="05/08 · Agent rows: every state, one agent, locked, moved on (T-0344)">
-      <Caption>Last pick: {picked ?? "—"}</Caption>
+    <Section title="05/08 · Stage choices and the path (T-0411)">
+      <Caption>Last pick: {picked ?? "\u2014"}</Caption>
       <div className="gallery-wrap gallery-wrap-wide">
-        {view.samples.map((sample) => (
+        {view.samples.map((sample, n) => (
           <div key={sample.caption} className="gallery-stack-tight gallery-agent-rows">
             <Caption>{sample.caption}</Caption>
             {sample.token_line !== null && (
@@ -1383,17 +1382,16 @@ function AgentRowsSection() {
                 }}
               />
             ))}
-            {(["panel", "form"] as const).map((look) => (
-              <div key={look} className="gallery-agent-rows-look" data-look={look}>
-                <AgentBlock
-                  block={sample.block}
-                  look={look}
-                  onPick={(role, agent) => {
-                    setPicked(`${sample.caption}: ${role} → ${agent ?? "project default"}`);
-                  }}
-                />
-              </div>
-            ))}
+            {sample.choices !== null && (
+              <StageChoices
+                view={sample.choices}
+                look={n === 0 ? "form" : "panel"}
+                onPick={(stage, choice) => {
+                  setPicked(`${sample.caption}: ${stage} → ${choice}`);
+                }}
+              />
+            )}
+            {sample.path !== null && <TicketPath view={sample.path} />}
           </div>
         ))}
       </div>
@@ -1467,136 +1465,6 @@ function EnvVarsSection() {
           ))}
         </div>
       </SettingsContext.Provider>
-    </Section>
-  );
-}
-
-const loadAgents = () => request("gallery.agents") as Promise<AgentsGallery>;
-
-/** *15 · Settings → Agents* from `gallery.agents`, in its one-tool form (T-0343, d0086: the section on a fresh
- * install, a list you made and with Fable test marked, each dialog — Add agent with the model picker, Edit with the
- * mark, Duplicate's "Strong copy", a taken name, the only agent — both Deletes, and the project block collapsed and
- * expanded) or with several tools (T-0366: `soGMU`, `t1sI3`, `cnRA5`, `OCna6`; Edit agent with Tool and Fallback
- * `ObF25`, Copilot's Auto tiers, the list loading and couldn't load `GTuGI`, "no longer listed", the project block
- * `mQijC`). Calls are only recorded; nothing is sent. */
-function AgentsGallerySection({ several }: { several: boolean }) {
-  const { view, error } = useServiceView(loadAgents, []);
-  const [picked, setPicked] = useState<string | null>(null);
-  const [open, setOpen] = useState<{ kind: "dialog" | "delete"; index: number } | null>(null);
-  if (error) return <p role="alert">{error.message}</p>;
-  if (!view) return null;
-  const close = () => {
-    setOpen(null);
-  };
-  // Several tools: the Fallbacks block is enabled, the dialog has a Fallback field, the pickers carry avatars.
-  const sections = view.sections.filter((cell) => cell.view.fallbacks.enabled === several);
-  const dialogs = view.dialogs.flatMap((cell, index) =>
-    (cell.view.fallback !== null) === several ? [{ cell, index }] : [],
-  );
-  const deletes = several ? [] : view.deletes;
-  const projects = view.projects.filter(
-    (cell) => cell.view.rows.some((row) => row.picker.value.tool !== null) === several,
-  );
-  const dialog = open?.kind === "dialog" ? view.dialogs[open.index] : undefined;
-  const remove = open?.kind === "delete" ? view.deletes[open.index] : undefined;
-  return (
-    <Section
-      title={
-        several
-          ? "15 · Settings → Agents, several tools: table, Fallbacks, pickers per tool, list states, marks (T-0366)"
-          : "15 · Settings → Agents: fresh install, a list you made, the picker, the mark, ⋯ and Delete, project block (T-0343)"
-      }
-    >
-      <Caption>Last call: {picked ?? "—"}</Caption>
-      <div className="gallery-wrap">
-        {sections.map((cell) => (
-          <div key={cell.label} className="gallery-stack" style={{ width: 762 }}>
-            <Caption>{cell.label.toUpperCase()}</Caption>
-            <AgentsSectionBody
-              section={cell.view}
-              onAdd={() => {
-                setPicked("Add agent");
-              }}
-              onMenu={(row, action) => {
-                setPicked(`${row.name} · ${action}`);
-              }}
-              onDefault={(role, agent) => {
-                setPicked(`${role} → ${agent}`);
-              }}
-              onAutoFallback={(on) => {
-                setPicked(`auto fallback ${on ? "on" : "off"}`);
-              }}
-            />
-          </div>
-        ))}
-        {projects.map((cell) => (
-          <div key={cell.label} className="gallery-stack" style={{ width: 762 }}>
-            <Caption>{cell.label.toUpperCase()}</Caption>
-            <ProjectAgentsBody
-              block={cell.view}
-              onPick={(role, agent) => {
-                setPicked(`${cell.view.project} · ${role} → ${agent ?? "app default"}`);
-              }}
-            />
-          </div>
-        ))}
-      </div>
-      <div className="gallery-wrap">
-        {dialogs.map(({ cell, index }) => (
-          <Button
-            key={cell.label}
-            variant="secondary"
-            label={cell.label}
-            onClick={() => {
-              setOpen({ kind: "dialog", index });
-            }}
-          />
-        ))}
-        {deletes.map((cell, index) => (
-          <Button
-            key={cell.label}
-            variant="secondary"
-            icon="trash-2"
-            label={`Delete · ${cell.label}`}
-            onClick={() => {
-              setOpen({ kind: "delete", index });
-            }}
-          />
-        ))}
-      </div>
-      {dialog && (
-        <AgentDialog
-          dialog={dialog.view}
-          onDraft={() => undefined}
-          onTool={(tool) => {
-            setPicked(`tool ${tool}`);
-          }}
-          onRetry={(tool) => {
-            setPicked(`retry ${tool}`);
-          }}
-          onSave={(draft) => {
-            setPicked(`save ${JSON.stringify(draft)}`);
-            close();
-          }}
-          onCancel={close}
-          onDelete={(id) => {
-            setPicked(`Delete… ${id}`);
-          }}
-        />
-      )}
-      {remove && (
-        <AgentDeleteDialogView
-          dialog={remove.view}
-          onClose={close}
-          onDelete={(id) => {
-            setPicked(`delete ${id}`);
-            close();
-          }}
-          onOpenTicket={(key) => {
-            setPicked(`open ${key}`);
-          }}
-        />
-      )}
     </Section>
   );
 }
@@ -1725,6 +1593,10 @@ function CleanupWarmGallery() {
 const loadTrust = () => request("gallery.trust") as Promise<TrustGallery>;
 const loadAgentTools = () => request("gallery.agent_tools") as Promise<AgentToolsGallery>;
 const loadOnboardingTools = () => request("gallery.onboarding_tools") as Promise<OnboardingToolsGallery>;
+const loadOnboardingFlow = () => request("gallery.onboarding_flow") as Promise<OnboardingFlowGallery>;
+const loadFlowAtWork = () => request("gallery.onboarding_flow_at_work") as Promise<FlowAtWorkGallery>;
+const loadOnboardingFlowDialog = () =>
+  request("gallery.onboarding_flow_dialog") as Promise<OnboardingFlowGallery>;
 
 const THEMES = ["otaq-light", "otaq-dark"] as const;
 
@@ -1842,6 +1714,165 @@ function OnboardingToolsGallerySection() {
           </div>
         ))}
       </div>
+    </Section>
+  );
+}
+
+/** *14 → Row · Flow step: sources* `s14-12`/`s14-13` (T-0434, ASK-05): the Flow step's go-ahead with one tool and with
+ * two, and no agent tool connected with the four presets, from `gallery.onboarding_flow` in Otaq Light and Dark. Calls
+ * are only recorded. */
+function OnboardingFlowGallerySection() {
+  const { view, error } = useServiceView(loadOnboardingFlow, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const record = (what: string) => () => {
+    setPicked(what);
+  };
+  return (
+    <Section title="14 · Flow step: ask an agent, and no agent tool connected (T-0434)">
+      <Caption>Last call: {picked ?? "—"}</Caption>
+      {THEMES.map((theme) => (
+        <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+          <Caption>{theme.toUpperCase()}</Caption>
+          {view.cells.map((cell) => {
+            const props = {
+              step: cell.step,
+              busy: false,
+              onSkip: record("Skip, use the default"),
+            };
+            return (
+              <div key={cell.name} className="gallery-stack-tight">
+                <Caption>{cell.name.toUpperCase()}</Caption>
+                {cell.step.opens === "no_tool" ? (
+                  <FlowPresets
+                    {...props}
+                    onAgents={record("Ask an agent")}
+                    onBackToTools={record("Back to Tools")}
+                    onPick={(file) => {
+                      setPicked(file);
+                    }}
+                  />
+                ) : (
+                  <FlowGoAhead
+                    {...props}
+                    onPresets={record("Use a preset instead")}
+                    onAsk={(tool) => {
+                      setPicked(`Ask ${tool}`);
+                    }}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </Section>
+  );
+}
+
+/** *14 → Row · Another project, and the presets* `s14-18`/`s14-19` (T-0431, ONB-08): the Add project dialog's go-ahead
+ * for billing-api with one tool and with none connected, drawn as the dialog box without its backdrop, from
+ * `gallery.onboarding_flow_dialog` in Otaq Light and Dark. Calls are only recorded. */
+function OnboardingFlowDialogGallerySection() {
+  const { view, error } = useServiceView(loadOnboardingFlowDialog, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const record = (what: string) => () => {
+    setPicked(what);
+  };
+  return (
+    <Section title="14 · Add project: the go-ahead in the dialog, no agent tool connected (T-0431)">
+      <Caption>Last call: {picked ?? "—"}</Caption>
+      {THEMES.map((theme) => (
+        <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+          <Caption>{theme.toUpperCase()}</Caption>
+          {view.cells.map((cell) => (
+            <div key={cell.name} className="gallery-stack-tight">
+              <Caption>{cell.name.toUpperCase()}</Caption>
+              <div className="dialog" style={{ width: 640 }}>
+                <div className="dialog-content">
+                  <h2 className="dialog-title">{cell.step.title}</h2>
+                  <div className="dialog-body add-project-flow">
+                    {cell.step.opens === "no_tool" ? (
+                      <FlowDialogPresets
+                        step={cell.step}
+                        busy={false}
+                        onPick={(file) => {
+                          setPicked(file);
+                        }}
+                      />
+                    ) : (
+                      <FlowDialogGoAhead
+                        step={cell.step}
+                        busy={false}
+                        onAsk={(tool) => {
+                          setPicked(`Ask ${tool}`);
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
+                <div className="dialog-footer">
+                  <span className="dialog-hint">
+                    <Kbd keys="esc" />
+                    <span>close</span>
+                  </span>
+                  <FlowDialogButtons
+                    step={cell.step}
+                    busy={false}
+                    onSkip={record("Skip, use the default")}
+                    onPresets={record("Use a preset instead")}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </Section>
+  );
+}
+
+/** *14 → Row · Flow step: the agent at work* `s14-14`/`s14-15` (T-0434, ASK-06): the Agents at work card in its five
+ * frames (two at work, one not asked, the plan limit, not signed in, ended without a proposal), from
+ * `gallery.onboarding_flow_at_work` in Otaq Light and Dark. The tabs need live terminals and aren't drawn here. Calls
+ * are only recorded. */
+function FlowAtWorkGallerySection() {
+  const { view, error } = useServiceView(loadFlowAtWork, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const record = (what: string) => () => {
+    setPicked(what);
+  };
+  return (
+    <Section title="14 · Flow step: agents at work (T-0434)">
+      <Caption>Last call: {picked ?? "—"}</Caption>
+      {THEMES.map((theme) => (
+        <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+          <Caption>{theme.toUpperCase()}</Caption>
+          {view.cells.map((cell) => (
+            <div key={cell.name} className="gallery-stack-tight">
+              <Caption>{cell.name.toUpperCase()}</Caption>
+              <AgentsAtWork
+                view={cell.view}
+                watched={cell.watching}
+                busy={false}
+                onWatch={(agent) => {
+                  setPicked(`Watch ${agent}`);
+                }}
+                onAct={(button) => {
+                  setPicked(button.label);
+                }}
+                onStopAll={record("Stop all and use a preset")}
+                onSkip={record("Skip, use the default")}
+              />
+            </div>
+          ))}
+        </div>
+      ))}
     </Section>
   );
 }
@@ -2174,97 +2205,6 @@ function NotificationsGallerySection() {
           ))}
         </div>
       </SettingsContext.Provider>
-    </Section>
-  );
-}
-
-const loadWorkflowSkills = () => request("gallery.workflow_skills") as Promise<WorkflowSkillsGallery>;
-
-/** T-0380 (WSK-01, WSK-02, WSK-04, WSK-07; d0092; *15 → update AC* `G4P2FV`/`UQ0Ft`, `prAII`/`zzn80`,
- * `D12DJ0`/`pL63n`): Settings → Workflow skills, global and per project, every §2/§3 state, the ⋯ menu open and both
- * dialogs, from `gallery.workflow_skills`, in Otaq Light and Dark. Clicks are only recorded; Use built-in answers
- * "ask first" so its dialog shows. */
-function WorkflowSkillsGallerySection() {
-  const { view, error } = useServiceView(loadWorkflowSkills, []);
-  const [picked, setPicked] = useState<string | null>(null);
-  const [open, setOpen] = useState<{ theme: string; dialog: SettingsSkillDialog } | null>(null);
-  if (error) return <p role="alert">{error.message}</p>;
-  if (!view) return null;
-  const context = (project: string | null): SettingsContextValue => ({
-    page: { page: "global", title: "Workflow skills", sections: [] },
-    project,
-    edit: () => undefined,
-    act: () => undefined,
-    skill: (method, params) => {
-      setPicked(`${method} ${JSON.stringify(params)}`);
-      return Promise.resolve(
-        method === "settings.skill_reset" && params.confirmed !== true ? "confirm" : "done",
-      );
-    },
-  });
-  const imported = view.cells[1]?.section.rows[0]?.control;
-  const commit = imported?.kind === "skills" ? imported.rows[0] : undefined;
-  return (
-    <Section title="15 · Settings → Workflow skills: global, project, ⋯, Re-import, Use built-in, §2 and §3 (T-0380)">
-      <Caption>Last click: {picked ?? "—"}</Caption>
-      <div className="gallery-two">
-        {THEMES.map((theme) => (
-          <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
-            <Caption>{theme.toUpperCase()}</Caption>
-            {view.cells.map((cell) => (
-              <SettingsContext.Provider key={cell.name} value={context(cell.project)}>
-                <div
-                  className="gallery-stack-tight"
-                  data-cell={cell.name}
-                  style={{ padding: "0 16px 16px", borderRadius: 8, background: "var(--bg-panel)" }}
-                >
-                  <Caption>{cell.name.toUpperCase()}</Caption>
-                  <SettingsSectionRows section={cell.section} />
-                </div>
-              </SettingsContext.Provider>
-            ))}
-            {commit && (
-              <SettingsContext.Provider value={context(null)}>
-                <div
-                  className="gallery-stack-tight"
-                  data-cell="menu"
-                  style={{ padding: "0 16px 120px", borderRadius: 8, background: "var(--bg-panel)" }}
-                >
-                  <Caption>THE ⋯ MENU ON AN IMPORTED SKILL</Caption>
-                  <SkillRowView row={commit} />
-                </div>
-                <div className="gallery-wrap">
-                  {[commit.reimport, commit.reset].map(
-                    (dialog) =>
-                      dialog && (
-                        <Button
-                          key={dialog.title}
-                          variant="secondary"
-                          label={`Open “${dialog.title}”`}
-                          onClick={() => {
-                            setOpen({ theme, dialog });
-                          }}
-                        />
-                      ),
-                  )}
-                </div>
-                {open?.theme === theme && (
-                  <SkillDialogView
-                    dialog={open.dialog}
-                    onConfirm={() => {
-                      setPicked(`${open.dialog.title} · ${open.dialog.confirm}`);
-                      setOpen(null);
-                    }}
-                    onCancel={() => {
-                      setOpen(null);
-                    }}
-                  />
-                )}
-              </SettingsContext.Provider>
-            )}
-          </div>
-        ))}
-      </div>
     </Section>
   );
 }
@@ -2651,21 +2591,21 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <Decisions />
         <DecisionChange />
         <LeadTabs />
-        <AgentRowsSection />
+        <StageChoicesSection />
         <InboxLead />
         <OptionNotes />
         <EnvVarsSection />
-        <AgentsGallerySection several={false} />
-        <AgentsGallerySection several />
         <WarmSwitchSection />
         <CleanupWarmGallery />
         <ReviewColumnSection />
         <TrustSection />
         <NotificationsGallerySection />
-        <WorkflowSkillsGallerySection />
         <ShortcutsGallerySection />
         <AgentToolsGallerySection />
         <OnboardingToolsGallerySection />
+        <OnboardingFlowGallerySection />
+        <OnboardingFlowDialogGallerySection />
+        <FlowAtWorkGallerySection />
         <BoardReviewSection />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">
           <ThemeSection />

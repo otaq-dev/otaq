@@ -240,13 +240,13 @@ pub async fn command_open(
         },
     };
     // Ask the agent asks the project's Project agent (d0086).
-    let agent = super::pane::project_agent(app, &params.project).await?;
+    let agent = super::pane::project_agent(app).await?;
     // Hidden only when no agent tool is connected (RUN-02, d0086).
     let any_tool = super::editor::tool_states(app).await.any();
     let model = RunCommandModel::new(
         &params.project,
         &name,
-        &agent_pane::new_agent_name(agent.as_ref()),
+        &agent_pane::new_agent_name(agent.as_ref(), &super::pane::tools(app).await),
         run.as_ref(),
         &settings.run_command,
     )
@@ -499,6 +499,7 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }))
             .await
             .unwrap()

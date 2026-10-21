@@ -3,4 +3,4 @@
 /**
  * A section of a project page.
  */
-export type ProjectSectionId = "general" | "agents" | "agent_instructions" | "project_agent_instructions" | "workflow_skills" | "validation" | "answers" | "commands" | "ticket_resources" | "pr_provider" | "remove_project";
+export type ProjectSectionId = "general" | "flow" | "project_notes" | "answers" | "commands" | "ticket_resources" | "pr_provider" | "remove_project";

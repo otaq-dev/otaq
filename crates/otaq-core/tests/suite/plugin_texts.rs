@@ -104,6 +104,281 @@ fn no_skill_text_names_a_skill_in_one_tools_syntax() {
     }
 }
 
+/// T-0409, T-0416 (AGM-12, AGM-10, AGM-11, FLW-20, FLW-21; d0108): no shipped skill names a removed command or
+/// flag. Stages end with `stage next` / `stage done`, checks with `check pass|fail`, tickets set stage choices with
+/// `--stage`, and a running check's terminal is `--terminal --stage <name>`. `--validator` is gone everywhere, from
+/// every file of the plugin.
+#[test]
+fn no_skill_names_a_removed_command_or_flag() {
+    let ns = naming::PLUGIN_NAMESPACE;
+    let gone = [
+        "review submit".to_owned(),
+        "validate pass".to_owned(),
+        "validate fail".to_owned(),
+        "--developer".to_owned(),
+        "--validator".to_owned(),
+        format!("/{ns}:"),
+    ];
+    for (name, path) in skill_files() {
+        let text = std::fs::read_to_string(&path).unwrap();
+        for word in &gone {
+            assert!(!text.contains(word.as_str()), "{name} names {word:?}");
+        }
+    }
+    let plugin =
+        find_plugin_dir(Path::new("/nonexistent")).expect("the repository's plugin folder");
+    for path in files_under(&plugin) {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        assert!(
+            !text.contains("--validator"),
+            "{} names --validator",
+            path.display()
+        );
+    }
+}
+
+/// Every file under `dir`, at any depth.
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            files.extend(files_under(&path));
+        } else {
+            files.push(path);
+        }
+    }
+    files
+}
+
+/// T-0416 (FLW-21): the Project agent and the epic lead read a running check's terminal with `--stage`.
+#[test]
+fn the_reading_skills_teach_the_stage_terminal() {
+    let cmd = naming::COMMAND_NAME;
+    let readers: Vec<_> = skill_files()
+        .into_iter()
+        .filter(|(n, _)| n == "project-agent" || n == "epic-lead")
+        .collect();
+    assert_eq!(readers.len(), 2);
+    for (name, path) in readers {
+        let text = std::fs::read_to_string(path).unwrap();
+        assert!(
+            text.contains(&format!("`{cmd} show <KEY> --terminal --stage <name>`")),
+            "{name} must teach --stage"
+        );
+    }
+}
+
+/// T-0409 (AGM-12, AGM-07): the skills that end an Agent stage name `stage next`, the check ends with `check pass|fail`,
+/// and a skill another skill names is named by its copy, `otaq-<name>`.
+#[test]
+fn skills_end_stages_with_the_stage_commands() {
+    let cmd = naming::COMMAND_NAME;
+    let read = |name: &str| {
+        let (_, path) = skill_files()
+            .into_iter()
+            .find(|(n, _)| n == name)
+            .unwrap_or_else(|| panic!("no skill {name}"));
+        std::fs::read_to_string(path).unwrap()
+    };
+    for name in ["work-ticket", "address-review", "restack", "commit"] {
+        assert!(
+            read(name).contains(&format!("{cmd} stage next")),
+            "{name} must name `stage next`"
+        );
+    }
+    for name in ["work-ticket", "address-review", "restack"] {
+        assert!(
+            read(name).contains(&format!("(`{}`", naming::copy_name("commit"))),
+            "{name} must name the commit skill by its copy"
+        );
+    }
+    let validate = read("validate");
+    for verdict in ["pass", "fail"] {
+        assert!(validate.contains(&format!("{cmd} check {verdict} --stdin")));
+    }
+    for name in ["validate", "answer-question"] {
+        assert!(
+            read(name).contains(&format!("don't run `{cmd} stage next`")),
+            "{name} must say not to run `stage next`"
+        );
+    }
+}
+
+/// The text of the shipped skill `name`.
+fn read_skill(name: &str) -> String {
+    let (_, path) = skill_files()
+        .into_iter()
+        .find(|(n, _)| n == name)
+        .unwrap_or_else(|| panic!("no skill {name}"));
+    std::fs::read_to_string(path).unwrap()
+}
+
+/// T-0415 (FLW-21, d0108 "Grill first"): `grill` asks one question at a time with `ask human`, writes the
+/// agreement with `update`, ends with `stage next`, and never edits files.
+#[test]
+fn grill_asks_writes_the_agreement_and_moves_on() {
+    let cmd = naming::COMMAND_NAME;
+    let grill = read_skill("grill");
+    for step in [
+        format!("{cmd} ask human"),
+        format!("{cmd} update"),
+        format!("{cmd} stage next --stdin"),
+        "one question at a time".to_owned(),
+        "never edit files".to_owned(),
+    ] {
+        assert!(grill.contains(&step), "grill must say {step:?}");
+    }
+    let ask = grill.find(&format!("{cmd} ask human")).unwrap();
+    let update = grill.find(&format!("{cmd} update")).unwrap();
+    let next = grill.find(&format!("{cmd} stage next")).unwrap();
+    assert!(
+        ask < update && update < next,
+        "ask, then update, then stage next"
+    );
+    assert!(
+        !grill.contains(&format!("{cmd} check ")),
+        "grill gives no verdict"
+    );
+}
+
+/// T-0415 (FLW-11, FLW-21; d0108 "The CLI proposes a whole document", "Every why line names its source"): `flow`
+/// reads with `flow show`, proposes with `flow propose --stdin`, waits for the answer as its next message, and
+/// documents every field of the format.
+#[test]
+fn flow_teaches_show_propose_the_format_and_the_wait() {
+    let cmd = naming::COMMAND_NAME;
+    let flow = read_skill("flow");
+    for text in [
+        format!("{cmd} flow show"),
+        format!("{cmd} flow propose --stdin"),
+        format!("{cmd} flow presets"),
+        "names its source".to_owned(),
+        "next message".to_owned(),
+        "Ask for more changes".to_owned(),
+    ] {
+        assert!(flow.contains(&text), "flow must say {text:?}");
+    }
+    let fields = [
+        "id", "name", "kind", "by", "column", "agent", "skill", "options", "rounds", "mode",
+        "delivers",
+    ];
+    for field in fields {
+        assert!(
+            flow.contains(&format!("| `{field}` |")),
+            "flow must document `{field}`"
+        );
+    }
+    for field in ["role", "instructions", "skills", "why", "model"] {
+        assert!(
+            flow.contains(&format!("**`{field}`**")),
+            "flow must document the agent's `{field}`"
+        );
+    }
+}
+
+/// T-0415 (FLW-11): the `flow` skill's whole example is a flow `propose` reads and the checks pass, the same as the
+/// Grill first preset.
+#[test]
+fn the_flow_skills_whole_example_reads_and_passes_the_checks() {
+    let flow = read_skill("flow");
+    let from = flow.find("A whole example").expect("a whole example");
+    let start = from + flow[from..].find("```yaml\n").unwrap() + "```yaml\n".len();
+    let end = start + flow[start..].find("```").unwrap();
+    let file = otaq_core::flow::yaml::read(&flow[start..end]).expect("the example reads");
+    assert_eq!(otaq_core::flow::check(&file.flow), Ok(()));
+    let grill_first = otaq_core::flow::presets::preset("grill-first.yaml").unwrap();
+    assert_eq!(file, grill_first.read());
+}
+
+/// T-0415 (FLW-21, FLW-15; d0108 rule 8, d0050): `open-pr` describes both modes: click (the user confirms in the
+/// dialog) and automatic (started with `automatic: …`, Otaq confirms at once, no dialog); `push`, which pushes again
+/// to the same PR after a Send back, does too. The words are T-0419's (`pr::service`).
+#[test]
+fn open_pr_and_push_describe_click_and_automatic_mode() {
+    let cmd = naming::COMMAND_NAME;
+    for (name, confirmed) in [
+        ("open-pr", "The pull request was confirmed automatically"),
+        ("push", "The push was confirmed automatically"),
+    ] {
+        let text = read_skill(name);
+        for needle in [
+            "**Click mode:**".to_owned(),
+            "**Automatic mode:**".to_owned(),
+            "starts with the word `automatic`".to_owned(),
+            "- Mode: automatic (no dialog): nobody reviews your proposal; Otaq confirms it at once"
+                .to_owned(),
+            confirmed.to_owned(),
+            format!("{cmd} pr propose --stdin"),
+            format!("{cmd} pr opened"),
+        ] {
+            assert!(text.contains(&needle), "{name} must say {needle:?}");
+        }
+    }
+    assert!(read_skill("open-pr").contains(&format!("`{}` skill", naming::copy_name("push"))));
+}
+
+/// T-0437 (ASK-09; d0108 "Each connected tool's agent looks for itself", "Every why line names its source"): `flow`
+/// has "A first flow" between its steps and the file: its own tool's history (found by itself, only what the user
+/// typed, never credentials or another tool's data), the repo with its AI files, nothing else (no `gh`, no home-folder
+/// skills), the closest preset, why lines naming source and tool or "No evidence found", no `skip` or automatic
+/// Delivery unasked, then `flow propose --stdin` and the end of the turn. No `otaq history` (ASK-01).
+#[test]
+fn flow_reads_its_own_history_and_the_repo_for_a_first_flow() {
+    let cmd = naming::COMMAND_NAME;
+    let flow = read_skill("flow");
+    let at = |heading: &str| {
+        flow.find(&format!("\n## {heading}\n"))
+            .unwrap_or_else(|| panic!("flow has no {heading:?}"))
+    };
+    let (steps, first, file) = (at("Steps"), at("A first flow"), at("The file"));
+    assert!(
+        steps < first && first < file,
+        "A first flow comes between Steps and The file"
+    );
+    let section = &flow[first..file];
+    for text in [
+        "**Your own tool's history on this Mac**".to_owned(),
+        "is for you to find".to_owned(),
+        "**only what the user typed**".to_owned(),
+        "login, token or credential data".to_owned(),
+        "**never another tool's data**".to_owned(),
+        "**This repo**".to_owned(),
+        "`AGENTS.md`".to_owned(),
+        "`CLAUDE.md`".to_owned(),
+        "`.claude/`".to_owned(),
+        "`.cursor/rules`".to_owned(),
+        "`git log`".to_owned(),
+        "branch names".to_owned(),
+        "CI files".to_owned(),
+        "PR templates".to_owned(),
+        "`CONTRIBUTING.md`".to_owned(),
+        "**Nothing else.**".to_owned(),
+        "no `gh`".to_owned(),
+        "not the skills, plugins or\ninstruction files in the home folder".to_owned(),
+        "closest preset".to_owned(),
+        format!("{cmd} flow presets"),
+        "names its source **and your tool**".to_owned(),
+        "\"From 41 /security-review runs in billing-api\n(Claude Code)\"".to_owned(),
+        "\"No evidence found\"".to_owned(),
+        "`skip` options".to_owned(),
+        "an automatic Delivery with no check before it".to_owned(),
+        format!("{cmd} flow propose --stdin"),
+        "**end your turn**".to_owned(),
+    ] {
+        assert!(section.contains(&text), "A first flow must say {text:?}");
+    }
+    for gone in [
+        format!("{cmd} history"),
+        "~/.claude/skills/".to_owned(),
+        "glab".to_owned(),
+    ] {
+        assert!(!flow.contains(&gone), "flow must not say {gone:?}");
+    }
+}
+
 #[test]
 fn the_quoting_check_matches_yaml() {
     assert!(quoted(r#"'Otaq''s skill with "<KEY>: <what>" messages'"#));

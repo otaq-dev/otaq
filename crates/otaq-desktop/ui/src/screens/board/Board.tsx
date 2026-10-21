@@ -4,8 +4,8 @@
 // column's sections fold per project (`prefs.ts`). A drag is the UIT-04 way (`drag.ts`): one `board.drag` at its
 // start, then only this page works while the pointer moves, drawing the targets' verdicts (Review's Approved section
 // is a target of its own), the lifted card and the hint or reason under it; a release on an allowed target sends
-// `board.drop`, whose answer may be the Park confirmation or the Approve choice (Ready for Review → Approved: nothing
-// moves until 1 or 2 is picked; Esc and the card stays). Esc cancels a drag. While the ticket panel is open over the
+// `board.drop`, whose answer may be the Park confirmation, the Approve choice (Ready for Review → Approved: nothing
+// moves until 1 or 2 is picked; Esc and the card stays) or the drag-back dialog (an earlier stage, FLW-18). Esc cancels a drag. While the ticket panel is open over the
 // board (SHL-05) the board keeps its width, gets the panel's width of room after the columns and scrolls the selected
 // card's column into the part the panel leaves; a click on the open card closes the panel, and so does a plain click on
 // the board's own background (`background.ts`: a column's empty area, the gaps, the room after the columns; OT-3),
@@ -18,7 +18,8 @@
 // its name (EPC-14, T-0271): onto Backlog it takes back, at once or after the Park-all confirmation. Clicking a
 // track's name or `g` `e` on a selected epic, child or track focuses the epic (EPC-18, T-0274): its `epic:` token goes in
 // the filter, the other cards, tracks and Done lines dim (Q55), the arrow keys walk only its cards, and Esc leaves.
-// A track's right click is its epic's menu.
+// A track's right click is its epic's menu. A long flow that doesn't fit (FLW-12) gets the stage strip above the
+// board (`StageStrip`): the columns in view outlined, a click scrolls to one.
 import {
   type CSSProperties,
   type KeyboardEvent,
@@ -42,7 +43,9 @@ import { type Anchor, Tooltip } from "../../components";
 import type { ApproveChoice as Choice } from "../../generated/ApproveChoice";
 import type { ApproveMenu } from "../../generated/ApproveMenu";
 import type { BoardCard } from "../../generated/BoardCard";
+import type { BoardColumn } from "../../generated/BoardColumn";
 import type { BoardColumnId } from "../../generated/BoardColumnId";
+import type { DragVerdict } from "../../generated/DragVerdict";
 import type { BoardDropParams } from "../../generated/BoardDropParams";
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
 import type { BoardParams } from "../../generated/BoardParams";
@@ -65,6 +68,7 @@ import { ChainLayer } from "./ChainLayer";
 import { CardMenu, type OpenCardMenu } from "./CardMenu";
 import { cardsOf, type CardHandlers, Column, columnOfCard, walkOf } from "./Column";
 import {
+  BACKLOG,
   type ColumnSpan,
   createDrag,
   type DragState,
@@ -72,12 +76,14 @@ import {
   liftedRow,
   liftedTrack,
   moveFocus,
+  READY_FOR_DEV,
   revealScroll,
   targetOrder,
   verdictOf,
 } from "./drag";
 import { EmptyBoard } from "./EmptyBoard";
 import { NoProjects } from "./NoProjects";
+import { columnsInView, StageStrip } from "./StageStrip";
 import {
   agentOf,
   boardAgent,
@@ -119,6 +125,8 @@ export const BOARD_EVENTS = [
   "lead_changed",
   // A named agent renamed or a role default changed: the footers' agent names (T-0345).
   "agents_changed",
+  // A flow change waits (Ready for Dev's "Waiting for the flow change") or applied (the columns change; FLW-06).
+  "flow_changed",
 ];
 
 /** Cards say how long ago their last signal came ("12s"); the board refetches this often to keep that true. */
@@ -253,6 +261,9 @@ export function afterDrop(
     case "approve":
       showApprove(outcome.menu);
       return;
+    case "drag_back":
+      openOverlay("drag_back", outcome.dialog);
+      return;
     case "not_yet": {
       const notice: NewToast = {
         level: "success",
@@ -265,6 +276,16 @@ export function afterDrop(
       return;
     }
   }
+}
+
+/** The verdict of `column`'s section with a target of its own (Review's Approved) while a card is dragged. */
+function sectionDrag(
+  column: BoardColumn,
+  drag: DragState | null,
+): { verdict: DragVerdict | undefined; over: boolean } | undefined {
+  const target = column.sections.find((s) => s.target !== null)?.target;
+  if (!drag || target == null) return undefined;
+  return { verdict: verdictOf(drag.answer, target), over: drag.over === target };
 }
 
 /** Sends a drop to Rust and carries out its answer. */
@@ -409,10 +430,29 @@ export function Board() {
   const ghost = useRef<HTMLDivElement>(null);
   const columns = useRef(new Map<BoardDropTarget, HTMLElement>());
   const pointer = useRef({ x: 0, y: 0 });
+  // The sections that are drop targets of their own (Review's Approved), with the column each is in (STG-08).
+  const sectionOwners = useMemo(
+    () =>
+      new Map(
+        (view?.columns ?? []).flatMap((c) =>
+          c.sections.flatMap((s): [BoardDropTarget, BoardDropTarget][] =>
+            s.target === null ? [] : [[s.target, c.id]],
+          ),
+        ),
+      ),
+    [view],
+  );
+  const sectionOwnersRef = useRef(sectionOwners);
+  useLayoutEffect(() => {
+    sectionOwnersRef.current = sectionOwners;
+  }, [sectionOwners]);
 
+  // The approve choice opens over the section it approves into (Approved), else its column.
   const showApprove = useCallback((menu: ApproveMenu) => {
+    const [section] = [...sectionOwnersRef.current.entries()];
     const approved = (
-      columns.current.get("approved") ?? columns.current.get("review")
+      section &&
+      (columns.current.get(section[0]) ?? columns.current.get(section[1]))
     )?.getBoundingClientRect();
     const anchor = approved
       ? { left: approved.left + 8, top: approved.top + 40, width: approved.width - 16, height: 0 }
@@ -436,13 +476,15 @@ export function Board() {
     if (ghost.current) ghost.current.style.transform = `translate(${String(x)}px, ${String(y)}px)`;
   }, []);
 
-  // Review's Approved section is a target from its label down to the column's bottom, where the cards scroll.
+  // A section that is a target of its own (Review's Approved) is one from its label down to its column's bottom,
+  // where the cards scroll.
   const spans = useCallback(
     (): ColumnSpan[] =>
       [...columns.current.entries()].map(([id, el]) => {
         const r = el.getBoundingClientRect();
-        if (id !== "approved") return { id, left: r.left, right: r.right };
-        const column = columns.current.get("review")?.getBoundingClientRect();
+        const owner = sectionOwnersRef.current.get(id);
+        if (owner === undefined) return { id, left: r.left, right: r.right };
+        const column = columns.current.get(owner)?.getBoundingClientRect();
         const cards = el.closest(".board-column-cards")?.getBoundingClientRect();
         return {
           id,
@@ -555,6 +597,7 @@ export function Board() {
   useShortcut("focus_epic", focusSelected);
 
   const order = useMemo(() => view?.columns.map((c) => c.id) ?? [], [view]);
+  const targets = useMemo(() => targetOrder(view?.columns ?? []), [view]);
   // The arrow keys walk the cards; with an epic focused, only its cards (EPC-18); never those of a folded section.
   const keys = useMemo(() => {
     const strong = view?.focus ? new Set(view.focus.keys) : null;
@@ -568,10 +611,12 @@ export function Board() {
   }, [view, prefs.foldedSections]);
   const keysRef = useRef(keys);
   const orderRef = useRef(order);
+  const targetsRef = useRef(targets);
   useLayoutEffect(() => {
     keysRef.current = keys;
     orderRef.current = order;
-  }, [keys, order]);
+    targetsRef.current = targets;
+  }, [keys, order, targets]);
 
   // The right-click menu: its items are asked when it opens, so they follow the ticket as it is now.
   const openMenu = useCallback(
@@ -616,7 +661,7 @@ export function Board() {
           e.preventDefault();
           if (lifted !== null) {
             if (e.key === "ArrowLeft" || e.key === "ArrowRight")
-              controller.step(e.key === "ArrowLeft" ? -1 : 1, targetOrder(orderRef.current));
+              controller.step(e.key === "ArrowLeft" ? -1 : 1, targetsRef.current);
             return;
           }
           const col = orderRef.current.indexOf(column);
@@ -656,19 +701,20 @@ export function Board() {
     [controller, release, placeGhost, openMenu],
   );
 
-  // ⌘D: start the selected ticket, as if it was dropped on Dev. On an epic (its card, or its track's name) it queues
-  // the children still in Backlog; on a child row only that child (EPC-12, d0058).
+  // ⌘D: start the selected ticket, as if it was dropped on Dev (the first agent column). On an epic (its card, or its
+  // track's name) it queues the children still in Backlog; on a child row only that child (EPC-12, d0058).
+  const startOn = view?.columns.find((c) => c.kind === "agent")?.id;
   const startSelected = useCallback(() => {
-    if (selected === null) return false;
-    void dropCard(selected, "dev", showApprove);
+    if (selected === null || startOn === undefined) return false;
+    void dropCard(selected, startOn, showApprove);
     return true;
-  }, [selected, showApprove]);
+  }, [selected, startOn, showApprove]);
   useShortcut("start_dev", startSelected);
   // Park (0097, palette only unless the user gives it a key): the selected ticket as if dropped on Backlog, which
   // asks the Park confirmation (CLS-06).
   const parkSelected = useCallback(() => {
     if (selected === null) return false;
-    void dropCard(selected, "backlog", showApprove);
+    void dropCard(selected, BACKLOG, showApprove);
     return true;
   }, [selected, showApprove]);
   useShortcut("park", parkSelected);
@@ -746,7 +792,7 @@ export function Board() {
         placeGhost(e.clientX, e.clientY);
       },
       queue: (key) => {
-        void dropCard(key, "ready_for_dev", showApprove);
+        void dropCard(key, READY_FOR_DEV, showApprove);
       },
     }),
     [controller, placeGhost, showApprove, focusOn, openMenu],
@@ -764,8 +810,9 @@ export function Board() {
   );
 
   const overVerdict = drag ? verdictOf(drag.answer, drag.over) : undefined;
-  // Over Approved the hint is drawn in the section itself (*Review column · drop target*).
-  const ghostHint = drag?.over === "approved" ? undefined : overVerdict;
+  // Over Approved (a section with a target of its own) the hint is drawn in the section itself (*Review column · drop
+  // target*).
+  const ghostHint = drag?.over != null && sectionOwners.has(drag.over) ? undefined : overVerdict;
 
   // The panel over the board (SHL-05): room after the columns to scroll into, and the selected card's column
   // scrolled into the part the panel leaves (*x9qiI*), when it opens, moves to another card or is resized.
@@ -784,6 +831,33 @@ export function Board() {
     );
     if (next !== null) board.scrollLeft = next;
   }, [selected, selectedColumn, covered]);
+
+  // The stage strip's outlines: the columns in view, again as the board scrolls or resizes (FLW-12).
+  const [inView, setInView] = useState<ReadonlySet<string>>(() => new Set());
+  const stageStrip = view?.stage_strip ?? null;
+  const measureInView = useCallback(() => {
+    const board = boardEl.current;
+    if (!board || stageStrip === null) return;
+    const b = board.getBoundingClientRect();
+    const spans = stageStrip.columns.flatMap(({ column }) => {
+      const r = columns.current.get(column)?.getBoundingClientRect();
+      return r ? [{ id: column, left: r.left, right: r.right }] : [];
+    });
+    const next = columnsInView(spans, { left: b.left, right: b.right - covered });
+    setInView((old) => (old.size === next.size && [...next].every((id) => old.has(id)) ? old : next));
+  }, [stageStrip, covered]);
+  useLayoutEffect(() => {
+    measureInView();
+  }, [measureInView, size]);
+  const pickColumn = useCallback((column: BoardColumnId) => {
+    const board = boardEl.current;
+    const el = columns.current.get(column);
+    if (!board || !el) return;
+    const pad = parseFloat(getComputedStyle(board).paddingLeft) || 0;
+    const left =
+      el.getBoundingClientRect().left - board.getBoundingClientRect().left + board.scrollLeft - pad;
+    board.scrollTo({ left, behavior: "smooth" });
+  }, []);
 
   // The columns' widths and their least total (for the room after them), from the view (SHL-01).
   const boardStyle = useMemo(() => {
@@ -819,6 +893,7 @@ export function Board() {
       style={boardStyle}
       onScroll={(e) => {
         if (project !== null) rememberBoardScroll(project, e.currentTarget.scrollLeft);
+        measureInView();
       }}
       // A card that moved away under the pointer never reports leaving; leaving the board ends its highlight.
       onPointerLeave={() => {
@@ -828,6 +903,7 @@ export function Board() {
         background.press(e);
       }}
     >
+      {stageStrip !== null && <StageStrip strip={stageStrip} inView={inView} onPick={pickColumn} />}
       {view?.strip && (
         <Strip
           strip={view.strip}
@@ -879,11 +955,7 @@ export function Board() {
             onToggleSection={(section) => {
               if (project !== null) toggleSectionFold(project, section);
             }}
-            approved={
-              drag && column.id === "review"
-                ? { verdict: verdictOf(drag.answer, "approved"), over: drag.over === "approved" }
-                : undefined
-            }
+            approved={sectionDrag(column, drag)}
             element={element$}
           />
         ))}

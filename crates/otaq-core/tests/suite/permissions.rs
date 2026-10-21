@@ -2,7 +2,7 @@
 //! session (an ordinary shell running `nc`) are judged as SHOP-1's agent; the same requests from the test process
 //! are the user's.
 
-use otaq_core::domain::{Actor, Column};
+use otaq_core::domain::Actor;
 use otaq_core::service::testing::{AgentShell, TestService};
 use serde_json::{Value, json};
 
@@ -116,7 +116,7 @@ async fn agent_created_tickets_land_in_backlog_and_may_be_linked() {
         )
         .await;
         let ticket = &created["reply"]["ticket"];
-        assert_eq!(ticket["column"], Column::Backlog.as_str(), "{created}");
+        assert_eq!(ticket["place"], "backlog", "{created}");
         assert_eq!(ticket["created_by"], "agent:SHOP-1");
     }
     // From its own ticket, and between the tickets it created: allowed.
@@ -180,7 +180,7 @@ async fn a_validator_cant_change_tickets_over_the_socket() {
         let answer = send(&w, &validator, method, params).await;
         assert_eq!(
             refusal(&answer),
-            ("not_allowed", "SHOP-29's validator can't change tickets"),
+            ("not_allowed", "SHOP-29's check can only give its verdict"),
             "{method}"
         );
     }

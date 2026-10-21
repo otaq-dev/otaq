@@ -3,7 +3,7 @@
 //! ```text
 //! OTAQ_TICKET=SHOP-29  PATH=<otaq bin dir>:$PATH  [PORT, OTAQ_ROLE, OTAQ_EPIC as for every tool]
 //! copilot --session-id <uuid> [--model <model> | --model auto --auto-tier <tier>]
-//!         --plugin-dir <otaq>/plugin-copilot --allow-tool 'shell(otaq:*)' -i "/otaq:work-ticket"
+//!         --plugin-dir <otaq plugin>/copilot --allow-tool 'shell(otaq:*)' -i "/otaq-work-ticket"
 //! ```
 //!
 //! and a resume `copilot --resume <id> [--model …] --plugin-dir … --allow-tool … [-i "<prompt>"]` (the model is
@@ -11,33 +11,35 @@
 //! (d0011): never `--allow-all`, `--yolo`, `--allow-all-tools` or `COPILOT_ALLOW_ALL`; the only pre-approval is
 //! Otaq's own `otaq` commands. Otaq doesn't touch the user's Copilot settings or status line (d0088).
 //!
-//! **Copilot's plugin folder** (ADP-03, ADP-05): `plugin-copilot/`, next to Otaq's Claude Code plugin folder (the
-//! places [`crate::agent_tools::claude::find_plugin_dir`] looks, `Otaq.app/Contents/Resources` among them), holds a manifest, a `hooks/hooks.json`
-//! whose commands pass `--tool copilot`, and `skills`, a relative link to `../plugin/skills` (one copy of the
-//! skills). Checked with Copilot 1.0.98 on 2026-10-18: `copilot --plugin-dir plugin-copilot skill list` lists
-//! Otaq's ten skills and its hooks run `otaq hook --tool copilot <event>`; a manifest whose `skills` points at
-//! `../plugin/skills` lists none (Copilot keeps a plugin's paths inside its folder).
+//! **Copilot's plugin folder** (ADP-03): `copilot/` inside Otaq's plugin folder (found where
+//! [`crate::agent_tools::claude::find_plugin_dir`] looks, `Otaq.app/Contents/Resources` among them), holds a manifest
+//! and a `hooks/hooks.json` whose commands pass `--tool copilot`, and **no skills** (AGM-07): the skills reach Copilot
+//! as project skills copied into the session's folder (`.agents/skills/otaq-<name>/` and `.claude/skills/`, both read
+//! by Copilot, `copilot skill --help`: "Project .github/skills/, .agents/skills/, or .claude/skills/"), run as
+//! `/otaq-<name>` (docs.github.com, "Adding agent skills for GitHub Copilot CLI": the skill name "preceded by a forward
+//! slash"). Checked with Copilot 1.0.98 on 2026-10-20 with a throwaway HOME: `copilot --plugin-dir plugin/copilot
+//! skill list` in a folder holding one copy in both places lists it once, under "Project skills", and lists no
+//! plugin skills.
 
 use std::path::{Path, PathBuf};
 
 use super::{COMMAND_NAME, Copilot, CopilotContext};
 use crate::agent_tools::follow::FollowChoice;
 use crate::agent_tools::{
-    AgentTool, FirstPrompt, LaunchContext, LaunchError, LaunchPlan, LaunchRequest, LaunchRole,
-    ToolIdMode,
+    FirstPrompt, LaunchContext, LaunchError, LaunchPlan, LaunchRequest, LaunchRole, ToolIdMode,
 };
 use crate::naming;
 
-/// Copilot's plugin folder, beside Otaq's Claude Code plugin folder.
-const PLUGIN_FOLDER: &str = "plugin-copilot";
+/// Copilot's plugin folder inside Otaq's plugin folder.
+const PLUGIN_FOLDER: &str = "copilot";
 
 /// What `copilot --resume <id>` prints for an id it doesn't have ("Error: No session, task, or name matched
 /// '<id>'."), compared without case. Captured from 1.0.98 on 2026-10-18.
 const CONVERSATION_NOT_FOUND: &str = "no session, task, or name matched";
 
-/// Copilot's plugin folder for `launch`: `plugin-copilot/` beside its `plugin_dir`, when it has its manifest.
+/// Copilot's plugin folder for `launch`: `copilot/` in its `plugin_dir`, when it has its manifest.
 pub fn find_plugin_dir(launch: &LaunchContext) -> Option<PathBuf> {
-    let dir = launch.plugin_dir.parent()?.join(PLUGIN_FOLDER);
+    let dir = launch.plugin_dir.join(PLUGIN_FOLDER);
     dir.join(".claude-plugin")
         .join("plugin.json")
         .is_file()
@@ -83,6 +85,9 @@ pub(super) fn launch(
         }
     };
     args.extend(model_flags(request.model.as_deref()));
+    if let Some(effort) = &request.effort {
+        args.extend(["--reasoning-effort".to_owned(), effort.clone()]);
+    }
     args.extend([
         "--plugin-dir".to_owned(),
         plugin.display().to_string(),
@@ -119,22 +124,14 @@ pub(super) fn model_flags(model: Option<&str>) -> Vec<String> {
     }
 }
 
-/// The first prompt as typed: `/otaq:epic-lead <message>`, a workflow skill (Otaq's own, or its worktree
-/// folder), or the text.
+/// The first prompt as typed: `/otaq-epic-lead <message>`, or the text.
 fn prompt_text(adapter: &Copilot, prompt: &FirstPrompt) -> String {
-    match prompt {
-        FirstPrompt::OtaqSkill { name, message } => {
-            let skill = adapter.skill_reference(name);
-            match message.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
-                Some(message) => format!("{skill} {message}"),
-                None => skill,
-            }
-        }
-        FirstPrompt::WorkflowSkill { step, imported } => {
-            adapter.workflow_skill(*step, *imported).prompt()
-        }
-        FirstPrompt::Text(text) => text.clone(),
-    }
+    prompt.text(adapter)
+}
+
+/// A skill as Copilot runs a project skill: `/otaq-work-ticket` (AGM-07).
+pub(super) fn skill_reference(skill: &str) -> String {
+    format!("/{}", naming::copy_name(skill))
 }
 
 /// Otaq's variables for the role, as for every tool: the ticket and `PORT` for a ticket's agent (an answer, a
@@ -213,11 +210,9 @@ mod tests {
 
     use super::*;
     use crate::agent_tools::test_support;
-    use crate::agent_tools::test_support::{follow_validate, only_the_prompt_differs};
     use crate::agent_tools::{Adapters, WORK_TICKET_SKILL};
-    use crate::board::settings::WorkflowStep;
 
-    /// Otaq's two plugin folders in a temporary install, and a context that launches with them.
+    /// Otaq's plugin folder with Copilot's inside it in a temporary install, and a context that launches with them.
     struct Install {
         dir: tempfile::TempDir,
         copilot: CopilotContext,
@@ -225,13 +220,22 @@ mod tests {
 
     impl Install {
         fn plugin(&self) -> String {
-            self.dir.path().join(PLUGIN_FOLDER).display().to_string()
+            self.dir
+                .path()
+                .join("plugin")
+                .join(PLUGIN_FOLDER)
+                .display()
+                .to_string()
         }
     }
 
     fn install() -> Install {
         let dir = tempfile::tempdir().unwrap();
-        let manifest = dir.path().join(PLUGIN_FOLDER).join(".claude-plugin");
+        let manifest = dir
+            .path()
+            .join("plugin")
+            .join(PLUGIN_FOLDER)
+            .join(".claude-plugin");
         std::fs::create_dir_all(&manifest).unwrap();
         std::fs::write(manifest.join("plugin.json"), "{}").unwrap();
         let mut tool = test_support::context(dir.path(), Some(dir.path()));
@@ -261,13 +265,14 @@ mod tests {
             ticket: Some("SHOP-29".parse().unwrap()),
             epic: None,
             port: 4012,
-            first_prompt: Some(FirstPrompt::OtaqSkill {
+            first_prompt: Some(FirstPrompt::Skill {
                 name: WORK_TICKET_SKILL.into(),
                 message: None,
             }),
             resume: None,
             model: None,
             title: None,
+            effort: None,
         }
     }
 
@@ -311,7 +316,7 @@ mod tests {
                 "--allow-tool".into(),
                 allow(),
                 "-i".into(),
-                format!("/{}:work-ticket", naming::PLUGIN_NAMESPACE),
+                format!("/{}-work-ticket", naming::COMMAND_NAME),
             ]
         );
         assert_eq!(plan.cwd, Path::new("/wt/shop-web/SHOP-29"));
@@ -351,6 +356,18 @@ mod tests {
     }
 
     /// A resume passes the id and the model again; a prompt only when there is one.
+    /// An agent's effort goes to Copilot as `--reasoning-effort <level>` (AGM-01).
+    #[test]
+    fn an_effort_is_its_own_flag() {
+        let i = install();
+        let mut req = request(LaunchRole::TicketAgent);
+        req.model = Some("gpt-5.5".into());
+        req.effort = Some("max".into());
+        let args = launch(&i.copilot, &req).unwrap().args;
+        let at = args.iter().position(|a| a == "--reasoning-effort").unwrap();
+        assert_eq!(args[at + 1], "max");
+    }
+
     #[test]
     fn resume() {
         let i = install();
@@ -436,9 +453,9 @@ mod tests {
     fn roles() {
         let i = install();
         let mut req = request(LaunchRole::Validator);
-        req.first_prompt = Some(FirstPrompt::WorkflowSkill {
-            step: WorkflowStep::Validate,
-            imported: false,
+        req.first_prompt = Some(FirstPrompt::Skill {
+            name: "validate".into(),
+            message: None,
         });
         let plan = launch(&i.copilot, &req).unwrap();
         assert_eq!(
@@ -449,23 +466,16 @@ mod tests {
                 (naming::role_env_var(), naming::ROLE_VALIDATOR.to_owned()),
             ]
         );
+        // A project skill by its copy's name, shipped or imported alike (AGM-07); no `--add-dir` (d0011).
         assert_eq!(
             plan.args.last().unwrap(),
-            &format!("/{}:validate", naming::PLUGIN_NAMESPACE)
+            &format!("/{}-validate", naming::COMMAND_NAME)
         );
-        // An imported Validate skill: its worktree folder, and nothing else changes (WSK-06, d0011).
-        req.first_prompt = Some(FirstPrompt::WorkflowSkill {
-            step: WorkflowStep::Validate,
-            imported: true,
-        });
-        let imported = launch(&i.copilot, &req).unwrap();
-        assert_eq!(imported.args.last(), Some(&follow_validate()));
-        only_the_prompt_differs(&plan, &imported);
-        assert!(!imported.args.iter().any(|a| a == "--add-dir"));
+        assert!(!plan.args.iter().any(|a| a == "--add-dir"));
 
         let mut req = request(LaunchRole::EpicLead);
         req.ticket = None;
-        req.first_prompt = Some(FirstPrompt::OtaqSkill {
+        req.first_prompt = Some(FirstPrompt::Skill {
             name: crate::agent_tools::EPIC_LEAD_SKILL.into(),
             message: Some("Plan the coupon work".into()),
         });
@@ -482,10 +492,7 @@ mod tests {
         );
         assert_eq!(
             plan.args.last().unwrap(),
-            &format!(
-                "/{}:epic-lead Plan the coupon work",
-                naming::PLUGIN_NAMESPACE
-            )
+            &format!("/{}-epic-lead Plan the coupon work", naming::COMMAND_NAME)
         );
 
         let mut req = request(LaunchRole::ProjectAgent);
@@ -506,14 +513,14 @@ mod tests {
         assert!(launch(&i.copilot, &req).is_err());
     }
 
-    /// Without Otaq's plugin, or without Copilot's folder beside it, nothing launches; through the registry too.
+    /// Without Otaq's plugin, or without Copilot's folder in it, nothing launches; through the registry too.
     #[test]
     fn the_copilot_plugin_folder_is_needed() {
         let i = install();
         assert_eq!(unavailable(&i.copilot), None);
         assert_eq!(
             find_plugin_dir(i.copilot.tool.launch.as_ref().unwrap()),
-            Some(i.dir.path().join(PLUGIN_FOLDER))
+            Some(i.dir.path().join("plugin").join(PLUGIN_FOLDER))
         );
         let launch_context = i.copilot.tool.launch.clone();
         let adapters = Adapters::launching_only(
@@ -529,7 +536,7 @@ mod tests {
         assert_eq!(launched.tool, crate::agent_tools::Tool::Copilot);
         assert_eq!(launched.tool_session_id, Some(chosen(&launched.plan)));
 
-        std::fs::remove_dir_all(i.dir.path().join(PLUGIN_FOLDER)).unwrap();
+        std::fs::remove_dir_all(i.dir.path().join("plugin").join(PLUGIN_FOLDER)).unwrap();
         let missing = plugin_missing();
         assert_eq!(unavailable(&i.copilot), Some(missing.clone()));
         assert_eq!(
@@ -547,7 +554,7 @@ mod tests {
         assert_eq!(unavailable(&none), Some(missing));
     }
 
-    /// In `Otaq.app` (d0072), `plugin-copilot/` sits beside `plugin/` in `Contents/Resources`.
+    /// In `Otaq.app` (d0072), `copilot/` is in `plugin/` in `Contents/Resources`.
     #[test]
     fn the_bundle_plugin_folder() {
         let dir = tempfile::tempdir().unwrap();
@@ -557,9 +564,10 @@ mod tests {
             .join("Contents");
         let macos = contents.join("MacOS");
         std::fs::create_dir_all(&macos).unwrap();
-        for folder in ["plugin", PLUGIN_FOLDER] {
+        for folder in ["claude", PLUGIN_FOLDER] {
             let manifest = contents
                 .join("Resources")
+                .join("plugin")
                 .join(folder)
                 .join(".claude-plugin");
             std::fs::create_dir_all(&manifest).unwrap();
@@ -576,12 +584,16 @@ mod tests {
         };
         assert_eq!(
             find_plugin_dir(&launch),
-            Some(contents.join("Resources").join(PLUGIN_FOLDER))
+            Some(
+                contents
+                    .join("Resources")
+                    .join("plugin")
+                    .join(PLUGIN_FOLDER)
+            )
         );
     }
 
-    /// The repository's `plugin-copilot/` is found beside `plugin/`, its skills are `plugin/skills` (one copy), and
-    /// every hook passes `--tool copilot` behind the PLG-04 guard, for an event the adapter maps.
+    /// The repository's `plugin/copilot/` is found, it has no skills (AGM-07: hooks only), and every hook passes `--tool copilot` behind the PLG-04 guard, for an event the adapter maps.
     #[test]
     fn the_repository_plugin_folder() {
         let plugin =
@@ -595,16 +607,14 @@ mod tests {
                 config_dir: None,
             },
         };
-        let dir = find_plugin_dir(&launch).expect("plugin-copilot beside plugin");
+        let dir = find_plugin_dir(&launch).expect("plugin/copilot");
         let manifest: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(dir.join(".claude-plugin/plugin.json")).unwrap(),
         )
         .unwrap();
         assert_eq!(manifest["name"], naming::PLUGIN_NAMESPACE);
-        assert_eq!(
-            std::fs::canonicalize(dir.join("skills")).unwrap(),
-            std::fs::canonicalize(plugin.join("skills")).unwrap()
-        );
+        assert!(!dir.join("skills").exists(), "hooks only");
+        assert!(manifest.get("skills").is_none());
         let hooks: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join("hooks/hooks.json")).unwrap())
                 .unwrap();

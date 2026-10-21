@@ -1,7 +1,7 @@
 //! `limits.*`: a tool's usage limit (USG-10, AGT-08, d0086). `limits.resume_tool { tool }` is Resume on a tool's
 //! banner line, its inbox row and a tool problem's notice (the pane's, the lead's): that tool's waiting agents
-//! continue, with the same toast everywhere. `limits.move_waiting { tool, agent }` is Move waiting to… on the tool's
-//! banner line: its not-yet-started tickets move to `agent` and start ("4 tickets moved to Strong GPT").
+//! continue, with the same toast everywhere. `limits.use_fallback_now { tool }` is Use fallback now on the tool's
+//! banner line: its waiting tickets start on its fallback (AGM-03; "4 tickets started on Codex").
 
 use otaq_core::protocol::ToolParams;
 use serde_json::Value;
@@ -16,9 +16,9 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             let p: ToolParams = serde_json::from_value(params).map_err(parse_error)?;
             super::notices::resume_tool(app, p.tool).await
         }
-        "limits.move_waiting" => {
-            super::notices::move_waiting(app, serde_json::from_value(params).map_err(parse_error)?)
-                .await
+        "limits.use_fallback_now" => {
+            let p: ToolParams = serde_json::from_value(params).map_err(parse_error)?;
+            super::notices::use_fallback_now(app, p.tool).await
         }
         _ => Err(unknown(method)),
     }
@@ -46,27 +46,23 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn move_waiting_needs_a_tool_and_an_agent() {
+    async fn use_fallback_now_needs_a_tool_and_says_why_it_cant() {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         assert!(
-            request(&h.app, "limits.move_waiting", json!({ "tool": "codex" }))
+            request(&h.app, "limits.use_fallback_now", json!({}))
                 .await
                 .is_err(),
-            "no agent"
+            "no tool"
         );
-        // An unknown agent: the service refuses, and the page gets an error toast, not an error.
-        request(
-            &h.app,
-            "limits.move_waiting",
-            json!({ "tool": "claude", "agent": "nobody" }),
-        )
-        .await
-        .unwrap();
+        // No fallback set: the service refuses, and the page gets an error toast, not an error.
+        request(&h.app, "limits.use_fallback_now", json!({ "tool": "claude" }))
+            .await
+            .unwrap();
         let view = request(&h.app, "notices.view", serde_json::Value::Null)
             .await
             .unwrap();
-        assert_eq!(view["toasts"][0]["title"], "Move waiting failed");
+        assert_eq!(view["toasts"][0]["title"], "Use fallback now failed");
         h.service.stop_all().await;
     }
 }

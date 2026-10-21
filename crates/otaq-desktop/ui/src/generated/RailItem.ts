@@ -24,4 +24,9 @@ detail: Array<string>,
 /**
  * The tooltip's last line: "⌘2 to switch".
  */
-note: string | null, };
+note: string | null, 
+/**
+ * "Flow setup" under the name while the project's flow isn't settled (ASK-04): selecting it opens its Flow setup
+ * page, not its board.
+ */
+flow_setup: string | null, };

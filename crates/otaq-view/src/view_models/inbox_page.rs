@@ -14,7 +14,6 @@ use otaq_core::board::needs_you::NeedsYouGroup;
 use otaq_core::board::questions::Choice;
 use otaq_core::domain::{LeadNoteSent, StuckStop, TicketKey, ValidationAction};
 use otaq_core::epic_lead::suggest::SuggestionKind;
-use otaq_core::named_agents::Role;
 use otaq_core::project_agents::AgentNeedsYou;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -28,7 +27,6 @@ use crate::view_models::inbox::{
 };
 use crate::view_models::inbox_run::{ALL_CLEAR_FOR, RunBar, all_clear_text, bar_title};
 use crate::view_models::limit_banner::{LimitBanner, LineButton};
-use crate::view_models::named_agents::RoleId;
 use crate::view_models::panel::Tab;
 use crate::view_models::status::{PillView, pill};
 use crate::view_models::terminal_strip::UnsentPrompt;
@@ -57,10 +55,10 @@ fn note_hint(label: impl Into<String>) -> KeyHint {
 #[ts(rename = "InboxRowAction")]
 pub enum Action {
     RetryStart,
-    /// Start failed / No result on a refused model (AGT-05): the page opens the panel with this row's picker open
-    /// (`panel.view`'s `focus_agent_row`); nothing goes to `inbox.act`.
-    ChangeAgent {
-        role: RoleId,
+    /// Start failed / No result on a refused model (AGT-05): Open agent… opens Settings → Agents on `agent`'s page;
+    /// nothing goes to `inbox.act`.
+    OpenAgent {
+        agent: Option<String>,
     },
     ReopenParent {
         parent: String,
@@ -75,7 +73,7 @@ pub enum Action {
         message: String,
     },
     /// Validation failed N times: Ready for Review without a pass (VAL-09).
-    MoveToReviewAnyway,
+    MoveOnAnyway,
     /// Validation failed N times: one more round, the findings go to the agent.
     AnotherRound,
     /// Validation failed N times: the user's note goes with the findings. The button opens the row's note box;
@@ -128,7 +126,7 @@ impl Action {
     pub fn validation(&self) -> Option<(ValidationAction, String)> {
         use ValidationAction as A;
         Some(match self {
-            Self::MoveToReviewAnyway => (A::MoveToReviewAnyway, String::new()),
+            Self::MoveOnAnyway => (A::MoveOnAnyway, String::new()),
             Self::AnotherRound => (A::AnotherRound, String::new()),
             Self::AnswerAgent { note } => (A::AnswerAgent, note.clone()),
             Self::RetryValidation => (A::Retry, String::new()),
@@ -141,8 +139,8 @@ impl Action {
     pub fn of(action: &RowAction) -> Self {
         match action {
             RowAction::RetryStart => Self::RetryStart,
-            RowAction::ChangeAgent(role) => Self::ChangeAgent {
-                role: (*role).into(),
+            RowAction::OpenAgent { agent, .. } => Self::OpenAgent {
+                agent: agent.clone(),
             },
             RowAction::ReopenParent(p) => Self::ReopenParent {
                 parent: p.to_string(),
@@ -161,7 +159,7 @@ impl Action {
             },
             RowAction::DismissSuggestion { id } => Self::DismissSuggestion { id: id.clone() },
             RowAction::Validation(action) => match action {
-                ValidationAction::MoveToReviewAnyway => Self::MoveToReviewAnyway,
+                ValidationAction::MoveOnAnyway => Self::MoveOnAnyway,
                 ValidationAction::AnotherRound => Self::AnotherRound,
                 ValidationAction::AnswerAgent => Self::AnswerAgent {
                     note: String::new(),
@@ -188,10 +186,11 @@ pub struct Button {
 fn button(action: &RowAction) -> Button {
     let (label, icon, primary) = match action {
         RowAction::RetryStart => ("Retry start".to_owned(), IconName::RotateCcw, false),
-        RowAction::ChangeAgent(Role::Validator) => {
-            ("Change validator".to_owned(), IconName::Bot, true)
-        }
-        RowAction::ChangeAgent(_) => ("Change agent".to_owned(), IconName::Bot, true),
+        RowAction::OpenAgent { .. } => (
+            crate::view_models::tool_problems::OPEN_AGENT.to_owned(),
+            IconName::Bot,
+            true,
+        ),
         RowAction::ReopenParent(_) => ("Reopen parent".to_owned(), IconName::RotateCcw, true),
         RowAction::RemoveDependency(_) => ("Remove dependency".to_owned(), IconName::Unlink, false),
         RowAction::UsageLimit => ("Mark as usage limit".to_owned(), IconName::Gauge, false),
@@ -222,7 +221,7 @@ fn button(action: &RowAction) -> Button {
 fn validation_button(action: ValidationAction) -> (&'static str, IconName) {
     use ValidationAction as A;
     match action {
-        A::MoveToReviewAnyway => ("Move to Review anyway", IconName::Eye),
+        A::MoveOnAnyway => ("Move on anyway", IconName::Eye),
         A::AnotherRound => ("Give it another round", IconName::RotateCcw),
         A::AnswerAgent => ("Answer the agent\u{2026}", IconName::MessageSquare),
         A::Retry => ("Retry validation", IconName::RotateCcw),
@@ -576,7 +575,7 @@ fn row(r: &InboxRow, next_keys: Option<&str>) -> Row {
     } else {
         None
     };
-    let mut pill = PillView::legend(r.legend, None);
+    let mut pill = PillView::legend(r.legend, r.pill_label.as_deref());
     if let Some(s) = &r.suggestion {
         // The lead's colour (violet), the action's icon.
         pill.palette = Palette::Epic;
@@ -978,6 +977,7 @@ pub fn lead_gallery() -> LeadGallery {
         suggestion: None,
         lead_note: None,
         change_agent: None,
+        waiting_in: None,
     };
     let mut passed = item(
         "SHOP-40.2",
@@ -1005,7 +1005,7 @@ pub fn lead_gallery() -> LeadGallery {
     let mut stuck = item(
         "SHOP-40.3",
         "Wishlist page",
-        Status::ValidationFailed,
+        Status::CheckFailed,
         NeedsYouGroup::Family,
         "validation failed 3 times \u{b7} \u{201c}orders.test.ts expects list\u{201d}",
         6 * MIN,
@@ -1104,6 +1104,7 @@ pub fn notes_gallery() -> View {
         suggestion: None,
         lead_note: None,
         change_agent: None,
+        waiting_in: None,
     };
     let items = vec![
         item("NOTE-1", "Add export", "asks: ", asks, MIN),
@@ -1140,6 +1141,7 @@ pub fn notes_gallery() -> View {
 mod tests {
     use std::time::Instant;
 
+    use otaq_core::agents::SessionRole as Role;
     use otaq_core::attention::inbox::{InboxCounts, InboxList};
     use otaq_core::board::needs_you::NeedsYouItem;
     use otaq_core::board::questions::HumanQuestion;
@@ -1167,6 +1169,7 @@ mod tests {
             suggestion: None,
             lead_note: None,
             change_agent: None,
+            waiting_in: None,
         }
     }
 
@@ -1226,7 +1229,7 @@ mod tests {
         let permission = agent("a2", Status::NeedsYou, None);
         let m = model(vec![item(
             "SHOP-32",
-            Status::ValidationFailed,
+            Status::CheckFailed,
             NeedsYouGroup::Family,
         )]);
         let agents = [asks, permission];
@@ -1342,7 +1345,7 @@ mod tests {
     fn the_inbox_names_the_users_next_key() {
         let m = model(vec![item(
             "SHOP-33",
-            Status::ValidatorNeedsYou,
+            Status::CheckerNeedsYou,
             NeedsYouGroup::Family,
         )]);
         let v = view(
@@ -1380,13 +1383,13 @@ mod tests {
     /// on a review item (the service's reason).
     #[test]
     fn the_m12_items_in_group_1() {
-        let mut review = item("SHOP-18", Status::ReadyForReview, NeedsYouGroup::Review);
+        let mut review = item("SHOP-18", Status::WaitingForYou, NeedsYouGroup::Review);
         review.reason = "ready for review · validated · round 2".into();
         let m = model(vec![
-            item("SHOP-33", Status::ValidatorNeedsYou, NeedsYouGroup::Family),
-            item("SHOP-32", Status::ValidationFailed, NeedsYouGroup::Family),
-            item("SHOP-34", Status::ValidationNoResult, NeedsYouGroup::Family),
-            item("SHOP-40.4", Status::AutoMergeStopped, NeedsYouGroup::Family),
+            item("SHOP-33", Status::CheckerNeedsYou, NeedsYouGroup::Family),
+            item("SHOP-32", Status::CheckFailed, NeedsYouGroup::Family),
+            item("SHOP-34", Status::CheckNoResult, NeedsYouGroup::Family),
+            item("SHOP-40.4", Status::DeliveryStopped, NeedsYouGroup::Family),
             review,
         ]);
         let v = view(
@@ -1421,7 +1424,7 @@ mod tests {
         assert_eq!(
             buttons(1),
             [
-                ("Move to Review anyway", true),
+                ("Move on anyway", true),
                 ("Give it another round", false),
                 ("Answer the agent\u{2026}", false)
             ]
@@ -1433,7 +1436,7 @@ mod tests {
         assert_eq!(rows[1].hint, None);
         assert_eq!(
             buttons(2),
-            [("Retry validation", true), ("Move to Review anyway", false)]
+            [("Retry validation", true), ("Move on anyway", false)]
         );
         assert_eq!(rows[2].note, None);
         assert_eq!(
@@ -1453,11 +1456,11 @@ mod tests {
         assert_eq!(
             sent,
             [
-                A::MoveToReviewAnyway,
+                A::MoveOnAnyway,
                 A::AnotherRound,
                 A::AnswerAgent,
                 A::Retry,
-                A::MoveToReviewAnyway,
+                A::MoveOnAnyway,
                 A::RetryMerge,
                 A::MoveToReview
             ]
@@ -1589,7 +1592,7 @@ mod tests {
                 reason: "PAY-123 only mentions signed-in users.".into(),
             }),
         });
-        let mut stuck = item("SHOP-40.3", Status::ValidationFailed, NeedsYouGroup::Family);
+        let mut stuck = item("SHOP-40.3", Status::CheckFailed, NeedsYouGroup::Family);
         stuck.reason = "validation failed 3 times · “orders.test.ts expects list”".into();
         stuck.lead_note = Some(LeadNoteSent {
             lead: "Wishlist lead".into(),
@@ -1716,7 +1719,7 @@ mod tests {
         assert_eq!(
             buttons,
             [
-                ("Move to Review anyway", true),
+                ("Move on anyway", true),
                 ("Give it another round", false),
                 ("Answer the agent…", false)
             ]
@@ -1867,21 +1870,23 @@ mod tests {
         );
     }
 
-    /// The Change agent / Change validator buttons (AGT-05): their labels, primary, and the role the page opens.
+    /// Open agent… (AGT-05, d0108 second gap review rule 7): its label, primary, and the agent the page opens.
     #[test]
-    fn change_agent_goes_back_with_its_role() {
-        let b = button(&RowAction::ChangeAgent(Role::Developer));
-        assert_eq!((b.label.as_str(), b.primary), ("Change agent", true));
+    fn open_agent_goes_back_with_its_agent() {
+        let b = button(&RowAction::OpenAgent {
+            role: Role::Developer,
+            agent: Some("griller".into()),
+        });
+        assert_eq!((b.label.as_str(), b.primary), ("Open agent\u{2026}", true));
         assert_eq!(
             serde_json::to_value(&b.action).unwrap(),
-            serde_json::json!({ "kind": "change_agent", "role": "developer" })
+            serde_json::json!({ "kind": "open_agent", "agent": "griller" })
         );
-        let b = button(&RowAction::ChangeAgent(Role::Validator));
-        assert_eq!(b.label, "Change validator");
-        assert_eq!(
-            serde_json::to_value(&b.action).unwrap(),
-            serde_json::json!({ "kind": "change_agent", "role": "validator" })
-        );
+        let b = button(&RowAction::OpenAgent {
+            role: Role::Validator,
+            agent: None,
+        });
+        assert_eq!(b.label, "Open agent\u{2026}");
         assert_eq!(b.action.validation(), None);
     }
 
@@ -1918,6 +1923,7 @@ mod tests {
             },
             enabled: true,
             primary: false,
+            tooltip: None,
         };
         let limits = [
             ToolLimit {

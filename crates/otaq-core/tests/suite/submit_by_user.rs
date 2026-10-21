@@ -1,5 +1,6 @@
-//! Submit for review by the user (T-0103, CLS-05): allowed when the agent isn't mid-turn, with the agent's checks;
-//! the summary reads "Submitted by you"; the session stays.
+//! Move to next stage by the user (was Submit for review; T-0103, T-0406, CLS-05): allowed when the agent isn't
+//! mid-turn, with the agent's checks; the summary reads "Submitted by you"; the session stays. Validation is off here:
+//! with it on the check runs first (d0108 rule 10, `validation::the_users_move_to_next_stage`).
 
 use otaq_core::board::Refusal;
 use otaq_core::domain::{Actor, Status};
@@ -10,10 +11,17 @@ fn me() -> Actor {
     Actor::User("me".into())
 }
 
+async fn shop_web_without_validation(w: &TestService) {
+    w.add_project("shop-web").await;
+    w.board
+        .edit_flow_for_tests("SHOP", otaq_core::flow::default::testing::without_validate)
+        .await;
+}
+
 #[tokio::test]
 async fn allowed_from_idle_needs_you_and_interrupted_only() {
     let w = TestService::start().await;
-    w.add_project("shop-web").await;
+    shop_web_without_validation(&w).await;
     for (n, status) in [
         Status::Idle,
         Status::AsksYou,
@@ -28,15 +36,15 @@ async fn allowed_from_idle_needs_you_and_interrupted_only() {
         commit(&wt, "a.ts", "a\n");
         w.force_status(&t, status).await;
         let key = format!("SHOP-{}", n + 1);
-        let after = w.board.submit_by_user(&key, "", &me()).await.unwrap();
-        assert_eq!(after.status, Status::ReadyForReview, "from {status}");
+        let after = w.validation.submit_by_user(&key, "", &me()).await.unwrap();
+        assert_eq!(after.status, Status::WaitingForYou, "from {status}");
     }
     for status in [Status::Working, Status::WorkingInBackground, Status::Queued] {
         let t = w.create("SHOP", "busy").await;
         w.start_worktree(&t).await;
         w.force_status(&t, status).await;
         let err = w
-            .board
+            .validation
             .submit_by_user(&t.key.to_string(), "", &me())
             .await
             .unwrap_err();
@@ -48,7 +56,7 @@ async fn allowed_from_idle_needs_you_and_interrupted_only() {
 #[tokio::test]
 async fn submitted_by_you_with_the_note_and_the_session_stays() {
     let w = TestService::start().await;
-    w.add_project("shop-web").await;
+    shop_web_without_validation(&w).await;
     let t = w.create("SHOP", "Fix flaky login redirect").await;
     let wt = w.start_worktree(&t).await;
     commit(&wt, "login.ts", "fixed\n");
@@ -58,7 +66,7 @@ async fn submitted_by_you_with_the_note_and_the_session_stays() {
     let agent = w.agent_shell(&t).await;
 
     let err = w
-        .board
+        .validation
         .submit_by_user("SHOP-1", "", &me())
         .await
         .unwrap_err();
@@ -71,14 +79,22 @@ async fn submitted_by_you_with_the_note_and_the_session_stays() {
     std::fs::remove_file(wt.join("debug.log")).unwrap();
     git(&wt, &["checkout", "--", "login.ts"]);
     let after = w
-        .board
+        .validation
         .submit_by_user("SHOP-1", "I finished the redirect by hand.", &me())
         .await
         .unwrap();
-    assert_eq!(after.status, Status::ReadyForReview);
+    assert_eq!(after.status, Status::WaitingForYou);
+    // History says "Submitted by you"; the note is the user's comment (CMT-05).
     assert_eq!(
         w.board.review_summary(&t.id).await.unwrap().as_deref(),
-        Some("Submitted by you\n\nI finished the redirect by hand.")
+        Some("Submitted by you")
+    );
+    let note = crate::common::last_comment(&w.board, "SHOP-1")
+        .await
+        .unwrap();
+    assert_eq!(
+        (note.author_label(), note.body.as_str()),
+        ("You".to_owned(), "I finished the redirect by hand.")
     );
     let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
     assert_eq!(

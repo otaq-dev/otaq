@@ -1,191 +1,117 @@
 // @vitest-environment happy-dom
-// Settings → Agents (T-0343): the model picker takes no typed text, Esc closes the dialog without saving, ⋯ →
-// Duplicate opens Add agent with "<name> copy", and Delete… opens the refused or the plain dialog as the view says.
-// With several tools (T-0366): changing the Tool clears the model, Fallback lists only what the view offers (agents on
-// other tools), Retry asks for the list again, and the Fallbacks check box is disabled while one tool is connected.
+// Settings → Agents (T-0410; AGM-02…AGM-04): the page asks for Otaq's copy of the model lists and then reads them again
+// once; ⋯ → Delete… opens the refused dialog (OK only) or the plain question; a
+// row opens its agent's page, whose Role moves the role, whose Name is saved when left, and whose Effort shows only
+// when the view has one; New agent's draft is saved by Add agent with what was typed; the model dropdowns pick a tool
+// and a model, or None, never a heading. What this agent reads (T-0440, AGR-01) opens on the project on screen, picks
+// another, and its links go back to the page, to the project's notes and to a skill's folder.
 import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentDeleteDialog } from "../../generated/AgentDeleteDialog";
-import type { AgentDialog as AgentDialogView } from "../../generated/AgentDialog";
-import type { AgentDraft } from "../../generated/AgentDraft";
-import type { AgentMenuItem } from "../../generated/AgentMenuItem";
+import type { AgentListRow } from "../../generated/AgentListRow";
+import type { AgentPage } from "../../generated/AgentPage";
+import type { AgentReadsView } from "../../generated/AgentReadsView";
+import type { AgentsModelChoice } from "../../generated/AgentsModelChoice";
 import type { AgentsSection as AgentsSectionView } from "../../generated/AgentsSection";
-import type { AgentTableRow } from "../../generated/AgentTableRow";
-import type { ModelPickerView } from "../../generated/ModelPickerView";
-import type { ToolAvatarView } from "../../generated/ToolAvatarView";
+import type { MenuItem } from "../../generated/MenuItem";
+import { NOTHING_SELECTED, selection } from "../../app/selection";
 import { request } from "../../tauri";
-import { AgentDialog } from "./AgentDialog";
-import { AgentsSection } from "./Agents";
-import { agentChoices, modelChoices, toolChoices } from "./ModelPicker";
+import { AgentsSection, optionValue } from "./Agents";
+import { SettingsContext, type SettingsContextValue } from "./context";
+import { dropdownChoices, pickOf } from "./ModelPicker";
 
 vi.mock("../../tauri", () => ({
   request: vi.fn(),
+  pickFolder: vi.fn(),
+  pickFlowFile: vi.fn(),
+  saveFlowFile: vi.fn(),
   subscribeEvents: vi.fn(() => Promise.resolve()),
   windowAction: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-// The shapes `named_agents.rs` and `model_picker.rs` send (their gallery fixtures).
-const PICKER: ModelPickerView = {
-  value: {
-    label: "Fable · always the newest",
-    detail: "now claude-fable-5-1",
-    mono: false,
-    no_longer_listed: null,
-  },
-  groups: [
-    {
-      heading: null,
-      items: [
-        { value: null, label: "Tool default", detail: "Otaq passes no model", mono: false, selected: false },
-      ],
-      empty: null,
-    },
-    {
-      heading: "ALWAYS THE NEWEST",
-      items: [
-        {
-          value: "opus",
-          label: "Opus · always the newest",
-          detail: "now claude-opus-5-5",
-          mono: false,
-          selected: false,
-        },
-        {
-          value: "fable",
-          label: "Fable · always the newest",
-          detail: "now claude-fable-5-1",
-          mono: false,
-          selected: true,
-        },
-      ],
-      empty: null,
-    },
-    { heading: "EXACT MODELS", items: [], empty: "Claude Code's list has only its aliases" },
-  ],
-  status: null,
-  hint: "From Claude Code's own list. A follow choice is resolved when each session starts, and the session keeps the exact model it ran on.",
-};
+const item = (id: string, label: string, over: Partial<MenuItem> = {}): MenuItem => ({
+  id,
+  label,
+  icon: null,
+  shortcut: null,
+  danger: false,
+  disabled: false,
+  hint: null,
+  separated: false,
+  checked: false,
+  header: false,
+  ...over,
+});
 
-function dialogView(over: Partial<AgentDialogView> = {}): AgentDialogView {
-  return {
-    id: null,
-    title: "Add agent",
-    mark: null,
-    name_label: "Name",
-    draft: {
-      name: "Fable test",
-      tool: null,
-      model: "fable",
-      use_for: "Trying Fable on a few tickets",
-      fallback: null,
-    },
-    name_problem: null,
-    tool_label: "Tool",
-    tool: "Claude Code",
-    tool_avatar: null,
-    tool_options: [],
-    tool_note: "the only connected tool",
-    tool_problem: null,
-    model_label: "Model",
-    picker: PICKER,
-    model_problem: null,
-    use_for_label: "Use for",
-    use_for_hint: "Agents read this when they pick an agent for a ticket.",
-    fallback: null,
-    delete: null,
-    cancel_label: "Cancel",
-    save_label: "Add agent",
-    save_enabled: true,
-    ...over,
-  };
-}
+const MENU = [item("duplicate", "Duplicate"), item("delete", "Delete…", { danger: true, separated: true })];
 
-const MENU: AgentMenuItem[] = [
-  {
-    action: "edit",
-    icon: "pencil",
-    label: "Edit…",
-    danger: false,
-    separated: false,
-    enabled: true,
-    tooltip: null,
-  },
-  {
-    action: "duplicate",
-    icon: "copy",
-    label: "Duplicate",
-    danger: false,
-    separated: false,
-    enabled: true,
-    tooltip: null,
-  },
-  {
-    action: "delete",
-    icon: "trash-2",
-    label: "Delete…",
-    danger: true,
-    separated: true,
-    enabled: true,
-    tooltip: null,
-  },
+const row = (id: string, name: string, over: Partial<AgentListRow> = {}): AgentListRow => ({
+  id,
+  name,
+  role: null,
+  came_from: "Added by you",
+  model: "Claude Code · opus",
+  skills: ["work-ticket", "commit"],
+  used_in: "—",
+  mark: null,
+  mark_link: null,
+  menu: MENU,
+  menu_label: `More for ${name}`,
+  ...over,
+});
+
+const choice = (over: Partial<AgentsModelChoice>): AgentsModelChoice => ({
+  id: "x",
+  kind: "option",
+  tool: "claude",
+  model: null,
+  label: "",
+  detail: null,
+  mono: false,
+  selected: false,
+  ...over,
+});
+
+const CHOICES: AgentsModelChoice[] = [
+  choice({ id: "heading:claude", kind: "heading", label: "Claude Code" }),
+  choice({ id: "claude:", label: "Tool default", detail: "Otaq passes no model" }),
+  choice({ id: "claude:haiku", model: "haiku", label: "Haiku · always the newest", selected: true }),
+  choice({ id: "status:codex", kind: "note", tool: "codex", label: "Loading Codex's models…" }),
 ];
 
-function tableRow(id: string, name: string, model: string, useFor: string): AgentTableRow {
-  return {
-    id,
-    name,
-    tool: null,
-    tool_name: null,
-    model,
-    model_mono: false,
-    use_for: useFor,
-    fallback: null,
-    tool_problem: null,
-    added: null,
-    mark: null,
-    menu_label: `More for ${name}`,
-    menu: MENU,
-  };
-}
-
+// The shapes `agents.rs` sends: the example (its view-model test).
 const SECTION: AgentsSectionView = {
   title: "Agents",
-  intro:
-    "Named agents are a tool, a model and what you use them for. Agents pick from these names when they create tickets.",
-  table_title: "Named agents",
-  columns: ["NAME", "MODEL", "USE FOR"],
-  rows: [
-    tableRow("cc", "Claude Code", "Tool default", "Everything, until you add more agents"),
-    tableRow("strong", "Strong", "Opus · always the newest", "Complex features, tricky bugs"),
-    tableRow("light", "Light", "Haiku · always the newest", "Typos, docs, small config"),
-  ],
-  add_label: "Add agent",
-  fresh_note: null,
-  defaults_title: "Default agent for each kind",
-  defaults: [],
-  defaults_note: "Projects can override any row in their own settings.",
-  defaults_unchanged: null,
-  fallbacks: {
-    title: "Fallbacks",
-    label: "Use fallback agents automatically",
-    help: "When an agent's tool hits its usage limit or isn't available, waiting tickets start on that agent's fallback instead.",
-    on: false,
-    enabled: false,
-    note: "Disabled: a fallback must be on another tool. Connect a second agent tool to use fallbacks.",
+  intro: "What each agent does: its instructions, its skills and its own model.",
+  new_agent_label: "New agent",
+  more_label: "More agent actions",
+  more: [item("agents_file", "Apply the shipped agents file again")],
+  default_model: {
+    label: "Default model for new agents",
+    description: "A new agent, or one a preset adds, starts with it.",
+    dropdown: { value: "Claude Code · haiku", choices: CHOICES, read_only: false },
   },
+  fallbacks: null,
+  columns: ["Name", "Model", "Skills", "Used in"],
+  rows: [
+    row("planner", "Planner", {
+      role: "Project agent",
+      came_from: "From Otaq’s agents file",
+      used_in: "every project · the Project agent",
+    }),
+    row("validator", "Validator", { used_in: "pocket-notes · Validate" }),
+    row("strong", "Strong", { came_from: "Added by you" }),
+  ],
 };
 
 const REFUSED: AgentDeleteDialog = {
   kind: "refused",
-  title: "Light can't be deleted",
-  text: "Light is used by 4 tickets and project docs-site. Change those first, then delete it.",
-  lines: ["4 tickets · SHOP-24, SHOP-40.3, SHOP-41 and 1 more", "docs-site · Validator default"],
-  tickets: ["SHOP-24", "SHOP-40.3", "SHOP-41", "SHOP-50"],
-  show_tickets_label: "Show tickets",
+  title: "Can’t delete Validator",
+  text: "Validator is used in pocket-notes · Validate. Change that stage first.",
   ok_label: "OK",
 };
 
@@ -193,11 +119,106 @@ const CONFIRM: AgentDeleteDialog = {
   kind: "confirm",
   id: "strong",
   title: "Delete Strong?",
-  text: "Nothing uses Strong: no unfinished ticket and no default.",
-  note: "Finished tickets that ran on it keep their history as “Strong (deleted)”.",
+  text: "No stage and no role uses Strong. Sessions that ran on it keep its name in their history.",
   cancel_label: "Cancel",
   delete_label: "Delete",
 };
+
+function agentPage(over: Partial<AgentPage> = {}): AgentPage {
+  return {
+    id: "strong",
+    title: "Strong",
+    role_tag: null,
+    came_from: "Added by you",
+    back_label: "Back to Agents",
+    reads_label: "What this agent reads",
+    menu_label: "More actions",
+    menu: MENU,
+    draft: {
+      name: "Strong",
+      instructions: "",
+      skills: ["shipped:work-ticket"],
+      tool: "claude",
+      model: "opus",
+      effort: null,
+    },
+    name: { label: "Name", value: "Strong", problem: null },
+    model: {
+      label: "Model",
+      tool_label: "Tool",
+      tool_value: "Claude Code",
+      tools: [
+        { id: "", label: "Default model", selected: false },
+        { id: "claude", label: "Claude Code", selected: true },
+      ],
+      default_now: null,
+      picker: {
+        value: { label: "opus", detail: null, mono: true, no_longer_listed: null },
+        groups: [
+          {
+            heading: null,
+            items: [{ value: null, label: "Tool default", detail: null, mono: false, selected: false }],
+            empty: null,
+          },
+        ],
+        status: null,
+        hint: "From Claude Code's own list.",
+      },
+      effort: {
+        label: "Effort",
+        value: "Tool default",
+        options: [
+          { id: "", label: "Tool default", selected: true },
+          { id: "high", label: "high", selected: false },
+        ],
+      },
+      problem: null,
+    },
+    role: {
+      label: "Role",
+      options: [
+        { id: "", label: "None", selected: true },
+        { id: "project-agent", label: "Project agent", selected: false },
+        { id: "epic-lead", label: "Epic lead", selected: false },
+      ],
+      hint: "Each role is held by exactly one agent. Giving a role here takes it from the agent that has it.",
+      moved: null,
+      problem: null,
+    },
+    instructions: {
+      label: "Instructions",
+      value: "",
+      placeholder: "What this agent does and how, in Markdown",
+      markdown_label: "Markdown",
+    },
+    skills: {
+      label: "Skills",
+      rows: [
+        {
+          key: "shipped:work-ticket",
+          name: "work-ticket",
+          source: null,
+          warnings: [],
+          reimport_id: null,
+          reimport_label: "Re-import",
+          reimport: null,
+          remove_label: "Remove",
+        },
+      ],
+      add_label: "Add skill",
+      add_options: ["commit"],
+      import_label: "Import skill folder…",
+      picker_title: "Import skill folder",
+      problem: null,
+    },
+    used_in: { label: "Used in", items: [], empty: "—" },
+    mark: null,
+    note: "Edits apply to the next session that starts.",
+    add: null,
+    problem: null,
+    ...over,
+  };
+}
 
 let root: Root;
 let box: HTMLElement;
@@ -229,13 +250,8 @@ async function settle() {
   });
 }
 
-function key(target: Element, k: string) {
-  act(() => {
-    target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
-  });
-}
-
-function click(target: Element) {
+function click(target: Element | null | undefined) {
+  if (!target) throw new Error("nothing to click");
   act(() => {
     (target as HTMLElement).click();
   });
@@ -243,156 +259,6 @@ function click(target: Element) {
 
 const byText = (selector: string, text: string) =>
   [...document.querySelectorAll(selector)].find((el) => el.textContent.trim() === text);
-
-function modelField(): HTMLButtonElement {
-  const field = document.querySelector<HTMLButtonElement>(".settings-model-field");
-  if (!field) throw new Error("no model field");
-  return field;
-}
-
-interface DialogCalls {
-  drafts: AgentDraft[];
-  tools: [string, AgentDraft][];
-  retries: [string, AgentDraft][];
-  saves: AgentDraft[];
-  cancels: number;
-}
-
-function dialogElement(view: AgentDialogView, calls: DialogCalls) {
-  return createElement(AgentDialog, {
-    dialog: view,
-    onDraft: (d) => calls.drafts.push(d),
-    onTool: (tool, d) => calls.tools.push([tool, d]),
-    onRetry: (tool, d) => calls.retries.push([tool, d]),
-    onSave: (d) => calls.saves.push(d),
-    onCancel: () => {
-      calls.cancels += 1;
-    },
-    onDelete: () => undefined,
-  });
-}
-
-function showDialog(over: Partial<AgentDialogView> = {}) {
-  const calls: DialogCalls = { drafts: [], tools: [], retries: [], saves: [], cancels: 0 };
-  show(dialogElement(dialogView(over), calls));
-  return calls;
-}
-
-describe("the model picker", () => {
-  it("lists the view's groups in order, only what the tool's list has", () => {
-    const lines = modelChoices(PICKER).map((c) => [c.kind, c.label, c.detail]);
-    expect(lines).toEqual([
-      ["option", "Tool default", "Otaq passes no model"],
-      ["heading", "ALWAYS THE NEWEST", null],
-      ["option", "Opus · always the newest", "now claude-opus-5-5"],
-      ["option", "Fable · always the newest", "now claude-fable-5-1"],
-      ["heading", "EXACT MODELS", null],
-      ["note", "Claude Code's list has only its aliases", null],
-    ]);
-  });
-
-  it("can't take typed text: no text field, and typing changes nothing", () => {
-    const calls = showDialog();
-    const picker = document.querySelector(".settings-model-picker");
-    expect(picker?.querySelector("input, textarea, [contenteditable]")).toBeNull();
-    const field = modelField();
-    act(() => {
-      field.focus();
-    });
-    key(field, "o");
-    key(field, "p");
-    // Open: the list takes the keys; letters still do nothing.
-    click(field);
-    const list = document.querySelector('[role="listbox"]');
-    expect(list).not.toBeNull();
-    key(list as Element, "x");
-    expect(calls.drafts).toEqual([]);
-    expect(document.querySelector(".settings-model-picker input")).toBeNull();
-    // Only a pick from the list changes the model: ↑ from Fable to Opus, ↵.
-    key(list as Element, "ArrowUp");
-    key(list as Element, "Enter");
-    expect(calls.drafts).toEqual([
-      {
-        name: "Fable test",
-        tool: null,
-        model: "opus",
-        use_for: "Trying Fable on a few tickets",
-        fallback: null,
-      },
-    ]);
-    expect(document.querySelector('[role="listbox"]')).toBeNull();
-  });
-
-  it("picks the tool default as no model", () => {
-    const calls = showDialog();
-    click(modelField());
-    const row = byText('[role="option"]', "Tool defaultOtaq passes no model");
-    click(row as Element);
-    expect(calls.drafts[0]?.model).toBeNull();
-  });
-
-  it("an agent picker with one agent is read-only; with more, each option names its model", () => {
-    const options = agentChoices({
-      value: { agent: null, tool: null, name: "Use app default (Claude Code)", model: null, selected: true },
-      options: [
-        { agent: null, tool: null, name: "Use app default (Claude Code)", model: null, selected: true },
-        { agent: "strong", tool: null, name: "Strong", model: "Opus · always the newest", selected: false },
-      ],
-      read_only: false,
-    });
-    expect(options.map((o) => [o.id, o.label, o.detail, o.icon])).toEqual([
-      ["", "Use app default (Claude Code)", null, "rotate-ccw"],
-      ["strong", "Strong", "Opus · always the newest", null],
-    ]);
-  });
-});
-
-describe("the Add / Edit agent dialog", () => {
-  it("Esc closes it without saving", () => {
-    const calls = showDialog();
-    const name = document.querySelector<HTMLInputElement>(".settings-agent-dialog input");
-    key(name as Element, "Escape");
-    expect(calls.cancels).toBe(1);
-    expect(calls.saves).toEqual([]);
-  });
-
-  it("Esc in the open model list closes the list, not the dialog", () => {
-    const calls = showDialog();
-    click(modelField());
-    key(document.querySelector('[role="listbox"]') as Element, "Escape");
-    expect(document.querySelector('[role="listbox"]')).toBeNull();
-    expect(calls.cancels).toBe(0);
-  });
-
-  it("↵ saves only while Save is enabled", () => {
-    let calls = showDialog({ save_enabled: false, name_problem: "There's already an agent named Light" });
-    key(document.querySelector(".settings-agent-dialog input") as Element, "Enter");
-    expect(calls.saves).toEqual([]);
-    expect(document.body.textContent).toContain("There's already an agent named Light");
-    calls = showDialog();
-    key(document.querySelector(".settings-agent-dialog input") as Element, "Enter");
-    expect(calls.saves).toHaveLength(1);
-  });
-
-  it("shows the mark's amber box with the tool's message", () => {
-    showDialog({
-      id: "fable",
-      title: "Edit agent · Fable test",
-      mark: {
-        before: "Claude Code couldn't run ",
-        model: "claude-fable-5-1",
-        after: " on SHOP-48",
-        message: "There's an issue with the selected model (claude-fable-5-1).",
-        edit_label: "Edit…",
-      },
-    });
-    const mark = document.querySelector(".settings-agent-mark-box");
-    expect(mark?.textContent).toContain("Claude Code couldn't run claude-fable-5-1 on SHOP-48");
-    expect(mark?.querySelector("q")?.textContent).toBe(
-      "There's an issue with the selected model (claude-fable-5-1).",
-    );
-  });
-});
 
 /** Answers the page's calls as the desktop would, recording them. */
 function answer(replies: Record<string, (params: unknown) => unknown>) {
@@ -405,342 +271,315 @@ function answer(replies: Record<string, (params: unknown) => unknown>) {
   return calls;
 }
 
-async function openMenu(name: string, item: string) {
-  const more = document.querySelector(`[aria-label="More for ${name}"]`);
-  click(more as Element);
-  const entry = byText(".menu-item", item);
-  click(entry as Element);
+async function openSection(replies: Record<string, (params: unknown) => unknown> = {}) {
+  const calls = answer({ "settings.agents": () => SECTION, ...replies });
+  show(createElement(AgentsSection));
+  await settle();
+  return calls;
+}
+
+async function openMenu(name: string, entry: string) {
+  click(document.querySelector(`[aria-label="More for ${name}"]`));
+  click(byText(".menu-item", entry));
   await settle();
 }
 
-describe("the Agents section", () => {
-  it("shows Otaq's copy of the model list and reads the list again once when it opens", async () => {
-    const calls = answer({ "settings.agents": () => SECTION });
-    show(createElement(AgentsSection));
-    await settle();
-    // Otaq's copy first, then the tool's list read again, once.
-    expect(calls).toEqual([
-      ["settings.agents", { refresh: true }],
-      ["settings.agents", { refresh: false }],
+describe("the model dropdowns", () => {
+  it("list each tool under its name, its models and its note, and pick only a model or None", () => {
+    expect(dropdownChoices(CHOICES).map((c) => [c.kind, c.label, c.checked])).toEqual([
+      ["heading", "Claude Code", false],
+      ["option", "Tool default", false],
+      ["option", "Haiku · always the newest", true],
+      ["note", "Loading Codex's models…", false],
     ]);
-    expect(document.querySelectorAll(".settings-agents-row[role=row]")).toHaveLength(4);
-    expect(document.querySelector('[role="columnheader"]')?.textContent).toBe("NAME");
+    expect(pickOf(CHOICES, "claude:haiku")).toEqual({ tool: "claude", model: "haiku" });
+    expect(pickOf(CHOICES, "claude:")).toEqual({ tool: "claude", model: null });
+    expect(pickOf(CHOICES, "heading:claude")).toBeUndefined();
+    expect(pickOf([choice({ id: "none", tool: null, label: "None" })], "none")).toBeNull();
+    expect(optionValue("")).toBeNull();
+    expect(optionValue("high")).toBe("high");
+  });
+});
+
+describe("the Agents page", () => {
+  it("shows Otaq's copy of the model lists, then reads them again once", async () => {
+    const calls = await openSection();
+    expect(calls).toHaveLength(2);
+    expect(calls).toContainEqual(["settings.agents", { refresh: false }]);
+    expect(calls).toContainEqual(["settings.agents", { refresh: true }]);
+    expect([...document.querySelectorAll('[role="columnheader"]')].map((c) => c.textContent)).toEqual([
+      "Name",
+      "Model",
+      "Skills",
+      "Used in",
+    ]);
+    expect(document.querySelectorAll(".settings-agents-row:not(.settings-agents-head)")).toHaveLength(3);
+    expect(document.querySelector(".settings-agents-role")?.textContent).toBe("Project agent");
+    expect(document.body.textContent).toContain("From Otaq’s agents file");
   });
 
-  it("⋯ → Duplicate opens Add agent with “<name> copy”", async () => {
-    const calls = answer({
-      "settings.agents": () => SECTION,
-      "settings.agent_dialog": () =>
-        dialogView({
-          draft: {
-            name: "Strong copy",
-            tool: null,
-            model: "opus",
-            use_for: "Complex features, tricky bugs",
-            fallback: null,
-          },
-        }),
-    });
-    show(createElement(AgentsSection));
+  it("⋯ → Apply the shipped agents file again proposes it for the project on screen (FLW-10)", async () => {
+    selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
+    const calls = await openSection({ "settings.flow_propose": () => null });
+    click(document.querySelector('[aria-label="More agent actions"]'));
+    click(byText(".menu-item", "Apply the shipped agents file again"));
     await settle();
-    await openMenu("Strong", "Duplicate");
-    expect(calls).toContainEqual(["settings.agent_dialog", { duplicate: "strong" }]);
-    expect(document.querySelector(".dialog-title")?.textContent).toBe("Add agent");
-    expect(document.querySelector<HTMLInputElement>(".settings-agent-dialog input")?.value).toBe(
-      "Strong copy",
-    );
+    expect(calls).toContainEqual([
+      "settings.flow_propose",
+      { project: "NOTE", source: { from: "agents_file" } },
+    ]);
+    selection.set(NOTHING_SELECTED);
   });
 
-  it("Delete… opens the refused dialog while something uses the agent, and Show tickets lists every key", async () => {
-    const calls = answer({ "settings.agents": () => SECTION, "settings.agent_delete_dialog": () => REFUSED });
-    show(createElement(AgentsSection));
-    await settle();
-    await openMenu("Light", "Delete…");
-    expect(calls).toContainEqual(["settings.agent_delete_dialog", { id: "light" }]);
-    expect(document.querySelector(".dialog-title")?.textContent).toBe("Light can't be deleted");
-    expect(document.body.textContent).toContain("docs-site · Validator default");
+  it("⋯ → Delete… of an agent in use is refused with OK only", async () => {
+    const calls = await openSection({ "settings.agent_delete_dialog": () => REFUSED });
+    await openMenu("Validator", "Delete…");
+    expect(calls).toContainEqual(["settings.agent_delete_dialog", { id: "validator" }]);
+    expect(document.querySelector(".dialog-title")?.textContent).toBe("Can’t delete Validator");
+    expect(document.body.textContent).toContain("Change that stage first.");
     expect(byText("button", "Delete")).toBeUndefined();
-    click(byText("button", "Show tickets") as Element);
-    expect([...document.querySelectorAll(".settings-agent-ticket")].map((b) => b.textContent)).toEqual([
-      "SHOP-24",
-      "SHOP-40.3",
-      "SHOP-41",
-      "SHOP-50",
-    ]);
+    click(byText("button", "OK"));
+    expect(document.querySelector(".dialog")).toBeNull();
   });
 
-  it("Delete… of an unused agent asks once, and Delete deletes it", async () => {
-    const calls = answer({
-      "settings.agents": () => SECTION,
+  it("⋯ → Delete… of an unused agent asks once, and Delete deletes it", async () => {
+    const calls = await openSection({
       "settings.agent_delete_dialog": () => CONFIRM,
       "settings.agent_delete": () => ({
         outcome: "deleted",
-        section: { ...SECTION, rows: SECTION.rows.slice(0, 1) },
+        section: { ...SECTION, rows: SECTION.rows.slice(0, 2) },
       }),
     });
-    show(createElement(AgentsSection));
-    await settle();
     await openMenu("Strong", "Delete…");
-    expect(document.querySelector(".dialog-title")?.textContent).toBe("Delete Strong?");
-    click(byText("button", "Delete") as Element);
+    click(byText("button", "Delete"));
     await settle();
     expect(calls).toContainEqual(["settings.agent_delete", { id: "strong" }]);
-    expect(document.querySelector(".dialog")).toBeNull();
-    expect(document.querySelectorAll(".settings-agents-row[role=row]")).toHaveLength(2);
+    expect(document.querySelectorAll(".settings-agents-row:not(.settings-agents-head)")).toHaveLength(2);
+  });
+
+  it("⋯ → Duplicate opens a draft from the agent", async () => {
+    const calls = await openSection({
+      "settings.agent": () =>
+        agentPage({ id: null, title: "New agent", role: null, used_in: null, note: null }),
+    });
+    await openMenu("Strong", "Duplicate");
+    expect(calls).toContainEqual([
+      "settings.agent",
+      { id: null, duplicate: "strong", draft: null, change: null },
+    ]);
+    expect(document.querySelector(".settings-agent-page")).not.toBeNull();
   });
 });
 
-const avatar = (tool: ToolAvatarView["tool"], letters: string, hover: string): ToolAvatarView => ({
-  tool,
-  letters,
-  background: `tool-${letters.toLowerCase()}`,
-  foreground: `tool-${letters.toLowerCase()}-fg`,
-  hover,
-});
-const CC = avatar("claude_code", "CC", "Claude Code");
-const CX = avatar("codex", "CX", "Codex");
-
-/** Edit agent · Standard on Claude Code with Codex connected too (`ObF25`): Tool and Fallback pickers. */
-function severalDialog(over: Partial<AgentDialogView> = {}): AgentDialogView {
-  return dialogView({
-    id: "standard",
-    title: "Edit agent · Standard",
-    draft: {
-      name: "Standard",
-      tool: null,
-      model: "fable",
-      use_for: "Normal tickets",
-      fallback: "strong-gpt",
-    },
-    tool: "Claude Code",
-    tool_avatar: CC,
-    tool_options: [
-      { tool: "claude", avatar: CC, name: "Claude Code", selected: true },
-      { tool: "codex", avatar: CX, name: "Codex", selected: false },
-    ],
-    tool_note: null,
-    fallback: {
-      label: "Fallback",
-      hint: "Another named agent on a different tool. Used when Claude Code hits its limit or isn't available.",
-      problem: null,
-      picker: {
-        value: {
-          agent: "strong-gpt",
-          tool: CX,
-          name: "Strong GPT",
-          model: "Codex · gpt-5.5-pro",
-          selected: true,
-        },
-        options: [
-          { agent: null, tool: null, name: "None", model: null, selected: false },
-          { agent: "strong-gpt", tool: CX, name: "Strong GPT", model: "Codex · gpt-5.5-pro", selected: true },
-        ],
-        read_only: false,
-      },
-    },
-    save_label: "Save",
-    ...over,
-  });
-}
-
-const FAILED: ModelPickerView = {
-  value: { label: "gpt-5.5", detail: null, mono: true, no_longer_listed: null },
-  groups: [
-    {
-      heading: null,
-      items: [
-        { value: null, label: "Tool default", detail: "Otaq passes no model", mono: false, selected: false },
-      ],
-      empty: null,
-    },
-  ],
-  status: {
-    loading: false,
-    text: "Couldn’t load Copilot’s models. Check your connection, then try again.",
-    retry_label: "Retry",
-    retry_tool: "copilot",
-    note: "Verifier keeps gpt-5.5 as saved. Tickets still start on it; the check before each launch uses the last copy of the list.",
-  },
-  hint: "From Copilot's own list.",
-};
-
-describe("several tools", () => {
-  it("changing the Tool clears the model, and the answer's fallback wins", () => {
-    const calls = showDialog(severalDialog());
-    const tool = document.querySelector('[aria-label="Tool"]');
-    expect(tool?.textContent).toContain("Claude Code");
-    click(tool as Element);
-    expect(toolChoices(severalDialog().tool_options).map((c) => [c.id, c.label, c.avatar?.letters])).toEqual([
-      ["claude", "Claude Code", "CC"],
-      ["codex", "Codex", "CX"],
-    ]);
-    click(byText('[role="option"]', "CXCodex") as Element);
-    expect(calls.tools).toEqual([
-      [
-        "codex",
-        { name: "Standard", tool: "codex", model: null, use_for: "Normal tickets", fallback: "strong-gpt" },
-      ],
-    ]);
-    // The answer: on Codex, Strong GPT (a Codex agent) can't be the fallback any more.
-    const answer = severalDialog({
-      draft: { name: "Standard", tool: "codex", model: null, use_for: "Normal tickets", fallback: null },
-    });
-    act(() => {
-      root.render(dialogElement(answer, calls));
-    });
-    key(document.querySelector(".settings-agent-dialog input") as Element, "Enter");
-    expect(calls.saves).toEqual([
-      { name: "Standard", tool: "codex", model: null, use_for: "Normal tickets", fallback: null },
-    ]);
-  });
-
-  it("Fallback offers only what the view lists: None, then agents on other tools", () => {
-    const calls = showDialog(severalDialog());
-    const field = document.querySelector('[aria-label="Fallback"]');
-    expect(field?.textContent).toContain("Strong GPT");
-    click(field as Element);
-    const options = [...document.querySelectorAll('[role="option"]')].map((o) => o.textContent);
-    expect(options).toEqual(["None", "CXStrong GPTCodex · gpt-5.5-pro"]);
-    // "None" is no agent and has no "Use app default" icon.
-    const picker = severalDialog().fallback?.picker;
-    expect(picker && agentChoices(picker, true)[0]?.icon).toBeNull();
-    click(byText('[role="option"]', "None") as Element);
-    expect(calls.drafts.at(-1)?.fallback).toBeNull();
-  });
-
-  it("a Fallback of None shows no icon, unlike Use app default", () => {
-    const none = { agent: null, tool: null, name: "None", model: null, selected: true };
-    showDialog(
-      severalDialog({
-        fallback: {
-          label: "Fallback",
-          hint: "",
-          problem: null,
-          picker: { value: none, options: [none], read_only: false },
-        },
-      }),
-    );
-    expect(document.querySelector('[aria-label="Fallback"] .settings-agent-value .icon')).toBeNull();
-  });
-
-  it("Retry in a list that couldn't load asks for it again with the fields as they are", async () => {
-    const calls = answer({
-      "settings.agents": () => SECTION,
-      "settings.agent_dialog": () => dialogView({ picker: FAILED }),
-      "settings.agent_models_retry": () => dialogView(),
-    });
-    show(createElement(AgentsSection));
+describe("one agent's page", () => {
+  async function openAgent(page: AgentPage, replies: Record<string, (params: unknown) => unknown> = {}) {
+    const calls = await openSection({ "settings.agent": () => page, ...replies });
+    click(byText(".settings-agents-open span", "Strong")?.closest("button"));
     await settle();
-    click(byText("button", "Add agent") as Element);
-    await settle();
-    expect(document.body.textContent).toContain("Verifier keeps gpt-5.5 as saved.");
-    click(modelField());
-    expect(document.querySelector(".settings-model-status")?.textContent).toBe(
-      "Couldn’t load Copilot’s models. Check your connection, then try again.·Retry",
-    );
-    click(byText(".settings-model-status button", "Retry") as Element);
+    return calls;
+  }
+
+  it("opens on the agent Settings was opened on (Open agent…, T-0411)", async () => {
+    const calls = answer({ "settings.agents": () => SECTION, "settings.agent": () => agentPage() });
+    const context = { agent: "strong" } as unknown as SettingsContextValue;
+    show(createElement(SettingsContext, { value: context }, createElement(AgentsSection)));
     await settle();
     expect(calls).toContainEqual([
-      "settings.agent_models_retry",
-      {
-        tool: "copilot",
-        dialog: {
-          id: null,
-          duplicate: null,
-          draft: {
-            name: "Fable test",
-            tool: null,
-            model: "fable",
-            use_for: "Trying Fable on a few tickets",
-            fallback: null,
-          },
-          tool: null,
-        },
-      },
+      "settings.agent",
+      { id: "strong", duplicate: null, draft: null, change: null },
     ]);
-    // The answer has the list: the picker shows its groups again.
-    expect(document.querySelector(".settings-model-status")).toBeNull();
   });
 
-  it("the Fallbacks check box is disabled with one tool and sends the setting with several", async () => {
+  it("opens from its row and moves a role with one request, saying whose it was", async () => {
+    const role = agentPage().role;
+    if (!role) throw new Error("a saved agent has a role field");
+    const moved = agentPage({
+      role_tag: "Project agent",
+      role: {
+        ...role,
+        options: [
+          { id: "", label: "None", selected: false },
+          { id: "project-agent", label: "Project agent", selected: true },
+          { id: "epic-lead", label: "Epic lead", selected: false },
+        ],
+        moved: "Strong is now your Project agent · Planner has no role",
+      },
+    });
+    const calls = await openAgent(agentPage(), { "settings.agent_role": () => moved });
+    expect(calls).toContainEqual([
+      "settings.agent",
+      { id: "strong", duplicate: null, draft: null, change: null },
+    ]);
+    click(byText('[role="radio"]', "Project agent"));
+    await settle();
+    expect(calls).toContainEqual(["settings.agent_role", { id: "strong", role: "project-agent" }]);
+    expect(document.querySelector(".settings-agent-moved")?.textContent).toBe(
+      "Strong is now your Project agent · Planner has no role",
+    );
+  });
+
+  it("saves the name when its field is left, and shows Effort only when the view has it", async () => {
+    const calls = await openAgent(agentPage(), { "settings.agent": () => agentPage() });
+    expect(byText(".settings-agent-effort span", "Effort")).not.toBeUndefined();
+    const name = document.querySelector<HTMLInputElement>("#agent-name");
+    if (!name) throw new Error("no name field");
+    act(() => {
+      // React reads the value through the prototype's setter, as typing sets it.
+      Reflect.set(HTMLInputElement.prototype, "value", "Stronger", name);
+      name.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      name.focus();
+      name.blur();
+    });
+    await settle();
+    expect(calls).toContainEqual([
+      "settings.agent",
+      { id: "strong", duplicate: null, draft: null, change: { field: "name", value: "Stronger" } },
+    ]);
+    // OpenCode has no effort level: the view sends none, and the page draws none.
+    show(createElement("div"));
+    await openAgent(agentPage({ model: { ...agentPage().model, effort: null } }));
+    expect(document.querySelector(".settings-agent-effort")).toBeNull();
+  });
+
+  it("New agent's draft keeps its changes in the draft and Add agent sends it", async () => {
+    const draft = agentPage({
+      id: null,
+      title: "New agent",
+      menu: [],
+      role: null,
+      used_in: null,
+      note: null,
+      add: { add_label: "Add agent", cancel_label: "Cancel" },
+    });
+    const calls = await openSection({
+      "settings.agent": () => draft,
+      "settings.agent_add": () => ({ outcome: "added", page: agentPage() }),
+    });
+    click(byText("button", "New agent"));
+    await settle();
+    expect(calls).toContainEqual([
+      "settings.agent",
+      { id: null, duplicate: null, draft: null, change: null },
+    ]);
+    click(byText("button", "Add agent"));
+    await settle();
+    expect(calls).toContainEqual(["settings.agent_add", { draft: draft.draft }]);
+    expect(byText("button", "Add agent")).toBeUndefined();
+  });
+});
+
+describe("what this agent reads", () => {
+  const reads = (project: string, name: string): AgentReadsView => ({
+    agent_id: "strong",
+    title: "What this agent reads",
+    subtitle: "Strong · read-only",
+    back_label: "Back to Strong",
+    project_label: "Project",
+    projects: [
+      item("NOTE", "pocket-notes", { checked: project === "NOTE" }),
+      item("API", "pocket-api", { checked: project === "API" }),
+    ],
+    project,
+    project_name: name,
+    project_hint: "Notes differ per project; the agent is shared.",
+    parts: [
+      {
+        heading: "Its instructions",
+        link: { label: "Edit in Agents →", target: { kind: "agent" } },
+        text: "Work one ticket at a time.",
+        empty: null,
+        mono: false,
+      },
+      {
+        heading: `Notes for ${name}`,
+        link: { label: `Edit in ${name}’s settings →`, target: { kind: "project_notes", project } },
+        text: null,
+        empty: `No notes for ${name}`,
+        mono: false,
+      },
+      {
+        heading: "Skill: work-ticket · Dev",
+        link: { label: "Open skill folder →", target: { kind: "folder", skill: "work-ticket" } },
+        text: "# work-ticket",
+        empty: null,
+        mono: true,
+      },
+    ],
+    no_stage: null,
+    also: {
+      label: "Also has:",
+      skills: [{ name: "commit", note: "(commits with it)", link: { kind: "folder", skill: "commit" } }],
+    },
+    empty: null,
+    not_shown: "Not shown: the ticket and what earlier stages wrote. They change per ticket.",
+  });
+
+  async function openReads(context: Partial<SettingsContextValue> = {}) {
+    selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
     const calls = answer({
       "settings.agents": () => SECTION,
-      "settings.auto_fallback": () => ({
-        ...SECTION,
-        fallbacks: { ...SECTION.fallbacks, enabled: true, on: true },
-      }),
+      "settings.agent": () => agentPage(),
+      "settings.agent_reads": (p) =>
+        (p as { project: string }).project === "API"
+          ? reads("API", "pocket-api")
+          : reads("NOTE", "pocket-notes"),
+      "settings.agent_reads_reveal": () => null,
     });
-    show(createElement(AgentsSection));
-    await settle();
-    const box = () =>
-      document.querySelector<HTMLInputElement>(".settings-agents-fallbacks input[type=checkbox]");
-    expect(box()?.disabled).toBe(true);
-    expect(document.querySelector(".settings-agents-fallbacks")?.textContent).toContain(
-      "Disabled: a fallback must be on another tool.",
+    show(
+      createElement(
+        SettingsContext,
+        { value: { agent: "strong", ...context } as unknown as SettingsContextValue },
+        createElement(AgentsSection),
+      ),
     );
-    act(() => {
-      root.render(createElement(AgentsSection, { key: "again" }));
-    });
-    vi.mocked(request).mockReset();
-    const several = { ...SECTION, fallbacks: { ...SECTION.fallbacks, enabled: true } };
-    const more = answer({
-      "settings.agents": () => several,
-      "settings.auto_fallback": () => ({ ...several, fallbacks: { ...several.fallbacks, on: true } }),
-    });
     await settle();
-    expect(box()?.disabled).toBe(false);
-    click(box() as Element);
+    click(byText("button", "What this agent reads"));
     await settle();
-    expect(more).toContainEqual(["settings.auto_fallback", { on: true }]);
-    expect(box()?.checked).toBe(true);
-    expect(calls).not.toContainEqual(["settings.auto_fallback", { on: true }]);
+    selection.set(NOTHING_SELECTED);
+    return calls;
+  }
+
+  it("opens on the project on screen, picks another, and reveals a skill's folder", async () => {
+    const calls = await openReads();
+    expect(calls).toContainEqual(["settings.agent_reads", { id: "strong", project: "NOTE" }]);
+    expect([...document.querySelectorAll(".settings-reads-heading")].map((h) => h.textContent)).toEqual([
+      "Its instructions",
+      "Notes for pocket-notes",
+      "Skill: work-ticket · Dev",
+    ]);
+    expect(byText(".settings-reads-text", "No notes for pocket-notes")?.getAttribute("data-empty")).toBe(
+      "true",
+    );
+    expect(document.querySelector(".settings-reads-also")?.textContent).toBe(
+      "Also has:commit(commits with it)",
+    );
+    click(document.querySelector('[aria-label="Project"]'));
+    click(byText(".menu-item", "pocket-api"));
+    await settle();
+    expect(calls).toContainEqual(["settings.agent_reads", { id: "strong", project: "API" }]);
+    expect(byText(".settings-reads-heading", "Notes for pocket-api")).not.toBeUndefined();
+    click(byText("button", "Open skill folder →"));
+    click(byText("button", "commit"));
+    await settle();
+    expect(calls).toContainEqual([
+      "settings.agent_reads_reveal",
+      { id: "strong", project: "API", skill: "work-ticket" },
+    ]);
+    expect(calls).toContainEqual([
+      "settings.agent_reads_reveal",
+      { id: "strong", project: "API", skill: "commit" },
+    ]);
   });
 
-  it("draws the tool, the fallback, a tool that isn't connected and the added row", async () => {
-    const row = (over: Partial<AgentTableRow>): AgentTableRow => ({
-      ...tableRow("strong", "Strong", "Opus · always the newest", "Complex features, tricky bugs"),
-      tool: CC,
-      tool_name: "Claude Code",
-      fallback: "Strong GPT",
-      ...over,
-    });
-    answer({
-      "settings.agents": () => ({
-        ...SECTION,
-        columns: ["NAME", "TOOL · MODEL", "USE FOR", "FALLBACK"],
-        rows: [
-          row({}),
-          row({
-            id: "cp",
-            name: "GitHub Copilot",
-            tool_name: "GitHub Copilot",
-            model: "tool default",
-            fallback: "none",
-            tool_problem: "Copilot isn't connected · its tickets wait",
-            added: "added",
-          }),
-        ],
-        defaults_unchanged: {
-          heading: "DEFAULTS · UNCHANGED",
-          text: "Developer, Validator, Epic lead, Project agent → Claude Code",
-        },
-      }),
-    });
-    show(createElement(AgentsSection));
-    await settle();
-    const rows = [...document.querySelectorAll(".settings-agents-row[role=row]")].slice(1);
-    expect([...(rows[0]?.querySelectorAll("[role=cell]") ?? [])].map((c) => c.textContent)).toEqual([
-      "Strong",
-      "CCClaude Code ·Opus · always the newest",
-      "Complex features, tricky bugs",
-      "Strong GPT",
-      "",
-    ]);
-    expect(rows[1]?.getAttribute("data-added")).toBe("true");
-    expect(rows[1]?.querySelector(".settings-agents-fallback")?.getAttribute("data-none")).toBe("true");
-    expect(rows[1]?.textContent).toContain("Copilot isn't connected · its tickets wait");
-    expect(document.querySelector(".settings-agents-unchanged")?.textContent).toBe(
-      "DEFAULTS · UNCHANGEDDeveloper, Validator, Epic lead, Project agent → Claude Code",
-    );
+  it("goes to the project's notes, and back to the agent's page", async () => {
+    const openProject = vi.fn();
+    await openReads({ openProject });
+    click(byText("button", "Edit in pocket-notes’s settings →"));
+    expect(openProject).toHaveBeenCalledWith("NOTE", "project_notes");
+    click(byText("button", "Edit in Agents →"));
+    expect(document.querySelector(".settings-reads")).toBeNull();
+    expect(document.querySelector(".settings-agent-page")).not.toBeNull();
   });
 });

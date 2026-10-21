@@ -12,8 +12,8 @@ use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 
 use super::{
-    Shared, agent_requests, board_requests, events, named_agent_requests, permissions,
-    session_requests, terminal_requests, until_stopped,
+    Shared, agent_requests, agents_requests, board_requests, events, permissions, session_requests,
+    terminal_requests, until_stopped,
 };
 use crate::agent_tools::setup;
 use crate::attention::ClientId;
@@ -234,6 +234,8 @@ async fn handle(
                 return (Message::error(id, error), Then::Continue);
             }
             let who = caller::resolve(peer_pid, &shared.sessions);
+            // The role comes from the stage the session runs (STG-10).
+            let who = caller::by_stage(who, shared.board.store().pool()).await;
             // Tickets created from a Project terminal are listed in its summary (T-0167).
             let origin = (!who.is_agent()
                 && matches!(
@@ -424,6 +426,9 @@ async fn respond(
             }
         }
         request @ (Request::ProjectAgentOpen(_)
+        | Request::OnboardingAsk(_)
+        | Request::OnboardingFlowSetup(_)
+        | Request::OnboardingUseDefault(_)
         | Request::ProjectAgentList(_)
         | Request::ProjectAgentClose(_)
         | Request::ProjectAgentCloseEnded(_)
@@ -447,15 +452,15 @@ async fn respond(
         | Request::AgentsDuplicate(_)
         | Request::AgentsDelete(_)
         | Request::AgentsInUse(_)
-        | Request::ProjectAgentDefaults(_)
-        | Request::AgentsSetDefault(_)
-        | Request::ProjectSetAgentDefault(_)
-        | Request::TicketAgentRow(_)) => {
-            match named_agent_requests::handle(request, shared).await {
-                Ok(reply) => (reply, Then::Continue),
-                Err(error) => return (Message::error(id, error), Then::Continue),
-            }
-        }
+        | Request::AgentsMoveRole(_)
+        | Request::AgentsDefaultModel(_)
+        | Request::AgentsFallback(_)
+        | Request::AgentsImportSkill(_)
+        | Request::AgentsReimportSkill(_)
+        | Request::AgentsReads(_)) => match agents_requests::handle(request, shared).await {
+            Ok(reply) => (reply, Then::Continue),
+            Err(error) => return (Message::error(id, error), Then::Continue),
+        },
         // Boxed: the board handler's future is large, and a debug build's worker stack is small.
         board => match Box::pin(board_requests::handle(
             board,

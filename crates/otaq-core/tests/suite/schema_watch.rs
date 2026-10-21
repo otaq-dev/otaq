@@ -33,7 +33,7 @@ async fn in_review(w: &TestService, title: &str, file: &str) -> (Ticket, PathBuf
     let wt = w.start_worktree(&t).await;
     std::fs::create_dir_all(wt.join(file).parent().unwrap()).unwrap();
     commit(&wt, file, &format!("-- {title}\n"));
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     (w.board.ticket(&t.key.to_string()).await.unwrap(), wt)
 }
 
@@ -158,7 +158,7 @@ async fn the_warning_clears_when_one_leaves_review() {
     until_overlap(&w, &b.key.to_string(), &[]).await;
 
     // Back in Review: the warning comes back, and is recorded as new again.
-    w.force_status(&b, Status::ReadyForReview).await;
+    w.force_status(&b, Status::WaitingForYou).await;
     announce(&w, &b.key.to_string()).await;
     until_overlap(&w, &a.key.to_string(), &[&b.key.to_string()]).await;
     let history = w.board.history(&a.key.to_string()).await.unwrap();

@@ -13,8 +13,7 @@ use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::keymap::{Binding, KeyAction, KeyPlace};
-use crate::view_models::board::column_look;
-use crate::view_models::board_page::ColumnId;
+use crate::view_models::flow_columns::Columns;
 use crate::view_models::panel::{self, Tab};
 use crate::view_models::panel_actions::{self, Action as PanelAction};
 use crate::view_models::{close, send_back};
@@ -64,7 +63,7 @@ impl OpenTicket {
     pub fn of(ticket: &Ticket) -> Self {
         let finished = matches!(ticket.status, Status::Merged | Status::ClosedNotMerged);
         Self {
-            in_review: ticket.status == Status::ReadyForReview,
+            in_review: ticket.status == Status::WaitingForYou,
             send_back: send_back::available(ticket),
             close: if close::can_close(ticket) {
                 None
@@ -352,7 +351,9 @@ fn action_row(action: KeyAction, inputs: &Inputs) -> Row {
 
 /// "Review", "Dev · Needs you": the board column it is in, and Needs you when it waits on the user.
 pub fn place(ticket: &Ticket) -> String {
-    let column = column_look(ColumnId::of(ticket.column)).0;
+    // The default flow's column names; every project's flow has the same columns until M33.
+    let columns = Columns::of(&otaq_core::flow::default_file().flow);
+    let column = columns.column_of(ticket).title.as_str();
     if ticket.status.is_needs_you_family() {
         format!("{column} \u{b7} Needs you")
     } else {
@@ -588,11 +589,12 @@ pub fn gallery() -> Vec<GalleryFrame> {
         base_branch: "main".into(),
         agents_working: 0,
         needs_you: 0,
+        flow_setup_since: None,
     };
     let projects = [project("SHOP", "shop-web"), project("BILL", "billing-api")];
     let tickets = [
         ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou),
-        ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
+        ticket("SHOP-18", "Checkout API", Status::WaitingForYou),
         ticket("SHOP-31", "Hotfix: checkout crash", Status::Backlog),
         ticket("SHOP-35", "Slow checkout query", Status::Queued),
         ticket("SHOP-20", "Checkout page", Status::Queued),
@@ -685,6 +687,7 @@ mod tests {
             base_branch: "main".into(),
             agents_working: 0,
             needs_you: 0,
+            flow_setup_since: None,
         }
     }
 
@@ -695,7 +698,7 @@ mod tests {
             project("API", "pocket-api"),
         ];
         let tickets = vec![
-            ticket("NOTE-1", "Sort notes by date", Status::ReadyForReview),
+            ticket("NOTE-1", "Sort notes by date", Status::WaitingForYou),
             ticket("NOTE-2", "Export as CSV", Status::Queued),
             ticket("NOTE-3", "Undo for the NOTE-2 export", Status::Backlog),
             ticket("API-1", "Rate limit the export", Status::Working),
@@ -812,7 +815,7 @@ mod tests {
             "Dev \u{b7} Needs you"
         );
         assert_eq!(
-            place(&ticket("API-1", "t", Status::ReadyForReview)),
+            place(&ticket("API-1", "t", Status::WaitingForYou)),
             "Review"
         );
     }
@@ -946,12 +949,12 @@ mod tests {
 
     #[test]
     fn the_open_tickets_facts() {
-        let review = OpenTicket::of(&ticket("NOTE-1", "t", Status::ReadyForReview));
+        let review = OpenTicket::of(&ticket("NOTE-1", "t", Status::WaitingForYou));
         assert!(review.in_review && review.send_back && review.diff);
         assert_eq!(review.close, None);
         let merged = OpenTicket::of(&ticket("NOTE-1", "t", Status::Merged));
         assert_eq!(merged.close, Some(ALREADY_FINISHED));
-        let failed = OpenTicket::of(&ticket("NOTE-1", "t", Status::ValidationNoResult));
+        let failed = OpenTicket::of(&ticket("NOTE-1", "t", Status::CheckNoResult));
         assert!(failed.retry_validation, "{failed:?}");
     }
 

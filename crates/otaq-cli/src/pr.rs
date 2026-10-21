@@ -44,11 +44,16 @@ pub fn pr(command: PrCommand, global: &GlobalArgs, out: &Output) -> Result<(), E
             send(
                 global,
                 out,
-                |t| {
-                    format!(
+                |t| match t.flags.delivering_automatically {
+                    // An automatic Delivery (FLW-15): Otaq confirmed the proposal itself, no dialog.
+                    true => format!(
+                        "{}'s proposal is confirmed: this flow opens the PR with no dialog. End your turn: you'll be told to push.",
+                        t.key
+                    ),
+                    false => format!(
                         "{}'s proposal is with the user. End your turn: nothing is pushed until they confirm.",
                         t.key
-                    )
+                    ),
                 },
                 move |key| Request::TicketPrPropose(PrProposeParams { key, proposal }),
             )

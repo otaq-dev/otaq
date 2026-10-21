@@ -11,8 +11,11 @@
 // for Dev or Dev it queues the rest (EPC-14, T-0271). An epic with a lead shows it on its own line under the name,
 // in the short form (the track grows from 30 to 56 px); a lead that asks you turns the whole label turquoise
 // (d0083, T-0289; *01 → Row · Track Label with a lead (0083)*). The lead line opens the epic panel on its Lead tab
-// and is no drag handle. The stations follow the board's five columns (one Review station; d0087, SHL-06); while
-// Done is its rail, its station is a check with "n merged" (or the column's title) on hover (CHANGES-v §5).
+// and is no drag handle. The stations follow the board's columns, one per column of the flow (one Review station on
+// the default flow; d0087, SHL-06, FLW-19); under a rail (Done, or an empty stage of a long flow) the station is a
+// rail too, and while Done is its rail, its station is a check with "n merged" (or the column's title) on hover
+// (CHANGES-v §5). An epic waiting at Review epic (a flow with no human check) is a stop of its own on its track,
+// "Review epic"; a click opens the epic (Q273).
 import { type KeyboardEvent, type PointerEvent, useLayoutEffect, useState } from "react";
 
 import { LeadStatus, Tooltip } from "../../../components";

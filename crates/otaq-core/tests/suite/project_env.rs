@@ -208,7 +208,9 @@ async fn every_session_kind_gets_the_rows() {
                 tool: None,
                 tool_session_id: None,
                 model: None,
-                named_agent: None,
+                agent: None,
+                effort: None,
+                fallback: None,
             })
             .await
             .unwrap();
@@ -405,7 +407,9 @@ async fn spawn_writing_env(
             tool: None,
             tool_session_id: None,
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
         })
         .await
         .unwrap();
@@ -462,6 +466,32 @@ async fn ticket_sessions_run_and_shell_get_the_resource_vars() {
     ] {
         assert_eq!(value(&env, &var), None, "{var}");
     }
+    w.stop().await;
+}
+
+/// T-0445 (CMT-09, d0109): with no ticket resources, every session of a ticket still gets `OTAQ_RESOURCE_DIR` (the
+/// folder long output is saved to, made on demand) and no `OTAQ_DB_*`.
+#[tokio::test]
+async fn ticket_sessions_get_the_resource_folder_without_resources() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let ticket = w.create("SHOP", "Env").await;
+    let dir = w.data.resource_path("shop-web", &ticket.key).unwrap();
+    let dir = dir.to_string_lossy().into_owned();
+    let tmp = tempfile::tempdir().unwrap();
+    for kind in SessionKind::ALL {
+        let file = tmp.path().join(format!("{kind}.env"));
+        let env = spawn_writing_env(&w, &project, *kind, Some(&ticket), &file).await;
+        for var in [naming::db_name_env_var(), naming::db_template_env_var()] {
+            assert_eq!(value(&env, &var), None, "{kind}: {var}");
+        }
+        let shown = value(&env, &naming::resource_dir_env_var()).unwrap_or_default();
+        assert!(
+            shown == dir || cfg!(windows) && shown.ends_with("SHOP-1"),
+            "{kind}: {shown}"
+        );
+    }
+    assert!(Path::new(&dir).is_dir(), "the folder is made on demand");
     w.stop().await;
 }
 

@@ -6,18 +6,19 @@
 //! The service frees on the events a request publishes (`ticket.submit_by_user` here). Tests that call the
 //! services directly announce the status themselves, as a request would ([`announce`]).
 
+use otaq_core::service::testing::said;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
-use otaq_core::board::settings::{AutoMerge, ProjectSettings};
+use otaq_core::board::settings::ProjectSettings;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::client::{Client, ClientConfig};
-use otaq_core::domain::{Actor, BuildState, Status, ValidationTrigger};
+use otaq_core::domain::{Actor, BuildState, Status, ValidationAction, ValidationTrigger};
 use otaq_core::git::testing::{commit, git};
-use otaq_core::protocol::{Event, Reply, Request, SubmitByUserParams};
+use otaq_core::protocol::{Event, Reply, Request, SubmitByUserParams, ValidationActionParams};
 use otaq_core::recovery::cleanup::CleanupGroup;
 use otaq_core::review::LocalMergeOutcome;
 use otaq_core::service::ServiceConfig;
@@ -93,7 +94,7 @@ async fn shop_web(w: &TestService) -> Project {
     shop_web_with(w, |_| {}).await
 }
 
-/// A started ticket with one commit of its own and a build, waiting for the user (so Submit for review works).
+/// A started ticket with one commit of its own and a build, waiting for the user (so Move to next stage works).
 async fn started(w: &TestService, title: &str, file: &str) -> (Ticket, PathBuf) {
     let t = w.create("SHOP", title).await;
     let wt = w.start_worktree(&t).await;
@@ -118,10 +119,11 @@ async fn client(w: &TestService) -> Client {
     Client::connect(ClientConfig::new(&w.data)).await.unwrap()
 }
 
-/// **Submit for review** by the user, through the service as the app sends it.
+/// The user's **Move to next stage**, then **Skip this check**, through the service as the app sends them: since
+/// T-0406 Move to next stage runs the Validate check first (d0108 rule 10), so Skip brings the ticket to Review.
 async fn submit(w: &TestService, t: &Ticket) {
-    let reply = client(w)
-        .await
+    let client = client(w).await;
+    let reply = client
         .request(Request::TicketSubmitByUser(SubmitByUserParams {
             key: t.key.to_string(),
             note: String::new(),
@@ -129,7 +131,19 @@ async fn submit(w: &TestService, t: &Ticket) {
         .await
         .unwrap();
     match reply {
-        Reply::Ticket(after) => assert_eq!(after.status, Status::ReadyForReview),
+        Reply::Ticket(after) => assert_eq!(after.status, Status::Checking),
+        other => panic!("{other:?}"),
+    }
+    let reply = client
+        .request(Request::TicketValidationAction(ValidationActionParams {
+            key: t.key.to_string(),
+            action: ValidationAction::Skip,
+            note: String::new(),
+        }))
+        .await
+        .unwrap();
+    match reply {
+        Reply::Ticket(after) => assert_eq!(after.status, Status::WaitingForYou),
         other => panic!("{other:?}"),
     }
 }
@@ -241,7 +255,7 @@ async fn review_entry_frees_the_build_and_the_worktree_stays_clean() {
         assert_eq!(WarmRecord::read(&freed).unwrap().from, key);
 
         let after = w.board.ticket(&key).await.unwrap();
-        assert_eq!(after.status, Status::ReadyForReview);
+        assert_eq!(after.status, Status::WaitingForYou);
         let work = after.work.unwrap();
         assert_eq!(
             (&work.worktree, &work.branch, work.agent_port, work.run_port),
@@ -277,7 +291,7 @@ async fn the_sweep_frees_what_no_event_announced() {
     let project = shop_web(&w).await;
     let (review, _) = started(&w, "In review", "a.ts").await;
     let (working, working_wt) = started(&w, "Working", "b.ts").await;
-    w.force_status(&review, Status::ReadyForReview).await;
+    w.force_status(&review, Status::WaitingForYou).await;
     w.force_status(&working, Status::Working).await;
 
     w.ticket_env.sweep().await;
@@ -309,13 +323,13 @@ async fn with_validation_on_the_build_is_freed_only_after_the_pass() {
         .validation
         .submit(
             &key,
-            "Cart totals add up.",
+            said(&w.board, &key, "Cart totals add up.").await.as_ref(),
             &Actor::Agent(t.key.clone()),
             ValidationTrigger::Agent,
         )
         .await
         .unwrap();
-    assert_eq!(validating.status, Status::Validating);
+    assert_eq!(validating.status, Status::Checking);
     announce(&w, &key).await;
     w.ticket_env.sweep().await;
     stays_present(&w, &key).await;
@@ -328,10 +342,15 @@ async fn with_validation_on_the_build_is_freed_only_after_the_pass() {
         .id;
     let passed = w
         .validation
-        .verdict(&key, true, "ok", &validator)
+        .verdict(
+            &key,
+            true,
+            said(&w.board, &key, "ok").await.as_ref(),
+            &validator,
+        )
         .await
         .unwrap();
-    assert_eq!(passed.status, Status::ReadyForReview);
+    assert_eq!(passed.status, Status::WaitingForYou);
     announce(&w, &key).await;
     until_freed(&w, &key).await;
     assert!(!wt.join("out").exists());
@@ -373,7 +392,7 @@ async fn a_free_that_fails_keeps_the_build_and_shows_in_cleanup() {
     let project = shop_web(&w).await;
     let (t, wt) = started(&w, "Locked build", "lock.ts").await;
     let key = t.key.to_string();
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     let held = hold(&wt);
 
     let outcome = w.ticket_env.free(&t.key).await;
@@ -383,7 +402,7 @@ async fn a_free_that_fails_keeps_the_build_and_shows_in_cleanup() {
     assert!(problem.is_some());
     assert_eq!(
         w.status(&key).await,
-        Status::ReadyForReview,
+        Status::WaitingForYou,
         "Review isn't broken"
     );
     // Everything is back where it was.
@@ -514,14 +533,20 @@ async fn done_after_a_free_moves_nothing_and_resets_the_state() {
 #[tokio::test(flavor = "multi_thread")]
 async fn free_and_auto_merge_never_both_move_the_build() {
     let w = world(false).await;
-    let project = shop_web_with(&w, |s| s.auto_merge = Some(AutoMerge::All)).await;
+    let project = shop_web_with(&w, |_| {}).await;
+    w.board
+        .edit_flow_for_tests(
+            "SHOP",
+            otaq_core::flow::default::testing::automatic_local_delivery,
+        )
+        .await;
     let (t, wt) = started(&w, "Footer links", "footer.ts").await;
     let key = t.key.to_string();
     w.force_status(&t, Status::Working).await;
     w.validation
         .submit(
             &key,
-            "done",
+            said(&w.board, &key, "done").await.as_ref(),
             &Actor::Agent(t.key.clone()),
             ValidationTrigger::Agent,
         )
@@ -546,7 +571,12 @@ async fn free_and_auto_merge_never_both_move_the_build() {
     };
     let merged = w
         .validation
-        .verdict(&key, true, "ok", &validator)
+        .verdict(
+            &key,
+            true,
+            said(&w.board, &key, "ok").await.as_ref(),
+            &validator,
+        )
         .await
         .unwrap();
     assert_eq!(merged.status, Status::Merged);

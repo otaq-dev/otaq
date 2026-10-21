@@ -23,7 +23,6 @@ pub fn pill(status: Core) -> (Legend, &'static str) {
     let legend = match status {
         Core::Backlog => Legend::Backlog,
         Core::Parked => Legend::Parked,
-        Core::EpicInProgress => Legend::Epic,
         Core::Queued | Core::WaitingForSlot | Core::Held => Legend::Queued,
         Core::ParentClosed => Legend::ParentClosed,
         Core::StartInterrupted => Legend::StartInterrupted,
@@ -34,17 +33,18 @@ pub fn pill(status: Core) -> (Legend, &'static str) {
         Core::Idle => Legend::Idle,
         Core::WaitingForLimitReset => Legend::WaitingForLimitReset,
         Core::Interrupted | Core::ResumeFailed => Legend::Interrupted,
-        Core::ReadyForReview => Legend::ReadyForReview,
+        Core::WaitingForYou => Legend::ReadyForReview,
+        Core::ToDeliver => Legend::ReadyForReview,
         Core::PrOpen => Legend::PrOpen,
         Core::Merged => Legend::Merged,
         Core::ClosedNotMerged => Legend::ClosedNotMerged,
         // *Status Legend → Pills · M12* (d0063, d0064).
-        Core::Validating => Legend::Validating,
+        Core::Checking => Legend::Validating,
         Core::MergeConflictFixing => Legend::MergeConflictFixing,
-        Core::ValidatorNeedsYou => Legend::ValidatorNeedsYou,
-        Core::ValidationFailed => Legend::ValidationFailed,
-        Core::ValidationNoResult => Legend::ValidationNoResult,
-        Core::AutoMergeStopped => Legend::AutoMergeStopped,
+        Core::CheckerNeedsYou => Legend::ValidatorNeedsYou,
+        Core::CheckFailed => Legend::ValidationFailed,
+        Core::CheckNoResult => Legend::ValidationNoResult,
+        Core::DeliveryStopped => Legend::AutoMergeStopped,
     };
     let label = match status {
         // The legend's name for a working agent.
@@ -132,25 +132,25 @@ mod tests {
         use crate::icons::IconName as I;
         let cases = [
             (
-                Core::Validating,
+                Core::Checking,
                 Legend::Validating,
                 "Validating…",
                 I::ShieldEllipsis,
             ),
             (
-                Core::ValidatorNeedsYou,
+                Core::CheckerNeedsYou,
                 Legend::ValidatorNeedsYou,
                 "Needs you · validator",
                 I::Hand,
             ),
             (
-                Core::ValidationFailed,
+                Core::CheckFailed,
                 Legend::ValidationFailed,
                 "Validation failed",
                 I::ShieldX,
             ),
             (
-                Core::ValidationNoResult,
+                Core::CheckNoResult,
                 Legend::ValidationNoResult,
                 "Validation ended without a result",
                 I::ShieldQuestionMark,
@@ -162,16 +162,16 @@ mod tests {
                 I::GitCompareArrows,
             ),
             (
-                Core::AutoMergeStopped,
+                Core::DeliveryStopped,
                 Legend::AutoMergeStopped,
-                "Auto-merge stopped",
+                "Delivery stopped",
                 I::GitCompareArrows,
             ),
         ];
         for (status, legend, label, icon) in cases {
             assert_eq!(pill(status), (legend, label), "{status}");
             assert_eq!(legend.spec().2, icon, "{status}");
-            let calm = matches!(status, Core::Validating | Core::MergeConflictFixing);
+            let calm = matches!(status, Core::Checking | Core::MergeConflictFixing);
             assert_eq!(legend.spec().0 == Tier::Working, calm, "{status}");
         }
     }

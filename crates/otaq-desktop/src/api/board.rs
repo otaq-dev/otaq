@@ -1,10 +1,16 @@
 //! `board.*`: the board (UI-02, TKT-06, CLS-03, CLS-06, REV-14; d0004, d0037, d0041, d0047, d0052, d0066;
-//! *03 · Board — shop-web*, *03 · Board & columns*). `board.view` builds the five columns for the page from the
-//! project's snapshot (SHL-06, d0087: Review holds Ready for Review and Approved as two sections); a drag is the
-//! UIT-04 way: `board.drag` answers once, at drag start, with every drop target's verdict (the Review column and its
-//! Approved section separately) from the core's `check_move`, so the page draws the whole drag itself;
-//! `board.drop` says what the drop does (and carries out a plain move); `board.park` is the Park confirmation's
-//! button.
+//! *03 · Board — shop-web*, *03 · Board & columns*). `board.view` builds the columns of the project's flow for the
+//! page from its snapshot (SHL-06, STG-08, d0087, d0108: on the default flow five, Review holding Ready for Review
+//! and Approved as two sections); a drag is the UIT-04 way: `board.drag` answers once, at drag start, with every
+//! drop target's verdict (the Review column and its Approved section separately) from the core's `check_move_in` on
+//! the project's flow, so the page draws the whole drag itself;
+//! `board.drop` says what the drop does (and carries out a plain move, `ticket.drag`); `board.park` is the Park
+//! confirmation's button.
+//!
+//! T-0421 (FLW-18; d0108): every stage is a drop target. A drop back to an earlier Agent stage or agent check answers
+//! with the drag-back dialog ("Send SHOP-19 back to Dev?", "Run Security again on SHOP-18?"), whose confirm is
+//! `board.drag_back` (`ticket.drag` confirmed, with the instructions or the note; unsent text in the agent's terminal
+//! asks first, d0048). A parked card's drag answer names the stage it returns to.
 //!
 //! T-0324 (d0087, Q-G): `board.view` takes an optional Project agent id (`agent`) and then shows only the tickets in
 //! that agent's "Created and changed" (`project_agent.created`), with the "Created or changed by <agent> ✕" chip.
@@ -33,27 +39,32 @@
 //! T-0362 (AGT-08, SHL-08; d0086, d0087): `board.agents` also brings the connected tools (avatars once two are
 //! connected, here and on every screen through `tool_avatar::set_connected`), each card's holds and row moves.
 
-use otaq_core::board::moves::DropTarget;
 use otaq_core::board::snapshot::BoardSnapshot;
-use otaq_core::board::tickets::{Base, Ticket};
+use otaq_core::board::stage_choices::StageOptions;
+use otaq_core::board::tickets::{Base, EventKind, Ticket};
+use otaq_core::domain::Status;
+use otaq_core::flow::Flow;
 use otaq_core::protocol::{
-    CloseParams, EpicQueueParams, IdParams, KeyParams, LeadParams, MoveParams, ProjectParams, Reply,
-    Request,
+    CloseParams, DragParams, EpicQueueParams, IdParams, KeyParams, LeadParams, ProjectParams, Reply,
+    Request, TicketChoicesParams,
 };
+use otaq_core::review::ReturnOutcome;
 use otaq_view::view_models::board_page::{
     self, AgentFilter, BoardPage, DragAnswer, DropOutcome, DropStep, DropTargetId, Params, ProjectFacts,
 };
 use otaq_view::view_models::card_menu::{self, Choice};
 use otaq_view::view_models::delete::{self as delete_text, DeleteText};
-use otaq_view::view_models::empty_board;
 use otaq_view::view_models::epic_actions;
 use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::search_page::{self, FilterState, SearchView};
+use otaq_view::view_models::send_back as sb;
+use otaq_view::view_models::terminal_strip::{Click, UnsentPrompt};
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
 use serde::Deserialize;
 use serde_json::Value;
 use ts_rs::TS;
 
+use super::panel::{Sent, Unsent};
 use super::{RequestError, reply, unknown};
 use crate::App;
 
@@ -63,6 +74,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "board.drag" => reply(&drag(app, parse(params)?).await?),
         "board.drop" => reply(&drop(app, parse(params)?).await?),
         "board.park" => reply(&park(app, parse(params)?).await?),
+        "board.drag_back" => reply(&drag_back(app, parse(params)?).await?),
         "board.park_all" => reply(&park_all(app, parse(params)?).await?),
         "board.search" => reply(&search(app, parse(params)?).await?),
         "board.focus" => reply(&focus(app, parse(params)?).await?),
@@ -97,6 +109,22 @@ pub struct TicketParams {
 pub struct DropParams {
     pub key: String,
     pub target: DropTargetId,
+}
+
+/// What `board.drag_back` takes: the drag-back dialog's ticket and target, the text, and "Clear it and send".
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "BoardDragBackParams")]
+pub struct DragBackParams {
+    pub key: String,
+    pub target: DropTargetId,
+    #[serde(default)]
+    pub note: String,
+    /// Text pasted into the note as its report (CMT-13).
+    #[serde(default)]
+    #[ts(optional)]
+    pub report: Option<String>,
+    #[serde(default)]
+    pub clear: bool,
 }
 
 /// What `board.search` takes: the project, the filter as the page keeps it, and the open ticket.
@@ -136,6 +164,23 @@ async fn snapshot(app: &App, project: &str) -> Result<BoardSnapshot, RequestErro
     {
         Reply::Board(board) => Ok(board),
         other => Err(unexpected("board.snapshot", &other)),
+    }
+}
+
+/// The project's flow (FLW-01, STG-08): its current stored version, which the board's columns and drags follow; the
+/// default flow when it can't be read.
+pub(crate) async fn flow(app: &App, project: &str) -> Flow {
+    match app
+        .service
+        .send(Request::FlowCurrent(ProjectParams {
+            project: project.to_owned(),
+        }))
+        .await
+    {
+        Ok(Reply::FlowVersion(version)) => version
+            .file()
+            .map_or_else(|_| otaq_core::flow::default_flow(), |f| f.flow),
+        _ => otaq_core::flow::default_flow(),
     }
 }
 
@@ -221,9 +266,29 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         Ok(Reply::StartupReport(report)) => report.was_validating,
         _ => Vec::new(),
     };
-    let mut page = board_page::page(
+    // Every agent: the column headers name each stage's tool and model (FLW-12).
+    let agent_list = match app.service.send(Request::AgentsList).await {
+        Ok(Reply::Agents(list)) => Some(*list),
+        _ => None,
+    };
+    // No ticket starts from Ready for Dev while a flow change waits for a quiet board (FLW-06): its cards say why.
+    let starts_held = match app
+        .service
+        .send(Request::FlowWaiting(ProjectParams {
+            project: params.project.clone(),
+        }))
+        .await
+    {
+        Ok(Reply::FlowWaiting(Some(_))) => {
+            Some(otaq_core::flow::apply::WAITING_FOR_THE_FLOW_CHANGE)
+        }
+        _ => None,
+    };
+    let flow = flow(app, &params.project).await;
+    let page = board_page::page(
         &tickets,
         &ProjectFacts {
+            flow: &flow,
             name: &project.name,
             repo_path: &project.repo_path,
             base_branch: &project.base_branch,
@@ -232,25 +297,13 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
             leads: &leads,
             agent_filter: agent_filter.as_ref(),
             agents: agents.as_ref(),
+            agent_list: agent_list.as_ref(),
+            starts_held,
         },
         &params,
         otaq_core::store::now_ms(),
         &super::keymap::labels(app).await,
     );
-    // The empty board's Auto-merge line (T-0240) follows the project's settings.
-    if let Some(empty) = page.empty.as_mut()
-        && let Ok(Reply::ProjectSettings(reply)) = app
-            .service
-            .send(Request::ProjectSettingsGet(ProjectParams {
-                project: params.project.clone(),
-            }))
-            .await
-    {
-        empty.auto_merge = Some(empty_board::auto_merge_line(
-            reply.effective.auto_merge,
-            reply.effective.auto_merge_inactive,
-        ));
-    }
     Ok(page)
 }
 
@@ -258,13 +311,66 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
 /// project's tickets, for what the drop queues.
 pub async fn drag(app: &App, params: TicketParams) -> Result<DragAnswer, RequestError> {
     let ticket = ticket(app, &params.key).await?;
+    let project = ticket.key.project.to_string();
     let tickets: Vec<Ticket> = if ticket.is_epic() || ticket.epic.is_some() {
-        let board = snapshot(app, &ticket.key.project.to_string()).await?;
+        let board = snapshot(app, &project).await?;
         board.tickets().cloned().collect()
     } else {
         Vec::new()
     };
-    Ok(board_page::drag_answer(&ticket, &tickets))
+    let flow = flow(app, &project).await;
+    let left = match ticket.status {
+        Status::Parked => parked_from(app, &ticket, &flow).await,
+        _ => None,
+    };
+    Ok(board_page::drag_answer_in(
+        &flow,
+        &ticket,
+        &tickets,
+        left.as_deref(),
+    ))
+}
+
+/// The Agent stage a parked ticket left, by name (its Parked event's stage; a check's Agent stage before it).
+async fn parked_from(app: &App, ticket: &Ticket, flow: &Flow) -> Option<String> {
+    let history = app
+        .service
+        .send(Request::TicketHistory(KeyParams {
+            key: ticket.key.to_string(),
+        }))
+        .await;
+    let Ok(Reply::History(events)) = history else {
+        return None;
+    };
+    let id = events
+        .iter()
+        .rev()
+        .find(|e| e.kind == EventKind::Parked)?
+        .payload
+        .get("stage_id")?
+        .as_str()?
+        .to_owned();
+    let stage = flow.stage(&id)?;
+    let stage = match stage.is_agent_stage() {
+        true => stage,
+        false => otaq_core::flow::engine::back_to(flow, &id, &[])?,
+    };
+    Some(stage.name.clone())
+}
+
+/// The ticket's stage choices (the agent it picked for a stage, the stages it skips), for the drag-back dialog.
+async fn choices_of(app: &App, key: &str) -> Vec<StageOptions> {
+    match app
+        .service
+        .send(Request::TicketChoices(TicketChoicesParams {
+            key: Some(key.to_owned()),
+            project: None,
+        }))
+        .await
+    {
+        Ok(Reply::TicketChoices(c)) => c.stages,
+        _ => Vec::new(),
+    }
 }
 
 /// The branch an approve merges into: the service's own proposal, else the ticket's base.
@@ -285,6 +391,7 @@ async fn merge_target(app: &App, ticket: &Ticket) -> String {
 pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestError> {
     let ticket = ticket(app, &params.key).await?;
     let target = params.target;
+    let flow = flow(app, &ticket.key.project.to_string()).await;
     // An epic's drop depends on its place (its card or its track) and its children.
     let tickets: Vec<Ticket> = if ticket.is_epic() {
         let board = snapshot(app, &ticket.key.project.to_string()).await?;
@@ -292,21 +399,37 @@ pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestE
     } else {
         Vec::new()
     };
-    Ok(match board_page::drop_step(&ticket, &tickets, target) {
+    Ok(match board_page::drop_step_in(&flow, &ticket, &tickets, &target) {
         DropStep::Nothing => DropOutcome::Nothing,
         DropStep::NotYet(message) => DropOutcome::NotYet { message },
         DropStep::Park => DropOutcome::Park {
             dialog: board_page::park_dialog(&ticket),
         },
         DropStep::Move => {
+            // A move only follows a target the flow has (drop_step_in says Nothing otherwise).
+            let Some(target) = board_page::core_target(&flow, &target) else {
+                return Ok(DropOutcome::Nothing);
+            };
             app.service
-                .send(Request::TicketMove(MoveParams {
+                .send(Request::TicketDrag(DragParams {
                     key: params.key,
-                    target: DropTarget::of(target.column()),
+                    target,
                     confirmed: false,
+                    note: String::new(),
+                    clear_first: false,
+                    report: None,
                 }))
                 .await?;
             DropOutcome::Moved
+        }
+        DropStep::DragBack => {
+            let choices = choices_of(app, &params.key).await;
+            match board_page::drag_back_dialog(&flow, &ticket, &target, &choices) {
+                Some(dialog) => DropOutcome::DragBack {
+                    dialog: Box::new(dialog),
+                },
+                None => DropOutcome::Nothing,
+            }
         }
         DropStep::TakeBack { epic } => {
             take_back(app, epic.to_string(), false).await?;
@@ -345,6 +468,46 @@ pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestE
             }
         }
     })
+}
+
+/// The drag-back dialog's confirm (FLW-18): `ticket.drag` confirmed with the instructions or the note. Unsent text in
+/// the agent's terminal asks first ("Clear it and send" sends again with `clear`). A refusal stays in the dialog.
+pub async fn drag_back(app: &App, params: DragBackParams) -> Result<Sent, RequestError> {
+    let ticket = ticket(app, &params.key).await?;
+    let flow = flow(app, &ticket.key.project.to_string()).await;
+    let Some(target) = board_page::core_target(&flow, &params.target) else {
+        return Err(RequestError::plain(format!(
+            "{} has no column {}",
+            ticket.key.project,
+            params.target.as_str()
+        )));
+    };
+    let sent = app
+        .service
+        .send(Request::TicketDrag(DragParams {
+            key: params.key.clone(),
+            target,
+            confirmed: true,
+            note: params.note.clone(),
+            clear_first: params.clear,
+            report: sb::pasted_report(params.report.as_deref()),
+        }))
+        .await;
+    match sent? {
+        Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. }) => {
+            Ok(Sent::Ask(Unsent::of(
+                &UnsentPrompt::for_click(
+                    ticket.key.clone(),
+                    None,
+                    sb::sending(0),
+                    Click::SendBack { note: params.note },
+                )
+                .unclearable_by(unclearable_by),
+            )))
+        }
+        // A refusal comes back as the error: the dialog shows it and stays open.
+        _ => Ok(Sent::Done),
+    }
 }
 
 /// The Park confirmation's button: the agent stops; branch, worktree and conversation are kept (CLS-06).
@@ -553,6 +716,7 @@ mod tests {
                 path: repos.repo("shop-web", 1).display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }),
         )
         .await
@@ -562,14 +726,11 @@ mod tests {
         let params = json!({ "project": project.key, "width": 1376.0, "height": 856.0,
                              "done_collapsed": null, "dev_unfolded": false });
 
-        // No tickets yet: the empty board over the five columns.
+        // No tickets yet: the empty board over the six columns.
         let view = request(&h.app, "board.view", params.clone()).await.unwrap();
         assert_eq!(view["empty"]["title"], "shop-web is ready");
-        assert_eq!(
-            view["empty"]["auto_merge"],
-            "Auto-merge is off. Validated tickets wait for your review; turn it on in project settings."
-        );
-        assert_eq!(view["columns"].as_array().map(Vec::len), Some(5));
+        // Validate has its own column (FLW-01): Backlog · Ready for Dev · Dev · Validate · Review · Done.
+        assert_eq!(view["columns"].as_array().map(Vec::len), Some(6));
 
         let mut keys = Vec::new();
         for title in ["Update footer links", "Old idea"] {
@@ -596,7 +757,7 @@ mod tests {
         assert_eq!(view["empty"], Value::Null);
         assert_eq!(view["columns"][0]["count"], "2");
         assert_eq!(view["columns"][0]["cards"][0]["kind"], "ticket");
-        assert_eq!(view["columns"][3]["sections"][1]["empty"], "Nothing approved");
+        assert_eq!(view["columns"][4]["sections"][1]["empty"], "Nothing approved");
         assert_eq!(view["min_column_width"], 200.0);
 
         // An agent filter for an agent the service doesn't know filters nothing and shows no chip.
@@ -612,12 +773,13 @@ mod tests {
             .unwrap();
         assert_eq!(drag["targets"][0]["verdict"]["kind"], "home");
         assert_eq!(drag["targets"][1]["verdict"]["kind"], "allowed");
+        assert_eq!(drag["targets"][3]["target"], "validate");
         assert_eq!(
-            drag["targets"][3]["verdict"]["title"],
+            drag["targets"][4]["verdict"]["title"],
             "Only agents move tickets to Ready for Review"
         );
-        assert_eq!(drag["targets"][4]["target"], "approved");
-        assert_eq!(drag["targets"][4]["verdict"]["kind"], "forbidden");
+        assert_eq!(drag["targets"][5]["target"], "approved");
+        assert_eq!(drag["targets"][5]["verdict"]["kind"], "forbidden");
 
         // A refused drop does nothing.
         let outcome = request(
@@ -651,13 +813,10 @@ mod tests {
         h.service.stop_all().await;
     }
 
-    /// T-0345: `board.agents` reaches the cards: a Backlog ticket set to another agent than the default names it
-    /// "set by you" in its footer; one on the default has no footer, nor does it after Let agents pick again.
+    /// T-0345, AGM-09: `board.agents` reaches the cards, and a card names no agent before it starts, whatever its
+    /// flow's stages run (four agents on a fresh install).
     #[tokio::test(flavor = "multi_thread")]
-    async fn the_cards_name_an_agent_off_the_default() {
-        use otaq_core::agent_tools::Tool;
-        use otaq_core::named_agents::{AgentFields, Role};
-        use otaq_core::protocol::{AgentDefaultParams, AgentRowParams};
+    async fn a_card_names_no_agent_before_it_starts() {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let repos = TempRepos::new();
@@ -667,43 +826,15 @@ mod tests {
                 path: repos.repo("shop-web", 1).display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }),
         )
         .await
         else {
             panic!("no project");
         };
-        let mut ids = Vec::new();
-        for name in ["Claude Code", "Fable test"] {
-            let Reply::Agent(agent) = send(
-                &h,
-                Request::AgentsAdd(AgentFields {
-                    name: name.into(),
-                    tool: Tool::ALL[0],
-                    model: None,
-                    use_for: String::new(),
-                    fallback: None,
-                }),
-            )
-            .await
-            else {
-                panic!("no agent");
-            };
-            ids.push(agent.id);
-        }
-        for role in [Role::Developer, Role::Validator] {
-            send(
-                &h,
-                Request::AgentsSetDefault(AgentDefaultParams {
-                    role,
-                    agent: ids[0].clone(),
-                }),
-            )
-            .await;
-        }
-        let mut keys = Vec::new();
         for title in ["Add gift wrap option", "Update footer links"] {
-            let Reply::Ticket(t) = send(
+            send(
                 &h,
                 Request::TicketCreate(NewTicketInput {
                     project: project.key.clone(),
@@ -716,52 +847,13 @@ mod tests {
                     external_id: None,
                 }),
             )
-            .await
-            else {
-                panic!("no ticket");
-            };
-            keys.push(t.key.to_string());
+            .await;
         }
-        send(
-            &h,
-            Request::TicketAgentRow(AgentRowParams {
-                key: keys[0].clone(),
-                role: Role::Developer,
-                agent: Some(ids[1].clone()),
-            }),
-        )
-        .await;
         let params = json!({ "project": project.key, "width": 1376.0, "height": 856.0,
                              "done_collapsed": null, "dev_unfolded": false });
-        let view = request(&h.app, "board.view", params.clone()).await.unwrap();
-        let card = |key: &str| {
-            view["columns"][0]["cards"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|c| c["card"]["key"] == key)
-                .unwrap()["card"]
-                .clone()
-        };
-        let set = card(&keys[0]);
-        assert_eq!(
-            set["footer"]["agent"],
-            json!({ "text": "Fable test \u{b7} set by you", "picked": false, "tooltip": null })
-        );
-        assert_eq!(card(&keys[1])["footer"], Value::Null, "on the default");
-
-        // Let agents pick again: back on the default, no footer.
-        send(
-            &h,
-            Request::TicketAgentRow(AgentRowParams {
-                key: keys[0].clone(),
-                role: Role::Developer,
-                agent: None,
-            }),
-        )
-        .await;
         let view = request(&h.app, "board.view", params).await.unwrap();
         let cards = view["columns"][0]["cards"].as_array().unwrap();
+        assert_eq!(cards.len(), 2);
         assert!(cards.iter().all(|c| c["card"]["footer"].is_null()));
         h.service.stop_all().await;
     }
@@ -779,6 +871,7 @@ mod tests {
                 path: repos.repo("shop-web", 1).display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }),
         )
         .await
@@ -895,6 +988,7 @@ mod tests {
                 path: repos.repo("shop-web", 1).display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }),
         )
         .await
@@ -994,13 +1088,13 @@ mod tests {
         assert_eq!(outcome["kind"], "moved");
         assert_eq!(
             toasts().await,
-            ["Moved 1 ticket to Ready for Dev. Auto-merge is off for shop-web, so each one waits for your review."]
+            [format!("Moved {} of Search to Ready for Dev", children[0])]
         );
         let Reply::Ticket(second) = send(&h, Request::TicketGet(KeyParams { key: children[1].clone() })).await
         else {
             panic!("no child");
         };
-        assert_eq!(second.column, otaq_core::domain::Column::Backlog, "the other waits");
+        assert_eq!(second.place, otaq_core::domain::Place::Backlog, "the other waits");
 
         // The epic (as ⌘D sends it, on Dev): the rest.
         let outcome = request(&h.app, "board.drop", json!({ "key": epic, "target": "dev" }))
@@ -1013,7 +1107,7 @@ mod tests {
         else {
             panic!("no child");
         };
-        assert_eq!(second.column, otaq_core::domain::Column::ReadyForDev);
+        assert_eq!(second.place, otaq_core::domain::Place::Waiting(None));
 
         // Nothing left to queue: the drag says so, and a drop is refused.
         let drag = request(&h.app, "board.drag", json!({ "key": epic })).await.unwrap();
@@ -1040,6 +1134,7 @@ mod tests {
                 path: repos.repo("shop-web", 1).display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }),
         )
         .await
@@ -1106,7 +1201,7 @@ mod tests {
                 let Reply::Ticket(t) = send(h, Request::TicketGet(KeyParams { key })).await else {
                     panic!("no ticket");
                 };
-                t.column
+                t.place
             }
         };
 
@@ -1118,7 +1213,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(outcome["kind"], "moved");
-        assert_eq!(column(children[0].clone()).await, otaq_core::domain::Column::ReadyForDev);
+        assert_eq!(column(children[0].clone()).await, otaq_core::domain::Place::Waiting(None));
 
         // Now a track: Backlog takes both back.
         let n1 = children[0].rsplit('-').next().unwrap();
@@ -1136,7 +1231,7 @@ mod tests {
             .unwrap();
         assert_eq!(outcome["kind"], "moved");
         for child in &children {
-            assert_eq!(column(child.clone()).await, otaq_core::domain::Column::Backlog);
+            assert_eq!(column(child.clone()).await, otaq_core::domain::Place::Backlog);
         }
         let board = request(
             &h.app,

@@ -1,17 +1,20 @@
 //! `otaq prime` output (T-0071, PLG-02; d0040): snapshots of the Markdown for sample tickets, with and without
-//! Agent instructions; and the named agents every prime lists (T-0339, AGT-06; d0086).
-
-use std::sync::Arc;
+//! instructions. T-0409 (AGM-06; d0108): the agent's instructions, then the project's notes, then the stage and its
+//! skill, then the earlier stages; the parents' last stage summaries; the stage choices the reader may set, with their
+//! models (none on the default flow). T-0444 (CMT-07; d0109): "## Comments" in full, oldest first, with a report's
+//! line and never its text; "Earlier stages" one line each; a parent's last comment from an Agent stage.
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::models::{ModelCopy, ModelEntry, ModelKind, ModelList, settings_key};
+use otaq_core::board::reports::ReportSource;
+use otaq_core::board::ticket_comments::CommentAuthor;
 use otaq_core::board::tickets::TicketUpdate;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::Actor;
+use otaq_core::domain::{Actor, Status};
+use otaq_core::flow::{FlowFile, yaml};
 use otaq_core::git::testing::TempRepos;
-use otaq_core::named_agents::starter::{self, ConnectedTool};
-use otaq_core::named_agents::{AgentFields, FixedModels, NamedAgents, Role};
+use otaq_core::local_time::on_same_day_at;
 use otaq_core::prime::{model_text, render};
 use otaq_core::protocol::{KeyParams, ProjectParams, Reply, Request};
 use otaq_core::service::testing::TestService;
@@ -36,30 +39,114 @@ async fn sample() -> TestService {
         )
         .await
         .unwrap();
-    // SHOP-18's agent submitted with a summary.
-    let shop18 = w.board.ticket("SHOP-18").await.unwrap();
-    sqlx::query("INSERT INTO events (id, ticket_id, kind, actor, payload_json, at) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(new_id())
-        .bind(&shop18.id)
-        .bind("review_submitted")
-        .bind("agent:SHOP-18")
-        .bind(r#"{"summary": "POST /checkout creates a Stripe session.\nReturns the session URL."}"#)
-        .bind(now_ms())
+    // SHOP-18's agent ended its Dev stage with a comment (its last from an Agent stage).
+    comment_at(
+        &w,
+        "SHOP-18",
+        agent("Developer", "dev", None),
+        "POST /checkout creates a Stripe session.\nReturns the session URL.",
+        (11, 20),
+    )
+    .await;
+    w
+}
+
+/// A stage's agent as a comment's author.
+fn agent(name: &str, stage: &str, round: Option<u32>) -> CommentAuthor {
+    CommentAuthor::Agent {
+        id: Some(name.to_lowercase().replace(' ', "-")),
+        name: Some(name.into()),
+        tool: None,
+        stage: Some(stage.into()),
+        round,
+    }
+}
+
+fn you() -> CommentAuthor {
+    CommentAuthor::User { name: "me".into() }
+}
+
+/// Posts a comment on `key` as `author`, dated today at `hour:minute` local time; returns its N.
+async fn comment_at(
+    w: &TestService,
+    key: &str,
+    author: CommentAuthor,
+    body: &str,
+    (hour, minute): (u32, u32),
+) -> u32 {
+    let posted = w
+        .board
+        .post_ticket_comment(key, &author, body, None, &Actor::User("me".into()))
+        .await
+        .unwrap();
+    set_posted_at(w, key, posted.n, (hour, minute)).await;
+    posted.n
+}
+
+async fn set_posted_at(w: &TestService, key: &str, n: u32, (hour, minute): (u32, u32)) {
+    let ticket = w.board.ticket(key).await.unwrap();
+    sqlx::query("UPDATE ticket_comments SET posted_at = ? WHERE ticket_id = ? AND n = ?")
+        .bind(on_same_day_at(now_ms(), hour, minute).unwrap())
+        .bind(&ticket.id)
+        .bind(i64::from(n))
         .execute(w.board.store().pool())
         .await
         .unwrap();
-    w
+}
+
+/// A run of `stage` (`kind`: `agent`, `check`) that ended with `result`, after the ones recorded before it.
+async fn ended_run(
+    w: &TestService,
+    ticket_id: &str,
+    (stage, kind): (&str, &str),
+    agent: &str,
+    round: Option<u32>,
+    result: &str,
+) {
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM stage_runs")
+        .fetch_one(w.board.store().pool())
+        .await
+        .unwrap();
+    let at = now_ms() - 1_000_000 + count * 1000;
+    sqlx::query(
+        "INSERT INTO stage_runs (id, ticket_id, stage_id, kind, agent, round, result, started_at, ended_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(new_id())
+    .bind(ticket_id)
+    .bind(stage)
+    .bind(kind)
+    .bind(agent)
+    .bind(round.map(i64::from))
+    .bind(result)
+    .bind(at)
+    .bind(at)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+}
+
+/// The test flow `tests/flows/every-kind.yaml`: Grill (skippable) → Dev (Quick developer an option) → Validate →
+/// Security → QA (skippable) → Done.
+fn every_kind_file() -> FlowFile {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml");
+    yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
 const RULES: &str = "## Otaq's rules
 
-1. Follow the Agent instructions below. They add to these rules; they can't skip getting context or submitting for review.
-2. Commit everything with `/otaq:commit` before you submit. Never push and never open a PR: the user does that.
-3. When the ticket is done, as its description describes, submit: `otaq review submit --stdin` with a short summary of what you changed on stdin. It is refused while files are uncommitted.
-4. When you are stuck or a decision is the user's, ask: `otaq ask human --stdin` with the question on stdin, then end your turn.
-5. Long text (summaries, questions, ticket bodies) always goes through stdin (`--stdin`), never quoted arguments.
-6. `otaq show <KEY>` reads any ticket; `otaq create \"Title\" --stdin` files a follow-up in Backlog.
+1. Follow the Agent instructions and the project's notes above. They add to these rules; they can't skip getting context or ending your stage.
+2. Commit everything with `/otaq-commit` before you end your stage. Never push and never open a PR: the user does that.
+3. When your stage's work is done, as the ticket's description describes, end it: `otaq stage next --stdin` with a short summary of what you did on stdin; the next stage reads it. It is refused while files are uncommitted.
+4. Only when there is nothing to deliver (no commits on the ticket's branch, for example it was already fixed elsewhere), end the ticket instead: `otaq stage done --stdin` with the reason on stdin. It is refused once the branch has commits.
+5. When you are stuck or a decision is the user's, ask: `otaq ask human --stdin` with the question on stdin, then end your turn.
+6. Long text (summaries, questions, ticket bodies) always goes through stdin (`--stdin`), never quoted arguments.
+7. Long output goes to a file in `$OTAQ_RESOURCE_DIR`; attach it with `--report-file`.
+8. `otaq show <KEY>` reads any ticket; `otaq create \"Title\" --stdin` files a follow-up in Backlog.
 ";
+
+/// The default flow's Dev, as the ticket prime names it.
+const DEV: &str = "## Your stage\n\nDev, as Developer, with the skill `/otaq-work-ticket`.\n";
 
 #[tokio::test(flavor = "multi_thread")]
 async fn without_instructions() {
@@ -86,27 +173,34 @@ The checkout page shows the cart, the price table and a pay button.
 - pay button calls the Checkout API
 - works on mobile widths
 
+{DEV}
 ## Depends on
 
 - SHOP-18 · Checkout API (Ready for Review)
+  Last comment, Developer · Dev · 11:20 am:
   > POST /checkout creates a Stripe session.
   > Returns the session URL.
 - SHOP-19 · Price table (Working)
-  (no summary yet)
+  (no comment yet)
 
 {RULES}"
         )
     );
-    assert!(context.review_feedback.is_empty() && context.pending_questions.is_empty());
+    // No comments: no "## Comments" (CMT-07).
+    assert!(context.comments.is_empty() && context.pending_questions.is_empty());
     w.stop().await;
 }
 
+/// AGM-06 (Done when, the example's NOTE-4 in Dev): the prime gives Developer's instructions, then the project's
+/// notes, then the stage and its skill; no stage choices on the default flow.
 #[tokio::test(flavor = "multi_thread")]
-async fn with_global_and_project_instructions() {
+async fn with_the_agents_instructions_and_the_projects_notes() {
     let w = sample().await;
-    let mut global = w.board.global_settings().await.unwrap();
-    global.agent_instructions = "Use my /tdd skill.\nRun `pnpm test` before submitting.".into();
-    w.board.set_global_settings(&global).await.unwrap();
+    // AGM-02: the global Agent instructions are Developer's own now.
+    w.edit_agent("Developer", |a| {
+        a.instructions = "Use my /tdd skill.\nRun `pnpm test` before submitting.".into();
+    })
+    .await;
 
     let epic_child = w
         .board
@@ -119,53 +213,155 @@ async fn with_global_and_project_instructions() {
         !text.contains("Done when"),
         "no Done when section (d0067): {text}"
     );
-    assert!(text.ends_with(&format!(
-        "{RULES}\n## Agent instructions (global)\n\nUse my /tdd skill.\nRun `pnpm test` before submitting.\n"
-    )), "{text}");
+    assert!(
+        text.contains(&format!(
+            "\n## Agent instructions (Developer)\n\nUse my /tdd skill.\nRun `pnpm test` before submitting.\n\n{DEV}"
+        )),
+        "{text}"
+    );
+    assert!(text.ends_with(RULES), "{text}");
 
-    // The project's override wins and is labelled with the project.
+    // The project's notes come after the agent's own, labelled with the project (AGM-06).
     let mut project = w.board.project_settings("SHOP").await.unwrap();
-    project.agent_instructions = "Ask before touching the payment code.".into();
+    project.project_notes = "Ask before touching the payment code.".into();
     w.board
         .set_project_settings("SHOP", &project)
         .await
         .unwrap();
-    let text = render(
-        &w.board
-            .prime_context("SHOP-20", w.adapters.for_new_session())
-            .await
-            .unwrap(),
-    );
-    assert!(
-        text.ends_with(
-            "## Agent instructions (project shop-web)\n\nAsk before touching the payment code.\n"
-        ),
-        "{text}"
-    );
-    assert!(!text.contains("/tdd"));
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let text = match client
+        .request(Request::TicketPrime(KeyParams {
+            key: "SHOP-20".into(),
+        }))
+        .await
+        .unwrap()
+    {
+        Reply::Prime(c) => render(&c),
+        other => panic!("{other:?}"),
+    };
+    let own = text
+        .find("\n## Agent instructions (Developer)\n\nUse my /tdd skill.\nRun `pnpm test` before submitting.\n")
+        .expect(&text);
+    let notes = text
+        .find("\n## Notes every agent in shop-web gets\n\nAsk before touching the payment code.\n")
+        .expect(&text);
+    let stage = text.find(DEV).expect(&text);
+    let depends = text.find("\n## Depends on\n").expect(&text);
+    assert!(own < notes && notes < stage && stage < depends, "{text}");
+    assert!(!text.contains("## Stage choices"), "{text}");
+    assert!(!text.contains("## Agents"), "{text}");
 
-    // Review feedback and pending questions render once they exist (M6, M10).
+    // Pending questions render once they exist (M10); the never-filled "Review feedback" is gone (CMT-07).
     let mut context = w
         .board
         .prime_context("SHOP-20", w.adapters.for_new_session())
         .await
         .unwrap();
-    context.review_feedback = vec!["src/pay.ts:12 · handle a declined card".into()];
     context.pending_questions = vec!["SHOP-21 asks: which email template?".into()];
     let text = render(&context);
-    assert!(text.contains("\n## Review feedback\n\n- src/pay.ts:12 · handle a declined card\n"));
+    assert!(!text.contains("## Review feedback"), "{text}");
     assert!(text.contains("\n## Pending questions\n\n- SHOP-21 asks: which email template?\n"));
     w.stop().await;
 }
 
+/// AGM-06 on the test flow: Dev's prime names Rust developer's instructions and its stage, lists Grill's latest run
+/// under "Earlier stages" (one line, CMT-07) and Griller's comment under "Comments", and the later stages whose
+/// choice its agent may still set (QA's skip); it names no commit skill, since Rust developer has none
+/// (`commit-compact` isn't `commit`).
+#[tokio::test(flavor = "multi_thread")]
+async fn on_the_test_flow_dev_reads_grills_comment() {
+    let w = with_agents().await;
+    w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
+    let t = w.create("SHOP", "Sort notes by date").await;
+    // Grill ran twice; only its latest run is listed.
+    ended_run(&w, &t.id, ("grill", "agent"), "Griller", None, "cancelled").await;
+    ended_run(&w, &t.id, ("grill", "agent"), "Griller", None, "done").await;
+    let key = t.key.to_string();
+    comment_at(
+        &w,
+        &key,
+        agent("Griller", "grill", None),
+        "Agreed: newest first.\nDates in the user's time zone.",
+        (9, 5),
+    )
+    .await;
+    w.force_status(&t, Status::Working).await; // in Dev
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let context = match client
+        .request(Request::TicketPrime(KeyParams { key: key.clone() }))
+        .await
+        .unwrap()
+    {
+        Reply::Prime(c) => c,
+        other => panic!("{other:?}"),
+    };
+    let text = render(&context);
+    for part in [
+        "\n## Agent instructions (Rust developer)\n\nFollow our error-handling rules: no unwrap in library code.\n",
+        "\n## Your stage\n\nDev, as Rust developer, with the skill `/otaq-work-ticket`.\n",
+        "\n## Earlier stages\n\n- Grill · Griller · finished\n\n## Comments\n\n### Griller · Grill · 9:05 am\n\nAgreed: newest first.\nDates in the user's time zone.\n",
+        "\n## Stage choices\n\nYou may change these later stages' choices for this ticket",
+        &format!("`otaq update {key} --stage \"QA=skip\" --reason \"…\"`"),
+        "\n- QA (now: required)\n  - skip: the ticket passes this stage\n",
+        "2. Commit everything with git (`git add -A`, `git commit`) before you end your stage.",
+    ] {
+        assert!(text.contains(part), "missing {part:?} in\n{text}");
+    }
+    assert!(!text.contains("stopped"), "only the latest run: {text}");
+    assert!(!text.contains("- Dev ("), "Dev has started: {text}");
+    assert_eq!(context.commit_skill, "");
+    w.stop().await;
+}
+
+/// AGM-06, AGM-08 on the test flow: the Project agent's prime lists every stage with options, each agent with its
+/// model and its instructions' first line, and how to set a choice; the epic lead's the same, for its children.
+#[tokio::test(flavor = "multi_thread")]
+async fn on_the_test_flow_the_project_agent_reads_the_stage_options() {
+    let w = with_agents().await;
+    w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
+    let (_, project, epic) = primes(&w).await;
+    let default = match w.board.store().default_model().await.unwrap() {
+        Some(m) => format!(
+            "default · {} · {}",
+            m.tool.display_name(),
+            model_text(m.model.as_deref(), Some(&claude_list()))
+        ),
+        None => "default".to_owned(),
+    };
+    let options = format!(
+        "- Grill\n  - Griller (the stage's own) · {default}: Ask one question at a time.\n  - skip: the ticket passes \
+         this stage\n- Dev\n  - Rust developer (the stage's own) · {default}: Follow our error-handling rules: no \
+         unwrap in library code.\n  - Quick developer · {default}\n- QA\n  - skip: the ticket passes this stage\n"
+    );
+    assert!(
+        project.contains(&format!(
+            "\n## Stage choices\n\nA new ticket runs each stage's own agent. Pick another option for a ticket you \
+             create only when how hard the work is says so, with a reason: `otaq create \"Title\" --stage \
+             \"Grill=skip\" --reason \"…\" --stdin`. When unsure, leave the stage's own agent.\n\n{options}"
+        )),
+        "{project}"
+    );
+    assert!(
+        epic.contains(&format!(
+            "\n## Stage choices\n\nSet them on never-started children only, when how hard the work is says so, \
+             always with a reason: `otaq update <KEY> --stage \"Grill=skip\" --reason \"…\"`, or on `otaq create \
+             --parent`. Never change a choice the user set.\n\n{options}"
+        )),
+        "{epic}"
+    );
+    w.stop().await;
+}
+
 /// T-0184 (VAL-10): `prime --validate` for a plain ticket: the ticket, the summary, the parents with theirs, the
-/// Agent instructions, the diff and how to report.
+/// Agent instructions, the diff and how to report. T-0445 (CMT-09): a short verdict, the full run as a report.
 #[tokio::test(flavor = "multi_thread")]
 async fn validate_prime_plain() {
     let w = sample().await;
-    let mut global = w.board.global_settings().await.unwrap();
-    global.agent_instructions = "Run `pnpm test` before submitting.".into();
-    w.board.set_global_settings(&global).await.unwrap();
+    // The check's own agent's instructions (AGM-06), not Developer's.
+    w.edit_agent("Validator", |a| {
+        a.instructions = "Run `pnpm test` before submitting.".into();
+    })
+    .await;
     let ctx = w.board.validate_prime("SHOP-20").await.unwrap();
     assert_eq!((ctx.round, ctx.rounds), (1, 3));
     let text = otaq_core::prime::render_validate(&ctx);
@@ -173,17 +369,23 @@ async fn validate_prime_plain() {
         "# Validate SHOP-20 · Checkout page\n",
         "a read-only judge of its agent's work (round 1 of 3). Never edit files, never commit and never fix anything.",
         "## What and why\n\nThe checkout page shows the cart",
-        "## The agent's summary\n\n(none)",
+        "## Agent instructions (Validator)\n\nRun `pnpm test` before submitting.",
         "## Linked tickets",
-        "- depends on SHOP-18 · Checkout API (Ready for Review)\n  > POST /checkout creates a Stripe session.",
+        "- depends on SHOP-18 · Checkout API (Ready for Review)\n  Last comment, Developer · Dev · 11:20 am:\n  > POST /checkout creates a Stripe session.",
         "- depends on SHOP-19 · Price table (Working)",
-        "## Agent instructions (global)\n\nRun `pnpm test` before submitting.",
         "## The diff\n\n```diff\n",
-        "`otaq validate pass --stdin` or `otaq validate fail --stdin`",
+        "\n## Your verdict\n\nKeep it short: one or two lines, one line per finding with its file and line; notes \
+         start with \"Note:\". Finish with `otaq check pass --stdin` or `otaq check fail --stdin` and the verdict on \
+         stdin. Save the full check run to a file in `$OTAQ_RESOURCE_DIR` (never in the worktree) and attach it with \
+         `--report-file`: `otaq check fail --stdin --report-file \"$OTAQ_RESOURCE_DIR/test-run.txt\"`.\n",
     ] {
         assert!(text.contains(part), "missing {part:?} in\n{text}");
     }
     assert!(!text.contains("## The user's review"), "never sent back");
+    assert!(
+        !text.contains("## Earlier stages"),
+        "no stage ran yet: {text}"
+    );
     w.stop().await;
 }
 
@@ -242,9 +444,8 @@ fn claude_list() -> ModelList {
     ModelList { entries }
 }
 
-/// The sample board on a service whose copy of Claude Code's list was read earlier, with the starter entry
-/// ("Claude Code", every app default on it).
-async fn with_agents() -> (TestService, NamedAgents) {
+/// The sample board on a service whose copy of Claude Code's list was read earlier.
+async fn with_agents() -> TestService {
     let home = tempfile::TempDir::new().unwrap();
     let store = Store::open_in(&DataDir::new(home.path().join("h")))
         .await
@@ -262,17 +463,7 @@ async fn with_agents() -> (TestService, NamedAgents) {
     store.close().await;
     let w = TestService::start_in(home, TempRepos::new(), |config| config).await;
     w.shop_sample().await;
-    let claude_code = ConnectedTool {
-        tool: tool.as_str().into(),
-        name: "Claude Code".into(),
-    };
-    assert!(
-        starter::ensure(w.board.store(), &[claude_code])
-            .await
-            .unwrap()
-    );
-    let agents = NamedAgents::new(w.board.clone(), Arc::new(FixedModels::sample()));
-    (w, agents)
+    w
 }
 
 /// The three primes as the user's terminal gets them, rendered.
@@ -311,81 +502,14 @@ async fn primes(w: &TestService) -> (String, String, String) {
     (ticket, project, epic)
 }
 
-/// T-0339 (AGT-06): with four named agents, every prime lists them with tool, model as Settings shows it, "Use for"
-/// and the project's default per role (shop-web overrides Developer → Strong); the Project agent and the lead are
-/// told how to pick, the ticket's agent that it can't choose.
+/// AGM-06: the default flow has no stage options, so no prime lists choices to set.
 #[tokio::test(flavor = "multi_thread")]
-async fn every_prime_lists_the_named_agents_and_the_projects_defaults() {
-    let (w, agents) = with_agents().await;
-    let add = |name: &str, model: &str, use_for: &str| AgentFields {
-        name: name.into(),
-        tool: Tool::ALL[0],
-        model: Some(model.into()),
-        use_for: use_for.into(),
-        fallback: None,
-    };
-    let strong = agents
-        .add(&add("Strong", "opus", "Complex features, tricky bugs"))
-        .await
-        .unwrap();
-    agents
-        .add(&add("Light", "haiku", "Typos, docs, small config"))
-        .await
-        .unwrap();
-    agents.add(&add("Sonnet", "sonnet", "")).await.unwrap();
-    agents
-        .set_project_default("SHOP", Role::Developer, Some(&strong.id))
-        .await
-        .unwrap();
-
-    let list =
-        "- Claude Code · tool default · project default for Validator, Epic lead, Project agent
-  Use for: Everything, until you add more agents
-- Strong · Claude Code · Opus · always the newest · project default for Developer
-  Use for: Complex features, tricky bugs
-- Light · Claude Code · Haiku · always the newest
-  Use for: Typos, docs, small config
-- Sonnet · Claude Code · Sonnet · always the newest
-";
-    let (ticket, project, epic) = primes(&w).await;
-    let section = |lead: &str| format!("\n## Agents\n\n{lead}\n\n{list}\n## Otaq's rules\n");
-    assert!(
-        project.contains(&section(
-            "Pick one for each ticket you propose by how hard the work is, using its \"Use for\": `otaq create … \
-             --developer <name> --reason \"…\"`, and `--validator <name>` only when you have a reason. When unsure, \
-             leave the project default."
-        )),
-        "{project}"
-    );
-    assert!(
-        epic.contains(&section(
-            "Pick for never-started children by how hard the work is, using each \"Use for\": `otaq update <KEY> \
-             --developer <name> --reason \"…\"`, and `--validator <name>` only when you have a reason. Never change a \
-             row the user set, and never your own Epic lead row."
-        )),
-        "{epic}"
-    );
-    assert!(
-        ticket.contains(&section(
-            "Ticket agents can't choose agents: the user, a Project agent or the epic lead picks them. This list is \
-             for reading only."
-        )),
-        "{ticket}"
-    );
-    w.stop().await;
-}
-
-/// T-0339 (d0086: "Until a second entry exists, agents have nothing to choose between"): with only the starter
-/// entry, every prime says so in one line instead of the list.
-#[tokio::test(flavor = "multi_thread")]
-async fn one_named_agent_is_one_line() {
-    let (w, _agents) = with_agents().await;
-    let one = "\n## Agents\n\nOne agent (Claude Code · tool default): every ticket runs on it. Make no agent picks and \
-               leave the Agent column out of proposals.\n\n## Otaq's rules\n";
+async fn no_prime_lists_choices_on_the_default_flow() {
+    let w = with_agents().await;
     let (ticket, project, epic) = primes(&w).await;
     for text in [&ticket, &project, &epic] {
-        assert!(text.contains(one), "{text}");
-        assert!(!text.contains("Use for:"), "{text}");
+        assert!(!text.contains("\n## Stage choices\n"), "{text}");
+        assert!(!text.contains("\n## Agents\n"), "{text}");
     }
     w.stop().await;
 }
@@ -406,4 +530,230 @@ fn models_read_as_settings_shows_them() {
         model_text(Some("claude-opus-5-5"), Some(&list)),
         "claude-opus-5-5"
     );
+}
+
+/// The example's SHOP-34 on the test flow, in Dev after Validate failed round 2: Grill and Validate ran, and four
+/// comments (Griller's, the user's, Rust developer's and Validator's with its 48 KB report), plus a fifth the user
+/// deleted. Returns the ticket's key.
+async fn the_example(w: &TestService) -> String {
+    w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
+    let t = w.create("SHOP", "Export orders as CSV").await;
+    let key = t.key.to_string();
+    ended_run(w, &t.id, ("grill", "agent"), "Griller", None, "done").await;
+    ended_run(w, &t.id, ("dev", "agent"), "Rust developer", None, "done").await;
+    ended_run(
+        w,
+        &t.id,
+        ("validate", "check"),
+        "Validator",
+        Some(1),
+        "failed",
+    )
+    .await;
+    ended_run(w, &t.id, ("dev", "agent"), "Rust developer", None, "done").await;
+    ended_run(
+        w,
+        &t.id,
+        ("validate", "check"),
+        "Validator",
+        Some(2),
+        "failed",
+    )
+    .await;
+    comment_at(
+        w,
+        &key,
+        agent("Griller", "grill", None),
+        "Agreed with you: CSV only, admins only. Reuse the CSV writer in `export.rs` from SHOP-12.",
+        (13, 40),
+    )
+    .await;
+    comment_at(
+        w,
+        &key,
+        you(),
+        "Also keep the column order the same as the table on screen.",
+        (14, 14),
+    )
+    .await;
+    comment_at(
+        w,
+        &key,
+        agent("Rust developer", "dev", None),
+        "Done. Excel not added; left a TODO where it would go.",
+        (14, 50),
+    )
+    .await;
+    let failed = w
+        .board
+        .post_ticket_comment(
+            &key,
+            &agent("Validator", "validate", Some(2)),
+            "Fail: the 10,000 row limit isn't enforced; 3 tests fail in `export_tests.rs`.",
+            Some(ReportSource::Text(
+                "test export_tests::row_limit ... FAILED\n".into(),
+            )),
+            &Actor::User("me".into()),
+        )
+        .await
+        .unwrap();
+    set_posted_at(w, &key, failed.n, (15, 5)).await;
+    // The report as the example's: 48 KB, 2,310 lines.
+    sqlx::query(
+        "UPDATE ticket_comments SET report_bytes = 49152, report_lines = 2310 WHERE ticket_id = ? AND n = ?",
+    )
+    .bind(&t.id)
+    .bind(i64::from(failed.n))
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    let gone = comment_at(w, &key, you(), "Ignore the Excel part.", (15, 10)).await;
+    w.board
+        .delete_ticket_comment(&key, gone, &Actor::User("me".into()))
+        .await
+        .unwrap();
+    w.force_status(&t, Status::Working).await; // back in Dev
+    key
+}
+
+/// The example's four comments as `prime` and `prime --validate` print them (CMT-07).
+fn example_comments(key: &str) -> String {
+    format!(
+        "\n## Comments\n\n\
+         ### Griller · Grill · 1:40 pm\n\n\
+         Agreed with you: CSV only, admins only. Reuse the CSV writer in `export.rs` from SHOP-12.\n\n\
+         ### You · 2:14 pm\n\n\
+         Also keep the column order the same as the table on screen.\n\n\
+         ### Rust developer · Dev · 2:50 pm\n\n\
+         Done. Excel not added; left a TODO where it would go.\n\n\
+         ### Validator · Validate · round 2 · 3:05 pm\n\n\
+         Fail: the 10,000 row limit isn't enforced; 3 tests fail in `export_tests.rs`.\n\n\
+         Report: 48 KB, 2,310 lines · `otaq report {key} 4`\n"
+    )
+}
+
+/// CMT-07 (Done when, the example): Dev's prime prints the four comments in full, oldest first, after "Your stage"
+/// and "Earlier stages" (one line per stage, no summaries); the deleted one and the report's text never appear.
+#[tokio::test(flavor = "multi_thread")]
+async fn prime_prints_the_examples_four_comments() {
+    let w = with_agents().await;
+    let key = the_example(&w).await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let context = match client
+        .request(Request::TicketPrime(KeyParams { key: key.clone() }))
+        .await
+        .unwrap()
+    {
+        Reply::Prime(c) => c,
+        other => panic!("{other:?}"),
+    };
+    let text = render(&context);
+    let expected = format!(
+        "\n## Your stage\n\nDev, as Rust developer, with the skill `/otaq-work-ticket`.\n\
+         \n## Earlier stages\n\n- Grill · Griller · finished\n- Validate · Validator · round 2 · failed\n{}\
+         \n## Stage choices\n",
+        example_comments(&key)
+    );
+    assert!(text.contains(&expected), "missing {expected:?} in\n{text}");
+    for gone in [
+        "Ignore the Excel part.",
+        "FAILED",
+        "## Review feedback",
+        "Earlier rounds' findings",
+    ] {
+        assert!(!text.contains(gone), "{gone:?} in\n{text}");
+    }
+    assert!(text.contains(
+        "\n7. Long output goes to a file in `$OTAQ_RESOURCE_DIR`; attach it with `--report-file`.\n"
+    ));
+    w.stop().await;
+}
+
+/// CMT-07: `prime --validate` prints the comments too (earlier rounds' findings are among them); "Earlier rounds'
+/// findings" is gone.
+#[tokio::test(flavor = "multi_thread")]
+async fn prime_validate_prints_the_comments() {
+    let w = with_agents().await;
+    let key = the_example(&w).await;
+    let ctx = w.board.validate_prime(&key).await.unwrap();
+    let text = otaq_core::prime::render_validate(&ctx);
+    let comments = example_comments(&key);
+    assert!(text.contains(&comments), "missing {comments:?} in\n{text}");
+    let at = text.find("\n## Comments\n").unwrap();
+    assert!(
+        text.find("\n## Earlier stages\n").unwrap() < at
+            && at < text.find("\n## The diff\n").unwrap(),
+        "{text}"
+    );
+    for gone in [
+        "Ignore the Excel part.",
+        "FAILED",
+        "Earlier rounds' findings",
+        "## The user's review",
+    ] {
+        assert!(!text.contains(gone), "{gone:?} in\n{text}");
+    }
+
+    // No comments: no section.
+    let plain = w.create("SHOP", "Order list paging").await;
+    let text = otaq_core::prime::render_validate(
+        &w.board
+            .validate_prime(&plain.key.to_string())
+            .await
+            .unwrap(),
+    );
+    assert!(!text.contains("## Comments"), "{text}");
+    w.stop().await;
+}
+
+/// CMT-07: "Depends on" shows a parent's last comment from an Agent stage (not a check's, not the user's), with its
+/// report's line; the epic lead reads its children's the same way.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_parents_last_comment_from_an_agent_stage() {
+    let w = with_agents().await;
+    let parent = the_example(&w).await;
+    let child = w.create("SHOP", "Export invoices as CSV").await;
+    let me = Actor::User("me".into());
+    w.board
+        .add_dependency(&child.key.to_string(), &parent, &me)
+        .await
+        .unwrap();
+    let context = w
+        .board
+        .prime_context(&child.key.to_string(), w.adapters.for_new_session())
+        .await
+        .unwrap();
+    let text = render(&context);
+    let expected = format!(
+        "\n## Depends on\n\n- {parent} · Export orders as CSV (Working)\n  Last comment, Rust developer · Dev · 2:50 \
+         pm:\n  > Done. Excel not added; left a TODO where it would go.\n"
+    );
+    assert!(text.contains(&expected), "missing {expected:?} in\n{text}");
+
+    // A later Dev comment with a report: it is the one shown, with the report's line.
+    let posted = w
+        .board
+        .post_ticket_comment(
+            &parent,
+            &agent("Rust developer", "dev", None),
+            "Fixed the row limit.",
+            Some(ReportSource::Text("ok\n".into())),
+            &me,
+        )
+        .await
+        .unwrap();
+    set_posted_at(&w, &parent, posted.n, (16, 0)).await;
+    let ctx = w
+        .board
+        .validate_prime(&child.key.to_string())
+        .await
+        .unwrap();
+    let text = otaq_core::prime::render_validate(&ctx);
+    let expected = format!(
+        "- depends on {parent} · Export orders as CSV (Working)\n  Last comment, Rust developer · Dev · 4:00 pm:\n  \
+         > Fixed the row limit.\n  Report: 3 bytes, 1 line · `otaq report {parent} {}`\n",
+        posted.n
+    );
+    assert!(text.contains(&expected), "missing {expected:?} in\n{text}");
+    w.stop().await;
 }

@@ -8,16 +8,15 @@
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Duration;
 
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agent_tools::{LaunchContext, Tool};
+use otaq_core::agents::AgentModel;
 use otaq_core::board::moves::DropTarget;
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::{Actor, StartStep, Status};
-use otaq_core::named_agents::{AgentFields, FixedModels, NamedAgents, Role};
 use otaq_core::protocol::{Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
@@ -93,7 +92,7 @@ fn append(file: &Path, text: &str) {
 }
 
 /// A service whose `codex` prints its arguments and waits, with Codex's home in a temporary folder, short watch
-/// times, and project SHOP with ticket SHOP-1 whose Developer is "Standard" (on Codex), in Ready for Dev.
+/// times, and project SHOP with ticket SHOP-1 whose Developer agent runs on Codex, in Ready for Dev.
 async fn world() -> World {
     let bin = TempDir::new().unwrap();
     let codex = bin.path().join(Tool::Codex.command_name());
@@ -122,21 +121,15 @@ async fn world() -> World {
     });
     w.add_project("shop-web").await;
     w.create("SHOP", "Add coupon codes").await;
-    let rules = NamedAgents::new(w.board.clone(), Arc::new(FixedModels::sample()));
-    let agent = rules
-        .add(&AgentFields {
-            name: "Standard".into(),
+    // Developer (the Dev stage's agent) runs on Codex.
+    w.set_agent_model(
+        "Developer",
+        AgentModel::Tool {
             tool: Tool::Codex,
             model: None,
-            use_for: String::new(),
-            fallback: None,
-        })
-        .await
-        .unwrap();
-    rules
-        .set_row_by_user("SHOP-1", Role::Developer, Some(&agent.id))
-        .await
-        .unwrap();
+        },
+    )
+    .await;
     w.board
         .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
@@ -364,7 +357,7 @@ async fn a_validators_refused_model_is_no_result() {
         append(&file, &format!("{line}\n"));
     }
     until("No result", || async {
-        w.status("SHOP-2").await == Status::ValidationNoResult
+        w.status("SHOP-2").await == Status::CheckNoResult
     })
     .await;
     assert_eq!(w.board.ticket("SHOP-2").await.unwrap().validation_round, 0);

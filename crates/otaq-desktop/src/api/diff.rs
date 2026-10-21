@@ -113,7 +113,7 @@ pub async fn review(app: &App, params: Params) -> Result<Option<Review>, Request
         return Ok(None);
     };
     let records = super::sections::validations(app, &params.key).await;
-    let rounds = super::panel::validation_rounds(app, &ticket).await;
+    let rounds = super::panel::check_rounds(app, &ticket).await;
     // When the user moved it to Review (for "Moved by you at 11:12").
     let moved_at = match app
         .service
@@ -130,7 +130,7 @@ pub async fn review(app: &App, params: Params) -> Result<Option<Review>, Request
                     .get("to")
                     .and_then(|v| v.as_str())
                     .and_then(|s| s.parse::<Status>().ok())
-                    == Some(Status::ReadyForReview)
+                    == Some(Status::WaitingForYou)
             })
             .map(|e| e.at)
             .max(),
@@ -197,7 +197,7 @@ pub async fn comments(app: &App, params: Params) -> Result<page::CommentsView, R
         Reply::ReviewComments(list) => list,
         other => return Err(unexpected("review.comments", &other)),
     };
-    let can_comment = ticket.status == Status::ReadyForReview && !ticket.is_epic();
+    let can_comment = ticket.status == Status::WaitingForYou && !ticket.is_epic();
     Ok(page::comments_view(
         &params.key,
         &list.comments,
@@ -347,6 +347,7 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }))
             .await
             .unwrap()

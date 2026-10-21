@@ -10,27 +10,34 @@ use sqlx::Row;
 const TABLES: &[&str] = &[
     "active_limits",
     "agent_holds",
+    "agent_skills",
+    "agents",
+    "check_counters",
     "decisions",
     "events",
+    "flow_proposals",
+    "flow_waiting",
     "human_questions",
     "lead_notes",
     "lead_stuck",
     "lead_suggestions",
     "limit_windows",
     "messages",
-    "named_agents",
     "pending_deliveries",
     "pr_flows",
     "project_agents",
+    "project_flows",
     "projects",
     "review_comments",
     "reviews",
     "service_runs",
     "sessions",
     "settings",
-    "ticket_agent_rows",
+    "stage_runs",
+    "ticket_comments",
     "ticket_deps",
     "ticket_key_aliases",
+    "ticket_stage_choices",
     "tickets",
     "usage",
     "validations",
@@ -50,6 +57,7 @@ fn shop_web() -> NewProject {
         name: "shop-web".into(),
         repo_path: "/Users/me/code/shop-web".into(),
         base_branch: "main".into(),
+        flow_setup: false,
     }
 }
 
@@ -62,7 +70,7 @@ fn ticket(project_id: &str, number: i64, kind: &str, title: &str) -> NewTicket {
         kind: kind.into(),
         title: title.into(),
         body: String::new(),
-        board_column: "backlog".into(),
+        stage_id: None,
         state: "normal".into(),
         created_by: "user".into(),
     }
@@ -348,11 +356,34 @@ async fn one_row_round_trips_through_every_table() {
     assert_eq!(row.get::<Option<i64>, _>("sent_at"), None);
 
     sqlx::query(
-        "INSERT INTO reviews (id, ticket_id, round, action, note, at) VALUES (?, ?, 1, 'send_back', ?, ?)",
+        "INSERT INTO ticket_comments (id, ticket_id, n, author_kind, author_id, author_name, author_tool, stage_id, \
+         round, body, report_file, report_bytes, report_lines, posted_at) \
+         VALUES (?, ?, 4, 'agent', 'validator', 'Validator', 'claude', 'validate', 2, 'Fail: 3 tests fail', \
+         'reports/shop-web/SHOP-18/x.txt', 49152, 2310, ?)",
     )
     .bind(new_id())
     .bind(&t18.id)
-    .bind("Please add a test")
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let row = sqlx::query(
+        "SELECT n, round, report_lines, deleted_at FROM ticket_comments WHERE ticket_id = ?",
+    )
+    .bind(&t18.id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<i64, _>("n"), 4);
+    assert_eq!(row.get::<i64, _>("round"), 2);
+    assert_eq!(row.get::<i64, _>("report_lines"), 2310);
+    assert_eq!(row.get::<Option<i64>, _>("deleted_at"), None);
+
+    sqlx::query(
+        "INSERT INTO reviews (id, ticket_id, round, action, at) VALUES (?, ?, 1, 'send_back', ?)",
+    )
+    .bind(new_id())
+    .bind(&t18.id)
     .bind(at)
     .execute(pool)
     .await
@@ -508,7 +539,7 @@ async fn one_row_round_trips_through_every_table() {
 
     sqlx::query(
         "INSERT INTO validations (id, ticket_id, round, trigger, session_id, started_at, ended_at, outcome, \
-         report, notes_json, head_sha) VALUES (?, ?, 1, 'agent', NULL, ?, ?, 'fail', 'cart.ts:12 off by one', '[]', 'abc')",
+         reason, notes_json, head_sha) VALUES (?, ?, 1, 'agent', NULL, ?, ?, 'fail', 'cart.ts:12 off by one', '[]', 'abc')",
     )
     .bind(new_id())
     .bind(&t18.id)
@@ -517,7 +548,7 @@ async fn one_row_round_trips_through_every_table() {
     .execute(pool)
     .await
     .unwrap();
-    let report: String = sqlx::query_scalar("SELECT report FROM validations WHERE ticket_id = ?")
+    let report: String = sqlx::query_scalar("SELECT reason FROM validations WHERE ticket_id = ?")
         .bind(&t18.id)
         .fetch_one(pool)
         .await
@@ -618,11 +649,11 @@ async fn one_row_round_trips_through_every_table() {
         .unwrap();
     assert_eq!(state, "held");
 
-    // A named agent and a ticket's row on it (AGT-01, AGT-04).
+    // An agent with an imported skill (AGM-01): the shipped ones are there already.
     let light = new_id();
     sqlx::query(
-        "INSERT INTO named_agents (id, name, tool, model, use_for, created_at, updated_at) \
-         VALUES (?, 'Light', 'claude', 'haiku', 'Typos, docs, small config', ?, ?)",
+        "INSERT INTO agents (id, name, instructions, tool, model, came_from, created_at, updated_at) \
+         VALUES (?, 'Light', 'Typos, docs, small config', 'claude', 'haiku', 'you', ?, ?)",
     )
     .bind(&light)
     .bind(at)
@@ -631,26 +662,26 @@ async fn one_row_round_trips_through_every_table() {
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO ticket_agent_rows (ticket_id, role, named_agent_id, set_by, picked_by, reason, set_at) \
-         VALUES (?, 'developer', ?, 'agent', 'Checkout slowness', 'docs-only change', ?)",
+        "INSERT INTO agent_skills (agent_id, position, imported_id, name, original, imported_at, fingerprint) \
+         VALUES (?, 0, 'copy-1', 'my-commit', '/tmp/my-commit', ?, 'f')",
     )
-    .bind(&t18.id)
     .bind(&light)
     .bind(at)
     .execute(pool)
     .await
     .unwrap();
-    let picked_by: String =
-        sqlx::query_scalar("SELECT picked_by FROM ticket_agent_rows WHERE ticket_id = ?")
-            .bind(&t18.id)
-            .fetch_one(pool)
-            .await
-            .unwrap();
-    assert_eq!(picked_by, "Checkout slowness");
+    let name: String = sqlx::query_scalar(
+        "SELECT name FROM agent_skills WHERE agent_id = ? AND imported_id IS NOT NULL",
+    )
+    .bind(&light)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(name, "my-commit");
 
     // A held Developer start on that agent (M23, SCH-04): its tool is at its limit.
     sqlx::query(
-        "INSERT INTO agent_holds (id, ticket_id, role, reason, tool, model, named_agent_id, since) \
+        "INSERT INTO agent_holds (id, ticket_id, role, reason, tool, model, agent_id, since) \
          VALUES (?, ?, 'developer', 'tool_limit', 'claude', 'haiku', ?, ?)",
     )
     .bind(new_id())
@@ -666,6 +697,85 @@ async fn one_row_round_trips_through_every_table() {
         .await
         .unwrap();
     assert_eq!(reason, "tool_limit");
+
+    // A stage run (STG-05, T-0400): a ticket entering a stage opens one.
+    sqlx::query("UPDATE tickets SET stage_id = 'dev', state = 'working' WHERE id = ?")
+        .bind(&t18.id)
+        .execute(pool)
+        .await
+        .unwrap();
+    let (stage, kind): (String, String) =
+        sqlx::query_as("SELECT stage_id, kind FROM stage_runs WHERE ticket_id = ?")
+            .bind(&t18.id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!((stage.as_str(), kind.as_str()), ("dev", "agent"));
+
+    // A stage choice (AGM-08, T-0407): the ticket's Validate runs on that agent, set by the Project agent.
+    sqlx::query(
+        "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, agent_id, set_by, by_name, reason, set_at) \
+         VALUES (?, 'validate', 'agent', ?, 'project_agent', 'Checkout slowness', 'small change', ?)",
+    )
+    .bind(&t18.id)
+    .bind(&light)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let choice: String =
+        sqlx::query_scalar("SELECT choice FROM ticket_stage_choices WHERE ticket_id = ?")
+            .bind(&t18.id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(choice, "agent");
+
+    // Each agent check's own counter (T-0417).
+    sqlx::query(
+        "INSERT INTO check_counters (ticket_id, stage_id, fails, extra, moved_past, updated_at) \
+         VALUES (?, 'security', 2, 1, 'failed', ?)",
+    )
+    .bind(&t18.id)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let fails: i64 = sqlx::query_scalar(
+        "SELECT fails FROM check_counters WHERE ticket_id = ? AND stage_id = 'security'",
+    )
+    .bind(&t18.id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(fails, 2);
+
+    // An open flow proposal and a waiting flow change (T-0413).
+    sqlx::query(
+        "INSERT INTO flow_proposals (project_id, yaml, source_json, proposed_by_json, created_at)
+         VALUES (?, 'flow: []', '{\"kind\":\"agents_file\"}', '{\"by\":\"user\"}', ?)",
+    )
+    .bind(&project.id)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO flow_waiting (project_id, yaml, applied_by, changes_json, since)
+         VALUES (?, 'flow: []', 'user', '[\"QA after Security\"]', ?)",
+    )
+    .bind(&project.id)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let changes: String =
+        sqlx::query_scalar("SELECT changes_json FROM flow_waiting WHERE project_id = ?")
+            .bind(&project.id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(changes, r#"["QA after Security"]"#);
 
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");
@@ -683,7 +793,7 @@ async fn agent_counts_come_from_live_agent_sessions() {
     let add = async |number: i64, state: &str, kind: &str, ended: Option<i64>| {
         let t = store
             .insert_ticket(&NewTicket {
-                board_column: "dev".into(),
+                stage_id: Some("dev".into()),
                 state: state.into(),
                 ..ticket(&project.id, number, "ticket", "t")
             })

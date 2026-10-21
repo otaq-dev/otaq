@@ -73,7 +73,7 @@ async fn new_ticket(w: &TestService, title: &str, kind: Kind, epic: Option<&Tick
 async fn in_review(w: &TestService, t: &Ticket, file: &str) {
     let wt = w.start_worktree(t).await;
     commit(&wt, file, &format!("{file}\n"));
-    w.force_status(t, Status::ReadyForReview).await;
+    w.force_status(t, Status::WaitingForYou).await;
 }
 
 fn history_of(
@@ -190,10 +190,10 @@ async fn an_opened_pr_keeps_the_decisions() {
     w.stop().await;
 }
 
-/// Auto-merge isn't an approval: the merged child's decisions stay open and count on the epic in review. The
+/// An automatic Delivery isn't an approval: the merged child's decisions stay open and count on the epic in review. The
 /// epic's own Local merge then keeps them, with the History line on the child.
 #[tokio::test(flavor = "multi_thread")]
-async fn auto_merge_keeps_nothing_and_the_epic_approve_keeps_the_childrens() {
+async fn an_automatic_delivery_keeps_nothing_and_the_epic_approve_keeps_the_childrens() {
     let w = TestService::start().await;
     w.add_project("shop-web").await;
     let epic = new_ticket(&w, "Wishlist", Kind::Epic, None).await;
@@ -201,9 +201,9 @@ async fn auto_merge_keeps_nothing_and_the_epic_approve_keeps_the_childrens() {
     record(&w, &api, &saved_order()).await;
     in_review(&w, &api, "api.ts").await;
 
-    w.review.auto_merge("SHOP-1.1").await.unwrap();
+    w.review.deliver_locally("SHOP-1.1", false).await.unwrap();
     assert_eq!(w.status("SHOP-1.1").await, Status::Merged);
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     let open = decisions::list(&w.board, "SHOP-1.1").await.unwrap();
     assert_eq!(open[0].outcome, Outcome::Open);
     assert!(
@@ -289,8 +289,11 @@ async fn change_on_a_ticket_sends_it_back_with_the_message_and_pending_comments(
     assert_eq!(ticket.status, Status::Working);
     let sent = ticket.flags.sent_back.unwrap();
     assert_eq!((sent.comments, sent.round, sent.decisions), (1, 1, 1));
-    w.wait_for_output(&agent.session, &naming::skill("address-review"))
-        .await;
+    w.wait_for_output(
+        &agent.session,
+        &format!("/{}", naming::copy_name("address-review")),
+    )
+    .await;
 
     let message = "Review feedback on a recorded decision: \u{201c}Split fullName everywhere, or only in the \
                    profile form?\u{201d} You built: only in the profile form. Change it to: Split fullName \
@@ -299,9 +302,16 @@ async fn change_on_a_ticket_sends_it_back_with_the_message_and_pending_comments(
         change_message(&decision, "Split fullName everywhere"),
         message
     );
+    // The change is the user's comment (CMT-05).
     assert_eq!(
-        w.board.latest_send_back_note(&t.id).await.unwrap(),
-        Some((1, Some(message.into())))
+        w.board.latest_send_back_round(&t.id).await.unwrap(),
+        Some(1)
+    );
+    assert_eq!(
+        crate::common::last_comment(&w.board, "SHOP-1")
+            .await
+            .map(|c| c.body),
+        Some(message.to_owned())
     );
     assert_eq!(w.board.comments("SHOP-1", None).await.unwrap().pending, 0);
 
@@ -352,7 +362,7 @@ async fn change_asks_first_over_unsent_text() {
             unclearable_by: None,
         }
     );
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     assert_eq!(
         decisions::get(&w.board, "SHOP-1#1").await.unwrap().outcome,
         Outcome::Open
@@ -386,9 +396,12 @@ async fn change_in_an_epic_review_adds_a_fix_child_and_the_epic_is_a_track_again
         in_review(&w, child, file).await;
     }
     for child in [&api, &page] {
-        w.review.auto_merge(&child.key.to_string()).await.unwrap();
+        w.review
+            .deliver_locally(&child.key.to_string(), false)
+            .await
+            .unwrap();
     }
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
 
     // The dialog's prefill.
     assert_eq!(
@@ -523,6 +536,6 @@ async fn the_refusals() {
         decisions::get(&w.board, "SHOP-1#1").await.unwrap().outcome,
         Outcome::Open
     );
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     w.stop().await;
 }

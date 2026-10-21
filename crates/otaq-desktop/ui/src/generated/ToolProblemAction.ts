@@ -4,4 +4,4 @@ import type { AgentRole } from "./AgentRole";
 /**
  * What a button of a callout or a notice does. `ToolProblemAction` on the page.
  */
-export type ToolProblemAction = { "kind": "sign_in", tool: string, } | { "kind": "show_in_agent_tools" } | { "kind": "resume_tool", tool: string, } | { "kind": "use_fallback", role: AgentRole, } | { "kind": "change_agent", role: AgentRole, } | { "kind": "new_agent", agent: string, } | { "kind": "agent_settings", project: string, agent: string | null, };
+export type ToolProblemAction = { "kind": "sign_in", tool: string, } | { "kind": "show_in_agent_tools" } | { "kind": "resume_tool", tool: string, } | { "kind": "use_fallback", role: AgentRole, } | { "kind": "use_fallback_now", tool: string, } | { "kind": "open_agent", agent: string | null, } | { "kind": "new_agent", agent: string, } | { "kind": "agent_settings", project: string, agent: string | null, };

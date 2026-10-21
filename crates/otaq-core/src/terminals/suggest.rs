@@ -22,8 +22,8 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::sync::oneshot;
 
 use crate::agent_tools::{Adapters, OneOffLine, OneOffRequest, OneOffTool, Tool};
+use crate::agents::{Role, RunsOn, resolve};
 use crate::board::{Board, BoardError, Refusal};
-use crate::named_agents::{Role, RunsOn, resolve_project_role};
 use crate::protocol::Event;
 use crate::service::EventBus;
 
@@ -92,12 +92,10 @@ impl Suggester {
     /// Starts a suggestion for the project (the user's click). One already running is replaced.
     pub async fn start(&self, project: &str) -> Result<(), BoardError> {
         let project = self.inner.board.project(project).await?;
-        // The Project agent role's named agent for the project, as a new Project agent would start (AGT-05).
-        let runs_on = RunsOn::resolved(
-            resolve_project_role(&self.inner.board, &project, Role::ProjectAgent)
-                .await?
-                .as_ref(),
-        );
+        // The agent with the Project agent role, as a new Project agent would start (AGM-05).
+        let store = self.inner.board.store();
+        let agent = resolve::role_agent(store, Role::ProjectAgent).await?;
+        let runs_on = RunsOn::agent(&agent, store.default_model().await?.as_ref());
         let adapter = self.inner.adapters.of_session(runs_on.tool);
         let question = adapter
             .one_off(&OneOffRequest {

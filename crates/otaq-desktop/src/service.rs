@@ -466,6 +466,10 @@ pub(crate) mod testing {
         pub bus: EventBus,
         pub sessions: Sessions,
         pub inbox: otaq_core::attention::Inbox,
+        /// For tests that feed an agent's hooks and limits as the service would (T-0430).
+        pub project_agents: otaq_core::project_agents::ProjectAgents,
+        pub signals: otaq_core::signals::Signals,
+        pub plan_limit: otaq_core::usage::limit::PlanLimit,
         stopper: Stopper,
         task: tokio::task::JoinHandle<()>,
     }
@@ -477,11 +481,16 @@ pub(crate) mod testing {
         }
     }
 
+    /// What a test changes in the service's config before it binds.
+    pub type Configure = Arc<dyn Fn(&mut ServiceConfig) + Send + Sync>;
+
     pub struct InProcess {
         pub data: DataDir,
         pub build_id: Option<String>,
         /// A temporary Claude Code config file for the folder trust (PRJ-06); `None` records nothing.
         pub claude: Option<otaq_core::agent_tools::claude::trust::ClaudeConfig>,
+        /// Changes the config last, e.g. a stand-in agent launch (`ServiceConfig::launch`); `None` launches nothing.
+        pub configure: Option<Configure>,
         pub started: Mutex<Vec<Running>>,
     }
 
@@ -492,18 +501,31 @@ pub(crate) mod testing {
                 config.build_id = build_id.clone();
             }
             config.claude = self.claude.clone();
+            // Never the user's own Claude Code folder (their transcripts and settings).
+            config.tools.claude_config_dir = Some(self.data.root().join("claude-config"));
             // Terminals run a plain `sh`, not the user's login shell (as the core's tests do).
             config.terminals.shell = "sh".into();
             config.terminals.shell_args = Vec::new();
+            if let Some(configure) = &self.configure {
+                configure(&mut config);
+            }
             let service = Service::bind(config).await?;
             let (bus, sessions, stopper) =
                 (service.events(), service.sessions(), service.stopper());
             let inbox = service.inbox();
+            let (project_agents, signals, plan_limit) = (
+                service.project_agents(),
+                service.signals(),
+                service.plan_limit(),
+            );
             let task = tokio::spawn(service.serve());
             self.started.lock().unwrap().push(Running {
                 bus,
                 sessions,
                 inbox,
+                project_agents,
+                signals,
+                plan_limit,
                 stopper,
                 task,
             });
@@ -530,6 +552,23 @@ pub(crate) mod testing {
                 .expect("a running service")
                 .inbox
                 .clone()
+        }
+
+        /// The Project agents, signals and plan limit of the service started last.
+        pub fn agents(
+            &self,
+        ) -> (
+            otaq_core::project_agents::ProjectAgents,
+            otaq_core::signals::Signals,
+            otaq_core::usage::limit::PlanLimit,
+        ) {
+            let started = self.started.lock().unwrap();
+            let last = started.last().expect("a running service");
+            (
+                last.project_agents.clone(),
+                last.signals.clone(),
+                last.plan_limit.clone(),
+            )
         }
 
         /// The service started last.
@@ -581,42 +620,29 @@ pub(crate) mod testing {
             build_id: Option<&str>,
             claude: Option<otaq_core::agent_tools::claude::trust::ClaudeConfig>,
         ) -> Self {
+            Self::with_config(build_id, claude, None)
+        }
+
+        /// A harness whose service config `configure` changes last (a stand-in agent launch).
+        pub fn configured(configure: impl Fn(&mut ServiceConfig) + Send + Sync + 'static) -> Self {
+            Self::with_config(None, None, Some(Arc::new(configure)))
+        }
+
+        fn with_config(
+            build_id: Option<&str>,
+            claude: Option<otaq_core::agent_tools::claude::trust::ClaudeConfig>,
+            configure: Option<Configure>,
+        ) -> Self {
             let tmp = tempfile::tempdir().unwrap();
             let data = DataDir::new(tmp.path().join("h"));
             let service = Arc::new(InProcess {
                 data: data.clone(),
                 build_id: build_id.map(str::to_owned),
                 claude,
+                configure,
                 started: Mutex::new(Vec::new()),
             });
-            let mut settings = Settings::new(data, service.clone());
-            settings.client.backoff_min = Duration::from_millis(10);
-            settings.client.backoff_max = Duration::from_millis(50);
-            let events = Arc::new(EventHub::default());
-            let seen = Arc::new(Mutex::new(Vec::new()));
-            let record = seen.clone();
-            events.subscribe(Box::new(move |event| {
-                record.lock().unwrap().push(event);
-                true
-            }));
-            let link = ServiceLink::start(Ok(settings), events.clone());
-            let app = App {
-                notices: crate::notices::Notices::start(&link, events.clone()),
-                service: link,
-                events,
-                switcher: Default::default(),
-                drawer_tabs: Default::default(),
-                inbox: Default::default(),
-                inbox_run: Default::default(),
-                review: Default::default(),
-                terminals: crate::terminal::Terminals::default(),
-                pr_dialogs: Default::default(),
-                cleanup: Default::default(),
-                run_commands: Default::default(),
-                agents_visit: Default::default(),
-                window_focus: Default::default(),
-                usage: crate::usage::Usage::new(tokio::runtime::Handle::current()),
-            };
+            let (app, seen) = app_with(Settings::new(data, service.clone()));
             Self {
                 _tmp: tmp,
                 service,
@@ -656,6 +682,49 @@ pub(crate) mod testing {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
         }
+    }
+
+    /// An app linked to the service `settings` names, with its page events recorded.
+    fn app_with(mut settings: Settings) -> (App, Arc<Mutex<Vec<serde_json::Value>>>) {
+        settings.client.backoff_min = Duration::from_millis(10);
+        settings.client.backoff_max = Duration::from_millis(50);
+        let events = Arc::new(EventHub::default());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let record = seen.clone();
+        events.subscribe(Box::new(move |event| {
+            record.lock().unwrap().push(event);
+            true
+        }));
+        let link = ServiceLink::start(Ok(settings), events.clone());
+        let app = App {
+            notices: crate::notices::Notices::start(&link, events.clone()),
+            service: link,
+            events,
+            switcher: Default::default(),
+            drawer_tabs: Default::default(),
+            inbox: Default::default(),
+            inbox_run: Default::default(),
+            review: Default::default(),
+            terminals: crate::terminal::Terminals::default(),
+            pr_dialogs: Default::default(),
+            cleanup: Default::default(),
+            run_commands: Default::default(),
+            window_focus: Default::default(),
+            reports: Default::default(),
+            usage: crate::usage::Usage::new(tokio::runtime::Handle::current()),
+        };
+        (app, seen)
+    }
+
+    /// An app on a service that is already running on `data` (a core `TestService`); it never starts one.
+    pub fn app_on(data: DataDir) -> App {
+        struct AlreadyRunning;
+        impl Launcher for AlreadyRunning {
+            fn launch(&self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + '_>> {
+                Box::pin(std::future::ready(Ok(())))
+            }
+        }
+        app_with(Settings::new(data, Arc::new(AlreadyRunning))).0
     }
 
     pub fn connected(c: &Connection) -> bool {
@@ -782,6 +851,7 @@ mod tests {
             data: data.clone(),
             build_id: None,
             claude: None,
+            configure: None,
             started: Mutex::new(Vec::new()),
         });
         service.bind().await.unwrap();
@@ -898,6 +968,7 @@ mod tests {
             data: data.clone(),
             build_id: None,
             claude: None,
+            configure: None,
             started: Mutex::new(Vec::new()),
         });
         let link = ServiceLink::start(

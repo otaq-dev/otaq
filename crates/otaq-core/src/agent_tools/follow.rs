@@ -6,7 +6,7 @@
 //! - **Copilot's Auto** with a tier: `auto@efficiency`, `auto@balance`, `auto@intelligence` (its adapter turns it
 //!   into its flags, T-0352).
 //!
-//! The model picker offers them as entries of the tool's list, so M22's [`crate::named_agents::AgentModel`] reads them
+//! The model picker offers them as entries of the tool's list, so M22's model kinds ([`crate::agents::ToolModel`]) reads them
 //! as `Follow`.
 
 use crate::domain::stored_enum;

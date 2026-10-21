@@ -29,6 +29,24 @@ pub(super) async fn handle(
                 .open_on(&p.project, &p.message, p.agent.as_deref())
                 .await,
         ),
+        Request::OnboardingAsk(p) => {
+            let state = shared.connected.status(p.tool).state;
+            agent(agents.ask_for_flow(&p.project, p.tool, &state).await)
+        }
+        Request::OnboardingFlowSetup(p) => agents
+            .flow_setup(
+                &p.project,
+                &shared.connected.list().tools,
+                shared.agents.models(),
+            )
+            .await
+            .map(|s| Reply::FlowSetup(Box::new(s)))
+            .map_err(|e| error_body(&e)),
+        Request::OnboardingUseDefault(p) => agents
+            .settle_flow_setup(&p.project, None)
+            .await
+            .map(|_| Reply::Ok)
+            .map_err(|e| error_body(&e)),
         Request::ProjectAgentList(p) => agents
             .list(&p.project)
             .await
@@ -106,16 +124,15 @@ fn own(caller: &Caller) -> Result<&str, ErrorBody> {
     }
 }
 
-/// `otaq prime --project` (PAG-03): the project's context with the named agents it picks from (AGT-06).
+/// `otaq prime --project` (PAG-03): the project's context with the stage choices it may set (AGM-06, AGM-08).
 async fn project_prime(
     shared: &Shared,
     project: &str,
 ) -> Result<crate::project_agents::prime::ProjectPrime, BoardError> {
     let mut context = shared.board.project_prime(project).await?;
-    context.agents = crate::prime::named_agents(
+    context.choices = crate::prime::reader_choices(
         &shared.board,
-        &context.project,
-        &shared.adapters,
+        crate::prime::ChoicesFor::NewTickets(&context.project),
         &shared.models,
     )
     .await?;

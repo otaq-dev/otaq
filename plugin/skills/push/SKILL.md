@@ -1,14 +1,22 @@
 ---
 name: push
-description: Otaq's default Push workflow skill - get the context with `otaq prime`, propose messages for the commits not yet on the PR's branch with `otaq pr propose --stdin`, and only after the user confirms push them to the existing PR, then report it with `otaq pr opened <url>`.
+description: Otaq's default Push workflow skill - get the context with `otaq prime`, propose messages for the commits not yet on the PR's branch with `otaq pr propose --stdin`, and only once Otaq says they are confirmed (by the user, or at once in automatic mode) push them to the existing PR, then report it with `otaq pr opened <url>`.
 disable-model-invocation: true
 ---
 
 # Push new commits to your ticket's pull request
 
 Your ticket (its key is in `$OTAQ_TICKET`, for example `SHOP-26`) already has an open pull request. The user
-reviewed the rework and clicked **Push to PR**. You propose the messages of the new commits; **the user confirms before
-anything is pushed**. This happens in two turns, like opening the PR did.
+reviewed the rework and clicked **Push to PR**, or the ticket came back after a Send back with PR comments and its
+flow pushes on its own. You propose the messages of the new commits; **nothing is pushed until the proposal is
+confirmed**. This happens in two turns, like opening the PR did.
+
+- **Click mode:** you were started with this skill alone. The user confirms your messages in a dialog; the message
+  that starts turn 2 reads "The user confirmed the push".
+- **Automatic mode:** the text after this skill starts with the word `automatic`, and `prime`'s "Pull request"
+  section has the line `- Mode: automatic (no dialog): nobody reviews your proposal; Otaq confirms it at once`.
+  Nobody reviews your messages: Otaq confirms them as they are, and the message that starts turn 2 reads
+  "The push was confirmed automatically". So propose exactly what you want pushed.
 
 ## Turn 1: propose
 
@@ -33,12 +41,14 @@ anything is pushed**. This happens in two turns, like opening the PR did.
    ```
 
    If the command refuses the proposal, fix what it names and propose again. Never reword or rebase commits yourself.
-4. **End your turn.** Don't push. The user reviews the messages in Otaq.
+4. **End your turn.** Don't push. In click mode the user reviews the messages in Otaq; in automatic mode Otaq's
+   confirmation arrives as your next message.
 
 ## Turn 2: push
 
-Otaq types a message such as "The user confirmed the push" into this session once the user clicks **Push**. If the
-user cancels instead, nothing happens and nothing is pushed.
+Otaq types "The user confirmed the push" into this session once the user clicks **Push**, or "The push was confirmed
+automatically" in automatic mode. Either one is your go-ahead. If the user cancels instead, nothing happens and
+nothing is pushed.
 
 5. Run `otaq prime` again. Otaq has already reworded the new commits as confirmed; don't change them.
 6. **Push the branch** to `origin`, without `--force`:
@@ -56,6 +66,6 @@ user cancels instead, nothing happens and nothing is pushed.
 
 ## Rules
 
-- **Never push before Otaq tells you the user confirmed**, and never with `--force`.
+- **Never push before Otaq tells you the push is confirmed**, and never with `--force`.
 - Don't change files or commits. If something must change, ask the user with `otaq ask human --stdin`.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments.

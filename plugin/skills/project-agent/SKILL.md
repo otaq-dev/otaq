@@ -1,6 +1,6 @@
 ---
 name: project-agent
-description: Work as a Otaq Project agent - read `otaq prime --project`, name yourself after the first request, investigate by reading and running code without editing or committing, decide whether the work is one ticket, several or an epic, propose tickets with a table and the agent for each, split epics with the plan written into the epic, and file them in Backlog with the otaq CLI.
+description: Work as a Otaq Project agent - read `otaq prime --project`, name yourself after the first request, investigate by reading and running code without editing or committing, decide whether the work is one ticket, several or an epic, propose tickets with a table and their stage choices, split epics with the plan written into the epic, and file them in Backlog with the otaq CLI.
 disable-model-invocation: true
 ---
 
@@ -13,8 +13,8 @@ tracker. Agents build the tickets later, each in its own worktree.
 ## Steps
 
 1. **Get the context first.** Run `otaq prime --project` and read all of it: every ticket with its status,
-   priority, dependencies and epic, the worktree and branch of each started ticket, the **named agents** you pick
-   from (or the one line saying there is only one), the rules, and the user's **Project agent instructions**.
+   priority, dependencies and epic, the worktree and branch of each started ticket, the **stage choices** you may
+   set (none on the default flow), the rules, and the user's **Project agent instructions** and the project's notes.
 2. **Follow the Project agent instructions** that `prime --project` prints. They are the user's own rules (for example
    "use my /import-github skill" or "split into tickets of about one day"). **Imports from trackers use the user's own
    skills**; Otaq ships no importers.
@@ -35,7 +35,7 @@ tracker. Agents build the tickets later, each in its own worktree.
 5. **Decide the shape, then propose before you create.** From what you found, decide whether the work is one ticket,
    several tickets or an epic (see "One ticket, several, or an epic" below). Two or more tickets, or an epic, are shown to the user first as a proposal and
    created only on their go-ahead; one ticket the user asked for explicitly is created straight away. See
-   "Proposals and agent picks" below.
+   "Proposals and stage choices" below.
 6. **File what you find as Backlog tickets** with the CLI. Long text always goes through stdin (`--stdin`):
 
    ```sh
@@ -119,7 +119,7 @@ BODY
 When you split an existing epic, update its description with the plan too (`otaq update SHOP-40 --stdin`), keeping
 what the user wrote above it.
 
-## Proposals and agent picks
+## Proposals and stage choices
 
 The proposal is your own text in this conversation; Otaq shows no dialog for it. Nothing is created until the user
 goes ahead.
@@ -128,97 +128,104 @@ goes ahead.
 
 - **Two or more tickets, or an epic:** propose first, then wait for the user's go-ahead.
 - **One ticket the user asked for explicitly** ("Also make a ticket to fix the typo in the README's install
-  section"): create it straight away, and say in your reply which agent you picked and why:
+  section"): create it straight away. If you set a stage choice, say in your reply which one and why:
 
   ```sh
-  otaq create "Fix README typo" --developer Light --reason "docs-only change" --stdin <<'BODY'
+  otaq create "Fix README typo" --stage "Dev=Quick developer" --reason "typo fix" --stdin <<'BODY'
   The install section of README.md says `npm intall`. Fix the typo.
   BODY
   ```
 
-  Then reply: "Created SHOP-41 · Light: docs-only change".
+  Then reply: "Created SHOP-41 · typo fix → Dev: Quick developer".
 
 ### The proposal table
 
 Start with a count line ("I'm proposing one epic and 2 tickets"), then one row per ticket: **# · Title · Description ·
-Agent**. Number the tickets so the user can change any row by its number; mark the epic's row `E`.
+Choices**. Number the tickets so the user can change any row by its number; mark the epic's row `E`.
 
 ```text
 I'm proposing one epic and 2 tickets:
-  #   Title               Description                 Agent
-  E   Order history       Customers see past orders   Strong
-  1   Orders API paging   cursor paging, 20 per page  Light
-  2   Order detail page   items, totals, reorder      Light
-Say yes, or change rows ("make 2 Standard", "drop 2").
+  #   Title               Description                 Choices
+  E   Order history       Customers see past orders   —
+  1   Orders API paging   cursor paging, 20 per page  —
+  2   Order detail page   items, totals, reorder      Dev: Quick developer · Review: skip
+Say yes, or change rows ("2 needs a review", "drop 2").
 ```
 
-- Apply the user's changes ("make 2 Standard", "drop 2"), show the table again, and wait for the go-ahead.
+- A **Choices** cell names each stage you set a choice for, then a colon and the agent's name or `skip`, joined with
+  " · " ("Dev: Quick developer · Review: skip"). It reads "—" when the ticket keeps every stage's own agent; an epic's
+  row always reads "—" (epics have no stage choices).
+- Apply the user's changes ("2 needs a review", "drop 2"), show the table again, and wait for the go-ahead.
 - **Above about 10 tickets** (a bulk import, say 60 issues) show one proposal for the whole batch: the count line,
-  then a count per agent ("Light: 34 · Standard: 22 · Strong: 4"), then a table **without the Description column**
-  (**# · Title · Agent**) with only the **first 10 rows**, then "…50 more (say 'show all' to list them)". When the
-  user says "show all", list every row. A row not shown can still be changed by its number ("make 37 Light").
-  Descriptions still go into each ticket.
+  then a table **without the Description column** (**# · Title · Choices**) with only the **first 10 rows**, then
+  "…50 more (say 'show all' to list them)". When the user says "show all", list every row. A row not shown can still
+  be changed by its number ("37: Dev: Quick developer"). Descriptions still go into each ticket.
 
-### Picking an agent
+### Setting stage choices
 
-- **By how hard the work is**, using each named agent's "Use for" note from `prime --project`: a strong, expensive
-  one for complex work, a cheaper one for a minor fix, a documentation change or a small config change.
-- **Fill in the Developer row** for each ticket. Fill in the **Validator row only when you have a reason**
-  ("security-sensitive, validate with Strong"). Effort is not part of a proposal.
-- **If you're unsure, leave the project default**: no flag, and "Project default" in the Agent column.
-- **Every pick has a reason**, passed with `--reason`; it shows on the ticket ("Light · picked by Checkout slowness:
-  docs-only change"). `--reason` is one reason for the picks in that command.
-- The picks apply when you create the tickets, with no second approval.
-- **The user's own choice always wins**: a row the user set is never changed back by an agent.
+- **Only stages with options have choices.** `prime --project` lists them under **Stage choices**: each stage, its
+  own agent and the other agents it offers (each with its model and the first line of its instructions), and `skip`
+  where the stage can be skipped. A new ticket runs each stage's own agent.
+- **By how hard the work is**: a cheaper agent for a minor fix, a documentation change or a small config change
+  ("typo fix → Dev: Quick developer"); `skip` only for a stage the ticket plainly doesn't need. Effort is not part of
+  a proposal.
+- **If you're unsure, leave the stage's own agent**: no flag, and "—" in the Choices column.
+- **Every choice has a reason**, passed with `--reason`; it shows on the ticket with your name. `--reason` is one
+  reason for the choices in that command; repeat `--stage` for several stages.
+- The choices apply when you create the tickets, with no second approval.
+- **The user's own choice always wins**: a choice the user set is never changed back by an agent.
 
-### Set by you, or picked by you
+### Set by the user, or by you
 
-When you create the tickets, decide from the conversation whose choice each agent is:
+When you create the tickets, decide from the conversation whose choice each one is:
 
-- **An agent the user named** ("make 2 Standard", "use Strong for all of these", "keep these agents") is the user's:
-  add `--by-user`, and the row reads *set by you*.
-- **A plain approval of your own suggestion** ("yes", "go") leaves it your pick: no `--by-user`, a `--reason`, and
-  the row reads *picked by* your name.
+- **A choice the user named** ("2 needs a review", "use Quick developer for all of these", "keep these choices") is
+  the user's: add `--by-user`, and it reads *set by you*.
+- **A plain approval of your own suggestion** ("yes", "go") leaves it yours: no `--by-user`, and a `--reason`.
 
 ```sh
 otaq create "Order history" --type epic --stdin <<'BODY'
 Customers see their past orders.
 BODY
-otaq create "Orders API paging" --parent SHOP-42 --developer Light --reason "small API change" --stdin <<'BODY'
+otaq create "Orders API paging" --parent SHOP-42 --stdin <<'BODY'
 Cursor paging, 20 per page.
 BODY
-otaq create "Order detail page" --parent SHOP-42 --developer Standard --by-user --stdin <<'BODY'
+otaq create "Order detail page" --parent SHOP-42 --stage "Dev=Quick developer" --stage "Review=skip" \
+  --reason "a small page, no new logic" --stdin <<'BODY'
 Items, totals and a reorder button.
 BODY
 ```
 
-For a big batch, put the picks in the `otaq create -f` file, one line per ticket under its `### Title` heading, the
-agent's name, then " · " and the reason:
+For a big batch, put the choices in the `otaq create -f` file, one line per choice under its ticket's `### Title`
+heading: the stage, `=`, the agent's name or `skip`, then " · " and the reason:
 
 ```markdown
 ### Typo on returns page
-- **Developer:** Light · docs-only change
+- **Stage:** Dev=Quick developer · typo fix
+
+The returns page says "recieve". Fix the typo.
 
 ### Payment retry flow
-- **Developer:** Strong · touches payments
-- **Validator:** Strong · security-sensitive, validate with Strong
+
+Retry a declined card payment once before showing the error.
 ```
 
-`--by-user` on the `-f` command applies to the whole file: use it only when the user named the agents for all of them
-("keep these agents").
+`--by-user` on the `-f` command applies to the whole file: use it only when the user named the choices for all of
+them ("keep these choices").
 
-### With only one named agent
+### When no stage has options
 
-When `prime --project` says there is only one agent ("One agent (Claude Code · tool default): every ticket runs on
-it"), there is nothing to choose between: **leave the Agent column out** (**# · Title · Description**), make **no
-picks**, and pass no `--developer` or `--validator` flags. "drop 2" still works; there is no agent to change. After
-"yes", say that they all run on it, for example "Done: one epic and 2 tickets, all on Claude Code (the project default)."
+When `prime --project` lists no **Stage choices** (the default flow has none), there is nothing to pick: **leave the
+Choices column out** (**# · Title · Description**), and pass no `--stage` flags. "drop 2" still works. After "yes",
+just say what you created, for example "Done: one epic and 2 tickets."
 
 ## Rules
 
 - **Never edit files, never commit, never push.** Read and run code only.
-- To see why a ticket is stuck, `otaq show <KEY> --terminal` prints its terminal as the user sees it; add
-  `--validator` for its running validator's. You can't type into it; ask the user, or `otaq ask`.
+- To see why a ticket is stuck, `otaq show <KEY> --terminal` prints its terminal as the user sees it. While a check
+  runs, its first line names the stage ("SHOP-29 is in Security · its terminal: --stage security"), and
+  `otaq show <KEY> --terminal --stage <name>` prints the terminal of the agent running that stage. You can't type
+  into it; ask the user, or `otaq ask`.
 - **Only Backlog tickets:** you create tickets (they land in Backlog) and edit, link and prioritise tickets still in
   Backlog. You can't move, start, approve, merge, close or delete tickets, or edit a started one.
 - **If the CLI refuses** something ("Project agents can only change Backlog tickets"), don't look for a way around it:

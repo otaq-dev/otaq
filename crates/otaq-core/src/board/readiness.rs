@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use super::epics::{EpicProgress, progress_of};
 use super::tickets::Ticket;
-use crate::domain::{Column, Kind, Status, TicketKey};
+use crate::domain::{Kind, Status, StatusSet, TicketKey};
 
 /// A parent a ticket still waits for, and how far it got.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,7 +46,7 @@ impl WaitingParent {
     /// "1 / 3 merged" (an epic still in Backlog).
     pub fn progress_note(&self) -> Option<String> {
         match self.status {
-            Status::ReadyForReview => Some("in Review".into()),
+            Status::WaitingForYou => Some("in Review".into()),
             Status::PrOpen => Some(match self.pr_number {
                 Some(n) => format!("PR #{n} open"),
                 None => "PR open".into(),
@@ -125,7 +125,7 @@ fn waiting_text(parents: &[WaitingParent]) -> String {
         .filter_map(|p| {
             let note = p.progress_note()?;
             Some(match p.status {
-                Status::ReadyForReview => format!("{} {note}", p.key),
+                Status::WaitingForYou => format!("{} {note}", p.key),
                 _ => format!("{} · {note}", p.key),
             })
         })
@@ -225,7 +225,7 @@ pub struct Readiness {
 pub fn project_readiness(tickets: &[Ticket]) -> Vec<Readiness> {
     let mut rows: Vec<Readiness> = tickets
         .iter()
-        .filter(|t| t.column != Column::Done)
+        .filter(|t| t.board_group() != StatusSet::Done)
         .map(|t| {
             let state = readiness(t, tickets);
             let waiting_for = t
@@ -275,7 +275,7 @@ mod tests {
             priority: Default::default(),
             priority_inherited: false,
             epic: None,
-            column: status.column(),
+            place: crate::domain::Place::of(status, None, None),
             status,
             base: Base::Branch("main".into()),
             base_locked: false,
@@ -346,7 +346,7 @@ mod tests {
         );
 
         // The line updates as each parent moves.
-        let board = chain(Status::ReadyForReview, Status::Working);
+        let board = chain(Status::WaitingForYou, Status::Working);
         assert_eq!(
             reason_of("SHOP-20", &board).unwrap(),
             "waits for SHOP-18, SHOP-19 to merge (SHOP-18 in Review)"
@@ -361,7 +361,7 @@ mod tests {
         assert_eq!(
             states,
             [
-                ("SHOP-18".into(), Status::ReadyForReview),
+                ("SHOP-18".into(), Status::WaitingForYou),
                 ("SHOP-19".into(), Status::Working)
             ]
         );
@@ -374,7 +374,7 @@ mod tests {
             reason_of("SHOP-20", &board).unwrap(),
             "waits for SHOP-19 to merge"
         );
-        let board = chain(Status::Merged, Status::ReadyForReview);
+        let board = chain(Status::Merged, Status::WaitingForYou);
         assert_eq!(
             reason_of("SHOP-20", &board).unwrap(),
             "waits for SHOP-19 to merge (in Review)"
@@ -450,7 +450,7 @@ mod tests {
     fn a_dependency_on_an_epic_is_ready_when_the_epic_is_merged() {
         let board = epic_board(
             &[Status::Merged, Status::Working, Status::Backlog],
-            Status::EpicInProgress,
+            Status::Backlog,
         );
         assert_eq!(
             reason_of("SHOP-50", &board).unwrap(),
@@ -458,7 +458,7 @@ mod tests {
         );
         let board = epic_board(
             &[Status::Merged, Status::ClosedNotMerged],
-            Status::ReadyForReview,
+            Status::WaitingForYou,
         );
         assert_eq!(
             reason_of("SHOP-50", &board).unwrap(),
@@ -481,7 +481,7 @@ mod tests {
         // Also before the epic itself has moved to "Closed · not merged".
         let board = epic_board(
             &[Status::ClosedNotMerged, Status::ClosedNotMerged],
-            Status::EpicInProgress,
+            Status::Backlog,
         );
         assert_eq!(
             reason_of("SHOP-50", &board).unwrap(),
@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     fn epic_children_wait_for_siblings_merged_into_the_epic_branch() {
-        let mut board = epic_board(&[Status::Working, Status::Queued], Status::EpicInProgress);
+        let mut board = epic_board(&[Status::Working, Status::Queued], Status::Backlog);
         board[2].depends_on = vec!["SHOP-40.1".parse().unwrap()];
         assert_eq!(
             reason_of("SHOP-40.2", &board).unwrap(),
@@ -519,8 +519,8 @@ mod tests {
 
     #[test]
     fn several_parents_mixed_with_an_epic() {
-        let mut board = epic_board(&[Status::Merged, Status::Working], Status::EpicInProgress);
-        board.push(ticket("SHOP-18", Status::ReadyForReview));
+        let mut board = epic_board(&[Status::Merged, Status::Working], Status::Backlog);
+        board.push(ticket("SHOP-18", Status::WaitingForYou));
         board.last_mut().unwrap().depends_on.clear();
         let i = board
             .iter()
@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn project_rows_for_ready_and_blocked() {
-        let board = chain(Status::ReadyForReview, Status::ClosedNotMerged);
+        let board = chain(Status::WaitingForYou, Status::ClosedNotMerged);
         let rows = project_readiness(&board);
         let keys: Vec<_> = rows.iter().map(|r| r.key.to_string()).collect();
         assert_eq!(keys, ["SHOP-18", "SHOP-20", "SHOP-21"], "Done left out");

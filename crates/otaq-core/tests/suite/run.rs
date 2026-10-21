@@ -337,7 +337,7 @@ async fn a_local_merge_stops_it_as_done() {
     let (t, _) = started(&w, "Checkout API", 23_600..=23_699).await;
     let worktree = t.work.as_ref().unwrap().worktree.clone().unwrap();
     commit(std::path::Path::new(&worktree), "api.ts", "api\n");
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     let key = t.key.to_string();
     w.runs.start(&key).await.unwrap();
     w.review.local_merge(&key, "m", false, &me()).await.unwrap();
@@ -441,7 +441,7 @@ async fn run_in_review_brings_the_build_back_and_frees_it_when_it_ends() {
     assert_eq!(freed::app_bin(&wt).as_deref(), Some("Price table"));
     assert_eq!(freed::state(&w, &key).await, BuildState::Present);
     assert_eq!(freed::entries(&w, &project), Vec::<u64>::new());
-    assert_eq!(w.status(&key).await, Status::ReadyForReview);
+    assert_eq!(w.status(&key).await, Status::WaitingForYou);
     assert_eq!(
         w.ticket_env.free(&t.key).await,
         FreeOutcome::Waiting,

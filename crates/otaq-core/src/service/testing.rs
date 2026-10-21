@@ -63,7 +63,7 @@ pub struct TestService {
     pub adapters: crate::agent_tools::Adapters,
     pub ticket_env: crate::ticket_env::TicketEnv,
     pub events: super::EventBus,
-    pub gate: crate::named_agents::gate::LaunchGate,
+    pub gate: crate::agents::gate::LaunchGate,
     pub connected: crate::agent_tools::connected::ConnectedTools,
     pub models: crate::agent_tools::models::ModelLists,
     stopper: Stopper,
@@ -92,6 +92,140 @@ impl TestService {
             })
             .await
             .expect("project added")
+    }
+
+    /// Puts the agent called `name` on `model` (no model-list check), keeping the rest of its page: an agent on
+    /// another tool, as Settings → Agents would save it.
+    pub async fn set_agent_model(
+        &self,
+        name: &str,
+        model: crate::agents::AgentModel,
+    ) -> crate::agents::Agent {
+        self.edit_agent(name, |page| {
+            page.model = model;
+            page.effort = None;
+        })
+        .await
+    }
+
+    /// Changes the agent called `name` as `edit` says (no checks), as Settings → Agents would save it; a model
+    /// change clears its mark.
+    pub async fn edit_agent(
+        &self,
+        name: &str,
+        edit: impl FnOnce(&mut crate::agents::store::NewAgent),
+    ) -> crate::agents::Agent {
+        let store = self.board.store();
+        let agent = store
+            .agent_named(name)
+            .await
+            .expect("agents read")
+            .unwrap_or_else(|| panic!("no agent {name}"));
+        let mut page = crate::agents::store::NewAgent {
+            name: agent.name.clone(),
+            instructions: agent.instructions.clone(),
+            skills: agent.skills.clone(),
+            imported: agent.imported.clone(),
+            model: agent.model.clone(),
+            effort: agent.effort.clone(),
+            role: agent.role,
+        };
+        edit(&mut page);
+        let model_changed = page.model != agent.model;
+        store
+            .update_agent(&agent.id, &page, model_changed)
+            .await
+            .expect("agent saved");
+        store
+            .agent(&agent.id)
+            .await
+            .expect("agents read")
+            .expect("the agent")
+    }
+
+    /// Imports the skill `folder` onto the agent that runs `step` on the default flow (Developer; Validator for
+    /// Validate) in place of the step's shipped skill, and for Validate and Open PR names it on that stage of every
+    /// project's flow (Q296: a flow names the stage's skill). A Commit or Push skill runs when it is named as the
+    /// step's skill (`commit`, `push`: [`crate::skills::Sources::runs`]).
+    pub async fn import_step_skill(
+        &self,
+        step: crate::board::settings::WorkflowStep,
+        folder: &std::path::Path,
+    ) -> crate::agents::Agent {
+        use crate::board::settings::WorkflowStep;
+        let agent = self.step_agent(step).await;
+        let imported = crate::agents::skills::import(&self.board, &agent.id, folder)
+            .await
+            .expect("skill imported");
+        let name = imported.imported.last().expect("the import").name.clone();
+        let agent = self
+            .edit_agent(&agent.name, |page| {
+                let own = crate::agents::SkillRef::Shipped(step.own_skill().to_owned());
+                page.skills.retain(|s| *s != own);
+            })
+            .await;
+        if matches!(step, WorkflowStep::Validate | WorkflowStep::OpenPr) {
+            self.name_stage_skill(step, Some(&name)).await;
+        }
+        agent
+    }
+
+    /// Names `skill` on the stage of every project's flow that runs `step` (Validate, or the Delivery for Open PR);
+    /// `None` puts the stage back on Otaq's skill.
+    async fn name_stage_skill(
+        &self,
+        step: crate::board::settings::WorkflowStep,
+        skill: Option<&str>,
+    ) {
+        use crate::board::settings::WorkflowStep;
+        for project in self.board.store().projects().await.expect("projects") {
+            self.board
+                .edit_flow_for_tests(&project.key, |file| {
+                    for stage in &mut file.flow.stages {
+                        let runs = match step {
+                            WorkflowStep::Validate => stage.id == crate::flow::default::VALIDATE,
+                            WorkflowStep::OpenPr => stage.is_delivery(),
+                            _ => false,
+                        };
+                        if runs {
+                            stage.skill = match (step, skill) {
+                                (_, Some(skill)) => Some(skill.to_owned()),
+                                (WorkflowStep::Validate, None) => Some(step.own_skill().to_owned()),
+                                (_, None) => None,
+                            };
+                        }
+                    }
+                })
+                .await;
+        }
+    }
+
+    /// Puts the agent that runs `step` back on the shipped skill: its imported ones go, and the stage names Otaq's
+    /// skill again.
+    pub async fn drop_step_skill(&self, step: crate::board::settings::WorkflowStep) {
+        let agent = self.step_agent(step).await;
+        self.edit_agent(&agent.name, |page| {
+            let gone: Vec<String> = page.imported.iter().map(|s| s.id.clone()).collect();
+            page.skills.retain(
+                |s| !matches!(s, crate::agents::SkillRef::Imported(id) if gone.contains(id)),
+            );
+            page.imported.clear();
+        })
+        .await;
+        self.name_stage_skill(step, None).await;
+    }
+
+    async fn step_agent(&self, step: crate::board::settings::WorkflowStep) -> crate::agents::Agent {
+        let role = match step {
+            crate::board::settings::WorkflowStep::Validate => "Validator",
+            _ => "Developer",
+        };
+        self.board
+            .store()
+            .agent_named(role)
+            .await
+            .expect("agents read")
+            .expect("the step's agent")
     }
 
     /// Creates a ticket in Backlog as the user.
@@ -126,7 +260,7 @@ impl TestService {
             ("Product images", Status::Backlog),
             ("Coupon codes", Status::Backlog),
             ("Add Stripe client", Status::Merged),
-            ("Checkout API", Status::ReadyForReview),
+            ("Checkout API", Status::WaitingForYou),
             ("Price table", Status::Working),
             ("Checkout page", Status::Queued),
             ("Order confirmation email", Status::Queued),
@@ -199,11 +333,11 @@ impl TestService {
     /// Puts a ticket straight into `status` (and its column), as if the board had got it there.
     pub async fn force_status(&self, ticket: &Ticket, status: Status) {
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, ",
+            "UPDATE tickets SET stage_id = ?, state = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(status.column().as_str())
+        .bind(crate::flow::engine::default_stage(status, None))
         .bind(status.as_str())
         .bind(status.as_str())
         .bind(crate::store::now_ms())
@@ -211,6 +345,17 @@ impl TestService {
         .execute(self.board.store().pool())
         .await
         .expect("status set");
+    }
+
+    /// Puts a ticket straight into `status` in the stage `stage` of its project's flow (a test flow's stage).
+    pub async fn force_stage(&self, ticket: &Ticket, stage: &str, status: Status) {
+        self.force_status(ticket, status).await;
+        sqlx::query("UPDATE tickets SET stage_id = ? WHERE id = ?")
+            .bind(stage)
+            .bind(&ticket.id)
+            .execute(self.board.store().pool())
+            .await
+            .expect("stage set");
     }
 
     /// Gives `ticket` a worktree: a fresh repository with one commit on `main`, standing in for the one the start
@@ -226,9 +371,27 @@ impl TestService {
         worktree
     }
 
+    /// [`Self::give_worktree`], with the ticket's base at the worktree's first commit, as the start sequence records
+    /// it: commits made in it count as the ticket's own (`otaq stage done`).
+    pub async fn give_worktree_at_base(&self, ticket: &Ticket) -> PathBuf {
+        let worktree = self.give_worktree(ticket).await;
+        let head = crate::git::Git::find()
+            .expect("git")
+            .run(&worktree, &["rev-parse", "HEAD"])
+            .await
+            .expect("worktree head");
+        sqlx::query("UPDATE tickets SET base_sha = ? WHERE id = ?")
+            .bind(head.trim())
+            .bind(&ticket.id)
+            .execute(self.board.store().pool())
+            .await
+            .expect("base set");
+        worktree
+    }
+
     /// Puts the ticket in Validating with an open round 1 judged by `session` (tests report the verdict from it).
     pub async fn validating_with(&self, ticket: &Ticket, session: &str) {
-        self.force_status(ticket, Status::Validating).await;
+        self.force_status(ticket, Status::Checking).await;
         sqlx::query(
             "INSERT INTO validations (id, ticket_id, round, trigger, session_id, started_at) VALUES (?, ?, 1, 'agent', ?, ?)",
         )
@@ -286,7 +449,9 @@ impl TestService {
                 tool: None,
                 tool_session_id: None,
                 model: None,
-                named_agent: None,
+                agent: None,
+                effort: None,
+                fallback: None,
             })
             .await
             .expect("session starts");
@@ -296,6 +461,20 @@ impl TestService {
             dir,
             next: AtomicU32::new(0),
         }
+    }
+
+    /// Records that `shell`'s session runs the flow agent `id` named `name` on Claude Code, as a session started for
+    /// a stage does (its comments are that agent's, CMT-04).
+    pub async fn run_as_agent(&self, shell: &AgentShell, id: &str, name: &str) {
+        sqlx::query(
+            "UPDATE sessions SET agent_id = ?, agent_name = ?, tool = 'claude' WHERE id = ?",
+        )
+        .bind(id)
+        .bind(name)
+        .bind(&shell.session)
+        .execute(self.board.store().pool())
+        .await
+        .expect("session agent set");
     }
 
     /// Types commands into an existing session whose program is `sh` (a Project agent's stand-in, say).
@@ -387,6 +566,16 @@ impl TestService {
         Self::bind_in(home, data, repos, configure).await
     }
 
+    /// The Claude Code folder a test service reads when its test names none: `claude-config` in the test's folder, empty
+    /// until the test writes into it.
+    pub fn claude_dir(&self) -> PathBuf {
+        Self::claude_dir_in(self.home.path())
+    }
+
+    fn claude_dir_in(home: &Path) -> PathBuf {
+        home.join("claude-config")
+    }
+
     /// Starts a service on an existing data folder (after a crash, say).
     pub async fn start_in(
         home: TempDir,
@@ -403,7 +592,11 @@ impl TestService {
         repos: TempRepos,
         configure: impl FnOnce(ServiceConfig) -> ServiceConfig,
     ) -> Self {
-        let service = Service::bind(configure(ServiceConfig::new(data.clone())))
+        let mut config = ServiceConfig::new(data.clone());
+        // Never the user's own Claude Code folder (their transcripts and settings): an empty one in
+        // the test's folder, unless the test gives its own.
+        config.tools.claude_config_dir = Some(Self::claude_dir_in(home.path()));
+        let service = Service::bind(configure(config))
             .await
             .expect("service starts");
         let inbox = service.inbox();
@@ -472,7 +665,9 @@ impl TestService {
 /// a `LaunchContext` whose `claude` is `sh`): a message typed into it runs as commands. On Windows, cargo puts the
 /// build folders (`target/debug`, with the real `otaq`, and its `deps`) on PATH for the tests; without them, as on
 /// macOS and Linux, a message's `otaq answer … --stdin` (or a lead's `otaq note … --stdin`) fails at once instead of
-/// reading the next command typed into the shell as its input.
+/// reading the next command typed into the shell as its input. Any other folder holding an `otaq` (one installed with
+/// `scripts/install-local.sh`, say `~/.local/bin`) goes too: what Otaq types into a returning agent names `` `otaq
+/// prime` ``, which `sh` runs as a command substitution, and no test may run a real `otaq` against its data folder.
 pub fn path_without_build_folders() -> String {
     let test = std::env::current_exe().expect("the test's path");
     let build: Vec<PathBuf> = test
@@ -481,8 +676,11 @@ pub fn path_without_build_folders() -> String {
         .take(2)
         .map(Path::to_path_buf)
         .collect();
+    let otaq = format!("{}{}", naming::COMMAND_NAME, std::env::consts::EXE_SUFFIX);
     let path = std::env::var_os("PATH").unwrap_or_default();
-    let kept = std::env::split_paths(&path).filter(|dir| !build.contains(dir));
+    let kept = std::env::split_paths(&path)
+        .filter(|dir| !build.contains(dir))
+        .filter(|dir| !dir.join(&otaq).exists());
     std::env::join_paths(kept)
         .expect("PATH entries")
         .to_string_lossy()
@@ -641,4 +839,25 @@ async fn wait_for_file(path: &Path, limit: Duration) -> Option<String> {
     })
     .await
     .ok()
+}
+
+/// Tests that drive the board without a session: `text` as an agent's hand-over on `key` (its `stage next` summary or
+/// a verdict, CMT-05), by an agent with no session facts; `None` when `text` is empty.
+pub async fn said(
+    board: &Board,
+    key: &str,
+    text: &str,
+) -> Option<crate::board::hand_over::HandOver> {
+    let ticket = board.ticket(key).await.expect("the ticket");
+    let author = crate::board::ticket_comments::CommentAuthor::Agent {
+        id: None,
+        name: None,
+        tool: None,
+        stage: None,
+        round: None,
+    };
+    board
+        .hand_over(&ticket, author, text, None)
+        .await
+        .expect("a hand-over within the limit")
 }

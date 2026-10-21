@@ -31,8 +31,8 @@ use serde_json::Value;
 use super::{
     AgentTool, BoxFuture, Detection, InputQuirks, LaunchError, LaunchPlan, LaunchRequest,
     ModelList, ModelListError, OneOffCommand, OneOffLine, OneOffRequest, Os, SetupEntry,
-    SetupOutcome, SetupReport, SignalContext, SkillDelivery, TokenSource, Tool, ToolContext,
-    ToolEvent, TranscriptEntry, WindowsSource,
+    SetupOutcome, SetupReport, SignalContext, TokenSource, Tool, ToolContext, ToolEvent,
+    TranscriptEntry, WindowsSource,
 };
 use crate::agent_tools::events::LimitWindow;
 use crate::naming;
@@ -40,6 +40,12 @@ use crate::usage::limit::LimitKind;
 
 /// The name shown to people.
 pub(super) const DISPLAY_NAME: &str = "Codex";
+
+/// Codex's reasoning effort levels (AGM-01): its config key `model_reasoning_effort` ("minimal | low | medium | high |
+/// xhigh", the Codex configuration reference, https://developers.openai.com/codex/config-reference), set for one
+/// launch with `-c model_reasoning_effort="<level>"` (`codex --help`: "-c, --config <key=value> Override a
+/// configuration value", 0.157.1, read with a throwaway HOME).
+pub(super) const EFFORT_LEVELS: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
 
 /// The short name used in sentences ("Codex's saved conversation").
 pub(super) const SHORT_NAME: &str = "Codex";
@@ -244,13 +250,15 @@ impl AgentTool for Codex {
         false
     }
 
-    /// `$otaq:commit` (the hands-on check, row 6).
-    fn skill_reference(&self, skill: &str) -> String {
-        format!("${}:{skill}", naming::PLUGIN_NAMESPACE)
+    fn effort_levels(&self) -> &'static [&'static str] {
+        EFFORT_LEVELS
     }
 
-    fn skill_delivery(&self) -> SkillDelivery {
-        SkillDelivery::OneTimeInstall
+    /// `$otaq-commit`: Codex reads the project skills in `.agents/skills` "in every directory from your current
+    /// working directory up to the repository root" and a skill is mentioned with `$` (its skills page,
+    /// learn.chatgpt.com/docs/build-skills, formerly developers.openai.com/codex/skills).
+    fn skill_reference(&self, skill: &str) -> String {
+        format!("${}", naming::copy_name(skill))
     }
 
     /// Codex's ids are models.dev's `openai` ids exactly (d0086).

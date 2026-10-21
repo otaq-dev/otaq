@@ -7,7 +7,7 @@
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agent_tools::{LaunchContext, Tool};
 use otaq_core::board::Refusal;
-use otaq_core::board::settings::{ProjectSettings, WorkflowStep};
+use otaq_core::board::settings::WorkflowStep;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::{Actor, Status, ValidationTrigger};
@@ -15,6 +15,7 @@ use otaq_core::naming;
 use otaq_core::protocol::{Reply, Request, ToolParams};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
+use otaq_core::service::testing::said;
 use otaq_core::session::SessionKind;
 use otaq_core::store::now_ms;
 use otaq_core::usage::limit::{LimitHit, LimitKind};
@@ -77,7 +78,9 @@ async fn submit(w: &TestService, t: &Ticket) -> Result<Ticket, otaq_core::board:
     w.validation
         .submit(
             &t.key.to_string(),
-            "Cart totals add up.",
+            said(&w.board, &t.key.to_string(), "Cart totals add up.")
+                .await
+                .as_ref(),
             &agent(t),
             ValidationTrigger::Agent,
         )
@@ -101,14 +104,20 @@ async fn submit_starts_a_validator_in_the_worktree() {
     let t = working(&w, "Cart totals").await;
 
     let after = submit(&w, &t).await.unwrap();
-    assert_eq!((after.column, after.status), (t.column, Status::Validating));
+    assert_eq!(
+        (after.board_group(), after.status),
+        (t.board_group(), Status::Checking)
+    );
     let validator = w
         .sessions
         .running_of(&t.id, SessionKind::Validator)
         .expect("a validator runs");
     // The stand-in prints its arguments, its environment and then its folder: wait for the last line.
     let out = w.wait_for_output(&validator.id, "CWD=").await;
-    assert!(out.contains(&naming::skill("validate")), "{out}");
+    assert!(
+        out.contains(&format!("/{}", naming::copy_name("validate"))),
+        "{out}"
+    );
     assert!(
         out.contains(&format!(
             "ROLE={} TICKET={} PORT=none",
@@ -155,18 +164,11 @@ async fn validation_off_goes_straight_to_review() {
     let w = world().await;
     w.add_project("shop-web").await;
     w.board
-        .set_project_settings(
-            "SHOP",
-            &ProjectSettings {
-                validation: Some(false),
-                ..ProjectSettings::default()
-            },
-        )
-        .await
-        .unwrap();
+        .edit_flow_for_tests("SHOP", otaq_core::flow::default::testing::without_validate)
+        .await;
     let t = working(&w, "Cart totals").await;
     let after = submit(&w, &t).await.unwrap();
-    assert_eq!(after.status, Status::ReadyForReview);
+    assert_eq!(after.status, Status::WaitingForYou);
     assert!(
         w.sessions
             .running_of(&t.id, SessionKind::Validator)
@@ -196,24 +198,24 @@ async fn uncommitted_files_refuse_before_any_validator() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_projects_validate_skill_is_the_prompt() {
+async fn the_validators_imported_skill_is_the_prompt() {
     let w = world().await;
     w.add_project("shop-web").await;
-    // An imported skill is named by its copy in the worktree (WSK-06, d0092).
-    let folder = otaq_core::workflow_skills::testing::skill_folder(w.data.root(), "my-validate");
-    w.board
-        .import_workflow_skill(Some("SHOP"), WorkflowStep::Validate, &folder)
-        .await
-        .unwrap();
+    // An imported skill runs by its copy's name (AGM-07): Validator's, in place of `validate`.
+    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-validate");
+    w.import_step_skill(WorkflowStep::Validate, &folder).await;
     let t = working(&w, "Cart totals").await;
     submit(&w, &t).await.unwrap();
     let validator = w
         .sessions
         .running_of(&t.id, SessionKind::Validator)
         .unwrap();
-    let named = format!("`.agents/skills/{}/`", naming::custom_skill("validate"));
+    let named = format!("/{}", naming::copy_name("my-validate"));
     let out = w.wait_for_output(&validator.id, &named).await;
-    assert!(!out.contains(&naming::skill("validate")), "{out}");
+    assert!(
+        !out.contains(&format!("/{} ", naming::copy_name("validate"))),
+        "{out}"
+    );
     w.stop().await;
 }
 
@@ -251,13 +253,16 @@ async fn under_the_usage_limit_the_validator_waits_for_resume_all() {
         panic!("{reply:?}")
     };
     assert!(keys.contains(&t.key), "{keys:?}");
-    assert_eq!(w.status(&t.key.to_string()).await, Status::Validating);
+    assert_eq!(w.status(&t.key.to_string()).await, Status::Checking);
     let validator = w
         .sessions
         .running_of(&t.id, SessionKind::Validator)
         .expect("started on Resume");
-    w.wait_for_output(&validator.id, &naming::skill("validate"))
-        .await;
+    w.wait_for_output(
+        &validator.id,
+        &format!("/{}", naming::copy_name("validate")),
+    )
+    .await;
     assert_eq!(
         rounds(&w, &t).await[0].2.as_deref(),
         Some(validator.id.as_str())
@@ -276,22 +281,23 @@ fn validator_of(w: &TestService, t: &Ticket) -> String {
 async fn verdict(w: &TestService, t: &Ticket, pass: bool, report: &str) -> Ticket {
     let session = validator_of(w, t);
     w.validation
-        .verdict(&t.key.to_string(), pass, report, &session)
+        .verdict(
+            &t.key.to_string(),
+            pass,
+            said(&w.board, &t.key.to_string(), report).await.as_ref(),
+            &session,
+        )
         .await
         .unwrap()
 }
 
 async fn set_rounds(w: &TestService, rounds: u32) {
     w.board
-        .set_project_settings(
+        .edit_flow_for_tests(
             "SHOP",
-            &ProjectSettings {
-                validation_rounds: Some(rounds),
-                ..ProjectSettings::default()
-            },
+            otaq_core::flow::default::testing::with_rounds(rounds),
         )
-        .await
-        .unwrap();
+        .await;
 }
 
 async fn outcomes(
@@ -299,7 +305,10 @@ async fn outcomes(
     t: &Ticket,
 ) -> Vec<(i64, Option<String>, Option<String>, Option<String>)> {
     sqlx::query_as(
-        "SELECT round, outcome, report, notes_json FROM validations WHERE ticket_id = ? ORDER BY started_at",
+        "SELECT v.round, v.outcome, c.body, v.notes_json FROM validations v
+         LEFT JOIN stage_runs r ON r.validation_id = v.id
+         LEFT JOIN ticket_comments c ON c.id = r.comment_id
+         WHERE v.ticket_id = ? ORDER BY v.started_at",
     )
     .bind(&t.id)
     .fetch_all(w.board.store().pool())
@@ -325,7 +334,7 @@ async fn a_pass_enters_review_validated() {
         "Checked the totals.\nNote: covered by SHOP-40.2",
     )
     .await;
-    assert_eq!(after.status, Status::ReadyForReview);
+    assert_eq!(after.status, Status::WaitingForYou);
     let entry = after.flags.review_entry.unwrap();
     assert_eq!(entry.to_string(), "Validated · round 1");
     let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
@@ -362,11 +371,10 @@ async fn a_fail_goes_back_to_the_agent_until_the_last_round() {
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].kind, "validation");
+    // The findings are the checker's comment: the agent is told only the round (CMT-05).
     assert_eq!(
         pending[0].text,
-        format!(
-            "Validation failed (round 1 of 3). Fix these, commit, and submit again:\n\n{FINDINGS}"
-        )
+        "Validate failed round 1. Run `otaq prime`."
     );
 
     for round in 2..=3 {
@@ -376,7 +384,7 @@ async fn a_fail_goes_back_to_the_agent_until_the_last_round() {
         verdict(&w, &t, false, FINDINGS).await;
     }
     let last = w.board.ticket(&t.key.to_string()).await.unwrap();
-    assert_eq!(last.status, Status::ValidationFailed);
+    assert_eq!(last.status, Status::CheckFailed);
     assert_eq!(last.validation_round, 3);
     assert_eq!(
         w.deliveries.pending(&agent.session).await.unwrap().len(),
@@ -402,7 +410,7 @@ async fn rounds_one_and_five() {
     submit(&w, &one).await.unwrap();
     assert_eq!(
         verdict(&w, &one, false, FINDINGS).await.status,
-        Status::ValidationFailed
+        Status::CheckFailed
     );
 
     set_rounds(&w, 5).await;
@@ -414,7 +422,7 @@ async fn rounds_one_and_five() {
         let expected = if round < 5 {
             Status::Working
         } else {
-            Status::ValidationFailed
+            Status::CheckFailed
         };
         assert_eq!(after.status, expected, "round {round}");
     }
@@ -430,7 +438,12 @@ async fn only_the_running_validator_reports_and_it_ends_after_its_turn() {
     submit(&w, &t).await.unwrap();
     let err = w
         .validation
-        .verdict(&t.key.to_string(), true, "", "another-session")
+        .verdict(
+            &t.key.to_string(),
+            true,
+            said(&w.board, &t.key.to_string(), "").await.as_ref(),
+            "another-session",
+        )
         .await
         .unwrap_err();
     assert_eq!(err.refusal(), Some(Refusal::NotAllowed));
@@ -479,9 +492,10 @@ async fn send_back_restarts_the_counter_and_prime_shows_the_comments() {
         .await
         .unwrap();
     w.review
-        .send_back(
+        .fail(
             &t.key.to_string(),
             "Also the tax",
+            None,
             false,
             &Actor::User("me".into()),
         )
@@ -499,7 +513,10 @@ async fn send_back_restarts_the_counter_and_prime_shows_the_comments() {
         text.contains("## The user's review (Send back, round 1)"),
         "{text}"
     );
-    assert!(text.contains("Note: Also the tax"), "{text}");
+    // Only the line comments (CMT-07): the note is the user's comment (CMT-05), under "## Comments".
+    assert!(!text.contains("Note: Also the tax"), "{text}");
+    let comments = &text[text.find("\n## Comments\n").expect("a Comments section")..];
+    assert!(comments.contains("\n\nAlso the tax\n"), "{text}");
     assert!(text.contains("- src/cart.ts:12: Round the total"), "{text}");
     assert!(
         !text.contains("Earlier rounds"),
@@ -545,7 +562,12 @@ async fn a_validator_that_changes_files_gets_its_verdict_discarded() {
         let session = validator_of(&w, &t);
         let err = w
             .validation
-            .verdict(&t.key.to_string(), true, "fine", &session)
+            .verdict(
+                &t.key.to_string(),
+                true,
+                said(&w.board, &t.key.to_string(), "fine").await.as_ref(),
+                &session,
+            )
             .await
             .unwrap_err();
         assert!(
@@ -554,7 +576,7 @@ async fn a_validator_that_changes_files_gets_its_verdict_discarded() {
             "{err}"
         );
         let after = w.board.ticket(&t.key.to_string()).await.unwrap();
-        assert_eq!(after.status, Status::ValidationNoResult);
+        assert_eq!(after.status, Status::CheckNoResult);
         assert_eq!(
             after.signal.as_ref().and_then(|s| s.text.as_deref()),
             Some(otaq_core::domain::validation::DISCARDED)
@@ -584,7 +606,7 @@ async fn ignored_files_change_nothing() {
     std::fs::create_dir_all(dir.join("coverage")).unwrap();
     std::fs::write(dir.join("coverage/lcov.info"), "TN:\n").unwrap();
     let after = verdict(&w, &t, true, "ok").await;
-    assert_eq!(after.status, Status::ReadyForReview);
+    assert_eq!(after.status, Status::WaitingForYou);
     w.stop().await;
 }
 
@@ -601,7 +623,7 @@ async fn an_agent_commit_during_validation_cancels_it() {
     // A turn that changes nothing cancels nothing (typing to the agent is allowed).
     w.validation.agent_working(&t.id).await;
     w.validation.agent_turn_ended(&t.id).await.unwrap();
-    assert_eq!(w.status(&t.key.to_string()).await, Status::Validating);
+    assert_eq!(w.status(&t.key.to_string()).await, Status::Checking);
 
     w.validation.agent_working(&t.id).await;
     let dir = worktree(&t);
@@ -619,11 +641,9 @@ async fn an_agent_commit_during_validation_cancels_it() {
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     assert_eq!(
         pending.last().map(|p| p.text.as_str()),
-        Some(otaq_core::validation::CANCELLED)
-    );
-    assert_eq!(
-        otaq_core::validation::CANCELLED,
-        "Validation was cancelled because the code changed. Submit again when you're done."
+        Some(
+            "Validate was cancelled because the code changed. Run `otaq stage next` when you're done."
+        )
     );
     w.stop().await;
 }
@@ -654,7 +674,7 @@ async fn a_description_edit_cancels_a_title_edit_does_not() {
         }))
         .await
         .unwrap();
-    assert_eq!(w.status(&t.key.to_string()).await, Status::Validating);
+    assert_eq!(w.status(&t.key.to_string()).await, Status::Checking);
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     assert_eq!(pending.len(), 1);
     assert!(
@@ -681,7 +701,10 @@ async fn a_description_edit_cancels_a_title_edit_does_not() {
         .map(|p| p.text)
         .collect();
     assert_eq!(texts.len(), 3, "{texts:?}");
-    assert_eq!(texts[1], otaq_core::validation::CANCELLED);
+    assert_eq!(
+        texts[1],
+        otaq_core::validation::cancelled_message("Validate")
+    );
     assert!(
         texts[2].starts_with("The ticket was updated by the user. The description changed"),
         "{texts:?}"
@@ -719,52 +742,57 @@ async fn act(
         .await
 }
 
-/// Submit for review skips validation ("Submitted by you"); Validate and submit runs the agent's flow; both are
-/// refused while validating.
+/// T-0406 (d0108 rule 10): the user's Move to next stage counts as the agent's `stage next`: with Validation on the
+/// check runs (it used to skip validation; Validate and submit is gone), also from Interrupted; with Validation off
+/// the ticket is Ready for Review, "Submitted by you". Refused while validating.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_users_two_submits() {
-    use otaq_core::domain::{ReviewEntry, ValidationAction as A};
+async fn the_users_move_to_next_stage() {
+    use otaq_core::domain::ReviewEntry;
     let w = world().await;
     w.add_project("shop-web").await;
     let me = Actor::User("me".into());
 
+    for status in [Status::Idle, Status::Interrupted] {
+        let t = working(&w, "Checkout").await;
+        w.force_status(&t, status).await;
+        let after = w
+            .validation
+            .submit_by_user(&t.key.to_string(), "please check", &me)
+            .await
+            .unwrap();
+        assert_eq!(after.status, Status::Checking, "{status}");
+        assert_eq!(rounds(&w, &t).await[0].1, "user");
+        assert!(
+            w.sessions
+                .running_of(&t.id, SessionKind::Validator)
+                .is_some()
+        );
+        let refused = w
+            .validation
+            .submit_by_user(&t.key.to_string(), "", &me)
+            .await
+            .err();
+        assert!(refused.is_some(), "refused while validating");
+    }
+
+    w.board
+        .edit_flow_for_tests("SHOP", otaq_core::flow::default::testing::without_validate)
+        .await;
     let t = working(&w, "Cart totals").await;
     w.force_status(&t, Status::Idle).await;
     let after = w
-        .board
+        .validation
         .submit_by_user(&t.key.to_string(), "", &me)
         .await
         .unwrap();
     assert_eq!(
         (after.status, after.flags.review_entry.map(|e| e.entry)),
-        (Status::ReadyForReview, Some(ReviewEntry::SubmittedByUser))
+        (Status::WaitingForYou, Some(ReviewEntry::SubmittedByUser))
     );
-
-    let t = working(&w, "Checkout").await;
-    w.force_status(&t, Status::Idle).await;
-    let after = act(&w, &t, A::ValidateAndSubmit, "please check")
-        .await
-        .unwrap();
-    assert_eq!(after.status, Status::Validating);
-    assert_eq!(rounds(&w, &t).await[0].1, "user");
-    assert!(
-        w.sessions
-            .running_of(&t.id, SessionKind::Validator)
-            .is_some()
-    );
-    for refused in [
-        w.board
-            .submit_by_user(&t.key.to_string(), "", &me)
-            .await
-            .err(),
-        act(&w, &after, A::ValidateAndSubmit, "").await.err(),
-    ] {
-        assert!(refused.is_some(), "refused while validating");
-    }
     w.stop().await;
 }
 
-/// Stop validation and Skip to Review, only while validating.
+/// Stop this check and Skip this check, only while validating.
 #[tokio::test(flavor = "multi_thread")]
 async fn stop_and_skip() {
     use otaq_core::domain::{ReviewEntry, ValidationAction as A};
@@ -792,14 +820,14 @@ async fn stop_and_skip() {
     let after = act(&w, &t, A::Skip, "").await.unwrap();
     assert_eq!(
         (after.status, after.flags.review_entry.map(|e| e.entry)),
-        (Status::ReadyForReview, Some(ReviewEntry::Skipped))
+        (Status::WaitingForYou, Some(ReviewEntry::Skipped))
     );
     assert_eq!(last_outcome(&w, &t).await.as_deref(), Some("skipped"));
     w.stop().await;
 }
 
-/// After the last failed round: Move to Review anyway, Give it another round, Answer the agent. After no
-/// result: Retry validation and Move to Review anyway ("Validation skipped by you").
+/// After the last failed round: Move on anyway, Give it another round, Answer the agent. After no
+/// result: Retry validation and Move on anyway ("Validation skipped by you").
 #[tokio::test(flavor = "multi_thread")]
 async fn after_a_failed_or_empty_validation() {
     use otaq_core::domain::{ReviewEntry, ValidationAction as A};
@@ -811,12 +839,12 @@ async fn after_a_failed_or_empty_validation() {
     let t = working(&w, "Moved").await;
     submit(&w, &t).await.unwrap();
     verdict(&w, &t, false, FINDINGS).await;
-    let after = act(&w, &t, A::MoveToReviewAnyway, "").await.unwrap();
+    let after = act(&w, &t, A::MoveOnAnyway, "").await.unwrap();
     let entry = after.flags.review_entry.unwrap();
     assert_eq!(
         (after.status, entry.entry, entry.to_string().as_str()),
         (
-            Status::ReadyForReview,
+            Status::WaitingForYou,
             ReviewEntry::FailedMoved,
             "Failed 1 time · moved by you"
         )
@@ -870,12 +898,9 @@ async fn after_a_failed_or_empty_validation() {
         )
         .await
         .unwrap();
-    assert_eq!(
-        w.status(&t.key.to_string()).await,
-        Status::ValidationNoResult
-    );
+    assert_eq!(w.status(&t.key.to_string()).await, Status::CheckNoResult);
     let after = act(&w, &t, A::Retry, "").await.unwrap();
-    assert_eq!(after.status, Status::Validating);
+    assert_eq!(after.status, Status::Checking);
     let all = rounds(&w, &t).await;
     assert_eq!(
         all.iter().map(|r| r.0).collect::<Vec<_>>(),
@@ -887,7 +912,7 @@ async fn after_a_failed_or_empty_validation() {
             .running_of(&t.id, SessionKind::Validator)
             .is_some()
     );
-    // …or Move to Review anyway: "Validation skipped by you".
+    // …or Move on anyway: "Validation skipped by you".
     w.validation
         .validator_signal(
             &t.id,
@@ -896,7 +921,7 @@ async fn after_a_failed_or_empty_validation() {
         )
         .await
         .unwrap();
-    let after = act(&w, &t, A::MoveToReviewAnyway, "").await.unwrap();
+    let after = act(&w, &t, A::MoveOnAnyway, "").await.unwrap();
     assert_eq!(
         after.flags.review_entry.map(|e| e.entry),
         Some(ReviewEntry::Skipped)
@@ -950,7 +975,7 @@ async fn after_a_restart_resume_validates_again() {
     let key = t.key.to_string();
     let after = w.board.ticket(&key).await.unwrap();
     assert_eq!(after.status, Status::Interrupted);
-    assert_eq!(after.interrupted_from, Some(Status::Validating));
+    assert_eq!(after.interrupted_from, Some(Status::Checking));
     assert_eq!(last_outcome(&w, &t).await.as_deref(), Some("interrupted"));
     let tickets = w.board.tickets("SHOP").await.unwrap();
     assert!(otaq_core::recovery::resume_all_eligible(&tickets).contains(&t.key));
@@ -960,7 +985,7 @@ async fn after_a_restart_resume_validates_again() {
         .resume(&key, &Actor::User("me".into()))
         .await
         .unwrap();
-    assert_eq!(resumed.status, Status::Validating);
+    assert_eq!(resumed.status, Status::Checking);
     assert!(
         w.sessions
             .running_of(&t.id, SessionKind::Validator)
@@ -973,10 +998,15 @@ async fn after_a_restart_resume_validates_again() {
     let all = rounds(&w, &t).await;
     assert_eq!(all.iter().map(|r| r.0).collect::<Vec<_>>(), [1, 1]);
 
-    // A failed round must reach the agent: its conversation is resumed with the findings.
+    // A failed round must reach the agent: its conversation is resumed with what came back.
     let session = validator_of(&w, &t);
     w.validation
-        .verdict(&key, false, FINDINGS, &session)
+        .verdict(
+            &key,
+            false,
+            said(&w.board, &key, FINDINGS).await.as_ref(),
+            &session,
+        )
         .await
         .unwrap();
     let start = std::time::Instant::now();
@@ -995,6 +1025,10 @@ async fn after_a_restart_resume_validates_again() {
         out.contains("0199d2a4-3b1c-7c3e-9f00-123456789abc"),
         "{out}"
     );
-    w.wait_for_output(&agent.id, "src/cart.ts:12").await;
+    // Resumed with what came back, never the findings (the checker's comment, CMT-05).
+    let out = w
+        .wait_for_output(&agent.id, "Validate failed round 1. Run `otaq prime`.")
+        .await;
+    assert!(!out.contains("src/cart.ts:12"), "{out}");
     w.stop().await;
 }

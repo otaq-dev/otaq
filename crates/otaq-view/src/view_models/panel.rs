@@ -6,7 +6,8 @@
 
 use otaq_core::board::order::sort_column;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Column, TicketKey};
+use otaq_core::domain::StatusSet;
+use otaq_core::domain::TicketKey;
 use otaq_core::project_agents::lead::LeadStatus;
 use otaq_core::session::SessionInfo;
 use serde::{Deserialize, Serialize};
@@ -95,7 +96,10 @@ pub enum Indicator {
 
 /// An epic's tabs (d0083, d0059 and accepted Q9): Ticket · Lead · History, with Diff first in review.
 pub fn epic_tabs(epic: &Ticket) -> Vec<Tab> {
-    let review = matches!(epic.column, Column::ReadyForReview | Column::Approved);
+    let review = matches!(
+        crate::view_models::flow_columns::place_set(epic),
+        StatusSet::HumanCheck | StatusSet::Delivery
+    );
     review
         .then_some(Tab::Diff)
         .into_iter()
@@ -113,11 +117,13 @@ pub fn tabs(ticket: &Ticket) -> Vec<Tab> {
 }
 
 /// What the tab bar shows for a ticket. `sessions` is the ticket's session history (newest first); `lead` is an
-/// epic's lead status (the Lead tab's dot: violet while it runs, turquoise while it asks you).
+/// epic's lead status (the Lead tab's dot: violet while it runs, turquoise while it asks you); `comments` its ticket
+/// comments (the Ticket tab's count, CMT-10).
 pub fn indicators(
     ticket: &Ticket,
     sessions: &[SessionInfo],
     lead: Option<&LeadStatus>,
+    comments: usize,
 ) -> Vec<(Tab, Indicator)> {
     // The ticket's newest agent session (Run and Shell sessions are listed too).
     let live = sessions
@@ -141,6 +147,7 @@ pub fn indicators(
                     .flags
                     .run_port
                     .map_or(Indicator::None, |port| Indicator::Text(format!(":{port}"))),
+                Tab::Ticket if comments > 0 => Indicator::Count(comments),
                 Tab::History if !sessions.is_empty() => Indicator::Count(sessions.len()),
                 _ => Indicator::None,
             };
@@ -152,7 +159,7 @@ pub fn indicators(
 /// The ticket before (`-1`) or after (`+1`) `current` in its column's order (both Dev sections, top to bottom).
 pub fn neighbour(tickets: &[Ticket], current: &TicketKey, step: i32) -> Option<TicketKey> {
     let ticket = tickets.iter().find(|t| &t.key == current)?;
-    let order = sort_column(ticket.column, tickets);
+    let order = sort_column(ticket.status.set(), tickets);
     let keys: Vec<&TicketKey> = order.cards.iter().collect();
     let at = keys.iter().position(|k| *k == current)? as i32;
     let next = at + step;
@@ -239,7 +246,7 @@ pub fn middle_truncate(text: &str, max_chars: usize) -> String {
 
 /// The branch the header shows: the stored one once started, else the temporary name it will get.
 pub fn branch_name(ticket: &Ticket) -> Option<String> {
-    let started = ticket.has_started() || ticket.column != Column::Backlog;
+    let started = ticket.has_started() || !ticket.place.is_backlog();
     ticket
         .work
         .as_ref()
@@ -270,7 +277,9 @@ mod tests {
             tool: Some(otaq_core::agent_tools::Tool::Claude),
             tool_session_id: Some("abc".into()),
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
             model_ran: None,
             size: None,
         }
@@ -292,7 +301,7 @@ mod tests {
     #[test]
     fn indicators_per_state() {
         let mut working = ticket("SHOP-18", "Checkout API", Status::Working);
-        let live = indicators(&working, &[session(SessionState::Running)], None);
+        let live = indicators(&working, &[session(SessionState::Running)], None, 0);
         assert_eq!(
             live[0],
             (Tab::Terminal, Indicator::Dot { attention: false })
@@ -304,27 +313,35 @@ mod tests {
             &working,
             &[session(SessionState::Running), session(SessionState::Ended)],
             None,
+            0,
         );
         assert_eq!(waiting[0].1, Indicator::Dot { attention: true });
         assert_eq!(waiting[5].1, Indicator::Count(2));
 
-        let review = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
-        let ended = indicators(&review, &[session(SessionState::Ended)], None);
+        let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
+        let ended = indicators(&review, &[session(SessionState::Ended)], None, 4);
         assert_eq!(
             ended[0].1,
             Indicator::None,
             "no live dot after the session ended"
         );
+        // The Ticket tab counts its comments (CMT-10, `s05-41`).
+        assert_eq!(ended[4], (Tab::Ticket, Indicator::Count(4)));
+        assert_eq!(
+            live[4],
+            (Tab::Ticket, Indicator::None),
+            "none without comments"
+        );
 
         let mut running = ticket("SHOP-19", "Price table", Status::Working);
         running.flags.run_port = Some(4020);
         assert_eq!(
-            indicators(&running, &[], None)[2],
+            indicators(&running, &[], None, 0)[2],
             (Tab::Run, Indicator::Text(":4020".into()))
         );
         let backlog = ticket("SHOP-30", "New", Status::Backlog);
         assert!(
-            indicators(&backlog, &[], None)
+            indicators(&backlog, &[], None, 0)
                 .iter()
                 .all(|(_, i)| *i == Indicator::None)
         );
@@ -336,21 +353,21 @@ mod tests {
         let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
         epic.kind = otaq_core::domain::Kind::Epic;
         assert_eq!(tabs(&epic), [Tab::Ticket, Tab::Lead, Tab::History]);
-        for status in [Status::EpicInProgress, Status::Queued] {
+        for status in [Status::Backlog, Status::Queued] {
             epic.status = status;
-            epic.column = status.column();
+            epic.place = otaq_core::domain::Place::Done;
             assert_eq!(tabs(&epic), [Tab::Ticket, Tab::Lead, Tab::History]);
         }
-        for status in [Status::ReadyForReview, Status::PrOpen] {
+        for status in [Status::WaitingForYou, Status::PrOpen] {
             epic.status = status;
-            epic.column = status.column();
+            epic.place = otaq_core::domain::Place::of(epic.status, None, None);
             assert_eq!(
                 tabs(&epic),
                 [Tab::Diff, Tab::Ticket, Tab::Lead, Tab::History]
             );
         }
         epic.status = Status::Merged;
-        epic.column = Column::Done;
+        epic.place = otaq_core::domain::Place::of(epic.status, None, None);
         assert_eq!(tabs(&epic), [Tab::Ticket, Tab::Lead, Tab::History]);
         let shown = tabs(&epic);
         assert_eq!(Tab::numbered(&shown, 2), Some(Tab::Lead));
@@ -366,10 +383,10 @@ mod tests {
     /// The Lead tab's dot: violet while the lead runs, turquoise while it asks you, none once it ended.
     #[test]
     fn the_lead_tab_has_its_dot() {
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::EpicInProgress);
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
         epic.kind = otaq_core::domain::Kind::Epic;
         let lead = |status: Option<LeadStatus>| {
-            indicators(&epic, &[], status.as_ref())
+            indicators(&epic, &[], status.as_ref(), 0)
                 .into_iter()
                 .find(|(t, _)| *t == Tab::Lead)
                 .map(|(_, i)| i)

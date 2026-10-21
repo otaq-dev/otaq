@@ -16,23 +16,31 @@
 //! cut short becomes Start interrupted at the next service start ([`Starter::interrupt_cut_short`]) rather
 //! than being picked up again by the scheduler.
 //!
-//! **Returning to Dev** (Send back, Send to agent to fix, a parked ticket dragged back) goes through the same
+//! **Returning to Dev** (Send back, a Delivery's conflict, a parked ticket dragged back) goes through the same
 //! sequence, but the ticket already has its worktree: base sync, env files and setup are skipped while the
 //! worktree is there, and step 7 continues the stored conversation (its tool's resume) instead of starting
-//! a new one, with the skill still to run (`resume_skill`, or an inbox answer in `resume_prompt`) as its first
+//! a new one, with the skill still to run (`resume_skill`, followed by what came back in `resume_prompt`: "SHOP-18 was
+//! sent back to Dev with a comment. Run `otaq prime`.", CMT-05; or an inbox answer in `resume_prompt`) as its first
 //! prompt; both stay stored until the agent's first hook or command shows the conversation got them. If the agent's session is still
 //! live, it is reused and the skill waits as an automatic delivery for an empty input line (d0048). A returning
 //! ticket whose build was freed at Review gets it back before its ports and agent ([`TicketEnv::fetch_build`],
 //! M19-c); a setup that fails there is Start interrupted at the setup step, like a new worktree's.
 //!
+//! **The next Agent stage** (STG-07, d0108): a ticket that finished one Agent stage waits before the next one as a
+//! queued ticket does (dependencies, the limit, the holds), and the same sequence starts it there: it keeps its
+//! worktree (no base sync, env files or setup), the previous stage's session is stopped, and a new conversation
+//! begins, checked before its launch like any new one. The ticket enters the stage it waited before
+//! ([`crate::flow::engine::Move::Begin`]).
+//!
 //! **A model the tool refused** on the Developer's first turn (AGT-05) sends the ticket back the same way, as Start
 //! interrupted at the `model` step (Start failed), counted as not started ([`Starter::model_refused`]).
 //!
-//! **The check before every launch** (SCH-04 `[M23]`, AGT-08; [`crate::named_agents::gate`]) runs first for a new
-//! conversation, before any step: a tool that isn't available or is at its limit, or a model no longer listed,
-//! holds the ticket in Ready for Dev (Held, its step naming the reason; nothing is created and nothing locks), or
-//! the automatic fallback moves its Developer row and it starts there. A resumed conversation isn't checked. A
-//! launch that fails because of its tool has the tool checked again, then the check decides once more (ADP-10).
+//! **The check before every launch** (SCH-04 `[M23]`, AGT-08; [`crate::agents::gate`]) runs first for a new
+//! conversation, before any step, on the agent of the Agent stage it starts (AGM-05): a tool that isn't available or
+//! is at its limit, or a model no longer listed, holds the ticket in Ready for Dev (Held, its step naming the reason;
+//! nothing is created and nothing locks), or it starts on its tool's fallback when the user asked for it (AGM-03). A
+//! resumed conversation isn't checked. A launch that fails because of its tool has the tool checked again, then the
+//! check decides once more (ADP-10).
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -42,14 +50,15 @@ use serde_json::{Value, json};
 
 use super::{StartError, begin_setup_log, copy_env_files, prepare_worktree, run_setup};
 use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole, WORK_TICKET_SKILL};
-use crate::board::settings::WorkflowStep;
+use crate::agents::gate::{Gated, Held, LaunchGate, Scope};
+use crate::agents::{Agent, RunsOn, SessionRole, resolve};
+use crate::board::stage_runs::{Moved, end_open};
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, BuildState, StartStep, Status};
+use crate::domain::{Actor, BuildState, Place, StartStep, Status};
+use crate::flow::engine::{Move, RunResult, first_stage};
 use crate::git::BaseSync;
-use crate::named_agents::gate::{Gated, Held, LaunchGate, Scope};
-use crate::named_agents::{Resolved, Role, RunsOn, resolve_ticket_role};
 use crate::naming;
 use crate::ports::PortPool;
 use crate::protocol::Event;
@@ -61,6 +70,7 @@ use crate::session::{
     END_MODEL_REFUSED, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec,
     StoredConversation, TerminalSize,
 };
+use crate::skills::Marker;
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 use crate::ticket_env::TicketEnv;
@@ -278,11 +288,10 @@ impl Starter {
     pub async fn interrupt_cut_short(board: &Board) -> Result<u64, BoardError> {
         let now = now_ms();
         let result = sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, start_problem_message = ?, updated_at = ?, ",
+            "UPDATE tickets SET state = ?, start_problem_message = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE state IN (?, ?) AND start_problem_step IS NOT NULL AND start_problem_message IS NULL"
         ))
-        .bind(Status::StartInterrupted.column().as_str())
         .bind(Status::StartInterrupted.as_str())
         .bind(CUT_SHORT)
         .bind(now)
@@ -348,15 +357,28 @@ impl Starter {
         let to = Status::StartInterrupted;
         let now = now_ms();
         let actor = Actor::Agent(ticket.key.clone());
+        // Not started: waiting again before the Agent stage it was starting (Ready for Dev before the first).
+        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+        let skips = board.ticket_skips(&ticket, &flow).await?;
+        let waits_before = ticket
+            .place
+            .stage()
+            .filter(|id| {
+                first_stage(&flow, &skips)
+                    .1
+                    .is_none_or(|first| first.id != *id)
+            })
+            .map(str::to_owned);
         let mut tx = board.store().begin_write().await?;
+        end_open(&mut tx, &ticket.id, RunResult::Cancelled, None).await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
+            "UPDATE tickets SET stage_id = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
                                 started_at = NULL, signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
                                 interrupted_from = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(to.column().as_str())
+        .bind(waits_before)
         .bind(to.as_str())
         .bind(StartStep::Model.as_str())
         .bind(message)
@@ -445,7 +467,7 @@ impl Starter {
                     Some((step, &message)),
                     actor,
                     EventKind::Held,
-                    json!({ "step": step, "message": message, "tool": held.agent.tool,
+                    json!({ "step": step, "message": message, "tool": held.on.tool,
                             "agent": held.agent.name }),
                 )
                 .await?;
@@ -503,31 +525,44 @@ impl Starter {
         let returning = Returning::of(board, ticket)
             .await
             .map_err(|e| (StartStep::Base, e.into()))?;
+        // Waiting before a later Agent stage, not coming back to it (Resume, Retry, a Send back's skill, Park): a new
+        // conversation in the worktree it has (STG-07).
+        let next_stage = matches!(ticket.place, Place::Waiting(Some(_))) && returning.is_none();
         // The check before every launch, for a new conversation only (AGT-05, d0088: once, at session start).
-        let new_conversation = !returning.as_ref().is_some_and(|r| r.conversation.is_some())
-            && inner
-                .sessions
-                .running_of(&ticket.id, SessionKind::Agent)
-                .is_none();
+        let new_conversation = next_stage
+            || (!returning.as_ref().is_some_and(|r| r.conversation.is_some())
+                && inner
+                    .sessions
+                    .running_of(&ticket.id, SessionKind::Agent)
+                    .is_none());
         let mut checked = None;
         if new_conversation {
-            let resolved = resolve_ticket_role(board, ticket, Role::Developer)
+            // The running agent of the Agent stage it starts (AGM-05).
+            let agent = resolve::session_agent(board, ticket, SessionRole::Developer)
                 .await
                 .map_err(|e| (StartStep::Base, e.into()))?;
             let runs_on = match inner.gate.get() {
                 Some(gate) => match gate
-                    .before_launch(Role::Developer, Scope::ticket(ticket), resolved.as_ref())
+                    .before_launch(SessionRole::Developer, Scope::ticket(ticket), &agent)
                     .await
                     .map_err(|e| (StartStep::Base, e.into()))?
                 {
                     Gated::Held(held) => return Ok(Done::AgentHeld(held)),
                     Gated::Launch(runs_on) => runs_on,
                 },
-                None => RunsOn::resolved(resolved.as_ref()),
+                None => RunsOn::agent(
+                    &agent,
+                    board
+                        .store()
+                        .default_model()
+                        .await
+                        .map_err(|e| (StartStep::Base, BoardError::from(e).into()))?
+                        .as_ref(),
+                ),
             };
-            checked = Some((runs_on, resolved));
+            checked = Some((runs_on, agent));
         }
-        let keep_worktree = returning.is_some()
+        let keep_worktree = (returning.is_some() || next_stage)
             && ticket
                 .work
                 .as_ref()
@@ -695,17 +730,42 @@ impl Starter {
             .await
             .map_err(|e| (StartStep::Ports, StartError::Other(e.to_string())))?;
 
-        // 7. The agent. A session still running from an earlier attempt is reused.
+        // 7. The agent. A session still running from an earlier attempt is reused; the previous stage's is stopped.
         self.mark_step(ticket, StartStep::Launch).await;
-        if let Some(running) = inner.sessions.running_of(&ticket.id, SessionKind::Agent) {
+        let running = inner.sessions.running_of(&ticket.id, SessionKind::Agent);
+        if let Some(previous) = running.as_ref().filter(|_| next_stage)
+            && let Err(e) = inner.sessions.stop(&previous.id).await
+        {
+            tracing::warn!(ticket = %key, error = %e, "can't stop the previous stage's session");
+        }
+        if let Some(running) = running.filter(|_| !next_stage) {
             if let (Some(skill), Some(deliveries)) = (
                 returning.as_ref().and_then(|r| r.skill.as_deref()),
                 inner.deliveries.get(),
             ) {
-                let text = inner
+                // The skill is copied into the worktree first, by one name (AGM-07).
+                let written = board
+                    .copy_skills(
+                        &worktree.path,
+                        inner.adapters.shipped_skills(),
+                        None,
+                        Some(skill),
+                        Marker::Worktree,
+                    )
+                    .await;
+                let skill_line = inner
                     .adapters
                     .of_session(running.tool)
-                    .skill_reference(skill);
+                    .skill_reference(written.runs.as_deref().unwrap_or(skill));
+                // What came back follows the skill (CMT-05), never a note's text.
+                let text = match returning
+                    .as_ref()
+                    .and_then(|r| r.prompt.as_deref())
+                    .filter(|p| !p.trim().is_empty())
+                {
+                    Some(told) => format!("{skill_line} {told}"),
+                    None => skill_line,
+                };
                 deliveries
                     .queue_delivery(&running.id, DeliveryKind::Skill, &text)
                     .await
@@ -713,45 +773,60 @@ impl Starter {
             }
             return Ok(Done::Started(Box::new(running)));
         }
+        // A new conversation's own first message: the instructions of a drag back into a stage that never ran.
+        let instructions = returning
+            .as_ref()
+            .filter(|r| r.conversation.is_none())
+            .and_then(|r| r.prompt.clone());
         let conversation = returning.and_then(|r| {
             let prompt = r.first_prompt();
             r.conversation.map(|c| (c, prompt))
         });
-        // A new conversation runs on the Developer its row resolved to at the check (AGT-05: the start, Retry start,
-        // Start from scratch); a resumed one on the tool, model and named agent it ran on (ADP-04, d0088).
-        let mut resolved_new: Option<Resolved> = None;
+        // A new conversation runs on the agent resolved at the check (AGM-05: the start, Retry start, Start from
+        // scratch); a resumed one on the tool, model and agent it ran on (ADP-04, d0088).
+        let mut agent_new: Option<Agent> = None;
         let (runs_on, resume, first_prompt) = match conversation {
             Some((c, prompt)) => (RunsOn::resumed(&c), Some(c.id), prompt),
             None => {
+                // The stage's own skill (Q261): `grill` for a Grill stage, `work-ticket` for Dev.
+                let flow = board
+                    .effective_flow(&project.key)
+                    .await
+                    .map_err(|e| (StartStep::Launch, e.into()))?;
+                let skips = board
+                    .ticket_skips(ticket, &flow)
+                    .await
+                    .map_err(|e| (StartStep::Launch, e.into()))?;
+                let skill = resolve::agent_stage_of(&flow, ticket, &skips)
+                    .and_then(|stage| stage.skill.clone())
+                    .unwrap_or_else(|| WORK_TICKET_SKILL.to_owned());
                 let runs_on = match checked {
-                    Some((runs_on, resolved)) => {
-                        resolved_new = resolved;
+                    Some((runs_on, agent)) => {
+                        agent_new = Some(agent);
                         runs_on
                     }
-                    None => RunsOn::resolved(
-                        resolve_ticket_role(board, ticket, Role::Developer)
+                    None => {
+                        let agent = resolve::session_agent(board, ticket, SessionRole::Developer)
                             .await
-                            .map_err(|e| (StartStep::Launch, e.into()))?
-                            .as_ref(),
-                    ),
+                            .map_err(|e| (StartStep::Launch, e.into()))?;
+                        let default = board
+                            .store()
+                            .default_model()
+                            .await
+                            .map_err(|e| (StartStep::Launch, BoardError::from(e).into()))?;
+                        RunsOn::agent(&agent, default.as_ref())
+                    }
                 };
                 (
                     runs_on,
                     None,
-                    Some(FirstPrompt::OtaqSkill {
-                        name: WORK_TICKET_SKILL.to_owned(),
-                        message: None,
+                    Some(FirstPrompt::Skill {
+                        name: skill,
+                        message: instructions,
                     }),
                 )
             }
         };
-        // What the row resolves to after a move to the fallback: the agent the launch runs on.
-        if let (Some(resolved), Some(agent)) = (resolved_new.as_mut(), runs_on.agent.as_ref())
-            && resolved.agent.id != agent.id
-            && let Ok(Some(moved)) = board.store().named_agent(&agent.id).await
-        {
-            resolved.agent = moved;
-        }
         match self
             .launch(
                 ticket,
@@ -759,6 +834,7 @@ impl Starter {
                 &worktree.path,
                 ports.agent,
                 runs_on,
+                agent_new.as_ref(),
                 resume,
                 first_prompt,
             )
@@ -767,9 +843,9 @@ impl Starter {
             Ok(session) => Ok(Done::Started(Box::new(session))),
             Err(e) => {
                 // A launch that failed because of its tool: checked again, then held if it can't start now.
-                if let (Some(gate), Some(resolved)) = (inner.gate.get(), resolved_new.as_ref())
+                if let (Some(gate), Some(agent)) = (inner.gate.get(), agent_new.as_ref())
                     && let Some(held) = gate
-                        .after_failed_launch(Role::Developer, Scope::ticket(ticket), resolved)
+                        .after_failed_launch(SessionRole::Developer, Scope::ticket(ticket), agent)
                         .await
                         .map_err(|e| (StartStep::Launch, e.into()))?
                 {
@@ -780,7 +856,8 @@ impl Starter {
         }
     }
 
-    /// Builds the agent's launch and spawns its session.
+    /// Builds the agent's launch and spawns its session. `agent` is a new conversation's agent; a resumed one runs
+    /// the agent its session stored.
     #[allow(clippy::too_many_arguments)]
     async fn launch(
         &self,
@@ -789,16 +866,28 @@ impl Starter {
         cwd: &Path,
         port: u16,
         runs_on: RunsOn,
+        agent: Option<&Agent>,
         resume: Option<String>,
         first_prompt: Option<FirstPrompt>,
     ) -> Result<SessionInfo, StartError> {
         let inner = &self.inner;
-        // The Commit skill in force, written into the worktree for `prime` to name (WSK-05, WSK-06); a copy that
-        // can't be written leaves the built-in.
-        inner
+        // Every skill of the running agent, and the one it runs first, written into the worktree by one name
+        // (AGM-07); a copy that can't be written is logged.
+        let stored = match (agent, &runs_on.agent) {
+            (None, Some(stored)) => inner.board.store().agent(&stored.id).await?,
+            _ => None,
+        };
+        let first_prompt = inner
             .board
-            .copy_skills_into(&project.key, cwd, &[WorkflowStep::Commit])
-            .await?;
+            .copy_for_session(
+                cwd,
+                inner.adapters.shipped_skills(),
+                agent.or(stored.as_ref()),
+                first_prompt,
+                Marker::Worktree,
+            )
+            .await
+            .0;
         let launched = inner
             .adapters
             .launch(
@@ -813,6 +902,7 @@ impl Starter {
                     first_prompt,
                     resume,
                     model: runs_on.model,
+                    effort: runs_on.effort.clone(),
                     title: Some(ticket.title.clone()),
                 },
             )
@@ -836,7 +926,9 @@ impl Starter {
                 tool: Some(launched.tool),
                 tool_session_id: launched.tool_session_id,
                 model: launched.model,
-                named_agent: runs_on.agent,
+                agent: runs_on.agent,
+                effort: runs_on.effort,
+                fallback: runs_on.fallback,
             })
             .await
             .map_err(|e| StartError::Other(e.to_string()))
@@ -914,14 +1006,23 @@ impl Starter {
     ) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
         let now = now_ms();
+        // Started: into the Agent stage it waited before (the first one it runs from Ready for Dev), past the stages
+        // it skips. Any other status keeps it waiting where it is.
+        let begun = match status {
+            Status::Working => Some(self.begin(ticket).await?),
+            _ => None,
+        };
         let mut tx = board.store().begin_write().await?;
+        if let Some(begun) = &begun {
+            begun.record(&mut tx, &ticket.id, None).await?;
+        }
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
-                                updated_by = ?, updated_at = ?, ",
+            "UPDATE tickets SET stage_id = COALESCE(?, stage_id), state = ?, start_problem_step = ?,
+                                start_problem_message = ?, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(status.column().as_str())
+        .bind(begun.as_ref().and_then(|b| b.place.stage_id()))
         .bind(status.as_str())
         .bind(problem.map(|(step, _)| step.as_str()))
         .bind(problem.map(|(_, message)| message))
@@ -937,6 +1038,31 @@ impl Starter {
         let after = board.ticket_by_id(&ticket.id).await?;
         self.publish(&after, ticket.status != after.status);
         Ok(after)
+    }
+
+    /// Where the scheduler's start takes a waiting ticket in its project's flow ([`Move::Begin`]). A stage the flow
+    /// no longer has (the flow changed while it waited) starts it in the first Agent stage instead.
+    async fn begin(&self, ticket: &Ticket) -> Result<Moved, BoardError> {
+        let board = &self.inner.board;
+        let waiting = if ticket.place.is_waiting() {
+            ticket.place.clone()
+        } else {
+            Place::Waiting(None)
+        };
+        let at = Ticket {
+            place: waiting,
+            ..ticket.clone()
+        };
+        match board.moved(&at, Status::Queued, Move::Begin).await {
+            Ok(begun) => Ok(begun),
+            Err(_) => {
+                let first = Ticket {
+                    place: Place::Waiting(None),
+                    ..ticket.clone()
+                };
+                board.moved(&first, Status::Queued, Move::Begin).await
+            }
+        }
     }
 
     /// Records a note in the ticket's history without changing its status.
@@ -1002,21 +1128,23 @@ struct Returning {
     /// The skill to run once the agent is live (`address-review`, `restack`); `None` for a parked ticket.
     skill: Option<String>,
     /// The user's answer from the inbox to an Interrupted question (ATT-08), sent as the resumed
-    /// conversation's first prompt.
+    /// conversation's first prompt; with a skill, what follows it (a Send back's "SHOP-18 was sent back to Dev with
+    /// a comment. Run `otaq prime`.", CMT-05).
     prompt: Option<String>,
     /// The conversation of its latest agent session, continued with its tool's resume.
     conversation: Option<StoredConversation>,
 }
 
 impl Returning {
-    /// What the resumed conversation gets first: the inbox answer, else the skill.
+    /// What the resumed conversation gets first: the skill followed by its text, else the inbox answer.
     fn first_prompt(&self) -> Option<FirstPrompt> {
-        self.prompt.clone().map(FirstPrompt::Text).or_else(|| {
-            self.skill.clone().map(|name| FirstPrompt::OtaqSkill {
-                name,
-                message: None,
-            })
-        })
+        match (&self.skill, &self.prompt) {
+            (Some(name), message) => Some(FirstPrompt::Skill {
+                name: name.clone(),
+                message: message.clone(),
+            }),
+            (None, prompt) => prompt.clone().map(FirstPrompt::Text),
+        }
     }
 }
 
@@ -1028,11 +1156,12 @@ impl Returning {
         if row.resume_skill.is_none() && !row.parked && row.return_mode.is_none() {
             return Ok(None);
         }
-        // Start from scratch: the same worktree, a new conversation.
+        // Start from scratch: the same worktree, a new conversation; a drag back into a stage that never ran gives
+        // it the user's instructions (FLW-18, Start from scratch keeps none).
         if row.return_mode.as_deref() == Some(crate::recovery::RETURN_SCRATCH) {
             return Ok(Some(Self {
                 skill: None,
-                prompt: None,
+                prompt: row.resume_prompt,
                 conversation: None,
             }));
         }

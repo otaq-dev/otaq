@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// Mostly drawn to a string; the agent rows' focus request is mounted (it opens a picker after the view arrives).
+// Mostly drawn to a string; a pick in the choices is mounted (its select opens a menu).
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -8,25 +8,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cardActions, requestCardAction, takeCardAction } from "../../app/cardActions";
 import { overlays } from "../../app/overlays";
 import { createRegistries, registered, registerScreens, RegistriesContext } from "../../app/registry";
-import {
-  agentRowFocusRequests,
-  NOTHING_SELECTED,
-  requestAgentRowFocus,
-  requestTicketEdit,
-  selection,
-  takeAgentRowFocus,
-  ticketEditRequests,
-} from "../../app/selection";
-import type { AgentBlock } from "../../generated/AgentBlock";
-import type { AgentRowView } from "../../generated/AgentRowView";
+import { NOTHING_SELECTED, requestTicketEdit, selection, ticketEditRequests } from "../../app/selection";
 import type { CardActionKind } from "../../generated/CardActionKind";
 import type { PanelAction } from "../../generated/PanelAction";
 import type { PanelAnswerRow } from "../../generated/PanelAnswerRow";
 import type { PanelTab } from "../../generated/PanelTab";
 import type { PanelView } from "../../generated/PanelView";
+import type { StageChoicesView } from "../../generated/StageChoicesView";
+import type { TicketPathView } from "../../generated/TicketPathView";
 import { panel } from ".";
 import {
   actionRoute,
+  agentSettings,
   canSend,
   cardRoute,
   draggedWidth,
@@ -53,7 +46,6 @@ afterEach(() => {
   selection.set(NOTHING_SELECTED);
   ticketEditRequests.set(null);
   cardActions.set(null);
-  agentRowFocusRequests.set(null);
 });
 
 const SIZES = {
@@ -133,8 +125,9 @@ const VIEW: PanelView = {
   ],
   live_agent: true,
   sizes: SIZES,
-  agents: null,
-  focus_agent_row: null,
+  choices: null,
+  path: null,
+  open_agent: null,
   refusal: null,
   holds: [],
 };
@@ -212,19 +205,24 @@ describe("where buttons and menu items go", () => {
     ];
     for (const action of service) expect(actionRoute(action)).toEqual({ kind: "service" });
     expect(actionRoute("answer_in_terminal")).toEqual({ kind: "terminal" });
-    expect(actionRoute("change_agent")).toEqual({ kind: "agent_row", role: "developer" });
-    expect(actionRoute("change_validator")).toEqual({ kind: "agent_row", role: "validator" });
-    expect(cardRoute("change_agent")).toEqual({ kind: "agent_row", role: "developer" });
-    expect(cardRoute("change_validator")).toEqual({ kind: "agent_row", role: "validator" });
+    expect(actionRoute("open_agent")).toEqual({ kind: "open_agent" });
+    expect(cardRoute("open_agent")).toEqual({ kind: "open_agent" });
+    expect(agentSettings("griller")).toEqual({ section: "agents", agent: "griller" });
+    expect(agentSettings(null)).toEqual({ section: "agents" });
     expect(actionRoute("approve")).toEqual({ kind: "overlay", id: "local_merge" });
     expect(actionRoute("send_back")).toEqual({ kind: "overlay", id: "send_back" });
+    // Your check in another flow (FLW-14) and an open PR (FLW-16).
+    expect(actionRoute("pass")).toEqual({ kind: "pass" });
+    expect(actionRoute("fail")).toEqual({ kind: "overlay", id: "fail" });
+    expect(actionRoute("send_back_pr")).toEqual({ kind: "overlay", id: "send_back_pr" });
+    expect(actionRoute("add_child_from_pr")).toEqual({ kind: "service" });
     expect(actionRoute("edit")).toEqual({ kind: "edit" });
     expect(actionRoute("mark_closed")).toEqual({ kind: "mark_closed" });
   });
 
   it("the validation buttons (d0063, d0064)", () => {
     const service: PanelAction[] = [
-      "move_to_review_anyway",
+      "move_on_anyway",
       "another_round",
       "retry_validation",
       "retry_merge",
@@ -288,6 +286,16 @@ describe("a board card's button", () => {
     expect(cardRoute("review")).toEqual({ kind: "none" });
     expect(cardRoute("run_chip")).toEqual({ kind: "run_tab" });
     expect(actionRoute("run")).toEqual({ kind: "run" });
+  });
+
+  it("the cards of checks and deliveries (FLW-13…FLW-16)", () => {
+    for (const kind of ["move_on_anyway", "skip_check", "add_child_from_pr"] as const)
+      expect(cardRoute(kind)).toEqual({ kind: "service" });
+    expect(cardRoute("pass")).toEqual({ kind: "pass" });
+    expect(cardRoute("fail")).toEqual({ kind: "overlay", id: "fail" });
+    expect(cardRoute("local_merge")).toEqual({ kind: "overlay", id: "local_merge" });
+    expect(cardRoute("open_pr")).toEqual({ kind: "overlay", id: "open_pr" });
+    expect(cardRoute("send_back_pr")).toEqual({ kind: "overlay", id: "send_back_pr" });
   });
 });
 
@@ -390,7 +398,7 @@ describe("the panel", () => {
     const html = render({
       ...VIEW,
       notice: { text: "Waits for SHOP-18 to merge.", parent_closed: false, choices: [] },
-      conflict: { line: "Conflicts with main · 1 file (a.ts)", fix: "Send to agent to fix" },
+      conflict: { line: "Conflicts with main · 1 file (a.ts)" },
       start_problem: {
         heading: "Start failed",
         message: "SHOP-19 stopped before its agent session started.",
@@ -401,12 +409,7 @@ describe("the panel", () => {
         retry_does: ["Runs the whole start again"],
       },
     });
-    for (const text of [
-      "Waits for SHOP-18",
-      "Conflicts with main",
-      "Send to agent to fix",
-      "RETRY START DOES",
-    ]) {
+    for (const text of ["Waits for SHOP-18", "Conflicts with main", "RETRY START DOES"]) {
       expect(html).toContain(text);
     }
     expect(html).not.toContain("View the setup log");
@@ -437,82 +440,117 @@ describe("the panel", () => {
   });
 });
 
-describe("the agent rows in the panel (T-0344)", () => {
-  const row = (
-    role: AgentRowView["role"],
-    label: string,
-    over: Partial<AgentRowView> = {},
-  ): AgentRowView => ({
-    role,
-    label,
-    value: "Project default (Claude Code)",
-    detail: "tool default",
-    set_by: null,
-    let_agents_pick: null,
-    lock: null,
-    picker: [
-      {
-        agent: null,
-        label: "Project default (Claude Code)",
-        detail: "tool default",
-        selected: true,
-        avatar: null,
-      },
-      { agent: "light", label: "Light", detail: "Haiku · always the newest", selected: false, avatar: null },
-    ],
-    change: "Change",
-    moved_on: null,
-    next_lead: null,
-    avatar: null,
-    swap: null,
-    moved: null,
-    ...over,
+describe("the choices and the path in the panel (T-0411, AGM-09)", () => {
+  const item = (id: string, checked: boolean) => ({
+    id,
+    label: id,
+    icon: null,
+    shortcut: null,
+    danger: false,
+    disabled: false,
+    hint: null,
+    separated: false,
+    checked,
+    header: false,
   });
-  const AGENTS: AgentBlock = {
-    heading: "Agents",
-    hint: "who writes the code and who checks it",
+  /** SHOP-29 mid-flow (*05 → Row · Stage choices and path*). */
+  const CHOICES: StageChoicesView = {
+    heading: "Choices",
+    set_by: "set by the Project agent",
     rows: [
-      row("developer", "Developer", {
-        value: "Strong",
-        detail: "claude-opus-5-5 · started",
-        set_by: { text: "set by you", agent_made: false, icon: "user" },
-        lock: "Locked: Send back continues the same conversation",
-        picker: null,
+      {
+        stage_id: "grill",
+        label: "Grill:",
+        value: "required",
+        items: [],
+        lock: "Locked: Grill has started",
         change: null,
-      }),
-      row("validator", "Validator"),
+      },
+      {
+        stage_id: "dev",
+        label: "Dev:",
+        value: "Rust developer",
+        items: [],
+        lock: "Locked: Dev has started",
+        change: {
+          text: "Dev: Quick developer → Rust developer · by Griller · touches session handling",
+          agent_made: true,
+          icon: "bot",
+        },
+      },
+      {
+        stage_id: "review",
+        label: "Review:",
+        value: "required",
+        items: [item("required", true), item("skip", false)],
+        lock: null,
+        change: null,
+      },
     ],
     note: null,
-    note_icon: null,
-    children: [],
-    children_heading: null,
-    children_note: null,
-    picked: null,
+  };
+  const PATH: TicketPathView = {
+    heading: "Path",
+    summary: "Grill · Griller · sonnet · Dev · Rust developer · sonnet · Review · Done",
+    rows: [
+      {
+        stage: "Grill",
+        state: "passed",
+        icon: "circle-check",
+        current: false,
+        detail: "Griller",
+        model: "claude-sonnet-5-5",
+        lock: "Locked: it ran on this model",
+      },
+      {
+        stage: "Dev",
+        state: "running",
+        icon: "activity",
+        current: true,
+        detail: "Rust developer · working",
+        model: "sonnet",
+        lock: null,
+      },
+      {
+        stage: "Review",
+        state: "your_check",
+        icon: "user-check",
+        current: false,
+        detail: "your check",
+        model: "—",
+        lock: null,
+      },
+    ],
   };
 
   it("sit under the action bar, before the tabs, with the header's token line", () => {
-    const out = render({ ...VIEW, agents: AGENTS, token_split: "Strong 61k · Light 23k (1 round)" });
-    expect(out).toContain("Strong 61k · Light 23k (1 round)");
+    const out = render({
+      ...VIEW,
+      choices: CHOICES,
+      path: PATH,
+      token_split: "Rust developer 61k · no validation yet",
+    });
+    expect(out).toContain("Rust developer 61k · no validation yet");
     const at = (text: string) => out.indexOf(text);
     expect(at("panel-bar")).toBeLessThan(at("panel-agents"));
     expect(at("panel-agents")).toBeLessThan(at("panel-tabs"));
-    expect(out).toContain("claude-opus-5-5 · started");
-    expect(out).toContain('aria-label="Locked: Send back continues the same conversation"');
+    expect(out).toContain("set by the Project agent");
+    expect(out).toContain('aria-label="Locked: Dev has started"');
+    expect(out).toContain('data-agent="true"');
+    expect(out).toContain("Dev: Quick developer → Rust developer · by Griller · touches session handling");
+    expect(out).toContain(PATH.summary);
+    expect(out).toContain('data-state="running" data-current="true"');
+    // On the default flow only the path shows; an epic shows neither.
+    const only = render({ ...VIEW, path: PATH });
+    expect(only).not.toContain('class="stage-choices"');
+    expect(only).toContain("ticket-path");
+    expect(render(VIEW)).not.toContain("panel-agents");
   });
 
-  it("Change validator: the request opens the Ticket tab, and the panel takes it once", () => {
-    requestAgentRowFocus("SHOP-19", "validator");
-    expect(selection.get()).toMatchObject({ ticket: "SHOP-19", tab: "ticket" });
-    expect(agentRowFocusRequests.get()).toMatchObject({ ticket: "SHOP-19", role: "validator", seq: 1 });
-    takeAgentRowFocus("SHOP-22");
-    expect(agentRowFocusRequests.get()).not.toBeNull();
-    takeAgentRowFocus("SHOP-19");
-    expect(agentRowFocusRequests.get()).toBeNull();
-  });
-
-  it("a view with focus_agent_row shows the Ticket tab and opens that row's picker", () => {
-    requestAgentRowFocus("SHOP-19", "validator");
-    selection.set({ ...selection.get(), tab: "terminal" });
+  it("a pick goes to the service at once (panel.set_choice)", () => {
+    const ask = vi.mocked(request);
+    ask.mockReset();
+    ask.mockResolvedValue(null);
     const host = document.body.appendChild(document.createElement("div"));
     const root = createRoot(host);
     act(() => {
@@ -521,7 +559,7 @@ describe("the agent rows in the panel (T-0344)", () => {
           RegistriesContext,
           { value: createRegistries() },
           createElement(PanelBody, {
-            view: { ...VIEW, agents: AGENTS, focus_agent_row: "validator" },
+            view: { ...VIEW, choices: CHOICES },
             tab: "terminal",
             expanded: false,
             width: 660,
@@ -529,12 +567,17 @@ describe("the agent rows in the panel (T-0344)", () => {
         ),
       );
     });
-    expect(selection.get().tab).toBe("ticket");
-    expect(agentRowFocusRequests.get()).toBeNull();
-    const list = host.querySelector('[data-role="validator"] [role="listbox"]');
-    expect(list).not.toBeNull();
-    expect(document.activeElement).toBe(list);
-    expect(host.querySelector('[data-role="developer"] [role="listbox"]')).toBeNull();
+    const press = (el: Element | null | undefined) => {
+      act(() => {
+        el?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+        el?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      });
+    };
+    press(host.querySelector(".stage-choice-select button"));
+    press(
+      [...document.querySelectorAll('[role="menuitemradio"]')].find((i) => i.textContent.includes("skip")),
+    );
+    expect(ask).toHaveBeenCalledWith("panel.set_choice", { key: VIEW.key, stage: "review", choice: "skip" });
     act(() => {
       root.unmount();
     });
@@ -543,7 +586,7 @@ describe("the agent rows in the panel (T-0344)", () => {
 });
 
 describe("the held roles' callouts (M23)", () => {
-  it("SHOP-49 on Old GPT: Model unavailable above the bar, amber, with Change agent", () => {
+  it("SHOP-49 on Old GPT: Model unavailable above the bar, amber, with Open agent…", () => {
     const html = render({
       ...VIEW,
       holds: [
@@ -552,10 +595,10 @@ describe("the held roles' callouts (M23)", () => {
           tone: "amber",
           avatar: null,
           heading: "Model unavailable",
-          text: "Codex no longer lists gpt-5.4, the model of Old GPT. Pick another agent for this ticket, or edit Old GPT in Settings → Agents.",
+          text: "Codex no longer lists gpt-5.4, the model of Old GPT. Give Old GPT another model in Settings → Agents.",
           model: "gpt-5.4",
           buttons: [
-            { label: "Change agent", action: { kind: "change_agent", role: "developer" }, primary: true },
+            { label: "Open agent…", action: { kind: "open_agent", agent: "old-gpt" }, primary: true },
           ],
         },
       ],
@@ -565,7 +608,7 @@ describe("the held roles' callouts (M23)", () => {
     expect(holds).toBeLessThan(html.indexOf("panel-bar"));
     expect(html).toContain('data-tone="amber"');
     expect(html).toContain("Codex no longer lists gpt-5.4");
-    expect(html).toContain("Change agent");
+    expect(html).toContain("Open agent…");
   });
 
   it("nothing held: no callouts", () => {

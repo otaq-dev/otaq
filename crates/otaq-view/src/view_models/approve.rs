@@ -340,20 +340,11 @@ pub fn conflict_line(conflict: &otaq_core::board::conflicts::Conflict) -> String
     line
 }
 
-/// Send to agent to fix is offered on a ticket in Review whose Local merge or test merge conflicted.
-pub fn offers_fix(
-    ticket: &Ticket,
-    conflict: Option<&otaq_core::board::conflicts::Conflict>,
-) -> bool {
-    ticket.status == Status::ReadyForReview
-        && conflict.is_some_and(|c| c.reason == otaq_core::board::conflicts::ConflictReason::Merge)
-}
-
-/// The conflict's way forward: Send to agent to fix, or by hand.
+/// What happens after the conflict (FLW-17, no click): the agent fixes it, or the user does by hand.
 pub fn conflict_help(key: &TicketKey, target: &str) -> String {
     format!(
-        "Send to agent to fix: {key} returns to Dev and its agent rebases onto {target}, resolves the conflict and \
-         submits again. Or resolve it yourself in the worktree and approve again."
+        "{key} went back to its agent, which rebases onto {target}, resolves the conflict and moves on again. Or \
+         resolve it yourself in the worktree."
     )
 }
 
@@ -363,7 +354,7 @@ mod tests {
     use crate::view_models::card_fixtures::ticket;
 
     fn sample() -> (Ticket, Vec<Ticket>) {
-        let shop18 = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let shop18 = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         let shop19 = ticket("SHOP-19", "Price table", Status::Working);
         let mut shop20 = ticket("SHOP-20", "Checkout page", Status::Queued);
         shop20.depends_on = vec![shop18.key.clone(), shop19.key.clone()];
@@ -372,7 +363,7 @@ mod tests {
 
     #[test]
     fn a_ticket_with_a_pr_offers_only_push_to_pr() {
-        let mut t = ticket("SHOP-26", "Add sitemap", Status::ReadyForReview);
+        let mut t = ticket("SHOP-26", "Add sitemap", Status::WaitingForYou);
         t.flags.pr_number = Some(481);
         t.work = Some(otaq_core::board::tickets::Work {
             branch: Some("feature/SHOP-26-add-sitemap".into()),
@@ -396,7 +387,7 @@ mod tests {
             provider: None,
             logged_in: None,
             cli_found: false,
-            open_pr_skill: otaq_core::naming::skill("open-pr"),
+            open_pr_skill: "open-pr".to_owned(),
         };
         let open = &options(&shop18, "main", &tickets, Some(&pr))[1];
         assert_eq!(open.title, "Open PR");
@@ -421,7 +412,7 @@ mod tests {
         assert!(options[0].enabled);
         assert_eq!(options[1].choice, ApproveChoice::OpenPr);
         assert!(options[1].enabled, "Open PR works from M10");
-        let mut child = ticket("SHOP-40.1", "Wishlist API", Status::ReadyForReview);
+        let mut child = ticket("SHOP-40.1", "Wishlist API", Status::WaitingForYou);
         child.epic = Some("SHOP-40".parse().unwrap());
         child.base = Base::Epic("SHOP-40".parse().unwrap());
         let epic_branch = otaq_core::naming::branch("SHOP-40");
@@ -433,7 +424,7 @@ mod tests {
             format!("Squash into {epic_branch} \u{b7} local, never pushed")
         );
         assert!(menu_note(&child).starts_with("Open PR isn"));
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::ReadyForReview);
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
         epic.kind = otaq_core::domain::Kind::Epic;
         assert_eq!(menu_title(&epic), "Approve epic SHOP-40 Wishlist");
         let both = super::options(&epic, "main", &[], None);
@@ -489,19 +480,6 @@ mod tests {
             conflict_line(&c),
             "Conflicts with main \u{b7} 2 files (src/lib/stripe/session.ts, src/lib/cart/validate.ts)"
         );
-        let review = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
-        assert!(offers_fix(&review, Some(&c)));
-        assert!(!offers_fix(&review, None));
-        let reopened = Conflict {
-            reason: ConflictReason::Reopen,
-            ..c.clone()
-        };
-        assert!(
-            !offers_fix(&review, Some(&reopened)),
-            "the agent resolves it first"
-        );
-        let working = ticket("SHOP-18", "Checkout API", Status::Working);
-        assert!(!offers_fix(&working, Some(&c)));
     }
 
     #[test]

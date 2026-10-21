@@ -32,6 +32,11 @@ export function toneInk(tone: CardTone): Ink {
       return { fg: "var(--accent)", bg: "var(--accent-soft)" };
     case "secondary":
       return { fg: "var(--text-secondary)", bg: "var(--bg-column)" };
+    // FLW-14: how it passed (a green edge) and a skip or a move by you (an amber edge), with calm text.
+    case "passed":
+      return { fg: "var(--st-approved)", bg: "var(--st-approved-bg)" };
+    case "paused":
+      return { fg: "var(--st-paused)", bg: "var(--st-paused-bg)" };
   }
 }
 
@@ -127,6 +132,8 @@ export const TONES = every<CardTone>()([
   "epic",
   "accent",
   "secondary",
+  "passed",
+  "paused",
 ] as const);
 export const OUTLINES = every<CardOutline>()(["normal", "attention", "error", "epic"] as const);
 export const CHILD_STATES = every<EpicChildState>()(["merged", "closed", "working", "not_started"] as const);

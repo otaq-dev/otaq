@@ -10,7 +10,7 @@
 //!
 //! Everything is per tool (USG-10): a hit, the reset, the agents it stopped (kept out of the inbox, ATT-09) and
 //! **Resume** ([`PlanLimit::resume_tool`]): only that tool's agents continue and only its holds lift (the check
-//! before every launch reads the tool's active limit, [`crate::named_agents::gate`]). Resume is per tool only.
+//! before every launch reads the tool's active limit, [`crate::agents::gate`]). Resume is per tool only.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -199,7 +199,7 @@ impl PlanLimit {
         )
         .bind(Status::WaitingForLimitReset.as_str())
         .bind(with_validations)
-        .bind(Status::Validating.as_str())
+        .bind(Status::Checking.as_str())
         .fetch_all(self.inner.store.pool())
         .await?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
@@ -496,11 +496,10 @@ impl PlanLimit {
             let waiting = Status::WaitingForLimitReset;
             let mut tx = inner.store.begin_write().await?;
             let updated = sqlx::query(concat!(
-                "UPDATE tickets SET board_column = ?, state = ?, signal_since = ?, updated_at = ?, ",
+                "UPDATE tickets SET state = ?, signal_since = ?, updated_at = ?, ",
                 set_state_since!(),
                 " WHERE id = ? AND state = ?"
             ))
-            .bind(waiting.column().as_str())
             .bind(waiting.as_str())
             .bind(now)
             .bind(now)

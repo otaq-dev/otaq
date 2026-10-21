@@ -5,7 +5,7 @@ use crate::common::{Fixture, me, shop_input};
 use otaq_core::board::Refusal;
 use otaq_core::board::moves::{DropTarget, MoveAction, MoveCheck, check_move};
 use otaq_core::board::tickets::{Base, NewTicketInput, Ticket};
-use otaq_core::domain::{Actor, Column, Flags, Kind, Status, TicketKey};
+use otaq_core::domain::{Actor, Flags, Kind, Status, StatusSet, TicketKey};
 
 fn ticket(kind: Kind, status: Status) -> Ticket {
     Ticket {
@@ -17,7 +17,7 @@ fn ticket(kind: Kind, status: Status) -> Ticket {
         priority: Default::default(),
         priority_inherited: false,
         epic: None,
-        column: status.column(),
+        place: otaq_core::domain::Place::of(status, None, None),
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
@@ -94,7 +94,7 @@ fn allowed_drags() {
             },
         ),
         (
-            Status::ReadyForReview,
+            Status::WaitingForYou,
             T::Approved,
             MoveCheck::Choose {
                 action: MoveAction::Approve,
@@ -139,12 +139,17 @@ fn an_empty_description_never_warns() {
 fn refused_drags_carry_a_reason() {
     use DropTarget as T;
     let t = |s| ticket(Kind::Ticket, s);
-    for status in [Status::Backlog, Status::Working, Status::ClosedNotMerged] {
+    for status in [Status::Backlog, Status::ClosedNotMerged] {
         assert_eq!(
             reason(&check_move(&t(status), T::ReadyForReview)),
-            "Only the agent or Submit for review moves a ticket to Ready for Review"
+            "Only the agent or Move to next stage moves a ticket to Ready for Review"
         );
     }
+    // A forward drag is the user's Move to next stage (FLW-18): not while the agent is mid-turn.
+    assert_eq!(
+        reason(&check_move(&t(Status::Working), T::ReadyForReview)),
+        "SHOP-18 can't move to the next stage now: its agent is in the middle of a turn"
+    );
     for target in [T::Backlog, T::ReadyForDev, T::ReadyForReview, T::Approved] {
         assert_eq!(
             reason(&check_move(&t(Status::Merged), target)),
@@ -161,16 +166,19 @@ fn refused_drags_carry_a_reason() {
             }
         );
     }
-    let in_progress = ticket(Kind::Epic, Status::EpicInProgress);
+    let in_progress = ticket(Kind::Epic, Status::Backlog);
     assert_eq!(
         check_move(&in_progress, T::ReadyForDev).action(),
         Some(MoveAction::QueueEpic)
     );
-    let delivery = ticket(Kind::Epic, Status::ReadyForReview);
-    assert_eq!(
-        reason(&check_move(&delivery, T::ReadyForDev)),
-        "Use Send back to return it to Dev with your comments"
-    );
+    // An epic waiting for its review can't go back (FLW-18, 0059).
+    let delivery = ticket(Kind::Epic, Status::WaitingForYou);
+    for target in [T::ReadyForDev, T::Dev] {
+        assert_eq!(
+            reason(&check_move(&delivery, target)),
+            "An epic can\u{2019}t be dragged back"
+        );
+    }
     assert_eq!(
         reason(&check_move(&t(Status::Queued), T::Dev)),
         "It starts by itself when it can, in priority order",
@@ -185,10 +193,9 @@ fn refused_drags_carry_a_reason() {
         (Status::Backlog, T::Done),
         (Status::Working, T::Approved),
         (Status::Working, T::Done),
-        (Status::ReadyForReview, T::ReadyForDev),
-        (Status::ReadyForReview, T::Dev),
-        (Status::ReadyForReview, T::Backlog),
-        (Status::ReadyForReview, T::Done),
+        (Status::WaitingForYou, T::ReadyForDev),
+        (Status::WaitingForYou, T::Backlog),
+        (Status::WaitingForYou, T::Done),
         (Status::PrOpen, T::ReadyForDev),
         (Status::PrOpen, T::Backlog),
         (Status::PrOpen, T::Done),
@@ -200,6 +207,18 @@ fn refused_drags_carry_a_reason() {
     }
 }
 
+/// The board group a drop target is on (the default flow's columns; Approved is the Delivery's section).
+fn group(target: DropTarget) -> StatusSet {
+    match target {
+        DropTarget::Backlog => StatusSet::Backlog,
+        DropTarget::ReadyForDev => StatusSet::Waiting,
+        DropTarget::Dev => StatusSet::AgentStage,
+        DropTarget::ReadyForReview => StatusSet::HumanCheck,
+        DropTarget::Approved => StatusSet::Delivery,
+        DropTarget::Done => StatusSet::Done,
+    }
+}
+
 #[test]
 fn same_column_is_unchanged_and_every_pair_is_decided() {
     for status in Status::ALL {
@@ -207,11 +226,17 @@ fn same_column_is_unchanged_and_every_pair_is_decided() {
             for target in DropTarget::ALL {
                 let check = check_move(&ticket(*kind, *status), *target);
                 let epic_in_dev = *kind == Kind::Epic
-                    && matches!(status.column(), Column::ReadyForDev | Column::Dev);
-                if status.column() == target.column() && !epic_in_dev {
+                    && matches!(
+                        status.set().board_group(),
+                        StatusSet::Waiting | StatusSet::AgentStage
+                    );
+                // Validate has its own column (FLW-01): a card in it dropped on Dev goes back (FLW-18).
+                let check_on_dev =
+                    status.set() == StatusSet::AgentCheck && *target == DropTarget::Dev;
+                if status.set().board_group() == group(*target) && !epic_in_dev && !check_on_dev {
                     assert_eq!(check, MoveCheck::Unchanged, "{kind} {status} → {target}");
                 }
-                if *status == Status::Merged && target.column() != Column::Done {
+                if *status == Status::Merged && group(*target) != StatusSet::Done {
                     assert!(check.is_refused());
                 }
             }
@@ -234,8 +259,8 @@ async fn start_queues_the_ticket_and_locks_its_base() {
         .await
         .unwrap();
     assert_eq!(
-        (moved.column, moved.status),
-        (Column::ReadyForDev, Status::Queued)
+        (moved.board_group(), moved.status),
+        (StatusSet::Waiting, Status::Queued)
     );
     assert!(moved.base_locked && moved.has_started());
 
@@ -274,7 +299,7 @@ async fn later_moves_are_allowed_but_not_available_yet() {
     let t = f.create("Checkout").await;
     let key = t.key.to_string();
     // A working ticket: Park needs a confirmation.
-    sqlx::query("UPDATE tickets SET state = 'working', board_column = 'dev' WHERE id = ?")
+    sqlx::query("UPDATE tickets SET state = 'working', stage_id = 'dev' WHERE id = ?")
         .bind(&t.id)
         .execute(f.board.store().pool())
         .await
@@ -314,8 +339,8 @@ async fn reopen_of_a_never_started_closed_ticket_is_bookkeeping() {
         .await
         .unwrap();
     assert_eq!(
-        (reopened.column, reopened.status),
-        (Column::Backlog, Status::Backlog)
+        (reopened.board_group(), reopened.status),
+        (StatusSet::Backlog, Status::Backlog)
     );
 
     let t = f.create("Started then closed").await;
@@ -323,13 +348,11 @@ async fn reopen_of_a_never_started_closed_ticket_is_bookkeeping() {
         .move_ticket(&t.key.to_string(), DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    sqlx::query(
-        "UPDATE tickets SET board_column = 'done', state = 'closed_not_merged' WHERE id = ?",
-    )
-    .bind(&t.id)
-    .execute(f.board.store().pool())
-    .await
-    .unwrap();
+    sqlx::query("UPDATE tickets SET stage_id = NULL, state = 'closed_not_merged' WHERE id = ?")
+        .bind(&t.id)
+        .execute(f.board.store().pool())
+        .await
+        .unwrap();
     // Started work reopens too (T-0101): its next start rebases the old branch first.
     let reopened = f
         .board
@@ -355,8 +378,8 @@ async fn unqueue_takes_it_out_of_the_queue() {
             .await
             .unwrap();
         assert_eq!(
-            (queued.column, queued.status),
-            (Column::ReadyForDev, Status::Queued),
+            (queued.board_group(), queued.status),
+            (StatusSet::Waiting, Status::Queued),
             "{target}"
         );
         let back = f
@@ -365,8 +388,8 @@ async fn unqueue_takes_it_out_of_the_queue() {
             .await
             .unwrap();
         assert_eq!(
-            (back.column, back.status),
-            (Column::Backlog, Status::Backlog)
+            (back.board_group(), back.status),
+            (StatusSet::Backlog, Status::Backlog)
         );
         assert_eq!((back.queued_at, back.ready_since), (None, None));
         assert!(
@@ -400,7 +423,7 @@ async fn backlog_tickets_with_merged_parents_are_ready_to_start() {
     assert!(flags(&tickets, &parent.key), "no parents: unblocked");
     assert!(!flags(&tickets, &child.key), "waits for SHOP's parent");
     assert!(!flags(&tickets, &epic.key), "never an epic");
-    sqlx::query("UPDATE tickets SET state = 'merged', board_column = 'done' WHERE id = ?")
+    sqlx::query("UPDATE tickets SET state = 'merged', stage_id = NULL WHERE id = ?")
         .bind(&parent.id)
         .execute(f.board.store().pool())
         .await

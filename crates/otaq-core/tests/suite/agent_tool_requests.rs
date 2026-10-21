@@ -72,32 +72,28 @@ async fn agent_tools_list_and_hidden_and_the_rest_not_built_yet() {
     );
 
     let key = ticket.key.to_string();
-    // Use fallback with nothing held is refused (T-0357, `launch_gate.rs`).
-    let Err(ClientError::Service(e)) = ask(
-        &client,
-        "ticket.use_fallback",
-        json!({"key": key, "role": "developer"}),
-    )
-    .await
+    // Use fallback with nothing held is refused (T-0357, AGM-03, `launch_gate.rs`).
+    let Err(ClientError::Service(e)) =
+        ask(&client, "ticket.use_fallback", json!({"key": key})).await
     else {
         panic!("ticket.use_fallback answered")
     };
-    assert_eq!(e.message, format!("{key}'s Developer isn't waiting"));
-    // Resume and Move waiting to… with nothing waiting (T-0358, `limits_per_tool.rs`).
+    assert_eq!(e.message, format!("{key} isn't waiting"));
+    // Resume and Use fallback now with nothing waiting (T-0358, `limits_per_tool.rs`): no fallback set.
     let resumed = ask(&client, "limits.resume_tool", json!({"tool": "claude"}))
         .await
         .unwrap();
     assert_eq!(resumed, Reply::Resumed(Vec::new()));
     let Err(ClientError::Service(e)) = ask(
         &client,
-        "limits.move_waiting",
-        json!({"tool": "claude", "agent": "nope"}),
+        "limits.use_fallback_now",
+        json!({"tool": "claude"}),
     )
     .await
     else {
-        panic!("limits.move_waiting answered")
+        panic!("limits.use_fallback_now answered")
     };
-    assert_eq!(e.kind, ErrorKind::NotFound);
+    assert_eq!(e.kind, ErrorKind::Refused);
 
     // An agent may not call any of them.
     let agent = w.agent_shell(&ticket).await;
@@ -113,16 +109,9 @@ async fn agent_tools_list_and_hidden_and_the_rest_not_built_yet() {
     ];
     all.extend([
         ("limits.resume_tool", json!({"tool": "claude"})),
-        (
-            "limits.move_waiting",
-            json!({"tool": "claude", "agent": "nope"}),
-        ),
+        ("limits.use_fallback_now", json!({"tool": "claude"})),
     ]);
-    all.push((
-        "ticket.use_fallback",
-        json!({"key": key, "role": "developer"}),
-    ));
-    all.push(("settings.auto_fallback", json!({"on": true})));
+    all.push(("ticket.use_fallback", json!({"key": key})));
     for (method, params) in all {
         let mut request = json!({"method": method});
         if !params.is_null() {

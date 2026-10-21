@@ -42,7 +42,7 @@ use crate::board::diff::DiffSummary;
 use crate::board::epic_flight::{EpicQueueOutcome, TakeBackPlan, UndoQueueOutcome};
 use crate::board::epics::ClosePlan;
 use crate::board::merge::MergeProposal;
-use crate::board::moves::DropTarget;
+use crate::board::moves::{DropOn, DropTarget};
 use crate::board::projects::{AddProject, Branches, FolderProbe, ProjectUpdate};
 use crate::board::readiness::Readiness;
 use crate::board::review::ApproveCheck;
@@ -52,7 +52,7 @@ use crate::board::tickets::{HistoryEvent, NewTicketInput, Ticket, TicketUpdate};
 use crate::domain::{Status, TicketKey};
 use crate::git::diff::FileDiff;
 use crate::prime::PrimeContext;
-use crate::review::{LocalMergeOutcome, ReturnOutcome};
+use crate::review::{LocalMergeOutcome, PassOutcome, ReturnOutcome};
 use crate::scheduler::SchedulerStatus;
 use crate::session::deliveries::Delivery;
 use crate::session::{SessionInfo, TerminalSize};
@@ -168,6 +168,25 @@ pub enum Request {
     /// What the first-run screens need; answered with [`Reply::OnboardingState`].
     #[serde(rename = "onboarding.state")]
     OnboardingState,
+    /// Who Flow onboarding can ask for a project (ASK-05, d0108): its name and the connected tools. Answered with
+    /// [`Reply::OnboardingSources`].
+    #[serde(rename = "onboarding.sources")]
+    OnboardingSources(ProjectParams),
+    /// **Ask <Tool>** (ASK-02, d0108): `{"project": "SHOP", "tool": "opencode"}` starts the tool's flow agent for a
+    /// project in Flow setup (the Project agent role's agent on the tool's default model, the `flow` skill), or
+    /// returns it while it runs. Refused for a tool that isn't connected, at its plan limit, and for a project not
+    /// in Flow setup. Answered with [`Reply::ProjectAgent`]; attach to its `session`.
+    #[serde(rename = "onboarding.ask")]
+    OnboardingAsk(OnboardingAskParams),
+    /// `{"project": "SHOP"}`: the project's Flow setup now (ASK-03, ASK-04, ASK-06): each tool's row and the open
+    /// proposals. Answered with [`Reply::FlowSetup`]; refetch on [`Event::FlowSetupChanged`].
+    #[serde(rename = "onboarding.flow_setup")]
+    OnboardingFlowSetup(ProjectParams),
+    /// `{"project": "SHOP"}`: **Use the default** or **Skip, use the default** (ASK-03, ASK-04): the project keeps
+    /// the default flow and leaves Flow setup; every open proposal closes and every flow agent is told "The user
+    /// chose another flow." and ends. Answered with [`Reply::Ok`].
+    #[serde(rename = "onboarding.use_default")]
+    OnboardingUseDefault(ProjectParams),
     /// Remembers that the user closed the permission-mode warning; answered with [`Reply::Ok`].
     #[serde(rename = "onboarding.dismiss_permission_warning")]
     DismissPermissionWarning,
@@ -226,11 +245,16 @@ pub enum Request {
     /// agent rows (`agents`, `by_user`; AGT-06). Answered with [`Reply::Tickets`] (the new tickets, in order).
     #[serde(rename = "ticket.create_batch")]
     TicketCreateBatch(BatchParams),
-    /// Changes a ticket's fields and its agent rows (`agents`, `by_user`; AGT-06).
+    /// Changes a ticket's fields and its stage choices (`choices`, `by_user`; AGM-11).
     #[serde(rename = "ticket.update")]
     TicketUpdate(TicketUpdateParams),
     #[serde(rename = "ticket.move")]
     TicketMove(MoveParams),
+    /// A drop on any stage (FLW-18): the drag rules on the project's flow, carried out with the sessions they stop
+    /// and start. `confirmed` and `note` are the dialog's (Send to Dev with the instructions, Run Security with the
+    /// note). Answered with [`Reply::Returned`].
+    #[serde(rename = "ticket.drag")]
+    TicketDrag(DragParams),
     #[serde(rename = "ticket.pin")]
     TicketPin(KeyParams),
     #[serde(rename = "ticket.unpin")]
@@ -276,15 +300,22 @@ pub enum Request {
     /// [`Reply::Decision`].
     #[serde(rename = "decision.mark")]
     DecisionMark(DecisionMarkParams),
-    /// `otaq review submit`: Ready for Review with the summary; refused with uncommitted files (REV-07).
-    /// Answered with [`Reply::Ticket`].
-    #[serde(rename = "ticket.review_submit")]
-    TicketReviewSubmit(ReviewSubmitParams),
-    /// `otaq validate pass|fail --stdin`: the validator's verdict and report (VAL-03; validators only).
+    /// `otaq stage next --stdin` (and its other name `otaq review submit`): the agent ends its Agent stage with a
+    /// summary and the ticket moves to the next stage; refused with uncommitted files (REV-07) and an unread lead
+    /// note (CLI-08) (AGM-10). Answered with [`Reply::StageEnded`].
+    #[serde(rename = "ticket.stage_next")]
+    TicketStageNext(StageEndParams),
+    /// `otaq stage done --stdin` (AGM-10): the agent ends the ticket from its Agent stage as Closed · nothing to
+    /// merge, the summary its reason; refused when the ticket's branch has commits. Answered with
+    /// [`Reply::StageEnded`].
+    #[serde(rename = "ticket.stage_done")]
+    TicketStageDone(StageEndParams),
+    /// `otaq check pass|fail --stdin`: an agent check's verdict and report (VAL-03, AGM-10; its check session
+    /// only).
     #[serde(rename = "validation.verdict")]
     ValidationVerdict(VerdictParams),
-    /// The user's validation actions (VAL-06, VAL-07, VAL-09): Validate and submit, Stop validation, Skip to
-    /// Review, Move to Review anyway, Give it another round, Answer the agent, Retry validation.
+    /// The user's actions on a check (VAL-06, VAL-07, VAL-09, AGM-10): Stop this check, Skip this check, Move on
+    /// anyway, Give it another round, Answer the agent, Retry validation.
     #[serde(rename = "ticket.validation_action")]
     TicketValidationAction(ValidationActionParams),
     /// `otaq prime --validate`: what the validator works from (VAL-10).
@@ -369,7 +400,8 @@ pub enum Request {
     /// **Reopen** (CLS-03): Done · Closed → Backlog; Merged tickets are refused. Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.reopen")]
     TicketReopen(KeyParams),
-    /// **Submit for review** by the user (CLS-05): when the agent isn't mid-turn; refused with uncommitted files.
+    /// **Move to next stage** by the user (CLS-05, d0108 rule 10): the agent's `stage next` when the agent isn't
+    /// mid-turn (an agent check that comes next runs); refused with uncommitted files.
     /// Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.submit_by_user")]
     TicketSubmitByUser(SubmitByUserParams),
@@ -452,11 +484,35 @@ pub enum Request {
     /// [`Reply::ReviewComments`].
     #[serde(rename = "review.comments")]
     ReviewComments(CommentsParams),
-    /// Send back (REV-04): the pending comments and the note go to the agent, and the ticket returns to Dev.
-    /// Answered with [`Reply::Returned`]: done, or `needs_confirmation` when the session's input line has
-    /// unsent text (resend with `clear_first` for "Clear it and send").
-    #[serde(rename = "ticket.send_back")]
-    TicketSendBack(SendBackParams),
+
+    // Ticket comments and reports (CMT-01…CMT-06, d0109). Not the line comments above.
+    /// Posts a comment with an optional report (a file to copy or pasted text); answered with
+    /// [`Reply::TicketComment`]. A checker posts only with its verdict.
+    #[serde(rename = "ticket.comment_post")]
+    TicketCommentPost(TicketCommentPostParams),
+    /// Changes comment `n`'s text; answered with [`Reply::TicketComment`].
+    #[serde(rename = "ticket.comment_edit")]
+    TicketCommentEdit(TicketCommentEditParams),
+    /// Deletes comment `n` (History keeps it, its report stays); answered with [`Reply::TicketComment`], as it was.
+    #[serde(rename = "ticket.comment_delete")]
+    TicketCommentDelete(TicketCommentParams),
+    /// The ticket's comments, oldest first; answered with [`Reply::TicketComments`].
+    #[serde(rename = "ticket.comments")]
+    TicketComments(KeyParams),
+    /// Where comment `n`'s report is, with its size and lines; answered with [`Reply::TicketReport`]. The CLI prints
+    /// the file itself (streamed), so a 20 MB report never travels in one frame.
+    #[serde(rename = "ticket.report")]
+    TicketReport(TicketCommentParams),
+    /// Fail on a human check (FLW-14; Send back on the default flow, REV-04): the pending comments and the note go
+    /// to the nearest earlier Agent stage's session, and the ticket returns there. Answered with
+    /// [`Reply::Returned`]: done, or `needs_confirmation` when the session's input line has unsent text (resend
+    /// with `clear_first` for "Clear it and send").
+    #[serde(rename = "ticket.fail")]
+    TicketFail(FailParams),
+    /// Pass on a human check (FLW-14): answered with [`Reply::Passed`]: the delivery choices when a click Delivery
+    /// comes next (nothing changed), else the ticket moved on.
+    #[serde(rename = "ticket.pass")]
+    TicketPass(KeyParams),
     /// The latest Send back's comments and note (`otaq review feedback`, REV-05). Answered with
     /// [`Reply::ReviewFeedback`].
     #[serde(rename = "review.feedback")]
@@ -476,10 +532,15 @@ pub enum Request {
     /// The ticket's "conflicts with `main`" with its files, if any. Answered with [`Reply::Conflict`].
     #[serde(rename = "ticket.conflict")]
     TicketConflict(KeyParams),
-    /// **Send to agent to fix** (GIT-03): a ticket whose Local merge conflicted returns to Dev with the restack
-    /// skill. Answered with [`Reply::Returned`], like Send back (`clear_first` for "Clear it and send").
-    #[serde(rename = "ticket.send_to_fix")]
-    TicketSendToFix(SendToFixParams),
+    /// **Send back with PR comments** (FLW-16): a ticket whose PR is open returns to its nearest earlier Agent
+    /// stage, whose session reads the unresolved PR comments (`otaq review feedback`) with the optional note.
+    /// Answered with [`Reply::Returned`], like Send back (`clear_first` for "Clear it and send").
+    #[serde(rename = "ticket.send_back_pr")]
+    TicketSendBackPr(FailParams),
+    /// **Add a child from PR comments** (FLW-16): an epic whose PR is open gets a Backlog child holding the PR's
+    /// unresolved comments. Answered with [`Reply::Ticket`] (the child).
+    #[serde(rename = "ticket.add_child_from_pr")]
+    TicketAddChildFromPr(KeyParams),
 
     // Epics.
     #[serde(rename = "epic.move_to")]
@@ -565,6 +626,60 @@ pub enum Request {
     ProjectSettingsGet(ProjectParams),
     #[serde(rename = "project_settings.set")]
     ProjectSettingsSet(ProjectSettingsParams),
+
+    // A project's flow (FLW-01).
+    /// `{"project": "SHOP"}`: the flow the project runs, its current stored version. Answered with
+    /// [`Reply::FlowVersion`].
+    #[serde(rename = "flow.current")]
+    FlowCurrent(ProjectParams),
+    /// `{"project": "SHOP"}`: every flow the project applied, oldest first; the last is the current one. Answered
+    /// with [`Reply::FlowVersions`].
+    #[serde(rename = "flow.versions")]
+    FlowVersions(ProjectParams),
+    /// `{"project": "SHOP"}`: the project's open proposal, checked and compared with the flow as it will be now
+    /// (FLW-03, FLW-04); during Flow setup the user's own if there is one, else the newest (`onboarding.flow_setup`
+    /// lists them all). Answered with [`Reply::FlowProposal`], `null` when there is none.
+    #[serde(rename = "flow.proposal")]
+    FlowProposal(ProjectParams),
+    /// Apply in the preview (FLW-05, FLW-06): the open proposal `proposal`, with the user's `choices` (import clashes,
+    /// skill folders, local models). Answered with [`Reply::FlowApplied`].
+    #[serde(rename = "flow.apply")]
+    FlowApply(crate::flow::apply::ApplyParams),
+    /// `{"project": "SHOP"}`: Cancel in the preview drops the open proposal. Answered with [`Reply::Ok`].
+    #[serde(rename = "flow.cancel_proposal")]
+    FlowCancelProposal(ProjectParams),
+    /// `{"project": "SHOP"}`: the waiting change and the tickets it waits for (FLW-06). Answered with
+    /// [`Reply::FlowWaiting`], `null` when nothing waits.
+    #[serde(rename = "flow.waiting")]
+    FlowWaiting(ProjectParams),
+    /// `{"project": "SHOP"}`: Cancel change drops the waiting change (merged ones too); starts resume. Answered with
+    /// [`Reply::Ok`].
+    #[serde(rename = "flow.cancel_waiting")]
+    FlowCancelWaiting(ProjectParams),
+    /// `{"project": "SHOP"}`: what Apply now would do on the waiting change (APN-02). Answered with
+    /// [`Reply::ApplyNowPlan`], `null` when nothing waits. `flow.apply_now` (APN-04): `{"project", "stamp", "picks":
+    /// [{"ticket": "SHOP-19", "to": {"stage": "dev"}}]}`, answered with [`Reply::AppliedNow`].
+    #[serde(rename = "flow.apply_now_plan")]
+    FlowApplyNowPlan(ProjectParams),
+    #[serde(rename = "flow.apply_now")]
+    FlowApplyNow(crate::flow::apply_now::ApplyNowParams),
+    /// A proposal by the user from an earlier version, another project, a preset, a file or the shipped agents file
+    /// (FLW-08…FLW-10); it replaces the open one. Answered with [`Reply::FlowProposal`].
+    #[serde(rename = "flow.propose_from")]
+    FlowProposeFrom(crate::flow::apply::ProposeFromParams),
+    /// `otaq flow show` (FLW-02): `{"project": "SHOP"}`, the applied stages and the agents they name as one document.
+    /// Answered with [`Reply::FlowDocument`].
+    #[serde(rename = "flow.show")]
+    FlowShow(ProjectParams),
+    /// `otaq flow propose` (FLW-03), from a Project agent's session or the user: a document or another project's
+    /// stages, checked, opened in the preview (replacing the open one; during Flow setup only the open one from the
+    /// same tool, ASK-03). Answered with [`Reply::FlowProposal`].
+    #[serde(rename = "flow.propose")]
+    FlowPropose(crate::flow::propose::ProposeParams),
+    /// Ask for more changes in the preview (FLW-04): closes the open proposal; the text goes to the Project agent
+    /// that proposed it. Answered with [`Reply::Ok`].
+    #[serde(rename = "flow.ask_for_changes")]
+    FlowAskForChanges(crate::flow::propose::AskForChangesParams),
 
     // Sessions (SES-04, SVC-05).
     /// With `key`, every session the ticket ever had (newest first); without, every session in the service's
@@ -754,53 +869,75 @@ pub enum Request {
     #[serde(rename = "ticket.terminal")]
     TicketTerminal(TerminalParams),
 
-    // Named agents (AGT-01…AGT-04; d0086, d0088). The user's requests; agents set rows through T-0338's CLI.
-    /// Every named agent (with its mark) and the app-wide role defaults. Answered with [`Reply::Agents`].
+    // Agents (AGM-01…AGM-05; d0108, d0088). The user's requests (Settings → Agents); agents never change agents.
+    /// Every agent (with its mark), the default model, each tool's fallback and the move-over's notice. Answered
+    /// with [`Reply::Agents`].
     #[serde(rename = "agents.list")]
     AgentsList,
-    /// `{"name": "Strong", "tool": "claude", "model": "opus", "use_for": "Complex features"}`: adds an entry; the
-    /// model must be in the tool's list (or empty). Answered with [`Reply::Agent`].
+    /// `{"name": "Rust developer", "instructions": "…", "skills": [{"shipped": "work-ticket"}], "model": {"kind":
+    /// "tool", "tool": "claude", "model": "opus"}, "effort": "high"}`: New agent ("Added by you"); the name new
+    /// ignoring case (not `skip` or `_…`), the model from the tool's list, the effort one of the tool's. Answered with
+    /// [`Reply::Agent`].
     #[serde(rename = "agents.add")]
-    AgentsAdd(crate::named_agents::AgentFields),
-    /// `{"id": "0199…", "name": …, "tool": …, "model": …, "use_for": …}`: the whole form; a model change clears the
-    /// mark. Answered with [`Reply::Agent`].
+    AgentsAdd(crate::agents::AgentFields),
+    /// `{"id": "0199…", …the fields}`: the whole page; a model change clears the mark. Applies to the next session
+    /// that starts. Answered with [`Reply::Agent`].
     #[serde(rename = "agents.edit")]
     AgentsEdit(AgentEditParams),
     /// `{"id": "0199…"}`: Duplicate's draft, "<name> copy", not saved. Answered with [`Reply::AgentDraft`].
     #[serde(rename = "agents.duplicate")]
     AgentsDuplicate(IdParams),
-    /// `{"id": "0199…"}`: deletes an unused entry. Refused (`agent_in_use`, the parts in the error's `in_use`)
-    /// while in use, and for the last entry (`last_agent`).
+    /// `{"id": "0199…"}`: deletes an agent nothing uses. Refused (`agent_in_use`) for a role's agent ("Planner is
+    /// your Project agent. Give the role to another agent first") and while a stage names it ("Griller is used in
+    /// shop-web · Grill. Change that stage first.").
     #[serde(rename = "agents.delete")]
     AgentsDelete(IdParams),
-    /// `{"id": "0199…"}`: what uses an entry, before Delete asks (T-0340): the refused dialog or the plain
-    /// confirmation. Refused for the last entry (`last_agent`), as Delete is. Answered with [`Reply::AgentInUse`].
+    /// `{"id": "0199…"}`: what uses an agent, before Delete asks. Answered with [`Reply::AgentInUse`].
     #[serde(rename = "agents.in_use")]
     AgentsInUse(IdParams),
-    /// `{"role": "validator", "agent": "0199…"}`: an app-wide role default. Answered with
-    /// [`Reply::AgentDefaults`].
-    #[serde(rename = "agents.set_default")]
-    AgentsSetDefault(AgentDefaultParams),
-    /// `{"project": "SHOP", "role": "developer", "agent": "0199…"}`; `agent` null = "Use app default". Answered with
-    /// [`Reply::AgentDefaults`] (the project's overrides).
-    #[serde(rename = "project.set_agent_default")]
-    ProjectSetAgentDefault(ProjectAgentDefaultParams),
-    /// `{"project": "SHOP"}`: the project's role default overrides (T-0340: the project's Agents block). Answered
-    /// with [`Reply::AgentDefaults`].
-    #[serde(rename = "project.agent_defaults")]
-    ProjectAgentDefaults(ProjectParams),
-    /// `{"key": "SHOP-19", "role": "developer", "agent": "0199…"}`: the user sets a row (*set by you*); `agent`
-    /// null = "Let agents pick again". Refused on a locked row and on a row the ticket doesn't have.
-    #[serde(rename = "ticket.agent_row")]
-    TicketAgentRow(AgentRowParams),
-    /// `{"key": "SHOP-19"}`, or `{"project": "SHOP", "new_epic": true}` for the ⌘N form: the ticket's or epic's rows with what they resolve to, their locks, the sessions with
-    /// their named agents, an epic's children's rows. Answered with [`Reply::TicketAgents`].
+    /// `{"role": "project-agent", "agent": "0199…"}`: gives the role to another agent, in one step. Answered with
+    /// [`Reply::Agent`] (the new holder).
+    #[serde(rename = "agents.move_role")]
+    AgentsMoveRole(MoveRoleParams),
+    /// `{"model": {"tool": "claude", "model": "sonnet"}}`: Default model for new agents (AGM-03). Answered with
+    /// [`Reply::Agents`].
+    #[serde(rename = "agents.default_model")]
+    AgentsDefaultModel(DefaultModelParams),
+    /// `{"tool": "claude", "fallback": {"tool": "codex", "model": "newest:gpt-sol"}}`, or without `fallback` for
+    /// none: one line of Fallback per tool (AGM-03). Answered with [`Reply::Agents`].
+    #[serde(rename = "agents.fallback")]
+    AgentsFallback(FallbackParams),
+    /// `{"id": "0199…", "folder": "/abs/my-commit"}`: Import skill folder… onto the agent (WSK-02, WSK-03). Answered
+    /// with [`Reply::Agent`], or refused (`bad_skill_folder`) with nothing changed.
+    #[serde(rename = "agents.import_skill")]
+    AgentsImportSkill(ImportSkillParams),
+    /// `{"id": "0199…", "skill": "<imported id>"}`: Re-import from the remembered original (WSK-04);
+    /// `original_not_found` when it is gone. Answered with [`Reply::Agent`].
+    #[serde(rename = "agents.reimport_skill")]
+    AgentsReimportSkill(ReimportSkillParams),
+    /// `{"agent": "0199…", "project": "SHOP"}`: "What this agent reads" (AGR-01…AGR-03), read-only: its
+    /// instructions, the project's notes, a skill part per stage it runs and one for its role, its other skills.
+    /// Answered with [`Reply::AgentReads`].
+    #[serde(rename = "agents.reads")]
+    AgentsReads(crate::agent_reads::AgentReadsParams),
+    /// `{"key": "SHOP-19"}`, or `{"project": "SHOP", "new_epic": true}` for the ⌘N form: the agent each stage of the
+    /// ticket's flow runs (an epic's lead), the sessions with their agents, the holds. Answered with
+    /// [`Reply::TicketAgents`].
     #[serde(rename = "ticket.agents")]
     TicketAgents(TicketAgentsParams),
     /// `{"project": "SHOP"}`: what each board card says about its agents (the footer's name and who set it, who
     /// has the turn; T-0345). Answered with [`Reply::BoardAgents`].
     #[serde(rename = "board.agents")]
     BoardAgents(ProjectParams),
+    /// Stage choices (AGM-08, AGM-09; T-0407). `{"key": "SHOP-19"}`, or `{"project": "SHOP"}` for the ⌘N form: the
+    /// stages with options, each with what it offers, the ticket's choice and its lock. Answered with
+    /// [`Reply::TicketChoices`].
+    #[serde(rename = "ticket.choices")]
+    TicketChoices(TicketChoicesParams),
+    /// `{"key": "SHOP-19", "stage": "Dev", "choice": "Quick developer"}` (or `skip`, `required`): the user's choice
+    /// for one stage, until it starts. Answered with [`Reply::TicketChoices`].
+    #[serde(rename = "ticket.set_choice")]
+    TicketSetChoice(SetChoiceParams),
 
     // More agent tools (M23; d0086, d0088). The user's requests; each answers "not built yet" until its ticket lands.
     /// Every agent tool's state on Settings → Agent tools (T-0347; T-0348 adds the rest of each row). Answered
@@ -830,38 +967,24 @@ pub enum Request {
     /// the tool's limit cleared, its holds lifted. Replies with [`Reply::Resumed`].
     #[serde(rename = "limits.resume_tool")]
     LimitsResumeTool(ToolParams),
-    /// `{"tool": "claude", "agent": "0199…"}`: **Move waiting to…**: that tool's not-yet-started tickets' Developer
-    /// rows move to `agent` (AGT-08; T-0358), and they start. Replies with [`Reply::MovedWaiting`].
-    #[serde(rename = "limits.move_waiting")]
-    LimitsMoveWaiting(MoveWaitingParams),
-    /// `{"key": "SHOP-31", "role": "developer"}`: **Use fallback** for a held role (AGT-08; T-0357).
+    /// `{"tool": "claude"}`: **Use fallback now** (AGM-03): every ticket waiting on the tool starts on its fallback;
+    /// refused when it has none or it can't start either. Replies with [`Reply::StartedOnFallback`].
+    #[serde(rename = "limits.use_fallback_now")]
+    LimitsUseFallbackNow(ToolParams),
+    /// `{"key": "SHOP-31"}`: **Use fallback** for a ticket waiting on its tool or its model (AGM-03).
     #[serde(rename = "ticket.use_fallback")]
-    TicketUseFallback(UseFallbackParams),
-    /// `{"on": true}`: "Use fallback agents automatically", off by default (AGT-08; T-0357).
-    #[serde(rename = "settings.auto_fallback")]
-    SettingsAutoFallback(AutoFallbackParams),
+    TicketUseFallback(KeyParams),
     /// `{}` or `{"record": {"kind": "ticket", "key": "NOTE-2"}}`: the command palette's recent items (KEY-06, d0097),
     /// with the use recorded first when given. Answered with [`Reply::RecentItems`], newest first.
     #[serde(rename = "recent.items")]
     RecentItems(RecentItemsParams),
+}
 
-    // Imported workflow skills (M27; d0092). The user's requests.
-    /// `{"project": "NOTE"}` or `{}`: the four workflow skill settings of a project or the global page (WSK-01,
-    /// WSK-04), answered with [`Reply::WorkflowSkills`].
-    #[serde(rename = "workflow_skills.status")]
-    WorkflowSkillsStatus(SkillScopeParams),
-    /// `{"project": "NOTE", "step": "commit", "folder": "/abs/my-commit"}`: Import skill folder… and Import a
-    /// different folder… (WSK-01–WSK-03). Answered with [`Reply::WorkflowSkill`] (its warnings), or refused
-    /// (`bad_skill_folder`) with nothing changed.
-    #[serde(rename = "workflow_skills.import")]
-    WorkflowSkillsImport(SkillImportParams),
-    /// `{"step": "commit"}`: Re-import from the remembered original (WSK-04); `original_not_found` when it is gone.
-    #[serde(rename = "workflow_skills.reimport")]
-    WorkflowSkillsReimport(SkillSettingParams),
-    /// `{"step": "commit", "confirmed": false}`: Use built-in / Use global, deleting the copy (WSK-04);
-    /// `needs_confirmation` when the copy was edited since its import.
-    #[serde(rename = "workflow_skills.reset")]
-    WorkflowSkillsReset(SkillResetParams),
+/// `onboarding.ask`: the project and the tool to ask (ASK-02).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OnboardingAskParams {
+    pub project: String,
+    pub tool: Tool,
 }
 
 /// A request about one agent tool.
@@ -877,38 +1000,6 @@ pub struct RecheckParams {
     pub tool: Option<Tool>,
 }
 
-/// A workflow skill setting (d0092): `step` of the global settings, or of `project`'s when it is set.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SkillSettingParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
-    pub step: crate::board::settings::WorkflowStep,
-}
-
-/// `workflow_skills.status`: the global settings, or `project`'s.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SkillScopeParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
-}
-
-/// `workflow_skills.import`: the picked folder (absolute).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SkillImportParams {
-    #[serde(flatten)]
-    pub setting: SkillSettingParams,
-    pub folder: std::path::PathBuf,
-}
-
-/// `workflow_skills.reset`: `confirmed` once the user agreed to lose the copy's edits.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SkillResetParams {
-    #[serde(flatten)]
-    pub setting: SkillSettingParams,
-    #[serde(default)]
-    pub confirmed: bool,
-}
-
 /// `agent_tools.set_hidden`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetHiddenParams {
@@ -916,24 +1007,39 @@ pub struct SetHiddenParams {
     pub hidden: bool,
 }
 
-/// `limits.move_waiting`: the tool whose waiting tickets move, and the named agent they move to.
+/// `agents.move_role`: the role and the agent that takes it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MoveWaitingParams {
-    pub tool: Tool,
+pub struct MoveRoleParams {
+    pub role: crate::agents::Role,
     pub agent: String,
 }
 
-/// `ticket.use_fallback`.
+/// `agents.default_model`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UseFallbackParams {
-    pub key: String,
-    pub role: crate::named_agents::Role,
+pub struct DefaultModelParams {
+    pub model: crate::agents::ModelRef,
 }
 
-/// `settings.auto_fallback`.
+/// `agents.fallback`: `fallback` `None` = none.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AutoFallbackParams {
-    pub on: bool,
+pub struct FallbackParams {
+    pub tool: Tool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<crate::agents::ModelRef>,
+}
+
+/// `agents.import_skill`: the agent and the picked folder (absolute).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportSkillParams {
+    pub id: String,
+    pub folder: std::path::PathBuf,
+}
+
+/// `agents.reimport_skill`: the agent and its imported skill's id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReimportSkillParams {
+    pub id: String,
+    pub skill: String,
 }
 
 /// `recent.items`.
@@ -943,28 +1049,12 @@ pub struct RecentItemsParams {
     pub record: Option<crate::store::recents::RecentUse>,
 }
 
-/// `agents.edit`: the entry's id and its whole form.
+/// `agents.edit`: the agent's id and its whole page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentEditParams {
     pub id: String,
     #[serde(flatten)]
-    pub fields: crate::named_agents::AgentFields,
-}
-
-/// `agents.set_default`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentDefaultParams {
-    pub role: crate::named_agents::Role,
-    pub agent: String,
-}
-
-/// `project.set_agent_default`: `agent` `None` = "Use app default".
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProjectAgentDefaultParams {
-    pub project: String,
-    pub role: crate::named_agents::Role,
-    #[serde(default)]
-    pub agent: Option<String>,
+    pub fields: crate::agents::AgentFields,
 }
 
 /// `ticket.agents`: an existing ticket by `key`, else a new one in `project` (an epic when `new_epic`).
@@ -978,13 +1068,21 @@ pub struct TicketAgentsParams {
     pub new_epic: bool,
 }
 
-/// `ticket.agent_row`: `agent` `None` empties the row.
+/// `ticket.choices`: an existing ticket by `key`, else a new one in `project`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentRowParams {
-    pub key: String,
-    pub role: crate::named_agents::Role,
+pub struct TicketChoicesParams {
     #[serde(default)]
-    pub agent: Option<String>,
+    pub key: Option<String>,
+    #[serde(default)]
+    pub project: Option<String>,
+}
+
+/// `ticket.set_choice`: a stage by name or id, and an agent's name, `skip` or `required`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetChoiceParams {
+    pub key: String,
+    pub stage: String,
+    pub choice: String,
 }
 
 /// `{"id": "<question id>", "options": ["Logged-in users only", "Guests too"], "notes": [null, "Kept in the
@@ -1180,14 +1278,6 @@ pub struct DiffFileParams {
     pub since: Option<String>,
 }
 
-/// `{"key": "SHOP-18"}`; `clear_first` is the user's "Clear it and send".
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SendToFixParams {
-    pub key: String,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub clear_first: bool,
-}
-
 /// `{"key": "SHOP-22", "note": "…"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubmitByUserParams {
@@ -1256,14 +1346,17 @@ pub struct LocalMergeParams {
     pub approve_anyway: bool,
 }
 
-/// `{"key": "SHOP-18", "note": "…"}`; `clear_first` is the user's "Clear it and send".
+/// `{"key": "SHOP-18", "note": "…"}`: a Fail's comments; `clear_first` is the user's "Clear it and send". The note
+/// is the user's comment (CMT-05), `report` a report attached to it (the dialog's pasted text, CMT-13).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SendBackParams {
+pub struct FailParams {
     pub key: String,
     #[serde(default)]
     pub note: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub clear_first: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<crate::board::reports::ReportSource>,
 }
 
 /// `{"id": "…", "body": "…"}`: a reply to, or the new text of, a comment.
@@ -1287,12 +1380,40 @@ pub struct CommentsParams {
     pub round: Option<u32>,
 }
 
-/// `{"key": "SHOP-18", "summary": "…"}`.
+/// `{"key": "SHOP-34", "body": "…"}`, with `"report": {"path": "/abs/test-run.txt"}` or `{"text": "…"}`: a new
+/// ticket comment (CMT-06, CMT-11).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReviewSubmitParams {
+pub struct TicketCommentPostParams {
+    pub key: String,
+    pub body: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<crate::board::reports::ReportSource>,
+}
+
+/// `{"key": "SHOP-34", "n": 2, "body": "…"}`: comment 2's new text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketCommentEditParams {
+    pub key: String,
+    pub n: u32,
+    pub body: String,
+}
+
+/// `{"key": "SHOP-34", "n": 4}`: one ticket comment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketCommentParams {
+    pub key: String,
+    pub n: u32,
+}
+
+/// `{"key": "SHOP-18", "summary": "…"}`: how an agent ends its stage (`stage next`: the summary; `stage done`: the
+/// reason), its comment (CMT-05); `report_file` (`{"path": "/abs/test-run.txt"}`) attaches a report (CMT-06).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StageEndParams {
     pub key: String,
     #[serde(default)]
     pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report_file: Option<crate::board::reports::ReportSource>,
 }
 
 /// `{"key": "SHOP-32", "action": "answer_agent", "note": "…"}`.
@@ -1300,7 +1421,7 @@ pub struct ReviewSubmitParams {
 pub struct ValidationActionParams {
     pub key: String,
     pub action: crate::domain::ValidationAction,
-    /// Answer the agent's note; Validate and submit's optional note.
+    /// Answer the agent's note.
     #[serde(default)]
     pub note: String,
 }
@@ -1312,14 +1433,17 @@ pub struct NoteParams {
     pub note: String,
 }
 
-/// `{"key": "SHOP-29", "pass": false, "report": "…"}`: a validator's verdict (VAL-03).
+/// `{"key": "SHOP-29", "pass": false, "report": "…"}`: an agent check's verdict (VAL-03, `otaq check pass|fail`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VerdictParams {
     pub key: String,
     pub pass: bool,
-    /// The findings (one line each, file and line) and the notes.
+    /// The findings (one line each, file and line) and the notes: the checker's comment (CMT-05).
     #[serde(default)]
     pub report: String,
+    /// `--report-file`: the full output attached to the comment (CMT-06).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report_file: Option<crate::board::reports::ReportSource>,
 }
 
 /// `{"key": "SHOP-18", "proposal": "{…}"}`: the proposal as the skill wrote it.
@@ -1390,7 +1514,7 @@ pub struct BranchRenameParams {
 pub struct BatchParams {
     pub project: String,
     pub tickets: Vec<BatchTicket>,
-    /// The tickets' agent picks are the user's (`--by-user`, d0087): written *set by you*.
+    /// The tickets' stage choices are the user's (`--by-user`, d0087): written *set by you*.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub by_user: bool,
 }
@@ -1414,13 +1538,13 @@ pub struct KeyParams {
     pub key: String,
 }
 
-/// `{"key": "SHOP-22"}`: the ticket's agent session; `{"key": "SHOP-29", "validator": true}`: its running
-/// validator's.
+/// `{"key": "SHOP-22"}`: the ticket's agent session; `{"key": "SHOP-29", "stage": "security"}`: the session of the
+/// agent running that stage (its id or name, any case), refused unless the ticket is in it (FLW-20).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TerminalParams {
     pub key: String,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub validator: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
 }
 
 /// The answer to `ticket.terminal`: the screen and the lines above it as plain text
@@ -1460,6 +1584,24 @@ pub struct MoveParams {
     pub target: DropTarget,
     #[serde(default)]
     pub confirmed: bool,
+}
+
+/// A drop on any stage: where (a board target, or `{"stage": "security"}`), and the dialog's answers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DragParams {
+    pub key: String,
+    pub target: DropOn,
+    #[serde(default)]
+    pub confirmed: bool,
+    /// The instructions for the Agent stage, or the note for the check: the user's comment (CMT-05).
+    #[serde(default)]
+    pub note: String,
+    /// "Clear it and send" after the unsent-text question (d0048).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clear_first: bool,
+    /// A report attached to the note's comment (the dialog's pasted text, CMT-13).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<crate::board::reports::ReportSource>,
 }
 
 /// An epic dropped on Ready for Dev or Dev (or ⇧⌘D on it); `child` when one row of it was dropped.
@@ -1531,7 +1673,8 @@ pub struct SessionListParams {
 }
 
 /// A session by id (`{"session": "…"}`), a ticket's newest agent session by key (`{"key": "SHOP-18"}`), its newest
-/// session of another kind (`{"key": "SHOP-18", "kind": "shell"}`), or a project's Project terminal
+/// session of another kind (`{"key": "SHOP-18", "kind": "shell"}`), the one running a stage (`{"key": "SHOP-29",
+/// "stage": "security"}`), or a project's Project terminal
 /// (`{"project": "SHOP", "kind": "project"}`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionTarget {
@@ -1542,6 +1685,10 @@ pub struct SessionTarget {
     /// The kind of the ticket's session (agent when not given).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<crate::session::SessionKind>,
+    /// With `key`: the session of the agent running this stage of the ticket's flow (its id or name, any case),
+    /// refused unless the ticket is in it (FLW-20); `kind` is then not given.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
     /// A project's key, for its Project terminal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
@@ -1625,6 +1772,10 @@ impl Request {
             Self::ToolsCheck => "tools.check",
             Self::ToolTerminalOpen(_) => "tools.terminal",
             Self::OnboardingState => "onboarding.state",
+            Self::OnboardingSources(_) => "onboarding.sources",
+            Self::OnboardingAsk(_) => "onboarding.ask",
+            Self::OnboardingFlowSetup(_) => "onboarding.flow_setup",
+            Self::OnboardingUseDefault(_) => "onboarding.use_default",
             Self::DismissPermissionWarning => "onboarding.dismiss_permission_warning",
             Self::DismissTrustNote => "notices.dismiss_trust_note",
             Self::NotificationsState => "notifications.state",
@@ -1644,6 +1795,7 @@ impl Request {
             Self::TicketCreateBatch(_) => "ticket.create_batch",
             Self::TicketUpdate(_) => "ticket.update",
             Self::TicketMove(_) => "ticket.move",
+            Self::TicketDrag(_) => "ticket.drag",
             Self::TicketPin(_) => "ticket.pin",
             Self::TicketUnpin(_) => "ticket.unpin",
             Self::TicketAgentEdits(_) => "ticket.agent_edits",
@@ -1674,20 +1826,28 @@ impl Request {
             Self::ReviewCommentEdit(_) => "review.comment_edit",
             Self::ReviewCommentDelete(_) => "review.comment_delete",
             Self::ReviewComments(_) => "review.comments",
-            Self::TicketSendBack(_) => "ticket.send_back",
+            Self::TicketCommentPost(_) => "ticket.comment_post",
+            Self::TicketCommentEdit(_) => "ticket.comment_edit",
+            Self::TicketCommentDelete(_) => "ticket.comment_delete",
+            Self::TicketComments(_) => "ticket.comments",
+            Self::TicketReport(_) => "ticket.report",
+            Self::TicketFail(_) => "ticket.fail",
+            Self::TicketPass(_) => "ticket.pass",
             Self::ReviewFeedback(_) => "review.feedback",
             Self::TicketMergeProposal(_) => "ticket.merge_proposal",
             Self::TicketLocalMerge(_) => "ticket.local_merge",
             Self::TicketApproveCheck(_) => "ticket.approve_check",
             Self::TicketConflict(_) => "ticket.conflict",
-            Self::TicketSendToFix(_) => "ticket.send_to_fix",
+            Self::TicketSendBackPr(_) => "ticket.send_back_pr",
+            Self::TicketAddChildFromPr(_) => "ticket.add_child_from_pr",
             Self::TicketPrime(_) => "ticket.prime",
             Self::TicketAskHuman(_) => "ticket.ask_human",
             Self::DecisionRecord(_) => "decision.record",
             Self::DecisionList(_) => "decision.list",
             Self::DecisionChange(_) => "decision.change",
             Self::DecisionMark(_) => "decision.mark",
-            Self::TicketReviewSubmit(_) => "ticket.review_submit",
+            Self::TicketStageNext(_) => "ticket.stage_next",
+            Self::TicketStageDone(_) => "ticket.stage_done",
             Self::ValidationVerdict(_) => "validation.verdict",
             Self::TicketPrimeValidate(_) => "ticket.prime_validate",
             Self::TicketValidations(_) => "ticket.validations",
@@ -1734,6 +1894,19 @@ impl Request {
             Self::SettingsSet(_) => "settings.set",
             Self::ProjectSettingsGet(_) => "project_settings.get",
             Self::ProjectSettingsSet(_) => "project_settings.set",
+            Self::FlowCurrent(_) => "flow.current",
+            Self::FlowVersions(_) => "flow.versions",
+            Self::FlowProposal(_) => "flow.proposal",
+            Self::FlowApply(_) => "flow.apply",
+            Self::FlowCancelProposal(_) => "flow.cancel_proposal",
+            Self::FlowWaiting(_) => "flow.waiting",
+            Self::FlowCancelWaiting(_) => "flow.cancel_waiting",
+            Self::FlowApplyNowPlan(_) => "flow.apply_now_plan",
+            Self::FlowApplyNow(_) => "flow.apply_now",
+            Self::FlowProposeFrom(_) => "flow.propose_from",
+            Self::FlowShow(_) => "flow.show",
+            Self::FlowPropose(_) => "flow.propose",
+            Self::FlowAskForChanges(_) => "flow.ask_for_changes",
             Self::SessionList(_) => "session.list",
             Self::SessionAttach(_) => "session.attach",
             Self::SessionDetach(_) => "session.detach",
@@ -1787,12 +1960,16 @@ impl Request {
             Self::AgentsDuplicate(_) => "agents.duplicate",
             Self::AgentsDelete(_) => "agents.delete",
             Self::AgentsInUse(_) => "agents.in_use",
-            Self::AgentsSetDefault(_) => "agents.set_default",
-            Self::ProjectSetAgentDefault(_) => "project.set_agent_default",
-            Self::ProjectAgentDefaults(_) => "project.agent_defaults",
-            Self::TicketAgentRow(_) => "ticket.agent_row",
+            Self::AgentsMoveRole(_) => "agents.move_role",
+            Self::AgentsDefaultModel(_) => "agents.default_model",
+            Self::AgentsFallback(_) => "agents.fallback",
+            Self::AgentsImportSkill(_) => "agents.import_skill",
+            Self::AgentsReimportSkill(_) => "agents.reimport_skill",
+            Self::AgentsReads(_) => "agents.reads",
             Self::TicketAgents(_) => "ticket.agents",
             Self::BoardAgents(_) => "board.agents",
+            Self::TicketChoices(_) => "ticket.choices",
+            Self::TicketSetChoice(_) => "ticket.set_choice",
             Self::AgentToolsList => "agent_tools.list",
             Self::AgentToolsRecheck(_) => "agent_tools.recheck",
             Self::AgentToolsSetHidden(_) => "agent_tools.set_hidden",
@@ -1800,14 +1977,9 @@ impl Request {
             Self::AgentToolsInstall(_) => "agent_tools.install",
             Self::AgentToolsDisconnect(_) => "agent_tools.disconnect",
             Self::LimitsResumeTool(_) => "limits.resume_tool",
-            Self::LimitsMoveWaiting(_) => "limits.move_waiting",
+            Self::LimitsUseFallbackNow(_) => "limits.use_fallback_now",
             Self::TicketUseFallback(_) => "ticket.use_fallback",
-            Self::SettingsAutoFallback(_) => "settings.auto_fallback",
             Self::RecentItems(_) => "recent.items",
-            Self::WorkflowSkillsStatus(_) => "workflow_skills.status",
-            Self::WorkflowSkillsImport(_) => "workflow_skills.import",
-            Self::WorkflowSkillsReimport(_) => "workflow_skills.reimport",
-            Self::WorkflowSkillsReset(_) => "workflow_skills.reset",
         }
     }
 }
@@ -1821,6 +1993,8 @@ pub enum Reply {
     StartupReport(Box<crate::recovery::StartupReport>),
     ToolsCheck(ToolsReport),
     OnboardingState(OnboardingState),
+    OnboardingSources(crate::onboarding::Sources),
+    FlowSetup(Box<crate::project_agents::first_flow::FlowSetup>),
     NotificationsState(crate::attention::os_permission::NotificationsState),
     Projects(Vec<ProjectInfo>),
     Project(ProjectInfo),
@@ -1853,6 +2027,9 @@ pub enum Reply {
     LeadLog(Box<crate::epic_lead::log::LeadLog>),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
+    /// The answer to `ticket.stage_next` and `ticket.stage_done` (AGM-10): the ticket and what the agent is told
+    /// ("Finished Dev. Validate is running; …").
+    StageEnded(Box<crate::board::review::StageEnded>),
     Validations(Vec<crate::board::validation::ValidationRecord>),
     Tickets(Vec<Ticket>),
     Readiness(Vec<Readiness>),
@@ -1871,6 +2048,14 @@ pub enum Reply {
     Cycles(Vec<Vec<TicketKey>>),
     GlobalSettings(Box<GlobalSettingsReply>),
     ProjectSettings(Box<ProjectSettingsReply>),
+    FlowVersion(Box<crate::flow::FlowVersion>),
+    FlowVersions(Vec<crate::flow::FlowVersion>),
+    FlowProposal(Option<Box<crate::flow::proposal::Proposal>>),
+    FlowApplied(Box<crate::flow::apply::Applied>),
+    FlowWaiting(Option<Box<crate::flow::apply::WaitingChange>>),
+    ApplyNowPlan(Option<Box<crate::flow::apply_now::ApplyNowPlan>>),
+    AppliedNow(Box<crate::flow::apply_now::ApplyNowAnswer>),
+    FlowDocument(Box<crate::flow::propose::FlowDocument>),
     Sessions(Vec<SessionInfo>),
     SessionAttached(Box<SessionAttach>),
     Delivery(Delivery),
@@ -1881,7 +2066,11 @@ pub enum Reply {
     FileDiff(Box<FileDiff>),
     ReviewComment(ReviewComment),
     ReviewComments(ReviewComments),
+    TicketComment(Box<crate::board::ticket_comments::TicketComment>),
+    TicketComments(crate::board::ticket_comments::TicketComments),
+    TicketReport(Box<crate::board::ticket_comments::ReportFile>),
     Returned(ReturnOutcome),
+    Passed(PassOutcome),
     ReviewFeedback(ReviewFeedback),
     MergeProposal(MergeProposal),
     LocalMerge(LocalMergeOutcome),
@@ -1891,8 +2080,8 @@ pub enum Reply {
     Resumed(Vec<TicketKey>),
     /// The tickets "This is the usage limit" folded into the banner.
     LimitMarked(Vec<TicketKey>),
-    /// The tickets Move waiting to… moved, in key order ("4 tickets moved to Strong GPT").
-    MovedWaiting(Vec<TicketKey>),
+    /// The tickets Use fallback now started on the tool's fallback, in key order.
+    StartedOnFallback(Vec<TicketKey>),
     BeforeRestart(Box<crate::recovery::BeforeRestart>),
     Inbox(Box<crate::attention::inbox::InboxList>),
     InboxCounts(crate::attention::inbox::InboxCounts),
@@ -1915,19 +2104,16 @@ pub enum Reply {
     TicketTerminal(Box<TicketTerminal>),
     /// A tool's model list as Otaq's copy has it; `None` before it was first read.
     Models(Option<Box<crate::agent_tools::models::ModelCopy>>),
-    Agents(Box<crate::named_agents::AgentList>),
-    Agent(Box<crate::named_agents::NamedAgent>),
-    AgentDraft(Box<crate::named_agents::AgentFields>),
-    TicketAgents(Box<crate::named_agents::rows::TicketAgents>),
-    BoardAgents(Box<crate::named_agents::rows::BoardAgents>),
-    AgentDefaults(Box<crate::named_agents::RoleDefaults>),
-    AgentInUse(Box<crate::named_agents::InUse>),
+    Agents(Box<crate::agents::AgentList>),
+    Agent(Box<crate::agents::Agent>),
+    AgentDraft(Box<crate::agents::AgentFields>),
+    TicketAgents(Box<crate::agents::facts::TicketAgents>),
+    BoardAgents(Box<crate::agents::facts::BoardAgents>),
+    TicketChoices(Box<crate::board::stage_choices::TicketChoices>),
+    AgentInUse(Box<crate::agents::InUse>),
+    AgentReads(Box<crate::agent_reads::AgentReads>),
     /// Every agent tool's row (`agent_tools.list`, `agent_tools.set_hidden`).
     AgentTools(Box<crate::agent_tools::connected::AgentToolsList>),
-    /// The four workflow skill settings of a scope (`workflow_skills.status`).
-    WorkflowSkills(Vec<crate::workflow_skills::SkillStatus>),
-    /// One workflow skill setting after an import, Re-import or reset.
-    WorkflowSkill(Box<crate::workflow_skills::SkillStatus>),
     /// The command palette's recent items, newest first (`recent.items`).
     RecentItems(Vec<crate::store::recents::RecentItem>),
 }
@@ -2021,6 +2207,12 @@ pub enum Event {
     },
     /// A project was added, changed or removed. Refetch `project.list`.
     ProjectsChanged,
+    /// A project's flow: a proposal opened or closed, a change waits, a new flow applied, a waiting change cancelled
+    /// (FLW-03…FLW-06). Refetch `flow.proposal`, `flow.waiting` or the board.
+    FlowChanged {
+        project: String,
+        change: crate::flow::apply::FlowEvent,
+    },
     /// Output of a session this connection attached to (only sent to that connection). `data` is base64.
     SessionOutput {
         session: String,
@@ -2078,7 +2270,7 @@ pub enum Event {
         key: TicketKey,
         message: String,
     },
-    /// A toast (UI-07, d0064): Auto-merge merged a validated ticket ("SHOP-40.1 merged automatically into the
+    /// A toast (UI-07, d0064): an automatic local Delivery merged a ticket ("SHOP-40.1 merged automatically into the
     /// Wishlist branch" · "Validated · round 1 · local, not pushed · SHOP-40.2 can start"). No notification.
     MergedAutomatically {
         project: String,
@@ -2104,6 +2296,9 @@ pub enum Event {
     /// A Project agent was opened, named, closed, resumed, or its turn or state changed (d0068): refetch
     /// `project_agent.list`.
     ProjectAgentChanged { project: String, id: String },
+    /// A project's Flow setup changed (ASK-04, ASK-06): a flow agent, a proposal, a tool's state or a limit, or
+    /// its flow got settled. Refetch `onboarding.flow_setup` (and `project.list` once it is settled).
+    FlowSetupChanged { project: String },
     /// An epic's lead was opened, resumed or ended, or its status changed (d0083): refetch the epic's lead.
     LeadChanged { project: String, epic: TicketKey },
     /// The global settings were saved (`settings.set`): refetch `settings.get`. Every window applies a new theme

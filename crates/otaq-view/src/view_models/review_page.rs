@@ -19,6 +19,7 @@ use crate::view_models::board_page::ApproveMenu;
 use crate::view_models::card::pr_provider_label;
 use crate::view_models::pr_dialog;
 use crate::view_models::send_back as sb;
+use crate::view_models::ticket_comments::CommentBoxView;
 
 /// "Esc", "⌘↵": the keys the dialogs' footers name.
 fn submit_keys() -> &'static str {
@@ -153,8 +154,8 @@ pub fn approve_view(f: ApproveFacts) -> ApproveView {
             note: ap::confirm_note(ticket, f.target, f.tickets),
             conflict: ticket.flags.conflicts_with.as_ref().map(|_| {
                 format!(
-                    "Conflicts with {t}. {} tries a rebase onto the latest {t} first; if it still conflicts, Send \
-                     to agent to fix.",
+                    "Conflicts with {t}. {} tries a rebase onto the latest {t} first; if it still conflicts, its \
+                     agent fixes it.",
                     otaq_core::naming::PRODUCT_NAME,
                     t = f.target
                 )
@@ -196,14 +197,14 @@ pub enum MergeResult {
     Merged {
         toasts: Vec<ToastText>,
     },
-    /// *Merge conflict during Local merge*: the files, the way forward, the worktree, Send to agent to fix.
+    /// *Merge conflict during Local merge*: the files, what happens now (the agent fixes it with no click, FLW-17),
+    /// the worktree.
     Conflict {
         title: String,
         text: String,
         files: Vec<String>,
         help: String,
         worktree: Option<String>,
-        fix: &'static str,
         close: &'static str,
     },
     /// *Local merge · refused, uncommitted changes* (the user's checkout) or a diverged base: Retry.
@@ -293,7 +294,6 @@ pub fn merge_result(
                 .as_ref()
                 .and_then(|w| w.worktree.as_deref())
                 .map(crate::shell::tilde),
-            fix: "Send to agent to fix",
             close: "Close",
         },
         MergeView::DirtyCheckout { message } | MergeView::Diverged { message } => {
@@ -356,10 +356,10 @@ pub struct SendBackView {
     pub pr: Option<PrNote>,
     pub receive_label: &'static str,
     pub comments: Vec<SendBackComment>,
-    /// "No line comments: the agent gets your note."
+    /// "No line comments."
     pub no_comments: &'static str,
-    pub note_label: &'static str,
-    pub note_placeholder: &'static str,
+    /// "Comment for Dev (optional)" and its line (CMT-13).
+    pub comment: CommentBoxView,
     pub waiting_title: Option<String>,
     pub waiting: Vec<WaitingRow>,
     pub confirm: &'static str,
@@ -367,10 +367,12 @@ pub struct SendBackView {
     pub hint: &'static str,
 }
 
+/// The dialog of `ticket`, going back to the Agent stage `to` ("Dev", [`sb::back_stage`]).
 pub fn send_back_view(
     ticket: &Ticket,
     comments: &[ReviewComment],
     tickets: &[Ticket],
+    to: &str,
 ) -> SendBackView {
     let plan = sb::plan(ticket, comments, tickets);
     SendBackView {
@@ -388,9 +390,8 @@ pub fn send_back_view(
             .into_iter()
             .map(|(at, body)| SendBackComment { at, body })
             .collect(),
-        no_comments: "No line comments: the agent gets your note.",
-        note_label: "General note (optional)",
-        note_placeholder: "Anything that isn\u{2019}t tied to a line",
+        no_comments: "No line comments.",
+        comment: sb::comment_box(to),
         waiting_title: (!plan.waiting.is_empty()).then(|| sb::waiting_title(&ticket.key)),
         waiting: plan
             .waiting
@@ -418,7 +419,7 @@ mod tests {
     use crate::view_models::card_fixtures::ticket;
 
     fn review_ticket() -> Ticket {
-        ticket("SHOP-18", "Checkout API", Status::ReadyForReview)
+        ticket("SHOP-18", "Checkout API", Status::WaitingForYou)
     }
 
     fn facts<'a>(
@@ -465,7 +466,7 @@ mod tests {
 
     #[test]
     fn a_hotfix_on_its_own_base_names_it_and_its_conflict() {
-        let mut t = ticket("SHOP-31", "Hotfix: checkout crash", Status::ReadyForReview);
+        let mut t = ticket("SHOP-31", "Hotfix: checkout crash", Status::WaitingForYou);
         t.flags.conflicts_with = Some("release/2.3".into());
         let all = vec![t.clone()];
         let view = approve_view(facts(&t, &all, "release/2.3", &ApproveCheck::Unchanged));
@@ -473,7 +474,7 @@ mod tests {
         assert!(view.confirm.locked);
         let conflict = view.confirm.conflict.unwrap();
         assert!(conflict.starts_with("Conflicts with release/2.3. "));
-        assert!(conflict.ends_with("if it still conflicts, Send to agent to fix."));
+        assert!(conflict.ends_with("if it still conflicts, its agent fixes it."));
     }
 
     #[test]
@@ -549,14 +550,14 @@ mod tests {
             files: vec!["src/lib/stripe/session.ts".into(), "package.json".into()],
         };
         let MergeResult::Conflict {
-            title, text, fix, ..
+            title, text, help, ..
         } = merge_result(&t, "main", &conflict, &all)
         else {
             panic!("not a conflict");
         };
         assert_eq!(title, "Rebase onto main stopped \u{2014} conflict");
         assert!(text.contains("conflicts in 2 files"));
-        assert_eq!(fix, "Send to agent to fix");
+        assert!(help.starts_with("SHOP-18 went back to its agent"), "{help}");
 
         let dirty = LocalMergeOutcome::RefusedDirtyCheckout {
             message: "shop-web has uncommitted changes on main. Clean up and retry.".into(),
@@ -609,7 +610,12 @@ mod tests {
             created_at: 0,
             sent_at: None,
         }];
-        let view = send_back_view(&t, &comments, &[t.clone(), child]);
+        let view = send_back_view(&t, &comments, &[t.clone(), child], "Dev");
+        assert_eq!(
+            view.comment.label.as_deref(),
+            Some("Comment for Dev (optional)")
+        );
+        assert_eq!(view.no_comments, "No line comments.");
         assert_eq!(view.title, "Send SHOP-18 Checkout API back");
         assert!(
             view.intro
@@ -623,7 +629,7 @@ mod tests {
         assert_eq!(view.waiting[0].key, "SHOP-20");
         assert_eq!(view.waiting[0].text, "Checkout page \u{b7} Ready for Dev");
         assert_eq!(view.pr, None);
-        let alone = send_back_view(&t, &[], std::slice::from_ref(&t));
+        let alone = send_back_view(&t, &[], std::slice::from_ref(&t), "Dev");
         assert!(alone.comments.is_empty() && alone.waiting_title.is_none());
     }
 }

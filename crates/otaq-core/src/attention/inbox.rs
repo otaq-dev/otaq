@@ -171,7 +171,7 @@ struct Inner {
     /// When the inbox started: the floor for a tool never seen available.
     started_at: i64,
     /// The check before every launch (which tools aren't available) and the tools' states (set by the service).
-    tools: std::sync::OnceLock<(crate::named_agents::gate::LaunchGate, ConnectedTools)>,
+    tools: std::sync::OnceLock<(crate::agents::gate::LaunchGate, ConnectedTools)>,
 }
 
 impl Inbox {
@@ -305,11 +305,7 @@ impl Inbox {
 
     /// Gives the inbox the tools' availability, for a tool that isn't available (its one notification). Set before
     /// [`Self::run`].
-    pub fn set_tools(
-        &self,
-        gate: crate::named_agents::gate::LaunchGate,
-        connected: ConnectedTools,
-    ) {
+    pub fn set_tools(&self, gate: crate::agents::gate::LaunchGate, connected: ConnectedTools) {
         let _ = self.inner.tools.set((gate, connected));
     }
 
@@ -367,8 +363,8 @@ impl Inbox {
         let mut texts = HashMap::new();
         for item in items.iter().filter(|i| notify::should_notify(i)) {
             let ticket = board.ticket_by_id(&item.id).await?;
-            let text = if ticket.status == Status::ValidationFailed {
-                ticket.flags.findings.first().cloned()
+            let text = if ticket.status == Status::CheckFailed {
+                ticket.flags.verdict.clone()
             } else {
                 ticket
                     .question
@@ -417,14 +413,14 @@ impl Inbox {
             }
         }
         let waiting_tools =
-            crate::named_agents::moves::unavailable_situations(board, &unavailable, |tool| {
+            crate::agents::limits::unavailable_situations(board, &unavailable, |tool| {
                 self.available_floor(tool)
             })
             .await?;
         let (new_tools, tools_waiting): (Vec<_>, Vec<String>) = {
             let mut known = self.inner.unavailable.lock().expect("unavailable tools");
             known.retain(|tool, _| waiting_tools.iter().any(|w| w.tool == *tool));
-            let new: Vec<&crate::named_agents::moves::UnavailableSituation> = waiting_tools
+            let new: Vec<&crate::agents::limits::UnavailableSituation> = waiting_tools
                 .iter()
                 .filter(|w| match known.entry(w.tool) {
                     std::collections::hash_map::Entry::Vacant(e) => {
@@ -442,7 +438,7 @@ impl Inbox {
         };
         if choices.allows(Kind::ToolUnavailable) {
             fresh.extend(new_tools.into_iter().map(|w| {
-                let mut notification = notify::tool_unavailable(w.tool, w.tickets, &w.moved);
+                let mut notification = notify::tool_unavailable(w.tool, w.tickets, w.on_fallback);
                 notification.sound = choices.sound;
                 Planned {
                     notification,
@@ -820,6 +816,7 @@ mod tests {
             suggestion: None,
             lead_note: None,
             change_agent: None,
+            waiting_in: None,
         }
     }
 

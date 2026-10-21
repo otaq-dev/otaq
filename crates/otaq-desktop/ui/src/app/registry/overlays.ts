@@ -5,9 +5,11 @@
 import type { ComponentType } from "react";
 
 import type { ConfirmRow } from "../../generated/ConfirmRow";
+import type { DragBackDialog } from "../../generated/DragBackDialog";
 import type { IconName } from "../../generated/IconName";
 import type { InboxAllClear } from "../../generated/InboxAllClear";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
+import type { ReportOpenParams } from "../../generated/ReportOpenParams";
 import type { UsageDataDialog } from "../../generated/UsageDataDialog";
 import type { GlobalSection, ProjectSection } from "./settings";
 
@@ -47,8 +49,9 @@ export interface OverlayParams {
   new_ticket: { epic?: string } | undefined;
   /** The ticket editor on a ticket (T-0228). */
   edit_ticket: { ticket: string };
-  /** Settings, on a project's page and on a section if given (T-0234). */
-  settings: { project?: string; section?: GlobalSection | ProjectSection } | undefined;
+  /** Settings, on a project's page and on a section if given (T-0234); `agent`: Settings → Agents on that agent's
+   * page (its id; Open agent…, T-0411). */
+  settings: { project?: string; section?: GlobalSection | ProjectSection; agent?: string } | undefined;
   /** The running processes (T-0232). */
   processes: undefined;
   /** The run-command dialog of a project's first Run (T-0232); `ask`: Settings' Ask the agent was the click. */
@@ -63,15 +66,16 @@ export interface OverlayParams {
   activity: undefined;
   /** Add project (T-0233), with a folder already picked or dropped on the window. */
   add_project: { folder?: string } | undefined;
-  /** First run (T-0233), over the whole window; Check tools opens it on its tools step. */
-  onboarding: { step?: OnboardingStepId } | undefined;
+  /** First run (T-0233), over the whole window; Check tools opens it on its tools step, and a start while first run's
+   * project is still in Flow setup on its Flow step (`project`, ASK-04). */
+  onboarding: { step?: OnboardingStepId; project?: string } | undefined;
   /** "Help improve Otaq": anonymous usage data, asked once after first run (d0085). */
   usage_data: UsageDataDialog;
   /** The delete confirmation of a never-started ticket (T-0221); from a lead's suggestion, with its line (T-0292). */
   delete_ticket: { ticket: string; suggestion?: SuggestionConfirm };
   /** The Close ticket confirmation (T-0222); from a lead's suggestion, with its line (T-0292). */
   close_ticket: { ticket: string; suggestion?: SuggestionConfirm };
-  /** Submit for review with an optional note (T-0222). */
+  /** Move to next stage (was Submit for review) with an optional note (T-0222, T-0406). */
   submit_for_review: { ticket: string };
   /** Start from scratch after a failed resume: what is kept and lost (T-0235). */
   start_from_scratch: { ticket: string };
@@ -81,6 +85,12 @@ export interface OverlayParams {
   close_epic: { epic: string };
   /** Send back with a note (T-0226). */
   send_back: { ticket: string };
+  /** A card dragged back to an earlier Agent stage or agent check: its instructions or note (T-0421, FLW-18). */
+  drag_back: DragBackDialog;
+  /** Fail on a human check with what's wrong (FLW-14, T-0424). */
+  fail: { ticket: string };
+  /** Send back with PR comments and an optional note (FLW-16, T-0424). */
+  send_back_pr: { ticket: string };
   /** Change… on a recorded decision (T-0288): Send back on a ticket, Add a fix child in an epic's review. */
   change_decision: { id: string };
   /** The Local merge confirmation (T-0226); `menu` starts at the Approve ▾ choice (⌘↵). */
@@ -102,6 +112,13 @@ export interface OverlayParams {
   gallery: undefined;
   /** A description over the whole window (T-0260); `owner` is the form or Ticket tab that draws into it. */
   full_view: { owner: string };
+  /** The flow preview of a project's open proposal (T-0420, FLW-04), over the main area beside the Project agent
+   * pane; `focus`: the user opened it (Settings → Flow), so the keyboard moves into it. */
+  flow_preview: { project: string; focus?: boolean };
+  /** Apply now on a project's waiting flow change (T-0439, APN-02), from the flow change banner. */
+  apply_now: { project: string };
+  /** A comment's report, or a paste not posted yet, read-only over the panel (CMT-12, T-0447). */
+  report: ReportOpenParams;
 }
 
 export type OverlayId = keyof OverlayParams;
@@ -133,6 +150,9 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   move_to_epic: true,
   close_epic: true,
   send_back: true,
+  drag_back: true,
+  fail: true,
+  send_back_pr: true,
   change_decision: true,
   local_merge: true,
   open_pr: true,
@@ -143,7 +163,17 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   shortcuts: true,
   gallery: true,
   full_view: true,
+  // The pane beside it stays usable: typing and shortcuts go on (FLW-04).
+  flow_preview: false,
+  apply_now: true,
+  report: true,
 };
+
+/**
+ * The overlays drawn over the main area only (FLW-04's preview), not the whole window: the rail, the header and the
+ * Project agent pane stay visible and usable beside them. The frame draws them in the main area's own layer.
+ */
+export const OVERLAY_MAIN_AREA: Partial<Record<OverlayId, true>> = { flow_preview: true };
 
 export const OVERLAY_IDS = Object.keys(OVERLAY_MODAL) as OverlayId[];
 

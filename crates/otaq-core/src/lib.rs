@@ -1,7 +1,9 @@
 //! Otaq core: domain, SQLite store, scheduler, git and worktrees, sessions, hook handling and the
 //! socket server. Runs as `otaq daemon`. Has no UI dependency, so it is fully testable headless (d0002).
 
+pub mod agent_reads;
 pub mod agent_tools;
+pub mod agents;
 pub mod attention;
 pub mod board;
 pub mod caller;
@@ -10,14 +12,15 @@ pub mod data_dir;
 pub mod decisions;
 pub mod domain;
 pub mod epic_lead;
+pub mod flow;
 pub mod git;
 pub mod glob;
 pub mod ipc;
 pub mod local_time;
 pub mod logging;
 pub mod messages;
-pub mod named_agents;
 pub mod naming;
+pub mod onboarding;
 pub mod paths;
 pub mod policy;
 pub mod ports;
@@ -33,6 +36,7 @@ pub mod service;
 pub mod session;
 pub mod shell;
 pub mod signals;
+pub mod skills;
 pub mod start;
 pub mod store;
 pub mod terminals;
@@ -41,4 +45,3 @@ pub mod tools;
 pub mod usage;
 pub mod validation;
 pub mod warm;
-pub mod workflow_skills;

@@ -103,7 +103,7 @@ async fn with_pr(url: &str) -> TestService {
         )
         .await
         .unwrap();
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     w
 }
 

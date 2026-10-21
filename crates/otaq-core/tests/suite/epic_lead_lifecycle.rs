@@ -4,6 +4,7 @@
 //! click; wake-ups wait during the usage limit; handovers are handed back at the end of the lead's turn and when it
 //! ends. `claude` stands in as `sh` printing its arguments, then `cat`: no test starts claude.
 
+use otaq_core::service::testing::said;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -96,7 +97,7 @@ async fn child(w: &TestService, epic: &Ticket, title: &str) -> Ticket {
 async fn merge_child(w: &TestService, child: &Ticket, file: &str) {
     let wt = w.start_worktree(child).await;
     commit(&wt, file, &format!("{file}\n"));
-    w.force_status(child, Status::ReadyForReview).await;
+    w.force_status(child, Status::WaitingForYou).await;
     let outcome = w
         .review
         .local_merge(
@@ -322,13 +323,15 @@ async fn a_merge_and_a_close_wake_the_lead_once_each_typed_only_when_idle() {
     w.validation
         .submit(
             &key(&page),
-            "The page lists the items.",
+            said(&w.board, &key(&page), "The page lists the items.")
+                .await
+                .as_ref(),
             &Actor::Agent(page.key.clone()),
             ValidationTrigger::Agent,
         )
         .await
         .unwrap();
-    assert_eq!(w.status(&key(&page)).await, Status::Validating);
+    assert_eq!(w.status(&key(&page)).await, Status::Checking);
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(pending(&w, &open).await.is_empty());
     let out = w.wait_for_output(&session(&open), &closed).await;
@@ -360,7 +363,7 @@ async fn the_lead_ends_at_review_and_resumes_quietly_when_a_child_is_added_or_re
 
     w.review.close(&key(&export), true, &me()).await.unwrap();
     merge_child(&w, &api, "api.ts").await;
-    assert_eq!(w.status(&key(&wishlist)).await, Status::ReadyForReview);
+    assert_eq!(w.status(&key(&wishlist)).await, Status::WaitingForYou);
     let ended = lead(&w, &wishlist).await.unwrap();
     assert_eq!(ended.agent.state, AgentState::Ended);
     assert_eq!(ended.status, LeadStatus::EndedInReview);
@@ -402,7 +405,7 @@ async fn the_lead_ends_at_review_and_resumes_quietly_when_a_child_is_added_or_re
 
     // Back in review, then a new child: resumed again.
     w.review.close(&key(&export), true, &me()).await.unwrap();
-    assert_eq!(w.status(&key(&wishlist)).await, Status::ReadyForReview);
+    assert_eq!(w.status(&key(&wishlist)).await, Status::WaitingForYou);
     wait_state(&w, &wishlist, AgentState::Ended).await;
     child(&w, &wishlist, "Wishlist share link").await;
     assert_eq!(w.status(&key(&wishlist)).await, Status::Backlog);
@@ -434,7 +437,7 @@ async fn a_fix_child_from_the_epics_review_resumes_its_lead() {
     .await
     .unwrap();
     merge_child(&w, &api, "api.ts").await;
-    assert_eq!(w.status(&key(&wishlist)).await, Status::ReadyForReview);
+    assert_eq!(w.status(&key(&wishlist)).await, Status::WaitingForYou);
     wait_state(&w, &wishlist, AgentState::Ended).await;
 
     // Change… → Add a fix child, in the epic's review: the epic is a track again and its lead resumes quietly.

@@ -1,10 +1,11 @@
 // Area 11 · Banners, toasts & OS notifications (T-0231): the banner area above board and panel (at most two rows,
-// one per situation), the toast host bottom-right, Restart now's confirmation, and notification clicks. What shows,
-// its wording and its buttons come from Rust (`src/notices.rs`); OS notifications are posted by the service.
+// one per situation), the toast host bottom-right, Restart now's confirmation, the flow change banner's Apply now window
+// (`ApplyNow.tsx`) and notification clicks. What shows, its wording and its buttons come from Rust (`src/notices.rs`);
+// OS notifications are posted by the service.
 import { useEffect, useRef, useState } from "react";
 
 import type { OverlayProps, Screen } from "../../app/registry";
-import { openTicket } from "../../app/selection";
+import { openTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { Banner, ConfirmDialog, Toast, useEnterExit } from "../../components";
 import type { Banner as BannerView } from "../../generated/Banner";
@@ -15,14 +16,8 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { toolProblemAction } from "../panel/toolProblemRunner";
 import { type LimitLineHandlers, LimitLines } from "./LimitLines";
-import {
-  followNotifications,
-  limitLinesOf,
-  moveWaiting,
-  noticesStore,
-  pressBanner,
-  watchNotices,
-} from "./notices";
+import { ApplyNowOverlay } from "./ApplyNow";
+import { followNotifications, limitLinesOf, noticesStore, pressBanner, watchNotices } from "./notices";
 import "./notices.css";
 
 export { noticesStore, onlyRestartAllowed } from "./notices";
@@ -36,13 +31,10 @@ function warnOnFailure(what: string) {
   };
 }
 
-/** The limit lines' presses in the app: a line's button as its tool problem action, an agent picked in Move waiting to…. */
+/** The limit lines' presses in the app: a line's button as its tool problem action. */
 export const LINE_HANDLERS: LimitLineHandlers = {
   onAction: (action) => {
     toolProblemAction(action, {});
-  },
-  onMove: (tool, agent) => {
-    moveWaiting(tool, agent).catch(warnOnFailure("Move waiting"));
   },
 };
 
@@ -94,8 +86,13 @@ export function BannerRows({
 /** The banner slot: follows the notices and the notification clicks while the page is up. */
 function BannerArea() {
   const notices = useStore(noticesStore);
+  const { project } = useSelection();
   useEffect(() => watchNotices(noticesStore.set), []);
   useEffect(() => followNotifications(), []);
+  // The flow change banner is the project on screen's (FLW-06).
+  useEffect(() => {
+    request("notices.project", { project }).catch(warnOnFailure("The project on screen"));
+  }, [project]);
   // While the service can't take input, the rail, board and panel are dimmed and ignore clicks (`notices.css`).
   const inputOff = notices !== undefined && !notices.input_enabled;
   useEffect(() => {
@@ -249,4 +246,5 @@ export const notices: Screen = (app) => {
   app.slots.register("banners", { Component: BannerArea });
   app.slots.register("toasts", { Component: ToastHost });
   app.overlays.register("restart_service", { Component: RestartOverlay });
+  app.overlays.register("apply_now", { Component: ApplyNowOverlay });
 };

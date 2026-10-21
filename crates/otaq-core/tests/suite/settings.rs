@@ -3,12 +3,10 @@
 
 use crate::common::Fixture;
 use otaq_core::board::settings::{
-    AutoMerge, GlobalSettings, KeyboardChange, KeyboardSettings, ProjectSettings, ResolvedSkill,
-    SkillSetting, Theme, ThemeSetting, WorkflowSkillOverrides, WorkflowSkills, WorkflowStep,
-    resource_without_create,
+    GlobalSettings, KeyboardChange, KeyboardSettings, ProjectSettings, Theme, ThemeSetting,
+    WorkflowStep, resource_without_create,
 };
 use otaq_core::git::testing::{git, snapshot};
-use otaq_core::naming;
 
 #[tokio::test]
 async fn defaults() {
@@ -26,19 +24,15 @@ async fn defaults() {
     assert!(!global.description_source_mode);
     assert_eq!(global.keyboard, KeyboardSettings::default());
     assert_eq!(global.theme, ThemeSetting::default());
-    assert_eq!(global.workflow_skills, WorkflowSkills::default());
     let effective = f.board.effective_settings("SHOP").await.unwrap();
-    for step in WorkflowStep::ALL {
-        assert_eq!(global.workflow_skills.get(step), &SkillSetting::BuiltIn);
+    assert_eq!(effective.project_notes, "");
+    // The PR path runs Otaq's own skills, by their own names (AGM-07).
+    for step in [WorkflowStep::OpenPr, WorkflowStep::Push] {
         assert_eq!(
-            effective.workflow_skills.get(step),
-            &ResolvedSkill::BuiltIn(step)
+            f.board.delivery_skill("SHOP", step).await.unwrap(),
+            step.own_skill()
         );
     }
-    assert_eq!(
-        effective.workflow_skills.open_pr.label(),
-        naming::skill("open-pr")
-    );
 
     let project = f.board.project_settings("SHOP").await.unwrap();
     assert!(project.let_finished_tickets_answer);
@@ -64,7 +58,6 @@ async fn global_values_round_trip_and_keep_other_rows() {
     let mut global = GlobalSettings::default();
     global.agent_limits.enabled = true;
     global.agent_limits.max_concurrency = 8;
-    global.agent_instructions = "Ask before coding.".into();
     global.theme = ThemeSetting::Picked(Theme::TokyoNight);
     global.terminal_font_size = 15;
     global.notifications = false;
@@ -156,34 +149,20 @@ async fn a_0069_system_mode_waits_for_the_os() {
 }
 
 #[tokio::test]
-async fn project_values_fall_back_to_global_when_empty() {
+async fn project_values_round_trip_with_the_projects_notes() {
     let f = Fixture::shop().await;
-    let global = GlobalSettings {
-        agent_instructions: "Run tests before submitting.".into(),
-        ..Default::default()
-    };
-    f.board.set_global_settings(&global).await.unwrap();
-
     let effective = f.board.effective_settings("SHOP").await.unwrap();
-    assert_eq!(effective.agent_instructions, "Run tests before submitting.");
-    assert_eq!(
-        effective.workflow_skills.commit,
-        ResolvedSkill::BuiltIn(WorkflowStep::Commit)
-    );
+    assert_eq!(effective.project_notes, "");
 
     let own = ProjectSettings {
-        agent_instructions: "Use my /tdd skill.".into(),
+        project_notes: "Use pnpm, not npm.".into(),
         let_finished_tickets_answer: false,
         ..Default::default()
     };
     f.board.set_project_settings("SHOP", &own).await.unwrap();
     assert_eq!(f.board.project_settings("SHOP").await.unwrap(), own);
     let effective = f.board.effective_settings("SHOP").await.unwrap();
-    assert_eq!(effective.agent_instructions, "Use my /tdd skill.");
-    assert_eq!(
-        effective.workflow_skills.push,
-        ResolvedSkill::BuiltIn(WorkflowStep::Push)
-    );
+    assert_eq!(effective.project_notes, "Use pnpm, not npm.");
 }
 
 #[tokio::test]
@@ -257,117 +236,45 @@ async fn invalid_values_are_stored_and_flagged_and_the_repo_is_untouched() {
     );
 }
 
-/// T-0181 (VAL-13, AMG-01, PAG-03; d0063, d0064, d0068): the M12 settings' defaults.
+/// FLW-01 (d0108, no migration): Validation, Validation rounds and Auto-merge aren't settings any more. A value
+/// stored before is ignored, and the settings written back don't carry it.
 #[tokio::test]
-async fn m12_defaults() {
+async fn validation_and_auto_merge_are_no_settings() {
     let f = Fixture::shop().await;
-    let global = f.board.global_settings().await.unwrap();
-    assert!(global.validation);
-    assert_eq!(global.validation_rounds, 3);
-    assert_eq!(global.auto_merge, AutoMerge::Off);
-    assert_eq!(global.workflow_skills.validate, SkillSetting::BuiltIn);
-    assert!(global.project_agent_instructions.is_empty());
-    let effective = f.board.effective_settings("SHOP").await.unwrap();
-    assert!(effective.validation && !effective.auto_merge_inactive);
-    assert_eq!(effective.validation_rounds, 3);
-    assert_eq!(effective.auto_merge, AutoMerge::Off);
-    assert_eq!(
-        effective.workflow_skills.validate,
-        ResolvedSkill::BuiltIn(WorkflowStep::Validate)
-    );
-}
-
-/// Project overrides win; empty overrides use the global values; Auto-merge without validation is inactive;
-/// rounds outside 1–5 are flagged and never used.
-#[tokio::test]
-async fn m12_overrides_and_resolution() {
-    let f = Fixture::shop().await;
-    let global = GlobalSettings {
-        validation_rounds: 4,
-        auto_merge: AutoMerge::EpicChildren,
-        project_agent_instructions: "Use my /import-github skill.".into(),
-        ..GlobalSettings::default()
-    };
-    f.board.set_global_settings(&global).await.unwrap();
-    let effective = f.board.effective_settings("SHOP").await.unwrap();
-    assert_eq!(
-        (effective.validation_rounds, effective.auto_merge),
-        (4, AutoMerge::EpicChildren)
-    );
-    assert_eq!(
-        effective.project_agent_instructions,
-        "Use my /import-github skill."
-    );
-
-    let own = ProjectSettings {
-        validation: Some(false),
-        validation_rounds: Some(2),
-        auto_merge: Some(AutoMerge::All),
-        project_agent_instructions: "Split into tickets of about one day.".into(),
-        workflow_skills: WorkflowSkillOverrides {
-            validate: SkillSetting::Legacy("/my-validate".into()),
-            ..WorkflowSkillOverrides::default()
-        },
-        ..ProjectSettings::default()
-    };
-    f.board.set_project_settings("SHOP", &own).await.unwrap();
-    assert_eq!(f.board.project_settings("SHOP").await.unwrap(), own);
-    let effective = f.board.effective_settings("SHOP").await.unwrap();
-    assert!(!effective.validation);
-    assert_eq!(effective.validation_rounds, 2);
-    assert_eq!(effective.auto_merge, AutoMerge::All);
-    assert!(
-        effective.auto_merge_inactive,
-        "Auto-merge does nothing while validation is off"
-    );
-    // A legacy value isn't run: the global setting (the built-in) is (WSK-07).
-    assert_eq!(
-        effective.workflow_skills.validate,
-        ResolvedSkill::BuiltIn(WorkflowStep::Validate)
-    );
-    assert_eq!(
-        effective.project_agent_instructions,
-        "Split into tickets of about one day."
-    );
-
-    // Flagged rounds are never used: the project's 6 falls back to the global value, the global 0 to 3.
-    let own = ProjectSettings {
-        validation_rounds: Some(6),
-        ..ProjectSettings::default()
-    };
-    f.board.set_project_settings("SHOP", &own).await.unwrap();
-    assert_eq!(
-        f.board
-            .effective_settings("SHOP")
+    let pool = f.board.store().pool();
+    for (key, value) in [
+        ("validation", "false"),
+        ("validation_rounds", "5"),
+        ("auto_merge", "\"all\""),
+    ] {
+        sqlx::query("INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, 0)")
+            .bind(key)
+            .bind(value)
+            .execute(pool)
             .await
-            .unwrap()
-            .validation_rounds,
-        4
-    );
-    let problems = f.board.project_setting_problems("SHOP").await.unwrap();
-    assert!(
-        problems
-            .iter()
-            .any(|p| p.field == "validation_rounds" && p.message == "Use 1 to 5 validation rounds"),
-        "{problems:?}"
-    );
-    f.board
-        .set_global_settings(&GlobalSettings {
-            validation_rounds: 0,
-            ..GlobalSettings::default()
-        })
-        .await
-        .unwrap();
+            .unwrap();
+    }
+    sqlx::query(
+        "UPDATE projects SET settings_json = '{\"validation\": false, \"auto_merge\": \"all\"}' WHERE key = 'SHOP'",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
     assert_eq!(
-        f.board
-            .effective_settings("SHOP")
-            .await
-            .unwrap()
-            .validation_rounds,
-        3
+        f.board.global_settings().await.unwrap(),
+        GlobalSettings::default()
     );
-    let problems = f.board.global_setting_problems().await.unwrap();
-    assert!(problems.iter().any(|p| p.field == "validation_rounds"));
+    assert_eq!(
+        f.board.project_settings("SHOP").await.unwrap(),
+        ProjectSettings::default()
+    );
+    let global = serde_json::to_value(GlobalSettings::default()).unwrap();
+    let project = serde_json::to_value(ProjectSettings::default()).unwrap();
+    for field in ["validation", "validation_rounds", "auto_merge"] {
+        assert!(global.get(field).is_none(), "{field}");
+        assert!(project.get(field).is_none(), "{field}");
+    }
+    assert!(f.board.global_setting_problems().await.unwrap().is_empty());
 }
 
 /// Schema paths (M19-e, d0087): each must be a relative glob inside the repository; a Remove or Template refresh

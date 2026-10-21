@@ -4,9 +4,11 @@
 //! Change… while it is open in review), and the Decisions section on the Diff tab, grouped by child for an epic.
 //! No decisions → no section.
 
+use crate::view_models::flow_columns::place_set;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::decisions::{ChildDecisions, Decision, Outcome};
-use otaq_core::domain::{Column, Status};
+use otaq_core::domain::Status;
+use otaq_core::domain::StatusSet;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -103,17 +105,17 @@ pub const HINT_EPIC: &str = "Approve keeps them all \u{b7} Change\u{2026} adds a
 /// The review is open: a ticket in Ready for Review, or an epic in its Ready for Review column.
 pub fn in_review(ticket: &Ticket) -> bool {
     if ticket.is_epic() {
-        ticket.column == Column::ReadyForReview
+        place_set(ticket) == StatusSet::HumanCheck
     } else {
-        ticket.status == Status::ReadyForReview
+        ticket.status == Status::WaitingForYou
     }
 }
 
 /// The section is shown once the ticket has reached its review: Ready for Review, Approved or Done.
 fn reached_review(ticket: &Ticket) -> bool {
     matches!(
-        ticket.column,
-        Column::ReadyForReview | Column::Approved | Column::Done
+        place_set(ticket),
+        StatusSet::HumanCheck | StatusSet::Delivery | StatusSet::Done
     )
 }
 
@@ -261,7 +263,7 @@ pub fn ticket_tab(
     children: &[ChildDecisions],
     tickets: &[Ticket],
 ) -> Option<DecisionsSection> {
-    let decided = matches!(ticket.column, Column::Approved | Column::Done);
+    let decided = matches!(place_set(ticket), StatusSet::Delivery | StatusSet::Done);
     with_groups(
         groups(ticket, own, children, tickets, false),
         (!decided).then_some(HINT_TICKET_TAB),
@@ -341,13 +343,13 @@ pub fn gallery() -> Gallery {
         },
     ];
     let review = |key: &str, title: &str, kind: Kind| {
-        let mut t = ticket(key, title, Status::ReadyForReview);
+        let mut t = ticket(key, title, Status::WaitingForYou);
         t.kind = kind;
-        t.column = Column::ReadyForReview;
+        t.place = otaq_core::domain::Place::stage_of("review");
         t.status = if kind == Kind::Epic {
-            Status::EpicInProgress
+            Status::Backlog
         } else {
-            Status::ReadyForReview
+            Status::WaitingForYou
         };
         t
     };
@@ -467,20 +469,20 @@ mod tests {
     use otaq_core::domain::Kind;
 
     fn review(key: &str, title: &str) -> Ticket {
-        let mut t = ticket(key, title, Status::ReadyForReview);
-        t.column = Column::ReadyForReview;
+        let mut t = ticket(key, title, Status::WaitingForYou);
+        t.place = otaq_core::domain::Place::stage_of("review");
         t
     }
 
     fn epic_in_review() -> (Ticket, Vec<Ticket>) {
         let mut epic = review("SHOP-40", "Wishlist");
         epic.kind = Kind::Epic;
-        epic.status = Status::EpicInProgress;
+        epic.status = Status::Backlog;
         let children = ["SHOP-40.1", "SHOP-40.3", "SHOP-40.4"]
             .into_iter()
             .map(|k| {
                 let mut c = ticket(k, "child", Status::Merged);
-                c.column = Column::Done;
+                c.place = otaq_core::domain::Place::Done;
                 c
             })
             .collect();
@@ -566,7 +568,7 @@ mod tests {
         kept.outcome = Outcome::Kept;
         assert!(!item(&kept, in_review(&shop23)).change, "already kept");
         shop23.status = Status::Working;
-        shop23.column = Column::Dev;
+        shop23.place = otaq_core::domain::Place::stage_of("dev");
         assert!(!in_review(&shop23));
         assert!(!item(&full_name(), in_review(&shop23)).change);
         assert_eq!(
@@ -575,7 +577,7 @@ mod tests {
             "while it works the Ticket tab lists them (T-0288)"
         );
         shop23.status = Status::Merged;
-        shop23.column = Column::Done;
+        shop23.place = otaq_core::domain::Place::Done;
         let after = section(&shop23, &[kept], &[], &[]).unwrap();
         assert_eq!(after.hint, None, "no hint after approval");
         assert!(!after.groups[0].items[0].change);
@@ -654,7 +656,7 @@ mod tests {
     fn the_ticket_tab_lists_them_read_only() {
         let mut shop23 = review("SHOP-23", "Split user full name");
         shop23.status = Status::Working;
-        shop23.column = Column::Dev;
+        shop23.place = otaq_core::domain::Place::stage_of("dev");
         let s = ticket_tab(&shop23, &[full_name()], &[], &[]).unwrap();
         assert_eq!((s.title, s.count), ("Decisions", 1));
         assert_eq!(
@@ -667,13 +669,13 @@ mod tests {
         );
         assert_eq!(s.groups[0].items[0].status, None);
         // In review the Ticket tab stays read-only: Change… is on the Diff tab.
-        shop23.status = Status::ReadyForReview;
-        shop23.column = Column::ReadyForReview;
+        shop23.status = Status::WaitingForYou;
+        shop23.place = otaq_core::domain::Place::stage_of("review");
         let s = ticket_tab(&shop23, &[full_name()], &[], &[]).unwrap();
         assert!(!s.groups[0].items[0].change);
         // After approval: the items with their status, no hint.
         shop23.status = Status::Merged;
-        shop23.column = Column::Done;
+        shop23.place = otaq_core::domain::Place::Done;
         let mut kept = full_name();
         kept.outcome = Outcome::Kept;
         let s = ticket_tab(&shop23, &[kept], &[], &[]).unwrap();

@@ -13,9 +13,9 @@ use tokio::sync::watch;
 
 use super::{Messages, PART_QUESTION, Route, question_text};
 use crate::agent_tools::{FirstPrompt, LaunchRequest, LaunchRole};
+use crate::agents::RunsOn;
 use crate::board::tickets::Ticket;
 use crate::board::{BoardError, Refusal};
-use crate::named_agents::RunsOn;
 use crate::naming;
 use crate::session::{
     SessionInfo, SessionKind, SessionTicket, SpawnSpec, StoredConversation, TerminalSize,
@@ -250,6 +250,24 @@ impl Messages {
             .await?;
         // Answer resumes the finished session with its own stored tool, model and named agent (Q-D).
         let runs_on = RunsOn::resumed(&conversation);
+        // Its agent's skills and the answer skill, copied into the worktree by one name first (AGM-07).
+        let agent = match &runs_on.agent {
+            Some(stored) => board.store().agent(&stored.id).await?,
+            None => None,
+        };
+        let first_prompt = board
+            .copy_for_session(
+                &path,
+                inner.adapters.shipped_skills(),
+                agent.as_ref(),
+                Some(FirstPrompt::Skill {
+                    name: ANSWER_SKILL.to_owned(),
+                    message: None,
+                }),
+                crate::skills::Marker::Worktree,
+            )
+            .await
+            .0;
         let launched = inner.adapters.launch(
             runs_on.tool,
             &LaunchRequest {
@@ -259,12 +277,10 @@ impl Messages {
                 ticket: Some(target.key.clone()),
                 epic: None,
                 port: 0,
-                first_prompt: Some(FirstPrompt::OtaqSkill {
-                    name: ANSWER_SKILL.to_owned(),
-                    message: None,
-                }),
+                first_prompt,
                 resume: Some(conversation.id),
                 model: runs_on.model,
+                effort: runs_on.effort.clone(),
                 title: Some(target.title.clone()),
             },
         )?;
@@ -287,7 +303,9 @@ impl Messages {
                 tool: Some(launched.tool),
                 tool_session_id: launched.tool_session_id,
                 model: launched.model,
-                named_agent: runs_on.agent,
+                agent: runs_on.agent,
+                effort: runs_on.effort,
+                fallback: runs_on.fallback,
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;

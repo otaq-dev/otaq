@@ -28,6 +28,6 @@ read_only: boolean,
  */
 strips: Array<TerminalTabStrip>, 
 /**
- * `otaq attach SHOP-29 --validator` while it runs.
+ * `otaq attach SHOP-29 --stage validate` while it runs.
  */
 attach_command: string, };

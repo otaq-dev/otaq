@@ -16,9 +16,6 @@ import type { Banner } from "../../generated/Banner";
 import type { BannerButtonId } from "../../generated/BannerButtonId";
 import type { BannerKind } from "../../generated/BannerKind";
 import type { LimitLine } from "../../generated/LimitLine";
-import type { LimitMoveWaiting } from "../../generated/LimitMoveWaiting";
-import type { MenuItem } from "../../generated/MenuItem";
-import type { MoveWaitingMenu } from "../../generated/MoveWaitingMenu";
 import type { Notices } from "../../generated/Notices";
 import type { NotificationTarget } from "../../generated/NotificationTarget";
 import { asRequestError, type PageEvents, pageEvents } from "../../service";
@@ -66,6 +63,8 @@ export function watchNotices(
 export interface BannerRoutes {
   ask: typeof request;
   overlays: Pick<OverlayStack, "open">;
+  /** The project on screen (the flow change banner's); the selection's by default. */
+  project?: () => string | null;
 }
 
 const ROUTES: BannerRoutes = { ask: request, overlays };
@@ -74,11 +73,19 @@ const ROUTES: BannerRoutes = { ask: request, overlays };
 export async function pressBanner(
   kind: BannerKind,
   button: BannerButtonId,
-  { ask, overlays: stack }: BannerRoutes = ROUTES,
+  { ask, overlays: stack, project = () => selection.get().project }: BannerRoutes = ROUTES,
 ): Promise<void> {
   // The notifications ask (ATT-13): Allow brings up macOS's question in the app; Not now only answers the ask.
   if (kind === "notifications_ask") {
     await ask(button === "secondary" ? "notices.notifications_not_now" : "notices.notifications_allow");
+    return;
+  }
+  // A flow change waiting (FLW-06, APN-01): Apply now opens its window on the project on screen; Cancel change asks
+  // no question (starts resume).
+  if (kind === "flow_waiting") {
+    const on = project();
+    if (button === "secondary") await ask("notices.flow_cancel", { project: null });
+    else if (on !== null) stack.open("apply_now", { project: on });
     return;
   }
   // "Review & resume": the after-restart summary sheet, where each ticket resumes on its own (T-0235).
@@ -130,34 +137,6 @@ export function limitLinesOf(banner: Banner): readonly LimitLine[] {
   const several = banner.lines.some((line) => line.avatar !== null);
   const more = banner.lines.some((line) => line.buttons.some((b) => b.action.kind !== "resume_tool"));
   return several || more ? banner.lines : [];
-}
-
-/** Move waiting to…'s list as menu rows, for the menu's keyboard (`menuKey`): its title, then one row per agent. */
-export function moveMenuItems(menu: MoveWaitingMenu): MenuItem[] {
-  const row = {
-    icon: null,
-    shortcut: null,
-    danger: false,
-    disabled: false,
-    separated: false,
-    checked: false,
-  };
-  return [
-    { ...row, id: "", label: menu.title, hint: null, header: true },
-    ...menu.items.map((item) => ({
-      ...row,
-      id: item.agent,
-      label: item.name,
-      hint: item.detail,
-      header: false,
-    })),
-  ];
-}
-
-/** An agent picked in Move waiting to…: the tool's waiting tickets move to it and start (AGT-08); Rust's toast says so. */
-export async function moveWaiting(tool: string, agent: string, ask: typeof request = request): Promise<void> {
-  const params: LimitMoveWaiting = { tool, agent };
-  await ask("limits.move_waiting", params);
 }
 
 /** Where opening a notification's target lands: the selection, the terminal focus requests, the overlays and the

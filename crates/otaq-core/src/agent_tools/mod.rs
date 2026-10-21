@@ -34,7 +34,6 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::board::settings::WorkflowStep;
 use crate::domain::{TicketKey, stored_enum};
 pub use crate::recovery::TranscriptEntry;
 pub use crate::tools::Os;
@@ -102,6 +101,17 @@ impl Tool {
         }
     }
 
+    /// [`AgentTool::effort_levels`]: the tool's own effort / reasoning levels (AGM-01), empty for a tool without a
+    /// documented one; an agent's page shows Effort only where there are some.
+    pub fn effort_levels(self) -> &'static [&'static str] {
+        match self {
+            Self::Claude => claude::EFFORT_LEVELS,
+            Self::Codex => codex::EFFORT_LEVELS,
+            Self::Copilot => copilot::EFFORT_LEVELS,
+            Self::OpenCode => opencode::EFFORT_LEVELS,
+        }
+    }
+
     /// [`AgentTool::swaps_refused_model`]: the tool runs another model quietly when it can't run the one asked for
     /// (the panel's "asked for gpt-5.5, ran on auto").
     pub fn swaps_refused_model(self) -> bool {
@@ -133,7 +143,7 @@ pub struct Detection {
     pub sign_in_offered: bool,
 }
 
-/// The skill every agent session starts with.
+/// The skill an Agent stage without a skill of its own starts with.
 pub const WORK_TICKET_SKILL: &str = "work-ticket";
 
 /// The skill every Project agent starts with (d0068).
@@ -149,7 +159,8 @@ pub const EPIC_LEAD_SKILL: &str = "epic-lead";
 pub struct LaunchContext {
     /// The folder of the `otaq` command, put first on the agent's PATH.
     pub bin_dir: PathBuf,
-    /// Otaq's plugin folder (one copy of its skills and hooks, ADP-05).
+    /// Otaq's plugin folder: its shipped skills (`skills/`, AGM-07) and each tool's hooks plugin (`claude/`,
+    /// `codex/`, `copilot/`, `opencode/`).
     pub plugin_dir: PathBuf,
     /// The PATH the agent extends (the service's).
     pub path: OsString,
@@ -158,6 +169,11 @@ pub struct LaunchContext {
 }
 
 impl LaunchContext {
+    /// The installed app's shipped skills: `<plugin>/skills` (AGM-07).
+    pub fn shipped_skills(&self) -> PathBuf {
+        self.plugin_dir.join(crate::skills::SHIPPED_FOLDER)
+    }
+
     /// The running binary's folder, the plugin next to it (or the repository's in a dev build), and each
     /// tool's program from PATH. `None` when no plugin folder is found.
     pub fn from_process() -> Option<Self> {
@@ -231,48 +247,31 @@ pub enum LaunchRole {
 /// The first prompt of a session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FirstPrompt {
-    /// One of Otaq's own skills (`work-ticket`, `address-review`, `epic-lead`…), named in the tool's syntax by
-    /// the adapter ([`AgentTool::skill_reference`]), optionally followed by a message (the epic lead's first
-    /// message).
-    OtaqSkill {
+    /// A skill by its own name (`work-ticket`, `address-review`, an imported `team-validate`…), already copied into
+    /// the launch's folder as `otaq-<name>` ([`crate::skills`], AGM-07) and named in the tool's syntax by the adapter
+    /// ([`AgentTool::skill_reference`]), optionally followed by a message (the Project agent's first request, the
+    /// epic lead's first message).
+    Skill {
         name: String,
         message: Option<String>,
     },
-    /// A workflow skill of `step` (Validate, Open PR, Push; REV-09), named by the adapter
-    /// ([`AgentTool::workflow_skill`]): Otaq's own in the tool's syntax, or, when `imported`, the copy Otaq wrote into
-    /// the launch's worktree just before (WSK-05), by its folder.
-    WorkflowSkill { step: WorkflowStep, imported: bool },
     /// Text passed as it is (the PR resume's "push now").
     Text(String),
 }
 
-/// A workflow skill (Commit, Push, Open PR, Validate; REV-09) as named to one agent (ADP-05, WSK-06; d0092).
-/// Serialised as the name itself, or `{"folder": ".agents/skills/otaq-custom-commit/"}`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum SkillRef {
-    /// Otaq's own, in the tool's syntax: `/otaq:commit`, `$otaq:commit`.
-    Own(String),
-    /// An imported skill, by its copy in the worktree, relative to it (the same on every tool):
-    /// `.agents/skills/otaq-custom-commit/` ([`crate::workflow_skills::worktree::named_folder`]).
-    Folder { folder: String },
-}
-
-impl SkillRef {
-    /// How a first prompt or a typed Open PR / Push runs it: the name, or "Follow the skill in `<folder>` …".
-    pub fn prompt(&self) -> String {
+impl FirstPrompt {
+    /// The prompt as typed for `tool`: `/otaq-epic-lead <message>`, or the text.
+    pub fn text(&self, tool: &dyn AgentTool) -> String {
         match self {
-            Self::Own(name) => name.clone(),
-            Self::Folder { folder } => format!("Follow the skill in {}.", Self::follow(folder)),
+            Self::Skill { name, message } => {
+                let skill = tool.skill_reference(name);
+                match message.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+                    Some(message) => format!("{skill} {message}"),
+                    None => skill,
+                }
+            }
+            Self::Text(text) => text.clone(),
         }
-    }
-
-    /// "`.agents/skills/otaq-custom-commit/` (start with its SKILL.md; paths in it are relative to that folder)".
-    pub fn follow(folder: &str) -> String {
-        format!(
-            "`{folder}` (start with its {}; paths in it are relative to that folder)",
-            crate::workflow_skills::folder::SKILL_FILE
-        )
     }
 }
 
@@ -296,8 +295,11 @@ pub struct LaunchRequest {
     /// The tool id to resume (Resume, Park, Send back, answers); `None` starts a new conversation.
     pub resume: Option<String>,
     /// The model, passed to the tool unchanged (d0088); `None` uses the tool's default. A new session's comes from
-    /// its resolved named agent, a resume's from the session it continues ([`crate::named_agents::RunsOn`]).
+    /// its agent, a resume's from the session it continues ([`crate::agents::RunsOn`]).
     pub model: Option<String>,
+    /// The tool's own effort level (AGM-01), only for a tool with one ([`AgentTool::effort_levels`]); `None` passes
+    /// none. Comes the same way as the model.
+    pub effort: Option<String>,
     /// The ticket's or the epic's own title ("Add coupon codes"), for a tool that names its conversations (OpenCode's
     /// session list: "Otaq · SHOP-18 · Add coupon codes"); `None` for a Project agent.
     pub title: Option<String>,
@@ -510,17 +512,6 @@ pub struct InputQuirks {
     pub enter_delay: Duration,
     /// Whether [`Self::clear_line`] clears a multi-line draft. When not, SES-07 asks the user instead.
     pub multi_line_clearable: bool,
-}
-
-/// How Otaq's skills (one copy, `plugin/skills`) reach the tool (ADP-05).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SkillDelivery {
-    /// The plugin folder is passed at every launch (Claude Code and Copilot `--plugin-dir`).
-    PluginFolderAtLaunch,
-    /// The skills folder goes in the launch's config (OpenCode `skills` in `OPENCODE_CONFIG_CONTENT`).
-    LaunchConfig,
-    /// Installed once by the one-time setup (Codex: a local plugin install into its home folder).
-    OneTimeInstall,
 }
 
 /// One agent CLI (d0088). Each group of methods answers one of d0088's seven questions.
@@ -747,27 +738,20 @@ pub trait AgentTool: Send + Sync {
         false
     }
 
+    /// The tool's own documented effort / reasoning levels (AGM-01, d0108: "the word effort is left to the tools'
+    /// own setting"), passed by [`Self::launch`] with [`LaunchRequest::effort`]; empty for a tool without one, which
+    /// gets no Effort field. Each adapter names the flag or config key and where it is documented.
+    fn effort_levels(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     // 7. Skills (ADP-05).
 
-    /// One of Otaq's own skills named for the agent: `/otaq:commit` (Claude Code, Copilot), `$otaq:commit`
-    /// (Codex), OpenCode's own form.
+    /// A skill named for the agent by its copy in the working folder (AGM-07, d0098): `skill_reference("commit")`
+    /// → `/otaq-commit` (Claude Code, Copilot), `$otaq-commit` (Codex), `otaq-commit` (OpenCode). Every skill
+    /// reaches every tool the same way, as a project skill in the folder the session runs in ([`crate::skills`]);
+    /// the tools' plugins carry only Otaq's hooks.
     fn skill_reference(&self, skill: &str) -> String;
-
-    /// How Otaq's skills reach the tool.
-    fn skill_delivery(&self) -> SkillDelivery;
-
-    /// How the workflow skill of `step` is named to an agent of this tool (ADP-05, WSK-06; d0092): Otaq's own by
-    /// [`Self::skill_reference`]; an `imported` one, already copied into the worktree, by that folder, the same on
-    /// every tool. No permission flag goes with either (d0011).
-    fn workflow_skill(&self, step: WorkflowStep, imported: bool) -> SkillRef {
-        if imported {
-            SkillRef::Folder {
-                folder: crate::workflow_skills::worktree::named_folder(step),
-            }
-        } else {
-            SkillRef::Own(self.skill_reference(step.own_skill()))
-        }
-    }
 
     // Model families (AGT-02, d0086).
 
@@ -783,6 +767,8 @@ pub trait AgentTool: Send + Sync {
 /// Every adapter, built once at service start. Cheap to clone.
 #[derive(Clone)]
 pub struct Adapters {
+    /// The installed app's shipped skills (`<plugin>/skills`); `None` when Otaq's plugin wasn't found.
+    shipped_skills: Option<PathBuf>,
     claude: Arc<claude::ClaudeCode>,
     codex: Arc<codex::Codex>,
     copilot: Arc<copilot::Copilot>,
@@ -793,6 +779,7 @@ impl Adapters {
     /// Claude Code's adapter, and the other three tools' on `tools`.
     pub fn new(claude: claude::ClaudeCode, tools: ToolContext) -> Self {
         Self {
+            shipped_skills: tools.launch.as_ref().map(LaunchContext::shipped_skills),
             claude: Arc::new(claude),
             codex: Arc::new(codex::Codex::new(tools.clone())),
             copilot: Arc::new(copilot::Copilot::new(tools.clone())),
@@ -822,6 +809,11 @@ impl Adapters {
             }),
             tools,
         )
+    }
+
+    /// Where the shipped skills are read from for a session's copies (AGM-07): the installed app's bundle.
+    pub fn shipped_skills(&self) -> Option<&Path> {
+        self.shipped_skills.as_deref()
     }
 
     /// The adapter of `tool`.
@@ -916,22 +908,6 @@ mod test_support {
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
-    /// An imported Validate skill's copy, as agents are pointed at it: `.agents/skills/otaq-custom-validate/`.
-    pub fn validate_folder() -> String {
-        format!(
-            ".agents/skills/{}/",
-            crate::naming::custom_skill("validate")
-        )
-    }
-
-    /// An imported Validate skill as every tool's first prompt names it (WSK-06, d0092).
-    pub fn follow_validate() -> String {
-        format!(
-            "Follow the skill in `{}` (start with its SKILL.md; paths in it are relative to that folder).",
-            validate_folder()
-        )
-    }
-
     /// Two launches of the same request but its first prompt: they differ only in the prompt (the last argument)
     /// and in an id chosen up front (`--session-id <id>`, `--session <id>`), never in a flag or the environment
     /// (d0011).
@@ -992,6 +968,7 @@ mod tests {
                 tool.resume_hint("3be94c10")
             );
             assert_eq!(adapter.swaps_refused_model(), tool.swaps_refused_model());
+            assert_eq!(adapter.effort_levels(), tool.effort_levels());
             let quirks = adapter.input();
             assert!(!quirks.clear_line.contains(&0x03), "{tool} types Ctrl+C");
             assert_eq!(quirks.clear_line, b"\x05\x15", "{tool}");
@@ -1035,13 +1012,14 @@ mod tests {
             ticket: Some("SHOP-50".parse().unwrap()),
             epic: None,
             port: 4012,
-            first_prompt: Some(FirstPrompt::OtaqSkill {
+            first_prompt: Some(FirstPrompt::Skill {
                 name: WORK_TICKET_SKILL.into(),
                 message: None,
             }),
             resume: None,
             model: None,
             title: None,
+            effort: None,
         };
         let launched = adapters.launch(Some(Tool::OpenCode), &request).unwrap();
         let ToolIdMode::CreatedBeforeLaunch { id, step } = &launched.plan.tool_id else {
@@ -1066,13 +1044,14 @@ mod tests {
             ticket: Some("SHOP-18".parse().unwrap()),
             epic: None,
             port: 4012,
-            first_prompt: Some(FirstPrompt::OtaqSkill {
+            first_prompt: Some(FirstPrompt::Skill {
                 name: WORK_TICKET_SKILL.into(),
                 message: None,
             }),
             resume: Some("c-1".into()),
             model: Some("opus".into()),
             title: None,
+            effort: None,
         };
 
         let none = Adapters::launching_only(None, data.clone());

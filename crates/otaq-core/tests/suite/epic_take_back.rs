@@ -3,6 +3,7 @@
 //! after one confirmation; the queue toast's Undo takes back only what still waits. The example is shop-web's
 //! Search epic SHOP-45 (Search index API, Search results page). `claude` stands in as an `sh` that waits.
 
+use otaq_core::service::testing::said;
 use std::time::Duration;
 
 use crate::common::{Fixture, me};
@@ -295,13 +296,13 @@ async fn park_all_parks_every_running_child_after_one_confirmation() {
     w.validation
         .submit(
             &key(&page),
-            "Results show.",
+            said(&w.board, &key(&page), "Results show.").await.as_ref(),
             &Actor::Agent(page.key.clone()),
             ValidationTrigger::Agent,
         )
         .await
         .unwrap();
-    assert_eq!(w.status(&key(&page)).await, Status::Validating);
+    assert_eq!(w.status(&key(&page)).await, Status::Checking);
     assert!(
         w.sessions
             .running_of(&page.id, SessionKind::Validator)
@@ -453,7 +454,7 @@ async fn a_resumed_child_goes_back_to_parked() {
     let api = f.child(&epic, "Search index API").await;
     let page = f.child(&epic, "Search results page").await;
     sqlx::query(
-        "UPDATE tickets SET board_column = 'backlog', state = 'parked', parked = TRUE, branch_name = 'otaq/x'
+        "UPDATE tickets SET stage_id = NULL, state = 'parked', parked = TRUE, branch_name = 'otaq/x'
          WHERE id = ?",
     )
     .bind(&api.id)

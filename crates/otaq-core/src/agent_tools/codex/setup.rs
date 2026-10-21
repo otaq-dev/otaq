@@ -5,10 +5,14 @@
 //! (`$CODEX_HOME`, else `~/.codex`), each written carefully and only Otaq's own (d0086):
 //! - **folder trust** ([`record_project`]): `[projects."<repo>"] trust_level = "trusted"` in `config.toml`, edited by
 //!   [`config_toml`] (a worktree inherits its repo's trust). Stays when Codex is disconnected;
-//! - **Otaq's plugin** (its skills and hooks, ADP-05): `plugin/.codex-plugin/plugin.json` beside Claude Code's
-//!   manifest, offered by the local marketplace `plugin/.agents/plugins/marketplace.json`, installed by Codex
-//!   itself: `codex plugin marketplace add <plugin folder>`, then `codex plugin add otaq@otaq-local` (which also
-//!   refreshes Codex's cached copy). A marketplace added from another folder (Otaq moved) is removed first;
+//! - **Otaq's plugin** (its hooks only, AGM-07: Codex finds a plugin's skills in its root `skills/` folder even
+//!   without a `skills` entry, developers.openai.com/codex/plugins/build: "Portable packages discover skills from the
+//!   root `skills/` directory", so the plugin is a folder without one, and the skills reach Codex as project skills
+//!   copied into the session's folder): `plugin/codex/.codex-plugin/plugin.json`, offered by the local marketplace
+//!   `plugin/codex/.agents/plugins/marketplace.json`, installed by Codex itself: `codex plugin marketplace add
+//!   <plugin folder>/codex`, then `codex plugin add otaq@otaq-local` (which also refreshes Codex's cached copy). A
+//!   marketplace added from another folder (Otaq moved, or an install from before M32 that offered the skills too) is
+//!   removed first;
 //! - **hook trust**, before the first launch: any untrusted hook stops Codex at startup ("Hooks need review"). A
 //!   short-lived `codex app-server` lists the hooks (`hooks/list`: each one's `key`, `currentHash`,
 //!   `trustStatus`), and Otaq's five (`otaq@otaq-local:plugin.json#hooks[0]:<event>:0:0`) are recorded as trusted
@@ -41,6 +45,9 @@ pub(super) const HOOK_EVENTS: [(&str, &str); 5] = [
     ("Interrupt", "interrupt"),
     ("UserPromptSubmit", "user_prompt_submit"),
 ];
+
+/// The folder of Otaq's Codex plugin (its hooks) inside Otaq's plugin folder.
+const PLUGIN_FOLDER: &str = "codex";
 
 /// How long one Codex command (a plugin install) may take.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
@@ -103,9 +110,9 @@ fn rules_entry() -> SetupEntry {
     }
 }
 
-fn skills_entry() -> SetupEntry {
+fn plugin_entry() -> SetupEntry {
     SetupEntry {
-        text: "its skills".to_owned(),
+        text: "its plugin".to_owned(),
         removed_on_disconnect: true,
     }
 }
@@ -157,7 +164,7 @@ pub(super) async fn set_up_tool(context: &CodexContext) -> SetupReport {
         return SetupReport::default();
     };
     let rules = write_rules(&home);
-    let (skills, hooks) = match install_plugin(context, &home).await {
+    let (plugin, hooks) = match install_plugin(context, &home).await {
         Ok(()) => (Ok(()), trust_hooks(context, &home).await),
         Err(reason) => (Err(reason.clone()), Err(reason)),
     };
@@ -165,7 +172,7 @@ pub(super) async fn set_up_tool(context: &CodexContext) -> SetupReport {
     for (entry, result) in [
         (hooks_entry(), hooks),
         (rules_entry(), rules),
-        (skills_entry(), skills),
+        (plugin_entry(), plugin),
     ] {
         match result {
             Ok(()) => report.done.push(entry),
@@ -183,7 +190,7 @@ pub(super) async fn set_up_tool(context: &CodexContext) -> SetupReport {
 
 /// What Otaq's setup writes into Codex's home, for the Agent tools page.
 pub(super) fn setup_entries() -> Vec<SetupEntry> {
-    vec![folder_trust(), hooks_entry(), rules_entry(), skills_entry()]
+    vec![folder_trust(), hooks_entry(), rules_entry(), plugin_entry()]
 }
 
 /// Writes `rules/otaq.rules` unless it already says exactly that.
@@ -202,13 +209,18 @@ fn write_rules(home: &Path) -> Result<(), String> {
     }
 }
 
-/// Otaq's plugin folder, with its Codex manifest and local marketplace.
+/// Otaq's Codex plugin folder in `launch`'s plugin folder: `<plugin>/codex`.
+fn plugin_folder(launch: &crate::agent_tools::LaunchContext) -> PathBuf {
+    launch.plugin_dir.join(PLUGIN_FOLDER)
+}
+
+/// Otaq's Codex plugin folder, with its manifest and local marketplace.
 fn plugin_dir(context: &CodexContext) -> Result<PathBuf, String> {
     context
         .tool
         .launch
         .as_ref()
-        .map(|launch| launch.plugin_dir.clone())
+        .map(plugin_folder)
         .filter(|dir| {
             dir.join(".codex-plugin").join("plugin.json").is_file()
                 && dir
@@ -388,7 +400,7 @@ fn command_failed(line: &str, stdout: &[u8], stderr: &[u8]) -> String {
 // The launch check
 
 /// Why no Codex agent can start yet: the setup isn't (or no longer) in Codex's home, and Codex would stop at
-/// "Hooks need review" or lack Otaq's skills. Read from `config.toml` only (cheap): Otaq's plugin installed from
+/// "Hooks need review" or lack Otaq's hooks. Read from `config.toml` only (cheap): Otaq's plugin installed from
 /// this plugin folder, and Otaq's five hooks with a recorded trust. `None` without Codex's home (tests).
 pub(super) fn launch_refusal(context: &CodexContext) -> Option<LaunchError> {
     let home = context.codex_home.as_deref()?;
@@ -400,12 +412,12 @@ pub(super) fn launch_refusal(context: &CodexContext) -> Option<LaunchError> {
         config_toml::marketplace_source(&doc, &marketplace()),
         context.tool.launch.as_ref(),
     ) {
-        (Some(source), Some(launch)) => !same_folder(Path::new(&source), &launch.plugin_dir),
+        (Some(source), Some(launch)) => !same_folder(Path::new(&source), &plugin_folder(launch)),
         (source, _) => source.is_none(),
     };
     if moved || !config_toml::plugin_installed(&doc, &plugin_id()) {
         return Some(LaunchError(format!(
-            "{}'s skills aren't installed in {DISPLAY_NAME} yet · Re-check",
+            "{}'s plugin isn't installed in {DISPLAY_NAME} yet · Re-check",
             naming::PRODUCT_NAME
         )));
     }
@@ -454,7 +466,7 @@ pub(super) fn remove_setup(context: &CodexContext) -> SetupReport {
     for (entry, result) in [
         (hooks_entry(), hooks),
         (rules_entry(), rules),
-        (skills_entry(), plugin),
+        (plugin_entry(), plugin),
     ] {
         match result {
             Ok(()) => report.done.push(entry),
@@ -702,7 +714,7 @@ mod tests {
                 "trust for your projects",
                 "its hooks",
                 &pre_approved(),
-                "its skills"
+                "its plugin"
             ]
         );
         assert_eq!(
@@ -714,22 +726,23 @@ mod tests {
         );
     }
 
-    /// The manifest beside Claude Code's: the skills folder, and exactly the five hooks the adapter maps, each with
+    /// The manifest beside Claude Code's: no skills (AGM-07), and exactly the five hooks the adapter maps, each with
     /// its fixed command line; the marketplace offers that folder under the name the setup installs.
     #[test]
     fn the_plugin_manifest_and_its_marketplace() {
         let dir = repo_plugin();
         let manifest: Value = serde_json::from_str(
-            &fs::read_to_string(dir.join(".codex-plugin/plugin.json")).unwrap(),
+            &fs::read_to_string(dir.join("codex/.codex-plugin/plugin.json")).unwrap(),
         )
         .unwrap();
         let claude: Value = serde_json::from_str(
-            &fs::read_to_string(dir.join(".claude-plugin/plugin.json")).unwrap(),
+            &fs::read_to_string(dir.join("claude/.claude-plugin/plugin.json")).unwrap(),
         )
         .unwrap();
         assert_eq!(manifest["name"], naming::PLUGIN_NAMESPACE);
         assert_eq!(manifest["version"], claude["version"]);
-        assert_eq!(manifest["skills"], "./skills/");
+        assert!(manifest.get("skills").is_none());
+        assert!(!dir.join("codex/skills").exists(), "hooks only");
         let hooks = manifest["hooks"]["hooks"].as_object().unwrap();
         let mut names: Vec<&str> = hooks.keys().map(String::as_str).collect();
         names.sort_unstable();
@@ -749,7 +762,7 @@ mod tests {
             assert_eq!(group[0]["hooks"][0]["type"], "command");
         }
         let market: Value = serde_json::from_str(
-            &fs::read_to_string(dir.join(".agents/plugins/marketplace.json")).unwrap(),
+            &fs::read_to_string(dir.join("codex/.agents/plugins/marketplace.json")).unwrap(),
         )
         .unwrap();
         assert_eq!(market["name"], marketplace());
@@ -868,7 +881,7 @@ mod tests {
         assert_eq!(
             launch_refusal(&context),
             Some(LaunchError(format!(
-                "{}'s skills aren't installed in Codex yet · Re-check",
+                "{}'s plugin isn't installed in Codex yet · Re-check",
                 naming::PRODUCT_NAME
             )))
         );
@@ -877,7 +890,7 @@ mod tests {
         assert_eq!(report.failed, []);
         assert_eq!(
             texts(&report.done),
-            ["its hooks", &pre_approved(), "its skills"]
+            ["its hooks", &pre_approved(), "its plugin"]
         );
         assert_eq!(
             fs::read_to_string(rules_file(&home.home())).unwrap(),
@@ -891,7 +904,7 @@ mod tests {
         assert_eq!(
             commands,
             [
-                format!("plugin marketplace add {}", plugin.display()).as_str(),
+                format!("plugin marketplace add {}", plugin.join("codex").display()).as_str(),
                 &format!("plugin add {}", plugin_id()),
                 "app-server",
             ]
@@ -974,7 +987,7 @@ mod tests {
         home.codex(list);
         let context = home.context(&repo_plugin());
         let report = set_up_tool(&context).await;
-        assert_eq!(texts(&report.done), [pre_approved().as_str(), "its skills"]);
+        assert_eq!(texts(&report.done), [pre_approved().as_str(), "its plugin"]);
         assert_eq!(
             report.failed,
             [(
@@ -991,7 +1004,7 @@ mod tests {
         );
     }
 
-    /// A failed install fails the skills and the hooks with Codex's own message; no app server is started.
+    /// A failed install fails the plugin and the hooks with Codex's own message; no app server is started.
     #[tokio::test]
     async fn a_failed_install_says_why() {
         let home = Home::new();
@@ -1005,11 +1018,11 @@ mod tests {
         let report = set_up_tool(&context).await;
         let reason = format!(
             "`codex plugin marketplace add {}` failed: marketplace is broken",
-            repo_plugin().display()
+            repo_plugin().join("codex").display()
         );
         assert_eq!(
             report.failed,
-            [(hooks_entry(), reason.clone()), (skills_entry(), reason)]
+            [(hooks_entry(), reason.clone()), (plugin_entry(), reason)]
         );
         assert!(
             !fs::read_to_string(home.log())
@@ -1034,7 +1047,7 @@ mod tests {
             report.failed,
             [
                 (hooks_entry(), reason.clone()),
-                (skills_entry(), reason.clone())
+                (plugin_entry(), reason.clone())
             ]
         );
         assert!(!home.log().exists(), "no Codex command ran");
@@ -1096,7 +1109,7 @@ mod tests {
         assert_eq!(report.failed, []);
         assert_eq!(
             texts(&report.done),
-            ["its hooks", &pre_approved(), "its skills"]
+            ["its hooks", &pre_approved(), "its plugin"]
         );
         assert_eq!(home.config(), with_trust, "only the folder trust is left");
         assert!(!rules_file(&home.home()).exists());

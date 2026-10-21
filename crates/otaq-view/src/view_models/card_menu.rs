@@ -238,6 +238,7 @@ mod tests {
         );
         let order = |tickets: &[Ticket]| -> Vec<String> {
             build(&BoardInput {
+                flow: &otaq_core::flow::default_file().flow,
                 tickets,
                 visible: None,
                 strong: None,
@@ -248,6 +249,8 @@ mod tests {
                 agent_names: &[],
                 was_validating: &[],
                 agents: None,
+                agent_list: None,
+                starts_held: None,
             })[0]
                 .cards
                 .iter()
@@ -363,7 +366,7 @@ mod tests {
     /// its Backlog card, on its track, and pinned.
     #[test]
     fn the_epic_menu_counts_what_it_queues_and_takes_back() {
-        use otaq_core::domain::{Column, Kind};
+        use otaq_core::domain::Kind;
         let wishlist = |children: [Status; 3]| -> Vec<Ticket> {
             let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
             epic.kind = Kind::Epic;
@@ -412,7 +415,7 @@ mod tests {
         assert_eq!(focus_with(&fixtures::letters_off()), None);
         // The track: 40.1 runs, 40.2 waits, 40.3 not queued.
         let mut track = wishlist([Status::Working, Status::Queued, Status::Backlog]);
-        assert_eq!(track[2].column, Column::ReadyForDev);
+        assert!(track[2].place.is_ready_for_dev());
         assert_eq!(
             labels(&track),
             [
@@ -431,7 +434,7 @@ mod tests {
         track[0].flags.pinned_at = Some(1);
         for c in &mut track[1..] {
             c.status = Status::Working;
-            c.column = Column::Dev;
+            c.place = otaq_core::domain::Place::stage_of("dev");
         }
         assert_eq!(
             labels(&track),

@@ -9,13 +9,12 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { overlays, useOpenOverlays } from "../../app/overlays";
 import { registered, registerScreens } from "../../app/registry";
 import { NOTHING_SELECTED, requestTicketEdit, selection, ticketEditRequests } from "../../app/selection";
-import type { AgentBlock } from "../../generated/AgentBlock";
-import type { AgentRowView } from "../../generated/AgentRowView";
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorReadView } from "../../generated/EditorReadView";
 import type { EditorTexts } from "../../generated/EditorTexts";
 import type { EditorView } from "../../generated/EditorView";
 import type { PriorityView } from "../../generated/PriorityView";
+import type { StageChoicesView } from "../../generated/StageChoicesView";
 import { FullViewHost } from "../../markdown";
 import { editor } from ".";
 import { EditorFields, RefusalBox } from "./Fields";
@@ -80,6 +79,7 @@ const TEXTS: EditorTexts = {
   epic_hint: "optional · fixed once created (it sets the key)",
   epic_none: "No epic",
   body: "What and why",
+  plan: "Description · the plan",
   body_hint: "Markdown · paste keeps formatting",
   body_placeholder: "Context, constraints, links…",
   deps: "Depends on",
@@ -129,7 +129,7 @@ const FORM: EditorForm = {
   deps: [],
   base_branch: "main",
   external_id: "",
-  agents: [],
+  choices: [],
 };
 
 const VIEW: EditorView = {
@@ -183,8 +183,7 @@ const VIEW: EditorView = {
   unsaved_warning: null,
   read: null,
   source_mode: false,
-  agents: null,
-  epic_agents: null,
+  choices: null,
 };
 
 const READ: EditorReadView = {
@@ -725,53 +724,59 @@ describe("the editor", () => {
     unmount();
   });
 
-  it("registers quick-create, the edit modal, the full-window view and the Ticket tab from its folder", () => {
+  it("registers quick-create, the edit modal, the full-window view, the report view and the Ticket tab from its folder", () => {
     expect(registered(registerScreens({ editor }))).toMatchObject({
-      overlays: ["new_ticket", "edit_ticket", "full_view"],
+      overlays: ["new_ticket", "edit_ticket", "full_view", "report"],
       panelTabs: ["ticket"],
     });
   });
 });
 
-describe("the Agents block in the form (T-0344)", () => {
-  const picker = (selected: string | null) =>
-    [
-      { agent: null, label: "Project default (Claude Code)", detail: "tool default" },
-      { agent: "cc", label: "Claude Code", detail: "tool default" },
-      { agent: "strong", label: "Strong", detail: "Opus · always the newest" },
-    ].map((i) => ({ ...i, selected: i.agent === selected, avatar: null }));
-  const row = (role: AgentRowView["role"], label: string): AgentRowView => ({
-    role,
-    label,
-    value: "Project default (Claude Code)",
-    detail: "tool default",
+describe("the Stage choices in the form (T-0411, AGM-09)", () => {
+  const item = (id: string, checked: boolean) => ({
+    id,
+    label: id,
+    icon: null,
+    shortcut: null,
+    danger: false,
+    disabled: false,
+    hint: null,
+    separated: false,
+    checked,
+    header: false,
+  });
+  /** shop-web's flow (*08 → Row · Stage choices*): Grill and Review skippable, Dev with Quick developer. */
+  const CHOICES: StageChoicesView = {
+    heading: "Stage choices",
     set_by: null,
-    let_agents_pick: null,
-    lock: null,
-    picker: picker(null),
-    change: "Change",
-    moved_on: null,
-    next_lead: null,
-    avatar: null,
-    swap: null,
-    moved: null,
-  });
-  const agents = (rows: AgentRowView[], hint = "who writes the code and who checks it"): AgentBlock => ({
-    heading: "Agents",
-    hint,
-    rows,
-    note: null,
-    note_icon: null,
-    children: [],
-    children_heading: null,
-    children_note: null,
-    picked: {
-      set_by: { text: "set by you", agent_made: false, icon: "user" },
-      let_agents_pick: "Let agents pick again",
-    },
-  });
-  const TICKET = agents([row("developer", "Developer"), row("validator", "Validator")]);
-  const EPIC = agents([row("lead", "Epic lead")], "who leads the epic's children");
+    rows: [
+      {
+        stage_id: "grill",
+        label: "Grill:",
+        value: "required",
+        items: [item("required", true), item("skip", false)],
+        lock: null,
+        change: null,
+      },
+      {
+        stage_id: "dev",
+        label: "Dev:",
+        value: "Rust developer",
+        items: [item("Rust developer", true), item("Quick developer", false)],
+        lock: null,
+        change: null,
+      },
+      {
+        stage_id: "review",
+        label: "Review:",
+        value: "required",
+        items: [item("required", true), item("skip", false)],
+        lock: null,
+        change: null,
+      },
+    ],
+    note: "Only stages with options in shop-web’s flow. You can change them until that stage starts.",
+  };
 
   let shown: EditorForm = FORM;
   function Form({ view }: { view: EditorView }) {
@@ -795,86 +800,30 @@ describe("the Agents block in the form (T-0344)", () => {
       el?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     });
   };
-  const value = (host: HTMLElement, role: string) =>
-    host.querySelector(`[data-role="${role}"] button.agent-row-value`);
-  const option = (host: HTMLElement, label: string) =>
-    [...host.querySelectorAll('[role="option"]')].find(
-      (o) => o.querySelector(".agent-picker-name")?.textContent === label,
-    );
 
-  it("⌘N: a pick goes into the form, reads set by you, and Let agents pick again drops it", () => {
-    const host = mount(createElement(Form, { view: { ...VIEW, agents: TICKET, epic_agents: EPIC } }));
-    expect(host.textContent).toContain("who writes the code and who checks it");
-    press(value(host, "developer"));
-    press(option(host, "Strong"));
-    expect(shown.agents).toEqual([{ role: "developer", agent: "strong" }]);
-    const dev = host.querySelector('[data-role="developer"]');
-    expect(dev?.querySelector(".agent-row-name")?.textContent).toBe("Strong");
-    expect(dev?.querySelector(".agent-row-who")?.textContent).toBe("set by you");
+  it("⌘N: a picker per stage with options; a pick stays in the form; none for an epic or without options", () => {
+    const host = mount(createElement(Form, { view: { ...VIEW, choices: CHOICES } }));
+    expect(host.textContent).toContain("Stage choices");
+    expect([...host.querySelectorAll(".stage-choice-label")].map((l) => l.textContent)).toEqual([
+      "Grill:",
+      "Dev:",
+      "Review:",
+    ]);
+    expect(host.textContent).toContain("Only stages with options in shop-web’s flow.");
+    press([...host.querySelectorAll(".stage-choice-select button")][1]);
     press(
-      [...(dev?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Let agents pick again"),
+      [...document.querySelectorAll('[role="menuitemradio"]')].find((i) =>
+        i.textContent.includes("Quick developer"),
+      ),
     );
-    expect(shown.agents).toEqual([]);
-  });
-
-  it("⌘N with Type Epic: the one Epic lead row, and the ticket's picks don't carry over", () => {
-    const host = mount(createElement(Form, { view: { ...VIEW, agents: TICKET, epic_agents: EPIC } }));
-    press(value(host, "developer"));
-    press(option(host, "Strong"));
+    expect(shown.choices).toEqual([{ stage_id: "dev", choice: "Quick developer" }]);
+    expect([...host.querySelectorAll(".stage-choice-select button")][1]?.textContent).toContain(
+      "Quick developer",
+    );
     press([...host.querySelectorAll("button")].find((b) => b.textContent === "Epic"));
     expect(shown.epic_kind).toBe(true);
-    expect(shown.agents).toEqual([]);
-    expect(host.querySelectorAll(".agent-row")).toHaveLength(1);
-    expect(host.textContent).toContain("who leads the epic's children");
-    press(value(host, "lead"));
-    press(option(host, "Strong"));
-    expect(shown.agents).toEqual([{ role: "lead", agent: "strong" }]);
-  });
-
-  it("an existing ticket writes each pick once, with editor.agent_row, and shows the block it answers", async () => {
-    const sent: unknown[] = [];
-    const after = agents([
-      {
-        ...row("developer", "Developer"),
-        value: "Strong",
-        set_by: { text: "set by you", agent_made: false, icon: "user" },
-      },
-      row("validator", "Validator"),
-    ]);
-    ipc.reply = (method, params) => {
-      if (method !== "editor.agent_row") return [];
-      sent.push(params);
-      return { outcome: "set", agents: after };
-    };
-    const host = mount(
-      createElement(Form, { view: { ...VIEW, create: false, key: "SHOP-48", agents: TICKET } }),
-    );
-    press(value(host, "developer"));
-    press(option(host, "Strong"));
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(sent).toEqual([{ key: "SHOP-48", role: "developer", agent: "strong" }]);
-    expect(shown.agents).toEqual([]);
-    expect(host.querySelector('[data-role="developer"] .agent-row-who')?.textContent).toBe("set by you");
-  });
-
-  it("a row that locked meanwhile: the refusal under the block", async () => {
-    ipc.reply = (method) =>
-      method === "editor.agent_row"
-        ? {
-            outcome: "refused",
-            refusal: { field: "agents", title: "Locked", message: "SHOP-48 has started", icon: "lock" },
-          }
-        : [];
-    const host = mount(
-      createElement(Form, { view: { ...VIEW, create: false, key: "SHOP-48", agents: TICKET } }),
-    );
-    press(value(host, "validator"));
-    press(option(host, "Strong"));
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(host.querySelector(".editor-refusal")?.textContent).toContain("SHOP-48 has started");
+    expect(host.querySelector(".stage-choices")).toBeNull();
+    const none = mount(createElement(Form, { view: VIEW }));
+    expect(none.querySelector(".stage-choices")).toBeNull();
   });
 });

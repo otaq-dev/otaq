@@ -85,7 +85,6 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::ToastPress::export_all(&cfg)?;
     crate::api::NotificationOpen::export_all(&cfg)?;
     // T-0364: Move waiting to… on the usage-limit banner's lines; their gallery.
-    crate::api::LimitMoveWaiting::export_all(&cfg)?;
     otaq_view::view_models::limit_banner::Gallery::export_all(&cfg)?;
     crate::notices::OpenTarget::export_all(&cfg)?;
     // Also writes the Ticket Card and Epic Card shapes it is made of.
@@ -101,10 +100,10 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::PanelSubmitParams::export_all(&cfg)?;
     crate::api::PanelAnswerParams::export_all(&cfg)?;
     crate::api::PanelSent::export_all(&cfg)?;
-    crate::api::PanelSendToFix::export_all(&cfg)?;
     crate::api::PanelParentParams::export_all(&cfg)?;
     crate::api::PanelCardParams::export_all(&cfg)?;
     crate::api::PanelAnswerAgentParams::export_all(&cfg)?;
+    crate::api::PanelChoiceParams::export_all(&cfg)?;
     // The Terminals drawer and its header button (T-0242); the view also writes its tabs.
     crate::api::DrawerParams::export_all(&cfg)?;
     crate::api::DrawerView::export_all(&cfg)?;
@@ -126,6 +125,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::board_page::DropOutcome::export_all(&cfg)?;
     crate::api::BoardTicketParams::export_all(&cfg)?;
     crate::api::BoardDropParams::export_all(&cfg)?;
+    crate::api::BoardDragBackParams::export_all(&cfg)?;
     // First run and Add project (T-0233).
     otaq_view::view_models::onboarding_page::Texts::export_all(&cfg)?;
     otaq_view::view_models::onboarding_page::Tools::export_all(&cfg)?;
@@ -150,6 +150,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::settings_page::CreditsView::export_all(&cfg)?;
     otaq_view::view_models::settings_page::EnvVarsGallery::export_all(&cfg)?;
     otaq_view::view_models::settings_page::WarmSwitchGallery::export_all(&cfg)?;
+    // The comment box's limits from core (T-0442; CMT-02, CMT-03): one place, never copied in the page.
+    otaq_view::view_models::comment_limits::CommentLimits::export_all(&cfg)?;
     otaq_view::view_models::about::View::export_all(&cfg)?;
     otaq_view::view_models::about::LicenseView::export_all(&cfg)?;
     // Also writes its bundled rows, groups and items.
@@ -161,35 +163,16 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::SettingsRevealParams::export_all(&cfg)?;
     // The notification banners and Settings → Notifications for the gallery (T-0372).
     otaq_view::view_models::settings_page::NotificationsGallery::export_all(&cfg)?;
-    // Settings → Workflow skills (T-0380): the gallery (it writes the rows, menu items and dialogs too), the
-    // actions' params and their outcome.
-    otaq_view::view_models::settings_page::WorkflowSkillsGallery::export_all(&cfg)?;
     // Settings → Keyboard shortcuts (T-0395): the page, a recorded key and its answer, the gallery's frames.
     otaq_view::view_models::keyboard_page::Page::export_all(&cfg)?;
     otaq_view::view_models::keyboard_page::Press::export_all(&cfg)?;
     otaq_view::view_models::keyboard_page::RecordAnswer::export_all(&cfg)?;
     otaq_view::view_models::keyboard_page::Gallery::export_all(&cfg)?;
-    crate::api::SkillImport::export_all(&cfg)?;
-    crate::api::SkillStep::export_all(&cfg)?;
-    crate::api::SkillReset::export_all(&cfg)?;
-    crate::api::SkillOutcome::export_all(&cfg)?;
-    // Settings → Agents and the project's Agents block (T-0340); each also writes the rows, pickers, mark and menu
-    // it is made of.
-    otaq_view::view_models::named_agents::Section::export_all(&cfg)?;
-    otaq_view::view_models::named_agents::Dialog::export_all(&cfg)?;
-    otaq_view::view_models::named_agents::DeleteDialog::export_all(&cfg)?;
-    otaq_view::view_models::named_agents::Gallery::export_all(&cfg)?;
-    otaq_view::view_models::settings_page::ProjectAgentsBlock::export_all(&cfg)?;
+    // Settings → Agents and one agent's page (T-0410): the page writes its rows and marks too.
+    crate::api::export_agent_types(&cfg)?;
     crate::api::AgentsOpen::export_all(&cfg)?;
-    crate::api::AgentDialogParams::export_all(&cfg)?;
-    crate::api::AgentModelsRetry::export_all(&cfg)?;
-    crate::api::AutoFallbackSet::export_all(&cfg)?;
-    crate::api::AgentSaveParams::export_all(&cfg)?;
-    crate::api::AgentIdParams::export_all(&cfg)?;
-    crate::api::AgentDefaultSet::export_all(&cfg)?;
-    crate::api::ProjectAgentDefaultSet::export_all(&cfg)?;
-    crate::api::AgentSaveOutcome::export_all(&cfg)?;
-    crate::api::AgentDeleteOutcome::export_all(&cfg)?;
+    // Settings → Flow, Use a preset… and the flow banner's requests (T-0422).
+    crate::api::export_flow_types(&cfg)?;
     // The panel's Stack, Messages and epic sections, the History tab and the epic dialogs (T-0223).
     crate::api::SectionParams::export_all(&cfg)?;
     crate::api::StackView::export_all(&cfg)?;
@@ -213,10 +196,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::EditorCompareParams::export_all(&cfg)?;
     crate::api::EditorCompareEntry::export_all(&cfg)?;
     crate::api::EditorSourceModeParams::export_all(&cfg)?;
-    // The agent rows (T-0341): a pick and how it went; `AgentBlock` comes with the editor and panel views.
-    crate::api::AgentRowRequest::export_all(&cfg)?;
-    crate::api::AgentRowOutcome::export_all(&cfg)?;
-    otaq_view::view_models::agent_rows::Gallery::export_all(&cfg)?;
+    // The stage choices' and the path's gallery (T-0411); their views come with the editor and panel views.
+    otaq_view::view_models::stage_choices::Gallery::export_all(&cfg)?;
     // The Diff tab (T-0225): the tab, a file's lines and the comments; then the requests' own types.
     crate::api::DiffLoad::export_all(&cfg)?;
     otaq_view::view_models::diff_page::FileView::export_all(&cfg)?;
@@ -326,6 +307,21 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::AgentToolDisconnectOutcome::export_all(&cfg)?;
     // The Tools step's gallery (T-0365).
     otaq_view::view_models::onboarding_page::ToolsGallery::export_all(&cfg)?;
+    // The flow preview (T-0420): its view, the picks and every request.
+    crate::api::export_flow_preview_types(&cfg)?;
+    // The Apply now window (T-0439, APN-02): its view, the requests' params and the answer.
+    crate::api::export_apply_now_types(&cfg)?;
+    // Your check's Pass and Fail, Send back with PR comments (T-0424).
+    crate::api::export_review_check_types(&cfg)?;
+    // The Ticket tab's comments and their box (T-0446, CMT-10, CMT-11): the thread's view and its requests.
+    crate::api::export_ticket_comment_types(&cfg)?;
+    crate::api::export_report_types(&cfg)?;
+    // The Flow step (T-0429, T-0434): the go-ahead, the presets and its gallery.
+    crate::api::export_flow_step_types(&cfg)?;
+    // The agents at work (T-0434): the tabs and the card, Ask's params and answer, and the gallery.
+    crate::api::export_flow_at_work_types(&cfg)?;
+    // The Flow setup page (T-0436): whether it shows instead of the board.
+    crate::api::export_flow_setup_page_types(&cfg)?;
     Ok(())
 }
 

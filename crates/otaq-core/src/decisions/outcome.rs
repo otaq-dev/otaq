@@ -110,7 +110,7 @@ pub async fn keep_all(board: &Board, key: &str, actor: &Actor) -> Result<u32, Bo
 }
 
 /// The user's **Local merge** (GIT-03): the merge, then, once merged, Approve keeps the decisions (DEC-05).
-/// Auto-merge calls [`Review::local_merge`] itself and keeps nothing.
+/// An automatic Delivery merges with [`Review::deliver_locally`] and keeps nothing.
 pub async fn local_merge_keeping(
     review: &Review,
     key: &str,
@@ -231,7 +231,7 @@ pub async fn change_and_send_back(
     }
     let note = change_message(&decision, text);
     let key = ticket.key.to_string();
-    let ticket = match review.send_back(&key, &note, clear_first, actor).await? {
+    let ticket = match review.fail(&key, &note, None, clear_first, actor).await? {
         ReturnOutcome::NeedsConfirmation {
             ticket,
             unclearable_by,
@@ -303,7 +303,7 @@ pub async fn change_with_fix_child(
         ));
     };
     let epic = board.ticket(&epic.to_string()).await?;
-    if epic.status != Status::ReadyForReview {
+    if epic.status != Status::WaitingForYou {
         return Err(BoardError::refused(
             Refusal::MoveRefused,
             format!(

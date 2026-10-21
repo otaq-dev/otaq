@@ -12,4 +12,13 @@ export type CardFooter = {
 /**
  * Boxed: most cards have none, and the board keeps every card's view model.
  */
-agent: CardAgent | null, tokens: CardTokens | null, signal: CardSignal | null, action: CardAction | null, };
+agent: CardAgent | null, tokens: CardTokens | null, signal: CardSignal | null, action: CardAction | null, 
+/**
+ * A second button after the action: Open agent… next to Use fallback (`s03-54`).
+ */
+second: CardAction | null, 
+/**
+ * The two buttons stand one under the other, each its own width: Send back with PR comments over Mark merged,
+ * Skip this check over Open agent… (`s03-46`, `s03-54`).
+ */
+stacked: boolean, };

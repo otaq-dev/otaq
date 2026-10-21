@@ -31,7 +31,7 @@ pub struct PlanLimits {
     pub windows: Vec<ToolWindow>,
     /// The usage limit that was hit, while the banner is up (until the user's Resume, d0020). With several tools
     /// limited at once: one that hasn't reset before one that has, then the newest (each tool's line is
-    /// [`crate::named_agents::moves::ToolLine`]).
+    /// [`crate::agents::limits::ToolLine`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<ActiveLimit>,
 }

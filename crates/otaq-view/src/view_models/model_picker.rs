@@ -1,4 +1,5 @@
-//! The model picker of the Add and Edit agent dialogs (T-0340, T-0361; AGT-02, d0086; *15 → Add agent · model
+//! The model picker of one agent's page and of the Agents page's model dropdowns (T-0410; before it the Add and Edit
+//! agent dialogs, T-0340, T-0361; AGT-02, d0086; *15 → Add agent · model
 //! picker open* `k8WyHN` / `L1mzD`, *Edit agent · Codex (M23)* `ObF25` / `l5T21`, *Model list states (M23)* `GTuGI` /
 //! `GUoan`, *Old GPT · no longer listed* `OCna6` / `aPdlu`), built from Otaq's copy of the agent's tool's own list
 //! (T-0335's `ModelList`). Only what the list has can be picked and nothing can be typed (d0086): "Tool default"
@@ -13,7 +14,7 @@ use otaq_core::naming::PRODUCT_NAME;
 use serde::Serialize;
 use ts_rs::TS;
 
-use super::named_agents::{ListState, TOOL_DEFAULT_LABEL, is_tool_default, model_label, tool_word};
+use super::agents::{ListState, TOOL_DEFAULT_LABEL, is_tool_default, model_label, tool_word};
 
 /// One choice. `value` is what the dialog sends as the agent's model: `None` for the tool default.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -243,7 +244,7 @@ pub fn picker(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::view_models::named_agents::{ListState, fixtures};
+    use crate::view_models::agents::{ListState, fixtures};
 
     /// A group's heading and its items' label and detail.
     type Shape = (Option<String>, Vec<(String, Option<String>)>);

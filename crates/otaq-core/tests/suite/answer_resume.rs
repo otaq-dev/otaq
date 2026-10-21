@@ -126,7 +126,7 @@ async fn a_merged_parent_is_resumed_answer_only_and_cleaned_up() {
         "{printed}"
     );
     assert!(
-        printed.contains(&naming::skill("answer-question")),
+        printed.contains(&format!("/{}", naming::copy_name("answer-question"))),
         "{printed}"
     );
     assert!(worktree.is_dir(), "recreated at the same path");

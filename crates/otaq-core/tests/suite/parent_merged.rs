@@ -60,8 +60,8 @@ async fn ticket(f: &Fixture, title: &str, parents: &[&str]) -> Ticket {
 
 async fn set(f: &Fixture, key: &str, status: Status) {
     let t = f.ticket(key).await;
-    sqlx::query("UPDATE tickets SET board_column = ?, state = ? WHERE id = ?")
-        .bind(status.column().as_str())
+    sqlx::query("UPDATE tickets SET stage_id = ?, state = ? WHERE id = ?")
+        .bind(otaq_core::flow::engine::default_stage(status, None))
         .bind(status.as_str())
         .bind(&t.id)
         .execute(f.board.store().pool())

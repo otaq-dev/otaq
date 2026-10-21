@@ -2,7 +2,7 @@
 import type { DropTargetVerdict } from "./DropTargetVerdict";
 
 /**
- * The answer to `board.drag`, asked once when a drag starts: a verdict for every drop target (the five columns,
+ * The answer to `board.drag`, asked once when a drag starts: a verdict for every drop target (every column,
  * Review's Approved section on its own). `tickets` are the project's: an epic's answer counts the children it
  * queues ("Queue 2 children") or, for its track over Backlog, what it takes back; other tickets need none.
  */

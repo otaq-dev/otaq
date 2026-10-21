@@ -6,14 +6,13 @@
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agent_tools::{LaunchContext, Tool};
+use otaq_core::agents::AgentModel;
 use otaq_core::board::moves::DropTarget;
 use otaq_core::domain::{Actor, StartStep, Status};
-use otaq_core::named_agents::{AgentFields, FixedModels, NamedAgents, Role};
 use otaq_core::review::park::TOOL_ID_WAIT;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
@@ -37,8 +36,8 @@ struct World {
     _bin: TempDir,
 }
 
-/// A service whose `codex` is `script`, with project SHOP and ticket SHOP-1 whose Developer is "Strong" (on Codex,
-/// the tool default), in Ready for Dev.
+/// A service whose `codex` is `script`, with project SHOP and ticket SHOP-1, whose Developer agent runs on Codex
+/// (the tool default), in Ready for Dev.
 async fn world(script: &str) -> World {
     let bin = TempDir::new().unwrap();
     let codex = bin.path().join(Tool::Codex.command_name());
@@ -60,21 +59,15 @@ async fn world(script: &str) -> World {
     .await;
     w.add_project("shop-web").await;
     w.create("SHOP", "Coupon codes").await;
-    let rules = NamedAgents::new(w.board.clone(), Arc::new(FixedModels::sample()));
-    let agent = rules
-        .add(&AgentFields {
-            name: "Strong".into(),
+    // Developer (the Dev stage's agent) runs on Codex.
+    w.set_agent_model(
+        "Developer",
+        AgentModel::Tool {
             tool: Tool::Codex,
             model: None,
-            use_for: String::new(),
-            fallback: None,
-        })
-        .await
-        .unwrap();
-    rules
-        .set_row_by_user("SHOP-1", Role::Developer, Some(&agent.id))
-        .await
-        .unwrap();
+        },
+    )
+    .await;
     w.board
         .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await

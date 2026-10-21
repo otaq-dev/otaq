@@ -25,11 +25,11 @@ use std::sync::{Arc, Weak};
 
 use super::{AgentState, Inner, ProjectAgent, ProjectAgents};
 use crate::agent_tools::{EPIC_LEAD_SKILL, FirstPrompt, LaunchRequest, LaunchRole, Tool};
+use crate::agents::{Role, SessionRole, resolve};
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{BoardError, Refusal};
-use crate::domain::{Actor, Column, TicketKey};
+use crate::domain::{Actor, StatusSet, TicketKey};
 use crate::epic_lead::wake::{Finished, Handovers, LeadEvents, closed_text, merged_text};
-use crate::named_agents::{Role, resolve_ticket_role};
 use crate::naming;
 use crate::session::deliveries::Deliveries;
 use crate::store::{new_id, now_ms};
@@ -98,7 +98,7 @@ pub struct LeadFacts {
     /// Its session runs.
     pub live: bool,
     /// The epic's column.
-    pub epic_column: Column,
+    pub epic_column: StatusSet,
     /// It waits for the user: its own question or a permission prompt.
     pub waits_for_user: bool,
     /// Why its current turn runs; `None` between turns.
@@ -113,7 +113,7 @@ pub fn lead_status(facts: &LeadFacts) -> LeadStatus {
     if !facts.live {
         let in_review = matches!(
             facts.epic_column,
-            Column::ReadyForReview | Column::Approved | Column::Done
+            StatusSet::HumanCheck | StatusSet::Delivery | StatusSet::Done
         );
         return if in_review {
             LeadStatus::EndedInReview
@@ -386,7 +386,10 @@ impl EpicLeads {
         if let Some(lead) = self.get_for(&epic).await? {
             return Ok(lead);
         }
-        if matches!(epic.column, Column::ReadyForDev | Column::Dev) {
+        if matches!(
+            epic.board_group(),
+            StatusSet::Waiting | StatusSet::AgentStage
+        ) {
             let message = check_plan_message(&epic.key);
             self.launch_new(&epic, Some((&message, TurnReason::CheckPlan)))
                 .await
@@ -617,7 +620,7 @@ impl EpicLeads {
         let status = lead_status(&LeadFacts {
             state: Some(agent.state),
             live: is_live(&agent),
-            epic_column: epic.column,
+            epic_column: epic.board_group(),
             waits_for_user: agent.question.is_some() || agent.needs_you.is_some(),
             turn,
         });
@@ -640,14 +643,14 @@ impl EpicLeads {
     ) -> Result<Lead, BoardError> {
         let (message, reason) = first.unzip();
         let agents = &self.agents;
-        // The epic's Epic lead row, else the project's default, else the app default (LEAD-01, AGT-05), after the
-        // check before every launch (a hold keeps the epic waiting).
-        let resolved = resolve_ticket_role(&self.inner().board, epic, Role::EpicLead).await?;
+        // The agent with the Epic lead role (LEAD-01, AGM-05), after the check before every launch (a hold keeps the
+        // epic waiting).
+        let agent = resolve::role_agent(self.inner().board.store(), Role::EpicLead).await?;
         let runs_on = agents
             .checked(
-                Role::EpicLead,
-                crate::named_agents::gate::Scope::ticket(epic),
-                resolved.as_ref(),
+                SessionRole::EpicLead,
+                crate::agents::gate::Scope::ticket(epic),
+                &agent,
             )
             .await?;
         agents.inner.adapters.unavailable(runs_on.tool)?;
@@ -656,28 +659,40 @@ impl EpicLeads {
             .board
             .project(&epic.key.project.to_string())
             .await?;
-        let launched = agents.launch(
+        let id = new_id();
+        // The agent's skills, copied into the project's folder while it runs (AGM-07).
+        let first_prompt = agents
+            .copy_into_checkout(
+                &id,
+                std::path::Path::new(&project.repo_path),
+                Some(&agent),
+                Some(FirstPrompt::Skill {
+                    name: EPIC_LEAD_SKILL.to_owned(),
+                    message: message.map(str::to_owned),
+                }),
+            )
+            .await;
+        let launched = match agents.launch(
             runs_on.tool,
             LaunchRequest {
                 epic: Some(epic.key.clone()),
                 model: runs_on.model.clone(),
+                effort: runs_on.effort.clone(),
                 title: Some(epic.title.clone()),
-                ..super::request(
-                    &project,
-                    LaunchRole::EpicLead,
-                    Some(FirstPrompt::OtaqSkill {
-                        name: EPIC_LEAD_SKILL.to_owned(),
-                        message: message.map(str::to_owned),
-                    }),
-                )
+                ..super::request(&project, LaunchRole::EpicLead, first_prompt)
             },
-        )?;
-        let id = new_id();
+        ) {
+            Ok(launched) => launched,
+            Err(e) => {
+                agents.release_checkout(&id).await;
+                return Err(e);
+            }
+        };
         let pool = self.inner().board.store().pool();
         let inserted = sqlx::query(
-            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, named_agent_id,
-                                         named_agent_name, state, created_at, epic_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, agent_id, agent_name, effort,
+                                         state, created_at, epic_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
@@ -686,12 +701,14 @@ impl EpicLeads {
         .bind(&launched.model)
         .bind(runs_on.agent.as_ref().map(|a| &a.id))
         .bind(runs_on.agent.as_ref().map(|a| &a.name))
+        .bind(&runs_on.effort)
         .bind(AgentState::Running.as_str())
         .bind(now_ms())
         .bind(&epic.id)
         .execute(pool)
         .await;
         if let Err(e) = inserted {
+            agents.release_checkout(&id).await;
             // Another click opened it first: one lead per epic.
             tracing::info!(epic = %epic.key, error = %e, "the epic's lead wasn't added");
             return Err(BoardError::refused(
@@ -717,11 +734,12 @@ impl EpicLeads {
                 &project,
                 launched,
                 &id,
-                runs_on.agent,
+                &runs_on,
                 Some((&epic.id, &epic.key)),
             )
             .await
         {
+            agents.release_checkout(&id).await;
             sqlx::query("DELETE FROM project_agents WHERE id = ?")
                 .bind(&id)
                 .execute(pool)
@@ -748,30 +766,45 @@ impl EpicLeads {
         self.refuse_during_limit(runs_on.tool).await?;
         agents.inner.adapters.unavailable(runs_on.tool)?;
         let project = self.inner().board.project(&agent.project).await?;
-        let launched = agents.launch(
+        let conversation = agent.conversation()?.to_owned();
+        agents
+            .copy_stored_agent_into_checkout(&agent.id, &project, &runs_on)
+            .await?;
+        let launched = match agents.launch(
             runs_on.tool,
             LaunchRequest {
                 epic: Some(epic.key.clone()),
-                resume: Some(agent.conversation()?.to_owned()),
-                model: runs_on.model,
+                resume: Some(conversation),
+                model: runs_on.model.clone(),
+                effort: runs_on.effort.clone(),
                 title: Some(epic.title.clone()),
                 ..super::request(&project, LaunchRole::EpicLead, None)
             },
-        )?;
+        ) {
+            Ok(launched) => launched,
+            Err(e) => {
+                agents.release_checkout(&agent.id).await;
+                return Err(e);
+            }
+        };
         self.inner()
             .lead_turns
             .lock()
             .expect("lead turns")
             .remove(&agent.id);
-        agents
+        if let Err(e) = agents
             .restart(
                 &agent,
                 &project,
                 launched,
-                runs_on.agent,
+                &runs_on,
                 Some((&epic.id, &epic.key)),
             )
-            .await?;
+            .await
+        {
+            agents.release_checkout(&agent.id).await;
+            return Err(e);
+        }
         tracing::info!(epic = %epic.key, agent = agent.id, "epic lead resumed");
         agents.changed(&agent.project, &agent.id);
         self.get_for(epic)
@@ -802,8 +835,8 @@ fn is_live(agent: &ProjectAgent) -> bool {
 /// "SHOP-40 is in review; its lead has ended": no lead opens for an epic in Ready for Review, Approved or Done.
 fn refuse_in_review(epic: &Ticket) -> Result<(), BoardError> {
     if matches!(
-        epic.column,
-        Column::ReadyForReview | Column::Approved | Column::Done
+        epic.board_group(),
+        StatusSet::HumanCheck | StatusSet::Delivery | StatusSet::Done
     ) {
         return Err(BoardError::refused(
             Refusal::MoveRefused,
@@ -918,7 +951,7 @@ mod tests {
         LeadFacts {
             state: Some(AgentState::Running),
             live: true,
-            epic_column: Column::Dev,
+            epic_column: StatusSet::AgentStage,
             waits_for_user: false,
             turn,
         }
@@ -929,7 +962,7 @@ mod tests {
         let none = LeadFacts {
             state: None,
             live: false,
-            epic_column: Column::Backlog,
+            epic_column: StatusSet::Backlog,
             waits_for_user: false,
             turn: None,
         };
@@ -975,14 +1008,14 @@ mod tests {
             turn: None,
         };
         assert_eq!(
-            lead_status(&ended(AgentState::EndedByRestart, Column::Dev)),
+            lead_status(&ended(AgentState::EndedByRestart, StatusSet::AgentStage)),
             LeadStatus::EndedByRestart
         );
         assert_eq!(
-            lead_status(&ended(AgentState::Ended, Column::Dev)),
+            lead_status(&ended(AgentState::Ended, StatusSet::AgentStage)),
             LeadStatus::Ended
         );
-        for column in [Column::ReadyForReview, Column::Approved, Column::Done] {
+        for column in [StatusSet::HumanCheck, StatusSet::Delivery, StatusSet::Done] {
             assert_eq!(
                 lead_status(&ended(AgentState::Ended, column)),
                 LeadStatus::EndedInReview

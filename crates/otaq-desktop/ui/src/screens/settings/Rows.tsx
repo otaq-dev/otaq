@@ -8,7 +8,6 @@ import {
   AnchoredMenu,
   Button,
   Checkbox,
-  ConfirmDialog,
   IconButton,
   pickTheme,
   Segmented,
@@ -24,18 +23,14 @@ import type { SettingsControl } from "../../generated/SettingsControl";
 import type { SettingsProvider } from "../../generated/SettingsProvider";
 import type { SettingsRow } from "../../generated/SettingsRow";
 import type { SettingsRowButton } from "../../generated/SettingsRowButton";
-import type { SettingsSkillAction } from "../../generated/SettingsSkillAction";
-import type { SettingsSkillDialog } from "../../generated/SettingsSkillDialog";
-import type { SettingsSkillMenuItem } from "../../generated/SettingsSkillMenuItem";
-import type { SettingsSkillRow } from "../../generated/SettingsSkillRow";
 import type { SettingsSection } from "../../generated/SettingsSection";
 import type { SettingsTools } from "../../generated/SettingsTools";
 import type { ToolTerminalOpened } from "../../generated/ToolTerminalOpened";
 import { RowTerminal, useRowTerminals } from "../onboarding/RowTerminal";
 import { asRequestError } from "../../service";
-import { pickFolder, request } from "../../tauri";
+import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { fieldId, sectionOf, type SkillMethod, useSettings } from "./context";
+import { fieldId, sectionOf, useSettings } from "./context";
 import { WarmOffDialog } from "./Dialogs";
 import { EnvVarsRow } from "./EnvVars";
 
@@ -115,276 +110,6 @@ function Stepper({ field, label, control }: { field: string; label: string; cont
         <Icon name="plus" size={13} />
       </button>
     </span>
-  );
-}
-
-/** One choice of a few, each with its explanation (*15 → Auto-merge*); the note says why they're disabled. */
-function Radio({ field, label, control }: { field: string; label: string; control: Of<"radio"> }) {
-  const { edit } = useSettings();
-  return (
-    <div className="settings-radio" role="radiogroup" aria-label={label} aria-disabled={control.disabled}>
-      {control.choices.map((choice) => (
-        <label
-          key={choice.id}
-          htmlFor={`${fieldId(field)}-${choice.id}`}
-          className="settings-radio-choice"
-          data-disabled={control.disabled || undefined}
-        >
-          <input
-            id={`${fieldId(field)}-${choice.id}`}
-            type="radio"
-            name={fieldId(field)}
-            checked={control.value === choice.id}
-            disabled={control.disabled}
-            onChange={() => {
-              edit(field, choice.id);
-            }}
-          />
-          <span className="settings-radio-label">{choice.label}</span>
-          <span className="settings-radio-detail">{choice.detail}</span>
-        </label>
-      ))}
-      {control.empty !== null && <span className="settings-radio-empty">{control.empty}</span>}
-      {control.note !== null && (
-        <p className="settings-radio-note">
-          <Icon name="info" size={13} />
-          <span>{control.note}</span>
-        </p>
-      )}
-    </div>
-  );
-}
-
-/** What a skill row's action does (WSK-01, WSK-04): the folder picker then the import, Re-import's question, Import
- * again at once, Otaq's copy in the file manager, or Use built-in / Use global (which may answer "ask first"). */
-export type SkillStepPlan =
-  | { kind: "pick"; title: string; params: { project: string | null; step: SettingsSkillRow["step"] } }
-  | { kind: "ask"; dialog: "reimport" }
-  | { kind: "send"; method: SkillMethod; params: Record<string, unknown> }
-  | { kind: "reveal"; target: { skill: { project: string | null; step: SettingsSkillRow["step"] } } };
-
-export function skillStep(
-  row: SettingsSkillRow,
-  action: SettingsSkillAction,
-  project: string | null,
-): SkillStepPlan {
-  const at = { project, step: row.step };
-  switch (action) {
-    case "import":
-      return { kind: "pick", title: row.picker_title, params: at };
-    case "reimport":
-      return { kind: "ask", dialog: "reimport" };
-    case "import_again":
-      return { kind: "send", method: "settings.skill_reimport", params: at };
-    case "reveal":
-      return { kind: "reveal", target: { skill: at } };
-    case "reset":
-      return { kind: "send", method: "settings.skill_reset", params: { ...at, confirmed: false } };
-  }
-}
-
-/** The ⋯ items as menu rows (the Settings → Agents menu). */
-export function skillMenu(items: readonly SettingsSkillMenuItem[]): MenuItem[] {
-  return items.map((item) => ({
-    id: item.action,
-    label: item.label,
-    icon: item.icon,
-    shortcut: null,
-    danger: false,
-    disabled: false,
-    hint: null,
-    separated: item.separated,
-    checked: false,
-    header: false,
-  }));
-}
-
-/** Re-import's question (accent button) or going back with an edited copy (red button, ↵ = Cancel). */
-export function SkillDialogView({
-  dialog,
-  onConfirm,
-  onCancel,
-}: {
-  dialog: SettingsSkillDialog;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <ConfirmDialog
-      title={dialog.title}
-      destructive={dialog.destructive}
-      confirmLabel={dialog.confirm}
-      width={440}
-      onConfirm={onConfirm}
-      onCancel={onCancel}
-      body={
-        <div className="settings-skill-confirm">
-          <p className="dialog-text">{dialog.text}</p>
-          <p className="settings-skill-confirm-note">
-            <Icon name="history" size={13} />
-            <span>{dialog.note}</span>
-          </p>
-        </div>
-      }
-    />
-  );
-}
-
-/** One step's row (*15 → update AC §1–§3*): the step, the name and its tag, where it came from, the lines under it,
- * then the button and the ⋯ menu. Everything is the view's; this keeps the open menu and dialog. */
-export function SkillRowView({ row }: { row: SettingsSkillRow }) {
-  const { project, skill } = useSettings();
-  const more = useRef<HTMLButtonElement>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [asking, setAsking] = useState<"reimport" | "reset" | null>(null);
-  const send = (method: SkillMethod, params: Record<string, unknown>) =>
-    skill?.(method, params) ?? Promise.resolve(null);
-  const run = (action: SettingsSkillAction) => {
-    const plan = skillStep(row, action, project);
-    switch (plan.kind) {
-      case "pick":
-        void pickFolder(plan.title).then(
-          (folder) => {
-            if (folder !== null) void send("settings.skill_import", { ...plan.params, folder });
-          },
-          () => undefined,
-        );
-        return;
-      case "ask":
-        setAsking(plan.dialog);
-        return;
-      case "reveal":
-        void request("settings.reveal", { target: plan.target }).catch(() => undefined);
-        return;
-      case "send":
-        void send(plan.method, plan.params).then((outcome) => {
-          if (outcome === "confirm") setAsking("reset");
-        });
-        return;
-    }
-  };
-  const dialog = asking === "reimport" ? row.reimport : asking === "reset" ? row.reset : null;
-  return (
-    <div className="settings-skill" data-step={row.step}>
-      <span className="settings-skill-step">{row.label}</span>
-      <div className="settings-skill-body">
-        <span className="settings-skill-name">
-          <span className="settings-skill-value" data-muted={row.name_muted || undefined}>
-            {row.name}
-          </span>
-          <span className="settings-skill-tag" data-look={row.tag.look}>
-            {row.tag.label}
-          </span>
-        </span>
-        <span className="settings-skill-source">
-          {row.folder !== null && (
-            <>
-              <Icon name="folder" size={12} />
-              <span className="settings-skill-folder">{row.folder}</span>
-            </>
-          )}
-          {row.source !== "" && <span>{row.source}</span>}
-        </span>
-        {row.lines.map((line) => (
-          <span key={line.text} className="settings-skill-line" data-look={line.look}>
-            <Icon name={line.icon} size={12} />
-            <span>
-              {line.text}
-              {line.link !== null && (
-                <>
-                  {" "}
-                  <button
-                    type="button"
-                    className="settings-link"
-                    onClick={() => {
-                      if (line.link) run(line.link.action);
-                    }}
-                  >
-                    {line.link.label}
-                  </button>
-                </>
-              )}
-            </span>
-          </span>
-        ))}
-      </div>
-      <span className="settings-skill-actions" id={fieldId(row.field)}>
-        {row.button !== null && (
-          <Button
-            variant="secondary"
-            icon={row.button.icon ?? undefined}
-            label={row.button.label}
-            disabled={row.button.disabled}
-            onClick={() => {
-              if (row.button) run(row.button.action);
-            }}
-          />
-        )}
-        {row.menu.length > 0 && (
-          <IconButton
-            ref={more}
-            icon="ellipsis"
-            label={row.menu_label}
-            onClick={() => {
-              setMenuOpen((o) => !o);
-            }}
-          />
-        )}
-      </span>
-      {menuOpen && (
-        <AnchoredMenu
-          anchor={more}
-          align="end"
-          label={row.menu_label}
-          items={skillMenu(row.menu)}
-          width={250}
-          onChoose={(id) => {
-            setMenuOpen(false);
-            run(id as SettingsSkillAction);
-          }}
-          onClose={(how) => {
-            setMenuOpen(false);
-            if (how === "key") more.current?.focus();
-          }}
-        />
-      )}
-      {dialog !== null && (
-        <SkillDialogView
-          dialog={dialog}
-          onCancel={() => {
-            setAsking(null);
-          }}
-          onConfirm={() => {
-            const what = asking;
-            setAsking(null);
-            const at = { project, step: row.step };
-            if (what === "reimport") void send("settings.skill_reimport", at);
-            else void send("settings.skill_reset", { ...at, confirmed: true });
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-/** Settings → Workflow skills (WSK-01; d0092): a row per step across the page's width, then the dot-folder hint
- * (macOS only). */
-export function Skills({ control }: { control: Of<"skills"> }) {
-  return (
-    <div className="settings-skills">
-      <h4 className="settings-section-title settings-skills-heading">{control.heading}</h4>
-      <div className="settings-skills-list">
-        {control.rows.map((row) => (
-          <SkillRowView key={row.field} row={row} />
-        ))}
-      </div>
-      {control.hint !== null && (
-        <p className="settings-skills-hint">
-          <Icon name="eye" size={12} />
-          <span>{control.hint}</span>
-        </p>
-      )}
-    </div>
   );
 }
 
@@ -542,11 +267,8 @@ function ProviderRow({ row }: { row: SettingsRow }) {
                 type="button"
                 className="settings-link"
                 onClick={() => {
-                  // The Open PR row's Import skill folder… (its first button).
-                  document
-                    .getElementById(fieldId("workflow_skills.open_pr"))
-                    ?.querySelector<HTMLButtonElement>("button")
-                    ?.focus();
+                  // The Open PR skill is the Delivery stage agent's (AGM-01): Settings → Agents.
+                  openOverlay("settings", { section: "agents" });
                 }}
               >
                 {provider.link}
@@ -679,8 +401,6 @@ function Control({ row }: { row: SettingsRow }) {
       );
     case "stepper":
       return <Stepper field={row.field} label={row.label} control={c} />;
-    case "radio":
-      return <Radio field={row.field} label={row.label} control={c} />;
     case "segmented":
       return (
         <Segmented
@@ -733,8 +453,6 @@ function Control({ row }: { row: SettingsRow }) {
           />
         </span>
       );
-    case "skills":
-      return <Skills control={c} />;
     case "env_files":
       return <EnvFiles control={c} />;
     case "env_vars":
@@ -779,8 +497,6 @@ function Row({ row }: { row: SettingsRow }) {
   if (row.control.kind === "notifications_switch")
     return <NotificationsSwitchRow row={row} control={row.control} />;
   if (row.control.kind === "checkbox") return <CheckboxRow row={row} control={row.control} />;
-  // Workflow skills: the rows across the whole width (*15 → update AC §1*).
-  if (row.control.kind === "skills") return <Skills control={row.control} />;
   // *Theme*: the row's text, then the picker across the whole width.
   if (row.control.kind === "themes")
     return (

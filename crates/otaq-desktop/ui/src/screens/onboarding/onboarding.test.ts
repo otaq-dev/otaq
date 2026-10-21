@@ -111,6 +111,20 @@ describe("the onboarding screen", () => {
     expect(overlays.store.get()).toEqual([{ id: "onboarding", params: undefined }]);
   });
 
+  it("quitting during the Flow step reopens it: onboarding opens on that project's Flow step (ASK-04)", async () => {
+    let push: (c: ServiceConnection) => void = () => undefined;
+    openOnboardingWhenNeeded(
+      () => Promise.resolve({ show: true, step: "flow", project: "SHOP" }),
+      (onChange) => {
+        push = onChange;
+        return () => undefined;
+      },
+    );
+    push({ state: "connected" } as ServiceConnection);
+    await flush();
+    expect(overlays.store.get()).toEqual([{ id: "onboarding", params: { step: "flow", project: "SHOP" } }]);
+  });
+
   it("stays closed when a project exists", async () => {
     let push: (c: ServiceConnection) => void = () => undefined;
     openOnboardingWhenNeeded(
@@ -171,6 +185,8 @@ describe("the steps", () => {
   it("Continue goes to the project step, or ends for a user with projects", () => {
     expect(afterTools(TOOLS)).toBe("project");
     expect(afterTools({ ...TOOLS, has_projects: true })).toBe("done");
+    // Back to Tools from the Flow step: Continue returns to it, the project still in Flow setup.
+    expect(afterTools({ ...TOOLS, has_projects: true }, "SHOP")).toBe("flow");
   });
 
   it("ending raises the permission banner only when the warning showed", async () => {

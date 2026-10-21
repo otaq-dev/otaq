@@ -7,6 +7,13 @@
 //! only, so the view models can call it without the database. The queue mode is stored on the epic: `Whole` lets
 //! new children join the queue, `Single` keeps them "not queued" (EPC-13).
 //!
+//! **On stages** (STG-11, d0108 rule 7): the groups below read the child's place and its status's set (the kind of
+//! the stage it is in), not a board column. An epic skips the Agent and Check stages: it waits in Backlog for its
+//! children, then stops at its project flow's last human check, or at the implicit **Review epic** stop
+//! ([`REVIEW_EPIC`]) when the flow has none, and is delivered as the flow's Delivery says ([`epic_flow`]). It waits
+//! there quietly ([`epic_is_quiet`]). A child's Delivery always Local-merges into the epic's branch, never a PR
+//! ([`delivery_of`]).
+//!
 //! **Queueing** (EPC-12, EPC-14; d0080): [`Board::queue_epic`] (the epic card or track dropped on Ready for Dev or
 //! Dev, ⇧⌘D) queues every child still in Backlog in one transaction; a parked one resumes its conversation through
 //! the same Parked → Dev path as a dragged ticket (d0052). [`Board::queue_epic_child`] (one row of the card, or a
@@ -25,11 +32,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Sqlite, Transaction};
 
-use super::moves::{DropTarget, MoveAction, MoveCheck, check_move, queue_in, unqueue_in};
-use super::settings::AutoMerge;
+use super::moves::{DropTarget, MoveAction, MoveCheck, check_move_in, queue_in, unqueue_in};
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
-use crate::domain::{Actor, Column, Status, TicketKey, stored_enum};
+use crate::domain::{Actor, Place, Status, StatusSet, TicketKey, stored_enum};
+use crate::flow::{CheckBy, Delivers, Delivery, Flow, Stage, StageKind};
 use crate::store::now_ms;
 use crate::store::tickets::TicketRow;
 
@@ -67,40 +74,42 @@ pub enum EpicPlace {
     Delivery,
 }
 
-/// Has this ticket been to Dev? Pure: from its column, its status and its work (branch or worktree). A queued
-/// ticket that never reached Dev has **not** (unlike [`Ticket::has_started`], which a queue sets): it is still
-/// "never started", a row or a "not queued" chip that queueing or taking back moves freely (d0080). A Closed
-/// ticket counts if it was ever queued and kept that mark, or has work.
+/// Has this ticket been to Dev (any stage of its flow)? Pure: from its place, its status and its work (branch or
+/// worktree). A queued ticket that never reached its first stage has **not** (unlike [`Ticket::has_started`], which
+/// a queue sets): it is still "never started", a row or a "not queued" chip that queueing or taking back moves
+/// freely (d0080). One waiting before a later Agent stage ran an earlier one. A Closed ticket counts if it was ever
+/// queued and kept that mark, or has work.
 pub fn been_to_dev(ticket: &Ticket) -> bool {
     let worked = ticket
         .work
         .as_ref()
         .is_some_and(|w| w.branch.is_some() || w.worktree.is_some());
-    match ticket.column {
-        Column::Dev | Column::ReadyForReview | Column::Approved => true,
-        Column::Backlog => ticket.status == Status::Parked || worked,
-        Column::ReadyForDev => worked,
-        Column::Done => ticket.status == Status::Merged || worked || ticket.has_started(),
+    match &ticket.place {
+        Place::InStage(_) | Place::Waiting(Some(_)) => true,
+        Place::Backlog => ticket.status == Status::Parked || worked,
+        Place::Waiting(None) => worked,
+        Place::Done => ticket.status == Status::Merged || worked || ticket.has_started(),
     }
 }
 
 /// A never-started child: it has never been to Dev and is a row of the epic card, a card in Ready for Dev, or a
 /// "not queued" chip on its track.
 pub fn is_never_started(ticket: &Ticket) -> bool {
-    matches!(ticket.column, Column::Backlog | Column::ReadyForDev) && !been_to_dev(ticket)
+    (ticket.place.is_backlog() || ticket.place.is_waiting()) && !been_to_dev(ticket)
 }
 
-/// An active child: in Ready for Dev, Dev or Ready for Review.
+/// An active child: waiting before an Agent stage (Ready for Dev), in an Agent stage or an agent check (Dev), or in
+/// a human check (Ready for Review).
 pub fn is_active(ticket: &Ticket) -> bool {
-    matches!(
-        ticket.column,
-        Column::ReadyForDev | Column::Dev | Column::ReadyForReview
-    )
+    ticket.place.is_waiting()
+        || ticket.status.at_work()
+        || ticket.status.set() == StatusSet::HumanCheck
 }
 
-/// A running child: in Dev, where its agent session (or validator) works or waits for the user.
+/// A running child: in an Agent stage or an agent check (Dev), where its agent session (or checker) works or waits
+/// for the user.
 pub fn is_running(ticket: &Ticket) -> bool {
-    ticket.column == Column::Dev
+    ticket.status.at_work()
 }
 
 /// A parked child: "Parked · has work" in Backlog (d0052).
@@ -143,9 +152,10 @@ pub fn children_of<'a>(epic: &Ticket, tickets: &'a [Ticket]) -> Vec<&'a Ticket> 
 /// started, so the track stays"). After Park all it is a card again, its rows "Parked · has work". A child reopened
 /// after Review makes it a track again (the epic is back in Backlog, EPC-05).
 pub fn epic_place(epic: &Ticket, tickets: &[Ticket]) -> EpicPlace {
+    // Past Backlog an epic is only ever at its stop (a human check), in its Delivery or Done (d0108 rule 7).
     if matches!(
-        epic.column,
-        Column::ReadyForReview | Column::Approved | Column::Done
+        epic.status.set(),
+        StatusSet::HumanCheck | StatusSet::Delivery | StatusSet::Done
     ) {
         return EpicPlace::Delivery;
     }
@@ -160,6 +170,71 @@ pub fn epic_place(epic: &Ticket, tickets: &[Ticket]) -> EpicPlace {
     }
 }
 
+/// The id of the implicit **Review epic** stop (d0108 rule 7): the human check an epic waits at when its flow has
+/// none of its own. Only epics use it; ids Otaq makes from stage names never start with `_`.
+pub const REVIEW_EPIC: &str = "_review-epic";
+
+/// "Review epic", as the epic's track shows the stop.
+pub const REVIEW_EPIC_NAME: &str = "Review epic";
+
+/// Where an epic stops for the user when every child is done (d0108 rule 7): the flow's last human check, or the
+/// implicit Review epic stop when the flow has none. An epic never skips it (its `skip` option doesn't apply).
+pub fn epic_stop(flow: &Flow) -> Stage {
+    let mut stop = flow
+        .stages
+        .iter()
+        .rev()
+        .find(|s| s.is_human_check())
+        .cloned()
+        .unwrap_or_else(|| Stage {
+            id: REVIEW_EPIC.to_owned(),
+            name: REVIEW_EPIC_NAME.to_owned(),
+            kind: StageKind::Check { by: CheckBy::You },
+            // Its own column (`column: own`).
+            column: Default::default(),
+            agent: None,
+            skill: None,
+            options: Vec::new(),
+            rounds: None,
+            delivery: None,
+            why: None,
+        });
+    stop.options.clear();
+    stop
+}
+
+/// The flow an epic walks (d0108 rule 7): it skips the Agent and Check stages, so it is its stop ([`epic_stop`])
+/// and then the project flow's Delivery. With no Agent stage before the stop, a Fail has nowhere to go: "No Fail on
+/// an epic". On the default flow it is Review → Done, as today.
+pub fn epic_flow(flow: &Flow) -> Flow {
+    Flow {
+        stages: std::iter::once(epic_stop(flow))
+            .chain(flow.stages.iter().filter(|s| s.is_delivery()).cloned())
+            .collect(),
+    }
+}
+
+/// How a ticket's Delivery delivers (d0108 rule 7): as its flow's Delivery stage says, but an epic child always
+/// Local-merges into its epic's branch (never a PR), in the stage's mode. `None` when the flow has no Delivery.
+pub fn delivery_of(flow: &Flow, ticket: &Ticket) -> Option<Delivery> {
+    let delivery = flow.stages.iter().find_map(|s| s.delivery)?;
+    Some(match ticket.epic {
+        Some(_) => Delivery {
+            delivers: Delivers::Local,
+            ..delivery
+        },
+        None => delivery,
+    })
+}
+
+/// An epic waiting at its stop for the user's review counts as quiet (d0108 second gap review rule 11): a flow change
+/// doesn't wait for it, as for any card waiting in a human check.
+pub fn epic_is_quiet(epic: &Ticket, flow: &Flow) -> bool {
+    epic.is_epic()
+        && epic.status.set() == StatusSet::HumanCheck
+        && epic.place.is_in(&epic_stop(flow).id)
+}
+
 /// What a queue did, for the queue toast (EPC-15): "Moved 2 children of SHOP-45 to Ready for Dev · Undo", and with Auto-merge Off
 /// "Moved 3 tickets to Ready for Dev. Auto-merge is off for shop-web, so each one waits for your review." Undo takes back
 /// `queued` and `resumed` (T-0264).
@@ -171,8 +246,6 @@ pub struct EpicQueueOutcome {
     pub queued: Vec<TicketKey>,
     /// Parked children that go back to Dev with their conversations (d0052), in key order.
     pub resumed: Vec<TicketKey>,
-    /// The project's effective Auto-merge is Off (d0064): each child will wait for the user's review.
-    pub auto_merge_off: bool,
     /// The project's name, e.g. shop-web.
     pub project: String,
     /// Queueing the whole epic started its lead (LEAD-02): "· its lead started". Undo doesn't stop it.
@@ -197,7 +270,7 @@ pub fn nothing_to_queue(epic: &TicketKey) -> String {
 pub fn to_queue<'a>(epic: &Ticket, tickets: &'a [Ticket]) -> Vec<&'a Ticket> {
     children_of(epic, tickets)
         .into_iter()
-        .filter(|c| c.column == Column::Backlog)
+        .filter(|c| c.place.is_backlog())
         .collect()
 }
 
@@ -345,8 +418,8 @@ pub fn take_back_plan_starting(
             .map(|c| c.key.clone())
             .collect()
     };
-    let is_starting = |c: &Ticket| c.column == Column::ReadyForDev && starting.contains(&c.id);
-    let waiting = |c: &Ticket| c.column == Column::ReadyForDev && !starting.contains(&c.id);
+    let is_starting = |c: &Ticket| c.place.is_waiting() && starting.contains(&c.id);
+    let waiting = |c: &Ticket| c.place.is_waiting() && !starting.contains(&c.id);
     let unqueue = keys(&waiting);
     let running = keys(&is_running);
     let now_starting = keys(&is_starting);
@@ -434,7 +507,8 @@ impl Board {
                 format!("{} isn't an epic", epic.key),
             ));
         }
-        match check_move(&epic, DropTarget::ReadyForDev) {
+        let flow = self.effective_flow(epic.key.project.as_str()).await?;
+        match check_move_in(&flow, &epic, DropTarget::ReadyForDev) {
             MoveCheck::Allowed {
                 action: MoveAction::QueueEpic,
             } => {}
@@ -473,7 +547,8 @@ impl Board {
                 format!("{} isn't an epic child", child.key),
             ));
         };
-        match check_move(&child, DropTarget::ReadyForDev) {
+        let flow = self.effective_flow(child.key.project.as_str()).await?;
+        match check_move_in(&flow, &child, DropTarget::ReadyForDev) {
             MoveCheck::Allowed {
                 action: MoveAction::Start,
             } => {}
@@ -511,12 +586,22 @@ impl Board {
         }
         let project_key = epic.key.project.to_string();
         let project = self.project(&project_key).await?;
-        let auto_merge_off =
-            self.effective_settings(&project_key).await?.auto_merge == AutoMerge::Off;
         let with_epic = json!({"with_epic": epic.key});
-        let mut tx = self.store.begin_write().await?;
+        let mut returns_to = Vec::with_capacity(children.len());
         for child in children {
-            queue_in(&mut tx, child, Some(&epic.id), actor, with_epic.clone()).await?;
+            returns_to.push(self.parked_return(child).await?);
+        }
+        let mut tx = self.store.begin_write().await?;
+        for (child, returns_to) in children.iter().zip(&returns_to) {
+            queue_in(
+                &mut tx,
+                child,
+                Some(&epic.id),
+                returns_to.as_deref(),
+                actor,
+                with_epic.clone(),
+            )
+            .await?;
         }
         if epic.epic_queue_mode != mode {
             set_queue_mode_in(&mut tx, &epic.id, epic.epic_queue_mode, mode, actor).await?;
@@ -533,7 +618,6 @@ impl Board {
             epic: epic.key.clone(),
             queued: keys(false),
             resumed: keys(true),
-            auto_merge_off,
             project: project.name,
             lead_started: false,
         };
@@ -563,7 +647,7 @@ impl Board {
                     format!("{} isn't a child of {}", child.key, epic.key),
                 ));
             }
-            if child.column == Column::ReadyForDev {
+            if child.place.is_waiting() {
                 let row = self.waiting_row(&child).await?;
                 waiting.push((child, row));
             }
@@ -608,12 +692,12 @@ impl Board {
                     format!("{} isn't a child of {}", child.key, epic.key),
                 ));
             }
-            match child.column {
-                Column::ReadyForDev => {
+            match &child.place {
+                Place::Waiting(_) => {
                     let row = self.waiting_row(&child).await?;
                     waiting.push((child, row));
                 }
-                Column::Backlog => {}
+                Place::Backlog => {}
                 _ => already_started.push(child.key),
             }
         }

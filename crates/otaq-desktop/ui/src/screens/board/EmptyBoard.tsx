@@ -1,11 +1,10 @@
 // The empty board of a project with no tickets (*14 → 4 · Done · empty board → Board empty* `ugHTD`, *03 → Empty
-// column & empty board* `kItEl`; UI-08): a centred card over the five empty columns. Its button runs its shortcut's
-// action, so it does what the key does (New ticket ⌘N; the Project agent is the pane on the left, ⌘L, d0087), and a
-// line says how Auto-merge is set (d0064). Its words are `EmptyBoardView`'s (`empty_board.rs`).
+// column & empty board* `kItEl`; UI-08): a centred card over the empty columns. Its button runs its shortcut's
+// action, so it does what the key does (New ticket ⌘N; the Project agent is the pane on the left, ⌘L, d0087). Its
+// words are `EmptyBoardView`'s (`empty_board.rs`).
 import { Button, Kbd } from "../../components";
 import { useRegistries } from "../../app/registry";
 import type { EmptyBoardView } from "../../generated/EmptyBoardView";
-import { Icon } from "../../theme/Icon";
 
 export function EmptyBoard({ view }: { view: EmptyBoardView }) {
   const app = useRegistries();
@@ -35,12 +34,6 @@ export function EmptyBoard({ view }: { view: EmptyBoardView }) {
             </span>
           ))}
         </div>
-        {view.auto_merge !== null && (
-          <p className="board-empty-auto-merge">
-            <Icon name="git-merge" size={13} />
-            <span>{view.auto_merge}</span>
-          </p>
-        )}
       </div>
     </div>
   );

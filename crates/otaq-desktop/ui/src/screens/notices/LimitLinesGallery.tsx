@@ -1,6 +1,6 @@
 // The gallery's limit banner per tool and Activity with four tools (T-0368; *11* `DcZCp` / `hS30M`, `saXdl` / `x8C2T`,
 // `UI9hR` / `WFdMY`; *02* `D7lOb` / `R0GSC`), in Otaq Light and Dark: every sample of `gallery.limit_lines` drawn as the
-// banner draws it, Move waiting to…'s list open, and the Activity popovers with a tool at its limit and with every tool.
+// banner draws it, and the Activity popovers with a tool at its limit and with every tool.
 // Presses are only recorded; nothing is sent.
 import { useCallback, useState } from "react";
 
@@ -8,11 +8,10 @@ import { Banner } from "../../components";
 import type { ActivityGallery } from "../../generated/ActivityGallery";
 import type { LimitLine } from "../../generated/LimitLine";
 import type { LimitLineGallery } from "../../generated/LimitLineGallery";
-import type { MoveWaitingMenu } from "../../generated/MoveWaitingMenu";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { ActivityBody } from "../shell/ActivityPopover";
-import { type LimitLineHandlers, LimitLines, MoveWaitingList } from "./LimitLines";
+import { type LimitLineHandlers, LimitLines } from "./LimitLines";
 import { limitLinesOf } from "./notices";
 
 const THEMES = ["otaq-light", "otaq-dark"] as const;
@@ -77,13 +76,7 @@ export function LimitLinesGallery() {
     onAction: (action) => {
       setPicked("tool" in action ? `${action.kind} · ${action.tool}` : action.kind);
     },
-    onMove: (tool, agent) => {
-      setPicked(`limits.move_waiting · ${tool} → ${agent}`);
-    },
   };
-  const menu: MoveWaitingMenu | undefined =
-    view.lines.cells.flatMap((cell) => cell.lines).find((line) => line.move_waiting !== null)?.move_waiting ??
-    undefined;
   const popovers = view.activity.popovers.filter(([caption]) => POPOVERS.includes(caption));
   return (
     <div className="gallery-stack">
@@ -98,19 +91,6 @@ export function LimitLinesGallery() {
             </div>
           ))}
           <div className="gallery-wrap gallery-wrap-wide activity-gallery-popovers">
-            {menu && (
-              <figure className="gallery-stack-tight">
-                <figcaption className="gallery-caption">MOVE WAITING TO… ▾ (MENU OPEN)</figcaption>
-                <MoveWaitingList
-                  menu={menu}
-                  takeFocus={false}
-                  onChoose={(agent) => {
-                    handlers.onMove(menu.tool, agent);
-                  }}
-                  onClose={ignore}
-                />
-              </figure>
-            )}
             {popovers.map(([caption, popover]) => (
               <figure key={caption} className="gallery-stack-tight">
                 <figcaption className="gallery-caption">ACTIVITY · {caption.toUpperCase()}</figcaption>

@@ -3,9 +3,10 @@
 //!
 //! # `--json` shapes (stable; fields may be added, never renamed or removed)
 //!
-//! - `show`: `{"ticket": Ticket, "agents": [AgentRow], "decisions": [Decision], "children": [Ticket]?,
-//!   "history": [HistoryEvent]?, "messages": [Message]?}`: `agents` are the ticket's Developer and Validator rows
-//!   or the epic's Epic lead row ([`AgentRowJson`], AGT-06); `decisions` the ticket's recorded decisions (DEC-02,
+//! - `show`: `{"ticket": Ticket, "agents": [StageAgent], "choices": [Choice], "decisions": [Decision],
+//!   "children": [Ticket]?, "history": [HistoryEvent]?, "messages": [Message]?}`: `agents` are the agent each of the
+//!   ticket's stages runs, or the epic's lead ([`StageAgentJson`], AGM-05); `choices` its stages with options and
+//!   its choice for each ([`ChoiceJson`], AGM-11); `decisions` the ticket's recorded decisions (DEC-02,
 //!   `otaq_core::decisions`),
 //!   `children` with `--children` (epics), `history` and `messages` (questions between linked tickets) with
 //!   `--long`.
@@ -18,17 +19,17 @@
 //!
 //! `Ticket`, `HistoryEvent` and `ProjectInfo` are the protocol's types (`otaq_core::board`).
 
+use otaq_core::agents::facts::TicketAgents;
 use otaq_core::board::readiness::Readiness;
 use otaq_core::board::snapshot::ProjectInfo;
+use otaq_core::board::stage_choices::{SetBy, TicketChoices};
 use otaq_core::board::tickets::{Base, HistoryEvent, Ticket};
 use otaq_core::client::Client;
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{Column, Priority, Status, TicketKey};
-use otaq_core::named_agents::rows::{RowFacts, TicketAgents};
-use otaq_core::named_agents::{Role, RowSetBy};
+use otaq_core::domain::{Place, Priority, Status, StatusSet, TicketKey};
 use otaq_core::protocol::{
     ErrorBody, ErrorKind, KeyParams, ProjectParams, Reply, Request, TerminalParams,
-    TicketAgentsParams,
+    TicketAgentsParams, TicketChoicesParams,
 };
 use otaq_core::store::now_ms;
 use serde::Serialize;
@@ -114,7 +115,8 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
             other => return Err(unexpected(&other)),
         };
         let agents = ticket_agents(client, &ticket.key.to_string()).await?;
-        let mut human = show_text(&ticket, &tickets, Some(&agents));
+        let choices = ticket_choices(client, &ticket.key.to_string()).await?;
+        let mut human = show_text(&ticket, &tickets, Some(&agents), Some(&choices));
         if !decisions.is_empty() {
             // Only a lead marks: its mark is named after the ticket's epic ("Marked by Wishlist lead").
             let lead = ticket
@@ -135,7 +137,8 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
         }
         let mut value = json!({
             "ticket": ticket,
-            "agents": rows_json(&agents),
+            "agents": agents_json(&agents),
+            "choices": choices_json(&choices),
             "decisions": decisions,
         });
         if args.children {
@@ -152,11 +155,12 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
     }))
 }
 
-/// `otaq show <KEY> --terminal` (SHL-10, CLI-09): the ticket's agent terminal (or with `--validator` its running
-/// validator's) as the user sees it, as plain text. Read-only: the service decides who may (CLI-03).
+/// `otaq show <KEY> --terminal` (SHL-10, CLI-09): the ticket's agent terminal (or with `--stage` the terminal of the
+/// agent running that stage, FLW-20) as the user sees it, as plain text. Read-only: the service decides who may
+/// (CLI-03).
 pub fn terminal(
     key: Option<String>,
-    validator: bool,
+    stage: Option<String>,
     global: &GlobalArgs,
     out: &Output,
 ) -> Result<(), ErrorBody> {
@@ -166,7 +170,7 @@ pub fn terminal(
             client,
             Request::TicketTerminal(TerminalParams {
                 key: key.to_string(),
-                validator,
+                stage,
             }),
         )
         .await?;
@@ -331,7 +335,7 @@ async fn request(client: &Client, request: Request) -> Result<Reply, ErrorBody> 
     client.request(request).await.map_err(client_error)
 }
 
-/// A ticket's or an epic's agent rows (`ticket.agents`, T-0341).
+/// The agents a ticket's stages or an epic's lead run (`ticket.agents`).
 pub async fn ticket_agents(client: &Client, key: &str) -> Result<TicketAgents, ErrorBody> {
     match request(
         client,
@@ -348,87 +352,108 @@ pub async fn ticket_agents(client: &Client, key: &str) -> Result<TicketAgents, E
     }
 }
 
-/// One agent row in `--json` (AGT-06): `{"role": "developer", "agent": "Light", "by": "agent", "picked_by":
-/// "Checkout slowness", "reason": "docs-only change"}`, or `{"role": "developer", "by": "user", …}` for the user's.
-/// An empty row has no `agent` and `by`; `default` names what it runs on.
+/// One stage's agent in `--json` (AGM-05): `{"stage": "Dev", "agent": "Developer"}`; an epic's lead is
+/// `{"stage": "Epic lead", "agent": "Epic lead"}`. `agent` is missing when the stage names one that isn't there.
 #[derive(Debug, Serialize)]
-pub struct AgentRowJson {
-    pub role: Role,
+pub struct StageAgentJson {
+    pub stage: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
-    #[serde(flatten, skip_serializing_if = "Option::is_none")]
-    pub set_by: Option<RowSetBy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub default: Option<String>,
 }
 
-/// The rows as `--json` carries them.
-pub fn rows_json(agents: &TicketAgents) -> Vec<AgentRowJson> {
+/// The stages' agents as `--json` carries them.
+pub fn agents_json(agents: &TicketAgents) -> Vec<StageAgentJson> {
+    let lead = agents.lead.as_ref().map(|a| StageAgentJson {
+        stage: "Epic lead".to_owned(),
+        agent: Some(a.name.clone()),
+    });
     agents
-        .rows
+        .stages
         .iter()
-        .map(|row| {
-            let set = set_row(row, &agents.agents);
-            AgentRowJson {
-                role: row.role,
-                agent: set.map(|(name, _)| name.to_owned()),
-                set_by: set.map(|(_, by)| by.clone()),
-                default: match set {
-                    Some(_) => None,
-                    None => row.default.as_ref().map(|a| a.name.clone()),
-                },
+        .map(|s| StageAgentJson {
+            stage: s.stage.clone(),
+            agent: s.agent.as_ref().map(|a| a.name.clone()),
+        })
+        .chain(lead)
+        .collect()
+}
+
+/// The ticket's stages with options and its choices (`ticket.choices`, AGM-08).
+pub async fn ticket_choices(client: &Client, key: &str) -> Result<TicketChoices, ErrorBody> {
+    match request(
+        client,
+        Request::TicketChoices(TicketChoicesParams {
+            key: Some(key.to_owned()),
+            project: None,
+        }),
+    )
+    .await?
+    {
+        Reply::TicketChoices(c) => Ok(*c),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// One stage's choice in `--json` (AGM-11): `{"stage": "Dev", "choice": "Quick developer", "set_by":
+/// "project_agent", "by": "the Project agent", "reason": "typo fix", "locked": false, "options": ["Rust developer",
+/// "Quick developer"]}`. Every stage with options is listed; `set_by`, `by` and `reason` are missing when nobody
+/// chose (the usual one runs).
+#[derive(Debug, Serialize)]
+pub struct ChoiceJson {
+    pub stage: String,
+    pub choice: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub set_by: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub locked: bool,
+    pub options: Vec<String>,
+}
+
+/// The stages' choices as `--json` carries them.
+pub fn choices_json(choices: &TicketChoices) -> Vec<ChoiceJson> {
+    choices
+        .stages
+        .iter()
+        .map(|stage| {
+            let set_by = stage.choice.as_ref().map(|c| &c.set_by);
+            ChoiceJson {
+                stage: stage.stage.clone(),
+                choice: stage.label(),
+                set_by: set_by.map(|s| match s {
+                    SetBy::User => "user",
+                    SetBy::ProjectAgent { .. } => "project_agent",
+                    SetBy::EpicLead { .. } => "epic_lead",
+                    SetBy::Agent { .. } => "agent",
+                }),
+                by: set_by.map(SetBy::who),
+                reason: set_by.and_then(SetBy::reason).map(str::to_owned),
+                locked: stage.locked,
+                options: stage.words(),
             }
         })
         .collect()
 }
 
-/// A row's agent name and who set it; `None` when it is empty (also when its agent was deleted).
-fn set_row<'a>(
-    row: &'a RowFacts,
-    agents: &'a [otaq_core::named_agents::NamedAgent],
-) -> Option<(&'a str, &'a RowSetBy)> {
-    let stored = row.row.as_ref()?;
-    let id = stored.agent.as_deref()?;
-    let agent = agents.iter().find(|a| a.id == id)?;
-    Some((agent.name.as_str(), &stored.set_by))
-}
-
-/// "Light · picked by Checkout slowness: docs-only change", "Strong · set by you", "Project default (Claude
-/// Code)".
-pub fn row_text(row: &RowFacts, agents: &[otaq_core::named_agents::NamedAgent]) -> String {
-    match set_row(row, agents) {
-        Some((name, RowSetBy::User)) => format!("{name} · set by you"),
-        Some((name, RowSetBy::Agent { picked_by, reason })) => {
-            format!("{name} · picked by {picked_by}: {reason}")
-        }
-        None => match &row.default {
-            Some(default) => format!("Project default ({})", default.name),
-            None => "Project default".to_owned(),
-        },
-    }
-}
-
-/// What `create` and `update` print for the rows a command set: "Light: docs-only change" (an agent's pick),
-/// "Light" (the user's), "Validator Strong", "Developer: project default" (emptied).
-pub fn picks_text(roles: &[Role], agents: &TicketAgents) -> String {
-    roles
-        .iter()
-        .filter_map(|role| agents.rows.iter().find(|r| r.role == *role))
-        .map(|row| {
-            let label = match row.role {
-                Role::Validator => "Validator ",
-                _ => "",
-            };
-            match set_row(row, &agents.agents) {
-                Some((name, RowSetBy::Agent { reason, .. })) => {
-                    format!("{label}{name}: {reason}")
-                }
-                Some((name, RowSetBy::User)) => format!("{label}{name}"),
-                None => format!("{}: project default", row.role.label()),
+/// The choices someone made, one line each (AGM-11): "Choices:     Dev: Quick developer · set by the Project agent ·
+/// typo fix". Nothing when nobody chose.
+pub fn choices_text(choices: &TicketChoices) -> String {
+    let mut text = String::new();
+    for stage in choices.stages.iter().filter(|s| s.choice.is_some()) {
+        let label = if text.is_empty() { "Choices:" } else { "" };
+        let set_by = stage.choice.as_ref().map(|c| &c.set_by);
+        let mut line = format!("{}: {}", stage.stage, stage.label());
+        if let Some(set_by) = set_by {
+            line.push_str(&format!(" · set by {}", set_by.who()));
+            if let Some(reason) = set_by.reason().filter(|r| !r.is_empty()) {
+                line.push_str(&format!(" · {reason}"));
             }
-        })
-        .collect::<Vec<_>>()
-        .join(" · ")
+        }
+        text.push_str(&format!("{label:<12} {line}\n"));
+    }
+    text
 }
 
 pub async fn get_ticket(client: &Client, key: &str) -> Result<Ticket, ErrorBody> {
@@ -465,6 +490,67 @@ pub fn unexpected(reply: &Reply) -> ErrorBody {
     ))
 }
 
+/// The board's columns as the default flow draws them, by the name `--status` and `otaq show` use (`dev`,
+/// "Ready for Review"); a ticket's column comes from its place (STG-08): Backlog, Ready for Dev and Done as
+/// themselves, a stage by the kind of statuses it allows (an agent check's are Dev's), and a card waiting before a
+/// later Agent stage in that stage's column, Dev.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Column {
+    Backlog,
+    ReadyForDev,
+    Dev,
+    ReadyForReview,
+    Approved,
+    Done,
+}
+
+impl Column {
+    const ALL: [Self; 6] = [
+        Self::Backlog,
+        Self::ReadyForDev,
+        Self::Dev,
+        Self::ReadyForReview,
+        Self::Approved,
+        Self::Done,
+    ];
+
+    fn of(ticket: &Ticket) -> Self {
+        match &ticket.place {
+            Place::Backlog => Self::Backlog,
+            Place::Waiting(None) => Self::ReadyForDev,
+            Place::Waiting(Some(_)) => Self::Dev,
+            Place::Done => Self::Done,
+            Place::InStage(_) => match ticket.status.set() {
+                StatusSet::HumanCheck => Self::ReadyForReview,
+                StatusSet::Delivery => Self::Approved,
+                _ => Self::Dev,
+            },
+        }
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::Backlog => "backlog",
+            Self::ReadyForDev => "ready_for_dev",
+            Self::Dev => "dev",
+            Self::ReadyForReview => "ready_for_review",
+            Self::Approved => "approved",
+            Self::Done => "done",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Backlog => "Backlog",
+            Self::ReadyForDev => "Ready for Dev",
+            Self::Dev => "Dev",
+            Self::ReadyForReview => "Ready for Review",
+            Self::Approved => "Approved",
+            Self::Done => "Done",
+        }
+    }
+}
+
 /// `--status`: a status (`working`, `asks_you`, "Ready for Review") or a column (`dev`, `done`).
 enum StatusFilter {
     Status(Status),
@@ -477,7 +563,7 @@ impl StatusFilter {
         if let Ok(status) = normal.parse::<Status>() {
             return Ok(Self::Status(status));
         }
-        if let Ok(column) = normal.parse::<Column>() {
+        if let Some(column) = Column::ALL.into_iter().find(|c| c.id() == normal) {
             return Ok(Self::Column(column));
         }
         Err(ErrorBody::new(
@@ -491,7 +577,7 @@ impl StatusFilter {
     fn matches(&self, ticket: &Ticket) -> bool {
         match self {
             Self::Status(s) => ticket.status == *s,
-            Self::Column(c) => ticket.column == *c,
+            Self::Column(c) => Column::of(ticket) == *c,
         }
     }
 }
@@ -539,10 +625,15 @@ fn status_of(key: &TicketKey, tickets: &[Ticket]) -> String {
 }
 
 /// The full human view of one ticket.
-pub fn show_text(ticket: &Ticket, tickets: &[Ticket], agents: Option<&TicketAgents>) -> String {
+pub fn show_text(
+    ticket: &Ticket,
+    tickets: &[Ticket],
+    agents: Option<&TicketAgents>,
+    choices: Option<&TicketChoices>,
+) -> String {
     let mut text = format!("{} · {}\n", ticket.key, ticket.title);
     let kind = if ticket.is_epic() { "Epic · " } else { "" };
-    let (status, column) = (ticket.status.label(), ticket.column.label());
+    let (status, column) = (ticket.status.label(), Column::of(ticket).label());
     // A status named like its column ("Ready for Dev") says it once.
     let column = if status == column {
         String::new()
@@ -592,10 +683,13 @@ pub fn show_text(ticket: &Ticket, tickets: &[Ticket], agents: Option<&TicketAgen
         ""
     };
     text.push_str(&format!("Created by:  {}{origin}\n", ticket.created_by));
-    for row in agents.iter().flat_map(|a| &a.rows) {
-        let label = format!("{}:", row.role.label());
-        let agents = agents.map(|a| a.agents.as_slice()).unwrap_or_default();
-        text.push_str(&format!("{label:<12} {}\n", row_text(row, agents)));
+    for stage in agents.map(agents_json).unwrap_or_default() {
+        let label = format!("{}:", stage.stage);
+        let agent = stage.agent.as_deref().unwrap_or("not one of your agents");
+        text.push_str(&format!("{label:<12} {agent}\n"));
+    }
+    if let Some(choices) = choices {
+        text.push_str(&choices_text(choices));
     }
     if !ticket.body.trim().is_empty() {
         text.push_str(&format!("\nWhat and why\n{}\n", ticket.body.trim_end()));
@@ -691,7 +785,7 @@ mod tests {
         ));
         assert!(matches!(
             StatusFilter::parse("Ready for Review"),
-            Ok(StatusFilter::Status(Status::ReadyForReview))
+            Ok(StatusFilter::Status(Status::WaitingForYou))
         ));
         assert!(matches!(
             StatusFilter::parse("dev"),

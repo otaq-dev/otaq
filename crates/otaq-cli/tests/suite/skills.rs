@@ -85,7 +85,9 @@ fn command_words_are_found() {
     );
 }
 
-/// T-0286: the M17 commands the epic-lead, work-ticket and commit skills teach are among those checked above.
+/// T-0286: the M17 commands the epic-lead, work-ticket and commit skills teach are among those checked above; T-0409
+/// (AGM-10): work-ticket ends its stage with `stage next`, or `stage done` with nothing to deliver. T-0445 (CMT-09):
+/// the lead posts `comment`s, and both read reports with `report`.
 #[test]
 fn the_lead_and_decision_commands_are_checked() {
     let skills = find_plugin_dir(Path::new("/nonexistent"))
@@ -111,11 +113,20 @@ fn the_lead_and_decision_commands_are_checked() {
         "ask human",
         "suggest close",
         "suggest delete",
+        "comment",
+        "report",
     ] {
         assert!(lead.contains(&command.to_owned()), "epic-lead: {command}");
     }
     let work = named("work-ticket");
-    for command in ["prime", "notes", "decision record", "review submit"] {
+    for command in [
+        "prime",
+        "notes",
+        "decision record",
+        "stage next",
+        "stage done",
+        "report",
+    ] {
         assert!(work.contains(&command.to_owned()), "work-ticket: {command}");
     }
     assert!(named("commit").contains(&"notes".to_owned()));

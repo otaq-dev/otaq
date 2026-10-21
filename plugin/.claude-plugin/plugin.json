@@ -1,9 +1,0 @@
-{
-  "name": "otaq",
-  "version": "0.1.0",
-  "description": "Otaq agent behaviour: skills and hooks for agents working on Otaq tickets.",
-  "author": {
-    "name": "The Otaq Authors"
-  },
-  "license": "FSL-1.1-MIT"
-}

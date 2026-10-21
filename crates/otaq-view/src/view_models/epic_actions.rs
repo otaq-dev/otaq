@@ -121,7 +121,14 @@ pub fn close_dialog(epic: &Ticket, plan: &ClosePlan, tickets: &[Ticket]) -> Clos
         .close
         .iter()
         .filter(|c| !c.agent_running)
-        .map(|c| format!("{} {} ({})", c.key, c.title, c.status.column().label()))
+        .map(|c| {
+            format!(
+                "{} {} ({})",
+                c.key,
+                c.title,
+                crate::view_models::project_agent_page::column_name(c.status)
+            )
+        })
         .collect();
     let merged: Vec<String> = plan
         .stay_merged

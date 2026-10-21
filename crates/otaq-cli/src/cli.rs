@@ -25,23 +25,17 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
-/// The agent rows of `create` and `update` (AGT-06): named agents by name, ignoring case; `default` empties a
-/// row.
+/// The stage choices of `create` and `update` (AGM-11, d0108): a stage with options (by name or id) and one of its
+/// options.
 #[derive(Debug, Default, Args)]
-pub struct AgentFlags {
-    /// The ticket's Developer: a named agent ("Light"), or `default`
-    #[arg(long, value_name = "AGENT")]
-    pub developer: Option<String>,
-    /// The ticket's Validator: a named agent, or `default`
-    #[arg(long, value_name = "AGENT")]
-    pub validator: Option<String>,
-    /// The epic's lead: a named agent, or `default`
-    #[arg(long, value_name = "AGENT")]
-    pub lead: Option<String>,
-    /// Why you picked these agents (agents only: "docs-only change")
+pub struct ChoiceFlags {
+    /// A stage choice, repeatable: "Dev=Quick developer", "Grill=skip", "QA=required"
+    #[arg(long = "stage", value_name = "STAGE=AGENT|skip")]
+    pub stages: Vec<String>,
+    /// Why you chose (agents only: "typo fix")
     #[arg(long, value_name = "TEXT")]
     pub reason: Option<String>,
-    /// The user named these agents themselves (agents only): they show as set by you
+    /// The user named these choices themselves (agents only): they show as set by you
     #[arg(long)]
     pub by_user: bool,
 }
@@ -111,9 +105,9 @@ pub enum Command {
     Attach {
         /// The ticket: SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,
-        /// The ticket's running validator instead of its agent
-        #[arg(long)]
-        validator: bool,
+        /// The agent running this stage of the ticket's flow (its name or id): `--stage security` while it checks
+        #[arg(long, value_name = "STAGE")]
+        stage: Option<String>,
     },
     /// The current ticket's context for its agent: details, parents, rules and your Agent instructions
     Prime {
@@ -147,9 +141,9 @@ pub enum Command {
         /// Print the ticket's terminal as the user sees it, as plain text (read-only)
         #[arg(long, conflicts_with_all = ["long", "children"])]
         terminal: bool,
-        /// With --terminal: the ticket's running validator's terminal instead
-        #[arg(long, requires = "terminal")]
-        validator: bool,
+        /// With --terminal: the terminal of the agent running this stage (its name or id) instead
+        #[arg(long, value_name = "STAGE", requires = "terminal")]
+        stage: Option<String>,
     },
     /// List the current project's tickets (-P to name the project)
     List {
@@ -198,9 +192,9 @@ pub enum Command {
         #[arg(long, value_name = "EPIC")]
         parent: Option<String>,
         #[command(flatten)]
-        agents: AgentFlags,
+        choices: ChoiceFlags,
     },
-    /// Change a ticket's title, description, priority or agents (default: $OTAQ_TICKET)
+    /// Change a ticket's title, description, priority or stage choices (default: $OTAQ_TICKET)
     Update {
         /// SHOP-18, or 18 in the current project
         key: Option<String>,
@@ -217,7 +211,7 @@ pub enum Command {
         #[arg(long)]
         stdin: bool,
         #[command(flatten)]
-        agents: AgentFlags,
+        choices: ChoiceFlags,
     },
     /// Ask the user (`ask human --stdin`; the ticket shows "Asks you") or a linked ticket's agent (`ask SHOP-18
     /// --stdin`)
@@ -262,12 +256,33 @@ pub enum Command {
     /// An epic lead's commands (`suggest close|delete <KEY> --stdin`)
     #[command(flatten)]
     Lead(crate::lead::LeadCommand),
-    /// Submit the ticket for review (`review submit --stdin`) or read the review feedback (`review feedback`)
+    /// End your stage: `stage next --stdin` (the default: on to the next stage with a summary) or `stage done
+    /// --stdin` (nothing to deliver: Closed · nothing to merge, with your reason)
+    #[command(subcommand)]
+    Stage(StageCommand),
+    /// An agent check's verdict on its ticket, the report on stdin (`check pass|fail --stdin`, check sessions only)
+    #[command(subcommand)]
+    Check(CheckCommand),
+    /// Comment on a ticket for the next stage's agent (`comment [KEY] --stdin [--report-file PATH]`), or `comment
+    /// edit|delete <N>`
+    Comment(crate::comment::CommentArgs),
+    /// A ticket's comments, oldest first (default: $OTAQ_TICKET)
+    Comments {
+        /// SHOP-34, or 34 in the current project
+        key: Option<String>,
+    },
+    /// Print the report of comment N (`report [KEY] <N>`); `--path` prints only its file, to search it with grep
+    Report {
+        /// [KEY] N: SHOP-34 4, or 4 on $OTAQ_TICKET
+        #[arg(value_name = "KEY", num_args = 1..=2, required = true)]
+        args: Vec<String>,
+        /// Print only the report's path
+        #[arg(long)]
+        path: bool,
+    },
+    /// Read the review feedback (`review feedback`); `review submit --stdin` is another name for `stage next`
     #[command(subcommand)]
     Review(ReviewCommand),
-    /// The validator's verdict on its ticket, the report on stdin (validator sessions only)
-    #[command(subcommand)]
-    Validate(ValidateCommand),
     /// A Project agent's own commands: `agent name "<3–4 words>"` (Project agent sessions only)
     #[command(subcommand)]
     Agent(AgentCommand),
@@ -283,6 +298,9 @@ pub enum Command {
     /// List or show projects
     #[command(subcommand)]
     Project(ProjectCommand),
+    /// The project's flow: `flow show`, `flow presets`, `flow propose -f <file> | --stdin | --from <project>`
+    #[command(subcommand)]
+    Flow(FlowCommand),
     /// Internal: what an agent tool's hooks run (`otaq hook --tool claude Stop`, payload on stdin)
     #[command(hide = true)]
     Hook {
@@ -337,32 +355,70 @@ pub enum DecisionCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
-pub enum ValidateCommand {
-    /// The change does what the ticket asks: Ready for Review (or Auto-merge)
-    Pass {
-        /// Read the report from stdin
+pub enum StageCommand {
+    /// Finish your stage with a summary on stdin, posted as your comment: the ticket moves to the next stage (an
+    /// agent check, Review…); refused while files are uncommitted or a lead note is unread
+    Next {
+        /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
+        key: Option<String>,
+        /// Read the summary from stdin (at most 2,000 characters)
         #[arg(long)]
         stdin: bool,
+        /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
+        #[arg(long, value_name = "PATH")]
+        report_file: Option<PathBuf>,
+    },
+    /// Nothing to deliver (no commits on the branch): the ticket is Closed · nothing to merge, your reason on stdin
+    /// posted as your comment; refused when the branch has commits
+    Done {
+        /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
+        key: Option<String>,
+        /// Read the reason from stdin (at most 2,000 characters)
+        #[arg(long)]
+        stdin: bool,
+        /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
+        #[arg(long, value_name = "PATH")]
+        report_file: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
+pub enum CheckCommand {
+    /// The change does what the ticket asks: on to the next stage (Review, or Auto-merge)
+    Pass {
+        /// Read the report from stdin, posted as your comment (at most 2,000 characters)
+        #[arg(long)]
+        stdin: bool,
+        /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
+        #[arg(long, value_name = "PATH")]
+        report_file: Option<PathBuf>,
     },
     /// It doesn't: the findings go back to the agent
     Fail {
-        /// Read the report (one finding per line, with file and line) from stdin
+        /// Read the report (one finding per line, with file and line) from stdin, posted as your comment (at most
+        /// 2,000 characters)
         #[arg(long)]
         stdin: bool,
+        /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
+        #[arg(long, value_name = "PATH")]
+        report_file: Option<PathBuf>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
 pub enum ReviewCommand {
-    /// Move the ticket to Ready for Review with a summary on stdin; refused while files are uncommitted
+    /// Another name for `stage next`: finish your stage with a summary on stdin
     Submit {
         /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,
-        /// Read the summary from stdin
+        /// Read the summary from stdin (at most 2,000 characters)
         #[arg(long)]
         stdin: bool,
+        /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
+        #[arg(long, value_name = "PATH")]
+        report_file: Option<PathBuf>,
     },
-    /// The latest Send back's comments, by file, and the reviewer's note (reading it changes nothing)
+    /// The latest Send back's line comments, by file, and its PR's comments (reading it changes nothing)
     Feedback {
         /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,
@@ -421,6 +477,27 @@ pub enum ProjectCommand {
     Show {
         /// The project's key (SHOP)
         key: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
+pub enum FlowCommand {
+    /// The project's applied flow and the agents it names, as the YAML `flow propose` reads
+    Show,
+    /// The ready-made flows Otaq ships, one line each
+    Presets,
+    /// Propose a flow to the user: it opens in Otaq's preview and nothing changes until they apply it
+    #[command(group(clap::ArgGroup::new("source").required(true).args(["file", "stdin", "from"])))]
+    Propose {
+        /// A flow file (YAML: agents and flow)
+        #[arg(short = 'f', long = "file", value_name = "FILE")]
+        file: Option<PathBuf>,
+        /// Read the flow (YAML) from stdin
+        #[arg(long)]
+        stdin: bool,
+        /// Propose another project's stages (its key or name); agents are shared
+        #[arg(long, value_name = "PROJECT")]
+        from: Option<String>,
     },
 }
 
@@ -762,36 +839,40 @@ mod tests {
     fn attach_takes_an_optional_key() {
         let cli = parse(&["attach", "SHOP-18"]).unwrap();
         assert!(
-            matches!(cli.command, Some(Command::Attach { key: Some(k), validator: false }) if k == "SHOP-18")
+            matches!(cli.command, Some(Command::Attach { key: Some(k), stage: None }) if k == "SHOP-18")
         );
         let cli = parse(&["attach"]).unwrap();
         assert!(matches!(
             cli.command,
             Some(Command::Attach {
                 key: None,
-                validator: false
+                stage: None
             })
         ));
-        let cli = parse(&["attach", "SHOP-29", "--validator"]).unwrap();
+        let cli = parse(&["attach", "SHOP-29", "--stage", "security"]).unwrap();
         assert!(
-            matches!(cli.command, Some(Command::Attach { key: Some(k), validator: true }) if k == "SHOP-29")
+            matches!(cli.command, Some(Command::Attach { key: Some(k), stage: Some(s) }) if k == "SHOP-29" && s == "security")
         );
         let cli = parse(&["-P", "SHOP", "attach", "18"]).unwrap();
         assert_eq!(cli.global.project.as_deref(), Some("SHOP"));
+        // FLW-20: `--validator` is gone, with no alias.
+        assert!(parse(&["attach", "SHOP-29", "--validator"]).is_err());
     }
 
-    /// `show --terminal` (SHL-10): not with `--long` or `--children`; `--validator` only with it.
+    /// `show --terminal` (SHL-10): not with `--long` or `--children`; `--stage` only with it; `--validator` is gone
+    /// (FLW-20).
     #[test]
     fn show_terminal_stands_alone() {
-        let cli = parse(&["show", "NOTE-6", "--terminal", "--validator"]).unwrap();
+        let cli = parse(&["show", "NOTE-6", "--terminal", "--stage", "Security"]).unwrap();
         assert!(matches!(
             cli.command,
-            Some(Command::Show { key: Some(ref k), terminal: true, validator: true, .. }) if k == "NOTE-6"
+            Some(Command::Show { key: Some(ref k), terminal: true, stage: Some(ref s), .. }) if k == "NOTE-6" && s == "Security"
         ));
         for wrong in [
             &["show", "--terminal", "--long"][..],
             &["show", "--terminal", "--children"],
-            &["show", "--validator"],
+            &["show", "--stage", "security"],
+            &["show", "NOTE-6", "--terminal", "--validator"],
         ] {
             assert!(parse(wrong).is_err(), "{wrong:?}");
         }

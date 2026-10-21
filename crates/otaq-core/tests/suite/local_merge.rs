@@ -19,7 +19,7 @@ async fn reviewed(w: &TestService, title: &str, file: &str, content: &str) -> (T
     let t = w.create("SHOP", title).await;
     let wt = w.start_worktree(&t).await;
     commit(&wt, file, content);
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     (w.board.ticket(&t.key.to_string()).await.unwrap(), wt)
 }
 
@@ -144,7 +144,7 @@ async fn a_dirty_checkout_of_the_base_is_refused_and_left_alone() {
     );
     assert_eq!(git(&repo, &["rev-parse", "main"]), main, "main unchanged");
     assert_eq!(user_files(&repo), before, "the user's edit untouched");
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     no_stash(&repo);
     w.stop().await;
 }
@@ -169,7 +169,7 @@ async fn uncommitted_files_in_the_ticket_are_refused() {
             message: "SHOP-1 has 2 uncommitted files".into(),
         }
     );
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     w.stop().await;
 }
 
@@ -182,6 +182,7 @@ async fn a_rebase_conflict_merges_nothing() {
     commit(&repo, "lib.ts", "main\n");
     let main = git(&repo, &["rev-parse", "main"]);
     let head = git(&wt, &["rev-parse", "HEAD"]);
+    w.agent_shell(&t).await;
 
     let outcome = w
         .review
@@ -202,7 +203,8 @@ async fn a_rebase_conflict_merges_nothing() {
         "the branch as it was"
     );
     assert_eq!(git(&wt, &["status", "--porcelain"]), "");
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    // FLW-17: back to Dev at once, its agent fixes it with restack (no click).
+    assert_eq!(w.status("SHOP-1").await, Status::MergeConflictFixing);
     let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
     assert_eq!(row.merge_commit_sha, None);
     no_stash(&repo);
@@ -276,7 +278,7 @@ async fn a_diverged_base_is_refused() {
         "`main` and `origin/main` have diverged. Push or pull, then retry"
     );
     assert_eq!(git(&repo, &["rev-parse", "main"]), main);
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     w.stop().await;
 }
 
@@ -313,7 +315,7 @@ async fn an_epic_child_merges_into_the_epic_branch() {
         .unwrap();
     let wt = w.start_worktree(&child).await;
     commit(&wt, "wishlist.ts", "w\n");
-    w.force_status(&child, Status::ReadyForReview).await;
+    w.force_status(&child, Status::WaitingForYou).await;
     let main = git(&repo, &["rev-parse", "main"]);
 
     let proposal = w.board.merge_proposal("SHOP-1.1").await.unwrap();

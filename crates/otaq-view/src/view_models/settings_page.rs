@@ -5,26 +5,23 @@
 //! values (a missing env file, a URL that isn't one), shown in red under their field.
 //!
 //! Section ids are the page registry's (`ui/src/app/registry/settings.ts`): the Settings screen draws the sections
-//! it has registered, so a later ticket adds a section here and registers its id there. T-0240 added Validation &
-//! Auto-merge and the Project agent instructions (VAL-13, AMG-01, PAG-03; d0063, d0064, d0068): a project's empty
-//! value uses the global one and says so ("Use global (3)"), and a set one offers "Use global" to empty it again.
+//! it has registered, so a later ticket adds a section here and registers its id there. M33 removed Validation &
+//! Auto-merge (FLW-01): validation, its rounds and the Delivery's mode are the project's flow's, which a project's Flow
+//! section shows (FLW-07; [`super::flow_settings`], drawn from its own request).
 
 use otaq_core::attention::notify::{Kind, PermissionState};
 use otaq_core::board::projects::ProjectUpdate;
 use otaq_core::board::settings::{
-    AutoMerge, EnvVar, GlobalSettings, ProjectSettings, SettingProblem, SkillSetting,
-    TERMINAL_FONT_SIZES, TerminalRenderer, UsageData, VALIDATION_ROUNDS, WorkflowStep,
-    env_var_field, env_var_problems,
+    EnvVar, GlobalSettings, ProjectSettings, SettingProblem, TERMINAL_FONT_SIZES, TerminalRenderer,
+    UsageData, env_var_field, env_var_problems,
 };
 use otaq_core::board::snapshot::ProjectInfo;
-use otaq_core::named_agents::{NamedAgent, RoleDefaults};
 use otaq_core::naming::{self, PRODUCT_NAME};
 use otaq_core::pr::provider::PrProvider;
 use otaq_core::scheduler::SchedulerStatus;
 use otaq_core::tools::ToolsReport;
 use otaq_core::warm::clone::CloneSupport;
 use otaq_core::warm::store::{WarmBuildInfo, WarmList};
-use otaq_core::workflow_skills::{SkillKind, SkillStatus, copy_missing};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -63,14 +60,13 @@ use crate::view_models::limits::{
     BACK_PRESSURE_ITEMS, MAX_AGENTS, right_now, settings_rows, toggled,
 };
 use crate::view_models::menu::MenuSearch;
-use crate::view_models::named_agents;
 use crate::view_models::onboarding::{OnboardingModel, RowIcon};
 use crate::view_models::onboarding_page::{
     ToolButton, ToolTerminalTexts, tool_button, tool_terminal_texts, tools_intro,
 };
 use crate::view_models::settings::{
-    GLOBAL_SECTIONS, PROJECT_ICON, ProviderTone, env_file_problem, instructions_placeholder,
-    problem_for, provider_row, remove_text,
+    GLOBAL_SECTIONS, PROJECT_ICON, ProviderTone, env_file_problem, problem_for, provider_row,
+    remove_text,
 };
 use crate::view_models::theme_credits;
 use crate::view_models::usage_data;
@@ -83,15 +79,10 @@ use crate::view_models::warm_build;
 pub enum GlobalSection {
     /// M23, T-0360: the agent tools, drawn from `agent_tools.view` ([`super::agent_tools_page`]).
     AgentTools,
-    /// M22, T-0340: named agents and the role defaults, drawn from `settings.agents` ([`named_agents::section`]).
+    /// T-0405: the agents, the default model and each tool's fallback, drawn from `settings.agents`
+    /// ([`super::agents::section`]).
     Agents,
     AgentLimits,
-    AgentInstructions,
-    WorkflowSkills,
-    /// M12, T-0240.
-    Validation,
-    /// M12, T-0240.
-    ProjectAgentInstructions,
     Usage,
     Notifications,
     Data,
@@ -110,14 +101,10 @@ pub enum GlobalSection {
 pub enum ProjectSection {
     /// Name, key, repository, base branch.
     General,
-    /// M22, T-0340: the role default overrides, drawn from `settings.project_agents` ([`project_agents_block`]).
-    Agents,
-    AgentInstructions,
-    /// M12, T-0240.
-    ProjectAgentInstructions,
-    WorkflowSkills,
-    /// M12, T-0240.
-    Validation,
+    /// The project's flow (FLW-07, T-0422): drawn from `settings.flow` ([`super::flow_settings`]), no rows here.
+    Flow,
+    /// The notes every agent in the project gets (AGM-02).
+    ProjectNotes,
     /// "Let finished tickets answer questions".
     Answers,
     /// Setup and run commands, Open URL, env files.
@@ -159,129 +146,6 @@ pub struct NavRow {
 pub struct Choice {
     pub id: String,
     pub label: String,
-}
-
-/// A choice of a radio list, with its explanation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "SettingsRadioChoice")]
-pub struct RadioChoice {
-    pub id: String,
-    pub label: String,
-    pub detail: String,
-}
-
-/// One workflow step's row on Settings → Workflow skills (WSK-01, WSK-02, WSK-04, WSK-07; d0092; *15 → update AC*):
-/// the step, the skill's name with its tag, where it came from and when, the lines under it, the button and the ⋯
-/// menu. The page keeps only the menu's open state, the dialogs and the folder picker.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "SettingsSkillRow")]
-pub struct SkillRow {
-    /// `workflow_skills.open_pr`: the row's button carries its DOM id ("use your own Open PR skill" focuses it).
-    pub field: String,
-    #[ts(type = "\"commit\" | \"push\" | \"open_pr\" | \"validate\"")]
-    pub step: WorkflowStep,
-    pub label: String,
-    /// `my-commit`, `otaq:commit`, a typed `/my-commit`.
-    pub name: String,
-    /// Drawn in the secondary colour: a step on "Use global", or a typed name.
-    pub name_muted: bool,
-    pub tag: SkillTag,
-    /// The original folder, in mono after the folder icon (an imported skill).
-    pub folder: Option<String>,
-    /// "· imported today, 10:42", "Otaq's default", "Global: imported from ~/team-skills/my-commit".
-    pub source: String,
-    pub lines: Vec<SkillLine>,
-    /// Import skill folder… or Re-import; none while the copy is missing (Import again is in its line).
-    pub button: Option<SkillButton>,
-    /// The ⋯ menu; empty: no ⋯.
-    pub menu: Vec<SkillMenuItem>,
-    /// "More for Commit".
-    pub menu_label: String,
-    /// The folder picker's title.
-    pub picker_title: String,
-    /// Asked before Re-import.
-    pub reimport: Option<SkillDialog>,
-    /// Asked before Use built-in / Use global, only when the service answers `needs_confirmation`.
-    pub reset: Option<SkillDialog>,
-}
-
-/// How a tag or a line under a skill looks: quiet, amber (`st-paused`) or red (`st-error`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename = "SettingsSkillLook")]
-pub enum SkillLook {
-    Quiet,
-    Warning,
-    Error,
-}
-
-/// Built-in, Imported, Use global, Not imported (amber), Skill missing (red).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "SettingsSkillTag")]
-pub struct SkillTag {
-    pub label: String,
-    pub look: SkillLook,
-}
-
-/// A line under the skill: a refused import (red), a missing file (amber), the original gone, the copy note.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "SettingsSkillLine")]
-pub struct SkillLine {
-    pub icon: IconName,
-    pub text: String,
-    pub look: SkillLook,
-    /// "Import again" after "Skill missing ·".
-    pub link: Option<SkillButton>,
-}
-
-/// What a skill row's button, link or menu item does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename = "SettingsSkillAction")]
-pub enum SkillAction {
-    /// The folder picker, then `settings.skill_import` (Import skill folder…, Import a different folder…, Import
-    /// again when the original is gone).
-    Import,
-    /// Asks [`SkillRow::reimport`], then `settings.skill_reimport`.
-    Reimport,
-    /// Import again with the original there: `settings.skill_reimport` at once (the copy is gone or broken).
-    ImportAgain,
-    /// Otaq's copy in the file manager (`settings.reveal`).
-    Reveal,
-    /// Use built-in / Use global: `settings.skill_reset`, asking [`SkillRow::reset`] when the service says so.
-    Reset,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "SettingsSkillButton")]
-pub struct SkillButton {
-    pub label: String,
-    pub icon: Option<IconName>,
-    pub action: SkillAction,
-    /// Re-import with the original gone (the reason is a line under the skill).
-    pub disabled: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "SettingsSkillMenuItem")]
-pub struct SkillMenuItem {
-    pub action: SkillAction,
-    pub label: String,
-    pub icon: IconName,
-    /// A separator above it.
-    pub separated: bool,
-}
-
-/// Re-import's question (accent button) or going back with an edited copy (red button).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "SettingsSkillDialog")]
-pub struct SkillDialog {
-    pub title: String,
-    pub text: String,
-    /// The grey note with the history icon.
-    pub note: String,
-    pub confirm: String,
-    pub destructive: bool,
 }
 
 /// One env file, its field `env_files.<index>`.
@@ -344,16 +208,6 @@ pub enum Control {
         /// `value` (the global one).
         empty: Option<String>,
     },
-    /// One of a few choices, each with its one-line explanation (Auto-merge). `value` is `None` while a project
-    /// uses the global one (`empty` says which).
-    Radio {
-        choices: Vec<RadioChoice>,
-        value: Option<String>,
-        disabled: bool,
-        empty: Option<String>,
-        /// Under the choices, while they do nothing: "Validation is off for shop-web, so Auto-merge does nothing…".
-        note: Option<String>,
-    },
     Segmented {
         choices: Vec<Choice>,
         value: String,
@@ -380,13 +234,6 @@ pub enum Control {
         icon: IconName,
         destructive: bool,
         action: ButtonAction,
-    },
-    /// The workflow skills (WSK-01; d0092), one row per step across the page's width under `heading`; `hint` is
-    /// the dot-folder line under them (macOS only).
-    Skills {
-        heading: String,
-        rows: Vec<SkillRow>,
-        hint: Option<String>,
     },
     /// ↵ in the last field adds a file (`env_files.add`); × removes one (`env_files.remove`).
     EnvFiles {
@@ -517,7 +364,7 @@ pub fn notification_kind_row(kind: Kind) -> (&'static str, &'static str, &'stati
         ),
         Kind::AutoMergeStopped => (
             "notification_kinds.auto_merge_stopped",
-            "Auto-merge stopped",
+            "Delivery stopped",
             "",
         ),
         Kind::ToolUnavailable => (
@@ -534,12 +381,6 @@ pub fn notification_kind_row(kind: Kind) -> (&'static str, &'static str, &'stati
 pub enum Reveal {
     Database,
     Logs,
-    /// Otaq's copy of an imported workflow skill (WSK-04): the global setting's, or `project`'s.
-    Skill {
-        project: Option<String>,
-        #[ts(type = "\"commit\" | \"push\" | \"open_pr\" | \"validate\"")]
-        step: WorkflowStep,
-    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -639,8 +480,6 @@ pub struct GlobalInputs<'a> {
     pub os: Os,
     /// What the OS allows Otaq's notifications (`notifications.state`); `Unknown` when it couldn't be read.
     pub notification_permission: PermissionState,
-    /// The Workflow skills rows' statuses (`workflow_skills.status`).
-    pub skills: SkillInputs<'a>,
 }
 
 /// What a project page is built from.
@@ -655,8 +494,6 @@ pub struct ProjectInputs<'a> {
     pub project_agent: &'a str,
     /// An agent tool is connected: Run command's Ask the agent is hidden only without one (RUN-02, d0086).
     pub tool_connected: bool,
-    /// The Workflow skills rows' statuses, the project's and the global page's (`workflow_skills.status`).
-    pub skills: SkillInputs<'a>,
 }
 
 /// What the warm build switch is drawn from.
@@ -667,14 +504,10 @@ pub struct WarmInputs<'a> {
 }
 
 /// The global sections, in nav order.
-const DRAWN: [GlobalSection; 14] = [
+const DRAWN: [GlobalSection; 10] = [
     GlobalSection::AgentTools,
     GlobalSection::Agents,
     GlobalSection::AgentLimits,
-    GlobalSection::AgentInstructions,
-    GlobalSection::WorkflowSkills,
-    GlobalSection::Validation,
-    GlobalSection::ProjectAgentInstructions,
     GlobalSection::Usage,
     GlobalSection::Notifications,
     GlobalSection::Data,
@@ -684,13 +517,11 @@ const DRAWN: [GlobalSection; 14] = [
     GlobalSection::About,
 ];
 
-/// The nav row a global section is drawn under: Agent limits and Agent instructions sit on the Agents page, every
-/// other section is a topic of its own.
+/// The nav row a global section is drawn under. Every section is a topic of its own: from T-0410 Agent limits has
+/// its own row again, as the nav of `s15-58` draws it, and Agents holds only the agents (its own page and one
+/// agent's).
 pub fn topic_of(id: GlobalSection) -> GlobalSection {
-    match id {
-        GlobalSection::AgentLimits | GlobalSection::AgentInstructions => GlobalSection::Agents,
-        other => other,
-    }
+    id
 }
 
 /// The nav: one row per global topic the page has, then every project.
@@ -730,16 +561,12 @@ fn nav_label(id: GlobalSection) -> (&'static str, IconName) {
         GlobalSection::AgentTools => ("Agent tools", IconName::Plug),
         GlobalSection::Agents => ("Agents", IconName::Bot),
         GlobalSection::AgentLimits => shared(0),
-        GlobalSection::AgentInstructions => shared(1),
-        GlobalSection::WorkflowSkills => shared(2),
-        GlobalSection::Validation => ("Validation & Auto-merge", IconName::ShieldCheck),
-        GlobalSection::ProjectAgentInstructions => ("Project agents", IconName::Bot),
-        GlobalSection::Usage => shared(3),
-        GlobalSection::Notifications => shared(4),
-        GlobalSection::Data => shared(5),
-        GlobalSection::Appearance => shared(6),
+        GlobalSection::Usage => shared(1),
+        GlobalSection::Notifications => shared(2),
+        GlobalSection::Data => shared(3),
+        GlobalSection::Appearance => shared(4),
         GlobalSection::KeyboardShortcuts => ("Keyboard shortcuts", IconName::Keyboard),
-        GlobalSection::Tools => shared(7),
+        GlobalSection::Tools => shared(5),
         GlobalSection::About => ("About", IconName::Info),
     }
 }
@@ -796,16 +623,6 @@ fn section<Id>(id: Id, title: Option<&str>, rows: Vec<Row>) -> Section<Id> {
         intro: None,
         rows,
         note: None,
-    }
-}
-
-/// The label of a workflow step's field.
-pub fn step_label(step: WorkflowStep) -> &'static str {
-    match step {
-        WorkflowStep::Commit => "Commit",
-        WorkflowStep::Push => "Push",
-        WorkflowStep::OpenPr => "Open PR",
-        WorkflowStep::Validate => "Validate",
     }
 }
 
@@ -882,86 +699,6 @@ pub fn global_page(input: &GlobalInputs) -> Page {
         note: input.scheduler.filter(|_| limits.enabled).map(right_now),
         ..section(GlobalSection::AgentLimits, Some("Agent limits"), limit_rows)
     };
-
-    let instructions = section(
-        GlobalSection::AgentInstructions,
-        Some("Agent instructions"),
-        vec![row(
-            "agent_instructions",
-            "Default instructions",
-            "Given to every agent in every project. A project can override it.",
-            multiline(
-                &s.agent_instructions,
-                "Your rules for every agent, e.g. “Ask before coding.”",
-            ),
-        )],
-    );
-
-    let skill_statuses = statuses_of(input.skills.statuses, |step| {
-        status_of(step, s.workflow_skills.get(step))
-    });
-    let skills = Section {
-        intro: Some(
-            "Commit, Push, Open PR and Validate follow these skills. Import a skill folder (its SKILL.md and the files \
-             it uses) to replace one with your own. Projects can override each step."
-                .into(),
-        ),
-        ..section(
-            GlobalSection::WorkflowSkills,
-            None,
-            vec![row(
-                "",
-                "Workflow skills",
-                "",
-                skills_control("Steps", &skill_statuses, None, &input.skills),
-            )],
-        )
-    };
-
-    let validation = section(
-        GlobalSection::Validation,
-        Some("Validation & Auto-merge"),
-        vec![
-            row(
-                "validation",
-                "Validation",
-                "A separate read-only claude session (the validator) checks every submit before Review. Failures go back to the agent. Projects can turn it off.",
-                Control::Toggle { on: s.validation },
-            ),
-            row(
-                "validation_rounds",
-                "Validation rounds",
-                ROUNDS_DESCRIPTION,
-                rounds_stepper(s.validation_rounds, None),
-            ),
-            row(
-                "auto_merge",
-                "Auto-merge",
-                AUTO_MERGE_DESCRIPTION,
-                auto_merge_radio(
-                    Some(s.auto_merge),
-                    s.auto_merge,
-                    (!s.validation).then(|| {
-                        "Validation is off, so Auto-merge does nothing. Turn Validation on to use it.".to_owned()
-                    }),
-                ),
-            ),
-        ],
-    );
-
-    let project_agents = section(
-        GlobalSection::ProjectAgentInstructions,
-        Some("Project agents"),
-        vec![row(
-            "project_agent_instructions",
-            "Project agent instructions",
-            "Followed by every Project agent (the sessions that investigate and create tickets), e.g. which import skill to use and how big tickets should be.",
-            multiline(
-                &s.project_agent_instructions,
-                "Your rules for Project agents, e.g. “Split into tickets of about one day.”",
-            ),
-        )],
-    );
 
     let usage = section(
         GlobalSection::Usage,
@@ -1150,13 +887,9 @@ pub fn global_page(input: &GlobalInputs) -> Page {
         sections: vec![
             // Its own view: the four tools' rows ([`super::agent_tools_page`]).
             section(GlobalSection::AgentTools, Some("Agent tools"), Vec::new()),
-            // Its own view: the table, the dialogs and the defaults ([`named_agents::section`]).
+            // Its own view: the list, the default model and the fallbacks ([`super::agents::section`]).
             section(GlobalSection::Agents, Some("Agents"), Vec::new()),
             agent_limits,
-            instructions,
-            skills,
-            validation,
-            project_agents,
             usage,
             notifications,
             data,
@@ -1175,508 +908,6 @@ pub fn global_page(input: &GlobalInputs) -> Page {
             ),
         ],
     }
-}
-
-const ROUNDS_DESCRIPTION: &str = "How many times the validator may send work back before the ticket comes to you (\u{201c}Validation failed N times\u{201d}). 1\u{2013}5.";
-const AUTO_MERGE_DESCRIPTION: &str = "Lets validated tickets land without your click. Only ever a Local merge, never pushed; epics and tickets that skipped or failed validation never auto-merge.";
-const USE_GLOBAL: &str = "Use global";
-
-/// Validation rounds, 1–5; `empty` while a project uses the global value.
-fn rounds_stepper(value: u32, empty: Option<String>) -> Control {
-    Control::Stepper {
-        value,
-        min: *VALIDATION_ROUNDS.start(),
-        max: *VALIDATION_ROUNDS.end(),
-        suffix: String::new(),
-        disabled: false,
-        empty,
-    }
-}
-
-/// Auto-merge's three choices with the frame's explanations (d0064).
-pub fn auto_merge_choices() -> Vec<RadioChoice> {
-    [
-        (
-            AutoMerge::Off,
-            "Off",
-            "Validated tickets wait in Ready for Review for you. (default)",
-        ),
-        (
-            AutoMerge::EpicChildren,
-            "Epic children only",
-            "Validated epic children are merged into their epic branch; you still review the epic.",
-        ),
-        (
-            AutoMerge::All,
-            "All tickets",
-            "Validated tickets are merged into the base branch, locally, never pushed.",
-        ),
-    ]
-    .into_iter()
-    .map(|(id, label, detail)| RadioChoice {
-        id: id.as_str().to_owned(),
-        label: label.to_owned(),
-        detail: detail.to_owned(),
-    })
-    .collect()
-}
-
-fn auto_merge_label(value: AutoMerge) -> &'static str {
-    match value {
-        AutoMerge::Off => "Off",
-        AutoMerge::EpicChildren => "Epic children only",
-        AutoMerge::All => "All tickets",
-    }
-}
-
-/// `own` is the project's value (`None`: the global one, `global`, applies); `note` disables the choices.
-fn auto_merge_radio(own: Option<AutoMerge>, global: AutoMerge, note: Option<String>) -> Control {
-    Control::Radio {
-        choices: auto_merge_choices(),
-        value: own.map(|v| v.as_str().to_owned()),
-        disabled: note.is_some(),
-        empty: own
-            .is_none()
-            .then(|| format!("{USE_GLOBAL} ({})", auto_merge_label(global))),
-        note,
-    }
-}
-
-/// What the Workflow skills rows are drawn from besides the settings (`workflow_skills.status`, WSK-01).
-#[derive(Clone, Copy)]
-pub struct SkillInputs<'a> {
-    /// The page's statuses in step order; empty when they couldn't be read (the rows then follow the settings).
-    pub statuses: &'a [SkillStatus],
-    /// On a project page, the global page's statuses: what "Use global" follows (empty: from the settings).
-    pub global: &'a [SkillStatus],
-    /// The last import or Re-import the service refused, written under its step (WSK-02).
-    pub refused: Option<&'a SkillRefusal>,
-    pub os: Os,
-    /// For "imported today, 10:42".
-    pub now: i64,
-}
-
-impl SkillInputs<'_> {
-    /// No statuses read: the rows follow the settings.
-    pub fn none(os: Os) -> SkillInputs<'static> {
-        SkillInputs {
-            statuses: &[],
-            global: &[],
-            refused: None,
-            os,
-            now: 0,
-        }
-    }
-}
-
-/// An import or Re-import the service refused (`bad_skill_folder`, `original_not_found`…): nothing changed, and
-/// the reason is the red line under the step.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SkillRefusal {
-    pub step: WorkflowStep,
-    /// The folder that was checked (the picked one, or the original on Re-import).
-    pub folder: Option<String>,
-    /// The service's text ("The folder has no SKILL.md").
-    pub message: String,
-}
-
-/// The built-in as the rows name it: `otaq:commit`.
-fn built_in_name(step: WorkflowStep) -> String {
-    step.own_default().trim_start_matches('/').to_owned()
-}
-
-/// A setting as a status, when the statuses couldn't be read: an imported skill counts as present and its
-/// original as there.
-fn status_of(step: WorkflowStep, setting: &SkillSetting) -> SkillStatus {
-    let mut status = SkillStatus {
-        step,
-        kind: SkillKind::BuiltIn,
-        name: None,
-        original: None,
-        original_exists: false,
-        imported_at: None,
-        copy: None,
-        copy_ok: false,
-        copy_problem: None,
-        edited: false,
-        warnings: Vec::new(),
-    };
-    match setting {
-        SkillSetting::BuiltIn => {}
-        SkillSetting::UseGlobal => status.kind = SkillKind::UseGlobal,
-        SkillSetting::Legacy(name) => {
-            status.kind = SkillKind::Legacy;
-            status.name = Some(name.clone());
-        }
-        SkillSetting::Imported(skill) => {
-            status.kind = SkillKind::Imported;
-            status.name = Some(skill.name.clone());
-            status.original = Some(skill.original.clone());
-            status.original_exists = true;
-            status.imported_at = Some(skill.imported_at);
-            status.copy_ok = true;
-            status.warnings.clone_from(&skill.warnings);
-        }
-    }
-    status
-}
-
-/// Each step's status: the one read, else the setting's.
-fn statuses_of(
-    read: &[SkillStatus],
-    settings: impl Fn(WorkflowStep) -> SkillStatus,
-) -> Vec<SkillStatus> {
-    WorkflowStep::ALL
-        .into_iter()
-        .map(|step| {
-            read.iter()
-                .find(|s| s.step == step)
-                .cloned()
-                .unwrap_or_else(|| settings(step))
-        })
-        .collect()
-}
-
-/// "today, 10:42" on the day it was imported, else "Oct 12".
-fn imported_when(at: i64, now: i64) -> String {
-    use crate::view_models::clock::{local_hhmm, month_day};
-    use otaq_core::local_time::local;
-    match (local(at), local(now)) {
-        (Some(t), Some(n)) if (t.year, t.month, t.day) == (n.year, n.month, n.day) => {
-            format!("today, {}", local_hhmm(at))
-        }
-        (Some(t), _) => month_day(&t),
-        (None, _) => "at an unknown time".to_owned(),
-    }
-}
-
-/// The red line of a refused import, in the frames' words (*Checks when importing (§2)*): "Not imported: ~/x has
-/// no SKILL.md.", "Not imported: the front matter at the top of ~/x/SKILL.md can't be read.", else the service's
-/// reason after "Not imported: ".
-pub fn refusal_line(refusal: &SkillRefusal) -> String {
-    let folder = refusal.folder.as_deref().map(tilde);
-    let message = refusal.message.trim_end_matches('.');
-    match folder {
-        Some(folder) if message == "The folder has no SKILL.md" => {
-            format!("Not imported: {folder} has no SKILL.md.")
-        }
-        Some(folder) if message.starts_with("SKILL.md's front matter can't be read") => {
-            format!("Not imported: the front matter at the top of {folder}/SKILL.md can't be read.")
-        }
-        _ if message.ends_with(':') => format!("Not imported: {message}"),
-        _ => format!("Not imported: {message}."),
-    }
-}
-
-/// "Show Otaq's copy in Finder", as each OS calls its file manager (*The ⋯ menu on an imported skill*).
-fn show_copy_label(os: Os) -> String {
-    let manager = match os {
-        Os::Mac => "Finder",
-        Os::Windows => "Explorer",
-        Os::Linux => "the file manager",
-    };
-    format!("Show {PRODUCT_NAME}\u{2019}s copy in {manager}")
-}
-
-/// The dot-folder hint under the list, macOS only (the macOS picker hides dot folders).
-pub fn dot_folder_hint(os: Os) -> Option<String> {
-    (os == Os::Mac).then(|| {
-        "Skill in a dot folder such as .claude? The macOS folder picker hides them: press \u{2318}\u{21e7}. in the \
-         picker to show them."
-            .to_owned()
-    })
-}
-
-/// The project page's Workflow skills intro (*Project · shop-web overrides Open PR*).
-const PROJECT_SKILLS_INTRO: &str = "Settings for this project only. A step on \u{201c}Use global\u{201d} follows Settings \u{2192} Workflow skills.";
-
-const IMPORT_FOLDER: &str = "Import skill folder\u{2026}";
-const IMPORT_DIFFERENT: &str = "Import a different folder\u{2026}";
-
-/// The Workflow skills control: one row per step. `global` is `Some` on a project page: the global page's
-/// statuses, which a step on "Use global" follows.
-fn skills_control(
-    heading: &str,
-    statuses: &[SkillStatus],
-    global: Option<&[SkillStatus]>,
-    input: &SkillInputs,
-) -> Control {
-    Control::Skills {
-        heading: heading.to_owned(),
-        rows: statuses
-            .iter()
-            .map(|status| {
-                let follows = global.and_then(|g| g.iter().find(|s| s.step == status.step));
-                skill_row(status, global.is_some(), follows, input)
-            })
-            .collect(),
-        hint: dot_folder_hint(input.os),
-    }
-}
-
-/// The skill a step on "Use global" runs, as the project's row names it: the global's imported name, else the
-/// built-in (a typed global name uses the built-in, WSK-07).
-fn global_name(step: WorkflowStep, global: Option<&SkillStatus>) -> (String, Option<String>) {
-    match global {
-        Some(g) if g.kind == SkillKind::Imported => (
-            g.name.clone().unwrap_or_default(),
-            g.original.as_deref().map(tilde),
-        ),
-        _ => (built_in_name(step), None),
-    }
-}
-
-/// One step's row (*15 → update AC §1–§3*).
-fn skill_row(
-    status: &SkillStatus,
-    project: bool,
-    global: Option<&SkillStatus>,
-    input: &SkillInputs,
-) -> SkillRow {
-    let step = status.step;
-    let label = step_label(step);
-    let built_in = built_in_name(step);
-    let tag = |label: &str, look| SkillTag {
-        label: label.to_owned(),
-        look,
-    };
-    let button = |label: &str, icon, action, disabled| SkillButton {
-        label: label.to_owned(),
-        icon: Some(icon),
-        action,
-        disabled,
-    };
-    let item = |action, label: String, icon, separated| SkillMenuItem {
-        action,
-        label,
-        icon,
-        separated,
-    };
-    let line = |icon, text: String, look| SkillLine {
-        icon,
-        text,
-        look,
-        link: None,
-    };
-    let back = if project {
-        "Use global".to_owned()
-    } else {
-        format!("Use built-in ({built_in})")
-    };
-    let mut lines = Vec::new();
-    if let Some(refused) = input.refused.filter(|r| r.step == step) {
-        lines.push(line(
-            IconName::CircleAlert,
-            refusal_line(refused),
-            SkillLook::Error,
-        ));
-    }
-    let import = button(
-        IMPORT_FOLDER,
-        IconName::FolderInput,
-        SkillAction::Import,
-        false,
-    );
-    let mut row = SkillRow {
-        field: format!("workflow_skills.{}", step.field()),
-        step,
-        label: label.to_owned(),
-        name: built_in.clone(),
-        name_muted: false,
-        tag: tag("Built-in", SkillLook::Quiet),
-        folder: None,
-        source: format!("{PRODUCT_NAME}\u{2019}s default"),
-        lines: Vec::new(),
-        button: Some(import.clone()),
-        menu: Vec::new(),
-        menu_label: format!("More for {label}"),
-        picker_title: IMPORT_FOLDER.trim_end_matches('\u{2026}').to_owned(),
-        reimport: None,
-        reset: None,
-    };
-    match status.kind {
-        // Q211: a project step stored as Otaq's own reads as the built-in; Use global takes it back to the global.
-        SkillKind::BuiltIn => {
-            if project {
-                row.menu = vec![item(SkillAction::Reset, back, IconName::RotateCcw, false)];
-            }
-        }
-        SkillKind::UseGlobal => {
-            let (name, original) = global_name(step, global);
-            row.name = name;
-            row.name_muted = true;
-            row.tag = tag("Use global", SkillLook::Quiet);
-            row.source = match original {
-                Some(original) => format!("Global: imported from {original}"),
-                None => format!("Global: {PRODUCT_NAME}\u{2019}s default"),
-            };
-        }
-        SkillKind::Legacy => {
-            row.name = status.name.clone().unwrap_or_default();
-            row.name_muted = true;
-            row.tag = tag("Not imported", SkillLook::Warning);
-            row.source = "Typed name from an earlier version".into();
-            let until = if project {
-                let (name, _) = global_name(step, global);
-                format!(
-                    "Import its folder, or pick Use global. Until then {label} uses the global skill ({name})."
-                )
-            } else {
-                format!(
-                    "Import its folder to use it. Until then {label} uses the built-in {built_in}."
-                )
-            };
-            lines.push(line(IconName::Info, until, SkillLook::Quiet));
-            if project {
-                row.menu = vec![item(SkillAction::Reset, back, IconName::RotateCcw, false)];
-            }
-        }
-        SkillKind::Imported => {
-            let name = status.name.clone().unwrap_or_default();
-            let original = status.original.as_deref().map(tilde).unwrap_or_default();
-            let copy = status
-                .copy
-                .as_deref()
-                .map(|c| tilde(&c.display().to_string()))
-                .unwrap_or_default();
-            row.name.clone_from(&name);
-            row.folder = Some(original.clone());
-            row.source = match status.imported_at {
-                Some(at) => format!("\u{b7} imported {}", imported_when(at, input.now)),
-                None => String::new(),
-            };
-            row.tag = tag("Imported", SkillLook::Quiet);
-            let copy_note = line(
-                IconName::Info,
-                format!(
-                    "{PRODUCT_NAME} uses its own copy. Changes to the original apply after Re-import."
-                ),
-                SkillLook::Quiet,
-            );
-            if status.copy_ok {
-                lines.extend(status.warnings.iter().map(|w| {
-                    line(
-                        IconName::TriangleAlert,
-                        format!("Imported, but {}.", w.trim_end_matches('.')),
-                        SkillLook::Warning,
-                    )
-                }));
-                if !status.original_exists {
-                    lines.push(line(
-                        IconName::FolderX,
-                        format!(
-                            "Original not found at {original}, so Re-import is unavailable. {PRODUCT_NAME}\u{2019}s \
-                             copy keeps working; {IMPORT_DIFFERENT} in the \u{22ef} menu points it at the new place."
-                        ),
-                        SkillLook::Quiet,
-                    ));
-                }
-                lines.push(copy_note);
-                row.button = Some(button(
-                    "Re-import",
-                    IconName::RefreshCw,
-                    SkillAction::Reimport,
-                    !status.original_exists,
-                ));
-            } else {
-                // WSK-04: the copy is missing or broken, so the step runs the built-in until Import again works.
-                row.tag = tag("Skill missing", SkillLook::Error);
-                let again = if status.original_exists {
-                    SkillAction::ImportAgain
-                } else {
-                    SkillAction::Import
-                };
-                lines.push(SkillLine {
-                    link: Some(SkillButton {
-                        label: "Import again".into(),
-                        icon: None,
-                        action: again,
-                        disabled: false,
-                    }),
-                    ..line(
-                        IconName::CircleAlert,
-                        "Skill missing \u{b7}".into(),
-                        SkillLook::Error,
-                    )
-                });
-                lines.push(line(
-                    IconName::Info,
-                    format!(
-                        "{PRODUCT_NAME}\u{2019}s copy in {copy} is missing or broken. Agents use the built-in \
-                         {built_in} meanwhile."
-                    ),
-                    SkillLook::Quiet,
-                ));
-                row.button = None;
-            }
-            // Show Otaq's copy only while there is a folder to show (a broken copy, not a missing one).
-            let copy_there = status.copy.is_some()
-                && status.copy_problem.as_deref() != Some(copy_missing().as_str());
-            row.menu = [
-                copy_there.then(|| {
-                    item(
-                        SkillAction::Reveal,
-                        show_copy_label(input.os),
-                        IconName::FolderOpen,
-                        false,
-                    )
-                }),
-                Some(item(
-                    SkillAction::Import,
-                    IMPORT_DIFFERENT.to_owned(),
-                    IconName::FolderInput,
-                    false,
-                )),
-                Some(item(SkillAction::Reset, back, IconName::RotateCcw, true)),
-            ]
-            .into_iter()
-            .flatten()
-            .collect();
-            row.reimport = Some(SkillDialog {
-                title: format!("Re-import {name}?"),
-                text: format!(
-                    "{PRODUCT_NAME} replaces its copy with the folder at {original}. Sessions already running keep \
-                     the copy they started with; the next launch uses the new one."
-                ),
-                note: format!("Edits made to {PRODUCT_NAME}\u{2019}s copy in {copy} are lost."),
-                confirm: "Re-import".into(),
-                destructive: false,
-            });
-            row.reset = Some(if project {
-                let (global, _) = global_name(step, global);
-                SkillDialog {
-                    title: format!("Use the global {global}?"),
-                    text: format!(
-                        "{label} goes back to the global skill and {PRODUCT_NAME}\u{2019}s copy of {name} is \
-                         deleted. The original at {original} isn\u{2019}t touched."
-                    ),
-                    note: format!(
-                        "{PRODUCT_NAME}\u{2019}s copy has edits that aren\u{2019}t in the original. Going back to \
-                         the global skill deletes them."
-                    ),
-                    confirm: "Use global".into(),
-                    destructive: true,
-                }
-            } else {
-                SkillDialog {
-                    title: format!("Use the built-in {built_in}?"),
-                    text: format!(
-                        "{label} goes back to {PRODUCT_NAME}\u{2019}s built-in skill and {PRODUCT_NAME}\u{2019}s \
-                         copy of {name} is deleted. The original at {original} isn\u{2019}t touched."
-                    ),
-                    note: format!(
-                        "{PRODUCT_NAME}\u{2019}s copy has edits that aren\u{2019}t in the original. Going back to \
-                         the built-in deletes them."
-                    ),
-                    confirm: "Use built-in".into(),
-                    destructive: true,
-                }
-            });
-        }
-    }
-    // A refused import on a row with an imported skill: its red line first, the skill's own lines after.
-    row.lines = lines;
-    row
 }
 
 pub fn project_page(input: &ProjectInputs) -> Page {
@@ -1725,107 +956,23 @@ pub fn project_page(input: &ProjectInputs) -> Page {
             ),
         ],
     );
-    let instructions = section(
-        ProjectSection::AgentInstructions,
+    let notes = section(
+        ProjectSection::ProjectNotes,
         None,
         vec![row(
-            "agent_instructions",
-            "Agent instructions",
-            "Per-project override, given to every agent in this project. Empty = the global default is used.",
+            "project_notes",
+            "Notes every agent in this project gets",
+            format!(
+                "Added to every agent\u{2019}s instructions in {}, whatever stage it runs.",
+                info.name
+            ),
             multiline(
-                &s.agent_instructions,
-                &instructions_placeholder(input.global),
+                &s.project_notes,
+                "Notes for every agent here, e.g. \u{201c}Run the tests with make test.\u{201d}",
             ),
         )],
     );
-    let skill_statuses = statuses_of(input.skills.statuses, |step| {
-        status_of(step, s.workflow_skills.get(step))
-    });
-    let global_statuses = statuses_of(input.skills.global, |step| {
-        status_of(step, input.global.workflow_skills.get(step))
-    });
-    let skills = Section {
-        intro: Some(PROJECT_SKILLS_INTRO.to_owned()),
-        ..section(
-            ProjectSection::WorkflowSkills,
-            None,
-            vec![row(
-                "",
-                "Workflow skills",
-                "",
-                skills_control(
-                    "Workflow skills",
-                    &skill_statuses,
-                    Some(&global_statuses),
-                    &input.skills,
-                ),
-            )],
-        )
-    };
-    let project_agents = section(
-        ProjectSection::ProjectAgentInstructions,
-        None,
-        vec![row(
-            "project_agent_instructions",
-            "Project agent instructions",
-            "Per-project override for Project agents. Empty = the global default is used.",
-            multiline(&s.project_agent_instructions, USE_GLOBAL),
-        )],
-    );
-    let g = input.global;
-    let validating = s.validation.unwrap_or(g.validation);
-    let reset = |set: bool| set.then(|| USE_GLOBAL.to_owned());
-    let validation = section(
-        ProjectSection::Validation,
-        None,
-        vec![
-            Row {
-                reset: reset(s.validation.is_some()),
-                ..row(
-                    "validation",
-                    "Validation",
-                    if validating {
-                        "A separate read-only validator checks the agent\u{2019}s work before Review; failures go back to the agent."
-                    } else {
-                        "Off for this project: review submit moves the ticket straight to Ready for Review, as before validation existed."
-                    },
-                    Control::Toggle { on: validating },
-                )
-            },
-            Row {
-                reset: reset(s.validation_rounds.is_some()),
-                ..row(
-                    "validation_rounds",
-                    "Validation rounds",
-                    format!("{ROUNDS_DESCRIPTION} Empty = the global default."),
-                    rounds_stepper(
-                        s.validation_rounds.unwrap_or(g.validation_rounds),
-                        s.validation_rounds
-                            .is_none()
-                            .then(|| format!("{USE_GLOBAL} ({})", g.validation_rounds)),
-                    ),
-                )
-            },
-            Row {
-                reset: reset(s.auto_merge.is_some()),
-                ..row(
-                    "auto_merge",
-                    "Auto-merge",
-                    format!("{AUTO_MERGE_DESCRIPTION} Empty = the global default."),
-                    auto_merge_radio(
-                        s.auto_merge,
-                        g.auto_merge,
-                        (!validating).then(|| {
-                            format!(
-                                "Validation is off for {}, so Auto-merge does nothing. Turn Validation on to use it.",
-                                info.name
-                            )
-                        }),
-                    ),
-                )
-            },
-        ],
-    );
+    let flow = section(ProjectSection::Flow, None, Vec::new());
     let answers = section(
         ProjectSection::Answers,
         None,
@@ -1932,76 +1079,14 @@ pub fn project_page(input: &ProjectInputs) -> Page {
             .into(),
         sections: vec![
             general,
-            // Its own view, collapsed or expanded ([`project_agents_block`]).
-            section(ProjectSection::Agents, None, Vec::new()),
-            instructions,
-            project_agents,
-            skills,
-            validation,
+            flow,
+            notes,
             answers,
             commands,
             resources,
             provider,
             remove,
         ],
-    }
-}
-
-/// The project's Agents block (AGT-03, d0086; *15 → Project settings → Agents* `mQijC` / `w6fVf`): collapsed "Uses
-/// app defaults · Change" while it overrides nothing; expanded, the four roles, each a picker with "Use app default
-/// (<name>)" first, then the named agents with their model as Settings shows it, and with several tools connected
-/// their tool too ("Strong · Claude Code · Opus · always the newest", with its avatar). A project with an override
-/// opens expanded; Change expands it (the page keeps that).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "ProjectAgentsBlock")]
-pub struct ProjectAgentsBlock {
-    pub project: String,
-    /// "Agents for this project", beside the collapsed line.
-    pub collapsed_title: String,
-    /// "Uses app defaults".
-    pub collapsed_text: String,
-    pub change_label: String,
-    /// The heading over the expanded rows: "Agents".
-    pub title: String,
-    /// Opens expanded: the project overrides at least one role.
-    pub expanded: bool,
-    pub rows: Vec<ProjectAgentRow>,
-}
-
-/// One role of the block.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "ProjectAgentRow")]
-pub struct ProjectAgentRow {
-    pub role: named_agents::RoleId,
-    pub label: String,
-    pub picker: named_agents::AgentPicker,
-}
-
-/// The block for `project` from `agents.list`, the project's overrides (`project.agent_defaults`), the agent tools
-/// and their cached model lists.
-pub fn project_agents_block(
-    project: &str,
-    agents: &[NamedAgent],
-    app: &RoleDefaults,
-    own: &RoleDefaults,
-    tools: &named_agents::AgentTools,
-) -> ProjectAgentsBlock {
-    let rows: Vec<ProjectAgentRow> = named_agents::ROLES
-        .iter()
-        .map(|&role| ProjectAgentRow {
-            role: role.into(),
-            label: role.label().to_owned(),
-            picker: named_agents::project_picker(agents, app, own, role, tools),
-        })
-        .collect();
-    ProjectAgentsBlock {
-        project: project.to_owned(),
-        collapsed_title: "Agents for this project".to_owned(),
-        collapsed_text: "Uses app defaults".to_owned(),
-        change_label: "Change".to_owned(),
-        title: "Agents".to_owned(),
-        expanded: rows.iter().any(|r| r.picker.value.agent.is_some()),
-        rows,
     }
 }
 
@@ -2338,7 +1423,6 @@ pub fn notifications_gallery() -> NotificationsGallery {
                 cleanup_count: 0,
                 os: Os::Mac,
                 notification_permission: permission,
-                skills: SkillInputs::none(Os::Mac),
             };
             let Page::Global { sections, .. } = global_page(&input) else {
                 unreachable!("the global page")
@@ -2353,239 +1437,6 @@ pub fn notifications_gallery() -> NotificationsGallery {
         })
         .collect();
     NotificationsGallery { banners, pages }
-}
-
-/// *15 → update AC* for the gallery (T-0380): Settings → Workflow skills, global and per project, in every state
-/// the frames draw, with the frames' samples (`~/team-skills/my-commit`, shop-web's `.claude/skills/my-pr`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "WorkflowSkillsGallery")]
-pub struct WorkflowSkillsGallery {
-    pub cells: Vec<WorkflowSkillsCell>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "WorkflowSkillsCell")]
-pub struct WorkflowSkillsCell {
-    pub name: String,
-    /// The section as its page draws it: the global page's, or a project's (`project`).
-    pub section: Section<String>,
-    pub project: Option<String>,
-}
-
-pub fn workflow_skills_gallery() -> WorkflowSkillsGallery {
-    use otaq_core::naming::data_dir_name;
-    let home = std::env::home_dir().unwrap_or_default();
-    let at = |rest: &str| home.join(rest).display().to_string();
-    let now = 1_760_000_000_000;
-    let blank = |step| status_of(step, &SkillSetting::BuiltIn);
-    let imported = |step, name: &str, original: &str, ago: i64| SkillStatus {
-        kind: SkillKind::Imported,
-        name: Some(name.to_owned()),
-        original: Some(at(original)),
-        original_exists: true,
-        imported_at: Some(now - ago),
-        copy: Some(home.join(format!("{}/skills/{name}", data_dir_name()))),
-        copy_ok: true,
-        ..blank(step)
-    };
-    let commit = || {
-        imported(
-            WorkflowStep::Commit,
-            "my-commit",
-            "team-skills/my-commit",
-            0,
-        )
-    };
-    let page = |statuses: Vec<SkillStatus>| -> Vec<SkillStatus> { statuses_of(&statuses, blank) };
-    let global_section = |statuses: Vec<SkillStatus>, refused: Option<SkillRefusal>| {
-        let statuses = page(statuses);
-        let input = SkillInputs {
-            statuses: &statuses,
-            global: &[],
-            refused: refused.as_ref(),
-            os: Os::Mac,
-            now,
-        };
-        let Page::Global { sections, .. } = global_page(&GlobalInputs {
-            settings: &GlobalSettings::default(),
-            problems: &[],
-            scheduler: None,
-            data: None,
-            cleanup_count: 0,
-            os: Os::Mac,
-            notification_permission: PermissionState::Unknown,
-            skills: input,
-        }) else {
-            unreachable!()
-        };
-        sections
-            .into_iter()
-            .find(|s| s.id == GlobalSection::WorkflowSkills)
-            .map(|s| Section {
-                id: "workflow_skills".to_owned(),
-                title: s.title,
-                intro: s.intro,
-                rows: s.rows,
-                note: s.note,
-            })
-            .expect("the Workflow skills section")
-    };
-    let project_section = |statuses: Vec<SkillStatus>, global: Vec<SkillStatus>| {
-        let (statuses, global) = (page(statuses), page(global));
-        let all_global = |step| status_of(step, &SkillSetting::UseGlobal);
-        let statuses = statuses
-            .into_iter()
-            .map(|s| {
-                if s.kind == SkillKind::BuiltIn {
-                    all_global(s.step)
-                } else {
-                    s
-                }
-            })
-            .collect::<Vec<_>>();
-        let input = SkillInputs {
-            statuses: &statuses,
-            global: &global,
-            refused: None,
-            os: Os::Mac,
-            now,
-        };
-        Section {
-            id: "workflow_skills".to_owned(),
-            title: None,
-            intro: Some(PROJECT_SKILLS_INTRO.to_owned()),
-            rows: vec![row(
-                "",
-                "Workflow skills",
-                "",
-                skills_control("Workflow skills", &statuses, Some(&global), &input),
-            )],
-            note: None,
-        }
-    };
-    let refused = |message: &str, folder: &str| SkillRefusal {
-        step: WorkflowStep::Commit,
-        folder: Some(at(folder)),
-        message: message.to_owned(),
-    };
-    let cell = |name: &str, section, project: Option<&str>| WorkflowSkillsCell {
-        name: name.to_owned(),
-        section,
-        project: project.map(str::to_owned),
-    };
-    WorkflowSkillsGallery {
-        cells: vec![
-            cell(
-                "Global · built-in (fresh install)",
-                global_section(Vec::new(), None),
-                None,
-            ),
-            cell(
-                "Global · Commit imported",
-                global_section(vec![commit()], None),
-                None,
-            ),
-            cell(
-                "Project · shop-web overrides Open PR",
-                project_section(
-                    vec![imported(
-                        WorkflowStep::OpenPr,
-                        "my-pr",
-                        "code/shop-web/.claude/skills/my-pr",
-                        9 * 60_000,
-                    )],
-                    vec![commit()],
-                ),
-                Some("SHOP"),
-            ),
-            cell(
-                "§2 A · the folder has no SKILL.md",
-                global_section(
-                    Vec::new(),
-                    Some(refused(
-                        "The folder has no SKILL.md",
-                        "team-skills/commit-helpers",
-                    )),
-                ),
-                None,
-            ),
-            cell(
-                "§2 B · the front matter can't be read",
-                global_section(
-                    Vec::new(),
-                    Some(refused(
-                        "SKILL.md's front matter can't be read: line 3 isn't key: value",
-                        "team-skills/my-commit",
-                    )),
-                ),
-                None,
-            ),
-            cell(
-                "§2 C · files it mentions are missing (warning, imported)",
-                global_section(
-                    vec![SkillStatus {
-                        warnings: vec![
-                            "SKILL.md mentions scripts/check-staged.sh, which isn't in the folder"
-                                .into(),
-                        ],
-                        ..commit()
-                    }],
-                    None,
-                ),
-                None,
-            ),
-            cell(
-                "§3 A · original moved or deleted",
-                global_section(
-                    vec![SkillStatus {
-                        original_exists: false,
-                        ..commit()
-                    }],
-                    None,
-                ),
-                None,
-            ),
-            cell(
-                &format!("§3 B · {PRODUCT_NAME}'s copy missing or broken"),
-                global_section(
-                    vec![SkillStatus {
-                        copy_ok: false,
-                        copy_problem: Some(copy_missing()),
-                        ..imported(
-                            WorkflowStep::Commit,
-                            "my-commit",
-                            "team-skills/my-commit",
-                            6 * 24 * 3_600_000,
-                        )
-                    }],
-                    None,
-                ),
-                None,
-            ),
-            cell(
-                "§3 C · a setting from before 0092 (a typed name)",
-                global_section(
-                    vec![status_of(
-                        WorkflowStep::Commit,
-                        &SkillSetting::Legacy("/my-commit".into()),
-                    )],
-                    None,
-                ),
-                None,
-            ),
-            cell(
-                "§3 D · project: a typed override from before 0092",
-                project_section(
-                    vec![status_of(
-                        WorkflowStep::OpenPr,
-                        &SkillSetting::Legacy("/my-pr".into()),
-                    )],
-                    Vec::new(),
-                ),
-                Some("SHOP"),
-            ),
-        ],
-    }
 }
 
 /// *15 → Row · Start new worktrees from a warm build (0082)* and the dark frame's Linux state for the gallery
@@ -2684,6 +1535,7 @@ pub fn warm_switch_gallery() -> WarmSwitchGallery {
                     base_branch: "main".into(),
                     agents_working: 0,
                     needs_you: 0,
+                    flow_setup_since: None,
                 };
                 let settings = ProjectSettings {
                     warm_builds: on,
@@ -3073,21 +1925,6 @@ impl Value {
     }
 }
 
-fn auto_merge_of(id: &str) -> Result<AutoMerge, String> {
-    id.parse()
-        .map_err(|_| format!("unknown Auto-merge choice: {id}"))
-}
-
-/// A workflow skill field can't be typed into (WSK-01): skills are imported folders.
-fn typed_skill() -> String {
-    "A workflow skill is imported as a folder; it can't be typed".to_owned()
-}
-
-fn step_of(field: &str) -> Option<WorkflowStep> {
-    let name = field.strip_prefix("workflow_skills.")?;
-    WorkflowStep::ALL.into_iter().find(|s| s.field() == name)
-}
-
 /// Applies one edit to the global settings. Steppers clamp to their range; the service flags the rest.
 pub fn edit_global(s: &mut GlobalSettings, field: &str, value: &Value) -> Result<(), String> {
     let clamp = |n: u32, r: std::ops::RangeInclusive<u32>| n.clamp(*r.start(), *r.end());
@@ -3099,11 +1936,6 @@ pub fn edit_global(s: &mut GlobalSettings, field: &str, value: &Value) -> Result
         "agent_limits.back_pressure" => {
             s.agent_limits.back_pressure = clamp(value.number()?, BACK_PRESSURE_ITEMS)
         }
-        "agent_instructions" => s.agent_instructions = value.text()?.to_owned(),
-        "validation" => s.validation = value.flag()?,
-        "validation_rounds" => s.validation_rounds = clamp(value.number()?, VALIDATION_ROUNDS),
-        "auto_merge" => s.auto_merge = auto_merge_of(value.text()?)?,
-        "project_agent_instructions" => s.project_agent_instructions = value.text()?.to_owned(),
         "notifications" => s.notifications = value.flag()?,
         "notification_sound" => s.notification_sound = value.flag()?,
         kind if kind.starts_with("notification_kinds.") => {
@@ -3128,10 +1960,7 @@ pub fn edit_global(s: &mut GlobalSettings, field: &str, value: &Value) -> Result
                 other => return Err(format!("unknown terminal renderer: {other}")),
             }
         }
-        f => match step_of(f) {
-            Some(_) => return Err(typed_skill()),
-            None => return Err(format!("unknown setting: {f}")),
-        },
+        f => return Err(format!("unknown setting: {f}")),
     }
     Ok(())
 }
@@ -3169,30 +1998,7 @@ pub fn edit_project(
                 ..ProjectUpdate::default()
             }));
         }
-        "agent_instructions" => s.agent_instructions = value.text()?.to_owned(),
-        "project_agent_instructions" => s.project_agent_instructions = value.text()?.to_owned(),
-        // `""` (Use global) empties a project's own value.
-        "validation" => {
-            s.validation = match value {
-                Value::Text(t) if t.is_empty() => None,
-                v => Some(v.flag()?),
-            }
-        }
-        "validation_rounds" => {
-            s.validation_rounds = match value {
-                Value::Text(t) if t.is_empty() => None,
-                v => Some(
-                    v.number()?
-                        .clamp(*VALIDATION_ROUNDS.start(), *VALIDATION_ROUNDS.end()),
-                ),
-            }
-        }
-        "auto_merge" => {
-            s.auto_merge = match value.text()? {
-                "" => None,
-                id => Some(auto_merge_of(id)?),
-            }
-        }
+        "project_notes" => s.project_notes = value.text()?.to_owned(),
         "setup_command" => s.setup_command = value.text()?.to_owned(),
         "run_command" => s.run_command = value.text()?.to_owned(),
         "open_url" => s.open_url = value.text()?.trim().to_owned(),
@@ -3243,8 +2049,6 @@ pub fn edit_project(
                 } else {
                     s.env_files[i] = file;
                 }
-            } else if step_of(f).is_some() {
-                return Err(typed_skill());
             } else {
                 return Err(format!("unknown setting: {f}"));
             }
@@ -3256,7 +2060,6 @@ pub fn edit_project(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use otaq_core::agent_tools::Tool;
 
     fn info() -> ProjectInfo {
         ProjectInfo {
@@ -3266,6 +2069,7 @@ mod tests {
             base_branch: "develop".into(),
             agents_working: 1,
             needs_you: 0,
+            flow_setup_since: None,
         }
     }
 
@@ -3278,7 +2082,6 @@ mod tests {
             cleanup_count: 0,
             os: Os::Mac,
             notification_permission: PermissionState::Unknown,
-            skills: SkillInputs::none(Os::Mac),
         };
         match global_page(&input) {
             Page::Global { sections, .. } => sections,
@@ -3296,7 +2099,6 @@ mod tests {
             cleanup_count: 0,
             os: Os::Mac,
             notification_permission: permission,
-            skills: SkillInputs::none(Os::Mac),
         };
         let Page::Global { sections, .. } = global_page(&input) else {
             unreachable!()
@@ -3392,7 +2194,7 @@ mod tests {
                     "Validation needs a decision",
                     "Failed N times, or no result."
                 ),
-                ("Auto-merge stopped", ""),
+                ("Delivery stopped", ""),
                 ("Agent tool not available", ""),
                 ("Play a sound", "The OS’s default notification sound."),
             ]
@@ -3457,7 +2259,7 @@ mod tests {
             &["BILL".into()],
         )
         .nav;
-        assert_eq!(nav.len(), 13);
+        assert_eq!(nav.len(), 11);
         // Agent tools first, then Agents (M22, `bVdGw`; M23, `bGHVl`).
         assert_eq!(
             (nav[0].label.as_str(), nav[0].icon),
@@ -3467,17 +2269,17 @@ mod tests {
             (nav[1].label.as_str(), nav[1].icon),
             ("Agents", IconName::Bot)
         );
-        // The Agents page holds Agent limits and Agent instructions; every other topic is its own page.
+        // Every topic is its own page: Agent limits has its own row again (T-0410, `s15-58`'s nav).
         assert_eq!(
             nav[1].target,
             Target::Global {
                 section: GlobalSection::Agents,
-                sections: vec![
-                    GlobalSection::Agents,
-                    GlobalSection::AgentLimits,
-                    GlobalSection::AgentInstructions
-                ],
+                sections: vec![GlobalSection::Agents],
             }
+        );
+        assert_eq!(
+            (nav[2].label.as_str(), nav[2].icon),
+            ("Agent limits", IconName::Gauge)
         );
         assert_eq!(
             nav[0].target,
@@ -3486,898 +2288,24 @@ mod tests {
                 sections: vec![GlobalSection::AgentTools],
             }
         );
-        assert_eq!(nav[2].label, "Workflow skills");
-        assert_eq!(
-            (nav[3].label.as_str(), nav[3].icon),
-            ("Validation & Auto-merge", IconName::ShieldCheck)
-        );
-        assert_eq!(
-            (nav[4].label.as_str(), nav[4].icon),
-            ("Project agents", IconName::Bot)
-        );
-        assert_eq!(nav[5].label, "Usage");
+        // Validation & Auto-merge is gone (FLW-01): Usage follows Agent limits.
+        assert_eq!(nav[3].label, "Usage");
+        assert!(nav.iter().all(|n| n.label != "Validation & Auto-merge"));
         // Keyboard shortcuts after Appearance (M29, T-0395; design `s15-46`).
-        assert_eq!(nav[8].label, "Appearance");
+        assert_eq!(nav[6].label, "Appearance");
         assert_eq!(
-            (nav[9].label.as_str(), nav[9].icon),
+            (nav[7].label.as_str(), nav[7].icon),
             ("Keyboard shortcuts", IconName::Keyboard)
         );
         // About is the last global row (d0071).
         assert_eq!(
-            (nav[11].label.as_str(), nav[11].icon),
+            (nav[9].label.as_str(), nav[9].icon),
             ("About", IconName::Info)
         );
-        assert_eq!(nav[12].target, Target::Project { key: "BILL".into() });
-        assert!(nav[12].alert);
+        assert_eq!(nav[10].target, Target::Project { key: "BILL".into() });
+        assert!(nav[10].alert);
     }
 
-    // ---- Settings → Workflow skills (T-0380; WSK-01, WSK-02, WSK-04, WSK-07; *15 → update AC*) ----
-
-    const SKILL_NOW: i64 = 1_760_000_000_000;
-
-    /// A text with Otaq's names written as `<P>` (the product), `<N>` (the plugin namespace) and `<D>` (the data
-    /// folder), so the expected texts below name nothing outside `naming` (d0028).
-    fn unfill(text: &str) -> String {
-        text.replace(&naming::data_dir_name(), "<D>")
-            .replace(PRODUCT_NAME, "<P>")
-            .replace(&format!("{}:", naming::PLUGIN_NAMESPACE), "<N>:")
-    }
-
-    /// Every text of a row, through [`unfill`].
-    fn unfill_row(mut row: SkillRow) -> SkillRow {
-        let dialog = |d: &mut SkillDialog| {
-            for t in [&mut d.title, &mut d.text, &mut d.note, &mut d.confirm] {
-                *t = unfill(t);
-            }
-        };
-        row.name = unfill(&row.name);
-        row.source = unfill(&row.source);
-        row.folder = row.folder.as_deref().map(unfill);
-        for line in &mut row.lines {
-            line.text = unfill(&line.text);
-        }
-        for item in &mut row.menu {
-            item.label = unfill(&item.label);
-        }
-        row.reimport.as_mut().map(dialog);
-        row.reset.as_mut().map(dialog);
-        row
-    }
-
-    fn home(rest: &str) -> String {
-        std::env::home_dir()
-            .unwrap_or_default()
-            .join(rest)
-            .display()
-            .to_string()
-    }
-
-    fn built(step: WorkflowStep) -> SkillStatus {
-        status_of(step, &SkillSetting::BuiltIn)
-    }
-
-    /// `my-commit` imported from `~/team-skills/my-commit` at SKILL_NOW, its copy in `~/.otaq/skills/c1`.
-    fn my_commit() -> SkillStatus {
-        SkillStatus {
-            kind: SkillKind::Imported,
-            name: Some("my-commit".into()),
-            original: Some(home("team-skills/my-commit")),
-            original_exists: true,
-            imported_at: Some(SKILL_NOW),
-            copy: Some(home(&format!("{}/skills/c1", naming::data_dir_name())).into()),
-            copy_ok: true,
-            ..built(WorkflowStep::Commit)
-        }
-    }
-
-    fn skill_inputs<'a>(
-        statuses: &'a [SkillStatus],
-        global: &'a [SkillStatus],
-        refused: Option<&'a SkillRefusal>,
-        os: Os,
-    ) -> SkillInputs<'a> {
-        SkillInputs {
-            statuses,
-            global,
-            refused,
-            os,
-            now: SKILL_NOW,
-        }
-    }
-
-    /// The global page's Workflow skills section with `statuses` (the other steps built-in).
-    fn skills_section(
-        statuses: Vec<SkillStatus>,
-        refused: Option<&SkillRefusal>,
-        os: Os,
-    ) -> Section<GlobalSection> {
-        let statuses = statuses_of(&statuses, built);
-        let Page::Global { sections, .. } = global_page(&GlobalInputs {
-            settings: &GlobalSettings::default(),
-            problems: &[],
-            scheduler: None,
-            data: None,
-            cleanup_count: 0,
-            os,
-            notification_permission: PermissionState::Unknown,
-            skills: skill_inputs(&statuses, &[], refused, os),
-        }) else {
-            unreachable!()
-        };
-        sections
-            .into_iter()
-            .find(|s| s.id == GlobalSection::WorkflowSkills)
-            .expect("the Workflow skills section")
-    }
-
-    fn skills_of(control: &Control) -> (&str, &[SkillRow], Option<&str>) {
-        let Control::Skills {
-            heading,
-            rows,
-            hint,
-        } = control
-        else {
-            panic!("the skills control")
-        };
-        (heading, rows, hint.as_deref())
-    }
-
-    fn global_rows(statuses: Vec<SkillStatus>, refused: Option<&SkillRefusal>) -> Vec<SkillRow> {
-        skills_of(&skills_section(statuses, refused, Os::Mac).rows[0].control)
-            .1
-            .iter()
-            .cloned()
-            .map(unfill_row)
-            .collect()
-    }
-
-    /// shop-web's page with `own` (the other steps on Use global) and the global page's `global`.
-    fn skill_project_rows(own: Vec<SkillStatus>, global: Vec<SkillStatus>) -> Vec<SkillRow> {
-        let own = statuses_of(&own, |step| status_of(step, &SkillSetting::UseGlobal));
-        let global = statuses_of(&global, built);
-        let Page::Project { sections, .. } = project_page(&ProjectInputs {
-            info: &info(),
-            settings: &ProjectSettings::default(),
-            problems: &[],
-            global: &GlobalSettings::default(),
-            warm: None,
-            project_agent: "Strong",
-            tool_connected: true,
-            skills: skill_inputs(&own, &global, None, Os::Mac),
-        }) else {
-            unreachable!()
-        };
-        let section = sections
-            .into_iter()
-            .find(|s| s.id == ProjectSection::WorkflowSkills)
-            .unwrap();
-        assert_eq!(section.intro.as_deref(), Some(PROJECT_SKILLS_INTRO));
-        let (heading, rows, _) = skills_of(&section.rows[0].control);
-        assert_eq!(heading, "Workflow skills");
-        rows.iter().cloned().map(unfill_row).collect()
-    }
-
-    fn texts(row: &SkillRow) -> Vec<(SkillLook, &str)> {
-        row.lines
-            .iter()
-            .map(|l| (l.look, l.text.as_str()))
-            .collect()
-    }
-
-    fn menu_of(row: &SkillRow) -> Vec<(SkillAction, &str, bool)> {
-        row.menu
-            .iter()
-            .map(|m| (m.action, m.label.as_str(), m.separated))
-            .collect()
-    }
-
-    const COPY_NOTE: &str = "<P> uses its own copy. Changes to the original apply after Re-import.";
-
-    /// *Global · built-in (fresh install)*: the intro, "Steps", a row per step on the built-in with Import skill
-    /// folder… and no ⋯, and the dot-folder hint on macOS only; the rows follow the settings when no status was read.
-    #[test]
-    fn workflow_skills_fresh_install_rows_are_built_in() {
-        let section = skills_section(Vec::new(), None, Os::Mac);
-        assert_eq!(section.title, None);
-        assert_eq!(
-            section.intro.as_deref(),
-            Some(
-                "Commit, Push, Open PR and Validate follow these skills. Import a skill folder (its SKILL.md and the \
-                 files it uses) to replace one with your own. Projects can override each step."
-            )
-        );
-        let (heading, rows, hint) = skills_of(&section.rows[0].control);
-        assert_eq!(heading, "Steps");
-        assert_eq!(
-            hint,
-            Some(
-                "Skill in a dot folder such as .claude? The macOS folder picker hides them: press \u{2318}\u{21e7}. \
-                 in the picker to show them."
-            )
-        );
-        let unfilled: Vec<SkillRow> = rows.iter().cloned().map(unfill_row).collect();
-        let shown: Vec<_> = unfilled
-            .iter()
-            .map(|r| {
-                (
-                    r.label.as_str(),
-                    r.name.as_str(),
-                    r.tag.label.as_str(),
-                    r.source.as_str(),
-                )
-            })
-            .collect();
-        assert_eq!(
-            shown,
-            [
-                ("Commit", "<N>:commit", "Built-in", "<P>\u{2019}s default"),
-                ("Push", "<N>:push", "Built-in", "<P>\u{2019}s default"),
-                ("Open PR", "<N>:open-pr", "Built-in", "<P>\u{2019}s default"),
-                (
-                    "Validate",
-                    "<N>:validate",
-                    "Built-in",
-                    "<P>\u{2019}s default"
-                ),
-            ]
-        );
-        for row in rows {
-            let button = row.button.as_ref().unwrap();
-            assert_eq!(
-                (
-                    button.label.as_str(),
-                    button.icon,
-                    button.action,
-                    button.disabled
-                ),
-                (
-                    "Import skill folder\u{2026}",
-                    Some(IconName::FolderInput),
-                    SkillAction::Import,
-                    false
-                )
-            );
-            assert!(row.menu.is_empty() && row.lines.is_empty() && row.folder.is_none());
-            assert!(row.reimport.is_none() && row.reset.is_none());
-        }
-        assert_eq!(rows[2].field, "workflow_skills.open_pr");
-        // The same page from the settings alone (no status read).
-        let from_settings = global(&GlobalSettings::default());
-        let ws = from_settings
-            .iter()
-            .find(|s| s.id == GlobalSection::WorkflowSkills)
-            .unwrap();
-        assert_eq!(skills_of(&ws.rows[0].control).1, rows);
-    }
-
-    /// The dot-folder hint is macOS only.
-    #[test]
-    fn workflow_skills_dot_folder_hint_is_macos_only() {
-        for (os, shown) in [(Os::Mac, true), (Os::Windows, false), (Os::Linux, false)] {
-            let section = skills_section(Vec::new(), None, os);
-            assert_eq!(
-                skills_of(&section.rows[0].control).2.is_some(),
-                shown,
-                "{os:?}"
-            );
-        }
-    }
-
-    /// *Global · Commit imported*: the name with Imported, the original and when, the copy note, Re-import and
-    /// the ⋯ menu (Show Otaq's copy in Finder, Import a different folder…, a separator, Use built-in (otaq:commit)).
-    #[test]
-    fn workflow_skills_imported_row() {
-        let rows = global_rows(vec![my_commit()], None);
-        let r = &rows[0];
-        assert_eq!((r.name.as_str(), r.name_muted), ("my-commit", false));
-        assert_eq!(
-            r.tag,
-            SkillTag {
-                label: "Imported".into(),
-                look: SkillLook::Quiet
-            }
-        );
-        assert_eq!(
-            r.folder.as_deref(),
-            Some(tilde(&home("team-skills/my-commit")).as_str())
-        );
-        assert_eq!(
-            r.source,
-            format!(
-                "\u{b7} imported today, {}",
-                crate::view_models::clock::local_hhmm(SKILL_NOW)
-            )
-        );
-        assert_eq!(texts(r), [(SkillLook::Quiet, COPY_NOTE)]);
-        assert_eq!(r.lines[0].icon, IconName::Info);
-        let button = r.button.as_ref().unwrap();
-        assert_eq!(
-            (
-                button.label.as_str(),
-                button.icon,
-                button.action,
-                button.disabled
-            ),
-            (
-                "Re-import",
-                Some(IconName::RefreshCw),
-                SkillAction::Reimport,
-                false
-            )
-        );
-        assert_eq!(r.menu_label, "More for Commit");
-        assert_eq!(
-            menu_of(r),
-            [
-                (
-                    SkillAction::Reveal,
-                    "Show <P>\u{2019}s copy in Finder",
-                    false
-                ),
-                (
-                    SkillAction::Import,
-                    "Import a different folder\u{2026}",
-                    false
-                ),
-                (SkillAction::Reset, "Use built-in (<N>:commit)", true),
-            ]
-        );
-        assert_eq!(
-            r.menu.iter().map(|m| m.icon).collect::<Vec<_>>(),
-            [
-                IconName::FolderOpen,
-                IconName::FolderInput,
-                IconName::RotateCcw
-            ]
-        );
-        // The other steps stay on the built-in.
-        assert_eq!(rows[1].tag.label, "Built-in");
-    }
-
-    /// Both dialogs' texts (*Re-import asks first*, *Going back to the built-in*): the accent Re-import, the red Use
-    /// built-in; a project's reset goes back to the global skill.
-    #[test]
-    fn workflow_skills_dialogs() {
-        let rows = global_rows(vec![my_commit()], None);
-        let (original, copy) = (
-            tilde(&home("team-skills/my-commit")),
-            tilde(&home("<D>/skills/c1")),
-        );
-        assert_eq!(
-            rows[0].reimport,
-            Some(SkillDialog {
-                title: "Re-import my-commit?".into(),
-                text: format!(
-                    "<P> replaces its copy with the folder at {original}. Sessions already running keep the copy \
-                     they started with; the next launch uses the new one."
-                ),
-                note: format!("Edits made to <P>\u{2019}s copy in {copy} are lost."),
-                confirm: "Re-import".into(),
-                destructive: false,
-            })
-        );
-        assert_eq!(
-            rows[0].reset,
-            Some(SkillDialog {
-                title: "Use the built-in <N>:commit?".into(),
-                text: format!(
-                    "Commit goes back to <P>\u{2019}s built-in skill and <P>\u{2019}s copy of my-commit is deleted. \
-                     The original at {original} isn\u{2019}t touched."
-                ),
-                note: "<P>\u{2019}s copy has edits that aren\u{2019}t in the original. Going back to the built-in \
-                       deletes them."
-                    .into(),
-                confirm: "Use built-in".into(),
-                destructive: true,
-            })
-        );
-        let project = skill_project_rows(vec![my_commit()], Vec::new());
-        let reset = project[0].reset.as_ref().unwrap();
-        assert_eq!(reset.title, "Use the global <N>:commit?");
-        assert_eq!(reset.confirm, "Use global");
-        assert!(reset.destructive);
-        assert!(
-            reset
-                .note
-                .ends_with("Going back to the global skill deletes them.")
-        );
-    }
-
-    /// §2 C: files the SKILL.md mentions that aren't in the folder are an amber line on the imported row, above the
-    /// copy note.
-    #[test]
-    fn workflow_skills_imported_with_a_warning() {
-        let rows = global_rows(
-            vec![SkillStatus {
-                warnings: vec![
-                    "SKILL.md mentions scripts/check-staged.sh, which isn't in the folder".into(),
-                ],
-                ..my_commit()
-            }],
-            None,
-        );
-        assert_eq!(
-            texts(&rows[0]),
-            [
-                (
-                    SkillLook::Warning,
-                    "Imported, but SKILL.md mentions scripts/check-staged.sh, which isn't in the folder."
-                ),
-                (SkillLook::Quiet, COPY_NOTE),
-            ]
-        );
-        assert_eq!(rows[0].lines[0].icon, IconName::TriangleAlert);
-        assert_eq!(rows[0].tag.label, "Imported");
-    }
-
-    /// §3 A: the original moved or deleted: Re-import disabled with the reason under the skill, pointing to Import a
-    /// different folder…; the copy keeps working.
-    #[test]
-    fn workflow_skills_original_gone() {
-        let rows = global_rows(
-            vec![SkillStatus {
-                original_exists: false,
-                ..my_commit()
-            }],
-            None,
-        );
-        let r = &rows[0];
-        let original = tilde(&home("team-skills/my-commit"));
-        assert_eq!(
-            texts(r),
-            [
-                (
-                    SkillLook::Quiet,
-                    format!(
-                        "Original not found at {original}, so Re-import is unavailable. <P>\u{2019}s copy keeps \
-                         working; Import a different folder\u{2026} in the \u{22ef} menu points it at the new place."
-                    )
-                    .as_str()
-                ),
-                (SkillLook::Quiet, COPY_NOTE),
-            ]
-        );
-        assert_eq!(r.lines[0].icon, IconName::FolderX);
-        let button = r.button.as_ref().unwrap();
-        assert_eq!(
-            (button.action, button.disabled),
-            (SkillAction::Reimport, true)
-        );
-        assert_eq!(r.tag.label, "Imported");
-        assert_eq!(menu_of(r)[1].0, SkillAction::Import);
-    }
-
-    /// §3 B: Otaq's copy missing or broken: the red tag and line with Import again (Re-import from the original, or
-    /// the picker when the original is gone too), no button; Show Otaq's copy only while its folder is there.
-    #[test]
-    fn workflow_skills_skill_missing() {
-        let missing = SkillStatus {
-            copy_ok: false,
-            copy_problem: Some(copy_missing()),
-            ..my_commit()
-        };
-        let rows = global_rows(vec![missing.clone()], None);
-        let r = &rows[0];
-        assert_eq!(
-            r.tag,
-            SkillTag {
-                label: "Skill missing".into(),
-                look: SkillLook::Error
-            }
-        );
-        assert!(r.button.is_none());
-        let copy = tilde(&home("<D>/skills/c1"));
-        assert_eq!(
-            texts(r),
-            [
-                (SkillLook::Error, "Skill missing \u{b7}"),
-                (
-                    SkillLook::Quiet,
-                    format!(
-                        "<P>\u{2019}s copy in {copy} is missing or broken. Agents use the built-in <N>:commit \
-                         meanwhile."
-                    )
-                    .as_str()
-                ),
-            ]
-        );
-        let link = r.lines[0].link.as_ref().unwrap();
-        assert_eq!(
-            (link.label.as_str(), link.action),
-            ("Import again", SkillAction::ImportAgain)
-        );
-        assert_eq!(
-            menu_of(r).iter().map(|m| m.0).collect::<Vec<_>>(),
-            [SkillAction::Import, SkillAction::Reset]
-        );
-        // The original gone too: Import again opens the picker.
-        let rows = global_rows(
-            vec![SkillStatus {
-                original_exists: false,
-                ..missing
-            }],
-            None,
-        );
-        assert_eq!(
-            rows[0].lines[0].link.as_ref().unwrap().action,
-            SkillAction::Import
-        );
-        // A broken copy (its folder is there): Show Otaq's copy stays.
-        let rows = global_rows(
-            vec![SkillStatus {
-                copy_ok: false,
-                copy_problem: Some("SKILL.md's front matter has no name:".into()),
-                ..my_commit()
-            }],
-            None,
-        );
-        assert_eq!(rows[0].tag.label, "Skill missing");
-        assert_eq!(rows[0].menu[0].action, SkillAction::Reveal);
-    }
-
-    /// §3 C: a global typed name from before 0092: "Not imported" in amber, Import skill folder…, and the step uses
-    /// the built-in until then.
-    #[test]
-    fn workflow_skills_legacy_global() {
-        let rows = global_rows(
-            vec![status_of(
-                WorkflowStep::Commit,
-                &SkillSetting::Legacy("/my-commit".into()),
-            )],
-            None,
-        );
-        let r = &rows[0];
-        assert_eq!((r.name.as_str(), r.name_muted), ("/my-commit", true));
-        assert_eq!(
-            r.tag,
-            SkillTag {
-                label: "Not imported".into(),
-                look: SkillLook::Warning
-            }
-        );
-        assert_eq!(r.source, "Typed name from an earlier version");
-        assert_eq!(
-            texts(r),
-            [(
-                SkillLook::Quiet,
-                "Import its folder to use it. Until then Commit uses the built-in <N>:commit."
-            )]
-        );
-        assert_eq!(r.button.as_ref().unwrap().action, SkillAction::Import);
-        assert!(r.menu.is_empty());
-    }
-
-    /// §3 D: a project's typed name follows the global skill, named (the built-in, or the global's import); its ⋯
-    /// offers Use global.
-    #[test]
-    fn workflow_skills_legacy_project() {
-        let legacy = || status_of(WorkflowStep::OpenPr, &SkillSetting::Legacy("/my-pr".into()));
-        let rows = skill_project_rows(vec![legacy()], Vec::new());
-        let r = &rows[2];
-        assert_eq!(
-            (r.name.as_str(), r.tag.label.as_str()),
-            ("/my-pr", "Not imported")
-        );
-        assert_eq!(
-            texts(r),
-            [(
-                SkillLook::Quiet,
-                "Import its folder, or pick Use global. Until then Open PR uses the global skill (<N>:open-pr)."
-            )]
-        );
-        assert_eq!(menu_of(r), [(SkillAction::Reset, "Use global", false)]);
-        let team_pr = SkillStatus {
-            step: WorkflowStep::OpenPr,
-            name: Some("team-pr".into()),
-            ..my_commit()
-        };
-        let rows = skill_project_rows(vec![legacy()], vec![team_pr]);
-        assert!(
-            rows[2].lines[0]
-                .text
-                .ends_with("Until then Open PR uses the global skill (team-pr).")
-        );
-    }
-
-    /// *Project · shop-web overrides Open PR*: steps on Use global name what the global runs (its import, or Otaq's
-    /// default); the project's own import offers Use global last in its ⋯.
-    #[test]
-    fn workflow_skills_project_page() {
-        let my_pr = SkillStatus {
-            step: WorkflowStep::OpenPr,
-            name: Some("my-pr".into()),
-            original: Some(home("code/shop-web/.claude/skills/my-pr")),
-            ..my_commit()
-        };
-        let rows = skill_project_rows(vec![my_pr], vec![my_commit()]);
-        let shown: Vec<_> = rows
-            .iter()
-            .map(|r| {
-                (
-                    r.name.as_str(),
-                    r.name_muted,
-                    r.tag.label.as_str(),
-                    r.source.as_str(),
-                )
-            })
-            .collect();
-        let global_source = format!(
-            "Global: imported from {}",
-            tilde(&home("team-skills/my-commit"))
-        );
-        assert_eq!(
-            shown[0],
-            ("my-commit", true, "Use global", global_source.as_str())
-        );
-        assert_eq!(
-            shown[1],
-            (
-                "<N>:push",
-                true,
-                "Use global",
-                "Global: <P>\u{2019}s default"
-            )
-        );
-        assert_eq!(shown[2].0, "my-pr");
-        assert_eq!(shown[2].2, "Imported");
-        assert_eq!(rows[0].button.as_ref().unwrap().action, SkillAction::Import);
-        assert!(rows[0].menu.is_empty());
-        assert_eq!(
-            menu_of(&rows[2]).last(),
-            Some(&(SkillAction::Reset, "Use global", true))
-        );
-        // A global typed name: Use global follows the built-in (WSK-07).
-        let rows = skill_project_rows(
-            Vec::new(),
-            vec![status_of(
-                WorkflowStep::Commit,
-                &SkillSetting::Legacy("/my-commit".into()),
-            )],
-        );
-        assert_eq!(rows[0].name, "<N>:commit");
-        // Q211: a project step stored as Otaq's own reads as the built-in; its ⋯ goes back to Use global.
-        let rows = skill_project_rows(vec![built(WorkflowStep::Push)], Vec::new());
-        assert_eq!(rows[1].tag.label, "Built-in");
-        assert_eq!(
-            menu_of(&rows[1]),
-            [(SkillAction::Reset, "Use global", false)]
-        );
-    }
-
-    /// §2 A/B: a refused import is the red line under its step in the frames' words; the step keeps what it had.
-    #[test]
-    fn workflow_skills_refusals() {
-        let refused = |message: &str| SkillRefusal {
-            step: WorkflowStep::Commit,
-            folder: Some(home("team-skills/commit-helpers")),
-            message: message.into(),
-        };
-        let helpers = tilde(&home("team-skills/commit-helpers"));
-        assert_eq!(
-            refusal_line(&refused("The folder has no SKILL.md")),
-            format!("Not imported: {helpers} has no SKILL.md.")
-        );
-        assert_eq!(
-            refusal_line(&refused(
-                "SKILL.md's front matter can't be read: line 3 isn't key: value"
-            )),
-            format!(
-                "Not imported: the front matter at the top of {helpers}/SKILL.md can't be read."
-            )
-        );
-        assert_eq!(
-            refusal_line(&refused("SKILL.md's front matter has no name:")),
-            "Not imported: SKILL.md's front matter has no name:"
-        );
-        assert_eq!(
-            refusal_line(&refused("Original not found: /x")),
-            "Not imported: Original not found: /x."
-        );
-        let no_skill = refused("The folder has no SKILL.md");
-        let rows = global_rows(Vec::new(), Some(&no_skill));
-        assert_eq!(rows[0].tag.label, "Built-in");
-        assert_eq!(
-            texts(&rows[0]),
-            [(
-                SkillLook::Error,
-                format!("Not imported: {helpers} has no SKILL.md.").as_str()
-            )]
-        );
-        assert_eq!(rows[0].lines[0].icon, IconName::CircleAlert);
-        assert!(rows[1].lines.is_empty());
-        // On an imported skill (Import a different folder… refused): the red line first, the skill unchanged.
-        let rows = global_rows(vec![my_commit()], Some(&no_skill));
-        assert_eq!(rows[0].name, "my-commit");
-        assert_eq!(rows[0].lines[0].look, SkillLook::Error);
-        assert_eq!(rows[0].lines[1].text, COPY_NOTE);
-    }
-
-    /// The file manager's name per OS in the ⋯ menu.
-    #[test]
-    fn workflow_skills_show_copy_per_os() {
-        assert_eq!(
-            unfill(&show_copy_label(Os::Windows)),
-            "Show <P>\u{2019}s copy in Explorer"
-        );
-        assert_eq!(
-            unfill(&show_copy_label(Os::Linux)),
-            "Show <P>\u{2019}s copy in the file manager"
-        );
-    }
-
-    /// "today, 10:42" on the import's day, else the day: "Oct 12".
-    #[test]
-    fn workflow_skills_import_time() {
-        let day = 24 * 3_600_000;
-        assert_eq!(
-            imported_when(SKILL_NOW, SKILL_NOW),
-            format!(
-                "today, {}",
-                crate::view_models::clock::local_hhmm(SKILL_NOW)
-            )
-        );
-        let earlier = otaq_core::local_time::local(SKILL_NOW - 6 * day).unwrap();
-        assert_eq!(
-            imported_when(SKILL_NOW - 6 * day, SKILL_NOW),
-            crate::view_models::clock::month_day(&earlier)
-        );
-    }
-
-    /// The gallery has every state of update AC.
-    #[test]
-    fn workflow_skills_gallery_has_every_state() {
-        let gallery = workflow_skills_gallery();
-        assert_eq!(gallery.cells.len(), 10);
-        let tags: Vec<String> = gallery
-            .cells
-            .iter()
-            .flat_map(|c| match &c.section.rows[0].control {
-                Control::Skills { rows, .. } => rows.iter().map(|r| r.tag.label.clone()).collect(),
-                _ => Vec::new(),
-            })
-            .collect();
-        for tag in [
-            "Built-in",
-            "Imported",
-            "Use global",
-            "Not imported",
-            "Skill missing",
-        ] {
-            assert!(tags.iter().any(|t| t == tag), "{tag}");
-        }
-    }
-
-    /// The project's Agents block (AGT-03, `mQijC` in its one-tool form).
-    #[test]
-    fn the_project_agents_block_starts_collapsed_and_offers_the_app_default_first() {
-        use crate::view_models::named_agents::{RoleId, fixtures};
-        use otaq_core::named_agents::Role;
-
-        let list = named_agents::AgentTools::one(Some(fixtures::claude_list()));
-        let (agents, app) = fixtures::made();
-        let b = project_agents_block("BILL", &agents, &app, &RoleDefaults::default(), &list);
-        assert!(!b.expanded, "overrides nothing: collapsed");
-        assert_eq!(
-            (
-                b.collapsed_title.as_str(),
-                b.collapsed_text.as_str(),
-                b.change_label.as_str()
-            ),
-            ("Agents for this project", "Uses app defaults", "Change")
-        );
-        assert_eq!(b.title, "Agents");
-        let labels: Vec<&str> = b.rows.iter().map(|r| r.label.as_str()).collect();
-        assert_eq!(
-            labels,
-            ["Developer", "Validator", "Epic lead", "Project agent"]
-        );
-        let developer = &b.rows[0].picker;
-        assert_eq!(developer.value.name, "Use app default (Claude Code)");
-        assert_eq!(developer.value.agent, None);
-        let options: Vec<(Option<&str>, &str, Option<&str>)> = developer
-            .options
-            .iter()
-            .map(|o| (o.agent.as_deref(), o.name.as_str(), o.model.as_deref()))
-            .collect();
-        assert_eq!(
-            options,
-            [
-                (None, "Use app default (Claude Code)", None),
-                (Some("cc"), "Claude Code", Some("tool default")),
-                (Some("strong"), "Strong", Some("Opus · always the newest")),
-                (Some("light"), "Light", Some("Haiku · always the newest")),
-                (Some("sonnet"), "Sonnet", Some("Sonnet · always the newest")),
-                (
-                    Some("fable"),
-                    "Fable test",
-                    Some("Fable · always the newest")
-                ),
-            ]
-        );
-        assert!(!developer.read_only);
-
-        // shop-web overrides Developer → Strong: opens expanded, the rest on the app default.
-        let mut own = RoleDefaults::default();
-        own.set(Role::Developer, Some("strong".into()));
-        let b = project_agents_block("SHOP", &agents, &app, &own, &list);
-        assert!(b.expanded);
-        assert_eq!(b.rows[0].role, RoleId::Developer);
-        let value = &b.rows[0].picker.value;
-        assert_eq!(
-            (value.name.as_str(), value.model.as_deref()),
-            ("Strong", Some("Opus · always the newest"))
-        );
-        assert_eq!(b.rows[1].picker.value.name, "Use app default (Claude Code)");
-        assert_eq!(b.rows[2].role, RoleId::EpicLead);
-
-        // An override on a deleted entry counts as none.
-        own.set(Role::Developer, Some("gone".into()));
-        let b = project_agents_block("SHOP", &agents, &app, &own, &list);
-        assert!(!b.expanded);
-
-        // One named agent: nothing offers a choice.
-        let (fresh, app) = fixtures::fresh();
-        let b = project_agents_block("BILL", &fresh, &app, &RoleDefaults::default(), &list);
-        assert!(b.rows.iter().all(|r| r.picker.read_only));
-        assert!(
-            b.rows
-                .iter()
-                .all(|r| r.picker.options.iter().all(|o| o.tool.is_none())),
-            "no avatars with one tool"
-        );
-    }
-
-    /// The project's Agents block with several tools (`mQijC`): every picker names the agent's tool, with its
-    /// avatar; "Use app default (Verifier)" carries the app default's.
-    #[test]
-    fn the_project_agents_block_names_the_tool_with_several_tools() {
-        use crate::view_models::named_agents::fixtures;
-        use otaq_core::named_agents::Role;
-
-        let (agents, app) = fixtures::several();
-        let mut own = RoleDefaults::default();
-        own.set(Role::Developer, Some("strong".into()));
-        let b = project_agents_block("SHOP", &agents, &app, &own, &fixtures::tools(Tool::ALL));
-        let developer = &b.rows[0].picker;
-        assert_eq!(
-            (
-                developer.value.name.as_str(),
-                developer.value.model.as_deref(),
-                developer.value.tool.as_ref().map(|t| t.letters.as_str())
-            ),
-            (
-                "Strong",
-                Some("Claude Code · Opus · always the newest"),
-                Some("CC")
-            )
-        );
-        let validator = &b.rows[1].picker.value;
-        assert_eq!(validator.name, "Use app default (Verifier)");
-        assert_eq!(
-            validator.tool.as_ref().map(|t| t.letters.as_str()),
-            Some("CP")
-        );
-        let models: Vec<Option<&str>> = developer
-            .options
-            .iter()
-            .map(|o| o.model.as_deref())
-            .collect();
-        assert_eq!(
-            models,
-            [
-                None,
-                Some("Claude Code · Opus · always the newest"),
-                Some("Codex · gpt-5.5"),
-                Some("Claude Code · Haiku · always the newest"),
-                Some("GitHub Copilot · gpt-5.5"),
-                Some("Codex · gpt-5.5-pro"),
-                Some("Claude Code · Sonnet · always the newest"),
-                Some("OpenCode · google/gemini-3-pro"),
-            ]
-        );
-    }
-
-    /// The Usage section has only the token count: the dollar estimate is gone (d0086).
     #[test]
     fn usage_shows_the_token_count_and_no_dollar_estimate() {
         let sections = global(&GlobalSettings::default());
@@ -4391,79 +2319,25 @@ mod tests {
         assert!(edit_global(&mut s, "dollar_estimate", &Value::Flag(true)).is_err());
     }
 
-    /// *15 → Global · Usage, notifications, data, appearance* (VALIDATION & AUTO-MERGE, PROJECT AGENTS).
+    /// FLW-01: Validation & Auto-merge is no section and no setting any more, global or per project.
     #[test]
-    fn the_global_validation_and_project_agent_sections() {
-        let mut s = GlobalSettings::default();
-        let sections = global(&s);
-        assert!(matches!(
-            find(&sections, "validation").control,
-            Control::Toggle { on: true }
-        ));
-        assert!(matches!(
-            find(&sections, "validation_rounds").control,
-            Control::Stepper {
-                value: 3,
-                min: 1,
-                max: 5,
-                empty: None,
-                ..
-            }
-        ));
-        let Control::Radio {
-            choices,
-            value,
-            disabled,
-            empty,
-            note,
-        } = &find(&sections, "auto_merge").control
-        else {
-            panic!()
-        };
-        let ids: Vec<&str> = choices.iter().map(|c| c.id.as_str()).collect();
-        assert_eq!(ids, ["off", "epic_children", "all"]);
-        assert_eq!(choices[1].label, "Epic children only");
-        assert_eq!(
-            choices[0].detail,
-            "Validated tickets wait in Ready for Review for you. (default)"
-        );
-        assert_eq!(
-            (value.as_deref(), *disabled, empty, note),
-            (Some("off"), false, &None, &None)
-        );
-        let pa = find(&sections, "project_agent_instructions");
-        assert!(matches!(
-            &pa.control,
-            Control::Text {
-                multiline: true,
-                ..
-            }
-        ));
-
-        edit_global(&mut s, "validation", &Value::Flag(false)).unwrap();
-        let sections = global(&s);
-        let Control::Radio { disabled, note, .. } = &find(&sections, "auto_merge").control else {
-            panic!()
-        };
-        assert!(disabled, "Auto-merge does nothing while validation is off");
-        assert_eq!(
-            note.as_deref(),
-            Some("Validation is off, so Auto-merge does nothing. Turn Validation on to use it.")
-        );
-        edit_global(&mut s, "validation_rounds", &Value::Number(9)).unwrap();
-        assert_eq!(s.validation_rounds, 5, "rounds accept only 1–5");
-        edit_global(&mut s, "validation_rounds", &Value::Number(0)).unwrap();
-        assert_eq!(s.validation_rounds, 1);
-        edit_global(&mut s, "auto_merge", &Value::Text("epic_children".into())).unwrap();
-        assert_eq!(s.auto_merge, AutoMerge::EpicChildren);
-        assert!(edit_global(&mut s, "auto_merge", &Value::Text("some".into())).is_err());
-        edit_global(
-            &mut s,
-            "project_agent_instructions",
-            &Value::Text("Use /import-github.".into()),
-        )
-        .unwrap();
-        assert_eq!(s.project_agent_instructions, "Use /import-github.");
+    fn validation_and_auto_merge_are_gone() {
+        let sections = global(&GlobalSettings::default());
+        for field in ["validation", "validation_rounds", "auto_merge"] {
+            assert!(
+                sections
+                    .iter()
+                    .flat_map(|s| &s.rows)
+                    .all(|r| r.field != field),
+                "{field}"
+            );
+            assert!(
+                edit_global(&mut GlobalSettings::default(), field, &Value::Flag(false)).is_err()
+            );
+            assert!(
+                edit_project(&mut ProjectSettings::default(), field, &Value::Flag(false)).is_err()
+            );
+        }
     }
 
     fn project_rows(settings: &ProjectSettings, global: &GlobalSettings) -> Vec<Row> {
@@ -4479,7 +2353,6 @@ mod tests {
             warm: None,
             project_agent: "Claude Code",
             tool_connected: true,
-            skills: SkillInputs::none(Os::Mac),
         }) else {
             panic!()
         };
@@ -4488,11 +2361,8 @@ mod tests {
             ids,
             [
                 ProjectSection::General,
-                ProjectSection::Agents,
-                ProjectSection::AgentInstructions,
-                ProjectSection::ProjectAgentInstructions,
-                ProjectSection::WorkflowSkills,
-                ProjectSection::Validation,
+                ProjectSection::Flow,
+                ProjectSection::ProjectNotes,
                 ProjectSection::Answers,
                 ProjectSection::Commands,
                 ProjectSection::TicketResources,
@@ -4609,83 +2479,23 @@ mod tests {
         assert_eq!(problem.as_deref(), Some("c"));
     }
 
-    /// *Project · fresh* (Validation off for otaq) and *Project · shop-web · Validation & Auto-merge*.
+    /// The project's notes edit their setting; no row offers a project value of a global setting any more.
     #[test]
-    fn project_values_say_use_global_and_auto_merge_waits_for_validation() {
+    fn project_notes_edit_and_nothing_resets_to_global() {
         let global = GlobalSettings::default();
-        let fresh = ProjectSettings {
-            validation: Some(false),
-            ..ProjectSettings::default()
-        };
-        let rows = project_rows(&fresh, &global);
-        let by = |field: &str| rows.iter().find(|r| r.field == field).unwrap().clone();
-        let validation = by("validation");
-        assert!(matches!(validation.control, Control::Toggle { on: false }));
-        assert!(validation.description.starts_with("Off for this project:"));
-        assert_eq!(validation.reset.as_deref(), Some("Use global"));
-        let rounds = by("validation_rounds");
-        assert!(
-            matches!(&rounds.control, Control::Stepper { value: 3, empty: Some(e), .. } if e == "Use global (3)")
-        );
-        assert_eq!(rounds.reset, None);
-        let auto = by("auto_merge");
-        let Control::Radio {
-            value,
-            disabled,
-            empty,
-            note,
-            ..
-        } = &auto.control
-        else {
-            panic!()
-        };
-        assert_eq!(value, &None);
-        assert!(disabled);
-        assert_eq!(empty.as_deref(), Some("Use global (Off)"));
-        assert_eq!(
-            note.as_deref(),
-            Some(
-                "Validation is off for web-shop, so Auto-merge does nothing. Turn Validation on to use it."
-            )
-        );
-        let pa = by("project_agent_instructions");
-        assert!(
-            matches!(&pa.control, Control::Text { placeholder, .. } if placeholder == "Use global")
-        );
-
-        let shop = ProjectSettings {
-            validation: Some(true),
-            validation_rounds: Some(3),
-            auto_merge: Some(AutoMerge::EpicChildren),
-            ..ProjectSettings::default()
-        };
-        let rows = project_rows(&shop, &global);
-        let auto = rows.iter().find(|r| r.field == "auto_merge").unwrap();
-        assert!(
-            matches!(&auto.control, Control::Radio { value: Some(v), disabled: false, empty: None, note: None, .. } if v == "epic_children")
-        );
-        assert_eq!(auto.reset.as_deref(), Some("Use global"));
-
-        let mut s = shop;
-        edit_project(&mut s, "validation_rounds", &Value::Number(7)).unwrap();
-        assert_eq!(s.validation_rounds, Some(5));
-        edit_project(&mut s, "validation_rounds", &Value::Text(String::new())).unwrap();
-        assert_eq!(s.validation_rounds, None, "Use global empties it");
-        edit_project(&mut s, "auto_merge", &Value::Text(String::new())).unwrap();
-        assert_eq!(s.auto_merge, None);
-        edit_project(&mut s, "auto_merge", &Value::Text("all".into())).unwrap();
-        assert_eq!(s.auto_merge, Some(AutoMerge::All));
-        edit_project(&mut s, "validation", &Value::Text(String::new())).unwrap();
-        assert_eq!(s.validation, None);
-        edit_project(&mut s, "validation", &Value::Flag(false)).unwrap();
-        assert_eq!(s.validation, Some(false));
-        edit_project(
-            &mut s,
-            "project_agent_instructions",
-            &Value::Text("x".into()),
-        )
-        .unwrap();
-        assert_eq!(s.project_agent_instructions, "x");
+        let rows = project_rows(&ProjectSettings::default(), &global);
+        let notes = rows.iter().find(|r| r.field == "project_notes").unwrap();
+        assert!(matches!(
+            &notes.control,
+            Control::Text {
+                multiline: true,
+                ..
+            }
+        ));
+        assert!(rows.iter().all(|r| r.reset.is_none()));
+        let mut s = ProjectSettings::default();
+        edit_project(&mut s, "project_notes", &Value::Text("x".into())).unwrap();
+        assert_eq!(s.project_notes, "x");
     }
 
     #[test]
@@ -4717,7 +2527,6 @@ mod tests {
             cleanup_count: 2,
             os: Os::Linux,
             notification_permission: PermissionState::Unknown,
-            skills: SkillInputs::none(Os::Mac),
         };
         let Page::Global { sections, .. } = global_page(&input) else {
             unreachable!()
@@ -4763,7 +2572,7 @@ mod tests {
         assert!(edit_global(&mut s, "terminal_renderer", &Value::Text("x".into())).is_err());
         edit_global(&mut s, "terminal_font_size", &Value::Number(3)).unwrap();
         assert_eq!(s.terminal_font_size, 8);
-        // A typed name can't be entered any more (WSK-01).
+        // The workflow skills moved to the agents (AGM-02): no such setting any more.
         assert!(
             edit_global(
                 &mut s,
@@ -4772,7 +2581,6 @@ mod tests {
             )
             .is_err()
         );
-        assert_eq!(s.workflow_skills.open_pr, SkillSetting::BuiltIn);
         edit_global(&mut s, "usage_data", &Value::Flag(true)).unwrap();
         assert_eq!(s.usage_data, UsageData::On);
         edit_global(&mut s, "usage_data", &Value::Flag(false)).unwrap();
@@ -4821,7 +2629,6 @@ mod tests {
             warm: None,
             project_agent: "Strong",
             tool_connected: true,
-            skills: SkillInputs::none(Os::Mac),
         });
         let Page::Project {
             title, sections, ..
@@ -4852,7 +2659,6 @@ mod tests {
             warm: None,
             project_agent: "Strong",
             tool_connected: false,
-            skills: SkillInputs::none(Os::Mac),
         });
         let Page::Project { sections, .. } = page else {
             panic!()
@@ -4892,7 +2698,6 @@ mod tests {
         edit_project(&mut s, "let_finished_tickets_answer", &Value::Flag(false)).unwrap();
         assert!(!s.let_finished_tickets_answer);
         assert!(edit_project(&mut s, "workflow_skills.commit", &Value::Text("/c".into())).is_err());
-        assert_eq!(s.workflow_skills.commit, SkillSetting::UseGlobal);
         assert!(edit_project(&mut s, "env_files.9", &Value::Text("x".into())).is_err());
     }
 
@@ -4949,7 +2754,6 @@ mod tests {
             warm: None,
             project_agent: "Claude Code",
             tool_connected: true,
-            skills: SkillInputs::none(Os::Mac),
         }) else {
             panic!()
         };
@@ -5222,7 +3026,6 @@ mod tests {
             }),
             project_agent: "Claude Code",
             tool_connected: true,
-            skills: SkillInputs::none(Os::Mac),
         }) else {
             panic!()
         };

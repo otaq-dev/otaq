@@ -4,29 +4,36 @@
 //! resyncs), the folder trust note and warning (`onboarding.state` on [`TRUST_EVENTS`] and resyncs; PRJ-08) and the
 //! service events that show a toast ([`EVENT_TOASTS`]). A one-second tick times the success toasts out and counts the
 //! usage limit down. The notification ask and the blocked banner follow `notifications.state` (on connect and resyncs)
-//! and `notifications_changed` (ATT-13, ATT-14).
+//! and `notifications_changed` (ATT-13, ATT-14). The flow change banner (FLW-06) is the project on screen's (the page
+//! says which, `notices.project`): every project's waiting change is fetched (`flow.waiting`) on connect, resyncs and
+//! [`FLOW_EVENTS`]; the toasts say when one applied or was cancelled.
 //!
 //! The page draws what [`Notices::view`] returns: it loads it with `notices.view` and gets every change as a
 //! `notices` event. Nothing here restarts the service or resumes an agent on its own: those are the page's requests,
 //! sent on the user's click (d0022, d0020).
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::models::ModelList;
+use otaq_core::agents::limits::ToolLines;
 use otaq_core::attention::notify::{Target, open_env_var};
 use otaq_core::attention::os_permission::NotificationsState;
 use otaq_core::client::{Client, Compatibility};
 use otaq_core::domain::TicketKey;
-use otaq_core::named_agents::moves::ToolLines;
-use otaq_core::protocol::{Event, ModelsParams, OnboardingState, Reply, Request, UsageParams};
+use otaq_core::flow::apply::{FlowEvent, WaitingChange};
+use otaq_core::protocol::{
+    Event, ModelsParams, OnboardingState, ProjectParams, Reply, Request, UsageParams,
+};
 use otaq_core::store::now_ms;
 use otaq_view::view_models::after_restart::{OnConnect, on_connect};
 use otaq_view::view_models::banners::{
     BannerModel, BannerView, Situation, SituationKind, TrustFailure,
 };
 use otaq_view::view_models::connection::{ConnectionViewModel, LinkState};
+use otaq_view::view_models::flow_settings;
 use otaq_view::view_models::limit_banner::{self, LimitLine};
 use otaq_view::view_models::restart;
 use otaq_view::view_models::toasts::{NewToast, RECONNECTED, ToastLevel, ToastModel, ToastView};
@@ -47,6 +54,9 @@ const USAGE_EVENTS: &[&str] = &["usage_changed", "ticket_changed"];
 /// The service events after which the folder trust note and the projects whose trust failed are fetched again (a
 /// removed project leaves the failed list without a trust event).
 const TRUST_EVENTS: &[&str] = &["trust_changed", "projects_changed"];
+/// The service events after which every project's waiting flow change is fetched again: a change waits, applies or
+/// is cancelled, or the tickets it waits for moved (FLW-06).
+const FLOW_EVENTS: &[&str] = &["flow_changed", "ticket_changed", "projects_changed"];
 
 /// The service events that show a toast: one registration per kind, each turning its event into the toast (with the
 /// wording the service sent) or passing.
@@ -196,6 +206,18 @@ struct State {
     /// What a notification click asked this app to open when it started, until the page takes it.
     open_at_start: Option<OpenTarget>,
     published: Option<NoticesView>,
+    /// The project on screen, which the flow change banner is about (the page tells, `notices.project`).
+    project: Option<String>,
+    /// Every project's name and its waiting flow change, as last fetched (FLW-06): the banner of the project on
+    /// screen, and the toasts' words when one applies or is cancelled.
+    flows: BTreeMap<String, FlowWatch>,
+}
+
+/// A project as the flow change banner and toasts name it, and its waiting change if one waits.
+#[derive(Debug, Clone, Default)]
+struct FlowWatch {
+    name: String,
+    waiting: Option<WaitingChange>,
 }
 
 impl Notices {
@@ -233,6 +255,8 @@ impl Notices {
                 busy: false,
                 open_at_start,
                 published: None,
+                project: None,
+                flows: BTreeMap::new(),
             }),
             events,
         }
@@ -427,6 +451,69 @@ impl Notices {
         self.publish();
     }
 
+    /// The project on screen, for the flow change banner's Cancel change.
+    pub fn project(&self) -> Option<String> {
+        self.lock().project.clone()
+    }
+
+    /// The project on screen changed: the flow change banner is its own (FLW-06).
+    pub fn set_project(&self, project: Option<String>) {
+        {
+            let mut state = self.lock();
+            state.project = project;
+            state.sync_flow();
+        }
+        self.publish();
+    }
+
+    /// Every project with its name and waiting change, freshly fetched (`flow.waiting`). A project that's gone is
+    /// forgotten.
+    pub fn on_flows(&self, flows: Vec<(String, String, Option<WaitingChange>)>) {
+        {
+            let mut state = self.lock();
+            state.flows = flows
+                .into_iter()
+                .map(|(key, name, waiting)| (key, FlowWatch { name, waiting }))
+                .collect();
+            state.sync_flow();
+        }
+        self.publish();
+    }
+
+    /// A `flow_changed` event: when the waiting change of `project` applied, "shop-web’s flow changed"; when it was
+    /// cancelled, "Flow change cancelled" (FLW-06, *11 → Applied, or cancelled*). The banner goes with it. A change
+    /// that applied at once (nothing waited) shows no toast: the preview's Apply said it.
+    pub fn on_flow_event(&self, project: &str, change: &FlowEvent) {
+        {
+            let mut state = self.lock();
+            let now = Instant::now();
+            let Some(watch) = state.flows.get_mut(project) else {
+                return;
+            };
+            let name = if watch.name.is_empty() {
+                project.to_owned()
+            } else {
+                watch.name.clone()
+            };
+            let toast = match change {
+                FlowEvent::Applied { .. } => watch
+                    .waiting
+                    .take()
+                    .map(|w| flow_settings::applied_toast(&name, &w.summary())),
+                FlowEvent::Cancelled => watch
+                    .waiting
+                    .take()
+                    .map(|_| flow_settings::cancelled_toast(&name)),
+                _ => None,
+            };
+            if let Some(toast) = toast {
+                state.toasts.push_toast(toast, now);
+            }
+            state.sync_flow();
+        }
+        self.publish();
+    }
+
     pub fn take_open_at_start(&self) -> Option<OpenTarget> {
         self.lock().open_at_start.take()
     }
@@ -552,6 +639,22 @@ impl State {
         self.limit = lines;
     }
 
+    /// Raises, updates or clears the flow change banner: the project on screen's waiting change (FLW-06).
+    fn sync_flow(&mut self) {
+        let waiting = self
+            .project
+            .as_ref()
+            .and_then(|p| self.flows.get(p))
+            .and_then(|w| w.waiting.as_ref());
+        match waiting {
+            Some(w) => self.banners.raise(Situation::FlowWaiting {
+                summary: w.summary(),
+                count: w.waiting_for.len(),
+            }),
+            None => self.banners.clear(SituationKind::FlowWaiting),
+        }
+    }
+
     /// The tool of the first line with Resume: what the banner's single Resume button resumes.
     fn first_limited_tool(&self) -> Option<Tool> {
         self.limit
@@ -561,16 +664,16 @@ impl State {
     }
 }
 
-/// What the usage-limit banner is drawn from: every tool's line and the model lists of the tools its Move waiting
-/// to… menus offer.
+/// What the usage-limit banner is drawn from: every tool's line and the model lists of its fallbacks' tools (Use
+/// fallback now names the model).
 #[derive(Debug, Clone, Default)]
 pub struct LimitInputs {
     pub lines: ToolLines,
     pub lists: Vec<(Tool, ModelList)>,
 }
 
-/// The inputs for `lines`, asking the service (`send`) for the model list of each tool a Move waiting to… target runs
-/// on. A list it can't give leaves that target's model as stored.
+/// The inputs for `lines`, asking the service (`send`) for the model list of each fallback's tool that names a model.
+/// A list it can't give leaves the model as stored.
 pub async fn limit_inputs<F, Fut>(lines: ToolLines, send: F) -> LimitInputs
 where
     F: Fn(Request) -> Fut,
@@ -579,7 +682,12 @@ where
     let mut tools: Vec<Tool> = lines
         .lines
         .iter()
-        .flat_map(|l| l.targets.iter().map(|t| t.tool))
+        .filter_map(|l| {
+            l.fallback
+                .as_ref()
+                .filter(|f| f.model.is_some())
+                .map(|f| f.tool)
+        })
         .collect();
     tools.sort();
     tools.dedup();
@@ -613,6 +721,7 @@ async fn follow(
     let mut usage_due = true;
     let mut trust_due = true;
     let mut notifications_due = true;
+    let mut flows_due = true;
     // After the summary: the startup report names the Project agents the restart ended (T-0244).
     let mut report_due = false;
     let first = states.borrow_and_update().clone();
@@ -631,6 +740,7 @@ async fn follow(
                     usage_due = true;
                     trust_due = true;
                     notifications_due = true;
+                    flows_due = true;
                 }
                 report_due |= notices.on_link(&state);
             }
@@ -642,14 +752,19 @@ async fn follow(
                         usage_due = true;
                         trust_due = true;
                         notifications_due = true;
+                        flows_due = true;
                     }
                     Some("service") => {
                         let name = event["name"].as_str().unwrap_or_default();
                         usage_due |= USAGE_EVENTS.contains(&name);
                         trust_due |= TRUST_EVENTS.contains(&name);
+                        flows_due |= FLOW_EVENTS.contains(&name);
                         if let Ok(event) = serde_json::from_value::<Event>(event["event"].clone()) {
                             if let Event::NotificationsChanged { state } = &event {
                                 notices.on_notifications(state);
+                            }
+                            if let Event::FlowChanged { project, change } = &event {
+                                notices.on_flow_event(project, change);
                             }
                             for toast in EVENT_TOASTS.iter().filter_map(|to_toast| to_toast(&event)) {
                                 notices.toast(toast);
@@ -703,6 +818,13 @@ async fn follow(
                     }
                 }
                 let client = clients.borrow().clone();
+                if flows_due && let Some(client) = client {
+                    flows_due = false;
+                    if let Some(flows) = fetch_flows(&client).await {
+                        notices.on_flows(flows);
+                    }
+                }
+                let client = clients.borrow().clone();
                 if report_due && let Some(client) = client {
                     report_due = false;
                     let report =
@@ -720,11 +842,33 @@ async fn follow(
     }
 }
 
+/// Every project with its name and waiting flow change (`project.list`, then `flow.waiting` each). `None` when the
+/// service didn't answer in time: the next change or resync asks again.
+async fn fetch_flows(client: &Client) -> Option<Vec<(String, String, Option<WaitingChange>)>> {
+    let ask = |request| tokio::time::timeout(USAGE_TIMEOUT, client.request(request));
+    let Ok(Ok(Reply::Projects(projects))) = ask(Request::ProjectList).await else {
+        return None;
+    };
+    let mut flows = Vec::new();
+    for project in projects {
+        let request = Request::FlowWaiting(ProjectParams {
+            project: project.key.clone(),
+        });
+        let waiting = match ask(request).await {
+            Ok(Ok(Reply::FlowWaiting(waiting))) => waiting.map(|w| *w),
+            _ => return None,
+        };
+        flows.push((project.key, project.name, waiting));
+    }
+    Some(flows)
+}
+
 #[cfg(test)]
 mod tests {
     use otaq_core::agent_tools::Tool;
+    use otaq_core::agents::ModelRef;
+    use otaq_core::agents::limits::{self as moves, ToolLine};
     use otaq_core::client::ServiceInfo;
-    use otaq_core::named_agents::moves::{self, ToolLine};
     use otaq_core::protocol::{PROTOCOL_VERSION, ServiceStatus};
     use otaq_core::usage::limit::LimitKind;
 
@@ -789,6 +933,68 @@ mod tests {
         assert!(n.view().banners.is_empty());
         n.on_notifications(&state(false, true));
         assert_eq!(n.view().banners.len(), 1, "raised again by the service");
+    }
+
+    /// FLW-06: the flow change banner is the project on screen's; when its change applies the banner goes and the
+    /// toast says "shop-web’s flow changed"; Cancel change says "Flow change cancelled". A change that applied at
+    /// once (nothing waited) shows nothing.
+    #[test]
+    fn the_flow_change_banner_follows_the_project_on_screen() {
+        use otaq_core::flow::store::AppliedBy;
+        let n = notices();
+        let waiting = |tickets: &[&str]| WaitingChange {
+            project: "SHOP".into(),
+            yaml: String::new(),
+            applied_by: AppliedBy::User,
+            agent_name: None,
+            preset: None,
+            changes: vec!["QA after Security".into()],
+            since: 0,
+            waiting_for: tickets.iter().map(|k| k.parse().unwrap()).collect(),
+        };
+        n.on_flows(vec![
+            (
+                "SHOP".into(),
+                "shop-web".into(),
+                Some(waiting(&["SHOP-12", "SHOP-44"])),
+            ),
+            ("BILL".into(), "billing-api".into(), None),
+        ]);
+        assert!(n.view().banners.is_empty(), "no project on screen yet");
+        n.set_project(Some("BILL".into()));
+        assert!(n.view().banners.is_empty(), "another project's change");
+        n.set_project(Some("SHOP".into()));
+        let view = n.view();
+        assert_eq!(view.banners[0].kind, SituationKind::FlowWaiting);
+        assert_eq!(view.banners[0].title, "Flow change waiting");
+        assert!(
+            view.banners[0]
+                .text
+                .starts_with("QA after Security \u{b7} 2 tickets still working.")
+        );
+        assert_eq!(view.banners[0].buttons[0].label, "Apply now");
+
+        n.on_flow_event("SHOP", &FlowEvent::Applied { version: 3 });
+        let view = n.view();
+        assert!(view.banners.is_empty());
+        assert_eq!(toasts(&view), ["shop-web\u{2019}s flow changed"]);
+        assert_eq!(
+            view.toasts[0].text.as_deref(),
+            Some("QA after Security is on the board. New tickets start again.")
+        );
+        n.on_flow_event("SHOP", &FlowEvent::Applied { version: 4 });
+        assert_eq!(n.view().toasts.len(), 1, "nothing waited: no toast");
+
+        n.on_flows(vec![("SHOP".into(), "shop-web".into(), Some(waiting(&[])))]);
+        assert_eq!(n.view().banners.len(), 1);
+        n.on_flow_event("SHOP", &FlowEvent::Cancelled);
+        let view = n.view();
+        assert!(view.banners.is_empty());
+        assert_eq!(view.toasts[1].title, "Flow change cancelled");
+        assert_eq!(
+            view.toasts[1].text.as_deref(),
+            Some("shop-web keeps its flow. New tickets start again.")
+        );
     }
 
     #[test]
@@ -977,9 +1183,10 @@ mod tests {
             },
             stopped: 8,
             waiting: 2,
-            moved: Vec::new(),
+            on_fallback: 0,
             resume_enabled: resets_at.is_none(),
-            targets: Vec::new(),
+            fallback: None,
+            fallback_can_start: false,
         }
     }
 
@@ -1056,29 +1263,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_inputs_ask_for_the_targets_model_lists_once_per_tool() {
+    async fn the_inputs_ask_for_the_fallbacks_model_list_once_per_tool() {
         use std::sync::atomic::{AtomicU32, Ordering};
-        let line = ToolLine {
-            targets: vec![
-                moves::MoveTarget {
-                    id: "standard".into(),
-                    name: "Standard".into(),
-                    tool: Tool::Codex,
-                    model: None,
-                },
-                moves::MoveTarget {
-                    id: "strong-gpt".into(),
-                    name: "Strong GPT".into(),
-                    tool: Tool::Codex,
-                    model: Some("gpt-5.5-pro".into()),
-                },
-            ],
-            ..limit_line(Tool::Claude, None)
+        let on = |tool, model: Option<&str>| ToolLine {
+            fallback: Some(ModelRef {
+                tool: Tool::Codex,
+                model: model.map(Into::into),
+            }),
+            fallback_can_start: true,
+            ..limit_line(tool, None)
         };
+        let lines = vec![
+            on(Tool::Claude, Some("gpt-5.5-pro")),
+            on(Tool::Copilot, Some("gpt-5.5")),
+            on(Tool::OpenCode, None),
+        ];
         let asked = AtomicU32::new(0);
         let inputs = limit_inputs(
             ToolLines {
-                lines: vec![line],
+                lines,
                 several_tools: true,
             },
             |request| {
@@ -1180,8 +1383,12 @@ mod tests {
         use otaq_core::domain::validation::{CancelledBy, cancelled_toast, merged_toast};
         let n = notices();
         let key: TicketKey = "SHOP-40.1".parse().unwrap();
-        let (title, message) =
-            merged_toast("SHOP-40.1", "the Wishlist branch", 1, &["SHOP-40.2".into()]);
+        let (title, message) = merged_toast(
+            "SHOP-40.1",
+            "the Wishlist branch",
+            Some(1),
+            &["SHOP-40.2".into()],
+        );
         let merged = Event::MergedAutomatically {
             project: "SHOP".into(),
             key: key.clone(),

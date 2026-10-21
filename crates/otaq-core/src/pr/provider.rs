@@ -105,9 +105,9 @@ pub struct PrProvider {
 }
 
 impl PrProvider {
-    /// Whether the project uses Otaq's own Open PR skill.
+    /// Whether the project uses Otaq's own Open PR skill (`open-pr`).
     pub fn built_in_open_pr(&self) -> bool {
-        self.open_pr_skill == WorkflowStep::OpenPr.own_default()
+        self.open_pr_skill == WorkflowStep::OpenPr.own_skill()
     }
 
     /// Why Open PR can't be offered: the built-in skill needs a detected provider.
@@ -173,12 +173,7 @@ impl crate::board::Board {
         env: &CheckEnv,
     ) -> Result<PrProvider, crate::board::BoardError> {
         let repo = self.project(project).await?.repo_path;
-        let skill = self
-            .effective_settings(project)
-            .await?
-            .workflow_skills
-            .open_pr
-            .label();
+        let skill = self.delivery_skill(project, WorkflowStep::OpenPr).await?;
         Ok(detect(self.git()?, Path::new(&repo), skill, env).await)
     }
 
@@ -188,12 +183,7 @@ impl crate::board::Board {
         project: &str,
     ) -> Result<PrProvider, crate::board::BoardError> {
         let repo = self.project(project).await?.repo_path;
-        let skill = self
-            .effective_settings(project)
-            .await?
-            .workflow_skills
-            .open_pr
-            .label();
+        let skill = self.delivery_skill(project, WorkflowStep::OpenPr).await?;
         Ok(detect_from_remote(self.git()?, Path::new(&repo), skill).await)
     }
 }
@@ -269,7 +259,7 @@ mod tests {
             provider: Some(Provider::GitHub),
             logged_in: Some(true),
             cli_found: true,
-            open_pr_skill: WorkflowStep::OpenPr.own_default(),
+            open_pr_skill: WorkflowStep::OpenPr.own_skill().to_owned(),
         };
         assert_eq!(
             p.summary(),

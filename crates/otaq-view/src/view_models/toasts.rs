@@ -55,14 +55,6 @@ pub struct ToastButton {
 pub enum ToastAction {
     /// The queue toast's Undo: `epic.undo_queue` with what the queue moved (T-0264).
     UndoEpicQueue { epic: String, keys: Vec<String> },
-    /// Sets the project's Auto-merge to Epic children only (d0064), "shop-web" being its `name`.
-    EpicChildrenAutoMerge {
-        project: String,
-        name: String,
-        /// The Undo the confirmation toast keeps.
-        #[serde(default)]
-        undo: Option<Box<ToastButton>>,
-    },
 }
 
 /// A toast to show, as a screen or the app asks for it. Its wording comes from the view models or the service.
@@ -152,6 +144,9 @@ impl ToastItem {
             (Some(IconName::GitMerge), None)
         } else if self.title.starts_with(VALIDATION_CANCELLED) {
             (Some(IconName::Ban), Some(ToastIconTone::Secondary))
+        } else if self.title == crate::view_models::flow_settings::FLOW_CHANGE_CANCELLED {
+            // *11 → Applied, or cancelled*: the undo arrow, secondary.
+            (Some(IconName::Undo2), Some(ToastIconTone::Secondary))
         } else if self.title.starts_with(CLEANED_UP)
             || crate::view_models::warm_build::is_cleared_toast(&self.title)
         {

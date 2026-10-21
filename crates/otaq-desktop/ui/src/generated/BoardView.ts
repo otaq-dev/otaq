@@ -3,6 +3,7 @@ import type { BoardAgentChip } from "./BoardAgentChip";
 import type { BoardColumn } from "./BoardColumn";
 import type { BoardEpicFocus } from "./BoardEpicFocus";
 import type { BoardScrollChip } from "./BoardScrollChip";
+import type { BoardStageStrip } from "./BoardStageStrip";
 import type { ChainView } from "./ChainView";
 import type { EmptyBoardView } from "./EmptyBoardView";
 import type { EpicStrip } from "./EpicStrip";
@@ -34,10 +35,14 @@ focus: BoardEpicFocus | null,
  */
 agent_filter: BoardAgentChip | null, 
 /**
- * The columns fill the board's width; below this many px per column the board scrolls sideways and the
- * hidden-columns chip names what is off-screen (SHL-01).
+ * The columns fill the board's width; below this many px per column the board scrolls sideways (SHL-01): 200,
+ * or a long flow's compact 184 (FLW-12).
  */
 min_column_width: number, 
+/**
+ * The stage strip above a long flow that doesn't fit (FLW-12).
+ */
+stage_strip: BoardStageStrip | null, 
 /**
  * Done as a rail.
  */

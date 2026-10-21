@@ -22,9 +22,9 @@
 //!   "Model unavailable" (Change agent); a running or ended lead on a tool that can't run now waits too, since its
 //!   conversation never moves tools.
 
+use otaq_core::agents::{Agent, AgentHold, SessionRole as Role};
 use otaq_core::board::tickets::{EventKind, HistoryEvent, Ticket};
 use otaq_core::domain::{Status, TicketKey};
-use otaq_core::named_agents::{AgentHold, NamedAgent, Role};
 use otaq_core::project_agents::lead::{Lead, LeadStatus};
 use otaq_core::recovery::{BeforeRestart, TranscriptEntry};
 use serde::Serialize;
@@ -194,7 +194,7 @@ pub struct Facts<'a> {
     /// The epic's holds (`ticket.agents`): its lead's, held before its start.
     pub holds: &'a [AgentHold],
     /// Every named agent (the held one's name).
-    pub named_agents: &'a [NamedAgent],
+    pub agent_list: &'a [Agent],
     pub tools: &'a Tools,
 }
 
@@ -221,7 +221,7 @@ pub fn view(f: &Facts) -> LeadTabView {
             f.holds.iter().find(|h| h.role == Role::EpicLead),
             lead.filter(|l| l.status != LeadStatus::EndedInReview)
                 .map(|l| l.agent.tool),
-            f.named_agents,
+            f.agent_list,
             f.tools,
         ),
     }
@@ -567,7 +567,7 @@ pub mod fixtures {
     pub const MIN: i64 = 60_000;
 
     pub fn epic() -> Ticket {
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::EpicInProgress);
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
         epic.kind = Kind::Epic;
         epic.external_id = Some("PAY-123".into());
         epic
@@ -653,7 +653,9 @@ pub mod fixtures {
             tool: Some(lead.agent.tool),
             tool_session_id: lead.agent.tool_session_id.clone(),
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
             model_ran: None,
             size: None,
         });
@@ -693,8 +695,8 @@ pub fn gallery() -> Gallery {
     let mut review_events = events.clone();
     review_events.push(suggestion(T0 + 4 * 60 * MIN));
     let mut review_epic = epic();
-    review_epic.status = Status::ReadyForReview;
-    review_epic.column = otaq_core::domain::Column::ReadyForReview;
+    review_epic.status = Status::WaitingForYou;
+    review_epic.place = otaq_core::domain::Place::stage_of("review");
     let mut asking = lead(LeadStatus::AsksYou);
     asking.agent.question = Some(otaq_core::board::questions::HumanQuestion {
         id: "q-lead".into(),
@@ -719,7 +721,7 @@ pub fn gallery() -> Gallery {
                 events,
                 before,
                 holds: &[],
-                named_agents: &[],
+                agent_list: &[],
                 tools: &Tools::default(),
             }),
         }
@@ -768,7 +770,7 @@ pub fn gallery() -> Gallery {
                 events: &[],
                 before: None,
                 holds: &[],
-                named_agents: &[],
+                agent_list: &[],
                 tools: &Tools::default(),
             }),
         }])
@@ -778,7 +780,7 @@ pub fn gallery() -> Gallery {
 
 /// The gallery's waiting leads (M23, *08 → Epic lead · its tool isn't available / is at its limit*).
 fn waiting_tabs(epic: &Ticket, tickets: &[Ticket], events: &[HistoryEvent]) -> Vec<GalleryTab> {
-    use otaq_core::named_agents::HoldReason;
+    use otaq_core::agents::HoldReason;
     use tool_problems::fixtures::{self as tf, CLAUDE, CODEX};
     let idle = fixtures::lead(LeadStatus::Idle);
     let mut logged_out = tf::several();
@@ -804,7 +806,7 @@ fn waiting_tabs(epic: &Ticket, tickets: &[Ticket], events: &[HistoryEvent]) -> V
             events,
             before: None,
             holds,
-            named_agents: &[],
+            agent_list: &[],
             tools,
         }),
     };
@@ -860,7 +862,7 @@ mod tests {
             events,
             before,
             holds: &[],
-            named_agents: &[],
+            agent_list: &[],
             tools: &Tools::default(),
         })
     }
@@ -1085,7 +1087,7 @@ mod tests {
             events: &[],
             before: None,
             holds: &[],
-            named_agents: &[],
+            agent_list: &[],
             tools: &Tools::default(),
         });
         assert_eq!(t.status.full, "Split with the Project agent");
@@ -1188,7 +1190,7 @@ mod tests {
                 .collect()
         };
         assert_eq!(labels(8), ["Sign in\u{2026}"]);
-        assert_eq!(labels(10), ["Change agent"]);
+        assert_eq!(labels(10), ["Open agent\u{2026}"]);
         // An ended-in-review lead doesn't wait on its tool.
         let tools = tool_problems::fixtures::at_limit(tool_problems::fixtures::CLAUDE, None);
         let t = view(&Facts {
@@ -1198,7 +1200,7 @@ mod tests {
             events: &[],
             before: None,
             holds: &[],
-            named_agents: &[],
+            agent_list: &[],
             tools: &tools,
         });
         assert_eq!(t.waiting, None);

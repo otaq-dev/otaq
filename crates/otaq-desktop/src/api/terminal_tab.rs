@@ -82,7 +82,7 @@ pub struct Waiting {
     pub deliver: &'static str,
 }
 
-/// "Instructions: shop-web": the project's settings on Agent instructions (d0040).
+/// "Instructions: shop-web": the project's settings on Project notes (d0040, AGM-02).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "TerminalTabInstructions")]
 pub struct Instructions {
@@ -151,7 +151,7 @@ pub struct Validator {
     pub read_only: bool,
     /// The state label and hint for every phase and focus, as [`View::strips`].
     pub strips: Vec<Strip>,
-    /// `otaq attach SHOP-29 --validator` while it runs.
+    /// `otaq attach SHOP-29 --stage validate` while it runs.
     pub attach_command: String,
 }
 
@@ -225,7 +225,7 @@ pub fn validator_session(sessions: &[SessionInfo]) -> Option<&SessionInfo> {
 
 /// Whether the ticket is in a validation round now: the validator is the side to look at.
 fn validating(status: Status) -> bool {
-    matches!(status, Status::Validating | Status::ValidatorNeedsYou)
+    matches!(status, Status::Checking | Status::CheckerNeedsYou)
 }
 
 /// The Validator side from the validator's session and the ticket's rounds (the one it ran, else the newest).
@@ -251,7 +251,7 @@ pub fn validator_of(
         })
         .collect();
     let dot = if running {
-        Some(if ticket.status == Status::ValidatorNeedsYou {
+        Some(if ticket.status == Status::CheckerNeedsYou {
             StripTone::Attention
         } else {
             StripTone::Working
@@ -267,7 +267,10 @@ pub fn validator_of(
         dot,
         read_only: !running,
         strips,
-        attach_command: strip::validator_attach_command(&ticket.key, running),
+        attach_command: strip::validator_attach_command(
+            &ticket.key,
+            ticket.place.stage().filter(|_| running),
+        ),
     }
 }
 
@@ -629,7 +632,9 @@ mod tests {
             tool: None,
             tool_session_id: None,
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
             model_ran: None,
             size: None,
         }
@@ -701,7 +706,7 @@ mod tests {
     #[test]
     fn an_ended_session_has_its_marker_and_background_work_its_tasks() {
         let view = view_of(
-            &ticket(Status::ReadyForReview),
+            &ticket(Status::WaitingForYou),
             &[session("s1", SessionState::Ended, 0)],
             &[],
             "shop-web",
@@ -802,14 +807,14 @@ mod tests {
         // Validating: the validator runs, takes typing, copies its own attach command, and the tab lands on it.
         let sessions = [agent.clone(), validator("v1", SessionState::Running, 5)];
         let rounds = [round(1, "v1", None)];
-        let view = view_of(&ticket(Status::Validating), &sessions, &rounds, "shop-web", None);
+        let view = view_of(&ticket(Status::Checking), &sessions, &rounds, "shop-web", None);
         let v = view.validator.as_ref().unwrap();
         assert_eq!(v.session, "v1");
         assert_eq!(v.label, "Validator · round 1");
         assert_eq!(v.terminal_label, "SHOP-19 · validator terminal");
         assert!(!v.read_only);
         assert_eq!(v.dot, Some(StripTone::Working));
-        assert_eq!(v.attach_command, format!("{} --validator", strip::attach_command(&view_key())));
+        assert_eq!(v.attach_command, format!("{} --stage validate", strip::attach_command(&view_key())));
         assert_eq!(strip(&view, Phase::Live, false).state.label, "Live");
         assert_eq!(view.lands_on, Side::Validator);
         assert_eq!(view.agent_dot, None, "the agent waits for the verdict");
@@ -817,7 +822,7 @@ mod tests {
         assert_eq!(live.hint.as_ref().unwrap().text, "Typing goes to the validator");
 
         // Needs you · validator: ⌘J lands on the validator; its dot is turquoise.
-        let view = view_of(&ticket(Status::ValidatorNeedsYou), &sessions, &rounds, "shop-web", None);
+        let view = view_of(&ticket(Status::CheckerNeedsYou), &sessions, &rounds, "shop-web", None);
         assert_eq!(view.lands_on, Side::Validator);
         let v = view.validator.unwrap();
         assert_eq!(v.dot, Some(StripTone::Attention));
@@ -836,7 +841,7 @@ mod tests {
             round(1, "v1", Some(ValidationOutcome::Fail)),
             round(2, "v2", Some(ValidationOutcome::Fail)),
         ];
-        let view = view_of(&ticket(Status::ValidationFailed), &sessions, &rounds, "shop-web", None);
+        let view = view_of(&ticket(Status::CheckFailed), &sessions, &rounds, "shop-web", None);
         assert_eq!(view.lands_on, Side::Agent, "the agent fixes; the validator is history");
         let v = view.validator.unwrap();
         assert_eq!(v.session, "v2", "the newest");
@@ -853,7 +858,7 @@ mod tests {
         next.push(validator("v3", SessionState::Running, 12));
         let mut rounds = rounds.to_vec();
         rounds.push(round(3, "v3", None));
-        let v = view_of(&ticket(Status::Validating), &next, &rounds, "shop-web", None)
+        let v = view_of(&ticket(Status::Checking), &next, &rounds, "shop-web", None)
             .validator
             .unwrap();
         assert_eq!((v.session.as_str(), v.read_only), ("v3", false));
@@ -885,6 +890,7 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }))
             .await
             .unwrap()

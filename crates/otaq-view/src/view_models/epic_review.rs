@@ -59,7 +59,7 @@ pub fn header(epic: &Ticket, tickets: &[Ticket]) -> EpicHeader {
         })
         .collect();
     children.sort_by(|a, b| a.key.cmp(&b.key));
-    let note = if epic.status == Status::ReadyForReview {
+    let note = if epic.status == Status::WaitingForYou {
         "No Send back on an epic. Add or reopen a child ticket to change it.".to_owned()
     } else {
         format!(
@@ -149,7 +149,7 @@ mod tests {
             Some("\u{b7} new tickets get the next key, SHOP-40.4")
         );
         let mut reviewing = epic.clone();
-        reviewing.status = Status::ReadyForReview;
+        reviewing.status = Status::WaitingForYou;
         assert_eq!(
             header(&reviewing, &tickets).note,
             "No Send back on an epic. Add or reopen a child ticket to change it."

@@ -3,17 +3,22 @@
 //!
 //! An agent caller may:
 //! - **read anything** (`show`, `list`, `ready`, `blocked`, `dep tree`, `prime`, the board);
-//! - **change only its own ticket** (`update`, `review submit`, `ask`, `answer`, and from M10 `pr propose`,
-//!   `pr opened`, `branch rename`);
+//! - **change only its own ticket** (`update`, `stage next` / `review submit`, `stage done`, `ask`, `answer`, and
+//!   from M10 `pr propose`, `pr opened`, `branch rename`);
 //! - **create tickets**, which always land in Backlog (including epic children with `--parent`);
 //! - **add or remove dependencies** only from its own ticket, or between two tickets it created.
 //!
 //! Everything else is refused, for example "SHOP-18's agent can't change SHOP-12". The user (the app, their own
 //! terminals, the Project terminal, Shell and Run) passes every check (CLI-03), except reporting a verdict.
 //!
-//! A **validator** caller (d0063) reads anything and reports the verdict of its own ticket
-//! (`validate pass|fail`); every change is refused: "SHOP-29's validator can't change tickets". Only a
-//! validator reports a verdict: "Only a validator can report a verdict".
+//! A **validator** caller (an agent check's session, d0063) reads anything and gives the verdict of its own ticket
+//! (`check pass|fail`, AGM-10); everything else is refused: "SHOP-29's check can only give its verdict". Only an
+//! agent check gives a verdict: "Only an agent check can give a verdict".
+//!
+//! **By stage kind** (STG-10, d0108): a ticket session's role is the kind of its stage run's stage
+//! ([`crate::caller::by_stage`]): an Agent stage's session is a ticket agent (never a verdict), an agent check's is a
+//! validator (the verdict only). On every flow the refusals name the stage ([`authorize_in_stage`], Q269): "NOTE-1's
+//! Validate check can only give its verdict", "NOTE-1's Dev session can't give a check verdict".
 //!
 //! A **Project agent** caller (d0068, PAG-02) reads anything, creates tickets (always in Backlog, incl. epics,
 //! children, External ID and priority), and edits, links and prioritises tickets **still in Backlog** (never
@@ -27,11 +32,16 @@
 //! park, approve, merge, close, delete, a started child, the epic itself, other tickets, `agent name`) is refused:
 //! "Wishlist lead can only change SHOP-40's children that haven't started" ([`lead_refusal`]).
 //!
-//! **Choosing agents** (`otaq create|update --developer|--validator|--lead`, AGT-06; d0086, d0087) is its own
-//! action, [`Action::PickAgents`]: a Project agent on the tickets it may change (Backlog), an epic lead on its
-//! epic's never-started children (not its own Epic lead row); ticket agents and validators never ("Ticket agents
-//! can't choose agents"). [`pick_rule`] then judges each row: a locked row is refused for everyone; an agent's own
-//! pick needs a reason, a second named agent, and a row the user didn't set.
+//! **Stage choices** (`otaq create|update --stage`, AGM-11; d0108, d0087) are their own action,
+//! [`Action::SetChoices`]: a Project agent on the tickets it may change (Backlog), an epic lead on its epic's
+//! never-started children (not the epic), a ticket agent on its own ticket; a validator never. Which stage each may
+//! choose for, and over whose choice, is [`crate::board::stage_choices::judge`]'s.
+//!
+//! **Ticket comments** (CMT-04, d0109) are [`Action::Comment`]: the user writes, edits and deletes any; a ticket's
+//! agent comments on its own ticket and edits or deletes only its own comments; an epic lead comments on its epic and
+//! its children (started or not: a comment is for their later stages) and edits or deletes only its own. A checker
+//! posts only with its verdict (`check pass|fail`) and edits or deletes only its own (Q374); the Project agent and
+//! other tickets' agents never.
 //!
 //! **Reading a ticket's terminal** (`otaq show <KEY> --terminal`, CLI-09, d0087) is its own narrower action, not
 //! "read anything": a Project agent reads any ticket of its project, an epic lead its own epic's children; ticket
@@ -43,10 +53,9 @@
 use crate::board::{BoardError, Refusal};
 use crate::caller::Caller;
 use crate::domain::{Actor, TicketKey};
-use crate::named_agents::{Role, RowLock, RowSetBy};
 
-/// The refusal of `validate pass|fail` from anyone but a validator.
-pub const ONLY_A_VALIDATOR: &str = "Only a validator can report a verdict";
+/// The refusal of `check pass|fail` from anyone but an agent check's session (AGM-10).
+pub const ONLY_A_VALIDATOR: &str = "Only an agent check can give a verdict";
 
 /// Every refusal of a Project agent (PAG-02).
 pub const BACKLOG_ONLY: &str = "Project agents can only change Backlog tickets";
@@ -57,29 +66,27 @@ pub fn lead_refusal(lead: &str, epic: &TicketKey) -> String {
     format!("{lead} can only change {epic}'s children that haven't started")
 }
 
+/// Every refusal of a comment from a Project agent (CMT-04).
+pub const PROJECT_AGENT_NO_COMMENTS: &str = "Project agents can read comments, not write them";
+
+/// The refusal of an epic lead's comment outside its epic (CMT-04): "Wishlist lead can only comment on SHOP-40 and
+/// its children".
+pub fn lead_comment_refusal(lead: &str, epic: &TicketKey) -> String {
+    format!("{lead} can only comment on {epic} and its children")
+}
+
+/// The refusal of editing or deleting another author's comment (CMT-04): "SHOP-18's agent can only edit or delete
+/// its own comments".
+pub fn not_own_comment(who: &str) -> String {
+    format!("{who} can only edit or delete its own comments")
+}
+
 /// The refusal of `decision mark` from anyone but an epic's lead (DEC-04).
 pub const ONLY_A_LEAD_MARKS: &str = "Only an epic's lead can mark a recorded decision";
 
 /// The refusal of `suggest close|delete` from anyone but an epic's lead (LEAD-08).
 pub const ONLY_A_LEAD_SUGGESTS: &str =
     "Only an epic's lead can suggest closing or deleting a child";
-
-/// Every refusal of an agent pick from a ticket's agent or validator (AGT-06).
-pub const TICKET_AGENTS_CANT_PICK: &str = "Ticket agents can't choose agents";
-
-/// An agent's pick while there is one named agent (d0086, Q-H): agents make no picks then.
-pub const NOTHING_TO_PICK: &str = "There's only one agent, so there's nothing to pick";
-
-/// An agent's pick without a reason (AGT-06).
-pub const SAY_WHY: &str = "Say why with --reason";
-
-/// An agent's pick over a row the user set (d0086): "SHOP-31's Developer was set by you; agents can't change it".
-pub fn set_by_you_refusal(key: &str, role: Role) -> String {
-    format!(
-        "{key}'s {} was set by you; agents can't change it",
-        role.label()
-    )
-}
 
 /// The refusal of a ticket's terminal to an epic lead outside its epic's children (CLI-09): "Wishlist lead can
 /// only read SHOP-40's children's terminals".
@@ -168,15 +175,25 @@ pub enum Action {
         target: TicketFacts,
         project: String,
     },
-    /// Sets this ticket's agent rows (`--developer`, `--validator`, `--lead`, AGT-06); each row is then judged by
-    /// [`pick_rule`].
-    PickAgents(TicketFacts),
+    /// Sets this ticket's stage choices (`--stage`, AGM-11); each is then judged by
+    /// [`crate::board::stage_choices::judge`].
+    SetChoices(TicketFacts),
     /// Only the user may do this; `what` completes "SHOP-18's agent can't …" ("move tickets").
     UserOnly(&'static str),
-    /// `validate pass|fail` for this ticket: its validator only.
+    /// `check pass|fail` for this ticket: its agent check's session only.
     Verdict(TicketFacts),
     /// Several actions, all needed (a batch that creates tickets and links them).
     All(Vec<Action>),
+    /// `otaq flow propose` for the project `project` (its key): the user, or a Project agent of that project (FLW-03).
+    ProposeFlow { project: String },
+    /// Posts a ticket comment on `target` (`own: None`), or edits or deletes one of its comments (`own`: whether the
+    /// caller wrote it), CMT-04: the user any; a ticket's agent on its own ticket, editing only its own; an epic
+    /// lead on its epic and its children, editing only its own. A checker posts only with its verdict and edits only
+    /// its own (Q374), the Project agent never.
+    Comment {
+        target: TicketFacts,
+        own: Option<bool>,
+    },
 }
 
 /// Allows or refuses `action` for `caller`. Refusals are [`Refusal::NotAllowed`] with a message for people. An epic
@@ -187,40 +204,93 @@ pub fn authorize(caller: &Caller, action: &Action) -> Result<(), BoardError> {
 
 /// [`authorize`], with the names the caller's refusals use ("Wishlist lead"; "Checkout bug" and "pocket-notes").
 pub fn authorize_named(caller: &Caller, names: Names, action: &Action) -> Result<(), BoardError> {
+    authorize_in_stage(caller, names, None, action)
+}
+
+/// A check session's refusal of anything but its verdict (STG-10): "NOTE-4's Security check can only give its
+/// verdict".
+pub fn check_only_verdict(ticket: &TicketKey, stage: &str) -> String {
+    format!("{ticket}'s {stage} check can only give its verdict")
+}
+
+/// An Agent stage session's refusal of a verdict (STG-10): "NOTE-4's Grill session can't give a check verdict".
+pub fn agent_stage_no_verdict(ticket: &TicketKey, stage: &str) -> String {
+    format!("{ticket}'s {stage} session can't give a check verdict")
+}
+
+/// [`authorize_named`] for a ticket session whose stage run is in the stage named `stage` (STG-10, Q269): its
+/// refusals name the stage ("NOTE-1's Validate check can only give its verdict"). `None` (no stage run) says "check".
+pub fn authorize_in_stage(
+    caller: &Caller,
+    names: Names,
+    stage: Option<&str>,
+    action: &Action,
+) -> Result<(), BoardError> {
     let refuse = |message: String| Err(BoardError::refused(Refusal::NotAllowed, message));
     let all = |actions: &[Action]| {
         actions
             .iter()
-            .try_for_each(|a| authorize_named(caller, names, a))
+            .try_for_each(|a| authorize_in_stage(caller, names, stage, a))
     };
+    if let Action::ProposeFlow { project } = action {
+        return match caller {
+            Caller::User => Ok(()),
+            Caller::ProjectAgent { project: own, .. } if own == project => Ok(()),
+            Caller::ProjectAgent { project: own, .. } => refuse(format!(
+                "{} can only propose a flow for its own project, {}",
+                names.caller.unwrap_or("The Project agent"),
+                names.project.unwrap_or(own)
+            )),
+            _ => refuse(crate::flow::propose::ONLY_A_PROJECT_AGENT_OR_YOU.to_owned()),
+        };
+    }
     if let Caller::Validator {
         ticket, ticket_id, ..
     } = caller
     {
+        let who = match stage {
+            Some(stage) => format!("{ticket}'s {stage} check"),
+            None => format!("{ticket}'s check"),
+        };
         return match action {
             Action::Read => Ok(()),
             Action::Verdict(target) if target.id == *ticket_id => Ok(()),
             Action::Verdict(target) => refuse(format!(
-                "{ticket}'s validator can only report on {ticket}, not {}",
+                "{who} can only report on {ticket}, not {}",
                 target.label
             )),
-            Action::ReadTerminal { target, .. } => refuse(format!(
-                "{ticket}'s validator can't read {}'s terminal",
-                target.label
-            )),
-            Action::PickAgents(_) => refuse(TICKET_AGENTS_CANT_PICK.to_owned()),
+            Action::ReadTerminal { target, .. } => {
+                refuse(format!("{who} can't read {}'s terminal", target.label))
+            }
+            // Its own comments (its verdicts) on its ticket: edit or delete (CMT-04, Q374). A new one only with a verdict.
+            Action::Comment {
+                target,
+                own: Some(true),
+            } if target.id == *ticket_id => Ok(()),
+            Action::Comment {
+                target,
+                own: Some(false),
+            } if target.id == *ticket_id => refuse(not_own_comment(&who)),
             Action::All(actions) => all(actions),
-            _ => refuse(format!("{ticket}'s validator can't change tickets")),
+            _ => match stage {
+                Some(stage) => refuse(check_only_verdict(ticket, stage)),
+                None => refuse(format!("{who} can only give its verdict")),
+            },
         };
     }
     if let Action::Verdict(_) = action {
-        return refuse(ONLY_A_VALIDATOR.to_owned());
+        return match (caller, stage) {
+            (Caller::Agent { ticket, .. }, Some(stage)) => {
+                refuse(agent_stage_no_verdict(ticket, stage))
+            }
+            _ => refuse(ONLY_A_VALIDATOR.to_owned()),
+        };
     }
     if let Caller::EpicLead { epic, epic_id, .. } = caller {
         return match action {
             Action::Read => Ok(()),
             Action::CreateTicket { epic: Some(e) } if e == epic_id => Ok(()),
-            Action::EditTicket(target) | Action::PickAgents(target)
+            Action::EditTicket(target) | Action::SetChoices(target)
                 if lead_may_change(target, epic_id) =>
             {
                 Ok(())
@@ -243,12 +313,23 @@ pub fn authorize_named(caller: &Caller, names: Names, action: &Action) -> Result
                 ..
             } if is_child_of(target, epic_id) && (*started_too || target.never_started) => Ok(()),
             Action::ReadTerminal { target, .. } if is_child_of(target, epic_id) => Ok(()),
+            Action::Comment { target, own }
+                if target.id == *epic_id || is_child_of(target, epic_id) =>
+            {
+                if *own == Some(false) {
+                    let fallback = format!("{epic}'s lead");
+                    refuse(not_own_comment(names.caller.unwrap_or(&fallback)))
+                } else {
+                    Ok(())
+                }
+            }
             Action::All(actions) => all(actions),
             _ => {
                 let fallback = format!("{epic}'s lead");
                 let lead = names.caller.unwrap_or(&fallback);
                 match action {
                     Action::ReadTerminal { .. } => refuse(lead_terminal_refusal(lead, epic)),
+                    Action::Comment { .. } => refuse(lead_comment_refusal(lead, epic)),
                     _ => refuse(lead_refusal(lead, epic)),
                 }
             }
@@ -267,10 +348,11 @@ pub fn authorize_named(caller: &Caller, names: Names, action: &Action) -> Result
                 names.caller.unwrap_or("The Project agent"),
                 names.project.unwrap_or(project),
             )),
-            Action::EditTicket(target) | Action::PickAgents(target) if target.backlog => Ok(()),
+            Action::EditTicket(target) | Action::SetChoices(target) if target.backlog => Ok(()),
             // A Backlog ticket may wait for any ticket ("SHOP-35 waits for SHOP-19").
             Action::Dependency { child, .. } if child.backlog => Ok(()),
             Action::All(actions) => all(actions),
+            Action::Comment { .. } => refuse(PROJECT_AGENT_NO_COMMENTS.to_owned()),
             _ => refuse(BACKLOG_ONLY.to_owned()),
         };
     }
@@ -284,6 +366,7 @@ pub fn authorize_named(caller: &Caller, names: Names, action: &Action) -> Result
         Action::Read | Action::CreateTicket { .. } => Ok(()),
         Action::ChangeTicket(target)
         | Action::EditTicket(target)
+        | Action::SetChoices(target)
         | Action::Answer { asked: target, .. }
             if target.id == *ticket_id =>
         {
@@ -291,6 +374,7 @@ pub fn authorize_named(caller: &Caller, names: Names, action: &Action) -> Result
         }
         Action::ChangeTicket(target)
         | Action::EditTicket(target)
+        | Action::SetChoices(target)
         | Action::Answer { asked: target, .. } => {
             refuse(format!("{ticket}'s agent can't change {}", target.label))
         }
@@ -311,59 +395,23 @@ pub fn authorize_named(caller: &Caller, names: Names, action: &Action) -> Result
             "{ticket}'s agent can't read {}'s terminal",
             target.label
         )),
-        Action::PickAgents(_) => refuse(TICKET_AGENTS_CANT_PICK.to_owned()),
+        Action::Comment { target, own } if target.id == *ticket_id => {
+            if *own == Some(false) {
+                refuse(not_own_comment(&format!("{ticket}'s agent")))
+            } else {
+                Ok(())
+            }
+        }
+        Action::Comment { target, .. } => refuse(format!(
+            "{ticket}'s agent can't comment on {}",
+            target.label
+        )),
         Action::UserOnly(what) => refuse(format!("{ticket}'s agent can't {what}; ask the user")),
-        Action::Verdict(_) | Action::LeadCommand { .. } => unreachable!("handled above"),
+        Action::Verdict(_) | Action::LeadCommand { .. } | Action::ProposeFlow { .. } => {
+            unreachable!("handled above")
+        }
         Action::All(actions) => all(actions),
     }
-}
-
-/// One row an `otaq create|update` sets, as [`pick_rule`] judges it.
-#[derive(Debug, Clone, Copy)]
-pub struct RowPick<'a> {
-    /// The ticket's key ("SHOP-31"), as the refusals name it.
-    pub key: &'a str,
-    pub role: Role,
-    /// Who set the row as it is; `None` when it is empty.
-    pub set_by: Option<&'a RowSetBy>,
-    pub lock: Option<RowLock>,
-}
-
-/// Judges one row of an allowed [`Action::PickAgents`] (AGT-04, AGT-06; d0086, d0087). `agent_pick` is an agent's
-/// own pick ("picked by …"); the user's rows and an agent's `--by-user` (the user named it) are not. `agents` is
-/// the number of named agents.
-///
-/// - a locked row is refused for everyone ([`RowLock::refusal`]);
-/// - an agent's pick is refused with one named agent ([`NOTHING_TO_PICK`]), without a reason ([`SAY_WHY`]) and
-///   over a row the user set ([`set_by_you_refusal`]).
-pub fn pick_rule(
-    agent_pick: bool,
-    agents: usize,
-    reason: Option<&str>,
-    row: RowPick,
-) -> Result<(), BoardError> {
-    if let Some(lock) = row.lock {
-        return Err(BoardError::refused(
-            Refusal::RowLocked,
-            lock.refusal(row.key, row.role),
-        ));
-    }
-    if !agent_pick {
-        return Ok(());
-    }
-    if agents <= 1 {
-        return Err(BoardError::refused(Refusal::NotAllowed, NOTHING_TO_PICK));
-    }
-    if reason.is_none_or(|r| r.trim().is_empty()) {
-        return Err(BoardError::refused(Refusal::EmptyField, SAY_WHY));
-    }
-    if row.set_by == Some(&RowSetBy::User) {
-        return Err(BoardError::refused(
-            Refusal::NotAllowed,
-            set_by_you_refusal(row.key, row.role),
-        ));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -770,7 +818,7 @@ mod tests {
     }
 
     /// T-0184 (CLI-05, d0063): a validator reads and reports on its own ticket; it changes nothing, and nobody
-    /// else reports a verdict.
+    /// else reports a verdict. Without a stage run it is "SHOP-29's check".
     #[test]
     fn validators_read_and_report_only() {
         let validator = Caller::Validator {
@@ -787,7 +835,7 @@ mod tests {
         );
         assert_eq!(
             message(authorize(&validator, &Action::Verdict(other.clone()))).as_deref(),
-            Some("SHOP-29's validator can only report on SHOP-29, not SHOP-12")
+            Some("SHOP-29's check can only report on SHOP-29, not SHOP-12")
         );
         // T-0195: it never creates tickets, also not from its own report's notes (the user's Create ticket).
         for action in [
@@ -802,7 +850,7 @@ mod tests {
         ] {
             assert_eq!(
                 message(authorize(&validator, &action)).as_deref(),
-                Some("SHOP-29's validator can't change tickets"),
+                Some("SHOP-29's check can only give its verdict"),
                 "{action:?}"
             );
         }
@@ -812,6 +860,71 @@ mod tests {
                 Some(ONLY_A_VALIDATOR)
             );
         }
+    }
+
+    /// T-0402 (STG-10, d0108): a session's rights are its stage's kind's, and its refusals name the stage. A
+    /// Security check session gives its verdict only (no `stage next`); a Grill session never gives one.
+    #[test]
+    fn rights_by_stage_kind() {
+        let security = Caller::Validator {
+            ticket: "NOTE-4".parse().unwrap(),
+            ticket_id: "t4".into(),
+            session: "s".into(),
+        };
+        let grill = agent("NOTE-4", "t4");
+        let own = facts("NOTE-4", "t4", "nevzat");
+        let in_stage = |caller: &Caller, stage: &str, action: &Action| {
+            message(authorize_in_stage(
+                caller,
+                Names::default(),
+                Some(stage),
+                action,
+            ))
+        };
+        assert_eq!(
+            in_stage(&security, "Security", &Action::ChangeTicket(own.clone())).as_deref(),
+            Some("NOTE-4's Security check can only give its verdict")
+        );
+        assert_eq!(
+            in_stage(&security, "Security", &Action::Verdict(own.clone())),
+            None
+        );
+        assert_eq!(in_stage(&security, "Security", &Action::Read), None);
+        assert_eq!(
+            in_stage(&grill, "Grill", &Action::Verdict(own.clone())).as_deref(),
+            Some("NOTE-4's Grill session can't give a check verdict")
+        );
+        assert_eq!(
+            in_stage(&grill, "Grill", &Action::ChangeTicket(own.clone())),
+            None
+        );
+        // The default flow's stages are named too (Q269).
+        let validate = Caller::Validator {
+            ticket: "NOTE-1".parse().unwrap(),
+            ticket_id: "t1".into(),
+            session: "s".into(),
+        };
+        let dev = agent("NOTE-1", "t1");
+        let note1 = facts("NOTE-1", "t1", "nevzat");
+        assert_eq!(
+            in_stage(&validate, "Validate", &Action::ChangeTicket(note1.clone())).as_deref(),
+            Some("NOTE-1's Validate check can only give its verdict")
+        );
+        assert_eq!(
+            in_stage(&dev, "Dev", &Action::Verdict(note1)).as_deref(),
+            Some("NOTE-1's Dev session can't give a check verdict")
+        );
+        // A session without a stage run.
+        assert_eq!(
+            message(authorize_in_stage(
+                &grill,
+                Names::default(),
+                None,
+                &Action::Verdict(own)
+            ))
+            .as_deref(),
+            Some(ONLY_A_VALIDATOR)
+        );
     }
 
     /// T-0317 (CLI-09, d0087): reading a ticket's terminal is its own action. The user always; a Project agent on
@@ -911,7 +1024,7 @@ mod tests {
         };
         assert_eq!(
             message(authorize(&validator, &read(&note6, "NOTE"))).as_deref(),
-            Some("NOTE-6's validator can't read NOTE-6's terminal")
+            Some("NOTE-6's check can't read NOTE-6's terminal")
         );
         // A batch that reads a terminal needs the terminal rule too.
         assert!(
@@ -922,11 +1035,11 @@ mod tests {
             .is_err()
         );
     }
-    /// T-0338 (AGT-06, CLI-06, CLI-07): who may set agent rows at all. The user always; a Project agent on Backlog
-    /// tickets; an epic lead on its never-started children (not its own Epic lead row); ticket agents and
-    /// validators never.
+    /// AGM-11 (CLI-06, CLI-07): who may set stage choices at all. The user always; a Project agent on Backlog
+    /// tickets; an epic lead on its never-started children (not the epic); a ticket agent on its own ticket only; a
+    /// validator never.
     #[test]
-    fn who_may_pick_agents() {
+    fn who_may_set_stage_choices() {
         let backlog = TicketFacts {
             backlog: true,
             never_started: true,
@@ -989,7 +1102,7 @@ mod tests {
                 &other_epic,
                 Some(lead_text),
             ),
-            ("lead, its own Epic lead row", &lead, &epic, Some(lead_text)),
+            ("lead, its epic", &lead, &epic, Some(lead_text)),
             (
                 "lead, a standalone ticket",
                 &lead,
@@ -998,101 +1111,194 @@ mod tests {
             ),
         ];
         for (name, caller, target, expected) in rows {
-            let action = Action::PickAgents(target.clone());
+            let action = Action::SetChoices(target.clone());
             assert_eq!(
                 message(authorize_named(caller, names, &action)).as_deref(),
                 expected,
                 "{name}"
             );
         }
-        for caller in [&agent("SHOP-13", "t13"), &validator] {
-            for target in [&backlog, &ready] {
-                assert_eq!(
-                    message(authorize(caller, &Action::PickAgents(target.clone()))).as_deref(),
-                    Some(TICKET_AGENTS_CANT_PICK)
-                );
-            }
-        }
+        let choose = |caller: &Caller, target: &TicketFacts| {
+            message(authorize(caller, &Action::SetChoices(target.clone())))
+        };
+        // SHOP-13's own agent: its own ticket only.
+        assert_eq!(choose(&agent("SHOP-13", "t13"), &backlog), None);
+        assert_eq!(
+            choose(&agent("SHOP-13", "t13"), &ready).as_deref(),
+            Some("SHOP-13's agent can't change SHOP-20")
+        );
+        assert_eq!(
+            choose(&validator, &backlog).as_deref(),
+            Some("SHOP-13's check can only give its verdict")
+        );
     }
 
-    /// T-0338 (AGT-04, AGT-06; d0086, d0087, Q-H): each row of an allowed pick.
+    /// CMT-04's table: who may post, edit and delete ticket comments.
     #[test]
-    fn the_pick_rule() {
-        let user = RowSetBy::User;
-        let agent_pick = RowSetBy::Agent {
-            picked_by: "Checkout slowness".into(),
-            reason: "docs-only change".into(),
+    fn the_comment_rights() {
+        let wishlist = facts("SHOP-40", "t40", "nevzat");
+        let child = TicketFacts {
+            epic_id: Some("t40".into()),
+            ..facts("SHOP-40.2", "t402", "nevzat")
         };
-        fn row(set_by: Option<&RowSetBy>, lock: Option<RowLock>) -> RowPick<'_> {
-            RowPick {
-                key: "SHOP-31",
-                role: Role::Developer,
-                set_by,
-                lock,
-            }
-        }
-        let (user, agent_pick) = (&user, &agent_pick);
-        let judged = |agent: bool, agents: usize, reason: Option<&str>, row: RowPick| {
-            pick_rule(agent, agents, reason, row).map_err(|e| (e.refusal().unwrap(), e.to_string()))
+        let other_epic_child = TicketFacts {
+            epic_id: Some("t41".into()),
+            ..facts("SHOP-41.1", "t411", "nevzat")
         };
-        let refused = |code: Refusal, text: &str| Err((code, text.to_owned()));
-        let set_by_you = "SHOP-31's Developer was set by you; agents can't change it";
-        let locked = "SHOP-31's Developer is locked: Send back continues the same conversation";
-        let started = Some(RowLock::Started);
-        let rows = [
+        let own = facts("SHOP-18", "t18", "nevzat");
+        let other = facts("SHOP-12", "t12", "nevzat");
+        let post = |target: &TicketFacts| Action::Comment {
+            target: target.clone(),
+            own: None,
+        };
+        let change = |target: &TicketFacts, own: bool| Action::Comment {
+            target: target.clone(),
+            own: Some(own),
+        };
+        let lead = Caller::EpicLead {
+            project: "SHOP".into(),
+            agent: "pa".into(),
+            epic: "SHOP-40".parse().unwrap(),
+            epic_id: "t40".into(),
+            session: "s".into(),
+        };
+        let lead_names = Names {
+            caller: Some("Wishlist lead"),
+            project: None,
+        };
+        let validator = Caller::Validator {
+            ticket: "SHOP-18".parse().unwrap(),
+            ticket_id: "t18".into(),
+            session: "s".into(),
+        };
+        let project_agent = Caller::ProjectAgent {
+            project: "SHOP".into(),
+            agent: "pa".into(),
+            session: "s".into(),
+        };
+        let me = agent("SHOP-18", "t18");
+        let rows: Vec<(&str, &Caller, Names, Action, Option<&str>)> = vec![
             (
-                "user, empty row",
-                judged(false, 1, None, row(None, None)),
-                Ok(()),
+                "user, any ticket",
+                &Caller::User,
+                Names::default(),
+                post(&other),
+                None,
             ),
             (
-                "user over an agent pick",
-                judged(false, 3, None, row(Some(agent_pick), None)),
-                Ok(()),
+                "user edits an agent's",
+                &Caller::User,
+                Names::default(),
+                change(&own, false),
+                None,
+            ),
+            ("own agent posts", &me, Names::default(), post(&own), None),
+            (
+                "own agent edits its own",
+                &me,
+                Names::default(),
+                change(&own, true),
+                None,
             ),
             (
-                "user, locked",
-                judged(false, 3, None, row(Some(user), started)),
-                refused(Refusal::RowLocked, locked),
+                "own agent edits another's",
+                &me,
+                Names::default(),
+                change(&own, false),
+                Some("SHOP-18's agent can only edit or delete its own comments"),
             ),
             (
-                "agent, with a reason",
-                judged(true, 3, Some("docs-only change"), row(None, None)),
-                Ok(()),
+                "another ticket's agent",
+                &me,
+                Names::default(),
+                post(&other),
+                Some("SHOP-18's agent can't comment on SHOP-12"),
+            ),
+            ("lead on a child", &lead, lead_names, post(&child), None),
+            ("lead on its epic", &lead, lead_names, post(&wishlist), None),
+            (
+                "lead edits its own",
+                &lead,
+                lead_names,
+                change(&child, true),
+                None,
             ),
             (
-                "agent re-picks its pick",
-                judged(true, 3, Some("x"), row(Some(agent_pick), None)),
-                Ok(()),
+                "lead edits another's",
+                &lead,
+                lead_names,
+                change(&child, false),
+                Some("Wishlist lead can only edit or delete its own comments"),
             ),
             (
-                "agent, no reason",
-                judged(true, 3, None, row(None, None)),
-                refused(Refusal::EmptyField, SAY_WHY),
+                "lead on another epic's ticket",
+                &lead,
+                lead_names,
+                post(&other_epic_child),
+                Some("Wishlist lead can only comment on SHOP-40 and its children"),
             ),
             (
-                "agent, blank reason",
-                judged(true, 3, Some(" "), row(None, None)),
-                refused(Refusal::EmptyField, SAY_WHY),
+                "lead on a ticket outside epics",
+                &lead,
+                lead_names,
+                post(&other),
+                Some("Wishlist lead can only comment on SHOP-40 and its children"),
             ),
             (
-                "agent over set by you",
-                judged(true, 3, Some("x"), row(Some(user), None)),
-                refused(Refusal::NotAllowed, set_by_you),
+                "Project agent",
+                &project_agent,
+                Names::default(),
+                post(&own),
+                Some(PROJECT_AGENT_NO_COMMENTS),
             ),
             (
-                "agent, one named agent",
-                judged(true, 1, Some("x"), row(None, None)),
-                refused(Refusal::NotAllowed, NOTHING_TO_PICK),
+                "checker, outside its verdict",
+                &validator,
+                Names::default(),
+                post(&own),
+                Some("SHOP-18's check can only give its verdict"),
+            ),
+            // Q374: a checker edits or deletes its own comments (its verdicts), never another's.
+            (
+                "checker, its own comment",
+                &validator,
+                Names::default(),
+                change(&own, true),
+                None,
             ),
             (
-                "agent, locked",
-                judged(true, 3, Some("x"), row(None, started)),
-                refused(Refusal::RowLocked, locked),
+                "checker, another's comment",
+                &validator,
+                Names::default(),
+                change(&own, false),
+                Some("SHOP-18's check can only edit or delete its own comments"),
+            ),
+            (
+                "checker, another ticket's comment",
+                &validator,
+                Names::default(),
+                change(&other, true),
+                Some("SHOP-18's check can only give its verdict"),
             ),
         ];
-        for (name, got, expected) in rows {
-            assert_eq!(got, expected, "{name}");
+        for (name, caller, names, action, expected) in rows {
+            assert_eq!(
+                message(authorize_named(caller, names, &action)).as_deref(),
+                expected,
+                "{name}"
+            );
         }
+        // A started child too: a comment is for its later stages.
+        assert_eq!(
+            message(authorize_named(
+                &lead,
+                lead_names,
+                &post(&TicketFacts {
+                    never_started: false,
+                    ..child.clone()
+                })
+            )),
+            None
+        );
     }
 }

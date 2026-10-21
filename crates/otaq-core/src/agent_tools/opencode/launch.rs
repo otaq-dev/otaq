@@ -2,15 +2,17 @@
 //!
 //! ```text
 //! OTAQ_TICKET=SHOP-18  PORT=<agent port>  PATH=<otaq bin dir>:$PATH
-//! OPENCODE_CONFIG_CONTENT={"plugins":["<otaq plugin>/opencode"],"skills":["<otaq plugin>/skills"],
+//! OPENCODE_CONFIG_CONTENT={"plugins":["<otaq plugin>/opencode"],
 //!                          "permissions":[{"action":"shell","resource":"otaq *","effect":"allow"}],"model":"<m>"}
 //! opencode --standalone --session <ses_…> --prompt "<first prompt>"
 //! ```
 //!
 //! Always `--standalone`: the default mode attaches to the user's shared OpenCode service, which ignores the
 //! launch's environment and config (hands-on check). Everything per launch goes in `OPENCODE_CONFIG_CONTENT`, which
-//! adds to the user's own config: Otaq's plugin folder, its skills folder, the one rule pre-approving `otaq`
-//! commands, and the model when one is set. Never `OPENCODE_CONFIG_DIR` (it replaces the user's config folder) and
+//! adds to the user's own config: Otaq's plugin folder (its hooks), the one rule pre-approving `otaq` commands, and
+//! the model when one is set. No `skills` entry: the skills reach OpenCode as project skills copied into the session's
+//! folder (AGM-07; OpenCode reads `.claude/skills/<name>/SKILL.md` and `.agents/skills/<name>/SKILL.md`, walking up to
+//! the git worktree, its skills page opencode.ai/docs/skills/). Never `OPENCODE_CONFIG_DIR` (it replaces the user's config folder) and
 //! never `--auto` (it approves every prompt; d0011). The user's own data folder is used (no `XDG_*` change), so
 //! the session shows in their OpenCode session list. Resume is `--session <id>` with an optional prompt; the
 //! session's stored model wins over the config there.
@@ -19,8 +21,7 @@ use serde_json::{Value, json};
 
 use super::{COMMAND_NAME, DISPLAY_NAME, OpenCode, OpenCodeContext, prepare};
 use crate::agent_tools::{
-    AgentTool, FirstPrompt, LaunchContext, LaunchError, LaunchPlan, LaunchRequest, LaunchRole,
-    ToolIdMode,
+    FirstPrompt, LaunchContext, LaunchError, LaunchPlan, LaunchRequest, LaunchRole, ToolIdMode,
 };
 use crate::naming;
 
@@ -29,9 +30,6 @@ const CONFIG_CONTENT: &str = "OPENCODE_CONFIG_CONTENT";
 
 /// The folder of Otaq's OpenCode plugin inside Otaq's plugin folder (`package.json` and `index.js`).
 const PLUGIN_FOLDER: &str = "opencode";
-
-/// The folder of Otaq's skills inside its plugin folder (one copy for every tool, ADP-05).
-const SKILLS_FOLDER: &str = "skills";
 
 pub(super) fn launch(
     adapter: &OpenCode,
@@ -98,7 +96,7 @@ pub(super) fn launch(
     })
 }
 
-/// Launches can be built once Otaq's plugin folder (its OpenCode plugin and skills) was found.
+/// Launches can be built once Otaq's plugin folder (its OpenCode plugin) was found.
 pub(super) fn unavailable(context: &OpenCodeContext) -> Option<LaunchError> {
     context.tool.launch.is_none().then(plugin_missing)
 }
@@ -108,12 +106,13 @@ pub(crate) fn resume_hint(tool_id: &str) -> String {
     format!("{COMMAND_NAME} --session {tool_id}")
 }
 
-/// One of Otaq's skills named for the agent: the skill's name. OpenCode lists every skill of the launch's
-/// `skills` folder to the model by id and name (`<available_skills>`) and its skill tool loads one by name; it has no
-/// syntax of its own for running a skill from typed text (the TUI's `@<skill>` is an attachment made by its picker,
-/// not parsed from text; checked on 2.0.17).
+/// A skill named for the agent: its copy's name, `otaq-work-ticket`. OpenCode lists the skills it found to the model
+/// by name (`<available_skills>`) and its skill tool loads one by name ("`skill({ name: "git-release" })`", its skills
+/// page); it has no syntax of its own for running a skill from typed text (the TUI's `@<skill>` is an attachment
+/// made by its picker, not parsed from text; checked on 2.0.17, and the typed skill lines report of 2026-10-19: the
+/// line goes in as text and the model loads the skill).
 pub(super) fn skill_reference(skill: &str) -> String {
-    skill.to_owned()
+    naming::copy_name(skill)
 }
 
 /// Why no launch can be built: the plugin folder wasn't found.
@@ -139,22 +138,9 @@ pub(super) fn session_title(request: &LaunchRequest, ticket_title: Option<&str>)
     }
 }
 
-/// The prompt as sent: an Otaq skill by name (with the epic lead's message after it), a workflow skill named
-/// for the working folder, or the text.
+/// The prompt as sent: a skill by its copy's name (with a message after it), or the text.
 fn prompt_text(adapter: &OpenCode, prompt: &FirstPrompt) -> String {
-    match prompt {
-        FirstPrompt::OtaqSkill { name, message } => {
-            let skill = skill_reference(name);
-            match message.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
-                Some(message) => format!("{skill} {message}"),
-                None => skill,
-            }
-        }
-        FirstPrompt::WorkflowSkill { step, imported } => {
-            adapter.workflow_skill(*step, *imported).prompt()
-        }
-        FirstPrompt::Text(text) => text.clone(),
-    }
+    prompt.text(adapter)
 }
 
 /// Otaq's own variables for the role, as every tool gets them: the ticket and its port (a validator has no port),
@@ -196,11 +182,10 @@ fn otaq_env(request: &LaunchRequest, path: String) -> Result<Vec<(String, String
     Ok(env)
 }
 
-/// `OPENCODE_CONFIG_CONTENT`: Otaq's plugin, its skills, the one `otaq *` shell rule, and `model` when set.
+/// `OPENCODE_CONFIG_CONTENT`: Otaq's plugin, the one `otaq *` shell rule, and `model` when set.
 fn config(launch: &LaunchContext, model: Option<&str>) -> Value {
     let mut config = json!({
         "plugins": [launch.plugin_dir.join(PLUGIN_FOLDER).display().to_string()],
-        "skills": [launch.plugin_dir.join(SKILLS_FOLDER).display().to_string()],
         "permissions": [{
             "action": "shell",
             "resource": format!("{} *", naming::COMMAND_NAME),
@@ -219,9 +204,8 @@ mod tests {
 
     use super::*;
     use crate::agent_tools::claude::ClaudeLaunch;
-    use crate::agent_tools::test_support::{context, follow_validate, only_the_prompt_differs};
+    use crate::agent_tools::test_support::{context, only_the_prompt_differs};
     use crate::agent_tools::{PrepareStep, WORK_TICKET_SKILL};
-    use crate::board::settings::WorkflowStep;
 
     fn adapter() -> OpenCode {
         let mut tools = context(Path::new("/nowhere"), None);
@@ -252,13 +236,14 @@ mod tests {
             ticket: Some("SHOP-50".parse().unwrap()),
             epic: None,
             port: 4012,
-            first_prompt: Some(FirstPrompt::OtaqSkill {
+            first_prompt: Some(FirstPrompt::Skill {
                 name: WORK_TICKET_SKILL.into(),
                 message: None,
             }),
             resume: None,
             model: model.map(Into::into),
             title: None,
+            effort: None,
         }
     }
 
@@ -274,7 +259,7 @@ mod tests {
     }
 
     /// ADP-09, ADP-04: the session is made first (its id, title and model), then OpenCode opens it with the first
-    /// prompt; the config carries the plugin, the skills, the one `otaq *` rule and the model.
+    /// prompt; the config carries the plugin, the one `otaq *` rule and the model.
     #[test]
     fn a_new_conversation_is_made_before_launch() {
         let plan = launch(
@@ -321,7 +306,7 @@ mod tests {
                 "--session",
                 id.as_str(),
                 "--prompt",
-                "work-ticket"
+                format!("{}-work-ticket", naming::COMMAND_NAME).as_str()
             ]
         );
         assert_eq!(plan.cwd, Path::new("/wt/shop-web/SHOP-50"));
@@ -329,7 +314,6 @@ mod tests {
             config(&plan),
             json!({
                 "plugins": ["/opt/cb/plugin/opencode"],
-                "skills": ["/opt/cb/plugin/skills"],
                 "permissions": [{
                     "action": "shell",
                     "resource": format!("{} *", naming::COMMAND_NAME),
@@ -442,13 +426,16 @@ mod tests {
         let mut lead = project.clone();
         lead.role = LaunchRole::EpicLead;
         lead.epic = Some("SHOP-31".parse().unwrap());
-        lead.first_prompt = Some(FirstPrompt::OtaqSkill {
+        lead.first_prompt = Some(FirstPrompt::Skill {
             name: "epic-lead".into(),
             message: Some("Start with the cart".into()),
         });
         let plan = launch(&adapter(), &lead).unwrap();
         assert_eq!(env(&plan, &naming::epic_env_var()), Some("SHOP-31"));
-        assert_eq!(plan.args.last().unwrap(), "epic-lead Start with the cart");
+        assert_eq!(
+            plan.args.last().unwrap(),
+            &format!("{}-epic-lead Start with the cart", naming::COMMAND_NAME)
+        );
         lead.epic = None;
         assert!(launch(&adapter(), &lead).is_err());
     }
@@ -507,24 +494,31 @@ mod tests {
         assert_eq!(&a[..10], "ses_eb4534");
     }
 
-    /// A workflow skill as a first prompt (WSK-06, d0092): Otaq's own by its name, an imported one by its worktree
-    /// folder; the launch and its config are otherwise the same, with no `external_directory` rule (d0011).
+    /// A stage's skill as a first prompt (AGM-07): shipped and imported alike by their copies' names; the launch is
+    /// otherwise the same, and the config names no skill folder and no outside folder.
     #[test]
-    fn a_workflow_skill_first_prompt() {
+    fn a_skill_first_prompt() {
         let mut req = request(LaunchRole::Validator, None);
-        req.first_prompt = Some(FirstPrompt::WorkflowSkill {
-            step: WorkflowStep::Validate,
-            imported: false,
+        req.first_prompt = Some(FirstPrompt::Skill {
+            name: "validate".into(),
+            message: None,
         });
-        let built_in = launch(&adapter(), &req).unwrap();
-        assert_eq!(built_in.args.last().unwrap(), "validate");
-        req.first_prompt = Some(FirstPrompt::WorkflowSkill {
-            step: WorkflowStep::Validate,
-            imported: true,
+        let shipped = launch(&adapter(), &req).unwrap();
+        assert_eq!(
+            shipped.args.last().unwrap(),
+            &format!("{}-validate", naming::COMMAND_NAME)
+        );
+        req.first_prompt = Some(FirstPrompt::Skill {
+            name: "team-validate".into(),
+            message: None,
         });
         let imported = launch(&adapter(), &req).unwrap();
-        assert_eq!(imported.args.last(), Some(&follow_validate()));
-        only_the_prompt_differs(&built_in, &imported);
-        assert!(!config(&imported).to_string().contains("external_directory"));
+        assert_eq!(
+            imported.args.last().unwrap(),
+            &format!("{}-team-validate", naming::COMMAND_NAME)
+        );
+        only_the_prompt_differs(&shipped, &imported);
+        let config = config(&imported).to_string();
+        assert!(!config.contains("external_directory") && !config.contains("skills"));
     }
 }

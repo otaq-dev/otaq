@@ -22,7 +22,8 @@ export function askUsageData(ask: typeof request = request): void {
 }
 
 /**
- * Once the service is connected the first time: onboarding opens when no project is stored yet (UI-08); otherwise
+ * Once the service is connected the first time: onboarding opens when no project is stored yet (UI-08), or on the Flow
+ * step of first run's project while its flow isn't settled (ASK-04, `onboarding.start` reads its Flow setup); otherwise
  * "Help improve Otaq" when it was never answered (d0085; onboarding asks it itself when it ends).
  */
 export function openOnboardingWhenNeeded(
@@ -35,8 +36,11 @@ export function openOnboardingWhenNeeded(
     asked = true;
     ask("onboarding.start").then(
       (answer) => {
-        if ((answer as OnboardingStart).show) openOverlay("onboarding");
-        else askUsageData(ask);
+        const start = answer as OnboardingStart;
+        if (!start.show) askUsageData(ask);
+        else if (start.step !== undefined && start.project !== undefined)
+          openOverlay("onboarding", { step: start.step, project: start.project });
+        else openOverlay("onboarding");
       },
       () => undefined,
     );

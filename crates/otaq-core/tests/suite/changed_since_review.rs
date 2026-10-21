@@ -1,6 +1,7 @@
 //! Changed since review (T-0097, REV-06, GIT-05): new commits after a ticket entered Ready for Review need an
 //! explicit Approve anyway; Otaq's own rebases don't count.
 
+use otaq_core::service::testing::said;
 use std::path::{Path, PathBuf};
 
 use otaq_core::board::review::{ApproveCheck, changed_message};
@@ -22,7 +23,11 @@ async fn submitted(w: &TestService) -> (Ticket, PathBuf) {
     commit(&wt, "api.ts", "v1\n");
     w.force_status(&t, Status::Working).await;
     w.board
-        .submit_for_review("SHOP-1", "Adds the API", &Actor::Agent(t.key.clone()))
+        .submit_for_review(
+            "SHOP-1",
+            said(&w.board, "SHOP-1", "Adds the API").await.as_ref(),
+            &Actor::Agent(t.key.clone()),
+        )
         .await
         .unwrap();
     (t, wt)
@@ -105,7 +110,7 @@ async fn a_new_commit_needs_approve_anyway_and_shows_only_itself() {
     assert_eq!(first, LocalMergeOutcome::Changed { check });
     assert_eq!(
         w.status("SHOP-1").await,
-        Status::ReadyForReview,
+        Status::WaitingForYou,
         "nothing merged"
     );
     let anyway = w

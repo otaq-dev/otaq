@@ -175,7 +175,7 @@ function FooterAgent({ agent }: { agent: CardAgent }) {
 /** The footer (*Ticket Card v2 → Footer*): the agent part on the left, the tokens and the last signal on the right
  * while an agent runs, or the card's one action as a small button. */
 function Footer({ footer, onAction }: { footer: CardFooter; onAction?: TicketCardProps["onAction"] }) {
-  const { agent, tokens, signal, action } = footer;
+  const { agent, tokens, signal, action, second, stacked } = footer;
   const tokenValue = tokens && (
     <span className="card-footer-value">
       <Icon name="coins" size={11} />
@@ -184,7 +184,8 @@ function Footer({ footer, onAction }: { footer: CardFooter; onAction?: TicketCar
   );
   return (
     <div className="card-footer">
-      {agent ? <FooterAgent agent={agent} /> : <span className="card-spacer" />}
+      {/* Stacked buttons start at the left, as the frames draw them (`s03-46`). */}
+      {agent ? <FooterAgent agent={agent} /> : !stacked && <span className="card-spacer" />}
       {tokens &&
         (tokens.tooltip === null ? tokenValue : <Tooltip text={tokens.tooltip}>{tokenValue}</Tooltip>)}
       {signal && (
@@ -197,6 +198,7 @@ function Footer({ footer, onAction }: { footer: CardFooter; onAction?: TicketCar
         // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- only stops the click from reaching the card; the button inside is the control
         <span
           className="card-action"
+          data-stacked={stacked || undefined}
           onClick={(e) => {
             e.stopPropagation();
           }}
@@ -208,6 +210,15 @@ function Footer({ footer, onAction }: { footer: CardFooter; onAction?: TicketCar
             compact
             onClick={() => onAction?.(action.kind)}
           />
+          {/* Open agent… beside Use fallback (*03 → A model that can't run*). */}
+          {second && (
+            <Button
+              label={second.label}
+              variant={second.primary ? "primary" : "secondary"}
+              compact
+              onClick={() => onAction?.(second.kind)}
+            />
+          )}
         </span>
       )}
     </div>

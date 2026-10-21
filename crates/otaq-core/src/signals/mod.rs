@@ -245,7 +245,7 @@ impl Signals {
                     }
                     continue;
                 }
-                // Start failed, No result or a failed turn, and the named agent's mark (AGT-05).
+                // Start failed, No result or a failed turn, and the agent's mark (AGT-05).
                 ToolEvent::ModelRefused { model, message } => {
                     if let Some(session) = session
                         && let Some(signal) = self
@@ -431,7 +431,7 @@ impl Signals {
             return Ok(());
         }
         let row: Option<(Option<String>, Option<String>, String)> = sqlx::query_as(
-            "SELECT s.model, COALESCE(s.named_agent_id, a.named_agent_id), p.name FROM sessions s
+            "SELECT s.model, COALESCE(s.agent_id, a.agent_id), p.name FROM sessions s
              JOIN projects p ON p.id = s.project_id LEFT JOIN project_agents a ON a.id = s.project_agent_id
              WHERE s.id = ?",
         )
@@ -445,9 +445,9 @@ impl Signals {
             .inner
             .models
             .get()
-            .map(|m| m as &dyn crate::named_agents::ModelCatalog);
-        let exact = crate::named_agents::mark::asked_exact(tool, asked.as_deref(), models);
-        if !crate::named_agents::mark::is_swap(true, exact, asked.as_deref(), ran) {
+            .map(|m| m as &dyn crate::agents::ModelCatalog);
+        let exact = crate::agents::mark::asked_exact(tool, asked.as_deref(), models);
+        if !crate::agents::mark::is_swap(true, exact, asked.as_deref(), ran) {
             return Ok(());
         }
         let on = match caller {
@@ -456,14 +456,14 @@ impl Signals {
             Caller::ProjectAgent { .. } | Caller::User => project,
         };
         let asked = asked.unwrap_or_default();
-        let mark = crate::named_agents::mark::swapped(adapter.display_name(), ran, &asked, &on);
+        let mark = crate::agents::mark::swapped(adapter.display_name(), ran, &asked, &on);
         tracing::warn!(
             session,
             asked,
             ran,
             "the tool ran another model than the one asked for"
         );
-        if crate::named_agents::mark::set(self.inner.board.store(), &agent, &mark).await? {
+        if crate::agents::mark::set(self.inner.board.store(), &agent, &mark).await? {
             self.inner.events.publish(Event::AgentsChanged);
         }
         Ok(())
@@ -584,15 +584,15 @@ impl Signals {
             return Ok(());
         };
         // An agent that waits for the user during a validation is marked so (interrupted_from validating).
-        let behind = interrupted_from.as_deref() == Some(Status::Validating.as_str());
+        let behind = interrupted_from.as_deref() == Some(Status::Checking.as_str());
         let before = SignalState {
             status,
             text,
             since,
             wakeup_at,
             last_signal_at,
-            validating: status == Status::Validating
-                || status == Status::ValidatorNeedsYou
+            validating: status == Status::Checking
+                || status == Status::CheckerNeedsYou
                 || (behind && status.is_agent_waiting()),
         };
         let after = transition(&before, input, now_ms());
@@ -606,15 +606,14 @@ impl Signals {
         }
         // Only a validating ticket's mark changes: set while its agent waits, cleared once it validates again.
         let behind_after = (before.validating && after.status.is_agent_waiting())
-            .then_some(Status::Validating.as_str());
+            .then_some(Status::Checking.as_str());
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, signal_text = ?, signal_since = ?, wakeup_at = ?,
+            "UPDATE tickets SET state = ?, signal_text = ?, signal_since = ?, wakeup_at = ?,
                                 last_signal_at = ?,
                                 interrupted_from = CASE WHEN ? THEN ? ELSE interrupted_from END, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(after.status.column().as_str())
         .bind(after.status.as_str())
         .bind(&after.text)
         .bind(after.since)

@@ -15,9 +15,12 @@ pub use agent_tools::{
     SignIn as AgentToolSignIn, ViewParams as AgentToolsViewParams,
 };
 #[cfg(test)]
+pub use apply_now::export_types as export_apply_now_types;
+#[cfg(test)]
 pub use board::{
-    DropParams as BoardDropParams, FocusParams as BoardFocusParams, MenuParams as CardMenuParams,
-    SearchParams, TicketParams as BoardTicketParams,
+    DragBackParams as BoardDragBackParams, DropParams as BoardDropParams,
+    FocusParams as BoardFocusParams, MenuParams as CardMenuParams, SearchParams,
+    TicketParams as BoardTicketParams,
 };
 #[cfg(test)]
 pub use diff::{
@@ -31,8 +34,6 @@ pub use drawer::{
     View as DrawerView,
 };
 #[cfg(test)]
-pub use editor::{AgentRowOutcome, AgentRowRequest};
-#[cfg(test)]
 pub use editor::{
     BranchesParams as EditorBranchesParams, CompareEntry as EditorCompareEntry,
     CompareParams as EditorCompareParams, LinkParams as EditorLinkParams, Linked as EditorLinked,
@@ -40,6 +41,8 @@ pub use editor::{
     SaveOutcome as EditorSaved, SaveParams as EditorSaveParams,
     SourceModeParams as EditorSourceModeParams, View as EditorView,
 };
+#[cfg(test)]
+pub use flow_preview::export_types as export_flow_preview_types;
 #[cfg(test)]
 pub use inbox::{
     ActRequest as InboxActParams, AnswerRequest as InboxAnswerParams, Load as InboxLoad,
@@ -51,8 +54,14 @@ pub use keymap::Keymap;
 pub use lead::{Load as LeadTabLoad, Params as LeadTabParams};
 #[cfg(test)]
 pub use notices::{
-    DismissBanner, HoldToast, LimitMoveWaiting, NotificationOpen, ToastId, ToastPress,
+    DismissBanner, HoldToast, NoticesProject, NotificationOpen, ToastId, ToastPress,
 };
+#[cfg(test)]
+pub use onboarding::export_flow_at_work_types;
+#[cfg(test)]
+pub use onboarding::export_flow_setup_page_types;
+#[cfg(test)]
+pub use onboarding::export_flow_step_types;
 #[cfg(test)]
 pub use onboarding::{
     AddOutcome as AddProjectOutcome, FormParams as AddProjectParams, Start as OnboardingStart,
@@ -72,10 +81,11 @@ pub use panel::NotesGallery as OptionNotesGallery;
 #[cfg(test)]
 pub use panel::{
     ActionParams as PanelActionParams, AnswerParams as PanelAnswerParams,
-    CardParams as PanelCardParams, CloseDialog as PanelCloseDialog, Load as PanelLoad,
-    MenuParams as PanelMenuParams, Params as PanelParams, ParentParams as PanelParentParams,
-    PriorityParams as PanelPriorityParams, SendToFix as PanelSendToFix, Sent as PanelSent,
-    SubmitDialog as PanelSubmitDialog, SubmitParams as PanelSubmitParams,
+    CardParams as PanelCardParams, ChoiceParams as PanelChoiceParams,
+    CloseDialog as PanelCloseDialog, Load as PanelLoad, MenuParams as PanelMenuParams,
+    Params as PanelParams, ParentParams as PanelParentParams,
+    PriorityParams as PanelPriorityParams, Sent as PanelSent, SubmitDialog as PanelSubmitDialog,
+    SubmitParams as PanelSubmitParams,
 };
 #[cfg(test)]
 pub use pr::{
@@ -89,11 +99,14 @@ pub use recovery::{
     SummaryParams as AfterRestartParams, ToggleParams as CleanupToggleParams,
     WarmParams as CleanupWarmClearParams,
 };
+pub use report::OpenReports;
+#[cfg(test)]
+pub use report::export_types as export_report_types;
 #[cfg(test)]
 pub use review::{
     Available as ReviewAvailable, ChangeParams as DecisionChangeParams,
     ChangeViewParams as DecisionChangeViewParams, MergeParams as LocalMergeParams,
-    Params as ReviewParams, SendBackParams,
+    Params as ReviewParams, SendBackParams, export_check_types as export_review_check_types,
 };
 #[cfg(test)]
 pub use run::{
@@ -111,10 +124,8 @@ pub use sections::{
 };
 #[cfg(test)]
 pub use settings::{
-    AgentDefaultSet, AgentDeleteOutcome, AgentDialogParams, AgentIdParams, AgentModelsRetry,
-    AgentSaveOutcome, AgentSaveParams, AgentsOpen, AutoFallbackSet, ProjectAgentDefaultSet,
-    SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams, SkillImport,
-    SkillOutcome, SkillReset, SkillStep,
+    AgentsOpen, SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams,
+    export_agent_types, export_flow_types,
 };
 #[cfg(test)]
 pub use shell::{
@@ -131,6 +142,8 @@ pub use terminal_tab::{
 };
 #[cfg(test)]
 pub use theme::{ActiveTheme, ThemeParams, ThemePick};
+#[cfg(test)]
+pub use ticket_comments::export_types as export_ticket_comment_types;
 #[cfg(test)]
 pub use tools::Opened as ToolTerminalOpened;
 #[cfg(test)]
@@ -191,6 +204,10 @@ areas! {
     agent_tools,
     limits,
     palette,
+    flow_preview,
+    apply_now,
+    ticket_comments,
+    report,
 }
 
 /// Reads the user's answer once the service answers, then sends the counts every [`crate::usage::FLUSH_EVERY`]

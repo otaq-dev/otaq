@@ -49,7 +49,9 @@ icons! {
     Archive = "archive";
     ArrowDown = "arrow-down";
     ArrowDownToLine = "arrow-down-to-line";
+    ArrowLeft = "arrow-left";
     ArrowRight = "arrow-right";
+    ArrowRightLeft = "arrow-right-left";
     ArrowUp = "arrow-up";
     ArrowUpRight = "arrow-up-right";
     Ban = "ban";
@@ -86,6 +88,7 @@ icons! {
     CircleStop = "circle-stop";
     CircleX = "circle-x";
     ClipboardCopy = "clipboard-copy";
+    Clock = "clock";
     Code = "code";
     Coins = "coins";
     Columns2 = "columns-2";
@@ -97,6 +100,7 @@ icons! {
     Cpu = "cpu";
     Database = "database";
     Dot = "dot";
+    Download = "download";
     Ellipsis = "ellipsis";
     Equal = "equal";
     ExternalLink = "external-link";
@@ -145,6 +149,7 @@ icons! {
     Loader = "loader";
     LoaderCircle = "loader-circle";
     Lock = "lock";
+    LogIn = "log-in";
     Mail = "mail";
     Maximize = "maximize";
     Maximize2 = "maximize-2";
@@ -175,6 +180,7 @@ icons! {
     Search = "search";
     SearchX = "search-x";
     Send = "send";
+    SendHorizontal = "send-horizontal";
     Server = "server";
     ServerCog = "server-cog";
     ServerOff = "server-off";
@@ -260,6 +266,7 @@ mod tests {
         "archive",
         "arrow-down",
         "arrow-down-to-line",
+        "arrow-left",
         "arrow-right",
         "arrow-up",
         "arrow-up-right",

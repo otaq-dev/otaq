@@ -8,7 +8,7 @@ use otaq_core::board::projects::AddProject;
 use otaq_core::board::tickets::{NewTicketInput, TicketUpdate};
 use otaq_core::client::{Client, ClientConfig, ClientError};
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{Column, Priority, Status};
+use otaq_core::domain::{Priority, Status, StatusSet};
 use otaq_core::git::testing::TempRepos;
 use otaq_core::protocol::{
     DepParams, ErrorKind, Event, KeyParams, MoveParams, ProjectParams, Reply, Request,
@@ -209,7 +209,7 @@ async fn projects_tickets_deps_and_events() {
     let ready_for_dev = board
         .columns
         .iter()
-        .find(|c| c.column == Column::ReadyForDev)
+        .find(|c| c.column == StatusSet::Waiting)
         .unwrap();
     assert_eq!(
         ready_for_dev
@@ -222,7 +222,7 @@ async fn projects_tickets_deps_and_events() {
     let backlog = board
         .columns
         .iter()
-        .find(|c| c.column == Column::Backlog)
+        .find(|c| c.column == StatusSet::Backlog)
         .unwrap();
     assert_eq!(backlog.cards.len(), 1);
 
@@ -324,11 +324,7 @@ async fn themes_travel_in_the_settings_requests() {
     let mut settings = reply.settings;
     assert_eq!(settings.theme, ThemeSetting::default());
     settings.theme = ThemeSetting::Picked(Theme::Dracula);
-    // The M12 settings travel too (T-0181).
-    settings.validation = false;
-    settings.validation_rounds = 5;
-    settings.auto_merge = otaq_core::board::settings::AutoMerge::All;
-    settings.project_agent_instructions = "Use my /import-github skill.".into();
+    settings.terminal_font_size = 15;
     client
         .request(Request::SettingsSet(settings.clone()))
         .await

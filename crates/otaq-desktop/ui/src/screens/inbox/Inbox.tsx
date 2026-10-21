@@ -28,7 +28,7 @@ import { Icon } from "../../theme/Icon";
 import { toolProblemAction } from "../panel/toolProblemRunner";
 import {
   canSend,
-  changeAgent,
+  openAgent,
   describeAction,
   initialPick,
   landNext,
@@ -411,8 +411,8 @@ function Row({
                   icon={b.icon}
                   label={b.label}
                   onClick={() => {
-                    if (b.action.kind === "change_agent") {
-                      changeAgent(row, b.action.role, ROUTES);
+                    if (b.action.kind === "open_agent") {
+                      openAgent(b.action.agent, ROUTES);
                       return;
                     }
                     if (opensNote(b.action)) {

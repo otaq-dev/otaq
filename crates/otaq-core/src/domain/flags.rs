@@ -162,18 +162,42 @@ pub struct Flags {
     /// Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validating_round: Option<super::ValidationRound>,
-    /// The last failed round's findings (its report lines that aren't notes), while the agent fixes them or after
-    /// the last round failed: "· 2 findings", and the first one on "Validation failed 3 times" (d0063). Not a flag
-    /// of its own.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub findings: Vec<String>,
+    /// The agent check the round markers count for, by name ("Security"): the check the card is in, else the one
+    /// that counted last, the one that sent it back (FLW-13, each check counts its own). Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check: Option<String>,
+    /// Why its Delivery waits for a click: the checks the user moved it past in this walk ("Failed Security 3 times ·
+    /// moved by you", "Skipped Security · by you"; d0108 "Move on anyway", FLW-13). Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_past_check: Option<String>,
+    /// How it came to wait in a human check or at its Delivery ("Passed Security · round 2", "Skipped Security · by
+    /// you", "Moved back by you"; FLW-14, [`crate::board::human_check::Arrival`]). Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arrival: Option<crate::board::human_check::Arrival>,
+    /// The last failed round's verdict, while the agent fixes it or after the last round failed: the first line of
+    /// the comment its checker posted in that round ("Fail: the 10,000 row limit isn't enforced; …"), which the card
+    /// shows with "· see comment" (CMT-10, d0109). Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<String>,
     /// The files the recorded conflict touches: "Merge conflict · fixing · lib/wishlist.ts" (d0064). Not a flag
     /// of its own.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conflict_files: Vec<String>,
-    /// Done through Auto-merge: "Merged automatically" (d0064).
+    /// Merged by an automatic local Delivery: "Merged automatically" (d0064, d0108).
     #[serde(default, skip_serializing_if = "is_false")]
     pub merged_automatically: bool,
+    /// Done through an automatic Delivery with no check passed before it: "Delivered without checks" (amber, d0108
+    /// rule 8).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub delivered_without_checks: bool,
+    /// An automatic Delivery is under way (FLW-15): its agent opens or pushes the PR with no dialog. The card waits
+    /// for nobody, so it isn't in the inbox's group 3. Not a flag of its own.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub delivering_automatically: bool,
+    /// Closed by an agent's `otaq stage done` (AGM-10): "Closed · nothing to merge", with the agent's reason (empty
+    /// when it gave none). Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nothing_to_merge: Option<String>,
     /// A Backlog ticket (not an epic) whose dependencies are all merged: the quiet "Ready to start" hint. It never
     /// starts by itself (d0066, SCH-02).
     #[serde(default, skip_serializing_if = "is_false")]
@@ -250,6 +274,7 @@ stored_enum! {
         ReviewEntry = "review_entry",
         ValidationRound = "validation_round",
         MergedAutomatically = "merged_automatically",
+        DeliveredWithoutChecks = "delivered_without_checks",
         YourTurn = "your_turn",
         SameFile = "same_file",
         AskedLead = "asked_lead",
@@ -287,6 +312,7 @@ impl Flags {
             (Flag::ReviewEntry, self.review_entry.is_some()),
             (Flag::ValidationRound, self.validation_round.is_some()),
             (Flag::MergedAutomatically, self.merged_automatically),
+            (Flag::DeliveredWithoutChecks, self.delivered_without_checks),
             (Flag::YourTurn, self.your_turn),
             (Flag::SameFile, !self.same_file.is_empty()),
             (Flag::AskedLead, self.asked_lead.is_some()),
@@ -337,9 +363,18 @@ mod tests {
             }),
             validation_round: Some(crate::domain::ValidationRound { round: 1, of: 3 }),
             validating_round: Some(crate::domain::ValidationRound { round: 2, of: 3 }),
-            findings: vec!["src/cart.ts:12 the total ignores the coupon".into()],
+            check: Some("Security".into()),
+            moved_past_check: Some("Skipped Security · by you".into()),
+            arrival: Some(crate::board::human_check::Arrival::Passed {
+                stage: "Security".into(),
+                round: Some(2),
+            }),
+            verdict: Some("Fail: the total ignores the coupon".into()),
             conflict_files: vec!["lib/wishlist.ts".into()],
             merged_automatically: true,
+            delivered_without_checks: true,
+            delivering_automatically: true,
+            nothing_to_merge: Some("Already fixed in SHOP-31.".into()),
             ready_to_start: true,
             your_turn: true,
             same_file: vec![SameFile {

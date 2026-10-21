@@ -289,14 +289,23 @@
   color: var(--st-paused);
 }
 
-/* The one action: a 24 px button, 8 px sides, 11.5 px label (*Ticket Card v2 → Footer → Action*). */
+/* The one action: a 24 px button, 8 px sides, 11.5 px label (*Ticket Card v2 → Footer → Action*); a second one
+ * beside it (Use fallback · Open agent…, *03 → A model that can't run*). */
 .card-footer .card-action {
   flex: none;
+  gap: 6px;
 }
 
 .card-footer .card-action > .button {
+  flex: none;
   padding: 0 8px;
   font-size: 11.5px;
+}
+
+/* Send back with PR comments over Mark merged, Skip this check over Open agent… (`s03-46`, `s03-54`). */
+.card-footer .card-action[data-stacked] {
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 /* The lead's markers (d0083, T-0291): a light hover card with the note, the files or the lead's view

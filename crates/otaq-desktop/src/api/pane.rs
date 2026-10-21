@@ -3,10 +3,10 @@
 //! pane draws for a project and the agent it shows (`agent_pane.rs`); the others are its clicks: Send (the first
 //! message starts the agent, d0087), Rename, End agent (asks first mid-turn), Close ended agents and Resume. Which
 //! agent each project shows, + and the empty pane are the page's own state: nothing here starts without a message
-//! or a click. The empty pane names the named agent the project's Project agent role resolves to (T-0342), which
-//! [`project_agent`] finds for Ask the agent too.
+//! or a click. The empty pane names the Project agent role's agent (T-0342, AGM-01), which [`project_agent`] finds
+//! for Ask the agent too.
 
-use otaq_core::named_agents::{self, NamedAgent, Role};
+use otaq_core::agents::{Agent, Role};
 use otaq_core::project_agents::{CreatedAndChanged, ProjectAgent, ProjectAgentList};
 use otaq_core::protocol::{
     IdParams, KeyParams, ProjectAgentCloseParams, ProjectAgentOpenParams, ProjectAgentRenameParams,
@@ -95,42 +95,27 @@ async fn edited_of(app: &App, created: &CreatedAndChanged) -> Vec<EditedTicket> 
     edited
 }
 
-/// The named agent the Project agent role resolves to for `project` now (AGT-05): the project's default, else the app
-/// default. `None` before any named agent exists.
-pub(super) async fn project_agent(
-    app: &App,
-    project: &str,
-) -> Result<Option<NamedAgent>, RequestError> {
-    Ok(project_agent_and_list(app, project).await?.0)
+/// The Project agent role's agent (AGM-01): the one every Project agent starts on. `None` before it exists.
+pub(super) async fn project_agent(app: &App) -> Result<Option<Agent>, RequestError> {
+    Ok(project_agent_and_list(app).await?.0)
 }
 
-/// [`project_agent`] and every named agent.
-async fn project_agent_and_list(
-    app: &App,
-    project: &str,
-) -> Result<(Option<NamedAgent>, Vec<NamedAgent>), RequestError> {
+/// The agent tools as the pane reads them ([`super::editor::agent_tools`]).
+pub(super) async fn tools(app: &App) -> otaq_view::view_models::tool_problems::Tools {
+    super::editor::agent_tools(app).await
+}
+
+/// [`project_agent`] and every agent.
+async fn project_agent_and_list(app: &App) -> Result<(Option<Agent>, Vec<Agent>), RequestError> {
     let list = match app.service.send(Request::AgentsList).await? {
         Reply::Agents(list) => *list,
         other => return Err(unexpected("agents.list", &other)),
     };
-    let own = match app
-        .service
-        .send(Request::ProjectAgentDefaults(ProjectParams {
-            project: project.to_owned(),
-        }))
-        .await?
-    {
-        Reply::AgentDefaults(own) => *own,
-        other => return Err(unexpected("project.agent_defaults", &other)),
-    };
-    let default = named_agents::resolve(
-        Role::ProjectAgent,
-        None,
-        &own,
-        &list.defaults,
-        &list.agents,
-    )
-    .map(|resolved| resolved.agent);
+    let default = list
+        .agents
+        .iter()
+        .find(|a| a.role == Some(Role::ProjectAgent))
+        .cloned();
     Ok((default, list.agents))
 }
 
@@ -163,7 +148,7 @@ pub struct Params {
 pub async fn view(app: &App, params: Params) -> Result<PaneView, RequestError> {
     let agents = agents(app, &params.project).await?;
     let name = project_name(app, &params.project).await?;
-    let (new_agent, named) = project_agent_and_list(app, &params.project).await?;
+    let (new_agent, named) = project_agent_and_list(app).await?;
     let start_on = params
         .start_on
         .as_deref()
@@ -192,7 +177,7 @@ pub async fn view(app: &App, params: Params) -> Result<PaneView, RequestError> {
         now_ms: otaq_core::store::now_ms(),
         keys: super::keymap::labels(app).await,
         tools: &tools,
-        named_agents: &named,
+        agent_list: &named,
         start_on,
         project: &params.project,
     }))
@@ -381,6 +366,7 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }))
             .await
             .unwrap()
@@ -419,16 +405,19 @@ mod tests {
         .unwrap();
         assert_eq!(gone["agent"], Value::Null);
 
-        // The project's Project agent default is Strong: the empty pane says so.
+        // The Project agent role moved to Strong: the empty pane says so.
         let Reply::Agent(strong) = h
             .app
             .service
-            .send(Request::AgentsAdd(otaq_core::named_agents::AgentFields {
+            .send(Request::AgentsAdd(otaq_core::agents::AgentFields {
                 name: "Strong".into(),
-                tool: otaq_core::agent_tools::Tool::ALL[0],
-                model: None,
-                use_for: String::new(),
-                fallback: None,
+                instructions: String::new(),
+                skills: Vec::new(),
+                model: otaq_core::agents::AgentModel::Tool {
+                    tool: otaq_core::agent_tools::Tool::ALL[0],
+                    model: None,
+                },
+                effort: None,
             }))
             .await
             .unwrap()
@@ -437,13 +426,10 @@ mod tests {
         };
         h.app
             .service
-            .send(Request::ProjectSetAgentDefault(
-                otaq_core::protocol::ProjectAgentDefaultParams {
-                    project: project.clone(),
-                    role: Role::ProjectAgent,
-                    agent: Some(strong.id.clone()),
-                },
-            ))
+            .send(Request::AgentsMoveRole(otaq_core::protocol::MoveRoleParams {
+                role: Role::ProjectAgent,
+                agent: strong.id.clone(),
+            }))
             .await
             .unwrap();
         let view = table(&h.app, "pane.view", json!({ "project": project }))

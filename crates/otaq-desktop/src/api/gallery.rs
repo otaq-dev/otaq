@@ -6,8 +6,8 @@ use std::ffi::OsStr;
 
 use otaq_core::naming;
 use otaq_view::view_models::{
-    activity, agent_pane, agent_rows, agent_tools_page, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
-    limit_banner, named_agents, onboarding_page, settings_page, tool_avatar,
+    activity, agent_pane, agent_tools_page, flow_at_work, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
+    limit_banner, onboarding_page, settings_page, stage_choices, tool_avatar,
 };
 use serde_json::Value;
 
@@ -50,19 +50,23 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.drawer" => reply(&super::drawer::gallery()),
         // 15 · Settings → Agents: fresh install, a list you made, the picker, the mark, ⋯ and Delete, the project
         // block (T-0340; T-0343 draws it).
-        "gallery.agents" => reply(&named_agents::gallery()),
-        // 05/08 · Agent rows: every row state, one agent, locked, moved on (T-0341; drawn by T-0344).
-        "gallery.agent_rows" => reply(&agent_rows::gallery()),
+        // 05/08 · Stage choices and the path: the ⌘N form, mid-flow, after a Fail, finished, a choice you set, the
+        // default flow (T-0411).
+        "gallery.stage_choices" => reply(&stage_choices::gallery()),
         // 15 · Settings → Agent tools: every state per tool, the notes, Disconnect's dialog (T-0360; T-0365 draws it).
         "gallery.agent_tools" => reply(&agent_tools_page::gallery()),
         // 14 · The Tools step with agent tools: the sample, none connected, one connected, hidden and warned (T-0365).
         "gallery.onboarding_tools" => reply(&onboarding_page::tools_gallery()),
+        // 14 · The Flow step: ask an agent (one tool, two tools) and no agent tool connected (T-0434).
+        "gallery.onboarding_flow" => reply(&onboarding_page::flow_gallery()),
+        // 14 · The Add project dialog's go-ahead, and no agent tool connected (T-0431).
+        "gallery.onboarding_flow_dialog" => reply(&onboarding_page::flow_dialog_gallery()),
+        // 14 · Agents at work: two at work, one not asked, the plan limit, not signed in, ended (T-0434).
+        "gallery.onboarding_flow_at_work" => reply(&flow_at_work::gallery()),
         // 11 · The usage-limit banner's line per tool, Move waiting to…, a tool that isn't available (T-0364).
         "gallery.limit_lines" => reply(&limit_banner::gallery()),
         // The notification banners and Settings → Notifications in every state (T-0372).
         "gallery.notifications" => reply(&settings_page::notifications_gallery()),
-        // Settings → Workflow skills, global and per project, in every state of update AC (T-0380).
-        "gallery.workflow_skills" => reply(&settings_page::workflow_skills_gallery()),
         // Settings → Keyboard shortcuts in every frame of update AF, macOS and Windows / Linux (T-0395).
         "gallery.keyboard_page" => reply(&otaq_view::view_models::keyboard_page::gallery()),
         // The answer options' notes in the inbox, the panel and the card's hover card (T-0375).
@@ -144,10 +148,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(board["review"][0]["column"]["sections"][1]["id"], "approved");
-        let rows = crate::api::request(&h.app, "gallery.agent_rows", Value::Null)
+        let choices = crate::api::request(&h.app, "gallery.stage_choices", Value::Null)
             .await
             .unwrap();
-        assert_eq!(rows["samples"][3]["block"]["rows"][0]["value"], "Strong");
+        assert_eq!(choices["samples"][0]["choices"]["rows"][1]["value"], "Rust developer");
+        assert_eq!(choices["samples"][1]["path"]["rows"][1]["detail"], "Rust developer \u{b7} working");
         let notifications = crate::api::request(&h.app, "gallery.notifications", Value::Null)
             .await
             .unwrap();
@@ -160,6 +165,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(lines["cells"][0]["lines"][0]["title"], "Claude Code limit reached");
+        let dialog = crate::api::request(&h.app, "gallery.onboarding_flow_dialog", Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(dialog["cells"][0]["step"]["title"], "billing-api\u{2019}s flow");
         h.service.stop_all().await;
     }
 }

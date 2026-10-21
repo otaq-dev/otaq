@@ -10,7 +10,13 @@ import type { BoardColumn } from "../../generated/BoardColumn";
 import type { DragAnswer } from "../../generated/DragAnswer";
 import type { DropOutcome } from "../../generated/DropOutcome";
 import type { BoardReviewSection } from "../../generated/BoardReviewSection";
+import type { BoardStageStrip } from "../../generated/BoardStageStrip";
 import { afterDrop, coveredWidth, dropCard, openApproveChoice } from "./Board";
+import { EMPTY_BOX } from "../editor/commentRules";
+import { DragBackBody, sendDragBack } from "./DragBackDialog";
+import type { CommentBoxView } from "../../generated/CommentBoxView";
+import type { DragBackDialog } from "../../generated/DragBackDialog";
+import { columnsInView, StageStrip } from "./StageStrip";
 import { Column, type ColumnProps, columnOfCard, runsOf, walkOf } from "./Column";
 import {
   aboveChip,
@@ -119,6 +125,7 @@ const cardOf = (key: string): BoardCard => ({
 
 const sectionOf = (key: string): BoardReviewSection => ({
   id: "ready_for_review",
+  target: null,
   title: "READY FOR REVIEW",
   count: "1",
   cards: [cardOf(key)],
@@ -468,20 +475,178 @@ describe("drops", () => {
   });
 });
 
+describe("drags to any stage (FLW-18, CMT-13)", () => {
+  /** A dialog's comment box as `CommentBoxView::dialog` makes it. */
+  const commentBox = (label: string, footer: string, placeholder: string): CommentBoxView => ({
+    label,
+    placeholder,
+    submit: null,
+    footer,
+    footer_icon: "message-square",
+    needs_line: "Say what the next agent should look for",
+    pasted: "Pasted text",
+    open: "Open",
+    remove: "Remove the pasted text",
+    optional: true,
+    limits: { chars: 2000, report_bytes: 20 * 1024 * 1024, report_label: "20 MB" },
+  });
+  const sendBack: DragBackDialog = {
+    key: "SHOP-19",
+    target: "dev",
+    title: "Send SHOP-19 back to Dev?",
+    stops: null,
+    comment: commentBox(
+      "Comment for Dev (Rust developer)",
+      "Posted as a comment for Dev · every later stage reads it",
+      "What should change? Every later stage reads it too.",
+    ),
+    then: "Then it goes on to Security, Review and Done as usual.",
+    cancel: "Cancel",
+    confirm: "Send to Dev",
+    confirm_icon: "undo-2",
+  };
+  const stopAndSend: DragBackDialog = {
+    ...sendBack,
+    key: "SHOP-29",
+    title: "Send SHOP-29 back to Dev?",
+    stops: "Security reviewer is working on it now. It stops, and the check runs again after Dev.",
+    then: null,
+    confirm: "Stop and send to Dev",
+  };
+  const runAgain: DragBackDialog = {
+    key: "SHOP-18",
+    target: "security",
+    title: "Run Security again on SHOP-18?",
+    stops: null,
+    comment: commentBox(
+      "Comment for Security (Security reviewer)",
+      "Posted as a comment for Security · every later stage reads it",
+      "",
+    ),
+    then: null,
+    cancel: "Cancel",
+    confirm: "Run Security",
+    confirm_icon: "rotate-ccw",
+  };
+  const body = (view: DragBackDialog, refusal: string | null = null) =>
+    renderToStaticMarkup(
+      createElement(DragBackBody, {
+        view,
+        comment: EMPTY_BOX,
+        onComment: () => undefined,
+        onSubmit: () => undefined,
+        refusal,
+      }),
+    );
+
+  it("a drop back to an earlier stage opens the drag-back dialog and sends nothing yet", () => {
+    const asked: string[] = [];
+    const ask = (method: string) => {
+      asked.push(method);
+      return Promise.resolve(null);
+    };
+    afterDrop({ kind: "drag_back", dialog: sendBack }, () => undefined, ask);
+    expect(overlays.store.get()).toEqual([{ id: "drag_back", params: sendBack }]);
+    expect(asked).toEqual([]);
+  });
+
+  it("draws the three dialogs: back to Dev, stop and send, and run a check again", () => {
+    const back = body(sendBack);
+    expect(back).toContain(">Comment for Dev (Rust developer)</label>");
+    expect(back).toContain('placeholder="What should change? Every later stage reads it too."');
+    expect(back).toContain("Posted as a comment for Dev · every later stage reads it");
+    expect(back).toContain("Then it goes on to Security, Review and Done as usual.");
+    expect(back).not.toContain("review-callout");
+
+    const stop = body(stopAndSend);
+    expect(stop).toContain('data-tone="paused"');
+    expect(stop).toContain(
+      "Security reviewer is working on it now. It stops, and the check runs again after Dev.",
+    );
+    expect(stop).not.toContain("Then it goes on");
+
+    const check = body(runAgain);
+    expect(check).toContain(">Comment for Security (Security reviewer)</label>");
+    expect(check).toContain("Posted as a comment for Security · every later stage reads it");
+    expect(check).toContain('placeholder=""');
+    expect(check).not.toContain("Then it goes on");
+  });
+
+  it("shows a refusal in the dialog", () => {
+    expect(body(sendBack, "SHOP-19 has 2 uncommitted files")).toContain(
+      '<p class="review-error" role="alert">SHOP-19 has 2 uncommitted files</p>',
+    );
+    expect(body(sendBack)).not.toContain("review-error");
+  });
+
+  it("its confirm sends board.drag_back; unsent text asks first, then sends again with clear", async () => {
+    const asked: [string, unknown][] = [];
+    let unsent = true;
+    const ask = (method: string, params?: unknown) => {
+      asked.push([method, params]);
+      if (method === "board.drag_back" && unsent) {
+        unsent = false;
+        return Promise.resolve({
+          outcome: "ask",
+          title: "SHOP-19's terminal has unsent text",
+          body: "…",
+          clear: "Clear it and send",
+          cancel: "Cancel",
+        });
+      }
+      return Promise.resolve({ outcome: "done" });
+    };
+    const comment = { text: "Keep the old price column", pasted: { text: "migration log", bytes: 13 } };
+    await sendDragBack(sendBack, comment, false, ask);
+    expect(asked).toEqual([
+      [
+        "board.drag_back",
+        {
+          key: "SHOP-19",
+          target: "dev",
+          note: "Keep the old price column",
+          clear: false,
+          report: "migration log",
+        },
+      ],
+    ]);
+    const confirm = overlays.store.get()[0];
+    if (confirm?.id !== "confirm") throw new Error("no unsent-text question");
+    expect(confirm.params.confirmLabel).toBe("Clear it and send");
+    confirm.params.onConfirm();
+    await flush();
+    // "Clear it and send" sends the comment and its pasted report again.
+    expect(asked[1]).toEqual([
+      "board.drag_back",
+      {
+        key: "SHOP-19",
+        target: "dev",
+        note: "Keep the old price column",
+        clear: true,
+        report: "migration log",
+      },
+    ]);
+  });
+});
+
 describe("the board screen", () => {
   it("fills the board and search slots, the delete dialog, and ⌘N opens a new ticket", () => {
     const app = registerScreens({ board });
     expect(registered(app).slots).toEqual(["header_search", "board"]);
-    expect(registered(app).overlays).toEqual(["delete_ticket"]);
+    expect(registered(app).overlays).toEqual(["delete_ticket", "drag_back"]);
     expect(app.shortcuts.run({ action: "new_ticket" })).toBe(true);
     expect(overlays.store.get()).toEqual([{ id: "new_ticket", params: undefined }]);
   });
 
   const column = (over: Partial<BoardColumn>): BoardColumn => ({
     id: "review",
+    kind: "human_check",
     title: "Review",
     icon: "eye",
     count: "0",
+    quiet_icon: false,
+    folded: [],
+    tooltip: null,
     hint: null,
     empty_hint: "Agents move their ticket here when they submit it for your review.",
     collapsed: false,
@@ -531,6 +696,55 @@ describe("the board screen", () => {
     );
     expect(rail).toContain("board-rail");
     expect(rail).not.toContain("board-column-cards");
+  });
+
+  it("heads a stage with its muted kind icon, its folded stages and who runs it (FLW-12)", () => {
+    const dev = renderToStaticMarkup(
+      createElement(
+        Column,
+        props(
+          column({
+            id: "dev",
+            kind: "agent",
+            title: "Dev",
+            icon: "bot",
+            quiet_icon: true,
+            count: "3",
+            folded: [{ tag: "Validating", count: "1" }],
+            tooltip: { title: "Dev · Rust developer · work-ticket", detail: ["Claude Code · sonnet"] },
+          }),
+        ),
+      ),
+    );
+    expect(dev).toContain('style="color:var(--text-muted)"');
+    expect(dev).toMatch(/board-column-title">Dev<.*board-column-count">3<.*·.*Validating<.*>1</);
+    // The tooltip wraps the title (it shows on hover).
+    expect(dev).toMatch(/tooltip-anchor[^>]*><span class="board-column-title">Dev</);
+    // The default flow's icons keep their status colour.
+    const review = renderToStaticMarkup(createElement(Column, props(column({}))));
+    expect(review).toContain('style="color:var(--st-review)"');
+    expect(review).not.toContain("board-column-folded");
+  });
+
+  it("draws an empty stage of a long flow as a rail with no click; Done's rail opens Done", () => {
+    let toggled = 0;
+    const rail = (c: BoardColumn) =>
+      renderToStaticMarkup(
+        createElement(Column, {
+          ...props(c),
+          onToggleDone: () => {
+            toggled += 1;
+          },
+        }),
+      );
+    const grill = rail(column({ id: "grill", kind: "agent", title: "Grill", icon: "bot", collapsed: true }));
+    expect(grill).toMatch(/<div class="board-rail" data-column="grill" role="group" aria-label="Grill 0">/);
+    expect(grill).not.toContain("<button");
+    const done = rail(
+      column({ id: "done", kind: "done", title: "Done", collapsed: true, toggle: "Expand Done" }),
+    );
+    expect(done).toMatch(/<button type="button" class="board-rail" data-column="done"/);
+    expect(toggled).toBe(0);
   });
 
   const ticketCard = (key: string): BoardCard => ({
@@ -637,14 +851,15 @@ describe("the Review column (T-0328, d0087)", () => {
     expect(columnAt(REVIEW_SPANS, 700, 320)).toBe("approved");
     expect(columnAt(REVIEW_SPANS, 700, 200)).toBe("review");
     expect(columnAt(REVIEW_SPANS, 300, 320)).toBe("ready_for_dev");
-    expect(targetOrder(["backlog", "ready_for_dev", "dev", "review", "done"])).toEqual([
-      "backlog",
-      "ready_for_dev",
-      "dev",
-      "review",
-      "approved",
-      "done",
-    ]);
+    const sections = (id: string) =>
+      id === "review"
+        ? [{ ...sectionOf("NOTE-7") }, { ...sectionOf("NOTE-8"), id: "approved", target: "approved" }]
+        : [];
+    expect(
+      targetOrder(
+        ["backlog", "ready_for_dev", "dev", "review", "done"].map((id) => ({ id, sections: sections(id) })),
+      ),
+    ).toEqual(["backlog", "ready_for_dev", "dev", "review", "approved", "done"]);
   });
 
   it("looks up each section's verdict: Ready for Review drops on Approved, not on its own section", async () => {
@@ -708,6 +923,7 @@ describe("the Review column (T-0328, d0087)", () => {
   });
   const section = (over: Partial<BoardReviewSection>): BoardReviewSection => ({
     id: "ready_for_review",
+    target: null,
     title: "READY FOR REVIEW",
     count: "0",
     cards: [],
@@ -721,9 +937,13 @@ describe("the Review column (T-0328, d0087)", () => {
   });
   const review: BoardColumn = {
     id: "review",
+    kind: "human_check",
     title: "Review",
     icon: "eye",
     count: "1",
+    quiet_icon: false,
+    folded: [],
+    tooltip: null,
     hint: null,
     empty_hint: "",
     collapsed: false,
@@ -734,6 +954,7 @@ describe("the Review column (T-0328, d0087)", () => {
       section({ count: "1", cards: [card("NOTE-7")] }),
       section({
         id: "approved",
+        target: "approved",
         title: "APPROVED",
         empty: "Nothing approved",
         drag_hint: "Drag a ticket here from Ready for Review to approve it.",
@@ -804,13 +1025,53 @@ describe("the Review column (T-0328, d0087)", () => {
   });
 });
 
+describe("the stage strip (FLW-12)", () => {
+  const STRIP: BoardStageStrip = {
+    label: "Columns",
+    columns: [
+      { column: "backlog", title: "Backlog", count: "1", folded: [] },
+      { column: "dev", title: "Dev", count: "1", folded: [{ name: "Validate", count: "1" }] },
+      { column: "qa", title: "QA", count: "1", folded: [] },
+    ],
+  };
+
+  it("names every column with its count, a folded stage under its column, and outlines those in view", () => {
+    const html = renderToStaticMarkup(
+      createElement(StageStrip, {
+        strip: STRIP,
+        inView: new Set(["backlog", "dev"]),
+        onPick: () => undefined,
+      }),
+    );
+    expect(html).toContain('aria-label="Columns"');
+    expect(html.match(/stage-strip-chevron/g)).toHaveLength(2);
+    expect(html).toMatch(/data-column="dev" data-in-view="true"[^>]*>.*Dev<.*>1<.*Validate<.*>1</);
+    expect(html).toMatch(/data-column="qa">/);
+  });
+
+  it("counts a column in view when at least half of it shows", () => {
+    const spans = [
+      { id: "backlog", left: 0, right: 184 },
+      { id: "dev", left: 192, right: 376 },
+      { id: "qa", left: 384, right: 568 },
+    ];
+    expect([...columnsInView(spans, { left: 0, right: 500 })]).toEqual(["backlog", "dev", "qa"]);
+    expect([...columnsInView(spans, { left: 100, right: 450 })]).toEqual(["dev"]);
+    expect([...columnsInView(spans, { left: 600, right: 900 })]).toEqual([]);
+  });
+});
+
 describe("the panel over the board (SHL-05)", () => {
   it("scrolls to the selected card's column", () => {
     const columns: BoardColumn[] = (["backlog", "dev", "review"] as const).map((id) => ({
       id,
+      kind: id === "dev" ? "agent" : id === "review" ? "human_check" : "backlog",
       title: id,
       icon: "eye",
       count: "0",
+      quiet_icon: false,
+      folded: [],
+      tooltip: null,
       hint: null,
       empty_hint: "",
       collapsed: false,

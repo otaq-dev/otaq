@@ -130,7 +130,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
             events: &events,
             before: before.as_ref(),
             holds: agents.as_ref().map_or(&[], |a| &a.holds),
-            named_agents: agents.as_ref().map_or(&[], |a| &a.agents),
+            agent_list: agents.as_ref().map_or(&[], |a| &a.agents),
             tools: &tools,
         })),
         gone,
@@ -161,6 +161,7 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }))
             .await
             .unwrap()

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { createOverlayStack } from "../../app/overlays";
 import { createRegistries, registered, registerScreens, RegistriesContext } from "../../app/registry";
-import { type AgentRowFocusRequest, createSelection, type TerminalFocusRequest } from "../../app/selection";
+import { createSelection, type TerminalFocusRequest } from "../../app/selection";
 import { createStore } from "../../app/store";
 import type { InboxOption } from "../../generated/InboxOption";
 import type { InboxRowView } from "../../generated/InboxRowView";
@@ -16,7 +16,7 @@ import { AllClearBody } from "./AllClear";
 import { InboxBody } from "./Inbox";
 import {
   canSend,
-  changeAgent,
+  openAgent,
   describeAction,
   initialPick,
   landNext,
@@ -202,15 +202,16 @@ describe("the inbox's own rules", () => {
     expect(r.focus.get()).toEqual({ ticket: "SHOP-22", seq: 1 });
   });
 
-  it("Change agent opens the ticket's Ticket tab with that row's picker asked for (AGT-05)", () => {
+  it("Open agent… opens Settings → Agents on the agent whose model was refused (AGT-05, AGM-03)", () => {
     const r = routes();
-    const focus = createStore<AgentRowFocusRequest | null>(null);
     r.overlays.open("inbox");
-    changeAgent(row("SHOP-48"), "developer", r, focus);
-    expect(r.selection.get()).toMatchObject({ ticket: "SHOP-48", tab: "ticket" });
-    expect(r.overlays.store.get()).toEqual([]);
-    expect(focus.get()).toEqual({ ticket: "SHOP-48", role: "developer", seq: 1 });
-    expect(describeAction({ kind: "change_agent", role: "validator" })).toBe("change_agent validator");
+    openAgent("fable", r);
+    expect(r.overlays.store.get()).toEqual([
+      { id: "settings", params: { section: "agents", agent: "fable" } },
+    ]);
+    openAgent(null, r);
+    expect(r.overlays.store.get()).toEqual([{ id: "settings", params: { section: "agents" } }]);
+    expect(describeAction({ kind: "open_agent", agent: "fable" })).toBe("open_agent fable");
   });
 
   it("⌘J lands on the next item, or shows All clear and closes the panel", () => {
@@ -236,7 +237,7 @@ describe("the inbox's own rules", () => {
     expect(describeAction({ kind: "resume_target", message: "m1" })).toBe("resume_target m1");
     expect(describeAction({ kind: "retry_merge" })).toBe("retry_merge");
     expect(opensNote({ kind: "answer_agent", note: "" })).toBe(true);
-    expect(opensNote({ kind: "move_to_review_anyway" })).toBe(false);
+    expect(opensNote({ kind: "move_on_anyway" })).toBe(false);
   });
 });
 
@@ -259,8 +260,8 @@ const M12: InboxView = {
           reason: "validation failed 3 times",
           buttons: [
             {
-              action: { kind: "move_to_review_anyway" },
-              label: "Move to Review anyway",
+              action: { kind: "move_on_anyway" },
+              label: "Move on anyway",
               icon: "eye",
               primary: true,
             },
@@ -303,7 +304,7 @@ describe("the M12 items", () => {
     );
     expect(html).toContain("ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS");
     expect(html).toContain("↵ / ⌘J open Terminal · Validator side");
-    expect(html).toContain("Move to Review anyway");
+    expect(html).toContain("Move on anyway");
     expect(html).toContain("Give it another round");
     expect(html).toContain("Answer the agent…");
     expect(html).not.toContain("Tell the agent what to do");
@@ -545,6 +546,7 @@ describe("the inbox's markup", () => {
                 action: { kind: "sign_in", tool: "codex" },
                 enabled: true,
                 primary: false,
+                tooltip: null,
               },
             },
           ],
@@ -655,7 +657,7 @@ const STUCK = row("SHOP-40.3", {
     view: "The agent keeps changing the API instead of the test.",
   },
   buttons: [
-    { action: { kind: "move_to_review_anyway" }, label: "Move to Review anyway", icon: "eye", primary: true },
+    { action: { kind: "move_on_anyway" }, label: "Move on anyway", icon: "eye", primary: true },
     { action: { kind: "another_round" }, label: "Give it another round", icon: "rotate-ccw", primary: false },
   ],
 });
@@ -735,7 +737,7 @@ describe("epic lead items", () => {
       "LEAD&#x27;S VIEW",
       "The agent keeps changing the API instead of the test.",
       "the lead isn’t woken a second time",
-      "Move to Review anyway",
+      "Move on anyway",
       "Wishlist lead · SHOP-40 Wishlist",
       "opens the epic panel on its Lead tab",
       "SUGGESTIONS · NO OS NOTIFICATION",

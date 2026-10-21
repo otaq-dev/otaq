@@ -1,15 +1,16 @@
-// First run (UI-08, UI-11; *14 · First run & onboarding*): over the whole window, its own title bar with the step
-// indicator (Welcome · Theme · Tools · Project · Done) between the OS's window controls, and one card per step:
-// Welcome, Theme ("Pick a look", T-0217's picker: a click applies and saves), Tools (the agent tools and the
-// checklist, Re-check, Continue only once an agent tool is connected; a row's Sign in…, Show or Hide checks again
-// once done), Project (Add your first project). Adding the project ends it on the project's empty board (*4 · Done*); with the warning shown and not
-// closed, the permission-mode banner follows (T-0231).
+// First run (UI-08, UI-11, ONB-04, ONB-10; *14 · First run & onboarding*): over the whole window, its own title bar
+// with the step indicator (Welcome · Theme · Tools · Project · Flow · Done) between the OS's window controls, and one
+// card per step: Welcome, Theme ("Pick a look", T-0217's picker: a click applies and saves), Tools (the agent tools
+// and the checklist, Re-check, Continue only once an agent tool is connected; a row's Sign in…, Show or Hide checks
+// again once done), Project (Add your first project), Flow (`FlowStep.tsx`: the project's flow from an agent, a
+// preset or the default). The Flow step ends it on the project's board (*6 · Done*) once the flow is settled; with the
+// warning shown and not closed, the permission-mode banner follows (T-0231). Quitting during the Flow step leaves the
+// project in Flow setup, and the next start reopens onboarding on its Flow step (ASK-04).
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
 import type { OverlayProps } from "../../app/registry";
 import { useRegistries } from "../../app/registry";
-import { selectProject } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { Button, pickTheme, ThemePicker, useThemePicker } from "../../components";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
@@ -25,7 +26,8 @@ import { agentStillOffered, useAgentToolActions } from "../settings/AgentTools";
 import { useRowTerminals } from "./RowTerminal";
 import { checklistStillOffered } from "./Tools";
 import { droppedFolder } from "./drops";
-import { afterTools, finishOnboarding, STEP_ORDER } from "./logic";
+import { FlowStep } from "./FlowStep";
+import { afterFlowStep, afterTools, finishOnboarding, STEP_ORDER } from "./logic";
 import { ToolsList } from "./Tools";
 
 /** The title bar: the OS's controls (the title bar screen's two ends), the product name and the steps. */
@@ -86,6 +88,8 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
   const [checking, setChecking] = useState(first === "tools");
   const [dismissed, setDismissed] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  // The project just added, or the one still in Flow setup when onboarding reopened on its Flow step: the Flow step's.
+  const [added, setAdded] = useState<string | null>(params?.project ?? null);
   const picker = useThemePicker().view;
   const drop = useStore(droppedFolder);
   const focusRef = useRef<HTMLDivElement>(null);
@@ -231,8 +235,9 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
                   void runCheck();
                 }}
                 onContinue={() => {
-                  if (afterTools(tools) === "done") finish();
-                  else setStep("project");
+                  const next = afterTools(tools, added);
+                  if (next === "done") finish();
+                  else setStep(next);
                 }}
                 onAgentAction={agentTools.act}
                 terminals={terminals}
@@ -249,11 +254,25 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
             key={drop?.seq ?? 0}
             drop={drop?.path ?? null}
             onAdded={(key) => {
-              selectProject(key);
-              finish();
+              setAdded(key);
+              setStep("flow");
             }}
           />
         );
+        break;
+      case "flow":
+        if (added !== null) {
+          body = (
+            <FlowStep
+              project={added}
+              onDone={(agent) => {
+                afterFlowStep(added, agent);
+                finish();
+              }}
+              onBackToTools={check}
+            />
+          );
+        }
         break;
     }
   }

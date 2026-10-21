@@ -12,9 +12,10 @@ use serde_json::json;
 use sqlx::{Sqlite, Transaction};
 
 use super::deps::check_same_base;
+use super::epic_flight::epic_stop;
 use super::tickets::{Base, EventKind, Ticket, allocate_child_number, record_event};
 use super::{Board, BoardError, Refusal};
-use crate::domain::{Actor, Status, TicketKey};
+use crate::domain::{Actor, Status, StatusSet, TicketKey};
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 
@@ -195,7 +196,9 @@ impl Board {
     }
 
     /// Epics are delivery units (EPC-04, d0059): when every child is Done with at least one merged into the epic
-    /// branch, the epic moves to Ready for Review (its branch head is the reviewed head); when every child ended
+    /// branch, the epic moves to its stop (STG-11, d0108 rule 7: the flow's last human check, the default flow's
+    /// Ready for Review, or the implicit Review epic when the flow has none; [`super::epic_flight::epic_stop`]),
+    /// where its branch head is the reviewed head; when every child ended
     /// Closed, the epic is Done · Closed · not merged (d0044). Bookkeeping, run after a child's state changes.
     /// Returns the epic's new status when it moved.
     pub async fn reevaluate_epic(
@@ -204,18 +207,15 @@ impl Board {
         actor: &Actor,
     ) -> Result<Option<Status>, BoardError> {
         let epic = self.epic(epic).await?;
-        if epic.column != crate::domain::Column::Backlog {
+        if !epic.place.is_backlog() {
             return Ok(None);
         }
         let children = self.epic_children(&epic.key.to_string()).await?;
-        if children.is_empty()
-            || !children
-                .iter()
-                .all(|c| c.column == crate::domain::Column::Done)
-        {
+        if children.is_empty() || !children.iter().all(|c| c.place.is_done()) {
             return Ok(None);
         }
         let merged = children.iter().any(|c| c.status == Status::Merged);
+        let stop = epic_stop(&self.effective_flow(epic.key.project.as_str()).await?);
         let mut tx = self.store.begin_write().await?;
         let to = if merged {
             let head = match epic.work.as_ref().and_then(|w| w.branch.clone()) {
@@ -231,14 +231,14 @@ impl Board {
                 None => None,
             };
             let now = now_ms();
-            let to = Status::ReadyForReview;
+            let to = Status::WaitingForYou;
             sqlx::query(concat!(
-                "UPDATE tickets SET board_column = ?, state = ?, review_head_sha = ?, review_entered_at = ?,
+                "UPDATE tickets SET stage_id = ?, state = ?, review_head_sha = ?, review_entered_at = ?,
                                     updated_by = ?, updated_at = ?, ",
                 set_state_since!(),
                 " WHERE id = ?"
             ))
-            .bind(to.column().as_str())
+            .bind(&stop.id)
             .bind(to.as_str())
             .bind(head)
             .bind(now)
@@ -264,20 +264,21 @@ impl Board {
         };
         tx.commit().await?;
         tracing::info!(epic = %epic.key, %to, "every child is done");
-        if to == Status::ReadyForReview {
+        if to == Status::WaitingForYou {
             // From here the user reviews the whole epic: its lead ends (d0083).
             self.leads().epic_in_review(&epic.key, actor).await;
         }
         Ok(Some(to))
     }
 
-    /// Adding (or reopening) a child returns an epic in Ready for Review or Approved to Backlog until that child
-    /// is merged (EPC-05).
+    /// Adding (or reopening) a child returns an epic at its stop (Ready for Review, Review epic) or in its Delivery
+    /// (Approved) to Backlog until that child is merged (EPC-05). The only way back for an epic: it can't be dragged
+    /// back (d0108).
     pub async fn epic_back_to_backlog(&self, epic: &str, actor: &Actor) -> Result<(), BoardError> {
         let epic = self.epic(epic).await?;
         if !matches!(
-            epic.column,
-            crate::domain::Column::ReadyForReview | crate::domain::Column::Approved
+            epic.status.set(),
+            StatusSet::HumanCheck | StatusSet::Delivery
         ) {
             return Ok(());
         }
@@ -285,11 +286,10 @@ impl Board {
         let to = Status::Backlog;
         let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, updated_by = ?, updated_at = ?, ",
+            "UPDATE tickets SET stage_id = NULL, state = ?, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(to.column().as_str())
         .bind(to.as_str())
         .bind(actor.to_string())
         .bind(now)
@@ -404,15 +404,35 @@ pub(crate) async fn close_bookkeeping(
     from: Status,
     actor: &Actor,
 ) -> Result<(), BoardError> {
+    close_bookkeeping_noting(tx, ticket_id, from, actor, json!({})).await
+}
+
+/// [`close_bookkeeping`] with more fields in the Closed event (`otaq stage done`'s `nothing_to_merge` and reason).
+pub(crate) async fn close_bookkeeping_noting(
+    tx: &mut Transaction<'_, Sqlite>,
+    ticket_id: &str,
+    from: Status,
+    actor: &Actor,
+    note: serde_json::Value,
+) -> Result<(), BoardError> {
     let to = Status::ClosedNotMerged;
     let now = now_ms();
+    // `otaq stage done`'s reason, for the card's "Closed · nothing to merge" (Q276).
+    let nothing_to_merge = (note.get("nothing_to_merge") == Some(&serde_json::Value::Bool(true)))
+        .then(|| {
+            note.get("reason")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned()
+        });
     sqlx::query(concat!(
-        "UPDATE tickets SET board_column = ?, state = ?, outcome = 'closed', updated_by = ?, updated_at = ?, ",
+        "UPDATE tickets SET stage_id = NULL, state = ?, outcome = 'closed', nothing_to_merge = ?, updated_by = ?, ",
+        "updated_at = ?, ",
         set_state_since!(),
         " WHERE id = ?"
     ))
-    .bind(to.column().as_str())
     .bind(to.as_str())
+    .bind(nothing_to_merge)
     .bind(actor.to_string())
     .bind(now)
     .bind(to.as_str())
@@ -420,12 +440,12 @@ pub(crate) async fn close_bookkeeping(
     .bind(ticket_id)
     .execute(&mut **tx)
     .await?;
-    record_event(
-        tx,
-        ticket_id,
-        EventKind::Closed,
-        actor,
-        json!({"from": from}),
-    )
+    record_event(tx, ticket_id, EventKind::Closed, actor, {
+        let mut payload = json!({"from": from});
+        if let (Some(payload), serde_json::Value::Object(note)) = (payload.as_object_mut(), note) {
+            payload.extend(note);
+        }
+        payload
+    })
     .await
 }

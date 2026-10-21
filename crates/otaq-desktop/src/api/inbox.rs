@@ -28,9 +28,9 @@ use otaq_view::keymap::KeyAction;
 use otaq_view::view_models::answer::{self, AnswerOutcome};
 use otaq_view::view_models::answer_options::AnswerOptions;
 use otaq_core::agent_tools::Tool;
-use otaq_core::named_agents::Role;
+use otaq_core::agents::SessionRole as Role;
 use otaq_view::view_models::inbox::{
-    FADE, InboxGroupView, RowAction, name_tools, run_items, run_tab,
+    FADE, InboxGroupView, name_tools, open_agents, refused_role, run_items, run_tab,
 };
 use otaq_view::view_models::tool_avatar::{self, AvatarTool};
 use otaq_view::view_models::inbox_page::{
@@ -162,14 +162,12 @@ async fn connected_tools(app: &App) -> usize {
     }
 }
 
-/// The tool of each refused model's row (Change agent / Change validator): what that role's row runs on now.
-async fn refused_tools(app: &App, groups: &[InboxGroupView]) -> Vec<(TicketKey, Role, AvatarTool)> {
+/// The tool and the agent of each refused model's row (Open agent…): the role's last session's, else what its stage
+/// runs on now.
+async fn refused_agents(app: &App, groups: &[InboxGroupView]) -> Vec<Refused> {
     let mut found = Vec::new();
     for row in groups.iter().flat_map(|g| &g.rows) {
-        let Some(role) = row.actions.iter().find_map(|a| match a {
-            RowAction::ChangeAgent(role) => Some(*role),
-            _ => None,
-        }) else {
+        let Some(role) = refused_role(row) else {
             continue;
         };
         let request = Request::TicketAgents(TicketAgentsParams {
@@ -177,18 +175,36 @@ async fn refused_tools(app: &App, groups: &[InboxGroupView]) -> Vec<(TicketKey, 
             project: None,
             new_epic: false,
         });
-        if let Ok(Reply::TicketAgents(agents)) = app.service.send(request).await
-            && let Some(tool) = agents
-                .rows
-                .iter()
-                .find(|r| r.role == role)
-                .and_then(|r| r.resolved.as_ref())
-                .map(|r| r.agent.tool)
-        {
-            found.push((row.key.clone(), role, tool.into()));
-        }
+        let Ok(Reply::TicketAgents(agents)) = app.service.send(request).await else {
+            continue;
+        };
+        let session = agents.sessions.iter().rev().find(|s| s.role == role);
+        let stage = agents
+            .stages
+            .iter()
+            .find(|s| s.role == role)
+            .and_then(|s| s.agent.as_ref());
+        found.push(Refused {
+            key: row.key.clone(),
+            role,
+            tool: session
+                .and_then(|s| s.tool)
+                .or_else(|| stage.and_then(|a| a.model.tool()))
+                .map(Into::into),
+            agent: session
+                .and_then(|s| s.agent_id.clone())
+                .or_else(|| stage.map(|a| a.id.clone())),
+        });
     }
     found
+}
+
+/// A refused model's row: its ticket and role, the tool and the agent that ran it.
+struct Refused {
+    key: TicketKey,
+    role: Role,
+    tool: Option<AvatarTool>,
+    agent: Option<String>,
 }
 
 /// What `inbox.view` answers: the inbox, and when to ask again while a resolved row fades out.
@@ -236,16 +252,13 @@ pub async fn view(app: &App) -> Result<Load, RequestError> {
         });
         (groups, model.total() as u32)
     };
-    // With several tools connected a refused model's row names its tool (T-0362).
+    // A refused model's row opens its agent (Open agent…), and names its tool with several tools connected (T-0362).
     let mut groups = groups;
+    let refused = refused_agents(app, &groups).await;
+    let find = |key: &TicketKey, role: Role| refused.iter().find(|r| &r.key == key && r.role == role);
+    open_agents(&mut groups, &|key, role| find(key, role).and_then(|r| r.agent.clone()));
     if connected_tools(app).await > 1 {
-        let tools = refused_tools(app, &groups).await;
-        name_tools(&mut groups, &|key, role| {
-            tools
-                .iter()
-                .find(|(k, r, _)| k == key && *r == role)
-                .map(|(_, _, t)| *t)
-        });
+        name_tools(&mut groups, &|key, role| find(key, role).and_then(|r| r.tool));
     }
     // A tool that isn't available keeps its Sign in… (or Show in Agent tools) on its row.
     let limits: Vec<page::ToolLimit> = lines
@@ -441,10 +454,10 @@ pub async fn act(app: &App, params: ActRequest) -> Result<(), RequestError> {
         // A lead's suggestion (LEAD-08): the confirmation's confirm, or Dismiss.
         Action::ConfirmSuggestion { id, .. } => Request::SuggestionConfirm(IdParams { id }),
         Action::DismissSuggestion { id } => Request::SuggestionDismiss(IdParams { id }),
-        // The page's: it opens the panel with the row's picker open (T-0345).
-        Action::ChangeAgent { .. } => return Ok(()),
+        // The page's: it opens Settings → Agents on the agent.
+        Action::OpenAgent { .. } => return Ok(()),
         // Sent above.
-        Action::MoveToReviewAnyway
+        Action::MoveOnAnyway
         | Action::AnotherRound
         | Action::AnswerAgent { .. }
         | Action::RetryValidation
@@ -590,6 +603,7 @@ mod tests {
             suggestion: None,
             lead_note: None,
             change_agent: None,
+            waiting_in: None,
         }
     }
 

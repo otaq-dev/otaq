@@ -216,7 +216,7 @@ mod tests {
         child.epic = Some(key("SHOP-40"));
         let tickets = vec![
             ticket("SHOP-17", "Add Stripe client", Status::Merged),
-            ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
+            ticket("SHOP-18", "Checkout API", Status::WaitingForYou),
             ticket("SHOP-19", "Price table", Status::Working),
             ticket("SHOP-20", "Checkout page", Status::Queued),
             ticket("SHOP-26", "Add sitemap", Status::PrOpen),

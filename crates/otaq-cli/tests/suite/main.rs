@@ -3,11 +3,13 @@
 //! `cargo nextest run -p otaq-cli -E 'test(/^<file>::/)'`.
 
 mod agent;
-mod agent_picks;
 mod ask;
+mod ask_each_tool;
 mod attach;
 mod cli;
 mod client_start;
+mod comment_path;
+mod comments;
 mod copilot_hooks;
 mod daemon;
 mod decision;
@@ -15,11 +17,13 @@ mod deps;
 mod epic_children;
 mod epic_pr;
 mod epic_prime;
+mod flow;
 mod hook;
 mod install_local;
 mod lead;
 mod limit;
 mod notify_check;
+mod onboarding;
 mod open_pr;
 mod opencode_hook;
 mod pr;
@@ -28,6 +32,8 @@ mod project_agent_attention;
 mod project_agents;
 mod read;
 mod skills;
+mod stage_choices;
+mod stage_path;
 mod statusline;
 mod terminals;
 mod validate;

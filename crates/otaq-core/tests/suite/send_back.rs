@@ -3,6 +3,7 @@
 //! back before the agent works again (T-0309, M19-c).
 
 use crate::common::freed;
+use otaq_core::service::testing::said;
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
@@ -22,12 +23,12 @@ fn me() -> Actor {
 }
 
 fn skill() -> String {
-    naming::skill("address-review")
+    format!("/{}", naming::copy_name("address-review"))
 }
 
 async fn in_review_with_comments(world: &TestService, comments: usize) -> Ticket {
     let t = world.create("SHOP", "Search results paging").await;
-    world.force_status(&t, Status::ReadyForReview).await;
+    world.force_status(&t, Status::WaitingForYou).await;
     for n in 0..comments {
         world
             .board
@@ -61,7 +62,7 @@ async fn a_live_session_gets_the_skill_and_the_ticket_works_again() {
     let after = done(
         world
             .review
-            .send_back("SHOP-1", "Also check page 0", false, &me())
+            .fail("SHOP-1", "Also check page 0", None, false, &me())
             .await
             .unwrap(),
     );
@@ -81,8 +82,15 @@ async fn a_live_session_gets_the_skill_and_the_ticket_works_again() {
     assert!(comments.comments.iter().all(|c| c.sent_at.is_some()));
     assert_eq!(comments.round, 2);
     assert_eq!(
-        world.board.latest_send_back_note(&t.id).await.unwrap(),
-        Some((1, Some("Also check page 0".into())))
+        world.board.latest_send_back_round(&t.id).await.unwrap(),
+        Some(1)
+    );
+    assert_eq!(
+        crate::common::last_comment(&world.board, "SHOP-1")
+            .await
+            .map(|c| c.body)
+            .as_deref(),
+        Some("Also check page 0")
     );
     let history = world.board.history("SHOP-1").await.unwrap();
     assert!(history.iter().any(|e| e.kind == EventKind::SentBack));
@@ -91,7 +99,11 @@ async fn a_live_session_gets_the_skill_and_the_ticket_works_again() {
     world.give_worktree(&t).await;
     world
         .board
-        .submit_for_review("SHOP-1", "fixed", &Actor::Agent(t.key.clone()))
+        .submit_for_review(
+            "SHOP-1",
+            said(&world.board, "SHOP-1", "fixed").await.as_ref(),
+            &Actor::Agent(t.key.clone()),
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -111,7 +123,7 @@ async fn unsent_text_asks_first_and_clear_it_and_send_goes_on() {
 
     let first = world
         .review
-        .send_back("SHOP-1", "", false, &me())
+        .fail("SHOP-1", "", None, false, &me())
         .await
         .unwrap();
     assert_eq!(
@@ -121,7 +133,7 @@ async fn unsent_text_asks_first_and_clear_it_and_send_goes_on() {
             unclearable_by: None,
         }
     );
-    assert_eq!(world.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(world.status("SHOP-1").await, Status::WaitingForYou);
     assert_eq!(
         world.board.comments("SHOP-1", None).await.unwrap().pending,
         1
@@ -130,7 +142,7 @@ async fn unsent_text_asks_first_and_clear_it_and_send_goes_on() {
     let after = done(
         world
             .review
-            .send_back("SHOP-1", "", true, &me())
+            .fail("SHOP-1", "", None, true, &me())
             .await
             .unwrap(),
     );
@@ -165,7 +177,7 @@ async fn a_full_agent_limit_queues_the_ticket_with_the_skill_to_run() {
     let after = done(
         world
             .review
-            .send_back("SHOP-2", "", false, &me())
+            .fail("SHOP-2", "", None, false, &me())
             .await
             .unwrap(),
     );
@@ -213,7 +225,7 @@ async fn a_gone_session_is_resumed_with_the_skill_in_the_same_click() {
     let after = done(
         world
             .review
-            .send_back("SHOP-1", "", false, &me())
+            .fail("SHOP-1", "", None, false, &me())
             .await
             .unwrap(),
     );
@@ -268,7 +280,7 @@ async fn send_back_is_refused_on_epics_and_outside_review() {
     world.force_status(&t, Status::Working).await;
     let err = world
         .review
-        .send_back("SHOP-1", "", false, &me())
+        .fail("SHOP-1", "", None, false, &me())
         .await
         .unwrap_err();
     assert_eq!(err.refusal(), Some(Refusal::MoveRefused));
@@ -286,18 +298,18 @@ async fn send_back_is_refused_on_epics_and_outside_review() {
         )
         .await
         .unwrap();
-    world.force_status(&epic, Status::ReadyForReview).await;
+    world.force_status(&epic, Status::WaitingForYou).await;
     let err = world
         .review
-        .send_back(&epic.key.to_string(), "", false, &me())
+        .fail(&epic.key.to_string(), "", None, false, &me())
         .await
         .unwrap_err();
     assert_eq!(err.to_string(), "Add or reopen a child ticket to change it");
     world.stop().await;
 }
 
-/// T-0090: a Local merge conflict flags the ticket; Send to agent to fix types the restack skill and prime names
-/// the target.
+/// T-0090, FLW-17 (parity change 2 of M33): a click Local merge's conflict flags the ticket and sends it to Dev at
+/// once, no click: the restack skill is queued for its session ("Merge conflict · fixing") and prime names the target.
 #[tokio::test]
 async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
     use otaq_core::git::testing::commit;
@@ -310,16 +322,8 @@ async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
     let wt = world.start_worktree(&t).await;
     commit(&wt, "lib.ts", "ticket\n");
     commit(&repo, "lib.ts", "main\n");
-    world.force_status(&t, Status::ReadyForReview).await;
+    world.force_status(&t, Status::WaitingForYou).await;
     let agent = world.agent_shell(&t).await;
-
-    // No conflict yet: nothing to fix.
-    let err = world
-        .review
-        .send_to_fix("SHOP-1", false, &me())
-        .await
-        .unwrap_err();
-    assert_eq!(err.refusal(), Some(Refusal::MoveRefused));
 
     let merged = world
         .review
@@ -330,26 +334,23 @@ async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
         matches!(merged, LocalMergeOutcome::Conflict { .. }),
         "{merged:?}"
     );
-    let flagged = world.board.ticket("SHOP-1").await.unwrap();
-    assert_eq!(flagged.flags.conflicts_with.as_deref(), Some("main"));
-    assert_eq!(flagged.status, Status::ReadyForReview);
-
-    let after = done(
-        world
-            .review
-            .send_to_fix("SHOP-1", false, &me())
-            .await
-            .unwrap(),
+    let after = world.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(after.status, Status::MergeConflictFixing);
+    assert_eq!(
+        after.place,
+        otaq_core::domain::Place::stage_of(otaq_core::flow::default::DEV)
     );
-    assert_eq!(after.status, Status::Working);
+    assert_eq!(after.auto_merge_conflicts, 1);
     assert_eq!(
         after.flags.conflicts_with.as_deref(),
         Some("main"),
         "until it is back in Review"
     );
-    world
-        .wait_for_output(&agent.session, &naming::skill("restack"))
-        .await;
+    let pending = world.deliveries.pending(&agent.session).await.unwrap();
+    assert_eq!(
+        pending.last().unwrap().text,
+        format!("/{}", naming::copy_name("restack"))
+    );
     let prime = otaq_core::prime::render(
         &world
             .board
@@ -374,7 +375,11 @@ async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
 
     world
         .board
-        .submit_for_review("SHOP-1", "rebased", &Actor::Agent(t.key.clone()))
+        .submit_for_review(
+            "SHOP-1",
+            said(&world.board, "SHOP-1", "rebased").await.as_ref(),
+            &Actor::Agent(t.key.clone()),
+        )
         .await
         .unwrap();
     let back = world.board.ticket("SHOP-1").await.unwrap();
@@ -396,7 +401,7 @@ async fn a_live_session_gets_the_build_back_then_the_skill() {
     let agent = w.agent_shell(&t).await;
     let worktree = t.work.clone().unwrap().worktree;
 
-    let after = done(w.review.send_back(&key, "", false, &me()).await.unwrap());
+    let after = done(w.review.fail(&key, "", None, false, &me()).await.unwrap());
 
     assert_eq!(after.status, Status::Working);
     assert_eq!(freed::app_bin(&wt).as_deref(), Some("Checkout API"));
@@ -433,7 +438,7 @@ async fn a_gone_session_is_resumed_with_its_build() {
     let key = t.key.to_string();
     w.record_ended_agent(&t, "0199-old-conversation").await;
 
-    let after = done(w.review.send_back(&key, "", false, &me()).await.unwrap());
+    let after = done(w.review.fail(&key, "", None, false, &me()).await.unwrap());
 
     assert_eq!(after.status, Status::Working, "{:?}", after.start_problem);
     assert_eq!(freed::app_bin(&wt).as_deref(), Some("Search paging"));
@@ -480,7 +485,7 @@ async fn a_full_limit_queues_and_the_start_brings_the_build_back() {
     let key = t.key.to_string();
     w.record_ended_agent(&t, "0199-cart").await;
 
-    let after = done(w.review.send_back(&key, "", false, &me()).await.unwrap());
+    let after = done(w.review.fail(&key, "", None, false, &me()).await.unwrap());
     assert!(after.status.is_queued(), "{}", after.status);
     assert_eq!(freed::state(&w, &key).await, BuildState::Freed);
     assert_eq!(
@@ -506,9 +511,9 @@ async fn a_full_limit_queues_and_the_start_brings_the_build_back() {
     w.stop().await;
 }
 
-/// Send to agent to fix brings the build back before the restack skill is typed.
+/// A click Local merge's conflict brings the build back before the restack skill is queued (FLW-17, no click).
 #[tokio::test(flavor = "multi_thread")]
-async fn send_to_fix_brings_the_build_back() {
+async fn a_merge_conflict_brings_the_build_back() {
     use otaq_core::review::LocalMergeOutcome;
 
     let w = freed::world().await;
@@ -517,21 +522,22 @@ async fn send_to_fix_brings_the_build_back() {
     let (t, wt) = freed::freed(&w, "Pricing", "lib.ts").await;
     let key = t.key.to_string();
     otaq_core::git::testing::commit(&repo, "lib.ts", "main\n");
+    let agent = w.agent_shell(&t).await;
     let merged = w.review.local_merge(&key, "m", false, &me()).await.unwrap();
     assert!(
         matches!(merged, LocalMergeOutcome::Conflict { .. }),
         "{merged:?}"
     );
-    let agent = w.agent_shell(&t).await;
 
-    let after = done(w.review.send_to_fix(&key, false, &me()).await.unwrap());
-
-    assert_eq!(after.status, Status::Working);
+    assert_eq!(w.status(&key).await, Status::MergeConflictFixing);
     assert_eq!(freed::app_bin(&wt).as_deref(), Some("Pricing"));
     assert_eq!(freed::state(&w, &key).await, BuildState::Present);
     assert_eq!(freed::entries(&w, &project), Vec::<u64>::new());
-    w.wait_for_output(&agent.session, &naming::skill("restack"))
-        .await;
+    let pending = w.deliveries.pending(&agent.session).await.unwrap();
+    assert_eq!(
+        pending.last().unwrap().text,
+        format!("/{}", naming::copy_name("restack"))
+    );
     w.stop().await;
 }
 
@@ -555,7 +561,7 @@ async fn without_its_own_build_the_nearest_is_taken_or_setup_builds() {
 
     done(
         w.review
-            .send_back(&b.key.to_string(), "", false, &me())
+            .fail(&b.key.to_string(), "", None, false, &me())
             .await
             .unwrap(),
     );
@@ -571,7 +577,7 @@ async fn without_its_own_build_the_nearest_is_taken_or_setup_builds() {
     w.wait_for_output(&b_agent.session, &skill()).await;
 
     let a_key = a.key.to_string();
-    done(w.review.send_back(&a_key, "", false, &me()).await.unwrap());
+    done(w.review.fail(&a_key, "", None, false, &me()).await.unwrap());
     assert_eq!(freed::app_bin(&a_wt), None, "no build to take");
     assert_eq!(freed::state(&w, &a_key).await, BuildState::Present);
     let log = freed::setup_log(&w, &a_key);
@@ -591,7 +597,7 @@ async fn a_failed_setup_on_send_back_still_delivers_the_skill() {
     let key = t.key.to_string();
     let agent = w.agent_shell(&t).await;
 
-    let after = done(w.review.send_back(&key, "", false, &me()).await.unwrap());
+    let after = done(w.review.fail(&key, "", None, false, &me()).await.unwrap());
 
     assert_eq!(after.status, Status::Working);
     w.wait_for_output(&agent.session, &skill()).await;

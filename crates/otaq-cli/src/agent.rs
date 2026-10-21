@@ -1,6 +1,7 @@
-//! The commands an agent uses to hand back control: `otaq ask human --stdin` (ATT-01, d0037) and
-//! `otaq review submit [KEY] --stdin` (REV-07, d0050). Both take their text on stdin (PLG-05) and work on
-//! `$OTAQ_TICKET` unless a key is given. `otaq review feedback [KEY]` (REV-05, d0017) prints what the
+//! The commands an agent uses to hand back control: `otaq ask human --stdin` (ATT-01, d0037), `otaq stage next
+//! [KEY] --stdin` (`otaq review submit` is another name for it) and `otaq stage done [KEY] --stdin` (REV-07, AGM-10;
+//! d0050, d0108), and an agent check's `otaq check pass|fail --stdin`. They take their text on stdin (PLG-05) and work
+//! on `$OTAQ_TICKET` unless a key is given. `otaq review feedback [KEY]` (REV-05, d0017) prints what the
 //! latest Send back carried; it only reads.
 //!
 //! `ask human` takes 2–4 answer options (`--option "Postmark" --option "SES" --recommended 1`, d0061); the
@@ -12,7 +13,7 @@
 //!
 //! # `--json` shapes
 //!
-//! Both print the ticket afterwards (`Ticket`); after `ask human` its `question` holds the question's `id`,
+//! They print the ticket afterwards (`Ticket`); after `ask human` its `question` holds the question's `id`,
 //! `text`, `options` and `recommended` (1-based). A lead's `answer` and `ask human --pass-on` print the question
 //! (`otaq_core::epic_lead::questions::LeadQuestion`: `{"id", "child", "epic", "lead", "question", "options",
 //! "recommended", "state": "answered" | "passed_on", "reason"?, "answer"?, …}`), and its `questions` a list of them.
@@ -28,7 +29,7 @@ use otaq_core::data_dir::DataDir;
 use otaq_core::naming;
 use otaq_core::protocol::{
     AnswerParams, AskHumanParams, AskTicketParams, ErrorBody, ErrorKind, KeyParams, Reply, Request,
-    ReviewSubmitParams,
+    StageEndParams,
 };
 
 use crate::cli::GlobalArgs;
@@ -510,39 +511,76 @@ fn render_lead_questions(waiting: &[otaq_core::epic_lead::questions::LeadQuestio
         .join("\n\n")
 }
 
-pub fn submit(
+/// `otaq stage next [KEY] --stdin [--report-file PATH]` (and `otaq review submit`): the agent ends its stage with a
+/// summary, its comment (CMT-05); the answer names the stage it finished and what comes next (AGM-10).
+pub fn stage_next(
     key: Option<String>,
     stdin: bool,
+    report_file: Option<std::path::PathBuf>,
     global: &GlobalArgs,
     out: &Output,
 ) -> Result<(), ErrorBody> {
+    end_stage(
+        key,
+        stdin,
+        report_file,
+        global,
+        out,
+        Request::TicketStageNext,
+    )
+}
+
+/// `otaq stage done [KEY] --stdin [--report-file PATH]`: nothing to deliver, the ticket is Closed · nothing to merge
+/// with the reason as the agent's comment (AGM-10, CMT-05).
+pub fn stage_done(
+    key: Option<String>,
+    stdin: bool,
+    report_file: Option<std::path::PathBuf>,
+    global: &GlobalArgs,
+    out: &Output,
+) -> Result<(), ErrorBody> {
+    end_stage(
+        key,
+        stdin,
+        report_file,
+        global,
+        out,
+        Request::TicketStageDone,
+    )
+}
+
+fn end_stage(
+    key: Option<String>,
+    stdin: bool,
+    report_file: Option<std::path::PathBuf>,
+    global: &GlobalArgs,
+    out: &Output,
+    request: fn(StageEndParams) -> Request,
+) -> Result<(), ErrorBody> {
+    // A missing report refuses the stage end before anything is read or sent (CMT-06).
+    let report_file = crate::comment::report_source(report_file)?;
     let summary = if stdin { read_stdin()? } else { String::new() };
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
     service::runtime()?.block_on(async {
         let client = service::connect(&data, global).await?;
         let key = target::resolve_key(&client, &data, key, global).await?;
-        let ticket = match client
-            .request(Request::TicketReviewSubmit(ReviewSubmitParams {
+        let ended = match client
+            .request(request(StageEndParams {
                 key: key.to_string(),
                 summary,
+                report_file,
             }))
             .await
             .map_err(client_error)?
         {
-            Reply::Ticket(t) => *t,
+            Reply::StageEnded(ended) => *ended,
             other => return Err(unexpected(&other)),
         };
-        // Validation on: the validator checks it first, and its result comes back to this session (VAL-01).
-        let validating = matches!(
-            ticket.status,
-            otaq_core::domain::Status::Validating | otaq_core::domain::Status::WaitingForLimitReset
+        out.print(
+            &ended.text,
+            &ended.ticket,
+            Some(&ended.ticket.key.to_string()),
         );
-        let text = if validating {
-            otaq_core::validation::SUBMITTED_VALIDATING.to_owned()
-        } else {
-            format!("{} is Ready for Review.", ticket.key)
-        };
-        out.print(&text, &ticket, Some(&ticket.key.to_string()));
         Ok(())
     })
 }
@@ -615,8 +653,6 @@ fn render_pr_comments(pr: &otaq_core::pr::comments::PrFeedback) -> String {
 /// ```text
 /// SHOP-27 · feedback from round 2
 ///
-/// Note: Also check page 0.
-///
 /// lib/search.ts
 ///   12: Use the page size from settings.
 ///   40 (removed line): Why was this removed?
@@ -629,16 +665,13 @@ pub fn render_feedback(f: &otaq_core::board::comments::ReviewFeedback) -> String
     out.trim_end().to_owned()
 }
 
-/// The in-app part: the latest Send back's note and line comments.
+/// The in-app part: the latest Send back's line comments (its note is a ticket comment, in `prime`).
 fn render_review_feedback(f: &otaq_core::board::comments::ReviewFeedback) -> String {
     use otaq_core::board::comments::Side;
     if f.round == 0 {
         return format!("{} has no review feedback: it was never sent back.", f.key);
     }
     let mut out = format!("{} · feedback from round {}\n", f.key, f.round);
-    if let Some(note) = &f.note {
-        out.push_str(&format!("\nNote: {note}\n"));
-    }
     if f.comments.is_empty() {
         out.push_str("\nNo line comments.\n");
     }
@@ -666,28 +699,33 @@ fn render_review_feedback(f: &otaq_core::board::comments::ReviewFeedback) -> Str
     out.trim_end().to_owned()
 }
 
-/// `otaq validate pass|fail --stdin` (VAL-03, CLI-05): the validator's verdict and report on its ticket
-/// (`$OTAQ_TICKET`). Only a validator session may report one.
-pub fn validate(
-    command: crate::cli::ValidateCommand,
+/// `otaq check pass|fail --stdin [--report-file PATH]` (VAL-03, CLI-05, AGM-10): an agent check's verdict on its
+/// ticket (`$OTAQ_TICKET`), its text the checker's comment and the file its report (CMT-05, CMT-06). Only the check's
+/// session may give one.
+pub fn check(
+    command: crate::cli::CheckCommand,
     global: &GlobalArgs,
     out: &Output,
 ) -> Result<(), ErrorBody> {
-    let (pass, stdin) = match command {
-        crate::cli::ValidateCommand::Pass { stdin } => (true, stdin),
-        crate::cli::ValidateCommand::Fail { stdin } => (false, stdin),
+    let (pass, stdin, report_file) = match command {
+        crate::cli::CheckCommand::Pass { stdin, report_file } => (true, stdin, report_file),
+        crate::cli::CheckCommand::Fail { stdin, report_file } => (false, stdin, report_file),
     };
+    let report_file = crate::comment::report_source(report_file)?;
     let report = if stdin { read_stdin()? } else { String::new() };
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
     service::runtime()?.block_on(async {
         let client = service::connect(&data, global).await?;
         let key = target::resolve_key(&client, &data, None, global).await?;
+        // The check judged, by name, before the verdict moves the ticket on (Q344).
+        let check = check_being_judged(&client, &key.to_string()).await;
         let ticket = match client
             .request(Request::ValidationVerdict(
                 otaq_core::protocol::VerdictParams {
                     key: key.to_string(),
                     pass,
                     report,
+                    report_file,
                 },
             ))
             .await
@@ -696,14 +734,32 @@ pub fn validate(
             Reply::Ticket(t) => *t,
             other => return Err(unexpected(&other)),
         };
-        let text = if pass {
-            format!("{}: validation passed. End your turn.", ticket.key)
-        } else {
-            format!("{}: validation failed. End your turn.", ticket.key)
-        };
+        let verdict = if pass { "passed" } else { "failed" };
+        let text = format!("{}: {check} {verdict}. End your turn.", ticket.key);
         out.print(&text, &ticket, Some(&ticket.key.to_string()));
         Ok(())
     })
+}
+
+/// The name of the agent check the ticket is in ("Validate", "Security"), from its project's flow; "The check" when
+/// it can't be read.
+async fn check_being_judged(client: &otaq_core::client::Client, key: &str) -> String {
+    let Ok(ticket) = crate::read::get_ticket(client, key).await else {
+        return "The check".to_owned();
+    };
+    let flow = match client
+        .request(Request::FlowCurrent(otaq_core::protocol::ProjectParams {
+            project: ticket.key.project.to_string(),
+        }))
+        .await
+    {
+        Ok(Reply::FlowVersion(version)) => version.file().ok().map(|f| f.flow),
+        _ => None,
+    };
+    flow.map_or_else(
+        || "The check".to_owned(),
+        |flow| otaq_core::board::validation::check_name(&flow, &ticket.place),
+    )
 }
 
 /// `otaq agent name "<name>" [--rename]` (PAG-04): a Project agent names itself; refused anywhere else, a
@@ -742,7 +798,6 @@ mod tests {
         ReviewFeedback {
             key: "SHOP-26".parse().unwrap(),
             round: 0,
-            note: None,
             comments: Vec::new(),
             pr,
         }

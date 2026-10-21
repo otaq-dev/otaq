@@ -9,16 +9,16 @@
 //!   message; a lead counts as not started (its Epic lead row unlocks).
 //! - **A resumed session or a later turn**: today's failed turn ([`Signal::Failed`]).
 //!
-//! In every case the session's named agent is marked ([`crate::named_agents::mark`]). Nothing here starts a session
+//! In every case the session's agent is marked ([`crate::agents::mark`]). Nothing here starts a session
 //! (d0018): Retry start, Retry validation, Open lead or a new row are the user's.
 //!
 //! The mark also clears here: when a session of a marked entry gets through its first turn on the entry's model.
 
 use super::{Signal, Signals};
 use crate::agent_tools::Tool;
+use crate::agents::mark;
 use crate::board::BoardError;
 use crate::caller::Caller;
-use crate::named_agents::mark;
 use crate::session::{END_MODEL_REFUSED, Sessions};
 use crate::start::Starter;
 use crate::validation::Validation;
@@ -40,7 +40,7 @@ struct Stored {
     kind: String,
     ticket_id: Option<String>,
     project_agent_id: Option<String>,
-    named_agent_id: Option<String>,
+    agent_id: Option<String>,
     model: Option<String>,
     model_ran: Option<String>,
     started_at: i64,
@@ -50,8 +50,8 @@ struct Stored {
 impl Stored {
     async fn of(signals: &Signals, session: &str) -> Result<Option<Self>, BoardError> {
         Ok(sqlx::query_as(
-            "SELECT s.kind, s.ticket_id, s.project_agent_id, COALESCE(s.named_agent_id, a.named_agent_id) AS
-                    named_agent_id, s.model, COALESCE(s.model_ran, a.model_ran) AS model_ran, s.started_at,
+            "SELECT s.kind, s.ticket_id, s.project_agent_id, COALESCE(s.agent_id, a.agent_id) AS
+                    agent_id, s.model, COALESCE(s.model_ran, a.model_ran) AS model_ran, s.started_at,
                     p.name AS project_name
              FROM sessions s JOIN projects p ON p.id = s.project_id
              LEFT JOIN project_agents a ON a.id = s.project_agent_id
@@ -74,7 +74,7 @@ impl Signals {
         self.inner.turned.lock().expect("turned").contains(session)
     }
 
-    /// A turn of `session` ended normally: on its first, the session's named agent loses its mark when the session
+    /// A turn of `session` ended normally: on its first, the session's agent loses its mark when the session
     /// started after the mark and ran on the model the entry has now (AGT-05).
     pub(super) async fn turn_got_through(&self, session: &str) -> Result<(), BoardError> {
         if !self
@@ -89,7 +89,7 @@ impl Signals {
         let Some(stored) = Stored::of(self, session).await? else {
             return Ok(());
         };
-        if let Some(agent) = &stored.named_agent_id
+        if let Some(agent) = &stored.agent_id
             && mark::clear_after_first_turn(
                 self.inner.board.store(),
                 agent,
@@ -101,7 +101,7 @@ impl Signals {
             tracing::info!(
                 session,
                 agent,
-                "the named agent's mark cleared: a first turn got through"
+                "the agent's mark cleared: a first turn got through"
             );
             self.inner
                 .events
@@ -110,7 +110,7 @@ impl Signals {
         Ok(())
     }
 
-    /// `tool` refused `session`'s model (`model`: the one its message names). Marks the session's named agent and
+    /// `tool` refused `session`'s model (`model`: the one its message names). Marks the session's agent and
     /// applies the refusal; returns the failed turn's signal for a resumed session or a later turn, `None` when the
     /// refusal was applied as not started or No result.
     pub(super) async fn model_refused(
@@ -135,7 +135,7 @@ impl Signals {
             Caller::ProjectAgent { .. } | Caller::User => stored.project_name.clone(),
         };
         let tool = self.inner.adapters.get(tool).display_name();
-        if let Some(agent) = &stored.named_agent_id
+        if let Some(agent) = &stored.agent_id
             && mark::set(
                 self.inner.board.store(),
                 agent,

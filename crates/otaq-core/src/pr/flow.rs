@@ -47,6 +47,9 @@ pub struct PrFlow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reported: Option<String>,
     pub started_at: i64,
+    /// An automatic Delivery's (FLW-15): no dialog, Otaq confirms the proposal as it is.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub automatic: bool,
 }
 
 type FlowRow = (
@@ -56,18 +59,20 @@ type FlowRow = (
     Option<String>,
     Option<String>,
     i64,
+    bool,
 );
 
 impl Board {
     /// The ticket's PR flow, if one is under way.
     pub async fn pr_flow(&self, ticket_id: &str) -> Result<Option<PrFlow>, BoardError> {
         let row: Option<FlowRow> = sqlx::query_as(
-            "SELECT kind, state, proposal_json, confirmed_json, reported, started_at FROM pr_flows WHERE ticket_id = ?",
+            "SELECT kind, state, proposal_json, confirmed_json, reported, started_at, automatic FROM pr_flows
+             WHERE ticket_id = ?",
         )
         .bind(ticket_id)
         .fetch_optional(self.store().pool())
         .await?;
-        let Some((kind, state, proposal, confirmed, reported, started_at)) = row else {
+        let Some((kind, state, proposal, confirmed, reported, started_at, automatic)) = row else {
             return Ok(None);
         };
         let parse = |json: Option<String>| json.and_then(|j| serde_json::from_str(&j).ok());
@@ -78,6 +83,7 @@ impl Board {
             confirmed: parse(confirmed),
             reported,
             started_at,
+            automatic,
         }))
     }
 }
@@ -219,15 +225,13 @@ impl Board {
             .await?
             .ok_or_else(|| BoardError::NotFound(key.to_owned()))?;
         let target = self.merge_target(&ticket).await?.target;
-        let skills = self
-            .effective_settings(ticket.key.project.as_str())
-            .await?
-            .workflow_skills;
-        let skill = match row.pr_number {
-            Some(_) => skills.push,
-            None => skills.open_pr,
-        }
-        .label();
+        let step = match row.pr_number {
+            Some(_) => crate::board::settings::WorkflowStep::Push,
+            None => crate::board::settings::WorkflowStep::OpenPr,
+        };
+        let skill = self
+            .delivery_skill(ticket.key.project.as_str(), step)
+            .await?;
         Ok(PrFlowView {
             skill,
             flow: self.pr_flow(&ticket.id).await?,
@@ -301,24 +305,27 @@ impl Board {
         }
     }
 
-    /// Starts the flow on the user's click: "preparing" until the skill proposes. A flow already under way
-    /// starts over.
+    /// Starts the flow on the user's click, or `automatic` for an automatic Delivery (FLW-15): "preparing" until the
+    /// skill proposes. A flow already under way starts over.
     pub(crate) async fn start_pr_flow(
         &self,
         ticket: &Ticket,
         kind: FlowKind,
+        automatic: bool,
     ) -> Result<(), BoardError> {
         let now = now_ms();
         sqlx::query(
-            "INSERT INTO pr_flows (ticket_id, kind, state, started_at, updated_at) VALUES (?, ?, 'preparing', ?, ?)
+            "INSERT INTO pr_flows (ticket_id, kind, state, started_at, updated_at, automatic)
+             VALUES (?, ?, 'preparing', ?, ?, ?)
              ON CONFLICT (ticket_id) DO UPDATE SET kind = excluded.kind, state = 'preparing', proposal_json = NULL,
                  confirmed_json = NULL, reported = NULL, started_at = excluded.started_at,
-                 updated_at = excluded.updated_at",
+                 updated_at = excluded.updated_at, automatic = excluded.automatic",
         )
         .bind(&ticket.id)
         .bind(kind.as_str())
         .bind(now)
         .bind(now)
+        .bind(automatic)
         .execute(self.store().pool())
         .await?;
         Ok(())
@@ -517,16 +524,21 @@ impl Board {
             }
             None => None,
         };
-        let to = Status::ReadyForReview;
+        let to = Status::WaitingForYou;
+        // Back from the open PR to the human check before the Delivery (STG-06).
+        let moved = self
+            .moved(ticket, ticket.status, crate::flow::engine::Move::PrRework)
+            .await?;
         let now = now_ms();
         let mut tx = self.store().begin_write().await?;
+        moved.record(&mut tx, &ticket.id, None).await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, review_head_sha = COALESCE(?, review_head_sha),
+            "UPDATE tickets SET stage_id = ?, state = ?, review_head_sha = COALESCE(?, review_head_sha),
                                 review_entered_at = ?, pr_rework = TRUE, updated_by = ?, updated_at = ?, ",
             crate::store::tickets::set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(to.column().as_str())
+        .bind(moved.place.stage_id())
         .bind(to.as_str())
         .bind(head)
         .bind(now)
@@ -547,6 +559,96 @@ impl Board {
         .await?;
         tx.commit().await?;
         self.ticket_by_id(&ticket.id).await
+    }
+}
+
+impl Board {
+    /// **Send back with PR comments** (FLW-16, d0108): Delivery · PR open → the nearest earlier Agent stage, Working
+    /// (its live session gets the skill) or Queued before it with the skill still to run. The PR stays (number,
+    /// URL, locked branch); the optional note is the user's comment (`hand_over`, CMT-05), posted first, and the agent
+    /// reads the PR's unresolved comments with `otaq review feedback`. Every agent check's counter restarts at 0, as
+    /// after a human Fail. Returns what the agent is told ("SHOP-18 was sent back to Dev with PR comments and a
+    /// comment. Run `otaq prime`, then `otaq review feedback`."), already stored for a queued ticket.
+    pub(crate) async fn record_send_back_pr(
+        &self,
+        ticket: &Ticket,
+        hand_over: Option<&crate::board::hand_over::HandOver>,
+        to: Status,
+        resume_skill: Option<&str>,
+        actor: &Actor,
+    ) -> Result<String, BoardError> {
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        let moved = self
+            .moved(ticket, ticket.status, crate::flow::engine::Move::PrComments)
+            .await?;
+        let stage = moved.place.stage().map(str::to_owned);
+        let name = stage
+            .as_deref()
+            .and_then(|id| flow.stage(id))
+            .or_else(|| flow.first_agent_stage())
+            .map_or_else(|| "Dev".to_owned(), |s| s.name.clone());
+        let stage = match to.is_queued() {
+            true => stage.and_then(|id| crate::board::send_back::waits_before(&flow, &id)),
+            false => stage,
+        };
+        let round = self.current_round(&ticket.id).await?;
+        let note = hand_over.map_or("", |h| h.body.as_str());
+        let now = now_ms();
+        let mut tx = self.store().begin_write().await?;
+        let posted = match hand_over {
+            Some(h) => Some(h.post(&mut tx, &ticket.id, actor).await?),
+            None => None,
+        };
+        moved
+            .record(&mut tx, &ticket.id, posted.as_ref().map(|p| p.id.as_str()))
+            .await?;
+        sqlx::query(
+            "INSERT INTO reviews (id, ticket_id, round, action, at) VALUES (?, ?, ?, 'send_back', ?)",
+        )
+        .bind(crate::store::new_id())
+        .bind(&ticket.id)
+        .bind(i64::from(round))
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+        crate::board::send_back::return_to_dev(
+            &mut tx,
+            ticket,
+            to,
+            stage.as_deref(),
+            resume_skill,
+            actor,
+        )
+        .await?;
+        let told = crate::board::hand_over::sent_back_text(&crate::board::hand_over::SentBack {
+            key: &ticket.key.to_string(),
+            stage: &name,
+            line_comments: 0,
+            pr_comments: true,
+            comment: posted.is_some(),
+            by_you: false,
+        });
+        if resume_skill.is_some() {
+            sqlx::query("UPDATE tickets SET resume_prompt = ? WHERE id = ?")
+                .bind(&told)
+                .bind(&ticket.id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        if posted.is_some() {
+            crate::board::stage_runs::mark_handed_over(&mut tx, &ticket.id).await?;
+        }
+        record_event(
+            &mut tx,
+            &ticket.id,
+            EventKind::SentBackWithPrComments,
+            actor,
+            json!({ "pr": ticket.flags.pr_number, "note": note, "to": to }),
+        )
+        .await?;
+        tx.commit().await?;
+        tracing::info!(key = %ticket.key, %to, "sent back with PR comments");
+        Ok(told)
     }
 }
 

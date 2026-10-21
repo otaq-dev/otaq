@@ -1,7 +1,6 @@
 // The editor's form state (T-0228): what is typed, which dependency row is highlighted, what a key does. The rules
 // (title required, only what changed is saved, priority only once picked, links checked for loops and bases) are
 // Rust's (`src/api/editor.rs`, `editor.rs`); this file keeps only the moment of typing.
-import type { AgentRole } from "../../generated/AgentRole";
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorRefusal } from "../../generated/EditorRefusal";
 import type { EditorView } from "../../generated/EditorView";
@@ -51,18 +50,6 @@ export function withDep(form: EditorForm, key: string): EditorForm {
 
 export function withoutDep(form: EditorForm, key: string): EditorForm {
   return { ...form, deps: form.deps.filter((d) => d !== key) };
-}
-
-/** A new ticket's row picked in the form (*set by you*, set once it is created); `null` (Project default, Let agents
- * pick again) drops the pick. */
-export function withPick(form: EditorForm, role: AgentRole, agent: string | null): EditorForm {
-  const others = form.agents.filter((p) => p.role !== role);
-  return { ...form, agents: agent === null ? others : [...others, { role, agent }] };
-}
-
-/** The form's picks by row, for the Agents block. */
-export function formPicks(form: EditorForm): Partial<Record<AgentRole, string>> {
-  return Object.fromEntries(form.agents.map((p) => [p.role, p.agent]));
 }
 
 /** The refusal shown under one field (`null`: none there). */

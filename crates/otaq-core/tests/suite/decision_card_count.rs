@@ -73,7 +73,7 @@ async fn the_count_shows_only_in_ready_for_review() {
         "working: the Ticket tab has them"
     );
 
-    w.force_status(&t, Status::ReadyForReview).await;
+    w.force_status(&t, Status::WaitingForYou).await;
     assert_eq!(count(&w, "SHOP-1").await, 2);
 
     // Approve keeps them: nothing after approval.
@@ -106,10 +106,13 @@ async fn an_epic_in_review_counts_every_childs_open_decisions() {
     for c in [&api, &page] {
         let wt = w.start_worktree(c).await;
         commit(&wt, &format!("{}.ts", c.key), "x\n");
-        w.force_status(c, Status::ReadyForReview).await;
-        w.review.auto_merge(&c.key.to_string()).await.unwrap();
+        w.force_status(c, Status::WaitingForYou).await;
+        w.review
+            .deliver_locally(&c.key.to_string(), false)
+            .await
+            .unwrap();
     }
-    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     assert_eq!(count(&w, "SHOP-1").await, 2);
     assert_eq!(count(&w, "SHOP-1.1").await, 0, "a merged child shows none");
     w.stop().await;

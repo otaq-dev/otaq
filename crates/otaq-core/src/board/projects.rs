@@ -35,6 +35,10 @@ pub struct AddProject {
     pub key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_branch: Option<String>,
+    /// The project starts in **Flow setup** (ASK-04, d0108): no board and no tickets until its flow is settled. The
+    /// app's Add project sets it (first run and later); other clients add a project on the default flow.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub flow_setup: bool,
 }
 
 /// A repository's branches, for the base-branch dropdown (d0051).
@@ -55,6 +59,23 @@ pub struct ProjectUpdate {
     pub base_branch: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
+}
+
+/// Why a ticket can't be created or imported in a project in Flow setup (ASK-04): "billing-api's flow isn't set up
+/// yet".
+pub fn flow_not_set_up(project_name: &str) -> String {
+    format!("{project_name}'s flow isn't set up yet")
+}
+
+/// Refuses while `project` is in Flow setup (ASK-04): no ticket is created or imported in it.
+pub fn refuse_in_flow_setup(project: &Project) -> Result<(), BoardError> {
+    match project.flow_setup_since {
+        Some(_) => Err(BoardError::refused(
+            Refusal::NotAllowed,
+            flow_not_set_up(&project.name),
+        )),
+        None => Ok(()),
+    }
 }
 
 impl Board {
@@ -123,6 +144,7 @@ impl Board {
                 name: probe.name,
                 repo_path: probe.repo_path,
                 base_branch,
+                flow_setup: add.flow_setup,
             })
             .await?;
         tracing::info!(key = %project.key, repo = %project.repo_path, "project added");
@@ -196,12 +218,8 @@ impl Board {
     /// Removes a project from Otaq: its tickets, links, comments, sessions rows and settings are deleted
     /// from the database. The repository is never touched (PRJ-04).
     pub async fn remove_project(&self, key: &str) -> Result<(), BoardError> {
-        let _changing = self.lock_skill_changes().await;
         let project = self.project(key).await?;
-        let settings = self.project_settings(key).await?;
         self.store.delete_project(&project.id).await?;
-        // Its imported workflow skills' copies go with it (d0092).
-        self.remove_skill_copies_of(&settings).await;
         tracing::info!(key = %project.key, repo = %project.repo_path, "project removed");
         Ok(())
     }

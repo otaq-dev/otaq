@@ -148,7 +148,7 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
 /// The agent's signals while its ticket validates (d0063).
 fn validating(next: &mut SignalState, input: &Input, now: i64) {
     // The validator's own prompt shows; the agent's waits behind it.
-    let open = matches!(next.status, Status::Validating) || next.status.is_agent_waiting();
+    let open = matches!(next.status, Status::Checking) || next.status.is_agent_waiting();
     let waiting = next.status.is_agent_waiting();
     let mut set = |status: Status, text: Option<String>| {
         if next.status != status || next.text != text {
@@ -166,7 +166,7 @@ fn validating(next: &mut SignalState, input: &Input, now: i64) {
         Input::Hook(Signal::Working { .. }) | Input::Enter | Input::Answered | Input::Command
             if waiting =>
         {
-            set(Status::Validating, None)
+            set(Status::Checking, None)
         }
         // Stop, background work, the usage limit: the validation stands.
         _ => {}
@@ -334,7 +334,7 @@ mod tests {
     #[test]
     fn tickets_that_are_not_at_work_only_record_the_signal() {
         for status in [
-            Status::ReadyForReview,
+            Status::WaitingForYou,
             Status::Queued,
             Status::Parked,
             Status::Merged,
@@ -410,7 +410,7 @@ mod tests {
     #[test]
     fn the_agent_while_its_ticket_validates() {
         let validating = SignalState {
-            status: Status::Validating,
+            status: Status::Checking,
             validating: true,
             ..Default::default()
         };
@@ -424,7 +424,7 @@ mod tests {
         ] {
             assert_eq!(
                 transition(&validating, &input, 50).status,
-                Status::Validating,
+                Status::Checking,
                 "{input:?}"
             );
         }
@@ -447,20 +447,20 @@ mod tests {
         ] {
             assert_eq!(
                 transition(&waiting, &clear, 60).status,
-                Status::Validating,
+                Status::Checking,
                 "{clear:?}"
             );
         }
         // The validator's own prompt shows; the agent's waits behind it.
         let validator_waits = SignalState {
-            status: Status::ValidatorNeedsYou,
+            status: Status::CheckerNeedsYou,
             validating: true,
             ..Default::default()
         };
         let prompt = Input::Hook(Signal::NeedsYou { prompt: "x".into() });
         assert_eq!(
             transition(&validator_waits, &prompt, 50).status,
-            Status::ValidatorNeedsYou
+            Status::CheckerNeedsYou
         );
     }
 }

@@ -9,6 +9,7 @@ use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::client::{Client, ClientConfig, ClientError};
+use otaq_core::domain::Status;
 use otaq_core::git::testing::TempRepos;
 use otaq_core::protocol::{ErrorKind, Reply, Request, TerminalParams};
 use otaq_core::service::ServiceConfig;
@@ -78,7 +79,9 @@ async fn printing(
             tool: None,
             tool_session_id: None,
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
         })
         .await
         .unwrap();
@@ -87,12 +90,16 @@ async fn printing(
 }
 
 /// `ticket.terminal` from the user (the app, or their own terminal).
-async fn as_user(w: &TestService, key: &str, validator: bool) -> Result<(String, String), String> {
+async fn as_user(
+    w: &TestService,
+    key: &str,
+    stage: Option<&str>,
+) -> Result<(String, String), String> {
     let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
     match client
         .request(Request::TicketTerminal(TerminalParams {
             key: key.into(),
-            validator,
+            stage: stage.map(str::to_owned),
         }))
         .await
     {
@@ -133,28 +140,39 @@ fn refused(answer: &Value) -> &str {
 const PROMPT: &str = "\\033[2J\\033[H\\033[1mBash command\\033[22m\\r\\n\\r\\n  \\033[2mrm -rf .next\\033[22m\
                       \\033[5;1HDo you want to proceed?\\r\\n\\033[36m> 1. Yes\\033[39m   \\r\\n  2. No";
 
+/// FLW-20 on the test flow: `--stage security` reads the Security check's terminal while the ticket is in it, and is
+/// refused in any other stage; the plain form starts with a line naming the stage while the check runs.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_agent_terminal_as_on_screen_and_the_validator_s_with_validator() {
+async fn the_agent_terminal_as_on_screen_and_a_check_s_with_stage() {
     let w = world().await;
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml");
+    let file = otaq_core::flow::yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap();
+    w.board.use_flow_for_tests("SHOP", &file).await;
     let note = ticket(&w, "SHOP-22").await;
     let size = TerminalSize { cols: 60, rows: 12 };
     let session = printing(&w, &note, SessionKind::Agent, PROMPT, size).await;
 
-    let (from_session, text) = as_user(&w, "SHOP-22", false).await.unwrap();
+    let (from_session, text) = as_user(&w, "SHOP-22", None).await.unwrap();
     assert_eq!(from_session, session);
     assert_eq!(
         text,
         "Bash command\n\n  rm -rf .next\n\nDo you want to proceed?\n> 1. Yes\n  2. No<end>"
     );
 
-    // No running validator: --validator is refused; the plain form has no validating line.
+    // In Dev: `--stage dev` is the agent's terminal, `--stage security` is refused.
     assert_eq!(
-        as_user(&w, "SHOP-22", true).await.unwrap_err(),
-        "SHOP-22 has no running validator"
+        as_user(&w, "SHOP-22", Some("Dev")).await.unwrap().0,
+        session
+    );
+    assert_eq!(
+        as_user(&w, "SHOP-22", Some("security")).await.unwrap_err(),
+        "SHOP-22 isn't in Security"
     );
 
-    // While it validates: --validator reads the validator's terminal, the plain form starts with a line saying so.
-    let validator = printing(
+    // In Security, its check running: `--stage security` (or its name, any case) reads the check's terminal, the
+    // plain form starts with a line saying so, and Dev is refused.
+    w.force_stage(&note, "security", Status::Checking).await;
+    let check = printing(
         &w,
         &note,
         SessionKind::Validator,
@@ -162,22 +180,45 @@ async fn the_agent_terminal_as_on_screen_and_the_validator_s_with_validator() {
         size,
     )
     .await;
-    let (from_session, text) = as_user(&w, "SHOP-22", true).await.unwrap();
-    assert_eq!(
-        (from_session, text.as_str()),
-        (validator, "running the tests\n<end>")
-    );
-    let (_, text) = as_user(&w, "SHOP-22", false).await.unwrap();
+    for stage in ["security", "SECURITY", " Security "] {
+        let (from_session, text) = as_user(&w, "SHOP-22", Some(stage)).await.unwrap();
+        assert_eq!(
+            (from_session.as_str(), text.as_str()),
+            (check.as_str(), "running the tests\n<end>"),
+            "{stage}"
+        );
+    }
+    let (_, text) = as_user(&w, "SHOP-22", None).await.unwrap();
     assert!(
         text.starts_with(
-            "SHOP-22 is validating \u{b7} its validator's terminal: --validator\nBash command\n"
+            "SHOP-22 is in Security \u{b7} its terminal: --stage security\nBash command\n"
         ),
         "{text}"
+    );
+    assert_eq!(
+        as_user(&w, "SHOP-22", Some("dev")).await.unwrap_err(),
+        "SHOP-22 isn't in Dev"
+    );
+
+    // The check ended: nothing to read with --stage; the plain form loses its line.
+    w.sessions.stop(&check).await.unwrap();
+    assert_eq!(
+        as_user(&w, "SHOP-22", Some("security")).await.unwrap_err(),
+        "SHOP-22's Security check isn't running"
+    );
+    let (_, text) = as_user(&w, "SHOP-22", None).await.unwrap();
+    assert!(text.starts_with("Bash command\n"), "{text}");
+
+    // A check by you has no agent.
+    w.force_stage(&note, "qa", Status::WaitingForYou).await;
+    assert_eq!(
+        as_user(&w, "SHOP-22", Some("QA")).await.unwrap_err(),
+        "SHOP-22's QA is your check: no agent runs it"
     );
 
     // The agent ended: its last session is still in memory and still readable.
     w.sessions.stop(&session).await.unwrap();
-    let (from_session, text) = as_user(&w, "SHOP-22", false).await.unwrap();
+    let (from_session, text) = as_user(&w, "SHOP-22", None).await.unwrap();
     assert_eq!(from_session, session);
     assert!(text.contains("Do you want to proceed?"), "{text}");
     w.stop().await;
@@ -187,14 +228,14 @@ async fn the_agent_terminal_as_on_screen_and_the_validator_s_with_validator() {
 async fn no_session_in_memory_is_a_plain_refusal() {
     let w = world().await;
     assert_eq!(
-        as_user(&w, "SHOP-13", false).await.unwrap_err(),
+        as_user(&w, "SHOP-13", None).await.unwrap_err(),
         "SHOP-13 has no terminal output: its agent hasn't started."
     );
     // A session from before a restart: stored, but its output was never written to disk (d0045).
     let interrupted = ticket(&w, "SHOP-25").await;
     w.record_ended_agent(&interrupted, "c-25").await;
     assert_eq!(
-        as_user(&w, "SHOP-25", false).await.unwrap_err(),
+        as_user(&w, "SHOP-25", None).await.unwrap_err(),
         "SHOP-25's terminal output isn't kept after a restart."
     );
     w.stop().await;
@@ -223,7 +264,7 @@ async fn who_may_read_a_ticket_s_terminal() {
 
     // The user: any ticket of any project.
     for key in ["SHOP-19", "SHOP-40.2", other_key.as_str()] {
-        assert!(as_user(&w, key, false).await.is_ok(), "{key}");
+        assert!(as_user(&w, key, None).await.is_ok(), "{key}");
     }
 
     // A Project agent: any ticket of its project, not another project's.
@@ -269,7 +310,7 @@ async fn who_may_read_a_ticket_s_terminal() {
         .await;
     assert_eq!(
         refused(&from(&w, &shell, "SHOP-19").await),
-        "SHOP-19's validator can't read SHOP-19's terminal"
+        "SHOP-19's check can't read SHOP-19's terminal"
     );
     w.stop().await;
 }

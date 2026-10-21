@@ -65,7 +65,9 @@ async fn agent_on(
             tool: Some(tool),
             tool_session_id: Some("conversation-1".into()),
             model: None,
-            named_agent: None,
+            agent: None,
+            effort: None,
+            fallback: None,
         })
         .await
         .unwrap();
