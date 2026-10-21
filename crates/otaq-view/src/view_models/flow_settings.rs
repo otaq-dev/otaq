@@ -507,6 +507,7 @@ mod tests {
             base_branch: "main".into(),
             agents_working: 0,
             needs_you: 0,
+            flow_setup_since: None,
         }
     }
 

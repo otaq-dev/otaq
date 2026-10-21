@@ -99,7 +99,7 @@ pub(super) async fn handle(
                 .map(Reply::PrProvider)
         }),
         Request::OnboardingSources(p) => boxed(move || async move {
-            crate::onboarding::sources(board, &shared.gate, &shared.config.tools, &p.project)
+            crate::onboarding::sources(board, &shared.connected, &p.project)
                 .await
                 .map(Reply::OnboardingSources)
         }),
@@ -1266,6 +1266,13 @@ pub(super) async fn handle(
                     },
                 );
             }
+            // Use this flow, or a preset applied, settles a Flow setup: the other proposals close and their agents
+            // are told and end; the chosen agent stays (ASK-03, ASK-04).
+            let keep = match &by {
+                Some(ProposedBy::ProjectAgent { agent, .. }) => Some(agent.as_str()),
+                _ => None,
+            };
+            shared.project_agents.settle_flow_setup(&key, keep).await?;
             shared.scheduler.wake();
             Ok(Reply::FlowApplied(Box::new(applied)))
         }),
@@ -1304,11 +1311,15 @@ pub(super) async fn handle(
         }),
         Request::FlowPropose(p) => boxed(move || async move {
             let by = match caller {
-                Caller::ProjectAgent { agent, session, .. } => ProposedBy::ProjectAgent {
-                    agent: agent.clone(),
-                    session: session.clone(),
-                    name: shared.project_agents.get(agent).await?.name,
-                },
+                Caller::ProjectAgent { agent, session, .. } => {
+                    let proposer = shared.project_agents.get(agent).await?;
+                    ProposedBy::ProjectAgent {
+                        agent: agent.clone(),
+                        session: session.clone(),
+                        name: proposer.name,
+                        tool: proposer.tool,
+                    }
+                }
                 _ => ProposedBy::User,
             };
             let proposal = board
@@ -1439,7 +1450,9 @@ pub(super) async fn handle(
         | Request::ProjectTerminalCreated(_)
         | Request::ProjectTerminalDismiss(_)
         | Request::ProjectAgentOpen(_)
-        | Request::OnboardingStartFlow(_)
+        | Request::OnboardingAsk(_)
+        | Request::OnboardingFlowSetup(_)
+        | Request::OnboardingUseDefault(_)
         | Request::ProjectAgentList(_)
         | Request::ProjectAgentClose(_)
         | Request::ProjectAgentCloseEnded(_)

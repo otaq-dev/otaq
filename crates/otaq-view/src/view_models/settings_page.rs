@@ -1530,6 +1530,7 @@ pub fn warm_switch_gallery() -> WarmSwitchGallery {
                     base_branch: "main".into(),
                     agents_working: 0,
                     needs_you: 0,
+                    flow_setup_since: None,
                 };
                 let settings = ProjectSettings {
                     warm_builds: on,
@@ -2052,6 +2053,7 @@ mod tests {
             base_branch: "develop".into(),
             agents_working: 1,
             needs_you: 0,
+            flow_setup_since: None,
         }
     }
 

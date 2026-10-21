@@ -425,7 +425,9 @@ async fn respond(
             }
         }
         request @ (Request::ProjectAgentOpen(_)
-        | Request::OnboardingStartFlow(_)
+        | Request::OnboardingAsk(_)
+        | Request::OnboardingFlowSetup(_)
+        | Request::OnboardingUseDefault(_)
         | Request::ProjectAgentList(_)
         | Request::ProjectAgentClose(_)
         | Request::ProjectAgentCloseEnded(_)

@@ -1218,6 +1218,7 @@ mod tests {
             agent: "a1".into(),
             session: "s1".into(),
             name: "Flow setup".into(),
+            tool: otaq_core::agent_tools::Tool::Claude,
         }
     }
 

@@ -316,6 +316,7 @@ async fn onboarding_state_and_remembered_dismissal() {
             name: "shop-web".into(),
             repo_path: "/tmp/shop-web".into(),
             base_branch: "main".into(),
+            flow_setup: false,
         })
         .await
         .unwrap();

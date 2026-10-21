@@ -443,6 +443,19 @@ impl ProjectAgents {
                 &agent,
             )
             .await?;
+        self.start(&project, message, &agent, &runs_on, None).await
+    }
+
+    /// Starts a new Project agent in `project` on `agent` with `runs_on` (already checked) and the first `message`;
+    /// `name` names it from the start (a flow agent, "Flow setup · OpenCode"), as the user's name would.
+    async fn start(
+        &self,
+        project: &Project,
+        message: &str,
+        agent: &Agent,
+        runs_on: &RunsOn,
+        name: Option<&str>,
+    ) -> Result<ProjectAgent, BoardError> {
         let id = new_id();
         // The agent's skills, copied into the project's folder while it runs (AGM-07); `/flow` runs the flow
         // skill (FLW-11).
@@ -451,7 +464,7 @@ impl ProjectAgents {
             .copy_into_checkout(
                 &id,
                 Path::new(&project.repo_path),
-                Some(&agent),
+                Some(agent),
                 Some(FirstPrompt::Skill {
                     name: skill.to_owned(),
                     message: asks,
@@ -463,7 +476,7 @@ impl ProjectAgents {
             LaunchRequest {
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
-                ..request(&project, LaunchRole::ProjectAgent, first_prompt)
+                ..request(project, LaunchRole::ProjectAgent, first_prompt)
             },
         ) {
             Ok(launched) => launched,
@@ -474,8 +487,8 @@ impl ProjectAgents {
         };
         sqlx::query(
             "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, agent_id, agent_name, effort,
-                                         state, first_request, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                         state, first_request, created_at, name, name_source)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
@@ -488,9 +501,11 @@ impl ProjectAgents {
         .bind(AgentState::Running.as_str())
         .bind(message)
         .bind(now_ms())
+        .bind(name)
+        .bind(name.map(|_| NameSource::User.as_str()))
         .execute(self.inner.board.store().pool())
         .await?;
-        if let Err(e) = self.spawn(&project, launched, &id, &runs_on, None).await {
+        if let Err(e) = self.spawn(project, launched, &id, runs_on, None).await {
             self.release_checkout(&id).await;
             sqlx::query("DELETE FROM project_agents WHERE id = ?")
                 .bind(&id)

@@ -91,6 +91,7 @@ fn sample(method: &str, unit: bool) -> Request {
         if method.starts_with("agent_tools.")
             || method.starts_with("limits.")
             || method == "agents.fallback"
+            || method == "onboarding.ask"
         {
             params["tool"] = json!("codex");
         }
@@ -141,7 +142,9 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::ToolsCheck
         | Request::OnboardingState
         | Request::OnboardingSources(_)
-        | Request::OnboardingStartFlow(_)
+        | Request::OnboardingAsk(_)
+        | Request::OnboardingFlowSetup(_)
+        | Request::OnboardingUseDefault(_)
         | Request::DismissPermissionWarning
         | Request::DismissTrustNote
         | Request::NotificationsState

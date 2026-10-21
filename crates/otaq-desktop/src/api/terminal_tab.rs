@@ -890,6 +890,7 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }))
             .await
             .unwrap()

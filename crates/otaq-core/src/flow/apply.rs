@@ -354,9 +354,8 @@ impl Board {
         models: &dyn ModelCatalog,
     ) -> Result<Applied, BoardError> {
         let row = self
-            .proposal_row(project)
+            .proposal_row_by_id(project, id)
             .await?
-            .filter(|r| r.id == id)
             .ok_or_else(|| BoardError::NotFound(format!("Proposal {id} isn't open any more")))?;
         let view = self.view(&row, models, choices).await?;
         if !view.problems.is_empty() {

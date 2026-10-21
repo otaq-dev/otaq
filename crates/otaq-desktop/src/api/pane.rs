@@ -356,14 +356,30 @@ pub struct FlowStarted {
     pub session: Option<String>,
 }
 
-/// **Look and propose a flow** (ONB-05, `onboarding.start_flow`): the project's first Project agent on the `flow`
-/// skill, or its running one. A refusal (nothing to look at, the tool at its limit) comes back as the error, with no
-/// toast: the Flow step shows it.
+/// **Look and propose a flow** (`onboarding.ask` since M35): asks the first connected tool for the project's flow, or
+/// returns its running flow agent. A refusal (no tool connected, the tool at its limit, the project's flow already
+/// set up) comes back as the error, with no toast: the Flow step shows it. A thin stand-in until T-0434 asks each
+/// tool from its own row (ASK-05).
 pub async fn start_flow(app: &App, params: ProjectOnly) -> Result<FlowStarted, RequestError> {
+    let project = ProjectParams {
+        project: params.project,
+    };
+    let tool = match app
+        .service
+        .send(Request::OnboardingSources(project.clone()))
+        .await?
+    {
+        Reply::OnboardingSources(sources) => sources.tools.first().copied(),
+        other => return Err(unexpected("onboarding.sources", &other)),
+    };
+    let Some(tool) = tool else {
+        return Err(RequestError::plain("No agent tool is connected"));
+    };
     match app
         .service
-        .send(Request::OnboardingStartFlow(ProjectParams {
-            project: params.project,
+        .send(Request::OnboardingAsk(otaq_core::protocol::OnboardingAskParams {
+            project: project.project,
+            tool,
         }))
         .await?
     {
@@ -371,7 +387,7 @@ pub async fn start_flow(app: &App, params: ProjectOnly) -> Result<FlowStarted, R
             session: agent.session.as_ref().map(|s| s.id.clone()),
             id: agent.id,
         }),
-        other => Err(unexpected("onboarding.start_flow", &other)),
+        other => Err(unexpected("onboarding.ask", &other)),
     }
 }
 
@@ -398,6 +414,7 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }))
             .await
             .unwrap()

@@ -40,6 +40,7 @@ fn planner() -> ProposedBy {
         agent: "pa-1".into(),
         session: "session-1".into(),
         name: "Planner".into(),
+        tool: otaq_core::agent_tools::Tool::Claude,
     }
 }
 

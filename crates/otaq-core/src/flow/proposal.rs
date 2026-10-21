@@ -1,6 +1,8 @@
 //! Proposals (FLW-03, FLW-04, FLW-05, FLW-09, FLW-10; d0108): a flow document waiting in the preview for one project,
 //! with where it came from ([`Source`]) and who proposed it ([`ProposedBy`]). A project has at most one open
-//! proposal; a new one replaces it ([`Board::open_proposal`]).
+//! proposal; a new one replaces it ([`Board::open_proposal`]). **During Flow setup** (ASK-03, ASK-04) it keeps one
+//! open proposal per flow agent instead, one for each agent tool asked, and the user's own beside them: a new one
+//! replaces only the open one from the same tool (the user's, the user's).
 //!
 //! **The checks** ([`ProposalProblem`]): STG-02's rules ([`super::check()`]), the agents the stages name
 //! ([`super::check_agents`]), each agent's model against its tool's list, its skills (shipped, imported already, or
@@ -29,6 +31,7 @@ use serde::{Deserialize, Serialize};
 
 use super::model::{Flow, FlowAgent, FlowFile, Stage, StageKind, StageOption};
 use super::yaml;
+use crate::agent_tools::Tool;
 use crate::agents::in_use::StageUse;
 use crate::agents::{Agent, AgentModel, ModelCatalog, SkillRef, in_use, shipped};
 use crate::board::{Board, BoardError, Refusal};
@@ -121,7 +124,19 @@ pub enum ProposedBy {
         session: String,
         /// Its name ("Checkout slowness"), for "Changed by the Project agent".
         name: String,
+        /// The agent tool it runs on: "Recommended by OpenCode" during Flow setup (ASK-03).
+        tool: Tool,
     },
+}
+
+impl ProposedBy {
+    /// The tool of the Project agent that proposed it; `None` for the user's own.
+    pub fn tool(&self) -> Option<Tool> {
+        match self {
+            Self::User => None,
+            Self::ProjectAgent { tool, .. } => Some(*tool),
+        }
+    }
 }
 
 /// A proposal to open.
@@ -1015,8 +1030,8 @@ impl Board {
         Ok((self.current_flow_file(project).await?, false))
     }
 
-    /// Opens a proposal for `project`, replacing the open one (FLW-03): its stage ids matched to the flow as it will
-    /// be, then checked. A Project agent's proposal with problems is refused with them, one per line, so it can fix
+    /// Opens a proposal for `project`, replacing the open one (FLW-03; during Flow setup only the open one from the
+    /// same tool, ASK-03): its stage ids matched to the flow as it will be, then checked. A Project agent's proposal with problems is refused with them, one per line, so it can fix
     /// them; a document that doesn't read is refused for everyone. The proposal as the preview shows it.
     pub async fn open_proposal(
         &self,
@@ -1073,16 +1088,23 @@ impl Board {
                 .collect();
             return Err(refuse(lines.join("\n")));
         }
+        let tool = proposed_by.tool().map(Tool::as_str);
         let mut tx = self.store().begin_write().await?;
-        sqlx::query("DELETE FROM flow_proposals WHERE project_id = ?")
-            .bind(&project.id)
-            .execute(&mut *tx)
-            .await?;
+        // Outside Flow setup one proposal per project (FLW-03); during it one per tool, and the user's (ASK-03).
+        let replaced = if project.flow_setup_since.is_some() {
+            sqlx::query("DELETE FROM flow_proposals WHERE project_id = ? AND tool IS ?")
+                .bind(&project.id)
+                .bind(tool)
+        } else {
+            sqlx::query("DELETE FROM flow_proposals WHERE project_id = ?").bind(&project.id)
+        };
+        replaced.execute(&mut *tx).await?;
         let id: i64 = sqlx::query_scalar(
-            "INSERT INTO flow_proposals (project_id, yaml, source_json, proposed_by_json, created_at)
-             VALUES (?, ?, ?, ?, ?) RETURNING id",
+            "INSERT INTO flow_proposals (project_id, tool, yaml, source_json, proposed_by_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
         )
         .bind(&project.id)
+        .bind(tool)
         .bind(&row.yaml)
         .bind(serde_json::to_string(&row.source).expect("a source serializes"))
         .bind(serde_json::to_string(&row.proposed_by).expect("a proposer serializes"))
@@ -1096,7 +1118,8 @@ impl Board {
         })
     }
 
-    /// `flow.proposal`: the project's open proposal, checked and compared now; `None` when there is none.
+    /// `flow.proposal`: the project's open proposal, checked and compared now; `None` when there is none. During Flow
+    /// setup, the one the preview shows ([`Self::proposal_row`]); [`Self::proposals`] lists them all.
     pub async fn proposal(
         &self,
         project: &str,
@@ -1108,6 +1131,20 @@ impl Board {
             )),
             None => Ok(None),
         }
+    }
+
+    /// Every open proposal of `project`, oldest first, checked and compared now: one at most outside Flow setup, one
+    /// per flow agent and the user's during it (ASK-03).
+    pub async fn proposals(
+        &self,
+        project: &str,
+        models: &dyn ModelCatalog,
+    ) -> Result<Vec<Proposal>, BoardError> {
+        let mut proposals = Vec::new();
+        for row in self.proposal_rows(project).await? {
+            proposals.push(self.view(&row, models, &ApplyChoices::default()).await?);
+        }
+        Ok(proposals)
     }
 
     /// `flow.cancel_proposal`: drops the open proposal (nothing else changes). The one it dropped.
@@ -1127,28 +1164,56 @@ impl Board {
         Ok(())
     }
 
+    /// The open proposal the preview shows: the only one outside Flow setup; during it the user's own (a preset
+    /// opened over the Flow setup page) when there is one, else the newest.
     pub(crate) async fn proposal_row(&self, project: &str) -> Result<Option<Row>, BoardError> {
+        let rows = self.proposal_rows(project).await?;
+        let users = rows.iter().rposition(|r| r.proposed_by == ProposedBy::User);
+        Ok(match users {
+            Some(i) => rows.into_iter().nth(i),
+            None => rows.into_iter().last(),
+        })
+    }
+
+    /// The open proposal `id` of `project`, if it is open.
+    pub(crate) async fn proposal_row_by_id(
+        &self,
+        project: &str,
+        id: u32,
+    ) -> Result<Option<Row>, BoardError> {
+        Ok(self
+            .proposal_rows(project)
+            .await?
+            .into_iter()
+            .find(|r| r.id == id))
+    }
+
+    /// Every open proposal of `project`, oldest first.
+    pub(crate) async fn proposal_rows(&self, project: &str) -> Result<Vec<Row>, BoardError> {
         let project = self.project(project).await?;
-        let row: Option<(i64, String, String, String, i64)> = sqlx::query_as(
-            "SELECT id, yaml, source_json, proposed_by_json, created_at FROM flow_proposals WHERE project_id = ?",
+        let rows: Vec<(i64, String, String, String, i64)> = sqlx::query_as(
+            "SELECT id, yaml, source_json, proposed_by_json, created_at FROM flow_proposals WHERE project_id = ?
+             ORDER BY id",
         )
         .bind(&project.id)
-        .fetch_optional(self.store().pool())
+        .fetch_all(self.store().pool())
         .await?;
-        let Some((id, yaml, source, proposed_by, created_at)) = row else {
-            return Ok(None);
-        };
-        let read = |what: &str, e: serde_json::Error| {
-            BoardError::NotFound(format!("proposal {id}'s {what} doesn't read: {e}"))
-        };
-        Ok(Some(Row {
-            id: u32::try_from(id).unwrap_or(0),
-            project: project.key,
-            yaml,
-            source: serde_json::from_str(&source).map_err(|e| read("source", e))?,
-            proposed_by: serde_json::from_str(&proposed_by).map_err(|e| read("proposer", e))?,
-            created_at,
-        }))
+        rows.into_iter()
+            .map(|(id, yaml, source, proposed_by, created_at)| {
+                let read = |what: &str, e: serde_json::Error| {
+                    BoardError::NotFound(format!("proposal {id}'s {what} doesn't read: {e}"))
+                };
+                Ok(Row {
+                    id: u32::try_from(id).unwrap_or(0),
+                    project: project.key.clone(),
+                    yaml,
+                    source: serde_json::from_str(&source).map_err(|e| read("source", e))?,
+                    proposed_by: serde_json::from_str(&proposed_by)
+                        .map_err(|e| read("proposer", e))?,
+                    created_at,
+                })
+            })
+            .collect()
     }
 
     /// The proposal `row` checked and compared now, with the user's `choices` taken (Apply's own check).

@@ -2096,3 +2096,64 @@ async fn a_fresh_install_applies_the_two_files() {
     assert_eq!(store.default_model().await.unwrap(), None);
     assert!(!has_table(store.pool(), "named_agents").await);
 }
+
+/// T-0433 (ASK-03, ASK-04): 0054 keeps the open proposals with no tool, lets a project hold several, goes on
+/// numbering from where it was (numbers are never reused), and starts every project outside Flow setup.
+#[tokio::test]
+async fn migration_0054_keeps_the_proposals_and_their_numbers() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 53).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('pn', 'pocket-notes', '/tmp/pocket-notes', 'NOTE', 'main', 1, 0)",
+    )
+    .await;
+    // Proposals 1 to 3 were opened; 2 is open, 1 and 3 were dropped (one open at a time).
+    for id in [1, 3, 2] {
+        exec(
+            &pool,
+            &format!(
+                "INSERT INTO flow_proposals (id, project_id, yaml, source_json, proposed_by_json, created_at)
+                 VALUES ({id}, 'pn', 'flow: []', '{{\"kind\": \"preset\", \"file\": \"x.yaml\"}}',
+                         '{{\"by\": \"user\"}}', {id})"
+            ),
+        )
+        .await;
+        if id != 2 {
+            exec(
+                &pool,
+                &format!("DELETE FROM flow_proposals WHERE id = {id}"),
+            )
+            .await;
+        }
+    }
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let pool = store.pool();
+    let kept: Vec<(i64, Option<String>, String)> =
+        sqlx::query_as("SELECT id, tool, proposed_by_json FROM flow_proposals")
+            .fetch_all(pool)
+            .await
+            .unwrap();
+    assert_eq!(kept, [(2, None, "{\"by\": \"user\"}".to_owned())]);
+    let next: i64 = sqlx::query_scalar(
+        "INSERT INTO flow_proposals (project_id, tool, yaml, source_json, proposed_by_json, created_at)
+         VALUES ('pn', 'opencode', 'flow: []', '{}', '{}', 4) RETURNING id",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        next, 4,
+        "a second open proposal of the project, the next number"
+    );
+    let since: Option<i64> =
+        sqlx::query_scalar("SELECT flow_setup_since FROM projects WHERE key = 'NOTE'")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(since, None);
+}

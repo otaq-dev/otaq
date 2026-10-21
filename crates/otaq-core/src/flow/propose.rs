@@ -265,9 +265,8 @@ impl Board {
         id: u32,
     ) -> Result<Option<ProposedBy>, BoardError> {
         Ok(self
-            .proposal_row(project)
+            .proposal_row_by_id(project, id)
             .await?
-            .filter(|r| r.id == id)
             .map(|r| r.proposed_by))
     }
 

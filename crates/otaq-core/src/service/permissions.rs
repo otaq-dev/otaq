@@ -410,9 +410,12 @@ async fn action_for(
         R::HistoryRead(_) => Action::ReadHistory,
         R::ServiceStop => Action::UserOnly("stop the background service"),
         R::DismissPermissionWarning => Action::UserOnly("change onboarding"),
-        // Runs `gh` and `glab` and looks at the user's history file (ONB-03): the app's onboarding only.
-        R::OnboardingSources(_) => Action::UserOnly("check what Flow onboarding looks at"),
-        R::OnboardingStartFlow(_) => Action::UserOnly("start Flow onboarding"),
+        // Asking spends the user's tokens on their tool (ASK-02) and settling ends agents: the user's clicks only.
+        R::OnboardingSources(_) | R::OnboardingFlowSetup(_) => {
+            Action::UserOnly("look at a project's Flow setup")
+        }
+        R::OnboardingAsk(_) => Action::UserOnly("ask an agent tool for a flow"),
+        R::OnboardingUseDefault(_) => Action::UserOnly("settle a project's flow"),
         R::DismissTrustNote => Action::UserOnly("dismiss notices"),
         R::NotificationsAskAnswered => Action::UserOnly("answer the notifications ask"),
         R::NotificationsDismissBlocked => Action::UserOnly("dismiss notices"),

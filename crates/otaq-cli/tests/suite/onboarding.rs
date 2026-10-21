@@ -1,16 +1,17 @@
-//! Flow onboarding end to end (T-0432; ONB-11; d0108, d0056, d0079). The onboarding start opens the Project agent;
-//! a stand-in `claude` reads the made-up history with the real `otaq history`, proposes a flow file with the real
-//! `otaq flow propose`, gets the user's Ask for more changes typed in as its next message, proposes again, and the
-//! user's Apply makes the second file the project's flow. A ticket's agent in the same run is refused the history.
-//! Then the nothing-to-look-at case: no history, a repository with no commits, no `gh` or `glab`: the start is
-//! refused and a preset applies instead. The history is the T-0426 fixture in a temporary Claude Code folder, never
-//! the user's own; no real agent tool, `gh` or `glab` runs.
+//! Flow onboarding end to end (T-0432; ONB-11; d0108, d0056, d0079; asking per tool since T-0433, ASK-02). Asking
+//! Claude Code opens its flow agent for a project in Flow setup; a stand-in `claude` reads the made-up history with
+//! the real `otaq history`, proposes a flow file with the real `otaq flow propose`, gets the user's Ask for more
+//! changes typed in as its next message, proposes again, and the user's Apply makes the second file the project's
+//! flow and ends Flow setup. A ticket's agent in the same run is refused the history. Then no tool connected: asking
+//! is refused and a preset applies instead. The history is the T-0426 fixture in a temporary Claude Code folder,
+//! never the user's own; no real agent tool, `gh` or `glab` runs.
 
 use std::path::{Path, PathBuf};
 
-use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
+use otaq_core::agent_tools::connected::AgentToolState;
 use otaq_core::agent_tools::history::only_a_project_agent;
+use otaq_core::agent_tools::{LaunchContext, Tool};
 use otaq_core::agents::FixedModels;
 use otaq_core::board::projects::AddProject;
 use otaq_core::client::{ClientError, request_once};
@@ -22,8 +23,7 @@ use otaq_core::flow::propose::AskForChangesParams;
 use otaq_core::git::testing::TempRepos;
 use otaq_core::onboarding::Sources;
 use otaq_core::project_agents::ProjectAgent;
-use otaq_core::project_agents::first_flow::NOTHING_TO_LOOK_AT;
-use otaq_core::protocol::{ErrorBody, ProjectParams, Reply, Request};
+use otaq_core::protocol::{ErrorBody, OnboardingAskParams, ProjectParams, Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::tools::CheckEnv;
@@ -229,13 +229,38 @@ async fn sources(w: &TestService, project: &str) -> Sources {
 }
 
 async fn start_flow(w: &TestService, project: &str) -> Result<ProjectAgent, ErrorBody> {
-    let request = Request::OnboardingStartFlow(ProjectParams {
+    let request = Request::OnboardingAsk(OnboardingAskParams {
         project: project.into(),
+        tool: Tool::Claude,
     });
     ask(w, request).await.map(|reply| match reply {
         Reply::ProjectAgent(agent) => *agent,
         other => panic!("{other:?}"),
     })
+}
+
+/// Adds the repository `name` (with `commits`) as the user's Add project does: in Flow setup.
+async fn add_in_flow_setup(w: &TestService, name: &str, key: &str, commits: usize) -> String {
+    let repo = w.repos.repo(name, commits);
+    w.board
+        .add_project(&AddProject {
+            path: repo.display().to_string(),
+            key: Some(key.into()),
+            base_branch: Some("main".into()),
+            flow_setup: true,
+        })
+        .await
+        .unwrap()
+        .key
+}
+
+async fn in_flow_setup(w: &TestService, project: &str) -> bool {
+    w.board
+        .project(project)
+        .await
+        .unwrap()
+        .flow_setup_since
+        .is_some()
 }
 
 async fn stage_names(w: &TestService, project: &str) -> Vec<String> {
@@ -251,9 +276,22 @@ fn read(path: PathBuf) -> String {
 async fn the_onboarding_agent_reads_the_history_proposes_and_the_second_proposal_applies() {
     let mac = mac(true);
     let w = world(&mac).await;
-    let shop = w.add_project("shop-web").await.key;
+    // Claude Code connected by hand, once the service's own check at start recorded what it found (nothing).
+    tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        while w.connected.status(Tool::Claude).checked_at.is_none() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the check at start");
+    let connected = AgentToolState::Connected {
+        version: None,
+        account: None,
+    };
+    w.connected.set_detected(Tool::Claude, connected, 0);
+    let shop = add_in_flow_setup(&w, "shop-web", "SHOP", 1).await;
     let s = sources(&w, &shop).await;
-    assert!(s.history && s.commits && !s.gh && !s.glab, "{s:?}");
+    assert_eq!(s.tools, [Tool::Claude], "{s:?}");
 
     let agent = start_flow(&w, &shop).await.unwrap();
     let session = agent.session.as_ref().expect("a session").id.clone();
@@ -301,18 +339,6 @@ async fn the_onboarding_agent_reads_the_history_proposes_and_the_second_proposal
         stage_names(&w, &shop).await,
         ["Dev", "Validate", "Review", "Done"]
     );
-
-    // A ticket's agent in the same run is refused the history.
-    let ticket = w.create(&shop, "Rate limit").await;
-    let refused = w
-        .agent_shell(&ticket)
-        .await
-        .run(&format!("'{CB}' history --all --json"))
-        .await;
-    assert_ne!(refused.status, 0, "{refused:?}");
-    let e: Value = serde_json::from_str(&refused.stdout).unwrap();
-    assert_eq!(e["error"]["message"], only_a_project_agent(), "{e}");
-    assert!(!refused.stdout.contains("/grill"), "{refused:?}");
 
     // Ask for more changes reaches the agent as its next message; it proposes again.
     let changes = "Leave out Grill: I write my own tickets";
@@ -381,29 +407,33 @@ async fn the_onboarding_agent_reads_the_history_proposes_and_the_second_proposal
             .is_none()
     );
     assert!(w.deliveries.pending(&session).await.unwrap().is_empty());
+    assert!(!in_flow_setup(&w, &shop).await, "the flow is settled");
+
+    // A ticket's agent in the same run is refused the history.
+    let ticket = w.create(&shop, "Rate limit").await;
+    let refused = w
+        .agent_shell(&ticket)
+        .await
+        .run(&format!("'{CB}' history --all --json"))
+        .await;
+    assert_ne!(refused.status, 0, "{refused:?}");
+    let e: Value = serde_json::from_str(&refused.stdout).unwrap();
+    assert_eq!(e["error"]["message"], only_a_project_agent(), "{e}");
+    assert!(!refused.stdout.contains("/grill"), "{refused:?}");
     w.stop().await;
 }
 
-/// No history file, a repository with no commits, no `gh` or `glab`: nothing to look at, so the start is refused,
-/// no agent opens, and a preset applies instead.
+/// No tool connected: asking is refused, no agent opens, and a preset applies instead, ending Flow setup.
 #[tokio::test(flavor = "multi_thread")]
-async fn with_nothing_to_look_at_a_preset_applies_instead() {
+async fn with_no_tool_connected_a_preset_applies_instead() {
     let mac = mac(false);
     let w = world(&mac).await;
-    let repo = w.repos.repo("empty-api", 0);
-    w.board
-        .add_project(&AddProject {
-            path: repo.display().to_string(),
-            key: Some("API".into()),
-            base_branch: Some("main".into()),
-        })
-        .await
-        .unwrap();
+    add_in_flow_setup(&w, "empty-api", "API", 0).await;
 
     let s = sources(&w, "API").await;
     assert!(!s.any(), "{s:?}");
     let e = start_flow(&w, "API").await.unwrap_err();
-    assert_eq!(e.message, NOTHING_TO_LOOK_AT);
+    assert!(e.message.contains("available"), "{e:?}");
     let agents = w.project_agents.list("API").await.unwrap();
     assert!(
         agents.open.is_empty() && agents.recent.is_empty(),
@@ -444,5 +474,6 @@ async fn with_nothing_to_look_at_a_preset_applies_instead() {
         w.board.effective_flow("API").await.unwrap(),
         preset(file).unwrap().read().flow
     );
+    assert!(!in_flow_setup(&w, "API").await, "the flow is settled");
     w.stop().await;
 }

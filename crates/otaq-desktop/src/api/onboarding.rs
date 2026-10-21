@@ -185,6 +185,8 @@ async fn add(app: &App, params: FormParams) -> Result<AddOutcome, RequestError> 
             path: probe.repo_path,
             key: Some(model.key.clone()),
             base_branch: Some(model.base_branch.clone()),
+            // The user's Add project: the project stays in Flow setup until its flow is settled (ASK-04).
+            flow_setup: true,
         }))
         .await
     {
@@ -414,14 +416,17 @@ mod tests {
         h.service.stop_all().await;
     }
 
-    /// A service whose agents start as a stand-in (`sh` running `cat`; no agent tool runs) and whose tools PATH is
-    /// empty (no `gh`, no `glab`), with shop-web (one commit: something to look at). The last part keeps the
-    /// temporary folders.
+    /// A service whose agents start as a stand-in (`sh` running `cat`; no agent tool runs) and whose tools PATH holds
+    /// only a `claude` that prints a version (Claude Code connected), with shop-web in Flow setup. The last part keeps
+    /// the temporary folders.
     async fn flow_world() -> (Harness, TempRepos, tempfile::TempDir) {
         use otaq_core::agent_tools::LaunchContext;
         use otaq_core::agent_tools::claude::ClaudeLaunch;
 
         let bin = tempfile::tempdir().unwrap();
+        let claude = bin.path().join("claude");
+        std::fs::write(&claude, "#!/bin/sh\necho '2.1.4 (Claude Code)'\n").unwrap();
+        std::fs::set_permissions(&claude, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
         let path = bin.path().as_os_str().to_owned();
         let h = Harness::configured(move |c| {
             c.tools.path = path.clone();
@@ -444,9 +449,28 @@ mod tests {
                 path: repo.display().to_string(),
                 key: Some("SHOP".into()),
                 base_branch: None,
+                flow_setup: true,
             }))
             .await
             .unwrap();
+        // The service's check at start finds the stand-in `claude`.
+        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                let sources = h
+                    .app
+                    .service
+                    .send(Request::OnboardingSources(ProjectParams {
+                        project: "SHOP".into(),
+                    }))
+                    .await;
+                if matches!(sources, Ok(Reply::OnboardingSources(s)) if s.any()) {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("Claude Code connected");
         (h, repos, bin)
     }
 

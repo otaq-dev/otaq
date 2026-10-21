@@ -880,7 +880,7 @@ pub struct FlowGallery {
 }
 
 pub fn flow_gallery() -> FlowGallery {
-    use otaq_core::onboarding::Sources;
+    use crate::view_models::flow_sources::Sources;
     let [claude, ..] = super::agent_tools_page::fixtures::tools();
     let sources = |any: bool| Sources {
         project_name: "shop-web".into(),
@@ -897,7 +897,11 @@ pub fn flow_gallery() -> FlowGallery {
     .into_iter()
     .map(|(name, any)| FlowGalleryCell {
         name: name.to_owned(),
-        step: flow_step("SHOP", "shop-web", &flow_sources::view(&sources(any))),
+        step: flow_step(
+            "SHOP",
+            "shop-web",
+            &flow_sources::view_on(otaq_core::tools::Os::current(), &sources(any)),
+        ),
     })
     .collect();
     FlowGallery { cells }
@@ -906,7 +910,7 @@ pub fn flow_gallery() -> FlowGallery {
 /// The Add project dialog's go-ahead in the component gallery (T-0431; *s14-18*, *s14-19*): billing-api on GitLab,
 /// after shop-web, and Nothing to look at yet.
 pub fn flow_dialog_gallery() -> FlowGallery {
-    use otaq_core::onboarding::Sources;
+    use crate::view_models::flow_sources::Sources;
     let [claude, ..] = super::agent_tools_page::fixtures::tools();
     let shop = ProjectInfo {
         key: "SHOP".into(),
@@ -915,6 +919,7 @@ pub fn flow_dialog_gallery() -> FlowGallery {
         base_branch: "main".into(),
         agents_working: 0,
         needs_you: 0,
+        flow_setup_since: None,
     };
     let sources = |any: bool| Sources {
         project_name: "billing-api".into(),
@@ -935,7 +940,7 @@ pub fn flow_dialog_gallery() -> FlowGallery {
             "BILL",
             "billing-api",
             std::slice::from_ref(&shop),
-            &flow_sources::view(&sources(any)),
+            &flow_sources::view_on(otaq_core::tools::Os::current(), &sources(any)),
         ),
     })
     .collect();
@@ -1084,7 +1089,7 @@ mod tests {
     }
 
     fn look(any: bool) -> FlowLook {
-        use otaq_core::onboarding::Sources;
+        use crate::view_models::flow_sources::Sources;
         flow_sources::view_on(
             otaq_core::tools::Os::Mac,
             &Sources {
@@ -1213,11 +1218,12 @@ mod tests {
             base_branch: "main".into(),
             agents_working: 0,
             needs_you: 0,
+            flow_setup_since: None,
         }
     }
 
     fn look_at(project_name: &str, history: bool, commits: bool, glab: bool) -> FlowLook {
-        use otaq_core::onboarding::Sources;
+        use crate::view_models::flow_sources::Sources;
         let [claude, ..] = crate::view_models::agent_tools_page::fixtures::tools();
         flow_sources::view_on(
             otaq_core::tools::Os::Mac,

@@ -494,6 +494,7 @@ impl Board {
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
         let project = self.project(&input.project).await?;
+        super::projects::refuse_in_flow_setup(&project)?;
         let title = required_title(&input.title)?;
         let epic = match &input.epic {
             Some(epic) => Some(self.epic_for_child(&project, epic, input).await?),

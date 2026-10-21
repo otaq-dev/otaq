@@ -5,7 +5,8 @@
 //! parenthesis. Nothing at all gives "Nothing to look at yet" and its reason, and the presets instead. Both the Flow
 //! step and the Add project dialog read this view.
 
-use otaq_core::onboarding::Sources;
+use otaq_core::agent_tools::Tool;
+use otaq_core::onboarding;
 use otaq_core::tools::Os;
 use serde::Serialize;
 use ts_rs::TS;
@@ -33,9 +34,38 @@ pub struct View {
 
 pub const NOTHING: &str = "Nothing to look at yet \u{b7} pick a preset to start. You can change it later by asking the Project agent.";
 
-/// The view for what there is, on this computer.
-pub fn view(sources: &Sources) -> View {
-    view_on(Os::current(), sources)
+/// What the line names: M34's sources. Since M35 (T-0433) Otaq checks no sources, so [`view`] builds this from the
+/// connected tools only ("this repo", looked at by the first one); T-0434 replaces this view with ASK-05's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sources {
+    pub project_name: String,
+    pub history: bool,
+    pub commits: bool,
+    pub gh: bool,
+    pub glab: bool,
+    pub tool: Tool,
+}
+
+impl Sources {
+    fn any(&self) -> bool {
+        self.history || self.commits || self.gh || self.glab
+    }
+}
+
+/// The view for who can be asked, on this computer.
+pub fn view(sources: &onboarding::Sources) -> View {
+    let first = sources.tools.first().copied();
+    view_on(
+        Os::current(),
+        &Sources {
+            project_name: sources.project_name.clone(),
+            history: false,
+            commits: first.is_some(),
+            gh: false,
+            glab: false,
+            tool: first.unwrap_or(Tool::ALL[0]),
+        },
+    )
 }
 
 /// The view as `os` words it: "this Mac" on macOS, else "this computer".
@@ -100,8 +130,6 @@ fn and_list(parts: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use otaq_core::agent_tools::Tool;
-
     use super::*;
 
     fn sources(history: bool, commits: bool, gh: bool, glab: bool) -> Sources {

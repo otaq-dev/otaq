@@ -14,6 +14,8 @@ pub struct Project {
     pub next_ticket_number: i64,
     pub settings_json: String,
     pub created_at: i64,
+    /// Since when the project is in Flow setup (ASK-04, d0108): no board and no tickets until its flow is settled.
+    pub flow_setup_since: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -22,6 +24,8 @@ pub struct NewProject {
     pub name: String,
     pub repo_path: String,
     pub base_branch: String,
+    /// It starts in Flow setup (the user's Add project, ASK-04).
+    pub flow_setup: bool,
 }
 
 impl Store {
@@ -30,8 +34,8 @@ impl Store {
         let id = new_id();
         let mut tx = self.begin_write().await?;
         sqlx::query(
-            "INSERT INTO projects (id, key, name, repo_path, base_branch, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO projects (id, key, name, repo_path, base_branch, created_at, flow_setup_since)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&new.key)
@@ -39,6 +43,7 @@ impl Store {
         .bind(&new.repo_path)
         .bind(&new.base_branch)
         .bind(now_ms())
+        .bind(new.flow_setup.then(now_ms))
         .execute(&mut *tx)
         .await?;
         Self::insert_flow_version_in(
@@ -100,6 +105,17 @@ impl Store {
             .execute(self.pool())
             .await?;
         Ok(())
+    }
+
+    /// Ends the project's Flow setup (ASK-04): its flow is settled. Whether it was in Flow setup.
+    pub async fn end_flow_setup(&self, id: &str) -> Result<bool, StoreError> {
+        let done = sqlx::query(
+            "UPDATE projects SET flow_setup_since = NULL WHERE id = ? AND flow_setup_since IS NOT NULL",
+        )
+        .bind(id)
+        .execute(self.pool())
+        .await?;
+        Ok(done.rows_affected() > 0)
     }
 
     /// Deletes the project row; its tickets, sessions and everything hanging off them go with it (ON DELETE

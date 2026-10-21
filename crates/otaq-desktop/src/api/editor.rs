@@ -1222,6 +1222,7 @@ mod tests {
             base_branch: "main".into(),
             agents_working: 0,
             needs_you: 0,
+            flow_setup_since: None,
         }
     }
 
@@ -1414,6 +1415,7 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }))
             .await
             .unwrap()
@@ -1525,6 +1527,7 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
+                flow_setup: false,
             }))
             .await
             .unwrap()
