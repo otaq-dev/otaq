@@ -127,30 +127,3 @@ fn the_lead_and_decision_commands_are_checked() {
     }
     assert!(named("commit").contains(&"notes".to_owned()));
 }
-
-/// T-0428 (ONB-09): every `otaq history …` line of the `flow` skill's examples parses, flags included (`--help`
-/// after them succeeds only when the flags before it are the command's).
-#[test]
-fn the_flow_skills_history_lines_parse() {
-    let file = find_plugin_dir(Path::new("/nonexistent"))
-        .expect("the repository's plugin folder")
-        .join("skills/flow/SKILL.md");
-    let text = std::fs::read_to_string(&file).unwrap();
-    let lead = format!("{} history", naming::COMMAND_NAME);
-    let lines: Vec<&str> = text
-        .lines()
-        .map(str::trim)
-        .filter(|l| l.starts_with(&lead))
-        .collect();
-    assert!(lines.len() >= 4, "{lines:?}");
-    for line in lines {
-        let ok = Command::new(CB)
-            .args(line.split_whitespace().skip(1))
-            .arg("--help")
-            .output()
-            .unwrap()
-            .status
-            .success();
-        assert!(ok, "`{line}` doesn't parse");
-    }
-}

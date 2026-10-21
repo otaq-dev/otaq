@@ -407,7 +407,6 @@ async fn action_for(
         R::FlowPropose(p) => Action::ProposeFlow {
             project: board.project(&p.project).await?.key,
         },
-        R::HistoryRead(_) => Action::ReadHistory,
         R::ServiceStop => Action::UserOnly("stop the background service"),
         R::DismissPermissionWarning => Action::UserOnly("change onboarding"),
         // Asking spends the user's tokens on their tool (ASK-02) and settling ends agents: the user's clicks only.

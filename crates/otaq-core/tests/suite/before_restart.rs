@@ -273,3 +273,30 @@ async fn an_epic_reads_its_leads_conversation() {
     );
     w.stop().await;
 }
+
+/// A test service whose test names no Claude Code folder reads an empty one in the test's own folder, never the
+/// user's (M34's guard, kept when `otaq history` went in T-0437): nothing until a conversation is written there.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_test_service_reads_an_empty_claude_folder_of_its_own() {
+    let w = TestService::start_with(|config| config).await;
+    let dir = w.claude_dir();
+    assert!(dir.starts_with(w.home.path()), "{}", dir.display());
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Upgrade to Next.js 15").await;
+    let worktree = w.give_worktree(&shop1).await;
+    w.record_ended_agent(&shop1, SESSION).await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    assert!(matches!(
+        ask(&client, "SHOP-1", None).await,
+        BeforeRestart::NotAvailable { .. }
+    ));
+
+    let folder = dir.join("projects").join(project_folder(&worktree));
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join(format!("{SESSION}.jsonl")), fixture()).unwrap();
+    assert!(matches!(
+        ask(&client, "SHOP-1", None).await,
+        BeforeRestart::Available { .. }
+    ));
+    w.stop().await;
+}

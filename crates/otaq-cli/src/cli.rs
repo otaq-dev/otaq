@@ -284,27 +284,6 @@ pub enum Command {
     /// The project's flow: `flow show`, `flow presets`, `flow propose -f <file> | --stdin | --from <project>`
     #[command(subcommand)]
     Flow(FlowCommand),
-    /// What you typed into Claude Code in every project, for the Project agent proposing a flow (pasted text left
-    /// out). `--project <name>` keeps one project
-    History {
-        /// How far back: 30d, 12m, 2y
-        #[arg(
-            long,
-            value_name = "PERIOD",
-            default_value = "12m",
-            conflicts_with = "all"
-        )]
-        since: otaq_core::agent_tools::history::Since,
-        /// Everything, however old
-        #[arg(long)]
-        all: bool,
-        /// Only this slash command: /security-review
-        #[arg(long, value_name = "/COMMAND")]
-        command: Option<String>,
-        /// The page to print (500 entries each, oldest first)
-        #[arg(long, value_name = "N", default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
-        page: u32,
-    },
     /// Internal: what an agent tool's hooks run (`otaq hook --tool claude Stop`, payload on stdin)
     #[command(hide = true)]
     Hook {

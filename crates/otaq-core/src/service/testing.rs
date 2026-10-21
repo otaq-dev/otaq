@@ -579,7 +579,7 @@ impl TestService {
         configure: impl FnOnce(ServiceConfig) -> ServiceConfig,
     ) -> Self {
         let mut config = ServiceConfig::new(data.clone());
-        // Never the user's own Claude Code folder (their history, transcripts and settings, ONB-01): an empty one in
+        // Never the user's own Claude Code folder (their transcripts and settings): an empty one in
         // the test's folder, unless the test gives its own.
         config.tools.claude_config_dir = Some(Self::claude_dir_in(home.path()));
         let service = Service::bind(configure(config))

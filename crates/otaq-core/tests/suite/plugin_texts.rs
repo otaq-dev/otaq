@@ -320,12 +320,13 @@ fn open_pr_and_push_describe_click_and_automatic_mode() {
     assert!(read_skill("open-pr").contains(&format!("`{}` skill", naming::copy_name("push"))));
 }
 
-/// T-0428 (ONB-09; d0108 "the agent reads the sources itself", "Every why line names its source"): `flow` has "A
-/// first flow" between its steps and the file: `history` with its paging and filters (older only with `--all`), the
-/// skills and instruction files, the repo, `gh` / `glab`, the closest preset, counts or "No evidence", no `skip` or
-/// automatic Delivery unasked, then `flow propose --stdin`.
+/// T-0437 (ASK-09; d0108 "Each connected tool's agent looks for itself", "Every why line names its source"): `flow`
+/// has "A first flow" between its steps and the file: its own tool's history (found by itself, only what the user
+/// typed, never credentials or another tool's data), the repo with its AI files, nothing else (no `gh`, no home-folder
+/// skills), the closest preset, why lines naming source and tool or "No evidence found", no `skip` or automatic
+/// Delivery unasked, then `flow propose --stdin` and the end of the turn. No `otaq history` (ASK-01).
 #[test]
-fn flow_reads_the_sources_for_a_first_flow() {
+fn flow_reads_its_own_history_and_the_repo_for_a_first_flow() {
     let cmd = naming::COMMAND_NAME;
     let flow = read_skill("flow");
     let at = |heading: &str| {
@@ -339,31 +340,42 @@ fn flow_reads_the_sources_for_a_first_flow() {
     );
     let section = &flow[first..file];
     for text in [
-        format!("{cmd} history\n"),
-        format!("{cmd} history --project "),
-        format!("{cmd} history --command /"),
-        format!("{cmd} history --page 2"),
-        format!("{cmd} history --all"),
-        "Older history only".to_owned(),
-        "~/.claude/skills/".to_owned(),
-        "`CLAUDE.md`".to_owned(),
+        "**Your own tool's history on this Mac**".to_owned(),
+        "is for you to find".to_owned(),
+        "**only what the user typed**".to_owned(),
+        "login, token or credential data".to_owned(),
+        "**never another tool's data**".to_owned(),
+        "**This repo**".to_owned(),
         "`AGENTS.md`".to_owned(),
+        "`CLAUDE.md`".to_owned(),
+        "`.claude/`".to_owned(),
+        "`.cursor/rules`".to_owned(),
         "`git log`".to_owned(),
         "branch names".to_owned(),
         "CI files".to_owned(),
         "PR templates".to_owned(),
         "`CONTRIBUTING.md`".to_owned(),
-        "`gh pr list".to_owned(),
-        "`glab ".to_owned(),
+        "**Nothing else.**".to_owned(),
+        "no `gh`".to_owned(),
+        "not the skills, plugins or\ninstruction files in the home folder".to_owned(),
         "closest preset".to_owned(),
         format!("{cmd} flow presets"),
-        "a count you actually found".to_owned(),
-        "No evidence".to_owned(),
-        "`skip`".to_owned(),
-        "automatic Delivery".to_owned(),
+        "names its source **and your tool**".to_owned(),
+        "\"From 41 /security-review runs in billing-api\n(Claude Code)\"".to_owned(),
+        "\"No evidence found\"".to_owned(),
+        "`skip` options".to_owned(),
+        "an automatic Delivery with no check before it".to_owned(),
         format!("{cmd} flow propose --stdin"),
+        "**end your turn**".to_owned(),
     ] {
         assert!(section.contains(&text), "A first flow must say {text:?}");
+    }
+    for gone in [
+        format!("{cmd} history"),
+        "~/.claude/skills/".to_owned(),
+        "glab".to_owned(),
+    ] {
+        assert!(!flow.contains(&gone), "flow must not say {gone:?}");
     }
 }
 

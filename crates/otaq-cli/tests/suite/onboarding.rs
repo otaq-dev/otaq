@@ -1,16 +1,14 @@
 //! Flow onboarding end to end (T-0432; ONB-11; d0108, d0056, d0079; asking per tool since T-0433, ASK-02). Asking
-//! Claude Code opens its flow agent for a project in Flow setup; a stand-in `claude` reads the made-up history with
-//! the real `otaq history`, proposes a flow file with the real `otaq flow propose`, gets the user's Ask for more
-//! changes typed in as its next message, proposes again, and the user's Apply makes the second file the project's
-//! flow and ends Flow setup. A ticket's agent in the same run is refused the history. Then no tool connected: asking
-//! is refused and a preset applies instead. The history is the T-0426 fixture in a temporary Claude Code folder,
-//! never the user's own; no real agent tool, `gh` or `glab` runs.
+//! Claude Code opens its flow agent for a project in Flow setup; a stand-in `claude` proposes a flow file with the
+//! real `otaq flow propose`, gets the user's Ask for more changes typed in as its next message, proposes again, and
+//! the user's Apply makes the second file the project's flow and ends Flow setup. Then no tool connected: asking is
+//! refused and a preset applies instead. Otaq reads no tool's history (ASK-01); the Claude Code folder is an empty
+//! temporary one, never the user's own; no real agent tool or `gh` runs.
 
 use std::path::{Path, PathBuf};
 
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agent_tools::connected::AgentToolState;
-use otaq_core::agent_tools::history::only_a_project_agent;
 use otaq_core::agent_tools::{LaunchContext, Tool};
 use otaq_core::agents::FixedModels;
 use otaq_core::board::projects::AddProject;
@@ -27,16 +25,8 @@ use otaq_core::protocol::{ErrorBody, OnboardingAskParams, ProjectParams, Reply, 
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::tools::CheckEnv;
-use serde_json::Value;
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
-
-/// What the fixture's pastes hold: never printed.
-const PASTE_MARKERS: &[&str] = &[
-    "PASTE-MARKER-QUOKKA-1",
-    "PASTE-MARKER-NARWHAL-2",
-    "PASTE-MARKER-AXOLOTL-3",
-];
 
 /// The stand-in's first proposal: Grill first, and a Security check before the user's review.
 const FIRST: &str = "\
@@ -128,7 +118,7 @@ flow:
     delivers: either
 ";
 
-/// The stand-in `claude`: started with the first-flow message, it reads the history and proposes [`FIRST`]; each
+/// The stand-in `claude`: started with the first-flow message, it proposes [`FIRST`]; each
 /// "asks for more changes" typed into it then proposes [`SECOND`]. What it ran lands in `dir`, and a `STAND-IN …`
 /// line says each step is done. Started any other way it is an interactive `sh`.
 fn stand_in(dir: &Path, data: &Path) -> PathBuf {
@@ -138,7 +128,6 @@ fn stand_in(dir: &Path, data: &Path) -> PathBuf {
     let script = format!(
         "export {home}='{data}'; export HOME='{d}/home'; export PS1=''\n\
          case \"$*\" in *\"first flow\"*) ;; *) exec sh ;; esac\n\
-         '{CB}' history --all > '{d}/history.out' 2>&1; echo $? > '{d}/history.status'\n\
          '{CB}' flow propose --stdin --silent < '{d}/first.yaml' > '{d}/first.id' 2>&1\n\
          echo 'STAND-IN proposed the first flow'\n\
          while IFS= read -r line; do\n\
@@ -155,7 +144,7 @@ fn stand_in(dir: &Path, data: &Path) -> PathBuf {
     path
 }
 
-/// The Claude Code folder, the stand-in's files and an empty PATH folder (no `gh`, no `glab`).
+/// The Claude Code folder (empty), the stand-in's files and an empty PATH folder (no `gh`).
 struct Mac {
     _tmp: tempfile::TempDir,
     claude: PathBuf,
@@ -163,19 +152,13 @@ struct Mac {
     files: PathBuf,
 }
 
-/// `history`: the fixture as the Claude Code folder's `history.jsonl`, or no file at all.
-fn mac(history: bool) -> Mac {
+fn mac() -> Mac {
     let tmp = tempfile::tempdir().unwrap();
     let claude = tmp.path().join("claude");
     let bin = tmp.path().join("bin");
     let files = tmp.path().join("stand-in");
     for dir in [&claude, &bin, &files, &files.join("home")] {
         std::fs::create_dir_all(dir).unwrap();
-    }
-    if history {
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../otaq-core/tests/fixtures/claude-history.jsonl");
-        std::fs::copy(fixture, claude.join("history.jsonl")).unwrap();
     }
     Mac {
         _tmp: tmp,
@@ -273,8 +256,8 @@ fn read(path: PathBuf) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_onboarding_agent_reads_the_history_proposes_and_the_second_proposal_applies() {
-    let mac = mac(true);
+async fn the_flow_agent_proposes_and_the_second_proposal_applies() {
+    let mac = mac();
     let w = world(&mac).await;
     // Claude Code connected by hand, once the service's own check at start recorded what it found (nothing).
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
@@ -297,18 +280,6 @@ async fn the_onboarding_agent_reads_the_history_proposes_and_the_second_proposal
     let session = agent.session.as_ref().expect("a session").id.clone();
     w.wait_for_output(&session, "STAND-IN proposed the first flow")
         .await;
-
-    // `otaq history`, from the Project agent's session: allowed, the fixture's totals, no pasted text.
-    assert_eq!(read(mac.files.join("history.status")).trim(), "0");
-    let history = read(mac.files.join("history.out"));
-    assert_eq!(
-        history.lines().next(),
-        Some("300 of your messages in 3 projects \u{b7} all time"),
-        "{history}"
-    );
-    for marker in PASTE_MARKERS {
-        assert!(!history.contains(marker), "{marker} printed");
-    }
 
     // The first proposal: from the agent's document, its why lines, nothing to fix.
     let first: u32 = read(mac.files.join("first.id")).trim().parse().unwrap();
@@ -408,25 +379,13 @@ async fn the_onboarding_agent_reads_the_history_proposes_and_the_second_proposal
     );
     assert!(w.deliveries.pending(&session).await.unwrap().is_empty());
     assert!(!in_flow_setup(&w, &shop).await, "the flow is settled");
-
-    // A ticket's agent in the same run is refused the history.
-    let ticket = w.create(&shop, "Rate limit").await;
-    let refused = w
-        .agent_shell(&ticket)
-        .await
-        .run(&format!("'{CB}' history --all --json"))
-        .await;
-    assert_ne!(refused.status, 0, "{refused:?}");
-    let e: Value = serde_json::from_str(&refused.stdout).unwrap();
-    assert_eq!(e["error"]["message"], only_a_project_agent(), "{e}");
-    assert!(!refused.stdout.contains("/grill"), "{refused:?}");
     w.stop().await;
 }
 
 /// No tool connected: asking is refused, no agent opens, and a preset applies instead, ending Flow setup.
 #[tokio::test(flavor = "multi_thread")]
 async fn with_no_tool_connected_a_preset_applies_instead() {
-    let mac = mac(false);
+    let mac = mac();
     let w = world(&mac).await;
     add_in_flow_setup(&w, "empty-api", "API", 0).await;
 
@@ -439,7 +398,7 @@ async fn with_no_tool_connected_a_preset_applies_instead() {
         agents.open.is_empty() && agents.recent.is_empty(),
         "{agents:?}"
     );
-    assert!(!mac.files.join("history.status").exists());
+    assert!(!mac.files.join("first.id").exists());
 
     let file = "grill-first.yaml";
     let reply = ask(

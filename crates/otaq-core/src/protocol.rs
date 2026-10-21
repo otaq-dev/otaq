@@ -657,10 +657,6 @@ pub enum Request {
     /// that proposed it. Answered with [`Reply::Ok`].
     #[serde(rename = "flow.ask_for_changes")]
     FlowAskForChanges(crate::flow::propose::AskForChangesParams),
-    /// `otaq history` (ONB-01, ONB-02), from a Project agent's session or the user: what the user typed into their
-    /// agent tool in every project, filtered, one page. Answered with [`Reply::UserHistory`].
-    #[serde(rename = "history.read")]
-    HistoryRead(crate::agent_tools::history::HistoryParams),
 
     // Sessions (SES-04, SVC-05).
     /// With `key`, every session the ticket ever had (newest first); without, every session in the service's
@@ -1834,7 +1830,6 @@ impl Request {
             Self::FlowShow(_) => "flow.show",
             Self::FlowPropose(_) => "flow.propose",
             Self::FlowAskForChanges(_) => "flow.ask_for_changes",
-            Self::HistoryRead(_) => "history.read",
             Self::SessionList(_) => "session.list",
             Self::SessionAttach(_) => "session.attach",
             Self::SessionDetach(_) => "session.detach",
@@ -1983,7 +1978,6 @@ pub enum Reply {
     ApplyNowPlan(Option<Box<crate::flow::apply_now::ApplyNowPlan>>),
     AppliedNow(Box<crate::flow::apply_now::ApplyNowAnswer>),
     FlowDocument(Box<crate::flow::propose::FlowDocument>),
-    UserHistory(Box<crate::agent_tools::history::HistoryPage>),
     Sessions(Vec<SessionInfo>),
     SessionAttached(Box<SessionAttach>),
     Delivery(Delivery),

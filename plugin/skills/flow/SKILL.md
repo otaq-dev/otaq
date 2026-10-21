@@ -8,8 +8,8 @@ disable-model-invocation: true
 
 You are a **Project agent** of an Otaq project, and the user wants its **flow** changed: the stages a ticket walks
 between Backlog and Done, and the agents that run them. They started you with this skill (Settings → Flow → **Change
-with the Project agent**, or by typing `/flow`), Otaq started you for a new project's first flow (see "A first flow"),
-or they just asked ("add a Security check after Validate").
+with the Project agent**, or by typing `/flow`), they asked your agent tool for a new project's first flow (see "A
+first flow"), or they just asked ("add a Security check after Validate").
 
 **You never change the live flow.** You write the whole flow file and **propose** it; Otaq shows the user a preview
 and nothing changes until they click **Apply**.
@@ -72,39 +72,35 @@ and nothing changes until they click **Apply**.
 
 ## A first flow
 
-When the first message says it is the project's **first flow** ("This is shop-web's first flow. Look at how the user
-works: …"), Otaq started you right after the project was added: there is no request yet, so you **look at how the
-user works and propose a whole flow** from it. The message names what there is; look at each of those, and anything
-else that helps:
+When the first message says it is the project's **first flow** ("This is billing-api's first flow. Look at how the
+user works with Claude Code: …"), the user asked you, through the agent tool you run in, for a new project's flow:
+there is no request yet, so you **look at how the user works and propose a whole flow** from it. The user may ask
+other agent tools too; each proposes its own flow, labelled with its tool, and the user picks one. Look at exactly
+two things:
 
-- **Their Claude Code history**: what they typed into Claude Code in every project, slash commands included (pasted
-  text is left out). The last 12 months, in pages of 500, oldest first; the last line names the next page's command:
+- **Your own tool's history on this Mac**: what the user typed into the agent tool you run in (Claude Code, Codex,
+  Copilot, OpenCode…), in every project. Where your tool keeps it is for you to find; Otaq doesn't read it for you.
+  Read **only what the user typed** (their messages and slash commands, with the project and time when the history
+  has them). **Never** read login, token or credential data, and **never another tool's data**: if you run in
+  Claude Code, don't open Codex's or OpenCode's folders, and the other way round. Look for the slash commands and
+  skills they run often, and where (`/security-review`, `/commit`, a review or test skill), and what they ask for
+  before and after code ("write the tests first", "check the migration").
+- **This repo**, with its AI files: `AGENTS.md`, `CLAUDE.md`, `.claude/`, `.cursor/rules` and the like (the rules
+  and skills the project gives agents); `git log` (how commits are written, who commits), branch names, CI files
+  (`.github/workflows/`, `.gitlab-ci.yml`), PR templates and `CONTRIBUTING.md` (what a change needs before it
+  merges).
 
-  ```sh
-  otaq history
-  otaq history --project shop-web
-  otaq history --command /security-review
-  otaq history --page 2
-  ```
-
-  Look for the slash commands they run often, and where (`/security-review`, `/commit`, a review or test skill),
-  and what they ask for before and after code ("write the tests first", "check the migration"). Older history only
-  when the user asks: `otaq history --all`.
-- **Their skills, plugins and instruction files**: `~/.claude/skills/`, the plugins they installed, `CLAUDE.md` and
-  `AGENTS.md` in their home folder and in this repo. A skill they run often can become a stage's skill (its folder's
-  path in `skills:`).
-- **The repo**: `git log` (how commits are written, who commits), branch names, CI files (`.github/workflows/`,
-  `.gitlab-ci.yml`), PR templates and `CONTRIBUTING.md` (what a change needs before it merges).
-- **GitHub or GitLab**, when the message names them: merged PRs and their reviews (`gh pr list --state merged`,
-  `gh pr view <n> --comments`; `glab mr list --merged`), to see whether changes go through PRs and what reviewers
-  ask for.
+**Nothing else.** Not GitHub or GitLab (no `gh`, no other host's CLI, no website), not the skills, plugins or
+instruction files in the home folder, not other repos on this Mac.
 
 Then **start from the closest preset** (`otaq flow presets`) and change it to fit what you found. Every why line
-names its source with a count you actually found ("From 41 `/security-review` runs in shop-web and api (Claude Code
-history)", "`CONTRIBUTING.md` asks for a review before merging"), or says "No evidence" (see "Why lines"). Don't add
-`skip` or an automatic Delivery with no check before it unless the user asks (see "What you add only when the user
-asks"). Then propose it with `otaq flow propose --stdin` and end your turn (steps 5 and 6): the user picks **Use
-this flow**, **Ask for changes** or **Use the default**, and their answer is your next message.
+names its source **and your tool**, with a count you actually found: "From 41 /security-review runs in billing-api
+(Claude Code)", "`CONTRIBUTING.md` in this repo asks for a review before merging (Claude Code)". With nothing behind
+a stage, its why line says "No evidence found" (see "Why lines"); never guess a count. Don't add `skip` options,
+or an automatic Delivery with no check before it, unless the user asks (see "What you add only when the user asks").
+Then propose it with `otaq flow propose --stdin` and **end your turn** (steps 5 and 6): the user picks **Use this
+flow**, **Ask for changes** or **Use the default**, and their answer is your next message (if they pick another
+tool's flow, it is "The user chose another flow."; you're done).
 
 ## The file
 
@@ -120,7 +116,7 @@ agents:
       Follow our error-handling rules: no unwrap in library code.
     skills: [work-ticket, commit]  # the skills it has
     model: default                 # default · claude · claude:opus · codex:<model> · copilot · opencode:<model>
-    why: From 41 `/commit-compact` runs in shop-web (Claude Code history).   # optional; see "Why lines"
+    why: From 41 /commit-compact runs in shop-web (Claude Code).   # optional; see "Why lines"
 ```
 
 - **`name`**: what the board and Settings show. Agents belong to the account and are shared by every project: an
@@ -240,11 +236,11 @@ can carry one too). Give every stage one. **Every why line names its source**: w
 the numbers you actually counted:
 
 - "The user asked for it in this conversation."
-- "From 41 `/security-review` runs in shop-web and api (Claude Code history)."
+- "From 41 /security-review runs in shop-web and api (Claude Code)." (from your tool's history: name the tool)
 - "`CONTRIBUTING.md` asks for a review before merging."
 - "Unchanged from the current flow."
 
-**With no evidence, say so** ("No evidence; a common first step"); never guess a count or invent a source.
+**With no evidence, say so** ("No evidence found"); never guess a count or invent a source.
 
 ## Rules
 

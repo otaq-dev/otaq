@@ -20,7 +20,6 @@ pub mod connected;
 pub mod copilot;
 pub mod events;
 pub mod follow;
-pub mod history;
 pub mod models;
 pub mod opencode;
 pub mod setup;
@@ -761,17 +760,6 @@ pub trait AgentTool: Send + Sync {
     /// - Codex: [`catalog::FamilySource::ModelsDev`] `openai` (its ids are models.dev's `openai` ids exactly).
     /// - OpenCode: [`catalog::FamilySource::ListCarriesFamily`] with the models.dev fallback.
     fn family_source(&self) -> Option<catalog::FamilySource> {
-        None
-    }
-
-    // The user's own history (ONB-01, d0108).
-
-    /// What the user typed into the tool in every folder, slash commands included, read line by line from the
-    /// tool's own file as it wrote it; `None` when Otaq reads no history from this tool. Never what the user pasted,
-    /// never a conversation's transcript; nothing is written. Claude Code: `<config dir>/history.jsonl` (its
-    /// `display`, `project` and `timestamp`; `pastedContents` skipped unread). Codex, Copilot and OpenCode: `None`
-    /// (d0108 reads Claude Code's only).
-    fn history(&self) -> Option<history::HistorySource> {
         None
     }
 }
