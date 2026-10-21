@@ -3,10 +3,14 @@ import type { FlowAtWorkAction } from "./FlowAtWorkAction";
 import type { IconName } from "./IconName";
 
 /**
- * The card's main button: Try again at 3:45 pm, Try again, Sign in….
+ * A row's button: Stop, Ask OpenCode, Try again at 3:45 pm, Try again, Sign in…. `FlowAtWorkButton` on the page.
  */
 export type FlowAtWorkButton = { label: string, icon: IconName, 
 /**
  * Off until the limit resets.
  */
-enabled: boolean, action: FlowAtWorkAction, };
+enabled: boolean, 
+/**
+ * Drawn quiet (Stop) rather than outlined.
+ */
+quiet: boolean, action: FlowAtWorkAction, };

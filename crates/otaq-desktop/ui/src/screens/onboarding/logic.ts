@@ -1,21 +1,22 @@
 // Onboarding's moment of interaction, without the DOM: which step shows, what the Add project form holds, and what
 // ending onboarding asks of the app. Every word and rule is Rust's (`onboarding_page.rs`, `onboarding.rs`,
-// `add_project.rs`); this file only moves between them. The Flow step's moments (ONB-04…ONB-06) are at the end.
+// `add_project.rs`); this file only moves between them. The Flow step's moments (ASK-04…ASK-06) are at the end.
 import { selectProject } from "../../app/selection";
 import { bindingFor, type KeyLike } from "../../app/keys";
 import type { AddProjectParams } from "../../generated/AddProjectParams";
 import type { AddProjectView } from "../../generated/AddProjectView";
 import type { FlowAtWorkAction } from "../../generated/FlowAtWorkAction";
-import type { FlowAtWorkParams } from "../../generated/FlowAtWorkParams";
 import type { FlowAtWorkView } from "../../generated/FlowAtWorkView";
+import type { FlowCompareView } from "../../generated/FlowCompareView";
 import type { FlowPreviewProposed } from "../../generated/FlowPreviewProposed";
 import type { Keymap } from "../../generated/Keymap";
+import type { OnboardingAskParams } from "../../generated/OnboardingAskParams";
+import type { OnboardingAsked } from "../../generated/OnboardingAsked";
 import type { OnboardingFlowStep } from "../../generated/OnboardingFlowStep";
+import type { OnboardingProjectParams } from "../../generated/OnboardingProjectParams";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
 import type { OnboardingTools } from "../../generated/OnboardingTools";
 import type { PaneEndParams } from "../../generated/PaneEndParams";
-import type { PaneFlowStarted } from "../../generated/PaneFlowStarted";
-import type { PaneProjectParams } from "../../generated/PaneProjectParams";
 import type { PaneResumeParams } from "../../generated/PaneResumeParams";
 import { PANE_ROUTES, type PaneRoutes, showAgent, showPane } from "../pane/logic";
 
@@ -25,8 +26,15 @@ export type Ask = (method: string, params?: unknown) => Promise<unknown>;
 /** The steps in order; Done is the empty board itself (*6 · Done · empty board*, ONB-10). */
 export const STEP_ORDER: readonly OnboardingStepId[] = ["welcome", "theme", "tools", "project", "flow"];
 
-/** Where Continue on the tools step goes: the project step, or the end for a user who has projects already. */
-export function afterTools(tools: OnboardingTools): "project" | "done" {
+/**
+ * Where Continue on the tools step goes: back to the Flow step when first run's project is still in Flow setup (Back
+ * to Tools), else the project step, or the end for a user who has projects already.
+ */
+export function afterTools(
+  tools: OnboardingTools,
+  flowProject: string | null = null,
+): "project" | "flow" | "done" {
+  if (flowProject !== null) return "flow";
   return tools.has_projects ? "done" : "project";
 }
 
@@ -82,100 +90,125 @@ export async function finishOnboarding(warningShown: boolean, ask: Ask): Promise
 }
 
 /**
- * Where the Flow step is (ONB-04…ONB-06): the go-ahead; the presets (Use a preset instead, or nothing to look at);
- * the onboarding agent at work (`agent`, `FlowAtWork`'s card: working, stopped, ended); the agent that couldn't start
- * (its tool isn't signed in: Rust's `card`); the proposal in the step (`agent` when one proposed it, `first` the
- * proposal shown first, so a later one reads "Updated after your answer").
+ * Where the Flow step is (ASK-04…ASK-06): the go-ahead (Ask an agent); the presets (Use a preset instead, Stop all,
+ * or no tool connected); the agents at work (the tabs and the card, `FlowAtWork.tsx`); a proposal in the step (`first`
+ * the proposal shown first, so a later one reads "Updated after your answer").
  */
 export type FlowStepState =
-  | { at: "go_ahead" }
-  | { at: "presets"; agent: string | null }
-  | { at: "working"; agent: string }
-  | { at: "cannot_start"; card: FlowAtWorkView }
-  | { at: "proposal"; agent: string | null; first: number };
+  { at: "go_ahead" } | { at: "presets" } | { at: "at_work" } | { at: "proposal"; first: number };
 
-/** Where the step opens: the presets when there is nothing to look at, else the go-ahead. */
+/**
+ * Where the step is with its Flow setup as Rust says it now: the go-ahead stands for "where it opens", so it shows the
+ * agents at work once a tool was asked and the presets with no tool connected. Elsewhere the user's place stays.
+ */
+export function flowStepChanged(state: FlowStepState, step: OnboardingFlowStep): FlowStepState {
+  if (state.at !== "go_ahead") return state;
+  switch (step.opens) {
+    case "go_ahead":
+      return state;
+    case "at_work":
+      return { at: "at_work" };
+    case "no_tool":
+      return { at: "presets" };
+  }
+}
+
+/** Where the step opens, as Rust says: nothing asked, a tool asked, or no tool connected. */
 export function flowStepOpens(step: OnboardingFlowStep): FlowStepState {
-  return step.opens_on_presets ? { at: "presets", agent: null } : { at: "go_ahead" };
+  return flowStepChanged({ at: "go_ahead" }, step);
 }
 
-/** The onboarding agent behind the state, if one started. */
-export function flowAgent(state: FlowStepState): string | null {
-  return state.at === "go_ahead" || state.at === "cannot_start" ? null : state.agent;
-}
-
-/** A proposal shows (the agent's, or a preset picked): the proposal, keeping the first one seen. */
+/** A proposal shows (an agent's, or a preset picked): the proposal, keeping the first one seen. */
 export function proposalShown(state: FlowStepState, proposal: number): FlowStepState {
   if (state.at === "proposal") return state;
-  return { at: "proposal", agent: flowAgent(state), first: proposal };
+  return { at: "proposal", first: proposal };
 }
 
-/**
- * The proposal went without the step's answer (cancelled or applied elsewhere): back to the agent at work when one
- * proposed it, else the presets.
- */
+/** The proposal went without the step's answer (cancelled elsewhere): back where the step opens. */
 export function proposalGone(state: FlowStepState): FlowStepState {
-  if (state.at !== "proposal") return state;
-  return state.agent !== null ? { at: "working", agent: state.agent } : { at: "presets", agent: null };
+  return state.at === "proposal" ? { at: "go_ahead" } : state;
 }
 
-/** How Look and propose a flow went: the agent started, or its tool isn't signed in (the card says so). */
-export type FlowStart = { kind: "started"; agent: string } | { kind: "cannot_start"; card: FlowAtWorkView };
-
-/**
- * Look and propose a flow (ONB-05): starts the project's onboarding agent (`pane.start_flow`: its first Project agent
- * on the `flow` skill, or the one already running) unless its tool is Found · not signed in (`onboarding.at_work`
- * without an agent, d0086). Every start goes through here, Sign in…'s afterwards too; the click is the go-ahead
- * (d0087).
- */
-export async function startFlowAgent(step: OnboardingFlowStep, ask: Ask): Promise<FlowStart> {
-  const check: FlowAtWorkParams = { project: step.project };
-  const card = (await ask("onboarding.at_work", check)) as FlowAtWorkView | null;
-  if (card !== null) return { kind: "cannot_start", card };
-  const params: PaneProjectParams = { project: step.project };
-  const started = (await ask("pane.start_flow", params)) as PaneFlowStarted;
-  return { kind: "started", agent: started.id };
-}
-
-/** Where a start leaves the step: the agent at work, or the card of a tool that isn't signed in. */
-export function flowStarted(start: FlowStart): FlowStepState {
-  return start.kind === "started"
-    ? { at: "working", agent: start.agent }
-    : { at: "cannot_start", card: start.card };
+/** Ask <Tool> (ASK-02): starts the tool's flow agent for the project, or answers the running one. */
+export async function askTool(project: string, tool: string, ask: Ask): Promise<OnboardingAsked> {
+  const params: OnboardingAskParams = { project, tool };
+  return (await ask("onboarding.ask", params)) as OnboardingAsked;
 }
 
 /**
- * Stop and use a preset: ends the onboarding agent (asked nothing mid-turn: the click is the answer); it goes to
- * Recently ended like any ended agent, and the step shows the presets with no agent left to open on the board.
+ * A row's button (Sign in… is the dialog's, not a request): Ask <Tool>; Stop (the agent ends into Recently ended,
+ * asked nothing mid-turn: the click is the answer); Try again at the limit, its tool's Resume ("continue" into the
+ * same session); Try again after it ended, Resume of its conversation (d0088).
  */
-export async function stopFlowAgent(project: string, agent: string, ask: Ask): Promise<FlowStepState> {
-  const params: PaneEndParams = { project, id: agent, confirm: true };
-  await ask("pane.end", params);
-  return { at: "presets", agent: null };
-}
-
-/**
- * Try again on a failure's card (Sign in… is the dialog's, not a request): its tool's Resume after the plan limit,
- * which types "continue" into the same session; Resume of the ended agent's conversation (d0088).
- */
-export async function retryFlowAgent(
+export async function actOnRow(
+  project: string,
   action: Exclude<FlowAtWorkAction, { kind: "sign_in" }>,
   ask: Ask,
 ): Promise<void> {
-  if (action.kind === "resume_tool") {
-    await ask("limits.resume_tool", { tool: action.tool });
-    return;
+  switch (action.kind) {
+    case "ask":
+      await askTool(project, action.tool, ask);
+      return;
+    case "stop": {
+      const params: PaneEndParams = { project, id: action.agent, confirm: true };
+      await ask("pane.end", params);
+      return;
+    }
+    case "resume_tool":
+      await ask("limits.resume_tool", { tool: action.tool });
+      return;
+    case "resume": {
+      const params: PaneResumeParams = { id: action.agent };
+      await ask("pane.resume", params);
+      return;
+    }
   }
-  const params: PaneResumeParams = { id: action.agent };
-  await ask("pane.resume", params);
 }
 
-/** How often the card asks again while it shows, so "Working · 2 min" moves on (the words stay Rust's). */
+/** Stop all and use a preset: ends every flow agent at work or stopped (Rust's list), then the presets. */
+export async function stopAll(project: string, view: FlowAtWorkView, ask: Ask): Promise<FlowStepState> {
+  for (const agent of view.running) await actOnRow(project, { kind: "stop", agent }, ask);
+  return { at: "presets" };
+}
+
+/** Skip, use the default and Use the default (ASK-03): the default flow; every proposal closes, every agent ends. */
+export async function chooseDefault(project: string, ask: Ask): Promise<void> {
+  const params: OnboardingProjectParams = { project };
+  await ask("onboarding.use_default", params);
+}
+
+/**
+ * The proposal each flow agent showed first, with the ones in `view` added: `firsts` itself when nothing is new (so a
+ * watch keyed on it doesn't restart).
+ */
+export function firstProposals(
+  firsts: Record<string, number>,
+  view: FlowCompareView,
+): Record<string, number> {
+  const fresh = view.proposals.filter((p) => p.agent !== null && !(p.agent in firsts));
+  if (fresh.length === 0) return firsts;
+  const next = { ...firsts };
+  for (const p of fresh) if (p.agent !== null) next[p.agent] = p.view.proposal;
+  return next;
+}
+
+/** The tab whose terminal shows: the one picked while it's there, else the first. */
+export function watchedTab(view: FlowAtWorkView | undefined, picked: string | null): string | null {
+  const tabs = view?.tabs ?? [];
+  return tabs.find((t) => t.agent === picked)?.agent ?? tabs[0]?.agent ?? null;
+}
+
+/** The flow agent behind a proposal, which stays open in the pane once its flow is used; none for a preset. */
+export function proposingAgent(view: FlowAtWorkView, proposal: number): string | null {
+  return view.rows.find((r) => r.proposal === proposal)?.agent ?? null;
+}
+
+/** How often the agents at work ask again while they show, so "Working · 2 min" moves on (the words stay Rust's). */
 export const AT_WORK_TICK_MS = 60_000;
 
 /**
  * ⌘L inside the step (the onboarding overlay holds the app's shortcuts back): whether the key is the user's Focus the
- * pane, which here focuses the onboarding agent's terminal.
+ * pane, which here focuses the shown flow agent's terminal.
  */
 export function focusesAgent(map: Keymap | undefined, e: KeyLike, inTerminal: boolean): boolean {
   return map !== undefined && bindingFor(map, e, inTerminal)?.action.action === "focus_pane";
@@ -191,8 +224,8 @@ export async function proposePreset(step: OnboardingFlowStep, file: string, ask:
 }
 
 /**
- * The Flow step is over (Use this flow, Use the default, Skip): the project's board shows, with the onboarding agent
- * open in its pane (ONB-06).
+ * The Flow step is over (Use this flow, Use the default, Skip): the project's board shows, with the chosen proposal's
+ * flow agent open in its pane.
  */
 export function afterFlowStep(project: string, agent: string | null, routes: PaneRoutes = PANE_ROUTES): void {
   selectProject(project, routes.selection);

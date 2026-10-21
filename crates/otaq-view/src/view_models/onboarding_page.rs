@@ -4,12 +4,14 @@
 //! warning, Continue and why it is off), the Add project form from [`AddProjectModel`] (the onboarding card and the
 //! later dialog), and the "No projects yet" board. Every text the GPUI app wrote in its drawing code lives here now.
 //! The form says that adding a project lets Claude Code work in its folder, and why the trust wasn't recorded when it
-//! wasn't (PRJ-07, d0085; *14 → step 4*, *Claude Code's trust couldn't be recorded*). The Flow step's go-ahead and
-//! presets ([`flow_step`]; ONB-04, d0108; *s14-12*, *s14-13*) come after Add your first project.
+//! wasn't (PRJ-07, d0085; *14 → step 4*, *Claude Code's trust couldn't be recorded*). The Flow step ([`flow_step`];
+//! ASK-05, ASK-06, d0108; *s14-12*…*s14-15*) comes after Add your first project and stays until the flow is settled.
 
 use otaq_core::agent_tools::connected::AgentToolState;
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::naming;
+use otaq_core::project_agents::first_flow::FlowSetup;
+use otaq_core::tools::Os;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -20,9 +22,11 @@ use crate::shell::tilde;
 use crate::view_models::add_project::AddProjectModel;
 use crate::view_models::agent_tools_page::{self, Place};
 use crate::view_models::banners::{self, BannerModel, BannerView, TrustFailure};
+use crate::view_models::flow_at_work::{self, View as FlowAtWork};
 use crate::view_models::flow_settings::{PresetCard, preset_card};
-use crate::view_models::flow_sources::{self, Kind as LookKind, View as FlowLook};
 use crate::view_models::onboarding::{OnboardingModel, RowIcon, STEPS, Step};
+use crate::view_models::tool_avatar::ToolAvatarView;
+use crate::view_models::tool_problems::Tools as ToolProblems;
 
 /// An onboarding step as the page names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -766,23 +770,53 @@ pub fn tools_gallery() -> ToolsGallery {
     ToolsGallery { cells }
 }
 
-/// The Flow step's presets (ONB-04, FLW-08; *s14-12 → Nothing to look at yet*): Use a preset instead, or the step
-/// itself when there is nothing to look at. A pick proposes the preset and opens the preview in the step.
+/// The Flow step's presets (FLW-08; *s14-12 → No agent tool connected*): Use a preset instead, or the step itself when
+/// no agent tool is connected. A pick proposes the preset and opens the preview in the step.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OnboardingFlowPresets")]
 pub struct FlowPresets {
-    /// Under the title: "Nothing to look at yet · pick a preset to start. …" when there is nothing, else the intro.
+    /// Under the title: "Start from a preset. …" with no tool connected, else the intro.
     pub text: String,
-    /// Why there is nothing, muted under it: "No Claude Code history on this Mac, …".
-    pub reason: Option<String>,
+    /// With no tool connected: "Connect an agent tool in the Tools step and an agent can recommend a flow for
+    /// shop-web.", beside [`FlowStep::back_to_tools`].
+    pub note: Option<String>,
     /// "START FROM A PRESET".
     pub heading: String,
     pub cards: Vec<PresetCard>,
 }
 
-/// *5 · Flow* (ONB-04, d0108; *s14-12*, *s14-13*): the go-ahead, asked once, with the line naming what the agent will
-/// look at (T-0427's [`flow_sources`]), and the presets; the agent at work is [`super::flow_at_work`]'s. No
-/// checkboxes, counts or sample lines (d0108 changelog 2026-10-21).
+/// One connected tool on the go-ahead (*s14-12*): its avatar, name, "connected" and **Ask <Tool>**.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "OnboardingAskRow")]
+pub struct AskRow {
+    /// The tool's id, sent with `onboarding.ask`.
+    pub tool: String,
+    pub avatar: ToolAvatarView,
+    pub name: String,
+    /// "connected".
+    pub detail: String,
+    /// "Ask Claude Code".
+    pub ask: String,
+    /// The only tool's Ask is the step's primary button.
+    pub primary: bool,
+}
+
+/// What the Flow step shows when it opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "OnboardingFlowOpens")]
+pub enum FlowOpens {
+    /// Nothing asked yet: **Ask an agent**.
+    GoAhead,
+    /// A tool was asked: the agents at work ([`flow_at_work`]).
+    AtWork,
+    /// No agent tool connected: the presets, Skip and Back to Tools.
+    NoTool,
+}
+
+/// *5 · Flow* (ASK-05, ASK-06, d0108; *s14-12*, *s14-13*, *s14-14*): the go-ahead with a row per connected tool,
+/// nothing asked on its own; the presets; and the agents at work once a tool was asked. Built from the project's Flow
+/// setup (`onboarding.flow_setup`), asked again whenever it changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OnboardingFlowStep")]
 pub struct FlowStep {
@@ -791,42 +825,98 @@ pub struct FlowStep {
     /// "Build shop-web’s flow".
     pub title: String,
     pub intro: String,
-    /// "Claude looks at how you use Claude Code on this Mac (…), this repo and GitHub, and proposes a flow for
-    /// shop-web."
+    /// "Each agent looks at how you use it on this Mac and at this repo, and proposes a flow for shop-web."
     pub line: String,
-    /// "What the agent reads goes to your model provider, and it uses tokens."
+    /// "ASK AN AGENT".
+    pub heading: String,
+    /// One per connected tool, in d0086's order.
+    pub rows: Vec<AskRow>,
+    /// "What an agent reads goes to that tool’s model provider, and it uses tokens."
     pub provider: String,
     pub skip: String,
     pub use_preset: String,
-    pub propose: String,
-    /// Look and propose a flow is on: there is something to look at (ONB-03).
-    pub can_propose: bool,
-    /// Nothing to look at: the step opens on the presets.
-    pub opens_on_presets: bool,
+    /// On the presets reached by Use a preset instead (a tool is connected): back to the agents.
+    pub ask_an_agent: Option<String>,
+    /// With no tool connected: "Back to Tools" (first run; the Tools step).
+    pub back_to_tools: Option<String>,
+    pub opens: FlowOpens,
     pub presets: FlowPresets,
+    pub at_work: FlowAtWork,
 }
 
 pub const SKIP_USE_THE_DEFAULT: &str = "Skip, use the default";
 pub const USE_A_PRESET_INSTEAD: &str = "Use a preset instead";
-pub const LOOK_AND_PROPOSE: &str = "Look and propose a flow";
 pub const PROVIDER_AND_TOKENS: &str =
-    "What the agent reads goes to your model provider, and it uses tokens.";
+    "What an agent reads goes to that tool\u{2019}s model provider, and it uses tokens.";
+pub const ASK_AN_AGENT: &str = "Ask an agent";
+pub const BACK_TO_TOOLS: &str = "Back to Tools";
+pub const START_FROM_A_PRESET: &str =
+    "Start from a preset. You can change it later by asking the Project agent.";
 
-/// The Flow step for `project_name` (its key `project`), from what there is to look at.
-pub fn flow_step(project: &str, project_name: &str, look: &FlowLook) -> FlowStep {
+/// The Flow step for `setup` (its project and tools' rows), with the tools as they are now, worded for `os`.
+pub fn flow_step(setup: &FlowSetup, tools: &ToolProblems, os: Os) -> FlowStep {
+    use otaq_core::project_agents::first_flow::FlowSetupRow;
+    let name = &setup.project_name;
     let intro = "An agent proposes the board\u{2019}s columns: who works on a ticket, what checks it, how it\u{2019}s delivered. Nothing changes until you say so."
         .to_owned();
-    let nothing = look.kind == LookKind::Nothing;
+    let askable: Vec<_> = setup
+        .tools
+        .iter()
+        .filter(|t| !matches!(t.row, FlowSetupRow::NotSignedIn))
+        .collect();
+    let asked = setup.tools.iter().any(|t| {
+        !matches!(
+            t.row,
+            FlowSetupRow::NotAsked
+                | FlowSetupRow::NotSignedIn
+                | FlowSetupRow::PlanLimit { agent: None, .. }
+        )
+    });
+    let opens = if asked {
+        FlowOpens::AtWork
+    } else if askable.is_empty() {
+        FlowOpens::NoTool
+    } else {
+        FlowOpens::GoAhead
+    };
+    let none = opens == FlowOpens::NoTool;
+    let only = askable.len() == 1;
     FlowStep {
-        project: project.to_owned(),
-        title: format!("Build {project_name}\u{2019}s flow"),
+        project: setup.project.clone(),
+        title: format!("Build {name}\u{2019}s flow"),
+        line: format!(
+            "Each agent looks at how you use it on {} and at this repo, and proposes a flow for {name}.",
+            flow_at_work::computer(os)
+        ),
+        heading: ASK_AN_AGENT.to_uppercase(),
+        rows: askable
+            .iter()
+            .map(|t| AskRow {
+                tool: t.tool.as_str().to_owned(),
+                avatar: ToolAvatarView::of(t.tool, None),
+                name: t.tool.display_name().to_owned(),
+                detail: "connected".to_owned(),
+                ask: flow_at_work::ask_label(t.tool),
+                primary: only,
+            })
+            .collect(),
+        provider: PROVIDER_AND_TOKENS.to_owned(),
+        skip: SKIP_USE_THE_DEFAULT.to_owned(),
+        use_preset: USE_A_PRESET_INSTEAD.to_owned(),
+        ask_an_agent: (!none).then(|| ASK_AN_AGENT.to_owned()),
+        back_to_tools: none.then(|| BACK_TO_TOOLS.to_owned()),
+        opens,
         presets: FlowPresets {
-            text: if nothing {
-                look.line.clone()
+            text: if none {
+                START_FROM_A_PRESET.to_owned()
             } else {
                 intro.clone()
             },
-            reason: look.reason.clone().filter(|_| nothing),
+            note: none.then(|| {
+                format!(
+                    "Connect an agent tool in the Tools step and an agent can recommend a flow for {name}."
+                )
+            }),
             heading: "START FROM A PRESET".to_owned(),
             cards: otaq_core::flow::presets::presets()
                 .iter()
@@ -834,32 +924,25 @@ pub fn flow_step(project: &str, project_name: &str, look: &FlowLook) -> FlowStep
                 .collect(),
         },
         intro,
-        line: look.line.clone(),
-        provider: PROVIDER_AND_TOKENS.to_owned(),
-        skip: SKIP_USE_THE_DEFAULT.to_owned(),
-        use_preset: USE_A_PRESET_INSTEAD.to_owned(),
-        propose: LOOK_AND_PROPOSE.to_owned(),
-        can_propose: !nothing,
-        opens_on_presets: nothing,
+        at_work: flow_at_work::view(setup, tools, os),
     }
 }
 
 /// *s14-18*/*s14-19* (ONB-08): the go-ahead inside the Add project dialog, for a project added later. The same step,
 /// shorter: "billing-api’s flow", "Look at how you work here, like for shop-web." (the first project added before it,
-/// in `projects`' order, by when each was added), and the line without its parenthesis. With no other project (every
-/// one removed, or onboarding skipped), the Flow step's intro. The presets are the Flow step's.
+/// in `projects`' order, by when each was added). With no other project (every one removed, or onboarding skipped),
+/// the Flow step's intro. The rows and presets are the Flow step's.
 pub fn flow_dialog(
-    project: &str,
-    project_name: &str,
+    setup: &FlowSetup,
     projects: &[ProjectInfo],
-    look: &FlowLook,
+    tools: &ToolProblems,
+    os: Os,
 ) -> FlowStep {
-    let mut step = flow_step(project, project_name, look);
-    step.title = format!("{project_name}\u{2019}s flow");
-    if let Some(first) = projects.iter().find(|p| p.key != project) {
+    let mut step = flow_step(setup, tools, os);
+    step.title = format!("{}\u{2019}s flow", setup.project_name);
+    if let Some(first) = projects.iter().find(|p| p.key != setup.project) {
         step.intro = format!("Look at how you work here, like for {}.", first.name);
     }
-    step.line = look.short_line.clone();
     step
 }
 
@@ -871,47 +954,55 @@ pub struct FlowGalleryCell {
     pub step: FlowStep,
 }
 
-/// The Flow step in the component gallery (T-0429; *s14-12*, *s14-13*): the example's go-ahead (history, a repo,
-/// GitHub) and Nothing to look at yet.
+/// The Flow step in the component gallery (*s14-12*, *s14-13*): one tool, two tools, no agent tool connected.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OnboardingFlowGallery")]
 pub struct FlowGallery {
     pub cells: Vec<FlowGalleryCell>,
 }
 
+/// shop-web's Flow setup before anything was asked, with `tools` connected.
+fn not_asked(project: &str, name: &str, tools: &[otaq_core::agent_tools::Tool]) -> FlowSetup {
+    use otaq_core::project_agents::first_flow::{FlowSetupRow, FlowSetupTool};
+    FlowSetup {
+        project: project.into(),
+        project_name: name.into(),
+        since: Some(flow_at_work::fixtures::NOW),
+        tools: tools
+            .iter()
+            .map(|&tool| FlowSetupTool {
+                tool,
+                row: FlowSetupRow::NotAsked,
+            })
+            .collect(),
+        proposals: Vec::new(),
+    }
+}
+
 pub fn flow_gallery() -> FlowGallery {
-    use crate::view_models::flow_sources::Sources;
-    let [claude, ..] = super::agent_tools_page::fixtures::tools();
-    let sources = |any: bool| Sources {
-        project_name: "shop-web".into(),
-        history: any,
-        commits: any,
-        gh: any,
-        glab: false,
-        tool: claude,
-    };
+    use flow_at_work::fixtures::{CLAUDE, OPENCODE, tools};
     let cells = [
-        ("Flow · the go-ahead", true),
-        ("Nothing to look at yet", false),
+        ("Flow · ask an agent (one tool)", vec![CLAUDE]),
+        ("Two tools connected", vec![CLAUDE, OPENCODE]),
+        ("No agent tool connected", vec![]),
     ]
     .into_iter()
-    .map(|(name, any)| FlowGalleryCell {
+    .map(|(name, connected)| FlowGalleryCell {
         name: name.to_owned(),
         step: flow_step(
-            "SHOP",
-            "shop-web",
-            &flow_sources::view_on(otaq_core::tools::Os::current(), &sources(any)),
+            &not_asked("SHOP", "shop-web", &connected),
+            &tools(),
+            Os::Mac,
         ),
     })
     .collect();
     FlowGallery { cells }
 }
 
-/// The Add project dialog's go-ahead in the component gallery (T-0431; *s14-18*, *s14-19*): billing-api on GitLab,
-/// after shop-web, and Nothing to look at yet.
+/// The Add project dialog's go-ahead in the component gallery (T-0431; *s14-18*, *s14-19*): billing-api after
+/// shop-web, with one tool and with none.
 pub fn flow_dialog_gallery() -> FlowGallery {
-    use crate::view_models::flow_sources::Sources;
-    let [claude, ..] = super::agent_tools_page::fixtures::tools();
+    use flow_at_work::fixtures::{CLAUDE, tools};
     let shop = ProjectInfo {
         key: "SHOP".into(),
         name: "shop-web".into(),
@@ -921,26 +1012,18 @@ pub fn flow_dialog_gallery() -> FlowGallery {
         needs_you: 0,
         flow_setup_since: None,
     };
-    let sources = |any: bool| Sources {
-        project_name: "billing-api".into(),
-        history: any,
-        commits: any,
-        gh: false,
-        glab: any,
-        tool: claude,
-    };
     let cells = [
-        ("Add project · the go-ahead", true),
-        ("Add project · Nothing to look at yet", false),
+        ("Add project · the go-ahead", vec![CLAUDE]),
+        ("Add project · no agent tool connected", vec![]),
     ]
     .into_iter()
-    .map(|(name, any)| FlowGalleryCell {
+    .map(|(name, connected)| FlowGalleryCell {
         name: name.to_owned(),
         step: flow_dialog(
-            "BILL",
-            "billing-api",
+            &not_asked("BILL", "billing-api", &connected),
             std::slice::from_ref(&shop),
-            &flow_sources::view_on(otaq_core::tools::Os::current(), &sources(any)),
+            &tools(),
+            Os::Mac,
         ),
     })
     .collect();
@@ -1088,25 +1171,25 @@ mod tests {
         assert_eq!(texts(&fixtures::base()).title_bars.len(), 5);
     }
 
-    fn look(any: bool) -> FlowLook {
-        use crate::view_models::flow_sources::Sources;
-        flow_sources::view_on(
-            otaq_core::tools::Os::Mac,
-            &Sources {
-                project_name: "shop-web".into(),
-                history: any,
-                commits: any,
-                gh: any,
-                glab: false,
-                tool: otaq_core::agent_tools::Tool::Claude,
-            },
+    use otaq_core::project_agents::first_flow::{FlowSetupRow, FlowSetupTool};
+
+    use crate::view_models::flow_at_work::fixtures::{
+        CC, CLAUDE, OPENCODE, tools as flow_tools, working,
+    };
+
+    fn step_with(connected: &[otaq_core::agent_tools::Tool]) -> FlowStep {
+        flow_step(
+            &not_asked("SHOP", "shop-web", connected),
+            &flow_tools(),
+            Os::Mac,
         )
     }
 
     #[test]
-    fn the_flow_go_ahead_s14_12() {
-        let step = flow_step("SHOP", "shop-web", &look(true));
+    fn the_go_ahead_with_one_tool_s14_12() {
+        let step = step_with(&[CLAUDE]);
         assert_eq!(step.project, "SHOP");
+        assert_eq!(step.opens, FlowOpens::GoAhead);
         assert_eq!(step.title, "Build shop-web’s flow");
         assert_eq!(
             step.intro,
@@ -1115,54 +1198,121 @@ mod tests {
         );
         assert_eq!(
             step.line,
-            "Claude looks at how you use Claude Code on this Mac (what you typed in it, your skills and CLAUDE.md \
-             files), this repo and GitHub, and proposes a flow for shop-web."
+            "Each agent looks at how you use it on this Mac and at this repo, and proposes a flow for shop-web."
         );
+        assert_eq!(step.heading, "ASK AN AGENT");
+        let rows: Vec<(&str, &str, &str, bool)> = step
+            .rows
+            .iter()
+            .map(|r| {
+                (
+                    r.name.as_str(),
+                    r.detail.as_str(),
+                    r.ask.as_str(),
+                    r.primary,
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [("Claude Code", "connected", "Ask Claude Code", true)]
+        );
+        assert_eq!(step.rows[0].tool, "claude");
+        assert_eq!(step.rows[0].avatar.letters, "CC");
         assert_eq!(
             step.provider,
-            "What the agent reads goes to your model provider, and it uses tokens."
+            "What an agent reads goes to that tool’s model provider, and it uses tokens."
         );
         assert_eq!(
-            [
-                step.skip.as_str(),
-                step.use_preset.as_str(),
-                step.propose.as_str()
-            ],
-            [
-                "Skip, use the default",
-                "Use a preset instead",
-                "Look and propose a flow"
-            ]
+            (step.skip.as_str(), step.use_preset.as_str()),
+            ("Skip, use the default", "Use a preset instead")
         );
-        assert!(step.can_propose);
-        assert!(!step.opens_on_presets);
-        // Use a preset instead: the intro above the presets, no reason.
+        assert_eq!(step.back_to_tools, None);
+        assert_eq!(step.ask_an_agent.as_deref(), Some("Ask an agent"));
+        // Use a preset instead: the intro above the presets.
         assert_eq!(step.presets.text, step.intro);
-        assert_eq!(step.presets.reason, None);
+        assert_eq!(step.presets.note, None);
+        assert!(step.at_work.tabs.is_empty());
     }
 
     #[test]
-    fn nothing_to_look_at_opens_on_the_presets_s14_12() {
-        let step = flow_step("SHOP", "shop-web", &look(false));
+    fn two_tools_each_asked_on_their_own_s14_12() {
+        let step = step_with(&[CLAUDE, OPENCODE]);
+        let rows: Vec<(&str, &str, bool)> = step
+            .rows
+            .iter()
+            .map(|r| (r.name.as_str(), r.ask.as_str(), r.primary))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("Claude Code", "Ask Claude Code", false),
+                ("OpenCode", "Ask OpenCode", false)
+            ],
+            "no Ask is primary with two"
+        );
+        assert_eq!(step.opens, FlowOpens::GoAhead);
+    }
+
+    #[test]
+    fn no_agent_tool_connected_opens_on_the_presets_s14_12() {
+        let step = step_with(&[]);
+        assert_eq!(step.opens, FlowOpens::NoTool);
+        assert!(step.rows.is_empty());
         assert_eq!(step.title, "Build shop-web’s flow");
-        assert!(!step.can_propose, "Look and propose a flow is off");
-        assert!(step.opens_on_presets);
         assert_eq!(
             step.presets.text,
-            "Nothing to look at yet · pick a preset to start. You can change it later by asking the Project agent."
+            "Start from a preset. You can change it later by asking the Project agent."
         );
         assert_eq!(
-            step.presets.reason.as_deref(),
+            step.presets.note.as_deref(),
             Some(
-                "No Claude Code history on this Mac, no commits in this repo yet, and neither gh nor glab is signed in."
+                "Connect an agent tool in the Tools step and an agent can recommend a flow for shop-web."
             )
         );
+        assert_eq!(step.back_to_tools.as_deref(), Some("Back to Tools"));
+        assert_eq!(step.ask_an_agent, None);
         assert_eq!(step.presets.heading, "START FROM A PRESET");
+        // A tool found but not signed in isn't connected: still the presets, and no Ask row for it.
+        let mut setup = not_asked("SHOP", "shop-web", &[OPENCODE]);
+        setup.tools[0].row = FlowSetupRow::NotSignedIn;
+        let step = flow_step(&setup, &flow_tools(), Os::Mac);
+        assert_eq!(step.opens, FlowOpens::NoTool);
+        assert!(step.rows.is_empty());
+    }
+
+    #[test]
+    fn once_a_tool_was_asked_the_step_opens_on_the_agents_at_work() {
+        let mut setup = not_asked("SHOP", "shop-web", &[CLAUDE, OPENCODE]);
+        setup.tools[0].row = working(CC, 2);
+        let step = flow_step(&setup, &flow_tools(), Os::Mac);
+        assert_eq!(step.opens, FlowOpens::AtWork);
+        assert_eq!(step.at_work.tabs.len(), 1);
+        assert_eq!(step.at_work.rows[1].status, "Not asked");
+        // At a limit before anything was asked: still the go-ahead.
+        let mut limited = not_asked("SHOP", "shop-web", &[CLAUDE]);
+        limited.tools[0] = FlowSetupTool {
+            tool: CLAUDE,
+            row: FlowSetupRow::PlanLimit {
+                agent: None,
+                resets_at: None,
+            },
+        };
+        assert_eq!(
+            flow_step(&limited, &flow_tools(), Os::Mac).opens,
+            FlowOpens::GoAhead
+        );
+        // Elsewhere than macOS: "this computer".
+        assert!(
+            flow_step(&setup, &flow_tools(), Os::Windows)
+                .line
+                .contains("on this computer and")
+        );
     }
 
     #[test]
     fn the_flow_step_lists_the_four_presets() {
-        let cards = flow_step("SHOP", "shop-web", &look(false)).presets.cards;
+        let cards = step_with(&[]).presets.cards;
         let default = format!("{} default", naming::PRODUCT_NAME);
         let words: Vec<(&str, &str, &str)> = cards
             .iter()
@@ -1207,7 +1357,11 @@ mod tests {
             ]
         );
         assert_eq!(columns(3), ["Ready for Dev", "Dev", "Validate", "Done"]);
-        assert_eq!(flow_gallery().cells.len(), 2);
+        let opens: Vec<FlowOpens> = flow_gallery().cells.iter().map(|c| c.step.opens).collect();
+        assert_eq!(
+            opens,
+            [FlowOpens::GoAhead, FlowOpens::GoAhead, FlowOpens::NoTool]
+        );
     }
 
     fn project(key: &str, name: &str) -> ProjectInfo {
@@ -1222,75 +1376,16 @@ mod tests {
         }
     }
 
-    fn look_at(project_name: &str, history: bool, commits: bool, glab: bool) -> FlowLook {
-        use crate::view_models::flow_sources::Sources;
-        let [claude, ..] = crate::view_models::agent_tools_page::fixtures::tools();
-        flow_sources::view_on(
-            otaq_core::tools::Os::Mac,
-            &Sources {
-                project_name: project_name.into(),
-                history,
-                commits,
-                gh: false,
-                glab,
-                tool: claude,
-            },
-        )
-    }
-
     #[test]
     fn the_add_project_dialogs_go_ahead_s14_18() {
-        // billing-api, on GitLab with glab signed in, added after shop-web.
-        let projects = [project("SHOP", "shop-web"), project("BILL", "billing-api")];
-        let step = flow_dialog(
-            "BILL",
-            "billing-api",
-            &projects,
-            &look_at("billing-api", true, true, true),
-        );
-        assert_eq!(step.project, "BILL");
-        assert_eq!(step.title, "billing-api’s flow");
-        assert_eq!(step.intro, "Look at how you work here, like for shop-web.");
-        assert_eq!(
-            step.line,
-            "Claude looks at how you use Claude Code on this Mac, this repo and GitLab, and proposes a flow for \
-             billing-api."
-        );
-        assert_eq!(
-            step.provider,
-            "What the agent reads goes to your model provider, and it uses tokens."
-        );
-        assert_eq!(
-            [
-                step.skip.as_str(),
-                step.use_preset.as_str(),
-                step.propose.as_str()
-            ],
-            [
-                "Skip, use the default",
-                "Use a preset instead",
-                "Look and propose a flow"
-            ]
-        );
-        assert!(step.can_propose);
-        assert!(!step.opens_on_presets);
-        assert_eq!(step.presets.cards.len(), 4);
-    }
-
-    #[test]
-    fn the_dialog_for_the_examples_pocket_api_names_claude_code_only() {
-        // pocket-api, added after pocket-notes: Claude Code history, no commits yet, neither gh nor glab.
         let projects = [
             project("NOTE", "pocket-notes"),
             project("SCRATCH", "scratch"),
             project("API", "pocket-api"),
         ];
-        let step = flow_dialog(
-            "API",
-            "pocket-api",
-            &projects,
-            &look_at("pocket-api", true, false, false),
-        );
+        let setup = not_asked("API", "pocket-api", &[CLAUDE, OPENCODE]);
+        let step = flow_dialog(&setup, &projects, &flow_tools(), Os::Mac);
+        assert_eq!(step.project, "API");
         assert_eq!(step.title, "pocket-api’s flow");
         // The first project added, not the most recent one.
         assert_eq!(
@@ -1299,31 +1394,12 @@ mod tests {
         );
         assert_eq!(
             step.line,
-            "Claude looks at how you use Claude Code on this Mac and proposes a flow for pocket-api."
+            "Each agent looks at how you use it on this Mac and at this repo, and proposes a flow for pocket-api."
         );
-        assert!(step.can_propose);
-        // Nothing at all: the dialog opens on the presets, with the reason.
-        let nothing = flow_dialog(
-            "API",
-            "pocket-api",
-            &projects,
-            &look_at("pocket-api", false, false, false),
-        );
-        assert!(nothing.opens_on_presets);
-        assert!(!nothing.can_propose);
-        assert_eq!(nothing.title, "pocket-api’s flow");
-        assert!(nothing.presets.reason.is_some());
+        assert_eq!(step.rows.len(), 2);
         // No other project: the Flow step's intro.
-        let alone = flow_dialog(
-            "API",
-            "pocket-api",
-            &projects[2..],
-            &look_at("pocket-api", true, false, false),
-        );
-        assert_eq!(
-            alone.intro,
-            flow_step("API", "pocket-api", &look(true)).intro
-        );
+        let alone = flow_dialog(&setup, &projects[2..], &flow_tools(), Os::Mac);
+        assert_eq!(alone.intro, step_with(&[]).intro);
         assert_eq!(flow_dialog_gallery().cells.len(), 2);
     }
 

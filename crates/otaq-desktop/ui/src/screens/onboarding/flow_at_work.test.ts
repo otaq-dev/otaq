@@ -1,120 +1,116 @@
-// The agent at work (T-0430; ONB-05): the start's check for a tool that isn't signed in, Stop and use a preset, Try
-// again on each failure, ⌘L inside the step, and the four cards as Rust words them.
+// Agents at work (T-0434; ASK-06): asking a tool, then another, gives a tab each; Stop ends one and the other goes
+// on; Try again after the limit and after an end; Stop all; ⌘L inside the step; the card's rows as Rust words them.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { FlowAtWorkView } from "../../generated/FlowAtWorkView";
 import type { Keymap } from "../../generated/Keymap";
-import type { OnboardingFlowStep } from "../../generated/OnboardingFlowStep";
-import { FlowAtWork } from "./FlowAtWork";
-import { flowAgent, flowStarted, focusesAgent, retryFlowAgent, startFlowAgent, stopFlowAgent } from "./logic";
+import { AgentsAtWork, FlowTerminals } from "./FlowAtWork";
+import {
+  atWork,
+  ended,
+  notAsked,
+  notSignedIn,
+  recorder,
+  stepAtWork,
+  stopped,
+  working,
+} from "./flow_fixtures";
+import { actOnRow, askTool, flowStepChanged, focusesAgent, stopAll, watchedTab } from "./logic";
 
-const STEP = { project: "SHOP" } as OnboardingFlowStep;
+const ignore = () => undefined;
 
-const CARD: FlowAtWorkView = {
-  kind: "working",
-  title: "Reading how you work",
-  text: "This can take a few minutes. Watch the agent in its terminal, or come back later: the proposal waits for you.",
-  elapsed: "Working · 2 min",
-  problem: null,
-  stop: "Stop and use a preset",
-  skip: null,
-  use_preset: null,
-  retry: null,
-  pill: null,
-  foot: null,
-};
-
-const FAILURE = {
-  ...CARD,
-  elapsed: null,
-  stop: null,
-  skip: "Skip, use the default",
-  use_preset: "Use a preset instead",
-};
-
-const STOPPED: FlowAtWorkView = {
-  ...FAILURE,
-  kind: "stopped",
-  title: "The agent stopped",
-  text: "Claude Code reached its plan limit before the proposal was ready. Try again at 3:45 pm · it picks up where it stopped.",
-  problem: "Claude Code limit reached · resets at 3:45 pm (in 1 h 12 min).",
-  retry: {
-    label: "Try again at 3:45 pm",
-    icon: "clock",
-    enabled: false,
-    action: { kind: "resume_tool", tool: "claude" },
-  },
-  pill: { palette: "queued", icon: "circle-pause", label: "Stopped" },
-};
-
-const NOT_SIGNED_IN: FlowAtWorkView = {
-  ...FAILURE,
-  kind: "not_signed_in",
-  title: "The agent couldn’t start",
-  text: "Codex isn’t signed in on this computer.",
-  problem: "Codex: not signed in.",
-  retry: { label: "Sign in…", icon: "log-in", enabled: true, action: { kind: "sign_in", tool: "codex" } },
-};
-
-const ENDED: FlowAtWorkView = {
-  ...FAILURE,
-  kind: "ended",
-  title: "The agent ended without a proposal",
-  text: "Its conversation ended before it proposed a flow. Try again to pick up where it stopped.",
-  retry: { label: "Try again", icon: "rotate-ccw", enabled: true, action: { kind: "resume", agent: "pa-1" } },
-  foot: "Read-only · the session ended",
-};
-
-function recorder(answers: Record<string, unknown> = {}) {
-  const asked: [string, unknown][] = [];
-  const ask = (method: string, params?: unknown) => {
-    asked.push([method, params]);
-    return Promise.resolve(answers[method] ?? null);
-  };
-  return { asked, ask };
-}
-
-function draw(view: FlowAtWorkView): string {
-  const ignore = () => undefined;
+function card(view: FlowAtWorkView, watched: string | null = watchedTab(view, null)): string {
   return renderToStaticMarkup(
-    createElement(FlowAtWork, {
+    createElement(AgentsAtWork, {
       view,
+      watched,
       busy: false,
-      onStop: ignore,
+      onWatch: ignore,
+      onAct: ignore,
+      onStopAll: ignore,
       onSkip: ignore,
-      onPresets: ignore,
-      onRetry: ignore,
     }),
   );
 }
 
-describe("the agent at work", () => {
-  it("doesn't start while the Project agent's tool isn't signed in: the card says so", async () => {
-    const { asked, ask } = recorder({ "onboarding.at_work": NOT_SIGNED_IN });
-    const started = await startFlowAgent(STEP, ask);
-    expect(started).toEqual({ kind: "cannot_start", card: NOT_SIGNED_IN });
-    expect(asked).toEqual([["onboarding.at_work", { project: "SHOP" }]]);
-    const state = flowStarted(started);
-    expect(state).toEqual({ at: "cannot_start", card: NOT_SIGNED_IN });
-    expect(flowAgent(state)).toBeNull();
-    expect(flowStarted({ kind: "started", agent: "pa-1" })).toEqual({ at: "working", agent: "pa-1" });
+function tabs(view: FlowAtWorkView, watched: string | null = watchedTab(view, null)): string {
+  return renderToStaticMarkup(
+    createElement(FlowTerminals, { project: "SHOP", view, watched, onWatch: ignore }),
+  );
+}
+
+/** How many tabs a drawing has. */
+const tabCount = (html: string) => html.match(/role="tab"/g)?.length ?? 0;
+
+describe("agents at work", () => {
+  it("Ask Claude Code, then Ask OpenCode: a tab each, the first still shown", async () => {
+    const { asked, ask } = recorder({ "onboarding.ask": { id: "a-cc", session: "s-cc" } });
+    await askTool("SHOP", "claude", ask);
+    // The go-ahead moves on to the agents at work once Rust says a tool was asked.
+    const one = stepAtWork([working("claude", "a-cc", 0), notAsked("opencode")]);
+    expect(flowStepChanged({ at: "go_ahead" }, one)).toEqual({ at: "at_work" });
+    expect(tabCount(tabs(one.at_work))).toBe(1);
+    const first = card(one.at_work);
+    expect(first).toContain("Watching");
+    expect(first).toContain("Ask OpenCode");
+
+    // OpenCode is asked from its row while Claude Code works.
+    const askOpenCode = one.at_work.rows[1]?.buttons[0];
+    expect(askOpenCode?.action).toEqual({ kind: "ask", tool: "opencode" });
+    if (askOpenCode?.action.kind === "ask") await actOnRow("SHOP", askOpenCode.action, ask);
+    expect(asked).toEqual([
+      ["onboarding.ask", { project: "SHOP", tool: "claude" }],
+      ["onboarding.ask", { project: "SHOP", tool: "opencode" }],
+    ]);
+    const two = atWork([working("claude", "a-cc", 2), working("opencode", "a-oc", 1)]);
+    const drawn = tabs(two, watchedTab(two, "a-cc"));
+    expect(tabCount(drawn)).toBe(2);
+    expect(drawn).toContain("Working · 2 min");
+    expect(drawn).toContain("Working · 1 min");
+    expect(drawn).toMatch(/aria-selected="true"[^>]*>.*?Claude Code/);
+    expect(watchedTab(two, null)).toBe("a-cc");
+    const both = card(two, "a-cc");
+    expect(both.match(/Watching/g)).toHaveLength(1);
+    expect(both).toMatch(/>Watch</);
+    expect(both.match(/>Stop</g)).toHaveLength(2);
   });
 
-  it("Stop and use a preset ends the agent (into Recently ended) and shows the presets", async () => {
+  it("Stop ends one agent (into Recently ended) and the other goes on", async () => {
     const { asked, ask } = recorder();
-    expect(await stopFlowAgent("SHOP", "pa-1", ask)).toEqual({ at: "presets", agent: null });
-    expect(asked).toEqual([["pane.end", { project: "SHOP", id: "pa-1", confirm: true }]]);
+    await actOnRow("SHOP", { kind: "stop", agent: "a-cc" }, ask);
+    expect(asked).toEqual([["pane.end", { project: "SHOP", id: "a-cc", confirm: true }]]);
+    const after = atWork([ended("claude", "a-cc"), working("opencode", "a-oc", 2)]);
+    const html = card(after, "a-cc");
+    expect(html).toContain("Ended without a proposal");
+    expect(html).toContain("Try again");
+    expect(html).toContain("Working · 2 min");
+    expect(after.running).toEqual(["a-oc"]);
+    // Its tab stays, read-only; the shown tab doesn't move.
+    expect(tabCount(tabs(after, "a-cc"))).toBe(2);
+    expect(watchedTab(after, "a-cc")).toBe("a-cc");
+    // A tab that left: the first shows.
+    expect(watchedTab(atWork([working("opencode", "a-oc", 2)]), "a-cc")).toBe("a-oc");
   });
 
   it("Try again continues the same session after the limit, and resumes the conversation once it ended", async () => {
     const limit = recorder();
-    await retryFlowAgent({ kind: "resume_tool", tool: "claude" }, limit.ask);
+    await actOnRow("SHOP", { kind: "resume_tool", tool: "claude" }, limit.ask);
     expect(limit.asked).toEqual([["limits.resume_tool", { tool: "claude" }]]);
-    const ended = recorder();
-    await retryFlowAgent({ kind: "resume", agent: "pa-1" }, ended.ask);
-    expect(ended.asked).toEqual([["pane.resume", { id: "pa-1" }]]);
+    const gone = recorder();
+    await actOnRow("SHOP", { kind: "resume", agent: "a-cc" }, gone.ask);
+    expect(gone.asked).toEqual([["pane.resume", { id: "a-cc" }]]);
+  });
+
+  it("Stop all ends every agent at work or stopped, then shows the presets", async () => {
+    const { asked, ask } = recorder();
+    const view = atWork([stopped("claude", "a-cc"), working("opencode", "a-oc", 3)]);
+    expect(await stopAll("SHOP", view, ask)).toEqual({ at: "presets" });
+    expect(asked).toEqual([
+      ["pane.end", { project: "SHOP", id: "a-cc", confirm: true }],
+      ["pane.end", { project: "SHOP", id: "a-oc", confirm: true }],
+    ]);
   });
 
   it("⌘L inside the step is the user's Focus the pane", () => {
@@ -159,22 +155,16 @@ describe("the agent at work", () => {
     expect(focusesAgent(undefined, key("l", true), false)).toBe(false);
   });
 
-  it("draws the four cards as Rust words them, with no per-source rows", () => {
-    const working = draw(CARD);
-    expect(working).toContain("Reading how you work");
-    expect(working).toContain("Working · 2 min");
-    expect(working).toContain("Stop and use a preset");
-    expect(working).not.toContain("flow-at-work-problem");
-
-    const stopped = draw(STOPPED);
-    expect(stopped).toContain("Claude Code limit reached · resets at 3:45 pm (in 1 h 12 min).");
-    expect(stopped).toMatch(/<button[^>]*disabled[^>]*>.*Try again at 3:45 pm/);
-    expect(stopped).toContain("Skip, use the default");
-    expect(stopped).toContain("Use a preset instead");
-
-    expect(draw(NOT_SIGNED_IN)).toContain("Sign in…");
-    const ended = draw(ENDED);
-    expect(ended).toContain("The agent ended without a proposal");
-    expect(ended).not.toMatch(/<button[^>]*disabled/);
+  it("draws each row as Rust words it: the plan limit, not signed in, not asked", () => {
+    const limited = card(atWork([stopped("claude", "a-cc"), working("opencode", "a-oc", 3)]), "a-cc");
+    expect(limited).toContain("Plan limit · resets 3:45 pm · picks up where it stopped");
+    expect(limited).toMatch(/<button[^>]*disabled[^>]*>.*Try again at 3:45 pm/);
+    expect(limited).toContain("Stop all and use a preset");
+    expect(limited).toContain("Skip, use the default");
+    const signedOut = card(atWork([working("claude", "a-cc", 2), notSignedIn("opencode")]));
+    expect(signedOut).toContain("Couldn’t start · not signed in");
+    expect(signedOut).toContain("Sign in…");
+    expect(signedOut).toMatch(/data-error="true"/);
+    expect(tabCount(tabs(atWork([notAsked("claude")])))).toBe(0);
   });
 });

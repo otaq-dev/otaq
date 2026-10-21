@@ -1,5 +1,6 @@
-// The Flow step (T-0429; ONB-04…ONB-07): its state machine, the start and the preset behind one function each, how it
-// ends on the project's board, its screens as Rust words them, and the usual preview held off while it shows.
+// The Flow step (T-0434; ASK-04…ASK-06): where it opens and how its Flow setup moves it on, Skip settling the default
+// flow, a proposal in the step and Use this flow, a preset, its screens as Rust words them, and the usual preview held
+// off while it shows.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -8,74 +9,24 @@ import { INITIAL_LAYOUT, type ShellLayout } from "../../app/layout";
 import { createSelection } from "../../app/selection";
 import { createStore } from "../../app/store";
 import type { FlowPreviewView } from "../../generated/FlowPreviewView";
-import type { OnboardingFlowStep } from "../../generated/OnboardingFlowStep";
 import type { PageEvent } from "../../generated/PageEvent";
 import type { PageEvents } from "../../service";
-import { applyPreview, cancelPreview, followProposals, NO_CHOICES } from "../flow_preview/logic";
+import { applyPreview, followProposals, NO_CHOICES } from "../flow_preview/logic";
 import type { PaneFocusRequest, PaneRoutes, ShownAgents } from "../pane/logic";
 import { FlowGoAhead, FlowPresets, FlowProposal } from "./FlowStep";
+import { atWork, NO_TOOL, recorder, STEP, stepAtWork, working } from "./flow_fixtures";
 import {
   afterFlowStep,
-  flowAgent,
+  flowStepChanged,
   flowStepOpens,
   proposalGone,
   proposalShown,
   proposePreset,
+  proposingAgent,
   STEP_ORDER,
-  startFlowAgent,
+  chooseDefault,
+  firstProposals,
 } from "./logic";
-
-const CARD = (name: string, file: string, columns: string[]) => ({
-  name,
-  delivers: "Done · click",
-  line: "Today’s board",
-  columns: columns.map((label) => ({ icon: "bot" as const, label })),
-  file,
-});
-
-// `onboarding.flow` for the example's shop-web (`s14-12`).
-const STEP: OnboardingFlowStep = {
-  project: "SHOP",
-  title: "Build shop-web’s flow",
-  intro:
-    "An agent proposes the board’s columns: who works on a ticket, what checks it, how it’s delivered. Nothing changes until you say so.",
-  line: "Claude looks at how you use Claude Code on this Mac (what you typed in it, your skills and CLAUDE.md files), this repo and GitHub, and proposes a flow for shop-web.",
-  provider: "What the agent reads goes to your model provider, and it uses tokens.",
-  skip: "Skip, use the default",
-  use_preset: "Use a preset instead",
-  propose: "Look and propose a flow",
-  can_propose: true,
-  opens_on_presets: false,
-  presets: {
-    text: "An agent proposes the board’s columns: who works on a ticket, what checks it, how it’s delivered. Nothing changes until you say so.",
-    reason: null,
-    heading: "START FROM A PRESET",
-    cards: [
-      CARD("Otaq default", "otaq-default.yaml", ["Ready for Dev", "Dev", "Validate", "Review", "Done"]),
-      CARD("Grill first", "grill-first.yaml", [
-        "Ready for Dev",
-        "Grill",
-        "Dev",
-        "Validate",
-        "Review",
-        "Done",
-      ]),
-    ],
-  },
-};
-
-const NOTHING: OnboardingFlowStep = {
-  ...STEP,
-  line: "Nothing to look at yet · pick a preset to start. You can change it later by asking the Project agent.",
-  can_propose: false,
-  opens_on_presets: true,
-  presets: {
-    ...STEP.presets,
-    text: "Nothing to look at yet · pick a preset to start. You can change it later by asking the Project agent.",
-    reason:
-      "No Claude Code history on this Mac, no commits in this repo yet, and neither gh nor glab is signed in.",
-  },
-};
 
 // `flow_preview.view` with `onboarding` for a preset picked in the step.
 const PREVIEW: FlowPreviewView = {
@@ -100,15 +51,6 @@ const PREVIEW: FlowPreviewView = {
   choices: NO_CHOICES,
 };
 
-function recorder(answers: Record<string, unknown> = {}) {
-  const asked: [string, unknown][] = [];
-  const ask = (method: string, params?: unknown) => {
-    asked.push([method, params]);
-    return Promise.resolve(answers[method] ?? null);
-  };
-  return { asked, ask };
-}
-
 function routes(): PaneRoutes {
   return {
     selection: createSelection(),
@@ -123,41 +65,64 @@ describe("the Flow step", () => {
     expect(STEP_ORDER).toEqual(["welcome", "theme", "tools", "project", "flow"]);
   });
 
-  it("opens on the go-ahead, or on the presets when there is nothing to look at", () => {
+  it("opens on the go-ahead, on the agents at work once a tool was asked, or on the presets with no tool", () => {
     expect(flowStepOpens(STEP)).toEqual({ at: "go_ahead" });
-    expect(flowStepOpens(NOTHING)).toEqual({ at: "presets", agent: null });
+    expect(flowStepOpens(stepAtWork([working("claude", "a-cc", 0)]))).toEqual({ at: "at_work" });
+    expect(flowStepOpens(NO_TOOL)).toEqual({ at: "presets" });
+    // A change of the Flow setup moves the go-ahead on; the user's own place stays.
+    expect(flowStepChanged({ at: "go_ahead" }, NO_TOOL)).toEqual({ at: "presets" });
+    expect(flowStepChanged({ at: "go_ahead" }, STEP)).toEqual({ at: "go_ahead" });
+    expect(flowStepChanged({ at: "presets" }, stepAtWork([]))).toEqual({ at: "presets" });
   });
 
-  it("Skip finishes on the default flow: the board shows, nothing is asked", () => {
+  it("Skip settles the default flow: every proposal closes, the board shows with no agent", async () => {
     const r = routes();
-    const { asked } = recorder();
-    afterFlowStep("SHOP", flowAgent(flowStepOpens(STEP)), r);
+    const { asked, ask } = recorder();
+    await chooseDefault("SHOP", ask);
+    expect(asked).toEqual([["onboarding.use_default", { project: "SHOP" }]]);
+    afterFlowStep("SHOP", null, r);
     expect(r.selection.get().project).toBe("SHOP");
     expect(r.shown.get()).toEqual({});
     expect(r.layout.get().paneHidden).toBe(true);
-    expect(asked).toEqual([]);
   });
 
-  it("Look and propose a flow starts the Project agent with the flow skill; its proposal shows in the step", async () => {
-    const { asked, ask } = recorder({ "pane.start_flow": { id: "pa-1", session: "s-1" } });
-    const started = await startFlowAgent(STEP, ask);
-    expect(started).toEqual({ kind: "started", agent: "pa-1" });
-    const agent = "pa-1";
-    expect(asked).toEqual([
-      ["onboarding.at_work", { project: "SHOP" }],
-      ["pane.start_flow", { project: "SHOP" }],
+  it("an agent's proposal shows in the step; Use this flow keeps that agent open in the pane", async () => {
+    const proposing = atWork([
+      { ...working("claude", "a-cc", 3), state: "proposed", status: "Proposed", proposal: 3, buttons: [] },
+      working("opencode", "a-oc", 2),
     ]);
-    const proposal = proposalShown({ at: "working", agent }, 3);
-    expect(proposal).toEqual({ at: "proposal", agent: "pa-1", first: 3 });
-    // The agent proposes again after Ask for changes: the first stays, so the preview reads "Updated…".
+    const proposal = proposalShown({ at: "at_work" }, 3);
+    expect(proposal).toEqual({ at: "proposal", first: 3 });
+    // It proposes again after Ask for changes: the first stays, so the preview reads "Updated…".
     expect(proposalShown(proposal, 5)).toBe(proposal);
-    // Cancelled from elsewhere: back to the agent at work.
-    expect(proposalGone(proposal)).toEqual({ at: "working", agent: "pa-1" });
-    // Done: the agent stays open in its pane.
+    // Gone from elsewhere: back where the step opens now.
+    expect(flowStepChanged(proposalGone(proposal), stepAtWork(proposing.rows))).toEqual({ at: "at_work" });
+    expect(proposingAgent(proposing, 3)).toBe("a-cc");
+    expect(proposingAgent(proposing, 4)).toBeNull();
+    const { asked, ask } = recorder();
+    await applyPreview({ ...PREVIEW, proposal: 3 }, ask);
+    expect(asked).toEqual([["flow_preview.apply", { project: "SHOP", proposal: 3, choices: NO_CHOICES }]]);
     const r = routes();
-    afterFlowStep("SHOP", flowAgent(proposal), r);
-    expect(r.shown.get()).toEqual({ SHOP: "pa-1" });
+    afterFlowStep("SHOP", proposingAgent(proposing, 3), r);
+    expect(r.shown.get()).toEqual({ SHOP: "a-cc" });
     expect(r.layout.get().paneHidden).toBe(false);
+  });
+
+  it("compared proposals keep the one each agent showed first", () => {
+    const compare = (agent: string | null, proposal: number) => ({
+      project: "SHOP",
+      compare: true,
+      proposals: [{ tool: "claude", agent, view: { ...PREVIEW, proposal } }],
+      others: [],
+      closes_others: null,
+      use_default: null,
+    });
+    const firsts = firstProposals({}, compare("a-cc", 3));
+    expect(firsts).toEqual({ "a-cc": 3 });
+    // Its proposal after Ask for changes: the first stays, and nothing new means the same map.
+    expect(firstProposals(firsts, compare("a-cc", 5))).toBe(firsts);
+    // A preset (no agent) is never recorded.
+    expect(firstProposals(firsts, compare(null, 6))).toBe(firsts);
   });
 
   it("a preset → the preview → Use this flow applies it", async () => {
@@ -180,43 +145,62 @@ describe("the Flow step", () => {
     expect(html).toContain("Grill first for shop-web");
     expect(html).toContain("Use the default");
     expect(html).toContain("Use this flow");
-    expect(html).not.toContain("Ask for changes");
     await applyPreview(PREVIEW, ask);
     expect(asked).toEqual([
       ["flow_preview.propose", { project: "SHOP", source: { from: "preset", file: "grill-first.yaml" } }],
       ["flow_preview.apply", { project: "SHOP", proposal: 4, choices: NO_CHOICES }],
     ]);
-    expect(proposalGone({ at: "proposal", agent: null, first: 4 })).toEqual({ at: "presets", agent: null });
+    expect(proposalGone({ at: "proposal", first: 4 })).toEqual({ at: "go_ahead" });
   });
 
-  it("Use the default cancels the proposal (the agent gets Cancel)", async () => {
-    const { asked, ask } = recorder();
-    await cancelPreview(PREVIEW, ask);
-    expect(asked).toEqual([["flow_preview.cancel", { project: "SHOP" }]]);
-  });
-
-  it("draws the go-ahead and Nothing to look at yet as Rust words them", () => {
-    const props = {
-      busy: false,
-      onSkip: () => undefined,
-      onPresets: () => undefined,
-      onLook: () => undefined,
-    };
-    const goAhead = renderToStaticMarkup(createElement(FlowGoAhead, { ...props, step: STEP }));
-    for (const text of [STEP.title, STEP.line, STEP.provider, STEP.skip, STEP.use_preset, STEP.propose]) {
+  it("draws the go-ahead (a row per tool, the only one primary) and no agent tool connected", () => {
+    const ignore = () => undefined;
+    const goAhead = renderToStaticMarkup(
+      createElement(FlowGoAhead, {
+        step: STEP,
+        busy: false,
+        onAsk: ignore,
+        onSkip: ignore,
+        onPresets: ignore,
+      }),
+    );
+    for (const text of [STEP.title, STEP.line, STEP.heading, STEP.provider, STEP.skip, STEP.use_preset]) {
       expect(goAhead).toContain(text);
     }
-    expect(goAhead).not.toMatch(/disabled=""/);
-    const nothing = renderToStaticMarkup(
-      createElement(FlowPresets, { ...props, step: NOTHING, onPick: () => undefined }),
+    expect(goAhead).toContain("Ask Claude Code");
+    expect(goAhead).toContain("Ask OpenCode");
+    expect(goAhead.match(/connected/g)).toHaveLength(2);
+    expect(goAhead).not.toContain('data-variant="primary"');
+    expect(goAhead).not.toContain("Look and propose");
+    const one = { ...STEP, rows: STEP.rows.slice(0, 1).map((r) => ({ ...r, primary: true })) };
+    const single = renderToStaticMarkup(
+      createElement(FlowGoAhead, {
+        step: one,
+        busy: false,
+        onAsk: ignore,
+        onSkip: ignore,
+        onPresets: ignore,
+      }),
     );
-    expect(nothing).toContain(NOTHING.presets.text);
-    expect(nothing).toContain(NOTHING.presets.reason ?? "");
-    expect(nothing).toContain("START FROM A PRESET");
-    expect(nothing).toContain("Otaq default");
-    expect(nothing).toContain("Grill first");
-    // Look and propose a flow is off with nothing to look at.
-    expect(nothing).toMatch(/<button[^>]*disabled=""[^>]*>.*Look and propose a flow/);
+    expect(single).toMatch(/data-variant="primary"[^>]*>.*?Ask Claude Code/);
+
+    const none = renderToStaticMarkup(
+      createElement(FlowPresets, {
+        step: NO_TOOL,
+        busy: false,
+        onPick: ignore,
+        onSkip: ignore,
+        onAgents: ignore,
+        onBackToTools: ignore,
+      }),
+    );
+    expect(none).toContain(NO_TOOL.presets.text);
+    expect(none).toContain(NO_TOOL.presets.note ?? "");
+    expect(none).toContain("Back to Tools");
+    expect(none).toContain("START FROM A PRESET");
+    expect(none).toContain("Otaq default");
+    expect(none).toContain("Skip, use the default");
+    expect(none).not.toContain("Ask an agent");
   });
 });
 

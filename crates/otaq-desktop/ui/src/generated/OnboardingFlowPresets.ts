@@ -2,18 +2,19 @@
 import type { PresetCard } from "./PresetCard";
 
 /**
- * The Flow step's presets (ONB-04, FLW-08; *s14-12 → Nothing to look at yet*): Use a preset instead, or the step
- * itself when there is nothing to look at. A pick proposes the preset and opens the preview in the step.
+ * The Flow step's presets (FLW-08; *s14-12 → No agent tool connected*): Use a preset instead, or the step itself when
+ * no agent tool is connected. A pick proposes the preset and opens the preview in the step.
  */
 export type OnboardingFlowPresets = { 
 /**
- * Under the title: "Nothing to look at yet · pick a preset to start. …" when there is nothing, else the intro.
+ * Under the title: "Start from a preset. …" with no tool connected, else the intro.
  */
 text: string, 
 /**
- * Why there is nothing, muted under it: "No Claude Code history on this Mac, …".
+ * With no tool connected: "Connect an agent tool in the Tools step and an agent can recommend a flow for
+ * shop-web.", beside [`FlowStep::back_to_tools`].
  */
-reason: string | null, 
+note: string | null, 
 /**
  * "START FROM A PRESET".
  */

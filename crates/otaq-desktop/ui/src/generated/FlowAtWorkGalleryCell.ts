@@ -2,6 +2,10 @@
 import type { FlowAtWorkView } from "./FlowAtWorkView";
 
 /**
- * One card of the gallery.
+ * One frame of the gallery.
  */
-export type FlowAtWorkGalleryCell = { name: string, view: FlowAtWorkView, };
+export type FlowAtWorkGalleryCell = { name: string, 
+/**
+ * The tab shown (Watching), as in the frame.
+ */
+watching: string | null, view: FlowAtWorkView, };

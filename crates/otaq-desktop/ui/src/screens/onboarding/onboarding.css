@@ -565,8 +565,9 @@
 }
 
 /*
- * 5 · Flow (ONB-04…ONB-06; *s14-12*, *s14-16*): the go-ahead and the presets in an 810 px card; the agent's terminal
- * (420 px) beside the card while it works, or beside the preview (640 px) once it proposed. Tokens only (0096).
+ * 5 · Flow (ASK-04…ASK-06; *s14-12*, *s14-14*, *s14-16*): the go-ahead and the presets in an 810 px card; the agents'
+ * terminals (420 px) beside their card while they work, or beside the preview (640 px) once one proposed. Tokens only
+ * (0096).
  */
 .flow-step {
   display: flex;
@@ -795,44 +796,180 @@
   max-height: none;
 }
 
-/* The agent at work (T-0430, `s14-14`/`s14-15`): the card beside the terminal, the elapsed time over a hairline, a
-   failure's red line on the error tint (text-primary on it, WCAG AA in both themes, d0096). */
+/* Ask an agent (T-0434, `s14-12`): a row per connected tool over a hairline, its avatar, name, "connected", Ask. */
+.flow-step-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.flow-step-ask-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.flow-step-ask-name {
+  color: var(--text-primary);
+  font: 600 13.5px var(--font-ui);
+}
+
+.flow-step-ask-detail {
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+}
+
+/* No agent tool connected: the line and Back to Tools as a link. */
+.flow-step-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-secondary);
+  font: 400 12.5px/1.45 var(--font-ui);
+}
+
+.flow-step-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.flow-step-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.flow-step-link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Agents at work (T-0434, `s14-14`/`s14-15`): the tabs over the 420 px terminal, the 600 px card with a row per
+   tool. A failure's state in the error colour; tokens only, WCAG AA in both themes (d0096). */
+.flow-at-work-terminals {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 420px;
+  min-height: 0;
+}
+
+.flow-at-work-terminals > .flow-step-agent {
+  flex: 1;
+  min-height: 0;
+}
+
+.flow-at-work-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-bottom: 6px;
+}
+
+.flow-at-work-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: 400 12.5px var(--font-ui);
+  cursor: pointer;
+}
+
+.flow-at-work-tab[data-shown] {
+  border-color: var(--border);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.flow-at-work-tab:hover:not([data-shown]) {
+  background: var(--bg-hover);
+}
+
+.flow-at-work-tab:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.flow-at-work-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+}
+
+.flow-at-work-tab-status {
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+}
+
 .onboarding-card.flow-at-work {
   gap: 16px;
+  width: 600px;
   margin: 0;
   align-self: center;
 }
 
-.flow-at-work-elapsed {
+.flow-at-work-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.flow-at-work-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 8px 0;
+  gap: 10px;
+  padding: 10px 0;
   border-top: 1px solid var(--border);
-  color: var(--text-secondary);
-  font: 400 12.5px var(--font-ui);
 }
 
-.flow-at-work-elapsed > .icon {
-  color: var(--st-working);
+.flow-at-work-row .tool-avatar,
+.flow-step-ask-row .tool-avatar {
+  width: 20px;
+  height: 20px;
+  font-size: 9px;
 }
 
-.flow-at-work-problem {
+.flow-at-work-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.flow-at-work-row-name {
+  color: var(--text-primary);
+  font: 600 13.5px var(--font-ui);
+}
+
+.flow-at-work-row-status {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: var(--st-error-bg);
-  color: var(--text-primary);
-  font: 400 12.5px/1.45 var(--font-ui);
+  gap: 5px;
+  color: var(--text-secondary);
+  font: 400 12px var(--font-ui);
 }
 
-.flow-at-work-problem > .icon {
-  flex: none;
+.flow-at-work-row-status > .icon {
+  color: var(--st-queued);
+}
+
+.flow-at-work-row-status[data-error] {
   color: var(--st-error);
+}
+
+.flow-at-work-watching {
+  color: var(--accent);
+  font: 500 11.5px var(--font-ui);
 }
 
 .flow-step-agent-foot[data-read-only] {

@@ -2,7 +2,6 @@
 import type { OnboardingFlowGalleryCell } from "./OnboardingFlowGalleryCell";
 
 /**
- * The Flow step in the component gallery (T-0429; *s14-12*, *s14-13*): the example's go-ahead (history, a repo,
- * GitHub) and Nothing to look at yet.
+ * The Flow step in the component gallery (*s14-12*, *s14-13*): one tool, two tools, no agent tool connected.
  */
 export type OnboardingFlowGallery = { cells: Array<OnboardingFlowGalleryCell>, };

@@ -134,7 +134,7 @@ import { ActivityGallery } from "../shell/ActivityGallery";
 import { LimitLinesGallery } from "../notices/LimitLinesGallery";
 import { LeadTabBody } from "../lead_tab/LeadTab";
 import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
-import { FlowAtWork } from "../onboarding/FlowAtWork";
+import { AgentsAtWork } from "../onboarding/FlowAtWork";
 import { FlowGoAhead, FlowPresets } from "../onboarding/FlowStep";
 import { FlowDialogButtons, FlowDialogGoAhead, FlowDialogPresets } from "../onboarding/AddProjectDialog";
 import { ToolsList } from "../onboarding/Tools";
@@ -1718,8 +1718,9 @@ function OnboardingToolsGallerySection() {
   );
 }
 
-/** *14 → Row · Flow step: sources* `s14-12`/`s14-13` (T-0429, ONB-04): the Flow step's go-ahead and Nothing to look at
- * yet with the four presets, from `gallery.onboarding_flow` in Otaq Light and Dark. Calls are only recorded. */
+/** *14 → Row · Flow step: sources* `s14-12`/`s14-13` (T-0434, ASK-05): the Flow step's go-ahead with one tool and with
+ * two, and no agent tool connected with the four presets, from `gallery.onboarding_flow` in Otaq Light and Dark. Calls
+ * are only recorded. */
 function OnboardingFlowGallerySection() {
   const { view, error } = useServiceView(loadOnboardingFlow, []);
   const [picked, setPicked] = useState<string | null>(null);
@@ -1729,7 +1730,7 @@ function OnboardingFlowGallerySection() {
     setPicked(what);
   };
   return (
-    <Section title="14 · Flow step: the go-ahead, Nothing to look at yet and the presets (T-0429)">
+    <Section title="14 · Flow step: ask an agent, and no agent tool connected (T-0434)">
       <Caption>Last call: {picked ?? "—"}</Caption>
       {THEMES.map((theme) => (
         <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
@@ -1739,21 +1740,27 @@ function OnboardingFlowGallerySection() {
               step: cell.step,
               busy: false,
               onSkip: record("Skip, use the default"),
-              onPresets: record("Use a preset instead"),
-              onLook: record("Look and propose a flow"),
             };
             return (
               <div key={cell.name} className="gallery-stack-tight">
                 <Caption>{cell.name.toUpperCase()}</Caption>
-                {cell.step.opens_on_presets ? (
+                {cell.step.opens === "no_tool" ? (
                   <FlowPresets
                     {...props}
+                    onAgents={record("Ask an agent")}
+                    onBackToTools={record("Back to Tools")}
                     onPick={(file) => {
                       setPicked(file);
                     }}
                   />
                 ) : (
-                  <FlowGoAhead {...props} />
+                  <FlowGoAhead
+                    {...props}
+                    onPresets={record("Use a preset instead")}
+                    onAsk={(tool) => {
+                      setPicked(`Ask ${tool}`);
+                    }}
+                  />
                 )}
               </div>
             );
@@ -1765,7 +1772,7 @@ function OnboardingFlowGallerySection() {
 }
 
 /** *14 → Row · Another project, and the presets* `s14-18`/`s14-19` (T-0431, ONB-08): the Add project dialog's go-ahead
- * for billing-api on GitLab and its Nothing to look at yet, drawn as the dialog box without its backdrop, from
+ * for billing-api with one tool and with none connected, drawn as the dialog box without its backdrop, from
  * `gallery.onboarding_flow_dialog` in Otaq Light and Dark. Calls are only recorded. */
 function OnboardingFlowDialogGallerySection() {
   const { view, error } = useServiceView(loadOnboardingFlowDialog, []);
@@ -1776,7 +1783,7 @@ function OnboardingFlowDialogGallerySection() {
     setPicked(what);
   };
   return (
-    <Section title="14 · Add project: the go-ahead in the dialog, Nothing to look at yet (T-0431)">
+    <Section title="14 · Add project: the go-ahead in the dialog, no agent tool connected (T-0431)">
       <Caption>Last call: {picked ?? "—"}</Caption>
       {THEMES.map((theme) => (
         <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
@@ -1788,7 +1795,7 @@ function OnboardingFlowDialogGallerySection() {
                 <div className="dialog-content">
                   <h2 className="dialog-title">{cell.step.title}</h2>
                   <div className="dialog-body add-project-flow">
-                    {cell.step.opens_on_presets ? (
+                    {cell.step.opens === "no_tool" ? (
                       <FlowDialogPresets
                         step={cell.step}
                         busy={false}
@@ -1797,7 +1804,13 @@ function OnboardingFlowDialogGallerySection() {
                         }}
                       />
                     ) : (
-                      <FlowDialogGoAhead step={cell.step} />
+                      <FlowDialogGoAhead
+                        step={cell.step}
+                        busy={false}
+                        onAsk={(tool) => {
+                          setPicked(`Ask ${tool}`);
+                        }}
+                      />
                     )}
                   </div>
                 </div>
@@ -1811,7 +1824,6 @@ function OnboardingFlowDialogGallerySection() {
                     busy={false}
                     onSkip={record("Skip, use the default")}
                     onPresets={record("Use a preset instead")}
-                    onLook={record("Look and propose a flow")}
                   />
                 </div>
               </div>
@@ -1823,9 +1835,10 @@ function OnboardingFlowDialogGallerySection() {
   );
 }
 
-/** *14 → Row · Flow step: the agent at work* `s14-14`/`s14-15` (T-0430, ONB-05): the card beside the agent's terminal
- * (working, the plan limit, not signed in, ended without a proposal), from `gallery.onboarding_flow_at_work` in Otaq
- * Light and Dark. Calls are only recorded. */
+/** *14 → Row · Flow step: the agent at work* `s14-14`/`s14-15` (T-0434, ASK-06): the Agents at work card in its five
+ * frames (two at work, one not asked, the plan limit, not signed in, ended without a proposal), from
+ * `gallery.onboarding_flow_at_work` in Otaq Light and Dark. The tabs need live terminals and aren't drawn here. Calls
+ * are only recorded. */
 function FlowAtWorkGallerySection() {
   const { view, error } = useServiceView(loadFlowAtWork, []);
   const [picked, setPicked] = useState<string | null>(null);
@@ -1835,7 +1848,7 @@ function FlowAtWorkGallerySection() {
     setPicked(what);
   };
   return (
-    <Section title="14 · Flow step: the agent at work and its failures (T-0430)">
+    <Section title="14 · Flow step: agents at work (T-0434)">
       <Caption>Last call: {picked ?? "—"}</Caption>
       {THEMES.map((theme) => (
         <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
@@ -1843,15 +1856,18 @@ function FlowAtWorkGallerySection() {
           {view.cells.map((cell) => (
             <div key={cell.name} className="gallery-stack-tight">
               <Caption>{cell.name.toUpperCase()}</Caption>
-              <FlowAtWork
+              <AgentsAtWork
                 view={cell.view}
+                watched={cell.watching}
                 busy={false}
-                onStop={record("Stop and use a preset")}
-                onSkip={record("Skip, use the default")}
-                onPresets={record("Use a preset instead")}
-                onRetry={(button) => {
+                onWatch={(agent) => {
+                  setPicked(`Watch ${agent}`);
+                }}
+                onAct={(button) => {
                   setPicked(button.label);
                 }}
+                onStopAll={record("Stop all and use a preset")}
+                onSkip={record("Skip, use the default")}
               />
             </div>
           ))}

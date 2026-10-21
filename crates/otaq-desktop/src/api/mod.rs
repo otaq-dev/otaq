@@ -61,8 +61,6 @@ pub use onboarding::export_flow_at_work_types;
 #[cfg(test)]
 pub use onboarding::export_flow_step_types;
 #[cfg(test)]
-pub use onboarding::export_sources_types as export_flow_look_types;
-#[cfg(test)]
 pub use onboarding::{
     AddOutcome as AddProjectOutcome, FormParams as AddProjectParams, Start as OnboardingStart,
 };
@@ -70,8 +68,8 @@ pub use onboarding::{
 pub use palette::{Use as PaletteUse, ViewParams as PaletteParams};
 #[cfg(test)]
 pub use pane::{
-    EndParams as PaneEndParams, Ended as PaneEnded, FlowStarted as PaneFlowStarted,
-    Params as PaneParams, ProjectOnly as PaneProjectParams, RenameParams as PaneRenameParams,
+    EndParams as PaneEndParams, Ended as PaneEnded, Params as PaneParams,
+    ProjectOnly as PaneProjectParams, RenameParams as PaneRenameParams,
     ResumeParams as PaneResumeParams, SendParams as PaneSendParams,
 };
 #[cfg(test)]

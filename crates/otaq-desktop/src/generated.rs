@@ -117,7 +117,6 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::PaneEnded::export_all(&cfg)?;
     crate::api::PaneProjectParams::export_all(&cfg)?;
     crate::api::PaneResumeParams::export_all(&cfg)?;
-    crate::api::PaneFlowStarted::export_all(&cfg)?;
     // The board (T-0220): its view with the cards, the drag's one answer, the drop's outcome, and the requests'.
     otaq_view::view_models::board_page::BoardPage::export_all(&cfg)?;
     otaq_view::view_models::board_page::Params::export_all(&cfg)?;
@@ -309,11 +308,9 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::export_apply_now_types(&cfg)?;
     // Your check's Pass and Fail, Send back with PR comments (T-0424).
     crate::api::export_review_check_types(&cfg)?;
-    // The Flow go-ahead's line (T-0427): its view and params.
-    crate::api::export_flow_look_types(&cfg)?;
-    // The Flow step (T-0429): the go-ahead, the presets and its gallery.
+    // The Flow step (T-0429, T-0434): the go-ahead, the presets and its gallery.
     crate::api::export_flow_step_types(&cfg)?;
-    // The agent at work and its failures (T-0430): its card, params and gallery.
+    // The agents at work (T-0434): the tabs and the card, Ask's params and answer, and the gallery.
     crate::api::export_flow_at_work_types(&cfg)?;
     Ok(())
 }

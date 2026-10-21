@@ -2,7 +2,7 @@
 import type { FlowAtWorkGalleryCell } from "./FlowAtWorkGalleryCell";
 
 /**
- * The agent at work in the component gallery, next to the Flow step's (`gallery.onboarding_flow_at_work`): the
- * three cards of `s14-14` and the ended-without-a-proposal card, on the frame's times.
+ * Agents at work in the component gallery (`gallery.onboarding_flow_at_work`): the five frames of `s14-14`, on the
+ * frames' times.
  */
 export type FlowAtWorkGallery = { cells: Array<FlowAtWorkGalleryCell>, };

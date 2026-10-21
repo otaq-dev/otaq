@@ -1,61 +1,65 @@
-//! The onboarding agent at work (T-0430; ONB-05, d0108, d0086, d0088; *14 → Row · Flow step: the agent at work*
-//! `s14-14`/`s14-15`, after update AJ's second and third passes): the card beside the agent's terminal while the Flow
-//! step's agent reads how the user works, and its failures.
+//! Agents at work during Flow setup (T-0434; ASK-06, d0108 "Each connected tool's agent looks for itself, when the
+//! user asks", d0086, d0088; *14 → Row · Flow step: the agent at work* `s14-14`/`s14-15`, update AL): the tabs over
+//! the flow agents' terminals and the **Agents at work** card, from the project's Flow setup
+//! ([`otaq_core::project_agents::first_flow::FlowSetup`]). The onboarding Flow step and a later project's Flow setup
+//! page show the same view.
 //!
-//! - **Working:** "Reading how you work", the elapsed time ("Working · 2 min", from its session's start) and **Stop
-//!   and use a preset**. No per-source rows: Otaq doesn't limit or follow what the agent reads (d0108 changelog
-//!   2026-10-21); its terminal shows that.
-//! - **Stopped at the plan limit** (the agent's `limit_stopped`): "The agent stopped", the reset line and **Try again
-//!   at 3:45 pm**, on once the limit resets: its tool's Resume, which types "continue" into the same session.
-//! - **Not signed in** (the Project agent's tool is Found · not signed in, d0086; Otaq can tell for every tool but
-//!   Claude Code, whose own sign-in shows in its terminal): "The agent couldn't start" with **Sign in…**.
-//! - **Ended without a proposal** (its session ended, by `/exit` or a crash, before it proposed): **Try again**
-//!   resumes the same conversation (d0088). A proposal moves the step on before any of this shows.
-//!
-//! Every failure keeps **Skip, use the default** · **Use a preset instead** one click away.
+//! - **The tabs:** one per asked tool ("Claude Code · Working · 2 min"); the shown one's terminal fills the left. Its
+//!   header is the agent's own ("Flow setup · Claude Code"); at the limit it reads "Stopped", and an ended one's foot
+//!   says "Read-only · the session ended".
+//! - **The card:** a row per connected tool (and per tool found but not signed in) with its state and buttons:
+//!   Working · 2 min (Watch / Watching, **Stop**: the agent ends to Recently ended), Not asked (**Ask <Tool>**), the
+//!   plan limit ("Plan limit · resets 3:45 pm · picks up where it stopped", **Try again at 3:45 pm**: its tool's Resume
+//!   once the limit resets, "continue" into the same session), not signed in (**Sign in…**, then it is asked), ended
+//!   without a proposal (**Try again** resumes the same conversation; its terminal read-only), and Proposed. One
+//!   tool's failure never touches another row. Under them **Stop all and use a preset** · **Skip, use the default**.
 
 use otaq_core::agent_tools::Tool;
-use otaq_core::agent_tools::connected::AgentToolState;
-use otaq_core::project_agents::{AgentState, ProjectAgent};
+use otaq_core::project_agents::first_flow::{FlowSetup, FlowSetupRow, FlowSetupTool};
+use otaq_core::tools::Os;
 use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::theme::Status as Legend;
-use crate::view_models::clock::{duration, in_label, reset_label};
-use crate::view_models::onboarding_page::{SKIP_USE_THE_DEFAULT, USE_A_PRESET_INSTEAD};
+use crate::theme::{Palette, Status as Legend};
+use crate::view_models::clock::{duration, reset_label};
+use crate::view_models::onboarding_page::SKIP_USE_THE_DEFAULT;
 use crate::view_models::status::PillView;
-use crate::view_models::tool_problems::{SIGN_IN, Tools, tool_word};
+use crate::view_models::tool_avatar::ToolAvatarView;
+use crate::view_models::tool_problems::{SIGN_IN, Tools};
 
-/// Which card shows.
+/// Where a tool's row stands. `FlowAtWorkRowState` on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(rename = "FlowAtWorkKind")]
-pub enum Kind {
+#[ts(rename = "FlowAtWorkRowState")]
+pub enum RowState {
+    NotAsked,
     Working,
-    /// At its tool's plan limit.
-    Stopped,
-    /// Its tool is Found · not signed in: it didn't start.
+    PlanLimit,
     NotSignedIn,
-    /// Its session ended before it proposed.
     Ended,
+    Proposed,
 }
 
-/// What the card's main button does. `FlowAtWorkAction` on the page.
+/// What a row's button does. `FlowAtWorkAction` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "FlowAtWorkAction")]
 pub enum Action {
-    /// `limits.resume_tool { tool }`: "continue" typed into the same session (USG-06, today's limit path).
+    /// `onboarding.ask { project, tool }`: Ask <Tool>, and Try again at a limit no agent was asked under.
+    Ask { tool: String },
+    /// `pane.end { id, confirm }`: Stop; the agent ends to Recently ended.
+    Stop { agent: String },
+    /// `limits.resume_tool { tool }`: "continue" typed into the same session (USG-06, the limit's path).
     ResumeTool { tool: String },
     /// `pane.resume { id }`: the same conversation, in a new session (d0088).
     Resume { agent: String },
-    /// `agent_tools.sign_in { tool }` (the Tools step's Sign in…); once its terminal closes, the step checks again
-    /// and starts the agent.
+    /// `agent_tools.sign_in { tool }` (the Tools step's Sign in…); once its terminal closes the tool is checked again
+    /// and asked.
     SignIn { tool: String },
 }
 
-/// The card's main button: Try again at 3:45 pm, Try again, Sign in….
+/// A row's button: Stop, Ask OpenCode, Try again at 3:45 pm, Try again, Sign in…. `FlowAtWorkButton` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FlowAtWorkButton")]
 pub struct Button {
@@ -63,135 +67,96 @@ pub struct Button {
     pub icon: IconName,
     /// Off until the limit resets.
     pub enabled: bool,
+    /// Drawn quiet (Stop) rather than outlined.
+    pub quiet: bool,
     pub action: Action,
 }
 
-/// The card beside the onboarding agent's terminal, and what its terminal's header and foot say. `FlowAtWorkView` on
-/// the page.
+/// One tool's row in the card. `FlowAtWorkRow` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "FlowAtWorkView")]
-pub struct View {
-    pub kind: Kind,
-    /// "Reading how you work", "The agent stopped", "The agent couldn't start", "The agent ended without a proposal".
-    pub title: String,
-    pub text: String,
-    /// Working: "Working · 2 min".
-    pub elapsed: Option<String>,
-    /// The red line of a failure: "Claude Code limit reached · resets at 3:45 pm (in 1 h 12 min).", "Codex: not
-    /// signed in.".
-    pub problem: Option<String>,
-    /// Working: "Stop and use a preset" (ends the agent, which goes to Recently ended, and opens the presets).
-    pub stop: Option<String>,
-    /// A failure's "Skip, use the default" and "Use a preset instead".
-    pub skip: Option<String>,
-    pub use_preset: Option<String>,
-    pub retry: Option<Button>,
+#[ts(rename = "FlowAtWorkRow")]
+pub struct Row {
+    /// The tool's id (`claude`).
+    pub tool: String,
+    pub avatar: ToolAvatarView,
+    /// "Claude Code".
+    pub name: String,
+    pub state: RowState,
+    /// "Working · 2 min", "Not asked", "Plan limit · resets 3:45 pm · picks up where it stopped", "Couldn’t start ·
+    /// not signed in", "Ended without a proposal", "Proposed".
+    pub status: String,
+    /// The status in the error colour (a failure).
+    pub error: bool,
+    /// Its flow agent, whose terminal Watch shows; `None` before it was asked.
+    pub agent: Option<String>,
+    /// Its open proposal (Proposed).
+    pub proposal: Option<u32>,
+    pub buttons: Vec<Button>,
+}
+
+/// One tab over the terminals: an asked tool's flow agent. `FlowAtWorkTab` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FlowAtWorkTab")]
+pub struct Tab {
+    pub agent: String,
+    pub tool: String,
+    pub avatar: ToolAvatarView,
+    pub name: String,
+    /// "Working · 2 min", "Stopped", "Ended", "Proposed".
+    pub status: String,
+    /// The dot's colours.
+    pub dot: Palette,
     /// The terminal header's state when it isn't the pane's: "Stopped" at the limit.
     pub pill: Option<PillView>,
     /// The terminal's foot when it isn't the pane's: "Read-only · the session ended".
     pub foot: Option<String>,
 }
 
-pub const READING: &str = "Reading how you work";
-pub const READING_TEXT: &str = "This can take a few minutes. Watch the agent in its terminal, or come back later: the proposal waits for you.";
-pub const STOP_AND_USE_A_PRESET: &str = "Stop and use a preset";
-pub const STOPPED: &str = "The agent stopped";
-pub const COULDNT_START: &str = "The agent couldn\u{2019}t start";
-pub const ENDED: &str = "The agent ended without a proposal";
-pub const ENDED_TEXT: &str =
-    "Its conversation ended before it proposed a flow. Try again to pick up where it stopped.";
+/// The tabs and the Agents at work card. `FlowAtWorkView` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FlowAtWorkView")]
+pub struct View {
+    /// "Agents at work".
+    pub title: String,
+    pub text: String,
+    pub rows: Vec<Row>,
+    /// In the rows' order; empty before any tool was asked.
+    pub tabs: Vec<Tab>,
+    /// A row's Watch button, and the words in its place while its terminal shows.
+    pub watch: String,
+    pub watching: String,
+    /// "Stop all and use a preset": ends [`Self::running`], then the presets.
+    pub stop_all: String,
+    /// The flow agents Stop all ends: working, or stopped at the limit.
+    pub running: Vec<String>,
+    /// "Skip, use the default" (`onboarding.use_default`).
+    pub skip: String,
+    /// How many flow agents work now, for the title bar ("2 agents at work").
+    pub working: usize,
+}
+
+pub const AGENTS_AT_WORK: &str = "Agents at work";
+pub const WATCH: &str = "Watch";
+pub const WATCHING: &str = "Watching";
+pub const STOP: &str = "Stop";
+pub const STOP_ALL: &str = "Stop all and use a preset";
+pub const NOT_ASKED: &str = "Not asked";
+pub const ENDED_WITHOUT_A_PROPOSAL: &str = "Ended without a proposal";
+pub const PROPOSED: &str = "Proposed";
 pub const TRY_AGAIN: &str = "Try again";
 pub const READ_ONLY: &str = "Read-only \u{b7} the session ended";
 
-/// An empty card of `kind` titled `title`, for the builders below.
-fn card(kind: Kind, title: &str, text: String) -> View {
-    View {
-        kind,
-        title: title.to_owned(),
-        text,
-        elapsed: None,
-        problem: None,
-        stop: None,
-        skip: None,
-        use_preset: None,
-        retry: None,
-        pill: None,
-        foot: None,
+/// "this Mac" on macOS, else "this computer".
+pub fn computer(os: Os) -> &'static str {
+    match os {
+        Os::Mac => "this Mac",
+        Os::Windows | Os::Linux => "this computer",
     }
 }
 
-/// A failure's card: Skip, use the default · Use a preset instead · `retry`.
-fn failure(kind: Kind, title: &str, text: String, retry: Button) -> View {
-    View {
-        skip: Some(SKIP_USE_THE_DEFAULT.to_owned()),
-        use_preset: Some(USE_A_PRESET_INSTEAD.to_owned()),
-        retry: Some(retry),
-        ..card(kind, title, text)
-    }
-}
-
-/// Whether `tool` is Found · not signed in (d0086). Never for Claude Code, which has no check: its adapter reports it
-/// Connected, and its own sign-in shows in the agent's terminal.
-pub fn not_signed_in(tool: Tool, tools: &Tools) -> bool {
-    tools
-        .status(tool)
-        .is_some_and(|s| matches!(s.state, AgentToolState::FoundNotSignedIn { .. }))
-}
-
-/// The Project agent's `tool` isn't signed in: the agent didn't start (`s14-14 → Not signed in`).
-pub fn cannot_start(tool: Tool) -> View {
-    let name = tool_word(tool);
-    View {
-        problem: Some(format!("{name}: not signed in.")),
-        ..failure(
-            Kind::NotSignedIn,
-            COULDNT_START,
-            format!("{name} isn\u{2019}t signed in on this computer."),
-            Button {
-                label: SIGN_IN.to_owned(),
-                icon: IconName::LogIn,
-                enabled: true,
-                action: Action::SignIn {
-                    tool: tool.as_str().to_owned(),
-                },
-            },
-        )
-    }
-}
-
-/// The card for the onboarding agent `agent`, with the tools as they are now (`tools.now`).
-pub fn view(agent: &ProjectAgent, tools: &Tools) -> View {
-    let now = tools.now;
-    if agent.state != AgentState::Running {
-        return View {
-            foot: Some(READ_ONLY.to_owned()),
-            ..failure(
-                Kind::Ended,
-                ENDED,
-                ENDED_TEXT.to_owned(),
-                Button {
-                    label: TRY_AGAIN.to_owned(),
-                    icon: IconName::RotateCcw,
-                    enabled: true,
-                    action: Action::Resume {
-                        agent: agent.id.clone(),
-                    },
-                },
-            )
-        };
-    }
-    if agent.limit_stopped {
-        return stopped(agent.tool, tools);
-    }
-    let started = agent
-        .session
-        .as_ref()
-        .map_or(agent.created_at, |s| s.started_at);
-    View {
-        elapsed: Some(format!("Working \u{b7} {}", duration(now - started))),
-        stop: Some(STOP_AND_USE_A_PRESET.to_owned()),
-        ..card(Kind::Working, READING, READING_TEXT.to_owned())
-    }
+/// "Ask Claude Code".
+pub fn ask_label(tool: Tool) -> String {
+    format!("Ask {}", tool.display_name())
 }
 
 /// When a limit resets in a sentence: "at 3:45 pm" within a day, else "Mon" or "Nov 1".
@@ -204,78 +169,195 @@ fn at_word(at: i64, now: i64) -> String {
     }
 }
 
-/// Stopped at `tool`'s plan limit (`s14-14 → The agent stopped`): Try again waits for the reset while its time is
-/// known and still ahead.
-fn stopped(tool: Tool, tools: &Tools) -> View {
-    let now = tools.now;
-    let name = tool_word(tool);
-    let limit = tools.limits.iter().find(|l| l.tool == tool);
-    let ahead = limit
-        .filter(|l| l.reset_seen_at.is_none())
-        .and_then(|l| l.resets_at)
-        .filter(|at| *at > now);
-    let unknown = limit.is_some_and(|l| l.reset_seen_at.is_none() && l.resets_at.is_none());
-    let before = format!("{name} reached its plan limit before the proposal was ready.");
-    let picks_up = "it picks up where it stopped.";
-    let (text, problem, label) = match ahead {
-        Some(at) => {
-            let when = at_word(at, now);
-            (
-                format!("{before} Try again {when} \u{b7} {picks_up}"),
-                Some(format!(
-                    "{name} limit reached \u{b7} resets {when} (in {}).",
-                    in_label(at - now)
-                )),
-                format!("{TRY_AGAIN} {when}"),
-            )
-        }
-        None if unknown => (
-            format!("{before} Try again once it resets \u{b7} {picks_up}"),
-            Some(format!(
-                "{name} limit reached \u{b7} resets at an unknown time."
-            )),
-            TRY_AGAIN.to_owned(),
-        ),
-        // It has reset (or its limit was cleared): Try again continues it now.
-        None => (
-            format!("{before} {TRY_AGAIN} \u{b7} {picks_up}"),
-            None,
-            TRY_AGAIN.to_owned(),
-        ),
-    };
-    View {
-        problem,
-        pill: Some(PillView {
-            icon: IconName::CirclePause,
-            label: "Stopped".to_owned(),
-            ..PillView::legend(Legend::Queued, None)
-        }),
-        ..failure(
-            Kind::Stopped,
-            STOPPED,
-            text,
-            Button {
-                label,
-                icon: IconName::Clock,
-                enabled: ahead.is_none(),
-                action: Action::ResumeTool {
-                    tool: tool.as_str().to_owned(),
-                },
-            },
-        )
+/// The reset time still ahead for `tool`'s limit: none once it passed or was seen to reset.
+fn reset_ahead(tool: Tool, resets_at: Option<i64>, tools: &Tools) -> Option<i64> {
+    let seen = tools
+        .limits
+        .iter()
+        .any(|l| l.tool == tool && l.reset_seen_at.is_some());
+    resets_at.filter(|at| *at > tools.now && !seen)
+}
+
+fn button(label: impl Into<String>, icon: IconName, action: Action) -> Button {
+    Button {
+        label: label.into(),
+        icon,
+        enabled: true,
+        quiet: false,
+        action,
     }
 }
 
-/// One card of the gallery.
+/// One tool's row, and its tab when it was asked.
+fn row(entry: &FlowSetupTool, tools: &Tools) -> (Row, Option<Tab>) {
+    let tool = entry.tool;
+    let id = tool.as_str().to_owned();
+    let now = tools.now;
+    let mut row = Row {
+        tool: id.clone(),
+        avatar: ToolAvatarView::of(tool, None),
+        name: tool.display_name().to_owned(),
+        state: RowState::NotAsked,
+        status: String::new(),
+        error: false,
+        agent: None,
+        proposal: None,
+        buttons: Vec::new(),
+    };
+    let tab = |agent: &str, status: String, dot: Palette| Tab {
+        agent: agent.to_owned(),
+        tool: id.clone(),
+        avatar: ToolAvatarView::of(tool, None),
+        name: tool.display_name().to_owned(),
+        status,
+        dot,
+        pill: None,
+        foot: None,
+    };
+    let tab = match &entry.row {
+        FlowSetupRow::NotAsked => {
+            row.status = NOT_ASKED.to_owned();
+            row.buttons.push(button(
+                ask_label(tool),
+                IconName::Sparkles,
+                Action::Ask { tool: id.clone() },
+            ));
+            None
+        }
+        FlowSetupRow::Working { agent, since } => {
+            let elapsed = format!("Working \u{b7} {}", duration(now - since));
+            row.state = RowState::Working;
+            row.status = elapsed.clone();
+            row.agent = Some(agent.clone());
+            row.buttons.push(Button {
+                quiet: true,
+                ..button(
+                    STOP,
+                    IconName::CircleStop,
+                    Action::Stop {
+                        agent: agent.clone(),
+                    },
+                )
+            });
+            Some(tab(agent, elapsed, Palette::Working))
+        }
+        FlowSetupRow::PlanLimit { agent, resets_at } => {
+            let ahead = reset_ahead(tool, *resets_at, tools);
+            let mut status = "Plan limit".to_owned();
+            if let Some(at) = ahead {
+                status.push_str(&format!(" \u{b7} resets {}", reset_label(at, now)));
+            }
+            if agent.is_some() {
+                status.push_str(" \u{b7} picks up where it stopped");
+            }
+            row.state = RowState::PlanLimit;
+            row.status = status;
+            row.error = true;
+            row.agent = agent.clone();
+            let label = match ahead {
+                Some(at) => format!("{TRY_AGAIN} {}", at_word(at, now)),
+                None => TRY_AGAIN.to_owned(),
+            };
+            // An agent asked before the limit picks up where it stopped; none asked yet is asked once it resets.
+            let action = match agent {
+                Some(_) => Action::ResumeTool { tool: id.clone() },
+                None => Action::Ask { tool: id.clone() },
+            };
+            row.buttons.push(Button {
+                enabled: ahead.is_none(),
+                ..button(label, IconName::Clock, action)
+            });
+            agent.as_deref().map(|agent| Tab {
+                pill: Some(PillView {
+                    icon: IconName::CirclePause,
+                    label: "Stopped".to_owned(),
+                    ..PillView::legend(Legend::Queued, None)
+                }),
+                ..tab(agent, "Stopped".to_owned(), Palette::Error)
+            })
+        }
+        FlowSetupRow::NotSignedIn => {
+            row.state = RowState::NotSignedIn;
+            row.status = otaq_core::project_agents::first_flow::NOT_SIGNED_IN.to_owned();
+            row.error = true;
+            row.buttons.push(button(
+                SIGN_IN,
+                IconName::LogIn,
+                Action::SignIn { tool: id.clone() },
+            ));
+            None
+        }
+        FlowSetupRow::Ended { agent } => {
+            row.state = RowState::Ended;
+            row.status = ENDED_WITHOUT_A_PROPOSAL.to_owned();
+            row.error = true;
+            row.agent = Some(agent.clone());
+            row.buttons.push(button(
+                TRY_AGAIN,
+                IconName::RotateCcw,
+                Action::Resume {
+                    agent: agent.clone(),
+                },
+            ));
+            Some(Tab {
+                foot: Some(READ_ONLY.to_owned()),
+                ..tab(agent, "Ended".to_owned(), Palette::Queued)
+            })
+        }
+        FlowSetupRow::Proposed { agent, proposal } => {
+            row.state = RowState::Proposed;
+            row.status = PROPOSED.to_owned();
+            row.agent = Some(agent.clone());
+            row.proposal = Some(*proposal);
+            Some(tab(agent, PROPOSED.to_owned(), Palette::Approved))
+        }
+    };
+    (row, tab)
+}
+
+/// The tabs and the card for `setup`, with the tools as they are now (`tools.now`, their limits), worded for `os`.
+pub fn view(setup: &FlowSetup, tools: &Tools, os: Os) -> View {
+    let (rows, tabs): (Vec<Row>, Vec<Option<Tab>>) =
+        setup.tools.iter().map(|t| row(t, tools)).unzip();
+    let running = setup
+        .tools
+        .iter()
+        .filter_map(|t| match &t.row {
+            FlowSetupRow::Working { agent, .. } => Some(agent.clone()),
+            FlowSetupRow::PlanLimit { agent, .. } => agent.clone(),
+            _ => None,
+        })
+        .collect();
+    View {
+        title: AGENTS_AT_WORK.to_owned(),
+        text: format!(
+            "Each looks at how you use it on {} and at this repo. Watch any of them in its terminal, or come back \
+             later: the proposals wait for you.",
+            computer(os)
+        ),
+        working: rows.iter().filter(|r| r.state == RowState::Working).count(),
+        rows,
+        tabs: tabs.into_iter().flatten().collect(),
+        watch: WATCH.to_owned(),
+        watching: WATCHING.to_owned(),
+        stop_all: STOP_ALL.to_owned(),
+        running,
+        skip: SKIP_USE_THE_DEFAULT.to_owned(),
+    }
+}
+
+/// One frame of the gallery.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FlowAtWorkGalleryCell")]
 pub struct GalleryCell {
     pub name: String,
+    /// The tab shown (Watching), as in the frame.
+    pub watching: Option<String>,
     pub view: View,
 }
 
-/// The agent at work in the component gallery, next to the Flow step's (`gallery.onboarding_flow_at_work`): the
-/// three cards of `s14-14` and the ended-without-a-proposal card, on the frame's times.
+/// Agents at work in the component gallery (`gallery.onboarding_flow_at_work`): the five frames of `s14-14`, on the
+/// frames' times.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FlowAtWorkGallery")]
 pub struct Gallery {
@@ -283,307 +365,419 @@ pub struct Gallery {
 }
 
 pub fn gallery() -> Gallery {
-    use crate::view_models::tool_problems::fixtures::{CLAUDE, CODEX, at_limit, several};
-
-    let now = fixtures::NOW;
-    let agent = fixtures::agent(now - 2 * 60_000);
-    let mut limited = agent.clone();
-    limited.limit_stopped = true;
-    let mut ended = agent.clone();
-    ended.state = AgentState::Ended;
-    let tools_at = |mut tools: Tools| {
-        tools.now = now;
-        tools
-    };
-    let cells = [
-        ("Working", view(&agent, &tools_at(several()))),
-        (
-            "Plan limit",
-            view(
-                &limited,
-                &tools_at(at_limit(CLAUDE, Some(now + 72 * 60_000))),
-            ),
-        ),
-        ("Not signed in", cannot_start(CODEX)),
-        (
-            "Ended without a proposal",
-            view(&ended, &tools_at(several())),
-        ),
-    ]
-    .into_iter()
-    .map(|(name, view)| GalleryCell {
-        name: name.to_owned(),
-        view,
-    })
-    .collect();
+    use fixtures::{CC, OC, frames};
+    let cells = frames()
+        .into_iter()
+        .map(|(name, setup, tools)| {
+            let view = view(&setup, &tools, Os::Mac);
+            // The frames watch Claude Code's terminal when it has one, else OpenCode's.
+            let watching = [CC, OC]
+                .into_iter()
+                .find(|a| view.tabs.iter().any(|t| t.agent == *a))
+                .map(str::to_owned);
+            GalleryCell {
+                name: name.to_owned(),
+                watching,
+                view,
+            }
+        })
+        .collect();
     Gallery { cells }
 }
 
-/// The example's onboarding agent, for the gallery and the tests.
+/// The example's Flow setup (pocket-notes, `s14-14`'s shop-web), for the gallery and the tests.
 pub mod fixtures {
-    use otaq_core::project_agents::{AgentState, NameSource, ProjectAgent};
+    use otaq_core::agent_tools::Tool;
+    use otaq_core::agent_tools::connected::AgentToolState;
+    use otaq_core::project_agents::first_flow::{FlowSetup, FlowSetupRow, FlowSetupTool};
 
-    use crate::view_models::tool_problems::fixtures::CLAUDE;
+    use crate::view_models::tool_problems::Tools;
+    use crate::view_models::tool_problems::fixtures::{connected, status};
 
     /// 2026-10-21 12:33 UTC.
     pub const NOW: i64 = 1_792_585_980_000;
+    /// The flow agents' ids.
+    pub const CC: &str = "a-cc";
+    pub const OC: &str = "a-oc";
+    pub const CLAUDE: Tool = Tool::ALL[0];
+    pub const OPENCODE: Tool = Tool::ALL[3];
 
-    /// "Flow setup", running on the first tool since `started` (no session yet: its start is `created_at`).
-    pub fn agent(started: i64) -> ProjectAgent {
-        ProjectAgent {
-            id: "a1".into(),
-            project: "SHOP".into(),
-            name: "Flow setup".into(),
-            name_source: Some(NameSource::Agent),
-            state: AgentState::Running,
-            tool: CLAUDE,
-            tool_session_id: Some("c1".into()),
-            model: Some("sonnet".into()),
-            got_request: true,
-            mid_turn: true,
-            limit_stopped: false,
-            created_at: started,
-            ended_at: None,
-            closed: false,
-            question: None,
-            needs_you: None,
-            focused: false,
-            tokens: Default::default(),
-            session: None,
-            epic: None,
+    /// Claude Code and OpenCode connected, at `NOW`.
+    pub fn tools() -> Tools {
+        let mut tools = Tools::from_statuses(vec![
+            connected(CLAUDE),
+            status(Tool::ALL[1], AgentToolState::NotInstalled),
+            status(Tool::ALL[2], AgentToolState::NotInstalled),
+            connected(OPENCODE),
+        ]);
+        tools.now = NOW;
+        tools
+    }
+
+    pub fn working(agent: &str, minutes: i64) -> FlowSetupRow {
+        FlowSetupRow::Working {
+            agent: agent.into(),
+            since: NOW - minutes * 60_000 - 5_000,
         }
+    }
+
+    /// shop-web's Flow setup with Claude Code's and OpenCode's rows.
+    pub fn setup(claude: FlowSetupRow, opencode: FlowSetupRow) -> FlowSetup {
+        FlowSetup {
+            project: "SHOP".into(),
+            project_name: "shop-web".into(),
+            since: Some(NOW - 10 * 60_000),
+            tools: vec![
+                FlowSetupTool {
+                    tool: CLAUDE,
+                    row: claude,
+                },
+                FlowSetupTool {
+                    tool: OPENCODE,
+                    row: opencode,
+                },
+            ],
+            proposals: Vec::new(),
+        }
+    }
+
+    /// The reset of the plan limit frame: 72 minutes after `NOW`.
+    pub const RESETS_AT: i64 = NOW + 72 * 60_000;
+
+    /// The five frames of `s14-14`, by name, with their tools.
+    pub fn frames() -> Vec<(&'static str, FlowSetup, Tools)> {
+        let tools = tools();
+        let mut signed_out = tools.clone();
+        signed_out.statuses[3] =
+            status(OPENCODE, AgentToolState::FoundNotSignedIn { version: None });
+        signed_out.connected.retain(|t| *t != OPENCODE);
+        vec![
+            (
+                "Two agents at work",
+                setup(working(CC, 2), working(OC, 1)),
+                tools.clone(),
+            ),
+            (
+                "Asking another tool later",
+                setup(working(CC, 2), FlowSetupRow::NotAsked),
+                tools.clone(),
+            ),
+            (
+                "One agent stops, the other goes on",
+                setup(
+                    FlowSetupRow::PlanLimit {
+                        agent: Some(CC.into()),
+                        resets_at: Some(RESETS_AT),
+                    },
+                    working(OC, 3),
+                ),
+                tools.clone(),
+            ),
+            (
+                "Not signed in",
+                setup(working(CC, 2), FlowSetupRow::NotSignedIn),
+                signed_out,
+            ),
+            (
+                "One agent ended without a proposal",
+                setup(FlowSetupRow::Ended { agent: CC.into() }, working(OC, 2)),
+                tools,
+            ),
+        ]
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use otaq_core::agent_tools::connected::AgentToolState;
-
-    use super::fixtures::{NOW, agent};
+    use super::fixtures::{CC, NOW, OC, RESETS_AT, frames, setup, tools, working};
     use super::*;
-    use crate::view_models::tool_problems::fixtures::{
-        CLAUDE, CODEX, COPILOT, at_limit, several, status,
-    };
 
-    fn at(mut tools: Tools, now: i64) -> Tools {
-        tools.now = now;
-        tools
+    /// Each row as the card draws it: name, status, buttons.
+    fn rows(v: &View) -> Vec<(String, String, Vec<String>)> {
+        v.rows
+            .iter()
+            .map(|r| {
+                (
+                    r.name.clone(),
+                    r.status.clone(),
+                    r.buttons.iter().map(|b| b.label.clone()).collect(),
+                )
+            })
+            .collect()
     }
 
-    /// Every word a card shows, in order, for the "no per-source rows" check.
-    fn words(v: &View) -> Vec<String> {
-        [
-            Some(v.title.clone()),
-            Some(v.text.clone()),
-            v.elapsed.clone(),
-            v.problem.clone(),
-            v.stop.clone(),
-            v.skip.clone(),
-            v.use_preset.clone(),
-            v.retry.as_ref().map(|b| b.label.clone()),
-        ]
-        .into_iter()
-        .flatten()
-        .collect()
+    fn frame(name: &str) -> View {
+        let (_, setup, tools) = frames().into_iter().find(|f| f.0 == name).unwrap();
+        view(&setup, &tools, Os::Mac)
     }
 
-    #[test]
-    fn working_reads_how_you_work_with_the_elapsed_time_and_no_sources_s14_14() {
-        let v = view(&agent(NOW - 2 * 60_000 - 5_000), &at(several(), NOW));
-        assert_eq!(v.kind, Kind::Working);
-        assert_eq!(
-            words(&v),
-            [
-                "Reading how you work",
-                "This can take a few minutes. Watch the agent in its terminal, or come back later: the proposal \
-                 waits for you.",
-                "Working · 2 min",
-                "Stop and use a preset",
-            ]
-        );
-        assert_eq!(
-            (&v.pill, &v.foot),
-            (&None, &None),
-            "the pane's header and foot"
-        );
-        // No per-source rows (d0108 changelog 2026-10-21): nothing names history, the repo or GitHub.
-        for word in words(&v) {
-            for source in ["history", "repo", "GitHub", "messages read", "waiting"] {
-                assert!(!word.contains(source), "{word:?} names {source}");
-            }
-        }
+    fn strings(words: &[&str]) -> Vec<String> {
+        words.iter().map(|w| (*w).to_owned()).collect()
     }
 
     #[test]
-    fn the_elapsed_time_counts_from_its_sessions_start_in_whole_minutes() {
-        let elapsed = |started: i64, now: i64| view(&agent(started), &at(several(), now)).elapsed;
-        assert_eq!(elapsed(NOW, NOW).as_deref(), Some("Working · 0 min"));
-        assert_eq!(
-            elapsed(NOW - 59_999, NOW).as_deref(),
-            Some("Working · 0 min")
-        );
-        assert_eq!(
-            elapsed(NOW - 41 * 60_000, NOW).as_deref(),
-            Some("Working · 41 min")
-        );
-        assert_eq!(
-            elapsed(NOW - 125 * 60_000, NOW).as_deref(),
-            Some("Working · 2 h 5 min")
-        );
-        // A resumed agent counts from its newest session, not its first start.
-        let mut resumed = agent(NOW - 3 * 3_600_000);
-        resumed.session = Some(otaq_core::session::SessionInfo {
-            started_at: NOW - 60_000,
-            ..session()
-        });
-        assert_eq!(
-            view(&resumed, &at(several(), NOW)).elapsed.as_deref(),
-            Some("Working · 1 min")
-        );
-    }
-
-    fn session() -> otaq_core::session::SessionInfo {
-        serde_json::from_value(serde_json::json!({
-            "id": "s1", "kind": "project_agent", "project": "SHOP", "state": "running", "started_at": 0
-        }))
-        .unwrap()
-    }
-
-    #[test]
-    fn the_plan_limit_stops_it_until_the_reset_s14_14() {
-        let mut a = agent(NOW - 10 * 60_000);
-        a.limit_stopped = true;
-        let tools = at(at_limit(CLAUDE, Some(NOW + 72 * 60_000)), NOW);
-        let v = view(&a, &tools);
-        assert_eq!(v.kind, Kind::Stopped);
-        assert_eq!(v.title, "The agent stopped");
-        let reset = reset_label(NOW + 72 * 60_000, NOW);
+    fn two_agents_at_work_s14_14() {
+        let v = frame("Two agents at work");
+        assert_eq!(v.title, "Agents at work");
         assert_eq!(
             v.text,
-            format!(
-                "Claude Code reached its plan limit before the proposal was ready. Try again at {reset} · it picks \
-                 up where it stopped."
-            )
+            "Each looks at how you use it on this Mac and at this repo. Watch any of them in its terminal, or come \
+             back later: the proposals wait for you."
         );
         assert_eq!(
-            v.problem,
-            Some(format!(
-                "Claude Code limit reached · resets at {reset} (in 1 h 12 min)."
-            ))
+            rows(&v),
+            [
+                (
+                    "Claude Code".into(),
+                    "Working · 2 min".into(),
+                    strings(&["Stop"])
+                ),
+                (
+                    "OpenCode".into(),
+                    "Working · 1 min".into(),
+                    strings(&["Stop"])
+                ),
+            ]
         );
+        assert!(v.rows.iter().all(|r| !r.error && r.buttons[0].quiet));
         assert_eq!(
-            (v.skip.as_deref(), v.use_preset.as_deref()),
-            (Some("Skip, use the default"), Some("Use a preset instead"))
+            v.rows[1].buttons[0].action,
+            Action::Stop { agent: OC.into() }
         );
-        let retry = v.retry.unwrap();
-        assert_eq!(retry.label, format!("Try again at {reset}"));
+        // Watch / Watching: the row's terminal, the page knows which shows.
+        assert_eq!(
+            (v.watch.as_str(), v.watching.as_str()),
+            ("Watch", "Watching")
+        );
+        assert_eq!(v.rows[0].agent.as_deref(), Some(CC));
+        // One tab per asked tool, in the rows' order.
+        let tabs: Vec<(&str, &str, &str)> = v
+            .tabs
+            .iter()
+            .map(|t| (t.agent.as_str(), t.name.as_str(), t.status.as_str()))
+            .collect();
+        assert_eq!(
+            tabs,
+            [
+                (CC, "Claude Code", "Working · 2 min"),
+                (OC, "OpenCode", "Working · 1 min")
+            ]
+        );
+        assert!(
+            v.tabs
+                .iter()
+                .all(|t| t.dot == Palette::Working && t.pill.is_none() && t.foot.is_none())
+        );
+        assert_eq!(v.tabs[0].avatar.letters, "CC");
+        assert_eq!(v.tabs[1].avatar.letters, "OC");
+        assert_eq!(
+            (v.stop_all.as_str(), v.skip.as_str()),
+            ("Stop all and use a preset", "Skip, use the default")
+        );
+        assert_eq!(v.running, [CC, OC]);
+        assert_eq!(v.working, 2);
+    }
+
+    #[test]
+    fn a_tool_not_asked_yet_can_be_asked_while_the_other_works_s14_14() {
+        let v = frame("Asking another tool later");
+        assert_eq!(
+            rows(&v),
+            [
+                (
+                    "Claude Code".into(),
+                    "Working · 2 min".into(),
+                    strings(&["Stop"])
+                ),
+                (
+                    "OpenCode".into(),
+                    "Not asked".into(),
+                    strings(&["Ask OpenCode"])
+                ),
+            ]
+        );
+        let ask = &v.rows[1].buttons[0];
+        assert!(ask.enabled && !ask.quiet);
+        assert_eq!(
+            ask.action,
+            Action::Ask {
+                tool: "opencode".into()
+            }
+        );
+        assert_eq!(v.rows[1].agent, None);
+        assert_eq!(v.tabs.len(), 1, "a tab only for the asked tool");
+        assert_eq!(v.running, [CC]);
+    }
+
+    #[test]
+    fn the_plan_limit_stops_one_and_the_other_goes_on_s14_14() {
+        let v = frame("One agent stops, the other goes on");
+        let reset = reset_label(RESETS_AT, NOW);
+        assert_eq!(
+            rows(&v),
+            [
+                (
+                    "Claude Code".into(),
+                    format!("Plan limit · resets {reset} · picks up where it stopped"),
+                    vec![format!("Try again at {reset}")]
+                ),
+                (
+                    "OpenCode".into(),
+                    "Working · 3 min".into(),
+                    strings(&["Stop"])
+                ),
+            ]
+        );
+        let retry = &v.rows[0].buttons[0];
         assert!(!retry.enabled, "off until the limit resets");
         assert_eq!(
             retry.action,
             Action::ResumeTool {
-                tool: CLAUDE.as_str().into()
+                tool: "claude".into()
             }
         );
-        assert_eq!(v.pill.unwrap().label, "Stopped");
-        assert_eq!(v.stop, None);
+        assert!(v.rows[0].error);
+        assert_eq!(v.rows[0].state, RowState::PlanLimit);
+        let tab = &v.tabs[0];
+        assert_eq!((tab.status.as_str(), tab.dot), ("Stopped", Palette::Error));
+        assert_eq!(tab.pill.as_ref().unwrap().label, "Stopped");
+        assert_eq!(v.running, [CC, OC], "Stop all ends the stopped one too");
+        assert_eq!(v.working, 1);
 
-        // The reset time came: Try again continues it.
-        let later = view(&a, &at(tools.clone(), NOW + 73 * 60_000));
-        let retry = later.retry.unwrap();
-        assert!(retry.enabled);
-        assert_eq!(retry.label, "Try again");
-        assert_eq!(later.problem, None);
-        // Seen reset, or the limit cleared by the banner's Resume: the same.
-        let mut seen = tools.clone();
-        seen.limits[0].reset_seen_at = Some(NOW);
-        assert!(view(&a, &seen).retry.unwrap().enabled);
-        assert!(view(&a, &at(several(), NOW)).retry.unwrap().enabled);
-        // A reset at an unknown time: Try again is the user's call.
-        let unknown = view(&a, &at(at_limit(CLAUDE, None), NOW));
-        assert_eq!(
-            unknown.problem.as_deref(),
-            Some("Claude Code limit reached · resets at an unknown time.")
+        // The reset came: Try again picks up now.
+        let (_, s, mut later) = frames().remove(2);
+        later.now = RESETS_AT + 60_000;
+        let v = view(&s, &later, Os::Mac);
+        assert_eq!(v.rows[0].status, "Plan limit · picks up where it stopped");
+        assert_eq!(v.rows[0].buttons[0].label, "Try again");
+        assert!(v.rows[0].buttons[0].enabled);
+
+        // At the limit before it was asked: Try again asks it once the limit resets.
+        let fresh = setup(
+            working(CC, 2),
+            FlowSetupRow::PlanLimit {
+                agent: None,
+                resets_at: Some(RESETS_AT),
+            },
         );
-        assert!(unknown.retry.unwrap().enabled);
+        let v = view(&fresh, &tools(), Os::Mac);
+        assert_eq!(v.rows[1].status, format!("Plan limit · resets {reset}"));
+        assert_eq!(
+            v.rows[1].buttons[0].action,
+            Action::Ask {
+                tool: "opencode".into()
+            }
+        );
+        assert_eq!(v.tabs.len(), 1);
+        // A reset at an unknown time: Try again is the user's call.
+        let unknown = setup(
+            FlowSetupRow::PlanLimit {
+                agent: Some(CC.into()),
+                resets_at: None,
+            },
+            FlowSetupRow::NotAsked,
+        );
+        let v = view(&unknown, &tools(), Os::Mac);
+        assert_eq!(v.rows[0].status, "Plan limit · picks up where it stopped");
+        assert!(v.rows[0].buttons[0].enabled);
     }
 
     #[test]
-    fn a_tool_that_isnt_signed_in_keeps_the_agent_from_starting_s14_14() {
-        let v = cannot_start(CODEX);
-        assert_eq!(v.kind, Kind::NotSignedIn);
+    fn a_tool_not_signed_in_offers_sign_in_s14_14() {
+        let v = frame("Not signed in");
         assert_eq!(
-            words(&v),
+            rows(&v),
             [
-                "The agent couldn’t start",
-                "Codex isn’t signed in on this computer.",
-                "Codex: not signed in.",
-                "Skip, use the default",
-                "Use a preset instead",
-                "Sign in…",
+                (
+                    "Claude Code".into(),
+                    "Working · 2 min".into(),
+                    strings(&["Stop"])
+                ),
+                (
+                    "OpenCode".into(),
+                    "Couldn’t start · not signed in".into(),
+                    strings(&["Sign in…"])
+                ),
+            ]
+        );
+        assert!(v.rows[1].error);
+        assert_eq!(
+            v.rows[1].buttons[0].action,
+            Action::SignIn {
+                tool: "opencode".into()
+            }
+        );
+        assert_eq!(v.tabs.len(), 1);
+    }
+
+    #[test]
+    fn one_ended_without_a_proposal_offers_try_again_and_reads_only_s14_14() {
+        let v = frame("One agent ended without a proposal");
+        assert_eq!(
+            rows(&v),
+            [
+                (
+                    "Claude Code".into(),
+                    "Ended without a proposal".into(),
+                    strings(&["Try again"])
+                ),
+                (
+                    "OpenCode".into(),
+                    "Working · 2 min".into(),
+                    strings(&["Stop"])
+                ),
             ]
         );
         assert_eq!(
-            v.retry.unwrap().action,
-            Action::SignIn {
-                tool: CODEX.as_str().into()
-            }
+            v.rows[0].buttons[0].action,
+            Action::Resume { agent: CC.into() }
         );
-        // Copilot is named by its short name, as everywhere.
-        assert_eq!(
-            cannot_start(COPILOT).text,
-            "Copilot isn’t signed in on this computer."
-        );
-
-        // Found · not signed in only: Claude Code is never (no check, d0086), nor a connected or missing tool.
-        let mut tools = several();
-        tools.statuses[1] = status(CODEX, AgentToolState::FoundNotSignedIn { version: None });
-        assert!(not_signed_in(CODEX, &tools));
-        assert!(!not_signed_in(CLAUDE, &tools));
-        assert!(!not_signed_in(COPILOT, &tools));
-        assert!(!not_signed_in(Tool::ALL[3], &tools), "not installed");
+        let tab = &v.tabs[0];
+        assert_eq!((tab.status.as_str(), tab.dot), ("Ended", Palette::Queued));
+        assert_eq!(tab.foot.as_deref(), Some("Read-only · the session ended"));
+        assert_eq!(tab.pill, None, "the pane's Ended");
+        assert_eq!(v.running, [OC]);
     }
 
     #[test]
-    fn ending_before_a_proposal_offers_to_resume_the_same_conversation() {
-        for state in [AgentState::Ended, AgentState::EndedByRestart] {
-            let mut a = agent(NOW - 5 * 60_000);
-            a.state = state;
-            let v = view(&a, &at(several(), NOW));
-            assert_eq!(v.kind, Kind::Ended);
-            assert_eq!(
-                words(&v),
-                [
-                    "The agent ended without a proposal",
-                    "Its conversation ended before it proposed a flow. Try again to pick up where it stopped.",
-                    "Skip, use the default",
-                    "Use a preset instead",
-                    "Try again",
-                ]
-            );
-            let retry = v.retry.unwrap();
-            assert!(retry.enabled);
-            assert_eq!(retry.action, Action::Resume { agent: "a1".into() });
-            assert_eq!(v.foot.as_deref(), Some("Read-only · the session ended"));
-            assert_eq!(v.pill, None, "the pane's Ended");
-        }
+    fn a_proposal_shows_its_row_as_proposed() {
+        let s = setup(
+            FlowSetupRow::Proposed {
+                agent: CC.into(),
+                proposal: 7,
+            },
+            working(OC, 4),
+        );
+        let v = view(&s, &tools(), Os::Mac);
+        assert_eq!(v.rows[0].status, "Proposed");
+        assert_eq!(v.rows[0].proposal, Some(7));
+        assert!(v.rows[0].buttons.is_empty());
+        assert_eq!(v.tabs[0].status, "Proposed");
+        assert_eq!(v.running, [OC]);
     }
 
     #[test]
-    fn the_gallery_has_the_four_cards() {
+    fn the_elapsed_time_counts_in_whole_minutes_and_other_systems_say_this_computer() {
+        let s = setup(working(CC, 125), FlowSetupRow::NotAsked);
+        let v = view(&s, &tools(), Os::Linux);
+        assert_eq!(v.rows[0].status, "Working · 2 h 5 min");
+        assert!(v.text.contains("on this computer and at this repo"));
+    }
+
+    #[test]
+    fn the_gallery_has_the_five_frames() {
         let g = gallery();
-        let kinds: Vec<Kind> = g.cells.iter().map(|c| c.view.kind).collect();
+        let names: Vec<&str> = g.cells.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(
-            kinds,
-            [Kind::Working, Kind::Stopped, Kind::NotSignedIn, Kind::Ended]
+            names,
+            [
+                "Two agents at work",
+                "Asking another tool later",
+                "One agent stops, the other goes on",
+                "Not signed in",
+                "One agent ended without a proposal"
+            ]
         );
-        assert_eq!(g.cells[0].view.elapsed.as_deref(), Some("Working · 2 min"));
-        assert!(
-            g.cells[1]
-                .view
-                .problem
-                .as_deref()
-                .unwrap()
-                .ends_with("(in 1 h 12 min).")
-        );
+        assert!(g.cells.iter().all(|c| c.watching.as_deref() == Some(CC)));
     }
 }
