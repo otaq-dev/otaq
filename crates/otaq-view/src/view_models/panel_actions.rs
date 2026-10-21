@@ -22,7 +22,7 @@ use crate::view_models::{card, card_menu};
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "PanelAction")]
 pub enum Action {
-    /// Backlog → Dev (⇧⌘D).
+    /// Backlog → Dev (⌘D).
     Start,
     Edit,
     /// Shows the Terminal tab.

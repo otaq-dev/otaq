@@ -53,11 +53,12 @@ pub use lead::{Load as LeadTabLoad, Params as LeadTabParams};
 pub use notices::{
     DismissBanner, HoldToast, LimitMoveWaiting, NotificationOpen, ToastId, ToastPress,
 };
-pub use onboarding::dropped as folder_dropped;
 #[cfg(test)]
 pub use onboarding::{
     AddOutcome as AddProjectOutcome, FormParams as AddProjectParams, Start as OnboardingStart,
 };
+#[cfg(test)]
+pub use palette::{Use as PaletteUse, ViewParams as PaletteParams};
 #[cfg(test)]
 pub use pane::{
     EndParams as PaneEndParams, Ended as PaneEnded, Params as PaneParams,
@@ -131,6 +132,8 @@ pub use terminal_tab::{
 #[cfg(test)]
 pub use theme::{ActiveTheme, ThemeParams, ThemePick};
 #[cfg(test)]
+pub use tools::Opened as ToolTerminalOpened;
+#[cfg(test)]
 pub use usage::{Ask as UsageDataAsk, UsageChoice};
 pub use window::{WindowFocus, follow_window_focus, window_focused};
 
@@ -160,6 +163,8 @@ areas! {
     theme,
     window,
     keymap,
+    keyboard,
+    shortcuts,
     layout,
     terminal,
     gallery,
@@ -170,6 +175,7 @@ areas! {
     settings,
     drawer,
     onboarding,
+    tools,
     sections,
     editor,
     diff,
@@ -184,6 +190,7 @@ areas! {
     pane,
     agent_tools,
     limits,
+    palette,
 }
 
 /// Reads the user's answer once the service answers, then sends the counts every [`crate::usage::FLUSH_EVERY`]

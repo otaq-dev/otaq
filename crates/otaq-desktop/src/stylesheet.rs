@@ -2,7 +2,7 @@
 //! hand, into `ui/src/theme/generated/` (committed; that folder holds only generated files):
 //!
 //! - `tokens.css`: the fonts, spacing, radius, density and type scale on `:root`, and one block per theme,
-//!   `[data-theme="<key>"]`, with its 47 colour tokens and 16 terminal colours (`--bg-app`, `--ansi-0`, …). The page
+//!   `[data-theme="<key>"]`, with its 49 colour tokens and 16 terminal colours (`--bg-app`, `--ansi-0`, …). The page
 //!   sets `data-theme` on the root element; any element can carry it to show another theme inside (a swatch page).
 //! - `tokens.ts`: the token names, the theme keys and the two first-launch themes, for code that lists them.
 //!
@@ -145,7 +145,7 @@ fn tokens_ts() -> String {
     let first = |os| key(ThemeId::from_setting(ThemeSetting::default(), os));
     format!(
         "// {}\n\n\
-         /** The 47 colour tokens, each a CSS variable (`--bg-app`), in the design's order. */\n\
+         /** The 49 colour tokens, each a CSS variable (`--bg-app`), in the design's order. */\n\
          export const COLOR_TOKENS = [\n{}] as const;\n\n\
          /** The 15 themes by key, the value of `data-theme`, in the design's order. */\n\
          export const THEME_KEYS = [\n{}] as const;\n\n\
@@ -243,7 +243,7 @@ mod tests {
         assert_eq!(themes.len(), 15);
         for id in ThemeId::ALL {
             let vars = &themes[key(id)];
-            assert_eq!(vars.len(), 47 + 16, "{id:?}");
+            assert_eq!(vars.len(), 49 + 16, "{id:?}");
             let colors = Colors::new(id);
             for name in Colors::<u32>::NAMES {
                 assert_eq!(Some(vars[*name]), colors.get(name), "{name} ({id:?})");

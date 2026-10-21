@@ -1,6 +1,6 @@
 // The Terminals drawer (T-0242, T-0331; d0068, d0087): the drawer overlay with the project's Project terminals only,
-// and ⇧⌘T, which the rail's Terminals runs too: it toggles the drawer, opening it on the last-used terminal (or a new
-// one). The Activity popover's "Open Terminals" only opens it (`openTerminals`). ⇧⌘A and Project agents belong to the pane (T-0330). What the drawer says is
+// and Terminals (⌃`, `g` `t`), which the rail's Terminals runs too: it toggles the drawer, opening it on the last-used terminal (or a new
+// one). The Activity popover's "Open Terminals" only opens it (`openTerminals`). New Project agent and Project agents belong to the pane (T-0330). What the drawer says is
 // Rust's (`src/api/drawer.rs`, `otaq-view`'s `project_terminal.rs`).
 import { closeOverlay, openOverlay, overlays } from "../../app/overlays";
 import type { Screen } from "../../app/registry";
@@ -35,7 +35,7 @@ export function openTerminals(): boolean {
 
 export const terminals: Screen = (app) => {
   app.overlays.register("terminals", { Component: TerminalsDrawer });
-  app.shortcuts.on("project_terminal", () => {
+  app.shortcuts.on("terminals", () => {
     if (selection.get().project !== null && drawerOpen()) {
       closeOverlay("terminals");
       return true;

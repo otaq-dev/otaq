@@ -1,0 +1,147 @@
+/* The ? shortcut list (s02-24…s02-27): a raised box over a dimmed window, 920 px wide, the groups in three columns. */
+.shortcuts-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 20%);
+}
+
+.shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-sizing: border-box;
+  width: 920px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+  padding: 20px 24px 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-dialog);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-floating);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.shortcuts-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shortcuts-heading {
+  flex: 1;
+  margin: 0;
+  font: 600 17px/normal var(--font-ui);
+  color: var(--text-primary);
+}
+
+.shortcuts-link {
+  margin-right: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: 400 12px/normal var(--font-ui);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.shortcuts-link:hover {
+  text-decoration: underline;
+}
+
+.shortcuts-close {
+  font: 400 11px/normal var(--font-ui);
+  color: var(--text-muted);
+}
+
+.shortcuts-note {
+  margin: 0;
+  font: 400 12px/normal var(--font-ui);
+  color: var(--text-secondary);
+}
+
+.shortcuts-columns {
+  display: flex;
+  gap: 28px;
+  align-items: flex-start;
+}
+
+.shortcuts-column {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.shortcuts-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shortcuts-group-title {
+  margin: 0;
+  font: 400 10px/normal var(--font-mono);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.shortcuts-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 0;
+}
+
+.shortcuts-title {
+  flex: 1;
+  min-width: 0;
+  font: 400 12.5px/normal var(--font-ui);
+  color: var(--text-secondary);
+}
+
+.shortcuts-kbd {
+  display: contents;
+}
+
+.shortcuts-word {
+  font: 400 11px/normal var(--font-ui);
+  color: var(--text-muted);
+}
+
+.shortcuts-row .kbd {
+  font: 400 11px/normal var(--font-mono);
+}
+
+.shortcuts-mark {
+  font: 400 11px/normal var(--font-ui);
+  color: var(--text-muted);
+}
+
+/* A changed row: its keys in the accent tint, "changed" in the accent. */
+.shortcuts-row[data-changed] .kbd {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.shortcuts-row[data-changed] .shortcuts-mark {
+  font-size: 10.5px;
+  color: var(--accent);
+}
+
+/* Letters off: the title muted, the keys dimmed. */
+.shortcuts-row[data-off] .shortcuts-title {
+  color: var(--text-muted);
+}
+
+.shortcuts-row[data-off] .kbd {
+  opacity: 0.45;
+}

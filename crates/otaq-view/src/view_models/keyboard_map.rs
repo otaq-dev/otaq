@@ -1,382 +1,373 @@
-//! The keyboard map as the design shows it (*01 · Components → Keyboard map*, d0058): three groups of rows, each row
-//! an action's name with its keys on macOS, on Windows and Linux, and on Windows and Linux while a terminal has focus.
-//! The keys come from [`KeyAction::keys`], so the map shown is the map bound. Numbered actions show one row
-//! ("Project 1–9"); paired actions share one ("Previous / next ticket in panel").
+//! The keyboard map as the design shows it (*01 · Components → Keyboard map (update AF · 0097)*): the single letters
+//! (the same on every platform), then the modifier keys in three columns, macOS, Windows / Linux, and Windows / Linux
+//! while a terminal has focus, then three notes. Titles and keys come from the keymap ([`KeyAction::title`], the base
+//! map), so the map shown is the map bound; the parked Files view's two rows are there, dimmed and tagged. This is
+//! the gallery's map of the defaults, not the `?` list ([`super::shortcut_list`]), which shows the user's keys.
 
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::keymap::{KeyAction, Platform};
-use crate::view_models::layout::FILES_VIEW;
+use super::shortcut_list::{ShortcutKey, row_keys};
+use crate::keymap::{Binding, KeyAction, Platform, bindings_for};
 
-/// One row: the action's name and its keys per column, one Kbd each; `None` where there is no shortcut ("—").
-/// `KeyMapRow` on the page.
+pub const LETTERS_TITLE: &str = "Single letters";
+pub const LETTERS_NOTE: &str = "all platforms · while not typing";
+pub const MODIFIERS_TITLE: &str = "Modifier keys";
+pub const COLUMNS: [&str; 3] = [
+    "macOS",
+    "Windows / Linux",
+    "In a terminal (Windows / Linux)",
+];
+/// A parked row's tag.
+pub const PARKED: &str = "parked with the Files view";
+/// Between an action's keys, and between a sequence's two.
+pub const OR: &str = "or";
+pub const THEN: &str = "then";
+
+/// The notes under the map, as drawn: the first stands out.
+pub const NOTES: [&str; 3] = [
+    "Single letters work on every platform, only while nobody is typing (a field, the description editor, the Project \
+     agent’s box or a terminal) and no menu or dialog is open; Settings → Keyboard shortcuts can turn them off. “—” \
+     means no key there: the command palette covers it. In the description editor ⌘K inserts a link and ⌘B is Bold.",
+    "While a terminal has focus every key goes to the shell or agent. On macOS ⌘ keys keep working (the terminal \
+     doesn’t use ⌘). On Windows and Linux most of the app’s keys move to Ctrl+Shift+… inside a terminal (the third \
+     column); Ctrl+1–9, Ctrl+`, Ctrl+, , Ctrl+Tab, Ctrl+K and Ctrl+P stay as they are. ⌃` / Ctrl+` opens, closes and \
+     leaves the terminal.",
+    "Replaces 0058’s map (decision 0097). Files view (⇧⌘O) and Go to file (⌥⌘P) keep their keys, parked with the \
+     Files view: the app hides them while the view is parked, and Settings and the ? list don’t show them. Open diff \
+     has no key (the palette runs it); ⌘D is Start / move to Dev. ⇧⌘T → ⌃`, ⇧⌘A → ⇧⌘L, ⌘\\ → ⌘B, ⇧⌘E → e, ⌘⌥1–6 → \
+     1–6, ⇧⌘G → g e, ⇧⌘D → ⌘D, ⌘K search → / (⌘K is the command palette).",
+];
+
+/// One single-letter row: its name and its key. `KeyMapLetterRow` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "KeyMapLetterRow")]
+pub struct LetterRow {
+    pub label: &'static str,
+    pub key: ShortcutKey,
+}
+
+/// One modifier-key row: the action's title and its keys per column; none is "—". `KeyMapRow` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "KeyMapRow")]
 pub struct KeyRow {
-    pub label: String,
-    pub mac: Option<String>,
-    pub win_linux: Option<String>,
-    pub in_terminal: Option<String>,
+    pub label: &'static str,
+    /// The Files view's rows: their tag ([`PARKED`]); their keys are drawn dimmed.
+    pub parked: Option<&'static str>,
+    pub mac: Vec<ShortcutKey>,
+    pub win_linux: Vec<ShortcutKey>,
+    pub in_terminal: Vec<ShortcutKey>,
 }
 
-/// A titled group of rows. `KeyMapGroup` on the page.
+/// The whole map. `KeyMapView` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "KeyMapGroup")]
-pub struct KeyGroup {
-    pub title: String,
-    pub rows: Vec<KeyRow>,
+#[ts(rename = "KeyMapView")]
+pub struct KeyMap {
+    pub letters_title: &'static str,
+    pub letters_note: &'static str,
+    pub letters: Vec<LetterRow>,
+    pub modifiers_title: &'static str,
+    pub columns: [&'static str; 3],
+    pub modifiers: Vec<KeyRow>,
+    pub or: &'static str,
+    pub then: &'static str,
+    pub notes: [&'static str; 3],
 }
 
-/// The columns' heading under each group title.
-pub const COLUMNS: &str = "macOS · Win/Linux · in terminal";
+use KeyAction::*;
 
-/// The notes under the map, as in the frame.
-pub const NOTES: [&str; 5] = [
-    "No shortcut appears twice across the three columns. OS system shortcuts such as ⌘` are off-limits. \
-     Find in terminal scrollback: ⌘F / Ctrl+Shift+F.",
-    "While the terminal has focus every key goes to the CLI (Esc, Ctrl+C, Ctrl+J, Ctrl+T…). App shortcuts keep \
-     working on macOS (⌘ isn’t used by the terminal). On Windows and Linux they move to Ctrl+Shift+…, like VS Code \
-     and Windows Terminal: that’s the “in terminal” column. Leave the terminal with ⌘⇧` / Ctrl+Shift+`, a click \
-     outside, or the inbox shortcut.",
-    "Terminals and Settings are at the bottom of the project rail; ⇧⌘T opens the Terminals drawer (Project \
-     terminals only), ⇧⌘A an empty Project agent in the pane. ⌘1–9 stay Project 1–9 and ⌘P Switch project; the \
-     Board and Files views are ⇧⌘B / ⇧⌘O, Go to file ⌥⌘P, the pane ⌘L (focus) and ⌘\\ (hide / show), Activity \
-     ⇧⌘U. The other two columns give the Windows/Linux and in-terminal keys.",
-    "⌘K in the description: Link. While the description editor has focus, ⌘K / Ctrl+K adds or edits a link; \
-     everywhere else it stays Search / filter.",
-    "⌘⌥C in the description: Code block. While the description editor’s text has focus, ⌘⌥C / Ctrl+Alt+C adds or \
-     removes a code block; everywhere else ⌘⌥C does nothing (the webview’s inspector stays closed).",
+/// The single letters in the drawn order, with the drawn names where they say more than the title (where they work,
+/// "Go to").
+const LETTERS: [(Option<&str>, &[KeyAction]); 12] = [
+    (
+        Some("Next / previous ticket (panel, inbox)"),
+        &[NextTicket, PreviousTicket],
+    ),
+    (
+        Some("Switch panel tab (panel open)"),
+        &[
+            SwitchTab(1),
+            SwitchTab(2),
+            SwitchTab(3),
+            SwitchTab(4),
+            SwitchTab(5),
+            SwitchTab(6),
+        ],
+    ),
+    (None, &[FilterBoard]),
+    (None, &[ShowShortcuts]),
+    (None, &[ExpandPanel]),
+    (Some("Go to Board"), &[ShowBoard]),
+    (Some("Go to Inbox"), &[OpenInbox]),
+    (Some("Go to Activity"), &[OpenActivity]),
+    (Some("Go to Terminals"), &[Terminals]),
+    (None, &[FocusEpic]),
+    (None, &[NewTicket]),
+    (None, &[OpenPanel, ClosePanel]),
 ];
 
-/// How a row's actions are shown.
-enum Keys {
-    /// One action's keys.
-    One(KeyAction),
-    /// Two actions' keys in one Kbd, joined as in the frame: `⌘[  ⌘]`, `↵ / Esc`.
-    Pair(KeyAction, KeyAction, &'static str),
-    /// A numbered action's first number, shown as a range: `⌘1` → `⌘1–9`.
-    Range(KeyAction, &'static str),
-}
-
-const GROUPS: [(&str, &[(&str, Keys)]); 3] = [
-    (
-        "Attention",
-        &[
-            (
-                "Next inbox item (terminal focused)",
-                Keys::One(KeyAction::NextInboxItem),
-            ),
-            ("Inbox", Keys::One(KeyAction::OpenInbox)),
-            (
-                "Previous / next ticket in panel",
-                Keys::Pair(KeyAction::PreviousTicket, KeyAction::NextTicket, "  "),
-            ),
-            ("Leave terminal focus", Keys::One(KeyAction::LeaveTerminal)),
-        ],
-    ),
-    (
-        "Board & navigation",
-        &[
-            ("Search / filter", Keys::One(KeyAction::Search)),
-            (
-                "Focus the selected card's epic",
-                Keys::One(KeyAction::FocusEpic),
-            ),
-            ("Switch project", Keys::One(KeyAction::SwitchProject)),
-            ("Project 1–9", Keys::Range(KeyAction::Project(1), "1–9")),
-            ("Board view", Keys::One(KeyAction::ShowBoard)),
-            ("Files view", Keys::One(KeyAction::ShowFiles)),
-            ("Go to file (Files view)", Keys::One(KeyAction::GoToFile)),
-            (
-                "Focus the Project agent pane",
-                Keys::One(KeyAction::FocusPane),
-            ),
-            ("Hide / show the pane", Keys::One(KeyAction::TogglePane)),
-            ("Activity popover", Keys::One(KeyAction::OpenActivity)),
-            ("New ticket", Keys::One(KeyAction::NewTicket)),
-            (
-                "Terminals drawer (last-used Project terminal)",
-                Keys::One(KeyAction::ProjectTerminal),
-            ),
-            (
-                "New Project agent (empty pane, starts on the first message)",
-                Keys::One(KeyAction::NewProjectAgent),
-            ),
-            ("Settings", Keys::One(KeyAction::Settings)),
-        ],
-    ),
-    (
-        "Ticket panel",
-        &[
-            (
-                "Open / close panel",
-                Keys::Pair(KeyAction::OpenPanel, KeyAction::ClosePanel, " / "),
-            ),
-            ("Expand panel", Keys::One(KeyAction::ExpandPanel)),
-            ("Switch tab", Keys::Range(KeyAction::SwitchTab(1), "1–6")),
-            ("Approve ▾", Keys::One(KeyAction::Approve)),
-            ("Send back", Keys::One(KeyAction::SendBack)),
-            ("Start", Keys::One(KeyAction::StartDev)),
-        ],
-    ),
+/// The modifier keys in the drawn order (0097's base map table).
+const MODIFIERS: [&[KeyAction]; 21] = [
+    &[CommandPalette],
+    &[SwitchProject],
+    &[
+        Project(1),
+        Project(2),
+        Project(3),
+        Project(4),
+        Project(5),
+        Project(6),
+        Project(7),
+        Project(8),
+        Project(9),
+    ],
+    &[NewTicket],
+    &[Settings],
+    &[TogglePane],
+    &[FocusPane],
+    &[NewProjectAgent],
+    &[Terminals],
+    &[NextInboxItem],
+    &[NextTab, PreviousTab],
+    &[NextTicket, PreviousTicket],
+    &[ShowBoard],
+    &[OpenInbox],
+    &[OpenActivity],
+    &[Approve],
+    &[SendBack],
+    &[StartDev],
+    &[FindInTerminal],
+    &[ShowFiles],
+    &[GoToFile],
 ];
 
-fn column(keys: &Keys, platform: Platform) -> Option<String> {
-    match keys {
-        Keys::One(action) => action.keys(platform),
-        Keys::Pair(first, second, joiner) => {
-            let both: Vec<String> = [first, second]
-                .iter()
-                .filter_map(|a| a.keys(platform))
-                .collect();
-            (!both.is_empty()).then(|| both.join(joiner))
-        }
-        Keys::Range(action, range) => action
-            .keys(platform)
-            .map(|k| format!("{}{range}", k.trim_end_matches('1'))),
-    }
-}
-
-/// The three groups.
-pub fn groups() -> Vec<KeyGroup> {
-    groups_for(FILES_VIEW)
-}
-
-/// [`groups`] with the Files view on or off: off, its rows (Files view, Go to file) are left out.
-pub fn groups_for(files_view: bool) -> Vec<KeyGroup> {
-    GROUPS
-        .iter()
-        .map(|(title, rows)| KeyGroup {
-            title: (*title).to_owned(),
-            rows: rows
-                .iter()
-                .filter(|(_, keys)| {
-                    files_view || !matches!(keys, Keys::One(action) if action.is_files_view())
-                })
-                .map(|(label, keys)| KeyRow {
-                    label: (*label).to_owned(),
-                    mac: column(keys, Platform::Mac),
-                    win_linux: column(keys, Platform::WinLinux),
-                    in_terminal: column(keys, Platform::WinLinuxTerminal),
-                })
-                .collect(),
-        })
+/// The keys of `members` among `bindings`: the plain ones (letters, sequences, ↵ / Esc) or the modifier ones.
+fn keys(members: &[KeyAction], bindings: &[&Binding], plain: bool) -> Vec<ShortcutKey> {
+    row_keys(members, bindings)
+        .into_iter()
+        .filter(|k| k.plain == plain)
+        .map(|k| ShortcutKey { kbds: k.kbds })
         .collect()
+}
+
+/// The map of the base keys, the parked Files view's included.
+pub fn map() -> KeyMap {
+    let mac = bindings_for(Platform::Mac, true);
+    let win = bindings_for(Platform::WinLinux, true);
+    let mac: Vec<&Binding> = mac.iter().collect();
+    let outside: Vec<&Binding> = win.iter().filter(|b| b.place.outside_terminals()).collect();
+    let inside: Vec<&Binding> = win.iter().filter(|b| b.place.inside_terminals()).collect();
+    let letters = LETTERS
+        .iter()
+        .filter_map(|(label, members)| {
+            let key = keys(members, &mac, true).into_iter().next()?;
+            Some(LetterRow {
+                label: label.unwrap_or(members[0].title()),
+                key,
+            })
+        })
+        .collect();
+    KeyMap {
+        letters_title: LETTERS_TITLE,
+        letters_note: LETTERS_NOTE,
+        letters,
+        modifiers_title: MODIFIERS_TITLE,
+        columns: COLUMNS,
+        modifiers: MODIFIERS
+            .iter()
+            .map(|members| KeyRow {
+                label: members[0].title(),
+                parked: members[0].is_files_view().then_some(PARKED),
+                mac: keys(members, &mac, false),
+                win_linux: keys(members, &outside, false),
+                in_terminal: keys(members, &inside, false),
+            })
+            .collect(),
+        or: OR,
+        then: THEN,
+        notes: NOTES,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn row(label: &str) -> KeyRow {
-        groups()
-            .into_iter()
-            .flat_map(|g| g.rows)
-            .find(|r| r.label == label)
-            .unwrap()
+    fn kbds(keys: &[ShortcutKey]) -> Vec<Vec<&str>> {
+        keys.iter()
+            .map(|k| k.kbds.iter().map(String::as_str).collect())
+            .collect()
     }
 
+    /// ds-01's Single letters table, in its order and words.
     #[test]
-    fn rows_show_the_bound_keys() {
-        let some = |s: &str| Some(s.to_owned());
-        let inbox = row("Next inbox item (terminal focused)");
+    fn the_single_letters_are_the_drawn_ones() {
+        let map = map();
         assert_eq!(
-            (inbox.mac, inbox.win_linux, inbox.in_terminal),
-            (some("⌘J"), some("Ctrl+J"), some("Ctrl+Shift+J"))
+            (map.letters_title, map.letters_note),
+            ("Single letters", "all platforms · while not typing")
         );
-        let project = row("Project 1–9");
-        assert_eq!(project.mac, some("⌘1–9"));
-        assert_eq!(project.in_terminal, some("Ctrl+Shift+1–9"));
-        assert_eq!(row("Switch tab").win_linux, some("Ctrl+Alt+1–6"));
-        let panel = row("Open / close panel");
-        assert_eq!(panel.mac, some("↵ / Esc"));
-        assert_eq!(panel.in_terminal, None, "no shortcut in a terminal");
+        let shown: Vec<(&str, Vec<&str>)> = map
+            .letters
+            .iter()
+            .map(|r| (r.label, r.key.kbds.iter().map(String::as_str).collect()))
+            .collect();
         assert_eq!(
-            row("Previous / next ticket in panel").in_terminal,
-            some("Ctrl+Shift+[  Ctrl+Shift+]")
-        );
-        let focus = row("Focus the selected card's epic");
-        assert_eq!(
-            (focus.mac, focus.win_linux, focus.in_terminal),
-            (some("⇧⌘G"), some("Ctrl+Shift+G"), some("Ctrl+Shift+G"))
-        );
-        let agent = row("New Project agent (empty pane, starts on the first message)");
-        assert_eq!(
-            (agent.mac, agent.win_linux, agent.in_terminal),
-            (some("⇧⌘A"), some("Ctrl+Shift+A"), some("Ctrl+Shift+A"))
+            shown,
+            [
+                ("Next / previous ticket (panel, inbox)", vec!["j / k"]),
+                ("Switch panel tab (panel open)", vec!["1–6"]),
+                ("Filter the board", vec!["/"]),
+                ("Show all shortcuts", vec!["?"]),
+                ("Expand / shrink the panel", vec!["e"]),
+                ("Go to Board", vec!["g", "b"]),
+                ("Go to Inbox", vec!["g", "i"]),
+                ("Go to Activity", vec!["g", "a"]),
+                ("Go to Terminals", vec!["g", "t"]),
+                ("Focus the epic of the selected card", vec!["g", "e"]),
+                ("New ticket", vec!["c"]),
+                ("Open / close the panel", vec!["↵ / Esc"]),
+            ]
         );
     }
 
-    /// The frame's Board & navigation group (`SteSX`), in its order, with the 0087 rows.
+    type Row<'a> = (
+        &'a str,
+        Option<&'a str>,
+        Vec<Vec<&'a str>>,
+        Vec<Vec<&'a str>>,
+        Vec<Vec<&'a str>>,
+    );
+
+    /// ds-01's Modifier keys table: every row with its three columns as drawn, the parked two at the end.
     #[test]
-    fn board_and_navigation_is_the_frames() {
-        let group = groups_for(true).into_iter().nth(1).unwrap();
-        assert_eq!(group.title, "Board & navigation");
-        type Shown<'a> = (&'a str, Option<&'a str>, Option<&'a str>, Option<&'a str>);
-        let shown: Vec<Shown> = group
-            .rows
+    fn the_modifier_keys_are_the_drawn_ones() {
+        let map = map();
+        assert_eq!(map.modifiers_title, "Modifier keys");
+        assert_eq!(
+            map.columns,
+            [
+                "macOS",
+                "Windows / Linux",
+                "In a terminal (Windows / Linux)"
+            ]
+        );
+        let shown: Vec<Row> = map
+            .modifiers
             .iter()
             .map(|r| {
                 (
-                    r.label.as_str(),
-                    r.mac.as_deref(),
-                    r.win_linux.as_deref(),
-                    r.in_terminal.as_deref(),
+                    r.label,
+                    r.parked,
+                    kbds(&r.mac),
+                    kbds(&r.win_linux),
+                    kbds(&r.in_terminal),
                 )
             })
             .collect();
-        let some = Some;
+        let one = |k: &'static str| vec![vec![k]];
+        let none = Vec::<Vec<&str>>::new;
+        let row = |label, mac, win, term| -> Row { (label, None, one(mac), one(win), one(term)) };
         assert_eq!(
             shown,
             [
                 (
-                    "Search / filter",
-                    some("⌘K"),
-                    some("Ctrl+K"),
-                    some("Ctrl+Shift+K")
+                    "Command palette",
+                    None,
+                    vec![vec!["⌘K"], vec!["⇧⌘P"]],
+                    vec![vec!["Ctrl+K"], vec!["Ctrl+Shift+P"]],
+                    vec![vec!["Ctrl+K"], vec!["Ctrl+Shift+P"]],
+                ),
+                row("Switch project", "⌘P", "Ctrl+P", "Ctrl+P"),
+                row("Project 1–9", "⌘1–9", "Ctrl+1–9", "Ctrl+1–9"),
+                row("New ticket", "⌘N", "Ctrl+N", "Ctrl+Shift+N"),
+                row("Settings", "⌘,", "Ctrl+,", "Ctrl+,"),
+                row(
+                    "Hide / show the Project agent pane",
+                    "⌘B",
+                    "Ctrl+B",
+                    "Ctrl+Shift+B"
+                ),
+                row(
+                    "Focus the Project agent pane",
+                    "⌘L",
+                    "Ctrl+L",
+                    "Ctrl+Shift+L"
                 ),
                 (
-                    "Focus the selected card's epic",
-                    some("⇧⌘G"),
-                    some("Ctrl+Shift+G"),
-                    some("Ctrl+Shift+G")
+                    "New Project agent",
+                    None,
+                    one("⇧⌘L"),
+                    one("Ctrl+Shift+L"),
+                    none()
                 ),
-                (
-                    "Switch project",
-                    some("⌘P"),
-                    some("Ctrl+P"),
-                    some("Ctrl+Shift+P")
+                row(
+                    "Terminals: open, close, leave the terminal",
+                    "⌃`",
+                    "Ctrl+`",
+                    "Ctrl+`"
                 ),
-                (
-                    "Project 1–9",
-                    some("⌘1–9"),
-                    some("Ctrl+1–9"),
-                    some("Ctrl+Shift+1–9")
+                row("Next inbox item", "⌘J", "Ctrl+J", "Ctrl+Shift+J"),
+                row(
+                    "Next / previous panel tab",
+                    "⌃Tab / ⌃⇧Tab",
+                    "Ctrl+Tab / Ctrl+Shift+Tab",
+                    "Ctrl+Tab / Ctrl+Shift+Tab"
                 ),
+                row(
+                    "Next / previous ticket",
+                    "⌘] / ⌘[",
+                    "Ctrl+] / Ctrl+[",
+                    "Ctrl+Shift+] / Ctrl+Shift+["
+                ),
+                ("Board", None, one("⇧⌘B"), one("Ctrl+Shift+B"), none()),
+                row("Inbox", "⇧⌘I", "Ctrl+Shift+I", "Ctrl+Shift+I"),
+                row("Activity", "⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"),
+                row("Approve ▾", "⌘↵", "Ctrl+↵", "Ctrl+Shift+↵"),
+                row("Send back", "⌘⌫", "Ctrl+⌫", "Ctrl+Shift+⌫"),
+                row("Start / move to Dev", "⌘D", "Ctrl+D", "Ctrl+Shift+D"),
                 (
-                    "Board view",
-                    some("⇧⌘B"),
-                    some("Ctrl+Shift+B"),
-                    some("Ctrl+Shift+B")
+                    "Find in terminal scrollback",
+                    None,
+                    one("⌘F"),
+                    none(),
+                    one("Ctrl+Shift+F")
                 ),
                 (
                     "Files view",
-                    some("⇧⌘O"),
-                    some("Ctrl+Shift+O"),
-                    some("Ctrl+Shift+O")
+                    Some("parked with the Files view"),
+                    one("⇧⌘O"),
+                    one("Ctrl+Shift+O"),
+                    one("Ctrl+Shift+O")
                 ),
                 (
                     "Go to file (Files view)",
-                    some("⌥⌘P"),
-                    some("Ctrl+Alt+P"),
-                    some("Ctrl+Shift+Alt+P")
+                    Some("parked with the Files view"),
+                    one("⌥⌘P"),
+                    one("Ctrl+Alt+P"),
+                    one("Ctrl+Shift+Alt+P")
                 ),
-                (
-                    "Focus the Project agent pane",
-                    some("⌘L"),
-                    some("Ctrl+L"),
-                    some("Ctrl+Shift+L")
-                ),
-                (
-                    "Hide / show the pane",
-                    some("⌘\\"),
-                    some("Ctrl+\\"),
-                    some("Ctrl+Shift+\\")
-                ),
-                (
-                    "Activity popover",
-                    some("⇧⌘U"),
-                    some("Ctrl+Shift+U"),
-                    some("Ctrl+Shift+U")
-                ),
-                (
-                    "New ticket",
-                    some("⌘N"),
-                    some("Ctrl+N"),
-                    some("Ctrl+Shift+N")
-                ),
-                (
-                    "Terminals drawer (last-used Project terminal)",
-                    some("⇧⌘T"),
-                    some("Ctrl+Shift+T"),
-                    some("Ctrl+Shift+T")
-                ),
-                (
-                    "New Project agent (empty pane, starts on the first message)",
-                    some("⇧⌘A"),
-                    some("Ctrl+Shift+A"),
-                    some("Ctrl+Shift+A")
-                ),
-                ("Settings", some("⌘,"), some("Ctrl+,"), some("Ctrl+Shift+,")),
             ]
         );
-        assert!(NOTES[2].starts_with("Terminals and Settings are at the bottom"));
+        assert!(NOTES[0].starts_with("Single letters work on every platform"));
+        assert!(NOTES[2].starts_with("Replaces 0058’s map"));
     }
 
-    /// Every action of the keymap has a row, except Find in terminal, which the notes name.
+    /// Every action with a key is in the map: the keyless ones (the palette runs them) aren't.
     #[test]
-    fn every_action_is_shown() {
-        let shown: Vec<KeyAction> = GROUPS
+    fn every_action_with_a_key_is_shown() {
+        let listed: Vec<KeyAction> = LETTERS
             .iter()
-            .flat_map(|(_, rows)| rows.iter())
-            .flat_map(|(_, keys)| match keys {
-                Keys::One(action) => vec![*action],
-                Keys::Pair(first, second, _) => vec![*first, *second],
-                Keys::Range(KeyAction::Project(_), _) => (1..=9).map(KeyAction::Project).collect(),
-                Keys::Range(KeyAction::SwitchTab(_), _) => {
-                    (1..=6).map(KeyAction::SwitchTab).collect()
-                }
-                Keys::Range(other, _) => vec![*other],
-            })
+            .flat_map(|(_, m)| m.iter())
+            .chain(MODIFIERS.iter().flat_map(|m| m.iter()))
+            .copied()
             .collect();
         for action in KeyAction::all() {
             assert_eq!(
-                shown.contains(&action),
-                action != KeyAction::FindInTerminal,
+                listed.contains(&action),
+                !action.base_keys().is_empty(),
                 "{action:?}"
             );
-        }
-        assert!(NOTES[0].contains("⌘F / Ctrl+Shift+F"));
-        assert!(NOTES[3].starts_with("⌘K in the description: Link"));
-        assert!(NOTES[4].starts_with("⌘⌥C in the description: Code block"));
-        assert_eq!(groups().len(), 3);
-    }
-
-    /// d0087 (parked 2026-10-18): with the Files view off its two rows leave the list, Board view stays, and every
-    /// other row is as with it on.
-    #[test]
-    fn a_parked_files_view_leaves_the_list() {
-        assert_eq!(groups(), groups_for(false));
-        let labels = |files_view| -> Vec<String> {
-            groups_for(files_view)
-                .into_iter()
-                .flat_map(|g| g.rows)
-                .map(|r| r.label)
-                .collect()
-        };
-        let (on, off) = (labels(true), labels(false));
-        assert!(off.contains(&"Board view".to_owned()));
-        let files = ["Files view", "Go to file (Files view)"];
-        assert!(files.iter().all(|f| on.iter().any(|l| l == f)));
-        let rest: Vec<String> = on
-            .into_iter()
-            .filter(|l| !files.contains(&l.as_str()))
-            .collect();
-        assert_eq!(off, rest);
-        let shown: Vec<Option<String>> = groups_for(false)
-            .into_iter()
-            .flat_map(|g| g.rows)
-            .flat_map(|r| [r.mac, r.win_linux, r.in_terminal])
-            .collect();
-        for keys in [
-            "⇧⌘O",
-            "⌥⌘P",
-            "Ctrl+Shift+O",
-            "Ctrl+Alt+P",
-            "Ctrl+Shift+Alt+P",
-        ] {
-            assert!(!shown.contains(&Some(keys.to_owned())), "{keys}");
         }
     }
 }

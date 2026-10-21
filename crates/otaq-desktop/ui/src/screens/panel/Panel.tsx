@@ -1,13 +1,13 @@
 // The ticket side panel (UI-04; *05 · Ticket side panel*): the header with key, title, priority, status, branch,
-// base, last signal and tokens; previous / next, expand (⇧⌘E) and close (Esc); the action bar of the ticket's state
+// base, last signal and tokens; previous / next, expand (`e`) and close (Esc); the action bar of the ticket's state
 // with its "…" menu, or the answer options of an Asks-you question; the queued notice, the conflict strip and the
-// Start interrupted callout; the registered sections (Stack, Messages); the tab strip with its indicators (⌘⌥1–6);
+// Start interrupted callout; the registered sections (Stack, Messages); the tab strip with its indicators (`1`–`6`);
 // and the registered tab's body. It opens over the main area's right side (SHL-05; the frame places it). Everything
 // it says comes from `panel.view`; it keeps only the dragged width (per window size class), the expanded view, open
 // menus and the picked answer. A board card's button lands here too (`cardActions`): the panel
 // runs it once it shows that ticket. The M12 rows (d0063, d0064): the validation buttons, the token split, the
 // Auto-merge stop message and Answer the agent's note box. An epic's panel (T-0290; d0083) shows Ticket · Lead ·
-// History (Diff first in review), numbered ⌘⌥1–4 in that order, with its Messages inside the Ticket tab.
+// History (Diff first in review), numbered `1`–`4` in that order, with its Messages inside the Ticket tab.
 import {
   type PointerEvent,
   type ReactNode,
@@ -15,6 +15,7 @@ import {
   useEffect,
   useEffectEvent,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -31,6 +32,7 @@ import {
   requestAgentRowFocus,
   requestTerminalFocus,
   requestTicketEdit,
+  selection,
   showTab,
   takeAgentRowFocus,
   terminalFocusRequests,
@@ -75,6 +77,7 @@ import {
   actionRoute,
   canSend,
   cardRoute,
+  CLOSE_TICKET,
   clampWidth,
   draggedWidth,
   iconTabs,
@@ -85,6 +88,7 @@ import {
   picksOther,
   shownTab,
   shownWidth,
+  steppedTab,
   tabIndicator,
 } from "./logic";
 import { toolProblemAction } from "./toolProblemRunner";
@@ -99,6 +103,8 @@ export const PANEL_EVENTS = [
   "validation_cancelled",
   "lead_changed",
   "project_agent_changed",
+  // The user's keys in its tooltips (KEY-08).
+  "settings_changed",
 ] as const;
 
 const ignore = () => undefined;
@@ -740,6 +746,30 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
         return;
     }
   };
+  // Close ticket and Re-run validation (0097: palette only unless the user gives them a key) do what this panel's
+  // menu item and button do, while it offers them.
+  const latest = useRef({ view, press, choose });
+  useLayoutEffect(() => {
+    latest.current = { view, press, choose };
+  });
+  useShortcut(
+    "close_ticket",
+    useCallback(() => {
+      const item = latest.current.view.menu.find((i) => i.id === CLOSE_TICKET && !i.disabled);
+      if (!item) return false;
+      latest.current.choose(item.id);
+      return true;
+    }, []),
+  );
+  useShortcut(
+    "rerun_validation",
+    useCallback(() => {
+      const button = latest.current.view.buttons.find((b) => b.action === "retry_validation");
+      if (!button) return false;
+      latest.current.press(button);
+      return true;
+    }, []),
+  );
   const [fixing, setFixing] = useState(false);
   const sendToFix = (clear = false): Promise<unknown> => {
     setFixing(true);
@@ -1127,13 +1157,43 @@ export function SidePanel() {
       return true;
     }, []),
   );
+  const stepTab = useCallback((step: 1 | -1) => {
+    const tabs = current.current?.tabs.map((t) => t.tab);
+    const next = tabs && steppedTab(tabs, shownTab(tabs, selection.get().tab), step);
+    if (next === undefined) return false;
+    showTab(next);
+    return true;
+  }, []);
+  useShortcut(
+    "next_tab",
+    useCallback(() => stepTab(1), [stepTab]),
+  );
+  useShortcut(
+    "previous_tab",
+    useCallback(() => stepTab(-1), [stepTab]),
+  );
+  // Open diff (0097, palette only unless the user gives it a key): the Diff tab, where the ticket has one.
+  useShortcut(
+    "open_diff",
+    useCallback(() => {
+      if (!current.current?.tabs.some((t) => t.tab === "diff")) return false;
+      showTab("diff");
+      return true;
+    }, []),
+  );
 
   if (ticket === null) return null;
   if (view === null || view.key !== ticket || cls === null) {
     // Loading the next ticket, or gone: the panel keeps its width meanwhile.
     const style = sizes && cls ? { width: shownWidth(layout.panelWidths, cls, main, sizes) } : undefined;
     return (
-      <div className="panel panel-gone" style={style}>
+      // `data-loading` until there is something to show (the ticket, or that it's gone): the frame waits for it before
+      // sliding the panel in (0095).
+      <div
+        className="panel panel-gone"
+        style={style}
+        data-loading={load_ && load_.view === null ? undefined : ""}
+      >
         {load_ && load_.view === null ? load_.gone : null}
       </div>
     );

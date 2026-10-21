@@ -13,7 +13,7 @@ import { Icon } from "../../theme/Icon";
 import { runNext } from "./Inbox";
 import { runChanges } from "./logic";
 
-const RUN_EVENTS = ["inbox_changed", "ticket_changed"] as const;
+const RUN_EVENTS = ["inbox_changed", "ticket_changed", "settings_changed"] as const;
 
 /** The bar for a loaded run (also what the markup tests render). */
 export function RunBarBody({ bar }: { bar: InboxRunBar }) {
@@ -39,7 +39,7 @@ export function RunBarBody({ bar }: { bar: InboxRunBar }) {
       ) : (
         <span className="inbox-muted">{bar.next.label}</span>
       )}
-      <Kbd keys={bar.next.keys} />
+      {bar.next.keys !== "" && <Kbd keys={bar.next.keys} />}
       {bar.exit !== null && (
         <Button
           compact

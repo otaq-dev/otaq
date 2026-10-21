@@ -19,7 +19,9 @@ use serde_json::json;
 
 use super::Review;
 use super::finish::{FinishedHook, FinishedTicket};
-use crate::board::epic_flight::{EpicQueueMode, TakeBackPlan, take_back_plan};
+use crate::board::epic_flight::{
+    EpicQueueMode, TakeBackPlan, children_of, take_back_plan_starting,
+};
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, Column, Status};
@@ -155,8 +157,16 @@ impl Review {
                 format!("{} isn't an epic", epic.key),
             ));
         }
+        // No child starts between the plan and the unqueue: one whose start already runs keeps going instead
+        // (taken back now, its start would finish on a ticket back in Backlog). Read again under the hold.
         let tickets = board.tickets(epic.key.project.as_str()).await?;
-        let plan = take_back_plan(&epic, &tickets);
+        let ids = children_of(&epic, &tickets)
+            .iter()
+            .map(|c| c.id.clone())
+            .collect::<Vec<_>>();
+        let (_hold, starting) = self.inner.starter.hold(ids);
+        let tickets = board.tickets(epic.key.project.as_str()).await?;
+        let plan = take_back_plan_starting(&epic, &tickets, &starting);
         match &plan {
             TakeBackPlan::Refused { reason, .. } => {
                 return Err(BoardError::refused(Refusal::MoveRefused, reason.clone()));

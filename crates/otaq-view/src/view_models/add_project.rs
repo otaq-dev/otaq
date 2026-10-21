@@ -14,7 +14,8 @@ use otaq_core::naming;
 
 use otaq_core::agent_tools::Tool;
 
-use crate::keymap::{KeyAction, Platform};
+use crate::key_labels::KeyLabels;
+use crate::keymap::KeyAction;
 use crate::shell::tilde;
 use crate::view_models::agent_tools_page::and_list;
 
@@ -62,7 +63,7 @@ impl AddProjectModel {
         &mut self,
         result: Result<FolderProbe, (Option<String>, String)>,
         projects: &[ProjectInfo],
-        platform: Platform,
+        keys: &KeyLabels,
     ) {
         self.probing = false;
         match result {
@@ -80,7 +81,7 @@ impl AddProjectModel {
                     &message,
                     &folder,
                     projects,
-                    platform,
+                    keys,
                 ));
             }
         }
@@ -184,7 +185,7 @@ fn folder_error(
     message: &str,
     folder: &str,
     projects: &[ProjectInfo],
-    platform: Platform,
+    keys: &KeyLabels,
 ) -> FolderError {
     let shown = tilde(folder);
     if code == Some(Refusal::NotAGitRepo.as_str()) {
@@ -201,7 +202,7 @@ fn folder_error(
         });
         if let Some((i, p)) = found {
             let switch = (i < 9)
-                .then(|| KeyAction::Project(i as u8 + 1).keys(platform))
+                .then(|| keys.label(KeyAction::Project(i as u8 + 1)))
                 .flatten()
                 .map_or_else(String::new, |k| format!("Switch to it with {k}, or pick "));
             let detail = if switch.is_empty() {
@@ -224,6 +225,7 @@ fn folder_error(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::key_labels::fixtures;
 
     fn projects() -> Vec<ProjectInfo> {
         vec![
@@ -262,7 +264,7 @@ mod tests {
         assert!(!m.can_add(&projects()));
         m.pick("/code/new-app".into());
         assert!(m.probing);
-        m.probed(Ok(probe("NEW")), &projects(), Platform::Mac);
+        m.probed(Ok(probe("NEW")), &projects(), &fixtures::base());
         assert_eq!((m.key.as_str(), m.base_branch.as_str()), ("NEW", "develop"));
         assert_eq!(m.key_error(&projects()), None);
         assert!(m.can_add(&projects()));
@@ -280,7 +282,7 @@ mod tests {
     fn key_validates_live() {
         let mut m = AddProjectModel::default();
         m.pick("/code/new-app".into());
-        m.probed(Ok(probe("NEW")), &projects(), Platform::Mac);
+        m.probed(Ok(probe("NEW")), &projects(), &fixtures::base());
         m.set_key("shop");
         assert_eq!(m.key, "SHOP", "typed lowercase becomes uppercase");
         assert_eq!(
@@ -298,7 +300,7 @@ mod tests {
         m.set_key("APP");
         assert!(m.can_add(&projects()));
         // A later probe keeps what the user typed.
-        m.probed(Ok(probe("NEW")), &projects(), Platform::Mac);
+        m.probed(Ok(probe("NEW")), &projects(), &fixtures::base());
         assert_eq!(m.key, "APP");
         m.add_failed(Some("key_taken"), "APP is already used by app".into());
         assert_eq!(
@@ -317,7 +319,7 @@ mod tests {
                 "… isn't a git repository".into(),
             )),
             &projects(),
-            Platform::Mac,
+            &fixtures::base(),
         );
         let e = m.folder_error.clone().unwrap();
         assert_eq!(e.title, "Not a git repository");
@@ -333,7 +335,7 @@ mod tests {
                 "billing-api is already added as BILL".into(),
             )),
             &projects(),
-            Platform::Mac,
+            &fixtures::base(),
         );
         let e = m.folder_error.clone().unwrap();
         assert_eq!(
@@ -342,6 +344,36 @@ mod tests {
         );
         assert_eq!(
             e.detail,
+            "Switch to it with ⌘2, or pick a different folder."
+        );
+    }
+
+    /// KEY-08: "Switch to it with …" names the user's key for that project, and is left out when it has none.
+    #[test]
+    fn already_added_names_the_users_project_key() {
+        let detail = |keys: &KeyLabels| {
+            let mut m = AddProjectModel::default();
+            m.pick("/code/billing-api".into());
+            m.probed(
+                Err((
+                    Some("already_added".into()),
+                    "billing-api is already added as BILL".into(),
+                )),
+                &projects(),
+                keys,
+            );
+            m.folder_error.unwrap().detail
+        };
+        assert_eq!(
+            detail(&fixtures::replaced("project", Some(2), 0, "⌥2")),
+            "Switch to it with ⌥2, or pick a different folder."
+        );
+        assert_eq!(
+            detail(&fixtures::removed("project", Some(2), 0)),
+            "Pick a different folder."
+        );
+        assert_eq!(
+            detail(&fixtures::letters_off()),
             "Switch to it with ⌘2, or pick a different folder."
         );
     }

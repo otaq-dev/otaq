@@ -191,7 +191,7 @@ button.header-inbox[data-active] {
 
 .header-inbox[data-active] .header-inbox-count {
   background: var(--st-attn);
-  color: var(--text-on-accent);
+  color: var(--on-attn);
   font-weight: 600;
 }
 
@@ -521,7 +521,7 @@ button.rail-item[data-selected]:hover .rail-tile {
   height: 16px;
   padding: 0 3px;
   background: var(--st-attn);
-  color: var(--text-on-accent);
+  color: var(--on-attn);
   font-size: 10px;
 }
 

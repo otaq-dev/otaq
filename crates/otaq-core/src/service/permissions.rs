@@ -372,7 +372,9 @@ async fn action_for(
         R::RunSuggest(_) | R::RunSuggestCancel(_) => {
             Action::UserOnly("ask the agent for a run command")
         }
-        R::ShellOpen(_) | R::ProjectTerminalOpen(_) => Action::UserOnly("open shells"),
+        R::ShellOpen(_) | R::ProjectTerminalOpen(_) | R::ToolTerminalOpen(_) => {
+            Action::UserOnly("open shells")
+        }
         R::ProjectTerminalClose(_) => Action::UserOnly("close terminals"),
         R::ProjectAgentOpen(_) | R::ProjectAgentResume(_) => {
             Action::UserOnly("open Project agents")
@@ -401,12 +403,14 @@ async fn action_for(
         | R::AgentToolsRecheck(_)
         | R::AgentToolsSetHidden(_)
         | R::AgentToolsSignIn(_)
+        | R::AgentToolsInstall(_)
         | R::AgentToolsDisconnect(_) => Action::UserOnly("manage agent tools"),
         R::LimitsResumeTool(_) | R::LimitsMoveWaiting(_) => {
             Action::UserOnly("resume or move waiting work")
         }
         R::TicketUseFallback(_) => Action::UserOnly("use fallback agents"),
         R::SettingsAutoFallback(_) => Action::UserOnly("change settings"),
+        R::RecentItems(_) => Action::UserOnly("use the command palette"),
         // Imported workflow skills are the user's (d0092).
         R::WorkflowSkillsStatus(_)
         | R::WorkflowSkillsImport(_)

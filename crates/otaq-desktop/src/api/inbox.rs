@@ -24,7 +24,7 @@ use otaq_core::protocol::{
     TicketAgentsParams, UsageParams, ValidationActionParams,
 };
 use otaq_core::session::deliveries::Delivery;
-use otaq_view::keymap::{KeyAction, Platform};
+use otaq_view::keymap::KeyAction;
 use otaq_view::view_models::answer::{self, AnswerOutcome};
 use otaq_view::view_models::answer_options::AnswerOptions;
 use otaq_core::agent_tools::Tool;
@@ -78,10 +78,11 @@ fn key_of(text: &str) -> Result<TicketKey, RequestError> {
         .map_err(|_| RequestError::plain(format!("not a ticket key: {text}")))
 }
 
-fn next_keys() -> String {
-    KeyAction::NextInboxItem
-        .keys(Platform::current())
-        .unwrap_or_default()
+/// The user's key for Next inbox item (KEY-08); `None` once it was removed or given to another action.
+async fn next_keys(app: &App) -> Option<String> {
+    super::keymap::labels(app)
+        .await
+        .label(KeyAction::NextInboxItem)
 }
 
 fn toast_error(app: &App, title: String, error: &RequestError) {
@@ -261,6 +262,7 @@ pub async fn view(app: &App) -> Result<Load, RequestError> {
         })
         .collect();
     let fading = groups.iter().any(|g| g.rows.iter().any(|r| r.resolved));
+    let next = next_keys(app).await;
     Ok(Load {
         view: page::view(
             &groups,
@@ -270,7 +272,7 @@ pub async fn view(app: &App) -> Result<Load, RequestError> {
             total,
             &limits,
             running,
-            &next_keys(),
+            next.as_deref(),
         ),
         refresh_ms: fading.then_some(FADE.as_millis() as u64),
     })
@@ -545,6 +547,7 @@ pub async fn run_bar(app: &App, params: RunBarRequest) -> Result<Option<RunBarVi
         return Ok(None);
     }
     let list = list(app).await?;
+    let next = next_keys(app).await;
     let agents = list.project_agents.clone();
     let items = {
         let mut model = app.inbox.lock().expect("inbox");
@@ -555,7 +558,7 @@ pub async fn run_bar(app: &App, params: RunBarRequest) -> Result<Option<RunBarVi
     let Some(run) = run.as_mut().filter(|r| r.current() == Some(&key)) else {
         return Ok(None);
     };
-    Ok(page::run_bar(&run.bar(&items, Instant::now()), &next_keys()))
+    Ok(page::run_bar(&run.bar(&items, Instant::now()), next.as_deref()))
 }
 
 #[cfg(test)]

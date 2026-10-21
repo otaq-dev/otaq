@@ -2,11 +2,21 @@
 // the frames by hand, light and dark, and in any of the 15 themes (the palette switch recolors the page for a look,
 // without saving; the theme picker in it saves, as it does in Settings). What comes from Rust (legend, priority, type
 // scale, icons, keyboard map, menus) is `gallery.view`; the rest are the frames' sample texts.
-import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { FrameBody } from "../../app/Frame";
 import { INITIAL_LAYOUT, layoutView, loadLayout } from "../../app/layout";
 import { createRegistries, type OverlayProps, RegistriesContext } from "../../app/registry";
+import { SequenceHintLine } from "../../app/SequenceHint";
+import { PaletteGallery } from "../palette/PaletteGallery";
 import { useStore } from "../../app/store";
 import { openOverlay } from "../../app/overlays";
 import { EpicCard, stateOfLook, TicketCard } from "../../cards";
@@ -64,7 +74,8 @@ import type { OnboardingToolsGallery } from "../../generated/OnboardingToolsGall
 import type { WarmSwitchGallery } from "../../generated/WarmSwitchGallery";
 import type { GalleryView } from "../../generated/GalleryView";
 import type { IconName } from "../../generated/IconName";
-import type { KeyMapGroup } from "../../generated/KeyMapGroup";
+import type { KeyMapView } from "../../generated/KeyMapView";
+import type { ShortcutKey } from "../../generated/ShortcutKey";
 import type { InboxLeadGallery } from "../../generated/InboxLeadGallery";
 import type { LeadGallery } from "../../generated/LeadGallery";
 import type { LeadSplit } from "../../generated/LeadSplit";
@@ -79,6 +90,7 @@ import type { TrustGallery } from "../../generated/TrustGallery";
 import type { NotificationsGallery } from "../../generated/NotificationsGallery";
 import type { SettingsSkillDialog } from "../../generated/SettingsSkillDialog";
 import type { WorkflowSkillsGallery } from "../../generated/WorkflowSkillsGallery";
+import type { ShortcutsGallery } from "../../generated/ShortcutsGallery";
 import type { OptionNotesGallery } from "../../generated/OptionNotesGallery";
 import type { InboxView } from "../../generated/InboxView";
 import {
@@ -109,12 +121,15 @@ import { CleanupBody } from "../recovery/Cleanup";
 import "../recovery/recovery.css";
 import { SuggestedBy } from "../inbox/SuggestedBy";
 import { ChangeDecisionBody } from "../review/Dialogs";
+import { ShortcutCard } from "../shortcuts/ShortcutList";
+import "../shortcuts/shortcuts.css";
 import { SettingsContext, type SettingsContextValue } from "../settings/context";
 import { WarmOffDialog } from "../settings/Dialogs";
 import { EnvVarsRow } from "../settings/EnvVars";
 import { AgentsSectionBody, ProjectAgentsBody } from "../settings/Agents";
 import { AgentDeleteDialogView, AgentDialog } from "../settings/AgentDialog";
 import { AgentToolsPageBody, DisconnectDialogView } from "../settings/AgentTools";
+import { type ShortcutsCalls, ShortcutsView } from "../settings/Keyboard";
 import {
   Section as SettingsSectionRows,
   SkillDialogView,
@@ -155,7 +170,7 @@ function ShellFrames() {
         <figure key={`${String(width)}${String(hidden)}`} className="gallery-shell">
           <figcaption>
             {width} × {height}
-            {hidden ? " · pane hidden (⌘\\)" : ""}
+            {hidden ? " · pane hidden (⌘B)" : ""}
           </figcaption>
           <div className="gallery-shell-box" style={{ width: width / 2, height: height / 2 }}>
             <div className="frame gallery-shell-frame" style={{ width, height }}>
@@ -443,12 +458,12 @@ function TabsAndToggles() {
   const [on, setOn] = useState(true);
   const [off, setOff] = useState(false);
   const tabs = [
-    { icon: "square-terminal", label: "Terminal", indicator: { kind: "live" }, keys: "⌘⌥1" },
-    { icon: "file-diff", label: "Diff", indicator: { kind: "note", text: "+412 −38" }, keys: "⌘⌥2" },
-    { icon: "play", label: "Run", indicator: { kind: "note", text: ":4020" }, keys: "⌘⌥3" },
-    { icon: "terminal", label: "Shell", keys: "⌘⌥4" },
-    { icon: "file-text", label: "Ticket", keys: "⌘⌥5" },
-    { icon: "history", label: "History", indicator: { kind: "live_attention" }, keys: "⌘⌥6" },
+    { icon: "square-terminal", label: "Terminal", indicator: { kind: "live" }, keys: "1" },
+    { icon: "file-diff", label: "Diff", indicator: { kind: "note", text: "+412 −38" }, keys: "2" },
+    { icon: "play", label: "Run", indicator: { kind: "note", text: ":4020" }, keys: "3" },
+    { icon: "terminal", label: "Shell", keys: "4" },
+    { icon: "file-text", label: "Ticket", keys: "5" },
+    { icon: "history", label: "History", indicator: { kind: "live_attention" }, keys: "6" },
   ] as const;
   return (
     <div className="gallery-stack">
@@ -601,7 +616,7 @@ function Overlays({ view }: { view: GalleryView }) {
         )}
         <Caption>TOOLTIP · POPOVER</Caption>
         <div className="gallery-wrap">
-          <Tooltip text="Open terminal" keys="⌘⌥1">
+          <Tooltip text="Open terminal" keys="1">
             <IconButton icon="square-terminal" label="Open terminal" />
           </Tooltip>
           <Tooltip
@@ -827,44 +842,71 @@ function Stack({ view }: { view: GalleryView }) {
   );
 }
 
-function KeyColumn({ keys }: { keys: string | null }) {
+/** A map cell's keys, joined by "or", a sequence's two by "then"; none is "—". */
+function MapKeys({ keys, map }: { keys: readonly ShortcutKey[]; map: KeyMapView }) {
+  if (keys.length === 0) return <span className="gallery-secondary">—</span>;
   return (
-    <span className="gallery-keys">
-      {keys === null ? <span className="gallery-secondary">—</span> : <Kbd keys={keys} />}
-    </span>
+    <>
+      {keys.map((key, i) => (
+        <Fragment key={key.kbds.join(" ")}>
+          {i > 0 && <span className="gallery-keyword">{map.or}</span>}
+          {key.kbds.map((kbd, j) => (
+            <Fragment key={kbd}>
+              {j > 0 && <span className="gallery-keyword">{map.then}</span>}
+              <Kbd keys={kbd} />
+            </Fragment>
+          ))}
+        </Fragment>
+      ))}
+    </>
   );
 }
 
-function KeyboardMap({
-  groups,
-  columns,
-  notes,
-}: {
-  groups: readonly KeyMapGroup[];
-  columns: string;
-  notes: readonly string[];
-}) {
+/** *01 · Components → Keyboard map (update AF · 0097)*: the single letters, the modifier keys in three columns (the
+ * parked Files view's rows dimmed and tagged), and the notes. */
+function KeyboardMap({ map }: { map: KeyMapView }) {
   return (
     <div className="gallery-stack">
       <div className="gallery-keymap">
-        {groups.map((group) => (
-          <div key={group.title} className="gallery-keygroup">
-            <div className="gallery-keygroup-head">
-              <h4>{group.title}</h4>
-              <span className="gallery-note">{columns}</span>
+        <div className="gallery-keygroup gallery-keyletters">
+          <div className="gallery-keygroup-head">
+            <h4>{map.letters_title}</h4>
+            <span className="gallery-note">{map.letters_note}</span>
+          </div>
+          {map.letters.map((row) => (
+            <div key={row.label} className="gallery-keyrow">
+              <span className="gallery-keylabel">{row.label}</span>
+              <span className="gallery-keys">
+                <MapKeys keys={[row.key]} map={map} />
+              </span>
             </div>
-            {group.rows.map((row) => (
-              <div key={row.label} className="gallery-keyrow">
-                <span className="gallery-keylabel">{row.label}</span>
-                <KeyColumn keys={row.mac} />
-                <KeyColumn keys={row.win_linux} />
-                <KeyColumn keys={row.in_terminal} />
-              </div>
+          ))}
+        </div>
+        <div className="gallery-keygroup gallery-keymods">
+          <div className="gallery-keyrow gallery-keymods-head">
+            <h4 className="gallery-keylabel">{map.modifiers_title}</h4>
+            {map.columns.map((column) => (
+              <span key={column} className="gallery-note">
+                {column}
+              </span>
             ))}
           </div>
-        ))}
+          {map.modifiers.map((row) => (
+            <div key={row.label} className="gallery-keyrow" data-parked={row.parked !== null || undefined}>
+              <span className="gallery-keylabel">
+                {row.label}
+                {row.parked !== null && <span className="gallery-keytag">{row.parked}</span>}
+              </span>
+              {[row.mac, row.win_linux, row.in_terminal].map((keys, i) => (
+                <span key={map.columns[i]} className="gallery-keys">
+                  <MapKeys keys={keys} map={map} />
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
-      {notes.map((note, i) => (
+      {map.notes.map((note, i) => (
         <p key={note} className={i === 0 ? "gallery-keynote-first" : "gallery-note"}>
           {note}
         </p>
@@ -1685,6 +1727,13 @@ const loadAgentTools = () => request("gallery.agent_tools") as Promise<AgentTool
 const loadOnboardingTools = () => request("gallery.onboarding_tools") as Promise<OnboardingToolsGallery>;
 
 const THEMES = ["otaq-light", "otaq-dark"] as const;
+
+/** The ? list's three samples (`GalleryView.shortcut_lists`), as the artboards name them. */
+const SHORTCUT_LISTS = [
+  "? · every shortcut, grouped",
+  "After you change a shortcut",
+  "Single letters switched off",
+];
 const themed = { padding: 16, background: "var(--bg-app)", color: "var(--text-primary)" };
 
 /** *15* `bGHVl` / `ehz4J` (T-0365, d0086): Settings → Agent tools from `gallery.agent_tools` in Otaq Light and Dark: the
@@ -1871,7 +1920,7 @@ function PaneSection() {
               />
             </div>
             <div className="gallery-stack-tight">
-              <Caption>HIDDEN WITH ⌘\ · AN AGENT WAITS</Caption>
+              <Caption>HIDDEN WITH ⌘B · AN AGENT WAITS</Caption>
               <div className="gallery-pane-strip">
                 <Icon name="bot" size={15} />
                 {view.states[0]?.view.agent_waits && <span className="pane-strip-dot" />}
@@ -2220,6 +2269,63 @@ function WorkflowSkillsGallerySection() {
   );
 }
 
+const loadShortcuts = () => request("gallery.keyboard_page") as Promise<ShortcutsGallery>;
+
+/** T-0395 (KEY-05, KEY-04; d0097; *15 · Keyboard shortcuts* `s15-46`…`s15-55`): Settings → Keyboard shortcuts in
+ * every frame, macOS and Windows / Linux, from `gallery.keyboard_page`, in Otaq Light and Dark. Clicks and pressed
+ * keys are only recorded; nothing is saved. */
+function ShortcutsGallerySection() {
+  const { view, error } = useServiceView(loadShortcuts, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const calls: ShortcutsCalls = {
+    record: (slot, press) => {
+      setPicked(`record ${JSON.stringify(slot.action)} ${String(slot.slot)} ${press.key}`);
+      return Promise.resolve({ outcome: "ignored" });
+    },
+    edit: (edit) => {
+      setPicked(JSON.stringify(edit));
+      return Promise.resolve({ outcome: "done", changed: 0 });
+    },
+    resetRow: (keys) => {
+      setPicked(`reset ${JSON.stringify(keys)}`);
+      return Promise.resolve({ outcome: "done", changed: 0 });
+    },
+  };
+  return (
+    <Section title="15 · Settings → Keyboard shortcuts: defaults, changed, letters off, recording, taken, refused, Windows / Linux (T-0395)">
+      <Caption>Last click: {picked ?? "—"}</Caption>
+      <div className="gallery-two">
+        {THEMES.map((theme) => (
+          <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+            <Caption>{theme.toUpperCase()}</Caption>
+            {view.cells.map((cell) => (
+              <div
+                key={cell.name}
+                className="gallery-stack-tight"
+                data-cell={cell.name}
+                style={{ padding: "0 24px 14px", borderRadius: 10, background: "var(--bg-panel)" }}
+              >
+                <Caption>
+                  {cell.name.toUpperCase()} · {cell.note}
+                </Caption>
+                <ShortcutsView
+                  page={cell.page}
+                  calls={calls}
+                  moment={cell.moment}
+                  rows={cell.rows.length === 0 ? undefined : cell.rows}
+                  header={cell.header}
+                />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 function TrustSection() {
   const { view, error } = useServiceView(loadTrust, []);
   if (error) return <p role="alert">{error.message}</p>;
@@ -2557,6 +2663,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <TrustSection />
         <NotificationsGallerySection />
         <WorkflowSkillsGallerySection />
+        <ShortcutsGallerySection />
         <AgentToolsGallerySection />
         <OnboardingToolsGallerySection />
         <BoardReviewSection />
@@ -2598,12 +2705,46 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
             <Section title="Stack list row">
               <Stack view={view} />
             </Section>
-            <Section title="Keyboard map">
-              <KeyboardMap
-                groups={view.keyboard_map}
-                columns={view.keyboard_columns}
-                notes={view.keyboard_notes}
-              />
+            <Section title="Keyboard map (update AF · 0097)">
+              <KeyboardMap map={view.keyboard_map} />
+            </Section>
+            <Section title="02 · The g hint, close up and with a recorded g p (update AF §7, s02-30 / s02-31, T-0391)">
+              <div className="gallery-two">
+                {THEMES.map((theme) => (
+                  <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+                    <Caption>{theme.toUpperCase()}</Caption>
+                    <Caption>The hint, close up</Caption>
+                    <SequenceHintLine hint={view.g_hints[0]} />
+                    <Caption>With a sequence you recorded</Caption>
+                    <SequenceHintLine hint={view.g_hints[1]} />
+                  </div>
+                ))}
+              </div>
+            </Section>
+            <Section title="02 · The ? shortcut list (update AF §4, s02-24…s02-27, T-0394)">
+              <div className="gallery-stack">
+                {THEMES.map((theme) => (
+                  <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+                    <Caption>{theme.toUpperCase()}</Caption>
+                    {view.shortcut_lists.map((list, i) => (
+                      <Fragment key={SHORTCUT_LISTS[i]}>
+                        <Caption>{SHORTCUT_LISTS[i]}</Caption>
+                        <div className="shortcuts">
+                          <ShortcutCard view={list} onSettings={() => undefined} />
+                        </div>
+                      </Fragment>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </Section>
+            <Section title="02 · Command palette: just opened, typing, >, no results, another project, can't run, Windows / Linux (update AF §3, s02-20 … s02-23, T-0393)">
+              {THEMES.map((theme) => (
+                <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+                  <Caption>{theme.toUpperCase()}</Caption>
+                  <PaletteGallery frames={view.palette} />
+                </div>
+              ))}
             </Section>
           </>
         )}

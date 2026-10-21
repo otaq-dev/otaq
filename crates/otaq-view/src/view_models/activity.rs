@@ -26,6 +26,7 @@ use super::limits::{self, AgentsChip};
 use super::processes;
 use super::run_page::{self, ProcessesView};
 use super::tool_avatar::{self, AvatarTool, ToolAvatarView};
+use crate::key_labels::KeyLabels;
 use crate::keymap::{KeyAction, Platform};
 
 /// A window with this share left or less (in %) shows in the button and turns its bar amber.
@@ -231,12 +232,12 @@ pub struct Button {
     /// The usage warning; `None` while every window has more than [`WARN_AT_LEFT`] % left.
     pub warning: Option<Warning>,
     pub hover: Hover,
-    /// "Activity" and ⇧⌘U, which opens the popover as a click does.
+    /// "Activity" and the user's key for it (⇧⌘U), which opens the popover as a click does.
     pub label: &'static str,
     pub keys: Option<String>,
 }
 
-pub fn button(inputs: &Inputs<'_>, platform: Platform) -> Button {
+pub fn button(inputs: &Inputs<'_>, keys: &KeyLabels) -> Button {
     let running = inputs.running();
     Button {
         agents: limits::agents_chip(inputs.limits, inputs.scheduler, running),
@@ -244,7 +245,7 @@ pub fn button(inputs: &Inputs<'_>, platform: Platform) -> Button {
         warning: warning(inputs),
         hover: hover(inputs, running),
         label: "Activity",
-        keys: KeyAction::OpenActivity.keys(platform),
+        keys: keys.label(KeyAction::OpenActivity),
     }
 }
 
@@ -413,7 +414,7 @@ pub struct Processes {
     pub list: ProcessesView,
 }
 
-/// The popover's last line: "Open Terminals ⇧⌘T".
+/// The popover's last line: "Open Terminals ⌃`".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ActivityLink")]
 pub struct Link {
@@ -443,7 +444,7 @@ fn credits(window: &LimitWindow) -> Option<String> {
     })
 }
 
-pub fn popover(inputs: &Inputs<'_>, platform: Platform) -> Popover {
+pub fn popover(inputs: &Inputs<'_>, keys: &KeyLabels) -> Popover {
     let shown = tool_avatar::shown_with(&inputs.tools.iter().map(|(t, _)| *t).collect::<Vec<_>>());
     let avatar = |tool: AvatarTool| shown.then(|| ToolAvatarView::of(tool, None));
     let running = inputs.running();
@@ -512,7 +513,7 @@ pub fn popover(inputs: &Inputs<'_>, platform: Platform) -> Popover {
         processes,
         open_terminals: Link {
             label: "Open Terminals",
-            keys: KeyAction::ProjectTerminal.keys(platform),
+            keys: keys.label(KeyAction::Terminals),
         },
     }
 }
@@ -533,10 +534,16 @@ pub struct Gallery {
 pub fn gallery() -> Gallery {
     let f = fixtures::Fixtures::new();
     let button_of = |caption: &str, s: &fixtures::State| {
-        (caption.to_owned(), button(&s.inputs(), Platform::Mac))
+        (
+            caption.to_owned(),
+            button(&s.inputs(), &KeyLabels::base(Platform::Mac)),
+        )
     };
     let popover_of = |caption: &str, s: &fixtures::State| {
-        (caption.to_owned(), popover(&s.inputs(), Platform::Mac))
+        (
+            caption.to_owned(),
+            popover(&s.inputs(), &KeyLabels::base(Platform::Mac)),
+        )
     };
     Gallery {
         buttons: vec![
@@ -844,11 +851,11 @@ mod tests {
     }
 
     fn mac_button(s: &State) -> Button {
-        button(&s.inputs(), Platform::Mac)
+        button(&s.inputs(), &KeyLabels::base(Platform::Mac))
     }
 
     fn mac_popover(s: &State) -> Popover {
-        popover(&s.inputs(), Platform::Mac)
+        popover(&s.inputs(), &KeyLabels::base(Platform::Mac))
     }
 
     #[test]
@@ -861,6 +868,36 @@ mod tests {
         assert_eq!(b.warning, None);
         assert_eq!(b.label, "Activity");
         assert_eq!(b.keys.as_deref(), Some("⇧⌘U"));
+    }
+
+    /// KEY-08: Activity's tooltip and the popover's Open Terminals show the user's keys: Activity → ⌘J, Terminals'
+    /// ⌃` removed (its `g` `t` shows), and with letters off too, none.
+    #[test]
+    fn the_button_and_the_popover_show_the_users_keys() {
+        use crate::key_labels::fixtures as keys;
+        let f = Fixtures::new();
+        let j = keys::mac(&keys::activity_on_cmd_j());
+        assert_eq!(button(&f.calm.inputs(), &j).keys.as_deref(), Some("⌘J"));
+        let removed = keys::removed("open_activity", None, 0);
+        assert_eq!(
+            button(&f.calm.inputs(), &removed).keys.as_deref(),
+            Some("g a")
+        );
+        let none = keys::with(false, &[("open_activity", None, 0, None)]);
+        assert_eq!(button(&f.calm.inputs(), &none).keys, None);
+        let terminals = keys::removed("terminals", None, 0);
+        assert_eq!(
+            popover(&f.calm.inputs(), &terminals)
+                .open_terminals
+                .keys
+                .as_deref(),
+            Some("g t")
+        );
+        let neither = keys::with(false, &[("terminals", None, 0, None)]);
+        assert_eq!(
+            popover(&f.calm.inputs(), &neither).open_terminals.keys,
+            None
+        );
     }
 
     #[test]
@@ -938,7 +975,7 @@ mod tests {
         };
         let mut inputs = f.limits_on.inputs();
         inputs.scheduler = Some(&status);
-        let b = button(&inputs, Platform::Mac);
+        let b = button(&inputs, &KeyLabels::base(Platform::Mac));
         assert_eq!((b.agents.count.as_str(), b.agents.label), ("4/5", "agents"));
         assert!(b.agents.control);
     }
@@ -1031,7 +1068,7 @@ mod tests {
         assert_eq!(processes.list.rows[0].open.as_deref(), Some("Open :4020"));
         assert_eq!(processes.list.stop_all, "Stop all");
         assert_eq!(p.open_terminals.label, "Open Terminals");
-        assert_eq!(p.open_terminals.keys.as_deref(), Some("⇧⌘T"));
+        assert_eq!(p.open_terminals.keys.as_deref(), Some("⌃`"));
     }
 
     #[test]

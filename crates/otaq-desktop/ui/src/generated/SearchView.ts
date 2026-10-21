@@ -11,7 +11,7 @@ export type SearchView = {
  */
 filter: BoardFilter, placeholder: string, 
 /**
- * ⌘K, shown while no filter is active.
+ * The user's key for Filter the board (`/`), shown while no filter is active.
  */
 keys: string | null, 
 /**

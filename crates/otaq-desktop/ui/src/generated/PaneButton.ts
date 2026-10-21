@@ -6,6 +6,6 @@ import type { IconName } from "./IconName";
  */
 export type PaneButton = { icon: IconName, label: string, 
 /**
- * "⇧⌘A".
+ * "⇧⌘L".
  */
 keys: string | null, };

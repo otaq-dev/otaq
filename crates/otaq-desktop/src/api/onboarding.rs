@@ -5,16 +5,13 @@
 //! detected values, the key's live check, the connected tools that keep folder trust); `onboarding.add` adds the
 //! project or says why not, and which tools' folder trust wasn't recorded and why (PRJ-07, d0085, d0086). The Tools
 //! step's agent tool rows act through `agent_tools.*` (Sign in…, Show, Hide). A folder dropped on the window reaches
-//! the page as a `folder_dropped` event ([`dropped`]).
-
-use std::path::Path;
+//! the page as a `files_dropped` event ([`crate::drops`]).
 
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::agent_tools::SetupOutcome as Outcome;
 use otaq_core::agent_tools::Tool;
 use otaq_core::protocol::{OnboardingState, PathParams, Reply, Request};
-use otaq_view::keymap::Platform;
 use otaq_view::view_models::add_project::AddProjectModel;
 use otaq_view::view_models::onboarding::OnboardingModel;
 use otaq_view::view_models::onboarding_page::{self, AddProjectPage, Texts, Tools};
@@ -24,12 +21,11 @@ use ts_rs::TS;
 
 use super::{RequestError, reply, unknown};
 use crate::App;
-use crate::events::PageEvent;
 
 pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
     match method {
         "onboarding.start" => reply(&start(app).await?),
-        "onboarding.texts" => reply(&texts()),
+        "onboarding.texts" => reply(&texts(app).await),
         "onboarding.tools" => reply(&tools(app).await?),
         "onboarding.dismiss_warning" => {
             app.service.send(Request::DismissPermissionWarning).await?;
@@ -69,8 +65,8 @@ async fn start(app: &App) -> Result<Start, RequestError> {
     })
 }
 
-fn texts() -> Texts {
-    onboarding_page::texts(Platform::current())
+async fn texts(app: &App) -> Texts {
+    onboarding_page::texts(&super::keymap::labels(app).await)
 }
 
 /// Runs the service's tools check and answers the checklist (Re-check asks again).
@@ -131,7 +127,7 @@ async fn form(
             Ok(other) => Err((None, format!("unexpected answer: {other:?}"))),
             Err(e) => Err((e.refusal, e.message)),
         };
-        model.probed(result, &projects, Platform::current());
+        model.probed(result, &projects, &super::keymap::labels(app).await);
     }
     if params.key_edited {
         model.set_key(&params.key);
@@ -223,16 +219,10 @@ async fn failed_tools(app: &App, key: &str, reason: String) -> Vec<(Tool, String
     vec![(tool, reason)]
 }
 
-/// A folder dropped on the window (the door's drop event): the page opens Add project with it (*02 → No projects
-/// yet*: "or drop a folder anywhere in this window").
-pub fn dropped(app: &App, path: &Path) {
-    app.events.publish(&PageEvent::FolderDropped {
-        path: path.display().to_string(),
-    });
-}
-
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use otaq_core::git::testing::TempRepos;
     use serde_json::json;
 

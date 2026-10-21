@@ -133,20 +133,20 @@ describe("the drawer", () => {
   });
 });
 
-describe("⇧⌘T", () => {
-  it("registers the drawer and ⇧⌘T from its folder (⇧⌘A is the pane's)", () => {
+describe("Terminals", () => {
+  it("registers the drawer and Terminals from its folder (New Project agent is the pane's)", () => {
     const app = registerScreens({ terminals });
     expect(registered(app)).toMatchObject({ overlays: ["terminals"] });
-    expect(app.shortcuts.names()).toEqual(["project_terminal"]);
+    expect(app.shortcuts.names()).toEqual(["terminals"]);
     // No project shown: the key passes.
-    expect(app.shortcuts.run({ action: "project_terminal" })).toBe(false);
+    expect(app.shortcuts.run({ action: "terminals" })).toBe(false);
   });
 
   it("toggles: an open drawer closes", () => {
     const app = registerScreens({ terminals });
     selection.set({ ...NOTHING_SELECTED, project: "SHOP" });
     overlays.open("terminals");
-    expect(app.shortcuts.run({ action: "project_terminal" })).toBe(true);
+    expect(app.shortcuts.run({ action: "terminals" })).toBe(true);
     expect(overlays.store.get()).toEqual([]);
   });
 

@@ -426,7 +426,7 @@
   transition: opacity var(--motion-fast) var(--ease-in-out);
 }
 
-/* A focused epic (EPC-18; *04 → Focus · click a track's name or ⇧⌘G*): its label outlined in the accent, the other
+/* A focused epic (EPC-18; *04 → Focus · click a track's name or `g` `e`*): its label outlined in the accent, the other
    tracks faded. */
 .strip-label[data-focused] {
   box-shadow: inset 0 0 0 1.5px var(--accent);

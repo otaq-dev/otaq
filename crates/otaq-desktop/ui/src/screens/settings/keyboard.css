@@ -1,0 +1,308 @@
+/* Settings → Keyboard shortcuts (T-0395; *15 · Keyboard shortcuts*, `s15-46`…`s15-55`). */
+
+.settings-header-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  align-items: center;
+  margin-right: 8px;
+}
+
+.settings-header-actions:empty {
+  display: none;
+}
+
+.shortcut-settings {
+  display: flex;
+  flex-direction: column;
+  padding-top: 16px;
+}
+
+.shortcut-settings-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-bottom: 8px;
+}
+
+.shortcut-settings-header h2 {
+  flex: 1;
+  margin: 0;
+  font: 600 20px var(--font-ui);
+}
+
+.shortcut-settings .settings-intro {
+  padding-bottom: 14px;
+  font-size: 13px;
+}
+
+.shortcut-settings-letters {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.shortcut-settings-letters-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.shortcut-settings-letters-label {
+  color: var(--text-primary);
+  font: 500 13px var(--font-ui);
+}
+
+.shortcut-settings-letters-description {
+  color: var(--text-secondary);
+  font: 400 12px/1.4 var(--font-ui);
+}
+
+.shortcut-settings-terminals-note {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+  padding: 10px 0;
+  color: var(--text-secondary);
+  font: 400 12px var(--font-ui);
+}
+
+.shortcut-settings-terminals-note .icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.shortcut-settings-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.shortcut-settings-group-title {
+  margin: 0;
+  padding: 18px 0 6px;
+  color: var(--text-secondary);
+  font: 400 10px var(--font-mono);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.shortcut-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+}
+
+.shortcut-row[data-recording] {
+  background: var(--bg-hover);
+}
+
+.shortcut-name {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  color: var(--text-primary);
+  font: 400 13px var(--font-ui);
+}
+
+.shortcut-row[data-dimmed] .shortcut-name {
+  color: var(--text-muted);
+}
+
+.shortcut-default {
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+/* The drawn widths are each column's basis: in a narrower dialog they shrink down to their widest cell (the keys
+   wrap onto a second line, the names wrap), so the page never scrolls sideways. */
+.shortcut-keys {
+  display: flex;
+  flex: 0 1 250px;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.shortcut-settings[data-terminals-column] .shortcut-name {
+  flex: 0 1 200px;
+}
+
+.shortcut-settings[data-terminals-column] .shortcut-keys {
+  flex-basis: 210px;
+}
+
+.shortcut-cell-slot,
+.shortcut-pair,
+.shortcut-pair-half,
+.shortcut-chip-group {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.shortcut-or,
+.shortcut-then {
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+.shortcut-cell {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 6px;
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.shortcut-cell:hover:not([data-range]) {
+  background: var(--bg-hover);
+}
+
+.shortcut-cell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.shortcut-cell[data-range] {
+  cursor: default;
+}
+
+.shortcut-cell[data-changed] .kbd {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.shortcut-cell[data-dimmed] .kbd {
+  opacity: 0.45;
+}
+
+.shortcut-cell[data-no-key] {
+  padding: 2px 8px;
+  border-radius: 4px;
+  outline-color: var(--border-strong);
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+}
+
+.shortcut-cell[data-recording] {
+  gap: 6px;
+  padding: 3px 8px;
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: 400 12px var(--font-ui);
+  cursor: default;
+}
+
+.shortcut-terminals {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  color: var(--text-secondary);
+  font: 400 12px var(--font-ui);
+}
+
+.shortcut-settings:not([data-terminals-column]) .shortcut-terminals {
+  flex: none;
+}
+
+.shortcut-in-terminals {
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+}
+
+.shortcut-reset {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+}
+
+.shortcut-hint {
+  margin: 0;
+  padding: 4px 0;
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+.shortcut-answer {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 7px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font: 400 12.5px var(--font-ui);
+}
+
+.shortcut-answer > .icon {
+  flex: none;
+}
+
+.shortcut-answer[data-tone="refused"] {
+  background: var(--st-error-bg);
+}
+
+.shortcut-answer[data-tone="refused"] > .icon {
+  color: var(--st-error);
+}
+
+.shortcut-answer[data-tone="warn"] {
+  background: var(--st-paused-bg);
+}
+
+.shortcut-answer[data-tone="warn"] > .icon {
+  color: var(--st-paused);
+}
+
+.shortcut-answer-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A pair's two keys share one outlined cell (`⌘] / ⌘[`); each half still records on its own. */
+.shortcut-pair {
+  padding: 3px 5px;
+  border-radius: 6px;
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+}
+
+.shortcut-pair .shortcut-cell:not([data-recording]) {
+  padding: 0;
+  outline: 0;
+}
+
+.shortcut-pair .shortcut-cell:not([data-recording]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.shortcut-terminals .choice {
+  white-space: nowrap;
+}

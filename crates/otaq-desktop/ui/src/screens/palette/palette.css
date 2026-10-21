@@ -1,0 +1,258 @@
+/*
+ * The command palette (*02 · Command palette*, s02-19 … s02-23): 640 px wide, 96 px from the top, over a dimmed
+ * window. Theme variables only, except the dimming and the shadow, drawn as in the artboards.
+ */
+
+.palette-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgb(14 15 17 / 40%);
+}
+
+.palette {
+  position: fixed;
+  top: 96px;
+  left: 50%;
+  z-index: 21;
+  transform: translateX(-50%);
+}
+
+.palette,
+.palette-still {
+  display: flex;
+  flex-direction: column;
+  width: 640px;
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-dialog);
+  background: var(--bg-raised);
+  box-shadow:
+    0 10px 28px rgb(0 0 0 / 14%),
+    0 1px 3px rgb(0 0 0 / 8%);
+  color: var(--text-primary);
+  font: 400 13px/17px var(--font-ui);
+}
+
+.palette-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.palette-field input,
+.palette-query {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+  font: 400 14px/18px var(--font-ui);
+}
+
+.palette-field input::placeholder,
+.palette-query[data-empty] {
+  color: var(--text-muted);
+}
+
+.palette-prefix {
+  margin-right: -4px;
+  color: var(--accent);
+  font: 400 14px/18px var(--font-mono);
+}
+
+.palette-hint {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.palette-hint[data-on] {
+  color: var(--accent);
+}
+
+.palette-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 420px;
+  padding: 6px;
+  overflow-y: auto;
+}
+
+.palette-section {
+  padding: 8px 10px 4px;
+  color: var(--text-muted);
+  font: 400 10px/13px var(--font-mono);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.palette-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 4px;
+  color: var(--text-muted);
+  font: 400 10px/13px var(--font-mono);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.palette-divider span {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.palette-row {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.palette-row[aria-selected="true"] {
+  background: var(--accent-soft);
+}
+
+.palette-row[aria-selected="true"]::before {
+  position: absolute;
+  top: 7px;
+  left: 0;
+  width: 2px;
+  height: 20px;
+  border-radius: 1px;
+  background: var(--accent);
+  content: "";
+}
+
+.palette-row[aria-disabled="true"] {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.palette-title {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-row[aria-disabled="true"] .palette-title {
+  color: var(--text-muted);
+}
+
+.palette-aside {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.palette-key {
+  flex: none;
+  width: 74px;
+  color: var(--text-secondary);
+  font: 400 12px var(--font-mono);
+}
+
+.palette-place {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.palette-fill {
+  flex: 1;
+  min-width: 0;
+}
+
+.palette-keys {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.palette-keys[data-dim] .kbd {
+  opacity: 0.45;
+}
+
+.palette-or {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.palette-nothing {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 12px;
+}
+
+.palette-nothing-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.palette-nothing-title .icon {
+  color: var(--text-muted);
+}
+
+.palette-nothing-hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.palette-footer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.palette-gap {
+  width: 6px;
+}
+
+.palette-opens {
+  font: 400 11px var(--font-mono);
+}
+
+/* ---- Gallery: the states side by side ---- */
+
+.palette-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.palette-gallery-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

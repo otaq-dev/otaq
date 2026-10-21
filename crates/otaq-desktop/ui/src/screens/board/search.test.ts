@@ -104,7 +104,7 @@ describe("the search field", () => {
       }),
     );
 
-  it("draws the chips with their ×, what is typed and the count, as *Search & filter · ⌘K*", () => {
+  it("draws the chips with their ×, what is typed and the count, as *Search & filter*", () => {
     const html = box();
     expect(html).toContain('data-tauri-drag-region="false"');
     expect(html).toContain("is:needs-you");
@@ -114,13 +114,13 @@ describe("the search field", () => {
     expect(html).not.toContain('placeholder="Search');
   });
 
-  it("shows the placeholder and ⌘K while no filter is active", () => {
+  it("shows the placeholder and the filter key while no filter is active", () => {
     const html = box({
       filter: NO_FILTER,
-      view: { ...VIEW, filter: NO_FILTER, results: null, keys: "⌘K" },
+      view: { ...VIEW, filter: NO_FILTER, results: null, keys: "/" },
     });
     expect(html).toContain('placeholder="Search  ·  is:needs-you"');
-    expect(html).toContain("⌘K");
+    expect(html).toContain(">/<");
     expect(html).not.toContain("results");
   });
 
@@ -128,7 +128,7 @@ describe("the search field", () => {
     const header = { project: { key: "SHOP", name: "shop-web", base_branch: "main", path: "~/shop-web" } };
     const view = {
       ...header,
-      search: { text: "Search  ·  is:needs-you", keys: "⌘K" },
+      search: { text: "Search  ·  is:needs-you", keys: "/" },
       activity: {
         agents: { count: "0", label: "running", active: false, control: false },
         processes: null,
@@ -151,11 +151,11 @@ describe("the search field", () => {
     expect(html).not.toContain("header-search");
   });
 
-  it("⌘K asks the field for the keyboard while a project is shown", () => {
+  it("Filter the board asks the field for the keyboard while a project is shown", () => {
     const app = registerScreens({ board });
-    expect(app.shortcuts.run({ action: "search" })).toBe(false);
+    expect(app.shortcuts.run({ action: "filter_board" })).toBe(false);
     selection.set({ ...NOTHING_SELECTED, project: "SHOP" });
-    expect(app.shortcuts.run({ action: "search" })).toBe(true);
+    expect(app.shortcuts.run({ action: "filter_board" })).toBe(true);
     expect(searchFocusRequests.get()).toBe(1);
   });
 });

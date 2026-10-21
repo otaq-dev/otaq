@@ -13,14 +13,15 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::keymap::{KeyAction, Platform};
+use crate::key_labels::KeyLabels;
+use crate::keymap::KeyAction;
 use crate::shell::tilde;
 use crate::view_models::add_project::AddProjectModel;
 use crate::view_models::agent_tools_page::{self, Place};
 use crate::view_models::banners::{self, BannerModel, BannerView, TrustFailure};
 use crate::view_models::editor_fields::branch_items;
 use crate::view_models::menu::{MenuItem, MenuSearch};
-use crate::view_models::onboarding::{OnboardingModel, RowIcon, STEPS, Step};
+use crate::view_models::onboarding::{OnboardingModel, RowIcon, STEPS, Step, ToolRow};
 
 /// An onboarding step as the page names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -112,8 +113,12 @@ pub struct Welcome {
     pub button: String,
 }
 
-pub fn welcome(platform: Platform) -> Welcome {
-    let inbox_key = KeyAction::NextInboxItem.keys(platform).unwrap_or_default();
+pub fn welcome(keys: &KeyLabels) -> Welcome {
+    // Without a key for Next inbox item the sentence about it is left out.
+    let inbox_key = keys
+        .label(KeyAction::NextInboxItem)
+        .map(|k| format!(" {k} opens the next."))
+        .unwrap_or_default();
     Welcome {
         title: "Run coding agents from a board".to_owned(),
         text: format!(
@@ -133,7 +138,7 @@ pub fn welcome(platform: Platform) -> Welcome {
                 icon: IconName::Inbox,
                 title: "One inbox".to_owned(),
                 text: format!(
-                    "Permission prompts, questions and reviews from every project in one list. {inbox_key} opens the next."
+                    "Permission prompts, questions and reviews from every project in one list.{inbox_key}"
                 ),
             },
             Point {
@@ -194,6 +199,8 @@ pub enum RowLook {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ToolRowView")]
 pub struct ToolRowView {
+    /// "git", "gh", "az": what `tools.terminal` takes, and whose terminal shows under the row.
+    pub tool: String,
     pub name: String,
     /// "required" or "optional".
     pub badge: String,
@@ -201,8 +208,82 @@ pub struct ToolRowView {
     pub icon: IconName,
     pub status: String,
     pub explanation: Option<String>,
-    /// The install or login command, copyable.
+    /// The install or sign-in command, copyable.
     pub command: Option<String>,
+    /// Install / Add extension / Sign in…: runs `command` in a terminal under the row.
+    pub button: Option<ToolButton>,
+    /// "Needs Homebrew first (brew.sh)…".
+    pub note: Option<String>,
+}
+
+/// What a checklist row's button asks the service to run (`tools.terminal`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "ToolActionKind")]
+pub enum ToolActionKind {
+    Install,
+    Login,
+}
+
+/// A checklist row's Install / Add extension / Sign in… button.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ToolButton")]
+pub struct ToolButton {
+    /// The tool as `tools.terminal` takes it: "git", "gh", "az".
+    pub tool: String,
+    pub action: ToolActionKind,
+    pub label: String,
+    /// The terminal's title while it runs: "Installing gh…".
+    pub running: String,
+}
+
+/// The words of the terminal under a row (the checklist and the agent tools, onboarding and Settings).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ToolTerminalTexts")]
+pub struct ToolTerminalTexts {
+    /// Hides a running terminal; it keeps running, and the row's button shows it again.
+    pub hide: String,
+    pub close: String,
+    pub retry: String,
+    /// The command ended; the tools are checked again.
+    pub checking: String,
+    /// The check after it still offers the same fix (failed, cancelled).
+    pub not_done: String,
+    /// The check after it found the fix done: the terminal closes by itself.
+    pub done: String,
+}
+
+pub fn tool_terminal_texts() -> ToolTerminalTexts {
+    ToolTerminalTexts {
+        hide: "Hide".to_owned(),
+        close: "Close".to_owned(),
+        retry: "Retry".to_owned(),
+        checking: "Ended \u{b7} checking again\u{2026}".to_owned(),
+        not_done: "Not done yet \u{2014} see the output above".to_owned(),
+        done: "Done".to_owned(),
+    }
+}
+
+/// A checklist row's button, as the page sends it back.
+pub fn tool_button(row: &ToolRow) -> Option<ToolButton> {
+    row.button.as_ref().map(|b| ToolButton {
+        tool: row.tool.command().to_owned(),
+        action: match b.action {
+            otaq_core::tools::ToolAction::Install => ToolActionKind::Install,
+            otaq_core::tools::ToolAction::Login => ToolActionKind::Login,
+        },
+        label: b.label.to_owned(),
+        running: b.running.clone(),
+    })
+}
+
+/// The checklist's intro (onboarding and Settings).
+pub fn tools_intro() -> String {
+    format!(
+        "{} uses the tools already on your machine and never updates them. Install and Sign in\u{2026} run the \
+         command shown, in a terminal here \u{2014} nothing installs without your click.",
+        naming::PRODUCT_NAME
+    )
 }
 
 /// The agent tools on the Tools step (*14* `y2FCwP`, `z8OVF`; SET-02 `[M23]`, d0086): the same rows as Settings →
@@ -245,6 +326,7 @@ pub struct Tools {
     /// The user has projects already (Check tools from the board): Continue ends here, no Project step.
     pub has_projects: bool,
     pub copy: String,
+    pub terminal: ToolTerminalTexts,
     /// Under the list once a tool is connected (*14* `ODRG2`, M22): the starter entry and where to make others.
     pub agents_line: Option<String>,
 }
@@ -274,10 +356,7 @@ pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
     }
     Tools {
         title: "Tools".to_owned(),
-        text: format!(
-            "{} uses the tools already on your machine. It never installs or updates them.",
-            naming::PRODUCT_NAME
-        ),
+        text: tools_intro(),
         warning: model.show_permission_warning().then(|| PermissionWarning {
             title: "Your Claude Code settings ask for permission prompts".to_owned(),
             before: "With 5\u{2013}10 agents, prompts will stop agents often. Consider allowlists or auto mode ("
@@ -313,6 +392,9 @@ pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
                     RowIcon::MissingOptional => (RowLook::MissingOptional, IconName::CircleMinus),
                 };
                 ToolRowView {
+                    tool: r.tool.command().to_owned(),
+                    button: tool_button(&r),
+                    note: r.note.clone(),
                     name: r.name.to_owned(),
                     badge: if r.required { "required" } else { "optional" }.to_owned(),
                     look,
@@ -338,6 +420,7 @@ pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
         continue_reason: state.reason,
         has_projects,
         copy: "Copy".to_owned(),
+        terminal: tool_terminal_texts(),
         agents_line: state.enabled.then(agents_line),
     }
 }
@@ -580,7 +663,7 @@ pub fn trust_gallery() -> TrustGallery {
                 branches: Branches::default(),
             }),
             &[],
-            Platform::current(),
+            &KeyLabels::default(),
         );
         m
     };
@@ -696,6 +779,7 @@ pub fn tools_gallery() -> ToolsGallery {
         extension_installed: (tool == Tool::Az).then_some(true),
         install_command: None,
         login_command: None,
+        missing_package_manager: None,
     };
     let step = |statuses| {
         let mut m = OnboardingModel::new(false);
@@ -794,9 +878,9 @@ pub struct Texts {
     pub checking: String,
 }
 
-pub fn texts(platform: Platform) -> Texts {
+pub fn texts(keys: &KeyLabels) -> Texts {
     Texts {
-        welcome: welcome(platform),
+        welcome: welcome(keys),
         theme: theme_step(),
         title_bars: StepId::ALL.iter().map(|s| title_bar(*s)).collect(),
         no_projects: no_projects(),
@@ -810,6 +894,7 @@ mod tests {
     use otaq_core::tools::{PermissionCheck, PermissionVerdict, Tool, ToolStatus, ToolsReport};
 
     use super::*;
+    use crate::key_labels::fixtures;
 
     fn status(tool: Tool, found: bool) -> ToolStatus {
         ToolStatus {
@@ -821,6 +906,7 @@ mod tests {
             extension_installed: None,
             install_command: (!found).then(|| tool.install_command().to_owned()),
             login_command: None,
+            missing_package_manager: None,
         }
     }
 
@@ -864,12 +950,12 @@ mod tests {
             ]
         );
         assert_eq!(bar.steps[4].label, "Done");
-        assert_eq!(texts(Platform::Mac).title_bars.len(), 4);
+        assert_eq!(texts(&fixtures::base()).title_bars.len(), 4);
     }
 
     #[test]
     fn welcome_and_theme_words_match_the_frames() {
-        let w = welcome(Platform::Mac);
+        let w = welcome(&fixtures::base());
         assert_eq!(w.title, "Run coding agents from a board");
         assert_eq!(
             w.text,
@@ -886,7 +972,29 @@ mod tests {
                 naming::COMMAND_NAME
             )
         );
-        assert!(w.points[1].text.ends_with("⌘J opens the next."));
+        assert!(
+            w.points[1]
+                .text
+                .ends_with("in one list. ⌘J opens the next.")
+        );
+        // KEY-08: the user's key for Next inbox item, and no sentence about it without one.
+        let custom = fixtures::replaced("next_inbox_item", None, 0, "⇧⌘J");
+        assert!(
+            welcome(&custom).points[1]
+                .text
+                .ends_with(" ⇧⌘J opens the next.")
+        );
+        let moved = fixtures::mac(&fixtures::activity_on_cmd_j());
+        assert!(
+            welcome(&moved).points[1]
+                .text
+                .ends_with("from every project in one list.")
+        );
+        assert!(
+            welcome(&fixtures::letters_off()).points[1]
+                .text
+                .ends_with("⌘J opens the next.")
+        );
         assert_eq!(w.foot, "Takes about a minute");
         assert_eq!(w.button, "Choose a theme");
         let t = theme_step();
@@ -1042,7 +1150,7 @@ mod tests {
         assert!(!empty.can_add && empty.key.is_none());
         m.pick("/code/shop-web".into());
         assert_eq!(add_project(&m, &[], true).folder_look, FolderLook::Checking);
-        m.probed(Ok(probe()), &[], Platform::Mac);
+        m.probed(Ok(probe()), &[], &fixtures::base());
         let valid = add_project(&m, &[], true);
         assert_eq!(valid.folder_look, FolderLook::Valid);
         assert_eq!(valid.name.unwrap().value, "shop-web");
@@ -1090,7 +1198,7 @@ mod tests {
                 "not a git repository".into(),
             )),
             &[],
-            Platform::Mac,
+            &fixtures::base(),
         );
         let v = add_project(&m, &[], true);
         assert_eq!(v.folder_look, FolderLook::Refused);
@@ -1107,7 +1215,7 @@ mod tests {
         }
         m.pick("/code/shop-web".into());
         assert_eq!(add_project(&m, &[], true).trust_line.as_deref(), Some(line));
-        m.probed(Ok(probe()), &[], Platform::Mac);
+        m.probed(Ok(probe()), &[], &fixtures::base());
         for first_run in [true, false] {
             let v = add_project(&m, &[], first_run);
             assert_eq!(v.trust_line.as_deref(), Some(line), "trusted or not");
@@ -1164,7 +1272,7 @@ mod tests {
             ..AddProjectModel::default()
         };
         m.pick("/code/shop-web".into());
-        m.probed(Ok(probe()), &[], Platform::Mac);
+        m.probed(Ok(probe()), &[], &fixtures::base());
         m.added_untrusted(vec![(Tool::Codex, "its config isn’t writable".into())]);
         let v = add_project(&m, &[], true);
         assert_eq!(
@@ -1184,7 +1292,7 @@ mod tests {
     fn a_failed_trust_says_why_and_waits_for_continue() {
         let mut m = claude_trusts();
         m.pick("/code/shop-web".into());
-        m.probed(Ok(probe()), &[], Platform::Mac);
+        m.probed(Ok(probe()), &[], &fixtures::base());
         m.adding = true;
         m.added_untrusted(vec![(
             otaq_core::agent_tools::Tool::Claude,

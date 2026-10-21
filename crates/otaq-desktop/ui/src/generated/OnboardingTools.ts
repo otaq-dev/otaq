@@ -2,6 +2,7 @@
 import type { OnboardingAgentTools } from "./OnboardingAgentTools";
 import type { PermissionWarningView } from "./PermissionWarningView";
 import type { ToolRowView } from "./ToolRowView";
+import type { ToolTerminalTexts } from "./ToolTerminalTexts";
 
 /**
  * *2 · Tool checklist*, *gh and az missing · non-blocking*, *14* `y2FCwP` / `z8OVF` (the agent tools).
@@ -27,7 +28,7 @@ continue_reason: string | null,
 /**
  * The user has projects already (Check tools from the board): Continue ends here, no Project step.
  */
-has_projects: boolean, copy: string, 
+has_projects: boolean, copy: string, terminal: ToolTerminalTexts, 
 /**
  * Under the list once a tool is connected (*14* `ODRG2`, M22): the starter entry and where to make others.
  */

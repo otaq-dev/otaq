@@ -3,8 +3,9 @@
 
 use crate::common::Fixture;
 use otaq_core::board::settings::{
-    AutoMerge, GlobalSettings, ProjectSettings, ResolvedSkill, SkillSetting, Theme, ThemeSetting,
-    WorkflowSkillOverrides, WorkflowSkills, WorkflowStep, resource_without_create,
+    AutoMerge, GlobalSettings, KeyboardChange, KeyboardSettings, ProjectSettings, ResolvedSkill,
+    SkillSetting, Theme, ThemeSetting, WorkflowSkillOverrides, WorkflowSkills, WorkflowStep,
+    resource_without_create,
 };
 use otaq_core::git::testing::{git, snapshot};
 use otaq_core::naming;
@@ -23,6 +24,7 @@ async fn defaults() {
     );
     assert!(global.notifications);
     assert!(!global.description_source_mode);
+    assert_eq!(global.keyboard, KeyboardSettings::default());
     assert_eq!(global.theme, ThemeSetting::default());
     assert_eq!(global.workflow_skills, WorkflowSkills::default());
     let effective = f.board.effective_settings("SHOP").await.unwrap();
@@ -67,6 +69,14 @@ async fn global_values_round_trip_and_keep_other_rows() {
     global.terminal_font_size = 15;
     global.notifications = false;
     global.description_source_mode = true;
+    global.keyboard.letters = false;
+    global.keyboard.changes.push(KeyboardChange {
+        action: "park".into(),
+        number: None,
+        slot: 0,
+        key: Some("g p".into()),
+        works_in_terminals: false,
+    });
     f.board.set_global_settings(&global).await.unwrap();
     assert_eq!(f.board.global_settings().await.unwrap(), global);
     assert_eq!(

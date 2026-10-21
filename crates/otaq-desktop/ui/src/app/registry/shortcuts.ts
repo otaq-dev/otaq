@@ -1,8 +1,9 @@
 // The shortcut handlers: `KeyAction` → handler, filled by screens. The key map and the dispatcher that turns a key
 // into a `KeyAction` are T-0215's (the Rust keymap stays the only map); it calls `run`.
 //
-// ⌘K in the description: Link. While the description editor has focus, ⌘K / Ctrl+K never reaches the `search`
-// handlers: the dispatcher leaves it to the editor (`keysKeptBy`, d0078 D2); everywhere else it is Search / filter.
+// ⌘K and ⌘B in the description: Link and Bold. While the description editor has focus, ⌘K / Ctrl+K never reaches the
+// `command_palette` handlers nor ⌘B / Ctrl+B the `toggle_pane` ones: the dispatcher leaves them to the editor
+// (`keysKeptBy`, d0078 D2); everywhere else they are the palette and Hide / show the pane (d0097).
 import type { KeyAction } from "../../generated/KeyAction";
 
 export type KeyActionName = KeyAction["action"];
@@ -20,10 +21,14 @@ export interface Shortcuts {
   run(action: KeyAction): boolean;
   /** The actions with at least one handler. */
   names(): KeyActionName[];
+  /** Calls `listener` after each action a handler took, from a key or the palette (its recent items, T-0393). Returns
+   * its removal. */
+  onRan(listener: (action: KeyAction) => void): () => void;
 }
 
 export function createShortcuts(): Shortcuts {
   const handlers = new Map<KeyActionName, ((action: KeyAction) => unknown)[]>();
+  const ran = new Set<(action: KeyAction) => void>();
   return {
     on(name, handler) {
       const entry = handler as (action: KeyAction) => unknown;
@@ -36,8 +41,16 @@ export function createShortcuts(): Shortcuts {
     },
     run(action) {
       const list = handlers.get(action.action) ?? [];
-      return list.toReversed().some((handler) => handler(action) !== false);
+      const taken = list.toReversed().some((handler) => handler(action) !== false);
+      if (taken) for (const listener of ran) listener(action);
+      return taken;
     },
     names: () => [...handlers.keys()],
+    onRan(listener) {
+      ran.add(listener);
+      return () => {
+        ran.delete(listener);
+      };
+    },
   };
 }

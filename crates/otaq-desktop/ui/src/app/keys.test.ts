@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { KeyAction } from "../generated/KeyAction";
 import type { KeyBinding } from "../generated/KeyBinding";
+import type { KeyPlace } from "../generated/KeyPlace";
 import type { Keymap } from "../generated/Keymap";
 import type { KeyModifiers } from "../generated/KeyModifiers";
 import {
@@ -10,10 +11,15 @@ import {
   type KeyContext,
   type KeyLike,
   inEditorText,
+  inKeyRecorder,
+  KEY_RECORDER,
   keyName,
   keysKeptBy,
+  type LetterHold,
+  lettersKeptBy,
   logLine,
   stopsEvent,
+  widgetOpen,
 } from "./keys";
 
 // A few rows of the map as `keymap.map` sends them (the Rust tests cover the whole table).
@@ -28,41 +34,66 @@ function bind(
   key: string,
   code: string,
   modifiers: KeyModifiers,
-  inTerminal = false,
+  place: KeyPlace = "outside_terminals",
 ) {
-  return { action, text, keystroke: { key, code, modifiers }, in_terminal: inTerminal } satisfies KeyBinding;
+  return {
+    action,
+    slot: 0,
+    text,
+    key: { kind: "stroke", stroke: { key, code, modifiers } },
+    place,
+    custom: false,
+  } satisfies KeyBinding;
 }
+
+const EVERYWHERE = "everywhere";
+const INSIDE = "inside_terminals";
 
 const MAC: Keymap = {
   platform: "mac",
   log: false,
+  letters: true,
+  actions: [],
+  sequences: [],
   terminal_keys: [],
   terminal_app_modifiers: [CMD],
   bindings: [
-    bind({ action: "search" }, "⌘K", "k", "KeyK", CMD),
-    bind({ action: "switch_project" }, "⌘P", "p", "KeyP", CMD),
-    bind({ action: "open_inbox" }, "⇧⌘I", "i", "KeyI", { ...CMD, shift: true }),
-    bind({ action: "leave_terminal" }, "⇧⌘`", "`", "Backquote", { ...CMD, shift: true }),
-    bind({ action: "switch_tab", number: 1 }, "⌘⌥1", "1", "Digit1", { ...CMD, alt: true }),
+    bind({ action: "command_palette" }, "⌘K", "k", "KeyK", CMD, EVERYWHERE),
+    bind({ action: "switch_project" }, "⌘P", "p", "KeyP", CMD, EVERYWHERE),
+    bind({ action: "open_inbox" }, "⇧⌘I", "i", "KeyI", { ...CMD, shift: true }, EVERYWHERE),
+    bind({ action: "terminals" }, "⌃`", "`", "Backquote", CTRL, EVERYWHERE),
+    bind({ action: "next_tab" }, "⌃Tab", "Tab", "Tab", CTRL, EVERYWHERE),
+    bind({ action: "project", number: 1 }, "⌘1", "1", "Digit1", CMD, EVERYWHERE),
     bind({ action: "open_panel" }, "↵", "Enter", "Enter", NONE),
     bind({ action: "close_panel" }, "Esc", "Escape", "Escape", NONE),
-    bind({ action: "send_back" }, "⌘⌫", "Backspace", "Backspace", CMD),
-    bind({ action: "find_in_terminal" }, "⌘F", "f", "KeyF", CMD),
+    bind({ action: "send_back" }, "⌘⌫", "Backspace", "Backspace", CMD, EVERYWHERE),
+    bind({ action: "find_in_terminal" }, "⌘F", "f", "KeyF", CMD, EVERYWHERE),
+    {
+      action: { action: "next_ticket" },
+      slot: 1,
+      text: "j",
+      key: { kind: "letter", letter: "j" },
+      place: "outside_terminals",
+      custom: false,
+    },
   ],
 };
 
 const WIN: Keymap = {
   platform: "win_linux",
   log: false,
+  letters: true,
+  actions: [],
+  sequences: [],
   terminal_keys: [],
   terminal_app_modifiers: [CTRL_SHIFT, { ...NONE, platform: true }],
   bindings: [
-    bind({ action: "search" }, "Ctrl+K", "k", "KeyK", CTRL),
-    bind({ action: "switch_project" }, "Ctrl+P", "p", "KeyP", CTRL),
-    bind({ action: "leave_terminal" }, "Ctrl+Shift+`", "`", "Backquote", CTRL_SHIFT),
-    bind({ action: "search" }, "Ctrl+Shift+K", "k", "KeyK", CTRL_SHIFT, true),
-    bind({ action: "leave_terminal" }, "Ctrl+Shift+`", "`", "Backquote", CTRL_SHIFT, true),
-    bind({ action: "find_in_terminal" }, "Ctrl+Shift+F", "f", "KeyF", CTRL_SHIFT, true),
+    bind({ action: "command_palette" }, "Ctrl+K", "k", "KeyK", CTRL, EVERYWHERE),
+    bind({ action: "switch_project" }, "Ctrl+P", "p", "KeyP", CTRL, EVERYWHERE),
+    bind({ action: "terminals" }, "Ctrl+`", "`", "Backquote", CTRL, EVERYWHERE),
+    bind({ action: "new_ticket" }, "Ctrl+N", "n", "KeyN", CTRL),
+    bind({ action: "new_ticket" }, "Ctrl+Shift+N", "n", "KeyN", CTRL_SHIFT, INSIDE),
+    bind({ action: "find_in_terminal" }, "Ctrl+Shift+F", "f", "KeyF", CTRL_SHIFT, INSIDE),
   ],
 };
 
@@ -70,49 +101,70 @@ function key(name: string, code: string, mods: Partial<Omit<KeyLike, "key" | "co
   return { key: name, code, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...mods };
 }
 
-const BOARD: KeyContext = { inTerminal: false, focusKeeps: new Set(), modal: false, editorText: false };
+const BOARD: KeyContext = {
+  inTerminal: false,
+  focusKeeps: new Set(),
+  modal: false,
+  editorText: false,
+  letters: "none",
+  recording: false,
+};
 const TERMINAL: KeyContext = { ...BOARD, inTerminal: true };
 
 /** A dispatcher whose screens handle `handled`; records what ran and whether the terminal was left. */
 function setup(map: Keymap | undefined, handled: KeyAction["action"][] = []) {
   const ran: string[] = [];
   let left = 0;
+  let waiting = false;
   const d: Dispatch = {
     keymap: () => map,
     run: (action) => {
       if (!handled.includes(action.action)) return false;
-      ran.push(action.action);
+      ran.push("number" in action ? `${action.action} ${String(action.number)}` : action.action);
       return true;
     },
     leaveTerminal: () => left++,
     mac: map?.platform === "mac",
+    waiting: () => waiting,
+    wait: (on) => {
+      waiting = on;
+    },
   };
-  return { d, ran, left: () => left };
+  return { d, ran, left: () => left, waiting: () => waiting };
 }
 
 describe("the key dispatcher on the board", () => {
   it("runs the handler of the bound action and stops the key", () => {
-    const { d, ran } = setup(MAC, ["search"]);
+    const { d, ran } = setup(MAC, ["command_palette"]);
     const outcome = dispatchKey(d, key("k", "KeyK", { metaKey: true }), BOARD);
-    expect(outcome).toEqual({ kind: "ran", action: { action: "search" } });
+    expect(outcome).toEqual({ kind: "ran", action: { action: "command_palette" } });
     expect(stopsEvent(outcome)).toBe(true);
-    expect(ran).toEqual(["search"]);
+    expect(ran).toEqual(["command_palette"]);
   });
 
   it("matches letters by layout and digits by physical key", () => {
-    const { d, ran } = setup(MAC, ["search", "switch_tab"]);
+    const { d, ran } = setup(MAC, ["command_palette", "project"]);
     // Dvorak: the key that types k is where QWERTY has V.
     dispatchKey(d, key("k", "KeyV", { metaKey: true }), BOARD);
-    // ⌘⌥1 types ¡.
-    const tab = dispatchKey(d, key("¡", "Digit1", { metaKey: true, altKey: true }), BOARD);
-    expect(tab).toEqual({ kind: "ran", action: { action: "switch_tab", number: 1 } });
+    // AZERTY types & on the 1 key.
+    const project = dispatchKey(d, key("&", "Digit1", { metaKey: true }), BOARD);
+    expect(project).toEqual({ kind: "ran", action: { action: "project", number: 1 } });
     // A Cyrillic layout types л on K's key.
     dispatchKey(d, key("л", "KeyK", { metaKey: true }), BOARD);
-    expect(ran).toEqual(["search", "switch_tab", "search"]);
+    expect(ran).toEqual(["command_palette", "project 1", "command_palette"]);
+  });
+
+  it("runs a single letter while nobody is typing", () => {
+    const { d, ran } = setup(MAC, ["next_ticket"]);
+    expect(dispatchKey(d, key("j", "KeyJ"), BOARD)).toEqual({
+      kind: "ran",
+      action: { action: "next_ticket" },
+    });
+    expect(ran).toEqual(["next_ticket"]);
   });
 
   it("needs the exact modifiers", () => {
-    const { d, ran } = setup(MAC, ["search", "open_inbox"]);
+    const { d, ran } = setup(MAC, ["command_palette", "open_inbox"]);
     expect(dispatchKey(d, key("K", "KeyK", { metaKey: true, shiftKey: true }), BOARD).kind).toBe("passed");
     expect(dispatchKey(d, key("I", "KeyI", { metaKey: true, shiftKey: true }), BOARD).kind).toBe("ran");
     expect(dispatchKey(d, key("k", "KeyK", { ctrlKey: true }), BOARD).kind).toBe("passed");
@@ -173,7 +225,7 @@ describe("the key dispatcher on the board", () => {
   });
 
   it("lets a text field keep Enter, Backspace and Esc", () => {
-    const { d, ran } = setup(MAC, ["open_panel", "close_panel", "send_back", "search"]);
+    const { d, ran } = setup(MAC, ["open_panel", "close_panel", "send_back", "command_palette"]);
     const field = {
       ...BOARD,
       focusKeeps: keysKeptBy({ tagName: "INPUT", isContentEditable: false, getAttribute: () => null }),
@@ -183,7 +235,7 @@ describe("the key dispatcher on the board", () => {
     expect(dispatchKey(d, key("Backspace", "Backspace", { metaKey: true }), field).kind).toBe("passed");
     expect(dispatchKey(d, key("k", "KeyK", { metaKey: true }), field).kind).toBe("ran");
     expect(dispatchKey(d, key("Enter", "Enter"), BOARD).kind).toBe("ran");
-    expect(ran).toEqual(["search", "open_panel"]);
+    expect(ran).toEqual(["command_palette", "open_panel"]);
   });
 
   it("leaves ⌘K / Ctrl+K to the description editor while it has the focus (d0078 D2)", () => {
@@ -200,15 +252,15 @@ describe("the key dispatcher on the board", () => {
       [MAC, { metaKey: true }],
       [WIN, { ctrlKey: true }],
     ] as const) {
-      const { d, ran } = setup(map, ["search", "switch_project"]);
+      const { d, ran } = setup(map, ["command_palette", "switch_project"]);
       const cmdK = key("k", "KeyK", mods);
       expect(dispatchKey(d, cmdK, text)).toEqual({ kind: "passed" });
       expect(dispatchKey(d, cmdK, popoverField)).toEqual({ kind: "passed" });
-      // The editor's other keys are the app's as before; read mode and the board keep ⌘K as Search.
+      // The editor's other keys are the app's as before; read mode and the board keep ⌘K as the palette.
       expect(dispatchKey(d, key("p", "KeyP", mods), text).kind).toBe("ran");
       expect(dispatchKey(d, cmdK, readMode).kind).toBe("ran");
       expect(dispatchKey(d, cmdK, BOARD).kind).toBe("ran");
-      expect(ran).toEqual(["switch_project", "search", "search"]);
+      expect(ran).toEqual(["switch_project", "command_palette", "command_palette"]);
     }
   });
 
@@ -269,8 +321,23 @@ describe("the key dispatcher on the board", () => {
     expect(ran).toEqual([]);
   });
 
+  it("turns ↵ / Esc (Open / close the panel) off with the letters, leaving them to the page (KEY-02, T-0394)", () => {
+    const { d, ran } = setup({ ...MAC, letters: false }, ["open_panel", "close_panel", "send_back"]);
+    // NOTE-1's panel is open: Esc on the board runs nothing and isn't stopped, nor is ↵.
+    const esc = dispatchKey(d, key("Escape", "Escape"), BOARD);
+    expect(esc).toEqual({ kind: "passed" });
+    expect(stopsEvent(esc)).toBe(false);
+    expect(dispatchKey(d, key("Enter", "Enter"), BOARD)).toEqual({ kind: "passed" });
+    // A key with a modifier still runs.
+    dispatchKey(d, key("Backspace", "Backspace", { metaKey: true }), BOARD);
+    expect(ran).toEqual(["send_back"]);
+    const on = setup(MAC, ["close_panel"]);
+    expect(dispatchKey(on.d, key("Escape", "Escape"), BOARD).kind).toBe("ran");
+    expect(on.ran).toEqual(["close_panel"]);
+  });
+
   it("holds the shortcuts back while a modal is open", () => {
-    const { d, ran } = setup(MAC, ["search"]);
+    const { d, ran } = setup(MAC, ["command_palette"]);
     const outcome = dispatchKey(d, key("k", "KeyK", { metaKey: true }), { ...BOARD, modal: true });
     expect(outcome.kind).toBe("unhandled");
     expect(stopsEvent(outcome)).toBe(true);
@@ -303,43 +370,60 @@ describe("the key dispatcher in a focused terminal", () => {
   });
 
   it("still runs the ⌘ shortcuts on a Mac, Find among them", () => {
-    const { d, ran } = setup(MAC, ["search", "switch_project", "open_inbox", "find_in_terminal"]);
+    const { d, ran } = setup(MAC, ["command_palette", "switch_project", "open_inbox", "find_in_terminal"]);
     dispatchKey(d, key("k", "KeyK", { metaKey: true }), TERMINAL);
     dispatchKey(d, key("p", "KeyP", { metaKey: true }), TERMINAL);
     dispatchKey(d, key("I", "KeyI", { metaKey: true, shiftKey: true }), TERMINAL);
     expect(dispatchKey(d, key("f", "KeyF", { metaKey: true }), TERMINAL).kind).toBe("ran");
-    expect(ran).toEqual(["search", "switch_project", "open_inbox", "find_in_terminal"]);
+    expect(ran).toEqual(["command_palette", "switch_project", "open_inbox", "find_in_terminal"]);
   });
 
-  it("leaves the terminal on ⇧⌘` when no screen handles it", () => {
-    const { d, left } = setup(MAC);
-    const outcome = dispatchKey(d, key("~", "Backquote", { metaKey: true, shiftKey: true }), TERMINAL);
-    expect(outcome).toEqual({ kind: "ran", action: { action: "leave_terminal" } });
+  it("leaves the terminal on ⌃` (Terminals), which a Mac terminal gives the app (d0097)", () => {
+    const { d, ran, left } = setup(MAC, ["terminals"]);
+    const outcome = dispatchKey(d, key("`", "Backquote", { ctrlKey: true }), TERMINAL);
+    expect(outcome).toEqual({ kind: "ran", action: { action: "terminals" } });
     expect(left()).toBe(1);
-    // Outside a terminal there's nothing to leave.
-    dispatchKey(d, key("~", "Backquote", { metaKey: true, shiftKey: true }), BOARD);
+    expect(ran).toEqual([]);
+    // Outside a terminal there's nothing to leave: its screen opens or closes the drawer.
+    dispatchKey(d, key("`", "Backquote", { ctrlKey: true }), BOARD);
     expect(left()).toBe(1);
+    expect(ran).toEqual(["terminals"]);
   });
 
-  it("gives plain Ctrl keys to the session on Windows and Linux and takes the Ctrl+Shift column", () => {
-    const { d, ran, left } = setup(WIN, ["search", "switch_project", "find_in_terminal"]);
+  it("gives the app ⌃Tab from a Mac terminal, and keeps every other ⌃ key the terminal's", () => {
+    const { d, ran } = setup(MAC, ["next_tab"]);
+    expect(dispatchKey(d, key("Tab", "Tab", { ctrlKey: true }), TERMINAL).kind).toBe("ran");
     for (const k of [
-      key("k", "KeyK", { ctrlKey: true }),
-      key("p", "KeyP", { ctrlKey: true }),
+      key("c", "KeyC", { ctrlKey: true }),
+      key("r", "KeyR", { ctrlKey: true }),
+      key("Tab", "Tab"),
+    ]) {
+      expect(dispatchKey(d, k, TERMINAL).kind, keyName(k)).toBe("terminal");
+    }
+    expect(ran).toEqual(["next_tab"]);
+  });
+
+  it("gives plain Ctrl keys to the session on Windows and Linux and takes the terminal column (d0097)", () => {
+    const { d, ran, left } = setup(WIN, ["command_palette", "new_ticket", "find_in_terminal"]);
+    for (const k of [
+      key("n", "KeyN", { ctrlKey: true }),
       key("r", "KeyR", { ctrlKey: true }),
       key("f", "KeyF", { ctrlKey: true }),
       key("Escape", "Escape"),
     ]) {
       expect(dispatchKey(d, k, TERMINAL).kind).toBe("terminal");
     }
-    dispatchKey(d, key("K", "KeyK", { ctrlKey: true, shiftKey: true }), TERMINAL);
+    // Ctrl+K and Ctrl+` are let through; the rest is the Ctrl+Shift column.
+    dispatchKey(d, key("k", "KeyK", { ctrlKey: true }), TERMINAL);
+    dispatchKey(d, key("N", "KeyN", { ctrlKey: true, shiftKey: true }), TERMINAL);
     dispatchKey(d, key("F", "KeyF", { ctrlKey: true, shiftKey: true }), TERMINAL);
-    dispatchKey(d, key("~", "Backquote", { ctrlKey: true, shiftKey: true }), TERMINAL);
-    expect(ran).toEqual(["search", "find_in_terminal"]);
+    dispatchKey(d, key("`", "Backquote", { ctrlKey: true }), TERMINAL);
+    expect(ran).toEqual(["command_palette", "new_ticket", "find_in_terminal"]);
     expect(left()).toBe(1);
-    // Outside the terminal the Ctrl+Shift column means nothing and Ctrl+K is Search.
+    // Outside the terminal the terminal column means nothing and Ctrl+N is New ticket.
     expect(dispatchKey(d, key("F", "KeyF", { ctrlKey: true, shiftKey: true }), BOARD).kind).not.toBe("ran");
-    expect(dispatchKey(d, key("k", "KeyK", { ctrlKey: true }), BOARD).kind).toBe("ran");
+    expect(dispatchKey(d, key("N", "KeyN", { ctrlKey: true, shiftKey: true }), BOARD).kind).not.toBe("ran");
+    expect(dispatchKey(d, key("n", "KeyN", { ctrlKey: true }), BOARD).kind).toBe("ran");
   });
 
   it("leaves unbound Ctrl+Shift keys to the terminal (its copy and paste)", () => {
@@ -352,173 +436,6 @@ describe("the key dispatcher in a focused terminal", () => {
   it("gives every key to the terminal before the map has arrived", () => {
     const { d } = setup(undefined);
     expect(dispatchKey(d, key("k", "KeyK", { metaKey: true }), TERMINAL).kind).toBe("terminal");
-  });
-});
-
-describe("⇧⌘G / Ctrl+Shift+G (d0080, T-0274)", () => {
-  const G_MAC: Keymap = {
-    ...MAC,
-    bindings: [...MAC.bindings, bind({ action: "focus_epic" }, "⇧⌘G", "g", "KeyG", { ...CMD, shift: true })],
-  };
-  const G_WIN: Keymap = {
-    ...WIN,
-    bindings: [
-      ...WIN.bindings,
-      bind({ action: "focus_epic" }, "Ctrl+Shift+G", "g", "KeyG", CTRL_SHIFT),
-      bind({ action: "focus_epic" }, "Ctrl+Shift+G", "g", "KeyG", CTRL_SHIFT, true),
-    ],
-  };
-
-  it("focuses the epic on the board and from a terminal", () => {
-    const mac = setup(G_MAC, ["focus_epic"]);
-    const g = key("G", "KeyG", { metaKey: true, shiftKey: true });
-    expect(dispatchKey(mac.d, g, BOARD)).toEqual({ kind: "ran", action: { action: "focus_epic" } });
-    expect(dispatchKey(mac.d, g, TERMINAL).kind).toBe("ran");
-    const win = setup(G_WIN, ["focus_epic"]);
-    const ctrl = key("G", "KeyG", { ctrlKey: true, shiftKey: true });
-    expect(dispatchKey(win.d, ctrl, BOARD).kind).toBe("ran");
-    expect(dispatchKey(win.d, ctrl, TERMINAL).kind).toBe("ran");
-    expect(win.ran).toEqual(["focus_epic", "focus_epic"]);
-  });
-
-  it("is never the webview's Find previous, even with no handler", () => {
-    const { d } = setup(G_MAC);
-    const outcome = dispatchKey(d, key("G", "KeyG", { metaKey: true, shiftKey: true }), BOARD);
-    expect(stopsEvent(outcome)).toBe(true);
-    expect(
-      stopsEvent(dispatchKey(setup(MAC).d, key("G", "KeyG", { metaKey: true, shiftKey: true }), BOARD)),
-    ).toBe(true);
-  });
-});
-
-describe("the 0087 keys (T-0320, UIT-06)", () => {
-  const SHIFT_CMD = { ...CMD, shift: true };
-  const V_MAC: Keymap = {
-    ...MAC,
-    bindings: [
-      ...MAC.bindings,
-      bind({ action: "show_board" }, "⇧⌘B", "b", "KeyB", SHIFT_CMD),
-      bind({ action: "show_files" }, "⇧⌘O", "o", "KeyO", SHIFT_CMD),
-      bind({ action: "go_to_file" }, "⌥⌘P", "p", "KeyP", { ...CMD, alt: true }),
-      bind({ action: "focus_pane" }, "⌘L", "l", "KeyL", CMD),
-      bind({ action: "toggle_pane" }, "⌘\\", "\\", "Backslash", CMD),
-      bind({ action: "open_activity" }, "⇧⌘U", "u", "KeyU", SHIFT_CMD),
-    ],
-  };
-  const CTRL_ALT = { ...CTRL, alt: true };
-  const V_WIN: Keymap = {
-    ...WIN,
-    bindings: [
-      ...WIN.bindings,
-      bind({ action: "show_board" }, "Ctrl+Shift+B", "b", "KeyB", CTRL_SHIFT),
-      bind({ action: "show_files" }, "Ctrl+Shift+O", "o", "KeyO", CTRL_SHIFT),
-      bind({ action: "go_to_file" }, "Ctrl+Alt+P", "p", "KeyP", CTRL_ALT),
-      bind({ action: "focus_pane" }, "Ctrl+L", "l", "KeyL", CTRL),
-      bind({ action: "toggle_pane" }, "Ctrl+\\", "\\", "Backslash", CTRL),
-      bind({ action: "open_activity" }, "Ctrl+Shift+U", "u", "KeyU", CTRL_SHIFT),
-      bind({ action: "show_board" }, "Ctrl+Shift+B", "b", "KeyB", CTRL_SHIFT, true),
-      bind({ action: "show_files" }, "Ctrl+Shift+O", "o", "KeyO", CTRL_SHIFT, true),
-      bind({ action: "go_to_file" }, "Ctrl+Shift+Alt+P", "p", "KeyP", { ...CTRL_SHIFT, alt: true }, true),
-      bind({ action: "focus_pane" }, "Ctrl+Shift+L", "l", "KeyL", CTRL_SHIFT, true),
-      bind({ action: "toggle_pane" }, "Ctrl+Shift+\\", "|", "Backslash", CTRL_SHIFT, true),
-      bind({ action: "open_activity" }, "Ctrl+Shift+U", "u", "KeyU", CTRL_SHIFT, true),
-    ],
-  };
-
-  it("swallows each one with no handler yet, so the webview's own key never fires", () => {
-    const mac = setup(V_MAC);
-    for (const k of [
-      key("B", "KeyB", { metaKey: true, shiftKey: true }),
-      key("O", "KeyO", { metaKey: true, shiftKey: true }),
-      key("π", "KeyP", { metaKey: true, altKey: true }),
-      key("l", "KeyL", { metaKey: true }),
-      key("\\", "Backslash", { metaKey: true }),
-      key("U", "KeyU", { metaKey: true, shiftKey: true }),
-    ]) {
-      const outcome = dispatchKey(mac.d, k, BOARD);
-      expect(outcome.kind, keyName(k)).toBe("unhandled");
-      expect(stopsEvent(outcome)).toBe(true);
-    }
-    const win = setup(V_WIN);
-    for (const k of [
-      key("B", "KeyB", { ctrlKey: true, shiftKey: true }),
-      key("O", "KeyO", { ctrlKey: true, shiftKey: true }),
-      key("p", "KeyP", { ctrlKey: true, altKey: true }),
-      key("l", "KeyL", { ctrlKey: true }),
-      key("\\", "Backslash", { ctrlKey: true }),
-      key("U", "KeyU", { ctrlKey: true, shiftKey: true }),
-    ]) {
-      const outcome = dispatchKey(win.d, k, BOARD);
-      expect(outcome.kind, keyName(k)).toBe("unhandled");
-      expect(stopsEvent(outcome)).toBe(true);
-    }
-  });
-
-  it("runs their handlers on the board and from a terminal", () => {
-    const actions = [
-      "show_board",
-      "show_files",
-      "go_to_file",
-      "focus_pane",
-      "toggle_pane",
-      "open_activity",
-    ] as const;
-    const mac = setup(V_MAC, [...actions]);
-    expect(dispatchKey(mac.d, key("π", "KeyP", { metaKey: true, altKey: true }), BOARD)).toEqual({
-      kind: "ran",
-      action: { action: "go_to_file" },
-    });
-    expect(dispatchKey(mac.d, key("\\", "Backslash", { metaKey: true }), TERMINAL).kind).toBe("ran");
-    expect(dispatchKey(mac.d, key("l", "KeyL", { metaKey: true }), TERMINAL).kind).toBe("ran");
-    expect(mac.ran).toEqual(["go_to_file", "toggle_pane", "focus_pane"]);
-
-    const win = setup(V_WIN, [...actions]);
-    // The plain Ctrl forms are the CLI's in a terminal (Ctrl+L clears its screen); the Ctrl+Shift forms are the app's.
-    expect(dispatchKey(win.d, key("l", "KeyL", { ctrlKey: true }), TERMINAL)).toEqual({ kind: "terminal" });
-    expect(dispatchKey(win.d, key("\\", "Backslash", { ctrlKey: true }), TERMINAL)).toEqual({
-      kind: "terminal",
-    });
-    expect(dispatchKey(win.d, key("L", "KeyL", { ctrlKey: true, shiftKey: true }), TERMINAL).kind).toBe(
-      "ran",
-    );
-    expect(dispatchKey(win.d, key("|", "Backslash", { ctrlKey: true, shiftKey: true }), TERMINAL).kind).toBe(
-      "ran",
-    );
-    expect(
-      dispatchKey(win.d, key("P", "KeyP", { ctrlKey: true, shiftKey: true, altKey: true }), TERMINAL).kind,
-    ).toBe("ran");
-    expect(dispatchKey(win.d, key("l", "KeyL", { ctrlKey: true }), BOARD).kind).toBe("ran");
-    expect(win.ran).toEqual(["focus_pane", "toggle_pane", "go_to_file", "focus_pane"]);
-  });
-
-  it("while the Files view is parked, ⇧⌘O and ⌥⌘P aren't in the map and run nothing; ⇧⌘B still does (d0087)", () => {
-    const files = new Set(["show_files", "go_to_file"]);
-    const parked = (map: Keymap): Keymap => ({
-      ...map,
-      bindings: map.bindings.filter((b) => !files.has(b.action.action)),
-    });
-    const actions = ["show_board", "show_files", "go_to_file"] as const;
-    const mac = setup(parked(V_MAC), [...actions]);
-    for (const k of [
-      key("O", "KeyO", { metaKey: true, shiftKey: true }),
-      key("π", "KeyP", { metaKey: true, altKey: true }),
-    ]) {
-      expect(dispatchKey(mac.d, k, BOARD).kind, keyName(k)).not.toBe("ran");
-      expect(dispatchKey(mac.d, k, TERMINAL).kind, keyName(k)).not.toBe("ran");
-    }
-    expect(dispatchKey(mac.d, key("B", "KeyB", { metaKey: true, shiftKey: true }), BOARD).kind).toBe("ran");
-    const win = setup(parked(V_WIN), [...actions]);
-    for (const k of [
-      key("O", "KeyO", { ctrlKey: true, shiftKey: true }),
-      key("p", "KeyP", { ctrlKey: true, altKey: true }),
-    ]) {
-      expect(dispatchKey(win.d, k, BOARD).kind, keyName(k)).not.toBe("ran");
-    }
-    expect(
-      dispatchKey(win.d, key("P", "KeyP", { ctrlKey: true, shiftKey: true, altKey: true }), TERMINAL).kind,
-    ).not.toBe("ran");
-    expect(mac.ran).toEqual(["show_board"]);
-    expect(win.ran).toEqual([]);
   });
 });
 
@@ -559,10 +476,464 @@ describe("keys a focused control keeps", () => {
 describe("the key log", () => {
   it("says where a key went", () => {
     const k = key("k", "KeyK", { metaKey: true });
-    expect(logLine(k, { kind: "ran", action: { action: "search" } })).toBe("Meta+K (KeyK) → search");
+    expect(logLine(k, { kind: "ran", action: { action: "command_palette" } })).toBe(
+      "Meta+K (KeyK) → command_palette",
+    );
     expect(logLine(key("F5", "F5"), { kind: "swallowed" })).toBe("F5 (F5) → swallowed (webview key)");
     expect(logLine(k, { kind: "unhandled", action: { action: "project", number: 3 }, swallowed: true })).toBe(
       "Meta+K (KeyK) → project 3 (no handler, swallowed)",
     );
+  });
+});
+
+// The base map (KEY-01, KEY-02) as `keymap.map` sends it, built from 0097's table the way `keymap::base_bindings`
+// places each key (the Rust tests pin the table and the places; these pin the dispatcher on them).
+type Slot = [mac: string, win: string, terminal: string];
+const letter = (l: string): Slot => [l, l, ""];
+const BASE: [KeyAction, Slot[]][] = [
+  [
+    { action: "command_palette" },
+    [
+      ["⌘K", "Ctrl+K", "Ctrl+K"],
+      ["⇧⌘P", "Ctrl+Shift+P", "Ctrl+Shift+P"],
+    ],
+  ],
+  [{ action: "switch_project" }, [["⌘P", "Ctrl+P", "Ctrl+P"]]],
+  [{ action: "project", number: 1 }, [["⌘1", "Ctrl+1", "Ctrl+1"]]],
+  [{ action: "next_inbox_item" }, [["⌘J", "Ctrl+J", "Ctrl+Shift+J"]]],
+  [{ action: "next_ticket" }, [["⌘]", "Ctrl+]", "Ctrl+Shift+]"], letter("j")]],
+  [{ action: "previous_ticket" }, [["⌘[", "Ctrl+[", "Ctrl+Shift+["], letter("k")]],
+  [{ action: "filter_board" }, [letter("/")]],
+  [{ action: "focus_epic" }, [letter("g e")]],
+  [{ action: "show_shortcuts" }, [letter("?")]],
+  [{ action: "show_board" }, [["⇧⌘B", "Ctrl+Shift+B", ""], letter("g b")]],
+  [{ action: "open_inbox" }, [["⇧⌘I", "Ctrl+Shift+I", "Ctrl+Shift+I"], letter("g i")]],
+  [{ action: "open_activity" }, [["⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"], letter("g a")]],
+  [{ action: "settings" }, [["⌘,", "Ctrl+,", "Ctrl+,"]]],
+  [{ action: "toggle_pane" }, [["⌘B", "Ctrl+B", "Ctrl+Shift+B"]]],
+  [{ action: "focus_pane" }, [["⌘L", "Ctrl+L", "Ctrl+Shift+L"]]],
+  [{ action: "new_project_agent" }, [["⇧⌘L", "Ctrl+Shift+L", ""]]],
+  [{ action: "new_ticket" }, [["⌘N", "Ctrl+N", "Ctrl+Shift+N"], letter("c")]],
+  [{ action: "open_panel" }, [["↵", "↵", ""]]],
+  [{ action: "close_panel" }, [["Esc", "Esc", ""]]],
+  [{ action: "expand_panel" }, [letter("e")]],
+  ...[1, 2, 3, 4, 5, 6].map((n): [KeyAction, Slot[]] => [
+    { action: "switch_tab", number: n },
+    [letter(String(n))],
+  ]),
+  [{ action: "next_tab" }, [["⌃Tab", "Ctrl+Tab", "Ctrl+Tab"]]],
+  [{ action: "previous_tab" }, [["⌃⇧Tab", "Ctrl+Shift+Tab", "Ctrl+Shift+Tab"]]],
+  [{ action: "approve" }, [["⌘↵", "Ctrl+↵", "Ctrl+Shift+↵"]]],
+  [{ action: "send_back" }, [["⌘⌫", "Ctrl+⌫", "Ctrl+Shift+⌫"]]],
+  [{ action: "start_dev" }, [["⌘D", "Ctrl+D", "Ctrl+Shift+D"]]],
+  [{ action: "terminals" }, [["⌃`", "Ctrl+`", "Ctrl+`"], letter("g t")]],
+  [{ action: "find_in_terminal" }, [["⌘F", "", "Ctrl+Shift+F"]]],
+];
+
+const NAMED: Record<string, string> = { "↵": "Enter", "⌫": "Backspace", Esc: "Escape", Tab: "Tab" };
+const CODES: Record<string, string> = {
+  "`": "Backquote",
+  "[": "BracketLeft",
+  "]": "BracketRight",
+  ",": "Comma",
+};
+
+/** A key text of the map ("⇧⌘L", "Ctrl+Shift+B", "j", "g b") as `keymap::Key` sends it. */
+function parseKey(text: string): KeyBinding["key"] {
+  if (text.startsWith("g ")) return { kind: "sequence", then: text.slice(2) };
+  if (text.length === 1) return { kind: "letter", letter: text };
+  const modifiers = { ...NONE };
+  let rest = text;
+  if (text.includes("+") && text.length > 1) {
+    const parts = text.split("+");
+    rest = parts.pop() ?? "";
+    modifiers.control = parts.includes("Ctrl");
+    modifiers.shift = parts.includes("Shift");
+    modifiers.alt = parts.includes("Alt");
+  } else {
+    for (const [glyph, name] of [
+      ["⌃", "control"],
+      ["⌥", "alt"],
+      ["⇧", "shift"],
+      ["⌘", "platform"],
+    ] as const) {
+      if (rest.startsWith(glyph)) {
+        modifiers[name] = true;
+        rest = rest.slice(1);
+      }
+    }
+    // A Mac text may hold its modifiers in any order ("⇧⌘L").
+    for (const [glyph, name] of [
+      ["⌃", "control"],
+      ["⌥", "alt"],
+      ["⇧", "shift"],
+      ["⌘", "platform"],
+    ] as const) {
+      if (rest.startsWith(glyph)) {
+        modifiers[name] = true;
+        rest = rest.slice(1);
+      }
+    }
+  }
+  const named = NAMED[rest];
+  const k = named ?? rest.toLowerCase();
+  const code = named ?? CODES[rest] ?? (/^[0-9]$/.test(rest) ? `Digit${rest}` : `Key${rest.toUpperCase()}`);
+  return { kind: "stroke", stroke: { key: k, code, modifiers } };
+}
+
+const MAC_TERMINAL = ["⌃`", "⌃Tab", "⌃⇧Tab"];
+
+function baseMap(platform: "mac" | "win_linux", extra: KeyBinding[] = []): Keymap {
+  const bindings: KeyBinding[] = [];
+  const add = (action: KeyAction, slot: number, text: string, place: KeyPlace) => {
+    bindings.push({ action, slot, text, key: parseKey(text), place, custom: false });
+  };
+  for (const [action, slots] of BASE) {
+    slots.forEach(([mac, win, term], slot) => {
+      if (platform === "mac") {
+        const key = parseKey(mac);
+        const reaches =
+          (key.kind === "stroke" && key.stroke.modifiers.platform) || MAC_TERMINAL.includes(mac);
+        add(action, slot, mac, reaches ? EVERYWHERE : "outside_terminals");
+      } else if (win === term) {
+        add(action, slot, win, EVERYWHERE);
+      } else {
+        if (win !== "") add(action, slot, win, "outside_terminals");
+        if (term !== "") add(action, slot, term, INSIDE);
+      }
+    });
+  }
+  return {
+    platform,
+    log: false,
+    letters: true,
+    actions: [],
+    sequences: [],
+    terminal_keys: [],
+    terminal_app_modifiers: platform === "mac" ? [CMD] : [CTRL_SHIFT, { ...NONE, platform: true }],
+    bindings: [...bindings, ...extra],
+  };
+}
+
+const MAC_0097 = baseMap("mac");
+const WIN_0097 = baseMap("win_linux");
+/** The example's custom `g` `p` Park (tickets/m29-tickets.md). */
+const PARK: KeyBinding = {
+  action: { action: "park" },
+  slot: 0,
+  text: "g p",
+  key: { kind: "sequence", then: "p" },
+  place: "outside_terminals",
+  custom: true,
+};
+
+const ALL = BASE.map(([a]) => a.action).concat(["park"]);
+
+/** A key event from a map text: "⇧⌘L", "Ctrl+Shift+B", "j", "?" (typed with Shift, as on a US keyboard). */
+function press(text: string): KeyLike {
+  const parsed = parseKey(text);
+  if (parsed.kind !== "stroke") {
+    const typed = parsed.kind === "letter" ? parsed.letter : parsed.then;
+    const code = /^[a-z]$/.test(typed)
+      ? `Key${typed.toUpperCase()}`
+      : /^[0-9]$/.test(typed)
+        ? `Digit${typed}`
+        : "Slash";
+    return key(typed, code, { shiftKey: typed === "?" });
+  }
+  const { stroke } = parsed;
+  const m = stroke.modifiers;
+  const typed =
+    stroke.key.length === 1 && m.shift && /^[a-z]$/.test(stroke.key) ? stroke.key.toUpperCase() : stroke.key;
+  return key(typed, stroke.code, {
+    ctrlKey: m.control,
+    altKey: m.alt,
+    shiftKey: m.shift,
+    metaKey: m.platform,
+  });
+}
+
+/** Presses `texts` one after the other; what ran. */
+function run(map: Keymap, texts: string[], ctx: KeyContext = BOARD) {
+  const s = setup(map, ALL);
+  const outcomes = texts.map((t) => dispatchKey(s.d, press(t), ctx));
+  return { ...s, outcomes };
+}
+
+describe("0097's keys (KEY-01, KEY-02)", () => {
+  it("runs each new and moved key's action on a Mac", () => {
+    const cases: [string[], string][] = [
+      [["⌘K"], "command_palette"],
+      [["⇧⌘P"], "command_palette"],
+      [["?"], "show_shortcuts"],
+      [["/"], "filter_board"],
+      [["⌘B"], "toggle_pane"],
+      [["⌘L"], "focus_pane"],
+      [["⇧⌘L"], "new_project_agent"],
+      [["⌃`"], "terminals"],
+      [["⌃Tab"], "next_tab"],
+      [["⌃⇧Tab"], "previous_tab"],
+      [["j"], "next_ticket"],
+      [["k"], "previous_ticket"],
+      [["e"], "expand_panel"],
+      [["c"], "new_ticket"],
+      [["g", "b"], "show_board"],
+      [["g", "i"], "open_inbox"],
+      [["g", "a"], "open_activity"],
+      [["g", "t"], "terminals"],
+      [["g", "e"], "focus_epic"],
+      [["⌘D"], "start_dev"],
+      [["↵"], "open_panel"],
+      [["Esc"], "close_panel"],
+      [["⇧⌘B"], "show_board"],
+    ];
+    for (const [texts, action] of cases) {
+      expect(run(MAC_0097, texts).ran, texts.join(" ")).toEqual([action]);
+    }
+    for (const n of [1, 2, 3, 4, 5, 6]) {
+      expect(run(MAC_0097, [String(n)]).ran).toEqual([`switch_tab ${String(n)}`]);
+    }
+  });
+
+  it("runs each one on Windows and Linux", () => {
+    const cases: [string[], string][] = [
+      [["Ctrl+K"], "command_palette"],
+      [["Ctrl+Shift+P"], "command_palette"],
+      [["?"], "show_shortcuts"],
+      [["/"], "filter_board"],
+      [["Ctrl+B"], "toggle_pane"],
+      [["Ctrl+L"], "focus_pane"],
+      [["Ctrl+Shift+L"], "new_project_agent"],
+      [["Ctrl+`"], "terminals"],
+      [["Ctrl+Tab"], "next_tab"],
+      [["Ctrl+Shift+Tab"], "previous_tab"],
+      [["j"], "next_ticket"],
+      [["k"], "previous_ticket"],
+      [["e"], "expand_panel"],
+      [["c"], "new_ticket"],
+      [["g", "b"], "show_board"],
+      [["g", "t"], "terminals"],
+      [["Ctrl+D"], "start_dev"],
+      [["Ctrl+Shift+B"], "show_board"],
+      [["3"], "switch_tab 3"],
+    ];
+    for (const [texts, action] of cases) {
+      expect(run(WIN_0097, texts).ran, texts.join(" ")).toEqual([action]);
+    }
+  });
+
+  it("matches letters by character: a Cyrillic layout's j key, ? and / typed with Shift on other layouts", () => {
+    const { d, ran } = setup(MAC_0097, ALL);
+    dispatchKey(d, key("о", "KeyJ"), BOARD);
+    // German: / is ⇧7.
+    dispatchKey(d, key("/", "Digit7", { shiftKey: true }), BOARD);
+    // J (Shift) isn't j.
+    expect(dispatchKey(d, key("J", "KeyJ", { shiftKey: true }), BOARD).kind).not.toBe("ran");
+    expect(ran).toEqual(["next_ticket", "filter_board"]);
+  });
+
+  it("runs no single letter or sequence while somebody is typing, or in a menu, a dialog or a terminal", () => {
+    const at = (letters: LetterHold, more: Partial<KeyContext> = {}): KeyContext => ({
+      ...BOARD,
+      letters,
+      ...more,
+    });
+    for (const ctx of [at("all"), at("none", { inTerminal: true }), at("none", { modal: true })]) {
+      const { ran, outcomes, waiting } = run(MAC_0097, ["j", "c", "/", "?", "e", "1", "g"], ctx);
+      expect(ran).toEqual([]);
+      expect(waiting()).toBe(false);
+      // The letter goes to the focused element (or the terminal) as typed.
+      for (const o of outcomes) expect(stopsEvent(o)).toBe(false);
+    }
+    // A radio group keeps its digits (the inbox's answer 1–4), not the other letters.
+    expect(run(MAC_0097, ["1", "j"], at("digits")).ran).toEqual(["next_ticket"]);
+  });
+
+  it("knows where somebody types: fields, the editor, the Project agent's box, menus, lists and dialogs", () => {
+    const element = (tagName: string, inside: string | null = null, attrs: Record<string, string> = {}) => ({
+      tagName,
+      isContentEditable: tagName === "EDITABLE",
+      getAttribute: (name: string) => attrs[name] ?? null,
+      closest: (selector: string) => (inside !== null && selector.split(", ").includes(inside) ? {} : null),
+    });
+    expect(lettersKeptBy(element("INPUT"))).toBe("all");
+    expect(lettersKeptBy(element("INPUT", null, { type: "search" }))).toBe("all");
+    // The Project agent's message box is a textarea.
+    expect(lettersKeptBy(element("TEXTAREA"))).toBe("all");
+    expect(lettersKeptBy(element("EDITABLE"))).toBe("all");
+    expect(lettersKeptBy(element("SELECT"))).toBe("all");
+    expect(lettersKeptBy(element("A", ".md-editor"))).toBe("all");
+    expect(lettersKeptBy(element("BUTTON", '[role="menu"]'))).toBe("all");
+    expect(lettersKeptBy(element("DIV", '[role="listbox"]'))).toBe("all");
+    expect(lettersKeptBy(element("BUTTON", '[role="dialog"]:not([data-letters])'))).toBe("all");
+    expect(lettersKeptBy(element("DIV", '[role="radiogroup"]'))).toBe("digits");
+    // A card, a button on the board, the inbox's list (a dialog marked data-letters) and nothing focused.
+    expect(lettersKeptBy(element("DIV", null, { role: "button" }))).toBe("none");
+    expect(lettersKeptBy(element("BUTTON"))).toBe("none");
+    expect(lettersKeptBy(element("INPUT", null, { type: "checkbox" }))).toBe("none");
+    expect(lettersKeptBy(null)).toBe("none");
+  });
+
+  it("knows a menu or a dialog is open, but not a leaving copy or the inbox", () => {
+    const page = (found: { leaving: boolean }[]) => ({
+      querySelectorAll: (selector: string) => {
+        expect(selector).toContain('[role="dialog"]:not([data-letters])');
+        return found.map((f) => ({
+          closest: (s: string) => (s === "[data-leaving]" && f.leaving ? {} : null),
+        }));
+      },
+    });
+    expect(widgetOpen(page([]))).toBe(false);
+    expect(widgetOpen(page([{ leaving: true }]))).toBe(false);
+    expect(widgetOpen(page([{ leaving: true }, { leaving: false }]))).toBe(true);
+  });
+
+  it("runs none with the letters switch off, built-in or custom", () => {
+    const off = { ...baseMap("mac", [PARK]), letters: false };
+    const { ran, waiting } = run(off, ["j", "c", "/", "?", "1", "g", "b", "g", "p"]);
+    expect(ran).toEqual([]);
+    expect(waiting()).toBe(false);
+    // The modifier keys still work.
+    expect(run(off, ["⌘K", "⌘D"]).ran).toEqual(["command_palette", "start_dev"]);
+  });
+
+  it("waits after g: the second key runs its sequence; Esc or another key cancels and does nothing more", () => {
+    const g = run(MAC_0097, ["g"]);
+    expect(g.outcomes).toEqual([{ kind: "waiting" }]);
+    expect(stopsEvent({ kind: "waiting" })).toBe(true);
+    expect(g.waiting()).toBe(true);
+    const board = run(MAC_0097, ["g", "b"]);
+    expect(board.ran).toEqual(["show_board"]);
+    expect(board.waiting()).toBe(false);
+    for (const second of ["Esc", "j", "x", "⌘K"]) {
+      const cancelled = run(MAC_0097, ["g", second]);
+      expect(cancelled.ran, second).toEqual([]);
+      expect(cancelled.outcomes[1], second).toEqual({ kind: "cancelled" });
+      expect(stopsEvent({ kind: "cancelled" })).toBe(true);
+      expect(cancelled.waiting()).toBe(false);
+    }
+    // Once cancelled, the next key is itself again.
+    expect(run(MAC_0097, ["g", "Esc", "j"]).ran).toEqual(["next_ticket"]);
+    // Plain b isn't Board.
+    expect(run(MAC_0097, ["b"]).ran).toEqual([]);
+  });
+
+  it("runs a custom g p as Park", () => {
+    expect(run(baseMap("mac", [PARK]), ["g", "p"]).ran).toEqual(["park"]);
+    expect(run(baseMap("win_linux", [PARK]), ["g", "p"]).ran).toEqual(["park"]);
+    expect(run(MAC_0097, ["g", "p"]).ran).toEqual([]);
+  });
+
+  it("gives a key typed into a field after g has moved the focus to the field", () => {
+    const { d, ran } = setup(MAC_0097, ALL);
+    dispatchKey(d, press("g"), BOARD);
+    expect(dispatchKey(d, press("b"), { ...BOARD, letters: "all" })).toEqual({ kind: "passed" });
+    expect(ran).toEqual([]);
+  });
+});
+
+describe("0097's terminal rule (KEY-03)", () => {
+  it("on Windows and Linux in a terminal: the let-through keys, the Shift forms, and only the terminal column", () => {
+    const t = (texts: string[]) => run(WIN_0097, texts, TERMINAL);
+    expect(t(["Ctrl+K"]).ran).toEqual(["command_palette"]);
+    expect(t(["Ctrl+`"]).left()).toBe(1);
+    expect(t(["Ctrl+Shift+D"]).ran).toEqual(["start_dev"]);
+    expect(t(["Ctrl+D"]).outcomes).toEqual([{ kind: "terminal" }]);
+    // Ctrl+Shift+B is Hide / show the pane there, never Board; Ctrl+Shift+L focuses the pane, never New Project agent.
+    expect(t(["Ctrl+Shift+B"]).ran).toEqual(["toggle_pane"]);
+    expect(t(["Ctrl+Shift+L"]).ran).toEqual(["focus_pane"]);
+    expect(t(["Ctrl+Tab"]).ran).toEqual(["next_tab"]);
+    expect(t(["Ctrl+1"]).ran).toEqual(["project 1"]);
+    // Letters and sequences are the terminal's.
+    expect(t(["j", "g", "b"]).outcomes).toEqual([
+      { kind: "terminal" },
+      { kind: "terminal" },
+      { kind: "terminal" },
+    ]);
+    // Outside it, Ctrl+Shift+B is Board and Ctrl+Shift+L New Project agent.
+    expect(run(WIN_0097, ["Ctrl+Shift+B", "Ctrl+Shift+L"]).ran).toEqual(["show_board", "new_project_agent"]);
+  });
+
+  it("on a Mac in a terminal: ⌃` leaves it, ⌃Tab switches the tab, ⌃C and letters reach the terminal", () => {
+    const t = (texts: string[]) => run(MAC_0097, texts, TERMINAL);
+    const leave = t(["⌃`"]);
+    expect(leave.left()).toBe(1);
+    expect(leave.ran).toEqual([]);
+    expect(t(["⌃Tab", "⌃⇧Tab"]).ran).toEqual(["next_tab", "previous_tab"]);
+    expect(t(["⌃C", "⌃D", "j", "g"]).outcomes.map((o) => o.kind)).toEqual([
+      "terminal",
+      "terminal",
+      "terminal",
+      "terminal",
+    ]);
+    expect(t(["⌘K", "⌘D", "⌘B"]).ran).toEqual(["command_palette", "start_dev", "toggle_pane"]);
+  });
+});
+
+describe("over a modal (`modal.rs`)", () => {
+  const MODAL = { ...BOARD, modal: true, letters: "all" as const };
+  it("still leaves a focused terminal on ⌃` and finds in it, and runs nothing else", () => {
+    const inTerminal = run(MAC_0097, ["⌃`", "⌘F", "⌘K", "⌘D"], { ...MODAL, inTerminal: true });
+    expect(inTerminal.left()).toBe(1);
+    expect(inTerminal.ran).toEqual(["find_in_terminal"]);
+    // Outside a terminal ⌃` doesn't open the drawer behind the dialog.
+    const outside = run(MAC_0097, ["⌃`", "⌘K"], MODAL);
+    expect(outside.ran).toEqual([]);
+    expect(outside.outcomes.every(stopsEvent)).toBe(true);
+    const win = run(WIN_0097, ["Ctrl+`", "Ctrl+Shift+F"], { ...MODAL, inTerminal: true });
+    expect(win.left()).toBe(1);
+    expect(win.ran).toEqual(["find_in_terminal"]);
+  });
+});
+
+describe("the description editor's ⌘B and ⌘K (0097, d0078)", () => {
+  const inEditor = {
+    tagName: "DIV",
+    isContentEditable: true,
+    getAttribute: () => null,
+    closest: (selector: string) => (selector === ".md-editor" ? {} : null),
+  };
+  const text: KeyContext = { ...BOARD, focusKeeps: keysKeptBy(inEditor), letters: lettersKeptBy(inEditor) };
+
+  it("leaves ⌘B / Ctrl+B to its Bold and ⌘K / Ctrl+K to its Link; ⇧⌘B stays Board (Q221)", () => {
+    for (const [map, keys, board] of [
+      [MAC_0097, ["⌘B", "⌘K"], "⇧⌘B"],
+      [WIN_0097, ["Ctrl+B", "Ctrl+K"], "Ctrl+Shift+B"],
+    ] as const) {
+      const { outcomes, ran } = run(map, [...keys], text);
+      expect(outcomes).toEqual([{ kind: "passed" }, { kind: "passed" }]);
+      expect(ran).toEqual([]);
+      expect(run(map, [board], text).ran).toEqual(["show_board"]);
+      // Elsewhere ⌘B hides the pane.
+      expect(run(map, [keys[0]]).ran).toEqual(["toggle_pane"]);
+    }
+  });
+});
+
+describe("the key log of the g wait", () => {
+  it("says the key waited or cancelled", () => {
+    expect(logLine(key("g", "KeyG"), { kind: "waiting" })).toBe("G (KeyG) → waiting for the second key");
+    expect(logLine(key("x", "KeyX"), { kind: "cancelled" })).toBe("X (KeyX) → cancelled the g wait");
+  });
+});
+
+describe("a recording shortcut cell (T-0395)", () => {
+  it("gets every key: nothing runs, nothing is swallowed, the g wait ends", () => {
+    const recorder = {
+      tagName: "BUTTON",
+      isContentEditable: false,
+      getAttribute: () => null,
+      closest: (selector: string) => (selector === KEY_RECORDER ? {} : null),
+    };
+    expect(inKeyRecorder(recorder)).toBe(true);
+    expect(inKeyRecorder(null)).toBe(false);
+    const ctx = { ...BOARD, modal: true, recording: inKeyRecorder(recorder) };
+    const { d, ran, waiting } = setup(MAC_0097, ALL);
+    d.wait(true);
+    for (const text of ["⌘J", "⌘R", "Esc", "g", "j", "⌃`"]) {
+      expect(dispatchKey(d, press(text), ctx), text).toEqual({ kind: "passed" });
+    }
+    expect(ran).toEqual([]);
+    expect(waiting()).toBe(false);
   });
 });

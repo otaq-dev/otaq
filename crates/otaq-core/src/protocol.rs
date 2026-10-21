@@ -161,6 +161,10 @@ pub enum Request {
     /// The first-run tools checklist and permission-mode check; answered with [`Reply::ToolsCheck`].
     #[serde(rename = "tools.check")]
     ToolsCheck,
+    /// A checklist row's **Install** or **Log in** (git, gh, az): its command in a terminal of no project (the
+    /// running one if there is one). Answered with [`Reply::Session`]; attach with `session.attach {session}`.
+    #[serde(rename = "tools.terminal")]
+    ToolTerminalOpen(ToolTerminalParams),
     /// What the first-run screens need; answered with [`Reply::OnboardingState`].
     #[serde(rename = "onboarding.state")]
     OnboardingState,
@@ -814,6 +818,11 @@ pub enum Request {
     /// Answered with [`Reply::ProjectTerminal`] (number 0: no project's); attach with `session.attach {session}`.
     #[serde(rename = "agent_tools.sign_in")]
     AgentToolsSignIn(ToolParams),
+    /// `{"tool": "codex"}`: **Install**, the row's How to install command in a terminal titled "Installing Codex",
+    /// on the user's click only (PLT-03 revised). Answered with [`Reply::ProjectTerminal`] (number 0); the tool is
+    /// checked again when it ends.
+    #[serde(rename = "agent_tools.install")]
+    AgentToolsInstall(ToolParams),
     /// `{"tool": "codex"}`: **Disconnect…**, removing Otaq's own entries from the tool's config (T-0348).
     #[serde(rename = "agent_tools.disconnect")]
     AgentToolsDisconnect(ToolParams),
@@ -831,6 +840,10 @@ pub enum Request {
     /// `{"on": true}`: "Use fallback agents automatically", off by default (AGT-08; T-0357).
     #[serde(rename = "settings.auto_fallback")]
     SettingsAutoFallback(AutoFallbackParams),
+    /// `{}` or `{"record": {"kind": "ticket", "key": "NOTE-2"}}`: the command palette's recent items (KEY-06, d0097),
+    /// with the use recorded first when given. Answered with [`Reply::RecentItems`], newest first.
+    #[serde(rename = "recent.items")]
+    RecentItems(RecentItemsParams),
 
     // Imported workflow skills (M27; d0092). The user's requests.
     /// `{"project": "NOTE"}` or `{}`: the four workflow skill settings of a project or the global page (WSK-01,
@@ -921,6 +934,13 @@ pub struct UseFallbackParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AutoFallbackParams {
     pub on: bool,
+}
+
+/// `recent.items`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecentItemsParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record: Option<crate::store::recents::RecentUse>,
 }
 
 /// `agents.edit`: the entry's id and its whole form.
@@ -1480,6 +1500,13 @@ pub struct ProjectSettingsParams {
     pub settings: Box<ProjectSettings>,
 }
 
+/// A checklist row's tool and what to run for it (`tools.terminal`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolTerminalParams {
+    pub tool: crate::tools::Tool,
+    pub action: crate::tools::ToolAction,
+}
+
 /// A ticket's Shell; `reopen` is the user's click after it ended.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShellOpenParams {
@@ -1596,6 +1623,7 @@ impl Request {
             Self::StartupReport => "service.startup_report",
             Self::Subscribe => "events.subscribe",
             Self::ToolsCheck => "tools.check",
+            Self::ToolTerminalOpen(_) => "tools.terminal",
             Self::OnboardingState => "onboarding.state",
             Self::DismissPermissionWarning => "onboarding.dismiss_permission_warning",
             Self::DismissTrustNote => "notices.dismiss_trust_note",
@@ -1769,11 +1797,13 @@ impl Request {
             Self::AgentToolsRecheck(_) => "agent_tools.recheck",
             Self::AgentToolsSetHidden(_) => "agent_tools.set_hidden",
             Self::AgentToolsSignIn(_) => "agent_tools.sign_in",
+            Self::AgentToolsInstall(_) => "agent_tools.install",
             Self::AgentToolsDisconnect(_) => "agent_tools.disconnect",
             Self::LimitsResumeTool(_) => "limits.resume_tool",
             Self::LimitsMoveWaiting(_) => "limits.move_waiting",
             Self::TicketUseFallback(_) => "ticket.use_fallback",
             Self::SettingsAutoFallback(_) => "settings.auto_fallback",
+            Self::RecentItems(_) => "recent.items",
             Self::WorkflowSkillsStatus(_) => "workflow_skills.status",
             Self::WorkflowSkillsImport(_) => "workflow_skills.import",
             Self::WorkflowSkillsReimport(_) => "workflow_skills.reimport",
@@ -1898,6 +1928,8 @@ pub enum Reply {
     WorkflowSkills(Vec<crate::workflow_skills::SkillStatus>),
     /// One workflow skill setting after an import, Re-import or reset.
     WorkflowSkill(Box<crate::workflow_skills::SkillStatus>),
+    /// The command palette's recent items, newest first (`recent.items`).
+    RecentItems(Vec<crate::store::recents::RecentItem>),
 }
 
 /// The global settings with any values flagged as invalid.

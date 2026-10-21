@@ -150,6 +150,11 @@ attach command, the hint line under it) are the host's, drawn from `onState` (`T
   reports) are sent as replies, so they don't touch the service's unsent-input flag (d0048); answers to questions in a
   replay aren't sent at all. Input is off unless the phase is `live`, so while reconnecting the scrollback stays and
   nothing is typed (SVC-04).
+- **Dropped files** (d0099, T-0388). Each terminal registers its well in `dropTargets` (`drops.ts`) while mounted. The
+  door forwards every file drop as `files_dropped` (`src/drops.rs`: the paths, the paste quoted as Terminal.app does,
+  and the point in CSS pixels); the page looks up the element at that point: a typeable, live terminal gets the paste
+  through `term.paste` (bracketed, as ⌘V) and the keyboard, one that doesn't take typing ignores it, anywhere else Add
+  project opens with the first path.
 - **Focus.** On focus it calls `focusTerminal(session)` and tells the service (`terminal.focus`, passed on for an
   agent's session only, ATT-03); on blur `focusTerminal(null)`. Keys go to xterm.js untouched except the app's own
   (T-0215) and the terminal's own from the Rust map (`keymap.map`'s `terminal_keys`): copy and paste on Ctrl+Shift+C /

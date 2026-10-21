@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // The pane's own rules (T-0330): Enter sends once and shows the new agent, an example fills the box, ⌘L shows a
-// hidden pane and focuses the box or the terminal, ⇧⌘A shows the empty pane without asking the service anything.
+// hidden pane and focuses the box or the terminal, ⇧⌘L shows the empty pane without asking the service anything.
 import { act, createElement, useImperativeHandle } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -52,7 +52,7 @@ const EMPTY: PaneView = {
     switcher: false,
     pill: null,
     recent: button("history", "Recently ended"),
-    new: { icon: "plus", label: "New Project agent", keys: "⇧⌘A" },
+    new: { icon: "plus", label: "New Project agent", keys: "⇧⌘L" },
     more: button("ellipsis", "More"),
   },
   empty: {
@@ -71,11 +71,11 @@ const EMPTY: PaneView = {
     starts_on: null,
   },
   running: null,
-  switcher: { rows: [], new_label: "New Project agent (empty)", new_keys: "⇧⌘A" },
+  switcher: { rows: [], new_label: "New Project agent (empty)", new_keys: "⇧⌘L" },
   menu: [],
   recent: { title: "RECENTLY ENDED · POCKET-NOTES", rows: [], empty: "No ended Project agents yet." },
   agent_waits: false,
-  strip: { icon: "bot", label: "Show the Project agent", keys: "⌘\\" },
+  strip: { icon: "bot", label: "Show the Project agent", keys: "⌘B" },
 };
 
 /** "Which tickets wait on NOTE-5?" running, its terminal attached. */
@@ -239,7 +239,7 @@ describe("the empty pane", () => {
 });
 
 describe("the pane's keys", () => {
-  it("registers the pane, the strip's dot, ⌘L and ⇧⌘A", () => {
+  it("registers the pane, the strip's dot, ⌘L and ⇧⌘L", () => {
     const app = registerScreens({ pane });
     expect(registered(app)).toMatchObject({ slots: ["pane", "pane_strip"] });
     expect(app.shortcuts.names()).toEqual(["focus_pane", "new_project_agent"]);
@@ -267,7 +267,7 @@ describe("the pane's keys", () => {
     expect(ask).not.toHaveBeenCalled();
   });
 
-  it("⇧⌘A shows the empty pane, focused, without asking the service anything", () => {
+  it("⇧⌘L shows the empty pane, focused, without asking the service anything", () => {
     const app = registerScreens({ pane });
     selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
     shownAgents.set({ NOTE: "a1" });

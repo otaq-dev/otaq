@@ -1,0 +1,29 @@
+/* The `g` hint (s02-29…s02-31): at the bottom centre of the window, over everything, never taking clicks. */
+.g-hint-layer {
+  position: fixed;
+  right: 0;
+  bottom: 28px;
+  left: 0;
+  z-index: 900;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.g-hint {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-raised);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  color: var(--text-secondary);
+  font: 400 12px var(--font-ui);
+  white-space: nowrap;
+}
+
+.g-hint-muted {
+  color: var(--text-muted);
+}

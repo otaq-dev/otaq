@@ -12,7 +12,6 @@ use otaq_core::protocol::{
     IdParams, KeyParams, ProjectAgentCloseParams, ProjectAgentOpenParams, ProjectAgentRenameParams,
     ProjectParams, Reply, Request,
 };
-use otaq_view::keymap::Platform;
 use otaq_view::view_models::agent_pane::{self as vm, EditedTicket, PaneView};
 use otaq_view::view_models::project_agent_page::{self as agent_page, CloseDialog};
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
@@ -191,7 +190,7 @@ pub async fn view(app: &App, params: Params) -> Result<PaneView, RequestError> {
         new_agent: new_agent.as_ref(),
         window_width: params.window_width,
         now_ms: otaq_core::store::now_ms(),
-        platform: Platform::current(),
+        keys: super::keymap::labels(app).await,
         tools: &tools,
         named_agents: &named,
         start_on,

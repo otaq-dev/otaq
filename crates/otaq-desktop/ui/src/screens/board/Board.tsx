@@ -16,7 +16,7 @@
 // "not queued" chip on a track are dragged the same way (EPC-12, T-0270): Rust answers what each queues, and the drop
 // sends `epic.queue`, whose outcome is the queue toast; a row or a chip lifts as a small row. A track is dragged by
 // its name (EPC-14, T-0271): onto Backlog it takes back, at once or after the Park-all confirmation. Clicking a
-// track's name or ⇧⌘G on a selected epic, child or track focuses the epic (EPC-18, T-0274): its `epic:` token goes in
+// track's name or `g` `e` on a selected epic, child or track focuses the epic (EPC-18, T-0274): its `epic:` token goes in
 // the filter, the other cards, tracks and Done lines dim (Q55), the arrow keys walk only its cards, and Esc leaves.
 // A track's right click is its epic's menu.
 import {
@@ -543,8 +543,8 @@ export function Board() {
   }, [controller, focusOn, project]);
   useShortcut("close_panel", cancelDrag);
 
-  // ⇧⌘G / Ctrl+Shift+G (also from the terminal column): focus the epic of the track name with the keyboard, else of
-  // the selected card. A standalone ticket has none: Rust answers nothing and the filter stays.
+  // `g` `e`: focus the epic of the track name with the keyboard, else of the selected card. A standalone ticket has
+  // none: Rust answers nothing and the filter stays.
   const focusSelected = useCallback(() => {
     const name = document.activeElement?.closest<HTMLElement>(".strip-name[data-epic]");
     const key = name?.dataset.epic ?? selected;
@@ -656,7 +656,7 @@ export function Board() {
     [controller, release, placeGhost, openMenu],
   );
 
-  // ⇧⌘D: start the selected ticket, as if it was dropped on Dev. On an epic (its card, or its track's name) it queues
+  // ⌘D: start the selected ticket, as if it was dropped on Dev. On an epic (its card, or its track's name) it queues
   // the children still in Backlog; on a child row only that child (EPC-12, d0058).
   const startSelected = useCallback(() => {
     if (selected === null) return false;
@@ -664,6 +664,14 @@ export function Board() {
     return true;
   }, [selected, showApprove]);
   useShortcut("start_dev", startSelected);
+  // Park (0097, palette only unless the user gives it a key): the selected ticket as if dropped on Backlog, which
+  // asks the Park confirmation (CLS-06).
+  const parkSelected = useCallback(() => {
+    if (selected === null) return false;
+    void dropCard(selected, "backlog", showApprove);
+    return true;
+  }, [selected, showApprove]);
+  useShortcut("park", parkSelected);
 
   const element$ = useCallback((id: BoardDropTarget, el: HTMLElement | null) => {
     if (el) columns.current.set(id, el);

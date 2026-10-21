@@ -763,7 +763,7 @@
   max-width: 420px;
 }
 
-/* ---- Search & filter · ⌘K (T-0221): the header's field, its chips and the suggestions under it ---- */
+/* ---- Search & filter (T-0221, KEY-09): the header's field, its chips and the suggestions under it ---- */
 
 /* Sized as the header's search entry it replaces (shell.css `button.header-search`). */
 div.board-search {

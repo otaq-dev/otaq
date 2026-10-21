@@ -46,6 +46,26 @@ async fn next_change(
     .ok()
 }
 
+/// The first `inbox_changed` with `total` items within `wait`, skipping any earlier ones (a slow machine can
+/// publish the watcher's first look late, after the test has moved on).
+async fn change_to(
+    events: &mut broadcast::Receiver<Event>,
+    total: u32,
+    wait: Duration,
+) -> Option<InboxCounts> {
+    tokio::time::timeout(wait, async {
+        loop {
+            if let Ok(Event::InboxChanged { counts }) = events.recv().await
+                && counts.total == total
+            {
+                return counts;
+            }
+        }
+    })
+    .await
+    .ok()
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn items_and_counts_across_projects() {
     let w = TestService::start().await;
@@ -219,10 +239,10 @@ async fn limit_stopped_agents_raise_no_items_while_the_switch_is_on() {
     // Marked, but the switch is off: still an item.
     assert_eq!(list(&client).await.counts.total, 2);
     w.inbox.set_suppress_limit_stopped(Tool::Claude, true);
-    let counts = next_change(&mut events, Duration::from_secs(5))
+    let counts = change_to(&mut events, 1, Duration::from_secs(5))
         .await
         .unwrap();
-    assert_eq!(counts.total, 1);
+    assert_eq!(counts.of_project("SHOP"), 1);
     let keys: Vec<String> = list(&client)
         .await
         .items
@@ -238,12 +258,10 @@ async fn limit_stopped_agents_raise_no_items_while_the_switch_is_on() {
     assert_eq!(status.needs_you, 1);
 
     w.inbox.set_suppress_limit_stopped(Tool::Claude, false);
-    assert_eq!(
-        next_change(&mut events, Duration::from_secs(5))
+    assert!(
+        change_to(&mut events, 2, Duration::from_secs(5))
             .await
-            .unwrap()
-            .total,
-        2
+            .is_some()
     );
     w.stop().await;
 }

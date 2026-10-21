@@ -44,6 +44,8 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
   const [view, setView] = useState<SettingsView | null>(null);
   const [error, setError] = useState<RequestError | null>(null);
   const [dialog, setDialog] = useState<Open>(null);
+  // Where a topic puts its own header buttons (Keyboard shortcuts' Reset all).
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   // The open global topic, as any of its sections: Settings opened on a section opens the topic that holds it.
   const [topic, setTopic] = useState<string | null>(params?.section ?? null);
   // The section Settings was opened on, scrolled to once its topic's page is drawn.
@@ -144,8 +146,8 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
 
   const page = view?.page;
   const context = useMemo<SettingsContextValue | null>(
-    () => (page ? { page, project, edit, act, skill } : null),
-    [page, project, edit, act, skill],
+    () => (page ? { page, project, edit, act, skill, headerSlot } : null),
+    [page, project, edit, act, skill, headerSlot],
   );
 
   const globalRows = view?.nav.filter((r) => r.target.page === "global") ?? [];
@@ -241,6 +243,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
         <div className="settings-main">
           <header className="settings-header">
             <h2>{page?.page === "global" ? openRow?.label : page?.title}</h2>
+            <div ref={setHeaderSlot} className="settings-header-actions" />
             <IconButton icon="x" label={view?.close_label ?? ""} onClick={close} />
           </header>
           {error && (

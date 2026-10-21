@@ -85,6 +85,7 @@ describe("the Settings screen", () => {
       "notifications",
       "data",
       "appearance",
+      "keyboard_shortcuts",
       "tools",
       "about",
     ]);
@@ -272,6 +273,8 @@ const toolRow = (tool: string, more: Partial<AgentToolRow>): AgentToolRow => ({
   sign_in: null,
   show: null,
   install: null,
+  install_button: null,
+  install_note: null,
   update: null,
   can_see: null,
   notes: [],
@@ -351,6 +354,14 @@ const toolsPage = (rows: AgentToolRow[]): AgentToolsPage => ({
   not_shown_title: "Not shown here",
   not_shown: "git, gh and az stay under Tools: they aren’t agents.",
   error: null,
+  terminal: {
+    hide: "Hide",
+    close: "Close",
+    retry: "Retry",
+    checking: "Ended \u00b7 checking again\u2026",
+    not_done: "Not done yet \u2014 see the output above",
+    done: "Done",
+  },
 });
 
 const drawRow = (row: AgentToolRow) =>

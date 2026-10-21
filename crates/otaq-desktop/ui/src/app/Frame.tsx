@@ -1,13 +1,13 @@
 // The app frame (*02 → Row · Window 1440 × 900 (0086 · V)*, SHL-01): the header row (also the title bar), the banner
 // area across the window that pushes everything under it down, then **rail | Project agent pane | main area**. The
 // main area has the Board | Files tabs at its top, then the board or the Files view; the ticket panel opens over its
-// right side (SHL-05). ⌘\ folds the pane to a 28 px strip; the expanded panel (⇧⌘E) takes the pane's room too. The
+// right side (SHL-05). ⌘B folds the pane to a 28 px strip; the expanded panel (`e`) takes the pane's room too. The
 // overlay and toast hosts go over everything. Each slot is filled by the screen registered for it; an empty slot
 // shows its name so the layout can be checked before its screen exists.
 import { useCallback, useEffect, useLayoutEffect, useRef, type PointerEvent, type ReactNode } from "react";
 
 import "./frame.css";
-import { playLeave, playMotion, Tooltip, usePresence } from "../components";
+import { playEnterWhenReady, playLeave, Tooltip, usePresence } from "../components";
 import type { LayoutView } from "../generated/LayoutView";
 import type { MainTab } from "../generated/MainTab";
 import type { SizeClass } from "../generated/SizeClass";
@@ -84,16 +84,17 @@ function OverlayHost() {
 }
 
 /**
- * The ticket panel's layer: it slides in from the right edge when a ticket opens and back out when it closes, staying
- * mounted until the slide ends (OT-6). Switching tickets keeps it mounted, so the slide doesn't play again; resizing
+ * The ticket panel's layer: a drawer, sliding in from the right edge once the ticket has loaded and back out when it
+ * closes, staying mounted until the slide ends (OT-6, 0095). Switching tickets keeps it mounted, so the slide doesn't play again; resizing
  * changes only its width, so the drag stays instant.
  */
 function PanelLayer({ open }: { open: boolean }) {
   const layer = useRef<HTMLDivElement>(null);
   const { mounted, leaving, done } = usePresence(open);
-  useLayoutEffect(() => {
-    if (mounted && layer.current) playMotion(layer.current, "panel", "in");
-  }, [mounted]);
+  useLayoutEffect(
+    () => (mounted && layer.current ? playEnterWhenReady(layer.current, "panel") : undefined),
+    [mounted],
+  );
   useLayoutEffect(() => (leaving ? playLeave(layer.current, "panel", done) : undefined), [leaving, done]);
   if (!mounted) return null;
   return (
@@ -156,7 +157,7 @@ function PaneEdge({
   /* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex -- the splitter ends here */
 }
 
-/** The pane's column: the pane at its width, its strip while hidden (⌘\), nothing under an expanded panel. */
+/** The pane's column: the pane at its width, its strip while hidden (⌘B), nothing under an expanded panel. */
 function PaneColumn({
   view,
   layout,

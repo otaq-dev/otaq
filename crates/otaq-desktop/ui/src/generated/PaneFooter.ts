@@ -10,6 +10,6 @@ export type PaneFooter = { text: string,
  */
 keys: string | null, keys_label: string, resume: AgentResumeButton | null, 
 /**
- * After Resume: "or ⇧⌘A for a new agent".
+ * After Resume: "or ⇧⌘L for a new agent".
  */
 resume_note: string | null, };

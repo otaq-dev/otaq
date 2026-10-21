@@ -280,11 +280,16 @@ mod tests {
 
     #[test]
     fn number_keys_reach_the_list_only_when_the_terminal_has_no_focus() {
-        use crate::keymap::{KeyRoute, Platform, route};
-        let plain = crate::keymap::Modifiers::default();
+        use crate::keymap::{KeyPress, KeyRoute, Platform, bindings, route};
+        let one = KeyPress {
+            key: "1".into(),
+            code: "Digit1".into(),
+            modifiers: Default::default(),
+        };
+        let map = bindings(Platform::Mac);
         // SES-10: with the terminal focused, "1" is typed into Claude Code; with the list focused, it picks.
-        assert_eq!(route(Platform::Mac, true, &plain), KeyRoute::Terminal);
-        assert_eq!(route(Platform::Mac, false, &plain), KeyRoute::App);
+        assert_eq!(route(Platform::Mac, true, &one, &map), KeyRoute::Terminal);
+        assert_eq!(route(Platform::Mac, false, &one, &map), KeyRoute::App);
     }
 
     /// *10 → Row · Epic lead items (0083)*: the lead's option is preselected, "Recommended by the lead" with its reason.

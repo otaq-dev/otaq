@@ -4,7 +4,9 @@
 
 pub mod highlight;
 pub mod icons;
+pub mod key_labels;
 pub mod keymap;
+pub mod keymap_edit;
 pub mod shell;
 pub mod terminal;
 pub mod theme;

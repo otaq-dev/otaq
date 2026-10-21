@@ -1,7 +1,7 @@
 //! Keyboard modality: while a modal is open (a confirm dialog, or the editor, Settings, Add project,
-//! Cleanup or restart dialog over the window) the app's shortcuts (d0058) don't run, so nothing behind the
+//! Cleanup or restart dialog over the window) the app's shortcuts (d0097) don't run, so nothing behind the
 //! dialog starts, moves, opens or switches. The dialog's own keys (Esc, ↵, ⌘↵ to save, text editing) are bound
-//! in its own key context, which wins over the app's, so they keep working. Decision 0058 names no app
+//! in its own key context, which wins over the app's, so they keep working. Decision 0097 names no app
 //! shortcut that works over a dialog.
 
 use crate::keymap::KeyAction;
@@ -9,8 +9,8 @@ use crate::keymap::KeyAction;
 /// Whether the app shortcut `action` runs.
 pub fn shortcut_runs(action: KeyAction, modal_open: bool) -> bool {
     match action {
-        // The terminal's own keys: they act on a focused terminal, never on what's behind a dialog.
-        KeyAction::LeaveTerminal | KeyAction::FindInTerminal => true,
+        // The terminal's own keys: they act on a focused terminal, never on what's behind a dialog (⌃` leaves it).
+        KeyAction::Terminals | KeyAction::FindInTerminal => true,
         _ => !modal_open,
     }
 }
@@ -34,14 +34,15 @@ mod tests {
             KeyAction::SendBack,
             KeyAction::OpenPanel,
             KeyAction::ClosePanel,
-            KeyAction::Search,
+            KeyAction::CommandPalette,
+            KeyAction::FilterBoard,
             KeyAction::SwitchProject,
             KeyAction::Project(1),
             KeyAction::SwitchTab(2),
             KeyAction::Settings,
             KeyAction::OpenInbox,
             KeyAction::NextInboxItem,
-            KeyAction::ProjectTerminal,
+            KeyAction::Park,
         ] {
             assert!(
                 !shortcut_runs(action, true),
@@ -58,7 +59,7 @@ mod tests {
             .collect();
         assert_eq!(
             passing,
-            vec![KeyAction::LeaveTerminal, KeyAction::FindInTerminal]
+            vec![KeyAction::Terminals, KeyAction::FindInTerminal]
         );
     }
 }

@@ -179,27 +179,32 @@ export interface AnchoredMenuProps extends MenuProps {
   align?: "start" | "end";
 }
 
-/** A menu under its trigger, or at the pointer, kept inside the window. */
+/**
+ * A menu under its trigger, or at the pointer, kept inside the window. A press outside it (and outside its trigger,
+ * whose own click decides) closes it too: a press on the window's drag region (the header) moves no focus, so the
+ * menu's blur alone would leave it open.
+ */
 export function AnchoredMenu({ anchor, align, ...menu }: AnchoredMenuProps) {
   const floating = useRef<HTMLDivElement>(null);
-  const style = useFloatingStyle(anchor, floating, align, () => {
-    menu.onClose("outside");
+  const close = useRef(menu.onClose);
+  useEffect(() => {
+    close.current = menu.onClose;
   });
-  // A press outside the menu (and outside its trigger, whose own click toggles) closes it. Focus leaving it does too,
-  // but a press on something that takes no focus doesn't always move focus in the webview.
-  const { onClose } = menu;
+  const style = useFloatingStyle(anchor, floating, align, () => {
+    close.current("outside");
+  });
   useEffect(() => {
     const onPress = (e: PointerEvent) => {
       const target = e.target as Node | null;
       const trigger = "current" in anchor ? anchor.current : null;
       if (floating.current?.contains(target) || trigger?.contains(target)) return;
-      onClose("outside");
+      close.current("outside");
     };
-    document.addEventListener("pointerdown", onPress);
+    document.addEventListener("pointerdown", onPress, true);
     return () => {
-      document.removeEventListener("pointerdown", onPress);
+      document.removeEventListener("pointerdown", onPress, true);
     };
-  }, [anchor, onClose]);
+  }, [anchor]);
   return (
     <div ref={floating} className="floating" style={style}>
       <Menu {...menu} />

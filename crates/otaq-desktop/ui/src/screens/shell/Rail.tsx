@@ -1,7 +1,7 @@
 // The project rail (UI-01, ATT-10, PRJ-01; d0024, d0058, d0087; *02 → One project, Another project needs you, Ten
 // projects · long names*): every project in the user's order with its agents working and items needing you, quiet
 // when idle; a project that newly needs you while another is shown rings for 10 s. The 64 px column of tiles at every
-// width. Add project after the tiles; Cleanup, Terminals (the drawer on the last-used terminal, as ⇧⌘T) and Settings (as
+// width. Add project after the tiles; Cleanup, Terminals (the drawer on the last-used terminal, as ⌃`) and Settings (as
 // ⌘,) at the bottom (CHANGES-v §3, T-0329). Rows, order and wording are `shell.rail`'s.
 import { useCallback, useEffect, useState } from "react";
 
@@ -28,6 +28,8 @@ export const RAIL_EVENTS = [
   "ticket_deleted",
   "session_state",
   "inbox_changed",
+  // The user's keys in its tooltips (KEY-08).
+  "settings_changed",
 ] as const;
 
 function Broom({ broom }: { broom: CleanupBroom | undefined }) {
@@ -67,7 +69,7 @@ export interface RailActions {
 
 export function railActions(app: Registries): RailActions {
   return {
-    onTerminals: () => app.shortcuts.run({ action: "project_terminal" }),
+    onTerminals: () => app.shortcuts.run({ action: "terminals" }),
     onSettings: () => app.shortcuts.run({ action: "settings" }),
   };
 }

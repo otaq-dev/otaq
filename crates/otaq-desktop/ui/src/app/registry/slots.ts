@@ -16,7 +16,7 @@ export const SLOT_IDS = [
   "banners",
   /**
    * The Project agent pane between the rail and the main area (SHL-04, T-0330). The frame sets its width and keeps it
-   * mounted while ⌘\ folds it to the strip; it reads `shellLayout.paneHidden` if it needs to know.
+   * mounted while ⌘B folds it to the strip; it reads `shellLayout.paneHidden` if it needs to know.
    */
   "pane",
   /** Under the strip's bot icon while the pane is folded: the turquoise dot while an agent waits (T-0330). */

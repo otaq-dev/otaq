@@ -2,7 +2,7 @@
 import type { RailButton } from "./RailButton";
 
 /**
- * The rail's bottom after Cleanup (which keeps its own view, `shell.cleanup`): Terminals (⇧⌘T, the drawer on the
+ * The rail's bottom after Cleanup (which keeps its own view, `shell.cleanup`): Terminals (⌃`, the drawer on the
  * last-used Project terminal; no dot: agents that wait show in the pane and the inbox) and Settings (⌘,).
  */
 export type RailBottom = { terminals: RailButton, settings: RailButton, };

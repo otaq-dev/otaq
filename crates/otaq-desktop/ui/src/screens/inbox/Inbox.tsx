@@ -9,10 +9,10 @@
 // its Lead tab), and the foot's keys. ↑↓ move, ↵ opens,
 // 1–4 pick in an open answer box, Esc cancels the box or closes the inbox. Everything it says comes from
 // `inbox.view`; it keeps only the selected row and the open draft.
-import { type KeyboardEvent, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 import { modalOpen, openOverlay, overlays } from "../../app/overlays";
-import type { OverlayProps } from "../../app/registry";
+import { type OverlayProps, useShortcut } from "../../app/registry";
 import { Button, Kbd, ToolAvatar } from "../../components";
 import type { InboxAnswer } from "../../generated/InboxAnswer";
 import type { InboxGroup } from "../../generated/InboxGroup";
@@ -42,8 +42,14 @@ import {
 } from "./logic";
 import { ROUTES } from "./routes";
 
-/** The service events that change the inbox. */
-export const INBOX_EVENTS = ["inbox_changed", "ticket_changed", "ticket_deleted", "usage_changed"] as const;
+/** The service events that change the inbox (`settings_changed`: the user's key for Next, KEY-08). */
+export const INBOX_EVENTS = [
+  "inbox_changed",
+  "ticket_changed",
+  "ticket_deleted",
+  "usage_changed",
+  "settings_changed",
+] as const;
 
 const ignore = () => undefined;
 
@@ -526,7 +532,7 @@ export function InboxBody({ view, selected, draft, onDraft, onSelect }: InboxBod
                 void runNext();
               }}
             />
-            <Kbd keys={view.next.keys} />
+            {view.next.keys !== "" && <Kbd keys={view.next.keys} />}
           </>
         )}
       </div>
@@ -686,6 +692,23 @@ export function Inbox({ close }: OverlayProps<"inbox">) {
 
   const rows = view ? waitingRows(view) : [];
   const current = Math.min(selected, Math.max(0, rows.length - 1));
+  // j / k (Next / previous ticket, 0097) walk the rows as ↓ / ↑ do, while the keyboard is on the list.
+  const walk = useRef<(by: 1 | -1) => boolean>(() => false);
+  useLayoutEffect(() => {
+    walk.current = (by) => {
+      if (draft !== null || document.activeElement !== box.current) return false;
+      setSelected(step(current, by, rows.length));
+      return true;
+    };
+  });
+  useShortcut(
+    "next_ticket",
+    useCallback(() => walk.current(1), []),
+  );
+  useShortcut(
+    "previous_ticket",
+    useCallback(() => walk.current(-1), []),
+  );
   const onKey = (e: KeyboardEvent) => {
     if (draft !== null || e.target !== box.current) return;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -704,6 +727,8 @@ export function Inbox({ close }: OverlayProps<"inbox">) {
       className="inbox"
       role="dialog"
       aria-label={view?.title}
+      // The app's single letters work here (KEY-02: j / k), unlike in other dialogs.
+      data-letters=""
       tabIndex={-1}
       style={{ top: place.top, right: place.right }}
       onKeyDown={onKey}

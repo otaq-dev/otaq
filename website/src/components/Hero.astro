@@ -1,0 +1,136 @@
+---
+import BoardBg from "./BoardBg.astro";
+import CopyButton from "./CopyButton.astro";
+import Icon from "./Icon.astro";
+import { DOWNLOAD_URL, OS } from "./os";
+
+// The page is built for macOS; os-pick.ts switches the Download label, the note and the command to the visitor's OS.
+const os = OS.mac;
+const small = "width:18px;height:18px;font-size:8px";
+---
+
+<section class="hero">
+  <BoardBg
+    lanes
+    cards={[
+      { top: 150, delay: -2, key: "NOTE-14" },
+      { top: 230, delay: -9, key: "SHOP-22", bar: 60, needsYou: true },
+      { top: 310, delay: -15, key: "NOTE-9", bar: 70 },
+      { top: 400, delay: -5, key: "SHOP-35", bar: 55 },
+      { top: 480, delay: -20, key: "NOTE-8", needsYou: true },
+      { top: 560, delay: -12, key: "SHOP-19", bar: 65 },
+      { top: 640, delay: -24, key: "NOTE-12", bar: 75 },
+      { top: 190, delay: -18, key: "SHOP-31", bar: 50 },
+      { top: 600, delay: -7, key: "NOTE-15", bar: 85 },
+    ]}
+  />
+
+  <div class="fl attn" style="left:3%;top:120px;--r:-2deg" aria-hidden="true">
+    <span class="pulse"></span>
+    <div class="top">
+      SHOP-22<span style="flex:1"></span>
+      <span class="av av-cc" style={small}>
+        CC
+      </span>
+    </div>
+    <div class="ti">Migrate orders to the new status enum</div>
+    <span class="pill p-a">
+      <Icon icon="hand" />
+      Needs you
+    </span>
+    <div class="top" style="color: var(--st-attn)">
+      Allow pnpm prisma migrate dev?
+    </div>
+  </div>
+  <div class="fl f2" style="right:3%;top:150px;--r:2deg" aria-hidden="true">
+    <div class="top">
+      NOTE-4<span style="flex:1"></span>
+      <span class="av av-cc" style={small}>
+        CC
+      </span>
+    </div>
+    <div class="ti">Colorize output when stdout is a terminal</div>
+    <span class="pill p-r">
+      <Icon icon="shield-check" />
+      Validated · round 1
+    </span>
+    <div class="top">+86 −12 · 1 decision</div>
+  </div>
+  <div class="fl f3" style="left:5%;top:430px;--r:1.5deg" aria-hidden="true">
+    <div class="top">
+      <Icon icon="bot" class="s12" style="color: var(--st-investigate)" />
+      Project agent
+    </div>
+    <div class="ti">Created NOTE-14 and NOTE-15 from 2 GitHub issues</div>
+    <span class="pill p-i">
+      <Icon icon="check" />
+      In Backlog
+    </span>
+  </div>
+  <div class="fl f4" style="right:5%;top:440px;--r:-1.5deg" aria-hidden="true">
+    <div class="top">
+      NOTE-13.2<span style="flex:1"></span>
+      <span class="av av-cx" style={small}>
+        CX
+      </span>
+    </div>
+    <div class="ti">notes add -n &lt;notebook&gt;</div>
+    <span class="pill p-w">
+      <Icon icon="loader" class="spin" />
+      Working
+    </span>
+    <div class="top">active 4s ago · 38k tokens</div>
+  </div>
+
+  <div class="wrap hero-in">
+    <span class="eyebrow">
+      <b>v0.1</b>Free and open source · macOS, Windows and Linux
+    </span>
+    <h1 class="hl">
+      Your agents write the tickets. <em>And then the code.</em>
+      <span class="blink" aria-hidden="true"></span>
+    </h1>
+    <p class="lede">
+      Tell the Project agent what you need, or have it import your issues with your own skill. It plans the
+      tickets, coding agents work them in their own git worktrees, and a second agent checks every change.{" "}
+      <b>You answer questions and approve diffs.</b> Nothing merges until you say so.
+    </p>
+    <div class="cta">
+      <a class="btn btn-p btn-lg" href={DOWNLOAD_URL}>
+        <Icon icon="download" />
+        <span data-os-download>{os.download}</span>
+      </a>
+      <a class="btn btn-s btn-lg" href="#demo">
+        Try the live demo
+        <Icon icon="arrow-right" />
+      </a>
+    </div>
+    <p class="os-note" data-os-note>
+      {os.note}
+    </p>
+    <div class="oneliner">
+      <code>
+        <i>$ </i>
+        <span data-cmd data-os-command>
+          {os.command}
+        </span>
+      </code>
+      <CopyButton />
+    </div>
+    <div class="works">
+      <span>Works with</span>
+      <span class="tool">
+        <span class="av av-cc">CC</span>Claude Code
+      </span>
+      <span class="tool">
+        <span class="av av-cx">CX</span>Codex
+      </span>
+      <span class="tool">
+        <span class="av av-cp">CP</span>GitHub Copilot
+      </span>
+      <span class="tool">
+        <span class="av av-oc">OC</span>OpenCode
+      </span>
+    </div>
+  </div>
+</section>

@@ -7,11 +7,15 @@
 :root {
   /* Hover and pressed colours, tabs, menus, popovers and tooltips. */
   --motion-fast: 120ms;
-  /* The side panel, dialogs and toasts. */
+  /* Dialogs, toasts, and the side panel leaving. */
   --motion-base: 200ms;
+  /* The side panel coming in: it travels its whole width. */
+  --motion-panel: 260ms;
   /* Things arriving: quick out of the gate, settling gently. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  /* Things leaving, and colour changes. */
+  /* Things leaving off an edge (the side panel): gathering speed on the way out. */
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  /* Things leaving in place, and colour changes. */
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   /* What hover, pressed and selected states transition. */
   --motion-colors:

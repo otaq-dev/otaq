@@ -65,6 +65,9 @@ use crate::view_models::limits::{
 use crate::view_models::menu::MenuSearch;
 use crate::view_models::named_agents;
 use crate::view_models::onboarding::{OnboardingModel, RowIcon};
+use crate::view_models::onboarding_page::{
+    ToolButton, ToolTerminalTexts, tool_button, tool_terminal_texts, tools_intro,
+};
 use crate::view_models::settings::{
     GLOBAL_SECTIONS, PROJECT_ICON, ProviderTone, env_file_problem, instructions_placeholder,
     problem_for, provider_row, remove_text,
@@ -93,6 +96,8 @@ pub enum GlobalSection {
     Notifications,
     Data,
     Appearance,
+    /// M29, T-0395: custom shortcuts and the single-letter switch, drawn from `keyboard.view` ([`super::keyboard_page`]).
+    KeyboardShortcuts,
     Tools,
     /// The last one: the mark, version, licenses and credits (d0071).
     About,
@@ -662,7 +667,7 @@ pub struct WarmInputs<'a> {
 }
 
 /// The global sections, in nav order.
-const DRAWN: [GlobalSection; 13] = [
+const DRAWN: [GlobalSection; 14] = [
     GlobalSection::AgentTools,
     GlobalSection::Agents,
     GlobalSection::AgentLimits,
@@ -674,6 +679,7 @@ const DRAWN: [GlobalSection; 13] = [
     GlobalSection::Notifications,
     GlobalSection::Data,
     GlobalSection::Appearance,
+    GlobalSection::KeyboardShortcuts,
     GlobalSection::Tools,
     GlobalSection::About,
 ];
@@ -732,6 +738,7 @@ fn nav_label(id: GlobalSection) -> (&'static str, IconName) {
         GlobalSection::Notifications => shared(4),
         GlobalSection::Data => shared(5),
         GlobalSection::Appearance => shared(6),
+        GlobalSection::KeyboardShortcuts => ("Keyboard shortcuts", IconName::Keyboard),
         GlobalSection::Tools => shared(7),
         GlobalSection::About => ("About", IconName::Info),
     }
@@ -1123,9 +1130,7 @@ pub fn global_page(input: &GlobalInputs) -> Page {
     );
 
     let tools = Section {
-        intro: Some(format!(
-            "{PRODUCT_NAME} uses the tools already on your machine. It never installs or updates them."
-        )),
+        intro: Some(tools_intro()),
         ..section(
             GlobalSection::Tools,
             Some("Tools"),
@@ -1156,6 +1161,12 @@ pub fn global_page(input: &GlobalInputs) -> Page {
             notifications,
             data,
             appearance,
+            // Its own view: the switch and every action's keys ([`super::keyboard_page`]).
+            section(
+                GlobalSection::KeyboardShortcuts,
+                Some("Keyboard shortcuts"),
+                Vec::new(),
+            ),
             tools,
             section(
                 GlobalSection::About,
@@ -2873,6 +2884,8 @@ pub enum ToolLook {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SettingsToolRow")]
 pub struct ToolView {
+    /// "git", "gh", "az".
+    pub tool: String,
     pub name: String,
     pub icon: IconName,
     pub look: ToolLook,
@@ -2881,6 +2894,8 @@ pub struct ToolView {
     pub status: String,
     pub explanation: Option<String>,
     pub command: Option<String>,
+    pub button: Option<ToolButton>,
+    pub note: Option<String>,
 }
 
 /// The tools checklist (`settings.tools`), or why the check failed.
@@ -2889,6 +2904,8 @@ pub struct ToolView {
 pub struct ToolsView {
     pub rows: Vec<ToolView>,
     pub error: Option<String>,
+    pub copy: String,
+    pub terminal: ToolTerminalTexts,
 }
 
 pub fn tools(result: Result<ToolsReport, String>) -> ToolsView {
@@ -2907,6 +2924,9 @@ pub fn tools(result: Result<ToolsReport, String>) -> ToolsView {
                     RowIcon::MissingOptional => (IconName::CircleMinus, ToolLook::MissingOptional),
                 };
                 ToolView {
+                    tool: r.tool.command().to_owned(),
+                    button: tool_button(&r),
+                    note: r.note.clone(),
                     name: r.name.to_owned(),
                     icon,
                     look,
@@ -2918,6 +2938,8 @@ pub fn tools(result: Result<ToolsReport, String>) -> ToolsView {
             })
             .collect(),
         error,
+        copy: "Copy".to_owned(),
+        terminal: tool_terminal_texts(),
     }
 }
 
@@ -3435,7 +3457,7 @@ mod tests {
             &["BILL".into()],
         )
         .nav;
-        assert_eq!(nav.len(), 12);
+        assert_eq!(nav.len(), 13);
         // Agent tools first, then Agents (M22, `bVdGw`; M23, `bGHVl`).
         assert_eq!(
             (nav[0].label.as_str(), nav[0].icon),
@@ -3474,13 +3496,19 @@ mod tests {
             ("Project agents", IconName::Bot)
         );
         assert_eq!(nav[5].label, "Usage");
+        // Keyboard shortcuts after Appearance (M29, T-0395; design `s15-46`).
+        assert_eq!(nav[8].label, "Appearance");
+        assert_eq!(
+            (nav[9].label.as_str(), nav[9].icon),
+            ("Keyboard shortcuts", IconName::Keyboard)
+        );
         // About is the last global row (d0071).
         assert_eq!(
-            (nav[10].label.as_str(), nav[10].icon),
+            (nav[11].label.as_str(), nav[11].icon),
             ("About", IconName::Info)
         );
-        assert_eq!(nav[11].target, Target::Project { key: "BILL".into() });
-        assert!(nav[11].alert);
+        assert_eq!(nav[12].target, Target::Project { key: "BILL".into() });
+        assert!(nav[12].alert);
     }
 
     // ---- Settings → Workflow skills (T-0380; WSK-01, WSK-02, WSK-04, WSK-07; *15 → update AC*) ----

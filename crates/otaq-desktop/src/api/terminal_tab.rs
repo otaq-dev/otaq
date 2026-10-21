@@ -15,7 +15,8 @@ use otaq_core::protocol::{BeforeRestartParams, KeyParams, Reply, Request, Sessio
 use otaq_core::recovery::BeforeRestart;
 use otaq_core::session::deliveries::Delivery;
 use otaq_core::session::{SessionInfo, SessionKind, SessionState};
-use otaq_view::keymap::{KeyAction, Platform};
+use otaq_view::key_labels::KeyLabels;
+use otaq_view::keymap::KeyAction;
 use otaq_view::terminal::Phase;
 use otaq_view::view_models::panel::ICON_TABS_BELOW;
 use otaq_view::view_models::recovery::{self, RecoveryView};
@@ -177,7 +178,7 @@ pub struct View {
     pub copy_attach: &'static str,
     pub waiting: Option<Waiting>,
     pub instructions: Instructions,
-    /// "leave terminal" with ⇧⌘`, while the terminal has the keyboard.
+    /// "leave terminal" with the user's key for Terminals (⌃`), while the terminal has the keyboard.
     pub leave: Tooltip,
     pub smaller: &'static str,
     pub bigger: &'static str,
@@ -331,13 +332,15 @@ fn recovery_of(
 }
 
 /// The view from what the service said: the ticket, its sessions, its validation rounds, its project's name and,
-/// for an Interrupted ticket whose session is gone, its tool's saved conversation.
-pub fn view_of(
+/// for an Interrupted ticket whose session is gone, its tool's saved conversation. `keys`: the user's keys, read as
+/// they work inside a terminal (KEY-08), for "leave terminal" and Find.
+pub fn view_with(
     ticket: &Ticket,
     sessions: &[SessionInfo],
     rounds: &[ValidationRecord],
     project_name: &str,
     before: Option<&BeforeRestart>,
+    keys: &KeyLabels,
 ) -> View {
     let session = agent_session(sessions);
     let running = session.is_some_and(SessionInfo::is_running);
@@ -415,13 +418,13 @@ pub fn view_of(
         },
         leave: Tooltip {
             text: "leave terminal".to_owned(),
-            keys: KeyAction::LeaveTerminal.keys(Platform::current()),
+            keys: keys.in_terminal(KeyAction::Terminals),
         },
         smaller: "Smaller text",
         bigger: "Larger text",
         find: Tooltip {
             text: "Find in scrollback".to_owned(),
-            keys: KeyAction::FindInTerminal.keys(Platform::current()),
+            keys: keys.in_terminal(KeyAction::FindInTerminal),
         },
         background,
         narrow_below: ICON_TABS_BELOW,
@@ -515,8 +518,16 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     } else {
         None
     };
+    let keys = super::keymap::labels(app).await;
     Ok(Load {
-        view: Some(view_of(&ticket, &sessions, &rounds, &name, before.as_ref())),
+        view: Some(view_with(
+            &ticket,
+            &sessions,
+            &rounds,
+            &name,
+            before.as_ref(),
+            &keys,
+        )),
         gone,
     })
 }
@@ -563,9 +574,47 @@ mod tests {
     use otaq_core::recovery::TranscriptEntry;
     use serde_json::json;
 
+    use otaq_view::key_labels::fixtures as keys;
+    use otaq_view::keymap::Platform;
+
     use super::super::request as table;
     use super::*;
     use crate::service::testing::{Harness, connected};
+
+    /// [`view_with`] on the base map's macOS keys.
+    fn view_of(
+        ticket: &Ticket,
+        sessions: &[SessionInfo],
+        rounds: &[ValidationRecord],
+        project_name: &str,
+        before: Option<&BeforeRestart>,
+    ) -> View {
+        view_with(ticket, sessions, rounds, project_name, before, &keys::base())
+    }
+
+    /// KEY-08: "leave terminal" and Find name the user's keys as they work inside a terminal: ⌃` and ⌘F on macOS,
+    /// Ctrl+` and Ctrl+Shift+F in a Windows/Linux terminal, a recorded key, none once removed.
+    #[test]
+    fn leave_and_find_show_the_users_keys_in_a_terminal() {
+        let t = ticket(Status::Working);
+        let tips = |labels: &KeyLabels| {
+            let v = view_with(&t, &[], &[], "shop-web", None, labels);
+            (v.leave.keys, v.find.keys)
+        };
+        let own = |a: &str, b: &str| (Some(a.to_owned()), Some(b.to_owned()));
+        assert_eq!(tips(&keys::base()), own("⌃`", "⌘F"));
+        assert_eq!(
+            tips(&KeyLabels::base(Platform::WinLinux)),
+            own("Ctrl+`", "Ctrl+Shift+F")
+        );
+        assert_eq!(
+            tips(&keys::replaced("find_in_terminal", None, 0, "⌘G")),
+            own("⌃`", "⌘G")
+        );
+        let removed = keys::with(true, &[("terminals", None, 0, None), ("find_in_terminal", None, 0, None)]);
+        assert_eq!(tips(&removed), (None, None));
+        assert_eq!(tips(&keys::letters_off()), own("⌃`", "⌘F"));
+    }
 
     fn session(id: &str, state: SessionState, started_at: i64) -> SessionInfo {
         SessionInfo {

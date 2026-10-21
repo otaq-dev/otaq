@@ -38,8 +38,10 @@ import {
   picksOther,
   shownTab,
   shownWidth,
+  steppedTab,
 } from "./logic";
 import { PanelBody } from "./Panel";
+import { request } from "../../tauri";
 
 vi.mock("../../tauri", () => ({
   request: vi.fn(() => new Promise(() => undefined)),
@@ -65,7 +67,7 @@ const tab = (t: PanelTab, label: string, n: number) => ({
   tab: t,
   label,
   icon: "file-text" as const,
-  keys: `⌘⌥${String(n)}`,
+  keys: String(n),
   mark: null,
 });
 
@@ -94,8 +96,8 @@ const VIEW: PanelView = {
   next: "SHOP-20",
   previous_hint: hint("Previous ticket", "⌘["),
   next_hint: hint("Next ticket", "⌘]"),
-  expand_hint: hint("Expand", "⇧⌘E"),
-  collapse_hint: hint("Back to the board", "⇧⌘E"),
+  expand_hint: hint("Expand", "e"),
+  collapse_hint: hint("Back to the board", "e"),
   close_hint: hint("Close", "Esc"),
   more_hint: "More",
   resize_hint: "Panel width",
@@ -190,7 +192,7 @@ describe("an epic's tabs (T-0290, d0083)", () => {
     expect(shownTab(["terminal", "diff"], "terminal")).toBe("terminal");
   });
 
-  it("numbers ⌘⌥N in the shown order", () => {
+  it("numbers the tabs in the shown order", () => {
     expect(numberedTab(EPIC, 2)).toBe("lead");
     expect(numberedTab(EPIC, 4)).toBeUndefined();
     expect(numberedTab(EPIC, 0)).toBeUndefined();
@@ -568,5 +570,73 @@ describe("the held roles' callouts (M23)", () => {
 
   it("nothing held: no callouts", () => {
     expect(render(VIEW)).not.toContain("panel-holds");
+  });
+});
+
+describe("the panel's keys (0097)", () => {
+  it("⌃Tab / ⌃⇧Tab step through the shown tabs, round the ends", () => {
+    const tabs: PanelTab[] = ["terminal", "diff", "ticket"];
+    expect(steppedTab(tabs, "terminal", 1)).toBe("diff");
+    expect(steppedTab(tabs, "ticket", 1)).toBe("terminal");
+    expect(steppedTab(tabs, "terminal", -1)).toBe("ticket");
+    expect(steppedTab(tabs, "run", 1)).toBe("terminal");
+    expect(steppedTab([], "run", 1)).toBeUndefined();
+  });
+
+  it("Close ticket and Re-run validation do what the panel's menu item and button do, while it offers them", () => {
+    const app = createRegistries();
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const show = (view: PanelView) => {
+      act(() => {
+        root.render(
+          createElement(
+            RegistriesContext,
+            { value: app },
+            createElement(PanelBody, { view, tab: "terminal", expanded: false, width: 660 }),
+          ),
+        );
+      });
+    };
+    show(VIEW);
+    expect(app.shortcuts.run({ action: "close_ticket" })).toBe(false);
+    expect(app.shortcuts.run({ action: "rerun_validation" })).toBe(false);
+    show({
+      ...VIEW,
+      menu: [
+        {
+          id: "close-ticket",
+          label: "Close ticket…",
+          icon: null,
+          shortcut: null,
+          danger: true,
+          disabled: false,
+          hint: null,
+          checked: false,
+          header: false,
+          separated: false,
+        },
+      ],
+      buttons: [
+        {
+          action: "retry_validation",
+          label: "Retry validation",
+          tooltip: null,
+          icon: null,
+          look: "secondary",
+        },
+      ],
+    });
+    expect(app.shortcuts.run({ action: "close_ticket" })).toBe(true);
+    expect(overlays.store.get().map((o) => o.id)).toEqual(["close_ticket"]);
+    expect(app.shortcuts.run({ action: "rerun_validation" })).toBe(true);
+    expect(vi.mocked(request)).toHaveBeenCalledWith("panel.action", {
+      key: "SHOP-19",
+      action: "retry_validation",
+    });
+    act(() => {
+      root.unmount();
+    });
+    host.remove();
   });
 });

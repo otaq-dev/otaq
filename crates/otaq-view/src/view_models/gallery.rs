@@ -8,11 +8,15 @@ use otaq_core::naming;
 use serde::Serialize;
 use ts_rs::TS;
 
-use super::keyboard_map::{self, KeyGroup};
+use super::keyboard_map::{self, KeyMap};
 use super::menu::MenuItem;
 use super::priority::{self, PriorityView};
+use super::shortcut_list::{self, ShortcutList};
 use super::status::PillView;
 use crate::icons::IconName;
+use crate::keymap::{
+    self, CustomKey, CustomKeys, Key, KeyAction, KeyChange, Platform, SequenceHint,
+};
 use crate::theme::{Status, TextStyle, Tier, density, radius, space, text};
 
 /// One tier of the *Status Legend*: its pills, then its *Pills · M12 (0063–0066)* row. `LegendTier` on the page.
@@ -72,9 +76,14 @@ pub struct GalleryView {
     pub radii: Vec<Measure>,
     pub density: String,
     pub icons: Vec<IconEntry>,
-    pub keyboard_map: Vec<KeyGroup>,
-    pub keyboard_columns: String,
-    pub keyboard_notes: Vec<String>,
+    pub keyboard_map: KeyMap,
+    /// The `?` list (design `s02-24`…`s02-27`): the defaults, with Inbox on ⌘I and New ticket's letter n, and with
+    /// the letters off.
+    pub shortcut_lists: [ShortcutList; 3],
+    /// The `g` hint (design `s02-30`): with the base map's sequences, and with a recorded `g` `p` Park.
+    pub g_hints: [Vec<SequenceHint>; 2],
+    /// The command palette's states (design `s02-20` … `s02-23`, T-0393).
+    pub palette: Vec<crate::view_models::palette::GalleryFrame>,
     /// A card's context menu as in *Overlays & feedback → Context menu*.
     pub context_menu: Vec<MenuItem>,
     /// A dropdown's list: the priority menu with P2 checked.
@@ -255,12 +264,49 @@ pub fn view() -> GalleryView {
                 name: icon.lucide_name().to_owned(),
             })
             .collect(),
-        keyboard_map: keyboard_map::groups(),
-        keyboard_columns: keyboard_map::COLUMNS.to_owned(),
-        keyboard_notes: keyboard_map::NOTES.map(str::to_owned).to_vec(),
+        keyboard_map: keyboard_map::map(),
+        shortcut_lists: shortcut_lists(),
+        g_hints: g_hints(),
+        palette: crate::view_models::palette::gallery(),
         context_menu: context_menu(),
         priority_menu: priority::menu_items(Priority::High),
     }
+}
+
+fn shortcut_lists() -> [ShortcutList; 3] {
+    let replaced = |action, slot, key: &str| CustomKey {
+        action,
+        slot,
+        change: KeyChange::Replaced {
+            key: Key::parse(key).expect("a key"),
+        },
+        works_in_terminals: false,
+    };
+    let changed = CustomKeys(vec![
+        replaced(KeyAction::OpenInbox, 0, "⌘I"),
+        replaced(KeyAction::NewTicket, 1, "n"),
+    ]);
+    let list = |custom: &CustomKeys, letters| {
+        shortcut_list::shortcut_list(&keymap::user_keys(Platform::Mac, custom), letters)
+    };
+    [
+        list(&CustomKeys::default(), true),
+        list(&changed, true),
+        list(&CustomKeys::default(), false),
+    ]
+}
+
+fn g_hints() -> [Vec<SequenceHint>; 2] {
+    let park = CustomKeys(vec![CustomKey {
+        action: KeyAction::Park,
+        slot: 0,
+        change: KeyChange::Replaced {
+            key: Key::Sequence { then: "p".into() },
+        },
+        works_in_terminals: false,
+    }]);
+    [CustomKeys::default(), park]
+        .map(|custom| keymap::sequence_hint(&keymap::user_keys(Platform::Mac, &custom)))
 }
 
 #[cfg(test)]

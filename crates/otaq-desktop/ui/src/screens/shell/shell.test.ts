@@ -33,7 +33,7 @@ const HEADER: HeaderView = {
     repo_path: "/code/shop-web",
     copy_path: "Copy path",
   },
-  search: hint("Search  ·  is:needs-you", "⌘K"),
+  search: hint("Search  ·  is:needs-you", "/"),
   activity: {
     agents: { count: "3", label: "running", control: false, active: true },
     processes: "3",
@@ -106,7 +106,7 @@ const RAIL: RailView = {
   width: 64,
   ring_ends_in_ms: 4000,
   switch_keys: "⌘P",
-  bottom: { terminals: { label: "Terminals", keys: "⇧⌘T" }, settings: { label: "Settings", keys: "⌘," } },
+  bottom: { terminals: { label: "Terminals", keys: "⌃`" }, settings: { label: "Settings", keys: "⌘," } },
 };
 
 describe("the quick switcher's keys", () => {
@@ -138,7 +138,7 @@ describe("the rail", () => {
     expect(out).toContain('aria-label="Add project"');
   });
 
-  it("ends with Cleanup, Terminals and Settings, which open their screens as ⇧⌘T and ⌘, do", () => {
+  it("ends with Cleanup, Terminals and Settings, which open their screens as Terminals and Settings do", () => {
     const out = renderToStaticMarkup(createElement(RailTiles, { view: RAIL }));
     const order = ['aria-label="Cleanup"', 'aria-label="Terminals"', 'aria-label="Settings"'].map((t) =>
       out.indexOf(t),
@@ -148,7 +148,7 @@ describe("the rail", () => {
 
     const app = createRegistries();
     const ran: string[] = [];
-    app.shortcuts.on("project_terminal", () => {
+    app.shortcuts.on("terminals", () => {
       ran.push("terminals");
     });
     app.shortcuts.on("settings", () => {
@@ -299,7 +299,7 @@ const POPOVER: ActivityPopover = {
       ],
     },
   },
-  open_terminals: { label: "Open Terminals", keys: "⇧⌘T" },
+  open_terminals: { label: "Open Terminals", keys: "⌃`" },
 };
 
 describe("the Activity popover", () => {
@@ -326,7 +326,7 @@ describe("the Activity popover", () => {
       "NOTE-5",
       "Stop all",
       "Open Terminals",
-      "⇧⌘T",
+      "⌃`",
     ].map((text) => out.indexOf(text));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect(order.slice(0, 6)).toEqual(order.slice(0, 6).toSorted((a, b) => a - b));

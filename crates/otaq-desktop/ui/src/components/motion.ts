@@ -12,20 +12,27 @@ export type MotionPreset = "panel" | "dialog" | "backdrop" | "floating" | "toast
 
 /** Each preset's hidden end; the shown end is opacity 1 with no transform. */
 const HIDDEN: Record<MotionPreset, Keyframe> = {
-  panel: { opacity: 0, transform: "translateX(48px)" },
+  // A drawer: all the way in from the window's right edge, solid the whole way (a fade made it read as appearing).
+  panel: { transform: "translateX(100%)" },
   dialog: { opacity: 0, transform: "scale(0.96)" },
   backdrop: { opacity: 0 },
   floating: { opacity: 0, transform: "translateY(-4px)" },
   toast: { opacity: 0, transform: "translateY(8px)" },
 };
 
-const DURATION: Record<MotionPreset, "--motion-fast" | "--motion-base"> = {
-  panel: "--motion-base",
-  dialog: "--motion-base",
-  backdrop: "--motion-base",
-  floating: "--motion-fast",
-  toast: "--motion-base",
+type Duration = "--motion-fast" | "--motion-base" | "--motion-panel";
+
+/** Each preset's duration in and out: the panel travels its whole width, so it takes longer in than out. */
+const DURATION: Record<MotionPreset, { in: Duration; out: Duration }> = {
+  panel: { in: "--motion-panel", out: "--motion-base" },
+  dialog: { in: "--motion-base", out: "--motion-base" },
+  backdrop: { in: "--motion-base", out: "--motion-base" },
+  floating: { in: "--motion-fast", out: "--motion-fast" },
+  toast: { in: "--motion-base", out: "--motion-base" },
 };
+
+/** What leaves gathers speed on its way off the edge; the rest eases in and out. */
+const LEAVE_EASING: Partial<Record<MotionPreset, string>> = { panel: "--ease-in" };
 
 export function reducedMotion(): boolean {
   return (
@@ -46,11 +53,15 @@ export function playMotion(el: HTMLElement, preset: MotionPreset, direction: "in
   if (typeof el.animate !== "function") return null;
   const reduce = reducedMotion();
   const style = getComputedStyle(el);
-  const duration = cssTimeMs(style.getPropertyValue(reduce ? "--motion-fast" : DURATION[preset]));
+  const duration = cssTimeMs(style.getPropertyValue(reduce ? "--motion-fast" : DURATION[preset][direction]));
   if (duration === 0) return null;
   const hidden = reduce ? { opacity: 0 } : HIDDEN[preset];
-  const shown: Keyframe = "transform" in hidden ? { opacity: 1, transform: "none" } : { opacity: 1 };
-  const easing = style.getPropertyValue(direction === "in" ? "--ease-out" : "--ease-in-out").trim() || "ease";
+  const shown: Keyframe = {
+    ...("opacity" in hidden && { opacity: 1 }),
+    ...("transform" in hidden && { transform: "none" }),
+  };
+  const easingToken = direction === "in" ? "--ease-out" : (LEAVE_EASING[preset] ?? "--ease-in-out");
+  const easing = style.getPropertyValue(easingToken).trim() || "ease";
   return el.animate(direction === "in" ? [hidden, shown] : [shown, hidden], {
     duration,
     easing: reduce ? "linear" : easing,
@@ -136,6 +147,48 @@ export function usePresence(open: boolean): { mounted: boolean; leaving: boolean
     setMounted(false);
   }, []);
   return { mounted: mounted || open, leaving: mounted && !open, done };
+}
+
+/** How long a layer waits for its content before it comes in anyway, in ms. */
+export const ENTER_WAIT = 400;
+
+/**
+ * Plays `preset` in on `el` once its content is ready: the side panel's slot shows `[data-loading]` while the ticket
+ * loads, and sliding in an empty panel that then fills read as a jump. Until then (at most `ENTER_WAIT`) the layer is
+ * hidden. Returns the cleanup: it stops waiting and shows the layer.
+ */
+export function playEnterWhenReady(el: HTMLElement, preset: MotionPreset): () => void {
+  const loading = () => el.querySelector(":scope > [data-loading]") !== null;
+  if (!loading()) {
+    playMotion(el, preset, "in");
+    return () => {};
+  }
+  el.style.visibility = "hidden";
+  let waiting = true;
+  const enter = () => {
+    if (!waiting) return;
+    stop();
+    playMotion(el, preset, "in");
+  };
+  const observer = new MutationObserver(() => {
+    if (!loading()) enter();
+  });
+  observer.observe(el, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["data-loading"],
+  });
+  const timer = window.setTimeout(enter, ENTER_WAIT);
+  function stop() {
+    waiting = false;
+    observer.disconnect();
+    window.clearTimeout(timer);
+    el.style.visibility = "";
+  }
+  return () => {
+    if (waiting) stop();
+  };
 }
 
 /** Plays the leave on a mounted layer and calls `done` when it ends (at once when nothing plays). */

@@ -10,7 +10,7 @@ pub enum ShellRequest {
     CheckTools,
     /// A project's settings, at its Agent instructions (d0040).
     ProjectInstructions(String),
-    /// The current project's Project terminal (⇧⌘T, RUN-06): open it, or focus it when it is open.
+    /// The current project's Project terminal (Terminals, ⌃`; RUN-06): open it, or focus it when it is open.
     ProjectTerminal,
     /// "What command runs shop-web?" (RUN-02), for a ticket's Run.
     RunCommand {
@@ -36,7 +36,7 @@ pub enum ShellRequest {
     NextInboxItem,
     /// An answer stopped at unsent text in the terminal (SES-07): ask first.
     Unsent(crate::view_models::terminal_strip::UnsentPrompt),
-    /// The Cleanup window (the rail's broom, Settings → Data, ⌘K "cleanup"; REC-04).
+    /// The Cleanup window (the rail's broom, Settings → Data, the board filter's "cleanup"; REC-04).
     OpenCleanup,
 }
 

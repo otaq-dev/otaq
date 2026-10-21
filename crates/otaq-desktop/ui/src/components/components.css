@@ -100,7 +100,7 @@
 
 .count-badge[data-tone="attention"] {
   background: var(--st-attn);
-  color: var(--text-on-accent);
+  color: var(--on-attn);
 }
 
 .count-badge[data-tone="accent"] {

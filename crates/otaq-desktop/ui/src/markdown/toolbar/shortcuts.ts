@@ -8,11 +8,11 @@ import { openLink } from "./link";
 /**
  * ⌘⇧X strikethrough (Tiptap's is ⌘⇧S, which the webview keeps for Save as), ⌘K the Link hook, ⌘⌥C Code block (Tiptap's
  * own key, taken here so it's always stopped: on a Mac the webview would open its inspector, Q51), and no heading
- * shortcut: StarterKit's ⌘⌥1–6 are taken here and do nothing, as those keys switch panel tabs (d0058).
+ * shortcut: StarterKit's heading keys are taken here and do nothing (d0058 gave them to the panel tabs; they stay off).
  */
 export const ToolbarShortcuts = Extension.create({
   name: "toolbarShortcuts",
-  // Before the formatting extensions (default 100), so their ⌘⌥1–6 never run.
+  // Before the formatting extensions (default 100), so their heading keys never run.
   priority: 1000,
   addKeyboardShortcuts() {
     const none = Object.fromEntries([1, 2, 3, 4, 5, 6].map((n) => [`Mod-Alt-${String(n)}`, () => true]));

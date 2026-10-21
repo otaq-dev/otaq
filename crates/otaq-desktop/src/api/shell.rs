@@ -14,7 +14,8 @@ use otaq_core::protocol::{Reply, Request};
 use otaq_core::scheduler::SchedulerStatus;
 use otaq_core::terminals::run::RunInfo;
 use otaq_core::usage::activity::Activity;
-use otaq_view::keymap::{KeyAction, Platform};
+use otaq_view::key_labels::KeyLabels;
+use otaq_view::keymap::KeyAction;
 use otaq_view::shell::tilde;
 use otaq_view::view_models::activity::{self, Button as ActivityButton, Inputs};
 use otaq_view::view_models::inbox::{self, HeaderButton};
@@ -73,7 +74,7 @@ pub struct Project {
     pub copy_path: &'static str,
 }
 
-/// A button's tooltip: its name and its shortcut on this platform.
+/// A button's tooltip: its name and the user's key for it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "HeaderHint")]
 pub struct Hint {
@@ -82,10 +83,10 @@ pub struct Hint {
 }
 
 impl Hint {
-    fn new(text: &'static str, action: KeyAction) -> Self {
+    fn new(text: &'static str, action: KeyAction, keys: &KeyLabels) -> Self {
         Self {
             text,
-            keys: action.keys(Platform::current()),
+            keys: keys.label(action),
         }
     }
 }
@@ -97,7 +98,8 @@ impl Hint {
 pub struct Header {
     /// `None` before the first project.
     pub project: Option<Project>,
-    /// The search entry's placeholder and ⌘K; it opens the board's filter (T-0221).
+    /// The search entry's placeholder and the user's key for Filter the board (`/`): it stays the board's filter
+    /// (T-0221, KEY-09).
     pub search: Hint,
     pub activity: ActivityButton,
     /// Needs you: turquoise with a count, a quiet outline at 0.
@@ -176,13 +178,14 @@ impl ActivityData {
 }
 
 pub async fn header(app: &App, params: Params) -> Result<Header, RequestError> {
-    let (projects, data, inbox) = tokio::join!(
+    let (projects, data, inbox, keys) = tokio::join!(
         projects(app),
         ActivityData::fetch(app),
         optional(app, Request::InboxCounts, |r| match r {
             Reply::InboxCounts(c) => Some(c.total),
             _ => None,
         }),
+        super::keymap::labels(app),
     );
     let (projects, data) = (projects?, data?);
     Ok(header_view(
@@ -190,6 +193,7 @@ pub async fn header(app: &App, params: Params) -> Result<Header, RequestError> {
         params.project.as_deref(),
         &data.inputs(otaq_core::store::now_ms(), &tool_avatar::connected()),
         inbox.unwrap_or(0),
+        &keys,
     ))
 }
 
@@ -198,6 +202,7 @@ fn header_view(
     shown: Option<&str>,
     activity: &Inputs<'_>,
     inbox_total: u32,
+    keys: &KeyLabels,
 ) -> Header {
     Header {
         project: projects
@@ -211,10 +216,10 @@ fn header_view(
                 repo_path: p.repo_path.clone(),
                 copy_path: "Copy path",
             }),
-        search: Hint::new(search_page::PLACEHOLDER, KeyAction::Search),
-        activity: activity::button(activity, Platform::current()),
+        search: Hint::new(search_page::PLACEHOLDER, KeyAction::FilterBoard, keys),
+        activity: activity::button(activity, keys),
         inbox: inbox::header_button(inbox_total),
-        inbox_hint: Hint::new("Inbox", KeyAction::OpenInbox),
+        inbox_hint: Hint::new("Inbox", KeyAction::OpenInbox, keys),
     }
 }
 
@@ -225,10 +230,10 @@ pub async fn activity_popover(app: &App) -> Result<activity::Popover, RequestErr
 
 /// The Activity popover with `connected` as the connected tools.
 async fn popover_with(app: &App, connected: &[AvatarTool]) -> Result<activity::Popover, RequestError> {
-    let data = ActivityData::fetch(app).await?;
+    let (data, keys) = tokio::join!(ActivityData::fetch(app), super::keymap::labels(app));
     Ok(activity::popover(
-        &data.inputs(otaq_core::store::now_ms(), connected),
-        Platform::current(),
+        &data?.inputs(otaq_core::store::now_ms(), connected),
+        &keys,
     ))
 }
 
@@ -243,7 +248,7 @@ pub struct Rail {
     pub width: u32,
     /// When a ringing tile stops ringing, so the page asks again then.
     pub ring_ends_in_ms: Option<u64>,
-    /// ⌘P, the quick switcher.
+    /// The user's key for the quick switcher (⌘P).
     pub switch_keys: Option<String>,
     /// Terminals and Settings, under Cleanup.
     pub bottom: RailBottom,
@@ -260,8 +265,10 @@ pub async fn rail(app: &App, params: Params) -> Result<Rail, RequestError> {
     {
         switcher::add_waiting_agents(&mut projects, &agents);
     }
+    let keys = super::keymap::labels(app).await;
     let now = Instant::now();
     let mut model = app.switcher.lock().expect("switcher");
+    model.keys = keys;
     if let Some(shown) = params.project
         && !model.select(&shown)
     {
@@ -272,13 +279,13 @@ pub async fn rail(app: &App, params: Params) -> Result<Rail, RequestError> {
     model.expire(now);
     Ok(Rail {
         selected: model.selected.clone(),
-        items: model.rail(now, Platform::current()),
+        items: model.rail(now),
         width: RAIL_WIDTH,
         ring_ends_in_ms: model
             .next_ring_end(now)
             .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX)),
-        switch_keys: KeyAction::SwitchProject.keys(Platform::current()),
-        bottom: switcher::bottom(Platform::current()),
+        switch_keys: model.keys.label(KeyAction::SwitchProject),
+        bottom: switcher::bottom(&model.keys),
     })
 }
 
@@ -306,32 +313,40 @@ pub struct Quick {
     pub hints: Vec<QuickHint>,
 }
 
-/// From the rail's last list, so typing never waits on the service.
+/// From the rail's last list and keys, so typing never waits on the service. "add project" is New ticket's key (the
+/// switcher runs that action); without one the hint is left out.
 pub fn quick(app: &App, params: QuickParams) -> Quick {
     let model = app.switcher.lock().expect("switcher");
-    let platform = Platform::current();
     Quick {
         placeholder: "Switch project…",
         rows: model
-            .quick(&params.filter, Instant::now(), platform)
+            .quick(&params.filter, Instant::now())
             .into_iter()
             .map(QuickRow::from)
             .collect(),
-        hints: vec![
-            QuickHint {
-                keys: "↑↓".to_owned(),
-                label: "move",
-            },
-            QuickHint {
-                keys: "↵".to_owned(),
-                label: "switch",
-            },
-            QuickHint {
-                keys: KeyAction::NewTicket.keys(platform).unwrap_or_default(),
-                label: "add project",
-            },
-        ],
+        hints: quick_hints(&model.keys),
     }
+}
+
+fn quick_hints(keys: &KeyLabels) -> Vec<QuickHint> {
+    let add = keys.label(KeyAction::NewTicket).map(|keys| QuickHint {
+        keys,
+        label: "add project",
+    });
+    [
+        Some(QuickHint {
+            keys: "↑↓".to_owned(),
+            label: "move",
+        }),
+        Some(QuickHint {
+            keys: "↵".to_owned(),
+            label: "switch",
+        }),
+        add,
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 /// What `shell.project_for_digit` takes: the digit of ⌘1–9.
@@ -403,6 +418,8 @@ mod tests {
     use otaq_core::git::testing::TempRepos;
     use serde_json::json;
 
+    use otaq_view::keymap::Platform;
+
     use super::*;
     use crate::api::request;
     use crate::service::testing::{Harness, connected};
@@ -422,7 +439,8 @@ mod tests {
     fn the_header_has_exactly_four_items() {
         let projects = [project("NOTE", "pocket-notes", 2, 6), project("API", "notes-api", 1, 1)];
         let fixtures = activity::fixtures::Fixtures::new();
-        let view = header_view(&projects, Some("API"), &fixtures.low_one.inputs(), 7);
+        let mac = KeyLabels::base(Platform::Mac);
+        let view = header_view(&projects, Some("API"), &fixtures.low_one.inputs(), 7, &mac);
         let json = serde_json::to_value(&view).unwrap();
         let keys: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
         // Project and branch, search, Activity, Needs you (with its tooltip).
@@ -438,11 +456,73 @@ mod tests {
         assert_eq!(view.inbox_hint.text, "Inbox");
 
         // No project shown, nothing running, nothing waiting.
-        let view = header_view(&projects, None, &fixtures.idle.inputs(), 0);
+        let view = header_view(&projects, None, &fixtures.idle.inputs(), 0, &mac);
         assert_eq!(view.project, None);
         assert_eq!(view.activity.processes, None);
         assert_eq!(view.activity.warning, None);
         assert!(!view.inbox.active);
+    }
+
+    /// KEY-08, KEY-09: the search field shows `/` (the board filter), the tooltips the user's keys; Activity → ⌘J
+    /// shows ⌘J; a removed key and letters off show none.
+    #[test]
+    fn the_header_shows_the_users_keys() {
+        use otaq_view::key_labels::fixtures as keys;
+        let projects = [project("NOTE", "pocket-notes", 0, 0)];
+        let idle = activity::fixtures::Fixtures::new().idle;
+        let view = |labels: &KeyLabels| header_view(&projects, Some("NOTE"), &idle.inputs(), 0, labels);
+        let base = view(&keys::base());
+        assert_eq!(base.search.keys.as_deref(), Some("/"));
+        assert_eq!(base.activity.keys.as_deref(), Some("⇧⌘U"));
+        assert_eq!(base.inbox_hint.keys.as_deref(), Some("⇧⌘I"));
+        let j = view(&keys::mac(&keys::activity_on_cmd_j()));
+        assert_eq!(j.activity.keys.as_deref(), Some("⌘J"));
+        let removed = view(&keys::with(true, &[("open_inbox", None, 0, None)]));
+        assert_eq!(removed.inbox_hint.keys.as_deref(), Some("g i"));
+        let off = view(&keys::with(false, &[("open_inbox", None, 0, None)]));
+        assert_eq!((off.search.keys, off.inbox_hint.keys), (None, None));
+    }
+
+    /// The quick switcher's "add project" is New ticket's key, left out without one.
+    #[test]
+    fn the_quick_switchers_hints_show_the_users_keys() {
+        use otaq_view::key_labels::fixtures as keys;
+        let labels = |hints: Vec<QuickHint>| hints.into_iter().map(|h| (h.keys, h.label)).collect::<Vec<_>>();
+        assert_eq!(labels(quick_hints(&keys::base()))[2], ("⌘N".to_owned(), "add project"));
+        assert_eq!(
+            labels(quick_hints(&keys::removed("new_ticket", None, 0)))[2],
+            ("c".to_owned(), "add project")
+        );
+        let none = keys::with(false, &[("new_ticket", None, 0, None)]);
+        assert_eq!(quick_hints(&none).len(), 2);
+    }
+
+    /// KEY-08 end to end: a key recorded in Settings shows in the header, the Activity popover and the rail once the
+    /// page asks again (on `settings_changed`).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_recorded_key_shows_in_the_header_and_the_rail() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let mac = Platform::current() == Platform::Mac;
+        let (inbox, terminals) = if mac { ("⌘J", "⌘T") } else { ("Ctrl+J", "Ctrl+T") };
+        let record = |action: &str, key: &str| {
+            json!({ "edit": "record", "action": { "action": action }, "slot": 0, "key": key, "confirmed": true })
+        };
+        for edit in [record("open_activity", inbox), record("terminals", terminals)] {
+            let done = request(&h.app, "keyboard.edit", edit).await.unwrap();
+            assert_eq!(done["outcome"], "done");
+        }
+        h.wait_for_event("settings_changed", |e| {
+            e["kind"] == "service" && e["name"] == "settings_changed"
+        })
+        .await;
+        let header = request(&h.app, "shell.header", json!({})).await.unwrap();
+        assert_eq!(header["activity"]["keys"], inbox);
+        let popover = request(&h.app, "shell.activity", Value::Null).await.unwrap();
+        assert_eq!(popover["open_terminals"]["keys"], terminals);
+        let rail = request(&h.app, "shell.rail", json!({})).await.unwrap();
+        assert_eq!(rail["bottom"]["terminals"]["keys"], terminals);
+        h.service.stop_all().await;
     }
 
     #[test]

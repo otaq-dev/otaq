@@ -20,6 +20,7 @@ import { watchView } from "../service";
 import { attachTerminal, request } from "../tauri";
 import { Icon } from "../theme/Icon";
 import { terminalColors } from "../theme/theme";
+import { dropTargets } from "./drops";
 import { binaryBytes, createSender, decodeBase64, encodeBase64, isReply, type Outgoing } from "./input";
 import {
   clampFontSize,
@@ -92,6 +93,7 @@ function searchOptions(element: Element) {
 }
 
 export function Terminal({ session, label, readOnly = false, onState, ref }: TerminalProps) {
+  const well = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const xterm = useRef<XTerm | null>(null);
   const fitter = useRef<FitAddon | null>(null);
@@ -329,6 +331,15 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
       },
     );
 
+    // Files dropped on it paste their paths, as ⌘V pastes (d0099); the page finds it under the pointer.
+    const undrop = dropTargets.register(well.current ?? element, {
+      takesTyping: () => !readOnly && takesInput(phase),
+      paste: (text) => {
+        term.paste(text);
+        term.focus();
+      },
+    });
+
     const onFocus = () => {
       focused = true;
       focusTerminal(session);
@@ -366,6 +377,7 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
 
     return () => {
       disposed = true;
+      undrop();
       if (focused) onBlur();
       if (attach !== undefined) request("terminal.detach", { attach }).catch(() => undefined);
       themeWatch.disconnect();
@@ -434,7 +446,7 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
   };
 
   return (
-    <div className="terminal-well" data-phase={state.phase}>
+    <div className="terminal-well" ref={well} data-phase={state.phase}>
       {find.open && (
         <div className="terminal-find" role="search">
           <Icon name="search" />

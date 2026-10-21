@@ -35,8 +35,13 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::ActiveTheme::export_all(&cfg)?;
     crate::window::Chrome::export_all(&cfg)?;
     crate::window::Action::export_all(&cfg)?;
-    // Also writes `KeyBinding`, `Keystroke` and `KeyPlatform`.
+    // Also writes `KeyBinding`, `Key`, `Keystroke`, `KeyPlace`, `KeyPlatform`, `KeyActionInfo` and `KeyGroup`.
     crate::api::Keymap::export_all(&cfg)?;
+    // Custom shortcuts' edits and answers (T-0390, KEY-04).
+    otaq_view::keymap_edit::KeyEdit::export_all(&cfg)?;
+    otaq_view::keymap_edit::KeyEditAnswer::export_all(&cfg)?;
+    // The `?` shortcut list (T-0394, KEY-07); also writes its groups, rows and keys.
+    otaq_view::view_models::shortcut_list::ShortcutList::export_all(&cfg)?;
     // Also writes `SizeClass`, `SizeClassBound`, `ClassWidths`, `MainTab` and `MainTabView`.
     otaq_view::view_models::layout::View::export_all(&cfg)?;
     crate::terminal::Feed::export_all(&cfg)?;
@@ -67,6 +72,10 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::DigitParams::export_all(&cfg)?;
     crate::api::StepParams::export_all(&cfg)?;
     crate::api::CleanupBroom::export_all(&cfg)?;
+    // The command palette (T-0393): its view with the rows, and the requests' params.
+    otaq_view::view_models::palette::View::export_all(&cfg)?;
+    crate::api::PaletteParams::export_all(&cfg)?;
+    crate::api::PaletteUse::export_all(&cfg)?;
     // T-0231: `PageEvent` writes `Notices` with its banner and toast types; these are the requests' own.
     otaq_view::view_models::toasts::NewToast::export_all(&cfg)?;
     otaq_view::view_models::restart::RestartDialogView::export_all(&cfg)?;
@@ -122,6 +131,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::onboarding_page::Tools::export_all(&cfg)?;
     otaq_view::view_models::onboarding_page::StepId::export_all(&cfg)?;
     crate::api::OnboardingStart::export_all(&cfg)?;
+    // A checklist row's Install / Sign in… terminal (`tools.terminal`).
+    crate::api::ToolTerminalOpened::export_all(&cfg)?;
     crate::api::AddProjectParams::export_all(&cfg)?;
     crate::api::AddProjectOutcome::export_all(&cfg)?;
     // The board's search and filter, card menu and delete confirmation (T-0221).
@@ -153,6 +164,11 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // Settings → Workflow skills (T-0380): the gallery (it writes the rows, menu items and dialogs too), the
     // actions' params and their outcome.
     otaq_view::view_models::settings_page::WorkflowSkillsGallery::export_all(&cfg)?;
+    // Settings → Keyboard shortcuts (T-0395): the page, a recorded key and its answer, the gallery's frames.
+    otaq_view::view_models::keyboard_page::Page::export_all(&cfg)?;
+    otaq_view::view_models::keyboard_page::Press::export_all(&cfg)?;
+    otaq_view::view_models::keyboard_page::RecordAnswer::export_all(&cfg)?;
+    otaq_view::view_models::keyboard_page::Gallery::export_all(&cfg)?;
     crate::api::SkillImport::export_all(&cfg)?;
     crate::api::SkillStep::export_all(&cfg)?;
     crate::api::SkillReset::export_all(&cfg)?;

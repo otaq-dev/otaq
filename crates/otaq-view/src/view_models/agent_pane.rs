@@ -29,6 +29,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
+use crate::key_labels::KeyLabels;
 use crate::keymap::{KeyAction, Platform};
 use crate::view_models::card::tokens_label;
 use crate::view_models::menu::MenuItem;
@@ -73,7 +74,7 @@ pub const RECENT: &str = "recent";
 pub struct Button {
     pub icon: IconName,
     pub label: &'static str,
-    /// "⇧⌘A".
+    /// "⇧⌘L".
     pub keys: Option<String>,
 }
 
@@ -91,7 +92,7 @@ pub struct Header {
     /// The shown agent's state; none on the empty pane.
     pub pill: Option<crate::view_models::status::PillView>,
     pub recent: Button,
-    /// + shows the empty pane (as ⇧⌘A does); nothing starts.
+    /// + shows the empty pane (as ⇧⌘L does); nothing starts.
     pub new: Button,
     pub more: Button,
 }
@@ -328,16 +329,16 @@ pub struct Footer {
     pub keys: Option<String>,
     pub keys_label: &'static str,
     pub resume: Option<ResumeButton>,
-    /// After Resume: "or ⇧⌘A for a new agent".
+    /// After Resume: "or ⇧⌘L for a new agent".
     pub resume_note: Option<String>,
 }
 
-pub fn footer(agent: &ProjectAgent, platform: Platform) -> Footer {
+pub fn footer(agent: &ProjectAgent, keys: &KeyLabels) -> Footer {
     let (text, resume_note) = match agent.state {
         AgentState::Running => ("Typing goes to the agent", None),
         AgentState::Ended => (
             "Ended \u{b7} Resume continues this conversation",
-            Some(match KeyAction::NewProjectAgent.keys(platform) {
+            Some(match keys.label(KeyAction::NewProjectAgent) {
                 Some(keys) => format!("or {keys} for a new agent"),
                 None => "or + for a new agent".to_owned(),
             }),
@@ -349,7 +350,7 @@ pub fn footer(agent: &ProjectAgent, platform: Platform) -> Footer {
     };
     Footer {
         text,
-        keys: KeyAction::FocusPane.keys(platform),
+        keys: keys.label(KeyAction::FocusPane),
         keys_label: "focus",
         resume: agent_page::resume_button(agent),
         resume_note,
@@ -397,7 +398,7 @@ pub struct Switcher {
 pub fn switcher(
     agents: &[ProjectAgent],
     shown: Option<&str>,
-    platform: Platform,
+    keys: &KeyLabels,
     tools: &Tools,
 ) -> Switcher {
     let mut newest: Vec<&ProjectAgent> = agents.iter().collect();
@@ -415,7 +416,7 @@ pub fn switcher(
             })
             .collect(),
         new_label: "New Project agent (empty)",
-        new_keys: KeyAction::NewProjectAgent.keys(platform),
+        new_keys: keys.label(KeyAction::NewProjectAgent),
     }
 }
 
@@ -469,7 +470,7 @@ pub struct PaneView {
     pub recent: Recent,
     /// A Project agent of the project waits for you: the hidden strip's turquoise dot (d0077).
     pub agent_waits: bool,
-    /// The hidden strip: a click or ⌘\ shows the pane.
+    /// The hidden strip: a click or the user's key for it (⌘B) shows the pane.
     pub strip: Button,
 }
 
@@ -487,7 +488,8 @@ pub struct Facts<'a> {
     pub new_agent: Option<&'a NamedAgent>,
     pub window_width: Option<f32>,
     pub now_ms: i64,
-    pub platform: Platform,
+    /// The user's keys, for the buttons' and the footer's keys (KEY-08).
+    pub keys: KeyLabels,
     /// The agent tools (several: the tool in the lines, avatars; their problems: the notices).
     pub tools: &'a Tools,
     /// Every named agent (where "New agent on …" starts, a held message's agent).
@@ -521,7 +523,7 @@ pub fn view(f: &Facts) -> PaneView {
         new: Button {
             icon: IconName::Plus,
             label: "New Project agent",
-            keys: KeyAction::NewProjectAgent.keys(f.platform),
+            keys: f.keys.label(KeyAction::NewProjectAgent),
         },
         more: Button {
             icon: IconName::Ellipsis,
@@ -552,7 +554,7 @@ pub fn view(f: &Facts) -> PaneView {
             .and_then(|c| created(a, c, f.edited, f.window_width)),
         session: a.session.as_ref().map(|s| s.id.clone()),
         ended: a.state != AgentState::Running,
-        footer: footer(a, f.platform),
+        footer: footer(a, &f.keys),
     });
     PaneView {
         agent: shown.map(|a| a.id.clone()),
@@ -560,14 +562,14 @@ pub fn view(f: &Facts) -> PaneView {
         header,
         empty: shown.is_none().then(|| empty_of(f)),
         running,
-        switcher: switcher(open, shown.map(|a| a.id.as_str()), f.platform, f.tools),
+        switcher: switcher(open, shown.map(|a| a.id.as_str()), &f.keys, f.tools),
         menu: menu(shown, open),
         recent: agent_page::recent(&f.agents.recent, f.project_name, f.now_ms),
         agent_waits: open.iter().any(agent_waits),
         strip: Button {
             icon: IconName::Bot,
             label: "Show the Project agent",
-            keys: KeyAction::TogglePane.keys(f.platform),
+            keys: f.keys.label(KeyAction::TogglePane),
         },
     }
 }
@@ -707,7 +709,7 @@ pub fn gallery() -> Gallery {
             new_agent: None,
             window_width: Some(width),
             now_ms: NOW,
-            platform: Platform::Mac,
+            keys: KeyLabels::base(Platform::Mac),
             tools: &one,
             named_agents: &[],
             start_on: None,
@@ -728,7 +730,7 @@ pub fn gallery() -> Gallery {
                     new_agent: Some(&strong),
                     window_width: Some(1440.),
                     now_ms: NOW,
-                    platform: Platform::Mac,
+                    keys: KeyLabels::base(Platform::Mac),
                     tools: &one,
                     named_agents: &[],
                     start_on: None,
@@ -801,7 +803,7 @@ fn several_tools_states(now: i64) -> Vec<GalleryState> {
             new_agent: Some(&standard),
             window_width: Some(1440.),
             now_ms: now,
-            platform: Platform::Mac,
+            keys: KeyLabels::base(Platform::Mac),
             tools,
             named_agents: &named,
             start_on: None,
@@ -1100,7 +1102,7 @@ mod tests {
             new_agent: None,
             window_width: Some(1440.),
             now_ms: 0,
-            platform: Platform::Mac,
+            keys: KeyLabels::base(Platform::Mac),
             tools: one_tool(),
             named_agents: &[],
             start_on: None,
@@ -1183,7 +1185,7 @@ mod tests {
         );
         assert_eq!(
             (v.header.new.label, v.header.new.keys.as_deref()),
-            ("New Project agent", Some("\u{21e7}\u{2318}A"))
+            ("New Project agent", Some("\u{21e7}\u{2318}L"))
         );
         assert_eq!(
             (v.header.recent.icon, v.header.more.icon),
@@ -1228,13 +1230,13 @@ mod tests {
     #[test]
     fn the_footer_says_where_typing_goes_or_how_it_ended() {
         let mut a = agent("a1", "Search slowness", 1);
-        let f = footer(&a, Platform::Mac);
+        let f = footer(&a, &KeyLabels::base(Platform::Mac));
         assert_eq!(
             (f.text, f.keys.as_deref(), f.keys_label, f.resume),
             ("Typing goes to the agent", Some("\u{2318}L"), "focus", None)
         );
         a.state = AgentState::Ended;
-        let f = footer(&a, Platform::Mac);
+        let f = footer(&a, &KeyLabels::base(Platform::Mac));
         assert_eq!(f.text, "Ended \u{b7} Resume continues this conversation");
         assert_eq!(
             (
@@ -1243,11 +1245,11 @@ mod tests {
             ),
             (
                 Some(("Resume", false)),
-                Some("or \u{21e7}\u{2318}A for a new agent")
+                Some("or \u{21e7}\u{2318}L for a new agent")
             )
         );
         a.state = AgentState::EndedByRestart;
-        let f = footer(&a, Platform::Mac);
+        let f = footer(&a, &KeyLabels::base(Platform::Mac));
         assert_eq!(f.text, "Ended by restart \u{b7} Resume continues it");
         assert_eq!(f.resume.map(|r| r.primary), Some(true));
         assert_eq!(
@@ -1256,6 +1258,43 @@ mod tests {
         );
         let agents = list(vec![a]);
         assert!(view_of(&agents, Some("a1")).running.unwrap().ended);
+    }
+
+    /// KEY-08: the pane's new button, switcher, strip and footer show the user's keys (⌘L, ⇧⌘L, ⌘B by default), a
+    /// recorded key, and none once removed.
+    #[test]
+    fn the_pane_shows_the_users_keys() {
+        use crate::key_labels::fixtures;
+        let mut a = agent("a1", "Search slowness", 1);
+        let custom = fixtures::replaced("focus_pane", None, 0, "⌥L");
+        assert_eq!(footer(&a, &custom).keys.as_deref(), Some("⌥L"));
+        let removed = fixtures::removed("focus_pane", None, 0);
+        assert_eq!(footer(&a, &removed).keys, None);
+        assert_eq!(
+            footer(&a, &fixtures::letters_off()).keys.as_deref(),
+            Some("\u{2318}L")
+        );
+        a.state = AgentState::Ended;
+        let no_new = fixtures::removed("new_project_agent", None, 0);
+        assert_eq!(
+            footer(&a, &no_new).resume_note.as_deref(),
+            Some("or + for a new agent")
+        );
+        let agents = list(vec![agent("a1", "Search slowness", 1)]);
+        let v = view(&Facts {
+            keys: no_new,
+            ..facts(&agents, Some("a1"))
+        });
+        assert_eq!((v.header.new.keys, v.switcher.new_keys), (None, None));
+        let v = view(&Facts {
+            keys: fixtures::replaced("toggle_pane", None, 0, "⌥B"),
+            ..facts(&agents, None)
+        });
+        assert_eq!(v.strip.keys.as_deref(), Some("⌥B"));
+        assert_eq!(
+            view(&facts(&agents, None)).strip.keys.as_deref(),
+            Some("⌘B")
+        );
     }
 
     #[test]
@@ -1348,7 +1387,7 @@ mod tests {
         assert!(v.switcher.rows[0].unnamed);
         assert!(v.switcher.rows.iter().all(|r| r.avatar.is_none()));
         assert_eq!(v.switcher.new_label, "New Project agent (empty)");
-        assert_eq!(v.switcher.new_keys.as_deref(), Some("\u{21e7}\u{2318}A"));
+        assert_eq!(v.switcher.new_keys.as_deref(), Some("\u{21e7}\u{2318}L"));
         assert_eq!(
             v.opens_on.as_deref(),
             Some("a3"),
@@ -1414,7 +1453,7 @@ mod tests {
         let agents = list(vec![a.clone()]);
         let v = view_of(&agents, None);
         assert!(v.agent_waits, "even while another one is shown");
-        assert_eq!(v.strip.keys.as_deref(), Some("\u{2318}\\"));
+        assert_eq!(v.strip.keys.as_deref(), Some("\u{2318}B"));
         a.focused = true;
         assert!(
             !view_of(&list(vec![a]), None).agent_waits,

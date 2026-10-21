@@ -173,6 +173,7 @@ icons! {
     ScanSearch = "scan-search";
     ScrollText = "scroll-text";
     Search = "search";
+    SearchX = "search-x";
     Send = "send";
     Server = "server";
     ServerCog = "server-cog";

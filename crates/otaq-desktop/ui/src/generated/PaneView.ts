@@ -32,6 +32,6 @@ recent: RecentAgents,
  */
 agent_waits: boolean, 
 /**
- * The hidden strip: a click or ⌘\ shows the pane.
+ * The hidden strip: a click or the user's key for it (⌘B) shows the pane.
  */
 strip: PaneButton, };

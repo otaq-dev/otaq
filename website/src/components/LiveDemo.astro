@@ -1,0 +1,73 @@
+---
+import Demo from "../demo/Demo";
+import Icon from "./Icon.astro";
+---
+
+<section class="demo-sec" id="demo">
+  <div class="wrap">
+    <div class="demo-head rv">
+      <div>
+        <div class="label">Live demo</div>
+        <h2 class="h2">Try the board right here.</h2>
+        <p class="sub">
+          Two sample projects with agents at work. Click around: nothing really runs, and nothing leaves this
+          page.
+        </p>
+      </div>
+      <div class="tries" aria-label="Things to try">
+        <span class="try">
+          <Icon icon="bot" />
+          Answer the Project agent
+        </span>
+        <span class="try">
+          <Icon icon="mouse" />
+          Drag NOTE-6 to Dev
+        </span>
+        <span class="try">
+          <Icon icon="message-q" />
+          Answer NOTE-8
+        </span>
+        <span class="try">
+          <Icon icon="inbox" />
+          Open Needs you
+        </span>
+        <span class="try">
+          <Icon icon="eye" />
+          Approve NOTE-4
+        </span>
+      </div>
+    </div>
+    <div class="demo-frame" data-demo-frame>
+      <div class="demo-clip" data-demo-clip>
+        <Demo client:idle />
+      </div>
+    </div>
+    <div class="viewonly" data-demo-note hidden>
+      <Icon icon="monitor" />
+      This is a view-only preview. Open the page on a computer to click around the demo.
+    </div>
+  </div>
+</section>
+
+<script>
+  import { demoFrame } from "./demoScale";
+
+  // Scale the 1280 × 800 board to the page width, on load and on every resize (WEB-05).
+  const frame = document.querySelector<HTMLElement>("[data-demo-frame]");
+  const clip = document.querySelector<HTMLElement>("[data-demo-clip]");
+  const note = document.querySelector<HTMLElement>("[data-demo-note]");
+
+  function fit(): void {
+    if (!frame || !clip || !note) return;
+    const f = demoFrame(document.documentElement.clientWidth || window.innerWidth || 1440);
+    frame.style.width = `${String(f.width)}px`;
+    frame.style.height = `${String(f.height)}px`;
+    clip.style.transform = `scale(${f.scale.toFixed(4)})`;
+    clip.style.pointerEvents = f.viewOnly ? "none" : "auto";
+    note.style.width = `${String(f.width)}px`;
+    note.hidden = !f.viewOnly;
+  }
+
+  fit();
+  window.addEventListener("resize", fit);
+</script>

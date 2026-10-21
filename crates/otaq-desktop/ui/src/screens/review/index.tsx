@@ -42,4 +42,12 @@ export const review: Screen = (app) => {
       if (available.send_back) openOverlay("send_back", { ticket });
     }),
   );
+  // Open PR (0097, palette only unless the user gives it a key): Approve ▾'s Open PR, which asks first when the
+  // ticket changed since the review (REV-06), as the card's button does.
+  app.shortcuts.on(
+    "open_pr",
+    onOpenTicket((ticket, available) => {
+      if (available.approve) openOverlay("open_pr", { ticket });
+    }),
+  );
 };
