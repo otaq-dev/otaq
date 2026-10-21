@@ -21,7 +21,11 @@ id: string | null,
 /**
  * Its name as saved; "New agent" for a draft.
  */
-title: string, role_tag: string | null, came_from: string | null, back_label: string, menu_label: string, 
+title: string, role_tag: string | null, came_from: string | null, back_label: string, 
+/**
+ * "What this agent reads" on a saved agent (AGR-01).
+ */
+reads_label: string | null, menu_label: string, 
 /**
  * Duplicate, Delete… on a saved agent.
  */

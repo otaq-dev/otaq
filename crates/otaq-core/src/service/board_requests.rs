@@ -1434,7 +1434,8 @@ pub(super) async fn handle(
         | Request::AgentsDefaultModel(_)
         | Request::AgentsFallback(_)
         | Request::AgentsImportSkill(_)
-        | Request::AgentsReimportSkill(_) => return None,
+        | Request::AgentsReimportSkill(_)
+        | Request::AgentsReads(_) => return None,
     };
     Some(answer.await.map_err(|e| error_body(&e)))
 }

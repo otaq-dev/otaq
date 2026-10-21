@@ -325,6 +325,8 @@ pub struct Page {
     pub role_tag: Option<String>,
     pub came_from: Option<String>,
     pub back_label: String,
+    /// "What this agent reads" on a saved agent (AGR-01).
+    pub reads_label: Option<String>,
     pub menu_label: String,
     /// Duplicate, Delete… on a saved agent.
     pub menu: Vec<MenuItem>,
@@ -565,6 +567,7 @@ pub fn page(input: &Inputs) -> Page {
         role_tag: agent.and_then(|a| a.role).map(|r| r.label().to_owned()),
         came_from: agent.map(came_from),
         back_label: "Back to Agents".to_owned(),
+        reads_label: saved.then(|| super::agent_reads::TITLE.to_owned()),
         menu_label: MENU_LABEL.to_owned(),
         menu: if saved { agent_menu() } else { Vec::new() },
         draft: draft.clone(),

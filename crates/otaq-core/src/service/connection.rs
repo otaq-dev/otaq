@@ -453,12 +453,11 @@ async fn respond(
         | Request::AgentsDefaultModel(_)
         | Request::AgentsFallback(_)
         | Request::AgentsImportSkill(_)
-        | Request::AgentsReimportSkill(_)) => {
-            match agents_requests::handle(request, shared).await {
-                Ok(reply) => (reply, Then::Continue),
-                Err(error) => return (Message::error(id, error), Then::Continue),
-            }
-        }
+        | Request::AgentsReimportSkill(_)
+        | Request::AgentsReads(_)) => match agents_requests::handle(request, shared).await {
+            Ok(reply) => (reply, Then::Continue),
+            Err(error) => return (Message::error(id, error), Then::Continue),
+        },
         // Boxed: the board handler's future is large, and a debug build's worker stack is small.
         board => match Box::pin(board_requests::handle(
             board,

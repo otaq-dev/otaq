@@ -125,10 +125,24 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
     [close, project],
   );
 
+  // A project's page at one of its sections (What this agent reads' Edit in <project>'s settings →).
+  // Each opening counts, so the same section scrolls again; `scrolledTo` keeps the last one done.
+  const [projectSection, setProjectSection] = useState<{ section: string; n: number } | null>(null);
+  const scrolledTo = useRef(0);
+  const openProject = useCallback((key: string, section: string) => {
+    setProjectSection((p) => ({ section, n: (p?.n ?? 0) + 1 }));
+    setHeading(null);
+    setVisit((v) => v + 1);
+    setProject(key);
+  }, []);
+
   const page = view?.page;
   const context = useMemo<SettingsContextValue | null>(
-    () => (page ? { page, project, edit, act, headerSlot, setHeading, visit, agent: params?.agent } : null),
-    [page, project, edit, act, headerSlot, visit, params?.agent],
+    () =>
+      page
+        ? { page, project, edit, act, headerSlot, setHeading, visit, agent: params?.agent, openProject }
+        : null,
+    [page, project, edit, act, headerSlot, visit, params?.agent, openProject],
   );
 
   const globalRows = view?.nav.filter((r) => r.target.page === "global") ?? [];
@@ -149,15 +163,17 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
           return entry ? [{ id: s.id, Component: entry.Component }] : [];
         });
 
-  // Opened on a section further down its topic's page: scroll to it once it's drawn.
+  // Opened on a section further down its topic's page (or a project's): scroll to it once it's drawn.
   useLayoutEffect(() => {
-    const wanted = scrollPending.current;
-    if (wanted === null || page?.page !== "global") return;
+    const fresh = projectSection !== null && projectSection.n !== scrolledTo.current ? projectSection : null;
+    const wanted = scrollPending.current ?? fresh?.section ?? null;
+    if (wanted === null || !page) return;
     const i = sections.findIndex((s) => s.id === wanted);
     const element = body.current?.querySelectorAll<HTMLElement>(":scope > .settings-section-slot")[i];
     if (!element || !body.current) return;
     body.current.scrollTop = i === 0 ? 0 : element.offsetTop;
     scrollPending.current = null;
+    if (fresh) scrolledTo.current = fresh.n;
   });
 
   // Esc closes Settings, unless a menu or a dialog inside it takes it.

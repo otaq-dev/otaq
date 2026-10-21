@@ -26,6 +26,8 @@ import type { AgentMarkView } from "../../generated/AgentMarkView";
 import type { AgentOption } from "../../generated/AgentOption";
 import type { AgentPage } from "../../generated/AgentPage";
 import type { AgentPageParams } from "../../generated/AgentPageParams";
+import type { AgentReadsTarget } from "../../generated/AgentReadsTarget";
+import type { AgentReadsView } from "../../generated/AgentReadsView";
 import type { AgentSkillDialog } from "../../generated/AgentSkillDialog";
 import type { AgentSkillRow } from "../../generated/AgentSkillRow";
 import type { AgentsSection as AgentsSectionView } from "../../generated/AgentsSection";
@@ -46,6 +48,7 @@ import { asRequestError, watchView } from "../../service";
 import { pickFolder, request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { useSelection } from "../../app/selection";
+import { AgentReadsBody, AgentReadsHeading } from "./AgentReads";
 import { SettingsContext } from "./context";
 import { proposeFrom } from "./flowActions";
 import { ModelDropdown, type ModelPick, ModelPicker } from "./ModelPicker";
@@ -662,6 +665,8 @@ export function AgentsSection() {
   const setHeading = settings?.setHeading;
   const [section, setSection] = useState<AgentsSectionView | null>(null);
   const [page, setPage] = useState<AgentPage | null>(null);
+  // What this agent reads, open over its page (AGR-01).
+  const [reads, setReads] = useState<AgentReadsView | null>(null);
   const [error, setError] = useState<RequestError | null>(null);
   const [asking, setAsking] = useState<Asking>(null);
   const failed = (e: unknown) => {
@@ -713,6 +718,11 @@ export function AgentsSection() {
 
   const back = useCallback(() => {
     setPage(null);
+    setReads(null);
+    setError(null);
+  }, []);
+  const backToPage = useCallback(() => {
+    setReads(null);
     setError(null);
   }, []);
   // A nav click goes back to the list.
@@ -721,11 +731,18 @@ export function AgentsSection() {
   if (seenVisit !== visit) {
     setSeenVisit(visit);
     setPage(null);
+    setReads(null);
   }
   // The header shows the open agent, and the topic's label again without one.
   useEffect(() => {
-    setHeading?.(page ? <AgentHeading page={page} onBack={back} /> : null);
-  }, [page, setHeading, back]);
+    setHeading?.(
+      reads ? (
+        <AgentReadsHeading view={reads} onBack={backToPage} />
+      ) : page ? (
+        <AgentHeading page={page} onBack={back} />
+      ) : null,
+    );
+  }, [page, reads, setHeading, back, backToPage]);
   useEffect(() => () => setHeading?.(null), [setHeading]);
 
   const show = (p: Promise<unknown>) => {
@@ -736,6 +753,23 @@ export function AgentsSection() {
   };
   const open = (params: AgentPageParams) => {
     show(request("settings.agent", params));
+  };
+  // What this agent reads, on `project` (the picked one; first the project on screen, else the first).
+  const openReads = (id: string, project: string | null) => {
+    request("settings.agent_reads", { id, project }).then((fresh) => {
+      setReads(fresh as AgentReadsView);
+      setError(null);
+    }, failed);
+  };
+  const readsLink = (view: AgentReadsView, target: AgentReadsTarget) => {
+    if (target.kind === "agent") backToPage();
+    else if (target.kind === "project_notes") settings?.openProject?.(target.project, "project_notes");
+    else if (view.project !== null)
+      request("settings.agent_reads_reveal", {
+        id: view.agent_id,
+        project: view.project,
+        skill: target.skill,
+      }).catch(failed);
   };
   const listed = (p: Promise<unknown>) => {
     p.then((fresh) => {
@@ -803,20 +837,33 @@ export function AgentsSection() {
   });
 
   let header: ReactNode = null;
-  if (page) {
-    if (page.menu.length > 0 && page.id !== null) {
-      const id = page.id;
-      header = (
-        <MoreMenu
-          label={page.menu_label}
-          items={page.menu}
-          onChoose={(a) => {
-            menu(id, a);
-          }}
-        />
-      );
-    }
-  } else if (section) {
+  if (page && !reads) {
+    const id = page.id;
+    header = id !== null && (
+      <>
+        {page.reads_label !== null && (
+          <Button
+            variant="secondary"
+            compact
+            icon="eye"
+            label={page.reads_label}
+            onClick={() => {
+              openReads(id, screenProject);
+            }}
+          />
+        )}
+        {page.menu.length > 0 && (
+          <MoreMenu
+            label={page.menu_label}
+            items={page.menu}
+            onChoose={(a) => {
+              menu(id, a);
+            }}
+          />
+        )}
+      </>
+    );
+  } else if (!page && section) {
     header = (
       <>
         <Button
@@ -851,7 +898,19 @@ export function AgentsSection() {
           {error.message}
         </p>
       )}
-      {page ? (
+      {reads ? (
+        <AgentReadsBody
+          view={reads}
+          actions={{
+            onProject: (project) => {
+              openReads(reads.agent_id, project);
+            },
+            onLink: (target) => {
+              readsLink(reads, target);
+            },
+          }}
+        />
+      ) : page ? (
         <AgentPageBody key={page.id ?? "draft"} page={page} actions={pageActions(page)} />
       ) : (
         section && <AgentsSectionBody section={section} actions={actions} />

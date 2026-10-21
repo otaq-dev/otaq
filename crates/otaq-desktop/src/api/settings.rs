@@ -30,6 +30,7 @@ use ts_rs::TS;
 use super::{RequestError, reply, unknown};
 use crate::App;
 
+mod agent_reads;
 mod flow;
 #[cfg(test)]
 pub use flow::export_types as export_flow_types;
@@ -125,6 +126,8 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             let p: AgentId = parse(params)?;
             reply(&agent_delete(app, &p.id).await?)
         }
+        // What this agent reads (T-0440; AGR-01…AGR-03): the view and its folders.
+        m if m.starts_with("settings.agent_reads") => agent_reads::request(app, m, params).await,
         // Settings → Flow (T-0422; FLW-06…FLW-10): the section, the preset dialog, the actions.
         m if m.starts_with("settings.flow") => flow::request(app, m, params).await,
         "settings.credits" => reply(&page::credits()),
@@ -279,7 +282,8 @@ pub fn export_agent_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError>
     agent_page::DeleteDialog::export_all(cfg)?;
     AgentOpen::export_all(cfg)?;
     AgentAddOutcome::export_all(cfg)?;
-    AgentDeleteOutcome::export_all(cfg)
+    AgentDeleteOutcome::export_all(cfg)?;
+    agent_reads::export_types(cfg)
 }
 
 pub(super) fn parse<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, RequestError> {

@@ -467,6 +467,8 @@ async fn action_for(
         | R::AgentsFallback(_)
         | R::AgentsImportSkill(_)
         | R::AgentsReimportSkill(_) => Action::UserOnly("change agents"),
+        // What an agent reads is shown on the user's Settings → Agents (AGR-01).
+        R::AgentsReads(_) => Action::UserOnly("read what an agent reads"),
         // Agent tools, limits per tool and fallbacks are the user's (d0086).
         R::AgentToolsList
         | R::AgentToolsRecheck(_)

@@ -2210,3 +2210,124 @@
   color: var(--text-muted);
   font: 400 11px var(--font-mono);
 }
+
+/* What this agent reads (T-0440; `s15-58` / `s15-59`): the Project picker, each part's capitals heading with its link
+   on the right and its text on the column colour (a skill's SKILL.md in mono), the Also has: line and the last line.
+   The Also has: line and the role parts aren't drawn: they follow the parts' style. */
+.settings-reads {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding-bottom: 24px;
+}
+
+.settings-reads-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-reads-picker-label {
+  color: var(--text-secondary);
+  font: 400 12.5px var(--font-ui);
+}
+
+.settings-reads-select > .select {
+  width: 170px;
+}
+
+.settings-reads-hint,
+.settings-reads-note {
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+}
+
+.settings-reads-part {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+}
+
+.settings-reads-part-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-reads-heading {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+  font: 400 10.5px var(--font-mono);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.settings-reads-link {
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.settings-reads-text {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--bg-column);
+  color: var(--text-primary);
+  font: 400 12.5px/1.55 var(--font-ui);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.settings-reads-text[data-mono] {
+  font: 400 12px/1.55 var(--font-mono);
+}
+
+.settings-reads-text[data-empty] {
+  color: var(--text-muted);
+  font: 400 12.5px/1.55 var(--font-ui);
+}
+
+.settings-reads-line,
+.settings-reads-empty {
+  margin: 0;
+  padding-top: 10px;
+  color: var(--text-secondary);
+  font: 400 12.5px/1.5 var(--font-ui);
+}
+
+.settings-reads-also {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  padding-top: 10px;
+  color: var(--text-secondary);
+  font: 400 12px/1.5 var(--font-ui);
+}
+
+.settings-reads-other {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.settings-reads-name {
+  font: 400 11.5px var(--font-mono);
+}
+
+.settings-reads-not-shown {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding-top: 14px;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+}
+
+.settings-reads-not-shown > .icon {
+  flex: none;
+}

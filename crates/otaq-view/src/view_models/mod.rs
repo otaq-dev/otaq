@@ -11,6 +11,7 @@ pub mod agent_activity;
 pub mod agent_edits;
 pub mod agent_page;
 pub mod agent_pane;
+pub mod agent_reads;
 pub mod agent_tools_page;
 pub mod agents;
 pub mod answer;

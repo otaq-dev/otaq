@@ -53,6 +53,10 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<Reply, E
         Request::AgentsReimportSkill(p) => crate::agents::skills::reimport(board, &p.id, &p.skill)
             .await
             .map(|a| changed(Reply::Agent(Box::new(a)))),
+        Request::AgentsReads(p) => board
+            .agent_reads(&p.agent, &p.project, shared.adapters.shipped_skills())
+            .await
+            .map(|reads| Reply::AgentReads(Box::new(reads))),
         other => {
             return Err(ErrorBody::new(
                 ErrorKind::BadRequest,

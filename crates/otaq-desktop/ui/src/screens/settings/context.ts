@@ -25,6 +25,9 @@ export interface SettingsContextValue {
   visit?: number;
   /** The agent Settings was opened on: Agents opens its page (Open agent…, T-0411). */
   agent?: string;
+  /** Opens a project's page at one of its sections (What this agent reads' Edit in <project>'s settings →, T-0440).
+   * Absent in the gallery. */
+  openProject?: (project: string, section: string) => void;
 }
 
 export const SettingsContext = createContext<SettingsContextValue | null>(null);

@@ -878,6 +878,11 @@ pub enum Request {
     /// `original_not_found` when it is gone. Answered with [`Reply::Agent`].
     #[serde(rename = "agents.reimport_skill")]
     AgentsReimportSkill(ReimportSkillParams),
+    /// `{"agent": "0199…", "project": "SHOP"}`: "What this agent reads" (AGR-01…AGR-03), read-only: its
+    /// instructions, the project's notes, a skill part per stage it runs and one for its role, its other skills.
+    /// Answered with [`Reply::AgentReads`].
+    #[serde(rename = "agents.reads")]
+    AgentsReads(crate::agent_reads::AgentReadsParams),
     /// `{"key": "SHOP-19"}`, or `{"project": "SHOP", "new_epic": true}` for the ⌘N form: the agent each stage of the
     /// ticket's flow runs (an epic's lead), the sessions with their agents, the holds. Answered with
     /// [`Reply::TicketAgents`].
@@ -1859,6 +1864,7 @@ impl Request {
             Self::AgentsFallback(_) => "agents.fallback",
             Self::AgentsImportSkill(_) => "agents.import_skill",
             Self::AgentsReimportSkill(_) => "agents.reimport_skill",
+            Self::AgentsReads(_) => "agents.reads",
             Self::TicketAgents(_) => "ticket.agents",
             Self::BoardAgents(_) => "board.agents",
             Self::TicketChoices(_) => "ticket.choices",
@@ -1998,6 +2004,7 @@ pub enum Reply {
     BoardAgents(Box<crate::agents::facts::BoardAgents>),
     TicketChoices(Box<crate::board::stage_choices::TicketChoices>),
     AgentInUse(Box<crate::agents::InUse>),
+    AgentReads(Box<crate::agent_reads::AgentReads>),
     /// Every agent tool's row (`agent_tools.list`, `agent_tools.set_hidden`).
     AgentTools(Box<crate::agent_tools::connected::AgentToolsList>),
     /// The command palette's recent items, newest first (`recent.items`).

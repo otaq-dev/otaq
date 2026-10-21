@@ -82,6 +82,9 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "agents.reimport_skill" {
             params["skill"] = json!("nope");
         }
+        if method == "agents.reads" {
+            params["agent"] = json!("nope");
+        }
         if method.starts_with("agent_tools.")
             || method.starts_with("limits.")
             || method == "agents.fallback"
@@ -319,6 +322,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentsFallback(_)
         | Request::AgentsImportSkill(_)
         | Request::AgentsReimportSkill(_)
+        | Request::AgentsReads(_)
         | Request::TicketAgents(_)
         | Request::BoardAgents(_)
         | Request::TicketChoices(_)

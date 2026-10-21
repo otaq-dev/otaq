@@ -671,8 +671,11 @@ impl Board {
 
 /// The commit skill `agent` runs (d0050), by its own name: `commit` (its imported skill of that name, else Otaq's),
 /// when it is one of the agent's skills (so its copy is in the worktree); `None` for an agent with no commit skill.
-/// With no agent resolved, Otaq's own.
-fn commit_skill(sources: &crate::skills::Sources<'_>, agent: Option<&Agent>) -> Option<String> {
+/// With no agent resolved, Otaq's own. "What this agent reads" marks it the same way ([`crate::agent_reads`]).
+pub(crate) fn commit_skill(
+    sources: &crate::skills::Sources<'_>,
+    agent: Option<&Agent>,
+) -> Option<String> {
     let commit = crate::board::settings::WorkflowStep::Commit.own_skill();
     let Some(agent) = agent else {
         return Some(commit.to_owned());

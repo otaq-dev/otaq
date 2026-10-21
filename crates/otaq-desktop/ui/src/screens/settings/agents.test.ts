@@ -3,7 +3,8 @@
 // once; ⋯ → Delete… opens the refused dialog (OK only) or the plain question; a
 // row opens its agent's page, whose Role moves the role, whose Name is saved when left, and whose Effort shows only
 // when the view has one; New agent's draft is saved by Add agent with what was typed; the model dropdowns pick a tool
-// and a model, or None, never a heading.
+// and a model, or None, never a heading. What this agent reads (T-0440, AGR-01) opens on the project on screen, picks
+// another, and its links go back to the page, to the project's notes and to a skill's folder.
 import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentDeleteDialog } from "../../generated/AgentDeleteDialog";
 import type { AgentListRow } from "../../generated/AgentListRow";
 import type { AgentPage } from "../../generated/AgentPage";
+import type { AgentReadsView } from "../../generated/AgentReadsView";
 import type { AgentsModelChoice } from "../../generated/AgentsModelChoice";
 import type { AgentsSection as AgentsSectionView } from "../../generated/AgentsSection";
 import type { MenuItem } from "../../generated/MenuItem";
@@ -129,6 +131,7 @@ function agentPage(over: Partial<AgentPage> = {}): AgentPage {
     role_tag: null,
     came_from: "Added by you",
     back_label: "Back to Agents",
+    reads_label: "What this agent reads",
     menu_label: "More actions",
     menu: MENU,
     draft: {
@@ -464,5 +467,119 @@ describe("one agent's page", () => {
     await settle();
     expect(calls).toContainEqual(["settings.agent_add", { draft: draft.draft }]);
     expect(byText("button", "Add agent")).toBeUndefined();
+  });
+});
+
+describe("what this agent reads", () => {
+  const reads = (project: string, name: string): AgentReadsView => ({
+    agent_id: "strong",
+    title: "What this agent reads",
+    subtitle: "Strong · read-only",
+    back_label: "Back to Strong",
+    project_label: "Project",
+    projects: [
+      item("NOTE", "pocket-notes", { checked: project === "NOTE" }),
+      item("API", "pocket-api", { checked: project === "API" }),
+    ],
+    project,
+    project_name: name,
+    project_hint: "Notes differ per project; the agent is shared.",
+    parts: [
+      {
+        heading: "Its instructions",
+        link: { label: "Edit in Agents →", target: { kind: "agent" } },
+        text: "Work one ticket at a time.",
+        empty: null,
+        mono: false,
+      },
+      {
+        heading: `Notes for ${name}`,
+        link: { label: `Edit in ${name}’s settings →`, target: { kind: "project_notes", project } },
+        text: null,
+        empty: `No notes for ${name}`,
+        mono: false,
+      },
+      {
+        heading: "Skill: work-ticket · Dev",
+        link: { label: "Open skill folder →", target: { kind: "folder", skill: "work-ticket" } },
+        text: "# work-ticket",
+        empty: null,
+        mono: true,
+      },
+    ],
+    no_stage: null,
+    also: {
+      label: "Also has:",
+      skills: [{ name: "commit", note: "(commits with it)", link: { kind: "folder", skill: "commit" } }],
+    },
+    empty: null,
+    not_shown: "Not shown: the ticket and what earlier stages wrote. They change per ticket.",
+  });
+
+  async function openReads(context: Partial<SettingsContextValue> = {}) {
+    selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
+    const calls = answer({
+      "settings.agents": () => SECTION,
+      "settings.agent": () => agentPage(),
+      "settings.agent_reads": (p) =>
+        (p as { project: string }).project === "API"
+          ? reads("API", "pocket-api")
+          : reads("NOTE", "pocket-notes"),
+      "settings.agent_reads_reveal": () => null,
+    });
+    show(
+      createElement(
+        SettingsContext,
+        { value: { agent: "strong", ...context } as unknown as SettingsContextValue },
+        createElement(AgentsSection),
+      ),
+    );
+    await settle();
+    click(byText("button", "What this agent reads"));
+    await settle();
+    selection.set(NOTHING_SELECTED);
+    return calls;
+  }
+
+  it("opens on the project on screen, picks another, and reveals a skill's folder", async () => {
+    const calls = await openReads();
+    expect(calls).toContainEqual(["settings.agent_reads", { id: "strong", project: "NOTE" }]);
+    expect([...document.querySelectorAll(".settings-reads-heading")].map((h) => h.textContent)).toEqual([
+      "Its instructions",
+      "Notes for pocket-notes",
+      "Skill: work-ticket · Dev",
+    ]);
+    expect(byText(".settings-reads-text", "No notes for pocket-notes")?.getAttribute("data-empty")).toBe(
+      "true",
+    );
+    expect(document.querySelector(".settings-reads-also")?.textContent).toBe(
+      "Also has:commit(commits with it)",
+    );
+    click(document.querySelector('[aria-label="Project"]'));
+    click(byText(".menu-item", "pocket-api"));
+    await settle();
+    expect(calls).toContainEqual(["settings.agent_reads", { id: "strong", project: "API" }]);
+    expect(byText(".settings-reads-heading", "Notes for pocket-api")).not.toBeUndefined();
+    click(byText("button", "Open skill folder →"));
+    click(byText("button", "commit"));
+    await settle();
+    expect(calls).toContainEqual([
+      "settings.agent_reads_reveal",
+      { id: "strong", project: "API", skill: "work-ticket" },
+    ]);
+    expect(calls).toContainEqual([
+      "settings.agent_reads_reveal",
+      { id: "strong", project: "API", skill: "commit" },
+    ]);
+  });
+
+  it("goes to the project's notes, and back to the agent's page", async () => {
+    const openProject = vi.fn();
+    await openReads({ openProject });
+    click(byText("button", "Edit in pocket-notes’s settings →"));
+    expect(openProject).toHaveBeenCalledWith("NOTE", "project_notes");
+    click(byText("button", "Edit in Agents →"));
+    expect(document.querySelector(".settings-reads")).toBeNull();
+    expect(document.querySelector(".settings-agent-page")).not.toBeNull();
   });
 });
