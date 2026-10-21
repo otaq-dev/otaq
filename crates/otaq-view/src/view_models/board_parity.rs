@@ -1,8 +1,10 @@
 //! The board's parity check (STG-08, d0108: "a project that never changes its flow sees today's board"): today's
 //! `BoardView`, every card's drag answer and every drop's step for the M31 example (pocket-notes with Validate,
 //! pocket-api without) and for a project with a card in every status, against a snapshot written before the columns
-//! came from the flow (`fixtures/board-parity.json`), rewritten once by M33 for Validate's own column (FLW-01, the
-//! one expected change). `OTAQ_UPDATE_PARITY=1` rewrites it.
+//! came from the flow (`fixtures/board-parity.json`), rewritten by M33 for Validate's own column (FLW-01) and for
+//! drags to any stage (FLW-18, T-0421: Validate is a drop target, a drag back opens its dialog, a forward drag from
+//! Dev between turns skips the stages between, a parked card returns wherever it is dropped). `OTAQ_UPDATE_PARITY=1`
+//! rewrites it.
 
 #![cfg(test)]
 
@@ -129,7 +131,7 @@ fn project(name: &'static str, key: &str, flow: &Flow, tickets: &[Ticket]) -> Va
     .collect();
     let drags: Vec<Value> = tickets
         .iter()
-        .map(|t| serde_json::to_value(board_page::drag_answer_in(flow, t, tickets)).unwrap())
+        .map(|t| serde_json::to_value(board_page::drag_answer_in(flow, t, tickets, None)).unwrap())
         .collect();
     let drops: Vec<Value> = tickets
         .iter()

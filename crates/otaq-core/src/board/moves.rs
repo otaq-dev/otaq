@@ -1,21 +1,25 @@
-//! Board moves (SDD §7.3 transitions, §7.4 drag rules; TKT-04; d0004, d0034, d0036, d0037, d0041, d0044, d0052).
+//! Board moves (SDD §7.3 transitions, §7.4 drag rules; TKT-04, FLW-18; d0004, d0034, d0036, d0037, d0041, d0044,
+//! d0052, d0108).
 //!
-//! [`check_move`] is one pure function: given a ticket and where it is dropped, it says whether the move is
-//! allowed, needs a confirmation or a choice, comes with a warning, or is refused (with a reason for people). The
-//! flow engine decides it from the kinds of the stages involved ([`crate::flow::engine::drag`], STG-06).
-//! [`Board::move_ticket`] carries out the moves whose effects exist so far: Backlog → Dev (Queued) and Reopen
-//! (Done · Closed → Backlog, T-0101). The others (Park, Approve, PR rework) are allowed by the rules but carried
-//! out by their own requests (T-0104, T-0089/T-0095, T-0144/T-0150); until then they are refused here as
-//! "not available yet".
+//! [`check_move`] is one pure function: given a ticket and where it is dropped (a board target or any stage of the
+//! flow, [`DropOn`]), it says whether the move is allowed, needs a confirmation or a choice, or is refused (with a
+//! reason for people). The flow engine decides it from the kinds of the stages involved
+//! ([`crate::flow::engine::drag`], STG-06). [`Board::move_ticket`] carries out the bookkeeping moves: Start (a parked
+//! ticket returns to the stage it left), Unqueue, Reopen and PR rework. Park and Approve have their own requests;
+//! the drags that stop or start sessions (back to any earlier stage, forward past stages) are
+//! [`crate::review::Review::drag`]'s.
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Sqlite, Transaction};
 
+use super::epic_flight::epic_flow;
+use super::stage_runs::Moved;
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
-use crate::domain::{Actor, Status, stored_enum};
-use crate::flow::{Flow, engine};
+use crate::domain::{Actor, MovedPast, Place, Status, stored_enum};
+use crate::flow::engine::{self, Target};
+use crate::flow::{Flow, Stage};
 use crate::store::now_ms;
 use crate::store::tickets::{TicketRow, set_state_since};
 
@@ -53,6 +57,54 @@ stored_enum! {
         /// An epic card or track → Ready for Dev (or Dev): queues its never-started children and resumes its parked
         /// ones (EPC-12, EPC-14; d0080).
         QueueEpic = "queue_epic",
+        /// Back to an earlier Agent stage (FLW-18): asks for the instructions that stage's agent gets; its session
+        /// resumes with them (or a fresh one starts) and the card then walks every later stage again. A human Fail.
+        SendBack = "send_back",
+        /// Back to an earlier agent check: asks for a note; the check runs again with it.
+        RunCheckAgain = "run_check_again",
+        /// Back onto an earlier human check: no dialog; the card waits there, "Moved back by you".
+        MoveBack = "move_back",
+        /// To the very next stage the ticket runs: Move to next stage (from an Agent stage) or Pass (a human check).
+        NextStage = "next_stage",
+        /// Forward past one or more stages (or out of an agent check): they are skipped by you, and the Delivery
+        /// waits for a click.
+        SkipTo = "skip_to",
+    }
+}
+
+/// Where a drop lands (FLW-18): one of the board's named targets, or any stage of the project's flow by its id. As
+/// JSON a board target is its name (`"dev"`), a stage `{"stage": "security"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DropOn {
+    Board(DropTarget),
+    Stage { stage: String },
+}
+
+impl DropOn {
+    pub fn stage(id: impl Into<String>) -> Self {
+        Self::Stage { stage: id.into() }
+    }
+}
+
+impl From<DropTarget> for DropOn {
+    fn from(target: DropTarget) -> Self {
+        Self::Board(target)
+    }
+}
+
+impl From<&DropOn> for DropOn {
+    fn from(target: &DropOn) -> Self {
+        target.clone()
+    }
+}
+
+impl std::fmt::Display for DropOn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Board(target) => target.fmt(f),
+            Self::Stage { stage } => f.write_str(stage),
+        }
     }
 }
 
@@ -101,16 +153,77 @@ pub const MERGED_LOCKED: &str = "Merged tickets are locked";
 pub const MERGED_LOCKED_REOPEN: &str = "Merged tickets are locked. Create a new ticket.";
 /// Ready for Dev → Dev: the scheduler starts it (SCH-01).
 pub const STARTS_BY_ITSELF: &str = "It starts by itself when it can, in priority order";
+/// *03 → An epic can't go back* (d0108, 0059): the user reopens it or adds a child instead.
+pub const EPIC_NO_DRAG_BACK: &str = "An epic can\u{2019}t be dragged back";
+/// A Backlog ticket dropped on an agent check: it starts with its first Agent stage.
+pub const QUEUE_FIRST: &str = "Drag it to Ready for Dev to queue it";
 
-/// Decides a drag or a "Start" (⇧⌘D, which is a drop on [`DropTarget::ReadyForDev`]) on the default flow, whose
-/// board the drop targets are (every project's flow in M31 has its Dev, Review and Done stages).
-pub fn check_move(ticket: &Ticket, target: DropTarget) -> MoveCheck {
+/// Decides a drag or a "Start" (⇧⌘D, which is a drop on [`DropTarget::ReadyForDev`]) on the default flow.
+pub fn check_move(ticket: &Ticket, target: impl Into<DropOn>) -> MoveCheck {
     check_move_in(&crate::flow::default_file().flow, ticket, target)
 }
 
-/// Decides a drag in `flow`.
-pub fn check_move_in(flow: &Flow, ticket: &Ticket, target: DropTarget) -> MoveCheck {
-    engine::drag(flow, &ticket.place, ticket.status, ticket.kind, target)
+/// Decides a drag in `flow` (the project's) for a ticket that skips nothing.
+pub fn check_move_in(flow: &Flow, ticket: &Ticket, target: impl Into<DropOn>) -> MoveCheck {
+    check_with(flow, ticket, &[], &target.into())
+}
+
+/// Decides a drag in `flow` for a ticket that skips `skips` by its choices (AGM-08). An epic in its stop or its
+/// Delivery walks its own flow ([`epic_flow`], Q266): a drop on a stage it doesn't walk before its stop is a drag
+/// back, which it can't do. A forward drag from an Agent stage is the user's Move to next stage, so it waits until
+/// the agent isn't mid-turn (CLS-05).
+pub fn check_with(flow: &Flow, ticket: &Ticket, skips: &[String], target: &DropOn) -> MoveCheck {
+    if ticket.is_epic()
+        && let Place::InStage(here) = &ticket.place
+    {
+        let walk = epic_flow(flow);
+        if target.in_flow(&walk).is_none()
+            && let Some(Target::Stage(stage)) = target.in_flow(flow)
+        {
+            let stop = flow
+                .position(here)
+                .or_else(|| flow.stages.iter().position(Stage::is_delivery))
+                .unwrap_or(flow.stages.len());
+            if flow.position(&stage.id).is_some_and(|at| at < stop) {
+                return MoveCheck::Refused {
+                    reason: EPIC_NO_DRAG_BACK.to_owned(),
+                };
+            }
+        }
+        return engine::drag_with(
+            &walk,
+            &ticket.place,
+            ticket.status,
+            ticket.kind,
+            &[],
+            target,
+        );
+    }
+    let check = engine::drag_with(
+        flow,
+        &ticket.place,
+        ticket.status,
+        ticket.kind,
+        skips,
+        target,
+    );
+    let from_agent_stage = ticket
+        .place
+        .stage()
+        .and_then(|id| flow.stage(id))
+        .is_some_and(Stage::is_agent_stage);
+    if from_agent_stage
+        && matches!(
+            check.action(),
+            Some(MoveAction::NextStage | MoveAction::SkipTo)
+        )
+        && let Err(e) = super::review::user_may_submit(ticket)
+    {
+        return MoveCheck::Refused {
+            reason: e.to_string(),
+        };
+    }
+    check
 }
 
 impl Board {
@@ -119,13 +232,12 @@ impl Board {
     pub async fn move_ticket(
         &self,
         key: &str,
-        target: DropTarget,
+        target: impl Into<DropOn>,
         confirmed: bool,
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
         let ticket = self.ticket(key).await?;
-        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
-        let check = check_move_in(&flow, &ticket, target);
+        let check = self.check_drag(&ticket, &target.into()).await?;
         match &check {
             MoveCheck::Unchanged => return Ok(ticket),
             MoveCheck::Refused { reason } => {
@@ -163,16 +275,65 @@ impl Board {
             MoveAction::Park => not_yet("Park"),
             MoveAction::Approve => not_yet("Approve"),
             MoveAction::PrRework => self.pr_rework(&ticket, actor).await,
+            // Carried out with the sessions they stop and start (`ticket.drag`, [`crate::review::Review::drag`]).
+            MoveAction::SendBack
+            | MoveAction::RunCheckAgain
+            | MoveAction::MoveBack
+            | MoveAction::NextStage
+            | MoveAction::SkipTo => not_yet("This move"),
         }
+    }
+
+    /// A drag's verdict for `ticket` on its project's flow and its own skips ([`check_with`]).
+    pub async fn check_drag(
+        &self,
+        ticket: &Ticket,
+        target: &DropOn,
+    ) -> Result<MoveCheck, BoardError> {
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        let skips = self.ticket_skips(ticket, &flow).await?;
+        Ok(check_with(&flow, ticket, &skips, target))
     }
 
     /// Backlog → Ready for Dev (Queued): a standalone ticket. Epic children go through
     /// [`Board::queue_epic_child`].
     async fn start(&self, ticket: &Ticket, actor: &Actor) -> Result<Ticket, BoardError> {
+        let returns_to = self.parked_return(ticket).await?;
         let mut tx = self.store.begin_write().await?;
-        queue_in(&mut tx, ticket, None, actor, json!({})).await?;
+        queue_in(
+            &mut tx,
+            ticket,
+            None,
+            returns_to.as_deref(),
+            actor,
+            json!({}),
+        )
+        .await?;
         tx.commit().await?;
         self.ticket_by_id(&ticket.id).await
+    }
+
+    /// Where a parked ticket waits when it is dragged out of Backlog (d0052, FLW-18 "Un-park"): before the Agent stage
+    /// it left (its latest Agent stage run), through the usual waiting; `None` (Ready for Dev) when that is the flow's
+    /// first Agent stage, as the default flow always queues, or for a ticket that isn't parked.
+    pub(crate) async fn parked_return(
+        &self,
+        ticket: &Ticket,
+    ) -> Result<Option<String>, BoardError> {
+        if ticket.status != Status::Parked {
+            return Ok(None);
+        }
+        let left: Option<String> = sqlx::query_scalar(
+            "SELECT stage_id FROM stage_runs WHERE ticket_id = ? AND kind = 'agent'
+             ORDER BY started_at DESC, rowid DESC LIMIT 1",
+        )
+        .bind(&ticket.id)
+        .fetch_optional(self.store.pool())
+        .await?;
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        Ok(left
+            .filter(|id| flow.stage(id).is_some_and(Stage::is_agent_stage))
+            .and_then(|id| super::send_back::waits_before(&flow, &id)))
     }
 
     /// Ready for Dev → Backlog (d0066): out of the queue. Nothing had started, so a ticket that never worked
@@ -289,22 +450,25 @@ impl Board {
 /// Backlog → Ready for Dev (Queued) inside a transaction. Records the first start and the queue time, and locks
 /// the base (d0051); an epic child also locks its epic's base (`epic_id`). The scheduler starts it once its
 /// dependencies are merged (SCH-01) and fills in when it became ready. A parked ticket keeps its `parked` mark, so
-/// the start sequence resumes its conversation (d0052). `extra` joins the History payload (`with_epic`).
+/// the start sequence resumes its conversation (d0052), and waits before the stage it left (`returns_to`,
+/// [`Board::parked_return`]). `extra` joins the History payload (`with_epic`).
 pub(crate) async fn queue_in(
     tx: &mut Transaction<'_, Sqlite>,
     ticket: &Ticket,
     epic_id: Option<&str>,
+    returns_to: Option<&str>,
     actor: &Actor,
     extra: serde_json::Value,
 ) -> Result<(), BoardError> {
     let now = now_ms();
     sqlx::query(concat!(
-        "UPDATE tickets SET stage_id = NULL, state = ?, started_at = COALESCE(started_at, ?),
+        "UPDATE tickets SET stage_id = ?, state = ?, started_at = COALESCE(started_at, ?),
                             queued_at = ?, ready_since = NULL, branch_locked = TRUE, updated_by = ?,
                             updated_at = ?, ",
         set_state_since!(),
         " WHERE id = ?"
     ))
+    .bind(returns_to)
     .bind(Status::Queued.as_str())
     .bind(now)
     .bind(now)
@@ -369,4 +533,116 @@ pub(crate) async fn unqueue_in(
         payload.extend(extra);
     }
     record_event(tx, &ticket.id, EventKind::Moved, actor, payload).await
+}
+
+/// What a drag the board carries out writes besides the move ([`Board::record_drag`]).
+pub(crate) struct DragWrite {
+    pub moved: Moved,
+    /// Every agent check's counter restarts (a drag back counts as a human Fail, FLW-13).
+    pub reset: bool,
+    /// The stages the user moved the card past (a forward drag): its Delivery waits for a click.
+    pub marks: Vec<(String, MovedPast)>,
+    /// Into an agent check: its round opens on this head.
+    pub check_head: Option<String>,
+    /// The note the run it leaves ends with (a check run again with a note).
+    pub note: Option<String>,
+    /// History's [`EventKind::Dragged`] payload.
+    pub event: serde_json::Value,
+}
+
+impl Board {
+    /// Where a drag the board carries out by itself takes `ticket` to the stage `to` ([`engine::dragged`]).
+    pub(crate) async fn drag_moved(&self, ticket: &Ticket, to: &str) -> Result<Moved, BoardError> {
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        let skips = self.ticket_skips(ticket, &flow).await?;
+        let Some(stage) = flow.stage(to) else {
+            return Err(BoardError::refused(
+                Refusal::MoveRefused,
+                format!("{} has no stage {to}", ticket.key.project),
+            ));
+        };
+        let at = engine::At {
+            skips: &skips,
+            ..engine::At::new(&flow, &ticket.place, ticket.status)
+        };
+        Ok(Moved::of(&engine::dragged(at, stage)))
+    }
+
+    /// Writes a drag (FLW-18): the run it leaves ends, the stages it walked over get skipped runs and their marks,
+    /// the counters restart for a drag back, and the ticket is in its new stage: waiting for the user in a human
+    /// check, Checking with a round open in an agent check, To deliver in its Delivery, or queued before an Agent
+    /// stage. The caller starts the checker or wakes the scheduler.
+    pub(crate) async fn record_drag(
+        &self,
+        ticket: &Ticket,
+        drag: DragWrite,
+        actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
+        let DragWrite {
+            moved,
+            reset,
+            marks,
+            check_head,
+            note,
+            event,
+        } = drag;
+        let now = now_ms();
+        let waits = moved.place.is_waiting();
+        let into_human_check = moved.status.set() == crate::domain::StatusSet::HumanCheck;
+        let mut tx = self.store.begin_write().await?;
+        moved.record(&mut tx, &ticket.id, note.as_deref()).await?;
+        if reset {
+            super::validation::reset_check_counters(&mut tx, &ticket.id).await?;
+        }
+        for (stage, how) in &marks {
+            super::validation::mark_moved_past(&mut tx, &ticket.id, stage, *how).await?;
+        }
+        let round = match (&check_head, moved.place.stage()) {
+            (Some(_), Some(check)) => {
+                Some(super::validation::enter_check(&mut tx, &ticket.id, check).await? + 1)
+            }
+            _ => None,
+        };
+        sqlx::query(concat!(
+            "UPDATE tickets SET stage_id = ?, state = ?, review_entry = NULL, interrupted_from = NULL,
+                                review_entered_at = CASE WHEN ? THEN ? ELSE review_entered_at END,
+                                queued_at = CASE WHEN ? THEN ? ELSE queued_at END,
+                                ready_since = CASE WHEN ? THEN NULL ELSE ready_since END,
+                                signal_text = NULL, signal_since = NULL, wakeup_at = NULL, auto_merge_stop = NULL,
+                                updated_by = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(moved.place.stage_id())
+        .bind(moved.status.as_str())
+        .bind(into_human_check)
+        .bind(now)
+        .bind(waits)
+        .bind(now)
+        .bind(waits)
+        .bind(actor.to_string())
+        .bind(now)
+        .bind(moved.status.as_str())
+        .bind(now)
+        .bind(&ticket.id)
+        .execute(&mut *tx)
+        .await?;
+        if let (Some(head), Some(round)) = (&check_head, round) {
+            sqlx::query(
+                "INSERT INTO validations (id, ticket_id, round, trigger, started_at, head_sha) VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(crate::store::new_id())
+            .bind(&ticket.id)
+            .bind(i64::from(round))
+            .bind(crate::domain::ValidationTrigger::User.as_str())
+            .bind(now)
+            .bind(head)
+            .execute(&mut *tx)
+            .await?;
+        }
+        record_event(&mut tx, &ticket.id, EventKind::Dragged, actor, event).await?;
+        tx.commit().await?;
+        tracing::info!(key = %ticket.key, to = %moved.status, stage = moved.place.stage_id(), "dragged");
+        self.ticket_by_id(&ticket.id).await
+    }
 }

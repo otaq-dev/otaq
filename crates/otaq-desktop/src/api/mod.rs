@@ -16,8 +16,9 @@ pub use agent_tools::{
 };
 #[cfg(test)]
 pub use board::{
-    DropParams as BoardDropParams, FocusParams as BoardFocusParams, MenuParams as CardMenuParams,
-    SearchParams, TicketParams as BoardTicketParams,
+    DragBackParams as BoardDragBackParams, DropParams as BoardDropParams,
+    FocusParams as BoardFocusParams, MenuParams as CardMenuParams, SearchParams,
+    TicketParams as BoardTicketParams,
 };
 #[cfg(test)]
 pub use diff::{

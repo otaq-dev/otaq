@@ -42,7 +42,7 @@ use crate::board::diff::DiffSummary;
 use crate::board::epic_flight::{EpicQueueOutcome, TakeBackPlan, UndoQueueOutcome};
 use crate::board::epics::ClosePlan;
 use crate::board::merge::MergeProposal;
-use crate::board::moves::DropTarget;
+use crate::board::moves::{DropOn, DropTarget};
 use crate::board::projects::{AddProject, Branches, FolderProbe, ProjectUpdate};
 use crate::board::readiness::Readiness;
 use crate::board::review::ApproveCheck;
@@ -227,6 +227,11 @@ pub enum Request {
     TicketUpdate(TicketUpdateParams),
     #[serde(rename = "ticket.move")]
     TicketMove(MoveParams),
+    /// A drop on any stage (FLW-18): the drag rules on the project's flow, carried out with the sessions they stop
+    /// and start. `confirmed` and `note` are the dialog's (Send to Dev with the instructions, Run Security with the
+    /// note). Answered with [`Reply::Returned`].
+    #[serde(rename = "ticket.drag")]
+    TicketDrag(DragParams),
     #[serde(rename = "ticket.pin")]
     TicketPin(KeyParams),
     #[serde(rename = "ticket.unpin")]
@@ -1480,6 +1485,21 @@ pub struct MoveParams {
     pub confirmed: bool,
 }
 
+/// A drop on any stage: where (a board target, or `{"stage": "security"}`), and the dialog's answers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DragParams {
+    pub key: String,
+    pub target: DropOn,
+    #[serde(default)]
+    pub confirmed: bool,
+    /// The instructions for the Agent stage, or the note for the check.
+    #[serde(default)]
+    pub note: String,
+    /// "Clear it and send" after the unsent-text question (d0048).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clear_first: bool,
+}
+
 /// An epic dropped on Ready for Dev or Dev (or ⇧⌘D on it); `child` when one row of it was dropped.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpicQueueParams {
@@ -1659,6 +1679,7 @@ impl Request {
             Self::TicketCreateBatch(_) => "ticket.create_batch",
             Self::TicketUpdate(_) => "ticket.update",
             Self::TicketMove(_) => "ticket.move",
+            Self::TicketDrag(_) => "ticket.drag",
             Self::TicketPin(_) => "ticket.pin",
             Self::TicketUnpin(_) => "ticket.unpin",
             Self::TicketAgentEdits(_) => "ticket.agent_edits",

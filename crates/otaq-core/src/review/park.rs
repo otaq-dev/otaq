@@ -129,7 +129,8 @@ impl Review {
             &ticket.id,
             EventKind::Parked,
             actor,
-            json!({ "from": ticket.status, "to": to }),
+            // The stage it left: dragged out of Backlog it returns there (FLW-18).
+            json!({ "from": ticket.status, "to": to, "stage_id": ticket.place.stage_id() }),
         )
         .await?;
         tx.commit().await?;

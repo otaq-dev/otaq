@@ -33,7 +33,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "Drag it to Ready for Dev to queue it"
             }
           },
           {
@@ -92,25 +92,28 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "hint": "Drop to resume · same conversation",
+              "icon": "play",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "review",
             "verdict": {
-              "detail": "Drag to Ready for Dev to queue it.",
-              "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "hint": "Drop to resume · same conversation",
+              "icon": "play",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "approved",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "hint": "Drop to resume · same conversation",
+              "icon": "play",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -154,7 +157,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "It starts by itself when it can, in priority order"
             }
           },
           {
@@ -214,7 +217,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "It starts by itself when it can, in priority order"
             }
           },
           {
@@ -274,7 +277,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "It starts by itself when it can, in priority order"
             }
           },
           {
@@ -334,7 +337,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "It starts by itself when it can, in priority order"
             }
           },
           {
@@ -394,7 +397,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "It starts by itself when it can, in priority order"
             }
           },
           {
@@ -454,7 +457,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "ALL-8 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -462,7 +465,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "title": "ALL-8 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -470,7 +473,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "title": "ALL-8 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -514,7 +517,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "ALL-9 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -522,7 +525,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "title": "ALL-9 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -530,7 +533,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "title": "ALL-9 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -572,25 +575,28 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "hint": "Drop to move to Validate",
+              "icon": "arrow-right",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "review",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "hint": "Drop to skip Validate",
+              "icon": "skip-forward",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "approved",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "hint": "Drop to skip Validate, Review",
+              "icon": "skip-forward",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -632,25 +638,28 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "hint": "Drop to move to Validate",
+              "icon": "arrow-right",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "review",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "hint": "Drop to skip Validate",
+              "icon": "skip-forward",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "approved",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "hint": "Drop to skip Validate, Review",
+              "icon": "skip-forward",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -692,25 +701,28 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "hint": "Drop to move to Validate",
+              "icon": "arrow-right",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "review",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "hint": "Drop to skip Validate",
+              "icon": "skip-forward",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "approved",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "hint": "Drop to skip Validate, Review",
+              "icon": "skip-forward",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -754,7 +766,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "ALL-13 can't move to the next stage now: it is Waiting for limit reset"
             }
           },
           {
@@ -762,7 +774,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "title": "ALL-13 can't move to the next stage now: it is Waiting for limit reset"
             }
           },
           {
@@ -770,7 +782,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "title": "ALL-13 can't move to the next stage now: it is Waiting for limit reset"
             }
           },
           {
@@ -812,25 +824,28 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "hint": "Drop to move to Validate",
+              "icon": "arrow-right",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "review",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "hint": "Drop to skip Validate",
+              "icon": "skip-forward",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "approved",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "hint": "Drop to skip Validate, Review",
+              "icon": "skip-forward",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -874,7 +889,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "ALL-15 can't move to the next stage now: it is Resume failed"
             }
           },
           {
@@ -882,7 +897,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "title": "ALL-15 can't move to the next stage now: it is Resume failed"
             }
           },
           {
@@ -890,7 +905,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "title": "ALL-15 can't move to the next stage now: it is Resume failed"
             }
           },
           {
@@ -934,7 +949,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "ALL-16 can't move to the next stage now: it is Merge conflict · fixing"
             }
           },
           {
@@ -942,7 +957,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "title": "ALL-16 can't move to the next stage now: it is Merge conflict · fixing"
             }
           },
           {
@@ -950,7 +965,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "title": "ALL-16 can't move to the next stage now: it is Merge conflict · fixing"
             }
           },
           {
@@ -994,7 +1009,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "ALL-17 can't move to the next stage now: it is Auto-merge stopped"
             }
           },
           {
@@ -1002,7 +1017,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "title": "ALL-17 can't move to the next stage now: it is Auto-merge stopped"
             }
           },
           {
@@ -1010,7 +1025,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "title": "ALL-17 can't move to the next stage now: it is Auto-merge stopped"
             }
           },
           {
@@ -1046,7 +1061,10 @@
           {
             "target": "dev",
             "verdict": {
-              "kind": "home"
+              "hint": "Drop to send back to Dev · asks first",
+              "icon": "undo-2",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -1058,17 +1076,19 @@
           {
             "target": "review",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "hint": "Drop to skip Validate",
+              "icon": "skip-forward",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "approved",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "hint": "Drop to skip Validate, Review",
+              "icon": "skip-forward",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -1104,7 +1124,10 @@
           {
             "target": "dev",
             "verdict": {
-              "kind": "home"
+              "hint": "Drop to send back to Dev · asks first",
+              "icon": "undo-2",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -1116,17 +1139,19 @@
           {
             "target": "review",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "hint": "Drop to skip Validate",
+              "icon": "skip-forward",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "approved",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "hint": "Drop to skip Validate, Review",
+              "icon": "skip-forward",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -1162,7 +1187,10 @@
           {
             "target": "dev",
             "verdict": {
-              "kind": "home"
+              "hint": "Drop to send back to Dev · asks first",
+              "icon": "undo-2",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -1174,17 +1202,19 @@
           {
             "target": "review",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "hint": "Drop to skip Validate",
+              "icon": "skip-forward",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "approved",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "hint": "Drop to skip Validate, Review",
+              "icon": "skip-forward",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -1220,7 +1250,10 @@
           {
             "target": "dev",
             "verdict": {
-              "kind": "home"
+              "hint": "Drop to send back to Dev · asks first",
+              "icon": "undo-2",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -1232,17 +1265,19 @@
           {
             "target": "review",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "hint": "Drop to skip Validate",
+              "icon": "skip-forward",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "approved",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "hint": "Drop to skip Validate, Review",
+              "icon": "skip-forward",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -1277,17 +1312,19 @@
           {
             "target": "dev",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Use Send back to return it to Dev with your comments"
+              "hint": "Drop to send back to Dev · asks first",
+              "icon": "undo-2",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "hint": "Drop to run Validate again · asks first",
+              "icon": "rotate-ccw",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -1337,17 +1374,19 @@
           {
             "target": "dev",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Drag it back through Ready for Review: Approved tickets return with PR rework"
+              "hint": "Drop to send back to Dev · asks first",
+              "icon": "undo-2",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "hint": "Drop to run Validate again · asks first",
+              "icon": "rotate-ccw",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -1397,17 +1436,19 @@
           {
             "target": "dev",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Drag it back through Ready for Review: Approved tickets return with PR rework"
+              "hint": "Drop to send back to Dev · asks first",
+              "icon": "undo-2",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "hint": "Drop to run Validate again · asks first",
+              "icon": "rotate-ccw",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -1465,9 +1506,9 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
+              "detail": "Fixing merged work means a new ticket.",
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "Merged tickets are locked"
             }
           },
           {
@@ -1527,7 +1568,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "Drag it to Backlog to reopen it first"
             }
           },
           {
@@ -1571,13 +1612,13 @@
       {
         "key": "ALL-2",
         "steps": {
-          "approved": "Nothing",
+          "approved": "Move",
           "backlog": "Nothing",
           "dev": "Move",
           "done": "Nothing",
           "ready_for_dev": "Move",
-          "review": "Nothing",
-          "validate": "Nothing"
+          "review": "Move",
+          "validate": "Move"
         }
       },
       {
@@ -1667,37 +1708,37 @@
       {
         "key": "ALL-10",
         "steps": {
-          "approved": "Nothing",
+          "approved": "Move",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing",
-          "validate": "Nothing"
+          "review": "Move",
+          "validate": "Move"
         }
       },
       {
         "key": "ALL-11",
         "steps": {
-          "approved": "Nothing",
+          "approved": "Move",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing",
-          "validate": "Nothing"
+          "review": "Move",
+          "validate": "Move"
         }
       },
       {
         "key": "ALL-12",
         "steps": {
-          "approved": "Nothing",
+          "approved": "Move",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing",
-          "validate": "Nothing"
+          "review": "Move",
+          "validate": "Move"
         }
       },
       {
@@ -1715,13 +1756,13 @@
       {
         "key": "ALL-14",
         "steps": {
-          "approved": "Nothing",
+          "approved": "Move",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing",
-          "validate": "Nothing"
+          "review": "Move",
+          "validate": "Move"
         }
       },
       {
@@ -1763,48 +1804,48 @@
       {
         "key": "ALL-18",
         "steps": {
-          "approved": "Nothing",
+          "approved": "Move",
           "backlog": "Park",
-          "dev": "Nothing",
+          "dev": "DragBack",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing",
+          "review": "Move",
           "validate": "Nothing"
         }
       },
       {
         "key": "ALL-19",
         "steps": {
-          "approved": "Nothing",
+          "approved": "Move",
           "backlog": "Park",
-          "dev": "Nothing",
+          "dev": "DragBack",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing",
+          "review": "Move",
           "validate": "Nothing"
         }
       },
       {
         "key": "ALL-20",
         "steps": {
-          "approved": "Nothing",
+          "approved": "Move",
           "backlog": "Park",
-          "dev": "Nothing",
+          "dev": "DragBack",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing",
+          "review": "Move",
           "validate": "Nothing"
         }
       },
       {
         "key": "ALL-21",
         "steps": {
-          "approved": "Nothing",
+          "approved": "Move",
           "backlog": "Park",
-          "dev": "Nothing",
+          "dev": "DragBack",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing",
+          "review": "Move",
           "validate": "Nothing"
         }
       },
@@ -1813,11 +1854,11 @@
         "steps": {
           "approved": "Approve",
           "backlog": "Nothing",
-          "dev": "Nothing",
+          "dev": "DragBack",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
           "review": "Nothing",
-          "validate": "Nothing"
+          "validate": "DragBack"
         }
       },
       {
@@ -1825,11 +1866,11 @@
         "steps": {
           "approved": "Nothing",
           "backlog": "Nothing",
-          "dev": "Nothing",
+          "dev": "DragBack",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
           "review": "Move",
-          "validate": "Nothing"
+          "validate": "DragBack"
         }
       },
       {
@@ -1837,11 +1878,11 @@
         "steps": {
           "approved": "Nothing",
           "backlog": "Nothing",
-          "dev": "Nothing",
+          "dev": "DragBack",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
           "review": "Move",
-          "validate": "Nothing"
+          "validate": "DragBack"
         }
       },
       {
@@ -5334,7 +5375,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "title": "API-1 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -5342,7 +5383,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "title": "API-1 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -5948,17 +5989,19 @@
           {
             "target": "dev",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Use Send back to return it to Dev with your comments"
+              "hint": "Drop to send back to Dev · asks first",
+              "icon": "undo-2",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "hint": "Drop to run Validate again · asks first",
+              "icon": "rotate-ccw",
+              "kind": "allowed",
+              "note": null
             }
           },
           {
@@ -6017,7 +6060,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "It starts by itself when it can, in priority order"
             }
           },
           {
@@ -6078,7 +6121,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "Drag it to Ready for Dev to queue it"
             }
           },
           {
@@ -6138,7 +6181,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "NOTE-4 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -6146,7 +6189,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "title": "NOTE-4 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -6154,7 +6197,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "title": "NOTE-4 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -6200,7 +6243,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "Drag it to Ready for Dev to queue it"
             }
           },
           {
@@ -6259,9 +6302,9 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
+              "detail": "Fixing merged work means a new ticket.",
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "Merged tickets are locked"
             }
           },
           {
@@ -6319,7 +6362,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Moving a card here isn’t available yet"
+              "title": "NOTE-10.2 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -6327,7 +6370,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "title": "NOTE-10.2 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -6335,7 +6378,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
+              "title": "NOTE-10.2 can't move to the next stage now: its agent is in the middle of a turn"
             }
           },
           {
@@ -6355,11 +6398,11 @@
         "steps": {
           "approved": "Approve",
           "backlog": "Nothing",
-          "dev": "Nothing",
+          "dev": "DragBack",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
           "review": "Nothing",
-          "validate": "Nothing"
+          "validate": "DragBack"
         }
       },
       {

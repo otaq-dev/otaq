@@ -83,7 +83,7 @@ pub(crate) struct Moved {
 }
 
 impl Moved {
-    fn of(step: &Step<'_>) -> Self {
+    pub(crate) fn of(step: &Step<'_>) -> Self {
         Self {
             place: step.place.clone(),
             status: step.status,

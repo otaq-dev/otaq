@@ -4,8 +4,13 @@
 //! and Approved as two sections); a drag is the UIT-04 way: `board.drag` answers once, at drag start, with every
 //! drop target's verdict (the Review column and its Approved section separately) from the core's `check_move_in` on
 //! the project's flow, so the page draws the whole drag itself;
-//! `board.drop` says what the drop does (and carries out a plain move); `board.park` is the Park confirmation's
-//! button.
+//! `board.drop` says what the drop does (and carries out a plain move, `ticket.drag`); `board.park` is the Park
+//! confirmation's button.
+//!
+//! T-0421 (FLW-18; d0108): every stage is a drop target. A drop back to an earlier Agent stage or agent check answers
+//! with the drag-back dialog ("Send SHOP-19 back to Dev?", "Run Security again on SHOP-18?"), whose confirm is
+//! `board.drag_back` (`ticket.drag` confirmed, with the instructions or the note; unsent text in the agent's terminal
+//! asks first, d0048). A parked card's drag answer names the stage it returns to.
 //!
 //! T-0324 (d0087, Q-G): `board.view` takes an optional Project agent id (`agent`) and then shows only the tickets in
 //! that agent's "Created and changed" (`project_agent.created`), with the "Created or changed by <agent> ✕" chip.
@@ -35,12 +40,15 @@
 //! connected, here and on every screen through `tool_avatar::set_connected`), each card's holds and row moves.
 
 use otaq_core::board::snapshot::BoardSnapshot;
-use otaq_core::board::tickets::{Base, Ticket};
+use otaq_core::board::stage_choices::StageOptions;
+use otaq_core::board::tickets::{Base, EventKind, Ticket};
+use otaq_core::domain::Status;
 use otaq_core::flow::Flow;
 use otaq_core::protocol::{
-    CloseParams, EpicQueueParams, IdParams, KeyParams, LeadParams, MoveParams, ProjectParams, Reply,
-    Request,
+    CloseParams, DragParams, EpicQueueParams, IdParams, KeyParams, LeadParams, ProjectParams, Reply,
+    Request, TicketChoicesParams,
 };
+use otaq_core::review::ReturnOutcome;
 use otaq_view::view_models::board_page::{
     self, AgentFilter, BoardPage, DragAnswer, DropOutcome, DropStep, DropTargetId, Params, ProjectFacts,
 };
@@ -49,11 +57,14 @@ use otaq_view::view_models::delete::{self as delete_text, DeleteText};
 use otaq_view::view_models::epic_actions;
 use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::search_page::{self, FilterState, SearchView};
+use otaq_view::view_models::send_back as sb;
+use otaq_view::view_models::terminal_strip::{Click, UnsentPrompt};
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
 use serde::Deserialize;
 use serde_json::Value;
 use ts_rs::TS;
 
+use super::panel::{Sent, Unsent};
 use super::{RequestError, reply, unknown};
 use crate::App;
 
@@ -63,6 +74,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "board.drag" => reply(&drag(app, parse(params)?).await?),
         "board.drop" => reply(&drop(app, parse(params)?).await?),
         "board.park" => reply(&park(app, parse(params)?).await?),
+        "board.drag_back" => reply(&drag_back(app, parse(params)?).await?),
         "board.park_all" => reply(&park_all(app, parse(params)?).await?),
         "board.search" => reply(&search(app, parse(params)?).await?),
         "board.focus" => reply(&focus(app, parse(params)?).await?),
@@ -97,6 +109,18 @@ pub struct TicketParams {
 pub struct DropParams {
     pub key: String,
     pub target: DropTargetId,
+}
+
+/// What `board.drag_back` takes: the drag-back dialog's ticket and target, the text, and "Clear it and send".
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "BoardDragBackParams")]
+pub struct DragBackParams {
+    pub key: String,
+    pub target: DropTargetId,
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
+    pub clear: bool,
 }
 
 /// What `board.search` takes: the project, the filter as the page keeps it, and the open ticket.
@@ -291,7 +315,58 @@ pub async fn drag(app: &App, params: TicketParams) -> Result<DragAnswer, Request
         Vec::new()
     };
     let flow = flow(app, &project).await;
-    Ok(board_page::drag_answer_in(&flow, &ticket, &tickets))
+    let left = match ticket.status {
+        Status::Parked => parked_from(app, &ticket, &flow).await,
+        _ => None,
+    };
+    Ok(board_page::drag_answer_in(
+        &flow,
+        &ticket,
+        &tickets,
+        left.as_deref(),
+    ))
+}
+
+/// The Agent stage a parked ticket left, by name (its Parked event's stage; a check's Agent stage before it).
+async fn parked_from(app: &App, ticket: &Ticket, flow: &Flow) -> Option<String> {
+    let history = app
+        .service
+        .send(Request::TicketHistory(KeyParams {
+            key: ticket.key.to_string(),
+        }))
+        .await;
+    let Ok(Reply::History(events)) = history else {
+        return None;
+    };
+    let id = events
+        .iter()
+        .rev()
+        .find(|e| e.kind == EventKind::Parked)?
+        .payload
+        .get("stage_id")?
+        .as_str()?
+        .to_owned();
+    let stage = flow.stage(&id)?;
+    let stage = match stage.is_agent_stage() {
+        true => stage,
+        false => otaq_core::flow::engine::back_to(flow, &id, &[])?,
+    };
+    Some(stage.name.clone())
+}
+
+/// The ticket's stage choices (the agent it picked for a stage, the stages it skips), for the drag-back dialog.
+async fn choices_of(app: &App, key: &str) -> Vec<StageOptions> {
+    match app
+        .service
+        .send(Request::TicketChoices(TicketChoicesParams {
+            key: Some(key.to_owned()),
+            project: None,
+        }))
+        .await
+    {
+        Ok(Reply::TicketChoices(c)) => c.stages,
+        _ => Vec::new(),
+    }
 }
 
 /// The branch an approve merges into: the service's own proposal, else the ticket's base.
@@ -332,13 +407,22 @@ pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestE
                 return Ok(DropOutcome::Nothing);
             };
             app.service
-                .send(Request::TicketMove(MoveParams {
+                .send(Request::TicketDrag(DragParams {
                     key: params.key,
                     target,
                     confirmed: false,
+                    note: String::new(),
+                    clear_first: false,
                 }))
                 .await?;
             DropOutcome::Moved
+        }
+        DropStep::DragBack => {
+            let choices = choices_of(app, &params.key).await;
+            match board_page::drag_back_dialog(&flow, &ticket, &target, &choices) {
+                Some(dialog) => DropOutcome::DragBack { dialog },
+                None => DropOutcome::Nothing,
+            }
         }
         DropStep::TakeBack { epic } => {
             take_back(app, epic.to_string(), false).await?;
@@ -377,6 +461,45 @@ pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestE
             }
         }
     })
+}
+
+/// The drag-back dialog's confirm (FLW-18): `ticket.drag` confirmed with the instructions or the note. Unsent text in
+/// the agent's terminal asks first ("Clear it and send" sends again with `clear`). A refusal stays in the dialog.
+pub async fn drag_back(app: &App, params: DragBackParams) -> Result<Sent, RequestError> {
+    let ticket = ticket(app, &params.key).await?;
+    let flow = flow(app, &ticket.key.project.to_string()).await;
+    let Some(target) = board_page::core_target(&flow, &params.target) else {
+        return Err(RequestError::plain(format!(
+            "{} has no column {}",
+            ticket.key.project,
+            params.target.as_str()
+        )));
+    };
+    let sent = app
+        .service
+        .send(Request::TicketDrag(DragParams {
+            key: params.key.clone(),
+            target,
+            confirmed: true,
+            note: params.note.clone(),
+            clear_first: params.clear,
+        }))
+        .await;
+    match sent? {
+        Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. }) => {
+            Ok(Sent::Ask(Unsent::of(
+                &UnsentPrompt::for_click(
+                    ticket.key.clone(),
+                    None,
+                    sb::sending(0),
+                    Click::SendBack { note: params.note },
+                )
+                .unclearable_by(unclearable_by),
+            )))
+        }
+        // A refusal comes back as the error: the dialog shows it and stays open.
+        _ => Ok(Sent::Done),
+    }
 }
 
 /// The Park confirmation's button: the agent stops; branch, worktree and conversation are kept (CLS-06).

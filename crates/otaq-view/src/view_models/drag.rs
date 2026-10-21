@@ -22,11 +22,12 @@
 
 use otaq_core::board::epic_flight::{self, EpicPlace, TakeBackPlan, nothing_to_queue};
 use otaq_core::board::moves::{
-    DropTarget, MERGED_LOCKED, MoveAction, MoveCheck, ONLY_AGENT_SUBMITS, check_move_in,
+    DropOn, DropTarget, MERGED_LOCKED, MoveAction, MoveCheck, ONLY_AGENT_SUBMITS, check_move_in,
 };
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Status, TicketKey};
-use otaq_core::flow::Flow;
+use otaq_core::flow::engine::{Target, skipped_by_drag};
+use otaq_core::flow::{Flow, Stage};
 
 use crate::icons::IconName;
 
@@ -109,13 +110,17 @@ pub fn is_track(ticket: &Ticket, tickets: &[Ticket]) -> bool {
 
 /// What dropping `ticket` on `column` takes back: the core's plan when it is an epic's track over Backlog
 /// (EPC-14); `None` for anything else.
-pub fn take_back(ticket: &Ticket, tickets: &[Ticket], column: DropTarget) -> Option<TakeBackPlan> {
-    (column == DropTarget::Backlog && is_track(ticket, tickets))
+pub fn take_back(
+    ticket: &Ticket,
+    tickets: &[Ticket],
+    column: impl Into<DropOn>,
+) -> Option<TakeBackPlan> {
+    (column.into() == DropOn::Board(DropTarget::Backlog) && is_track(ticket, tickets))
         .then(|| epic_flight::take_back_plan(ticket, tickets))
 }
 
 /// [`feedback_in`] on the default flow.
-pub fn feedback(ticket: &Ticket, tickets: &[Ticket], column: DropTarget) -> DropFeedback {
+pub fn feedback(ticket: &Ticket, tickets: &[Ticket], column: impl Into<DropOn>) -> DropFeedback {
     feedback_in(default_flow(), ticket, tickets, column)
 }
 
@@ -125,9 +130,10 @@ pub fn feedback_in(
     flow: &Flow,
     ticket: &Ticket,
     tickets: &[Ticket],
-    column: DropTarget,
+    column: impl Into<DropOn>,
 ) -> DropFeedback {
-    if let Some(plan) = take_back(ticket, tickets, column) {
+    let column = column.into();
+    if let Some(plan) = take_back(ticket, tickets, &column) {
         return match plan {
             TakeBackPlan::Refused { reason, .. } => DropFeedback::Forbidden {
                 title: reason,
@@ -136,7 +142,7 @@ pub fn feedback_in(
             _ => DropFeedback::Allowed,
         };
     }
-    let check = check_move_in(flow, ticket, column);
+    let check = check_move_in(flow, ticket, &column);
     // An epic with nothing left in Backlog has nothing to queue (its children all started or wait already).
     if check.action() == Some(MoveAction::QueueEpic)
         && epic_queue(ticket, tickets)
@@ -178,19 +184,22 @@ pub fn feedback_in(
 pub fn drop_hint(
     ticket: &Ticket,
     tickets: &[Ticket],
-    column: DropTarget,
+    column: impl Into<DropOn>,
 ) -> Option<(IconName, String)> {
-    drop_hint_in(default_flow(), ticket, tickets, column)
+    drop_hint_in(default_flow(), ticket, tickets, column, None)
 }
 
-/// [`drop_hint`] on `flow`'s board.
+/// [`drop_hint`] on `flow`'s board. `left` is the stage a parked ticket left, by name, when known: dropped on another
+/// stage it says it returns there (*03 → A parked card dropped anywhere*).
 pub fn drop_hint_in(
     flow: &Flow,
     ticket: &Ticket,
     tickets: &[Ticket],
-    column: DropTarget,
+    column: impl Into<DropOn>,
+    left: Option<&str>,
 ) -> Option<(IconName, String)> {
-    match take_back(ticket, tickets, column) {
+    let column = column.into();
+    match take_back(ticket, tickets, &column) {
         Some(TakeBackPlan::Refused { .. }) => return None,
         Some(plan @ TakeBackPlan::ParkAll { .. }) => {
             return Some((IconName::SquareParking, plan.hint()));
@@ -198,13 +207,29 @@ pub fn drop_hint_in(
         Some(plan) => return Some((IconName::ArrowDownToLine, plan.hint())),
         None => {}
     }
-    let action = check_move_in(flow, ticket, column).action()?;
+    let action = check_move_in(flow, ticket, &column).action()?;
+    let to = match column.in_flow(flow) {
+        Some(Target::Stage(stage)) => Some(stage),
+        _ => None,
+    };
+    let to_name = to.map_or("", |s| s.name.as_str());
+    let returns_to = left.filter(|_| {
+        ticket.status == Status::Parked && to.is_some_and(|s| Some(s) != flow.first_agent_stage())
+    });
     if matches!(action, MoveAction::Start | MoveAction::QueueEpic)
         && let Some(queue) = epic_queue(ticket, tickets)
     {
         return epic_queue_hint(&queue).map(|hint| (IconName::Play, hint));
     }
     Some(match action {
+        // Dropped past Ready for Dev and the first Agent stage, a parked card still goes back to the stage it left.
+        MoveAction::Start if returns_to.is_some() => (
+            IconName::Play,
+            format!(
+                "Returns to {}, the stage it left",
+                returns_to.unwrap_or_default()
+            ),
+        ),
         MoveAction::Start if ticket.status == Status::Parked => (
             IconName::Play,
             "Drop to resume · same conversation".to_owned(),
@@ -237,11 +262,45 @@ pub fn drop_hint_in(
             },
         ),
         MoveAction::Reopen => (IconName::RotateCcw, "Drop to reopen".to_owned()),
+        // FLW-18: back to any earlier stage, forward to any later one.
+        MoveAction::SendBack => (
+            IconName::Undo2,
+            format!("Drop to send back to {to_name} \u{b7} asks first"),
+        ),
+        MoveAction::RunCheckAgain => (
+            IconName::RotateCcw,
+            format!("Drop to run {to_name} again \u{b7} asks first"),
+        ),
+        MoveAction::MoveBack => (IconName::Undo2, format!("Drop to move back to {to_name}")),
+        MoveAction::NextStage => (IconName::ArrowRight, format!("Drop to move to {to_name}")),
+        MoveAction::SkipTo => (
+            IconName::SkipForward,
+            format!(
+                "Drop to skip {}",
+                skipped_names(flow, ticket, to).join(", ")
+            ),
+        ),
     })
 }
 
+/// The stages a forward drag of `ticket` to `to` walks over, by name (the ticket's own skips aren't known here).
+fn skipped_names<'f>(flow: &'f Flow, ticket: &Ticket, to: Option<&Stage>) -> Vec<&'f str> {
+    let index = |id: &str| flow.position(id);
+    let (Some(from), Some(to)) = (
+        ticket.place.stage_id().and_then(index),
+        to.and_then(|s| index(&s.id)),
+    ) else {
+        return Vec::new();
+    };
+    let leaves_check = !flow.stages[from].is_agent_stage();
+    skipped_by_drag(flow, &[], from, to, leaves_check)
+        .into_iter()
+        .map(|s| s.name.as_str())
+        .collect()
+}
+
 /// The hint's second line, under it: "SHOP-45.1 keeps running" when a track's take back leaves children running.
-pub fn drop_note(ticket: &Ticket, tickets: &[Ticket], column: DropTarget) -> Option<String> {
+pub fn drop_note(ticket: &Ticket, tickets: &[Ticket], column: impl Into<DropOn>) -> Option<String> {
     take_back(ticket, tickets, column)?.note()
 }
 
@@ -266,12 +325,15 @@ pub enum DropAction {
     /// A track on Backlog whose children all started: the Park-all confirmation first (state 11); Cancel leaves
     /// everything running, its confirm sends `epic.take_back` confirmed.
     AskParkAll(TakeBackPlan),
+    /// Back to an earlier Agent stage or agent check (FLW-18): the dialog with the instructions or the note first;
+    /// Cancel leaves the card where it was.
+    AskDragBack,
     /// Allowed by the rules, carried out by a later ticket.
     NotYet(String),
 }
 
 /// [`on_drop_in`] on the default flow.
-pub fn on_drop(ticket: &Ticket, tickets: &[Ticket], column: DropTarget) -> DropAction {
+pub fn on_drop(ticket: &Ticket, tickets: &[Ticket], column: impl Into<DropOn>) -> DropAction {
     on_drop_in(default_flow(), ticket, tickets, column)
 }
 
@@ -281,15 +343,16 @@ pub fn on_drop_in(
     flow: &Flow,
     ticket: &Ticket,
     tickets: &[Ticket],
-    column: DropTarget,
+    column: impl Into<DropOn>,
 ) -> DropAction {
-    match take_back(ticket, tickets, column) {
+    let column = column.into();
+    match take_back(ticket, tickets, &column) {
         Some(TakeBackPlan::Refused { .. }) => return DropAction::Nothing,
         Some(plan @ TakeBackPlan::ParkAll { .. }) => return DropAction::AskParkAll(plan),
         Some(TakeBackPlan::Unqueue { epic, .. }) => return DropAction::TakeBack { epic },
         None => {}
     }
-    let check = check_move_in(flow, ticket, column);
+    let check = check_move_in(flow, ticket, &column);
     // A row of the epic card or a "not queued" chip: only that child (T-0263's single-child path).
     if let (
         MoveCheck::Allowed {
@@ -314,8 +377,17 @@ pub fn on_drop_in(
         },
         MoveCheck::Allowed {
             action:
-                MoveAction::Start | MoveAction::Unqueue | MoveAction::Reopen | MoveAction::PrRework,
+                MoveAction::Start
+                | MoveAction::Unqueue
+                | MoveAction::Reopen
+                | MoveAction::PrRework
+                | MoveAction::MoveBack
+                | MoveAction::NextStage
+                | MoveAction::SkipTo,
         } => DropAction::Move,
+        MoveCheck::Confirm {
+            action: MoveAction::SendBack | MoveAction::RunCheckAgain,
+        } => DropAction::AskDragBack,
         MoveCheck::Choose {
             action: MoveAction::Approve,
         } => DropAction::ChooseApprove,
@@ -772,10 +844,9 @@ mod tests {
             DropAction::Move,
             "PR rework: the PR stays"
         );
-        assert!(matches!(
-            feedback(&pr, &[], DropTarget::Dev),
-            DropFeedback::Forbidden { .. }
-        ));
+        // Back to Dev from the open PR: the instructions dialog first (FLW-18).
+        assert_eq!(feedback(&pr, &[], DropTarget::Dev), DropFeedback::Allowed);
+        assert_eq!(on_drop(&pr, &[], DropTarget::Dev), DropAction::AskDragBack);
         assert!(matches!(
             feedback(&pr, &[], DropTarget::Backlog),
             DropFeedback::Forbidden { .. }

@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Sqlite, Transaction};
 
-use super::moves::{DropTarget, MoveAction, MoveCheck, check_move, queue_in, unqueue_in};
+use super::moves::{DropTarget, MoveAction, MoveCheck, check_move_in, queue_in, unqueue_in};
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, Place, Status, StatusSet, TicketKey, stored_enum};
@@ -507,7 +507,8 @@ impl Board {
                 format!("{} isn't an epic", epic.key),
             ));
         }
-        match check_move(&epic, DropTarget::ReadyForDev) {
+        let flow = self.effective_flow(epic.key.project.as_str()).await?;
+        match check_move_in(&flow, &epic, DropTarget::ReadyForDev) {
             MoveCheck::Allowed {
                 action: MoveAction::QueueEpic,
             } => {}
@@ -546,7 +547,8 @@ impl Board {
                 format!("{} isn't an epic child", child.key),
             ));
         };
-        match check_move(&child, DropTarget::ReadyForDev) {
+        let flow = self.effective_flow(child.key.project.as_str()).await?;
+        match check_move_in(&flow, &child, DropTarget::ReadyForDev) {
             MoveCheck::Allowed {
                 action: MoveAction::Start,
             } => {}
@@ -585,9 +587,21 @@ impl Board {
         let project_key = epic.key.project.to_string();
         let project = self.project(&project_key).await?;
         let with_epic = json!({"with_epic": epic.key});
-        let mut tx = self.store.begin_write().await?;
+        let mut returns_to = Vec::with_capacity(children.len());
         for child in children {
-            queue_in(&mut tx, child, Some(&epic.id), actor, with_epic.clone()).await?;
+            returns_to.push(self.parked_return(child).await?);
+        }
+        let mut tx = self.store.begin_write().await?;
+        for (child, returns_to) in children.iter().zip(&returns_to) {
+            queue_in(
+                &mut tx,
+                child,
+                Some(&epic.id),
+                returns_to.as_deref(),
+                actor,
+                with_epic.clone(),
+            )
+            .await?;
         }
         if epic.epic_queue_mode != mode {
             set_queue_mode_in(&mut tx, &epic.id, epic.epic_queue_mode, mode, actor).await?;

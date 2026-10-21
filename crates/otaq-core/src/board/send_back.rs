@@ -18,6 +18,20 @@ use crate::flow::engine::{Move, RunResult};
 use crate::store::tickets::set_state_since;
 use crate::store::{Store, new_id, now_ms};
 
+/// Where and how [`Board::send_back_to`] sends a ticket back.
+pub(crate) struct SentBackTo<'a> {
+    pub note: &'a str,
+    /// Working (its live session got the skill) or Queued.
+    pub to: Status,
+    /// The Agent stage it returns to, or waits before (`None`: Ready for Dev).
+    pub stage: Option<&'a str>,
+    pub resume_skill: Option<&'a str>,
+    /// How the run of the stage it leaves ends.
+    pub ended: RunResult,
+    /// History's event in place of Sent back.
+    pub event: Option<(EventKind, serde_json::Value)>,
+}
+
 /// What a Send back sent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SentRound {
@@ -45,9 +59,42 @@ impl Board {
         resume_skill: Option<&str>,
         actor: &Actor,
     ) -> Result<SentRound, BoardError> {
+        let stage = self.back_stage(ticket, to).await?;
+        self.send_back_to(
+            ticket,
+            SentBackTo {
+                note,
+                to,
+                stage: stage.as_deref(),
+                resume_skill,
+                ended: RunResult::Failed,
+                event: None,
+            },
+            actor,
+        )
+        .await
+    }
+
+    /// A Send back's bookkeeping into `back.stage` (Fail's nearest earlier Agent stage, or the stage a drag back
+    /// chose, FLW-18): the pending comments are sent, the review and its note recorded (the agent reads them with
+    /// `otaq review feedback`), the open run ends as `back.ended`, every agent check's counter restarts, and the
+    /// ticket is `back.to` there. History gets Sent back, or the drag's own event.
+    pub(crate) async fn send_back_to(
+        &self,
+        ticket: &Ticket,
+        back: SentBackTo<'_>,
+        actor: &Actor,
+    ) -> Result<SentRound, BoardError> {
+        let SentBackTo {
+            note,
+            to,
+            stage,
+            resume_skill,
+            ended,
+            event,
+        } = back;
         let now = now_ms();
         let round = self.current_round(&ticket.id).await?;
-        let stage = self.back_stage(ticket, to).await?;
         let mut tx = self.store.begin_write().await?;
         let sent = sqlx::query(
             "UPDATE review_comments SET sent_at = ?, round = ? WHERE ticket_id = ? AND sent_at IS NULL",
@@ -75,20 +122,19 @@ impl Board {
             .bind(&ticket.id)
             .execute(&mut *tx)
             .await?;
-        // A human check's Fail (STG-06).
-        stage_runs::end_open(&mut tx, &ticket.id, RunResult::Failed, Some(note)).await?;
-        return_to_dev(&mut tx, ticket, to, stage.as_deref(), resume_skill, actor).await?;
+        // A human check's Fail (STG-06), or how a drag back ends the run where the card was.
+        stage_runs::end_open(&mut tx, &ticket.id, ended, Some(note)).await?;
+        return_to_dev(&mut tx, ticket, to, stage, resume_skill, actor).await?;
         let comments = u32::try_from(sent).unwrap_or(u32::MAX);
-        record_event(
-            &mut tx,
-            &ticket.id,
-            EventKind::SentBack,
-            actor,
-            json!({ "round": round, "comments": comments, "note": note, "to": to }),
-        )
-        .await?;
+        let (kind, payload) = event.unwrap_or_else(|| {
+            (
+                EventKind::SentBack,
+                json!({ "round": round, "comments": comments, "note": note, "to": to }),
+            )
+        });
+        record_event(&mut tx, &ticket.id, kind, actor, payload).await?;
         tx.commit().await?;
-        tracing::info!(key = %ticket.key, round, comments, %to, "sent back");
+        tracing::info!(key = %ticket.key, round, comments, %to, stage, "sent back");
         Ok(SentRound { comments, round })
     }
 

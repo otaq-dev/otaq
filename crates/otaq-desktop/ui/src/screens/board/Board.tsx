@@ -4,8 +4,8 @@
 // column's sections fold per project (`prefs.ts`). A drag is the UIT-04 way (`drag.ts`): one `board.drag` at its
 // start, then only this page works while the pointer moves, drawing the targets' verdicts (Review's Approved section
 // is a target of its own), the lifted card and the hint or reason under it; a release on an allowed target sends
-// `board.drop`, whose answer may be the Park confirmation or the Approve choice (Ready for Review → Approved: nothing
-// moves until 1 or 2 is picked; Esc and the card stays). Esc cancels a drag. While the ticket panel is open over the
+// `board.drop`, whose answer may be the Park confirmation, the Approve choice (Ready for Review → Approved: nothing
+// moves until 1 or 2 is picked; Esc and the card stays) or the drag-back dialog (an earlier stage, FLW-18). Esc cancels a drag. While the ticket panel is open over the
 // board (SHL-05) the board keeps its width, gets the panel's width of room after the columns and scrolls the selected
 // card's column into the part the panel leaves; a click on the open card closes the panel, and so does a plain click on
 // the board's own background (`background.ts`: a column's empty area, the gaps, the room after the columns; OT-3),
@@ -260,6 +260,9 @@ export function afterDrop(
       return;
     case "approve":
       showApprove(outcome.menu);
+      return;
+    case "drag_back":
+      openOverlay("drag_back", outcome.dialog);
       return;
     case "not_yet": {
       const notice: NewToast = {

@@ -124,6 +124,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::board_page::DropOutcome::export_all(&cfg)?;
     crate::api::BoardTicketParams::export_all(&cfg)?;
     crate::api::BoardDropParams::export_all(&cfg)?;
+    crate::api::BoardDragBackParams::export_all(&cfg)?;
     // First run and Add project (T-0233).
     otaq_view::view_models::onboarding_page::Texts::export_all(&cfg)?;
     otaq_view::view_models::onboarding_page::Tools::export_all(&cfg)?;

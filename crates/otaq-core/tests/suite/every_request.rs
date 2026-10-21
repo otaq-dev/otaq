@@ -153,6 +153,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::TicketCreateBatch(_)
         | Request::TicketUpdate(_)
         | Request::TicketMove(_)
+        | Request::TicketDrag(_)
         | Request::TicketPin(_)
         | Request::TicketUnpin(_)
         | Request::TicketAgentEdits(_)

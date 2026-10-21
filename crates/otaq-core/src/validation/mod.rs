@@ -376,6 +376,42 @@ impl Validation {
             .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))
     }
 
+    /// A drag takes the card out of its agent check (FLW-18): its checker stops (or a held one is let go) and the
+    /// open round ends Stopped (a drag back), or Skipped (forward: "Skipped Security · by you"), neither of which
+    /// counts; the drag moves the card.
+    pub(crate) async fn stop_for_drag(
+        &self,
+        ticket: &Ticket,
+        skipped: bool,
+    ) -> Result<(), BoardError> {
+        let board = &self.inner.board;
+        self.stop_validator(ticket).await;
+        if ticket.status == Status::WaitingForLimitReset {
+            board
+                .store()
+                .clear_agent_hold(HoldScope::Ticket(&ticket.id), SessionRole::Validator)
+                .await?;
+        }
+        sqlx::query("UPDATE validations SET ended_at = ?, outcome = ? WHERE ticket_id = ? AND ended_at IS NULL")
+            .bind(crate::store::now_ms())
+            .bind(match skipped {
+                true => crate::domain::ValidationOutcome::Skipped,
+                false => crate::domain::ValidationOutcome::Stopped,
+            }
+            .as_str())
+            .bind(&ticket.id)
+            .execute(board.store().pool())
+            .await?;
+        self.forget_turns(&ticket.id);
+        Ok(())
+    }
+
+    /// A fresh checker for a card a drag put in an agent check (FLW-18), once its round is open.
+    pub(crate) async fn start_dragged_check(&self, ticket_id: &str) -> Result<(), BoardError> {
+        self.forget_turns(ticket_id);
+        self.start_held(ticket_id).await
+    }
+
     async fn stop_validator(&self, ticket: &Ticket) {
         if let Some(session) = self
             .inner

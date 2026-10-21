@@ -139,12 +139,17 @@ fn an_empty_description_never_warns() {
 fn refused_drags_carry_a_reason() {
     use DropTarget as T;
     let t = |s| ticket(Kind::Ticket, s);
-    for status in [Status::Backlog, Status::Working, Status::ClosedNotMerged] {
+    for status in [Status::Backlog, Status::ClosedNotMerged] {
         assert_eq!(
             reason(&check_move(&t(status), T::ReadyForReview)),
             "Only the agent or Move to next stage moves a ticket to Ready for Review"
         );
     }
+    // A forward drag is the user's Move to next stage (FLW-18): not while the agent is mid-turn.
+    assert_eq!(
+        reason(&check_move(&t(Status::Working), T::ReadyForReview)),
+        "SHOP-18 can't move to the next stage now: its agent is in the middle of a turn"
+    );
     for target in [T::Backlog, T::ReadyForDev, T::ReadyForReview, T::Approved] {
         assert_eq!(
             reason(&check_move(&t(Status::Merged), target)),
@@ -166,11 +171,14 @@ fn refused_drags_carry_a_reason() {
         check_move(&in_progress, T::ReadyForDev).action(),
         Some(MoveAction::QueueEpic)
     );
+    // An epic waiting for its review can't go back (FLW-18, 0059).
     let delivery = ticket(Kind::Epic, Status::WaitingForYou);
-    assert_eq!(
-        reason(&check_move(&delivery, T::ReadyForDev)),
-        "Use Send back to return it to Dev with your comments"
-    );
+    for target in [T::ReadyForDev, T::Dev] {
+        assert_eq!(
+            reason(&check_move(&delivery, target)),
+            "An epic can\u{2019}t be dragged back"
+        );
+    }
     assert_eq!(
         reason(&check_move(&t(Status::Queued), T::Dev)),
         "It starts by itself when it can, in priority order",
@@ -186,7 +194,6 @@ fn refused_drags_carry_a_reason() {
         (Status::Working, T::Approved),
         (Status::Working, T::Done),
         (Status::WaitingForYou, T::ReadyForDev),
-        (Status::WaitingForYou, T::Dev),
         (Status::WaitingForYou, T::Backlog),
         (Status::WaitingForYou, T::Done),
         (Status::PrOpen, T::ReadyForDev),
@@ -223,7 +230,10 @@ fn same_column_is_unchanged_and_every_pair_is_decided() {
                         status.set().board_group(),
                         StatusSet::Waiting | StatusSet::AgentStage
                     );
-                if status.set().board_group() == group(*target) && !epic_in_dev {
+                // Validate has its own column (FLW-01): a card in it dropped on Dev goes back (FLW-18).
+                let check_on_dev =
+                    status.set() == StatusSet::AgentCheck && *target == DropTarget::Dev;
+                if status.set().board_group() == group(*target) && !epic_in_dev && !check_on_dev {
                     assert_eq!(check, MoveCheck::Unchanged, "{kind} {status} → {target}");
                 }
                 if *status == Status::Merged && group(*target) != StatusSet::Done {

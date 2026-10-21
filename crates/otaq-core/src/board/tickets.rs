@@ -337,7 +337,7 @@ stored_enum! {
         SentBackWithPrComments = "sent_back_with_pr_comments",
         /// Reopen: Done · Closed → Backlog (T-0101).
         Reopened = "reopened",
-        /// Park: Dev → Backlog with the work kept (T-0104).
+        /// Park: Dev → Backlog with the work kept (T-0104); payload `from`, `to` and `stage_id`, the stage it left.
         Parked = "parked",
         /// The rebase of a reopened ticket's branch onto the current base, on its way to Dev (GIT-06).
         Rebased = "rebased",
@@ -455,6 +455,12 @@ stored_enum! {
         /// payload `stage` (its name), `stage_id`, `chose` and `runs` (the stage's own agent). History reads "Quick
         /// developer is no longer an option for Dev · runs Rust developer".
         ChoiceDropped = "choice_dropped",
+        /// The user dragged the card to another stage (FLW-18): payload `stage` (where it went, by name),
+        /// `stage_id`, `from` (the stage it left, by name), `back` (true for a drag back), `skipped` (the names of
+        /// the stages a forward drag walked over), `run_by_you` (a drag back into a stage the ticket skips by its
+        /// choice: it runs once) and `note` (the instructions or the check's note). History reads "Moved back to
+        /// Dev" · "Grill · run by you" (or the note, or "by you"), "Moved to Review" · "Skipped Validate · by you".
+        Dragged = "dragged",
     }
 }
 

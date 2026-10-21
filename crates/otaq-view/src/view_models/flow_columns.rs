@@ -11,7 +11,7 @@
 //! column with its waiting status). A card in a stage its flow no longer has (Validation turned off while it
 //! validated) shows where its status's kind does, as the core's drag rules see it.
 
-use otaq_core::board::moves::DropTarget;
+use otaq_core::board::moves::{DropOn, DropTarget};
 use otaq_core::board::order::sort_column;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Place, StatusSet, TicketKey};
@@ -216,14 +216,15 @@ impl<'f> Columns<'f> {
             .unwrap_or(&self.columns[0])
     }
 
-    /// The core's drop target a page target stands for: Backlog, Ready for Dev and Done as themselves, a stage's
-    /// column or section as the target that means that stage in the flow (the first Agent stage, the human check
-    /// before the Delivery, the Delivery). `None` for a stage today's moves don't reach yet.
-    pub fn drop_target(&self, id: &str) -> Option<DropTarget> {
+    /// The core's drop target a page target stands for (FLW-18): Backlog, Ready for Dev and Done as themselves, a
+    /// stage's column or section as the board target that means that stage in the flow (the first Agent stage, the
+    /// human check before the Delivery, the Delivery), else the stage itself. Every stage takes a drop; `None` only
+    /// for an id the board doesn't have.
+    pub fn drop_target(&self, id: &str) -> Option<DropOn> {
         match id {
-            BACKLOG => return Some(DropTarget::Backlog),
-            READY_FOR_DEV => return Some(DropTarget::ReadyForDev),
-            DONE => return Some(DropTarget::Done),
+            BACKLOG => return Some(DropTarget::Backlog.into()),
+            READY_FOR_DEV => return Some(DropTarget::ReadyForDev.into()),
+            DONE => return Some(DropTarget::Done.into()),
             _ => {}
         }
         let stage = self.columns.iter().find_map(|c| {
@@ -235,14 +236,18 @@ impl<'f> Columns<'f> {
                 None
             }
         })?;
-        stage_target(self.flow, stage)
+        Some(match stage_target(self.flow, stage) {
+            Some(target) => target.into(),
+            None => DropOn::stage(&stage.id),
+        })
     }
 
     /// The page target a core drop target is on this board (`None` when the flow has no such stage).
     pub fn page_target(&self, target: DropTarget) -> Option<String> {
+        let target = DropOn::from(target);
         self.targets()
             .into_iter()
-            .find(|id| self.drop_target(id) == Some(target))
+            .find(|id| self.drop_target(id).as_ref() == Some(&target))
     }
 
     /// The cards of `part` (or, without one, the whole of `column`) among `cards`, in board order (SDD §7.5):
@@ -440,14 +445,15 @@ mod tests {
             ("approved", DropTarget::Approved),
             ("done", DropTarget::Done),
         ] {
-            assert_eq!(columns.drop_target(id), Some(target), "{id}");
+            assert_eq!(columns.drop_target(id), Some(target.into()), "{id}");
             assert_eq!(columns.page_target(target).as_deref(), Some(id));
         }
+        // Every stage takes a drop (FLW-18): Validate by its id.
         assert_eq!(
             columns.drop_target("validate"),
-            None,
-            "no target of its own (drags to any stage are T-0421's)"
+            Some(DropOn::stage("validate"))
         );
+        assert_eq!(columns.drop_target("nowhere"), None);
 
         // A flow without Validate has no Validate column (d0108 changelog 2026-10-20).
         let mut off = default_flow();

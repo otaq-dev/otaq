@@ -413,6 +413,31 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             Some(who(&e.actor)),
         ),
         EventKind::Parked => ("Parked".to_owned(), Some(who(&e.actor))),
+        // A drag to another stage (FLW-18): "Moved back to Dev" · "Grill · run by you", the note, or "by you";
+        // "Moved to Review" · "Skipped Validate · by you".
+        EventKind::Dragged => {
+            let stage = text(p, "stage").unwrap_or_default();
+            let skipped: Vec<&str> = p
+                .get("skipped")
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+                .unwrap_or_default();
+            let flag = |field: &str| p.get(field).and_then(|v| v.as_bool()) == Some(true);
+            let title = match flag("back") {
+                true => format!("Moved back to {stage}"),
+                false => format!("Moved to {stage}"),
+            };
+            let detail = if flag("run_by_you") {
+                format!("{stage} \u{b7} run by you")
+            } else if !skipped.is_empty() {
+                format!("Skipped {} \u{b7} by you", skipped.join(", "))
+            } else {
+                text(p, "note")
+                    .map(first_line)
+                    .unwrap_or_else(|| who(&e.actor))
+            };
+            (title, Some(detail))
+        }
         EventKind::Rebased => (
             "Rebased".to_owned(),
             text(p, "onto").map(|b| match p.get("conflict") {

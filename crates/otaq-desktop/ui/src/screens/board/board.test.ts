@@ -12,6 +12,8 @@ import type { DropOutcome } from "../../generated/DropOutcome";
 import type { BoardReviewSection } from "../../generated/BoardReviewSection";
 import type { BoardStageStrip } from "../../generated/BoardStageStrip";
 import { afterDrop, coveredWidth, dropCard, openApproveChoice } from "./Board";
+import { DragBackBody, sendDragBack } from "./DragBackDialog";
+import type { DragBackDialog } from "../../generated/DragBackDialog";
 import { columnsInView, StageStrip } from "./StageStrip";
 import { Column, type ColumnProps, columnOfCard, runsOf, walkOf } from "./Column";
 import {
@@ -471,11 +473,118 @@ describe("drops", () => {
   });
 });
 
+describe("drags to any stage (FLW-18)", () => {
+  const sendBack: DragBackDialog = {
+    key: "SHOP-19",
+    target: "dev",
+    title: "Send SHOP-19 back to Dev?",
+    stops: null,
+    label: "Instructions for Dev (Rust developer)",
+    placeholder: "What should change? The agent gets this with the ticket.",
+    then: "Then it goes on to Security, Review and Done as usual.",
+    cancel: "Cancel",
+    confirm: "Send to Dev",
+    confirm_icon: "undo-2",
+  };
+  const stopAndSend: DragBackDialog = {
+    ...sendBack,
+    key: "SHOP-29",
+    title: "Send SHOP-29 back to Dev?",
+    stops: "Security reviewer is working on it now. It stops, and the check runs again after Dev.",
+    then: null,
+    confirm: "Stop and send to Dev",
+  };
+  const runAgain: DragBackDialog = {
+    key: "SHOP-18",
+    target: "security",
+    title: "Run Security again on SHOP-18?",
+    stops: null,
+    label: "Note for Security (Security reviewer)",
+    placeholder: null,
+    then: null,
+    cancel: "Cancel",
+    confirm: "Run Security",
+    confirm_icon: "rotate-ccw",
+  };
+  const body = (view: DragBackDialog, refusal: string | null = null) =>
+    renderToStaticMarkup(createElement(DragBackBody, { view, note: "", onNote: () => undefined, refusal }));
+
+  it("a drop back to an earlier stage opens the drag-back dialog and sends nothing yet", () => {
+    const asked: string[] = [];
+    const ask = (method: string) => {
+      asked.push(method);
+      return Promise.resolve(null);
+    };
+    afterDrop({ kind: "drag_back", dialog: sendBack }, () => undefined, ask);
+    expect(overlays.store.get()).toEqual([{ id: "drag_back", params: sendBack }]);
+    expect(asked).toEqual([]);
+  });
+
+  it("draws the three dialogs: back to Dev, stop and send, and run a check again", () => {
+    const back = body(sendBack);
+    expect(back).toContain("Instructions for Dev (Rust developer)");
+    expect(back).toContain('placeholder="What should change? The agent gets this with the ticket."');
+    expect(back).toContain("Then it goes on to Security, Review and Done as usual.");
+    expect(back).not.toContain("review-callout");
+
+    const stop = body(stopAndSend);
+    expect(stop).toContain('data-tone="paused"');
+    expect(stop).toContain(
+      "Security reviewer is working on it now. It stops, and the check runs again after Dev.",
+    );
+    expect(stop).not.toContain("Then it goes on");
+
+    const check = body(runAgain);
+    expect(check).toContain("Note for Security (Security reviewer)");
+    expect(check).not.toContain("placeholder=");
+    expect(check).not.toContain("Then it goes on");
+  });
+
+  it("shows a refusal in the dialog", () => {
+    expect(body(sendBack, "SHOP-19 has 2 uncommitted files")).toContain(
+      '<p class="review-error" role="alert">SHOP-19 has 2 uncommitted files</p>',
+    );
+    expect(body(sendBack)).not.toContain("review-error");
+  });
+
+  it("its confirm sends board.drag_back; unsent text asks first, then sends again with clear", async () => {
+    const asked: [string, unknown][] = [];
+    let unsent = true;
+    const ask = (method: string, params?: unknown) => {
+      asked.push([method, params]);
+      if (method === "board.drag_back" && unsent) {
+        unsent = false;
+        return Promise.resolve({
+          outcome: "ask",
+          title: "SHOP-19's terminal has unsent text",
+          body: "…",
+          clear: "Clear it and send",
+          cancel: "Cancel",
+        });
+      }
+      return Promise.resolve({ outcome: "done" });
+    };
+    await sendDragBack(sendBack, "Keep the old price column", false, ask);
+    expect(asked).toEqual([
+      ["board.drag_back", { key: "SHOP-19", target: "dev", note: "Keep the old price column", clear: false }],
+    ]);
+    const confirm = overlays.store.get()[0];
+    if (confirm?.id !== "confirm") throw new Error("no unsent-text question");
+    expect(confirm.params.confirmLabel).toBe("Clear it and send");
+    confirm.params.onConfirm();
+    await flush();
+    expect(asked[1]).toEqual([
+      "board.drag_back",
+      { key: "SHOP-19", target: "dev", note: "Keep the old price column", clear: true },
+    ]);
+  });
+});
+
 describe("the board screen", () => {
   it("fills the board and search slots, the delete dialog, and ⌘N opens a new ticket", () => {
     const app = registerScreens({ board });
     expect(registered(app).slots).toEqual(["header_search", "board"]);
-    expect(registered(app).overlays).toEqual(["delete_ticket"]);
+    expect(registered(app).overlays).toEqual(["delete_ticket", "drag_back"]);
     expect(app.shortcuts.run({ action: "new_ticket" })).toBe(true);
     expect(overlays.store.get()).toEqual([{ id: "new_ticket", params: undefined }]);
   });

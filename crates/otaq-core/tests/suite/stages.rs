@@ -10,7 +10,7 @@ use std::path::Path;
 
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
-use otaq_core::board::moves::{DropTarget, MoveAction, MoveCheck};
+use otaq_core::board::moves::{DropOn, DropTarget, MoveAction, MoveCheck};
 use otaq_core::domain::{Actor, Kind, Place, Status, ValidationTrigger};
 use otaq_core::flow::default::{DELIVER, DEV, REVIEW, VALIDATE};
 use otaq_core::flow::engine::{self, At, Counters, Move, RunResult, Step};
@@ -414,40 +414,77 @@ fn review_and_delivery() {
     );
 }
 
-/// The drags §7.4 refuses: into Ready for Review by hand, Dev → Ready for Dev, Ready for Review → Dev; a
-/// Validating card dropped on Dev is where it is.
+/// The drags §7.4 still refuses (Dev → Ready for Dev), and FLW-18's drops on the default flow: forward from Dev
+/// (Validate is the next stage, Review skips it), back from Review and Validate to Dev with the instructions dialog,
+/// Review → Validate runs it again with a note; a card dropped where it is stays.
 #[test]
-fn refused_drags() {
+fn drags_on_the_default_flow() {
     let flow = default_flow();
-    let drag =
-        |place: &Place, status, target| engine::drag(&flow, place, status, Kind::Ticket, target);
+    let drag = |place: &Place, status, target: DropOn| {
+        engine::drag(&flow, place, status, Kind::Ticket, target)
+    };
+    let on = DropOn::stage;
+    let allowed = |action| MoveCheck::Allowed { action };
+    let confirm = |action| MoveCheck::Confirm { action };
     assert_eq!(
         reason(&drag(
             &stage(DEV),
             Status::Working,
-            DropTarget::ReadyForReview
+            DropTarget::ReadyForDev.into()
         )),
-        "Only the agent or Move to next stage moves a ticket to Ready for Review"
-    );
-    assert_eq!(
-        reason(&drag(&stage(DEV), Status::Working, DropTarget::ReadyForDev)),
         "Drag it to Backlog to park it"
     );
     assert_eq!(
-        reason(&drag(
+        drag(&stage(DEV), Status::Idle, on(VALIDATE)),
+        allowed(MoveAction::NextStage)
+    );
+    assert_eq!(
+        drag(&stage(DEV), Status::Idle, DropTarget::ReadyForReview.into()),
+        allowed(MoveAction::SkipTo)
+    );
+    assert_eq!(
+        drag(
+            &stage(VALIDATE),
+            Status::Checking,
+            DropTarget::ReadyForReview.into()
+        ),
+        allowed(MoveAction::SkipTo),
+        "out of a check: it is skipped"
+    );
+    for (place, status) in [
+        (stage(REVIEW), Status::WaitingForYou),
+        (stage(VALIDATE), Status::Checking),
+        (stage(VALIDATE), Status::CheckFailed),
+        (stage(DELIVER), Status::PrOpen),
+    ] {
+        assert_eq!(
+            drag(&place, status, DropTarget::Dev.into()),
+            confirm(MoveAction::SendBack),
+            "{status}"
+        );
+    }
+    assert_eq!(
+        drag(&stage(REVIEW), Status::WaitingForYou, on(VALIDATE)),
+        confirm(MoveAction::RunCheckAgain)
+    );
+    assert_eq!(
+        drag(&stage(VALIDATE), Status::Checking, on(VALIDATE)),
+        MoveCheck::Unchanged
+    );
+    assert_eq!(
+        drag(&stage(DELIVER), Status::PrOpen, DropTarget::Approved.into()),
+        MoveCheck::Unchanged
+    );
+    // An epic can't be dragged back (0059).
+    assert_eq!(
+        reason(&engine::drag(
+            &flow,
             &stage(REVIEW),
             Status::WaitingForYou,
-            DropTarget::Dev
+            Kind::Epic,
+            DropTarget::ReadyForDev
         )),
-        "Use Send back to return it to Dev with your comments"
-    );
-    assert_eq!(
-        drag(&stage(VALIDATE), Status::Checking, DropTarget::Dev),
-        MoveCheck::Unchanged
-    );
-    assert_eq!(
-        drag(&stage(DELIVER), Status::PrOpen, DropTarget::Approved),
-        MoveCheck::Unchanged
+        "An epic can\u{2019}t be dragged back"
     );
 }
 

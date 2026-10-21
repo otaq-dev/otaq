@@ -446,6 +446,27 @@ pub(super) async fn handle(
             // Entering Queued only queues: the scheduler starts it once it's ready (its change event wakes it).
             moved.map(|t| Reply::Ticket(Box::new(t)))
         }),
+        Request::TicketDrag(p) => boxed(move || async move {
+            let project = project_of(&p.key);
+            let answers = crate::review::drag::DragAnswers {
+                note: &p.note,
+                confirmed: p.confirmed,
+                clear_first: p.clear_first,
+            };
+            mutate(
+                shared,
+                &project,
+                Box::pin(shared.review.drag(
+                    &p.key,
+                    &p.target,
+                    answers,
+                    &shared.validation,
+                    &actor,
+                )),
+            )
+            .await
+            .map(Reply::Returned)
+        }),
         Request::TicketHistory(p) => {
             boxed(move || async move { board.history(&p.key).await.map(Reply::History) })
         }

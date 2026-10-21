@@ -8,17 +8,20 @@
 //! section), from the core's `check_move_in` on the project's flow ([`drag::feedback_in`], [`drag::drop_hint_in`]),
 //! so the page draws the whole drag without asking again; a drop then asks once more what happens
 //! ([`drop_step_in`]): a move, an epic queue (EPC-12: the epic card, one of its rows or a "not queued" chip, which
-//! the page follows with the queue toast), the Park confirmation ([`ParkDialog`]) or the approve choice
-//! ([`ApproveMenu`]). An epic's track dragged onto Backlog takes back (EPC-14): its waiting children at once, or,
-//! when every child started, Park all after its confirmation ([`ParkAllDialog`]).
+//! the page follows with the queue toast), the Park confirmation ([`ParkDialog`]), the approve choice
+//! ([`ApproveMenu`]) or, back to an earlier Agent stage or agent check, the drag-back dialog ([`DragBackDialog`],
+//! FLW-18). Every stage is a drop target. An epic's track dragged onto Backlog takes back (EPC-14): its waiting
+//! children at once, or, when every child started, Park all after its confirmation ([`ParkAllDialog`]).
 
 use std::borrow::Cow;
 
 use otaq_core::board::epic_flight::TakeBackPlan;
-use otaq_core::board::moves::DropTarget;
+use otaq_core::board::moves::{DropOn, MoveAction, check_move_in};
+use otaq_core::board::stage_choices::{Choice, StageOptions};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Status, TicketKey};
-use otaq_core::flow::Flow;
+use otaq_core::flow::engine::Target;
+use otaq_core::flow::{Flow, Stage};
 use otaq_core::pr::provider::PrProvider;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -742,50 +745,47 @@ pub struct DragAnswer {
 
 /// [`drag_answer_in`] on the default flow.
 pub fn drag_answer(ticket: &Ticket, tickets: &[Ticket]) -> DragAnswer {
-    drag_answer_in(&otaq_core::flow::default_file().flow, ticket, tickets)
+    drag_answer_in(&otaq_core::flow::default_file().flow, ticket, tickets, None)
 }
 
-/// The drag answer on `flow`'s board (the project's): one verdict per drop target, in board order.
-pub fn drag_answer_in(flow: &Flow, ticket: &Ticket, tickets: &[Ticket]) -> DragAnswer {
+/// The drag answer on `flow`'s board (the project's): one verdict per drop target, in board order. Every stage takes
+/// a drop (FLW-18; "Moving a card here isn't available yet" went with Q271). `left` is the stage a parked ticket
+/// left, by name, when known.
+pub fn drag_answer_in(
+    flow: &Flow,
+    ticket: &Ticket,
+    tickets: &[Ticket],
+    left: Option<&str>,
+) -> DragAnswer {
     let columns = Columns::of(flow);
     DragAnswer {
         key: ticket.key.to_string(),
         targets: DropTargetId::all(flow)
             .into_iter()
-            .map(|target| {
-                let verdict = match columns.drop_target(target.as_str()) {
-                    Some(column) => verdict(flow, ticket, tickets, column),
-                    None => not_yet(&columns, ticket, &target),
-                };
-                TargetVerdict { target, verdict }
+            .filter_map(|target| {
+                let column = columns.drop_target(target.as_str())?;
+                let verdict = verdict(flow, ticket, tickets, column, left);
+                Some(TargetVerdict { target, verdict })
             })
             .collect(),
     }
 }
 
-/// A stage today's moves don't reach (a custom flow's, M33): the card's own column is home, the others say so.
-fn not_yet(columns: &Columns, ticket: &Ticket, target: &DropTargetId) -> Verdict {
-    if columns.spot(ticket).column == target.as_str() {
-        return Verdict::Home;
-    }
-    Verdict::Forbidden {
-        title: NOT_YET.to_owned(),
-        detail: None,
-    }
-}
-
-/// The reason over a column today's moves don't reach.
-pub const NOT_YET: &str = "Moving a card here isn\u{2019}t available yet";
-
-fn verdict(flow: &Flow, ticket: &Ticket, tickets: &[Ticket], column: DropTarget) -> Verdict {
-    match drag::feedback_in(flow, ticket, tickets, column) {
+fn verdict(
+    flow: &Flow,
+    ticket: &Ticket,
+    tickets: &[Ticket],
+    column: DropOn,
+    left: Option<&str>,
+) -> Verdict {
+    match drag::feedback_in(flow, ticket, tickets, &column) {
         DropFeedback::Home => Verdict::Home,
         DropFeedback::Forbidden { title, detail } => Verdict::Forbidden {
             title,
             detail: detail.map(str::to_owned),
         },
         DropFeedback::Allowed => {
-            let (icon, hint) = drag::drop_hint_in(flow, ticket, tickets, column)
+            let (icon, hint) = drag::drop_hint_in(flow, ticket, tickets, &column, left)
                 .unwrap_or((IconName::Check, String::new()));
             Verdict::Allowed {
                 icon,
@@ -938,11 +938,14 @@ pub enum DropStep {
     /// Ready for Review → the Approved section: the Approve choice (Local merge · Open PR); nothing moves until one
     /// is picked, and Esc or Cancel leaves the card where it was (d0087).
     Approve,
+    /// Back to an earlier Agent stage or agent check (FLW-18): the drag-back dialog first ([`drag_back_dialog`]);
+    /// Cancel leaves the card where it was.
+    DragBack,
     NotYet(String),
 }
 
-/// The core's drop target a page target means on `flow`'s board; `None` for a stage today's moves don't reach.
-pub fn core_target(flow: &Flow, target: &DropTargetId) -> Option<DropTarget> {
+/// The core's drop target a page target means on `flow`'s board; `None` for an id the board doesn't have.
+pub fn core_target(flow: &Flow, target: &DropTargetId) -> Option<DropOn> {
     Columns::of(flow).drop_target(target.as_str())
 }
 
@@ -977,8 +980,147 @@ pub fn drop_step_in(
             None => DropStep::Nothing,
         },
         DropAction::ChooseApprove => DropStep::Approve,
+        DropAction::AskDragBack => DropStep::DragBack,
         DropAction::NotYet(message) => DropStep::NotYet(message),
     }
+}
+
+/// *03 → Dragging a card back to an earlier stage* (s03-50/s03-51, FLW-18): "Send SHOP-19 back to Dev?" with the
+/// instructions for that stage's agent, or "Run Security again on SHOP-18?" with a note for the check. When an agent
+/// works where the card is now, the dialog says it stops ("Security reviewer is working on it now. It stops, and the
+/// check runs again after Dev.") and the button reads "Stop and send to Dev"; otherwise it says where the card goes
+/// after ("Then it goes on to Security, Review and Done as usual."). Cancel leaves the card where it was.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "DragBackDialog")]
+pub struct DragBackDialog {
+    pub key: String,
+    /// Where it was dropped: what the confirm sends back (`board.drag_back`).
+    pub target: DropTargetId,
+    pub title: String,
+    pub stops: Option<String>,
+    /// "Instructions for Dev (Rust developer)", "Note for Security (Security reviewer)".
+    pub label: String,
+    pub placeholder: Option<String>,
+    pub then: Option<String>,
+    pub cancel: String,
+    pub confirm: String,
+    pub confirm_icon: IconName,
+}
+
+/// The drag-back dialog of `ticket` dropped on `target` of `flow`'s board; `choices` are its stage choices (the agent
+/// it picked for a stage, the stages it skips). `None` unless the drop asks for one.
+pub fn drag_back_dialog(
+    flow: &Flow,
+    ticket: &Ticket,
+    target: &DropTargetId,
+    choices: &[StageOptions],
+) -> Option<DragBackDialog> {
+    let on = core_target(flow, target)?;
+    let action = check_move_in(flow, ticket, &on).action()?;
+    let Some(Target::Stage(to)) = on.in_flow(flow) else {
+        return None;
+    };
+    let here = ticket.place.stage().and_then(|id| flow.stage(id));
+    let working = here.filter(|s| {
+        (s.is_agent_stage() && agent_works(ticket.status))
+            || (s.is_agent_check()
+                && matches!(ticket.status, Status::Checking | Status::CheckerNeedsYou))
+    });
+    let agent = |s: &Stage| agent_of(s, choices);
+    let named = |s: &Stage| match agent(s) {
+        Some(agent) => format!("{} ({agent})", s.name),
+        None => s.name.clone(),
+    };
+    let key = ticket.key.to_string();
+    let stops = working.map(|here| {
+        let who = agent(here).unwrap_or_else(|| here.name.clone());
+        let after = match (here.is_agent_check(), action) {
+            (true, MoveAction::SendBack) => format!("the check runs again after {}", to.name),
+            (false, MoveAction::SendBack) => format!("{} runs again after {}", here.name, to.name),
+            _ => format!("{} runs again with your note", to.name),
+        };
+        format!("{who} is working on it now. It stops, and {after}.")
+    });
+    Some(match action {
+        MoveAction::SendBack => DragBackDialog {
+            key: key.clone(),
+            target: target.clone(),
+            title: format!("Send {key} back to {}?", to.name),
+            label: format!("Instructions for {}", named(to)),
+            placeholder: Some(
+                "What should change? The agent gets this with the ticket.".to_owned(),
+            ),
+            then: stops
+                .is_none()
+                .then(|| then_line(flow, to, choices))
+                .flatten(),
+            cancel: "Cancel".to_owned(),
+            confirm: match stops {
+                Some(_) => format!("Stop and send to {}", to.name),
+                None => format!("Send to {}", to.name),
+            },
+            confirm_icon: IconName::Undo2,
+            stops,
+        },
+        MoveAction::RunCheckAgain => DragBackDialog {
+            key: key.clone(),
+            target: target.clone(),
+            title: format!("Run {} again on {key}?", to.name),
+            label: format!("Note for {}", named(to)),
+            placeholder: None,
+            then: None,
+            cancel: "Cancel".to_owned(),
+            confirm: match stops {
+                Some(_) => format!("Stop and run {}", to.name),
+                None => format!("Run {}", to.name),
+            },
+            confirm_icon: IconName::RotateCcw,
+            stops,
+        },
+        _ => return None,
+    })
+}
+
+/// An agent works in the card's Agent stage now (the drag back stops it).
+fn agent_works(status: Status) -> bool {
+    matches!(
+        status,
+        Status::Working
+            | Status::WorkingInBackground
+            | Status::AsksYou
+            | Status::NeedsYou
+            | Status::MergeConflictFixing
+    )
+}
+
+/// The agent a stage runs for the ticket: the one it picked, else the stage's own.
+fn agent_of(stage: &Stage, choices: &[StageOptions]) -> Option<String> {
+    let picked = choices
+        .iter()
+        .find(|c| c.stage_id == stage.id)
+        .and_then(|c| c.choice.as_ref())
+        .and_then(|c| match &c.choice {
+            Choice::Agent { name, .. } => Some(name.clone()),
+            Choice::Usual | Choice::Skip => None,
+        });
+    picked.or_else(|| stage.agent.clone())
+}
+
+/// "Then it goes on to Security, Review and Done as usual.": the stages after `to` the ticket runs.
+fn then_line(flow: &Flow, to: &Stage, choices: &[StageOptions]) -> Option<String> {
+    let skipped = |s: &Stage| choices.iter().any(|c| c.stage_id == s.id && c.skipped());
+    let index = flow.position(&to.id)?;
+    let names: Vec<&str> = flow.stages[index + 1..]
+        .iter()
+        .filter(|s| !skipped(s))
+        .map(|s| s.name.as_str())
+        .collect();
+    let list = match names.as_slice() {
+        [] => return None,
+        [one] => (*one).to_owned(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    Some(format!("Then it goes on to {list} as usual."))
 }
 
 /// The answer to `board.drop`.
@@ -996,6 +1138,8 @@ pub enum DropOutcome {
     ParkAll { dialog: ParkAllDialog },
     /// The page shows the popover; a choice opens its dialog.
     Approve { menu: ApproveMenu },
+    /// The page shows the drag-back dialog; its confirm sends `board.drag_back` (FLW-18).
+    DragBack { dialog: DragBackDialog },
     /// Allowed by the rules, but not built yet: shown as a toast.
     NotYet { message: String },
 }
@@ -1089,7 +1233,7 @@ pub fn gallery() -> Gallery {
     };
     let drag_of = |t: &Ticket| GalleryDrag {
         from: format!("{} · {}", t.key, place_label(&columns, t)),
-        answer: drag_answer_in(&flow, t, &[]),
+        answer: drag_answer_in(&flow, t, &[], None),
     };
     let one = |t: Ticket| vec![t, ticket("SHOP-24", "Update footer links", Status::Backlog)];
     Gallery {
@@ -1130,6 +1274,228 @@ mod tests {
     use super::*;
     use crate::view_models::card_fixtures::{NOW, ticket};
     use otaq_core::domain::Kind;
+
+    /// A ticket of the test flow in `stage` with `status`.
+    fn on_test_flow(key: &str, stage: &str, status: Status) -> Ticket {
+        let mut t = ticket(key, "Price table", status);
+        t.place = otaq_core::domain::Place::stage_of(stage);
+        t
+    }
+
+    fn verdict_of(answer: &DragAnswer, target: &str) -> Verdict {
+        answer
+            .targets
+            .iter()
+            .find(|t| t.target.as_str() == target)
+            .unwrap_or_else(|| panic!("no verdict for {target}"))
+            .verdict
+            .clone()
+    }
+
+    /// FLW-18, Q271: every stage of the test flow takes a drop; "Moving a card here isn't available yet" is gone.
+    #[test]
+    fn every_stage_is_a_drop_target() {
+        let flow = flow_columns::every_kind();
+        let qa = on_test_flow("SHOP-19", "qa", Status::WaitingForYou);
+        let answer = drag_answer_in(&flow, &qa, &[], None);
+        let targets: Vec<&str> = answer.targets.iter().map(|t| t.target.as_str()).collect();
+        assert_eq!(
+            targets,
+            [
+                "backlog",
+                "ready_for_dev",
+                "grill",
+                "dev",
+                "security",
+                "qa",
+                "ship",
+                "done"
+            ]
+        );
+        for t in &answer.targets {
+            if let Verdict::Forbidden { title, .. } = &t.verdict {
+                assert!(
+                    !title.contains("available yet"),
+                    "{}: {title}",
+                    t.target.as_str()
+                );
+            }
+        }
+        let hint = |target: &str| match verdict_of(&answer, target) {
+            Verdict::Allowed { hint, .. } => hint,
+            other => panic!("{target}: {other:?}"),
+        };
+        assert_eq!(hint("dev"), "Drop to send back to Dev \u{b7} asks first");
+        assert_eq!(
+            hint("grill"),
+            "Drop to send back to Grill \u{b7} asks first"
+        );
+        assert_eq!(
+            hint("security"),
+            "Drop to run Security again \u{b7} asks first"
+        );
+        // QA's next stage is the Delivery: the Approve drop, as on today's board.
+        assert!(hint("ship").starts_with("Drop to approve SHOP-19"));
+
+        // Forward from Dev between turns: Validate (folded into Dev) is the next stage; Security skips it.
+        let dev = on_test_flow("SHOP-23", "dev", Status::Idle);
+        let answer = drag_answer_in(&flow, &dev, &[], None);
+        assert_eq!(
+            verdict_of(&answer, "security"),
+            Verdict::Allowed {
+                icon: IconName::SkipForward,
+                hint: "Drop to skip Validate".to_owned(),
+                note: None,
+            }
+        );
+        assert!(
+            matches!(verdict_of(&answer, "qa"), Verdict::Allowed { hint, .. } if hint == "Drop to skip Validate, Security")
+        );
+        // Back onto a human check: no dialog.
+        let ship = on_test_flow("SHOP-26", "ship", Status::ToDeliver);
+        let answer = drag_answer_in(&flow, &ship, &[], None);
+        assert!(matches!(verdict_of(&answer, "qa"), Verdict::Allowed { .. }));
+        assert_eq!(
+            drop_step_in(&flow, &ship, &[], &DropTargetId::new("grill")),
+            DropStep::DragBack
+        );
+    }
+
+    /// *03 → A parked card dropped anywhere*: it returns to the stage it left, wherever it is dropped.
+    #[test]
+    fn a_parked_card_returns_to_the_stage_it_left() {
+        let flow = flow_columns::every_kind();
+        let parked = ticket("SHOP-36", "Cache product prices", Status::Parked);
+        let answer = drag_answer_in(&flow, &parked, &[], Some("Dev"));
+        let hint = |target: &str| match verdict_of(&answer, target) {
+            Verdict::Allowed { hint, .. } => hint,
+            other => panic!("{target}: {other:?}"),
+        };
+        assert_eq!(hint("security"), "Returns to Dev, the stage it left");
+        assert_eq!(hint("qa"), "Returns to Dev, the stage it left");
+        assert_eq!(
+            hint("ready_for_dev"),
+            "Drop to resume \u{b7} same conversation"
+        );
+        assert_eq!(hint("grill"), "Drop to resume \u{b7} same conversation");
+        assert_eq!(
+            drop_step_in(&flow, &parked, &[], &DropTargetId::new("qa")),
+            DropStep::Move
+        );
+    }
+
+    /// *03 → An epic can't go back* (Q266): an epic waiting in its check is refused on any earlier stage.
+    #[test]
+    fn an_epic_cant_be_dragged_back() {
+        let flow = flow_columns::every_kind();
+        let mut epic = on_test_flow("PAY-123", "qa", Status::WaitingForYou);
+        epic.kind = Kind::Epic;
+        let answer = drag_answer_in(&flow, &epic, &[], None);
+        for target in ["ready_for_dev", "grill", "dev", "security"] {
+            assert_eq!(
+                verdict_of(&answer, target),
+                Verdict::Forbidden {
+                    title: "An epic can\u{2019}t be dragged back".to_owned(),
+                    detail: None,
+                },
+                "{target}"
+            );
+        }
+        // The default flow too: Review → Dev.
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::WaitingForYou);
+        epic.kind = Kind::Epic;
+        assert_eq!(
+            verdict_on(&epic, DropTargetId::DEV),
+            Verdict::Forbidden {
+                title: "An epic can\u{2019}t be dragged back".to_owned(),
+                detail: None,
+            }
+        );
+    }
+
+    /// *03 → Dragging a card back to an earlier stage* (s03-50): the three dialogs, word for word.
+    #[test]
+    fn the_drag_back_dialogs() {
+        let flow = flow_columns::every_kind();
+        // SHOP-19 in Security, its check failed: nothing runs there.
+        let failed = on_test_flow("SHOP-19", "security", Status::CheckFailed);
+        let dialog = drag_back_dialog(&flow, &failed, &DropTargetId::DEV, &[]).unwrap();
+        assert_eq!(dialog.title, "Send SHOP-19 back to Dev?");
+        assert_eq!(dialog.label, "Instructions for Dev (Rust developer)");
+        assert_eq!(
+            dialog.placeholder.as_deref(),
+            Some("What should change? The agent gets this with the ticket.")
+        );
+        assert_eq!(dialog.stops, None);
+        assert_eq!(
+            dialog.then.as_deref(),
+            Some("Then it goes on to Validate, Security, QA and Done as usual.")
+        );
+        assert_eq!(
+            (dialog.cancel.as_str(), dialog.confirm.as_str()),
+            ("Cancel", "Send to Dev")
+        );
+        assert_eq!(dialog.confirm_icon, IconName::Undo2);
+        assert_eq!(dialog.target, DropTargetId::DEV);
+
+        // SHOP-29 running in Security: the reviewer stops first.
+        let running = on_test_flow("SHOP-29", "security", Status::Checking);
+        let dialog = drag_back_dialog(&flow, &running, &DropTargetId::DEV, &[]).unwrap();
+        assert_eq!(dialog.title, "Send SHOP-29 back to Dev?");
+        assert_eq!(
+            dialog.stops.as_deref(),
+            Some(
+                "Security reviewer is working on it now. It stops, and the check runs again after Dev."
+            )
+        );
+        assert_eq!(dialog.then, None);
+        assert_eq!(dialog.confirm, "Stop and send to Dev");
+
+        // SHOP-18 in QA, dropped on Security: the check runs again with a note.
+        let qa = on_test_flow("SHOP-18", "qa", Status::WaitingForYou);
+        let dialog = drag_back_dialog(&flow, &qa, &DropTargetId::new("security"), &[]).unwrap();
+        assert_eq!(dialog.title, "Run Security again on SHOP-18?");
+        assert_eq!(dialog.label, "Note for Security (Security reviewer)");
+        assert_eq!(
+            (dialog.placeholder, dialog.stops, dialog.then),
+            (None, None, None)
+        );
+        assert_eq!(dialog.confirm, "Run Security");
+        assert_eq!(dialog.confirm_icon, IconName::RotateCcw);
+
+        // The ticket's own choices: the agent it picked for Dev, and QA skipped.
+        let choices: Vec<StageOptions> = serde_json::from_value(serde_json::json!([
+            {"stage_id": "dev", "stage": "Dev", "usual": {"name": "Rust developer"},
+             "agents": [{"name": "Quick developer"}], "can_skip": false,
+             "choice": {"stage_id": "dev", "choice": {"kind": "agent", "id": "a2", "name": "Quick developer"},
+                        "set_by": {"by": "user"}, "set_at": 0}, "locked": true},
+            {"stage_id": "qa", "stage": "QA", "agents": [], "can_skip": true,
+             "choice": {"stage_id": "qa", "choice": {"kind": "skip"}, "set_by": {"by": "user"}, "set_at": 0},
+             "locked": false}
+        ]))
+        .unwrap();
+        let dialog = drag_back_dialog(&flow, &failed, &DropTargetId::DEV, &choices).unwrap();
+        assert_eq!(dialog.label, "Instructions for Dev (Quick developer)");
+        assert_eq!(
+            dialog.then.as_deref(),
+            Some("Then it goes on to Validate, Security and Done as usual.")
+        );
+        // On the default flow: Review → Dev.
+        let review = ticket("NOTE-1", "Sort notes by date", Status::WaitingForYou);
+        let flow = otaq_core::flow::default_flow();
+        let dialog = drag_back_dialog(&flow, &review, &DropTargetId::DEV, &[]).unwrap();
+        assert_eq!(dialog.title, "Send NOTE-1 back to Dev?");
+        assert_eq!(dialog.label, "Instructions for Dev (Developer)");
+        assert_eq!(
+            dialog.then.as_deref(),
+            Some("Then it goes on to Validate, Review and Done as usual.")
+        );
+        // A drop that asks nothing has no dialog.
+        assert_eq!(
+            drag_back_dialog(&flow, &review, &DropTargetId::APPROVED, &[]),
+            None
+        );
+    }
 
     fn facts() -> ProjectFacts<'static> {
         ProjectFacts {
@@ -1818,6 +2184,7 @@ mod tests {
             .collect();
         let only_agents = "forbidden: Only agents move tickets to Ready for Review";
         let approve_first = "forbidden: Approve a ticket from Ready for Review";
+        let mid_turn = "forbidden: SHOP-25 can't move to the next stage now: its agent is in the middle of a turn";
         let row = |key: &str, review: &str, approved: &str| {
             (key.to_owned(), review.to_owned(), approved.to_owned())
         };
@@ -1826,7 +2193,8 @@ mod tests {
             [
                 row("SHOP-24", only_agents, approve_first),
                 row("SHOP-21", only_agents, approve_first),
-                row("SHOP-25", only_agents, approve_first),
+                // A forward drag is Move to next stage's (FLW-18): not while the agent is mid-turn.
+                row("SHOP-25", mid_turn, mid_turn),
                 row(
                     "SHOP-18",
                     "home",
@@ -1845,13 +2213,15 @@ mod tests {
                 ),
             ]
         );
-        // Dev → Review: today's reason, and no "queue it" line (only a Backlog card can be queued).
+        // Dev → Review between turns: past Validate, which is skipped by you (FLW-18).
+        let idle = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Idle);
         assert_eq!(
-            verdict_on(&sources[2], DropTargetId::REVIEW),
-            Verdict::Forbidden {
-                title: drag::ONLY_AGENTS_TO_REVIEW.into(),
-                detail: None
-            }
+            kind(&verdict_on(&idle, DropTargetId::REVIEW)),
+            "allowed: Drop to skip Validate"
+        );
+        assert_eq!(
+            kind(&verdict_on(&idle, DropTargetId::new("validate"))),
+            "allowed: Drop to move to Validate"
         );
     }
 
@@ -1914,7 +2284,7 @@ mod tests {
         );
         assert_eq!(
             columns.drop_target("review"),
-            Some(DropTarget::ReadyForReview)
+            Some(otaq_core::board::moves::DropTarget::ReadyForReview.into())
         );
     }
 

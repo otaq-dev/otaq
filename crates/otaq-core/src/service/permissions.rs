@@ -413,7 +413,7 @@ async fn action_for(
         R::ProjectAdd(_) | R::ProjectUpdate(_) | R::ProjectRemove(_) => {
             Action::UserOnly("change projects")
         }
-        R::TicketMove(_) => Action::UserOnly("move tickets"),
+        R::TicketMove(_) | R::TicketDrag(_) => Action::UserOnly("move tickets"),
         R::TicketPin(_) | R::TicketUnpin(_) => Action::UserOnly("pin tickets"),
         R::TicketAgentEditsSeen(_) => Action::UserOnly("mark agent edits as seen"),
         R::TicketDelete(_) => Action::UserOnly("delete tickets"),

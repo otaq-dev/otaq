@@ -5,6 +5,7 @@
 import type { ComponentType } from "react";
 
 import type { ConfirmRow } from "../../generated/ConfirmRow";
+import type { DragBackDialog } from "../../generated/DragBackDialog";
 import type { IconName } from "../../generated/IconName";
 import type { InboxAllClear } from "../../generated/InboxAllClear";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
@@ -82,6 +83,8 @@ export interface OverlayParams {
   close_epic: { epic: string };
   /** Send back with a note (T-0226). */
   send_back: { ticket: string };
+  /** A card dragged back to an earlier Agent stage or agent check: its instructions or note (T-0421, FLW-18). */
+  drag_back: DragBackDialog;
   /** Change… on a recorded decision (T-0288): Send back on a ticket, Add a fix child in an epic's review. */
   change_decision: { id: string };
   /** The Local merge confirmation (T-0226); `menu` starts at the Approve ▾ choice (⌘↵). */
@@ -137,6 +140,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   move_to_epic: true,
   close_epic: true,
   send_back: true,
+  drag_back: true,
   change_decision: true,
   local_merge: true,
   open_pr: true,

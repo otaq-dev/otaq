@@ -763,6 +763,11 @@ impl Starter {
             }
             return Ok(Done::Started(Box::new(running)));
         }
+        // A new conversation's own first message: the instructions of a drag back into a stage that never ran.
+        let instructions = returning
+            .as_ref()
+            .filter(|r| r.conversation.is_none())
+            .and_then(|r| r.prompt.clone());
         let conversation = returning.and_then(|r| {
             let prompt = r.first_prompt();
             r.conversation.map(|c| (c, prompt))
@@ -807,7 +812,7 @@ impl Starter {
                     None,
                     Some(FirstPrompt::Skill {
                         name: skill,
-                        message: None,
+                        message: instructions,
                     }),
                 )
             }
@@ -1139,11 +1144,12 @@ impl Returning {
         if row.resume_skill.is_none() && !row.parked && row.return_mode.is_none() {
             return Ok(None);
         }
-        // Start from scratch: the same worktree, a new conversation.
+        // Start from scratch: the same worktree, a new conversation; a drag back into a stage that never ran gives
+        // it the user's instructions (FLW-18, Start from scratch keeps none).
         if row.return_mode.as_deref() == Some(crate::recovery::RETURN_SCRATCH) {
             return Ok(Some(Self {
                 skill: None,
-                prompt: None,
+                prompt: row.resume_prompt,
                 conversation: None,
             }));
         }

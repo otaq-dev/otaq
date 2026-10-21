@@ -8,7 +8,7 @@
 //!   every later stage again. Each agent check counts its own fails in a row ([`Counters`]); a human Fail resets
 //!   them all. A human check directly followed by a click Delivery offers the delivery choices as its Pass.
 //!   Moving on into an Agent stage waits before it (STG-07): only the scheduler's [`Move::Begin`] enters it.
-//! - [`drag`]: a drag's verdict (today's drag rules, by stage kind).
+//! - [`drag`]: a drag's verdict (§7.4, FLW-18): today's drag rules and a drop on any stage, by stage kind.
 //! - [`default_stage`]: the default flow's stage for a status, for the writes that don't know the flow yet (until
 //!   T-0401–T-0403 move them onto stages).
 
@@ -17,7 +17,8 @@ use serde::{Deserialize, Serialize};
 use super::default::{DEV, REVIEW, VALIDATE};
 use super::model::{CheckBy, Column, Delivers, DeliveryMode, Flow, Stage, StageKind};
 use crate::board::moves::{
-    DropTarget, MERGED_LOCKED, MoveAction, MoveCheck, ONLY_AGENT_SUBMITS, STARTS_BY_ITSELF,
+    DropOn, DropTarget, EPIC_NO_DRAG_BACK, MERGED_LOCKED, MoveAction, MoveCheck,
+    ONLY_AGENT_SUBMITS, QUEUE_FIRST, STARTS_BY_ITSELF,
 };
 use crate::domain::{Kind, Place, Status, StatusSet, stored_enum};
 
@@ -600,13 +601,93 @@ impl DropTarget {
     }
 }
 
-/// A drag's verdict: today's drag rules (§7.4), by the kinds of the stages it leaves and enters.
+impl DropOn {
+    /// The place this drop means in `flow`: a board target as [`DropTarget::in_flow`] says, a stage by its id.
+    pub fn in_flow<'f>(&self, flow: &'f Flow) -> Option<Target<'f>> {
+        match self {
+            Self::Board(target) => target.in_flow(flow),
+            Self::Stage { stage } => flow.stage(stage).map(Target::Stage),
+        }
+    }
+}
+
+/// [`drag_with`] for a ticket that skips nothing.
 pub fn drag(
     flow: &Flow,
     place: &Place,
     status: Status,
     kind: Kind,
-    target: DropTarget,
+    target: impl Into<DropOn>,
+) -> MoveCheck {
+    drag_with(flow, place, status, kind, &[], &target.into())
+}
+
+/// The stages a forward drag from `from` (an index; the stage itself when `skip_from`) to `to` walks over: those
+/// between them the ticket doesn't already skip by its choices (`skips`).
+pub fn skipped_by_drag<'f>(
+    flow: &'f Flow,
+    skips: &[String],
+    from: usize,
+    to: usize,
+    skip_from: bool,
+) -> Vec<&'f Stage> {
+    let first = if skip_from { from } else { from + 1 };
+    flow.stages[first.min(to)..to]
+        .iter()
+        .filter(|s| !self::skips(s, skips))
+        .collect()
+}
+
+/// Where a drag the board carries out by itself takes the ticket (FLW-18): back onto a human check (no dialog; the run
+/// it leaves ends cancelled), or forward to `to` past the stages between, which get skipped runs. The run it leaves
+/// ends skipped when it was a check (you skipped it), done when it was an Agent stage (as Move to next stage). Forward
+/// into an Agent stage waits before it (STG-07); a Delivery entered this way never delivers by itself.
+pub fn dragged<'f>(at: At<'f, '_>, to: &'f Stage) -> Step<'f> {
+    let flow = at.flow;
+    let target = flow.position(&to.id).unwrap_or(flow.stages.len());
+    let from = at.place.stage_id().and_then(|id| flow.position(id));
+    let back = from.is_some_and(|a| target < a);
+    let current = at.stage();
+    if back {
+        let mut step = Step::to(&at, Place::stage_of(&to.id), entry_status(to), Some(to));
+        step.ended = current.map(|_| RunResult::Cancelled);
+        return step;
+    }
+    let between = match from {
+        Some(a) => skipped_by_drag(flow, at.skips, a, target, false),
+        None => Vec::new(),
+    };
+    let mut step = move_on(&at, between, Some(to));
+    step.ended = current.map(|s| match s.kind {
+        StageKind::Agent => RunResult::Done,
+        _ => RunResult::Skipped,
+    });
+    step.start_check = to.is_agent_check();
+    step.automatic = false;
+    step
+}
+
+/// Whether a card can be dragged forward to a later stage of `flow` (d0108 "Other drags"): on every flow, the
+/// default one included, where Dev → Review skips Validate and Dev → Approved skips Review too (T-0421's parity
+/// question to the user; `false` here would keep today's refusals for those drops).
+fn forward_drags(_flow: &Flow) -> bool {
+    true
+}
+
+/// A drag's verdict (§7.4, FLW-18), by the kinds of the stages it leaves and enters. On top of today's rules (Start,
+/// Unqueue, Park, Approve, PR rework, Reopen), any stage takes a drop (d0108 "Dragging a card back", "Other drags"):
+/// back to an earlier Agent stage asks for its agent's instructions ([`MoveAction::SendBack`]), back to an agent check
+/// asks for a note ([`MoveAction::RunCheckAgain`]), back onto a human check needs nothing ([`MoveAction::MoveBack`]);
+/// forward, the very next stage is Move to next stage (or a human check's Pass) and anything further skips the stages
+/// between ([`MoveAction::SkipTo`]); a parked card dropped anywhere returns to the stage it left. An epic can't be
+/// dragged back. `skips` are the stages the ticket skips by its choices (they don't count as the "next" stage).
+pub fn drag_with(
+    flow: &Flow,
+    place: &Place,
+    status: Status,
+    kind: Kind,
+    skips: &[String],
+    target: &DropOn,
 ) -> MoveCheck {
     let refused = |reason: &str| MoveCheck::Refused {
         reason: reason.to_owned(),
@@ -619,7 +700,12 @@ pub fn drag(
     }
     let from = match place {
         Place::Backlog => Target::Backlog,
-        Place::Waiting(_) => Target::Waiting,
+        Place::Waiting(None) => Target::Waiting,
+        // Waiting before a later Agent stage shows in that stage's column: dropped there, it stays.
+        Place::Waiting(Some(id)) => match flow.stage(id) {
+            Some(stage) if to == Target::Stage(stage) => return MoveCheck::Unchanged,
+            _ => Target::Waiting,
+        },
         Place::Done => Target::Done,
         Place::InStage(id) => match flow.stage(id) {
             Some(stage) => Target::Stage(stage),
@@ -637,27 +723,12 @@ pub fn drag(
         return MoveCheck::Unchanged;
     }
     let at_work = |s: &Stage| s.is_agent_stage() || s.is_agent_check();
-    let right_after = |a: &Stage, b: &Stage| {
-        flow.position(&a.id)
-            .zip(flow.position(&b.id))
-            .is_some_and(|(a, b)| b == a + 1)
-    };
+    let index = |s: &Stage| flow.position(&s.id).unwrap_or(usize::MAX);
+    let right_after = |a: &Stage, b: &Stage| index(b) == index(a).wrapping_add(1);
     match (from, to) {
         // Dropped on the column it shows in: an agent check folded into its Agent stage's column.
         (Target::Stage(a), Target::Stage(b))
             if at_work(a) && a.column == Column::WithPrevious && owner(flow, a) == Some(b) =>
-        {
-            MoveCheck::Unchanged
-        }
-        // An agent check in its own column (the default flow's Validate, FLW-01) dropped on the Agent stage before
-        // it: nothing happens, as when Validate was folded into Dev (drags back with instructions are T-0421's).
-        (Target::Stage(a), Target::Stage(b))
-            if a.is_agent_check()
-                && b.is_agent_stage()
-                && flow
-                    .position(&b.id)
-                    .zip(flow.position(&a.id))
-                    .is_some_and(|(b, a)| b < a) =>
         {
             MoveCheck::Unchanged
         }
@@ -670,17 +741,21 @@ pub fn drag(
                 action: MoveAction::QueueEpic,
             }
         }
-        // The go-ahead; on an Agent stage it waits until it can start (d0066).
+        // The go-ahead; on an Agent stage it waits until it can start (d0066). A parked card goes back to the stage
+        // it left wherever it is dropped (d0052, FLW-18).
         (Target::Backlog, Target::Waiting) => MoveCheck::Allowed {
             action: MoveAction::Start,
         },
-        (Target::Backlog, Target::Stage(b)) if b.is_agent_stage() => MoveCheck::Allowed {
-            action: MoveAction::Start,
-        },
+        (Target::Backlog, Target::Stage(b)) if b.is_agent_stage() || status == Status::Parked => {
+            MoveCheck::Allowed {
+                action: MoveAction::Start,
+            }
+        }
         (Target::Waiting, Target::Backlog) => MoveCheck::Allowed {
             action: MoveAction::Unqueue,
         },
-        (Target::Waiting, Target::Stage(b)) if b.is_agent_stage() => refused(STARTS_BY_ITSELF),
+        (Target::Waiting, Target::Stage(b)) if at_work(b) => refused(STARTS_BY_ITSELF),
+        (Target::Stage(_), Target::Waiting) if kind == Kind::Epic => refused(EPIC_NO_DRAG_BACK),
         (Target::Stage(a), Target::Waiting) if at_work(a) => {
             refused("Drag it to Backlog to park it")
         }
@@ -701,11 +776,42 @@ pub fn drag(
                 action: MoveAction::PrRework,
             }
         }
+        // Back to an earlier stage (d0108 "Dragging a card back"): an epic can't go back (0059).
+        (Target::Stage(a), Target::Stage(b)) if index(b) < index(a) => {
+            if kind == Kind::Epic {
+                refused(EPIC_NO_DRAG_BACK)
+            } else if b.is_agent_stage() {
+                MoveCheck::Confirm {
+                    action: MoveAction::SendBack,
+                }
+            } else if b.is_agent_check() {
+                MoveCheck::Confirm {
+                    action: MoveAction::RunCheckAgain,
+                }
+            } else {
+                MoveCheck::Allowed {
+                    action: MoveAction::MoveBack,
+                }
+            }
+        }
+        // Forward (d0108 "Other drags"): the very next stage the ticket runs is Move to next stage (a human check's
+        // Pass); further, or out of an agent check, the stages between are skipped by you. An epic never skips its
+        // check.
+        (Target::Stage(a), Target::Stage(b)) if kind != Kind::Epic && forward_drags(flow) => {
+            let skipped = skipped_by_drag(flow, skips, index(a), index(b), a.is_agent_check());
+            let action = if skipped.is_empty() {
+                MoveAction::NextStage
+            } else {
+                MoveAction::SkipTo
+            };
+            MoveCheck::Allowed { action }
+        }
         (Target::Done, Target::Backlog) => MoveCheck::Allowed {
             action: MoveAction::Reopen,
         },
         (_, Target::Stage(b)) if b.is_human_check() => refused(ONLY_AGENT_SUBMITS),
         (Target::Done, _) => refused("Drag it to Backlog to reopen it first"),
+        (Target::Backlog, Target::Stage(b)) if b.is_agent_check() => refused(QUEUE_FIRST),
         (Target::Stage(a), Target::Waiting | Target::Stage(_))
             if a.is_human_check() && !matches!(to, Target::Stage(b) if b.is_delivery()) =>
         {

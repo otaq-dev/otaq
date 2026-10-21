@@ -1045,7 +1045,7 @@ pub(crate) async fn reset_check_counters(
 
 /// The ticket enters the check `stage`: a fresh walk through it (its last pass and its "moved past" mark go; its
 /// fails in a row stay). Returns its fails in a row: the new round is one more.
-async fn enter_check(
+pub(crate) async fn enter_check(
     tx: &mut Transaction<'_, Sqlite>,
     ticket_id: &str,
     stage: &str,

@@ -21,6 +21,7 @@
 
 mod close;
 pub mod delivery;
+pub mod drag;
 pub mod finish;
 pub mod park;
 pub mod pr_state;
@@ -504,6 +505,7 @@ impl Review {
                     .record_send_back_pr(ticket, note, to, skill, actor)
                     .await
             }
+            Return::DragBack(back) => back.record(board, ticket, to, skill, actor).await,
         }
     }
 
@@ -611,19 +613,25 @@ enum Return<'a> {
     PrComments {
         note: &'a str,
     },
+    /// A drag back to an earlier Agent stage with the user's instructions (FLW-18).
+    DragBack(drag::Back<'a>),
 }
 
 impl Return<'_> {
     fn skill(&self) -> &'static str {
         match self {
-            Self::SendBack { .. } | Self::PrComments { .. } => ADDRESS_REVIEW_SKILL,
+            Self::SendBack { .. } | Self::PrComments { .. } | Self::DragBack(_) => {
+                ADDRESS_REVIEW_SKILL
+            }
             Self::Fix { .. } => RESTACK_SKILL,
         }
     }
 
     fn fetch_why(&self) -> FetchWhy {
         match self {
-            Self::SendBack { .. } | Self::PrComments { .. } => FetchWhy::SendBack,
+            Self::SendBack { .. } | Self::PrComments { .. } | Self::DragBack(_) => {
+                FetchWhy::SendBack
+            }
             Self::Fix { .. } => FetchWhy::Fix,
         }
     }
