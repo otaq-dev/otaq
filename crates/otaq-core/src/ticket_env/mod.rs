@@ -228,8 +228,9 @@ impl TicketEnv {
 
     /// **Release** of the ticket's resources at Done or Close (d0087), whether its worktree was removed or kept:
     /// under the ticket's lock, Remove for a recorded resource that is created, failed, or whose Create never
-    /// finished (a crash), then, after a merge only, the project's Template refresh. Never a reason for Done to
-    /// fail: a failed Remove is listed in Cleanup.
+    /// finished (a crash), else Otaq's resource folder (`OTAQ_RESOURCE_DIR`, made for every ticket, d0109) goes to
+    /// the trash; then, after a merge only, the project's Template refresh. Never a reason for Done to fail: a
+    /// failed Remove is listed in Cleanup.
     pub(crate) async fn release_resources(&self, ticket: &Ticket) -> Result<(), BoardError> {
         let board = &self.0.board;
         let project = board.project(ticket.key.project.as_str()).await?;
@@ -249,6 +250,8 @@ impl TicketEnv {
                     .await
             {
                 tracing::warn!(ticket = %ticket.key, error = %e, "the ticket's resources stay; listed in Cleanup");
+            } else if !to_remove {
+                resources::trash_resource_dir(&self.0.data, &self.0.warm, &project, &ticket.key);
             }
         }
         if ticket.status == Status::Merged {

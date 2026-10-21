@@ -921,10 +921,13 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
         }
     }
     out.push_str(&format!(
-        "\n## The diff\n\n```diff\n{}\n```\n\n## Your verdict\n\nReport one line per finding with its file and \
-         line; notes start with \"Note:\". Finish with `{cmd} check pass --stdin` or `{cmd} check fail --stdin` \
-         and the report on stdin.\n",
-        ctx.diff.trim_end()
+        "\n## The diff\n\n```diff\n{}\n```\n\n## Your verdict\n\nKeep it short: one or two lines, one line per \
+         finding with its file and line; notes start with \"Note:\". Finish with `{cmd} check pass --stdin` or \
+         `{cmd} check fail --stdin` and the verdict on stdin. Save the full check run to a file in `${dir}` (never \
+         in the worktree) and attach it with `--report-file`: `{cmd} check fail --stdin --report-file \
+         \"${dir}/test-run.txt\"`.\n",
+        ctx.diff.trim_end(),
+        dir = naming::resource_dir_env_var()
     ));
     out
 }

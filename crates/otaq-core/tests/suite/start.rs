@@ -559,7 +559,8 @@ async fn written_env(file: &Path) -> String {
 }
 
 /// **The M19-d acceptance**: with empty resource settings nothing changes. The setup command and the started
-/// agent get no `OTAQ_DB_*` or `OTAQ_RESOURCE_DIR`, no resource folder is made and nothing is recorded.
+/// agent get no `OTAQ_DB_*` and nothing is recorded. T-0445 (CMT-09, d0109): they still get `OTAQ_RESOURCE_DIR`,
+/// the ticket's own folder, made at the start, for long output.
 #[tokio::test]
 async fn with_empty_resource_settings_nothing_changes() {
     let dir = tempfile::tempdir().unwrap();
@@ -597,11 +598,8 @@ async fn with_empty_resource_settings_nothing_changes() {
     let outcome = w.starter.start("SHOP-1", &me()).await.unwrap();
     assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
 
-    let resource_vars = [
-        naming::db_name_env_var(),
-        naming::db_template_env_var(),
-        naming::resource_dir_env_var(),
-    ];
+    let resource_vars = [naming::db_name_env_var(), naming::db_template_env_var()];
+    let resource_dir = w.data.resource_path("shop-web", &ticket.key).unwrap();
     for (what, text) in [
         ("setup", written_env(&setup_file).await),
         ("agent", written_env(&agent_file).await),
@@ -618,8 +616,17 @@ async fn with_empty_resource_settings_nothing_changes() {
             text.lines().any(|l| l.to_ascii_uppercase() == ticket_line),
             "{what} knows its ticket"
         );
+        let dir_line = format!(
+            "{}={}",
+            naming::resource_dir_env_var(),
+            resource_dir.display()
+        );
+        assert!(
+            cfg!(windows) || text.lines().any(|l| l == dir_line),
+            "{what} has its resource folder: {text}"
+        );
     }
-    assert!(!w.data.root().join(naming::resource_dir_name()).exists());
+    assert!(resource_dir.is_dir(), "the ticket's folder is made");
     let row = w.board.store().ticket(&ticket.id).await.unwrap().unwrap();
     assert_eq!(
         (row.resource_name, row.resource_state.as_str()),

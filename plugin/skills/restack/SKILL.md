@@ -1,6 +1,6 @@
 ---
 name: restack
-description: Bring the Otaq ticket named by $OTAQ_TICKET up to date with the branch it merges into - get the context with `otaq prime`, rebase onto the target it names, resolve the conflicts, commit, then end your stage with `otaq stage next`.
+description: Bring the Otaq ticket named by $OTAQ_TICKET up to date with the branch it merges into - get the context with `otaq prime`, rebase onto the target it names, resolve the conflicts, commit, then end your stage with a short comment through `otaq stage next`.
 disable-model-invocation: true
 ---
 
@@ -12,8 +12,10 @@ Otaq put everything back as it was; resolving the conflicts is your job now.
 
 ## Steps
 
-1. **Get the context first.** Run `otaq prime` and read all of it. Its "Resolve first" section names the
-   **target** to rebase onto (for example `main`, `develop`, or the epic's branch) and the conflicting files.
+1. **Get the context first.** Run `otaq prime` and read all of it, the **comments** too. Its "Resolve first"
+   section names the **target** to rebase onto (for example `main`, `develop`, or the epic's branch) and the
+   conflicting files. Otaq refuses to end your stage until you have run it: "Run `otaq prime` first: SHOP-19 has 3
+   comments you haven't read.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step
    below. They add to these steps; they never remove getting the context (step 1) or ending your stage (step 6).
 3. **Rebase onto the target** that `prime` names, in this worktree:
@@ -28,16 +30,32 @@ Otaq put everything back as it was; resolving the conflicts is your job now.
    a decision that belongs to the user, ask (see below) instead of guessing; `git rebase --abort` puts the branch back.
 5. **Commit everything** with the commit skill `prime` names (`otaq-commit`, or your agent's own
    commit skill; when it names none, `git add -A` and `git commit`) if anything is left uncommitted after the rebase,
-   then run the checks the Agent instructions ask for. Nothing may stay uncommitted.
-6. **End your stage again** with a short summary of how you resolved the conflicts, on stdin:
+   then run the checks the Agent instructions ask for, their output into a file (see "Long output"). Nothing may
+   stay uncommitted.
+6. **End your stage again** with a short comment on stdin: how you resolved the conflicts, in a line or two. Attach
+   the checks' output as a report:
 
    ```sh
-   otaq stage next --stdin <<'SUMMARY'
+   otaq stage next --stdin --report-file "$OTAQ_RESOURCE_DIR/test-run.txt" <<'COMMENT'
    Rebased onto main. lib/pricing.ts: kept main's rounding and moved the new currency column on top of it.
-   SUMMARY
+   COMMENT
    ```
 
    Then end your turn. The ticket moves to Ready for Review and the user can merge it.
+
+## Long output
+
+Long command output (a test run, a build log) goes to a file in `$OTAQ_RESOURCE_DIR`, Otaq's folder for this ticket
+outside the repository, **never in the worktree** (an untracked file there makes `otaq stage next` refuse):
+
+```sh
+npm test > "$OTAQ_RESOURCE_DIR/test-run.txt" 2>&1
+grep -n "FAIL" "$OTAQ_RESOURCE_DIR/test-run.txt"
+```
+
+Search it with `grep` or `tail`; **never print it in full or retype it**; attach it with `--report-file`. To read a
+report an earlier comment points to ("Report: 48 KB, 2,310 lines · `otaq report SHOP-19 4`"), search its file:
+`grep -n "conflict" "$(otaq report SHOP-19 4 --path)"`.
 
 ## When you need the user
 
@@ -55,4 +73,5 @@ take precedence over this guidance.
 ## Rules
 
 - **Never push, never open a PR, never merge, never stash.** The user does the merge from the board.
-- **Long text always goes through stdin** (`--stdin`), never quoted arguments.
+- **Long text always goes through stdin** (`--stdin`), never quoted arguments. Long command output never does: it
+  goes in a report.

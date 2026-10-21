@@ -4,12 +4,13 @@
 //! - **Create** runs at Prepare, after the env files and before setup, in the ticket's worktree. Its name is recorded
 //!   before it runs, so a crash still leaves the name for Remove; a ticket whose resource was created is never
 //!   created again (Retry start, Bring back).
-//! - Where a project has ticket resources, Otaq sets **`OTAQ_DB_NAME`**, **`OTAQ_DB_TEMPLATE`** and
-//!   **`OTAQ_RESOURCE_DIR`** in the ticket's commands and sessions ([`ResourceVars`]). With empty settings, and no
-//!   resource recorded, it sets none: nothing changes.
+//! - Where a project has ticket resources, Otaq sets **`OTAQ_DB_NAME`** and **`OTAQ_DB_TEMPLATE`** in the ticket's
+//!   commands and sessions ([`ResourceVars`]). With empty settings, and no resource recorded, it sets neither.
+//! - **`OTAQ_RESOURCE_DIR`**, Otaq's own folder for the ticket outside the repository, is set in every ticket's
+//!   commands and sessions, resources or not (d0109: long output saved there is attached as a report).
 //! - **Remove** runs at Release (Done, Close) for the recorded name only, in the project's main checkout; a failure
 //!   is listed in Cleanup ("Ticket resources"), whose Delete runs it again. Otaq's own resource folder goes after a
-//!   successful Remove, or at Release when no Remove command is set.
+//!   successful Remove, or at Release when no Remove command is set or no resource is recorded.
 //! - A **Template refresh** runs at Done after a merge (never at Close). It holds the project's template lock for
 //!   writing; every Create holds it for reading, so a Create waits while the template is being refreshed.
 
@@ -104,8 +105,8 @@ pub fn has_resources(settings: &ProjectSettings, resource_name: Option<&str>) ->
 pub struct ResourceVars;
 
 impl ResourceVars {
-    /// `OTAQ_DB_NAME` (the recorded name when there is one, else [`db_name`]), `OTAQ_DB_TEMPLATE` and
-    /// `OTAQ_RESOURCE_DIR` (made when missing). Empty unless the project has ticket resources ([`has_resources`]).
+    /// `OTAQ_DB_NAME` (the recorded name when there is one, else [`db_name`]) and `OTAQ_DB_TEMPLATE` when the
+    /// project has ticket resources ([`has_resources`]), and always `OTAQ_RESOURCE_DIR` (made when missing).
     pub fn for_ticket(
         data: &DataDir,
         project: &Project,
@@ -114,7 +115,9 @@ impl ResourceVars {
         settings: &ProjectSettings,
     ) -> Vec<(String, String)> {
         if !has_resources(settings, resource_name) {
-            return Vec::new();
+            return resource_dir_var(data, project, key, true)
+                .into_iter()
+                .collect();
         }
         let name = resource_name.map_or_else(|| db_name(&project.key, key), str::to_owned);
         resource_vars(data, project, key, &name, true)
@@ -133,21 +136,32 @@ fn resource_vars(
         (naming::db_name_env_var(), name.to_owned()),
         (naming::db_template_env_var(), db_template(&project.key)),
     ];
+    vars.extend(resource_dir_var(data, project, key, make_dir));
+    vars
+}
+
+/// `OTAQ_RESOURCE_DIR` = the ticket's `res/<repo>/<KEY>`, the folder made when `make_dir`.
+fn resource_dir_var(
+    data: &DataDir,
+    project: &Project,
+    key: &TicketKey,
+    make_dir: bool,
+) -> Option<(String, String)> {
     match data.resource_path(&repo_name(project), key) {
         Ok(dir) => {
             if make_dir && let Err(e) = DataDir::ensure_dir(&dir) {
                 tracing::warn!(ticket = %key, error = %e, "can't create the ticket's resource folder");
             }
-            vars.push((
+            Some((
                 naming::resource_dir_env_var(),
                 dir.to_string_lossy().into_owned(),
-            ));
+            ))
         }
         Err(e) => {
-            tracing::warn!(ticket = %key, error = %e, "no resource folder for the ticket")
+            tracing::warn!(ticket = %key, error = %e, "no resource folder for the ticket");
+            None
         }
     }
-    vars
 }
 
 /// Otaq's own variables in a ticket's setup and resource commands: `OTAQ_TICKET`, then the resource variables.
@@ -431,7 +445,12 @@ impl Resources {
 
 /// Moves Otaq's resource folder of `key` (`res/<repo>/<KEY>`) to the trash, which is emptied in the background. A
 /// folder that can't move (a file held open) is left and logged.
-fn trash_resource_dir(data: &DataDir, warm: &WarmBuilds, project: &Project, key: &TicketKey) {
+pub(crate) fn trash_resource_dir(
+    data: &DataDir,
+    warm: &WarmBuilds,
+    project: &Project,
+    key: &TicketKey,
+) {
     let repo = repo_name(project);
     let Ok(dir) = data.resource_path(&repo, key) else {
         return;
@@ -512,13 +531,20 @@ mod tests {
     }
 
     #[test]
-    fn vars_are_empty_without_resource_settings() {
+    fn without_resource_settings_only_the_folder_is_set() {
         let tmp = tempfile::tempdir().unwrap();
         let data = DataDir::new(tmp.path());
         let settings = ProjectSettings::default();
         let vars = ResourceVars::for_ticket(&data, &project(), &key("SHOP-1"), None, &settings);
-        assert!(vars.is_empty(), "{vars:?}");
-        assert!(!tmp.path().join(naming::resource_dir_name()).exists());
+        let dir = data.resource_path("shop-web", &key("SHOP-1")).unwrap();
+        assert_eq!(
+            vars,
+            [(
+                naming::resource_dir_env_var(),
+                dir.to_string_lossy().into_owned()
+            )]
+        );
+        assert!(dir.is_dir(), "made on demand");
 
         let settings = ProjectSettings {
             resource_create: "createdb x".into(),
@@ -562,6 +588,16 @@ mod tests {
             None,
             &ProjectSettings::default(),
         );
-        assert_eq!(own, [(naming::ticket_env_var(), "SHOP-1".to_owned())]);
+        let dir = data.resource_path("shop-web", &key("SHOP-1")).unwrap();
+        assert_eq!(
+            own,
+            [
+                (naming::ticket_env_var(), "SHOP-1".to_owned()),
+                (
+                    naming::resource_dir_env_var(),
+                    dir.to_string_lossy().into_owned()
+                )
+            ]
+        );
     }
 }

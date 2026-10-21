@@ -138,6 +138,27 @@ async fn closing_an_epic_closes_its_unfinished_children_and_leaves_merged_ones()
     w.stop().await;
 }
 
+/// T-0445 (CMT-09, d0109): with no ticket resources, Close still trashes Otaq's resource folder of the ticket
+/// (`OTAQ_RESOURCE_DIR`, where its agents saved long output); runs nothing and records nothing.
+#[tokio::test]
+async fn close_trashes_the_resource_folder_without_resources() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let t = w.create("SHOP", "Won't do").await;
+    let wt = w.start_worktree(&t).await;
+    commit(&wt, "a.ts", "a\n");
+    let dir = w.data.resource_path("shop-web", &t.key).unwrap();
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("test-run.txt"), "ok\n").unwrap();
+    w.force_status(&t, Status::WaitingForYou).await;
+
+    let closed = w.review.close("SHOP-1", true, &me()).await.unwrap();
+    assert_eq!(closed.status, Status::ClosedNotMerged);
+    assert!(!dir.exists(), "the resource folder went to the trash");
+    assert_eq!(resource_row(&w, &t).await, (None, "none".into(), None));
+    w.stop().await;
+}
+
 /// Close is a Release too (M19-d): the ticket's recorded resource is removed, but the template is refreshed only
 /// after a merge, never at Close.
 #[tokio::test]

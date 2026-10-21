@@ -478,7 +478,8 @@ fn validate_is_a_read_only_judge_that_ends_with_a_verdict() {
 }
 
 /// T-0191 (PLG-07, d0067; AGM-12): no skill mentions "Done when"; the agent's skills say to end the turn after
-/// `stage next` and to fix and run it again after a failed validation.
+/// `stage next` and to fix and run it again after a failed validation. T-0445 (CMT-08, CMT-09; d0109): the failed
+/// check's message says only "Run `otaq prime`": the findings are the checker's comment, its run the report.
 #[test]
 fn no_skill_mentions_done_when_and_the_agent_waits_for_validation() {
     let names = skill_names();
@@ -496,12 +497,14 @@ fn no_skill_mentions_done_when_and_the_agent_waits_for_validation() {
         let submit = body
             .find(&format!("{cmd} stage next --stdin"))
             .expect("stage next");
-        let rest = &body[submit..];
+        let rest = flat(&body[submit..]);
         for needle in [
             "**end your turn** and wait",
-            "arrives in this session as a\n   message",
+            "arrives in this session as a message",
             "If validation failed",
-            "fix them, commit everything and run\n   `otaq stage next` again",
+            &format!("run `{cmd} prime`, read the checker's comment"),
+            "search its report when you need the details",
+            &format!("fix them, commit everything and run `{cmd} stage next` again"),
         ] {
             assert!(
                 rest.contains(needle),
@@ -511,6 +514,124 @@ fn no_skill_mentions_done_when_and_the_agent_waits_for_validation() {
     }
     let (_, work) = skill(WORK_TICKET_SKILL);
     assert!(work.contains("until the ticket is done, as its description describes"));
+}
+
+/// T-0445 (CMT-09, CMT-08; d0109): the shipped skills keep the hand-over short and long output in reports. Each says
+/// to send long command output to a file in `$OTAQ_RESOURCE_DIR` (the epic lead, which has no ticket, to a folder outside
+/// the repository), never the worktree, to search it and never print it in full or retype it, and how to read a report
+/// (`report <KEY> <N> --path`). The skills that end a stage keep `prime` first, say Otaq refuses the stage end without
+/// it, and attach the run with `--report-file`. No skill pipes anything into an `otaq` command: stdin carries only the
+/// short text, from a heredoc.
+#[test]
+fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
+    let cmd = naming::COMMAND_NAME;
+    let resource = format!("`${}`", naming::resource_dir_env_var());
+    let ends_stage = [
+        WORK_TICKET_SKILL,
+        "grill",
+        "validate",
+        "address-review",
+        "restack",
+    ];
+    for name in ends_stage
+        .iter()
+        .chain(&["answer-question", "commit", "epic-lead"])
+    {
+        let (_, body) = skill(name);
+        let text = flat(&body);
+        assert!(
+            text.contains("never print it in full or retype it"),
+            "{name}: the long-output rule"
+        );
+        if *name != "epic-lead" {
+            assert!(text.contains(&resource), "{name}: {resource}");
+        }
+        if *name != "commit" {
+            assert!(
+                text.contains(&format!("$({cmd} report ")) && text.contains(" --path)\""),
+                "{name}: reading a report by its path"
+            );
+        }
+    }
+    for name in ends_stage {
+        let (_, body) = skill(name);
+        let text = flat(&body);
+        let prime = text.find(&format!("`{cmd} prime")).expect("prime");
+        let gate = text
+            .find(&format!("Run `{cmd} prime` first: SHOP-"))
+            .unwrap_or_else(|| panic!("{name}: the read gate's refusal"));
+        assert!(prime < gate, "{name}: prime is step 1");
+        assert!(
+            text.contains("Otaq refuses"),
+            "{name}: Otaq refuses the stage end"
+        );
+        assert!(
+            text.to_lowercase().contains("never in the worktree"),
+            "{name}: never the worktree"
+        );
+        assert!(
+            text.contains(&format!(
+                "--report-file \"${}/",
+                naming::resource_dir_env_var()
+            )),
+            "{name}: attaches the run with --report-file"
+        );
+    }
+    let (_, validate) = skill("validate");
+    let validate = flat(&validate);
+    for verdict in ["fail", "pass"] {
+        assert!(
+            validate.contains(&format!(
+                "{cmd} check {verdict} --stdin --report-file \"$OTAQ_RESOURCE_DIR/test-run.txt\""
+            )),
+            "validate: check {verdict} attaches the run"
+        );
+    }
+    for needle in [
+        "The one place you may write is `$OTAQ_RESOURCE_DIR`",
+        "one or two lines",
+        "is the one exception",
+    ] {
+        assert!(validate.contains(needle), "validate must say {needle:?}");
+    }
+    let (_, review) = skill("address-review");
+    let review = flat(&review);
+    for needle in [
+        "the user's comment from the Send back is the latest one",
+        &format!("Run `{cmd} prime`, then `{cmd} review feedback`."),
+        "prints the line comments of the latest round",
+        "the user's comment in `prime` is all the feedback",
+    ] {
+        assert!(
+            review.contains(needle),
+            "address-review must say {needle:?}"
+        );
+    }
+    for gone in ["the user's note", "general note"] {
+        assert!(!review.contains(gone), "address-review still says {gone:?}");
+    }
+    let (_, lead) = skill(otaq_core::agent_tools::EPIC_LEAD_SKILL);
+    let lead = flat(&lead);
+    for needle in [
+        &format!("{cmd} comment SHOP-40.2 --stdin <<'COMMENT'"),
+        "**later stages**",
+        "the agent running now doesn't see it (that is what a note is for, step 6)",
+        "at most one note to a running child",
+        "last comment",
+    ] {
+        assert!(lead.contains(needle), "epic-lead must say {needle:?}");
+    }
+    assert!(!lead.contains("summary"), "epic-lead still reads a summary");
+    // Stdin carries only short text from a heredoc: nothing is piped into an `otaq` command.
+    for name in skill_names() {
+        let (_, body) = skill(&name);
+        for line in joined(&body).lines() {
+            assert!(
+                !line.contains(&format!("| {cmd} ")),
+                "{name} pipes into {cmd}: {line}"
+            );
+        }
+    }
 }
 
 /// T-0202 (PLG-09, PLG-01, PLG-02, PLG-05; d0068, d0040): the project-agent skill is user-invoked only (the session

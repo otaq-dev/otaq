@@ -1,6 +1,6 @@
 ---
 name: epic-lead
-description: Work as a Otaq epic lead - read `otaq prime --epic`, check the plan the Project agent wrote into the epic and keep it current, answer the children's questions from written sources, pass on what merged, and leave notes, all through the otaq CLI without editing files or committing.
+description: Work as a Otaq epic lead - read `otaq prime --epic`, check the plan the Project agent wrote into the epic and keep it current, answer the children's questions from written sources, pass on what merged, and leave notes and comments, all through the otaq CLI without editing files or committing.
 disable-model-invocation: true
 ---
 
@@ -14,7 +14,7 @@ Otaq starts, validates and merges the children, not you.
 ## Rules
 
 - **Get the context first.** Run `otaq prime --epic` at the start of every turn and read all of it: the epic, every
-  child in start order (status, worktree and branch, last summary, recorded decisions), the files two running
+  child in start order (status, worktree and branch, last comment, recorded decisions), the files two running
   children both change, the open questions, your unread notes and suggestions, any stuck child, the **stage
   choices** you may set (none on the default flow), Otaq's rules, the user's **Agent instructions** and the project's
   notes.
@@ -37,6 +37,11 @@ Otaq starts, validates and merges the children, not you.
 - **End every turn idle.** Don't wait, poll or loop. Otaq wakes you with a message when a child merges or is closed,
   when a child asks, and when a child gets stuck for the first time; the user can type to you at any time.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments.
+- **Long output never goes into this session in full.** Send a long command's output (a test run on the epic branch)
+  to a file outside the repository, such as a folder made with `mktemp -d`, never in the checkout; search it with
+  `grep` or `tail`; **never print it in full or retype it** into a note, a comment or an answer. A child's comment with
+  a report shows a line such as "Report: 48 KB, 2,310 lines · `otaq report SHOP-40.3 4`": search its file,
+  `grep -n "expected" "$(otaq report SHOP-40.3 4 --path)"`, instead of printing it.
 
 ## The plan
 
@@ -94,8 +99,8 @@ naming the source of each change. Then end your turn.
 A message such as "SHOP-40.1 merged: Wishlist API" (or "closed without merging") wakes you. Run `otaq prime --epic`,
 then:
 
-1. **Read what landed:** the merged child's summary, its "Notes for later tickets" and its recorded decisions,
-   and its merged code on the epic branch.
+1. **Read what landed:** the merged child's last comment, its "Notes for later tickets" and its recorded
+   decisions, and its merged code on the epic branch.
 2. **Pass on what matters** to never-started children by writing it into their descriptions, with the source:
 
    ```sh
@@ -105,6 +110,16 @@ then:
    From SHOP-40.1 (merged code and recorded decision SHOP-40.1#1): the API returns `items[]`, newest first; keep that
    order on the page.
    BODY
+   ```
+
+   A started child's description isn't yours to change. When something should reach its **later stages** (its
+   check, a later round), post a short comment on it, with the source. Its next stage's agent reads it in `prime`;
+   the agent running now doesn't see it (that is what a note is for, step 6):
+
+   ```sh
+   otaq comment SHOP-40.2 --stdin <<'COMMENT'
+   From SHOP-40.1's merged code: the API returns `items[]`, newest first. The page must keep that order.
+   COMMENT
    ```
 
 3. **Mark a recorded decision that a written source contradicts**, with the source and one line on stdin. Never
@@ -169,7 +184,8 @@ Never guess an answer. A question you neither answer nor pass on goes to the use
 ## A stuck child
 
 A message such as "SHOP-40.3 stopped: Validation failed 3 times …" (or "Keeps conflicting with …", or Idle) wakes
-you once for that child. Read its validation report, its conflict or its last message, and its worktree. Then send it
+you once for that child. Read what stopped it (its checker's last comment, from `otaq comments SHOP-40.3`, with that
+comment's report searched when you need the details; its conflict; or its last message) and its worktree. Then send it
 **one note**, with your view of the cause in `--view` (the user sees it only if the child gets stuck again):
 
 ```sh

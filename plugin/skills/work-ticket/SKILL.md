@@ -1,6 +1,6 @@
 ---
 name: work-ticket
-description: Work on the Otaq ticket named by $OTAQ_TICKET from start to review - get its context with `otaq prime`, follow the user's Agent instructions, check the ticket for gaps and ask what changes what gets built (options with pros and cons) before coding, implement, commit everything, then end your stage with `otaq stage next`.
+description: Work on the Otaq ticket named by $OTAQ_TICKET from start to review - get its context with `otaq prime`, follow the user's Agent instructions, check the ticket for gaps and ask what changes what gets built (options with pros and cons) before coding, implement, commit everything, then end your stage with a short comment through `otaq stage next`, long output attached as a report.
 disable-model-invocation: true
 ---
 
@@ -13,8 +13,11 @@ time.
 ## Steps
 
 1. **Get the context first.** Run `otaq prime` and read all of it: the ticket and its description, the
-   user's **Agent instructions** and the project's notes, your stage and its skill, what the earlier stages did, the
-   tickets it depends on (with what their agents did) and Otaq's rules.
+   user's **Agent instructions** and the project's notes, your stage and its skill, the earlier stages, the
+   **comments** (what the user and the earlier stages' agents handed over), the tickets it depends on (with their
+   agents' last comments) and Otaq's rules. Otaq refuses to end your stage until you have run it: "Run `otaq prime`
+   first: SHOP-19 has 2 comments you haven't read." The description is the plan; when a comment changes it, follow the
+   comment.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules (tests to run, skills to use,
    how to plan) and they apply to every step below. They add to these steps; they never remove getting the context
    (step 1) or ending your stage (step 6).
@@ -27,22 +30,25 @@ time.
 5. **Commit everything** with the commit skill `prime` names (`otaq-commit`, or your agent's own
    commit skill); when it names none, commit with `git add -A` and `git commit`. Nothing may stay uncommitted:
    `stage next` is refused while files are uncommitted. Delete scratch files instead of committing them.
-6. **End your stage** with a short summary of what you changed, on stdin. The next stage reads it:
+6. **End your stage** with a short comment on stdin: what you changed and what the next stage needs to know, in a
+   few lines (at most 2,000 characters). It is posted as your comment on the ticket, and the next stage's agent reads
+   it in `prime`. Attach long output, such as your last test run, as a report (see "Long output" below):
 
    ```sh
-   otaq stage next --stdin <<'SUMMARY'
-   Added the price table with sorting by price and name.
-   Prices align right; the table scrolls on mobile widths.
-   SUMMARY
+   otaq stage next --stdin --report-file "$OTAQ_RESOURCE_DIR/test-run.txt" <<'COMMENT'
+   Added the price table with sorting by price and name. Prices align right; the table scrolls on mobile widths.
+   `npm test` passes (run attached).
+   COMMENT
    ```
 
    If you learned something a later ticket should know (an API shape, a trap, a file others will touch), end the
-   summary with a paragraph that starts `Notes for later tickets:`. In an epic, the lead reads it and passes it on.
+   comment with a line that starts `Notes for later tickets:`. In an epic, the lead reads it and passes it on.
 
    Then **end your turn** and wait. Otaq may validate your work first: the result arrives in this session as a
-   message. If validation failed, the message lists the findings: fix them, commit everything and run
-   `otaq stage next` again. When it passes, the ticket moves on (to Ready for Review on the default board) and the user
-   reviews the diff.
+   message. If validation failed, the message says only that ("Validate failed round 2. Run `otaq prime`."): run
+   `otaq prime`, read the checker's comment under "Comments" and search its report when you need the details (see
+   "Reading a report"), then fix them, commit everything and run `otaq stage next` again. When it passes, the ticket
+   moves on (to Ready for Review on the default board) and the user reviews the diff.
 
    **Nothing to deliver?** Only when the ticket needs no change at all (for example it was already fixed in SHOP-31)
    and you committed nothing, end the ticket instead, with the reason on stdin. It goes to Done as "Closed · nothing
@@ -54,10 +60,36 @@ time.
    REASON
    ```
 
+## Long output
+
+Long command output (a test run, a build log, a long diff) goes to a file, never into this session or a comment in
+full:
+
+```sh
+npm test > "$OTAQ_RESOURCE_DIR/test-run.txt" 2>&1
+grep -n "FAIL" "$OTAQ_RESOURCE_DIR/test-run.txt"
+tail -n 40 "$OTAQ_RESOURCE_DIR/test-run.txt"
+```
+
+- **Send long output to a file in `$OTAQ_RESOURCE_DIR`**, Otaq's folder for this ticket outside the repository.
+  **Never in the worktree:** an untracked file there makes `otaq stage next` refuse.
+- **Search it** with `grep` or `tail`; **never print it in full or retype it.**
+- **Attach it** to the comment that ends your stage with `--report-file` (at most 20 MB); the comment itself says, in
+  a line or two, what it shows.
+
+### Reading a report
+
+Under a comment with a report, `prime` shows one line such as "Report: 48 KB, 2,310 lines · `otaq report SHOP-19 4`".
+Open a report only when you need it, and search it instead of printing it:
+
+```sh
+grep -n "expected" "$(otaq report SHOP-19 4 --path)"
+```
+
 ## Check the ticket first
 
-Before you write any code, make a quick gap check: read the description, the dependencies' summaries and the code the
-ticket touches, then answer for yourself:
+Before you write any code, make a quick gap check: read the description, the comments, the dependencies' last
+comments and the code the ticket touches, then answer for yourself:
 
 - **What is asked?** One or two sentences in your own words.
 - **What is there already?** The files, screens and behaviour the ticket builds on.
@@ -164,10 +196,12 @@ QUESTION
 ## Rules
 
 - **Never push, never open a PR, never merge.** The user does that from the board.
-- **Long text always goes through stdin** (`--stdin`), never quoted arguments: summaries, questions, ticket bodies.
+- **Long text always goes through stdin** (`--stdin`), never quoted arguments: comments, questions, ticket bodies.
+  Long command output never does: it goes in a report (see "Long output").
 - Useful commands: `otaq show <KEY>` (any ticket), `otaq dep tree` (your ticket's chain),
   `otaq create "Title" --stdin` (a follow-up in Backlog).
-- If `otaq stage next` is refused, read why (usually uncommitted files), fix it and run it again.
+- If `otaq stage next` is refused, read why (uncommitted files, a comment over 2,000 characters, or `prime` not run
+  since Otaq last resumed you), fix it and run it again.
 - If `prime` lists **Stage choices**, you may change a later stage's choice for this ticket when what you learned
   changes how hard its work is, always with a reason (`otaq update <KEY> --stage "<stage>=<choice>" --reason "…"`).
   A choice the user set can't be changed.

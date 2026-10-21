@@ -353,7 +353,7 @@ async fn on_the_test_flow_the_project_agent_reads_the_stage_options() {
 }
 
 /// T-0184 (VAL-10): `prime --validate` for a plain ticket: the ticket, the summary, the parents with theirs, the
-/// Agent instructions, the diff and how to report.
+/// Agent instructions, the diff and how to report. T-0445 (CMT-09): a short verdict, the full run as a report.
 #[tokio::test(flavor = "multi_thread")]
 async fn validate_prime_plain() {
     let w = sample().await;
@@ -374,7 +374,10 @@ async fn validate_prime_plain() {
         "- depends on SHOP-18 · Checkout API (Ready for Review)\n  Last comment, Developer · Dev · 11:20 am:\n  > POST /checkout creates a Stripe session.",
         "- depends on SHOP-19 · Price table (Working)",
         "## The diff\n\n```diff\n",
-        "`otaq check pass --stdin` or `otaq check fail --stdin`",
+        "\n## Your verdict\n\nKeep it short: one or two lines, one line per finding with its file and line; notes \
+         start with \"Note:\". Finish with `otaq check pass --stdin` or `otaq check fail --stdin` and the verdict on \
+         stdin. Save the full check run to a file in `$OTAQ_RESOURCE_DIR` (never in the worktree) and attach it with \
+         `--report-file`: `otaq check fail --stdin --report-file \"$OTAQ_RESOURCE_DIR/test-run.txt\"`.\n",
     ] {
         assert!(text.contains(part), "missing {part:?} in\n{text}");
     }
