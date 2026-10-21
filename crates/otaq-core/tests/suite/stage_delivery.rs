@@ -5,6 +5,7 @@
 //! human check, or at the implicit Review epic when the flow has none, where it counts as quiet. A child's Delivery
 //! always merges into the epic's branch. `claude` stands in as `sh`; every data folder is temporary.
 
+use otaq_core::service::testing::said;
 use std::path::{Path, PathBuf};
 
 use otaq_core::agent_tools::LaunchContext;
@@ -265,7 +266,7 @@ async fn a_delivery_conflict_is_fixed_in_the_agent_stage() {
         w.validation
             .submit(
                 &key,
-                "done",
+                said(&w.board, &key, "done").await.as_ref(),
                 &Actor::Agent(t.key.clone()),
                 ValidationTrigger::Agent,
             )
@@ -277,7 +278,12 @@ async fn a_delivery_conflict_is_fixed_in_the_agent_stage() {
             .unwrap()
             .id;
         w.validation
-            .verdict(&key, true, "ok", &checker)
+            .verdict(
+                &key,
+                true,
+                said(&w.board, &key, "ok").await.as_ref(),
+                &checker,
+            )
             .await
             .unwrap();
         let after = w.board.ticket(&key).await.unwrap();

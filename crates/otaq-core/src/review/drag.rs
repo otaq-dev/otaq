@@ -3,12 +3,14 @@
 //! [`crate::board::moves::check_with`]. The others (Start, Unqueue, Reopen, PR rework) are the board's
 //! ([`Board::move_ticket`]).
 //!
-//! - **Back to an earlier Agent stage** (after the dialog): the user's instructions go to that stage's agent. Its own
-//!   session resumes with them (typed into it when it is live, as Send back does), or, when the stage never ran (the
-//!   ticket skips it by its choice: "Grill · run by you"), a fresh session starts there with them. An agent working
-//!   where the card is now stops first. It counts as a human Fail: every agent check's counter restarts, and the card
-//!   then walks every later stage again.
-//! - **Back to an agent check** (after the dialog): the check runs again with the user's note, a fresh round.
+//! - **Back to an earlier Agent stage** (after the dialog): the user's instructions are their comment (CMT-05), posted
+//!   before that stage's agent goes on. Its own session resumes (typed into it when it is live, as Send back does),
+//!   or, when the stage never ran (the ticket skips it by its choice: "Grill · run by you"), a fresh session starts
+//!   there; either is told "SHOP-19 was sent back to Dev by you with a comment. Run `otaq prime`.", never the text. An
+//!   agent working where the card is now stops first. It counts as a human Fail: every agent check's counter
+//!   restarts, and the card then walks every later stage again.
+//! - **Back to an agent check** (after the dialog): the check runs again, a fresh round; the user's note is their
+//!   comment.
 //! - **Back onto a human check**: no dialog; the card waits there, "Moved back by you".
 //! - **Forward**: the very next stage is Move to next stage (a human check's Pass); further, the stages between are
 //!   marked skipped by you ("Skipped Security · by you") and the Delivery then waits for a click.
@@ -16,8 +18,10 @@
 use serde_json::json;
 
 use super::{Return, ReturnOutcome, Review};
+use crate::board::hand_over::{HandOver, settled};
 use crate::board::moves::{DragWrite, DropOn, MoveAction, MoveCheck};
-use crate::board::send_back::{SentBackTo, waits_before};
+use crate::board::reports::ReportSource;
+use crate::board::send_back::{SentBackTo, Tell, waits_before};
 use crate::board::tickets::{EventKind, Ticket};
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::{Actor, MovedPast, Status};
@@ -29,8 +33,9 @@ use crate::validation::Validation;
 
 /// A drag back to an earlier Agent stage, as [`Review::return_to_agent`] records it.
 pub(crate) struct Back<'a> {
-    note: &'a str,
-    stage: &'a str,
+    /// The user's instructions as their comment, if they wrote any.
+    pub(super) hand_over: Option<&'a HandOver>,
+    stage: &'a Stage,
     /// How the run of the stage it leaves ends: failed from a human check (its Fail), cancelled elsewhere.
     ended: RunResult,
     event: serde_json::Value,
@@ -45,27 +50,33 @@ impl Back<'_> {
         to: Status,
         skill: Option<&str>,
         actor: &Actor,
-    ) -> Result<(), BoardError> {
+    ) -> Result<Option<String>, BoardError> {
         // Queued (the limit is full), it waits before the stage: Ready for Dev before the flow's first.
         let stage = match to.is_queued() {
-            true => waits_before(self.flow, self.stage),
-            false => Some(self.stage.to_owned()),
+            true => waits_before(self.flow, &self.stage.id),
+            false => Some(self.stage.id.clone()),
         };
         board
             .send_back_to(
                 ticket,
                 SentBackTo {
-                    note: self.note,
+                    hand_over: self.hand_over,
                     to,
                     stage: stage.as_deref(),
                     resume_skill: skill,
                     ended: self.ended,
                     event: Some((EventKind::Dragged, self.event.clone())),
+                    tell: Some(Tell {
+                        stage: &self.stage.name,
+                        by_you: true,
+                        pr_comments: false,
+                    }),
+                    fresh: false,
                 },
                 actor,
             )
             .await
-            .map(|_| ())
+            .map(|sent| sent.told)
     }
 }
 
@@ -84,8 +95,10 @@ enum Stop<'a> {
 /// What a `ticket.drag` asks for besides the target: the dialog's text and its answers.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DragAnswers<'a> {
-    /// The instructions (back to an Agent stage) or the note (back to an agent check).
+    /// The instructions (back to an Agent stage) or the note (back to an agent check): the user's comment (CMT-05).
     pub note: &'a str,
+    /// A report attached to that comment (the dialog's pasted text).
+    pub report: Option<&'a ReportSource>,
     /// The dialog was confirmed.
     pub confirmed: bool,
     /// "Clear it and send" after the unsent-text question (d0048).
@@ -131,27 +144,33 @@ impl Review {
                     .await
             }
             (MoveAction::RunCheckAgain, Some(to)) => {
-                // Refused with uncommitted changes before anything stops.
-                let head = board.submit_head(&ticket).await?;
-                self.stop_where_it_is(&ticket, &flow, Stop::WorkingHere, validation)
+                // The note is checked and its report copied, then uncommitted changes refused, before anything stops.
+                let hand_over = board
+                    .user_hand_over(&ticket, answers.note, answers.report.cloned(), actor)
                     .await?;
-                let event = event_of(&flow, &ticket, to, true, &[], false, answers.note);
-                let moved = board.drag_moved(&ticket, &to.id).await?;
-                let note = answers.note.trim();
-                board
-                    .record_drag(
-                        &ticket,
-                        DragWrite {
-                            moved,
-                            reset: true,
-                            marks: Vec::new(),
-                            check_head: Some(head),
-                            note: (!note.is_empty()).then(|| note.to_owned()),
-                            event,
-                        },
-                        actor,
-                    )
-                    .await?;
+                let ran = async {
+                    let head = board.submit_head(&ticket).await?;
+                    self.stop_where_it_is(&ticket, &flow, Stop::WorkingHere, validation)
+                        .await?;
+                    let event = event_of(&flow, &ticket, to, true, &[], false, answers.note);
+                    let moved = board.drag_moved(&ticket, &to.id).await?;
+                    board
+                        .record_drag(
+                            &ticket,
+                            DragWrite {
+                                moved,
+                                reset: true,
+                                marks: Vec::new(),
+                                check_head: Some(head),
+                                hand_over: hand_over.clone().map(Box::new),
+                                event,
+                            },
+                            actor,
+                        )
+                        .await
+                }
+                .await;
+                settled(board, hand_over.as_ref(), ran).await?;
                 validation.start_dragged_check(&ticket.id).await?;
                 done(board, key).await
             }
@@ -168,7 +187,7 @@ impl Review {
                             reset: true,
                             marks: Vec::new(),
                             check_head: None,
-                            note: None,
+                            hand_over: None,
                             event,
                         },
                         actor,
@@ -199,13 +218,48 @@ impl Review {
         }
     }
 
-    /// Back to the earlier Agent stage `to` with the user's instructions.
+    /// Back to the earlier Agent stage `to` with the user's instructions as their comment (refused whole when too
+    /// long or its report is missing, before anything stops).
     async fn send_back_by_drag(
         &self,
         ticket: &Ticket,
         flow: &Flow,
         to: &Stage,
         answers: DragAnswers<'_>,
+        validation: &Validation,
+        actor: &Actor,
+    ) -> Result<ReturnOutcome, BoardError> {
+        let board = &self.inner.board;
+        let hand_over = board
+            .user_hand_over(ticket, answers.note, answers.report.cloned(), actor)
+            .await?;
+        let outcome = self
+            .send_back_with(
+                ticket,
+                flow,
+                to,
+                answers,
+                hand_over.as_ref(),
+                validation,
+                actor,
+            )
+            .await;
+        if matches!(outcome, Ok(ReturnOutcome::NeedsConfirmation { .. }))
+            && let Some(hand_over) = &hand_over
+        {
+            hand_over.discard_unposted(board).await;
+        }
+        settled(board, hand_over.as_ref(), outcome).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn send_back_with(
+        &self,
+        ticket: &Ticket,
+        flow: &Flow,
+        to: &Stage,
+        answers: DragAnswers<'_>,
+        hand_over: Option<&HandOver>,
         validation: &Validation,
         actor: &Actor,
     ) -> Result<ReturnOutcome, BoardError> {
@@ -250,33 +304,36 @@ impl Review {
         let event = event_of(flow, &ticket, to, true, &[], run_by_you, answers.note);
         if ran {
             let back = Back {
-                note: answers.note,
-                stage: &to.id,
+                hand_over,
+                stage: to,
                 ended,
                 event,
                 flow,
             };
             return self
-                .return_to_agent(&ticket, Return::DragBack(back), answers.clear_first, actor)
+                .return_with(&ticket, &Return::DragBack(back), answers.clear_first, actor)
                 .await;
         }
-        // The stage never ran: a fresh session there, its skill followed by the instructions.
+        // The stage never ran: a fresh session there, its skill followed by what came back (FLW-18).
         board
             .send_back_to(
                 &ticket,
                 SentBackTo {
-                    note: answers.note,
+                    hand_over,
                     to: Status::Queued,
                     stage: Some(&to.id),
                     resume_skill: None,
                     ended,
                     event: Some((EventKind::Dragged, event)),
+                    tell: Some(Tell {
+                        stage: &to.name,
+                        by_you: true,
+                        pr_comments: false,
+                    }),
+                    fresh: true,
                 },
                 actor,
             )
-            .await?;
-        board
-            .start_fresh_with(&ticket.id, answers.note.trim())
             .await?;
         if self.limit_full().await? {
             inner.scheduler.wake();
@@ -338,7 +395,7 @@ impl Review {
                     reset: false,
                     marks,
                     check_head: check_head.clone(),
-                    note: None,
+                    hand_over: None,
                     event,
                 },
                 actor,
@@ -410,24 +467,6 @@ impl Board {
         .fetch_optional(self.store().pool())
         .await?;
         Ok(ran.is_some())
-    }
-
-    /// The ticket's next start is a new conversation in its worktree with `instructions` after the stage's skill (a
-    /// drag back into a stage that never ran, FLW-18).
-    pub(crate) async fn start_fresh_with(
-        &self,
-        ticket_id: &str,
-        instructions: &str,
-    ) -> Result<(), BoardError> {
-        sqlx::query(
-            "UPDATE tickets SET resume_skill = NULL, return_mode = ?, resume_prompt = ? WHERE id = ?",
-        )
-        .bind(crate::recovery::RETURN_SCRATCH)
-        .bind((!instructions.is_empty()).then_some(instructions))
-        .bind(ticket_id)
-        .execute(self.store().pool())
-        .await?;
-        Ok(())
     }
 }
 

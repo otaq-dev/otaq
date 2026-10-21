@@ -538,6 +538,75 @@ async fn a_checker_posts_only_with_its_verdict() {
     w.stop().await;
 }
 
+/// Q374: the Validator fails with its comment, then edits and deletes it; another agent's comment stays refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_checker_edits_and_deletes_its_own_verdict() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Export orders as CSV").await;
+    w.give_worktree(&shop1).await;
+    w.board
+        .post_ticket_comment(
+            "SHOP-1",
+            &rust_developer(),
+            "Reused the CSV writer.",
+            None,
+            &me(),
+        )
+        .await
+        .unwrap();
+    let checker = w.shell(&shop1, SessionKind::Validator).await;
+    w.run_as_agent(&checker, "validator", "Validator").await;
+    w.validating_with(&shop1, &checker.session).await;
+    send(
+        &w,
+        &checker,
+        "ticket.prime_validate",
+        json!({"key": "SHOP-1"}),
+    )
+    .await;
+    let failed = send(
+        &w,
+        &checker,
+        "validation.verdict",
+        json!({"key": "SHOP-1", "pass": false, "report": "Fail: the limit is not enforced."}),
+    )
+    .await;
+    assert!(failed.get("reply").is_some(), "{failed}");
+
+    let edited = send(
+        &w,
+        &checker,
+        "ticket.comment_edit",
+        json!({"key": "SHOP-1", "n": 2, "body": "Fail: the 10,000 row limit is not enforced."}),
+    )
+    .await;
+    assert_eq!(
+        edited["reply"]["ticket_comment"]["body"], "Fail: the 10,000 row limit is not enforced.",
+        "{edited}"
+    );
+    let other = send(
+        &w,
+        &checker,
+        "ticket.comment_edit",
+        json!({"key": "SHOP-1", "n": 1, "body": "x"}),
+    )
+    .await;
+    assert_eq!(
+        refusal(&other),
+        "SHOP-1's Validate check can only edit or delete its own comments"
+    );
+    let deleted = send(
+        &w,
+        &checker,
+        "ticket.comment_delete",
+        json!({"key": "SHOP-1", "n": 2}),
+    )
+    .await;
+    assert!(deleted.get("reply").is_some(), "{deleted}");
+    w.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn an_epic_lead_owns_its_epics_lead_comments() {
     let w = TestService::start().await;
@@ -644,5 +713,52 @@ async fn each_change_tells_clients_the_ticket_changed() {
         .await;
         assert!(changed.is_ok(), "ticket_changed after each change");
     }
+    w.stop().await;
+}
+
+/// Q375: a deleted comment's report still opens for the user (History, their own terminal), never for an agent
+/// session: "Agents that start after this won't read it."
+#[tokio::test(flavor = "multi_thread")]
+async fn a_deleted_comments_report_is_the_users_only() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Export orders as CSV").await;
+    let posted = w
+        .board
+        .post_ticket_comment(
+            "SHOP-1",
+            &you(),
+            "The full log.",
+            Some(ReportSource::Text("line 1\nline 2\n".into())),
+            &me(),
+        )
+        .await
+        .unwrap();
+    w.board
+        .delete_ticket_comment("SHOP-1", posted.n, &me())
+        .await
+        .unwrap();
+
+    let app = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let request: Request = serde_json::from_value(
+        json!({"method": "ticket.report", "params": {"key": "SHOP-1", "n": posted.n}}),
+    )
+    .unwrap();
+    match app.request(request).await.unwrap() {
+        Reply::TicketReport(report) => {
+            assert!(report.deleted);
+            assert!(std::path::Path::new(&report.path).exists());
+        }
+        other => panic!("{other:?}"),
+    }
+    let dev = w.agent_shell(&shop1).await;
+    let refused = send(
+        &w,
+        &dev,
+        "ticket.report",
+        json!({"key": "SHOP-1", "n": posted.n}),
+    )
+    .await;
+    assert_eq!(refusal(&refused), "Comment 1 on SHOP-1 was deleted.");
     w.stop().await;
 }

@@ -119,6 +119,10 @@ pub struct DragBackParams {
     pub target: DropTargetId,
     #[serde(default)]
     pub note: String,
+    /// Text pasted into the note as its report (CMT-13).
+    #[serde(default)]
+    #[ts(optional)]
+    pub report: Option<String>,
     #[serde(default)]
     pub clear: bool,
 }
@@ -413,6 +417,7 @@ pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestE
                     confirmed: false,
                     note: String::new(),
                     clear_first: false,
+                    report: None,
                 }))
                 .await?;
             DropOutcome::Moved
@@ -483,6 +488,7 @@ pub async fn drag_back(app: &App, params: DragBackParams) -> Result<Sent, Reques
             confirmed: true,
             note: params.note.clone(),
             clear_first: params.clear,
+            report: sb::pasted_report(params.report.as_deref()),
         }))
         .await;
     match sent? {

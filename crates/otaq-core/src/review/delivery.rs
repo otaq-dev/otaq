@@ -262,12 +262,14 @@ impl Review {
     }
 
     /// **Send back with PR comments** (FLW-16): a ticket whose PR is open goes back to its nearest earlier Agent
-    /// stage with `address-review` and the optional `note`. `clear_first` is the user's "Clear it and send" after a
-    /// "needs confirmation" answer. An epic adds a child instead ([`add_child_from_pr`]).
+    /// stage with `address-review`; the optional `note` (with `report`, the dialog's pasted text) is the user's comment
+    /// (CMT-05). `clear_first` is the user's "Clear it and send" after a "needs confirmation" answer. An epic adds a
+    /// child instead ([`add_child_from_pr`]).
     pub async fn send_back_pr(
         &self,
         key: &str,
         note: &str,
+        report: Option<crate::board::reports::ReportSource>,
         clear_first: bool,
         actor: &Actor,
     ) -> Result<ReturnOutcome, BoardError> {
@@ -291,7 +293,15 @@ impl Review {
                 ),
             ));
         }
-        self.return_to_agent(&ticket, Return::PrComments { note }, clear_first, actor)
+        let hand_over = self
+            .inner
+            .board
+            .user_hand_over(&ticket, note, report, actor)
+            .await?;
+        let action = Return::PrComments {
+            hand_over: hand_over.as_ref(),
+        };
+        self.return_to_agent(&ticket, action, clear_first, actor)
             .await
     }
 }

@@ -255,7 +255,7 @@ impl Board {
         .execute(&mut *tx)
         .await?;
         sqlx::query(
-            "INSERT INTO reviews (id, ticket_id, round, action, note, at) VALUES (?, ?, ?, 'approve_local', NULL, ?)",
+            "INSERT INTO reviews (id, ticket_id, round, action, at) VALUES (?, ?, ?, 'approve_local', ?)",
         )
         .bind(new_id())
         .bind(&ticket.id)

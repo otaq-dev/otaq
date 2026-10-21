@@ -5,6 +5,7 @@
 //! choices), the stage runs of a full run of NOTE-4, and no column left in the core. `claude` stands in as `sh`;
 //! every data folder is temporary.
 
+use otaq_core::service::testing::said;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -798,7 +799,7 @@ async fn a_full_run_records_every_stage() {
         .validation
         .submit(
             key,
-            "Search works.",
+            said(&w.board, key, "Search works.").await.as_ref(),
             &Actor::Agent(t.key.clone()),
             ValidationTrigger::Agent,
         )
@@ -814,7 +815,12 @@ async fn a_full_run_records_every_stage() {
         .expect("a validator runs");
     let reviewed = w
         .validation
-        .verdict(key, true, "All good.", &validator.id)
+        .verdict(
+            key,
+            true,
+            said(&w.board, key, "All good.").await.as_ref(),
+            &validator.id,
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -912,7 +918,7 @@ async fn skipped_and_failed_runs() {
         .await
         .unwrap();
     w.review
-        .fail("NOTE-1", "Use a comma", false, &me())
+        .fail("NOTE-1", "Use a comma", None, false, &me())
         .await
         .unwrap();
     let runs: Vec<_> = w

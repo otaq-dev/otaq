@@ -3,7 +3,11 @@
 /**
  * Send back: the pending comments and the note go to the agent; `clear` is "Clear it and send" (d0048).
  */
-export type SendBackParams = { key: string, note: string, clear: boolean, 
+export type SendBackParams = { key: string, note: string, 
+/**
+ * Text pasted into the note as its report (CMT-13).
+ */
+report?: string, clear: boolean, 
 /**
  * How many comments it sends, for the unsent-text question's wording.
  */

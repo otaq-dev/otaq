@@ -112,14 +112,15 @@ impl Review {
         Ok(plan)
     }
 
-    /// **`otaq stage done`** (AGM-10): ends a ticket in an Agent stage as Done · Closed · nothing to merge, `reason`
-    /// on its stage run and in History. Refused for an epic, outside an Agent stage, and when the ticket's branch has
-    /// commits beyond its base. `own_session` is the calling session: when it is the ticket's agent, the Done cleanup
-    /// (which ends that session) waits for its turn to end ([`Review::after_agent_turn`]).
+    /// **`otaq stage done`** (AGM-10): ends a ticket in an Agent stage as Done · Closed · nothing to merge, the reason
+    /// being the agent's comment (`hand_over`, CMT-05) and History's line. Refused for an epic, outside an Agent stage,
+    /// and when the ticket's branch has commits beyond its base. `own_session` is the calling session: when it is the
+    /// ticket's agent, the Done cleanup (which ends that session) waits for its turn to end
+    /// ([`Review::after_agent_turn`]).
     pub async fn stage_done(
         &self,
         key: &str,
-        reason: &str,
+        hand_over: Option<&crate::board::hand_over::HandOver>,
         own_session: Option<&str>,
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
@@ -150,10 +151,19 @@ impl Review {
                 has_commits_message(&ticket.key.to_string(), commits),
             ));
         }
-        let reason = reason.trim();
+        let reason = hand_over.map_or("", |h| h.body.as_str());
         let mut tx = board.store().begin_write().await?;
-        crate::board::stage_runs::end_open(&mut tx, &ticket.id, RunResult::Done, Some(reason))
-            .await?;
+        let posted = match hand_over {
+            Some(h) => Some(h.post(&mut tx, &ticket.id, actor).await?),
+            None => None,
+        };
+        crate::board::stage_runs::end_open(
+            &mut tx,
+            &ticket.id,
+            RunResult::Done,
+            posted.as_ref().map(|p| p.id.as_str()),
+        )
+        .await?;
         close_bookkeeping_noting(
             &mut tx,
             &ticket.id,

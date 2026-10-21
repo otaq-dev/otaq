@@ -6,6 +6,7 @@
 //! The service frees on the events a request publishes (`ticket.submit_by_user` here). Tests that call the
 //! services directly announce the status themselves, as a request would ([`announce`]).
 
+use otaq_core::service::testing::said;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -322,7 +323,7 @@ async fn with_validation_on_the_build_is_freed_only_after_the_pass() {
         .validation
         .submit(
             &key,
-            "Cart totals add up.",
+            said(&w.board, &key, "Cart totals add up.").await.as_ref(),
             &Actor::Agent(t.key.clone()),
             ValidationTrigger::Agent,
         )
@@ -341,7 +342,12 @@ async fn with_validation_on_the_build_is_freed_only_after_the_pass() {
         .id;
     let passed = w
         .validation
-        .verdict(&key, true, "ok", &validator)
+        .verdict(
+            &key,
+            true,
+            said(&w.board, &key, "ok").await.as_ref(),
+            &validator,
+        )
         .await
         .unwrap();
     assert_eq!(passed.status, Status::WaitingForYou);
@@ -540,7 +546,7 @@ async fn free_and_auto_merge_never_both_move_the_build() {
     w.validation
         .submit(
             &key,
-            "done",
+            said(&w.board, &key, "done").await.as_ref(),
             &Actor::Agent(t.key.clone()),
             ValidationTrigger::Agent,
         )
@@ -565,7 +571,12 @@ async fn free_and_auto_merge_never_both_move_the_build() {
     };
     let merged = w
         .validation
-        .verdict(&key, true, "ok", &validator)
+        .verdict(
+            &key,
+            true,
+            said(&w.board, &key, "ok").await.as_ref(),
+            &validator,
+        )
         .await
         .unwrap();
     assert_eq!(merged.status, Status::Merged);

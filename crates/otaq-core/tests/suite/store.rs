@@ -380,11 +380,10 @@ async fn one_row_round_trips_through_every_table() {
     assert_eq!(row.get::<Option<i64>, _>("deleted_at"), None);
 
     sqlx::query(
-        "INSERT INTO reviews (id, ticket_id, round, action, note, at) VALUES (?, ?, 1, 'send_back', ?, ?)",
+        "INSERT INTO reviews (id, ticket_id, round, action, at) VALUES (?, ?, 1, 'send_back', ?)",
     )
     .bind(new_id())
     .bind(&t18.id)
-    .bind("Please add a test")
     .bind(at)
     .execute(pool)
     .await
@@ -540,7 +539,7 @@ async fn one_row_round_trips_through_every_table() {
 
     sqlx::query(
         "INSERT INTO validations (id, ticket_id, round, trigger, session_id, started_at, ended_at, outcome, \
-         report, notes_json, head_sha) VALUES (?, ?, 1, 'agent', NULL, ?, ?, 'fail', 'cart.ts:12 off by one', '[]', 'abc')",
+         reason, notes_json, head_sha) VALUES (?, ?, 1, 'agent', NULL, ?, ?, 'fail', 'cart.ts:12 off by one', '[]', 'abc')",
     )
     .bind(new_id())
     .bind(&t18.id)
@@ -549,7 +548,7 @@ async fn one_row_round_trips_through_every_table() {
     .execute(pool)
     .await
     .unwrap();
-    let report: String = sqlx::query_scalar("SELECT report FROM validations WHERE ticket_id = ?")
+    let report: String = sqlx::query_scalar("SELECT reason FROM validations WHERE ticket_id = ?")
         .bind(&t18.id)
         .fetch_one(pool)
         .await

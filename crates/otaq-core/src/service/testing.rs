@@ -665,7 +665,9 @@ impl TestService {
 /// a `LaunchContext` whose `claude` is `sh`): a message typed into it runs as commands. On Windows, cargo puts the
 /// build folders (`target/debug`, with the real `otaq`, and its `deps`) on PATH for the tests; without them, as on
 /// macOS and Linux, a message's `otaq answer … --stdin` (or a lead's `otaq note … --stdin`) fails at once instead of
-/// reading the next command typed into the shell as its input.
+/// reading the next command typed into the shell as its input. Any other folder holding an `otaq` (one installed with
+/// `scripts/install-local.sh`, say `~/.local/bin`) goes too: what Otaq types into a returning agent names `` `otaq
+/// prime` ``, which `sh` runs as a command substitution, and no test may run a real `otaq` against its data folder.
 pub fn path_without_build_folders() -> String {
     let test = std::env::current_exe().expect("the test's path");
     let build: Vec<PathBuf> = test
@@ -674,8 +676,11 @@ pub fn path_without_build_folders() -> String {
         .take(2)
         .map(Path::to_path_buf)
         .collect();
+    let otaq = format!("{}{}", naming::COMMAND_NAME, std::env::consts::EXE_SUFFIX);
     let path = std::env::var_os("PATH").unwrap_or_default();
-    let kept = std::env::split_paths(&path).filter(|dir| !build.contains(dir));
+    let kept = std::env::split_paths(&path)
+        .filter(|dir| !build.contains(dir))
+        .filter(|dir| !dir.join(&otaq).exists());
     std::env::join_paths(kept)
         .expect("PATH entries")
         .to_string_lossy()
@@ -834,4 +839,25 @@ async fn wait_for_file(path: &Path, limit: Duration) -> Option<String> {
     })
     .await
     .ok()
+}
+
+/// Tests that drive the board without a session: `text` as an agent's hand-over on `key` (its `stage next` summary or
+/// a verdict, CMT-05), by an agent with no session facts; `None` when `text` is empty.
+pub async fn said(
+    board: &Board,
+    key: &str,
+    text: &str,
+) -> Option<crate::board::hand_over::HandOver> {
+    let ticket = board.ticket(key).await.expect("the ticket");
+    let author = crate::board::ticket_comments::CommentAuthor::Agent {
+        id: None,
+        name: None,
+        tool: None,
+        stage: None,
+        round: None,
+    };
+    board
+        .hand_over(&ticket, author, text, None)
+        .await
+        .expect("a hand-over within the limit")
 }

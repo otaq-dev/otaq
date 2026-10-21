@@ -248,6 +248,10 @@ pub struct SendBackParams {
     pub key: String,
     #[serde(default)]
     pub note: String,
+    /// Text pasted into the note as its report (CMT-13).
+    #[serde(default)]
+    #[ts(optional)]
+    pub report: Option<String>,
     #[serde(default)]
     pub clear: bool,
     /// How many comments it sends, for the unsent-text question's wording.
@@ -259,7 +263,12 @@ pub async fn send_back(app: &App, params: SendBackParams) -> Result<Sent, Reques
     let key = key_of(&params.key)?;
     match app
         .service
-        .send(sb::request(&key, &params.note, params.clear))
+        .send(sb::request(
+            &key,
+            &params.note,
+            params.report.as_deref(),
+            params.clear,
+        ))
         .await
     {
         Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. })) => {
@@ -353,6 +362,10 @@ pub struct SendBackPrParams {
     pub key: String,
     #[serde(default)]
     pub note: String,
+    /// Text pasted into the note as its report (CMT-13).
+    #[serde(default)]
+    #[ts(optional)]
+    pub report: Option<String>,
     #[serde(default)]
     pub clear: bool,
 }
@@ -363,6 +376,7 @@ pub async fn send_back_pr(app: &App, params: SendBackPrParams) -> Result<Sent, R
         key: key.to_string(),
         note: params.note.trim().to_owned(),
         clear_first: params.clear,
+        report: sb::pasted_report(params.report.as_deref()),
     });
     match app.service.send(request).await {
         Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. })) => {

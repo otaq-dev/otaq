@@ -5,6 +5,7 @@
 //! d0108: "Otaq has no code path only presets use … The shipped files are its test cases". `claude` stands in as an
 //! `sh` that prints its arguments and then echoes what is typed; `origin` is a local bare repository.
 
+use otaq_core::service::testing::said;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -174,7 +175,7 @@ async fn stage_next(w: &TestService, t: &Ticket, summary: &str) -> Ticket {
     w.validation
         .submit(
             &t.key.to_string(),
-            summary,
+            said(&w.board, &t.key.to_string(), summary).await.as_ref(),
             &Actor::Agent(t.key.clone()),
             ValidationTrigger::Agent,
         )
@@ -200,7 +201,12 @@ async fn dev_and_validate(w: &TestService, t: &Ticket, file: &str) -> Ticket {
     w.wait_for_output(&checker.id, &format!("/{}", naming::copy_name("validate")))
         .await;
     w.validation
-        .verdict(&key, true, "ok", &checker.id)
+        .verdict(
+            &key,
+            true,
+            said(&w.board, &key, "ok").await.as_ref(),
+            &checker.id,
+        )
         .await
         .unwrap()
 }

@@ -5,12 +5,15 @@
 //! delivery choices (today's Approve → Local merge / Open PR).
 //!
 //! **Fail** ([`Review::fail`], Send back on the default flow) returns a ticket waiting in a human check to the nearest
-//! earlier Agent stage with the round's comments and note (d0034, d0108 rule 6); it then walks every later stage
-//! again. The click is the go-ahead (d0018), so it is never held, except by the optional agent limit:
-//! - the session is **live**: `/otaq-address-review` is typed into it, copied into the worktree first (AGM-07), at once through the user-click path
-//!   (unsent text in its input line answers "needs confirmation" first, d0048) and the ticket is Agent Working;
+//! earlier Agent stage with the round's line comments and the note, the note posted first as the user's comment
+//! (d0034, d0108 rule 6, d0109); it then walks every later stage again. The click is the go-ahead (d0018), so it is
+//! never held, except by the optional agent limit:
+//! - the session is **live**: `/otaq-address-review` is typed into it, copied into the worktree first (AGM-07), with
+//!   what came back and never its text ("SHOP-18 was sent back to Dev with 2 line comments and a comment. Run `otaq
+//!   prime`, then `otaq review feedback`.", CMT-05), at once through the user-click path (unsent text in its input
+//!   line answers "needs confirmation" first, d0048) and the ticket is Agent Working;
 //! - the session is **gone**: the same click resumes the stored conversation on its tool, in the
-//!   ticket's worktree with the skill as its first prompt;
+//!   ticket's worktree with the skill and that text as its first prompt;
 //! - the agent limit is **on and full**: the ticket waits in Queued; the scheduler starts it when a slot frees,
 //!   and the skill is typed (or the conversation resumed) then.
 //!
@@ -34,6 +37,8 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use crate::board::conflicts::{Conflict, ConflictReason};
+use crate::board::hand_over::{HandOver, settled};
+use crate::board::reports::ReportSource;
 use crate::board::review::{ApproveCheck, EPIC_NO_SEND_BACK};
 use crate::board::tickets::Ticket;
 use crate::board::validation::Transition;
@@ -175,13 +180,15 @@ impl Review {
         &self.inner.board
     }
 
-    /// **Fail** on a human check (FLW-14; Send back on the default flow, REV-04): the pending comments and `note`
-    /// go to the nearest earlier Agent stage's session, which continues there; every agent check's counter restarts.
-    /// `clear_first` is the user's "Clear it and send" after a "needs confirmation" answer.
+    /// **Fail** on a human check (FLW-14; Send back on the default flow, REV-04): `note` (with `report`, the dialog's
+    /// pasted text) is the user's comment and the pending line comments go with it to the nearest earlier Agent
+    /// stage's session, which continues there; every agent check's counter restarts. `clear_first` is the user's
+    /// "Clear it and send" after a "needs confirmation" answer. A note over the limit refuses the whole Fail.
     pub async fn fail(
         &self,
         key: &str,
         note: &str,
+        report: Option<ReportSource>,
         clear_first: bool,
         actor: &Actor,
     ) -> Result<ReturnOutcome, BoardError> {
@@ -199,7 +206,15 @@ impl Review {
                 ),
             ));
         }
-        self.return_to_agent(&ticket, Return::SendBack { note }, clear_first, actor)
+        let hand_over = self
+            .inner
+            .board
+            .user_hand_over(&ticket, note, report, actor)
+            .await?;
+        let action = Return::SendBack {
+            hand_over: hand_over.as_ref(),
+        };
+        self.return_to_agent(&ticket, action, clear_first, actor)
             .await
     }
 
@@ -245,6 +260,7 @@ impl Review {
                     &into,
                     &head,
                     PASSED_BY_YOU,
+                    None,
                     ValidationTrigger::User,
                     false,
                     actor,
@@ -480,8 +496,9 @@ impl Review {
         Ok(status.limits.enabled && status.holding >= status.limits.max_concurrency.max(1))
     }
 
-    /// The action's bookkeeping: moves the ticket to `to` (Agent Working or Queued) with the skill still to
-    /// run, if any.
+    /// The action's bookkeeping: posts the user's comment, moves the ticket to `to` (Agent Working or Queued) with the
+    /// skill still to run, if any. Returns what the agent is told after the skill (stored already for a queued
+    /// ticket).
     async fn record(
         &self,
         ticket: &Ticket,
@@ -489,33 +506,49 @@ impl Review {
         to: Status,
         skill: Option<&str>,
         actor: &Actor,
-    ) -> Result<(), BoardError> {
+    ) -> Result<Option<String>, BoardError> {
         let board = &self.inner.board;
         match action {
-            Return::SendBack { note } => board
-                .record_send_back(ticket, note, to, skill, actor)
+            Return::SendBack { hand_over } => board
+                .record_send_back(ticket, *hand_over, to, skill, actor)
                 .await
-                .map(|_| ()),
-            Return::Fix { target } => {
-                board
-                    .record_conflict_fix(ticket, target, to, skill, actor)
-                    .await
-            }
-            Return::PrComments { note } => {
-                board
-                    .record_send_back_pr(ticket, note, to, skill, actor)
-                    .await
-            }
+                .map(|sent| sent.told),
+            Return::Fix { target } => board
+                .record_conflict_fix(ticket, target, to, skill, actor)
+                .await
+                .map(|()| None),
+            Return::PrComments { hand_over } => board
+                .record_send_back_pr(ticket, *hand_over, to, skill, actor)
+                .await
+                .map(Some),
             Return::DragBack(back) => back.record(board, ticket, to, skill, actor).await,
         }
     }
 
     /// Returns a ticket to its agent with the action's skill: types it into the live session, resumes the
-    /// conversation with it, or queues the ticket while the limit is full.
+    /// conversation with it, or queues the ticket while the limit is full. The user's comment's report, if any, is
+    /// discarded when nothing was posted (unsent text asked first, or a refusal).
     async fn return_to_agent(
         &self,
         ticket: &Ticket,
         action: Return<'_>,
+        clear_first: bool,
+        actor: &Actor,
+    ) -> Result<ReturnOutcome, BoardError> {
+        let hand_over = action.hand_over();
+        let outcome = self.return_with(ticket, &action, clear_first, actor).await;
+        if matches!(outcome, Ok(ReturnOutcome::NeedsConfirmation { .. }))
+            && let Some(hand_over) = hand_over
+        {
+            hand_over.discard_unposted(&self.inner.board).await;
+        }
+        settled(&self.inner.board, hand_over, outcome).await
+    }
+
+    async fn return_with(
+        &self,
+        ticket: &Ticket,
+        action: &Return<'_>,
         clear_first: bool,
         actor: &Actor,
     ) -> Result<ReturnOutcome, BoardError> {
@@ -542,7 +575,7 @@ impl Review {
         let key = ticket.key.to_string();
         match (&live, full) {
             (_, true) => {
-                self.record(ticket, &action, Status::Queued, Some(skill), actor)
+                self.record(ticket, action, Status::Queued, Some(skill), actor)
                     .await?;
                 inner.scheduler.wake();
             }
@@ -553,17 +586,23 @@ impl Review {
                     .ticket_env
                     .fetch_for_agent(ticket, action.fetch_why(), actor)
                     .await;
-                self.record(ticket, &action, Status::Working, None, actor)
+                let told = self
+                    .record(ticket, action, Status::Working, None, actor)
                     .await?;
                 let worktree = ticket
                     .work
                     .as_ref()
                     .and_then(|w| w.worktree.as_deref())
                     .map(std::path::Path::new);
-                let text = inner
+                let skill_line = inner
                     .deliveries
                     .skill_line(&inner.board, &session.id, worktree, skill)
                     .await;
+                // The skill, then what came back (never the note's text: the agent reads it in `prime`, CMT-05).
+                let text = match told {
+                    Some(told) => format!("{skill_line} {told}"),
+                    None => skill_line,
+                };
                 let typed = if clear_first {
                     inner
                         .deliveries
@@ -585,7 +624,7 @@ impl Review {
                 }
             }
             (None, false) => {
-                self.record(ticket, &action, Status::Queued, Some(skill), actor)
+                self.record(ticket, action, Status::Queued, Some(skill), actor)
                     .await?;
                 match inner.starter.start(&key, actor).await? {
                     StartOutcome::Started(_) | StartOutcome::Skipped => {}
@@ -603,22 +642,25 @@ impl Review {
 
 /// What returns a ticket to its agent.
 enum Return<'a> {
-    SendBack {
-        note: &'a str,
-    },
+    /// The user's note as their comment, if they wrote one.
+    SendBack { hand_over: Option<&'a HandOver> },
     /// A Delivery's conflict (FLW-17).
-    Fix {
-        target: &'a str,
-    },
+    Fix { target: &'a str },
     /// Send back with PR comments (FLW-16): the agent reads them with `otaq review feedback`.
-    PrComments {
-        note: &'a str,
-    },
+    PrComments { hand_over: Option<&'a HandOver> },
     /// A drag back to an earlier Agent stage with the user's instructions (FLW-18).
     DragBack(drag::Back<'a>),
 }
 
-impl Return<'_> {
+impl<'a> Return<'a> {
+    fn hand_over(&self) -> Option<&'a HandOver> {
+        match self {
+            Self::SendBack { hand_over } | Self::PrComments { hand_over } => *hand_over,
+            Self::DragBack(back) => back.hand_over,
+            Self::Fix { .. } => None,
+        }
+    }
+
     fn skill(&self) -> &'static str {
         match self {
             Self::SendBack { .. } | Self::PrComments { .. } | Self::DragBack(_) => {

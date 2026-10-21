@@ -5,6 +5,7 @@
 //! Delivery is then in click mode with the reason. Skip this check is offered on a check held for the plan limit only
 //! when no fallback can take it, never on a held Agent stage. `claude` stands in as `sh` printing its arguments.
 
+use otaq_core::service::testing::said;
 use std::path::Path;
 use std::time::Duration;
 
@@ -71,7 +72,9 @@ async fn submit(w: &TestService, t: &Ticket) -> Ticket {
     w.validation
         .submit(
             &t.key.to_string(),
-            "Search works.",
+            said(&w.board, &t.key.to_string(), "Search works.")
+                .await
+                .as_ref(),
             &Actor::Agent(t.key.clone()),
             ValidationTrigger::Agent,
         )
@@ -97,7 +100,13 @@ async fn verdict(w: &TestService, t: &Ticket, pass: bool) -> Ticket {
         .verdict(
             &t.key.to_string(),
             pass,
-            "- src/search.rs:3 unescaped SQL",
+            said(
+                &w.board,
+                &t.key.to_string(),
+                "- src/search.rs:3 unescaped SQL",
+            )
+            .await
+            .as_ref(),
             &session.id,
         )
         .await
@@ -253,7 +262,7 @@ async fn a_human_fail_resets_both_checks_counters() {
     assert!(qa.flags.moved_past_check.is_some());
 
     w.review
-        .fail(&t.key.to_string(), "Escape the query", false, &me())
+        .fail(&t.key.to_string(), "Escape the query", None, false, &me())
         .await
         .unwrap();
     assert!(w.board.check_counts(&t.id).await.unwrap().0.is_empty());
@@ -529,8 +538,8 @@ async fn a_cancel_and_stop_this_check_on_security_count_nothing() {
     w.stop().await;
 }
 
-/// Q344: what Dev's session is told names the check, not "Validation": Security's findings ("Security failed (round 1
-/// of 2) … run `otaq stage next` again") and Security's cancel when the description changes.
+/// Q344: what Dev's session is told names the check, not "Validation": Security's fail ("Security failed round 1. Run
+/// `otaq prime`.", the findings being Security's comment, CMT-05) and Security's cancel when the description changes.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_messages_to_dev_name_the_check() {
     let w = world(|_| {}).await;
@@ -554,10 +563,7 @@ async fn the_messages_to_dev_name_the_check() {
     verdict(&w, &t, false).await;
     assert_eq!(
         told(&w).await.last().map(String::as_str),
-        Some(
-            "Security failed (round 1 of 2). Fix these, commit, and run `otaq stage next` again:\n\n\
-             - src/search.rs:3 unescaped SQL"
-        )
+        Some("Security failed round 1. Run `otaq prime`.")
     );
 
     submit(&w, &t).await;

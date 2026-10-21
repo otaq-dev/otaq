@@ -19,7 +19,8 @@
 //! **Returning to Dev** (Send back, a Delivery's conflict, a parked ticket dragged back) goes through the same
 //! sequence, but the ticket already has its worktree: base sync, env files and setup are skipped while the
 //! worktree is there, and step 7 continues the stored conversation (its tool's resume) instead of starting
-//! a new one, with the skill still to run (`resume_skill`, or an inbox answer in `resume_prompt`) as its first
+//! a new one, with the skill still to run (`resume_skill`, followed by what came back in `resume_prompt`: "SHOP-18 was
+//! sent back to Dev with a comment. Run `otaq prime`.", CMT-05; or an inbox answer in `resume_prompt`) as its first
 //! prompt; both stay stored until the agent's first hook or command shows the conversation got them. If the agent's session is still
 //! live, it is reused and the skill waits as an automatic delivery for an empty input line (d0048). A returning
 //! ticket whose build was freed at Review gets it back before its ports and agent ([`TicketEnv::fetch_build`],
@@ -752,10 +753,19 @@ impl Starter {
                         Marker::Worktree,
                     )
                     .await;
-                let text = inner
+                let skill_line = inner
                     .adapters
                     .of_session(running.tool)
                     .skill_reference(written.runs.as_deref().unwrap_or(skill));
+                // What came back follows the skill (CMT-05), never a note's text.
+                let text = match returning
+                    .as_ref()
+                    .and_then(|r| r.prompt.as_deref())
+                    .filter(|p| !p.trim().is_empty())
+                {
+                    Some(told) => format!("{skill_line} {told}"),
+                    None => skill_line,
+                };
                 deliveries
                     .queue_delivery(&running.id, DeliveryKind::Skill, &text)
                     .await
@@ -1118,21 +1128,23 @@ struct Returning {
     /// The skill to run once the agent is live (`address-review`, `restack`); `None` for a parked ticket.
     skill: Option<String>,
     /// The user's answer from the inbox to an Interrupted question (ATT-08), sent as the resumed
-    /// conversation's first prompt.
+    /// conversation's first prompt; with a skill, what follows it (a Send back's "SHOP-18 was sent back to Dev with
+    /// a comment. Run `otaq prime`.", CMT-05).
     prompt: Option<String>,
     /// The conversation of its latest agent session, continued with its tool's resume.
     conversation: Option<StoredConversation>,
 }
 
 impl Returning {
-    /// What the resumed conversation gets first: the inbox answer, else the skill.
+    /// What the resumed conversation gets first: the skill followed by its text, else the inbox answer.
     fn first_prompt(&self) -> Option<FirstPrompt> {
-        self.prompt.clone().map(FirstPrompt::Text).or_else(|| {
-            self.skill.clone().map(|name| FirstPrompt::Skill {
-                name,
-                message: None,
-            })
-        })
+        match (&self.skill, &self.prompt) {
+            (Some(name), message) => Some(FirstPrompt::Skill {
+                name: name.clone(),
+                message: message.clone(),
+            }),
+            (None, prompt) => prompt.clone().map(FirstPrompt::Text),
+        }
     }
 }
 

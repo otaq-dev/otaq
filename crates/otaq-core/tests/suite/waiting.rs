@@ -4,6 +4,7 @@
 //! Dev. The limit counts every ticket with a live agent session, whatever its stage (an agent check, a PR Delivery
 //! session), and no waiting card. `claude` stands in as `sh`; every data folder is temporary.
 
+use otaq_core::service::testing::said;
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -431,7 +432,9 @@ async fn a_ticket_finishing_grill_waits_for_a_slot_before_dev() {
         .validation
         .submit(
             "NOTE-1",
-            "Agreed: CSV with a header row.",
+            said(&w.board, "NOTE-1", "Agreed: CSV with a header row.")
+                .await
+                .as_ref(),
             &Actor::Agent(grilled.key.clone()),
             ValidationTrigger::Agent,
         )

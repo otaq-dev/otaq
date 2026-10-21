@@ -511,35 +511,54 @@ fn render_lead_questions(waiting: &[otaq_core::epic_lead::questions::LeadQuestio
         .join("\n\n")
 }
 
-/// `otaq stage next [KEY] --stdin` (and `otaq review submit`): the agent ends its stage with a summary; the answer
-/// names the stage it finished and what comes next (AGM-10).
+/// `otaq stage next [KEY] --stdin [--report-file PATH]` (and `otaq review submit`): the agent ends its stage with a
+/// summary, its comment (CMT-05); the answer names the stage it finished and what comes next (AGM-10).
 pub fn stage_next(
     key: Option<String>,
     stdin: bool,
+    report_file: Option<std::path::PathBuf>,
     global: &GlobalArgs,
     out: &Output,
 ) -> Result<(), ErrorBody> {
-    end_stage(key, stdin, global, out, Request::TicketStageNext)
+    end_stage(
+        key,
+        stdin,
+        report_file,
+        global,
+        out,
+        Request::TicketStageNext,
+    )
 }
 
-/// `otaq stage done [KEY] --stdin`: nothing to deliver, the ticket is Closed · nothing to merge with the reason
-/// (AGM-10).
+/// `otaq stage done [KEY] --stdin [--report-file PATH]`: nothing to deliver, the ticket is Closed · nothing to merge
+/// with the reason as the agent's comment (AGM-10, CMT-05).
 pub fn stage_done(
     key: Option<String>,
     stdin: bool,
+    report_file: Option<std::path::PathBuf>,
     global: &GlobalArgs,
     out: &Output,
 ) -> Result<(), ErrorBody> {
-    end_stage(key, stdin, global, out, Request::TicketStageDone)
+    end_stage(
+        key,
+        stdin,
+        report_file,
+        global,
+        out,
+        Request::TicketStageDone,
+    )
 }
 
 fn end_stage(
     key: Option<String>,
     stdin: bool,
+    report_file: Option<std::path::PathBuf>,
     global: &GlobalArgs,
     out: &Output,
     request: fn(StageEndParams) -> Request,
 ) -> Result<(), ErrorBody> {
+    // A missing report refuses the stage end before anything is read or sent (CMT-06).
+    let report_file = crate::comment::report_source(report_file)?;
     let summary = if stdin { read_stdin()? } else { String::new() };
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
     service::runtime()?.block_on(async {
@@ -549,6 +568,7 @@ fn end_stage(
             .request(request(StageEndParams {
                 key: key.to_string(),
                 summary,
+                report_file,
             }))
             .await
             .map_err(client_error)?
@@ -633,8 +653,6 @@ fn render_pr_comments(pr: &otaq_core::pr::comments::PrFeedback) -> String {
 /// ```text
 /// SHOP-27 · feedback from round 2
 ///
-/// Note: Also check page 0.
-///
 /// lib/search.ts
 ///   12: Use the page size from settings.
 ///   40 (removed line): Why was this removed?
@@ -647,16 +665,13 @@ pub fn render_feedback(f: &otaq_core::board::comments::ReviewFeedback) -> String
     out.trim_end().to_owned()
 }
 
-/// The in-app part: the latest Send back's note and line comments.
+/// The in-app part: the latest Send back's line comments (its note is a ticket comment, in `prime`).
 fn render_review_feedback(f: &otaq_core::board::comments::ReviewFeedback) -> String {
     use otaq_core::board::comments::Side;
     if f.round == 0 {
         return format!("{} has no review feedback: it was never sent back.", f.key);
     }
     let mut out = format!("{} · feedback from round {}\n", f.key, f.round);
-    if let Some(note) = &f.note {
-        out.push_str(&format!("\nNote: {note}\n"));
-    }
     if f.comments.is_empty() {
         out.push_str("\nNo line comments.\n");
     }
@@ -684,17 +699,19 @@ fn render_review_feedback(f: &otaq_core::board::comments::ReviewFeedback) -> Str
     out.trim_end().to_owned()
 }
 
-/// `otaq check pass|fail --stdin` (VAL-03, CLI-05, AGM-10): an agent check's verdict and report on its ticket
-/// (`$OTAQ_TICKET`). Only the check's session may give one.
+/// `otaq check pass|fail --stdin [--report-file PATH]` (VAL-03, CLI-05, AGM-10): an agent check's verdict on its
+/// ticket (`$OTAQ_TICKET`), its text the checker's comment and the file its report (CMT-05, CMT-06). Only the check's
+/// session may give one.
 pub fn check(
     command: crate::cli::CheckCommand,
     global: &GlobalArgs,
     out: &Output,
 ) -> Result<(), ErrorBody> {
-    let (pass, stdin) = match command {
-        crate::cli::CheckCommand::Pass { stdin } => (true, stdin),
-        crate::cli::CheckCommand::Fail { stdin } => (false, stdin),
+    let (pass, stdin, report_file) = match command {
+        crate::cli::CheckCommand::Pass { stdin, report_file } => (true, stdin, report_file),
+        crate::cli::CheckCommand::Fail { stdin, report_file } => (false, stdin, report_file),
     };
+    let report_file = crate::comment::report_source(report_file)?;
     let report = if stdin { read_stdin()? } else { String::new() };
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
     service::runtime()?.block_on(async {
@@ -708,6 +725,7 @@ pub fn check(
                     key: key.to_string(),
                     pass,
                     report,
+                    report_file,
                 },
             ))
             .await
@@ -780,7 +798,6 @@ mod tests {
         ReviewFeedback {
             key: "SHOP-26".parse().unwrap(),
             round: 0,
-            note: None,
             comments: Vec::new(),
             pr,
         }

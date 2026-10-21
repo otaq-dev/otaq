@@ -456,6 +456,7 @@ pub(super) async fn handle(
             let project = project_of(&p.key);
             let answers = crate::review::drag::DragAnswers {
                 note: &p.note,
+                report: p.report.as_ref(),
                 confirmed: p.confirmed,
                 clear_first: p.clear_first,
             };
@@ -535,7 +536,9 @@ pub(super) async fn handle(
             mutate(
                 shared,
                 &project,
-                shared.review.fail(&p.key, &p.note, p.clear_first, &actor),
+                shared
+                    .review
+                    .fail(&p.key, &p.note, p.report.clone(), p.clear_first, &actor),
             )
             .await
             .map(Reply::Returned)
@@ -585,9 +588,13 @@ pub(super) async fn handle(
             mutate(
                 shared,
                 &project,
-                shared
-                    .review
-                    .send_back_pr(&p.key, &p.note, p.clear_first, &actor),
+                shared.review.send_back_pr(
+                    &p.key,
+                    &p.note,
+                    p.report.clone(),
+                    p.clear_first,
+                    &actor,
+                ),
             )
             .await
             .map(Reply::Returned)
@@ -670,18 +677,22 @@ pub(super) async fn handle(
             refuse_unprimed(board, caller, &p.key).await?;
             let project = project_of(&p.key);
             let before = board.ticket(&p.key).await?;
+            // The summary is the agent's comment (CMT-05): checked and its report copied before anything moves.
+            let hand_over = stage_end_hand_over(shared, caller, &actor, &before, &p).await?;
             // From M12 the submit starts a validator when validation is on for the project (VAL-01).
             let submitted = mutate(
                 shared,
                 &project,
                 Box::pin(shared.validation.submit(
                     &p.key,
-                    &p.summary,
+                    hand_over.as_ref(),
                     &actor,
                     crate::domain::ValidationTrigger::Agent,
                 )),
             )
             .await;
+            let submitted =
+                crate::board::hand_over::settled(board, hand_over.as_ref(), submitted).await;
             if submitted.is_ok()
                 && let Caller::Agent { session, .. } = caller
             {
@@ -704,16 +715,19 @@ pub(super) async fn handle(
                 Caller::Agent { session, .. } => Some(session.as_str()),
                 _ => None,
             };
+            let before = board.ticket(&p.key).await?;
+            let hand_over = stage_end_hand_over(shared, caller, &actor, &before, &p).await?;
             let done = mutate(
                 shared,
                 &project,
                 Box::pin(
                     shared
                         .review
-                        .stage_done(&p.key, &p.summary, own_session, &actor),
+                        .stage_done(&p.key, hand_over.as_ref(), own_session, &actor),
                 ),
             )
             .await;
+            let done = crate::board::hand_over::settled(board, hand_over.as_ref(), done).await;
             if done.is_ok()
                 && let Caller::Agent { session, .. } = caller
             {
@@ -733,17 +747,25 @@ pub(super) async fn handle(
             };
             board.refuse_unprimed(&p.key, session).await?;
             let project = project_of(&p.key);
-            mutate(
+            // The verdict is the checker's comment (CMT-05), refused whole when too long or its report is missing.
+            let ticket = board.ticket(&p.key).await?;
+            let author = board.session_author(session).await?;
+            let hand_over = board
+                .hand_over(&ticket, author, &p.report, p.report_file.clone())
+                .await?;
+            let verdict = mutate(
                 shared,
                 &project,
                 Box::pin(
                     shared
                         .validation
-                        .verdict(&p.key, p.pass, &p.report, session),
+                        .verdict(&p.key, p.pass, hand_over.as_ref(), session),
                 ),
             )
-            .await
-            .map(|t| Reply::Ticket(Box::new(t)))
+            .await;
+            crate::board::hand_over::settled(board, hand_over.as_ref(), verdict)
+                .await
+                .map(|t| Reply::Ticket(Box::new(t)))
         }),
         Request::TicketValidationAction(p) => boxed(move || async move {
             let project = project_of(&p.key);
@@ -2142,6 +2164,22 @@ async fn comment_changed(
     Ok(Reply::ReviewComment(comment))
 }
 
+/// The comment an agent's `stage next` / `stage done` hands over (CMT-05, CMT-06): its summary with the
+/// `--report-file`, by the calling session's agent (the user's own terminal: the user). Refused before anything moves.
+async fn stage_end_hand_over(
+    shared: &Shared,
+    caller: &Caller,
+    actor: &Actor,
+    ticket: &crate::board::tickets::Ticket,
+    p: &crate::protocol::StageEndParams,
+) -> Result<Option<crate::board::hand_over::HandOver>, BoardError> {
+    let board = &shared.board;
+    let author = board.caller_author(caller, actor).await?;
+    board
+        .hand_over(ticket, author, &p.summary, p.report_file.clone())
+        .await
+}
+
 /// The ticket comment requests (CMT-01…CMT-06, d0109); the policy judged the caller first (CMT-04). Each change
 /// publishes `ticket_changed`.
 async fn ticket_comment_request(
@@ -2159,10 +2197,15 @@ async fn ticket_comment_request(
                 .map(Reply::TicketComments);
         }
         Request::TicketReport(p) => {
-            return board
-                .ticket_report(&p.key, p.n)
-                .await
-                .map(|r| Reply::TicketReport(Box::new(r)));
+            let report = board.ticket_report(&p.key, p.n).await?;
+            // A deleted comment's report is the user's (History); agents that start later never read it (Q375).
+            if report.deleted && !matches!(caller, Caller::User) {
+                return Err(BoardError::refused(
+                    Refusal::NotAllowed,
+                    format!("Comment {} on {} was deleted.", report.n, report.key),
+                ));
+            }
+            return Ok(Reply::TicketReport(Box::new(report)));
         }
         Request::TicketCommentPost(p) => {
             let author = board.caller_author(caller, actor).await?;

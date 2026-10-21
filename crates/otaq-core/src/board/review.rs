@@ -6,14 +6,15 @@
 //! never commits by itself (GIT-08). Otaq runs no tests or checks of its own (P5).
 //!
 //! On submit the service records the review head (`review_head_sha`, the worktree's `HEAD`) and when the ticket
-//! entered review (`review_entered_at`), for "changed since you reviewed it" later (T-0097), and the summary in the
-//! ticket's history, where `otaq prime` finds it for the tickets that depend on it: `review_submitted` ("Submitted for
-//! review") when the next stage is a human check, else `stage_finished` ("Finished Dev", Q263).
+//! entered review (`review_entered_at`), for "changed since you reviewed it" later (T-0097). The summary is the agent's
+//! comment on the ticket (CMT-05), posted with the move; History records `review_submitted` ("Submitted for review")
+//! when the next stage is a human check, else `stage_finished` ("Finished Dev", Q263).
 
 use std::path::Path;
 
 use serde_json::json;
 
+use super::hand_over::HandOver;
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, ReviewEntry, Status};
@@ -51,24 +52,8 @@ pub fn user_may_submit(ticket: &Ticket) -> Result<(), BoardError> {
     ))
 }
 
-/// The review summary of a user's submit: "Submitted by you", then the note.
-pub fn user_summary(note: &str) -> String {
-    let note = note.trim();
-    if note.is_empty() {
-        "Submitted by you".to_owned()
-    } else {
-        format!("Submitted by you\n\n{note}")
-    }
-}
-
-/// The note of a user's submit from its summary (what follows "Submitted by you").
-pub fn user_note(summary: &str) -> String {
-    summary
-        .strip_prefix("Submitted by you")
-        .unwrap_or(summary)
-        .trim()
-        .to_owned()
-}
+/// What History records for a user's Move to next stage; the user's note is their comment (CMT-05).
+pub const SUBMITTED_BY_YOU: &str = "Submitted by you";
 
 /// How an agent's stage ended (`otaq stage next` / `stage done`, AGM-10): the ticket afterwards and what the agent
 /// is told.
@@ -149,12 +134,12 @@ impl Board {
         }
     }
 
-    /// Moves a working ticket to Ready for Review with `summary`, unless its worktree has uncommitted files. A ticket
-    /// whose agent fixed a Delivery's conflict moves on the same way (FLW-17).
+    /// Moves a working ticket to Ready for Review with the agent's summary as its comment (`hand_over`), unless its
+    /// worktree has uncommitted files. A ticket whose agent fixed a Delivery's conflict moves on the same way (FLW-17).
     pub async fn submit_for_review(
         &self,
         key: &str,
-        summary: &str,
+        hand_over: Option<&HandOver>,
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
         let ticket = self.ticket(key).await?;
@@ -168,16 +153,17 @@ impl Board {
                 ),
             ));
         }
-        self.submit(ticket, summary, None, actor).await
+        let summary = hand_over.map_or("", |h| h.body.as_str()).to_owned();
+        self.submit(ticket, &summary, hand_over, None, actor).await
     }
 
     /// **Move to next stage** by the user (was Submit for review; CLS-05, d0052): when the agent isn't mid-turn
-    /// (Idle, Asks you, Needs you, Interrupted), with the same checks as the agent's submit. The summary reads
-    /// "Submitted by you" and the optional note; the session isn't stopped, so Send back works as usual.
+    /// (Idle, Asks you, Needs you, Interrupted), with the same checks as the agent's submit. The optional note is the
+    /// user's comment (`hand_over`, CMT-05); the session isn't stopped, so Send back works as usual.
     pub(crate) async fn submit_by_user(
         &self,
         key: &str,
-        note: &str,
+        hand_over: Option<&HandOver>,
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
         let ticket = self.ticket(key).await?;
@@ -185,7 +171,8 @@ impl Board {
         // Past no agent check ([`crate::validation::Validation::submit_by_user`] runs those): "Submitted by you".
         self.submit(
             ticket,
-            &user_summary(note),
+            SUBMITTED_BY_YOU,
+            hand_over,
             Some(crate::domain::ReviewEntry::SubmittedByUser),
             actor,
         )
@@ -219,10 +206,12 @@ impl Board {
             .to_owned())
     }
 
+    /// `summary` is History's line; the comment is `hand_over`'s, posted with the move.
     async fn submit(
         &self,
         ticket: Ticket,
         summary: &str,
+        hand_over: Option<&HandOver>,
         entry: Option<ReviewEntry>,
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
@@ -257,7 +246,12 @@ impl Board {
             )
         };
         let mut tx = self.store.begin_write().await?;
-        step.record(&mut tx, &ticket.id, Some(summary)).await?;
+        let posted = match hand_over {
+            Some(h) => Some(h.post(&mut tx, &ticket.id, actor).await?),
+            None => None,
+        };
+        step.record(&mut tx, &ticket.id, posted.as_ref().map(|p| p.id.as_str()))
+            .await?;
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = ?, state = ?,
                                 review_head_sha = CASE WHEN ? THEN review_head_sha ELSE ? END,

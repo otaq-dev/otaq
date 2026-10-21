@@ -1337,7 +1337,8 @@ pub struct LocalMergeParams {
     pub approve_anyway: bool,
 }
 
-/// `{"key": "SHOP-18", "note": "…"}`: a Fail's comments; `clear_first` is the user's "Clear it and send".
+/// `{"key": "SHOP-18", "note": "…"}`: a Fail's comments; `clear_first` is the user's "Clear it and send". The note
+/// is the user's comment (CMT-05), `report` a report attached to it (the dialog's pasted text, CMT-13).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FailParams {
     pub key: String,
@@ -1345,6 +1346,8 @@ pub struct FailParams {
     pub note: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub clear_first: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<crate::board::reports::ReportSource>,
 }
 
 /// `{"id": "…", "body": "…"}`: a reply to, or the new text of, a comment.
@@ -1394,12 +1397,14 @@ pub struct TicketCommentParams {
 }
 
 /// `{"key": "SHOP-18", "summary": "…"}`: how an agent ends its stage (`stage next`: the summary; `stage done`: the
-/// reason).
+/// reason), its comment (CMT-05); `report_file` (`{"path": "/abs/test-run.txt"}`) attaches a report (CMT-06).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageEndParams {
     pub key: String,
     #[serde(default)]
     pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report_file: Option<crate::board::reports::ReportSource>,
 }
 
 /// `{"key": "SHOP-32", "action": "answer_agent", "note": "…"}`.
@@ -1424,9 +1429,12 @@ pub struct NoteParams {
 pub struct VerdictParams {
     pub key: String,
     pub pass: bool,
-    /// The findings (one line each, file and line) and the notes.
+    /// The findings (one line each, file and line) and the notes: the checker's comment (CMT-05).
     #[serde(default)]
     pub report: String,
+    /// `--report-file`: the full output attached to the comment (CMT-06).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report_file: Option<crate::board::reports::ReportSource>,
 }
 
 /// `{"key": "SHOP-18", "proposal": "{…}"}`: the proposal as the skill wrote it.
@@ -1576,12 +1584,15 @@ pub struct DragParams {
     pub target: DropOn,
     #[serde(default)]
     pub confirmed: bool,
-    /// The instructions for the Agent stage, or the note for the check.
+    /// The instructions for the Agent stage, or the note for the check: the user's comment (CMT-05).
     #[serde(default)]
     pub note: String,
     /// "Clear it and send" after the unsent-text question (d0048).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub clear_first: bool,
+    /// A report attached to the note's comment (the dialog's pasted text, CMT-13).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<crate::board::reports::ReportSource>,
 }
 
 /// An epic dropped on Ready for Dev or Dev (or ⇧⌘D on it); `child` when one row of it was dropped.

@@ -4,4 +4,8 @@
  * Send back with PR comments (`ticket.send_back_pr`): the note goes with the PR's unresolved comments; `clear` is
  * "Clear it and send" (d0048).
  */
-export type SendBackPrParams = { key: string, note: string, clear: boolean, };
+export type SendBackPrParams = { key: string, note: string, 
+/**
+ * Text pasted into the note as its report (CMT-13).
+ */
+report?: string, clear: boolean, };

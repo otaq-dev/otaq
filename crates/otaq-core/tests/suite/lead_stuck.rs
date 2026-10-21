@@ -3,6 +3,7 @@
 //! inside the lead's session, so it is judged as the lead. Hooks are fed as the service gets them, and Auto-merge runs
 //! against temporary repositories. No test starts `claude`.
 
+use otaq_core::service::testing::said;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -101,7 +102,7 @@ async fn submit_and_fail(w: &TestService, key: &str) -> Ticket {
     w.validation
         .submit(
             key,
-            "done",
+            said(&w.board, key, "done").await.as_ref(),
             &Actor::Agent(t.key.clone()),
             ValidationTrigger::Agent,
         )
@@ -113,7 +114,12 @@ async fn submit_and_fail(w: &TestService, key: &str) -> Ticket {
         .unwrap()
         .id;
     w.validation
-        .verdict(key, false, REPORT, &validator)
+        .verdict(
+            key,
+            false,
+            said(&w.board, key, REPORT).await.as_ref(),
+            &validator,
+        )
         .await
         .unwrap()
 }
@@ -518,7 +524,7 @@ async fn pass(w: &TestService, key: &str) -> Ticket {
     w.validation
         .submit(
             key,
-            "done",
+            said(&w.board, key, "done").await.as_ref(),
             &Actor::Agent(t.key.clone()),
             ValidationTrigger::Agent,
         )
@@ -530,7 +536,12 @@ async fn pass(w: &TestService, key: &str) -> Ticket {
         .unwrap()
         .id;
     w.validation
-        .verdict(key, true, "ok", &validator)
+        .verdict(
+            key,
+            true,
+            said(&w.board, key, "ok").await.as_ref(),
+            &validator,
+        )
         .await
         .unwrap();
     ticket(w, key).await

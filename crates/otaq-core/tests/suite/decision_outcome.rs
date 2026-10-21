@@ -302,9 +302,16 @@ async fn change_on_a_ticket_sends_it_back_with_the_message_and_pending_comments(
         change_message(&decision, "Split fullName everywhere"),
         message
     );
+    // The change is the user's comment (CMT-05).
     assert_eq!(
-        w.board.latest_send_back_note(&t.id).await.unwrap(),
-        Some((1, Some(message.into())))
+        w.board.latest_send_back_round(&t.id).await.unwrap(),
+        Some(1)
+    );
+    assert_eq!(
+        crate::common::last_comment(&w.board, "SHOP-1")
+            .await
+            .map(|c| c.body),
+        Some(message.to_owned())
     );
     assert_eq!(w.board.comments("SHOP-1", None).await.unwrap().pending, 0);
 

@@ -12,6 +12,7 @@ pub mod deps;
 pub mod diff;
 pub mod epic_flight;
 pub mod epics;
+pub mod hand_over;
 pub mod human_check;
 pub mod merge;
 pub mod moves;

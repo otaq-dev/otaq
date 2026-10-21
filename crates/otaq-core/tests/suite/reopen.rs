@@ -4,6 +4,7 @@
 //! reopened ticket's new worktree takes the build nearest to its rebased commit (T-0309, M19-c).
 
 use crate::common::freed;
+use otaq_core::service::testing::said;
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -184,7 +185,11 @@ async fn a_conflicting_rebase_is_announced_through_prime_and_the_agent_still_sta
     std::fs::write(wt.join("lib.ts"), "main\nticket\n").unwrap();
     git(&wt, &["commit", "--quiet", "-am", "resolve"]);
     w.board
-        .submit_for_review("SHOP-1", "resolved", &Actor::Agent(t.key.clone()))
+        .submit_for_review(
+            "SHOP-1",
+            said(&w.board, "SHOP-1", "resolved").await.as_ref(),
+            &Actor::Agent(t.key.clone()),
+        )
         .await
         .unwrap();
     assert_eq!(w.board.conflict(&t.id).await.unwrap(), None);

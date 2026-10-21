@@ -181,6 +181,10 @@ async fn start_check_fail_resume_send_back_and_local_merge() {
         check.contains("\n## Earlier stages\n\n- Dev · Developer · finished\n"),
         "the check reads Dev's run: {check}"
     );
+    assert!(
+        check.contains("\n## Comments\n") && check.contains("\n\nWrote first.\n"),
+        "the check reads Dev's comment: {check}"
+    );
     assert_eq!(
         runs(&w, &key).await[..2],
         [
@@ -216,7 +220,7 @@ async fn start_check_fail_resume_send_back_and_local_merge() {
 
     // Send back: the live session gets `/otaq-address-review`, ends its stage again; the check passes → Review.
     w.review
-        .fail(&key, "Also the tax", false, &me())
+        .fail(&key, "Also the tax", None, false, &me())
         .await
         .unwrap();
     until(&w, &key, "reached Review after Send back", async |w| {
@@ -227,6 +231,10 @@ async fn start_check_fail_resume_send_back_and_local_merge() {
     assert!(
         review.contains("- Review · you · failed\n"),
         "Dev reads the Send back's run under Earlier stages: {review}"
+    );
+    assert!(
+        review.contains("\n\nAlso the tax\n"),
+        "Dev reads the Send back's note as your comment: {review}"
     );
     let results: Vec<(String, Option<RunResult>)> = runs(&w, &key)
         .await

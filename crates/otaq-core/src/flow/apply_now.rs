@@ -19,9 +19,9 @@
 //! pick that isn't one of its ticket's choices is refused with the fresh plan. Otherwise the new flow is stored, the
 //! waiting change goes and every move is written in **one transaction**; only then do the sessions in removed stages
 //! stop (ended by Otaq, so the board's session-end handling leaves their tickets alone) and starts resume. A failure in
-//! any move leaves the board and the sessions as they were. The runs of removed stages end `stopped · flow change`
-//! ([`FLOW_CHANGE`]); each move's History names the stage that went ("Moved to Review · by you · Security was
-//! removed", [`removed_note`]). Tickets in surviving stages are not touched.
+//! any move leaves the board and the sessions as they were. The runs of removed stages end stopped; each move's
+//! History names the stage that went ("Moved to Review · by you · Security was removed", [`removed_note`]). Tickets
+//! in surviving stages are not touched.
 
 use std::collections::{HashMap, HashSet};
 
@@ -43,9 +43,6 @@ use crate::board::{Board, BoardError};
 use crate::domain::{Actor, Kind, MovedPast, Place, Status, TicketKey};
 use crate::store::tickets::set_state_since;
 use crate::store::{Store, now_ms};
-
-/// How the run of a removed stage ends: "stopped · flow change" (APN-04).
-pub const FLOW_CHANGE: &str = "flow change";
 
 /// "Moving forward skips the stages in between, as on the card" (APN-02's hint on a forward pick).
 pub const FORWARD_HINT: &str = "Moving forward skips the stages in between, as on the card";
@@ -527,7 +524,6 @@ pub(crate) enum MoveWrite {
         to: Status,
         fresh: bool,
         round: u32,
-        note: String,
         event: serde_json::Value,
     },
     /// Any other move: as a drag the board carries out by itself.
@@ -690,7 +686,6 @@ impl Board {
         choice: &MoveChoice,
         kept_session: &(dyn Fn(&Ticket, &str) -> bool + Sync),
     ) -> Result<MoveWrite, BoardError> {
-        let removed = removed_note(&planned.stage_name);
         let from_name = planned.stage_name.as_str();
         let event = |stage: &str, stage_id: Option<&str>, back: bool, skipped: &[&str]| {
             json!({
@@ -727,7 +722,7 @@ impl Board {
                     reset: true,
                     marks: Vec::new(),
                     check_head: None,
-                    note: Some(FLOW_CHANGE.to_owned()),
+                    hand_over: None,
                     event: event(Status::Queued.label(), None, true, &[]),
                 }));
             }
@@ -754,7 +749,6 @@ impl Board {
                 },
                 fresh: !ran,
                 round: self.current_round(&ticket.id).await?,
-                note: format!("{} \u{b7} {removed}", moved_line(&to.name)),
                 event: event(&to.name, Some(&to.id), true, &[]),
             });
         }
@@ -790,7 +784,7 @@ impl Board {
             moved,
             reset: choice.way == Way::Back,
             check_head,
-            note: Some(FLOW_CHANGE.to_owned()),
+            hand_over: None,
             event: event(&to.name, Some(&to.id), choice.way == Way::Back, &names),
         }))
     }
@@ -848,7 +842,7 @@ impl Board {
                 return Ok(None);
             }
             // The removed stage's run ends "stopped · flow change", a check's round with it.
-            end_open(&mut tx, &ticket.id, RunResult::Cancelled, Some(FLOW_CHANGE)).await?;
+            end_open(&mut tx, &ticket.id, RunResult::Cancelled, None).await?;
             sqlx::query(
                 "UPDATE validations SET ended_at = ?, outcome = ? WHERE ticket_id = ? AND ended_at IS NULL",
             )
@@ -876,11 +870,6 @@ impl Board {
     }
 }
 
-/// "Moved to Dev by you": the start of a pick's note.
-fn moved_line(stage: &str) -> String {
-    format!("Moved to {stage} by you")
-}
-
 async fn write_move(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     ticket: &Ticket,
@@ -890,7 +879,7 @@ async fn write_move(
     match write {
         MoveWrite::Drag(drag) => record_drag_in(tx, ticket, drag.clone(), actor).await,
         MoveWrite::Park { has_work, removed } => {
-            end_open(tx, &ticket.id, RunResult::Cancelled, Some(FLOW_CHANGE)).await?;
+            end_open(tx, &ticket.id, RunResult::Cancelled, None).await?;
             let to = match has_work {
                 true => Status::Parked,
                 false => Status::Backlog,
@@ -931,14 +920,13 @@ async fn write_move(
             to,
             fresh,
             round,
-            note,
             event,
         } => {
             send_back_in(
                 tx,
                 ticket,
                 SentBackTo {
-                    note,
+                    hand_over: None,
                     to: *to,
                     stage: Some(stage),
                     resume_skill: match (to, fresh) {
@@ -947,19 +935,14 @@ async fn write_move(
                     },
                     ended: RunResult::Cancelled,
                     event: Some((EventKind::Dragged, event.clone())),
+                    tell: None,
+                    // It never ran that stage (it skips it): a new conversation there (FLW-18's "run by you").
+                    fresh: *fresh,
                 },
                 *round,
                 actor,
             )
             .await?;
-            if *fresh {
-                // It never ran that stage (it skips it): a new conversation there (FLW-18's "run by you").
-                sqlx::query("UPDATE tickets SET resume_skill = NULL, return_mode = ?, resume_prompt = NULL WHERE id = ?")
-                    .bind(crate::recovery::RETURN_SCRATCH)
-                    .bind(&ticket.id)
-                    .execute(&mut **tx)
-                    .await?;
-            }
             Ok(())
         }
     }

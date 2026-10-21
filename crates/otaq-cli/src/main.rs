@@ -150,13 +150,21 @@ fn main() -> ExitCode {
             &cli.global,
             &out,
         ),
-        Some(Command::Review(cli::ReviewCommand::Submit { key, stdin }))
-        | Some(Command::Stage(cli::StageCommand::Next { key, stdin })) => {
-            agent::stage_next(key, stdin, &cli.global, &out)
-        }
-        Some(Command::Stage(cli::StageCommand::Done { key, stdin })) => {
-            agent::stage_done(key, stdin, &cli.global, &out)
-        }
+        Some(Command::Review(cli::ReviewCommand::Submit {
+            key,
+            stdin,
+            report_file,
+        }))
+        | Some(Command::Stage(cli::StageCommand::Next {
+            key,
+            stdin,
+            report_file,
+        })) => agent::stage_next(key, stdin, report_file, &cli.global, &out),
+        Some(Command::Stage(cli::StageCommand::Done {
+            key,
+            stdin,
+            report_file,
+        })) => agent::stage_done(key, stdin, report_file, &cli.global, &out),
         Some(Command::Decision(command)) => decision::run(command, &cli.global, &out),
         Some(Command::Lead(command)) => lead::run(command, &cli.global, &out),
         Some(Command::Check(command)) => agent::check(command, &cli.global, &out),

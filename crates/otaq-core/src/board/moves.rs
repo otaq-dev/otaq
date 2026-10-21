@@ -545,8 +545,8 @@ pub(crate) struct DragWrite {
     pub marks: Vec<(String, MovedPast)>,
     /// Into an agent check: its round opens on this head.
     pub check_head: Option<String>,
-    /// The note the run it leaves ends with (a check run again with a note).
-    pub note: Option<String>,
+    /// The user's note as their comment, posted with the move (a check run again with a note, CMT-05).
+    pub hand_over: Option<Box<super::hand_over::HandOver>>,
     /// History's [`EventKind::Dragged`] payload.
     pub event: serde_json::Value,
 }
@@ -604,13 +604,19 @@ pub(crate) async fn record_drag_in(
         reset,
         marks,
         check_head,
-        note,
+        hand_over,
         event,
     } = drag;
     let now = now_ms();
     let waits = moved.place.is_waiting();
     let into_human_check = moved.status.set() == crate::domain::StatusSet::HumanCheck;
-    moved.record(tx, &ticket.id, note.as_deref()).await?;
+    let posted = match &hand_over {
+        Some(h) => Some(h.post(tx, &ticket.id, actor).await?),
+        None => None,
+    };
+    moved
+        .record(tx, &ticket.id, posted.as_ref().map(|p| p.id.as_str()))
+        .await?;
     if reset {
         super::validation::reset_check_counters(tx, &ticket.id).await?;
     }
@@ -659,6 +665,10 @@ pub(crate) async fn record_drag_in(
         .bind(head)
         .execute(&mut **tx)
         .await?;
+    }
+    // The check runs again with a new comment: its checker primes before its verdict (CMT-08).
+    if posted.is_some() {
+        super::stage_runs::mark_handed_over(tx, &ticket.id).await?;
     }
     record_event(tx, &ticket.id, EventKind::Dragged, actor, event).await
 }

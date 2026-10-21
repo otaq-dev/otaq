@@ -17,8 +17,7 @@ use otaq_core::board::moves::{DropOn, DropTarget};
 use otaq_core::board::tickets::{EventKind, HistoryEvent, NewTicketInput, Ticket};
 use otaq_core::domain::{Actor, Kind, Place, Status};
 use otaq_core::flow::apply_now::{
-    ApplyNowAnswer, ApplyNowParams, ApplyNowPlan, FLOW_CHANGE, FORWARD_HINT, Pick, PlannedMove,
-    Refreshed, Way,
+    ApplyNowAnswer, ApplyNowParams, ApplyNowPlan, FORWARD_HINT, Pick, PlannedMove, Refreshed, Way,
 };
 use otaq_core::flow::engine::RunResult;
 use otaq_core::flow::proposal::{ApplyChoices, NewProposal, ProposedBy, Source};
@@ -499,11 +498,7 @@ async fn apply_now_stops_the_removed_stages_and_moves_every_ticket_together() {
     for (key, stage) in [("SHOP-1", "grill"), ("SHOP-2", "security")] {
         let runs = w.board.stage_runs(key).await.unwrap();
         let run = runs.iter().rfind(|r| r.stage == stage).unwrap();
-        assert_eq!(
-            (run.result, run.summary.as_deref()),
-            (Some(RunResult::Cancelled), Some(FLOW_CHANGE)),
-            "{key}"
-        );
+        assert_eq!(run.result, Some(RunResult::Cancelled), "{key}");
     }
     let validation: Option<String> = sqlx::query_scalar(
         "SELECT outcome FROM validations WHERE ticket_id = ? ORDER BY started_at DESC",

@@ -5,6 +5,7 @@
 //! click-mode Deliveries only, closest to Done first by the stage's position in the flow. On the test flow
 //! (`tests/flows/every-kind.yaml`) and the default flow; `claude` is stood in for by ordinary commands.
 
+use otaq_core::service::testing::said;
 use std::path::Path;
 use std::time::Duration;
 
@@ -331,7 +332,12 @@ async fn a_fail_at_qa_resumes_dev_and_walks_the_checks_again() {
     .unwrap();
 
     let note = "The CSV needs a header row.";
-    match w.review.fail("SHOP-1", note, false, &me()).await.unwrap() {
+    match w
+        .review
+        .fail("SHOP-1", note, None, false, &me())
+        .await
+        .unwrap()
+    {
         ReturnOutcome::Done { .. } => {}
         other => panic!("{other:?}"),
     }
@@ -348,11 +354,9 @@ async fn a_fail_at_qa_resumes_dev_and_walks_the_checks_again() {
     assert!(out.contains("--resume dev-conversation"), "{out}");
     assert!(out.contains("address-review"), "{out}");
     assert_eq!(
-        w.board
-            .latest_send_back_note(&t.id)
+        crate::common::last_comment(&w.board, "SHOP-1")
             .await
-            .unwrap()
-            .and_then(|(_, n)| n)
+            .map(|c| c.body)
             .as_deref(),
         Some(note)
     );
@@ -369,7 +373,7 @@ async fn a_fail_at_qa_resumes_dev_and_walks_the_checks_again() {
     w.validation
         .submit(
             "SHOP-1",
-            "Added the header",
+            said(&w.board, "SHOP-1", "Added the header").await.as_ref(),
             &agent,
             ValidationTrigger::Agent,
         )
@@ -386,7 +390,12 @@ async fn a_fail_at_qa_resumes_dev_and_walks_the_checks_again() {
         .id;
     let after = w
         .validation
-        .verdict("SHOP-1", true, "ok", &checker)
+        .verdict(
+            "SHOP-1",
+            true,
+            said(&w.board, "SHOP-1", "ok").await.as_ref(),
+            &checker,
+        )
         .await
         .unwrap();
     assert_eq!(

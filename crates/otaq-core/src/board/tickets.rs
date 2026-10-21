@@ -1057,13 +1057,8 @@ impl Board {
                     .get(&row.id)
                     .filter(|_| row.state == Status::WaitingForYou.as_str())
                     .filter(|(actor, _)| actor.parse::<Actor>().is_ok_and(|a| !a.is_agent()))
-                    .map(|(_, payload)| {
-                        let summary = serde_json::from_str::<Value>(payload)
-                            .ok()
-                            .and_then(|p| p.get("summary")?.as_str().map(str::to_owned))
-                            .unwrap_or_default();
-                        super::review::user_note(&summary)
-                    });
+                    // The user's note is their comment now (CMT-05): the card says only that they submitted it.
+                    .map(|_| String::new());
                 let place = Place::of(
                     status,
                     row.stage_id.as_deref(),

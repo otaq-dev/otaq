@@ -3,6 +3,7 @@
 //! the skill's steps are fed through the CLI (`pr propose`, `pr opened`), and Otaq applies the confirmed
 //! edits itself (reword with unchanged trees, rename, lock) before anything is pushed.
 
+use otaq_core::service::testing::said;
 use std::path::{Path, PathBuf};
 
 use otaq_core::board::projects::AddProject;
@@ -54,7 +55,13 @@ async fn setup() -> Setup {
     commit(&worktree, "login.test.ts", "test\n");
     w.force_status(&ticket, Status::Working).await;
     w.board
-        .submit_for_review("SHOP-1", "Redirects after login.", &me())
+        .submit_for_review(
+            "SHOP-1",
+            said(&w.board, "SHOP-1", "Redirects after login.")
+                .await
+                .as_ref(),
+            &me(),
+        )
         .await
         .unwrap();
     let ticket = w.board.ticket("SHOP-1").await.unwrap();
@@ -367,7 +374,13 @@ async fn rework_then_push_to_pr_rewords_only_the_new_commits() {
     commit(&s.worktree, "deep.ts", "deep links\n");
     commit(&s.worktree, "deep.test.ts", "test\n");
     w.board
-        .submit_for_review("SHOP-1", "Covers deep links.", &me())
+        .submit_for_review(
+            "SHOP-1",
+            said(&w.board, "SHOP-1", "Covers deep links.")
+                .await
+                .as_ref(),
+            &me(),
+        )
         .await
         .unwrap();
     assert!(

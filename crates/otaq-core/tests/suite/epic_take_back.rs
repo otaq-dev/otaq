@@ -3,6 +3,7 @@
 //! after one confirmation; the queue toast's Undo takes back only what still waits. The example is shop-web's
 //! Search epic SHOP-45 (Search index API, Search results page). `claude` stands in as an `sh` that waits.
 
+use otaq_core::service::testing::said;
 use std::time::Duration;
 
 use crate::common::{Fixture, me};
@@ -295,7 +296,7 @@ async fn park_all_parks_every_running_child_after_one_confirmation() {
     w.validation
         .submit(
             &key(&page),
-            "Results show.",
+            said(&w.board, &key(&page), "Results show.").await.as_ref(),
             &Actor::Agent(page.key.clone()),
             ValidationTrigger::Agent,
         )

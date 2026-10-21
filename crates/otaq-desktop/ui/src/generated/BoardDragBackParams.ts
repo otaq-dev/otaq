@@ -4,4 +4,8 @@ import type { BoardDropTarget } from "./BoardDropTarget";
 /**
  * What `board.drag_back` takes: the drag-back dialog's ticket and target, the text, and "Clear it and send".
  */
-export type BoardDragBackParams = { key: string, target: BoardDropTarget, note: string, clear: boolean, };
+export type BoardDragBackParams = { key: string, target: BoardDropTarget, note: string, 
+/**
+ * Text pasted into the note as its report (CMT-13).
+ */
+report?: string, clear: boolean, };

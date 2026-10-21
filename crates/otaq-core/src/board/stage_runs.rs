@@ -1,5 +1,6 @@
 //! Stage runs (STG-05, d0108): every time a ticket runs a stage, the stage, the session, the agent and exact model,
-//! an agent check's round, how it ended and a summary. Validation rounds are the runs of the agent check.
+//! an agent check's round, how it ended and the comment it ended with (CMT-05). Validation rounds are the runs of the
+//! agent check.
 //!
 //! The rows follow the tickets by themselves (migration 0046's triggers): a ticket whose stage changes ends its open
 //! run and opens one of the stage it entered, with that stage's live session; a session, a validation round and its
@@ -38,6 +39,8 @@ pub struct StageRun {
     /// `None` while it runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<RunResult>,
+    /// The text of the comment the run ended with (the agent's `stage next`, the checker's verdict, the user's Send
+    /// back note), unless it was deleted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     pub started_at: i64,
@@ -45,20 +48,38 @@ pub struct StageRun {
     pub ended_at: Option<i64>,
 }
 
-/// Ends the ticket's open run with `result` (and `summary` when given), before the move that leaves the stage.
+/// Ends the ticket's open run with `result` (and the hand-over `comment` it ended with, when one was posted), before
+/// the move that leaves the stage.
 pub(crate) async fn end_open(
     tx: &mut Transaction<'_, Sqlite>,
     ticket_id: &str,
     result: RunResult,
-    summary: Option<&str>,
+    comment: Option<&str>,
 ) -> Result<(), BoardError> {
     sqlx::query(
-        "UPDATE stage_runs SET ended_at = ?, result = COALESCE(result, ?), summary = COALESCE(?, summary)
+        "UPDATE stage_runs SET ended_at = ?, result = COALESCE(result, ?), comment_id = COALESCE(?, comment_id)
          WHERE ticket_id = ? AND ended_at IS NULL",
     )
     .bind(now_ms())
     .bind(result.as_str())
-    .bind(summary.map(str::trim).filter(|s| !s.is_empty()))
+    .bind(comment)
+    .bind(ticket_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Otaq started or resumed the ticket's open run with a new comment (a Send back, a drag back, a failed check; CMT-05):
+/// its agent has to run `prime` again before it ends its stage (CMT-08 reads `handed_over_at`). A ticket queued to
+/// come back has no open run yet: the run its start opens is new anyway.
+pub(crate) async fn mark_handed_over(
+    tx: &mut Transaction<'_, Sqlite>,
+    ticket_id: &str,
+) -> Result<(), BoardError> {
+    sqlx::query(
+        "UPDATE stage_runs SET handed_over_at = ? WHERE ticket_id = ? AND ended_at IS NULL AND kind IN ('agent', 'check')",
+    )
+    .bind(now_ms())
     .bind(ticket_id)
     .execute(&mut **tx)
     .await?;
@@ -99,16 +120,16 @@ impl Moved {
         }
     }
 
-    /// The move's runs, before the move is written in the same transaction: the open run ends as the move says,
-    /// and the stages it walked over get theirs.
+    /// The move's runs, before the move is written in the same transaction: the open run ends as the move says (with
+    /// the hand-over `comment` it ended with), and the stages it walked over get theirs.
     pub(crate) async fn record(
         &self,
         tx: &mut Transaction<'_, Sqlite>,
         ticket_id: &str,
-        summary: Option<&str>,
+        comment: Option<&str>,
     ) -> Result<(), BoardError> {
         if let Some(result) = self.ended {
-            end_open(tx, ticket_id, result, summary).await?;
+            end_open(tx, ticket_id, result, comment).await?;
         }
         for (stage, kind, result) in &self.through {
             record_kind(tx, ticket_id, stage, *kind, *result).await?;
@@ -185,8 +206,11 @@ impl Board {
             Option<i64>,
         );
         let rows: Vec<Row> = sqlx::query_as(
-            "SELECT stage_id, kind, session_id, agent, model, round, result, summary, started_at, ended_at
-             FROM stage_runs WHERE ticket_id = ? ORDER BY started_at, rowid",
+            "SELECT r.stage_id, r.kind, r.session_id, r.agent, r.model, r.round, r.result, c.body, r.started_at,
+                    r.ended_at
+             FROM stage_runs r
+             LEFT JOIN ticket_comments c ON c.id = r.comment_id AND c.deleted_at IS NULL
+             WHERE r.ticket_id = ? ORDER BY r.started_at, r.rowid",
         )
         .bind(&id)
         .fetch_all(self.store.pool())

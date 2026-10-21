@@ -203,3 +203,16 @@ pub fn test_cloner(data: &DataDir) -> Box<dyn Cloner> {
         Box::new(CopyCloner)
     }
 }
+
+/// The ticket's last comment (CMT-05: a hand-over's note or summary), if it has one.
+pub async fn last_comment(
+    board: &Board,
+    key: &str,
+) -> Option<otaq_core::board::ticket_comments::TicketComment> {
+    board
+        .ticket_comments(key)
+        .await
+        .expect("the comments")
+        .comments
+        .pop()
+}

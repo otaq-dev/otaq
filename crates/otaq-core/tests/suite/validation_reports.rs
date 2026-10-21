@@ -10,6 +10,7 @@ use otaq_core::domain::{Actor, Kind, Status, StatusSet, ValidationOutcome, Valid
 use otaq_core::protocol::{KeyParams, NoteParams, Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
+use otaq_core::service::testing::said;
 use otaq_core::session::SessionKind;
 
 async fn world() -> TestService {
@@ -73,7 +74,7 @@ async fn round(w: &TestService, t: &Ticket, pass: bool, report: &str) {
     w.validation
         .submit(
             &key,
-            "Done.",
+            said(&w.board, &key, "Done.").await.as_ref(),
             &Actor::Agent(t.key.clone()),
             ValidationTrigger::Agent,
         )
@@ -85,7 +86,12 @@ async fn round(w: &TestService, t: &Ticket, pass: bool, report: &str) {
         .expect("a validator runs")
         .id;
     w.validation
-        .verdict(&key, pass, report, &session)
+        .verdict(
+            &key,
+            pass,
+            said(&w.board, &key, report).await.as_ref(),
+            &session,
+        )
         .await
         .unwrap();
 }

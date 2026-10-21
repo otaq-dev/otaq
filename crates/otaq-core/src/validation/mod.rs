@@ -40,10 +40,10 @@ use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole};
 use crate::agents::gate::{Gated, Held, LaunchGate, Scope};
 use crate::agents::store::HoldScope;
 use crate::agents::{AgentHold, HoldReason, RunsOn, SessionRole, resolve};
+use crate::board::hand_over::{HandOver, check_failed_text, settled};
 use crate::board::tickets::Ticket;
 use crate::board::validation::{
-    CheckCounts, Transition, ValidationEvent, ValidationState, check_name, findings_message,
-    transition,
+    CheckCounts, Transition, ValidationEvent, ValidationState, check_name, transition,
 };
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::validation::{CancelledBy, cancelled_toast};
@@ -165,18 +165,31 @@ impl Validation {
         let _ = self.inner.gate.set(gate);
     }
 
-    /// `otaq check pass|fail --stdin` from the ticket's checker (VAL-03 … VAL-06): the report is stored
-    /// on the round. Pass: Ready for Review, "Validated · round N". Fail with rounds left: the findings go to the
-    /// agent as an automatic message and it works again, "Validation failed · round N of M". The last round:
-    /// "Validation failed M times", nothing delivered. The validator ends once its turn ends.
+    /// `otaq check pass|fail --stdin [--report-file PATH]` from the ticket's checker (VAL-03 … VAL-06): the verdict's
+    /// text is the checker's comment (`hand_over`, with its report; CMT-05). Pass: Ready for Review, "Validated ·
+    /// round N". Fail with rounds left: the agent is told "Validate failed round 2. Run `otaq prime`." and works
+    /// again, "Validation failed · round N of M". The last round: "Validation failed M times", nothing delivered. The
+    /// validator ends once its turn ends. A refused verdict posts nothing.
     pub async fn verdict(
         &self,
         key: &str,
         pass: bool,
-        report: &str,
+        hand_over: Option<&HandOver>,
+        session: &str,
+    ) -> Result<Ticket, BoardError> {
+        let result = self.verdict_with(key, pass, hand_over, session).await;
+        settled(&self.inner.board, hand_over, result).await
+    }
+
+    async fn verdict_with(
+        &self,
+        key: &str,
+        pass: bool,
+        hand_over: Option<&HandOver>,
         session: &str,
     ) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
+        let report = hand_over.map_or("", |h| h.body.as_str());
         let ticket = board.ticket(key).await?;
         let open = board.open_round(&ticket.id).await?;
         if open.as_ref().and_then(|(_, _, s, _)| s.as_deref()) != Some(session) {
@@ -222,7 +235,8 @@ impl Validation {
             .record_verdict(
                 &ticket,
                 &recorded,
-                report,
+                hand_over,
+                step.deliver_findings || held,
                 &Actor::Agent(ticket.key.clone()),
             )
             .await?;
@@ -243,9 +257,10 @@ impl Validation {
                 .await?;
         }
         if step.deliver_findings {
+            // The findings are the checker's comment: the agent reads them in `prime` (CMT-05).
             let round = facts.fails + 1;
             let check = check_name(&facts.flow, &ticket.place);
-            self.tell_agent(&ticket, &findings_message(&check, round, rounds, report))
+            self.tell_agent(&ticket, &check_failed_text(&check, round))
                 .await;
         }
         if step.start_validator {
@@ -865,7 +880,8 @@ impl Validation {
 
     /// The user's **Move to next stage** (CLS-05, d0108 rule 10): the agent's own `stage next`, started by the user
     /// when the agent isn't mid-turn. Into an agent check the check runs (and an automatic Delivery may follow its pass);
-    /// anything else is [`Board::submit_by_user`]. The summary reads "Submitted by you" and the note.
+    /// anything else is [`Board::submit_by_user`]. The note, if any, is the user's comment (CMT-05); History says
+    /// "Submitted by you".
     pub async fn submit_by_user(
         &self,
         key: &str,
@@ -875,19 +891,19 @@ impl Validation {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
         crate::board::review::user_may_submit(&ticket)?;
-        if !self.next_is_agent_check(&ticket).await? {
-            let after = board.submit_by_user(key, note, actor).await?;
-            // Into a Delivery: automatic only after passed checks (none walked over, FLW-15).
-            board.delivery().arrived(&after.id).await;
-            return board.ticket_by_id(&after.id).await;
+        let hand_over = board.user_hand_over(&ticket, note, None, actor).await?;
+        let result = async {
+            if !self.next_is_agent_check(&ticket).await? {
+                let after = board.submit_by_user(key, hand_over.as_ref(), actor).await?;
+                // Into a Delivery: automatic only after passed checks (none walked over, FLW-15).
+                board.delivery().arrived(&after.id).await;
+                return board.ticket_by_id(&after.id).await;
+            }
+            self.submit(key, hand_over.as_ref(), actor, ValidationTrigger::User)
+                .await
         }
-        self.submit(
-            key,
-            &crate::board::review::user_summary(note),
-            actor,
-            ValidationTrigger::User,
-        )
-        .await
+        .await;
+        settled(board, hand_over.as_ref(), result).await
     }
 
     /// Whether the ticket's next stage is an agent check (STG-06).
@@ -912,20 +928,26 @@ impl Validation {
 
     /// The agent's `stage next` (or `review submit`; with `trigger` user, the user's Move to next stage): into an
     /// agent check, Validating… and a checker; anything else (Ready for Review when validation is off, another Agent
-    /// stage) is [`Board::submit_for_review`].
+    /// stage) is [`Board::submit_for_review`]. The summary (or the user's note) is `hand_over`'s comment, posted with
+    /// the move (CMT-05); the caller discards its report when this fails ([`settled`]).
     pub async fn submit(
         &self,
         key: &str,
-        summary: &str,
+        hand_over: Option<&HandOver>,
         actor: &Actor,
         trigger: ValidationTrigger,
     ) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
+        // History's line: the agent's summary, or "Submitted by you".
+        let summary = match trigger {
+            ValidationTrigger::Agent => hand_over.map_or("", |h| h.body.as_str()),
+            ValidationTrigger::User => crate::board::review::SUBMITTED_BY_YOU,
+        };
         // The agent's "next stage" (STG-06): an agent check validates; anything else (Validation off: Review) is
         // the plain submit.
         if !self.next_is_agent_check(&ticket).await? {
-            let after = board.submit_for_review(key, summary, actor).await?;
+            let after = board.submit_for_review(key, hand_over, actor).await?;
             // Straight into an automatic Delivery (a flow with no check before it, FLW-15).
             board.delivery().arrived(&after.id).await;
             return board.ticket_by_id(&after.id).await;
@@ -953,7 +975,9 @@ impl Validation {
             .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;
         let head = board.submit_head(&ticket).await?;
         board
-            .enter_validation(&ticket, &step, &head, summary, trigger, false, actor)
+            .enter_validation(
+                &ticket, &step, &head, summary, hand_over, trigger, false, actor,
+            )
             .await?;
         self.forget_turns(&ticket.id);
         if let Err(e) = self.start_validator(&ticket.id).await {

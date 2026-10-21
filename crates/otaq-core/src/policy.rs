@@ -40,7 +40,8 @@
 //! **Ticket comments** (CMT-04, d0109) are [`Action::Comment`]: the user writes, edits and deletes any; a ticket's
 //! agent comments on its own ticket and edits or deletes only its own comments; an epic lead comments on its epic and
 //! its children (started or not: a comment is for their later stages) and edits or deletes only its own. A checker
-//! posts only with its verdict (`check pass|fail`), the Project agent and other tickets' agents never.
+//! posts only with its verdict (`check pass|fail`) and edits or deletes only its own (Q374); the Project agent and
+//! other tickets' agents never.
 //!
 //! **Reading a ticket's terminal** (`otaq show <KEY> --terminal`, CLI-09, d0087) is its own narrower action, not
 //! "read anything": a Project agent reads any ticket of its project, an epic lead its own epic's children; ticket
@@ -187,8 +188,8 @@ pub enum Action {
     ProposeFlow { project: String },
     /// Posts a ticket comment on `target` (`own: None`), or edits or deletes one of its comments (`own`: whether the
     /// caller wrote it), CMT-04: the user any; a ticket's agent on its own ticket, editing only its own; an epic
-    /// lead on its epic and its children, editing only its own. A checker posts only with its verdict, the Project
-    /// agent never.
+    /// lead on its epic and its children, editing only its own. A checker posts only with its verdict and edits only
+    /// its own (Q374), the Project agent never.
     Comment {
         target: TicketFacts,
         own: Option<bool>,
@@ -261,6 +262,15 @@ pub fn authorize_in_stage(
             Action::ReadTerminal { target, .. } => {
                 refuse(format!("{who} can't read {}'s terminal", target.label))
             }
+            // Its own comments (its verdicts) on its ticket: edit or delete (CMT-04, Q374). A new one only with a verdict.
+            Action::Comment {
+                target,
+                own: Some(true),
+            } if target.id == *ticket_id => Ok(()),
+            Action::Comment {
+                target,
+                own: Some(false),
+            } if target.id == *ticket_id => refuse(not_own_comment(&who)),
             Action::All(actions) => all(actions),
             _ => match stage {
                 Some(stage) => refuse(check_only_verdict(ticket, stage)),
@@ -1246,6 +1256,28 @@ mod tests {
                 &validator,
                 Names::default(),
                 post(&own),
+                Some("SHOP-18's check can only give its verdict"),
+            ),
+            // Q374: a checker edits or deletes its own comments (its verdicts), never another's.
+            (
+                "checker, its own comment",
+                &validator,
+                Names::default(),
+                change(&own, true),
+                None,
+            ),
+            (
+                "checker, another's comment",
+                &validator,
+                Names::default(),
+                change(&own, false),
+                Some("SHOP-18's check can only edit or delete its own comments"),
+            ),
+            (
+                "checker, another ticket's comment",
+                &validator,
+                Names::default(),
+                change(&other, true),
                 Some("SHOP-18's check can only give its verdict"),
             ),
         ];

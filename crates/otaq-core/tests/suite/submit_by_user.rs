@@ -84,9 +84,17 @@ async fn submitted_by_you_with_the_note_and_the_session_stays() {
         .await
         .unwrap();
     assert_eq!(after.status, Status::WaitingForYou);
+    // History says "Submitted by you"; the note is the user's comment (CMT-05).
     assert_eq!(
         w.board.review_summary(&t.id).await.unwrap().as_deref(),
-        Some("Submitted by you\n\nI finished the redirect by hand.")
+        Some("Submitted by you")
+    );
+    let note = crate::common::last_comment(&w.board, "SHOP-1")
+        .await
+        .unwrap();
+    assert_eq!(
+        (note.author_label(), note.body.as_str()),
+        ("You".to_owned(), "I finished the redirect by hand.")
     );
     let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
     assert_eq!(

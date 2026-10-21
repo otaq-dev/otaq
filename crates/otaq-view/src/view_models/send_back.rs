@@ -67,13 +67,21 @@ pub fn waiting_title(key: &TicketKey) -> String {
     format!("These keep waiting until {key} is merged")
 }
 
-/// The request; `clear_first` is the unsent-text prompt's "Clear it and send".
-pub fn request(key: &TicketKey, note: &str, clear_first: bool) -> Request {
+/// The request; `clear_first` is the unsent-text prompt's "Clear it and send"; `report` the text pasted into the
+/// note as its report (CMT-13; empty: none).
+pub fn request(key: &TicketKey, note: &str, report: Option<&str>, clear_first: bool) -> Request {
     Request::TicketFail(FailParams {
         key: key.to_string(),
         note: note.trim().to_owned(),
         clear_first,
+        report: pasted_report(report),
     })
+}
+
+/// The text pasted into a dialog's note as its report (CMT-13); none when empty.
+pub fn pasted_report(text: Option<&str>) -> Option<otaq_core::board::reports::ReportSource> {
+    text.filter(|t| !t.trim().is_empty())
+        .map(|t| otaq_core::board::reports::ReportSource::Text(t.to_owned()))
 }
 
 /// What the unsent-text prompt says Send back would type.
@@ -174,15 +182,23 @@ mod tests {
     fn an_empty_send_back_is_allowed() {
         let key: TicketKey = "SHOP-18".parse().unwrap();
         assert_eq!(
-            request(&key, "  ", false),
+            request(&key, "  ", Some(""), false),
             Request::TicketFail(FailParams {
                 key: "SHOP-18".into(),
                 note: String::new(),
-                clear_first: false
+                clear_first: false,
+                report: None,
             })
         );
         assert!(matches!(
-            request(&key, "x", true),
+            request(&key, "x", Some("log"), true),
+            Request::TicketFail(FailParams {
+                report: Some(otaq_core::board::reports::ReportSource::Text(_)),
+                ..
+            })
+        ));
+        assert!(matches!(
+            request(&key, "x", None, true),
             Request::TicketFail(FailParams {
                 clear_first: true,
                 ..

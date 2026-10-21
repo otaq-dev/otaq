@@ -101,7 +101,11 @@ async fn an_epic_reaches_review_then_local_merges_into_main() {
     );
 
     // No Send back on an epic.
-    let err = w.review.fail("SHOP-1", "", false, &me()).await.unwrap_err();
+    let err = w
+        .review
+        .fail("SHOP-1", "", None, false, &me())
+        .await
+        .unwrap_err();
     assert_eq!(err.to_string(), "Add or reopen a child ticket to change it");
 
     // The epic's own Local merge: the epic branch, squashed into main.

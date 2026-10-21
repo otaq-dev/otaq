@@ -4,6 +4,7 @@
 //! click; wake-ups wait during the usage limit; handovers are handed back at the end of the lead's turn and when it
 //! ends. `claude` stands in as `sh` printing its arguments, then `cat`: no test starts claude.
 
+use otaq_core::service::testing::said;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -322,7 +323,9 @@ async fn a_merge_and_a_close_wake_the_lead_once_each_typed_only_when_idle() {
     w.validation
         .submit(
             &key(&page),
-            "The page lists the items.",
+            said(&w.board, &key(&page), "The page lists the items.")
+                .await
+                .as_ref(),
             &Actor::Agent(page.key.clone()),
             ValidationTrigger::Agent,
         )

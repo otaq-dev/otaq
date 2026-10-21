@@ -62,6 +62,7 @@ mod focus;
 mod folder_trust;
 mod free;
 mod git;
+mod hand_overs;
 mod human_answers;
 mod human_checks;
 mod inbox;

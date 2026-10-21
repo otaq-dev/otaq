@@ -261,7 +261,10 @@ async fn a_send_back_whose_resume_failed_gets_its_skill_on_retry() {
     let skill = format!("/{}", otaq_core::naming::copy_name("address-review"));
 
     // Send back resumes the ended conversation with the skill; the conversation is gone.
-    w.review.fail("SHOP-1", "", false, &me()).await.unwrap();
+    w.review
+        .fail("SHOP-1", "", None, false, &me())
+        .await
+        .unwrap();
     until_status(&w, "SHOP-1", Status::ResumeFailed).await;
     let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
     assert_eq!(
@@ -270,13 +273,17 @@ async fn a_send_back_whose_resume_failed_gets_its_skill_on_retry() {
         "never ran"
     );
 
-    // Retry resumes again with the skill (here it fails again: the stand-in always does).
+    // Retry resumes again with the skill and what came back (here it fails again: the stand-in always does).
     w.review.retry_resume("SHOP-1", &me()).await.unwrap();
     until_status(&w, "SHOP-1", Status::ResumeFailed).await;
     let latest = &sessions(&w, "SHOP-1").await[0];
     let out =
         String::from_utf8_lossy(&w.sessions.attach(&latest.id).unwrap().scrollback).into_owned();
-    assert_eq!(first_prompt(&out, conversation), skill, "{out}");
+    assert_eq!(
+        first_prompt(&out, conversation),
+        format!("{skill} SHOP-1 was sent back to Dev. Run `otaq prime`."),
+        "{out}"
+    );
 
     // Start from scratch begins with the ticket prompt (d0018): the skill is dropped (Q25).
     w.review

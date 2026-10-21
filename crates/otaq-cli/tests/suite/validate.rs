@@ -52,9 +52,24 @@ async fn only_the_validator_reports_a_verdict() {
         ran.stdout.starts_with("# Validate SHOP-19 · Price table"),
         "{ran:?}"
     );
+    // A missing `--report-file` is refused before anything is read or sent (CMT-06): the round stays open.
+    let missing = validator
+        .run_with_stdin(
+            &format!("'{CB}' check fail --stdin --report-file /nonexistent/test-run.txt"),
+            "src/prices.ts:3 not sorted",
+        )
+        .await;
+    assert_ne!(missing.status, 0, "{missing:?}");
+    assert_eq!(w.status("SHOP-19").await, Status::Checking);
+    let folder = tempfile::TempDir::new().unwrap();
+    let run = folder.path().join("test-run.txt");
+    std::fs::write(&run, "FAILED prices::sorted\n").unwrap();
     let ran = validator
         .run_with_stdin(
-            &format!("'{CB}' check fail --stdin"),
+            &format!(
+                "'{CB}' check fail --stdin --report-file '{}'",
+                run.display()
+            ),
             "src/prices.ts:3 not sorted",
         )
         .await;
@@ -64,9 +79,13 @@ async fn only_the_validator_reports_a_verdict() {
         "{ran:?}"
     );
     assert_eq!(w.status("SHOP-19").await, Status::Working);
+    // The findings are the checker's comment with its report; the agent is told only the round (CMT-05).
+    let comment = w.board.ticket_comments("SHOP-19").await.unwrap().comments;
+    assert_eq!(comment[0].body, "src/prices.ts:3 not sorted");
+    assert_eq!(comment[0].report.map(|r| r.lines), Some(1));
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
-    assert!(
-        pending[0].text.ends_with("src/prices.ts:3 not sorted"),
+    assert_eq!(
+        pending[0].text, "Validate failed round 1. Run `otaq prime`.",
         "{pending:?}"
     );
 

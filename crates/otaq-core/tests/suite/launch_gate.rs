@@ -10,6 +10,7 @@
 //! script that exits at once. SHOP runs the default flow (Developer, on the default model: Claude Code); BILL runs
 //! it with its Agent stage on "Codex developer" (Codex), so each tool has tickets of its own.
 
+use otaq_core::service::testing::said;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -850,7 +851,9 @@ async fn a_held_validator_waits_in_dev_and_starts_once_its_tool_is_back() {
         .validation
         .submit(
             "SHOP-1",
-            "Cart totals add up.",
+            said(&w.board, "SHOP-1", "Cart totals add up.")
+                .await
+                .as_ref(),
             &Actor::Agent(t.key.clone()),
             otaq_core::domain::ValidationTrigger::Agent,
         )

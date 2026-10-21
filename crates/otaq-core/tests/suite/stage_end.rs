@@ -4,6 +4,7 @@
 //! session never `stage next` / `stage done`, an Agent stage's session never a verdict, and the refusals name the
 //! default flow's stages too (Q269). No agent tool runs; every data folder is temporary.
 
+use otaq_core::service::testing::said;
 use std::path::Path;
 
 use otaq_core::board::tickets::{EventKind, HistoryEvent, Ticket};
@@ -67,7 +68,9 @@ async fn submit(w: &TestService, ticket: &Ticket, summary: &str) -> Ticket {
     w.validation
         .submit(
             &ticket.key.to_string(),
-            summary,
+            said(&w.board, &ticket.key.to_string(), summary)
+                .await
+                .as_ref(),
             &Actor::Agent(ticket.key.clone()),
             ValidationTrigger::Agent,
         )

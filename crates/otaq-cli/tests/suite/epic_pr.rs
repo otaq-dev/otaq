@@ -3,6 +3,7 @@
 //! never `claude`), proposes one commit per merged child, and ends with `pr opened` or Cancel, removing the
 //! worktree unless it has uncommitted changes.
 
+use otaq_core::service::testing::said;
 use std::path::{Path, PathBuf};
 
 use otaq_core::agent_tools::LaunchContext;
@@ -103,7 +104,13 @@ async fn setup() -> Setup {
         commit(&worktree, &format!("part{n}.ts"), "x\n");
         w.force_status(&child, Status::Working).await;
         w.board
-            .submit_for_review(&child.key.to_string(), "Done.", &me())
+            .submit_for_review(
+                &child.key.to_string(),
+                said(&w.board, &child.key.to_string(), "Done.")
+                    .await
+                    .as_ref(),
+                &me(),
+            )
             .await
             .unwrap();
         let merged = w

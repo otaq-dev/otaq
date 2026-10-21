@@ -15,6 +15,7 @@ use otaq_core::naming;
 use otaq_core::protocol::{Reply, Request, ToolParams};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
+use otaq_core::service::testing::said;
 use otaq_core::session::SessionKind;
 use otaq_core::store::now_ms;
 use otaq_core::usage::limit::{LimitHit, LimitKind};
@@ -77,7 +78,9 @@ async fn submit(w: &TestService, t: &Ticket) -> Result<Ticket, otaq_core::board:
     w.validation
         .submit(
             &t.key.to_string(),
-            "Cart totals add up.",
+            said(&w.board, &t.key.to_string(), "Cart totals add up.")
+                .await
+                .as_ref(),
             &agent(t),
             ValidationTrigger::Agent,
         )
@@ -278,7 +281,12 @@ fn validator_of(w: &TestService, t: &Ticket) -> String {
 async fn verdict(w: &TestService, t: &Ticket, pass: bool, report: &str) -> Ticket {
     let session = validator_of(w, t);
     w.validation
-        .verdict(&t.key.to_string(), pass, report, &session)
+        .verdict(
+            &t.key.to_string(),
+            pass,
+            said(&w.board, &t.key.to_string(), report).await.as_ref(),
+            &session,
+        )
         .await
         .unwrap()
 }
@@ -297,7 +305,10 @@ async fn outcomes(
     t: &Ticket,
 ) -> Vec<(i64, Option<String>, Option<String>, Option<String>)> {
     sqlx::query_as(
-        "SELECT round, outcome, report, notes_json FROM validations WHERE ticket_id = ? ORDER BY started_at",
+        "SELECT v.round, v.outcome, c.body, v.notes_json FROM validations v
+         LEFT JOIN stage_runs r ON r.validation_id = v.id
+         LEFT JOIN ticket_comments c ON c.id = r.comment_id
+         WHERE v.ticket_id = ? ORDER BY v.started_at",
     )
     .bind(&t.id)
     .fetch_all(w.board.store().pool())
@@ -360,11 +371,10 @@ async fn a_fail_goes_back_to_the_agent_until_the_last_round() {
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].kind, "validation");
+    // The findings are the checker's comment: the agent is told only the round (CMT-05).
     assert_eq!(
         pending[0].text,
-        format!(
-            "Validate failed (round 1 of 3). Fix these, commit, and run `otaq stage next` again:\n\n{FINDINGS}"
-        )
+        "Validate failed round 1. Run `otaq prime`."
     );
 
     for round in 2..=3 {
@@ -428,7 +438,12 @@ async fn only_the_running_validator_reports_and_it_ends_after_its_turn() {
     submit(&w, &t).await.unwrap();
     let err = w
         .validation
-        .verdict(&t.key.to_string(), true, "", "another-session")
+        .verdict(
+            &t.key.to_string(),
+            true,
+            said(&w.board, &t.key.to_string(), "").await.as_ref(),
+            "another-session",
+        )
         .await
         .unwrap_err();
     assert_eq!(err.refusal(), Some(Refusal::NotAllowed));
@@ -480,6 +495,7 @@ async fn send_back_restarts_the_counter_and_prime_shows_the_comments() {
         .fail(
             &t.key.to_string(),
             "Also the tax",
+            None,
             false,
             &Actor::User("me".into()),
         )
@@ -497,8 +513,10 @@ async fn send_back_restarts_the_counter_and_prime_shows_the_comments() {
         text.contains("## The user's review (Send back, round 1)"),
         "{text}"
     );
-    // Only the line comments (CMT-07): the note is a comment now, not part of the review.
+    // Only the line comments (CMT-07): the note is the user's comment (CMT-05), under "## Comments".
     assert!(!text.contains("Note: Also the tax"), "{text}");
+    let comments = &text[text.find("\n## Comments\n").expect("a Comments section")..];
+    assert!(comments.contains("\n\nAlso the tax\n"), "{text}");
     assert!(text.contains("- src/cart.ts:12: Round the total"), "{text}");
     assert!(
         !text.contains("Earlier rounds"),
@@ -544,7 +562,12 @@ async fn a_validator_that_changes_files_gets_its_verdict_discarded() {
         let session = validator_of(&w, &t);
         let err = w
             .validation
-            .verdict(&t.key.to_string(), true, "fine", &session)
+            .verdict(
+                &t.key.to_string(),
+                true,
+                said(&w.board, &t.key.to_string(), "fine").await.as_ref(),
+                &session,
+            )
             .await
             .unwrap_err();
         assert!(
@@ -975,10 +998,15 @@ async fn after_a_restart_resume_validates_again() {
     let all = rounds(&w, &t).await;
     assert_eq!(all.iter().map(|r| r.0).collect::<Vec<_>>(), [1, 1]);
 
-    // A failed round must reach the agent: its conversation is resumed with the findings.
+    // A failed round must reach the agent: its conversation is resumed with what came back.
     let session = validator_of(&w, &t);
     w.validation
-        .verdict(&key, false, FINDINGS, &session)
+        .verdict(
+            &key,
+            false,
+            said(&w.board, &key, FINDINGS).await.as_ref(),
+            &session,
+        )
         .await
         .unwrap();
     let start = std::time::Instant::now();
@@ -997,6 +1025,10 @@ async fn after_a_restart_resume_validates_again() {
         out.contains("0199d2a4-3b1c-7c3e-9f00-123456789abc"),
         "{out}"
     );
-    w.wait_for_output(&agent.id, "src/cart.ts:12").await;
+    // Resumed with what came back, never the findings (the checker's comment, CMT-05).
+    let out = w
+        .wait_for_output(&agent.id, "Validate failed round 1. Run `otaq prime`.")
+        .await;
+    assert!(!out.contains("src/cart.ts:12"), "{out}");
     w.stop().await;
 }

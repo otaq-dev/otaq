@@ -143,6 +143,22 @@ pub fn comment(args: CommentArgs, global: &GlobalArgs, out: &Output) -> Result<(
     }
 }
 
+/// A `--report-file PATH` as the request sends it: made absolute and checked (it exists, is a file, at most 20 MB)
+/// before anything is read or sent, so a missing file posts and moves nothing (CMT-06). The comment, the stage ends
+/// and the verdicts share it.
+pub fn report_source(report_file: Option<PathBuf>) -> Result<Option<ReportSource>, ErrorBody> {
+    let Some(path) = report_file else {
+        return Ok(None);
+    };
+    let path = std::path::absolute(&path).map_err(|e| usage(format!("{}: {e}", path.display())))?;
+    open_report(&path).map_err(|e| {
+        let mut body = ErrorBody::new(ErrorKind::Refused, e.to_string());
+        body.data = e.refusal().map(|code| json!({ "refusal": code }));
+        body
+    })?;
+    Ok(Some(ReportSource::Path(path)))
+}
+
 /// `otaq comment [KEY] --stdin [--report-file PATH]`.
 fn post(
     key: Option<String>,
@@ -152,19 +168,7 @@ fn post(
     out: &Output,
 ) -> Result<(), ErrorBody> {
     // The report is checked before anything is read or sent: a missing file posts nothing (CMT-06).
-    let report = match report_file {
-        Some(path) => {
-            let path = std::path::absolute(&path)
-                .map_err(|e| usage(format!("{}: {e}", path.display())))?;
-            open_report(&path).map_err(|e| {
-                let mut body = ErrorBody::new(ErrorKind::Refused, e.to_string());
-                body.data = e.refusal().map(|code| json!({ "refusal": code }));
-                body
-            })?;
-            Some(ReportSource::Path(path))
-        }
-        None => None,
-    };
+    let report = report_source(report_file)?;
     let body = read_stdin(stdin)?;
     let (key, reply) = send(key, global, |key| {
         Request::TicketCommentPost(TicketCommentPostParams { key, body, report })

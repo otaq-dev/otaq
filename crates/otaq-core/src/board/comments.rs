@@ -265,16 +265,13 @@ fn non_empty(body: &str) -> Result<&str, BoardError> {
     Ok(body)
 }
 
-/// What `otaq review feedback` prints (REV-05): the comments and the note of the latest Send back, then the
-/// unresolved PR comments (fetched on demand, T-0148).
+/// What `otaq review feedback` prints (REV-05): the line comments of the latest Send back, then the unresolved PR
+/// comments (fetched on demand, T-0148). The user's note is a ticket comment, read in `prime` (CMT-05).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReviewFeedback {
     pub key: TicketKey,
     /// The latest Send back's round; 0 when the ticket was never sent back.
     pub round: u32,
-    /// The user's general note, if the Send back had one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
     /// The round's line comments, by file then line, oldest first on a line.
     pub comments: Vec<FeedbackComment>,
     /// For a ticket with a PR: its unresolved review comments, or why they couldn't be fetched.
@@ -292,13 +289,10 @@ pub struct FeedbackComment {
 }
 
 impl Board {
-    /// The feedback of the latest Send back. Reading it changes nothing: no move, no session (REV-05).
+    /// The line comments of the latest Send back. Reading it changes nothing: no move, no session (REV-05).
     pub async fn review_feedback(&self, key: &str) -> Result<ReviewFeedback, BoardError> {
         let ticket = self.ticket(key).await?;
-        let (round, note) = self
-            .latest_send_back_note(&ticket.id)
-            .await?
-            .unwrap_or((0, None));
+        let round = self.latest_send_back_round(&ticket.id).await?.unwrap_or(0);
         let mut comments: Vec<FeedbackComment> = self
             .comments(key, Some(round))
             .await?
@@ -317,7 +311,6 @@ impl Board {
         Ok(ReviewFeedback {
             key: ticket.key,
             round,
-            note,
             comments,
             pr: None,
         })

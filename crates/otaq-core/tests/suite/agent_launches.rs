@@ -586,7 +586,10 @@ async fn resume(
                 })
                 .await
                 .unwrap();
-            w.review.fail("SHOP-1", "", false, &me()).await.unwrap();
+            w.review
+                .fail("SHOP-1", "", None, false, &me())
+                .await
+                .unwrap();
             let s = w
                 .sessions
                 .running_of(&t.id, SessionKind::Agent)
@@ -594,7 +597,8 @@ async fn resume(
             (
                 s,
                 format!(
-                    "--resume {CONVERSATION}{flag} {}",
+                    "--resume {CONVERSATION}{flag} {} SHOP-1 was sent back to Dev with 1 line comment. Run `otaq \
+                     prime`, then `otaq review feedback`.",
                     claude_skill("address-review")
                 ),
             )

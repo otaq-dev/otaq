@@ -9,6 +9,7 @@
 //! one holding the repository's shipped skills. Skill folders, repos, `OTAQ_HOME` and the tools' home are temporary:
 //! no test starts a real tool.
 
+use otaq_core::service::testing::said;
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -158,7 +159,13 @@ async fn in_review(w: &TestService, title: &str) -> (Ticket, PathBuf) {
     w.force_status(&t, Status::Working).await;
     let key = t.key.to_string();
     w.board
-        .submit_for_review(&key, "Redirects after login.", &me())
+        .submit_for_review(
+            &key,
+            said(&w.board, &key, "Redirects after login.")
+                .await
+                .as_ref(),
+            &me(),
+        )
         .await
         .unwrap();
     (w.board.ticket(&key).await.unwrap(), worktree)
@@ -465,7 +472,7 @@ async fn the_validator_runs_its_checks_skill_and_stays_read_only() {
         w.validation
             .submit(
                 &key,
-                "Cart totals add up.",
+                said(&w.board, &key, "Cart totals add up.").await.as_ref(),
                 &Actor::Agent(t.key.clone()),
                 ValidationTrigger::Agent,
             )
@@ -491,7 +498,12 @@ async fn the_validator_runs_its_checks_skill_and_stays_read_only() {
         }
         let after = w
             .validation
-            .verdict(&key, true, "Totals are right.", &validator.id)
+            .verdict(
+                &key,
+                true,
+                said(&w.board, &key, "Totals are right.").await.as_ref(),
+                &validator.id,
+            )
             .await
             .unwrap();
         assert_eq!(after.status, Status::WaitingForYou, "not discarded");
@@ -530,7 +542,13 @@ async fn submit_and_local_merge_ignore_the_copies() {
     );
     w.force_status(&t, Status::Working).await;
     w.board
-        .submit_for_review("SHOP-1", "Redirects after login.", &me())
+        .submit_for_review(
+            "SHOP-1",
+            said(&w.board, "SHOP-1", "Redirects after login.")
+                .await
+                .as_ref(),
+            &me(),
+        )
         .await
         .expect("nothing uncommitted");
     let merged = w

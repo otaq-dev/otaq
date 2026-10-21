@@ -148,6 +148,17 @@ async fn review_submit_refuses_uncommitted_files_then_submits() {
         w.board.review_summary(&shop19.id).await.unwrap().as_deref(),
         Some("Price table with sorting.\nPrices align right.")
     );
+    // The summary is SHOP-19's agent's comment (CMT-05): SHOP-20's prime shows it under "Depends on" (CMT-07).
+    let prime = otaq_core::prime::render(
+        &w.board
+            .prime_context("SHOP-20", w.adapters.for_new_session())
+            .await
+            .unwrap(),
+    );
+    assert!(
+        prime.contains("  > Price table with sorting.\n  > Prices align right.\n"),
+        "{prime}"
+    );
     // The turn's Stop doesn't touch it.
     stop_hook(&agent).await;
     assert_eq!(w.status("SHOP-19").await, Status::WaitingForYou);
@@ -302,6 +313,7 @@ async fn review_feedback_prints_the_latest_round() {
         .fail(
             "SHOP-1",
             "Also check page 0.",
+            None,
             false,
             &Actor::User("me".into()),
         )
@@ -315,7 +327,7 @@ async fn review_feedback_prints_the_latest_round() {
     assert_eq!(human.status, 0, "{human:?}");
     assert_eq!(
         human.stdout.trim(),
-        "SHOP-1 · feedback from round 1\n\nNote: Also check page 0.\n\napp/page.tsx\n  3: Show the total.\n\nlib/search.ts\n  12: Use the page size from settings.\n  40 (removed line): Why was this removed?"
+        "SHOP-1 · feedback from round 1\n\napp/page.tsx\n  3: Show the total.\n\nlib/search.ts\n  12: Use the page size from settings.\n  40 (removed line): Why was this removed?"
     );
     let json = agent
         .run(&format!("'{CB}' review feedback SHOP-1 --json"))
@@ -324,7 +336,8 @@ async fn review_feedback_prints_the_latest_round() {
     let feedback: Value = serde_json::from_str(&json.stdout).unwrap();
     assert_eq!(feedback["key"], "SHOP-1");
     assert_eq!(feedback["round"], 1);
-    assert_eq!(feedback["note"], "Also check page 0.");
+    // The note is the user's ticket comment, read in `prime` (CMT-05).
+    assert_eq!(feedback.get("note"), None);
     assert_eq!(feedback["comments"].as_array().unwrap().len(), 3);
     assert_eq!(
         feedback["comments"][2],

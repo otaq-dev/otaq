@@ -356,23 +356,29 @@ pub enum DecisionCommand {
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
 pub enum StageCommand {
-    /// Finish your stage with a summary on stdin: the ticket moves to the next stage (an agent check, Review…);
-    /// refused while files are uncommitted or a lead note is unread
+    /// Finish your stage with a summary on stdin, posted as your comment: the ticket moves to the next stage (an
+    /// agent check, Review…); refused while files are uncommitted or a lead note is unread
     Next {
         /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,
-        /// Read the summary from stdin
+        /// Read the summary from stdin (at most 2,000 characters)
         #[arg(long)]
         stdin: bool,
+        /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
+        #[arg(long, value_name = "PATH")]
+        report_file: Option<PathBuf>,
     },
-    /// Nothing to deliver (no commits on the branch): the ticket is Closed · nothing to merge, your reason on stdin;
-    /// refused when the branch has commits
+    /// Nothing to deliver (no commits on the branch): the ticket is Closed · nothing to merge, your reason on stdin
+    /// posted as your comment; refused when the branch has commits
     Done {
         /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,
-        /// Read the reason from stdin
+        /// Read the reason from stdin (at most 2,000 characters)
         #[arg(long)]
         stdin: bool,
+        /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
+        #[arg(long, value_name = "PATH")]
+        report_file: Option<PathBuf>,
     },
 }
 
@@ -380,15 +386,22 @@ pub enum StageCommand {
 pub enum CheckCommand {
     /// The change does what the ticket asks: on to the next stage (Review, or Auto-merge)
     Pass {
-        /// Read the report from stdin
+        /// Read the report from stdin, posted as your comment (at most 2,000 characters)
         #[arg(long)]
         stdin: bool,
+        /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
+        #[arg(long, value_name = "PATH")]
+        report_file: Option<PathBuf>,
     },
     /// It doesn't: the findings go back to the agent
     Fail {
-        /// Read the report (one finding per line, with file and line) from stdin
+        /// Read the report (one finding per line, with file and line) from stdin, posted as your comment (at most
+        /// 2,000 characters)
         #[arg(long)]
         stdin: bool,
+        /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
+        #[arg(long, value_name = "PATH")]
+        report_file: Option<PathBuf>,
     },
 }
 
@@ -398,11 +411,14 @@ pub enum ReviewCommand {
     Submit {
         /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,
-        /// Read the summary from stdin
+        /// Read the summary from stdin (at most 2,000 characters)
         #[arg(long)]
         stdin: bool,
+        /// Attach a file as the comment's report (at most 20 MB): long output saved straight from a tool
+        #[arg(long, value_name = "PATH")]
+        report_file: Option<PathBuf>,
     },
-    /// The latest Send back's comments, by file, and the reviewer's note (reading it changes nothing)
+    /// The latest Send back's line comments, by file, and its PR's comments (reading it changes nothing)
     Feedback {
         /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,

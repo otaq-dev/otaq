@@ -6,6 +6,7 @@
 //! are skipped by you and the Delivery waits for a click); a parked card back to the stage it left; an epic refused.
 //! Every drag back resets the agent checks' counters. `claude` is stood in for by ordinary commands.
 
+use otaq_core::service::testing::said;
 use std::path::Path;
 use std::time::Duration;
 
@@ -132,6 +133,7 @@ async fn drag(
 ) -> Result<ReturnOutcome, otaq_core::board::BoardError> {
     let answers = DragAnswers {
         note,
+        report: None,
         confirmed: true,
         clear_first: false,
     };
@@ -205,13 +207,20 @@ async fn back_to_dev_resumes_its_session_with_the_instructions() {
     let session = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
     let out = w.wait_for_output(&session.id, "ARGS").await;
     assert!(out.contains("--resume Price table-dev"), "{out}");
-    assert!(out.contains("address-review"), "{out}");
+    assert!(
+        out.contains(
+            "address-review SHOP-1 was sent back to Dev by you with a comment. Run `otaq prime`."
+        ),
+        "{out}"
+    );
+    assert!(
+        !out.contains(note),
+        "the instructions are a comment, not typed: {out}"
+    );
     assert_eq!(
-        w.board
-            .latest_send_back_note(&t.id)
+        crate::common::last_comment(&w.board, "SHOP-1")
             .await
-            .unwrap()
-            .and_then(|(_, n)| n)
+            .map(|c| c.body)
             .as_deref(),
         Some(note)
     );
@@ -244,7 +253,7 @@ async fn back_from_a_running_check_stops_the_checker() {
     w.validation
         .submit(
             "SHOP-1",
-            "Done",
+            said(&w.board, "SHOP-1", "Done").await.as_ref(),
             &Actor::Agent(t.key.clone()),
             ValidationTrigger::Agent,
         )
@@ -311,11 +320,24 @@ async fn back_to_a_check_runs_it_again_with_the_note() {
     let counts = w.board.check_counts(&t.id).await.unwrap();
     assert!(counts.0.iter().all(|c| c.fails == 0), "{counts:?}");
     let runs = w.board.stage_runs("SHOP-1").await.unwrap();
+    // The note is the user's comment, which the QA run ended with (CMT-05).
     let qa = runs.iter().rfind(|r| r.stage == "qa").unwrap();
     assert_eq!(
         (qa.result, qa.summary.as_deref()),
         (Some(RunResult::Cancelled), Some(note))
     );
+    let comment = crate::common::last_comment(&w.board, "SHOP-1")
+        .await
+        .unwrap();
+    assert_eq!(comment.author_label(), "You");
+    let marked: Option<i64> = sqlx::query_scalar(
+        "SELECT handed_over_at FROM stage_runs WHERE ticket_id = ? AND stage_id = 'security' AND ended_at IS NULL",
+    )
+    .bind(&t.id)
+    .fetch_one(w.board.store().pool())
+    .await
+    .unwrap();
+    assert!(marked.is_some(), "the check runs again with a new comment");
     let security = runs.iter().rfind(|r| r.stage == "security").unwrap();
     assert_eq!((security.round, security.result), (Some(1), None));
     assert_eq!(dragged(&w, "SHOP-1").await.payload["stage"], "Security");
@@ -482,8 +504,21 @@ async fn back_into_a_skipped_stage_runs_it_once() {
     let session = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
     let out = w.wait_for_output(&session.id, "ARGS").await;
     assert!(!out.contains("--resume"), "a fresh session: {out}");
-    assert!(out.contains("grill"), "{out}");
-    assert!(out.contains(note), "{out}");
+    // The stage's skill, then what came back (CMT-05): the instructions are the user's comment, not typed.
+    assert!(
+        out.contains(
+            "/otaq-grill SHOP-1 was sent back to Grill by you with a comment. Run `otaq prime`."
+        ),
+        "{out}"
+    );
+    assert!(!out.contains(note), "{out}");
+    assert_eq!(
+        crate::common::last_comment(&w.board, "SHOP-1")
+            .await
+            .map(|c| c.body)
+            .as_deref(),
+        Some(note)
+    );
     let event = dragged(&w, "SHOP-1").await;
     assert_eq!(event.payload["run_by_you"], true);
     w.stop().await;

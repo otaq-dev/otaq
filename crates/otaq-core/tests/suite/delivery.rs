@@ -8,6 +8,7 @@
 //! build freed at Review back first (T-0309, M19-c).
 
 use crate::common::freed;
+use otaq_core::service::testing::said;
 
 use std::path::PathBuf;
 
@@ -88,7 +89,7 @@ async fn pass(w: &TestService, t: &Ticket) -> Ticket {
     w.validation
         .submit(
             &key,
-            "done",
+            said(&w.board, &key, "done").await.as_ref(),
             &Actor::Agent(t.key.clone()),
             ValidationTrigger::Agent,
         )
@@ -100,7 +101,12 @@ async fn pass(w: &TestService, t: &Ticket) -> Ticket {
         .unwrap()
         .id;
     w.validation
-        .verdict(&key, true, "ok", &validator)
+        .verdict(
+            &key,
+            true,
+            said(&w.board, &key, "ok").await.as_ref(),
+            &validator,
+        )
         .await
         .unwrap();
     w.board.ticket(&key).await.unwrap()
@@ -184,7 +190,7 @@ async fn a_flow_with_no_check_delivers_without_checks() {
         .validation
         .submit(
             &t.key.to_string(),
-            "done",
+            said(&w.board, &t.key.to_string(), "done").await.as_ref(),
             &Actor::Agent(t.key.clone()),
             ValidationTrigger::Agent,
         )
@@ -228,7 +234,9 @@ async fn the_users_routes_past_a_check_lead_to_a_click() {
     w.validation
         .submit(
             &skipped.key.to_string(),
-            "done",
+            said(&w.board, &skipped.key.to_string(), "done")
+                .await
+                .as_ref(),
             &Actor::Agent(skipped.key.clone()),
             ValidationTrigger::Agent,
         )
@@ -264,7 +272,7 @@ async fn move_on_anyway_forces_click_mode() {
     w.validation
         .submit(
             &key,
-            "done",
+            said(&w.board, &key, "done").await.as_ref(),
             &Actor::Agent(failed.key.clone()),
             ValidationTrigger::Agent,
         )
@@ -277,7 +285,12 @@ async fn move_on_anyway_forces_click_mode() {
         .id;
     let after = w
         .validation
-        .verdict(&key, false, "- a.ts:1 wrong", &checker)
+        .verdict(
+            &key,
+            false,
+            said(&w.board, &key, "- a.ts:1 wrong").await.as_ref(),
+            &checker,
+        )
         .await
         .unwrap();
     assert_eq!(after.status, Status::CheckFailed);
@@ -684,10 +697,11 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
     assert_eq!(open.flags.pr_number, Some(481));
     assert!(!open.flags.delivering_automatically);
 
-    // Send back with PR comments: Dev's session resumes with address-review and the note.
+    // Send back with PR comments: the note is the user's comment (CMT-05), posted first; Dev's session is typed
+    // address-review and what came back, never the note.
     let sent = w
         .review
-        .send_back_pr(&key, "Keep the old route working", false, &me())
+        .send_back_pr(&key, "Keep the old route working", None, false, &me())
         .await
         .unwrap();
     assert!(matches!(
@@ -699,13 +713,22 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
         (back.status, &back.place),
         (Status::Working, &Place::stage_of(DEV))
     );
-    w.wait_for_output(
-        &agent.session,
-        &format!("/{}", naming::copy_name("address-review")),
-    )
-    .await;
-    let feedback = w.board.review_feedback(&key).await.unwrap();
-    assert_eq!(feedback.note.as_deref(), Some("Keep the old route working"));
+    let out = w
+        .wait_for_output(
+            &agent.session,
+            &format!(
+                "/{} SHOP-1 was sent back to Dev with PR comments and a comment. Run `otaq prime`, then `otaq \
+                 review feedback`.",
+                naming::copy_name("address-review")
+            ),
+        )
+        .await;
+    assert!(!out.contains("Keep the old route working"), "{out}");
+    let note = crate::common::last_comment(&w.board, &key).await.unwrap();
+    assert_eq!(
+        (note.author_label(), note.body.as_str()),
+        ("You".to_owned(), "Keep the old route working")
+    );
     assert!(
         w.board
             .history(&key)
@@ -794,7 +817,7 @@ async fn an_epic_adds_a_child_from_pr_comments() {
 
     let err = w
         .review
-        .send_back_pr(&key, "", false, &me())
+        .send_back_pr(&key, "", None, false, &me())
         .await
         .unwrap_err();
     assert!(err.to_string().contains("add a child"), "{err}");

@@ -565,37 +565,49 @@ impl Board {
 impl Board {
     /// **Send back with PR comments** (FLW-16, d0108): Delivery · PR open → the nearest earlier Agent stage, Working
     /// (its live session gets the skill) or Queued before it with the skill still to run. The PR stays (number,
-    /// URL, locked branch); the optional note reaches the agent with `otaq review feedback`, which also reads the PR's
-    /// unresolved comments. Every agent check's counter restarts at 0, as after a human Fail.
+    /// URL, locked branch); the optional note is the user's comment (`hand_over`, CMT-05), posted first, and the agent
+    /// reads the PR's unresolved comments with `otaq review feedback`. Every agent check's counter restarts at 0, as
+    /// after a human Fail. Returns what the agent is told ("SHOP-18 was sent back to Dev with PR comments and a
+    /// comment. Run `otaq prime`, then `otaq review feedback`."), already stored for a queued ticket.
     pub(crate) async fn record_send_back_pr(
         &self,
         ticket: &Ticket,
-        note: &str,
+        hand_over: Option<&crate::board::hand_over::HandOver>,
         to: Status,
         resume_skill: Option<&str>,
         actor: &Actor,
-    ) -> Result<(), BoardError> {
+    ) -> Result<String, BoardError> {
         let flow = self.effective_flow(ticket.key.project.as_str()).await?;
         let moved = self
             .moved(ticket, ticket.status, crate::flow::engine::Move::PrComments)
             .await?;
         let stage = moved.place.stage().map(str::to_owned);
+        let name = stage
+            .as_deref()
+            .and_then(|id| flow.stage(id))
+            .or_else(|| flow.first_agent_stage())
+            .map_or_else(|| "Dev".to_owned(), |s| s.name.clone());
         let stage = match to.is_queued() {
             true => stage.and_then(|id| crate::board::send_back::waits_before(&flow, &id)),
             false => stage,
         };
         let round = self.current_round(&ticket.id).await?;
-        let note = note.trim();
+        let note = hand_over.map_or("", |h| h.body.as_str());
         let now = now_ms();
         let mut tx = self.store().begin_write().await?;
-        moved.record(&mut tx, &ticket.id, Some(note)).await?;
+        let posted = match hand_over {
+            Some(h) => Some(h.post(&mut tx, &ticket.id, actor).await?),
+            None => None,
+        };
+        moved
+            .record(&mut tx, &ticket.id, posted.as_ref().map(|p| p.id.as_str()))
+            .await?;
         sqlx::query(
-            "INSERT INTO reviews (id, ticket_id, round, action, note, at) VALUES (?, ?, ?, 'send_back', ?, ?)",
+            "INSERT INTO reviews (id, ticket_id, round, action, at) VALUES (?, ?, ?, 'send_back', ?)",
         )
         .bind(crate::store::new_id())
         .bind(&ticket.id)
         .bind(i64::from(round))
-        .bind((!note.is_empty()).then_some(note))
         .bind(now)
         .execute(&mut *tx)
         .await?;
@@ -608,6 +620,24 @@ impl Board {
             actor,
         )
         .await?;
+        let told = crate::board::hand_over::sent_back_text(&crate::board::hand_over::SentBack {
+            key: &ticket.key.to_string(),
+            stage: &name,
+            line_comments: 0,
+            pr_comments: true,
+            comment: posted.is_some(),
+            by_you: false,
+        });
+        if resume_skill.is_some() {
+            sqlx::query("UPDATE tickets SET resume_prompt = ? WHERE id = ?")
+                .bind(&told)
+                .bind(&ticket.id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        if posted.is_some() {
+            crate::board::stage_runs::mark_handed_over(&mut tx, &ticket.id).await?;
+        }
         record_event(
             &mut tx,
             &ticket.id,
@@ -618,7 +648,7 @@ impl Board {
         .await?;
         tx.commit().await?;
         tracing::info!(key = %ticket.key, %to, "sent back with PR comments");
-        Ok(())
+        Ok(told)
     }
 }
 
