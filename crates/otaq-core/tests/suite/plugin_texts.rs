@@ -320,6 +320,53 @@ fn open_pr_and_push_describe_click_and_automatic_mode() {
     assert!(read_skill("open-pr").contains(&format!("`{}` skill", naming::copy_name("push"))));
 }
 
+/// T-0428 (ONB-09; d0108 "the agent reads the sources itself", "Every why line names its source"): `flow` has "A
+/// first flow" between its steps and the file: `history` with its paging and filters (older only with `--all`), the
+/// skills and instruction files, the repo, `gh` / `glab`, the closest preset, counts or "No evidence", no `skip` or
+/// automatic Delivery unasked, then `flow propose --stdin`.
+#[test]
+fn flow_reads_the_sources_for_a_first_flow() {
+    let cmd = naming::COMMAND_NAME;
+    let flow = read_skill("flow");
+    let at = |heading: &str| {
+        flow.find(&format!("\n## {heading}\n"))
+            .unwrap_or_else(|| panic!("flow has no {heading:?}"))
+    };
+    let (steps, first, file) = (at("Steps"), at("A first flow"), at("The file"));
+    assert!(
+        steps < first && first < file,
+        "A first flow comes between Steps and The file"
+    );
+    let section = &flow[first..file];
+    for text in [
+        format!("{cmd} history\n"),
+        format!("{cmd} history --project "),
+        format!("{cmd} history --command /"),
+        format!("{cmd} history --page 2"),
+        format!("{cmd} history --all"),
+        "Older history only".to_owned(),
+        "~/.claude/skills/".to_owned(),
+        "`CLAUDE.md`".to_owned(),
+        "`AGENTS.md`".to_owned(),
+        "`git log`".to_owned(),
+        "branch names".to_owned(),
+        "CI files".to_owned(),
+        "PR templates".to_owned(),
+        "`CONTRIBUTING.md`".to_owned(),
+        "`gh pr list".to_owned(),
+        "`glab ".to_owned(),
+        "closest preset".to_owned(),
+        format!("{cmd} flow presets"),
+        "a count you actually found".to_owned(),
+        "No evidence".to_owned(),
+        "`skip`".to_owned(),
+        "automatic Delivery".to_owned(),
+        format!("{cmd} flow propose --stdin"),
+    ] {
+        assert!(section.contains(&text), "A first flow must say {text:?}");
+    }
+}
+
 #[test]
 fn the_quoting_check_matches_yaml() {
     assert!(quoted(r#"'Otaq''s skill with "<KEY>: <what>" messages'"#));

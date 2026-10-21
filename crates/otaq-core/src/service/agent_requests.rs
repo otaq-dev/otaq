@@ -29,6 +29,17 @@ pub(super) async fn handle(
                 .open_on(&p.project, &p.message, p.agent.as_deref())
                 .await,
         ),
+        Request::OnboardingStartFlow(p) => {
+            let sources = crate::onboarding::sources(
+                &shared.board,
+                &shared.gate,
+                &shared.config.tools,
+                &p.project,
+            )
+            .await
+            .map_err(|e| error_body(&e))?;
+            agent(agents.start_flow(&p.project, &sources).await)
+        }
         Request::ProjectAgentList(p) => agents
             .list(&p.project)
             .await

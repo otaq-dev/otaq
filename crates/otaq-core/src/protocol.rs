@@ -168,6 +168,12 @@ pub enum Request {
     /// signed in, and the Project agent's tool. Reads no content. Answered with [`Reply::OnboardingSources`].
     #[serde(rename = "onboarding.sources")]
     OnboardingSources(ProjectParams),
+    /// **Look and propose a flow** (ONB-05, d0108): opens the project's first Project agent on the `flow` skill with
+    /// a first message naming the project and what there is to look at, or returns its running `/flow` Project
+    /// agent. Refused with nothing to look at and while the Project agent's tool is at its limit. Answered with
+    /// [`Reply::ProjectAgent`]; attach to its `session`.
+    #[serde(rename = "onboarding.start_flow")]
+    OnboardingStartFlow(ProjectParams),
     /// Remembers that the user closed the permission-mode warning; answered with [`Reply::Ok`].
     #[serde(rename = "onboarding.dismiss_permission_warning")]
     DismissPermissionWarning,
@@ -1669,6 +1675,7 @@ impl Request {
             Self::ToolsCheck => "tools.check",
             Self::OnboardingState => "onboarding.state",
             Self::OnboardingSources(_) => "onboarding.sources",
+            Self::OnboardingStartFlow(_) => "onboarding.start_flow",
             Self::DismissPermissionWarning => "onboarding.dismiss_permission_warning",
             Self::DismissTrustNote => "notices.dismiss_trust_note",
             Self::NotificationsState => "notifications.state",

@@ -66,8 +66,8 @@ pub use onboarding::{
 pub use palette::{Use as PaletteUse, ViewParams as PaletteParams};
 #[cfg(test)]
 pub use pane::{
-    EndParams as PaneEndParams, Ended as PaneEnded, Params as PaneParams,
-    ProjectOnly as PaneProjectParams, RenameParams as PaneRenameParams,
+    EndParams as PaneEndParams, Ended as PaneEnded, FlowStarted as PaneFlowStarted,
+    Params as PaneParams, ProjectOnly as PaneProjectParams, RenameParams as PaneRenameParams,
     ResumeParams as PaneResumeParams, SendParams as PaneSendParams,
 };
 #[cfg(test)]

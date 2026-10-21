@@ -117,6 +117,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::PaneEnded::export_all(&cfg)?;
     crate::api::PaneProjectParams::export_all(&cfg)?;
     crate::api::PaneResumeParams::export_all(&cfg)?;
+    crate::api::PaneFlowStarted::export_all(&cfg)?;
     // The board (T-0220): its view with the cards, the drag's one answer, the drop's outcome, and the requests'.
     otaq_view::view_models::board_page::BoardPage::export_all(&cfg)?;
     otaq_view::view_models::board_page::Params::export_all(&cfg)?;

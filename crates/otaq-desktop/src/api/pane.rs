@@ -30,6 +30,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "pane.end" => reply(&end(app, parse(params)?).await?),
         "pane.close_ended" => reply(&close_ended(app, parse(params)?).await?),
         "pane.resume" => reply(&resume(app, parse(params)?).await?),
+        "pane.start_flow" => reply(&start_flow(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -340,6 +341,37 @@ pub async fn resume(app: &App, params: ResumeParams) -> Result<String, RequestEr
             toast_error(app, "The Project agent didn\u{2019}t resume", &e);
             Err(e)
         }
+    }
+}
+
+/// What `pane.start_flow` answers: the onboarding agent and the session its terminal attaches to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "PaneFlowStarted")]
+pub struct FlowStarted {
+    /// The Project agent's id.
+    pub id: String,
+    /// Its session (`<Terminal session …>`); `None` only if it ended at once.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub session: Option<String>,
+}
+
+/// **Look and propose a flow** (ONB-05, `onboarding.start_flow`): the project's first Project agent on the `flow`
+/// skill, or its running one. A refusal (nothing to look at, the tool at its limit) comes back as the error, with no
+/// toast: the Flow step shows it.
+pub async fn start_flow(app: &App, params: ProjectOnly) -> Result<FlowStarted, RequestError> {
+    match app
+        .service
+        .send(Request::OnboardingStartFlow(ProjectParams {
+            project: params.project,
+        }))
+        .await?
+    {
+        Reply::ProjectAgent(agent) => Ok(FlowStarted {
+            session: agent.session.as_ref().map(|s| s.id.clone()),
+            id: agent.id,
+        }),
+        other => Err(unexpected("onboarding.start_flow", &other)),
     }
 }
 

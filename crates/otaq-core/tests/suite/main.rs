@@ -80,6 +80,7 @@ mod needs_you;
 mod no_ui_dependency;
 mod notifications;
 mod onboarding_sources;
+mod onboarding_start;
 mod option_notes;
 mod order;
 mod parent_merged;

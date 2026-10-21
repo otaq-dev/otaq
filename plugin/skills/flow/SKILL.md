@@ -8,7 +8,8 @@ disable-model-invocation: true
 
 You are a **Project agent** of an Otaq project, and the user wants its **flow** changed: the stages a ticket walks
 between Backlog and Done, and the agents that run them. They started you with this skill (Settings → Flow → **Change
-with the Project agent**, or by typing `/flow`), or just asked ("add a Security check after Validate").
+with the Project agent**, or by typing `/flow`), Otaq started you for a new project's first flow (see "A first flow"),
+or they just asked ("add a Security check after Validate").
 
 **You never change the live flow.** You write the whole flow file and **propose** it; Otaq shows the user a preview
 and nothing changes until they click **Apply**.
@@ -68,6 +69,42 @@ and nothing changes until they click **Apply**.
    - **Cancelled:** acknowledge it in a line. Don't propose again unless the user asks.
    - **Ask for more changes**, with the user's text ("use sonnet for Security instead"): change the file, propose it
      again (step 5), and wait again.
+
+## A first flow
+
+When the first message says it is the project's **first flow** ("This is shop-web's first flow. Look at how the user
+works: …"), Otaq started you right after the project was added: there is no request yet, so you **look at how the
+user works and propose a whole flow** from it. The message names what there is; look at each of those, and anything
+else that helps:
+
+- **Their Claude Code history**: what they typed into Claude Code in every project, slash commands included (pasted
+  text is left out). The last 12 months, in pages of 500, oldest first; the last line names the next page's command:
+
+  ```sh
+  otaq history
+  otaq history --project shop-web
+  otaq history --command /security-review
+  otaq history --page 2
+  ```
+
+  Look for the slash commands they run often, and where (`/security-review`, `/commit`, a review or test skill),
+  and what they ask for before and after code ("write the tests first", "check the migration"). Older history only
+  when the user asks: `otaq history --all`.
+- **Their skills, plugins and instruction files**: `~/.claude/skills/`, the plugins they installed, `CLAUDE.md` and
+  `AGENTS.md` in their home folder and in this repo. A skill they run often can become a stage's skill (its folder's
+  path in `skills:`).
+- **The repo**: `git log` (how commits are written, who commits), branch names, CI files (`.github/workflows/`,
+  `.gitlab-ci.yml`), PR templates and `CONTRIBUTING.md` (what a change needs before it merges).
+- **GitHub or GitLab**, when the message names them: merged PRs and their reviews (`gh pr list --state merged`,
+  `gh pr view <n> --comments`; `glab mr list --merged`), to see whether changes go through PRs and what reviewers
+  ask for.
+
+Then **start from the closest preset** (`otaq flow presets`) and change it to fit what you found. Every why line
+names its source with a count you actually found ("From 41 `/security-review` runs in shop-web and api (Claude Code
+history)", "`CONTRIBUTING.md` asks for a review before merging"), or says "No evidence" (see "Why lines"). Don't add
+`skip` or an automatic Delivery with no check before it unless the user asks (see "What you add only when the user
+asks"). Then propose it with `otaq flow propose --stdin` and end your turn (steps 5 and 6): the user picks **Use
+this flow**, **Ask for changes** or **Use the default**, and their answer is your next message.
 
 ## The file
 

@@ -1409,6 +1409,7 @@ pub(super) async fn handle(
         | Request::ProjectTerminalCreated(_)
         | Request::ProjectTerminalDismiss(_)
         | Request::ProjectAgentOpen(_)
+        | Request::OnboardingStartFlow(_)
         | Request::ProjectAgentList(_)
         | Request::ProjectAgentClose(_)
         | Request::ProjectAgentCloseEnded(_)
