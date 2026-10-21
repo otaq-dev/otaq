@@ -4,8 +4,9 @@
 //! don't block; the user's moves never are. Requests go through the socket from inside sessions (an ordinary `sh`,
 //! never an agent tool); every data folder is temporary.
 //!
-//! The resume marker (`stage_runs.handed_over_at`) is set by hand here until T-0443's resumes set it; T-0448 checks
-//! the real Send back, drag back and Fail resumes end to end.
+//! The resume marker (`stage_runs.handed_over_at`) is set by hand here; `hand_overs.rs` checks that the real Send back,
+//! PR Send back, drag back and failed-check resumes set it, and the CLI's `comment_path.rs` walks a failed check end to
+//! end.
 
 use std::time::Duration;
 

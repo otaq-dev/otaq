@@ -730,3 +730,6 @@ mod tests {
         h.service.stop_all().await;
     }
 }
+
+#[cfg(test)]
+mod hand_over_tests;

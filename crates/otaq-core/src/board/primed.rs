@@ -79,13 +79,23 @@ impl Board {
         if run.primed() {
             return Ok(());
         }
+        // The session's last prime on this ticket, in this run or an earlier one (a failed check resumes Dev's
+        // session in a new run): what it read then isn't unread now.
+        let last_prime: Option<i64> = sqlx::query_scalar(
+            "SELECT MAX(primed_at) FROM stage_runs WHERE ticket_id = ? AND (id = ? OR session_id = ?)",
+        )
+        .bind(&ticket.id)
+        .bind(&run.id)
+        .bind(session)
+        .fetch_one(self.store.pool())
+        .await?;
         let unread: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM ticket_comments
              WHERE ticket_id = ? AND deleted_at IS NULL AND (? IS NULL OR posted_at > ?)",
         )
         .bind(&ticket.id)
-        .bind(run.primed_at)
-        .bind(run.primed_at)
+        .bind(last_prime)
+        .bind(last_prime)
         .fetch_one(self.store.pool())
         .await?;
         Err(BoardError::refused(
