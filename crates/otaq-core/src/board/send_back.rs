@@ -85,57 +85,13 @@ impl Board {
         back: SentBackTo<'_>,
         actor: &Actor,
     ) -> Result<SentRound, BoardError> {
-        let SentBackTo {
-            note,
-            to,
-            stage,
-            resume_skill,
-            ended,
-            event,
-        } = back;
-        let now = now_ms();
+        let (to, stage) = (back.to, back.stage.map(str::to_owned));
         let round = self.current_round(&ticket.id).await?;
         let mut tx = self.store.begin_write().await?;
-        let sent = sqlx::query(
-            "UPDATE review_comments SET sent_at = ?, round = ? WHERE ticket_id = ? AND sent_at IS NULL",
-        )
-        .bind(now)
-        .bind(i64::from(round))
-        .bind(&ticket.id)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-        let note = note.trim();
-        sqlx::query(
-            "INSERT INTO reviews (id, ticket_id, round, action, note, at) VALUES (?, ?, ?, 'send_back', ?, ?)",
-        )
-        .bind(new_id())
-        .bind(&ticket.id)
-        .bind(i64::from(round))
-        .bind((!note.is_empty()).then_some(note))
-        .bind(now)
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query("UPDATE tickets SET sent_back_round = ?, sent_back_at = ? WHERE id = ?")
-            .bind(i64::from(round))
-            .bind(now)
-            .bind(&ticket.id)
-            .execute(&mut *tx)
-            .await?;
-        // A human check's Fail (STG-06), or how a drag back ends the run where the card was.
-        stage_runs::end_open(&mut tx, &ticket.id, ended, Some(note)).await?;
-        return_to_dev(&mut tx, ticket, to, stage, resume_skill, actor).await?;
-        let comments = u32::try_from(sent).unwrap_or(u32::MAX);
-        let (kind, payload) = event.unwrap_or_else(|| {
-            (
-                EventKind::SentBack,
-                json!({ "round": round, "comments": comments, "note": note, "to": to }),
-            )
-        });
-        record_event(&mut tx, &ticket.id, kind, actor, payload).await?;
+        let sent = send_back_in(&mut tx, ticket, back, round, actor).await?;
         tx.commit().await?;
-        tracing::info!(key = %ticket.key, round, comments, %to, stage, "sent back");
-        Ok(SentRound { comments, round })
+        tracing::info!(key = %ticket.key, round, comments = sent.comments, %to, stage, "sent back");
+        Ok(sent)
     }
 
     /// Where a Send back takes the ticket: the nearest earlier Agent stage, as the flow engine says (a human
@@ -163,6 +119,64 @@ impl Board {
     ) -> Result<Option<(u32, Option<String>)>, BoardError> {
         latest_review(&self.store, ticket_id).await
     }
+}
+
+/// [`Board::send_back_to`]'s writes inside the caller's transaction, `round` being the ticket's current review round
+/// (Apply now sends tickets back with its other moves and the flow in one, APN-04).
+pub(crate) async fn send_back_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    ticket: &Ticket,
+    back: SentBackTo<'_>,
+    round: u32,
+    actor: &Actor,
+) -> Result<SentRound, BoardError> {
+    let SentBackTo {
+        note,
+        to,
+        stage,
+        resume_skill,
+        ended,
+        event,
+    } = back;
+    let now = now_ms();
+    let sent = sqlx::query(
+        "UPDATE review_comments SET sent_at = ?, round = ? WHERE ticket_id = ? AND sent_at IS NULL",
+    )
+    .bind(now)
+    .bind(i64::from(round))
+    .bind(&ticket.id)
+    .execute(&mut **tx)
+    .await?
+    .rows_affected();
+    let note = note.trim();
+    sqlx::query(
+        "INSERT INTO reviews (id, ticket_id, round, action, note, at) VALUES (?, ?, ?, 'send_back', ?, ?)",
+    )
+    .bind(new_id())
+    .bind(&ticket.id)
+    .bind(i64::from(round))
+    .bind((!note.is_empty()).then_some(note))
+    .bind(now)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("UPDATE tickets SET sent_back_round = ?, sent_back_at = ? WHERE id = ?")
+        .bind(i64::from(round))
+        .bind(now)
+        .bind(&ticket.id)
+        .execute(&mut **tx)
+        .await?;
+    // A human check's Fail (STG-06), or how a drag back ends the run where the card was.
+    stage_runs::end_open(tx, &ticket.id, ended, Some(note)).await?;
+    return_to_dev(tx, ticket, to, stage, resume_skill, actor).await?;
+    let comments = u32::try_from(sent).unwrap_or(u32::MAX);
+    let (kind, payload) = event.unwrap_or_else(|| {
+        (
+            EventKind::SentBack,
+            json!({ "round": round, "comments": comments, "note": note, "to": to }),
+        )
+    });
+    record_event(tx, &ticket.id, kind, actor, payload).await?;
+    Ok(SentRound { comments, round })
 }
 
 async fn latest_review(

@@ -52,6 +52,9 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "flow.propose" {
             params["source"] = json!({"from": "project", "project": "NOPE"});
         }
+        if method == "flow.apply_now" {
+            params["stamp"] = json!("s");
+        }
         if method == "flow.ask_for_changes" {
             params["proposal"] = json!(3);
             params["text"] = json!("t");
@@ -269,6 +272,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::FlowCancelProposal(_)
         | Request::FlowWaiting(_)
         | Request::FlowCancelWaiting(_)
+        | Request::FlowApplyNowPlan(_)
+        | Request::FlowApplyNow(_)
         | Request::FlowProposeFrom(_)
         | Request::FlowShow(_)
         | Request::FlowPropose(_)

@@ -22,6 +22,7 @@ use crate::caller::Caller;
 use crate::domain::{Actor, Kind};
 use crate::epic_lead::changes::LeadChange;
 use crate::flow::apply::FlowEvent;
+use crate::flow::apply_now::ApplyNowAnswer;
 use crate::flow::proposal::ProposedBy;
 use crate::flow::propose;
 use crate::protocol::{
@@ -1361,6 +1362,35 @@ pub(super) async fn handle(
                 shared.scheduler.wake();
             }
             Ok(Reply::Ok)
+        }),
+        Request::FlowApplyNowPlan(p) => boxed(move || async move {
+            Ok(Reply::ApplyNowPlan(
+                shared
+                    .review
+                    .apply_now_plan(&p.project)
+                    .await?
+                    .map(Box::new),
+            ))
+        }),
+        Request::FlowApplyNow(p) => boxed(move || async move {
+            let key = board.project(&p.project).await?.key;
+            let answer = mutate(
+                shared,
+                &key,
+                shared.review.apply_now(&p, &shared.validation, &actor),
+            )
+            .await?;
+            if let ApplyNowAnswer::Applied { version, .. } = &answer {
+                flow_event(
+                    shared,
+                    &key,
+                    FlowEvent::Applied {
+                        version: version.version,
+                    },
+                );
+                shared.scheduler.wake();
+            }
+            Ok(Reply::AppliedNow(Box::new(answer)))
         }),
         Request::ProjectSettingsSet(p) => boxed(move || async move {
             match board.save_project_settings(&p.project, &p.settings).await {

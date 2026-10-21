@@ -536,6 +536,7 @@ pub(crate) async fn unqueue_in(
 }
 
 /// What a drag the board carries out writes besides the move ([`Board::record_drag`]).
+#[derive(Debug, Clone)]
 pub(crate) struct DragWrite {
     pub moved: Moved,
     /// Every agent check's counter restarts (a drag back counts as a human Fail, FLW-13).
@@ -578,71 +579,86 @@ impl Board {
         drag: DragWrite,
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
-        let DragWrite {
-            moved,
-            reset,
-            marks,
-            check_head,
-            note,
-            event,
-        } = drag;
-        let now = now_ms();
-        let waits = moved.place.is_waiting();
-        let into_human_check = moved.status.set() == crate::domain::StatusSet::HumanCheck;
+        let (to, stage) = (
+            drag.moved.status,
+            drag.moved.place.stage_id().map(str::to_owned),
+        );
         let mut tx = self.store.begin_write().await?;
-        moved.record(&mut tx, &ticket.id, note.as_deref()).await?;
-        if reset {
-            super::validation::reset_check_counters(&mut tx, &ticket.id).await?;
-        }
-        for (stage, how) in &marks {
-            super::validation::mark_moved_past(&mut tx, &ticket.id, stage, *how).await?;
-        }
-        let round = match (&check_head, moved.place.stage()) {
-            (Some(_), Some(check)) => {
-                Some(super::validation::enter_check(&mut tx, &ticket.id, check).await? + 1)
-            }
-            _ => None,
-        };
-        sqlx::query(concat!(
-            "UPDATE tickets SET stage_id = ?, state = ?, review_entry = NULL, interrupted_from = NULL,
-                                review_entered_at = CASE WHEN ? THEN ? ELSE review_entered_at END,
-                                queued_at = CASE WHEN ? THEN ? ELSE queued_at END,
-                                ready_since = CASE WHEN ? THEN NULL ELSE ready_since END,
-                                signal_text = NULL, signal_since = NULL, wakeup_at = NULL, auto_merge_stop = NULL,
-                                updated_by = ?, updated_at = ?, ",
-            set_state_since!(),
-            " WHERE id = ?"
-        ))
-        .bind(moved.place.stage_id())
-        .bind(moved.status.as_str())
-        .bind(into_human_check)
-        .bind(now)
-        .bind(waits)
-        .bind(now)
-        .bind(waits)
-        .bind(actor.to_string())
-        .bind(now)
-        .bind(moved.status.as_str())
-        .bind(now)
-        .bind(&ticket.id)
-        .execute(&mut *tx)
-        .await?;
-        if let (Some(head), Some(round)) = (&check_head, round) {
-            sqlx::query(
-                "INSERT INTO validations (id, ticket_id, round, trigger, started_at, head_sha) VALUES (?, ?, ?, ?, ?, ?)",
-            )
-            .bind(crate::store::new_id())
-            .bind(&ticket.id)
-            .bind(i64::from(round))
-            .bind(crate::domain::ValidationTrigger::User.as_str())
-            .bind(now)
-            .bind(head)
-            .execute(&mut *tx)
-            .await?;
-        }
-        record_event(&mut tx, &ticket.id, EventKind::Dragged, actor, event).await?;
+        record_drag_in(&mut tx, ticket, drag, actor).await?;
         tx.commit().await?;
-        tracing::info!(key = %ticket.key, to = %moved.status, stage = moved.place.stage_id(), "dragged");
+        tracing::info!(key = %ticket.key, %to, stage, "dragged");
         self.ticket_by_id(&ticket.id).await
     }
+}
+
+/// [`Board::record_drag`]'s writes inside the caller's transaction (Apply now writes its moves and the flow in one,
+/// APN-04).
+pub(crate) async fn record_drag_in(
+    tx: &mut Transaction<'_, Sqlite>,
+    ticket: &Ticket,
+    drag: DragWrite,
+    actor: &Actor,
+) -> Result<(), BoardError> {
+    let DragWrite {
+        moved,
+        reset,
+        marks,
+        check_head,
+        note,
+        event,
+    } = drag;
+    let now = now_ms();
+    let waits = moved.place.is_waiting();
+    let into_human_check = moved.status.set() == crate::domain::StatusSet::HumanCheck;
+    moved.record(tx, &ticket.id, note.as_deref()).await?;
+    if reset {
+        super::validation::reset_check_counters(tx, &ticket.id).await?;
+    }
+    for (stage, how) in &marks {
+        super::validation::mark_moved_past(tx, &ticket.id, stage, *how).await?;
+    }
+    let round = match (&check_head, moved.place.stage()) {
+        (Some(_), Some(check)) => {
+            Some(super::validation::enter_check(tx, &ticket.id, check).await? + 1)
+        }
+        _ => None,
+    };
+    sqlx::query(concat!(
+        "UPDATE tickets SET stage_id = ?, state = ?, review_entry = NULL, interrupted_from = NULL,
+                            review_entered_at = CASE WHEN ? THEN ? ELSE review_entered_at END,
+                            queued_at = CASE WHEN ? THEN ? ELSE queued_at END,
+                            ready_since = CASE WHEN ? THEN NULL ELSE ready_since END,
+                            signal_text = NULL, signal_since = NULL, wakeup_at = NULL, auto_merge_stop = NULL,
+                            updated_by = ?, updated_at = ?, ",
+        set_state_since!(),
+        " WHERE id = ?"
+    ))
+    .bind(moved.place.stage_id())
+    .bind(moved.status.as_str())
+    .bind(into_human_check)
+    .bind(now)
+    .bind(waits)
+    .bind(now)
+    .bind(waits)
+    .bind(actor.to_string())
+    .bind(now)
+    .bind(moved.status.as_str())
+    .bind(now)
+    .bind(&ticket.id)
+    .execute(&mut **tx)
+    .await?;
+    if let (Some(head), Some(round)) = (&check_head, round) {
+        sqlx::query(
+            "INSERT INTO validations (id, ticket_id, round, trigger, started_at, head_sha) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(crate::store::new_id())
+        .bind(&ticket.id)
+        .bind(i64::from(round))
+        .bind(crate::domain::ValidationTrigger::User.as_str())
+        .bind(now)
+        .bind(head)
+        .execute(&mut **tx)
+        .await?;
+    }
+    record_event(tx, &ticket.id, EventKind::Dragged, actor, event).await
 }

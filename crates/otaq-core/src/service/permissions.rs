@@ -399,6 +399,8 @@ async fn action_for(
         R::FlowApply(_)
         | R::FlowCancelProposal(_)
         | R::FlowCancelWaiting(_)
+        | R::FlowApplyNowPlan(_)
+        | R::FlowApplyNow(_)
         | R::FlowProposeFrom(_)
         | R::FlowAskForChanges(_) => Action::UserOnly("change flows"),
         R::FlowShow(_) => Action::Read,

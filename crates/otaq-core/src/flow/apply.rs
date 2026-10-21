@@ -15,7 +15,8 @@
 //! project starts from Ready for Dev (the scheduler's hold: [`Board::settle_flow_changes`]; other projects keep
 //! starting). When it is quiet the new flow is stored and starts resume. **A change while another waits** was compared
 //! with the waiting flow, so it shows only the new part; Apply merges it into the waiting change, even its parts that
-//! would otherwise apply at once; **Cancel change** drops both, and nothing else. No Apply now (later).
+//! would otherwise apply at once; **Cancel change** drops both, and nothing else. **Apply now** forces it, with a stage
+//! picked for each ticket in a removed stage: [`super::apply_now`].
 //!
 //! **A removed choice** ([`Board::drop_removed_choice`]): when a stage starts for a ticket whose chosen option it no
 //! longer offers, the stage's own agent runs and History says so ("Quick developer is no longer an option for Dev ·

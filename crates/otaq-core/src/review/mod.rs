@@ -19,6 +19,7 @@
 //! A build freed at Review comes back first (M19-c): at the click for a live session, before the skill is typed;
 //! by the start for a resumed or queued one. A failure there never refuses the click.
 
+mod apply_now;
 mod close;
 pub mod delivery;
 pub mod drag;

@@ -12,6 +12,7 @@ mod agent_session_facts;
 mod agent_tool_requests;
 mod agents;
 mod answer_resume;
+mod apply_now;
 mod base_sync;
 mod before_restart;
 mod board_protocol;

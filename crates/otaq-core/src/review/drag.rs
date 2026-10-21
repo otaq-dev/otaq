@@ -388,7 +388,7 @@ impl Review {
     }
 
     /// The stage whose run a session ran, if it ran one.
-    async fn session_stage(&self, session: &str) -> Result<Option<String>, BoardError> {
+    pub(super) async fn session_stage(&self, session: &str) -> Result<Option<String>, BoardError> {
         Ok(sqlx::query_scalar(
             "SELECT stage_id FROM stage_runs WHERE session_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1",
         )

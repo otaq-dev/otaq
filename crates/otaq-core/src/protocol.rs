@@ -623,6 +623,13 @@ pub enum Request {
     /// [`Reply::Ok`].
     #[serde(rename = "flow.cancel_waiting")]
     FlowCancelWaiting(ProjectParams),
+    /// `{"project": "SHOP"}`: what Apply now would do on the waiting change (APN-02). Answered with
+    /// [`Reply::ApplyNowPlan`], `null` when nothing waits. `flow.apply_now` (APN-04): `{"project", "stamp", "picks":
+    /// [{"ticket": "SHOP-19", "to": {"stage": "dev"}}]}`, answered with [`Reply::AppliedNow`].
+    #[serde(rename = "flow.apply_now_plan")]
+    FlowApplyNowPlan(ProjectParams),
+    #[serde(rename = "flow.apply_now")]
+    FlowApplyNow(crate::flow::apply_now::ApplyNowParams),
     /// A proposal by the user from an earlier version, another project, a preset, a file or the shipped agents file
     /// (FLW-08…FLW-10); it replaces the open one. Answered with [`Reply::FlowProposal`].
     #[serde(rename = "flow.propose_from")]
@@ -1801,6 +1808,8 @@ impl Request {
             Self::FlowCancelProposal(_) => "flow.cancel_proposal",
             Self::FlowWaiting(_) => "flow.waiting",
             Self::FlowCancelWaiting(_) => "flow.cancel_waiting",
+            Self::FlowApplyNowPlan(_) => "flow.apply_now_plan",
+            Self::FlowApplyNow(_) => "flow.apply_now",
             Self::FlowProposeFrom(_) => "flow.propose_from",
             Self::FlowShow(_) => "flow.show",
             Self::FlowPropose(_) => "flow.propose",
@@ -1950,6 +1959,8 @@ pub enum Reply {
     FlowProposal(Option<Box<crate::flow::proposal::Proposal>>),
     FlowApplied(Box<crate::flow::apply::Applied>),
     FlowWaiting(Option<Box<crate::flow::apply::WaitingChange>>),
+    ApplyNowPlan(Option<Box<crate::flow::apply_now::ApplyNowPlan>>),
+    AppliedNow(Box<crate::flow::apply_now::ApplyNowAnswer>),
     FlowDocument(Box<crate::flow::propose::FlowDocument>),
     UserHistory(Box<crate::agent_tools::history::HistoryPage>),
     Sessions(Vec<SessionInfo>),

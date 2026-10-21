@@ -289,6 +289,17 @@ fn choice_line(p: &serde_json::Value) -> (String, Option<String>) {
     }
 }
 
+/// `detail` with the stage Apply now's move came from, when it did: "by you · Security was removed" (APN-04).
+fn removed(payload: &serde_json::Value, detail: String) -> String {
+    match text(payload, "removed") {
+        Some(stage) => format!(
+            "{detail} \u{b7} {}",
+            otaq_core::flow::apply_now::removed_note(&stage)
+        ),
+        None => detail,
+    }
+}
+
 fn text(payload: &serde_json::Value, field: &str) -> Option<String> {
     payload
         .get(field)
@@ -412,9 +423,10 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             format!("Passed {}", text(p, "stage").unwrap_or_default()),
             Some(who(&e.actor)),
         ),
-        EventKind::Parked => ("Parked".to_owned(), Some(who(&e.actor))),
+        EventKind::Parked => ("Parked".to_owned(), Some(removed(p, who(&e.actor)))),
         // A drag to another stage (FLW-18): "Moved back to Dev" · "Grill · run by you", the note, or "by you";
-        // "Moved to Review" · "Skipped Validate · by you".
+        // "Moved to Review" · "Skipped Validate · by you". Apply now's moves add the stage that went (APN-04):
+        // "Moved to Review" · "by you · Security was removed".
         EventKind::Dragged => {
             let stage = text(p, "stage").unwrap_or_default();
             let skipped: Vec<&str> = p
@@ -436,7 +448,7 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
                     .map(first_line)
                     .unwrap_or_else(|| who(&e.actor))
             };
-            (title, Some(detail))
+            (title, Some(removed(p, detail)))
         }
         EventKind::Rebased => (
             "Rebased".to_owned(),
@@ -1465,5 +1477,42 @@ mod tests {
             "Quick developer is no longer an option for Dev \u{b7} runs Rust developer"
         );
         assert_eq!(row.detail, None);
+    }
+
+    /// APN-04: Apply now's moves name the stage that went: "Moved to Review" · "by you · Security was removed".
+    #[test]
+    fn apply_now_moves_name_the_removed_stage() {
+        let row = |kind, payload| event_row(&event(kind, 1, payload)).unwrap();
+        let moved = row(
+            EventKind::Dragged,
+            serde_json::json!({ "stage": "Review", "back": false, "skipped": [], "removed": "Security" }),
+        );
+        assert_eq!(moved.title, "Moved to Review");
+        assert_eq!(
+            moved.detail.as_deref(),
+            Some("by you \u{b7} Security was removed")
+        );
+        let skipped = row(
+            EventKind::Dragged,
+            serde_json::json!({ "stage": "QA", "back": false, "skipped": ["Dev"], "removed": "Grill" }),
+        );
+        assert_eq!(
+            skipped.detail.as_deref(),
+            Some("Skipped Dev \u{b7} by you \u{b7} Grill was removed")
+        );
+        let parked = row(EventKind::Parked, serde_json::json!({ "removed": "Grill" }));
+        assert_eq!(
+            parked.detail.as_deref(),
+            Some("by you \u{b7} Grill was removed")
+        );
+        let dragged = row(
+            EventKind::Dragged,
+            serde_json::json!({ "stage": "Dev", "back": true }),
+        );
+        assert_eq!(
+            dragged.detail.as_deref(),
+            Some("by you"),
+            "an ordinary drag says nothing more"
+        );
     }
 }
