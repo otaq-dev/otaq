@@ -275,6 +275,12 @@
 }
 
 /* Long commands (Linux's az line) wrap inside the box (*gh and az missing (Windows)*). */
+.tool-row-note {
+  margin: 0;
+  color: var(--text-muted);
+  font: 400 12px/1.45 var(--font-ui);
+}
+
 .tool-row-command {
   display: flex;
   align-items: center;

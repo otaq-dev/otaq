@@ -61,6 +61,20 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
                 other => Err(unexpected("agent_tools.sign_in", &other)),
             }
         }
+        "agent_tools.install" => {
+            let p: OneTool = parse(params)?;
+            let request = Request::AgentToolsInstall(ToolParams {
+                tool: tool(&p.tool)?,
+            });
+            match app.service.send(request).await? {
+                Reply::ProjectTerminal(t) => reply(&SignIn {
+                    tab: terminal_tab_id(&t.session.id),
+                    session: t.session.id.clone(),
+                    title: t.name.clone(),
+                }),
+                other => Err(unexpected("agent_tools.install", &other)),
+            }
+        }
         "agent_tools.disconnect_dialog" => {
             let p: OneTool = parse(params)?;
             reply(&page::disconnect_dialog(&status(app, tool(&p.tool)?).await?, None))
@@ -131,7 +145,7 @@ pub struct HiddenParams {
 pub struct SignIn {
     pub session: String,
     pub tab: String,
-    /// "Codex sign in".
+    /// "Codex sign in", "Installing Codex".
     pub title: String,
 }
 

@@ -7,6 +7,7 @@
 pub mod run;
 pub mod shell;
 pub mod suggest;
+pub mod tool;
 
 use std::ffi::OsString;
 use std::path::PathBuf;

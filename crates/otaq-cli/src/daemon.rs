@@ -191,7 +191,26 @@ pub fn format_uptime(secs: u64) -> String {
 }
 
 /// `daemon run`: the service in the foreground, logging to the daily log file.
+/// Gives the service the user's full `PATH` ([`otaq_core::tools::daemon_path`]): started from the app opened in
+/// Finder it inherits launchd's short one, and the tools checklist, the Install terminals and the agents would miss
+/// `brew`, `npm` and `~/.local/bin/claude`.
+fn use_full_path() {
+    let inherited = std::env::var_os("PATH").unwrap_or_default();
+    let shell = std::env::var_os("SHELL")
+        .filter(|s| !s.is_empty())
+        .map(std::path::PathBuf::from);
+    let path = otaq_core::tools::daemon_path(
+        &inherited,
+        shell.as_deref(),
+        std::env::home_dir().as_deref(),
+    );
+    // SAFETY: called first in `foreground`, before the log and the runtime start any thread, so nothing else reads
+    // or writes the environment at the same time.
+    unsafe { std::env::set_var("PATH", path) };
+}
+
 fn foreground(data: DataDir) -> Result<(), ErrorBody> {
+    use_full_path();
     let _log = logging::init(&data).map_err(|e| internal(format!("can't open the log: {e}")))?;
     tracing::info!(
         command = naming::COMMAND_NAME,

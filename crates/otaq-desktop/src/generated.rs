@@ -130,6 +130,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::onboarding_page::Tools::export_all(&cfg)?;
     otaq_view::view_models::onboarding_page::StepId::export_all(&cfg)?;
     crate::api::OnboardingStart::export_all(&cfg)?;
+    // A checklist row's Install / Sign in… terminal (`tools.terminal`).
+    crate::api::ToolTerminalOpened::export_all(&cfg)?;
     crate::api::AddProjectParams::export_all(&cfg)?;
     crate::api::AddProjectOutcome::export_all(&cfg)?;
     // The board's search and filter, card menu and delete confirmation (T-0221).
