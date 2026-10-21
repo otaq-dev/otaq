@@ -36,6 +36,12 @@ async fn validation_off(w: &TestService) {
         .await;
 }
 
+/// The agent's `otaq prime`, which ending its stage waits for (CMT-08).
+async fn prime(agent: &AgentShell) {
+    let ran = agent.run(&format!("'{CB}' prime")).await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+}
+
 async fn stop_hook(agent: &AgentShell) {
     let payload = json!({"hook_event_name": "Stop", "background_tasks": [], "session_crons": []});
     let ran = agent
@@ -90,6 +96,7 @@ async fn review_submit_refuses_uncommitted_files_then_submits() {
     let shop19 = w.board.ticket("SHOP-19").await.unwrap();
     let worktree = w.give_worktree(&shop19).await;
     let agent = w.agent_shell(&shop19).await;
+    prime(&agent).await;
     let submit = format!("'{CB}' review submit --stdin");
 
     // A modified tracked file.
@@ -141,18 +148,6 @@ async fn review_submit_refuses_uncommitted_files_then_submits() {
         w.board.review_summary(&shop19.id).await.unwrap().as_deref(),
         Some("Price table with sorting.\nPrices align right.")
     );
-    // SHOP-20's prime shows it.
-    let prime = otaq_core::prime::render(
-        &w.board
-            .prime_context("SHOP-20", w.adapters.for_new_session())
-            .await
-            .unwrap(),
-    );
-    assert!(
-        prime.contains("  > Price table with sorting.\n  > Prices align right.\n"),
-        "{prime}"
-    );
-
     // The turn's Stop doesn't touch it.
     stop_hook(&agent).await;
     assert_eq!(w.status("SHOP-19").await, Status::WaitingForYou);
@@ -167,6 +162,7 @@ async fn the_submit_fact_keeps_stop_from_turning_idle() {
     let shop19 = w.board.ticket("SHOP-19").await.unwrap();
     w.give_worktree(&shop19).await;
     let agent = w.agent_shell(&shop19).await;
+    prime(&agent).await;
     let ran = agent
         .run_with_stdin(&format!("'{CB}' review submit --stdin"), "done")
         .await;
@@ -371,6 +367,7 @@ async fn submit_with_validation_on_says_validation_runs() {
     let shop19 = w.board.ticket("SHOP-19").await.unwrap();
     w.give_worktree(&shop19).await;
     let agent = w.agent_shell(&shop19).await;
+    prime(&agent).await;
     let ran = agent
         .run_with_stdin(&format!("'{CB}' review submit --stdin"), "done")
         .await;
@@ -397,6 +394,7 @@ async fn stage_next_and_review_submit_both_move_the_ticket_on() {
         let ticket = w.board.ticket(key).await.unwrap();
         let worktree = w.give_worktree(&ticket).await;
         let agent = w.agent_shell(&ticket).await;
+        prime(&agent).await;
         let run = format!("'{CB}' {command} --stdin");
         std::fs::write(worktree.join("file1.txt"), "changed\n").unwrap();
         let ran = agent.run_with_stdin(&run, "Done.").await;
@@ -429,6 +427,7 @@ async fn stage_done_closes_a_ticket_with_nothing_to_merge() {
     let shop27 = w.board.ticket("SHOP-27").await.unwrap();
     w.give_worktree_at_base(&shop27).await;
     let agent = w.agent_shell(&shop27).await;
+    prime(&agent).await;
     let ran = agent
         .run_with_stdin(
             &format!("'{CB}' stage done --stdin --json"),
@@ -511,6 +510,7 @@ async fn stage_done_closes_a_ticket_with_nothing_to_merge() {
         git(&worktree, &["commit", "-qm", &format!("SHOP-19: step {n}")]);
     }
     let agent = w.agent_shell(&shop19).await;
+    prime(&agent).await;
     let ran = agent
         .run_with_stdin(&format!("'{CB}' stage done --stdin"), "nothing to do")
         .await;

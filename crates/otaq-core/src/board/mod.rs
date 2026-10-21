@@ -17,6 +17,7 @@ pub mod merge;
 pub mod moves;
 pub mod needs_you;
 pub mod order;
+pub mod primed;
 pub mod projects;
 pub mod questions;
 pub mod readiness;

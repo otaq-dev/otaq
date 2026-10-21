@@ -91,9 +91,9 @@ pub struct PrimeChild {
     pub started: bool,
     /// Who added it: "you" (the user), "Wishlist lead", "SHOP-40.2" (a ticket's agent) or "a Project agent".
     pub added_by: String,
-    /// What its agent said when its last Agent stage ended ([`Board::last_stage_summary`]).
+    /// Its last comment from an Agent stage (CMT-07, [`Board::last_agent_comment`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
+    pub last_comment: Option<crate::board::ticket_comments::TicketComment>,
     /// Its recorded decisions (DEC-02), with the lead's mark and the user's outcome.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub decisions: Vec<Decision>,
@@ -208,7 +208,7 @@ pub async fn context(board: &Board, epic: &str) -> Result<EpicPrime, BoardError>
             depends_on: child.depends_on.clone(),
             started,
             added_by: added_by(&child.created_by, lead_agent.as_deref(), &lead),
-            summary: board.last_stage_summary(&child.key.to_string()).await?,
+            last_comment: board.last_agent_comment(&child.key.to_string()).await?,
             decisions,
             worktree: work.and_then(|w| w.worktree.clone()),
             branch: work.and_then(|w| w.branch.clone()),
@@ -378,9 +378,12 @@ pub fn render(ctx: &EpicPrime) -> String {
             let branch = c.branch.as_deref().unwrap_or("?");
             out.push_str(&format!("  worktree {worktree} · branch `{branch}`\n"));
         }
-        if let Some(summary) = &c.summary {
-            out.push_str("  Summary:\n");
-            quote(&mut out, "  ", summary);
+        if let Some(comment) = &c.last_comment {
+            out.push_str(&format!("  Last comment, {}:\n", comment.heading()));
+            quote(&mut out, "  ", &comment.body);
+            if let Some(line) = comment.report_line(&c.key) {
+                out.push_str(&format!("  {line}\n"));
+            }
         }
         if !c.decisions.is_empty() {
             out.push_str("  Recorded decisions:\n");

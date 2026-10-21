@@ -176,9 +176,10 @@ async fn start_check_fail_resume_send_back_and_local_merge() {
     );
     assert!(first.contains("`otaq stage next --stdin`"), "{first}");
     let check = std::fs::read_to_string(state.path().join("check-prime.md")).unwrap();
+    // One line per stage (CMT-07); what Dev said reaches the check as its comment (T-0443's hand-over).
     assert!(
-        check.contains("\n## Earlier stages\n\n- Dev · Developer · finished\n  > Wrote first.\n"),
-        "the check reads Dev's summary: {check}"
+        check.contains("\n## Earlier stages\n\n- Dev · Developer · finished\n"),
+        "the check reads Dev's run: {check}"
     );
     assert_eq!(
         runs(&w, &key).await[..2],
@@ -224,8 +225,8 @@ async fn start_check_fail_resume_send_back_and_local_merge() {
     .await;
     let review = std::fs::read_to_string(state.path().join("prime-review.md")).unwrap();
     assert!(
-        review.contains("- Review · you · failed\n  > Also the tax\n"),
-        "Dev reads the Send back under Earlier stages: {review}"
+        review.contains("- Review · you · failed\n"),
+        "Dev reads the Send back's run under Earlier stages: {review}"
     );
     let results: Vec<(String, Option<RunResult>)> = runs(&w, &key)
         .await

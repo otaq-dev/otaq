@@ -667,6 +667,7 @@ pub(super) async fn handle(
         Request::TicketStageNext(p) => boxed(move || async move {
             // Not while the lead's note is unread (CLI-08); the user's Move to next stage is another request.
             board.refuse_unread_notes(&p.key).await?;
+            refuse_unprimed(board, caller, &p.key).await?;
             let project = project_of(&p.key);
             let before = board.ticket(&p.key).await?;
             // From M12 the submit starts a validator when validation is on for the project (VAL-01).
@@ -695,6 +696,7 @@ pub(super) async fn handle(
         }),
         Request::TicketStageDone(p) => boxed(move || async move {
             board.refuse_unread_notes(&p.key).await?;
+            refuse_unprimed(board, caller, &p.key).await?;
             let project = project_of(&p.key);
             // From inside the ticket's own agent session, the session ends after its turn (the Done cleanup would
             // otherwise end the command's own session before it answers).
@@ -729,6 +731,7 @@ pub(super) async fn handle(
                     crate::policy::ONLY_A_VALIDATOR,
                 ));
             };
+            board.refuse_unprimed(&p.key, session).await?;
             let project = project_of(&p.key);
             mutate(
                 shared,
@@ -776,9 +779,9 @@ pub(super) async fn handle(
             .map(|t| Reply::Ticket(Box::new(t)))
         }),
         Request::TicketPrimeValidate(p) => boxed(move || async move {
-            Box::pin(board.validate_prime(&p.key))
-                .await
-                .map(|c| Reply::PrimeValidate(Box::new(c)))
+            let context = Box::pin(board.validate_prime(&p.key)).await?;
+            record_prime(board, caller, &context.ticket.id).await?;
+            Ok(Reply::PrimeValidate(Box::new(context)))
         }),
         Request::TicketPrPropose(p) => boxed(move || async move {
             let project = project_of(&p.key);
@@ -1790,7 +1793,35 @@ async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, Boa
         .await?;
         publish_ticket_changed(shared, &context.ticket.key).await;
     }
+    record_prime(&shared.board, caller, &context.ticket.id).await?;
     Ok(Reply::Prime(Box::new(context)))
+}
+
+/// The ticket's own agent or checker read its prime: its stage run is primed (CMT-08). Anyone else's prime (the user,
+/// another ticket's agent, a lead) records nothing.
+async fn record_prime(board: &Board, caller: &Caller, ticket_id: &str) -> Result<(), BoardError> {
+    match caller {
+        Caller::Agent {
+            ticket_id: own,
+            session,
+            ..
+        }
+        | Caller::Validator {
+            ticket_id: own,
+            session,
+            ..
+        } if own == ticket_id => board.record_prime(ticket_id, session).await,
+        _ => Ok(()),
+    }
+}
+
+/// The read gate on an agent's `stage next` / `stage done` (CMT-08): the user's own (a terminal of theirs) isn't
+/// gated.
+async fn refuse_unprimed(board: &Board, caller: &Caller, key: &str) -> Result<(), BoardError> {
+    match caller {
+        Caller::Agent { session, .. } => board.refuse_unprimed(key, session).await,
+        _ => Ok(()),
+    }
 }
 
 /// `otaq note <KEY> [--view "…"] --stdin` (LEAD-10): the lead's unread note for a running child of its epic, with

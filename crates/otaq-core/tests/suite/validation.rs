@@ -497,7 +497,8 @@ async fn send_back_restarts_the_counter_and_prime_shows_the_comments() {
         text.contains("## The user's review (Send back, round 1)"),
         "{text}"
     );
-    assert!(text.contains("Note: Also the tax"), "{text}");
+    // Only the line comments (CMT-07): the note is a comment now, not part of the review.
+    assert!(!text.contains("Note: Also the tax"), "{text}");
     assert!(text.contains("- src/cart.ts:12: Round the total"), "{text}");
     assert!(
         !text.contains("Earlier rounds"),

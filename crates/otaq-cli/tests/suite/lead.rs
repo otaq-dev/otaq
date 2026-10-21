@@ -221,6 +221,16 @@ async fn the_lead_leaves_a_note_and_the_childs_agent_reads_it_before_submitting(
     );
     let ran = agent.run(&format!("'{CB}' notes")).await;
     assert_eq!(ran.stdout.trim(), "No unread notes.", "{ran:?}");
+    // Then the read gate (CMT-08): its prime first.
+    let ran = agent
+        .run_with_stdin(&format!("'{CB}' review submit --stdin"), "done")
+        .await;
+    assert_eq!(
+        ran.stderr.trim(),
+        "error: Run `otaq prime` first.",
+        "{ran:?}"
+    );
+    assert_eq!(agent.run(&format!("'{CB}' prime")).await.status, 0);
     let ran = agent
         .run_with_stdin(&format!("'{CB}' review submit --stdin"), "done")
         .await;

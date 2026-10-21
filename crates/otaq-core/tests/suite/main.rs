@@ -103,6 +103,7 @@ mod project_env;
 mod project_terminals;
 mod projects;
 mod quiet_turn_ends;
+mod read_gate;
 mod reconcile;
 mod reopen;
 mod resume;

@@ -2,24 +2,27 @@
 //!
 //! The ticket (title, What and why, base branch), then what its agent is told (AGM-06): **the agent's
 //! instructions**, then **the project's notes**, then **the stage it works in and that stage's skill**, then the
-//! **earlier stages** ([`Board::earlier_stages`]: each stage's latest run with its agent, result and summary, oldest
-//! first). After them the tickets it depends on with their last stage's summary, review feedback, pending questions,
-//! recorded decisions, the **stage choices** the agent may still set ([`reader_choices`]; none on the default flow),
-//! and Otaq's own rules (`stage next`, `stage done`). The output is concise Markdown for an agent ([`render`]);
-//! `--json` prints the [`PrimeContext`] itself.
+//! **earlier stages** ([`Board::earlier_stages`]: each stage's latest run with its agent and result, oldest first),
+//! then the ticket's **comments** in full, oldest first (CMT-07, d0109: the hand-over between stages; a report is
+//! only named, never printed). After them the tickets it depends on with their last comment from an Agent stage,
+//! pending questions, recorded decisions, the **stage choices** the agent may still set ([`reader_choices`]; none on
+//! the default flow), and Otaq's own rules (`stage next`, `stage done`). The output is concise Markdown for an agent
+//! ([`render`]); `--json` prints the [`PrimeContext`] itself.
 
 use serde::{Deserialize, Serialize};
 
 use crate::agent_tools::AgentTool;
 use crate::agent_tools::models::{ModelKind, ModelList, ModelLists};
 use crate::agents::{Agent, AgentModel, ModelRef, SessionRole};
+use crate::board::comments::FeedbackComment;
 use crate::board::conflicts::{Conflict, ConflictReason};
 use crate::board::stage_choices::StageOptions;
+use crate::board::ticket_comments::{CommentAuthor, TicketComment};
 use crate::board::tickets::{Base, Ticket};
 use crate::board::{Board, BoardError};
 use crate::domain::{Place, Status, TicketKey};
 use crate::flow::engine::RunResult;
-use crate::flow::{Flow, Stage};
+use crate::flow::{Flow, Stage, StageKind};
 use crate::naming;
 
 /// Everything `prime` prints.
@@ -30,9 +33,6 @@ pub struct PrimeContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epic: Option<(TicketKey, String)>,
     pub parents: Vec<Parent>,
-    /// Sent-back review comments (M6); empty until then.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub review_feedback: Vec<String>,
     /// Questions from other agents waiting for this one (M10); empty until then.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_questions: Vec<String>,
@@ -62,6 +62,9 @@ pub struct PrimeContext {
     /// The ticket's earlier stages (AGM-06), oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub earlier: Vec<EarlierStage>,
+    /// The ticket's comments (CMT-07), oldest first, deleted ones left out.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub comments: Vec<TicketComment>,
     /// The pull request being prepared or already open (REV-10, REV-14): for the Open PR and Push skills.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pull_request: Option<PrimePr>,
@@ -88,9 +91,9 @@ pub struct Parent {
     pub key: TicketKey,
     pub title: String,
     pub status: Status,
-    /// What its agent said when its last Agent stage ended ([`Board::last_stage_summary`]).
+    /// Its last comment from an Agent stage (CMT-07, [`Board::last_agent_comment`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
+    pub last_comment: Option<TicketComment>,
 }
 
 /// What an agent is told to follow (AGM-06; d0108, d0040, d0068): its agent's own instructions, then the notes every
@@ -159,9 +162,6 @@ pub struct EarlierStage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub round: Option<u32>,
     pub result: RunResult,
-    /// The agent's summary, a check's report or the user's Send back note.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
 }
 
 impl EarlierStage {
@@ -482,7 +482,7 @@ impl Board {
                 key: parent.key.clone(),
                 title: parent.title.clone(),
                 status: parent.status,
-                summary: self.last_stage_summary(&parent.key.to_string()).await?,
+                last_comment: self.last_agent_comment(&parent.key.to_string()).await?,
             });
         }
         let epic = ticket.epic.as_ref().and_then(|e| {
@@ -535,13 +535,13 @@ impl Board {
             .collect();
         let decisions = crate::decisions::list_by_ticket_id(self, &ticket.id).await?;
         let unread_notes = crate::epic_lead::notes::unread(self, &ticket.id).await?;
+        let comments = self.ticket_comments(key).await?.comments;
         let context = PrimeContext {
             unread_notes,
             conflict,
             ticket,
             epic,
             parents,
-            review_feedback: Vec::new(),
             pending_questions,
             decisions,
             commit_skill: String::new(),
@@ -553,6 +553,7 @@ impl Board {
                 skill: s.skill,
             }),
             earlier,
+            comments,
             pull_request,
             choices: Vec::new(),
         };
@@ -615,22 +616,32 @@ impl Board {
                     },
                     round: run.round,
                     result: run.result?,
-                    summary: run.summary.filter(|s| !s.trim().is_empty()),
                 })
             })
             .collect())
     }
 
-    /// What a ticket's agent said when its last Agent stage ended (`stage next`, or `stage done`'s reason): the
-    /// summary its dependents and its epic's lead read (AGM-06).
-    pub async fn last_stage_summary(&self, key: &str) -> Result<Option<String>, BoardError> {
+    /// A ticket's last comment from an Agent stage's agent (CMT-07): what its dependents and its epic's lead read.
+    /// A stage the flow no longer has counts as an Agent stage when the comment has no check round.
+    pub async fn last_agent_comment(&self, key: &str) -> Result<Option<TicketComment>, BoardError> {
+        let ticket = self.ticket(key).await?;
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
         Ok(self
-            .stage_runs(key)
+            .ticket_comments(key)
             .await?
+            .comments
             .into_iter()
             .rev()
-            .filter(|r| r.kind == crate::flow::engine::run_kind(crate::flow::StageKind::Agent))
-            .find_map(|r| r.summary.filter(|s| !s.trim().is_empty())))
+            .find(|c| match &c.author {
+                CommentAuthor::Agent {
+                    stage: Some(stage),
+                    round,
+                    ..
+                } => flow
+                    .stage(stage)
+                    .map_or(round.is_none(), |s| s.kind == StageKind::Agent),
+                _ => false,
+            }))
     }
 
     /// The "Pull request" section, while a PR flow runs or once the ticket has a PR.
@@ -688,29 +699,29 @@ pub(crate) fn commit_skill(
         .then_some(runs)
 }
 
-/// What `otaq prime --validate` prints for a validator (VAL-10, d0063, AGM-06): the ticket, the check's agent's
-/// instructions and the project's notes, the earlier stages (the agent's summary among them), the diff against the
-/// ticket's base, the user's review comments after a Send back, earlier rounds' findings and the linked tickets.
+/// What `otaq prime --validate` prints for a validator (VAL-10, d0063, AGM-06, CMT-07): the ticket, the check's
+/// agent's instructions and the project's notes, the earlier stages, the ticket's comments (earlier rounds' findings
+/// among them), the user's line comments after a Send back, the linked tickets and the diff against the ticket's base.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValidatePrime {
     pub ticket: Ticket,
     /// The round this validator judges, and the project's rounds.
     pub round: u32,
     pub rounds: u32,
-    /// The ticket's earlier stages (AGM-06), oldest first: the Agent stage's summary, the user's Send back note.
+    /// The ticket's earlier stages (AGM-06), oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub earlier: Vec<EarlierStage>,
+    /// The ticket's comments (CMT-07), oldest first, deleted ones left out.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub comments: Vec<TicketComment>,
     /// `git diff <base_sha> HEAD` in the worktree: the committed change.
     pub diff: String,
-    /// After a Send back: the user's note and line comments, each to check.
+    /// After a Send back: the user's line comments, each to check.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub review: Option<crate::board::comments::ReviewFeedback>,
-    /// Earlier rounds' findings since the counter last restarted: (round, report).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub earlier_findings: Vec<(u32, String)>,
+    pub review: Option<LineReview>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<Instructions>,
-    /// Tickets this one depends on, with their last stage's summaries.
+    /// Tickets this one depends on, with their last comments from an Agent stage.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parents: Vec<Parent>,
     /// Tickets that depend on this one.
@@ -719,6 +730,14 @@ pub struct ValidatePrime {
     /// The epic a child belongs to, with its description and the other children.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epic: Option<EpicContext>,
+}
+
+/// The user's line comments of the latest Send back (`prime --validate`'s "The user's review").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineReview {
+    pub round: u32,
+    /// By file then line, oldest first on a line.
+    pub comments: Vec<FeedbackComment>,
 }
 
 /// A linked ticket: key, title, status.
@@ -775,35 +794,42 @@ impl Board {
             .effective_flow(&project)
             .await?
             .check_rounds(ticket.place.stage(), 0);
-        let earlier_findings: Vec<(u32, String)> = sqlx::query_as::<_, (i64, String)>(
-            "SELECT round, report FROM validations WHERE ticket_id = ? AND outcome = 'fail' AND report IS NOT NULL
-             AND round <= ? ORDER BY started_at",
-        )
-        .bind(&ticket.id)
-        .bind(i64::from(ticket.validation_round))
-        .fetch_all(self.store().pool())
-        .await?
-        .into_iter()
-        .map(|(round, report)| (u32::try_from(round).unwrap_or(0), report))
-        .collect();
-        let review = if ticket.flags.sent_back.is_some() {
-            Some(self.review_feedback(key).await?)
-        } else {
-            None
+        let review = match &ticket.flags.sent_back {
+            Some(sent) => Some(self.line_review(key, sent.round).await?),
+            None => None,
         };
         Ok(ValidatePrime {
             round: ticket.validation_round + 1,
             rounds,
             earlier: base.earlier,
+            comments: base.comments,
             diff: self.committed_diff(&ticket).await?,
             review,
-            earlier_findings,
             instructions: base.instructions,
             parents: base.parents,
             children,
             epic,
             ticket,
         })
+    }
+
+    /// The line comments the user sent back in `round`, by file then line (a thread on one line keeps its order).
+    async fn line_review(&self, key: &str, round: u32) -> Result<LineReview, BoardError> {
+        let mut comments: Vec<FeedbackComment> = self
+            .comments(key, Some(round))
+            .await?
+            .comments
+            .into_iter()
+            .filter(|c| !c.is_pending())
+            .map(|c| FeedbackComment {
+                file: c.file,
+                line: c.line,
+                side: c.side,
+                body: c.body,
+            })
+            .collect();
+        comments.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
+        Ok(LineReview { round, comments })
     }
 
     /// `git diff <base_sha> HEAD` in the ticket's worktree; empty when it has none yet.
@@ -845,22 +871,14 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
         out.push_str(&i.render("Agent instructions"));
     }
     out.push_str(&render_earlier(&ctx.earlier));
-    if let Some(review) = &ctx.review {
+    out.push_str(&render_comments(&ctx.ticket.key, &ctx.comments));
+    if let Some(review) = ctx.review.as_ref().filter(|r| !r.comments.is_empty()) {
         out.push_str(&format!(
-            "\n## The user's review (Send back, round {})\n\nCheck that each comment was addressed.\n\n",
+            "\n## The user's review (Send back, round {})\n\nCheck that each line comment was addressed.\n\n",
             review.round
         ));
-        if let Some(note) = &review.note {
-            out.push_str(&format!("Note: {}\n", note.trim()));
-        }
         for c in &review.comments {
             out.push_str(&format!("- {}:{}: {}\n", c.file, c.line, c.body.trim()));
-        }
-    }
-    if !ctx.earlier_findings.is_empty() {
-        out.push_str("\n## Earlier rounds' findings\n");
-        for (round, report) in &ctx.earlier_findings {
-            out.push_str(&format!("\nRound {round}:\n{}\n", report.trim()));
         }
     }
     if !ctx.parents.is_empty() || !ctx.children.is_empty() || ctx.epic.is_some() {
@@ -874,10 +892,8 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
                 p.title,
                 p.status.label()
             ));
-            if let Some(summary) = &p.summary {
-                for line in summary.lines() {
-                    out.push_str(&format!("  > {line}\n"));
-                }
+            if let Some(comment) = &p.last_comment {
+                render_last_comment(&mut out, &p.key, comment);
             }
         }
         for c in &ctx.children {
@@ -1031,7 +1047,7 @@ fn subject(message: &str) -> &str {
     message.lines().next().unwrap_or_default()
 }
 
-/// `> ` before each line of a quoted summary, indented by `indent`.
+/// `> ` before each line of a quoted comment, indented by `indent`.
 fn quote(out: &mut String, indent: &str, text: &str) {
     for line in text.trim().lines() {
         let line = line.trim_end();
@@ -1042,8 +1058,8 @@ fn quote(out: &mut String, indent: &str, text: &str) {
     }
 }
 
-/// The "## Earlier stages" section (AGM-06): each stage's latest run, oldest first, with its summary quoted; nothing
-/// when the ticket ran no other stage.
+/// The "## Earlier stages" section (AGM-06, CMT-07): one line per stage's latest run, oldest first (what they said
+/// is in the comments); nothing when the ticket ran no other stage.
 pub fn render_earlier(earlier: &[EarlierStage]) -> String {
     if earlier.is_empty() {
         return String::new();
@@ -1051,11 +1067,35 @@ pub fn render_earlier(earlier: &[EarlierStage]) -> String {
     let mut out = String::from("\n## Earlier stages\n\n");
     for run in earlier {
         out.push_str(&format!("- {}\n", run.label()));
-        if let Some(summary) = &run.summary {
-            quote(&mut out, "  ", summary);
+    }
+    out
+}
+
+/// The "## Comments" section (CMT-07): every comment in full, oldest first, under its heading ("Validator · Validate
+/// · round 2 · 3:05 pm"), with one line naming its report; nothing when the ticket has none. Reports are never
+/// printed.
+pub fn render_comments(key: &TicketKey, comments: &[TicketComment]) -> String {
+    if comments.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("\n## Comments\n");
+    for c in comments {
+        out.push_str(&format!("\n### {}\n\n{}\n", c.heading(), c.body.trim()));
+        if let Some(line) = c.report_line(key) {
+            out.push_str(&format!("\n{line}\n"));
         }
     }
     out
+}
+
+/// A parent's last comment from an Agent stage under its line in "Depends on": its heading, the text quoted and its
+/// report's line.
+fn render_last_comment(out: &mut String, key: &TicketKey, comment: &TicketComment) {
+    out.push_str(&format!("  Last comment, {}:\n", comment.heading()));
+    quote(out, "  ", &comment.body);
+    if let Some(line) = comment.report_line(key) {
+        out.push_str(&format!("  {line}\n"));
+    }
 }
 
 /// The Markdown an agent reads.
@@ -1115,6 +1155,7 @@ pub fn render(ctx: &PrimeContext) -> String {
         out.push_str(".\n");
     }
     out.push_str(&render_earlier(&ctx.earlier));
+    out.push_str(&render_comments(&t.key, &ctx.comments));
 
     if !ctx.parents.is_empty() {
         out.push_str("\n## Depends on\n\n");
@@ -1125,19 +1166,13 @@ pub fn render(ctx: &PrimeContext) -> String {
                 p.title,
                 p.status.label()
             ));
-            match &p.summary {
-                Some(summary) => quote(&mut out, "  ", summary),
-                None => out.push_str("  (no summary yet)\n"),
+            match &p.last_comment {
+                Some(comment) => render_last_comment(&mut out, &p.key, comment),
+                None => out.push_str("  (no comment yet)\n"),
             }
         }
     }
 
-    if !ctx.review_feedback.is_empty() {
-        out.push_str("\n## Review feedback\n\n");
-        for comment in &ctx.review_feedback {
-            out.push_str(&format!("- {comment}\n"));
-        }
-    }
     if !ctx.pending_questions.is_empty() {
         out.push_str("\n## Pending questions\n\n");
         for question in &ctx.pending_questions {
@@ -1200,6 +1235,10 @@ pub fn render(ctx: &PrimeContext) -> String {
         "Long text (summaries, questions, ticket bodies) always goes through stdin (`--stdin`), never quoted \
          arguments."
             .to_owned(),
+        format!(
+            "Long output goes to a file in `${}`; attach it with `--report-file`.",
+            naming::resource_dir_env_var()
+        ),
         format!(
             "`{cmd} show <KEY>` reads any ticket; `{cmd} create \"Title\" --stdin` files a follow-up in Backlog."
         ),

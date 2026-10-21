@@ -261,6 +261,9 @@ async fn notes_and_the_agents_prime_mark_read_and_submit_waits_for_them() {
     let again = send(&w, &agent, "ticket.notes", json!({"key": "SHOP-40.2"})).await;
     assert!(ok(&again)["lead_notes"].as_array().unwrap().is_empty());
     assert_eq!(notes::unread_message(&[]), "No unread notes.");
+    // The note's refusal came first; with it read, the read gate (CMT-08) still wants the agent's prime.
+    let answer = send(&w, &agent, "ticket.stage_next", submit.clone()).await;
+    assert_eq!(refused(&answer), "Run `otaq prime` first.");
 
     // A second note, read by the agent's own prime: listed at the top and marked read.
     ok(&send(

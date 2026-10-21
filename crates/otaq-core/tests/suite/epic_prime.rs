@@ -10,6 +10,7 @@ use std::path::Path;
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::epic_flight::{EpicPlace, EpicQueueMode};
+use otaq_core::board::ticket_comments::CommentAuthor;
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::client::{Client, ClientConfig, ClientError};
 use otaq_core::decisions::{self, NewDecision};
@@ -23,7 +24,7 @@ use otaq_core::project_agents::lead::Lead;
 use otaq_core::protocol::{KeyParams, Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService, path_without_build_folders};
-use otaq_core::store::{new_id, now_ms};
+use otaq_core::store::now_ms;
 use serde_json::{Value, json};
 
 const PLAN: &str =
@@ -118,21 +119,34 @@ async fn world() -> World {
     write(&button_wt, "lib/wishlist.ts", "export const button = 1;\n");
     write(&share_wt, "lib/wishlist.ts", "export const share = 1;\n");
 
-    // 40.1 merged: its summary and a recorded decision the lead marked.
+    // 40.1 merged: its last comment and a recorded decision the lead marked.
     let api = w.board.ticket("SHOP-40.1").await.unwrap();
-    // Its Dev stage ended with SUMMARY (AGM-06: the lead reads the last Agent stage's summary).
-    sqlx::query(
-        "INSERT INTO stage_runs (id, ticket_id, stage_id, kind, agent, result, summary, started_at, ended_at)
-         VALUES (?, ?, 'dev', 'agent', 'Developer', 'done', ?, ?, ?)",
-    )
-    .bind(new_id())
-    .bind(&api.id)
-    .bind(SUMMARY)
-    .bind(now_ms())
-    .bind(now_ms())
-    .execute(w.board.store().pool())
-    .await
-    .unwrap();
+    // Its Dev stage ended with SUMMARY as its comment, at 4:10 pm (CMT-07: the lead reads the last comment from an
+    // Agent stage).
+    let posted = w
+        .board
+        .post_ticket_comment(
+            "SHOP-40.1",
+            &CommentAuthor::Agent {
+                id: Some("developer".into()),
+                name: Some("Developer".into()),
+                tool: None,
+                stage: Some("dev".into()),
+                round: None,
+            },
+            SUMMARY,
+            None,
+            &Actor::Agent("SHOP-40.1".parse().unwrap()),
+        )
+        .await
+        .unwrap();
+    sqlx::query("UPDATE ticket_comments SET posted_at = ? WHERE ticket_id = ? AND n = ?")
+        .bind(otaq_core::local_time::on_same_day_at(now_ms(), 16, 10).unwrap())
+        .bind(&api.id)
+        .bind(i64::from(posted.n))
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
     decisions::record(
         &w.board,
         "SHOP-40.1",
@@ -296,7 +310,8 @@ async fn shop_40_mid_flight_renders_every_section() {
     let children = section(&text, "Children, in start order");
     assert!(
         children.contains(
-            "- SHOP-40.1 · Wishlist API (Merged · P3 · Normal) · started · added by you\n  Summary:\n  > \
+            "- SHOP-40.1 · Wishlist API (Merged · P3 · Normal) · started · added by you\n  Last comment, \
+             Developer · Dev · 4:10 pm:\n  > \
              GET/POST /wishlist, items newest first.\n  > Notes for later tickets: the API returns `items[]`.\n  \
              Recorded decisions:\n  - SHOP-40.1#1 Which order do the items come in?\n    Built: newest first\n    \
              Other option: in the order added\n    Why: the usual order for saved lists\n    Marked by Wishlist \
