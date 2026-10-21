@@ -42,10 +42,13 @@ pub enum Tool {
     Claude,
     Gh,
     Az,
+    /// GitLab's CLI: only Flow onboarding asks whether it is signed in (ONB-03, d0108); it is no checklist row.
+    Glab,
 }
 
 impl Tool {
-    /// The checklist's rows. [`Tool::Claude`] isn't one: its adapter's detect checks it ([`check_one`]).
+    /// The checklist's rows. [`Tool::Claude`] isn't one: its adapter's detect checks it ([`check_one`]); nor is
+    /// [`Tool::Glab`], which only Flow onboarding checks (ONB-03).
     pub const ALL: [Tool; 3] = [Tool::Git, Tool::Gh, Tool::Az];
 
     /// The executable's name.
@@ -55,6 +58,7 @@ impl Tool {
             Self::Claude => "claude",
             Self::Gh => "gh",
             Self::Az => "az",
+            Self::Glab => "glab",
         }
     }
 
@@ -75,13 +79,16 @@ impl Tool {
             (Os::Mac, Self::Git) => "xcode-select --install",
             (Os::Mac, Self::Gh) => "brew install gh",
             (Os::Mac, Self::Az) => "brew install azure-cli && az extension add --name azure-devops",
+            (Os::Mac, Self::Glab) => "brew install glab",
             (Os::Windows, Self::Git) => "winget install Git.Git",
             (Os::Windows, Self::Gh) => "winget install GitHub.cli",
+            (Os::Windows, Self::Glab) => "winget install GLab.GLab",
             (Os::Windows, Self::Az) => {
                 "winget install Microsoft.AzureCLI  &&  az extension add --name azure-devops"
             }
             (Os::Linux, Self::Git) => "sudo apt install git",
             (Os::Linux, Self::Gh) => "sudo apt install gh",
+            (Os::Linux, Self::Glab) => "sudo apt install glab",
             (Os::Linux, Self::Az) => {
                 "curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash && az extension add --name azure-devops"
             }
@@ -117,7 +124,7 @@ pub struct ToolStatus {
     pub found: bool,
     /// The version as the frame shows it (`2.46.0`, `Claude Code 2.1.4`); display only.
     pub version: Option<String>,
-    /// gh and az only: whether `gh auth status` / `az account show` succeed.
+    /// gh, glab and az only: whether `gh auth status` / `glab auth status` / `az account show` succeed.
     pub logged_in: Option<bool>,
     /// az only: whether the `azure-devops` extension is installed.
     pub extension_installed: Option<bool>,
@@ -279,7 +286,7 @@ async fn run(program: &Path, args: &[&str], env: &CheckEnv) -> Option<Run> {
     })
 }
 
-/// Checks one tool, as the whole check would (`--version`, and the login for `gh` / `az`).
+/// Checks one tool, as the whole check would (`--version`, and the login for `gh` / `glab` / `az`).
 pub async fn check_one(tool: Tool, env: &CheckEnv) -> ToolStatus {
     check_tool(tool, env).await
 }
@@ -301,7 +308,7 @@ async fn check_tool(tool: Tool, env: &CheckEnv) -> ToolStatus {
     status.found = true;
     status.install_command = None;
     match tool {
-        Tool::Git | Tool::Claude | Tool::Gh => {
+        Tool::Git | Tool::Claude | Tool::Gh | Tool::Glab => {
             if let Some(out) = run(&program, &["--version"], env).await {
                 status.version = parse_version(tool, &out.stdout);
             }
@@ -324,6 +331,7 @@ async fn check_tool(tool: Tool, env: &CheckEnv) -> ToolStatus {
     }
     let login = match tool {
         Tool::Gh => Some((&["auth", "status"][..], "gh auth login")),
+        Tool::Glab => Some((&["auth", "status"][..], "glab auth login")),
         Tool::Az => Some((&["account", "show"][..], "az login")),
         Tool::Git | Tool::Claude => None,
     };
@@ -354,6 +362,14 @@ pub fn parse_version(tool: Tool, output: &str) -> Option<String> {
             .split_whitespace()
             .next()?,
         Tool::Az => first.split_whitespace().last()?,
+        // "glab 1.46.1 (2024-09-12)", older "glab version 1.36.0 (2023-12-19)"
+        Tool::Glab => {
+            let rest = first.strip_prefix("glab ")?;
+            rest.strip_prefix("version ")
+                .unwrap_or(rest)
+                .split_whitespace()
+                .next()?
+        }
     };
     Some(token.to_owned())
 }
@@ -489,6 +505,14 @@ mod tests {
             )
             .as_deref(),
             Some("2.62.0")
+        );
+        assert_eq!(
+            parse_version(Tool::Glab, "glab 1.46.1 (2024-09-12)\n").as_deref(),
+            Some("1.46.1")
+        );
+        assert_eq!(
+            parse_version(Tool::Glab, "glab version 1.36.0 (2023-12-19)\n").as_deref(),
+            Some("1.36.0")
         );
         assert_eq!(parse_version(Tool::Git, ""), None);
         assert_eq!(parse_version(Tool::Gh, "garbage"), None);

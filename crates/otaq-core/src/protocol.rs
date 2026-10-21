@@ -164,6 +164,10 @@ pub enum Request {
     /// What the first-run screens need; answered with [`Reply::OnboardingState`].
     #[serde(rename = "onboarding.state")]
     OnboardingState,
+    /// What there is for Flow onboarding to look at for a project (ONB-03, d0108): history, commits, `gh` / `glab`
+    /// signed in, and the Project agent's tool. Reads no content. Answered with [`Reply::OnboardingSources`].
+    #[serde(rename = "onboarding.sources")]
+    OnboardingSources(ProjectParams),
     /// Remembers that the user closed the permission-mode warning; answered with [`Reply::Ok`].
     #[serde(rename = "onboarding.dismiss_permission_warning")]
     DismissPermissionWarning,
@@ -1660,6 +1664,7 @@ impl Request {
             Self::Subscribe => "events.subscribe",
             Self::ToolsCheck => "tools.check",
             Self::OnboardingState => "onboarding.state",
+            Self::OnboardingSources(_) => "onboarding.sources",
             Self::DismissPermissionWarning => "onboarding.dismiss_permission_warning",
             Self::DismissTrustNote => "notices.dismiss_trust_note",
             Self::NotificationsState => "notifications.state",
@@ -1868,6 +1873,7 @@ pub enum Reply {
     StartupReport(Box<crate::recovery::StartupReport>),
     ToolsCheck(ToolsReport),
     OnboardingState(OnboardingState),
+    OnboardingSources(crate::onboarding::Sources),
     NotificationsState(crate::attention::os_permission::NotificationsState),
     Projects(Vec<ProjectInfo>),
     Project(ProjectInfo),

@@ -306,6 +306,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::export_flow_preview_types(&cfg)?;
     // Your check's Pass and Fail, Send back with PR comments (T-0424).
     crate::api::export_review_check_types(&cfg)?;
+    // The Flow go-ahead's line (T-0427): its view and params.
+    crate::api::export_flow_look_types(&cfg)?;
     Ok(())
 }
 

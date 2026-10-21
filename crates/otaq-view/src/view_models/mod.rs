@@ -53,6 +53,7 @@ pub mod filter;
 pub mod flow_columns;
 pub mod flow_preview;
 pub mod flow_settings;
+pub mod flow_sources;
 pub mod gallery;
 pub mod history;
 pub mod inbox;

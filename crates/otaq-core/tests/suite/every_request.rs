@@ -134,6 +134,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::Subscribe
         | Request::ToolsCheck
         | Request::OnboardingState
+        | Request::OnboardingSources(_)
         | Request::DismissPermissionWarning
         | Request::DismissTrustNote
         | Request::NotificationsState

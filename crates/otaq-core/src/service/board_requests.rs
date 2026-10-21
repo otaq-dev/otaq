@@ -96,6 +96,11 @@ pub(super) async fn handle(
                 .await
                 .map(Reply::PrProvider)
         }),
+        Request::OnboardingSources(p) => boxed(move || async move {
+            crate::onboarding::sources(board, &shared.gate, &shared.config.tools, &p.project)
+                .await
+                .map(Reply::OnboardingSources)
+        }),
         Request::BoardSnapshot(p) => {
             boxed(move || async move { board.board_snapshot(&p.project).await.map(Reply::Board) })
         }

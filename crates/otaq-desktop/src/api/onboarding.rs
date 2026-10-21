@@ -5,14 +5,16 @@
 //! detected values, the key's live check, the connected tools that keep folder trust); `onboarding.add` adds the
 //! project or says why not, and which tools' folder trust wasn't recorded and why (PRJ-07, d0085, d0086). The Tools
 //! step's agent tool rows act through `agent_tools.*` (Sign in…, Show, Hide). A folder dropped on the window reaches
-//! the page as a `files_dropped` event ([`crate::drops`]).
+//! the page as a `files_dropped` event ([`crate::drops`]). `onboarding.sources` answers the Flow go-ahead's line
+//! for a project (ONB-03, ONB-04, ONB-08; d0108): what the agent will look at, or "Nothing to look at yet".
 
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::agent_tools::SetupOutcome as Outcome;
 use otaq_core::agent_tools::Tool;
-use otaq_core::protocol::{OnboardingState, PathParams, Reply, Request};
+use otaq_core::protocol::{OnboardingState, PathParams, ProjectParams, Reply, Request};
 use otaq_view::view_models::add_project::AddProjectModel;
+use otaq_view::view_models::flow_sources::{self, View as FlowLook};
 use otaq_view::view_models::onboarding::OnboardingModel;
 use otaq_view::view_models::onboarding_page::{self, AddProjectPage, Texts, Tools};
 use serde::{Deserialize, Serialize};
@@ -33,6 +35,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         }
         "onboarding.form" => reply(&form(app, parse(params)?).await?.1),
         "onboarding.add" => reply(&add(app, parse(params)?).await?),
+        "onboarding.sources" => reply(&sources(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -195,6 +198,35 @@ async fn add(app: &App, params: FormParams) -> Result<AddOutcome, RequestError> 
             })
         }
     }
+}
+
+/// `{"project": "SHOP"}`: the project whose Flow go-ahead is shown.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "FlowLookParams")]
+pub struct SourcesParams {
+    pub project: String,
+}
+
+/// The go-ahead's line for the project, from what there is to look at (the service reads no content).
+async fn sources(app: &App, params: SourcesParams) -> Result<FlowLook, RequestError> {
+    match app
+        .service
+        .send(Request::OnboardingSources(ProjectParams {
+            project: params.project,
+        }))
+        .await?
+    {
+        Reply::OnboardingSources(sources) => Ok(flow_sources::view(&sources)),
+        other => Err(unexpected("onboarding.sources", &other)),
+    }
+}
+
+/// The Flow go-ahead's types (T-0427).
+#[cfg(test)]
+pub fn export_sources_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
+    SourcesParams::export_all(cfg)?;
+    FlowLook::export_all(cfg)?;
+    Ok(())
 }
 
 /// Which tools' trust failed for the project just added, from the service's notices (each tool's reason); the
