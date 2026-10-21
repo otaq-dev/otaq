@@ -700,6 +700,8 @@ pub fn check(
     service::runtime()?.block_on(async {
         let client = service::connect(&data, global).await?;
         let key = target::resolve_key(&client, &data, None, global).await?;
+        // The check judged, by name, before the verdict moves the ticket on (Q344).
+        let check = check_being_judged(&client, &key.to_string()).await;
         let ticket = match client
             .request(Request::ValidationVerdict(
                 otaq_core::protocol::VerdictParams {
@@ -714,14 +716,32 @@ pub fn check(
             Reply::Ticket(t) => *t,
             other => return Err(unexpected(&other)),
         };
-        let text = if pass {
-            format!("{}: validation passed. End your turn.", ticket.key)
-        } else {
-            format!("{}: validation failed. End your turn.", ticket.key)
-        };
+        let verdict = if pass { "passed" } else { "failed" };
+        let text = format!("{}: {check} {verdict}. End your turn.", ticket.key);
         out.print(&text, &ticket, Some(&ticket.key.to_string()));
         Ok(())
     })
+}
+
+/// The name of the agent check the ticket is in ("Validate", "Security"), from its project's flow; "The check" when
+/// it can't be read.
+async fn check_being_judged(client: &otaq_core::client::Client, key: &str) -> String {
+    let Ok(ticket) = crate::read::get_ticket(client, key).await else {
+        return "The check".to_owned();
+    };
+    let flow = match client
+        .request(Request::FlowCurrent(otaq_core::protocol::ProjectParams {
+            project: ticket.key.project.to_string(),
+        }))
+        .await
+    {
+        Ok(Reply::FlowVersion(version)) => version.file().ok().map(|f| f.flow),
+        _ => None,
+    };
+    flow.map_or_else(
+        || "The check".to_owned(),
+        |flow| otaq_core::board::validation::check_name(&flow, &ticket.place),
+    )
 }
 
 /// `otaq agent name "<name>" [--rename]` (PAG-04): a Project agent names itself; refused anywhere else, a

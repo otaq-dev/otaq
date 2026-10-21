@@ -1383,13 +1383,23 @@ pub fn note_of(line: &str) -> Option<&str> {
     (!note.is_empty()).then_some(note)
 }
 
-/// The findings sent back to the agent (VAL-04): "Validation failed (round 1 of 3). Fix these, commit, and
-/// submit again: …".
-pub fn findings_message(round: u32, rounds: u32, report: &str) -> String {
+/// The findings sent back to the agent (VAL-04), naming the check (Q344): "Security failed (round 1 of 3). Fix
+/// these, commit, and run `otaq stage next` again: …".
+pub fn findings_message(check: &str, round: u32, rounds: u32, report: &str) -> String {
     format!(
-        "Validation failed (round {round} of {rounds}). Fix these, commit, and submit again:\n\n{}",
+        "{check} failed (round {round} of {rounds}). Fix these, commit, and run `{} stage next` again:\n\n{}",
+        crate::naming::COMMAND_NAME,
         report.trim()
     )
+}
+
+/// The name of the agent check a ticket at `place` is in ("Validate", "Security"); "The check" when it isn't in one.
+pub fn check_name(flow: &Flow, place: &Place) -> String {
+    place
+        .stage()
+        .and_then(|id| flow.stage(id))
+        .filter(|s| s.is_agent_check())
+        .map_or_else(|| "The check".to_owned(), |s| s.name.clone())
 }
 
 #[cfg(test)]

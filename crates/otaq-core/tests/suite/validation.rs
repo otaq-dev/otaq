@@ -363,7 +363,7 @@ async fn a_fail_goes_back_to_the_agent_until_the_last_round() {
     assert_eq!(
         pending[0].text,
         format!(
-            "Validation failed (round 1 of 3). Fix these, commit, and submit again:\n\n{FINDINGS}"
+            "Validate failed (round 1 of 3). Fix these, commit, and run `otaq stage next` again:\n\n{FINDINGS}"
         )
     );
 
@@ -617,11 +617,9 @@ async fn an_agent_commit_during_validation_cancels_it() {
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     assert_eq!(
         pending.last().map(|p| p.text.as_str()),
-        Some(otaq_core::validation::CANCELLED)
-    );
-    assert_eq!(
-        otaq_core::validation::CANCELLED,
-        "Validation was cancelled because the code changed. Submit again when you're done."
+        Some(
+            "Validate was cancelled because the code changed. Run `otaq stage next` when you're done."
+        )
     );
     w.stop().await;
 }
@@ -679,7 +677,10 @@ async fn a_description_edit_cancels_a_title_edit_does_not() {
         .map(|p| p.text)
         .collect();
     assert_eq!(texts.len(), 3, "{texts:?}");
-    assert_eq!(texts[1], otaq_core::validation::CANCELLED);
+    assert_eq!(
+        texts[1],
+        otaq_core::validation::cancelled_message("Validate")
+    );
     assert!(
         texts[2].starts_with("The ticket was updated by the user. The description changed"),
         "{texts:?}"

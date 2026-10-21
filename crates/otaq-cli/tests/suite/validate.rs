@@ -60,7 +60,7 @@ async fn only_the_validator_reports_a_verdict() {
         .await;
     assert_eq!(
         (ran.status, ran.stdout.trim()),
-        (0, "SHOP-19: validation failed. End your turn."),
+        (0, "SHOP-19: Validate failed. End your turn."),
         "{ran:?}"
     );
     assert_eq!(w.status("SHOP-19").await, Status::Working);

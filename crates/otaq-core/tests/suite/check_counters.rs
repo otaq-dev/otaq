@@ -528,3 +528,49 @@ async fn a_cancel_and_stop_this_check_on_security_count_nothing() {
     );
     w.stop().await;
 }
+
+/// Q344: what Dev's session is told names the check, not "Validation": Security's findings ("Security failed (round 1
+/// of 2) … run `otaq stage next` again") and Security's cancel when the description changes.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_messages_to_dev_name_the_check() {
+    let w = world(|_| {}).await;
+    let t = in_dev(&w, "Search notes").await;
+    let agent = w.agent_shell(&t).await;
+    let told = |w: &TestService| {
+        let session = agent.session.clone();
+        let deliveries = w.deliveries.clone();
+        async move {
+            deliveries
+                .pending(&session)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|p| p.text)
+                .collect::<Vec<_>>()
+        }
+    };
+    submit(&w, &t).await;
+    verdict(&w, &t, true).await;
+    verdict(&w, &t, false).await;
+    assert_eq!(
+        told(&w).await.last().map(String::as_str),
+        Some(
+            "Security failed (round 1 of 2). Fix these, commit, and run `otaq stage next` again:\n\n\
+             - src/search.rs:3 unescaped SQL"
+        )
+    );
+
+    submit(&w, &t).await;
+    let before = verdict(&w, &t, true).await;
+    assert_eq!(at(&before), (Some("security"), Status::Checking));
+    let mut after = before.clone();
+    after.body = "Search titles too.".into();
+    w.validation.ticket_edited(&before, &after).await.unwrap();
+    assert!(
+        told(&w).await.contains(
+            &"Security was cancelled because the code changed. Run `otaq stage next` when you're done."
+                .to_owned()
+        )
+    );
+    w.stop().await;
+}

@@ -42,7 +42,8 @@ use crate::agents::store::HoldScope;
 use crate::agents::{AgentHold, HoldReason, RunsOn, SessionRole, resolve};
 use crate::board::tickets::Ticket;
 use crate::board::validation::{
-    CheckCounts, Transition, ValidationEvent, ValidationState, findings_message, transition,
+    CheckCounts, Transition, ValidationEvent, ValidationState, check_name, findings_message,
+    transition,
 };
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::validation::{CancelledBy, cancelled_toast};
@@ -58,9 +59,14 @@ use crate::session::{
 use crate::signals::{LIVE, Signal};
 use crate::store::tickets::set_state_since;
 
-/// What the agent is told when its validation is cancelled (VAL-08).
-pub const CANCELLED: &str =
-    "Validation was cancelled because the code changed. Submit again when you're done.";
+/// What the agent is told when its check is cancelled (VAL-08), naming the check (Q344): "Security was cancelled
+/// because the code changed. Run `otaq stage next` when you're done."
+pub fn cancelled_message(check: &str) -> String {
+    format!(
+        "{check} was cancelled because the code changed. Run `{} stage next` when you're done.",
+        crate::naming::COMMAND_NAME
+    )
+}
 
 /// Starts the No result text of a round whose validator's model the tool refused (AGT-05): "The validator couldn't
 /// run `claude-fable-5-1`: There's an issue with the selected model …". [`refused_its_model`] tells it apart.
@@ -238,7 +244,8 @@ impl Validation {
         }
         if step.deliver_findings {
             let round = facts.fails + 1;
-            self.tell_agent(&ticket, &findings_message(round, rounds, report))
+            let check = check_name(&facts.flow, &ticket.place);
+            self.tell_agent(&ticket, &findings_message(&check, round, rounds, report))
                 .await;
         }
         if step.start_validator {
@@ -345,6 +352,12 @@ impl Validation {
     /// round doesn't count, the agent works again and is told so; clients get the cancel toast (UI-07).
     pub async fn cancel(&self, ticket: &Ticket, by: CancelledBy) -> Result<(), BoardError> {
         let step = self.step(ticket, ValidationEvent::CodeChanged).await?;
+        let flow = self
+            .inner
+            .board
+            .effective_flow(ticket.key.project.as_str())
+            .await?;
+        let check = check_name(&flow, &ticket.place);
         self.stop_validator(ticket).await;
         self.inner
             .board
@@ -352,7 +365,7 @@ impl Validation {
             .await?;
         self.forget_turns(&ticket.id);
         if step.tell_cancelled {
-            self.tell_agent(ticket, CANCELLED).await;
+            self.tell_agent(ticket, &cancelled_message(&check)).await;
         }
         let (title, message) = cancelled_toast(&ticket.key.to_string(), by);
         self.inner.events.publish(Event::ValidationCancelled {
