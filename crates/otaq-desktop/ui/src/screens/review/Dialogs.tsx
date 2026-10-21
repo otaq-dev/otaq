@@ -42,7 +42,7 @@ function copy(text: string) {
 }
 
 /** Done: the agent has it; its terminal shows if the ticket is open. Asked: the unsent-text question (d0048). */
-function afterSend(key: string, sent: PanelSent, again: () => Promise<unknown>) {
+export function afterSend(key: string, sent: PanelSent, again: () => Promise<unknown>) {
   if (sent.outcome === "done") {
     if (selection.get().ticket === key) showTab("terminal");
     return;

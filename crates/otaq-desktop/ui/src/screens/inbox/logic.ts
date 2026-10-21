@@ -130,7 +130,7 @@ export function describeAction(action: InboxRowAction): string {
       return `${action.kind} ${action.parent}`;
     case "resume_target":
       return `${action.kind} ${action.message}`;
-    case "move_to_review_anyway":
+    case "move_on_anyway":
     case "another_round":
     case "answer_agent":
     case "retry_validation":

@@ -165,7 +165,7 @@ async fn snapshot(app: &App, project: &str) -> Result<BoardSnapshot, RequestErro
 
 /// The project's flow (FLW-01, STG-08): its current stored version, which the board's columns and drags follow; the
 /// default flow when it can't be read.
-async fn flow(app: &App, project: &str) -> Flow {
+pub(crate) async fn flow(app: &App, project: &str) -> Flow {
     match app
         .service
         .send(Request::FlowCurrent(ProjectParams {

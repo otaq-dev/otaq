@@ -95,7 +95,7 @@ pub use recovery::{
 pub use review::{
     Available as ReviewAvailable, ChangeParams as DecisionChangeParams,
     ChangeViewParams as DecisionChangeViewParams, MergeParams as LocalMergeParams,
-    Params as ReviewParams, SendBackParams,
+    Params as ReviewParams, SendBackParams, export_check_types as export_review_check_types,
 };
 #[cfg(test)]
 pub use run::{

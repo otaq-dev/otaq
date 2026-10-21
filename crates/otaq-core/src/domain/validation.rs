@@ -229,7 +229,7 @@ stored_enum! {
         /// While validating: Ready for Review, "Validation skipped by you", never auto-merged.
         Skip = "skip",
         /// After the last failed round, or no result: Ready for Review without a pass, never auto-merged.
-        MoveToReviewAnyway = "move_to_review_anyway",
+        MoveOnAnyway = "move_on_anyway",
         /// After the last failed round: the findings go to the agent, one more round is allowed.
         AnotherRound = "another_round",
         /// After the last failed round: the user's note goes with the findings, the counter restarts at 0.

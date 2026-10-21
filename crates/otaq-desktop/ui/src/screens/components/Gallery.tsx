@@ -1023,6 +1023,9 @@ function Cards() {
       <Section title="04 · Variants · several tools (M23) at 1280 (T-0367)">
         <CardGrid cells={view.tools} width={view.width_1280} onPick={setPicked} />
       </Section>
+      <Section title="03 · Cards in a check and a delivery · any flow (M33, T-0424)">
+        <CardGrid cells={view.flows} width={view.width} onPick={setPicked} />
+      </Section>
     </>
   );
 }

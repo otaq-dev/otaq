@@ -195,6 +195,32 @@ impl EpicViewModel {
         }
     }
 
+    /// On the board (FLW-16, `s03-46`): an open PR reads "PR #77 open" and its comments become a child (Add a child
+    /// from PR comments · Mark merged; Mark closed stays in the panel).
+    pub fn with_pr_comments(mut self, epic: &Ticket) -> Self {
+        if epic.status != Status::PrOpen {
+            return self;
+        }
+        if let Some(n) = epic.flags.pr_number {
+            self.pill.label = format!("PR #{n} open");
+        }
+        self.actions = vec![
+            CardAction {
+                kind: CardActionKind::AddChildFromPr,
+                label: "Add a child from PR comments",
+                icon: None,
+                primary: false,
+            },
+            CardAction {
+                kind: CardActionKind::MarkMerged,
+                label: "Mark merged",
+                icon: None,
+                primary: false,
+            },
+        ];
+        self
+    }
+
     /// The epic's lead on its card (LEAD-11, LEAD-02): `lead` is its lead, if it has one. In Backlog the Lead row
     /// shows it, or Open lead; in Ready for Review, Approved and PR open only a lead it had ("ended · in review").
     pub fn with_lead(mut self, epic: &Ticket, tickets: &[Ticket], lead: Option<&Lead>) -> Self {
@@ -338,6 +364,11 @@ mod tests {
         assert_eq!(vm.pill.label, "PR #490");
         assert_eq!(vm.branch, "feature/PAY-123-wishlist");
         assert_eq!(vm.actions.len(), 2);
+        // FLW-16 (`s03-46`): on the board, Add a child from PR comments · Mark merged.
+        let custom = vm.clone().with_pr_comments(&tickets[0]);
+        assert_eq!(custom.pill.label, "PR #490 open");
+        let labels: Vec<_> = custom.actions.iter().map(|a| a.label).collect();
+        assert_eq!(labels, ["Add a child from PR comments", "Mark merged"]);
         assert!(!vm.can_add);
 
         tickets[0].status = Status::ClosedNotMerged;

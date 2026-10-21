@@ -73,7 +73,7 @@ pub enum Action {
         message: String,
     },
     /// Validation failed N times: Ready for Review without a pass (VAL-09).
-    MoveToReviewAnyway,
+    MoveOnAnyway,
     /// Validation failed N times: one more round, the findings go to the agent.
     AnotherRound,
     /// Validation failed N times: the user's note goes with the findings. The button opens the row's note box;
@@ -126,7 +126,7 @@ impl Action {
     pub fn validation(&self) -> Option<(ValidationAction, String)> {
         use ValidationAction as A;
         Some(match self {
-            Self::MoveToReviewAnyway => (A::MoveToReviewAnyway, String::new()),
+            Self::MoveOnAnyway => (A::MoveOnAnyway, String::new()),
             Self::AnotherRound => (A::AnotherRound, String::new()),
             Self::AnswerAgent { note } => (A::AnswerAgent, note.clone()),
             Self::RetryValidation => (A::Retry, String::new()),
@@ -159,7 +159,7 @@ impl Action {
             },
             RowAction::DismissSuggestion { id } => Self::DismissSuggestion { id: id.clone() },
             RowAction::Validation(action) => match action {
-                ValidationAction::MoveToReviewAnyway => Self::MoveToReviewAnyway,
+                ValidationAction::MoveOnAnyway => Self::MoveOnAnyway,
                 ValidationAction::AnotherRound => Self::AnotherRound,
                 ValidationAction::AnswerAgent => Self::AnswerAgent {
                     note: String::new(),
@@ -221,7 +221,7 @@ fn button(action: &RowAction) -> Button {
 fn validation_button(action: ValidationAction) -> (&'static str, IconName) {
     use ValidationAction as A;
     match action {
-        A::MoveToReviewAnyway => ("Move on anyway", IconName::Eye),
+        A::MoveOnAnyway => ("Move on anyway", IconName::Eye),
         A::AnotherRound => ("Give it another round", IconName::RotateCcw),
         A::AnswerAgent => ("Answer the agent\u{2026}", IconName::MessageSquare),
         A::Retry => ("Retry validation", IconName::RotateCcw),
@@ -575,7 +575,7 @@ fn row(r: &InboxRow, next_keys: Option<&str>) -> Row {
     } else {
         None
     };
-    let mut pill = PillView::legend(r.legend, None);
+    let mut pill = PillView::legend(r.legend, r.pill_label.as_deref());
     if let Some(s) = &r.suggestion {
         // The lead's colour (violet), the action's icon.
         pill.palette = Palette::Epic;
@@ -1456,11 +1456,11 @@ mod tests {
         assert_eq!(
             sent,
             [
-                A::MoveToReviewAnyway,
+                A::MoveOnAnyway,
                 A::AnotherRound,
                 A::AnswerAgent,
                 A::Retry,
-                A::MoveToReviewAnyway,
+                A::MoveOnAnyway,
                 A::RetryMerge,
                 A::MoveToReview
             ]

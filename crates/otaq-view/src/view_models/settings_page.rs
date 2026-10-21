@@ -358,7 +358,7 @@ pub fn notification_kind_row(kind: Kind) -> (&'static str, &'static str, &'stati
         ),
         Kind::AutoMergeStopped => (
             "notification_kinds.auto_merge_stopped",
-            "Auto-merge stopped",
+            "Delivery stopped",
             "",
         ),
         Kind::ToolUnavailable => (
@@ -2176,7 +2176,7 @@ mod tests {
                     "Validation needs a decision",
                     "Failed N times, or no result."
                 ),
-                ("Auto-merge stopped", ""),
+                ("Delivery stopped", ""),
                 ("Agent tool not available", ""),
                 ("Play a sound", "The OS’s default notification sound."),
             ]

@@ -445,6 +445,16 @@ fn count_text(visible: usize, total: usize, strong: Option<usize>, filtered: boo
     }
 }
 
+/// The agent that opens a project's PRs: its Delivery stage's, else its first Agent stage's
+/// (`agents::resolve::delivery_agent`).
+fn delivery_agent(flow: &Flow) -> Option<String> {
+    flow.stages
+        .iter()
+        .find(|s| s.is_delivery() && s.agent.is_some())
+        .or_else(|| flow.first_agent_stage())
+        .and_then(|s| s.agent.clone())
+}
+
 pub fn build(input: &BoardInput) -> Vec<ColumnView> {
     let all = input.tickets;
     let cards: Vec<&TicketKey> = all
@@ -457,10 +467,12 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
         None => cards.clone(),
     };
     let filtered = input.visible.is_some();
+    // The default flow's board keeps today's cards (d0108, STG-06); other flows draw the M33 ones.
+    let custom_flow = !crate::view_models::flow_columns::keeps_default_look(input.flow);
     let entry = |key: &TicketKey| -> Option<CardEntry> {
         let t = all.iter().find(|t| &t.key == key)?;
         Some(if t.kind == Kind::Epic {
-            CardEntry::Epic(EpicViewModel::from(t, all, None))
+            CardEntry::Epic(EpicViewModel::from(t, all, None).with_pr_comments(t))
         } else {
             // What a Queued card waits for, from the core's readiness: updates as each parent moves (T-0083). One
             // that would start says why it doesn't while starts are held (FLW-06).
@@ -491,6 +503,11 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                     .flatten(),
                 held_by_limit: otaq_core::scheduler::held_by_tool_limit(t),
                 was_validating: input.was_validating.contains(&t.key),
+                // Its Delivery (FLW-15): Ready to merge or Ready for PR, and who opens the PR.
+                delivers: otaq_core::board::epic_flight::delivery_of(input.flow, t)
+                    .map(|d| d.delivers),
+                delivery_agent: delivery_agent(input.flow),
+                custom_flow,
                 agent_name: match &t.created_by {
                     otaq_core::domain::Actor::ProjectAgent(id) => input
                         .agent_names

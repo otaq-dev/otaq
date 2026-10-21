@@ -85,6 +85,10 @@ export interface OverlayParams {
   send_back: { ticket: string };
   /** A card dragged back to an earlier Agent stage or agent check: its instructions or note (T-0421, FLW-18). */
   drag_back: DragBackDialog;
+  /** Fail on a human check with what's wrong (FLW-14, T-0424). */
+  fail: { ticket: string };
+  /** Send back with PR comments and an optional note (FLW-16, T-0424). */
+  send_back_pr: { ticket: string };
   /** Change… on a recorded decision (T-0288): Send back on a ticket, Add a fix child in an epic's review. */
   change_decision: { id: string };
   /** The Local merge confirmation (T-0226); `menu` starts at the Approve ▾ choice (⌘↵). */
@@ -141,6 +145,8 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   close_epic: true,
   send_back: true,
   drag_back: true,
+  fail: true,
+  send_back_pr: true,
   change_decision: true,
   local_merge: true,
   open_pr: true,

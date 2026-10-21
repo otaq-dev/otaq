@@ -80,7 +80,9 @@ export type ActionRoute =
   | { kind: "diff" }
   | { kind: "edit" }
   | { kind: "parent" }
-  | { kind: "overlay"; id: "local_merge" | "send_back" | "start_from_scratch" }
+  | { kind: "overlay"; id: "local_merge" | "send_back" | "fail" | "send_back_pr" | "start_from_scratch" }
+  // Pass (FLW-14): `review.pass`, then the delivery choices when a click Delivery comes next.
+  | { kind: "pass" }
   | { kind: "mark_closed" }
   | { kind: "run" }
   // Open agent… (AGM-03, d0108 second gap review rule 7): Settings → Agents on the panel's `open_agent`.
@@ -96,12 +98,13 @@ export function actionRoute(action: PanelAction): ActionRoute {
     case "reopen":
     case "mark_merged":
     case "open_pr_in_browser":
-    case "move_to_review_anyway":
+    case "move_on_anyway":
     case "another_round":
     case "retry_validation":
     case "retry_merge":
     case "move_to_review":
     case "resume_lead":
+    case "add_child_from_pr":
       return { kind: "service" };
     // The Terminal tab on the validator's side (its switch is T-0237's).
     case "open_validator":
@@ -123,6 +126,12 @@ export function actionRoute(action: PanelAction): ActionRoute {
       return { kind: "overlay", id: "local_merge" };
     case "send_back":
       return { kind: "overlay", id: "send_back" };
+    case "pass":
+      return { kind: "pass" };
+    case "fail":
+      return { kind: "overlay", id: "fail" };
+    case "send_back_pr":
+      return { kind: "overlay", id: "send_back_pr" };
     case "start_from_scratch":
       return { kind: "overlay", id: "start_from_scratch" };
     case "mark_closed":
@@ -192,7 +201,9 @@ export type CardRoute =
   | { kind: "service" }
   | { kind: "pick"; number: number }
   | { kind: "send_answer" }
-  | { kind: "overlay"; id: "start_from_scratch" | "open_pr" }
+  | { kind: "overlay"; id: "start_from_scratch" | "open_pr" | "local_merge" | "fail" | "send_back_pr" }
+  // Pass (FLW-14): `review.pass`, then the delivery choices when a click Delivery comes next.
+  | { kind: "pass" }
   | { kind: "mark_closed" }
   | { kind: "run_tab" }
   | { kind: "open_agent" }
@@ -213,7 +224,21 @@ export function cardRoute(kind: CardActionKind): CardRoute {
     case "move_to_review":
     case "use_fallback": // AGT-08: a held role's fallback takes it (`ticket.use_fallback`, T-0362).
     case "use_validator_fallback":
+    case "move_on_anyway": // FLW-13: after the last failed round.
+    case "skip_check": // FLW-13: a check at the plan limit with no fallback.
+    case "add_child_from_pr": // FLW-16: an epic's PR comments as a child.
       return { kind: "service" };
+    case "pass":
+      return { kind: "pass" };
+    // FLW-14 / FLW-15 / FLW-16: Fail, a To deliver card's click, Send back with PR comments.
+    case "fail":
+      return { kind: "overlay", id: "fail" };
+    case "local_merge":
+      return { kind: "overlay", id: "local_merge" };
+    case "open_pr":
+      return { kind: "overlay", id: "open_pr" };
+    case "send_back_pr":
+      return { kind: "overlay", id: "send_back_pr" };
     case "send_answer":
       return { kind: "send_answer" };
     case "start_from_scratch":

@@ -164,7 +164,7 @@ mod tests {
             (
                 Core::DeliveryStopped,
                 Legend::AutoMergeStopped,
-                "Auto-merge stopped",
+                "Delivery stopped",
                 I::GitCompareArrows,
             ),
         ];

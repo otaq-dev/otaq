@@ -305,7 +305,7 @@ impl Status {
             Self::CheckNoResult => super::validation::NO_RESULT,
             Self::MergeConflictFixing => super::validation::MERGE_CONFLICT_FIXING,
             // The card names the reason ("Keeps conflicting with `main`", base diverged, checkout dirty).
-            Self::DeliveryStopped => "Auto-merge stopped",
+            Self::DeliveryStopped => "Delivery stopped",
             Self::WaitingForYou => "Ready for Review",
             Self::ToDeliver => "To deliver",
             Self::PrOpen => "PR open",

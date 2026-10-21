@@ -246,6 +246,8 @@ pub struct CardGallery {
     /// *04 → Variants · several tools (M23)* and the fallback and limit cards (T-0362): avatars on, Unavailable,
     /// waiting on a tool, moved by a fallback.
     pub tools: Vec<GalleryCell>,
+    /// *03 → cards in an agent check, your check, deliveries, conflicts, Done* (`s03-44`…`s03-54`, T-0424).
+    pub flows: Vec<GalleryCell>,
 }
 
 pub fn gallery() -> CardGallery {
@@ -269,6 +271,7 @@ pub fn gallery() -> CardGallery {
         leads: card_fixtures::lead_variants().iter().map(cell).collect(),
         agents: card_fixtures::agent_variants().iter().map(cell).collect(),
         tools: card_fixtures::tool_variants().iter().map(cell).collect(),
+        flows: card_fixtures::flow_variants().iter().map(cell).collect(),
     }
 }
 

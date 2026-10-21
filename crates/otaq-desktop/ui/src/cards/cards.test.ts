@@ -45,6 +45,7 @@ const SHOP_22: TicketCardView = {
     signal: null,
     action: { kind: "open", label: "Answer", icon: null, primary: false },
     second: null,
+    stacked: false,
   },
   hover: { status: "Needs you · permission", details: ["Tokens: 64k"] },
   sleeve: null,
@@ -91,7 +92,10 @@ describe("every union the card draws has a drawing", () => {
       expect(fg, tone).toMatch(/^var\(--/);
       expect(bg, tone).toMatch(/^var\(--/);
     }
-    expect(new Set(TONES.map((t) => toneInk(t).fg)).size).toBe(TONES.length);
+    // Each tone has its own ink, except the amber edge of a skip (`paused`), whose words stay calm (FLW-14).
+    const own = TONES.filter((t) => t !== "paused");
+    expect(new Set(own.map((t) => toneInk(t).fg)).size).toBe(own.length);
+    expect(toneInk("paused").fg).toBe(toneInk("warning").fg);
     for (const outline of OUTLINES) expect(outlineColor(outline)).toMatch(/^var\(--/);
     for (const state of CHILD_STATES) {
       expect(childInk(state)).toMatch(/^var\(--/);
@@ -189,6 +193,7 @@ describe("the Ticket Card v2 draws its view", () => {
       signal: null,
       action: { kind: "review" as const, label: "Review", icon: "eye" as const, primary: true },
       second: null,
+      stacked: false,
     };
     const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
     expect(out).toContain('data-variant="primary"');
@@ -203,6 +208,7 @@ describe("the Ticket Card v2 draws its view", () => {
       signal: null,
       action: null,
       second: null,
+      stacked: false,
     };
     const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
     expect(out).toContain('<span class="card-footer-agent">Fable test · set by you</span>');
@@ -223,11 +229,36 @@ describe("the Ticket Card v2 draws its view", () => {
       signal: null,
       action: { kind: "use_fallback" as const, label: "Use fallback", icon: null, primary: false },
       second: { kind: "open_agent" as const, label: "Open agent…", icon: null, primary: false },
+      stacked: false,
     };
     const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
     const footerHtml = out.slice(out.indexOf('class="card-action"'));
     expect(footerHtml.indexOf("Use fallback")).toBeGreaterThan(-1);
     expect(footerHtml.indexOf("Open agent…")).toBeGreaterThan(footerHtml.indexOf("Use fallback"));
+    expect(out).not.toContain("data-stacked");
+  });
+
+  it("an open PR stacks Send back with PR comments over Mark merged, from the left (FLW-16, `s03-46`)", () => {
+    const footer = {
+      agent: null,
+      tokens: null,
+      signal: null,
+      action: {
+        kind: "send_back_pr" as const,
+        label: "Send back with PR comments",
+        icon: null,
+        primary: false,
+      },
+      second: { kind: "mark_merged" as const, label: "Mark merged", icon: null, primary: false },
+      stacked: true,
+    };
+    const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
+    const footerHtml = out.slice(out.indexOf('class="card-footer"'));
+    expect(footerHtml).toContain('class="card-action" data-stacked="true"');
+    expect(footerHtml).not.toContain("card-spacer");
+    expect(footerHtml.indexOf("Mark merged")).toBeGreaterThan(
+      footerHtml.indexOf("Send back with PR comments"),
+    );
   });
 
   it("a running agent's footer: tokens and the last signal, amber when old", () => {
@@ -237,6 +268,7 @@ describe("the Ticket Card v2 draws its view", () => {
       signal: { text: "4m", stale: true },
       action: null,
       second: null,
+      stacked: false,
     };
     const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
     expect(out).toContain("182k");

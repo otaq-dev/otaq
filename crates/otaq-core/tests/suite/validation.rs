@@ -814,7 +814,7 @@ async fn after_a_failed_or_empty_validation() {
     let t = working(&w, "Moved").await;
     submit(&w, &t).await.unwrap();
     verdict(&w, &t, false, FINDINGS).await;
-    let after = act(&w, &t, A::MoveToReviewAnyway, "").await.unwrap();
+    let after = act(&w, &t, A::MoveOnAnyway, "").await.unwrap();
     let entry = after.flags.review_entry.unwrap();
     assert_eq!(
         (after.status, entry.entry, entry.to_string().as_str()),
@@ -896,7 +896,7 @@ async fn after_a_failed_or_empty_validation() {
         )
         .await
         .unwrap();
-    let after = act(&w, &t, A::MoveToReviewAnyway, "").await.unwrap();
+    let after = act(&w, &t, A::MoveOnAnyway, "").await.unwrap();
     assert_eq!(
         after.flags.review_entry.map(|e| e.entry),
         Some(ReviewEntry::Skipped)

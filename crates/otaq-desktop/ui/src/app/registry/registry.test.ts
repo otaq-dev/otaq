@@ -75,7 +75,7 @@ describe("the fixed ids", () => {
   });
 
   it("overlays: every id has its modality; the inbox and popovers don't hold shortcuts back", () => {
-    expect(OVERLAY_IDS).toHaveLength(34);
+    expect(OVERLAY_IDS).toHaveLength(36);
     const nonModal = OVERLAY_IDS.filter((id) => !OVERLAY_MODAL[id]);
     expect(nonModal).toEqual([
       "inbox",
@@ -131,6 +131,8 @@ describe("the fixed ids", () => {
         case "close_epic":
         case "send_back":
         case "drag_back":
+        case "fail":
+        case "send_back_pr":
         case "change_decision":
         case "local_merge":
         case "open_pr":
@@ -149,7 +151,7 @@ describe("the fixed ids", () => {
       }
     };
     expect(PANEL_TABS.map(tabIcon)).toHaveLength(7);
-    expect(OVERLAY_IDS.filter((id) => kind(id) === "dialog")).toHaveLength(23);
+    expect(OVERLAY_IDS.filter((id) => kind(id) === "dialog")).toHaveLength(25);
   });
 });
 

@@ -284,7 +284,7 @@ async fn move_on_anyway_forces_click_mode() {
     // Move on anyway takes it on to the Delivery (the engine's next stage), which waits for the user's click.
     let after = w
         .validation
-        .user_action(&key, ValidationAction::MoveToReviewAnyway, "", &me())
+        .user_action(&key, ValidationAction::MoveOnAnyway, "", &me())
         .await
         .unwrap();
     assert_eq!(

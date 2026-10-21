@@ -69,6 +69,7 @@ import type { SizeClass } from "../../generated/SizeClass";
 import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { passTicket } from "../review/CheckDialogs";
 import { startRun } from "../run/logic";
 import {
   actionRoute,
@@ -706,6 +707,12 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
             : { ticket: view.key },
         );
         return;
+      case "pass":
+        setBusy(button.action);
+        void passTicket(view.key, view.approve_opens_menu).finally(() => {
+          setBusy(null);
+        });
+        return;
       case "mark_closed":
         askMarkClosed();
         return;
@@ -796,6 +803,9 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
         return;
       case "overlay":
         openOverlay(route.id, { ticket: view.key });
+        return;
+      case "pass":
+        void passTicket(view.key, view.approve_opens_menu);
         return;
       case "mark_closed":
         askMarkClosed();

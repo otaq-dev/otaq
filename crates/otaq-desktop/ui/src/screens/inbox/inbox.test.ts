@@ -237,7 +237,7 @@ describe("the inbox's own rules", () => {
     expect(describeAction({ kind: "resume_target", message: "m1" })).toBe("resume_target m1");
     expect(describeAction({ kind: "retry_merge" })).toBe("retry_merge");
     expect(opensNote({ kind: "answer_agent", note: "" })).toBe(true);
-    expect(opensNote({ kind: "move_to_review_anyway" })).toBe(false);
+    expect(opensNote({ kind: "move_on_anyway" })).toBe(false);
   });
 });
 
@@ -260,7 +260,7 @@ const M12: InboxView = {
           reason: "validation failed 3 times",
           buttons: [
             {
-              action: { kind: "move_to_review_anyway" },
+              action: { kind: "move_on_anyway" },
               label: "Move on anyway",
               icon: "eye",
               primary: true,
@@ -657,7 +657,7 @@ const STUCK = row("SHOP-40.3", {
     view: "The agent keeps changing the API instead of the test.",
   },
   buttons: [
-    { action: { kind: "move_to_review_anyway" }, label: "Move on anyway", icon: "eye", primary: true },
+    { action: { kind: "move_on_anyway" }, label: "Move on anyway", icon: "eye", primary: true },
     { action: { kind: "another_round" }, label: "Give it another round", icon: "rotate-ccw", primary: false },
   ],
 });

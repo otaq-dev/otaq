@@ -14,6 +14,7 @@ use otaq_core::protocol::{
 };
 use otaq_core::review::ReturnOutcome;
 use otaq_view::view_models::board_page;
+use otaq_view::view_models::check_dialogs::{self, FailView, SendBackPrView};
 use otaq_view::view_models::decision_change::{self as dc, ChangeView};
 use otaq_view::view_models::decision_item::{self as di, DecisionsSection};
 use otaq_view::view_models::review_page::{self as page, ApproveFacts};
@@ -35,6 +36,10 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "review.local_merge" => reply(&local_merge(app, parse(params)?).await?),
         "review.send_back_view" => reply(&send_back_view(app, parse(params)?).await?),
         "review.send_back" => reply(&send_back(app, parse(params)?).await?),
+        "review.pass" => reply(&pass(app, parse(params)?).await?),
+        "review.fail_view" => reply(&fail_view(app, parse(params)?).await?),
+        "review.send_back_pr_view" => reply(&send_back_pr_view(app, parse(params)?).await?),
+        "review.send_back_pr" => reply(&send_back_pr(app, parse(params)?).await?),
         "review.decisions" => reply(&decisions(app, parse(params)?).await?),
         "review.ticket_decisions" => reply(&ticket_decisions(app, parse(params)?).await?),
         "review.change_view" => reply(&change_view(app, parse(params)?).await?),
@@ -280,6 +285,122 @@ pub async fn send_back(app: &App, params: SendBackParams) -> Result<Sent, Reques
         }
     }
 }
+
+/// What a Pass did (FLW-14): the card moved on, or a click Delivery comes next and the page opens its choices
+/// (today's Approve: the Local merge confirmation, the Open PR dialog, or the choice between them).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "ReviewPassed")]
+pub enum Passed {
+    Moved,
+    LocalMerge,
+    OpenPr,
+    Either,
+}
+
+/// Pass on a human check (`ticket.pass`); a refusal is a toast.
+pub async fn pass(app: &App, params: Params) -> Result<Passed, RequestError> {
+    use otaq_core::flow::model::Delivers;
+    use otaq_core::review::PassOutcome;
+    let key = params.key;
+    match app
+        .service
+        .send(Request::TicketPass(KeyParams { key: key.clone() }))
+        .await
+    {
+        Ok(Reply::Passed(PassOutcome::Choose { delivers })) => Ok(match delivers {
+            Delivers::Local => Passed::LocalMerge,
+            Delivers::Pr => Passed::OpenPr,
+            Delivers::Either => Passed::Either,
+        }),
+        Ok(Reply::Passed(PassOutcome::Moved { .. })) => Ok(Passed::Moved),
+        Ok(other) => Err(unexpected("ticket.pass", &other)),
+        Err(e) => {
+            toast(
+                app,
+                ToastLevel::Error,
+                format!("{key} didn\u{2019}t pass"),
+                Some(e.message.clone()),
+            );
+            Err(e)
+        }
+    }
+}
+
+/// The Fail dialog (FLW-14, `s03-50`): the ticket's human check and the Agent stage its comments go to. Its Fail
+/// button sends `review.send_back` (`ticket.fail`).
+pub async fn fail_view(app: &App, params: Params) -> Result<FailView, RequestError> {
+    let ticket = ticket(app, &params.key).await?;
+    let flow = super::board::flow(app, ticket.key.project.as_str()).await;
+    check_dialogs::fail_view(&ticket, &flow)
+        .ok_or_else(|| RequestError::plain(format!("{} can\u{2019}t fail here", ticket.key)))
+}
+
+/// The Send back with PR comments dialog (FLW-16, `s03-50`).
+pub async fn send_back_pr_view(app: &App, params: Params) -> Result<SendBackPrView, RequestError> {
+    let ticket = ticket(app, &params.key).await?;
+    let flow = super::board::flow(app, ticket.key.project.as_str()).await;
+    check_dialogs::send_back_pr_view(&ticket, &flow).ok_or_else(|| {
+        RequestError::plain(format!("{} has no PR to send back", ticket.key))
+    })
+}
+
+/// Send back with PR comments (`ticket.send_back_pr`): the note goes with the PR's unresolved comments; `clear` is
+/// "Clear it and send" (d0048).
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "SendBackPrParams")]
+pub struct SendBackPrParams {
+    pub key: String,
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
+    pub clear: bool,
+}
+
+pub async fn send_back_pr(app: &App, params: SendBackPrParams) -> Result<Sent, RequestError> {
+    let key = key_of(&params.key)?;
+    let request = Request::TicketSendBackPr(otaq_core::protocol::FailParams {
+        key: key.to_string(),
+        note: params.note.trim().to_owned(),
+        clear_first: params.clear,
+    });
+    match app.service.send(request).await {
+        Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. })) => {
+            Ok(Sent::Ask(Unsent::of(
+                &UnsentPrompt::for_click(
+                    key,
+                    None,
+                    PR_COMMENTS_SENDING.to_owned(),
+                    Click::SendBack { note: params.note },
+                )
+                .unclearable_by(unclearable_by),
+            )))
+        }
+        Ok(_) => Ok(Sent::Done),
+        Err(e) => {
+            toast(
+                app,
+                ToastLevel::Error,
+                format!("{key} wasn\u{2019}t sent back"),
+                Some(e.message.clone()),
+            );
+            Err(e)
+        }
+    }
+}
+
+/// Exports the check dialogs' types (`generated.rs`' one line for T-0424).
+#[cfg(test)]
+pub fn export_check_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
+    FailView::export_all(cfg)?;
+    SendBackPrView::export_all(cfg)?;
+    Passed::export_all(cfg)?;
+    SendBackPrParams::export_all(cfg)?;
+    Ok(())
+}
+
+/// What the unsent-text question says Send back with PR comments would type.
+const PR_COMMENTS_SENDING: &str = "The PR\u{2019}s unresolved comments (the review feedback skill)";
 
 async fn decision_list(app: &App, key: &str) -> Result<Vec<Decision>, RequestError> {
     match app

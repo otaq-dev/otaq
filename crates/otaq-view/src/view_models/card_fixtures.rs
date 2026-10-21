@@ -108,6 +108,7 @@ fn keys(list: &[&str]) -> Vec<otaq_core::domain::TicketKey> {
 /// need other tools or named agents (M22, M23); then *Interaction states*. Names are the frame's; "(0066)" and
 /// "(0083)" drop the "agent picked" footer M21 leaves out.
 pub fn variants() -> Vec<Variant> {
+    use otaq_core::board::human_check::Arrival;
     use otaq_core::board::tickets::AgentSignal;
     use otaq_core::domain::{AutoMergeStop, ReviewEntry, ReviewEntryFlag, ValidationRound};
     let signal = |text: &str| AgentSignal {
@@ -337,10 +338,23 @@ pub fn variants() -> Vec<Variant> {
         },
     ));
 
+    // How each got into Review, as the board reads it from the stage runs (FLW-14).
     let review = |name, entry, round, diff: bool| {
         let mut t = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         t.validation_round = round;
         t.flags.review_entry = Some(ReviewEntryFlag { entry, round });
+        let stage = "Validate".to_owned();
+        t.flags.arrival = Some(match entry {
+            ReviewEntry::Validated => Arrival::Passed {
+                stage,
+                round: Some(round),
+            },
+            ReviewEntry::FailedMoved => Arrival::FailedMovedOn {
+                stage,
+                times: round,
+            },
+            _ => Arrival::Skipped { stage, by: None },
+        });
         v(
             name,
             t,
@@ -585,6 +599,266 @@ pub fn agent_variants() -> Vec<Variant> {
             ..named("Claude Code")
         }),
     ));
+    out
+}
+
+/// The cards of checks and deliveries in any flow (FLW-13…FLW-17; `s03-44`, `s03-46`, `s03-48`, `s03-54`): shop-web's
+/// Security check (Security reviewer on opus), its Review, its Done · PR delivery by Shipper, and billing-api's
+/// click Delivery (drawn on the default flow in `s03-46`; built for other flows only, d0108 keeps the default board).
+/// The gallery's "M33 · Checks and deliveries".
+pub fn flow_variants() -> Vec<Variant> {
+    use otaq_core::agent_tools::Tool;
+    use otaq_core::agents::facts::RunsOnTool;
+    use otaq_core::agents::{HoldReason, SessionRole as Role};
+    use otaq_core::board::human_check::Arrival;
+    use otaq_core::domain::{AutoMergeStop, ValidationRound};
+    use otaq_core::flow::model::Delivers;
+    let agents = |validator: Option<(&str, &str)>, developer: Option<(&str, &str)>| AgentFacts {
+        count: 7,
+        running_validator: validator.map(|(name, _)| name.to_owned()),
+        validator_on: validator.map(|(_, model)| RunsOnTool {
+            tool: Tool::Claude,
+            model: None,
+            passed: Some(model.to_owned()),
+            fallback: None,
+        }),
+        running_developer: developer.map(|(name, _)| name.to_owned()),
+        developer_on: developer.map(|(_, model)| RunsOnTool {
+            tool: Tool::Claude,
+            model: None,
+            passed: Some(model.to_owned()),
+            fallback: None,
+        }),
+        ..AgentFacts::default()
+    };
+    let shop = |delivers| CardExtras {
+        delivers: Some(delivers),
+        delivery_agent: Some("Shipper".into()),
+        agents: AgentFacts {
+            count: 7,
+            ..AgentFacts::default()
+        },
+        ..base()
+    };
+    let security = |t: &mut Ticket| t.flags.check = Some("Security".into());
+    let mut out = Vec::new();
+
+    // `s03-44`: an agent check in any flow.
+    let mut t = ticket("SHOP-19", "Price table", Status::Checking);
+    security(&mut t);
+    t.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
+    t.flags.tokens = Some(18_000);
+    out.push(v(
+        "Checking \u{b7} Security",
+        t,
+        CardExtras {
+            agents: agents(Some(("Security reviewer", "opus")), None),
+            ..base()
+        },
+    ));
+
+    let mut t = ticket("SHOP-29", "Coupon field", Status::Working);
+    security(&mut t);
+    t.validation_round = 2;
+    t.flags.validation_round = Some(ValidationRound { round: 2, of: 3 });
+    t.flags.last_signal_at = Some(NOW - 20_000);
+    t.flags.tokens = Some(141_000);
+    out.push(v(
+        "Security failed \u{b7} back in Dev",
+        t,
+        CardExtras {
+            agents: agents(None, Some(("Rust developer", "sonnet"))),
+            ..base()
+        },
+    ));
+
+    let mut t = ticket("SHOP-32", "Address autocomplete", Status::CheckFailed);
+    security(&mut t);
+    t.validation_round = 3;
+    t.flags.findings = vec!["unescaped SQL in search".into()];
+    out.push(v("Security failed \u{d7}3", t, shop(Delivers::Pr)));
+
+    // `s03-46`, `s03-54`: your check.
+    let check = |key: &str, title: &str, arrival| {
+        let mut t = ticket(key, title, Status::WaitingForYou);
+        t.flags.arrival = Some(arrival);
+        t
+    };
+    out.push(v(
+        "Your check \u{b7} passed Security",
+        check(
+            "SHOP-18",
+            "Checkout API",
+            Arrival::Passed {
+                stage: "Security".into(),
+                round: Some(2),
+            },
+        ),
+        shop(Delivers::Pr),
+    ));
+    out.push(v(
+        "Your check \u{b7} skipped Security",
+        check(
+            "SHOP-23",
+            "Split user full name",
+            Arrival::Skipped {
+                stage: "Security".into(),
+                by: None,
+            },
+        ),
+        shop(Delivers::Pr),
+    ));
+    out.push(v(
+        "Your check \u{b7} skipped by the Project agent",
+        check(
+            "SHOP-27",
+            "Fix README typo",
+            Arrival::Skipped {
+                stage: "Grill".into(),
+                by: Some("Planner".into()),
+            },
+        ),
+        shop(Delivers::Pr),
+    ));
+    out.push(v(
+        "Your check \u{b7} moved back",
+        check("SHOP-19", "Price table", Arrival::MovedBack),
+        shop(Delivers::Pr),
+    ));
+
+    // `s03-46`: deliveries waiting for a click, and an open PR.
+    let mut t = ticket("BILL-26", "Invoice PDF export", Status::ToDeliver);
+    t.flags.arrival = Some(Arrival::Passed {
+        stage: "Review".into(),
+        round: None,
+    });
+    out.push(v(
+        "Ready to merge \u{b7} passed Review",
+        t,
+        CardExtras {
+            delivers: Some(Delivers::Either),
+            ..base()
+        },
+    ));
+    let mut t = ticket("BILL-30", "Refund webhook", Status::ToDeliver);
+    t.flags.moved_past_check = Some("Failed Validate 3 times \u{b7} moved by you".into());
+    out.push(v(
+        "Ready to merge \u{b7} moved past Validate",
+        t,
+        CardExtras {
+            delivers: Some(Delivers::Either),
+            ..base()
+        },
+    ));
+    let mut t = ticket("SHOP-45", "Gift cards", Status::ToDeliver);
+    t.flags.moved_past_check = Some("Failed Security 3 times \u{b7} moved by you".into());
+    out.push(v(
+        "Ready for PR \u{b7} moved past Security",
+        t,
+        shop(Delivers::Pr),
+    ));
+    let mut t = ticket("SHOP-23", "Split user full name", Status::ToDeliver);
+    t.flags.moved_past_check = Some("Skipped Security \u{b7} by you".into());
+    out.push(v(
+        "Ready for PR \u{b7} skipped Security",
+        t,
+        shop(Delivers::Pr),
+    ));
+    let mut t = ticket("SHOP-41", "Saved addresses", Status::ToDeliver);
+    t.flags.delivering_automatically = true;
+    out.push(v(
+        "Ready for PR \u{b7} delivering automatically",
+        t,
+        shop(Delivers::Pr),
+    ));
+    let mut t = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
+    t.flags.pr_number = Some(481);
+    t.status_since = Some(NOW - 2 * 3_600_000);
+    out.push(v(
+        "PR #481 open \u{b7} opened by Shipper",
+        t,
+        shop(Delivers::Pr),
+    ));
+
+    // `s03-46`: conflicts at the Delivery.
+    let mut t = ticket("SHOP-34", "Tax display", Status::MergeConflictFixing);
+    t.flags.last_signal_at = Some(NOW - 10_000);
+    t.flags.tokens = Some(77_000);
+    out.push(v(
+        "Merge conflict \u{b7} fixing in Dev",
+        t,
+        CardExtras {
+            agents: agents(None, Some(("Rust developer", "sonnet"))),
+            ..base()
+        },
+    ));
+    let stopped = |key: &str, title: &str, epic: bool| {
+        let mut t = ticket(key, title, Status::DeliveryStopped);
+        t.auto_merge_stop = Some(AutoMergeStop::KeepsConflicting);
+        t.auto_merge_conflicts = 3;
+        if epic {
+            t.epic = Some("SHOP-40".parse().expect("key"));
+        }
+        t
+    };
+    out.push(v(
+        "Conflicts \u{d7}3 \u{b7} the epic\u{2019}s branch",
+        stopped("SHOP-40.4", "Wishlist share link", true),
+        CardExtras {
+            sleeve: wishlist(4, false),
+            ..base()
+        },
+    ));
+    out.push(v(
+        "Conflicts \u{d7}3 \u{b7} main",
+        stopped("SHOP-38", "Cart totals rounding", false),
+        base(),
+    ));
+
+    // `s03-48`: Done.
+    let mut t = ticket("DOCS-7", "Fix broken anchors", Status::Merged);
+    t.flags.merged_automatically = true;
+    t.flags.delivered_without_checks = true;
+    out.push(v("Delivered without checks", t, base()));
+
+    // `s03-54`: a check held for the plan limit, with and without a fallback that can run.
+    let limit = |fallback: bool| {
+        let mut h = hold(
+            Role::Validator,
+            HoldReason::ToolLimit,
+            Tool::Claude,
+            Some("opus"),
+            "Security reviewer",
+            fallback.then_some(Tool::Codex),
+            fallback,
+            false,
+        );
+        h.can_skip_check = !fallback;
+        h
+    };
+    for (name, fallback) in [
+        ("Plan limit \u{b7} a fallback is set", true),
+        ("Plan limit \u{b7} no fallback can run", false),
+    ] {
+        let mut t = ticket("SHOP-19", "Price table", Status::Checking);
+        security(&mut t);
+        out.push(v(
+            name,
+            t,
+            CardExtras {
+                agents: AgentFacts {
+                    count: 7,
+                    holds: vec![limit(fallback)],
+                    ..AgentFacts::default()
+                },
+                ..base()
+            },
+        ));
+    }
+    // Each in a flow other than the default (`keeps_default_look`), as the frames draw them.
+    for v in &mut out {
+        v.extras.custom_flow = true;
+    }
     out
 }
 

@@ -4,7 +4,7 @@
 //! Answer the agent box and the editor's warning.
 
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::validation::{VALIDATING, failed_times};
+use otaq_core::domain::validation::VALIDATING;
 use otaq_core::domain::{AutoMergeStop, Status};
 use otaq_core::usage::TicketUsage;
 
@@ -12,13 +12,29 @@ use crate::view_models::card::tokens_label;
 
 /// The header pill's label when it says more than the status: "Validating… · round 1 of 3", "Validation failed 3
 /// times".
-pub fn pill_label(ticket: &Ticket) -> Option<String> {
+pub fn pill_label(ticket: &Ticket, custom_flow: bool) -> Option<String> {
+    use crate::view_models::card;
+    let check = ticket.flags.check.as_deref();
     match ticket.status {
-        Status::Checking => ticket
-            .flags
-            .validating_round
-            .map(|r| format!("{VALIDATING} \u{b7} round {} of {}", r.round, r.of)),
-        Status::CheckFailed => Some(failed_times(ticket.validation_round.max(1))),
+        // Any agent check but the default flow's Validate reads "Checking" (FLW-13).
+        Status::Checking => {
+            let word = match check {
+                Some(c) if c != card::VALIDATE => card::CHECKING,
+                _ => VALIDATING,
+            };
+            ticket
+                .flags
+                .validating_round
+                .map(|r| format!("{word} \u{b7} round {} of {}", r.round, r.of))
+        }
+        Status::CheckFailed => Some(card::check_failed_times(
+            check,
+            ticket.validation_round.max(1),
+        )),
+        // A human check in another flow than the default (FLW-14).
+        Status::WaitingForYou if custom_flow && !ticket.is_epic() => {
+            Some(card::YOUR_CHECK.to_owned())
+        }
         _ => None,
     }
 }
@@ -125,16 +141,19 @@ mod tests {
     #[test]
     fn the_header_names_the_round() {
         assert_eq!(
-            pill_label(&validating()).as_deref(),
+            pill_label(&validating(), false).as_deref(),
             Some("Validating\u{2026} \u{b7} round 1 of 3")
         );
         let mut failed = ticket("SHOP-32", "Address autocomplete", Status::CheckFailed);
         failed.validation_round = 3;
         assert_eq!(
-            pill_label(&failed).as_deref(),
+            pill_label(&failed, false).as_deref(),
             Some("Validation failed 3 times")
         );
-        assert_eq!(pill_label(&ticket("SHOP-1", "t", Status::Working)), None);
+        assert_eq!(
+            pill_label(&ticket("SHOP-1", "t", Status::Working), false),
+            None
+        );
     }
 
     #[test]

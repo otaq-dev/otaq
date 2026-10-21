@@ -188,6 +188,8 @@ fn drop_footer_seconds(value: &mut Value) {
         Value::Object(map) => {
             if map.contains_key("action") && map.contains_key("tokens") {
                 map.remove("second");
+                // T-0424: the two buttons stacked (`s03-46`).
+                map.remove("stacked");
             }
             map.values_mut().for_each(drop_footer_seconds);
         }

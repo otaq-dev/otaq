@@ -11,11 +11,13 @@
 //!   ticket's stage runs (STG-05), so every way in (a check's pass, a skip, a drag back, PR rework) is covered
 //!   without a column of its own.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::epic_flight::epic_flow;
-use super::stage_runs::Moved;
+use super::stage_runs::{Moved, StageRun};
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, Status, StatusSet};
@@ -35,8 +37,12 @@ pub enum Arrival {
         round: Option<u32>,
     },
     /// The stage before was skipped (Skip this check, a skip choice, a check with no result moved on): "Skipped
-    /// Security · by you".
-    Skipped { stage: String },
+    /// Security · by you"; `by` names the agent whose choice skipped it ("Skipped Grill · by Planner", Q305).
+    Skipped {
+        stage: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<String>,
+    },
     /// An agent check failed at its limit and the user moved it on: "Failed Security 3 times · moved by you".
     FailedMovedOn { stage: String, times: u32 },
     /// It came from a later stage (a drag back, PR rework): "Moved back by you".
@@ -54,7 +60,10 @@ impl Arrival {
                 round: Some(round),
             } => format!("Passed {stage} \u{b7} round {round}"),
             Self::Passed { stage, round: None } => format!("Passed {stage}"),
-            Self::Skipped { stage } => format!("Skipped {stage} \u{b7} by you"),
+            Self::Skipped { stage, by } => format!(
+                "Skipped {stage} \u{b7} by {}",
+                by.as_deref().unwrap_or("you")
+            ),
             Self::FailedMovedOn { stage, times: 1 } => {
                 format!("Failed {stage} 1 time \u{b7} moved by you")
             }
@@ -186,12 +195,126 @@ impl Board {
         let Some(before) = runs[..at].last() else {
             return Ok(None);
         };
-        Ok(Some(arrival_from(&flow, here, before)))
+        let skipped_by: Vec<(String, String)> = sqlx::query_as(
+            "SELECT stage_id, by_name FROM ticket_stage_choices
+             WHERE ticket_id = ? AND choice = 'skip' AND set_by <> 'user' AND by_name IS NOT NULL",
+        )
+        .bind(&ticket.id)
+        .fetch_all(self.store.pool())
+        .await?;
+        Ok(Some(with_chooser(
+            arrival_from(&flow, here, before),
+            &before.stage,
+            &skipped_by,
+        )))
+    }
+
+    /// [`Board::arrival`] for every ticket of a project that waits in a human check or at its Delivery (To deliver),
+    /// by ticket id: the cards' "Passed Security · round 2", "Skipped Security · by you" (FLW-14, FLW-15). `flow` is
+    /// the project's applied flow (an epic walks its own).
+    pub(crate) async fn project_arrivals(
+        &self,
+        project_id: &str,
+        flow: &Flow,
+    ) -> Result<HashMap<String, Arrival>, BoardError> {
+        let waiting: Vec<&str> = Status::ALL
+            .iter()
+            .filter(|s| s.set() == StatusSet::HumanCheck || **s == Status::ToDeliver)
+            .map(|s| s.as_str())
+            .collect();
+        let states = waiting
+            .iter()
+            .map(|s| format!("'{s}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        type Row = (
+            String,
+            String,
+            Option<String>,
+            String,
+            Option<i64>,
+            Option<String>,
+        );
+        let sql = format!(
+            "SELECT t.id, t.kind, t.stage_id, r.stage_id, r.round, r.result
+             FROM stage_runs r JOIN tickets t ON t.id = r.ticket_id
+             WHERE t.project_id = ? AND t.state IN ({states})
+             ORDER BY t.id, r.started_at, r.rowid"
+        );
+        let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .bind(project_id)
+            .fetch_all(self.store.pool())
+            .await?;
+        let choices: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT c.ticket_id, c.stage_id, c.by_name FROM ticket_stage_choices c
+             JOIN tickets t ON t.id = c.ticket_id
+             WHERE t.project_id = ? AND c.choice = 'skip' AND c.set_by <> 'user' AND c.by_name IS NOT NULL",
+        )
+        .bind(project_id)
+        .fetch_all(self.store.pool())
+        .await?;
+        let epic = epic_flow(flow);
+        let mut runs: HashMap<String, (bool, Option<String>, Vec<StageRun>)> = HashMap::new();
+        for (id, kind, here, stage, round, result) in rows {
+            let entry = runs
+                .entry(id)
+                .or_insert_with(|| (kind == "epic", here, Vec::new()));
+            entry.2.push(StageRun {
+                stage,
+                kind: String::new(),
+                session: None,
+                agent: None,
+                model: None,
+                round: round.and_then(|r| u32::try_from(r).ok()),
+                result: result.and_then(|r| r.parse().ok()),
+                summary: None,
+                started_at: 0,
+                ended_at: None,
+            });
+        }
+        Ok(runs
+            .into_iter()
+            .filter_map(|(id, (is_epic, here, runs))| {
+                let here = here?;
+                let at = runs.iter().rposition(|r| r.stage == here)?;
+                let before = runs[..at].last()?;
+                let flow = if is_epic { &epic } else { flow };
+                let skipped_by: Vec<(String, String)> = choices
+                    .iter()
+                    .filter(|(t, _, _)| *t == id)
+                    .map(|(_, stage, by)| (stage.clone(), by.clone()))
+                    .collect();
+                let arrival = with_chooser(
+                    arrival_from(flow, &here, before),
+                    &before.stage,
+                    &skipped_by,
+                );
+                Some((id, arrival))
+            })
+            .collect())
+    }
+}
+
+/// A skip the ticket's own choice made names the agent that chose it (Q305); the user's skips and choices stay
+/// "by you".
+fn with_chooser(arrival: Arrival, stage: &str, skipped_by: &[(String, String)]) -> Arrival {
+    match arrival {
+        Arrival::Skipped {
+            stage: name,
+            by: None,
+        } => Arrival::Skipped {
+            stage: name,
+            by: skipped_by
+                .iter()
+                .find(|(s, _)| s == stage)
+                .map(|(_, by)| by.clone()),
+        },
+        other => other,
     }
 }
 
 /// [`Board::arrival`]'s rule, from the run `before` the human check `here`.
-fn arrival_from(flow: &Flow, here: &str, before: &super::stage_runs::StageRun) -> Arrival {
+fn arrival_from(flow: &Flow, here: &str, before: &StageRun) -> Arrival {
     let later = matches!(
         (flow.position(&before.stage), flow.position(here)),
         (Some(b), Some(h)) if b > h
@@ -210,7 +333,7 @@ fn arrival_from(flow: &Flow, here: &str, before: &super::stage_runs::StageRun) -
             stage,
             times: before.round.unwrap_or(1).max(1),
         },
-        Some(RunResult::Skipped | RunResult::NoResult) => Arrival::Skipped { stage },
+        Some(RunResult::Skipped | RunResult::NoResult) => Arrival::Skipped { stage, by: None },
         _ => Arrival::Finished { stage },
     }
 }
@@ -218,7 +341,6 @@ fn arrival_from(flow: &Flow, here: &str, before: &super::stage_runs::StageRun) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::stage_runs::StageRun;
 
     fn run(stage: &str, result: RunResult, round: Option<u32>) -> StageRun {
         StageRun {

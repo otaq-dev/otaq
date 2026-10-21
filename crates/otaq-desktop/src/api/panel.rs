@@ -34,11 +34,11 @@ use otaq_view::view_models::answer_options::AnswerOptions;
 use otaq_view::view_models::stage_choices::{self, ChoicesView, PathView};
 use otaq_view::view_models::tool_problems::{Callout, Tools};
 use otaq_view::view_models::approve;
+use otaq_view::view_models::comments;
 use otaq_view::view_models::card::{
     CardActionKind, TOKENS_UNKNOWN, age_label, tokens_label,
 };
 use otaq_view::view_models::close;
-use otaq_view::view_models::comments;
 use otaq_view::view_models::epic_actions;
 use otaq_view::view_models::layout::ClassWidths;
 use otaq_view::view_models::menu::MenuItem;
@@ -420,6 +420,9 @@ pub struct Facts<'a> {
     pub tools: &'a Tools,
     /// The user's keys: the tabs', Expand's and the arrows' tooltips (KEY-08).
     pub keys: KeyLabels,
+    /// Its project's flow isn't the default's shape: Pass · Fail, Send back with PR comments (FLW-14, FLW-16); the
+    /// default flow keeps today's bar (d0108, STG-06).
+    pub custom_flow: bool,
 }
 
 fn running_agent(sessions: &[SessionInfo]) -> bool {
@@ -517,12 +520,14 @@ pub fn view_of(f: &Facts) -> View {
     let resume_lead = (ticket.is_epic() && resumes_lead(f.lead)).then_some((Action::ResumeLead, Look::Primary));
     let buttons: Vec<Button> = resume_lead
         .into_iter()
-        .chain(actions::all_buttons(ticket))
+        .chain(actions::all_buttons_in(ticket, f.custom_flow))
         .filter(|(a, _)| a.arrives_with().is_none() || *a == Action::Run)
         .map(|(action, look)| Button {
             action,
             label: match action {
                 Action::SendBack => comments::send_back_label(f.pending),
+                Action::Fail => actions::fail_label(f.pending),
+                Action::Pass => actions::pass_label(f.decisions),
                 Action::Approve => actions::approve_label(f.decisions),
                 Action::ViewParent => ticket.depends_on.first().map_or_else(
                     || action.label().to_owned(),
@@ -590,7 +595,7 @@ pub fn view_of(f: &Facts) -> View {
         pill: {
             let mut pill = PillView::of(status::shown(ticket));
             if !ticket.flags.your_turn
-                && let Some(label) = validation_panel::pill_label(ticket)
+                && let Some(label) = validation_panel::pill_label(ticket, f.custom_flow)
             {
                 pill.label = label;
             }
@@ -815,6 +820,9 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     let agents = super::editor::agent_facts(app, super::editor::of_ticket(&params.key)).await;
     let tools = super::editor::agent_tools(app).await;
     let keys = super::keymap::labels(app).await;
+    let custom_flow = !otaq_view::view_models::flow_columns::keeps_default_look(
+        &super::board::flow(app, ticket.key.project.as_str()).await,
+    );
     let view = view_of(&Facts {
         ticket: &ticket,
         tickets: &all,
@@ -831,6 +839,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         agents: agents.as_ref(),
         tools: &tools,
         keys,
+        custom_flow,
     });
     Ok(Load {
         view: Some(view),
@@ -928,9 +937,14 @@ pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError>
             Request::TicketMarkMerged(k),
             format!("Mark merged of {key} failed"),
         ),
-        Action::MoveToReviewAnyway => (
-            validation_request(&key, ValidationAction::MoveToReviewAnyway, ""),
-            format!("{key} can\u{2019}t be moved to Review"),
+        Action::MoveOnAnyway => (
+            validation_request(&key, ValidationAction::MoveOnAnyway, ""),
+            format!("{key} can\u{2019}t be moved on"),
+        ),
+        // FLW-16: a Backlog child with the epic's unresolved PR comments.
+        Action::AddChildFromPr => (
+            Request::TicketAddChildFromPr(k),
+            format!("{key}\u{2019}s PR comments didn\u{2019}t become a child"),
         ),
         Action::AnotherRound => (
             validation_request(&key, ValidationAction::AnotherRound, ""),
@@ -1413,6 +1427,16 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
             validation(V::MoveToReview),
             format!("{key} can\u{2019}t be moved to Review"),
         ),
+        // FLW-13: Move on anyway after the last failed round; Skip this check at the plan limit with no fallback.
+        CardActionKind::MoveOnAnyway => (validation(V::MoveOnAnyway), format!("{key} can\u{2019}t be moved on")),
+        CardActionKind::SkipCheck => (validation(V::Skip), format!("{key}\u{2019}s check can\u{2019}t be skipped")),
+        // FLW-16: an epic's PR comments as a Backlog child.
+        CardActionKind::AddChildFromPr => (
+            Request::TicketAddChildFromPr(KeyParams {
+                key: params.key.clone(),
+            }),
+            format!("{key}\u{2019}s PR comments didn\u{2019}t become a child"),
+        ),
         // A held role's fallback takes it (AGT-08, T-0362).
         CardActionKind::UseFallback | CardActionKind::UseValidatorFallback => (
             Request::TicketUseFallback(KeyParams {
@@ -1577,6 +1601,7 @@ pub fn notes_gallery() -> NotesGallery {
                     agents: None,
                     tools,
                     keys: KeyLabels::default(),
+                    custom_flow: false,
                 })
             })
             .collect(),
@@ -1673,6 +1698,7 @@ mod tests {
             agents: None,
             tools: one_tool(),
             keys: KeyLabels::base(otaq_view::keymap::Platform::Mac),
+            custom_flow: false,
         }
     }
 
@@ -1979,6 +2005,24 @@ mod tests {
         assert_eq!(labels(&view), ["Approve \u{b7} keeps 1 decision", "Send back"]);
         assert!(view.approve_opens_menu);
         assert_eq!(view.approve_more, Some("Approve choices"));
+        // In another flow (FLW-14): Pass and Fail, Fail sending the pending comments.
+        let custom = |pending, decisions| -> Vec<String> {
+            let view = view_of(&Facts {
+                pending,
+                decisions,
+                custom_flow: true,
+                ..facts(&review, &all, &[])
+            });
+            labels(&view).into_iter().map(str::to_owned).collect()
+        };
+        assert_eq!(custom(2, 0), ["Pass", "Fail (2)"]);
+        assert_eq!(custom(0, 1), ["Pass \u{b7} keeps 1 decision", "Fail"]);
+        let view = view_of(&Facts {
+            custom_flow: true,
+            ..facts(&review, &all, &[])
+        });
+        assert_eq!(view.approve_more, None, "no Approve ▾ beside Pass");
+        assert_eq!(view.pill.label, "Your check");
     }
 
     /// *Row · validation (0063)*: the round in the header, the token split, Answer the agent's box, the Auto-merge
@@ -2128,7 +2172,11 @@ mod tests {
         let mut pr = fixture("SHOP-26", "Order history", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         let view = view_of(&facts(&pr, std::slice::from_ref(&pr), &[]));
-        assert_eq!(labels(&view), ["Open PR in browser", "Mark merged", "Mark closed"]);
+        // FLW-16 on every flow.
+        assert_eq!(
+            labels(&view),
+            ["Open PR in browser", "Send back with PR comments", "Mark merged", "Mark closed"]
+        );
         assert_eq!(view.mark_closed.unwrap().title, "Mark PR #481 as closed?");
     }
 

@@ -170,6 +170,10 @@ pub struct Flags {
     /// moved by you", "Skipped Security · by you"; d0108 "Move on anyway", FLW-13). Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved_past_check: Option<String>,
+    /// How it came to wait in a human check or at its Delivery ("Passed Security · round 2", "Skipped Security · by
+    /// you", "Moved back by you"; FLW-14, [`crate::board::human_check::Arrival`]). Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arrival: Option<crate::board::human_check::Arrival>,
     /// The last failed round's findings (its report lines that aren't notes), while the agent fixes them or after
     /// the last round failed: "· 2 findings", and the first one on "Validation failed 3 times" (d0063). Not a flag
     /// of its own.
@@ -361,6 +365,10 @@ mod tests {
             validating_round: Some(crate::domain::ValidationRound { round: 2, of: 3 }),
             check: Some("Security".into()),
             moved_past_check: Some("Skipped Security · by you".into()),
+            arrival: Some(crate::board::human_check::Arrival::Passed {
+                stage: "Security".into(),
+                round: Some(2),
+            }),
             findings: vec!["src/cart.ts:12 the total ignores the coupon".into()],
             conflict_files: vec!["lib/wishlist.ts".into()],
             merged_automatically: true,

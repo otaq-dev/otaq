@@ -246,7 +246,7 @@ async fn a_human_fail_resets_both_checks_counters() {
     submit(&w, &t).await;
     verdict(&w, &t, false).await;
     w.force_stage(&t, "security", Status::CheckFailed).await;
-    let qa = action(&w, &t, ValidationAction::MoveToReviewAnyway)
+    let qa = action(&w, &t, ValidationAction::MoveOnAnyway)
         .await
         .unwrap();
     assert_eq!(at(&qa), (Some("qa"), Status::WaitingForYou));
@@ -289,7 +289,7 @@ async fn move_on_anyway_from_failed_three_times_at_security() {
     assert_eq!(at(&failed), (Some("security"), Status::CheckFailed));
     assert_eq!(failed.validation_round, 3);
 
-    let moved = action(&w, &t, ValidationAction::MoveToReviewAnyway)
+    let moved = action(&w, &t, ValidationAction::MoveOnAnyway)
         .await
         .unwrap();
     assert_eq!(at(&moved), (Some("qa"), Status::WaitingForYou));
@@ -320,7 +320,7 @@ async fn move_on_anyway_from_failed_three_times_at_security() {
     .execute(w.board.store().pool())
     .await
     .unwrap();
-    let moved = action(&w, &t, ValidationAction::MoveToReviewAnyway)
+    let moved = action(&w, &t, ValidationAction::MoveOnAnyway)
         .await
         .unwrap();
     assert_eq!(at(&moved), (Some("ship"), Status::ToDeliver));

@@ -16,4 +16,9 @@ agent: CardAgent | null, tokens: CardTokens | null, signal: CardSignal | null, a
 /**
  * A second button after the action: Open agent… next to Use fallback (`s03-54`).
  */
-second: CardAction | null, };
+second: CardAction | null, 
+/**
+ * The two buttons stand one under the other, each its own width: Send back with PR comments over Mark merged,
+ * Skip this check over Open agent… (`s03-46`, `s03-54`).
+ */
+stacked: boolean, };

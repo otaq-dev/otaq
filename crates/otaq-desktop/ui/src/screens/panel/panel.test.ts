@@ -211,13 +211,18 @@ describe("where buttons and menu items go", () => {
     expect(agentSettings(null)).toEqual({ section: "agents" });
     expect(actionRoute("approve")).toEqual({ kind: "overlay", id: "local_merge" });
     expect(actionRoute("send_back")).toEqual({ kind: "overlay", id: "send_back" });
+    // Your check in another flow (FLW-14) and an open PR (FLW-16).
+    expect(actionRoute("pass")).toEqual({ kind: "pass" });
+    expect(actionRoute("fail")).toEqual({ kind: "overlay", id: "fail" });
+    expect(actionRoute("send_back_pr")).toEqual({ kind: "overlay", id: "send_back_pr" });
+    expect(actionRoute("add_child_from_pr")).toEqual({ kind: "service" });
     expect(actionRoute("edit")).toEqual({ kind: "edit" });
     expect(actionRoute("mark_closed")).toEqual({ kind: "mark_closed" });
   });
 
   it("the validation buttons (d0063, d0064)", () => {
     const service: PanelAction[] = [
-      "move_to_review_anyway",
+      "move_on_anyway",
       "another_round",
       "retry_validation",
       "retry_merge",
@@ -281,6 +286,16 @@ describe("a board card's button", () => {
     expect(cardRoute("review")).toEqual({ kind: "none" });
     expect(cardRoute("run_chip")).toEqual({ kind: "run_tab" });
     expect(actionRoute("run")).toEqual({ kind: "run" });
+  });
+
+  it("the cards of checks and deliveries (FLW-13…FLW-16)", () => {
+    for (const kind of ["move_on_anyway", "skip_check", "add_child_from_pr"] as const)
+      expect(cardRoute(kind)).toEqual({ kind: "service" });
+    expect(cardRoute("pass")).toEqual({ kind: "pass" });
+    expect(cardRoute("fail")).toEqual({ kind: "overlay", id: "fail" });
+    expect(cardRoute("local_merge")).toEqual({ kind: "overlay", id: "local_merge" });
+    expect(cardRoute("open_pr")).toEqual({ kind: "overlay", id: "open_pr" });
+    expect(cardRoute("send_back_pr")).toEqual({ kind: "overlay", id: "send_back_pr" });
   });
 });
 

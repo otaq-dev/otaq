@@ -988,6 +988,8 @@ impl Board {
         };
         // Each agent check's own counter (FLW-13).
         let check_counts = super::validation::project_check_counts(pool, project_id).await?;
+        // How cards came to wait in a human check or at their Delivery (FLW-14).
+        let mut arrivals = self.project_arrivals(project_id, &flow).await?;
 
         records
             .into_iter()
@@ -1092,6 +1094,7 @@ impl Board {
                     validating_round: validating_round(status, &counted),
                     check: counted.name.clone(),
                     moved_past_check: counts.moved_past_reason(&flow),
+                    arrival: arrivals.remove(&row.id),
                     conflict_files: row
                         .conflict_files
                         .as_deref()

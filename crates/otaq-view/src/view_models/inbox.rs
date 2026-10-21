@@ -57,7 +57,8 @@ pub fn group_title(group: NeedsYouGroup) -> &'static str {
         NeedsYouGroup::Family => "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS",
         NeedsYouGroup::Suggestions => "SUGGESTIONS · NO OS NOTIFICATION",
         NeedsYouGroup::Stopped => "INTERRUPTED & PARENT CLOSED",
-        NeedsYouGroup::Review => "READY FOR REVIEW",
+        // FLW-14 (`s10-17`): every human check and click-mode Delivery, in any flow.
+        NeedsYouGroup::Review => "WAITING FOR YOU IN A CHECK OR A DELIVERY",
     }
 }
 
@@ -126,8 +127,8 @@ pub fn suggested_line(s: &SuggestionItem) -> String {
 pub fn validation_actions(status: Status) -> Vec<ValidationAction> {
     use ValidationAction as A;
     match status {
-        Status::CheckFailed => vec![A::MoveToReviewAnyway, A::AnotherRound, A::AnswerAgent],
-        Status::CheckNoResult => vec![A::Retry, A::MoveToReviewAnyway],
+        Status::CheckFailed => vec![A::MoveOnAnyway, A::AnotherRound, A::AnswerAgent],
+        Status::CheckNoResult => vec![A::Retry, A::MoveOnAnyway],
         Status::DeliveryStopped => vec![A::RetryMerge, A::MoveToReview],
         _ => Vec::new(),
     }
@@ -147,6 +148,9 @@ pub struct InboxRow {
     pub blocks: Option<String>,
     /// The legend entry for the icon and its colours.
     pub legend: Legend,
+    /// The pill's words when they aren't the legend's: a group 3 row names its stage ("Review", "QA") or the click its
+    /// Delivery waits for ("Open PR", "Local merge"; FLW-14, `s10-17`).
+    pub pill_label: Option<String>,
     /// A needs-you ticket interrupted by a restart: "session ended by restart · answering resumes it".
     pub restart_note: Option<&'static str>,
     pub actions: Vec<RowAction>,
@@ -384,6 +388,7 @@ fn row(
             },
             blocks: None,
             legend,
+            pill_label: None,
             restart_note: None,
             actions: if resolved {
                 Vec::new()
@@ -426,6 +431,7 @@ fn row(
             },
             blocks: None,
             legend,
+            pill_label: None,
             restart_note: None,
             actions: if resolved {
                 Vec::new()
@@ -494,6 +500,7 @@ fn row(
         },
         blocks: (item.blocked > 0 && !resolved).then(|| format!("blocks {}", item.blocked)),
         legend,
+        pill_label: stage_pill(item),
         restart_note: (item.interrupted_from.is_some() && !resolved)
             .then_some("session ended by restart · answering resumes it"),
         actions: if resolved { Vec::new() } else { actions },
@@ -511,6 +518,21 @@ fn row(
         lead_note: item.lead_note.clone().filter(|_| !resolved),
         suggestion: None,
     }
+}
+
+/// A group 3 row's pill (FLW-14, `s10-17`): the human check it waits in ("Review", "QA"), or at its Delivery the click
+/// it waits for ("Open PR", "Local merge"; a Delivery that offers both is named by its stage).
+fn stage_pill(item: &NeedsYouItem) -> Option<String> {
+    use otaq_core::flow::model::Delivers;
+    let w = item
+        .waiting_in
+        .as_ref()
+        .filter(|_| item.group == NeedsYouGroup::Review)?;
+    Some(match w.delivers {
+        Some(Delivers::Pr) => "Open PR".to_owned(),
+        Some(Delivers::Local) => "Local merge".to_owned(),
+        Some(Delivers::Either) | None => w.name.clone(),
+    })
 }
 
 /// With several tools connected, a refused model's row names the tool (M23; *04 → Start failed · several tools*):
@@ -631,6 +653,63 @@ mod tests {
 
     const MIN: i64 = 60_000;
 
+    /// FLW-14 (`s10-17`): "Waiting for you in a check or a delivery", each row's pill naming its stage, or the click
+    /// its Delivery waits for.
+    #[test]
+    fn group_3_rows_name_their_stage() {
+        use otaq_core::board::needs_you::WaitingIn;
+        use otaq_core::flow::model::Delivers;
+        let pill = |status, name: &str, delivers| {
+            let mut i = item(
+                "SHOP-18",
+                "Checkout API",
+                status,
+                NeedsYouGroup::Review,
+                MIN,
+            );
+            i.waiting_in = Some(WaitingIn {
+                stage: name.to_lowercase(),
+                name: name.into(),
+                rank: 0,
+                delivers,
+            });
+            row(&i, false, &|_| None).pill_label
+        };
+        assert_eq!(
+            group_title(NeedsYouGroup::Review),
+            "WAITING FOR YOU IN A CHECK OR A DELIVERY"
+        );
+        assert_eq!(
+            pill(Status::WaitingForYou, "Review", None).as_deref(),
+            Some("Review")
+        );
+        assert_eq!(
+            pill(Status::WaitingForYou, "QA", None).as_deref(),
+            Some("QA")
+        );
+        assert_eq!(
+            pill(Status::ToDeliver, "Done", Some(Delivers::Pr)).as_deref(),
+            Some("Open PR")
+        );
+        assert_eq!(
+            pill(Status::ToDeliver, "Done", Some(Delivers::Local)).as_deref(),
+            Some("Local merge")
+        );
+        assert_eq!(
+            pill(Status::ToDeliver, "Done", Some(Delivers::Either)).as_deref(),
+            Some("Done")
+        );
+        // Other groups keep their legend's words.
+        let failed = item(
+            "SHOP-32",
+            "Address autocomplete",
+            Status::CheckFailed,
+            NeedsYouGroup::Family,
+            MIN,
+        );
+        assert_eq!(row(&failed, false, &|_| None).pill_label, None);
+    }
+
     /// *10 → New item types · group 1 (M12)*: each validation and Auto-merge item carries its own actions inline;
     /// the validator's permission prompt is answered in its terminal.
     #[test]
@@ -658,11 +737,11 @@ mod tests {
         };
         assert_eq!(
             actions(Status::CheckFailed),
-            v(&[A::MoveToReviewAnyway, A::AnotherRound, A::AnswerAgent])
+            v(&[A::MoveOnAnyway, A::AnotherRound, A::AnswerAgent])
         );
         assert_eq!(
             actions(Status::CheckNoResult),
-            v(&[A::Retry, A::MoveToReviewAnyway])
+            v(&[A::Retry, A::MoveOnAnyway])
         );
         assert_eq!(
             actions(Status::DeliveryStopped),
@@ -822,7 +901,7 @@ mod tests {
                 "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS",
                 "SUGGESTIONS · NO OS NOTIFICATION",
                 "INTERRUPTED & PARENT CLOSED",
-                "READY FOR REVIEW"
+                "WAITING FOR YOU IN A CHECK OR A DELIVERY"
             ]
         );
         let row = &groups[1].rows[0];
@@ -1016,7 +1095,7 @@ mod tests {
                     vec!["SHOP-25".into(), "SHOP-28".into()]
                 ),
                 (
-                    "READY FOR REVIEW",
+                    "WAITING FOR YOU IN A CHECK OR A DELIVERY",
                     2,
                     None,
                     vec!["SHOP-18".into(), "BILL-5".into()]
@@ -1232,7 +1311,7 @@ mod tests {
                     role: Role::Validator,
                     agent: None
                 },
-                RowAction::Validation(A::MoveToReviewAnyway)
+                RowAction::Validation(A::MoveOnAnyway)
             ]
         );
         assert_eq!(
@@ -1243,7 +1322,7 @@ mod tests {
             actions(Status::CheckNoResult, NeedsYouGroup::Family, None),
             [
                 RowAction::Validation(A::Retry),
-                RowAction::Validation(A::MoveToReviewAnyway)
+                RowAction::Validation(A::MoveOnAnyway)
             ]
         );
     }

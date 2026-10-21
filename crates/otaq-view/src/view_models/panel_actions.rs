@@ -42,10 +42,19 @@ pub enum Action {
     StartFromScratch,
     /// Start interrupted (T-0063).
     RetryStart,
-    /// Ready for Review (M6, T-0095).
+    /// Ready for Review on the default flow, an epic in its human check, a To deliver ticket: the delivery choices
+    /// (M6, T-0095).
     Approve,
-    /// Ready for Review (M6, T-0094).
+    /// Ready for Review on the default flow (M6, T-0094): the Send back dialog.
     SendBack,
+    /// Your check (FLW-14): Pass moves it on, or offers the delivery choices when a click Delivery comes next.
+    Pass,
+    /// Your check: the Fail dialog (FLW-14; was Send back, M6, T-0094).
+    Fail,
+    /// PR open (FLW-16): the "Send SHOP-26 back with PR comments?" dialog.
+    SendBackPr,
+    /// An epic's PR open (FLW-16): a Backlog child holding the PR's unresolved comments.
+    AddChildFromPr,
     /// PR open (M10, T-0150).
     OpenPrInBrowser,
     MarkMerged,
@@ -59,7 +68,7 @@ pub enum Action {
     /// Needs you · validator: the turquoise "Answer in terminal · Validator".
     AnswerValidator,
     /// Validation failed N times or ended without a result: Ready for Review without a pass (VAL-07).
-    MoveToReviewAnyway,
+    MoveOnAnyway,
     /// Validation failed N times: the findings go to the agent with one more round.
     AnotherRound,
     /// Validation failed N times: the user's note goes with the findings (opens the note box).
@@ -114,6 +123,10 @@ impl Action {
             Self::RetryStart => "Retry start",
             Self::Approve => "Approve · Local merge",
             Self::SendBack => "Send back",
+            Self::Pass => crate::view_models::card::PASS,
+            Self::Fail => crate::view_models::card::FAIL,
+            Self::SendBackPr => crate::view_models::card::SEND_BACK_WITH_PR_COMMENTS,
+            Self::AddChildFromPr => "Add a child from PR comments",
             Self::OpenPrInBrowser => "Open PR in browser",
             Self::MarkMerged => "Mark merged",
             Self::MarkClosed => "Mark closed",
@@ -121,7 +134,7 @@ impl Action {
             Self::Reopen => "Reopen",
             Self::OpenValidator => "Open terminal \u{b7} Validator",
             Self::AnswerValidator => "Answer in terminal \u{b7} Validator",
-            Self::MoveToReviewAnyway => "Move on anyway",
+            Self::MoveOnAnyway => "Move on anyway",
             Self::AnotherRound => "Give it another round",
             Self::AnswerAgent => "Answer the agent\u{2026}",
             Self::RetryValidation => "Retry validation",
@@ -141,7 +154,7 @@ impl Action {
             | Self::OpenValidator
             | Self::AnswerValidator => IconName::SquareTerminal,
             // *Action bar · every state → Validation failed 3 times, … ended without a result, Auto-merge stopped*.
-            Self::MoveToReviewAnyway | Self::MoveToReview => IconName::Eye,
+            Self::MoveOnAnyway | Self::MoveToReview => IconName::Eye,
             Self::AnotherRound | Self::RetryValidation | Self::RetryMerge => IconName::RotateCcw,
             Self::AnswerAgent => IconName::MessageSquare,
             Self::Run => IconName::Play,
@@ -150,13 +163,14 @@ impl Action {
             // Resume failed: Retry and Start from scratch (*16 → Resume · in progress → resumed → failed*).
             Self::RetryResume => IconName::RefreshCw,
             Self::RetryStart | Self::StartFromScratch => IconName::RotateCcw,
-            Self::SendBack => IconName::Undo2,
+            Self::SendBack | Self::Fail | Self::SendBackPr => IconName::Undo2,
+            Self::AddChildFromPr => IconName::Plus,
             Self::OpenPrInBrowser => IconName::ExternalLink,
             Self::MarkMerged => IconName::GitMerge,
             Self::ViewDiff => IconName::FileDiff,
             Self::Reopen | Self::ResumeLead => IconName::RotateCcw,
             // *05 → Start failed on the model*, *No result: the validator's model*: labels only.
-            Self::Approve | Self::MarkClosed | Self::OpenAgent => {
+            Self::Approve | Self::Pass | Self::MarkClosed | Self::OpenAgent => {
                 return None;
             }
         })
@@ -173,6 +187,10 @@ impl Action {
             | Self::RetryStart
             | Self::ViewDiff
             | Self::SendBack
+            | Self::Fail
+            | Self::Pass
+            | Self::SendBackPr
+            | Self::AddChildFromPr
             | Self::Approve => None,
             Self::Run => Some("T-0134"),
             Self::Resume | Self::RetryResume | Self::StartFromScratch => None,
@@ -181,7 +199,7 @@ impl Action {
             Self::OpenAgent => None,
             Self::OpenValidator
             | Self::AnswerValidator
-            | Self::MoveToReviewAnyway
+            | Self::MoveOnAnyway
             | Self::AnotherRound
             | Self::AnswerAgent
             | Self::RetryValidation
@@ -201,14 +219,40 @@ pub fn approve_label(open_decisions: u32) -> String {
     }
 }
 
+/// The Pass button's label (FLW-14, DEC-05): "Pass", or "Pass · keeps 1 decision" while the review has open recorded
+/// decisions.
+pub fn pass_label(open_decisions: u32) -> String {
+    match open_decisions {
+        0 => Action::Pass.label().to_owned(),
+        1 => "Pass \u{b7} keeps 1 decision".to_owned(),
+        n => format!("Pass \u{b7} keeps {n} decisions"),
+    }
+}
+
+/// The Fail button's label: "Fail", or "Fail (2)" with the pending review comments it sends (as Send back's, REV-04).
+pub fn fail_label(pending: usize) -> String {
+    match pending {
+        0 => Action::Fail.label().to_owned(),
+        n => format!("{} ({n})", Action::Fail.label()),
+    }
+}
+
 /// With open decisions Local merge / Open PR move into the ▾ menu, so the button opens that choice instead of the
 /// Local merge confirmation.
 pub fn approve_opens_menu(open_decisions: u32) -> bool {
     open_decisions > 0
 }
 
-/// The bar's buttons for a ticket, in order, with how each looks. Includes the ones that arrive later.
+/// The bar's buttons for a ticket on the default flow, in order, with how each looks. Includes the ones that arrive
+/// later.
 pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
+    all_buttons_in(ticket, false)
+}
+
+/// [`all_buttons`] in a flow that isn't the default's shape (`custom`, `flow_columns::keeps_default_look`): Pass ·
+/// Fail on a human check (FLW-14). The default flow keeps today's Approve and Send back (d0108, STG-06). Every flow
+/// offers Send back with PR comments on an open PR and an epic's Add a child from PR comments (FLW-16).
+pub fn all_buttons_in(ticket: &Ticket, custom: bool) -> Vec<(Action, Look)> {
     use Action as A;
     use Look::*;
     let s = ticket.status;
@@ -219,9 +263,11 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
             StatusSet::Backlog => vec![(A::Edit, Secondary)],
             // A delivery unit in its human check: Approve, never Send back (EPC-05).
             StatusSet::HumanCheck => vec![(A::Approve, Primary)],
-            // The epic's PR (EPC-08): the same manual outcomes as a ticket's (REV-13).
+            // The epic's PR (EPC-08): the same manual outcomes as a ticket's (REV-13), and its comments as a child
+            // (FLW-16).
             StatusSet::Delivery if s == Status::PrOpen => vec![
                 (A::OpenPrInBrowser, Secondary),
+                (A::AddChildFromPr, Secondary),
                 (A::MarkMerged, Primary),
                 (A::MarkClosed, Danger),
             ],
@@ -260,6 +306,8 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
         Status::Interrupted => vec![(A::Resume, Primary)],
         // *16 → Resume · in progress → resumed → failed*: Start from scratch is the primary, Retry beside it.
         Status::ResumeFailed => vec![(A::RetryResume, Secondary), (A::StartFromScratch, Primary)],
+        // Your check (FLW-14): Pass offers today's delivery choices when a click Delivery comes next.
+        Status::WaitingForYou if custom => vec![(A::Pass, Primary), (A::Fail, Secondary)],
         Status::WaitingForYou => vec![(A::Approve, Primary), (A::SendBack, Secondary)],
         // Waits for the Delivery click (not on the default flow): Local merge or Open PR.
         Status::ToDeliver => vec![(A::Approve, Primary)],
@@ -270,6 +318,7 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
             } else {
                 vec![
                     (A::OpenPrInBrowser, Secondary),
+                    (A::SendBackPr, Secondary),
                     (A::MarkMerged, Primary),
                     (A::MarkClosed, Danger),
                 ]
@@ -281,7 +330,7 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
         Status::Checking => vec![(A::OpenValidator, Secondary), (A::Run, Secondary)],
         Status::CheckerNeedsYou => vec![(A::AnswerValidator, Attention)],
         Status::CheckFailed => vec![
-            (A::MoveToReviewAnyway, Primary),
+            (A::MoveOnAnyway, Primary),
             (A::AnotherRound, Secondary),
             (A::AnswerAgent, Secondary),
         ],
@@ -289,12 +338,9 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
         Status::CheckNoResult if card::validator_refusal(ticket).is_some() => vec![
             (A::OpenAgent, Primary),
             (A::RetryValidation, Secondary),
-            (A::MoveToReviewAnyway, Secondary),
+            (A::MoveOnAnyway, Secondary),
         ],
-        Status::CheckNoResult => vec![
-            (A::RetryValidation, Primary),
-            (A::MoveToReviewAnyway, Secondary),
-        ],
+        Status::CheckNoResult => vec![(A::RetryValidation, Primary), (A::MoveOnAnyway, Secondary)],
         Status::DeliveryStopped => vec![(A::RetryMerge, Primary), (A::MoveToReview, Secondary)],
         // The agent fixes the Auto-merge conflict in its own terminal.
         Status::MergeConflictFixing => vec![(A::OpenTerminal, Secondary)],
@@ -491,12 +537,41 @@ mod tests {
             all(Status::PrOpen),
             [
                 (A::OpenPrInBrowser, Secondary),
+                (A::SendBackPr, Secondary),
                 (A::MarkMerged, Primary),
                 (A::MarkClosed, Danger)
             ]
         );
         assert_eq!(all(Status::Merged), [(A::ViewDiff, Secondary)]);
         assert_eq!(all(Status::ClosedNotMerged), [(A::Reopen, Secondary)]);
+    }
+
+    /// FLW-14, FLW-16 (`s03-46`): in another flow a human check offers Pass · Fail; an open PR Send back with PR
+    /// comments and an epic's open PR Add a child from PR comments on every flow.
+    #[test]
+    fn other_flows_pass_fail_and_send_back_pr_comments() {
+        use Look::*;
+        let custom = |t: &Ticket| all_buttons_in(t, true);
+        let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
+        assert_eq!(custom(&review), [(A::Pass, Primary), (A::Fail, Secondary)]);
+        let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
+        pr.flags.pr_number = Some(481);
+        assert_eq!(
+            custom(&pr),
+            [
+                (A::OpenPrInBrowser, Secondary),
+                (A::SendBackPr, Secondary),
+                (A::MarkMerged, Primary),
+                (A::MarkClosed, Danger)
+            ]
+        );
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::PrOpen);
+        epic.kind = Kind::Epic;
+        epic.place = otaq_core::domain::Place::stage_of("deliver");
+        assert_eq!(custom(&epic)[1], (A::AddChildFromPr, Secondary));
+        assert!(all_buttons(&epic).contains(&(A::AddChildFromPr, Secondary)));
+        assert_eq!(A::Pass.label(), "Pass");
+        assert_eq!(A::SendBackPr.label(), "Send back with PR comments");
     }
 
     #[test]
@@ -510,8 +585,13 @@ mod tests {
         assert_eq!(shown(Status::WaitingForYou), [A::Approve, A::SendBack]);
         assert_eq!(
             shown(Status::PrOpen),
-            [A::OpenPrInBrowser, A::MarkMerged, A::MarkClosed],
-            "M10"
+            [
+                A::OpenPrInBrowser,
+                A::SendBackPr,
+                A::MarkMerged,
+                A::MarkClosed
+            ],
+            "M10, FLW-16"
         );
         assert_eq!(shown(Status::Interrupted), [A::Resume]);
         assert_eq!(
@@ -622,17 +702,14 @@ mod tests {
         assert_eq!(
             all(Status::CheckFailed),
             [
-                (A::MoveToReviewAnyway, Primary),
+                (A::MoveOnAnyway, Primary),
                 (A::AnotherRound, Secondary),
                 (A::AnswerAgent, Secondary)
             ]
         );
         assert_eq!(
             all(Status::CheckNoResult),
-            [
-                (A::RetryValidation, Primary),
-                (A::MoveToReviewAnyway, Secondary)
-            ]
+            [(A::RetryValidation, Primary), (A::MoveOnAnyway, Secondary)]
         );
         assert_eq!(
             all(Status::DeliveryStopped),
@@ -640,7 +717,7 @@ mod tests {
         );
         assert_eq!(A::OpenValidator.label(), "Open terminal \u{b7} Validator");
         assert_eq!(A::AnswerAgent.label(), "Answer the agent\u{2026}");
-        assert_eq!(A::MoveToReviewAnyway.icon(), Some(IconName::Eye));
+        assert_eq!(A::MoveOnAnyway.icon(), Some(IconName::Eye));
     }
 
     /// While it validates: Stop this check and Skip this check first; both submit items hidden.
@@ -753,7 +830,7 @@ mod tests {
             [
                 (A::OpenAgent, Look::Primary),
                 (A::RetryValidation, Look::Secondary),
-                (A::MoveToReviewAnyway, Look::Secondary),
+                (A::MoveOnAnyway, Look::Secondary),
             ]
         );
         let r = refusal(&no_result, None).unwrap();
@@ -767,7 +844,7 @@ mod tests {
         assert_eq!(shown(Status::StartInterrupted), [A::RetryStart]);
         assert_eq!(
             shown(Status::CheckNoResult),
-            [A::RetryValidation, A::MoveToReviewAnyway]
+            [A::RetryValidation, A::MoveOnAnyway]
         );
         assert_eq!(
             refusal(&ticket("SHOP-28", "t", Status::StartInterrupted), None),

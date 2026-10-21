@@ -8,6 +8,7 @@ import type { Screen } from "../../app/registry";
 import { selection } from "../../app/selection";
 import type { ReviewAvailable } from "../../generated/ReviewAvailable";
 import { request } from "../../tauri";
+import { FailDialog, SendBackPrDialog } from "./CheckDialogs";
 import { ChangeDecisionDialog, LocalMergeDialog, SendBackDialog } from "./Dialogs";
 import "./review.css";
 
@@ -30,6 +31,8 @@ export const review: Screen = (app) => {
   app.overlays.register("local_merge", { Component: LocalMergeDialog });
   app.overlays.register("send_back", { Component: SendBackDialog });
   app.overlays.register("change_decision", { Component: ChangeDecisionDialog });
+  app.overlays.register("fail", { Component: FailDialog });
+  app.overlays.register("send_back_pr", { Component: SendBackPrDialog });
   app.shortcuts.on(
     "approve",
     onOpenTicket((ticket, available) => {

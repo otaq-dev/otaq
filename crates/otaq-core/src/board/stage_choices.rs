@@ -1,6 +1,7 @@
 //! A ticket's stage choices (AGM-08, AGM-11; d0108's "Options", d0087): a stage of the flow may list `options`
 //! (other agents, or `skip`), and a ticket keeps **one choice per such stage** (table `ticket_stage_choices`) with
-//! who set it. No choice = the stage's usual agent, which reads "required" on a stage whose only option is `skip`.
+//! who set it. No choice = the stage's usual agent ("Grill: Griller"), "required" on a stage that runs no agent ("Review: required";
+//! FLW-22, Q290).
 //!
 //! **Who may set what** ([`judge`]): the user any stage until it starts, and the user's choice wins; an agent (the
 //! Project agent, an epic lead, a ticket's own agent) only with a reason, never over the user's choice, and once the
@@ -74,7 +75,7 @@ impl ChoicePick {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Choice {
-    /// The stage's own agent; "required" on a stage whose only option is `skip`.
+    /// The stage's own agent; "required" on a stage that runs no agent.
     Usual,
     /// Another agent of the stage's options.
     Agent { id: String, name: String },
@@ -82,16 +83,12 @@ pub enum Choice {
     Skip,
 }
 
-/// How a stage's usual choice reads: "required" for a stage whose only option is `skip` (or that runs no agent),
-/// else its agent ("Rust developer").
+/// How a stage's usual choice reads: its agent ("Rust developer", "Griller" on a skippable Grill), or "required" for a
+/// stage that runs no agent (a human check; FLW-22, Q290).
 fn usual_word(stage: &Stage) -> String {
-    let other_agents = stage
-        .options
-        .iter()
-        .any(|o| matches!(o, StageOption::Agent(_)));
     match &stage.agent {
-        Some(agent) if other_agents || !stage.can_skip() => agent.clone(),
-        _ => REQUIRED.to_owned(),
+        Some(agent) => agent.clone(),
+        None => REQUIRED.to_owned(),
     }
 }
 
@@ -259,12 +256,12 @@ impl StageOptions {
             .is_some_and(|c| c.choice == Choice::Skip)
     }
 
-    /// The usual choice as it reads: [`REQUIRED`] for a stage whose only option is `skip` (or that runs no agent),
-    /// else the stage's agent ("Rust developer").
+    /// The usual choice as it reads: its agent ("Rust developer", "Griller"), or [`REQUIRED`] for a stage that runs no
+    /// agent (FLW-22, Q290).
     pub fn usual_label(&self) -> String {
         match &self.usual {
-            Some(agent) if !self.agents.is_empty() || !self.can_skip => agent.name.clone(),
-            _ => REQUIRED.to_owned(),
+            Some(agent) => agent.name.clone(),
+            None => REQUIRED.to_owned(),
         }
     }
 
@@ -980,7 +977,8 @@ mod tests {
             )
         );
         assert_eq!(Choice::Usual.label(&qa), "required");
-        assert_eq!(Choice::Usual.label(&grill), "required");
+        // FLW-22 (Q290): a skippable Agent stage reads its agent.
+        assert_eq!(Choice::Usual.label(&grill), "Griller");
         assert_eq!(of(&grill, "Griller").unwrap(), Choice::Usual);
         assert_eq!(Choice::Usual.label(&dev), "Rust developer");
     }

@@ -95,6 +95,10 @@ pub struct WaitingIn {
     /// Closest to Done ranks highest: twice the stage's position in the project's flow, the implicit Review epic
     /// stop one before the Delivery's.
     pub rank: u32,
+    /// Waiting at its Delivery (To deliver): what the click does, a Local merge or Open PR (an epic child always
+    /// merges locally). `None` in a human check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivers: Option<crate::flow::model::Delivers>,
 }
 
 /// Where a group 3 ticket waits, from its project's flow; `None` for a stage the flow doesn't have.
@@ -110,10 +114,16 @@ fn waiting_in(ticket: &Ticket, flow: &Flow) -> Option<WaitingIn> {
         }
         None => return None,
     };
+    let delivers = flow
+        .stage(id)
+        .filter(|s| s.is_delivery())
+        .and_then(|_| super::epic_flight::delivery_of(flow, ticket))
+        .map(|d| d.delivers);
     Some(WaitingIn {
         stage: id.to_owned(),
         name,
         rank,
+        delivers,
     })
 }
 

@@ -520,7 +520,7 @@ impl Validation {
                         .await?;
                 }
             }
-            ValidationAction::MoveToReviewAnyway => {
+            ValidationAction::MoveOnAnyway => {
                 let step = self.step(&ticket, ValidationEvent::MoveOnAnyway).await?;
                 let how = if ticket.status == Status::CheckFailed {
                     MovedPast::Failed
@@ -567,7 +567,7 @@ impl Validation {
         }
         if matches!(
             action,
-            ValidationAction::Skip | ValidationAction::MoveToReviewAnyway
+            ValidationAction::Skip | ValidationAction::MoveOnAnyway
         ) {
             // On into a Delivery: moved past a check, it waits for the click (FLW-15); the hook decides.
             board.delivery().arrived(&ticket.id).await;

@@ -132,7 +132,7 @@ async fn the_users_choices_round_trip() {
         created["choices"],
         json!([
             {"stage": "Grill", "choice": "skip", "set_by": "user", "by": "you", "locked": false,
-             "options": ["required", "skip"]},
+             "options": ["Griller", "skip"]},
             {"stage": "Dev", "choice": "Quick developer", "set_by": "user", "by": "you", "locked": false,
              "options": ["Rust developer", "Quick developer"]},
             {"stage": "QA", "choice": "required", "locked": false, "options": ["required", "skip"]},
@@ -182,7 +182,7 @@ async fn the_users_choices_round_trip() {
     assert_eq!(
         choices,
         [
-            ("Grill".to_owned(), "required".to_owned()),
+            ("Grill".to_owned(), "Griller".to_owned()),
             ("Dev".to_owned(), "Quick developer".to_owned()),
             ("QA".to_owned(), "skip".to_owned())
         ]

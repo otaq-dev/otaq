@@ -1721,7 +1721,8 @@ mod tests {
         assert_eq!(
             shown,
             [
-                ("Grill:", "required"),
+                // FLW-22 (Q290): a skippable Agent stage shows its agent, a skippable human check "required".
+                ("Grill:", "Griller"),
                 ("Dev:", "Rust developer"),
                 ("Review:", "required")
             ]
@@ -1734,7 +1735,7 @@ mod tests {
         assert_eq!(
             words,
             [
-                vec!["required", "skip"],
+                vec!["Griller", "skip"],
                 vec!["Rust developer", "Quick developer"],
                 vec!["required", "skip"]
             ]
@@ -1754,7 +1755,7 @@ mod tests {
         let picks = picks_to_send(
             &new_ticket(),
             &[
-                ("grill".into(), "required".into()),
+                ("grill".into(), "Griller".into()),
                 ("dev".into(), "Quick developer".into()),
                 ("review".into(), "skip".into()),
                 ("dev".into(), "Nobody".into()),

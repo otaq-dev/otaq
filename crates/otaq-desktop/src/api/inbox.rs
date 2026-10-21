@@ -457,7 +457,7 @@ pub async fn act(app: &App, params: ActRequest) -> Result<(), RequestError> {
         // The page's: it opens Settings → Agents on the agent.
         Action::OpenAgent { .. } => return Ok(()),
         // Sent above.
-        Action::MoveToReviewAnyway
+        Action::MoveOnAnyway
         | Action::AnotherRound
         | Action::AnswerAgent { .. }
         | Action::RetryValidation

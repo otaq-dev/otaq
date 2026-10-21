@@ -588,7 +588,7 @@ impl Status {
             Self::ValidatorNeedsYou => otaq_core::domain::validation::VALIDATOR_NEEDS_YOU,
             Self::ValidationFailed => "Validation failed",
             Self::ValidationNoResult => otaq_core::domain::validation::NO_RESULT,
-            Self::AutoMergeStopped => "Auto-merge stopped",
+            Self::AutoMergeStopped => "Delivery stopped",
             Self::Validated => "Validated",
             Self::ValidationSkipped => "Validation skipped by you",
             Self::SubmittedByYou => "Submitted by you",

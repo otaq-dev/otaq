@@ -29,4 +29,8 @@ agents: Array<CardGalleryCell>,
  * *04 → Variants · several tools (M23)* and the fallback and limit cards (T-0362): avatars on, Unavailable,
  * waiting on a tool, moved by a fallback.
  */
-tools: Array<CardGalleryCell>, };
+tools: Array<CardGalleryCell>, 
+/**
+ * *03 → cards in an agent check, your check, deliveries, conflicts, Done* (`s03-44`…`s03-54`, T-0424).
+ */
+flows: Array<CardGalleryCell>, };

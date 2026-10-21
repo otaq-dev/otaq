@@ -212,6 +212,58 @@ async fn a_mid_flow_pass_moves_on_and_the_last_offers_the_delivery() {
     w.stop().await;
 }
 
+/// The board's list carries how each card came to wait in a human check or at its Delivery (T-0424, FLW-14, FLW-15),
+/// as `Board::arrival` says it; a skip the ticket's own choice made names the agent that chose it (Q305).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_list_says_how_each_card_got_into_its_check() {
+    let w = world().await;
+    w.board.use_flow_for_tests("SHOP", &every_kind()).await;
+    let passed = at(&w, "Export as CSV", "qa", Status::WaitingForYou).await;
+    ran(&w, &passed, "security", RunResult::Passed, Some(2)).await;
+    let skipped = at(&w, "Fix README typo", "qa", Status::WaitingForYou).await;
+    ran(&w, &skipped, "grill", RunResult::Skipped, None).await;
+    sqlx::query(
+        "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, set_by, by_name, reason, set_at)
+         VALUES (?, 'grill', 'skip', 'project_agent', 'Planner', 'a typo', 0)",
+    )
+    .bind(&skipped.id)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    let delivering = at(&w, "Gift cards", "ship", Status::ToDeliver).await;
+    ran(&w, &delivering, "qa", RunResult::Passed, None).await;
+    let working = at(&w, "Saved carts", "dev", Status::Working).await;
+    ran(&w, &working, "grill", RunResult::Passed, None).await;
+
+    let tickets = w.board.tickets("SHOP").await.unwrap();
+    let label = |key: &str| {
+        tickets
+            .iter()
+            .find(|t| t.key.to_string() == key)
+            .and_then(|t| t.flags.arrival.as_ref())
+            .map(Arrival::label)
+    };
+    assert_eq!(
+        label("SHOP-1").as_deref(),
+        Some("Passed Security \u{b7} round 2")
+    );
+    assert_eq!(
+        label("SHOP-2").as_deref(),
+        Some("Skipped Grill \u{b7} by Planner")
+    );
+    assert_eq!(
+        arrival(&w, "SHOP-2").await.as_deref(),
+        Some("Skipped Grill \u{b7} by Planner")
+    );
+    assert_eq!(label("SHOP-3").as_deref(), Some("Passed QA"));
+    assert_eq!(
+        label("SHOP-4"),
+        None,
+        "only cards waiting in a check or at the Delivery"
+    );
+    w.stop().await;
+}
+
 /// A Pass works only on a ticket waiting in a human check.
 #[tokio::test(flavor = "multi_thread")]
 async fn pass_is_refused_outside_a_human_check() {

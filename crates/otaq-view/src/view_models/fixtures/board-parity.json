@@ -1009,7 +1009,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "ALL-17 can't move to the next stage now: it is Auto-merge stopped"
+              "title": "ALL-17 can't move to the next stage now: it is Delivery stopped"
             }
           },
           {
@@ -1017,7 +1017,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "ALL-17 can't move to the next stage now: it is Auto-merge stopped"
+              "title": "ALL-17 can't move to the next stage now: it is Delivery stopped"
             }
           },
           {
@@ -1025,7 +1025,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "ALL-17 can't move to the next stage now: it is Auto-merge stopped"
+              "title": "ALL-17 can't move to the next stage now: it is Delivery stopped"
             }
           },
           {
@@ -2411,11 +2411,11 @@
                       "edge": "attention",
                       "hovers": [],
                       "mono": false,
-                      "text": "Auto-merge stopped",
+                      "text": "Delivery stopped",
                       "text_tone": "secondary"
                     },
                     "sleeve": null,
-                    "title": "Auto-merge stopped"
+                    "title": "Delivery stopped"
                   },
                   "kind": "ticket",
                   "needs_you": true
@@ -2879,14 +2879,14 @@
                       "faded": null,
                       "flag": {
                         "icon": "git-pull-request",
-                        "label": "PR #481",
+                        "label": "PR #481 open",
                         "palette": "review"
                       },
                       "footer": {
                         "action": {
                           "icon": null,
-                          "kind": "mark_merged",
-                          "label": "Mark merged",
+                          "kind": "send_back_pr",
+                          "label": "Send back with PR comments",
                           "primary": false
                         },
                         "agent": null,
@@ -3554,11 +3554,11 @@
                       "edge": "attention",
                       "hovers": [],
                       "mono": false,
-                      "text": "Auto-merge stopped",
+                      "text": "Delivery stopped",
                       "text_tone": "secondary"
                     },
                     "sleeve": null,
-                    "title": "Auto-merge stopped"
+                    "title": "Delivery stopped"
                   },
                   "kind": "ticket",
                   "needs_you": true
@@ -4022,14 +4022,14 @@
                       "faded": null,
                       "flag": {
                         "icon": "git-pull-request",
-                        "label": "PR #481",
+                        "label": "PR #481 open",
                         "palette": "review"
                       },
                       "footer": {
                         "action": {
                           "icon": null,
-                          "kind": "mark_merged",
-                          "label": "Mark merged",
+                          "kind": "send_back_pr",
+                          "label": "Send back with PR comments",
                           "primary": false
                         },
                         "agent": null,
@@ -4697,11 +4697,11 @@
                       "edge": "attention",
                       "hovers": [],
                       "mono": false,
-                      "text": "Auto-merge stopped",
+                      "text": "Delivery stopped",
                       "text_tone": "secondary"
                     },
                     "sleeve": null,
-                    "title": "Auto-merge stopped"
+                    "title": "Delivery stopped"
                   },
                   "kind": "ticket",
                   "needs_you": true
@@ -5165,14 +5165,14 @@
                       "faded": null,
                       "flag": {
                         "icon": "git-pull-request",
-                        "label": "PR #481",
+                        "label": "PR #481 open",
                         "palette": "review"
                       },
                       "footer": {
                         "action": {
                           "icon": null,
-                          "kind": "mark_merged",
-                          "label": "Mark merged",
+                          "kind": "send_back_pr",
+                          "label": "Send back with PR comments",
                           "primary": false
                         },
                         "agent": null,

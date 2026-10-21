@@ -42,9 +42,11 @@
 use otaq_core::agents::facts::{BoardAgents, CardAgents, CardHold, CardStart, RunsOnTool};
 use otaq_core::agents::{HoldReason, SessionRole as Role};
 use otaq_core::board::epic_flight::is_never_started;
+use otaq_core::board::human_check::Arrival;
 use otaq_core::board::needs_you::change_agent;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Actor, Priority, Status, TicketKey};
+use otaq_core::flow::model::Delivers;
 use otaq_core::signals::background::{minutes, wakeup_text};
 use otaq_core::signals::{HELPER_PROMPT_PREFIX, is_stale};
 
@@ -117,6 +119,16 @@ pub struct CardExtras {
     pub agents: AgentFacts,
     /// Two or more agent tools are connected (`board.agents`'s `connected`): the head shows the avatar (SHL-08).
     pub several_tools: bool,
+    /// What its Delivery delivers, from its project's flow (an epic child always merges locally; FLW-15): a To
+    /// deliver card is "Ready to merge" or "Ready for PR".
+    pub delivers: Option<Delivers>,
+    /// The agent of its project's Delivery stage, who opens and pushes the PR: "Opened by Shipper · 2 h ago".
+    pub delivery_agent: Option<String>,
+    /// Its project's flow isn't the default's shape ([`crate::view_models::flow_columns::keeps_default_look`]): its
+    /// human checks, To deliver cards and failed checks read as `s03-44`…`s03-54` draw them. On the default flow
+    /// those cards stay today's (d0108: "a project that never changes its flow sees today's board"; STG-06); the
+    /// renames and new features (PR comments, conflicts) show on every flow.
+    pub custom_flow: bool,
 }
 
 /// What the card knows about its agents (`board.agents`, AGT-04): the footer's agent part ([`footer_agent`]).
@@ -282,6 +294,11 @@ pub enum Tone {
     Accent,
     /// Secondary text (the situation's words next to a coloured edge).
     Secondary,
+    /// A green edge with calm text: how it passed ("Passed Security · round 2", `s03-46`).
+    Passed,
+    /// An amber edge with calm text: a skip, a move by the user, a conflict being fixed ("Skipped Security · by you",
+    /// "Merge conflict · fixing", "Delivered without checks"; `s03-46`, `s03-48`).
+    Paused,
 }
 
 impl Tone {
@@ -365,6 +382,23 @@ pub enum CardActionKind {
     UseFallback,
     /// A Validator round held for its tool: its fallback takes it.
     UseValidatorFallback,
+    /// Your check (FLW-14): Pass moves it on, or offers the delivery choices when a click Delivery comes next
+    /// (`ticket.pass`).
+    Pass,
+    /// Your check: the Fail dialog ("Fail Review on SHOP-18?").
+    Fail,
+    /// A To deliver card (FLW-15): the Local merge confirmation…
+    LocalMerge,
+    /// …or the Open PR dialog.
+    OpenPr,
+    /// A PR open (FLW-16): the "Send SHOP-26 back with PR comments?" dialog.
+    SendBackPr,
+    /// An epic's PR open (FLW-16): a Backlog child holding the PR's unresolved comments.
+    AddChildFromPr,
+    /// An agent check's last round failed (FLW-13): on to the next stage; its Delivery waits for a click.
+    MoveOnAnyway,
+    /// An agent check held for the plan limit with no usable fallback (FLW-13, Q277).
+    SkipCheck,
 }
 
 impl CardActionKind {
@@ -375,6 +409,8 @@ impl CardActionKind {
             Self::RetryValidation => Some(A::Retry),
             Self::RetryMerge => Some(A::RetryMerge),
             Self::MoveToReview => Some(A::MoveToReview),
+            Self::MoveOnAnyway => Some(A::MoveOnAnyway),
+            Self::SkipCheck => Some(A::Skip),
             _ => None,
         }
     }
@@ -516,6 +552,9 @@ pub struct Footer {
     pub action: Option<CardAction>,
     /// A second button after the action: Open agent… next to Use fallback (`s03-54`).
     pub second: Option<CardAction>,
+    /// The two buttons stand one under the other, each its own width: Send back with PR comments over Mark merged,
+    /// Skip this check over Open agent… (`s03-46`, `s03-54`).
+    pub stacked: bool,
 }
 
 /// The full status on hover ("Needs you · permission") and the facts the card has no room for ("Tokens: 241k",
@@ -864,8 +903,9 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             }),
             Tone::Error,
         ),
-        // The last round failed: its first finding, else the count (VAL-06).
-        Status::CheckFailed => {
+        // The last round failed: the count and its first finding (VAL-06; `s03-44`: "Security failed 3 times ·
+        // unescaped SQL in search").
+        Status::CheckFailed if !x.custom_flow => {
             let n = ticket.validation_round.max(1);
             Part::flag(
                 flag(
@@ -881,6 +921,23 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                         .cloned()
                         .unwrap_or_else(|| validation::failed_times(n)),
                 ),
+                Tone::Attention,
+            )
+        }
+        Status::CheckFailed => {
+            let n = ticket.validation_round.max(1);
+            let times = check_failed_times(flags.check.as_deref(), n);
+            Part::flag(
+                flag(
+                    R::Stopped,
+                    &format!("Failed \u{d7}{n}"),
+                    &times,
+                    Legend::ValidationFailed,
+                ),
+                Some(match flags.findings.first() {
+                    Some(finding) => format!("{times} \u{b7} {finding}"),
+                    None => times.clone(),
+                }),
                 Tone::Attention,
             )
         }
@@ -919,7 +976,8 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             ),
             Tone::Attention,
         ),
-        // "Keeps conflicting with <epic branch> · 3 tries", or the Local merge's message (AMG-03, AMG-04).
+        // "Keeps conflicting with main" / "… with the epic's branch" after 3 conflicts in a row (FLW-17, `s03-46`), or
+        // the Local merge's message.
         Status::DeliveryStopped => {
             let n = ticket.auto_merge_conflicts.max(1);
             let (label, full) = match ticket.auto_merge_stop {
@@ -929,10 +987,8 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             };
             Part::flag(
                 flag(R::Stopped, &label, full, Legend::AutoMergeStopped),
-                Some(match (ticket.auto_merge_stop, &flags.conflicts_with) {
-                    (Some(AutoMergeStop::KeepsConflicting), Some(target)) => {
-                        format!("Keeps conflicting with {target} \u{b7} {n} tries")
-                    }
+                Some(match ticket.auto_merge_stop {
+                    Some(AutoMergeStop::KeepsConflicting) => keeps_conflicting(ticket, x),
                     _ => x
                         .question
                         .clone()
@@ -963,8 +1019,9 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             x.held_reason.clone().unwrap_or_else(|| "Held".into()),
             Tone::Warning,
         ),
-        // Calm, like working (*Validating… (0063)*): which round and how long.
-        Status::Checking => Part::flag(
+        // Calm, like working (*Validating… (0063)*): which round and how long. Any other agent check reads
+        // "Checking" (FLW-13, `s03-44`).
+        Status::Checking if is_validate(flags.check.as_deref()) => Part::flag(
             flag(
                 R::Busy,
                 "Validating\u{2026}",
@@ -975,15 +1032,35 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             validating_text(ticket, now_ms),
             Tone::Muted,
         ),
-        // The agent rebases with restack (AMG-03).
-        Status::MergeConflictFixing => Part::flag(
+        Status::Checking => Part::flag(
             flag(
                 R::Busy,
-                "Conflict",
-                validation::MERGE_CONFLICT_FIXING,
-                Legend::MergeConflictFixing,
-            )
-            .colored(Palette::Working),
+                CHECKING,
+                &format!(
+                    "{CHECKING} \u{b7} {}",
+                    flags.check.as_deref().unwrap_or_default()
+                ),
+                Legend::Validating,
+            ),
+            validating_text(ticket, now_ms),
+            Tone::Muted,
+        ),
+        // The agent of the nearest earlier Agent stage rebases with restack, no click (FLW-17; amber, `s03-46`).
+        Status::MergeConflictFixing => Part::flag(
+            {
+                let f = flag(
+                    R::Busy,
+                    "Conflict",
+                    validation::MERGE_CONFLICT_FIXING,
+                    Legend::MergeConflictFixing,
+                );
+                // Today's calm pill on the default flow.
+                if x.custom_flow {
+                    f
+                } else {
+                    f.colored(Palette::Working)
+                }
+            },
             Some(match flags.conflict_files.as_slice() {
                 [] => validation::MERGE_CONFLICT_FIXING.to_owned(),
                 [file] => format!("{} \u{b7} {file}", validation::MERGE_CONFLICT_FIXING),
@@ -993,7 +1070,11 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                     rest.len()
                 ),
             }),
-            Tone::Muted,
+            if x.custom_flow {
+                Tone::Paused
+            } else {
+                Tone::Muted
+            },
         ),
         Status::Working => Part::flag(
             flag(R::Working, "Working", "Working", Legend::AgentWorking),
@@ -1016,20 +1097,21 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             }),
             Tone::Muted,
         ),
-        Status::WaitingForYou => return review_part(ticket),
+        Status::WaitingForYou if !x.custom_flow => return review_part(ticket),
+        Status::WaitingForYou => return your_check_part(ticket),
+        Status::ToDeliver if !x.custom_flow => return None,
+        Status::ToDeliver => return delivery_part(ticket, x),
+        // Stays in its Delivery stage until marked merged (FLW-16, `s03-46`): "PR #481 open · Opened by Shipper · 2 h
+        // ago".
         Status::PrOpen => {
             let n = flags.pr_number?;
+            let open = format!("PR #{n} open");
             Part::flag(
-                flag(
-                    R::Outcome,
-                    &format!("PR #{n}"),
-                    &format!("PR #{n} open"),
-                    Legend::PrOpen,
-                ),
-                Some(pr_not_watched()),
+                flag(R::Outcome, &open, &open, Legend::PrOpen),
+                Some(pr_opened_line(ticket, x, now_ms)),
                 Tone::Muted,
             )
-            .lost(format!("PR #{n}"))
+            .lost(open.clone())
         }
         // Closed by an agent's `otaq stage done` (AGM-10, Q276): "Nothing to merge · already fixed in SHOP-31".
         Status::ClosedNotMerged if let Some(reason) = &flags.nothing_to_merge => Part::flag(
@@ -1054,6 +1136,10 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             Some("closed without merging".into()),
             Tone::Muted,
         ),
+        // An automatic Delivery with no check passed before it (d0108 rule 8, `s03-48`): amber, once.
+        Status::Merged if flags.delivered_without_checks => {
+            Part::quiet(validation::DELIVERED_WITHOUT_CHECKS, Tone::Paused)
+        }
         Status::Merged if flags.merged_automatically => Part::quiet(
             match &x.sleeve {
                 Some(s) => format!("{} \u{b7} {}", validation::MERGED_AUTOMATICALLY, s.name),
@@ -1069,8 +1155,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         Status::Queued if x.starting => Part::quiet("Starting\u{2026}", Tone::Muted),
         Status::Queued => Part::quiet(x.waits_for.clone()?, Tone::Muted),
         Status::Backlog if flags.ready_to_start => Part::quiet(READY_TO_START, Tone::Muted),
-        // To deliver: waits for the Delivery click (not on the default flow, whose Review offers it).
-        Status::Backlog | Status::Merged | Status::ToDeliver => return None,
+        Status::Backlog | Status::Merged => return None,
     })
 }
 
@@ -1137,6 +1222,141 @@ fn review_part(ticket: &Ticket) -> Option<Part> {
             Part::quiet(format!("{label} \u{b7} not validated"), Tone::Muted)
         }
     })
+}
+
+/// A card in a human check (FLW-14, `s03-46`; `s03-54`): "Your check".
+pub const YOUR_CHECK: &str = "Your check";
+/// A To deliver card (FLW-15, `s03-46`): its Delivery waits for the user's Local merge (14 characters, the frame's
+/// own flag like [`PARENT_CLOSED`])…
+pub const READY_TO_MERGE: &str = "Ready to merge";
+/// …or Open PR.
+pub const READY_FOR_PR: &str = "Ready for PR";
+/// A running agent check other than the default flow's Validate (FLW-13, `s03-44`).
+pub const CHECKING: &str = "Checking";
+/// The default flow's agent check, whose cards keep today's words ("Validating…", "Validation failed 3 times").
+pub const VALIDATE: &str = "Validate";
+
+/// Whether the check the card counts for is the default flow's Validate (or unnamed): today's words.
+fn is_validate(check: Option<&str>) -> bool {
+    check.is_none_or(|c| c == VALIDATE)
+}
+
+/// "1 time", "3 times".
+fn times(n: u32) -> String {
+    if n == 1 {
+        "1 time".to_owned()
+    } else {
+        format!("{n} times")
+    }
+}
+
+/// "Security failed 3 times" (`s03-44`); on Validate today's "Validation failed 3 times".
+pub fn check_failed_times(check: Option<&str>, n: u32) -> String {
+    match check.filter(|c| !is_validate(Some(c))) {
+        Some(check) => format!("{check} failed {}", times(n)),
+        None => otaq_core::domain::validation::failed_times(n),
+    }
+}
+
+/// "Security failed · round 2 of 3" while the agent fixes the findings (`s03-44`); on Validate today's "Validation
+/// failed · round 1 of 3".
+pub fn check_failed_round(
+    check: Option<&str>,
+    round: otaq_core::domain::ValidationRound,
+) -> String {
+    match check.filter(|c| !is_validate(Some(c))) {
+        Some(check) => format!(
+            "{check} failed \u{b7} round {} of {}",
+            round.round, round.of
+        ),
+        None => round.to_string(),
+    }
+}
+
+/// The colour of how a card got where it is: green for a pass, amber for a skip or a move by the user (`s03-46`).
+fn arrival_tone(arrival: &Arrival) -> Tone {
+    match arrival {
+        Arrival::Passed { .. } => Tone::Passed,
+        Arrival::Finished { .. } => Tone::Muted,
+        Arrival::Skipped { .. } | Arrival::FailedMovedOn { .. } | Arrival::MovedBack => {
+            Tone::Paused
+        }
+    }
+}
+
+/// Your check (FLW-14, `s03-46`, `s03-54`): "Your check" and how it got here ("Passed Security · round 2", "Skipped
+/// Security · by you", "Moved back by you"); Pass and Fail are its buttons.
+fn your_check_part(ticket: &Ticket) -> Option<Part> {
+    let flag = HeadFlag::new(
+        Rank::Outcome,
+        YOUR_CHECK,
+        YOUR_CHECK,
+        Legend::ReadyForReview,
+    );
+    Some(match &ticket.flags.arrival {
+        Some(arrival) => Part::flag(flag, Some(arrival.label()), arrival_tone(arrival)),
+        None => Part::flag(flag, None, Tone::Muted),
+    })
+}
+
+/// A To deliver card (FLW-15, `s03-46`, `s03-54`): "Ready to merge" or "Ready for PR", with why it waits for a click
+/// ("Failed Security 3 times · moved by you · open the PR when ready") or how it got here ("Passed Review"). An
+/// automatic Delivery under way says its agent opens the PR.
+fn delivery_part(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
+    let flags = &ticket.flags;
+    let pr = x.delivers == Some(Delivers::Pr);
+    let label = if pr { READY_FOR_PR } else { READY_TO_MERGE };
+    let flag = HeadFlag::new(Rank::Outcome, label, label, Legend::ReadyForReview);
+    if flags.delivering_automatically {
+        let text = match &x.delivery_agent {
+            Some(agent) => format!("{agent} is opening the PR"),
+            None => "The PR is being opened".to_owned(),
+        };
+        return Some(Part::flag(flag, Some(text), Tone::Muted));
+    }
+    let when = if pr {
+        "open the PR when ready"
+    } else {
+        "merge when ready"
+    };
+    Some(match (&flags.moved_past_check, &flags.arrival) {
+        (Some(reason), _) => {
+            Part::flag(flag, Some(format!("{reason} \u{b7} {when}")), Tone::Paused)
+        }
+        (None, Some(arrival)) => Part::flag(flag, Some(arrival.label()), arrival_tone(arrival)),
+        (None, None) => Part::flag(flag, None, Tone::Muted),
+    })
+}
+
+/// "Opened by Shipper · 2 h ago" (FLW-15, `s03-46`): the Delivery stage's agent and when the PR opened; with one
+/// agent (nobody to name, d0086) or no time, today's line that Otaq doesn't watch PRs.
+fn pr_opened_line(ticket: &Ticket, x: &CardExtras, now_ms: i64) -> String {
+    match (&x.delivery_agent, ticket.status_since) {
+        (Some(agent), Some(since)) if x.agents.count > 1 => {
+            let age = crate::view_models::inbox::age(now_ms - since);
+            let ago = if age == "now" {
+                "just now".to_owned()
+            } else {
+                format!("{age} ago")
+            };
+            format!("Opened by {agent} \u{b7} {ago}")
+        }
+        _ => pr_not_watched(),
+    }
+}
+
+/// "Keeps conflicting with main", "Keeps conflicting with the epic's branch" (FLW-17, `s03-46`).
+fn keeps_conflicting(ticket: &Ticket, x: &CardExtras) -> String {
+    let target = ticket
+        .flags
+        .conflicts_with
+        .as_ref()
+        .or(x.project_base.as_ref());
+    match (&ticket.epic, target) {
+        (Some(_), _) => "Keeps conflicting with the epic\u{2019}s branch".to_owned(),
+        (None, Some(target)) => format!("Keeps conflicting with {target}"),
+        (None, None) => "Keeps conflicting".to_owned(),
+    }
 }
 
 impl CardViewModel {
@@ -1307,6 +1527,8 @@ impl CardViewModel {
             sleeve: x.sleeve.clone(),
             outline,
             faded: match status {
+                // "Delivered without checks" is said at full strength (`s03-48`).
+                Status::Merged if flags.delivered_without_checks => None,
                 Status::Merged => Some(0.55),
                 Status::ClosedNotMerged => Some(0.8),
                 _ => None,
@@ -1393,6 +1615,10 @@ fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
             let text = match (&fallback, h.fallback_held) {
                 (Some(fallback), true) => {
                     format!("{tool} and its fallback {fallback} are both at their limits")
+                }
+                // A check that can be skipped instead (FLW-13, `s03-54`).
+                (None, _) if h.can_skip_check => {
+                    format!("{cause} \u{b7} {tool} has no fallback")
                 }
                 _ => cause.clone(),
             };
@@ -1546,10 +1772,11 @@ fn marker(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
         return Some(Part::quiet(text, Tone::Epic));
     }
     if let Some(marker) = flags.validation_round {
-        // The findings went back to the agent (VAL-04).
+        // The findings went back to the agent (VAL-04), counted on the check that failed it (FLW-13).
+        let marker = check_failed_round(flags.check.as_deref(), marker);
         return Some(Part::quiet(
             match flags.findings.len() {
-                0 => marker.to_string(),
+                0 => marker,
                 1 => format!("{marker} \u{b7} 1 finding"),
                 n => format!("{marker} \u{b7} {n} findings"),
             },
@@ -1728,6 +1955,13 @@ fn footer(
             text: age_label(now_ms - at),
             stale: now_ms - at >= SIGNAL_AMBER_MS,
         });
+    let stacked = second.is_some()
+        && action.as_ref().is_some_and(|a| {
+            matches!(
+                a.kind,
+                CardActionKind::SendBackPr | CardActionKind::SkipCheck
+            )
+        });
     (agent.is_some() || tokens.is_some() || signal.is_some() || action.is_some()).then_some(
         Footer {
             agent,
@@ -1735,6 +1969,7 @@ fn footer(
             signal,
             action,
             second,
+            stacked,
         },
     )
 }
@@ -1915,16 +2150,47 @@ pub const USE_FALLBACK: &str = "Use fallback";
 /// "Open agent…": Settings → Agents on the agent whose model can't run (d0108 second gap review rule 7).
 pub const OPEN_AGENT: &str = "Open agent\u{2026}";
 
-/// The second button, after Use fallback on a held session: Open agent… (`s03-54`).
+/// "Skip this check" on a check held for the plan limit with no usable fallback (FLW-13, `s03-54`).
+pub const SKIP_THIS_CHECK: &str = "Skip this check";
+/// The buttons of a human check (FLW-14, `s03-46`).
+pub const PASS: &str = "Pass";
+pub const FAIL: &str = "Fail";
+/// A PR open (FLW-16, `s03-46`).
+pub const SEND_BACK_WITH_PR_COMMENTS: &str = "Send back with PR comments";
+/// An agent check's last round failed (FLW-13, `s03-44`; d0108 "Move on anyway").
+pub const MOVE_ON_ANYWAY: &str = "Move on anyway";
+
+/// The second button: Open agent… after Use fallback or Skip this check on a held session (`s03-54`), Fail after
+/// Pass, Mark merged after Send back with PR comments (`s03-46`).
 fn second_action(status: Status, ticket: &Ticket, x: &CardExtras) -> Option<CardAction> {
-    held(ticket, status, x)
-        .filter(|h| h.can_use_fallback)
-        .map(|_| CardAction {
-            kind: CardActionKind::OpenAgent,
-            label: OPEN_AGENT,
+    let quiet = |kind, label| {
+        Some(CardAction {
+            kind,
+            label,
             icon: None,
             primary: false,
         })
+    };
+    if let Some(hold) = held(ticket, status, x) {
+        return (hold.can_use_fallback || hold.can_skip_check)
+            .then_some(())
+            .and_then(|()| quiet(CardActionKind::OpenAgent, OPEN_AGENT));
+    }
+    match status {
+        Status::WaitingForYou if x.custom_flow && your_check_buttons(ticket) => {
+            quiet(CardActionKind::Fail, FAIL)
+        }
+        Status::PrOpen if ticket.flags.pr_number.is_some() && ticket.epic.is_none() => {
+            quiet(CardActionKind::MarkMerged, "Mark merged")
+        }
+        _ => None,
+    }
+}
+
+/// Whether a card in a human check offers Pass · Fail: not while it is back for PR rework or holds new commits for
+/// its open PR (Push to PR, REV-14).
+fn your_check_buttons(ticket: &Ticket) -> bool {
+    !ticket.is_epic() && ticket.flags.pr_number.is_none() && !ticket.flags.pr_rework
 }
 
 /// The agent Open agent… opens: a held session's, else the one whose model the tool refused.
@@ -1960,6 +2226,10 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
                 false,
             ),
             (_, true) => a(CardActionKind::UseFallback, USE_FALLBACK, None, false),
+            // A check at the plan limit with no usable fallback can be skipped instead (FLW-13, Q277).
+            (_, false) if hold.can_skip_check => {
+                a(CardActionKind::SkipCheck, SKIP_THIS_CHECK, None, false)
+            }
             (_, false) => a(CardActionKind::OpenAgent, OPEN_AGENT, None, false),
         };
     }
@@ -1976,7 +2246,10 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
     match status {
         Status::NeedsYou | Status::CheckerNeedsYou => open("Answer"),
         Status::AsksYou | Status::Idle => open("Reply"),
-        Status::ParentClosed | Status::CheckFailed | Status::DeliveryStopped => open("Open"),
+        Status::ParentClosed | Status::DeliveryStopped => open("Open"),
+        Status::CheckFailed if !x.custom_flow => open("Open"),
+        // Only Move on anyway (FLW-13, `s03-44`); another round and Answer the agent stay in the panel.
+        Status::CheckFailed => a(CardActionKind::MoveOnAnyway, MOVE_ON_ANYWAY, None, false),
         Status::Interrupted => a(CardActionKind::Resume, "Resume", Some(IconName::Play), true),
         // *16 → Resume failed*: Start from scratch, the frame's primary; Retry stays in the panel.
         Status::ResumeFailed => a(
@@ -1999,8 +2272,25 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
             true,
         ),
         Status::WaitingForYou if has_pr => None,
+        // Your check (FLW-14): Pass, then Fail ([`second_action`]).
+        Status::WaitingForYou if x.custom_flow && !ticket.is_epic() => {
+            a(CardActionKind::Pass, PASS, None, true)
+        }
         Status::WaitingForYou => a(CardActionKind::Review, "Review", Some(IconName::Eye), true),
-        // Mark closed stays in the panel and the card's menu.
+        // To deliver (FLW-15): the click the Delivery waits for; nothing while an automatic one runs.
+        Status::ToDeliver if ticket.flags.delivering_automatically || !x.custom_flow => None,
+        Status::ToDeliver if x.delivers == Some(Delivers::Pr) => {
+            a(CardActionKind::OpenPr, "Open PR", None, true)
+        }
+        Status::ToDeliver => a(CardActionKind::LocalMerge, "Local merge", None, true),
+        // Send back with PR comments, then Mark merged (FLW-16); Mark closed stays in the panel and the card's menu.
+        // An epic child never has a PR.
+        Status::PrOpen if has_pr && ticket.epic.is_none() => a(
+            CardActionKind::SendBackPr,
+            SEND_BACK_WITH_PR_COMMENTS,
+            None,
+            false,
+        ),
         Status::PrOpen if has_pr => a(CardActionKind::MarkMerged, "Mark merged", None, false),
         Status::ClosedNotMerged => a(
             CardActionKind::Reopen,
@@ -2375,6 +2665,7 @@ mod tests {
             .chain(card_fixtures::lead_variants())
             .chain(card_fixtures::sleeve_variants())
             .chain(card_fixtures::agent_variants())
+            .chain(card_fixtures::flow_variants())
             .find(|v| v.name == name)
             .unwrap_or_else(|| panic!("no fixture {name}"));
         let vm = CardViewModel::from(&v.ticket, &v.extras, NOW);
@@ -2522,7 +2813,8 @@ mod tests {
             (
                 "Keeps conflicting (0064)",
                 Some("Conflicts ×3"),
-                Some("Keeps conflicting with {epic branch} · 3 tries"),
+                // FLW-17 (`s03-46`).
+                Some("Keeps conflicting with the epic’s branch"),
                 Some("[Open]"),
             ),
             (
@@ -2563,9 +2855,9 @@ mod tests {
             ),
             (
                 "Approved · PR open (0017)",
-                Some("PR #481"),
+                Some("PR #481 open"),
                 Some("{pr line}"),
-                Some("[Mark merged]"),
+                Some("[Send back with PR comments] [Mark merged]"),
             ),
             ("Merged", None, None, None),
             (
@@ -2615,6 +2907,254 @@ mod tests {
         let named: Vec<&str> = rows.iter().map(|r| r.0).collect();
         assert_eq!(plain, named);
         assert_eq!(fixtures.len(), rows.len() + 5);
+    }
+
+    /// The cards of checks and deliveries in any flow (FLW-13…FLW-17), as `s03-44`, `s03-46`, `s03-48` and `s03-54`
+    /// word them: the head flag, the situation line and the footer.
+    #[test]
+    fn every_m33_card_of_the_frames() {
+        type Row = (
+            &'static str,
+            Option<&'static str>,
+            Option<&'static str>,
+            Option<&'static str>,
+        );
+        let rows: &[Row] = &[
+            (
+                "Checking \u{b7} Security",
+                Some("Checking"),
+                Some("round 1 of 3"),
+                Some("Security reviewer \u{b7} opus 18k"),
+            ),
+            (
+                "Security failed \u{b7} back in Dev",
+                Some("Working"),
+                Some("Security failed \u{b7} round 2 of 3"),
+                Some("Rust developer \u{b7} sonnet 141k 20s"),
+            ),
+            (
+                "Security failed \u{d7}3",
+                Some("Failed \u{d7}3"),
+                Some("Security failed 3 times \u{b7} unescaped SQL in search"),
+                Some("[Move on anyway]"),
+            ),
+            (
+                "Your check \u{b7} passed Security",
+                Some("Your check"),
+                Some("Passed Security \u{b7} round 2"),
+                Some("[Pass] [Fail]"),
+            ),
+            (
+                "Your check \u{b7} skipped Security",
+                Some("Your check"),
+                Some("Skipped Security \u{b7} by you"),
+                Some("[Pass] [Fail]"),
+            ),
+            (
+                "Your check \u{b7} skipped by the Project agent",
+                Some("Your check"),
+                Some("Skipped Grill \u{b7} by Planner"),
+                Some("[Pass] [Fail]"),
+            ),
+            (
+                "Your check \u{b7} moved back",
+                Some("Your check"),
+                Some("Moved back by you"),
+                Some("[Pass] [Fail]"),
+            ),
+            (
+                "Ready to merge \u{b7} passed Review",
+                Some("Ready to merge"),
+                Some("Passed Review"),
+                Some("[Local merge]"),
+            ),
+            (
+                "Ready to merge \u{b7} moved past Validate",
+                Some("Ready to merge"),
+                Some("Failed Validate 3 times \u{b7} moved by you \u{b7} merge when ready"),
+                Some("[Local merge]"),
+            ),
+            (
+                "Ready for PR \u{b7} moved past Security",
+                Some("Ready for PR"),
+                Some("Failed Security 3 times \u{b7} moved by you \u{b7} open the PR when ready"),
+                Some("[Open PR]"),
+            ),
+            (
+                "Ready for PR \u{b7} skipped Security",
+                Some("Ready for PR"),
+                Some("Skipped Security \u{b7} by you \u{b7} open the PR when ready"),
+                Some("[Open PR]"),
+            ),
+            (
+                "Ready for PR \u{b7} delivering automatically",
+                Some("Ready for PR"),
+                Some("Shipper is opening the PR"),
+                None,
+            ),
+            (
+                "PR #481 open \u{b7} opened by Shipper",
+                Some("PR #481 open"),
+                Some("Opened by Shipper \u{b7} 2 h ago"),
+                Some("[Send back with PR comments] [Mark merged]"),
+            ),
+            (
+                "Merge conflict \u{b7} fixing in Dev",
+                Some("Conflict"),
+                Some("Merge conflict \u{b7} fixing"),
+                Some("Rust developer \u{b7} sonnet 77k 10s"),
+            ),
+            (
+                "Conflicts \u{d7}3 \u{b7} the epic\u{2019}s branch",
+                Some("Conflicts \u{d7}3"),
+                Some("Keeps conflicting with the epic\u{2019}s branch"),
+                Some("[Open]"),
+            ),
+            (
+                "Conflicts \u{d7}3 \u{b7} main",
+                Some("Conflicts \u{d7}3"),
+                Some("Keeps conflicting with main"),
+                Some("[Open]"),
+            ),
+            (
+                "Delivered without checks",
+                None,
+                Some("Delivered without checks"),
+                None,
+            ),
+            (
+                "Plan limit \u{b7} a fallback is set",
+                Some("At limit"),
+                Some("Claude Code limit"),
+                Some("Security reviewer [Use fallback] [Open agent\u{2026}]"),
+            ),
+            (
+                "Plan limit \u{b7} no fallback can run",
+                Some("At limit"),
+                Some("Claude Code limit \u{b7} Claude Code has no fallback"),
+                Some("Security reviewer [Skip this check] [Open agent\u{2026}]"),
+            ),
+        ];
+        let names: Vec<&str> = card_fixtures::flow_variants()
+            .iter()
+            .map(|v| v.name)
+            .collect();
+        assert_eq!(names, rows.iter().map(|r| r.0).collect::<Vec<_>>());
+        for (name, flag, situation, footer) in rows {
+            let (_, vm) = variant(name);
+            assert_eq!(flag_of(&vm), *flag, "{name}: flag");
+            assert_eq!(line(&vm), *situation, "{name}: situation");
+            assert_eq!(foot(&vm).as_deref(), *footer, "{name}: footer");
+        }
+    }
+
+    /// The frames' colours for the M33 cards (`s03-44`, `s03-46`, `s03-48`): a green edge for a pass, amber for a skip,
+    /// a move by you, a conflict being fixed and a delivery without checks; turquoise for the stops that need you.
+    #[test]
+    fn the_m33_cards_colours() {
+        let look = |name| {
+            let (_, vm) = variant(name);
+            let s = vm.situation.expect("a line");
+            (
+                vm.flag.map(|f| f.palette),
+                s.edge,
+                s.text_tone,
+                vm.outline,
+                vm.faded,
+            )
+        };
+        use Palette as P;
+        assert_eq!(
+            look("Checking \u{b7} Security"),
+            (
+                Some(P::Working),
+                Tone::Muted,
+                Tone::Secondary,
+                Outline::Normal,
+                None
+            )
+        );
+        assert_eq!(
+            look("Security failed \u{d7}3"),
+            (
+                Some(P::Attn),
+                Tone::Attention,
+                Tone::Secondary,
+                Outline::Attention,
+                None
+            )
+        );
+        assert_eq!(
+            look("Your check \u{b7} passed Security"),
+            (
+                Some(P::Review),
+                Tone::Passed,
+                Tone::Secondary,
+                Outline::Normal,
+                None
+            )
+        );
+        for name in [
+            "Your check \u{b7} skipped Security",
+            "Your check \u{b7} moved back",
+        ] {
+            assert_eq!(
+                look(name),
+                (
+                    Some(P::Review),
+                    Tone::Paused,
+                    Tone::Secondary,
+                    Outline::Normal,
+                    None
+                ),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            look("Ready for PR \u{b7} moved past Security"),
+            (
+                Some(P::Review),
+                Tone::Paused,
+                Tone::Secondary,
+                Outline::Normal,
+                None
+            )
+        );
+        assert_eq!(
+            look("PR #481 open \u{b7} opened by Shipper").0,
+            Some(P::Review)
+        );
+        assert_eq!(
+            look("Merge conflict \u{b7} fixing in Dev"),
+            (
+                Some(P::Paused),
+                Tone::Paused,
+                Tone::Secondary,
+                Outline::Normal,
+                None
+            )
+        );
+        assert_eq!(
+            look("Conflicts \u{d7}3 \u{b7} main"),
+            (
+                Some(P::Attn),
+                Tone::Attention,
+                Tone::Secondary,
+                Outline::Attention,
+                None
+            )
+        );
+        assert_eq!(
+            look("Delivered without checks"),
+            (None, Tone::Paused, Tone::Secondary, Outline::Normal, None),
+            "amber, not faded"
+        );
+        // Send back with PR comments over Mark merged, Skip this check over Open agent…; Pass · Fail side by side.
+        let stacked = |name| variant(name).1.footer.expect("a footer").stacked;
+        assert!(stacked("PR #481 open \u{b7} opened by Shipper"));
+        assert!(stacked("Plan limit \u{b7} no fallback can run"));
+        assert!(!stacked("Your check \u{b7} passed Security"));
+        assert!(!stacked("Plan limit \u{b7} a fallback is set"));
     }
 
     /// The colours and the mono line of the frame: the edge is the winning state's, the text coloured only for red,
@@ -2799,7 +3339,7 @@ mod tests {
                 "Validated",
                 "Skipped",
                 "Did not pass",
-                "PR #481",
+                "PR #481 open",
                 "Closed",
                 ":4020",
                 "Working",
@@ -2876,7 +3416,7 @@ mod tests {
         let (mut t, _) = variant("Approved · PR open (0017)");
         t.flags.run_port = Some(4020);
         let vm = card(&t);
-        assert_eq!(flag_of(&vm), Some("PR #481"));
+        assert_eq!(flag_of(&vm), Some("PR #481 open"));
         assert_eq!(
             line(&vm),
             Some(format!("{} · also running :4020", pr_not_watched()).as_str())
@@ -3634,9 +4174,13 @@ mod tests {
             ..Default::default()
         });
         let vm = card(&t);
-        assert_eq!(flag_of(&vm), Some("PR #481"));
+        assert_eq!(flag_of(&vm), Some("PR #481 open"));
         assert!(vm.hover.details.contains(&"GitHub".to_owned()));
-        assert_eq!(foot(&vm).as_deref(), Some("[Mark merged]"));
+        // FLW-16 on every flow.
+        assert_eq!(
+            foot(&vm).as_deref(),
+            Some("[Send back with PR comments] [Mark merged]")
+        );
         t.flags.changed_since_review = true;
         assert!(
             line(&card(&t))

@@ -7,6 +7,7 @@ import type { ApproveView } from "../../generated/ApproveView";
 import type { ReviewChanged } from "../../generated/ReviewChanged";
 import { review } from ".";
 import type { DecisionChangeView } from "../../generated/DecisionChangeView";
+import { passOverlay } from "./CheckDialogs";
 import { ChangeDecisionBody, ResultDialog } from "./Dialogs";
 import { afterApproveAnyway, afterChoice, afterMerge, firstStep, isSubmitKey } from "./logic";
 
@@ -66,8 +67,32 @@ describe("the review screen", () => {
     const app = createRegistries();
     review(app);
     const r = registered(app);
-    expect(r.overlays).toEqual(expect.arrayContaining(["local_merge", "send_back", "change_decision"]));
+    expect(r.overlays).toEqual(
+      expect.arrayContaining(["local_merge", "send_back", "change_decision", "fail", "send_back_pr"]),
+    );
     expect(r.shortcuts).toEqual(expect.arrayContaining(["approve", "send_back"]));
+  });
+
+  it("Pass opens today's delivery choices only when a click Delivery comes next (FLW-14)", () => {
+    expect(passOverlay("SHOP-18", "moved", false)).toBeNull();
+    expect(passOverlay("SHOP-18", "local_merge", false)).toEqual({
+      id: "local_merge",
+      params: { ticket: "SHOP-18" },
+    });
+    // Open recorded decisions: the choice first (DEC-05).
+    expect(passOverlay("SHOP-18", "local_merge", true)).toEqual({
+      id: "local_merge",
+      params: { ticket: "SHOP-18", menu: true },
+    });
+    expect(passOverlay("SHOP-18", "open_pr", false)).toEqual({
+      id: "open_pr",
+      params: { ticket: "SHOP-18" },
+    });
+    // The default flow's Done (`either`): Local merge or Open PR, as Approve offered them.
+    expect(passOverlay("NOTE-1", "either", false)).toEqual({
+      id: "local_merge",
+      params: { ticket: "NOTE-1", menu: true },
+    });
   });
 
   it("draws the conflict and uncommitted results with their texts", () => {
