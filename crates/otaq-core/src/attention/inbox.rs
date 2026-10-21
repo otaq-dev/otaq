@@ -364,7 +364,7 @@ impl Inbox {
         for item in items.iter().filter(|i| notify::should_notify(i)) {
             let ticket = board.ticket_by_id(&item.id).await?;
             let text = if ticket.status == Status::CheckFailed {
-                ticket.flags.findings.first().cloned()
+                ticket.flags.verdict.clone()
             } else {
                 ticket
                     .question

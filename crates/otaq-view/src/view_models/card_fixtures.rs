@@ -248,7 +248,7 @@ pub fn variants() -> Vec<Variant> {
 
     let mut t = ticket("SHOP-32", "Address autocomplete", Status::CheckFailed);
     t.validation_round = 3;
-    t.flags.findings = vec!["Arrow keys do nothing in the list".into()];
+    t.flags.verdict = Some("Fail: Arrow keys do nothing in the list".into());
     t.flags.tokens = Some(64_000);
     out.push(v("Validation failed 3 times (0063)", t, base()));
 
@@ -276,10 +276,7 @@ pub fn variants() -> Vec<Variant> {
     let mut t = ticket("SHOP-30", "Order history page", Status::Working);
     t.validation_round = 2;
     t.flags.validation_round = Some(ValidationRound { round: 2, of: 3 });
-    t.flags.findings = vec![
-        "src/orders/page.tsx:41 the list isn't paginated".into(),
-        "no test for the empty state".into(),
-    ];
+    t.flags.verdict = Some("Fail: the list isn't paginated".into());
     live(&mut t, 20, 141_000);
     out.push(v("Validation failed · round 2 of 3", t, base()));
 
@@ -675,7 +672,7 @@ pub fn flow_variants() -> Vec<Variant> {
     let mut t = ticket("SHOP-32", "Address autocomplete", Status::CheckFailed);
     security(&mut t);
     t.validation_round = 3;
-    t.flags.findings = vec!["unescaped SQL in search".into()];
+    t.flags.verdict = Some("Fail: unescaped SQL in search".into());
     out.push(v("Security failed \u{d7}3", t, shop(Delivers::Pr)));
 
     // `s03-46`, `s03-54`: your check.
@@ -1306,7 +1303,7 @@ pub fn lead_variants() -> Vec<Variant> {
 
     let mut t = child("SHOP-40.3", "Wishlist page", Status::CheckFailed);
     t.validation_round = 3;
-    t.flags.findings = vec!["orders.test.ts expects list".into()];
+    t.flags.verdict = Some("orders.test.ts expects list".into());
     t.flags.tokens = Some(163_000);
     t.flags.lead_note_sent = Some(lead_note());
     out.push(v(

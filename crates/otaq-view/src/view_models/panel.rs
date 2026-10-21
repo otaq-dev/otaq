@@ -117,11 +117,13 @@ pub fn tabs(ticket: &Ticket) -> Vec<Tab> {
 }
 
 /// What the tab bar shows for a ticket. `sessions` is the ticket's session history (newest first); `lead` is an
-/// epic's lead status (the Lead tab's dot: violet while it runs, turquoise while it asks you).
+/// epic's lead status (the Lead tab's dot: violet while it runs, turquoise while it asks you); `comments` its ticket
+/// comments (the Ticket tab's count, CMT-10).
 pub fn indicators(
     ticket: &Ticket,
     sessions: &[SessionInfo],
     lead: Option<&LeadStatus>,
+    comments: usize,
 ) -> Vec<(Tab, Indicator)> {
     // The ticket's newest agent session (Run and Shell sessions are listed too).
     let live = sessions
@@ -145,6 +147,7 @@ pub fn indicators(
                     .flags
                     .run_port
                     .map_or(Indicator::None, |port| Indicator::Text(format!(":{port}"))),
+                Tab::Ticket if comments > 0 => Indicator::Count(comments),
                 Tab::History if !sessions.is_empty() => Indicator::Count(sessions.len()),
                 _ => Indicator::None,
             };
@@ -298,7 +301,7 @@ mod tests {
     #[test]
     fn indicators_per_state() {
         let mut working = ticket("SHOP-18", "Checkout API", Status::Working);
-        let live = indicators(&working, &[session(SessionState::Running)], None);
+        let live = indicators(&working, &[session(SessionState::Running)], None, 0);
         assert_eq!(
             live[0],
             (Tab::Terminal, Indicator::Dot { attention: false })
@@ -310,27 +313,35 @@ mod tests {
             &working,
             &[session(SessionState::Running), session(SessionState::Ended)],
             None,
+            0,
         );
         assert_eq!(waiting[0].1, Indicator::Dot { attention: true });
         assert_eq!(waiting[5].1, Indicator::Count(2));
 
         let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
-        let ended = indicators(&review, &[session(SessionState::Ended)], None);
+        let ended = indicators(&review, &[session(SessionState::Ended)], None, 4);
         assert_eq!(
             ended[0].1,
             Indicator::None,
             "no live dot after the session ended"
         );
+        // The Ticket tab counts its comments (CMT-10, `s05-41`).
+        assert_eq!(ended[4], (Tab::Ticket, Indicator::Count(4)));
+        assert_eq!(
+            live[4],
+            (Tab::Ticket, Indicator::None),
+            "none without comments"
+        );
 
         let mut running = ticket("SHOP-19", "Price table", Status::Working);
         running.flags.run_port = Some(4020);
         assert_eq!(
-            indicators(&running, &[], None)[2],
+            indicators(&running, &[], None, 0)[2],
             (Tab::Run, Indicator::Text(":4020".into()))
         );
         let backlog = ticket("SHOP-30", "New", Status::Backlog);
         assert!(
-            indicators(&backlog, &[], None)
+            indicators(&backlog, &[], None, 0)
                 .iter()
                 .all(|(_, i)| *i == Indicator::None)
         );
@@ -375,7 +386,7 @@ mod tests {
         let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
         epic.kind = otaq_core::domain::Kind::Epic;
         let lead = |status: Option<LeadStatus>| {
-            indicators(&epic, &[], status.as_ref())
+            indicators(&epic, &[], status.as_ref(), 0)
                 .into_iter()
                 .find(|(t, _)| *t == Tab::Lead)
                 .map(|(_, i)| i)

@@ -140,6 +140,8 @@ pub use terminal_tab::{
 #[cfg(test)]
 pub use theme::{ActiveTheme, ThemeParams, ThemePick};
 #[cfg(test)]
+pub use ticket_comments::export_types as export_ticket_comment_types;
+#[cfg(test)]
 pub use usage::{Ask as UsageDataAsk, UsageChoice};
 pub use window::{WindowFocus, follow_window_focus, window_focused};
 
@@ -198,6 +200,7 @@ areas! {
     palette,
     flow_preview,
     apply_now,
+    ticket_comments,
 }
 
 /// Reads the user's answer once the service answers, then sends the counts every [`crate::usage::FLUSH_EVERY`]

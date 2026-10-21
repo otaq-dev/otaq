@@ -159,6 +159,8 @@ pub struct Texts {
     pub epic_hint: &'static str,
     pub epic_none: &'static str,
     pub body: &'static str,
+    /// The description's label in the Ticket tab's read mode, over the comments (CMT-10, `s05-41`).
+    pub plan: &'static str,
     pub body_hint: &'static str,
     pub body_placeholder: &'static str,
     pub deps: &'static str,
@@ -324,6 +326,7 @@ fn texts(create: bool) -> Texts {
         epic_hint: "optional \u{b7} fixed once created (it sets the key)",
         epic_none: "No epic",
         body: "What and why",
+        plan: "Description \u{b7} the plan",
         body_hint: "Markdown \u{b7} paste keeps formatting",
         body_placeholder: "Context, constraints, links\u{2026}",
         deps: "Depends on",

@@ -56,7 +56,7 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::theme::{Palette, Status as Legend};
 use crate::view_models::tool_avatar::{AvatarTool, ToolAvatarView};
-use crate::view_models::{priority, status};
+use crate::view_models::{priority, status, ticket_comments};
 
 /// The last signal in the footer turns amber after this long ("not you, but soon", *Foundations → amber*); past
 /// the core's threshold ([`otaq_core::signals::STALE_AFTER_MS`], ATT-05) the situation line says so instead.
@@ -903,8 +903,8 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             }),
             Tone::Error,
         ),
-        // The last round failed: the count and its first finding (VAL-06; `s03-44`: "Security failed 3 times ·
-        // unescaped SQL in search").
+        // The last round failed: its verdict, pointing at the checker's comment (VAL-06, CMT-10; `s05-41`: "10,000 row
+        // limit isn't enforced · see comment").
         Status::CheckFailed if !x.custom_flow => {
             let n = ticket.validation_round.max(1);
             Part::flag(
@@ -916,9 +916,9 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                 ),
                 Some(
                     flags
-                        .findings
-                        .first()
-                        .cloned()
+                        .verdict
+                        .as_deref()
+                        .map(ticket_comments::verdict_line)
                         .unwrap_or_else(|| validation::failed_times(n)),
                 ),
                 Tone::Attention,
@@ -934,8 +934,10 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                     &times,
                     Legend::ValidationFailed,
                 ),
-                Some(match flags.findings.first() {
-                    Some(finding) => format!("{times} \u{b7} {finding}"),
+                Some(match flags.verdict.as_deref() {
+                    Some(verdict) => {
+                        format!("{times} \u{b7} {}", ticket_comments::verdict_line(verdict))
+                    }
                     None => times.clone(),
                 }),
                 Tone::Attention,
@@ -1772,13 +1774,12 @@ fn marker(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
         return Some(Part::quiet(text, Tone::Epic));
     }
     if let Some(marker) = flags.validation_round {
-        // The findings went back to the agent (VAL-04), counted on the check that failed it (FLW-13).
-        let marker = check_failed_round(flags.check.as_deref(), marker);
+        // The agent fixes what the check found (VAL-04): the verdict, pointing at the checker's comment (CMT-10,
+        // `s05-41`); without one, the round, counted on the check that failed it (FLW-13).
         return Some(Part::quiet(
-            match flags.findings.len() {
-                0 => marker,
-                1 => format!("{marker} \u{b7} 1 finding"),
-                n => format!("{marker} \u{b7} {n} findings"),
+            match flags.verdict.as_deref() {
+                Some(verdict) => ticket_comments::verdict_line(verdict),
+                None => check_failed_round(flags.check.as_deref(), marker),
             },
             Tone::Muted,
         ));
@@ -2774,7 +2775,7 @@ mod tests {
             (
                 "Validation failed 3 times (0063)",
                 Some("Failed ×3"),
-                Some("Arrow keys do nothing in the list"),
+                Some("Arrow keys do nothing in the list \u{b7} see comment"),
                 Some("[Open]"),
             ),
             (
@@ -2801,7 +2802,7 @@ mod tests {
             (
                 "Validation failed · round 2 of 3",
                 Some("Working"),
-                Some("Validation failed · round 2 of 3 · 2 findings"),
+                Some("the list isn't paginated \u{b7} see comment"),
                 Some("141k 20s"),
             ),
             (
@@ -2935,7 +2936,7 @@ mod tests {
             (
                 "Security failed \u{d7}3",
                 Some("Failed \u{d7}3"),
-                Some("Security failed 3 times \u{b7} unescaped SQL in search"),
+                Some("Security failed 3 times \u{b7} unescaped SQL in search \u{b7} see comment"),
                 Some("[Move on anyway]"),
             ),
             (
@@ -4514,7 +4515,9 @@ mod tests {
         assert_eq!(flag_of(&vm), Some("Failed ×3"));
         assert_eq!(
             line(&vm),
-            Some("orders.test.ts expects list · Lead's note sent once · hover for it")
+            Some(
+                "orders.test.ts expects list · see comment · Lead's note sent once · hover for it"
+            )
         );
         let hover = &vm.situation.as_ref().unwrap().hovers[0];
         assert_eq!(hover.title, "Wishlist lead");

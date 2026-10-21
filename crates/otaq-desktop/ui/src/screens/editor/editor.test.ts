@@ -79,6 +79,7 @@ const TEXTS: EditorTexts = {
   epic_hint: "optional · fixed once created (it sets the key)",
   epic_none: "No epic",
   body: "What and why",
+  plan: "Description · the plan",
   body_hint: "Markdown · paste keeps formatting",
   body_placeholder: "Context, constraints, links…",
   deps: "Depends on",

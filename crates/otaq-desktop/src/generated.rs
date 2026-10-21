@@ -310,6 +310,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::export_apply_now_types(&cfg)?;
     // Your check's Pass and Fail, Send back with PR comments (T-0424).
     crate::api::export_review_check_types(&cfg)?;
+    // The Ticket tab's comments and their box (T-0446, CMT-10, CMT-11): the thread's view and its requests.
+    crate::api::export_ticket_comment_types(&cfg)?;
     // The Flow step (T-0429, T-0434): the go-ahead, the presets and its gallery.
     crate::api::export_flow_step_types(&cfg)?;
     // The agents at work (T-0434): the tabs and the card, Ask's params and answer, and the gallery.

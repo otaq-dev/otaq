@@ -107,6 +107,7 @@ pub mod switcher;
 pub mod terminal_strip;
 pub mod theme_credits;
 pub mod theme_picker;
+pub mod ticket_comments;
 pub mod toasts;
 pub mod tool_avatar;
 pub mod tool_problems;

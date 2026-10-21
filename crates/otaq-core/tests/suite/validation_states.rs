@@ -6,6 +6,7 @@ use std::collections::HashSet;
 
 use crate::common::Fixture;
 use otaq_core::board::needs_you::{NeedsYouGroup, group_of};
+use otaq_core::board::ticket_comments::{CommentAuthor, post_in};
 use otaq_core::domain::{ReviewEntry, Status, StatusSet, ValidationRound};
 use otaq_core::scheduler::{HOLDS_A_SLOT, running_count};
 
@@ -56,6 +57,15 @@ async fn a_validating_ticket_counts_once_toward_the_limit() {
     .await;
     let tickets = f.board.tickets("SHOP").await.unwrap();
     assert_eq!(running_count(&tickets, &HashSet::new()), 1);
+}
+
+/// Posts a comment on the ticket `id` the way a hand-over does (`post_in`).
+async fn post(f: &Fixture, id: &str, author: &CommentAuthor, body: &str) {
+    let mut tx = f.board.store().pool().begin().await.unwrap();
+    post_in(&mut tx, id, author, body.trim(), None, &crate::common::me())
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
 }
 
 async fn set(f: &Fixture, id: &str, sql: &str) {
@@ -144,10 +154,10 @@ async fn ticket_columns_become_flags() {
     assert_eq!(ticket.board_group(), StatusSet::Done);
 }
 
-/// The card's details (T-0192): the round the validator checks, the last failed round's findings (notes left
-/// out), and the files a conflict touches.
+/// The card's details (T-0192): the round the validator checks, the last failed round's verdict (its checker's
+/// comment, T-0446), and the files a conflict touches.
 #[tokio::test]
-async fn validating_round_findings_and_conflict_files() {
+async fn validating_round_verdict_and_conflict_files() {
     let f = Fixture::shop().await;
     let t = f.create("Checkout").await;
     let key = t.key.to_string();
@@ -172,12 +182,48 @@ async fn validating_round_findings_and_conflict_files() {
     .await;
     assert!(f.ticket(&key).await.flags.validating_round.is_some());
 
+    // Round 1 fails; the checker's verdict is its comment from that round (CMT-05). The card reads its first line
+    // (CMT-10): not the user's comment, not another stage's, not another round's.
     set(
         &f,
         &t.id,
-        "INSERT INTO validations (id, ticket_id, round, trigger, started_at, ended_at, outcome, report) \
-         VALUES ('v1', ?, 1, 'agent', 1, 2, 'fail', \
-                 '- src/cart.ts:12 the total ignores the coupon\n- Note: covered by SHOP-40.2\n\n- no test for it')",
+        "INSERT INTO validations (id, ticket_id, round, trigger, started_at, ended_at, outcome) \
+         VALUES ('v1', ?, 1, 'agent', 1, 2, 'fail')",
+    )
+    .await;
+    let validator = |stage: &str, round| CommentAuthor::Agent {
+        id: Some("validator".into()),
+        name: Some("Validator".into()),
+        tool: None,
+        stage: Some(stage.into()),
+        round,
+    };
+    post(
+        &f,
+        &t.id,
+        &validator("validate", Some(1)),
+        "\n  Fail: the 10,000 row limit isn't enforced; 3 tests fail.\nmore",
+    )
+    .await;
+    post(
+        &f,
+        &t.id,
+        &CommentAuthor::User { name: "me".into() },
+        "Also keep the column order.",
+    )
+    .await;
+    post(
+        &f,
+        &t.id,
+        &validator("security", Some(1)),
+        "Another check's text",
+    )
+    .await;
+    post(
+        &f,
+        &t.id,
+        &validator("validate", Some(2)),
+        "A later round's text",
     )
     .await;
     set(
@@ -189,11 +235,8 @@ async fn validating_round_findings_and_conflict_files() {
     let ticket = f.ticket(&key).await;
     assert_eq!(ticket.flags.validating_round, None);
     assert_eq!(
-        ticket.flags.findings,
-        [
-            "src/cart.ts:12 the total ignores the coupon",
-            "no test for it"
-        ]
+        ticket.flags.verdict.as_deref(),
+        Some("Fail: the 10,000 row limit isn't enforced; 3 tests fail.")
     );
     set(
         &f,
@@ -201,7 +244,29 @@ async fn validating_round_findings_and_conflict_files() {
         "UPDATE tickets SET state = 'validation_failed' WHERE id = ?",
     )
     .await;
-    assert_eq!(f.ticket(&key).await.flags.findings.len(), 2);
+    assert!(f.ticket(&key).await.flags.verdict.is_some());
+    // A newer verdict in the same round wins; a deleted one is gone.
+    post(
+        &f,
+        &t.id,
+        &validator("validate", Some(1)),
+        "Fail: still failing",
+    )
+    .await;
+    assert_eq!(
+        f.ticket(&key).await.flags.verdict.as_deref(),
+        Some("Fail: still failing")
+    );
+    set(
+        &f,
+        &t.id,
+        "UPDATE ticket_comments SET deleted_at = 9 WHERE ticket_id = ? AND n = 5",
+    )
+    .await;
+    assert_eq!(
+        f.ticket(&key).await.flags.verdict.as_deref(),
+        Some("Fail: the 10,000 row limit isn't enforced; 3 tests fail.")
+    );
     set(
         &f,
         &t.id,
@@ -210,9 +275,24 @@ async fn validating_round_findings_and_conflict_files() {
     )
     .await;
     assert!(
-        f.ticket(&key).await.flags.findings.is_empty(),
-        "only while the findings matter on the card"
+        f.ticket(&key).await.flags.verdict.is_none(),
+        "only while the verdict matters on the card"
     );
+    // A later failed round without a verdict comment shows none, never round 1's.
+    set(
+        &f,
+        &t.id,
+        "UPDATE tickets SET state = 'validation_failed', stage_id = 'validate', review_entry = NULL WHERE id = ?",
+    )
+    .await;
+    set(
+        &f,
+        &t.id,
+        "INSERT INTO validations (id, ticket_id, round, trigger, started_at, ended_at, outcome) \
+         VALUES ('v3', ?, 3, 'agent', 5, 6, 'fail')",
+    )
+    .await;
+    assert_eq!(f.ticket(&key).await.flags.verdict, None);
 
     set(
         &f,

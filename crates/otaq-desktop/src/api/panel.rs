@@ -423,6 +423,8 @@ pub struct Facts<'a> {
     /// Its project's flow isn't the default's shape: Pass · Fail, Send back with PR comments (FLW-14, FLW-16); the
     /// default flow keeps today's bar (d0108, STG-06).
     pub custom_flow: bool,
+    /// Its ticket comments: the Ticket tab's count (CMT-10).
+    pub comments: usize,
 }
 
 fn running_agent(sessions: &[SessionInfo]) -> bool {
@@ -669,7 +671,7 @@ pub fn view_of(f: &Facts) -> View {
             url,
             stop_hint: "Stop",
         }),
-        tabs: vm::indicators(ticket, f.sessions, f.lead.map(|l| &l.status))
+        tabs: vm::indicators(ticket, f.sessions, f.lead.map(|l| &l.status), f.comments)
             .into_iter()
             .enumerate()
             .map(|(i, (tab, indicator))| match (tab, f.run) {
@@ -823,6 +825,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     let custom_flow = !otaq_view::view_models::flow_columns::keeps_default_look(
         &super::board::flow(app, ticket.key.project.as_str()).await,
     );
+    let comments = super::ticket_comments::count(app, &params.key).await;
     let view = view_of(&Facts {
         ticket: &ticket,
         tickets: &all,
@@ -840,6 +843,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         tools: &tools,
         keys,
         custom_flow,
+        comments,
     });
     Ok(Load {
         view: Some(view),
@@ -1602,6 +1606,7 @@ pub fn notes_gallery() -> NotesGallery {
                     tools,
                     keys: KeyLabels::default(),
                     custom_flow: false,
+                    comments: 0,
                 })
             })
             .collect(),
@@ -1699,6 +1704,7 @@ mod tests {
             tools: one_tool(),
             keys: KeyLabels::base(otaq_view::keymap::Platform::Mac),
             custom_flow: false,
+            comments: 0,
         }
     }
 

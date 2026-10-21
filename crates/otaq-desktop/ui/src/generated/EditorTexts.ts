@@ -3,7 +3,11 @@
 /**
  * The form's words.
  */
-export type EditorTexts = { title: string, title_placeholder: string, title_required: string, priority: string, priority_hint: string, kind: string, kind_ticket: string, kind_epic: string, epic: string, epic_hint: string, epic_none: string, body: string, body_hint: string, body_placeholder: string, deps: string, deps_hint: string, deps_placeholder: string, deps_none: string, base: string, base_hint: string, external_id: string, external_id_hint: string, external_id_placeholder: string, 
+export type EditorTexts = { title: string, title_placeholder: string, title_required: string, priority: string, priority_hint: string, kind: string, kind_ticket: string, kind_epic: string, epic: string, epic_hint: string, epic_none: string, body: string, 
+/**
+ * The description's label in the Ticket tab's read mode, over the comments (CMT-10, `s05-41`).
+ */
+plan: string, body_hint: string, body_placeholder: string, deps: string, deps_hint: string, deps_placeholder: string, deps_none: string, base: string, base_hint: string, external_id: string, external_id_hint: string, external_id_placeholder: string, 
 /**
  * "⌘↵ create" / "save", "Esc discard" / "close".
  */

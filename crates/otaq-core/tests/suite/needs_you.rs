@@ -309,10 +309,8 @@ fn the_m12_items_read_as_the_frame() {
     );
     let mut failed = t("SHOP-32", "Address autocomplete", Status::CheckFailed, 12);
     failed.validation_round = 3;
-    failed.flags.findings = vec![
-        "The description asks for keyboard navigation; arrow keys do nothing".into(),
-        "src/a.ts:3 leftover console.log".into(),
-    ];
+    failed.flags.verdict =
+        Some("The description asks for keyboard navigation; arrow keys do nothing".into());
     let no_result = t("SHOP-34", "Tax display", Status::CheckNoResult, 4);
     let mut stopped = needs_you(
         "SHOP-40",

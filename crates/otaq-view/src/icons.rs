@@ -179,6 +179,7 @@ icons! {
     Search = "search";
     SearchX = "search-x";
     Send = "send";
+    SendHorizontal = "send-horizontal";
     Server = "server";
     ServerCog = "server-cog";
     ServerOff = "server-off";

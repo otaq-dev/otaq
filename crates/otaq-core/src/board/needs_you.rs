@@ -394,7 +394,7 @@ fn reason(ticket: &Ticket, tickets: &[Ticket], waiting_in: Option<&WaitingIn>) -
         },
         Status::CheckFailed => {
             let failed = failed_times(ticket.validation_round.max(1)).to_lowercase();
-            match ticket.flags.findings.first() {
+            match &ticket.flags.verdict {
                 Some(finding) => format!("{failed} · “{finding}”"),
                 None => failed,
             }

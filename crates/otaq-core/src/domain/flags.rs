@@ -174,11 +174,11 @@ pub struct Flags {
     /// you", "Moved back by you"; FLW-14, [`crate::board::human_check::Arrival`]). Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arrival: Option<crate::board::human_check::Arrival>,
-    /// The last failed round's findings (its report lines that aren't notes), while the agent fixes them or after
-    /// the last round failed: "· 2 findings", and the first one on "Validation failed 3 times" (d0063). Not a flag
-    /// of its own.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub findings: Vec<String>,
+    /// The last failed round's verdict, while the agent fixes it or after the last round failed: the first line of
+    /// the comment its checker posted in that round ("Fail: the 10,000 row limit isn't enforced; …"), which the card
+    /// shows with "· see comment" (CMT-10, d0109). Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<String>,
     /// The files the recorded conflict touches: "Merge conflict · fixing · lib/wishlist.ts" (d0064). Not a flag
     /// of its own.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -369,7 +369,7 @@ mod tests {
                 stage: "Security".into(),
                 round: Some(2),
             }),
-            findings: vec!["src/cart.ts:12 the total ignores the coupon".into()],
+            verdict: Some("Fail: the total ignores the coupon".into()),
             conflict_files: vec!["lib/wishlist.ts".into()],
             merged_automatically: true,
             delivered_without_checks: true,

@@ -945,9 +945,17 @@ impl Board {
         .map(|(id, actor, payload): (String, String, String)| (id, (actor, payload)))
         .collect();
         // The last failed round's report of each ticket, for "· 2 findings" and the first finding (d0063).
-        let failed_reports: std::collections::HashMap<String, String> = sqlx::query_as(
-            "SELECT v.ticket_id, v.report FROM validations v JOIN tickets t ON t.id = v.ticket_id
-             WHERE t.project_id = ? AND v.outcome = ? AND v.report IS NOT NULL
+        // Each ticket's last failed check round and its verdict: the newest comment its checker posted in that round
+        // (an agent comment from the check's stage, with the round's number; CMT-05, CMT-10). A later failed round
+        // without one shows none, never an older round's.
+        let verdicts: std::collections::HashMap<String, Option<String>> = sqlx::query_as(
+            "SELECT v.ticket_id,
+                    (SELECT c.body FROM ticket_comments c JOIN stage_runs r ON r.validation_id = v.id
+                     WHERE c.ticket_id = v.ticket_id AND c.author_kind = 'agent' AND c.stage_id = r.stage_id
+                       AND c.round = v.round AND c.deleted_at IS NULL
+                     ORDER BY c.n DESC LIMIT 1)
+             FROM validations v JOIN tickets t ON t.id = v.ticket_id
+             WHERE t.project_id = ? AND v.outcome = ?
              ORDER BY v.started_at, v.id",
         )
         .bind(project_id)
@@ -1142,10 +1150,9 @@ impl Board {
                     ..Flags::default()
                 };
                 if flags.validation_round.is_some() || status == Status::CheckFailed {
-                    flags.findings = failed_reports
+                    flags.verdict = verdicts
                         .get(&row.id)
-                        .map(|report| findings_of(report))
-                        .unwrap_or_default();
+                        .and_then(|body| first_line(body.as_deref()?));
                 }
                 let port = |p: Option<i64>| p.and_then(|p| u16::try_from(p).ok());
                 let work = Work {
@@ -1409,15 +1416,12 @@ fn validating_round(
     })
 }
 
-/// A report's findings: its non-empty lines that aren't notes, without list bullets (VAL-04).
-fn findings_of(report: &str) -> Vec<String> {
-    report
-        .lines()
-        .filter(|line| super::validation::note_of(line).is_none())
-        .map(|line| line.trim().trim_start_matches(['-', '*']).trim())
-        .filter(|line| !line.is_empty())
+/// A comment's first line with text, trimmed: what a card shows of a verdict.
+fn first_line(body: &str) -> Option<String> {
+    body.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
         .map(str::to_owned)
-        .collect()
 }
 
 /// Takes the project's next ticket number. Numbers are never handed out twice (d0029).
