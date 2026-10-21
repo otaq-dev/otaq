@@ -4,6 +4,7 @@
 mod agent;
 mod attach;
 mod cli;
+mod comment;
 mod daemon;
 mod decision;
 mod deps;
@@ -169,6 +170,9 @@ fn main() -> ExitCode {
         Some(Command::Branch(command)) => pr::branch(command, &cli.global, &out),
         Some(Command::Answer { id, stdin }) => agent::answer(id, stdin, &cli.global, &out),
         Some(Command::Questions { key }) => agent::questions(key, &cli.global, &out),
+        Some(Command::Comment(args)) => comment::comment(args, &cli.global, &out),
+        Some(Command::Comments { key }) => comment::list(key, &cli.global, &out),
+        Some(Command::Report { args, path }) => comment::report(args, path, &cli.global, &out),
         Some(Command::Dep(command)) => deps::run(command, &cli.global, &out),
         Some(Command::Project(command)) => read::project(command, &cli.global, &out),
         Some(Command::Flow(command)) => flow::run(command, &cli.global, &out),

@@ -80,11 +80,15 @@ impl Board {
         })
     }
 
-    /// Deletes a never-started ticket (with its links, aliases, review and message rows), or
+    /// Deletes a never-started ticket (with its links, aliases, review and message rows, its comments and their
+    /// reports), or
     /// an epic together with its never-started children, in one transaction.
     pub async fn delete_ticket(&self, key: &str) -> Result<DeletePreview, BoardError> {
         let preview = self.delete_preview(key).await?;
         let (ticket, doomed, _) = self.deletion(key).await?;
+        // Their comments' reports go with them (CMT-03); the rows go by cascade.
+        let ids: Vec<&str> = doomed.iter().map(|t| t.id.as_str()).collect();
+        let reports = self.report_files_of(&ids).await?;
         let mut tx = self.store.begin_write().await?;
         // Children first, then the epic (they reference it).
         for t in doomed.iter().filter(|t| t.id != ticket.id) {
@@ -98,6 +102,7 @@ impl Board {
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
+        self.remove_reports(&reports);
         tracing::info!(key = %ticket.key, with = doomed.len() - 1, "ticket deleted");
         Ok(preview)
     }

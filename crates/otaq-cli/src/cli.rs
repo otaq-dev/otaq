@@ -263,6 +263,23 @@ pub enum Command {
     /// An agent check's verdict on its ticket, the report on stdin (`check pass|fail --stdin`, check sessions only)
     #[command(subcommand)]
     Check(CheckCommand),
+    /// Comment on a ticket for the next stage's agent (`comment [KEY] --stdin [--report-file PATH]`), or `comment
+    /// edit|delete <N>`
+    Comment(crate::comment::CommentArgs),
+    /// A ticket's comments, oldest first (default: $OTAQ_TICKET)
+    Comments {
+        /// SHOP-34, or 34 in the current project
+        key: Option<String>,
+    },
+    /// Print the report of comment N (`report [KEY] <N>`); `--path` prints only its file, to search it with grep
+    Report {
+        /// [KEY] N: SHOP-34 4, or 4 on $OTAQ_TICKET
+        #[arg(value_name = "KEY", num_args = 1..=2, required = true)]
+        args: Vec<String>,
+        /// Print only the report's path
+        #[arg(long)]
+        path: bool,
+    },
     /// Read the review feedback (`review feedback`); `review submit --stdin` is another name for `stage next`
     #[command(subcommand)]
     Review(ReviewCommand),

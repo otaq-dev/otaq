@@ -480,6 +480,25 @@ pub enum Request {
     /// [`Reply::ReviewComments`].
     #[serde(rename = "review.comments")]
     ReviewComments(CommentsParams),
+
+    // Ticket comments and reports (CMT-01…CMT-06, d0109). Not the line comments above.
+    /// Posts a comment with an optional report (a file to copy or pasted text); answered with
+    /// [`Reply::TicketComment`]. A checker posts only with its verdict.
+    #[serde(rename = "ticket.comment_post")]
+    TicketCommentPost(TicketCommentPostParams),
+    /// Changes comment `n`'s text; answered with [`Reply::TicketComment`].
+    #[serde(rename = "ticket.comment_edit")]
+    TicketCommentEdit(TicketCommentEditParams),
+    /// Deletes comment `n` (History keeps it, its report stays); answered with [`Reply::TicketComment`], as it was.
+    #[serde(rename = "ticket.comment_delete")]
+    TicketCommentDelete(TicketCommentParams),
+    /// The ticket's comments, oldest first; answered with [`Reply::TicketComments`].
+    #[serde(rename = "ticket.comments")]
+    TicketComments(KeyParams),
+    /// Where comment `n`'s report is, with its size and lines; answered with [`Reply::TicketReport`]. The CLI prints
+    /// the file itself (streamed), so a 20 MB report never travels in one frame.
+    #[serde(rename = "ticket.report")]
+    TicketReport(TicketCommentParams),
     /// Fail on a human check (FLW-14; Send back on the default flow, REV-04): the pending comments and the note go
     /// to the nearest earlier Agent stage's session, and the ticket returns there. Answered with
     /// [`Reply::Returned`]: done, or `needs_confirmation` when the session's input line has unsent text (resend
@@ -1349,6 +1368,31 @@ pub struct CommentsParams {
     pub round: Option<u32>,
 }
 
+/// `{"key": "SHOP-34", "body": "…"}`, with `"report": {"path": "/abs/test-run.txt"}` or `{"text": "…"}`: a new
+/// ticket comment (CMT-06, CMT-11).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketCommentPostParams {
+    pub key: String,
+    pub body: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<crate::board::reports::ReportSource>,
+}
+
+/// `{"key": "SHOP-34", "n": 2, "body": "…"}`: comment 2's new text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketCommentEditParams {
+    pub key: String,
+    pub n: u32,
+    pub body: String,
+}
+
+/// `{"key": "SHOP-34", "n": 4}`: one ticket comment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketCommentParams {
+    pub key: String,
+    pub n: u32,
+}
+
 /// `{"key": "SHOP-18", "summary": "…"}`: how an agent ends its stage (`stage next`: the summary; `stage done`: the
 /// reason).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1754,6 +1798,11 @@ impl Request {
             Self::ReviewCommentEdit(_) => "review.comment_edit",
             Self::ReviewCommentDelete(_) => "review.comment_delete",
             Self::ReviewComments(_) => "review.comments",
+            Self::TicketCommentPost(_) => "ticket.comment_post",
+            Self::TicketCommentEdit(_) => "ticket.comment_edit",
+            Self::TicketCommentDelete(_) => "ticket.comment_delete",
+            Self::TicketComments(_) => "ticket.comments",
+            Self::TicketReport(_) => "ticket.report",
             Self::TicketFail(_) => "ticket.fail",
             Self::TicketPass(_) => "ticket.pass",
             Self::ReviewFeedback(_) => "review.feedback",
@@ -1988,6 +2037,9 @@ pub enum Reply {
     FileDiff(Box<FileDiff>),
     ReviewComment(ReviewComment),
     ReviewComments(ReviewComments),
+    TicketComment(Box<crate::board::ticket_comments::TicketComment>),
+    TicketComments(crate::board::ticket_comments::TicketComments),
+    TicketReport(Box<crate::board::ticket_comments::ReportFile>),
     Returned(ReturnOutcome),
     Passed(PassOutcome),
     ReviewFeedback(ReviewFeedback),

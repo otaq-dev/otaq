@@ -313,6 +313,10 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
     let (title, detail) = match e.kind {
         // The session row stands for a successful start.
         EventKind::Started | EventKind::AgentEditsSeen => return None,
+        // Ticket comments' lines (CMT-14) are drawn by T-0447; until then History leaves them out.
+        EventKind::CommentPosted | EventKind::CommentEdited | EventKind::CommentDeleted => {
+            return None;
+        }
         EventKind::Created => ("Created".to_owned(), Some(by(e))),
         EventKind::Moved => {
             let to = text(p, "to").and_then(|s| s.parse::<Status>().ok());

@@ -521,6 +521,15 @@ pub(super) async fn handle(
                 Err(e) => Err(e),
             }
         }),
+        request @ (Request::TicketCommentPost(_)
+        | Request::TicketCommentEdit(_)
+        | Request::TicketCommentDelete(_)
+        | Request::TicketComments(_)
+        | Request::TicketReport(_)) => {
+            boxed(
+                move || async move { ticket_comment_request(shared, caller, &actor, request).await },
+            )
+        }
         Request::TicketFail(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(
@@ -2100,6 +2109,53 @@ async fn comment_changed(
         publish_ticket_changed(shared, &key).await;
     }
     Ok(Reply::ReviewComment(comment))
+}
+
+/// The ticket comment requests (CMT-01…CMT-06, d0109); the policy judged the caller first (CMT-04). Each change
+/// publishes `ticket_changed`.
+async fn ticket_comment_request(
+    shared: &Shared,
+    caller: &Caller,
+    actor: &Actor,
+    request: Request,
+) -> Result<Reply, BoardError> {
+    let board = &shared.board;
+    let (key, reply) = match request {
+        Request::TicketComments(p) => {
+            return board
+                .ticket_comments(&p.key)
+                .await
+                .map(Reply::TicketComments);
+        }
+        Request::TicketReport(p) => {
+            return board
+                .ticket_report(&p.key, p.n)
+                .await
+                .map(|r| Reply::TicketReport(Box::new(r)));
+        }
+        Request::TicketCommentPost(p) => {
+            let author = board.caller_author(caller, actor).await?;
+            let posted = board
+                .post_ticket_comment(&p.key, &author, &p.body, p.report, actor)
+                .await?;
+            (p.key, posted)
+        }
+        Request::TicketCommentEdit(p) => {
+            let edited = board
+                .edit_ticket_comment(&p.key, p.n, &p.body, actor)
+                .await?;
+            (p.key, edited)
+        }
+        Request::TicketCommentDelete(p) => {
+            let deleted = board.delete_ticket_comment(&p.key, p.n, actor).await?;
+            (p.key, deleted)
+        }
+        _ => unreachable!("only ticket comment requests come here"),
+    };
+    if let Ok(ticket) = board.ticket(&key).await {
+        publish_ticket_changed(shared, &ticket.key).await;
+    }
+    Ok(Reply::TicketComment(Box::new(reply)))
 }
 
 /// The ticket's validation rounds with each validator's tokens (History, VAL-12).

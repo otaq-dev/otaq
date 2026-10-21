@@ -488,6 +488,19 @@ async fn action_for(
         | R::ReviewCommentReply(_)
         | R::ReviewCommentEdit(_)
         | R::ReviewCommentDelete(_) => Action::UserOnly("write review comments"),
+        // Ticket comments (CMT-04): read by anyone; written by the policy's rules, edits judged by their author.
+        R::TicketComments(_) | R::TicketReport(_) => Action::Read,
+        R::TicketCommentPost(p) => Action::Comment {
+            target: facts(board, &p.key).await?,
+            own: None,
+        },
+        R::TicketCommentEdit(crate::protocol::TicketCommentEditParams { key, n, .. })
+        | R::TicketCommentDelete(crate::protocol::TicketCommentParams { key, n }) => {
+            Action::Comment {
+                target: facts(board, key).await?,
+                own: Some(board.is_own_comment(caller, key, *n).await?),
+            }
+        }
         R::TicketFail(_) => Action::UserOnly("send tickets back"),
         R::TicketPass(_) => Action::UserOnly("pass human checks"),
         R::TicketLocalMerge(_) => Action::UserOnly("merge tickets"),

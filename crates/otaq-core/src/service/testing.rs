@@ -463,6 +463,20 @@ impl TestService {
         }
     }
 
+    /// Records that `shell`'s session runs the flow agent `id` named `name` on Claude Code, as a session started for
+    /// a stage does (its comments are that agent's, CMT-04).
+    pub async fn run_as_agent(&self, shell: &AgentShell, id: &str, name: &str) {
+        sqlx::query(
+            "UPDATE sessions SET agent_id = ?, agent_name = ?, tool = 'claude' WHERE id = ?",
+        )
+        .bind(id)
+        .bind(name)
+        .bind(&shell.session)
+        .execute(self.board.store().pool())
+        .await
+        .expect("session agent set");
+    }
+
     /// Types commands into an existing session whose program is `sh` (a Project agent's stand-in, say).
     pub fn shell_in(&self, session: &str) -> AgentShell {
         AgentShell {

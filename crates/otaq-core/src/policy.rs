@@ -37,6 +37,11 @@
 //! never-started children (not the epic), a ticket agent on its own ticket; a validator never. Which stage each may
 //! choose for, and over whose choice, is [`crate::board::stage_choices::judge`]'s.
 //!
+//! **Ticket comments** (CMT-04, d0109) are [`Action::Comment`]: the user writes, edits and deletes any; a ticket's
+//! agent comments on its own ticket and edits or deletes only its own comments; an epic lead comments on its epic and
+//! its children (started or not: a comment is for their later stages) and edits or deletes only its own. A checker
+//! posts only with its verdict (`check pass|fail`), the Project agent and other tickets' agents never.
+//!
 //! **Reading a ticket's terminal** (`otaq show <KEY> --terminal`, CLI-09, d0087) is its own narrower action, not
 //! "read anything": a Project agent reads any ticket of its project, an epic lead its own epic's children; ticket
 //! agents and validators are refused ("NOTE-5's agent can't read NOTE-6's terminal"). Nobody types into another
@@ -58,6 +63,21 @@ pub const BACKLOG_ONLY: &str = "Project agents can only change Backlog tickets";
 /// started".
 pub fn lead_refusal(lead: &str, epic: &TicketKey) -> String {
     format!("{lead} can only change {epic}'s children that haven't started")
+}
+
+/// Every refusal of a comment from a Project agent (CMT-04).
+pub const PROJECT_AGENT_NO_COMMENTS: &str = "Project agents can read comments, not write them";
+
+/// The refusal of an epic lead's comment outside its epic (CMT-04): "Wishlist lead can only comment on SHOP-40 and
+/// its children".
+pub fn lead_comment_refusal(lead: &str, epic: &TicketKey) -> String {
+    format!("{lead} can only comment on {epic} and its children")
+}
+
+/// The refusal of editing or deleting another author's comment (CMT-04): "SHOP-18's agent can only edit or delete
+/// its own comments".
+pub fn not_own_comment(who: &str) -> String {
+    format!("{who} can only edit or delete its own comments")
 }
 
 /// The refusal of `decision mark` from anyone but an epic's lead (DEC-04).
@@ -165,6 +185,14 @@ pub enum Action {
     All(Vec<Action>),
     /// `otaq flow propose` for the project `project` (its key): the user, or a Project agent of that project (FLW-03).
     ProposeFlow { project: String },
+    /// Posts a ticket comment on `target` (`own: None`), or edits or deletes one of its comments (`own`: whether the
+    /// caller wrote it), CMT-04: the user any; a ticket's agent on its own ticket, editing only its own; an epic
+    /// lead on its epic and its children, editing only its own. A checker posts only with its verdict, the Project
+    /// agent never.
+    Comment {
+        target: TicketFacts,
+        own: Option<bool>,
+    },
 }
 
 /// Allows or refuses `action` for `caller`. Refusals are [`Refusal::NotAllowed`] with a message for people. An epic
@@ -275,12 +303,23 @@ pub fn authorize_in_stage(
                 ..
             } if is_child_of(target, epic_id) && (*started_too || target.never_started) => Ok(()),
             Action::ReadTerminal { target, .. } if is_child_of(target, epic_id) => Ok(()),
+            Action::Comment { target, own }
+                if target.id == *epic_id || is_child_of(target, epic_id) =>
+            {
+                if *own == Some(false) {
+                    let fallback = format!("{epic}'s lead");
+                    refuse(not_own_comment(names.caller.unwrap_or(&fallback)))
+                } else {
+                    Ok(())
+                }
+            }
             Action::All(actions) => all(actions),
             _ => {
                 let fallback = format!("{epic}'s lead");
                 let lead = names.caller.unwrap_or(&fallback);
                 match action {
                     Action::ReadTerminal { .. } => refuse(lead_terminal_refusal(lead, epic)),
+                    Action::Comment { .. } => refuse(lead_comment_refusal(lead, epic)),
                     _ => refuse(lead_refusal(lead, epic)),
                 }
             }
@@ -303,6 +342,7 @@ pub fn authorize_in_stage(
             // A Backlog ticket may wait for any ticket ("SHOP-35 waits for SHOP-19").
             Action::Dependency { child, .. } if child.backlog => Ok(()),
             Action::All(actions) => all(actions),
+            Action::Comment { .. } => refuse(PROJECT_AGENT_NO_COMMENTS.to_owned()),
             _ => refuse(BACKLOG_ONLY.to_owned()),
         };
     }
@@ -343,6 +383,17 @@ pub fn authorize_in_stage(
         }
         Action::ReadTerminal { target, .. } => refuse(format!(
             "{ticket}'s agent can't read {}'s terminal",
+            target.label
+        )),
+        Action::Comment { target, own } if target.id == *ticket_id => {
+            if *own == Some(false) {
+                refuse(not_own_comment(&format!("{ticket}'s agent")))
+            } else {
+                Ok(())
+            }
+        }
+        Action::Comment { target, .. } => refuse(format!(
+            "{ticket}'s agent can't comment on {}",
             target.label
         )),
         Action::UserOnly(what) => refuse(format!("{ticket}'s agent can't {what}; ask the user")),
@@ -1069,6 +1120,153 @@ mod tests {
         assert_eq!(
             choose(&validator, &backlog).as_deref(),
             Some("SHOP-13's check can only give its verdict")
+        );
+    }
+
+    /// CMT-04's table: who may post, edit and delete ticket comments.
+    #[test]
+    fn the_comment_rights() {
+        let wishlist = facts("SHOP-40", "t40", "nevzat");
+        let child = TicketFacts {
+            epic_id: Some("t40".into()),
+            ..facts("SHOP-40.2", "t402", "nevzat")
+        };
+        let other_epic_child = TicketFacts {
+            epic_id: Some("t41".into()),
+            ..facts("SHOP-41.1", "t411", "nevzat")
+        };
+        let own = facts("SHOP-18", "t18", "nevzat");
+        let other = facts("SHOP-12", "t12", "nevzat");
+        let post = |target: &TicketFacts| Action::Comment {
+            target: target.clone(),
+            own: None,
+        };
+        let change = |target: &TicketFacts, own: bool| Action::Comment {
+            target: target.clone(),
+            own: Some(own),
+        };
+        let lead = Caller::EpicLead {
+            project: "SHOP".into(),
+            agent: "pa".into(),
+            epic: "SHOP-40".parse().unwrap(),
+            epic_id: "t40".into(),
+            session: "s".into(),
+        };
+        let lead_names = Names {
+            caller: Some("Wishlist lead"),
+            project: None,
+        };
+        let validator = Caller::Validator {
+            ticket: "SHOP-18".parse().unwrap(),
+            ticket_id: "t18".into(),
+            session: "s".into(),
+        };
+        let project_agent = Caller::ProjectAgent {
+            project: "SHOP".into(),
+            agent: "pa".into(),
+            session: "s".into(),
+        };
+        let me = agent("SHOP-18", "t18");
+        let rows: Vec<(&str, &Caller, Names, Action, Option<&str>)> = vec![
+            (
+                "user, any ticket",
+                &Caller::User,
+                Names::default(),
+                post(&other),
+                None,
+            ),
+            (
+                "user edits an agent's",
+                &Caller::User,
+                Names::default(),
+                change(&own, false),
+                None,
+            ),
+            ("own agent posts", &me, Names::default(), post(&own), None),
+            (
+                "own agent edits its own",
+                &me,
+                Names::default(),
+                change(&own, true),
+                None,
+            ),
+            (
+                "own agent edits another's",
+                &me,
+                Names::default(),
+                change(&own, false),
+                Some("SHOP-18's agent can only edit or delete its own comments"),
+            ),
+            (
+                "another ticket's agent",
+                &me,
+                Names::default(),
+                post(&other),
+                Some("SHOP-18's agent can't comment on SHOP-12"),
+            ),
+            ("lead on a child", &lead, lead_names, post(&child), None),
+            ("lead on its epic", &lead, lead_names, post(&wishlist), None),
+            (
+                "lead edits its own",
+                &lead,
+                lead_names,
+                change(&child, true),
+                None,
+            ),
+            (
+                "lead edits another's",
+                &lead,
+                lead_names,
+                change(&child, false),
+                Some("Wishlist lead can only edit or delete its own comments"),
+            ),
+            (
+                "lead on another epic's ticket",
+                &lead,
+                lead_names,
+                post(&other_epic_child),
+                Some("Wishlist lead can only comment on SHOP-40 and its children"),
+            ),
+            (
+                "lead on a ticket outside epics",
+                &lead,
+                lead_names,
+                post(&other),
+                Some("Wishlist lead can only comment on SHOP-40 and its children"),
+            ),
+            (
+                "Project agent",
+                &project_agent,
+                Names::default(),
+                post(&own),
+                Some(PROJECT_AGENT_NO_COMMENTS),
+            ),
+            (
+                "checker, outside its verdict",
+                &validator,
+                Names::default(),
+                post(&own),
+                Some("SHOP-18's check can only give its verdict"),
+            ),
+        ];
+        for (name, caller, names, action, expected) in rows {
+            assert_eq!(
+                message(authorize_named(caller, names, &action)).as_deref(),
+                expected,
+                "{name}"
+            );
+        }
+        // A started child too: a comment is for its later stages.
+        assert_eq!(
+            message(authorize_named(
+                &lead,
+                lead_names,
+                &post(&TicketFacts {
+                    never_started: false,
+                    ..child.clone()
+                })
+            )),
+            None
         );
     }
 }

@@ -8,6 +8,7 @@ mod ask_each_tool;
 mod attach;
 mod cli;
 mod client_start;
+mod comments;
 mod copilot_hooks;
 mod daemon;
 mod decision;

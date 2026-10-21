@@ -20,6 +20,7 @@ pub mod order;
 pub mod projects;
 pub mod questions;
 pub mod readiness;
+pub mod reports;
 pub mod review;
 pub mod send_back;
 pub mod settings;
@@ -27,6 +28,7 @@ pub mod snapshot;
 pub mod stack;
 pub mod stage_choices;
 pub mod stage_runs;
+pub mod ticket_comments;
 pub mod tickets;
 pub mod validation;
 
@@ -257,6 +259,10 @@ stored_enum! {
         NotAnOption = "not_an_option",
         /// The stage has started: its choice is locked (AGM-08).
         ChoiceLocked = "choice_locked",
+        /// A ticket comment over the size limit (CMT-02): the message says how long it is.
+        TooLong = "too_long",
+        /// A comment's report can't be read or stored, or is over 20 MB (CMT-03, CMT-06); nothing was posted.
+        BadReport = "bad_report",
     }
 }
 

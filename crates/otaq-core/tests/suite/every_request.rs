@@ -102,6 +102,9 @@ fn sample(method: &str, unit: bool) -> Request {
             params["stage"] = json!("Dev");
             params["choice"] = json!("skip");
         }
+        if method.starts_with("ticket.comment_") || method == "ticket.report" {
+            params["n"] = json!(1);
+        }
         if method == "decision.mark" {
             params["source"] = json!("PAY-1");
             params["text"] = json!("t");
@@ -195,6 +198,11 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::ReviewCommentEdit(_)
         | Request::ReviewCommentDelete(_)
         | Request::ReviewComments(_)
+        | Request::TicketCommentPost(_)
+        | Request::TicketCommentEdit(_)
+        | Request::TicketCommentDelete(_)
+        | Request::TicketComments(_)
+        | Request::TicketReport(_)
         | Request::TicketFail(_)
         | Request::TicketPass(_)
         | Request::ReviewFeedback(_)

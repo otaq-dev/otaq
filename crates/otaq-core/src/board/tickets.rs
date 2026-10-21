@@ -461,6 +461,13 @@ stored_enum! {
         /// choice: it runs once) and `note` (the instructions or the check's note). History reads "Moved back to
         /// Dev" · "Grill · run by you" (or the note, or "by you"), "Moved to Review" · "Skipped Validate · by you".
         Dragged = "dragged",
+        /// A ticket comment was posted (CMT-14, d0109): payload `n`, `excerpt` (the start of its text), `report`
+        /// (`bytes`, `lines`, or null) and `author` (as [`super::ticket_comments::CommentAuthor`]).
+        CommentPosted = "comment_posted",
+        /// A ticket comment's text changed: payload `n`, `before`, `after` and `author` (the comment's).
+        CommentEdited = "comment_edited",
+        /// A ticket comment was deleted: payload `n`, `body` (what it said), `report` and `author`; its report stays.
+        CommentDeleted = "comment_deleted",
     }
 }
 

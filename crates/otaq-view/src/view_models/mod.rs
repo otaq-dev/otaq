@@ -31,6 +31,7 @@ pub mod check_dialogs;
 pub mod cleanup;
 pub mod clock;
 pub mod close;
+pub mod comment_limits;
 pub mod comments;
 pub mod connection;
 pub mod created_summary;
