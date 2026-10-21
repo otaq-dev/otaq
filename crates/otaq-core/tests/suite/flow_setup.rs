@@ -63,20 +63,36 @@ struct World {
     _tools: TempDir,
 }
 
+/// The `claude` stand-in: prints like [`SCRIPT`], then only reads its input, one line at a time, and records each
+/// line in `heard` (the terminal's echo isn't reading).
+fn reader(heard: &Path) -> String {
+    format!(
+        "printf 'ARGS %s\\n' \"$*\"; printf 'CONFIG none\\n'; \
+         while IFS= read -r line; do printf '%s\\n' \"$line\" >> '{}'; done",
+        heard.display()
+    )
+}
+
 fn config(bin: &Path) -> impl FnOnce(ServiceConfig) -> ServiceConfig + use<> {
     let bin = bin.to_path_buf();
+    let script = reader(&heard(&bin));
     move |config| ServiceConfig {
         launch: Some(LaunchContext {
             bin_dir: bin,
             plugin_dir: "/nonexistent/plugin".into(),
             path: std::env::var_os("PATH").unwrap_or_default(),
             claude: ClaudeLaunch {
-                program: vec!["sh".into(), "-c".into(), SCRIPT.into(), "sh".into()],
+                program: vec!["sh".into(), "-c".into(), script, "sh".into()],
                 config_dir: None,
             },
         }),
         ..config
     }
+}
+
+/// Where the `claude` stand-ins of a world record what they read.
+fn heard(bin: &Path) -> std::path::PathBuf {
+    bin.with_file_name("heard")
 }
 
 /// Claude Code and OpenCode connected, Copilot found but signed out, Codex not installed; the Project agent role's
@@ -103,6 +119,9 @@ async fn world() -> World {
         page.effort = Some("high".into());
     })
     .await;
+    // Stand-ins report no turn's end: an unchosen flow agent ends after a short wait here.
+    w.project_agents
+        .set_answer_grace(Duration::from_millis(500));
     World { w, _tools: tools }
 }
 
@@ -650,5 +669,143 @@ async fn flow_setup_is_kept_across_a_restart_and_refuses_tickets() {
     let w = w.restart_with(config(&bin)).await;
     assert!(!in_flow_setup(&w, &shop).await);
     w.board.create_ticket(&input, &me()).await.unwrap();
+    w.stop().await;
+}
+
+/// A hook of the flow agent `agent`, as the service handles it: the signals map it, the Project agents apply it.
+async fn hook(w: &TestService, agent: &ProjectAgent, event: &str, payload: serde_json::Value) {
+    let caller = otaq_core::caller::Caller::ProjectAgent {
+        project: agent.project.clone(),
+        agent: agent.id.clone(),
+        session: agent.session.as_ref().expect("a session").id.clone(),
+    };
+    let signals = w
+        .signals
+        .hook(&caller, agent.tool, event, &payload)
+        .await
+        .unwrap();
+    for signal in &signals {
+        w.project_agents.hook(&agent.id, signal).await.unwrap();
+    }
+}
+
+/// ASK-03 (the fix): an unchosen flow agent reads "The user chose another flow." as its answer, then ends when that
+/// turn ends; Flow setup is over at once. `claude` here only reads its input and records it.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unchosen_agent_reads_its_answer_and_ends_with_its_turn() {
+    let World { w, _tools } = world().await;
+    w.project_agents.set_answer_grace(Duration::from_secs(60));
+    let shop = add_in_flow_setup(&w, "shop-web").await;
+    let claude = ask(&w, &shop, Tool::Claude).await.unwrap();
+    printed(&w, &claude, "ARGS ").await;
+    // Its first turn ended: it waits for the user.
+    hook(
+        &w,
+        &claude,
+        "UserPromptSubmit",
+        serde_json::json!({ "prompt": "/flow" }),
+    )
+    .await;
+    hook(
+        &w,
+        &claude,
+        "Stop",
+        serde_json::json!({ "last_assistant_message": "Proposed." }),
+    )
+    .await;
+
+    send(
+        &w,
+        Request::OnboardingUseDefault(ProjectParams {
+            project: shop.clone(),
+        }),
+    )
+    .await
+    .unwrap();
+    // Flow setup is over at once: the board takes tickets.
+    assert!(!in_flow_setup(&w, &shop).await);
+    w.create(&shop, "Rate limit").await;
+    // The agent read its answer and still runs: its turn on it hasn't ended.
+    let heard = heard(&_tools.path().join("bin"));
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while !std::fs::read_to_string(&heard).is_ok_and(|h| h.contains(CHOSE_ANOTHER_FLOW)) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the stand-in read the answer");
+    let reading = w.project_agents.get(&claude.id).await.unwrap();
+    assert_eq!(
+        (reading.state, reading.closed),
+        (AgentState::Running, false)
+    );
+    // Its turn ends: it ends to Recently ended, long before the wait would have run out.
+    hook(
+        &w,
+        &claude,
+        "UserPromptSubmit",
+        serde_json::json!({ "prompt": CHOSE_ANOTHER_FLOW }),
+    )
+    .await;
+    hook(
+        &w,
+        &claude,
+        "Stop",
+        serde_json::json!({ "last_assistant_message": "Done." }),
+    )
+    .await;
+    let started = std::time::Instant::now();
+    ended(&w, &claude.id).await;
+    assert!(started.elapsed() < Duration::from_secs(10));
+    w.stop().await;
+}
+
+/// An unchosen flow agent that never reports its turn's end ends once the wait runs out; one that isn't running
+/// ends at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unchosen_agent_that_never_ends_its_turn_ends_after_the_wait() {
+    let World { w, _tools } = world().await;
+    w.project_agents.set_answer_grace(Duration::from_secs(2));
+    let shop = add_in_flow_setup(&w, "shop-web").await;
+    let opencode = ask(&w, &shop, Tool::OpenCode).await.unwrap();
+    printed(&w, &opencode, "CONFIG ").await;
+    let claude = ask(&w, &shop, Tool::Claude).await.unwrap();
+    w.project_agents.close(&claude.id, true).await.unwrap();
+    // The ended one is reopened in the tabs, as after a restart, to show it ends at once.
+    sqlx::query("UPDATE project_agents SET closed_at = NULL WHERE id = ?")
+        .bind(&claude.id)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+
+    let started = std::time::Instant::now();
+    send(
+        &w,
+        Request::OnboardingUseDefault(ProjectParams {
+            project: shop.clone(),
+        }),
+    )
+    .await
+    .unwrap();
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "the click returns at once"
+    );
+    assert!(
+        w.project_agents.get(&claude.id).await.unwrap().closed,
+        "not running: at once"
+    );
+    w.wait_for_output(&opencode.session.as_ref().unwrap().id, CHOSE_ANOTHER_FLOW)
+        .await;
+    assert!(
+        !w.project_agents.get(&opencode.id).await.unwrap().closed,
+        "it has its wait"
+    );
+    ended(&w, &opencode.id).await;
+    assert!(
+        started.elapsed() >= Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
     w.stop().await;
 }

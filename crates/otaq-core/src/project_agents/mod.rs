@@ -271,6 +271,9 @@ struct Inner {
     gate: std::sync::OnceLock<crate::agents::gate::LaunchGate>,
     /// The skill copies each running agent holds in its project's folder (AGM-07).
     checkout: tokio::sync::Mutex<checkout::Held>,
+    /// How long an unchosen flow agent may take to read its answer before it ends anyway, in milliseconds
+    /// ([`first_flow::ANSWER_GRACE`]; tests shorten it).
+    answer_grace_ms: std::sync::atomic::AtomicU64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -331,6 +334,9 @@ impl ProjectAgents {
                 handovers: Default::default(),
                 gate: std::sync::OnceLock::new(),
                 checkout: Default::default(),
+                answer_grace_ms: std::sync::atomic::AtomicU64::new(
+                    u64::try_from(first_flow::ANSWER_GRACE.as_millis()).unwrap_or(u64::MAX),
+                ),
             }),
         };
         // The board tells the leads about queues, merges, closes and reviews (d0083).

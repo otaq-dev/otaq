@@ -13,7 +13,12 @@
 //!   a tool's state or a limit of a project in Flow setup changes.
 //! - **Settling** ([`ProjectAgents::settle_flow_setup`]): Use this flow, a preset applied, Use the default or Skip
 //!   ends Flow setup. Every other open proposal closes, and every other flow agent is told
-//!   [`CHOSE_ANOTHER_FLOW`] (typed as the user's click is, never over unsent text) and then ends to Recently ended.
+//!   [`CHOSE_ANOTHER_FLOW`] (typed as the user's click is, never over unsent text) and ends to Recently ended once
+//!   its turn on that answer ends ([`ANSWER_GRACE`] at most); one that isn't running, or has unsent text, ends at
+//!   once.
+
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
@@ -30,6 +35,13 @@ use crate::store::projects::Project;
 
 /// What a flow agent that wasn't chosen is told before it ends (ASK-03).
 pub const CHOSE_ANOTHER_FLOW: &str = "The user chose another flow.";
+
+/// How long an unchosen flow agent may take to read [`CHOSE_ANOTHER_FLOW`] and end its turn before it ends anyway
+/// (a tool that never reports its turn's end).
+pub const ANSWER_GRACE: Duration = Duration::from_secs(30);
+
+/// How often the end of that turn is looked for.
+const TURN_POLL: Duration = Duration::from_millis(100);
 
 /// Why asking a tool that is found but signed out is refused: the row offers Sign in… (ASK-02).
 pub const NOT_SIGNED_IN: &str = "Couldn\u{2019}t start \u{b7} not signed in";
@@ -311,24 +323,18 @@ impl ProjectAgents {
             if keep == Some(agent.id.as_str()) || agent.closed {
                 continue;
             }
-            if let Some(session) = agent.session.as_ref().filter(|s| s.is_running()) {
-                // The user's click, typed like one (d0048): never over unsent text, then the agent ends.
-                match self
-                    .inner
-                    .deliveries
-                    .deliver_from_click(&session.id, CHOSE_ANOTHER_FLOW)
-                    .await
-                {
-                    Ok(crate::session::deliveries::Delivery::Sent { .. }) => {}
-                    Ok(_) => {
-                        tracing::info!(agent = agent.id, "unsent text: the flow agent ends untold")
-                    }
-                    Err(e) => {
-                        tracing::warn!(agent = agent.id, error = %e, "can't tell the flow agent")
-                    }
-                }
+            let told = match agent.session.as_ref().filter(|s| s.is_running()) {
+                Some(session) => self.tell_unchosen(&agent, &session.id).await,
+                None => false,
+            };
+            if told {
+                // It reads the answer and ends its turn, then it ends (in the background: the click returns now).
+                let (this, id, session) = (self.clone(), agent.id.clone(), agent.session.clone());
+                let session = session.map(|s| s.id).unwrap_or_default();
+                tokio::spawn(async move { this.end_after_answer(&id, &session).await });
+            } else {
+                self.close(&agent.id, true).await?;
             }
-            self.close(&agent.id, true).await?;
             settled.agents.push(agent.id);
         }
         board.store().end_flow_setup(&project.id).await?;
@@ -346,6 +352,71 @@ impl ProjectAgents {
         });
         events.publish(Event::ProjectsChanged);
         Ok(settled)
+    }
+
+    /// Types [`CHOSE_ANOTHER_FLOW`] into the unchosen flow agent's `session`, as the user's click is typed (d0048):
+    /// never over unsent text. Whether it was typed.
+    async fn tell_unchosen(&self, agent: &ProjectAgent, session: &str) -> bool {
+        match self
+            .inner
+            .deliveries
+            .deliver_from_click(session, CHOSE_ANOTHER_FLOW)
+            .await
+        {
+            Ok(crate::session::deliveries::Delivery::Sent { .. }) => true,
+            Ok(_) => {
+                tracing::info!(agent = agent.id, "unsent text: the flow agent ends untold");
+                false
+            }
+            Err(e) => {
+                tracing::warn!(agent = agent.id, error = %e, "can't tell the flow agent");
+                false
+            }
+        }
+    }
+
+    /// Ends the told flow agent `id` once its turn on the answer ends (its next idle signal), its session ends, or
+    /// [`ANSWER_GRACE`] passes, whichever comes first.
+    async fn end_after_answer(&self, id: &str, session: &str) {
+        let grace = Duration::from_millis(self.inner.answer_grace_ms.load(Ordering::Relaxed));
+        let waited = tokio::time::timeout(grace, async {
+            loop {
+                tokio::time::sleep(TURN_POLL).await;
+                let running = self
+                    .inner
+                    .sessions
+                    .info(session)
+                    .is_ok_and(|i| i.is_running());
+                if !running || self.inner.idle.is_idle(session) {
+                    return;
+                }
+            }
+        })
+        .await;
+        if waited.is_err() {
+            tracing::info!(
+                agent = id,
+                "the flow agent didn't end its turn: it ends now"
+            );
+        }
+        match self.close(id, true).await {
+            Ok(()) => {
+                if let Ok(agent) = self.get(id).await {
+                    self.inner.events.publish(Event::FlowSetupChanged {
+                        project: agent.project,
+                    });
+                }
+            }
+            Err(e) => tracing::warn!(agent = id, error = %e, "can't end the flow agent"),
+        }
+    }
+
+    /// Shortens [`ANSWER_GRACE`] (tests).
+    pub fn set_answer_grace(&self, grace: Duration) {
+        self.inner.answer_grace_ms.store(
+            u64::try_from(grace.as_millis()).unwrap_or(u64::MAX),
+            Ordering::Relaxed,
+        );
     }
 
     /// Sends [`Event::FlowSetupChanged`] for a project in Flow setup whenever what [`Self::flow_setup`] answers may
