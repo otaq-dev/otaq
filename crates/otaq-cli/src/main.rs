@@ -8,6 +8,7 @@ mod daemon;
 mod decision;
 mod deps;
 mod flow;
+mod history;
 mod hook;
 mod launch;
 mod lead;
@@ -172,6 +173,12 @@ fn main() -> ExitCode {
         Some(Command::Dep(command)) => deps::run(command, &cli.global, &out),
         Some(Command::Project(command)) => read::project(command, &cli.global, &out),
         Some(Command::Flow(command)) => flow::run(command, &cli.global, &out),
+        Some(Command::History {
+            since,
+            all,
+            command,
+            page,
+        }) => history::run(since, all, command, page, &cli.global, &out),
         Some(Command::Hook { tool, event }) => {
             hook::run(&tool, &event);
             Ok(())

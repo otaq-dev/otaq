@@ -15,6 +15,7 @@ mod epic_children;
 mod epic_pr;
 mod epic_prime;
 mod flow;
+mod history;
 mod hook;
 mod install_local;
 mod lead;

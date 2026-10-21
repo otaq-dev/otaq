@@ -1,0 +1,301 @@
+{"display":"the dark mode colours look off on the settings page","pastedContents":{},"timestamp":1756246924281,"project":"/Users/sam/code/pocket-api","sessionId":"d0d70ebe-92bc-d168-ebd8-cbc6d353edb6"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1756378656500,"project":"/Users/sam/code/pocket-api","sessionId":"d0d70ebe-92bc-d168-ebd8-cbc6d353edb6"}
+{"display":"/commit","pastedContents":{},"timestamp":1756435488891,"project":"/Users/sam/scratch","sessionId":"4d5aff5a-31c0-1f6e-ae9d-1ae1143957a8"}
+{"display":"can you review the diff before I push?","pastedContents":{},"timestamp":1756559484876,"project":"/Users/sam/code/pocket-api","sessionId":"d0d70ebe-92bc-d168-ebd8-cbc6d353edb6"}
+{"display":"add rate limiting to the login endpoint","pastedContents":{},"timestamp":1756688703556,"project":"/Users/sam/code/pocket-notes","sessionId":"ad2b68e4-8df8-823c-3ced-41f73baa6f70"}
+{"display":"/commit","pastedContents":{},"timestamp":1756928990180,"project":"/Users/sam/code/pocket-notes","sessionId":"ad2b68e4-8df8-823c-3ced-41f73baa6f70"}
+{"display":"/security-review","pastedContents":{},"timestamp":1757034022779,"project":"/Users/sam/code/pocket-api","sessionId":"d0d70ebe-92bc-d168-ebd8-cbc6d353edb6"}
+{"display":"add pagination to GET /notes","pastedContents":{},"timestamp":1757105476282,"project":"/Users/sam/code/pocket-notes","sessionId":"a2cf3927-ba78-920a-992a-ec6afa24d81c"}
+{"display":"remove the old feature flag for shared notebooks","pastedContents":{},"timestamp":1757138867927,"project":"/Users/sam/code/pocket-notes","sessionId":"a2cf3927-ba78-920a-992a-ec6afa24d81c"}
+{"display":"the dark mode colours look off on the settings page","pastedContents":{},"timestamp":1757213612847,"project":"/Users/sam/code/pocket-notes","sessionId":"a2cf3927-ba78-920a-992a-ec6afa24d81c"}
+{"display":"the API returns 500 when the tag is missing, fix it","pastedContents":{},"timestamp":1757214218150,"project":"/Users/sam/code/pocket-notes","sessionId":"a2cf3927-ba78-920a-992a-ec6afa24d81c"}
+{"display":"add a search box to the notes list","pastedContents":{},"timestamp":1757276562119,"project":"/Users/sam/scratch","sessionId":"4d5aff5a-31c0-1f6e-ae9d-1ae1143957a8"}
+{"display":"plan for the offline mode:\n1. cache the notes locally\n2. queue edits while offline\n3. replay them on reconnect","pastedContents":{},"timestamp":1757448918424,"project":"/Users/sam/code/pocket-api","sessionId":"d0d70ebe-92bc-d168-ebd8-cbc6d353edb6"}
+{"display":"/commit","pastedContents":{},"timestamp":1757502487042,"project":"/Users/sam/code/pocket-notes","sessionId":"40996ed7-e4d6-91bd-a29b-35e1b05ec860"}
+{"display":"split this PR into two commits","pastedContents":{},"timestamp":1757562472135,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"plan for the offline mode:\n1. cache the notes locally\n2. queue edits while offline\n3. replay them on reconnect","pastedContents":{},"timestamp":1757703799291,"project":"/Users/sam/code/pocket-api","sessionId":"d0d70ebe-92bc-d168-ebd8-cbc6d353edb6"}
+{"display":"why does the sync test fail on CI?","pastedContents":{},"timestamp":1757935473543,"project":"/Users/sam/code/pocket-api","sessionId":"d0d70ebe-92bc-d168-ebd8-cbc6d353edb6"}
+{"display":"the dark mode colours look off on the settings page","pastedContents":{},"timestamp":1757957090122,"project":"/Users/sam/code/pocket-api","sessionId":"d0d70ebe-92bc-d168-ebd8-cbc6d353edb6"}
+{"display":"rename NoteStore to NotesRepo everywhere","pastedContents":{},"timestamp":1758396528243,"project":"/Users/sam/scratch","sessionId":"4d5aff5a-31c0-1f6e-ae9d-1ae1143957a8"}
+{"display":"/security-review","pastedContents":{},"timestamp":1758546030375,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1758658235283,"project":"/Users/sam/scratch","sessionId":"4d5aff5a-31c0-1f6e-ae9d-1ae1143957a8"}
+{"display":"the API returns 500 when the tag is missing, fix it","pastedContents":{},"timestamp":1759002555417,"project":"/Users/sam/code/pocket-api","sessionId":"d0d70ebe-92bc-d168-ebd8-cbc6d353edb6"}
+{"display":"split this PR into two commits","pastedContents":{},"timestamp":1759012395802,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"draft a README section about offline mode","pastedContents":{},"timestamp":1759151540245,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"why does the sync test fail on CI?","pastedContents":{},"timestamp":1759236961714,"project":"/Users/sam/code/pocket-api","sessionId":"d0d70ebe-92bc-d168-ebd8-cbc6d353edb6"}
+{"display":"/review","pastedContents":{},"timestamp":1759615501703,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1759773409103,"project":"/Users/sam/code/pocket-api","sessionId":"d0d70ebe-92bc-d168-ebd8-cbc6d353edb6"}
+{"display":"check the error handling in the upload handler","pastedContents":{},"timestamp":1760049766056,"project":"/Users/sam/code/pocket-api","sessionId":"d0d70ebe-92bc-d168-ebd8-cbc6d353edb6"}
+{"display":"why does the sync test fail on CI?","pastedContents":{},"timestamp":1760141774538,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"/security-review","pastedContents":{},"timestamp":1760427014794,"project":"/Users/sam/scratch","sessionId":"4d5aff5a-31c0-1f6e-ae9d-1ae1143957a8"}
+{"display":"/model","pastedContents":{},"timestamp":1760863707454,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"/security-review","pastedContents":{},"timestamp":1760891838559,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"/commit","pastedContents":{},"timestamp":1760896829096,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"draft a README section about offline mode","pastedContents":{},"timestamp":1760904608064,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"can you review the diff before I push?","pastedContents":{},"timestamp":1761093033593,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"what's the quickest way to profile the startup?","pastedContents":{},"timestamp":1761117502930,"project":"/Users/sam/code/pocket-api","sessionId":"d0d70ebe-92bc-d168-ebd8-cbc6d353edb6"}
+{"display":"/commit","pastedContents":{},"timestamp":1761134894084,"project":"/Users/sam/scratch","sessionId":"4d5aff5a-31c0-1f6e-ae9d-1ae1143957a8"}
+{"display":"check the error handling in the upload handler","pastedContents":{},"timestamp":1761170330781,"project":"/Users/sam/scratch","sessionId":"4d5aff5a-31c0-1f6e-ae9d-1ae1143957a8"}
+{"display":"plan for the offline mode:\n1. cache the notes locally\n2. queue edits while offline\n3. replay them on reconnect","pastedContents":{},"timestamp":1761451332680,"project":"/Users/sam/scratch","sessionId":"4d5aff5a-31c0-1f6e-ae9d-1ae1143957a8"}
+{"display":"can you review the diff before I push?","pastedContents":{},"timestamp":1761665948198,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1761959278767,"project":"/Users/sam/scratch","sessionId":"4d5aff5a-31c0-1f6e-ae9d-1ae1143957a8"}
+{"display":"add pagination to GET /notes","pastedContents":{},"timestamp":1762056211205,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1762065912808,"project":"/Users/sam/code/pocket-api","sessionId":"d0d70ebe-92bc-d168-ebd8-cbc6d353edb6"}
+{"display":"/commit","pastedContents":{},"timestamp":1762157222284,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"/commit","pastedContents":{},"timestamp":1762221156351,"project":"/Users/sam/scratch","sessionId":"4d5aff5a-31c0-1f6e-ae9d-1ae1143957a8"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1762360266027,"project":"/Users/sam/code/pocket-api","sessionId":"d0d70ebe-92bc-d168-ebd8-cbc6d353edb6"}
+{"display":"draft a README section about offline mode","pastedContents":{},"timestamp":1762531193345,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"refactor the auth middleware into its own file","pastedContents":{},"timestamp":1762703259007,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"bump the dependencies and run the tests","pastedContents":{},"timestamp":1763173920682,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"/compact","pastedContents":{},"timestamp":1763197145615,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"remove the old feature flag for shared notebooks","pastedContents":{},"timestamp":1763306114863,"project":"/Users/sam/scratch","sessionId":"4d5aff5a-31c0-1f6e-ae9d-1ae1143957a8"}
+{"display":"plan for the offline mode:\n1. cache the notes locally\n2. queue edits while offline\n3. replay them on reconnect","pastedContents":{},"timestamp":1763744140627,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"add pagination to GET /notes","pastedContents":{},"timestamp":1763970011885,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"fix the flaky test\nit fails about one run in ten on CI","pastedContents":{},"timestamp":1763976914701,"project":"/Users/sam/code/pocket-notes","sessionId":"d1760be8-e49f-318f-deea-5649ce07ecd4"}
+{"display":"the API returns 500 when the tag is missing, fix it","pastedContents":{},"timestamp":1764073177724,"project":"/Users/sam/code/pocket-notes","sessionId":"2a72c8f8-8d92-01a7-a049-239fbdfeacbe"}
+{"display":"the API returns 500 when the tag is missing, fix it","pastedContents":{},"timestamp":1764154516080,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"rename NoteStore to NotesRepo everywhere","pastedContents":{},"timestamp":1764492782172,"project":"/Users/sam/code/pocket-notes","sessionId":"2a72c8f8-8d92-01a7-a049-239fbdfeacbe"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1764534364098,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"rename NoteStore to NotesRepo everywhere","pastedContents":{},"timestamp":1764639726535,"project":"/Users/sam/code/pocket-notes","sessionId":"2a72c8f8-8d92-01a7-a049-239fbdfeacbe"}
+{"display":"add a search box to the notes list","pastedContents":{},"timestamp":1764858983743,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"/review","pastedContents":{},"timestamp":1764900429526,"project":"/Users/sam/code/pocket-notes","sessionId":"2a72c8f8-8d92-01a7-a049-239fbdfeacbe"}
+{"display":"the API returns 500 when the tag is missing, fix it","pastedContents":{},"timestamp":1764982395082,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1765035411779,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"split this PR into two commits","pastedContents":{},"timestamp":1765062382205,"project":"/Users/sam/scratch","sessionId":"4d5aff5a-31c0-1f6e-ae9d-1ae1143957a8"}
+{"display":"check the error handling in the upload handler","pastedContents":{},"timestamp":1765391026868,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"can you review the diff before I push?","pastedContents":{},"timestamp":1765455695903,"project":"/Users/sam/code/pocket-notes","sessionId":"2a72c8f8-8d92-01a7-a049-239fbdfeacbe"}
+{"display":"/commit","pastedContents":{},"timestamp":1765625691591,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"add pagination to GET /notes","pastedContents":{},"timestamp":1765664199729,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"add a search box to the notes list","pastedContents":{},"timestamp":1765766310267,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"the dark mode colours look off on the settings page","pastedContents":{},"timestamp":1765925645580,"project":"/Users/sam/code/pocket-notes","sessionId":"2a72c8f8-8d92-01a7-a049-239fbdfeacbe"}
+{"display":"remove the old feature flag for shared notebooks","pastedContents":{},"timestamp":1765954604430,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"check the error handling in the upload handler","pastedContents":{},"timestamp":1766102309173,"project":"/Users/sam/code/pocket-notes","sessionId":"2a72c8f8-8d92-01a7-a049-239fbdfeacbe"}
+{"display":"/commit","pastedContents":{},"timestamp":1766252112850,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"add rate limiting to the login endpoint","pastedContents":{},"timestamp":1766359786289,"project":"/Users/sam/code/pocket-notes","sessionId":"2a72c8f8-8d92-01a7-a049-239fbdfeacbe"}
+{"display":"/commit","pastedContents":{},"timestamp":1766470733652,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"/commit","pastedContents":{},"timestamp":1766490530160,"project":"/Users/sam/code/pocket-notes","sessionId":"2a72c8f8-8d92-01a7-a049-239fbdfeacbe"}
+{"display":"why does the sync test fail on CI?","pastedContents":{},"timestamp":1766746100363,"project":"/Users/sam/code/pocket-notes","sessionId":"2a72c8f8-8d92-01a7-a049-239fbdfeacbe"}
+{"display":"write a test for the empty notebook case","pastedContents":{},"timestamp":1766807590258,"project":"/Users/sam/code/pocket-notes","sessionId":"2a72c8f8-8d92-01a7-a049-239fbdfeacbe"}
+{"display":"the API returns 500 when the tag is missing, fix it","pastedContents":{},"timestamp":1766821250894,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"/compact","pastedContents":{},"timestamp":1766855919379,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"the dark mode colours look off on the settings page","pastedContents":{},"timestamp":1766885714013,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"the API returns 500 when the tag is missing, fix it","pastedContents":{},"timestamp":1767209854039,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"refactor the auth middleware into its own file","pastedContents":{},"timestamp":1767322128785,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1767406775451,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"split this PR into two commits","pastedContents":{},"timestamp":1767420853344,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"fix the flaky test\nit fails about one run in ten on CI","pastedContents":{},"timestamp":1767459029614,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"two things:\n- the tag list doesn't scroll\n- the counter is off by one","pastedContents":{},"timestamp":1767495937707,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"check the error handling in the upload handler","pastedContents":{},"timestamp":1767556767616,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"what's the quickest way to profile the startup?","pastedContents":{},"timestamp":1767620637962,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"here is what I want the endpoint to do\n\nGET /notes?tag=work returns only work notes\nGET /notes returns everything","pastedContents":{},"timestamp":1767731066683,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"/commit","pastedContents":{},"timestamp":1767795897375,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"compare these two configs [Pasted text #1 +5 lines] [Pasted text #2 +4 lines]","pastedContents":{"1":{"id":1,"type":"text","content":"PASTE-MARKER-AXOLOTL-3 retries: 3\nopt0: on\nopt1: on\nopt2: on\nopt3: on"},"2":{"id":2,"type":"text","content":"PASTE-MARKER-AXOLOTL-3b second half"}},"timestamp":1767902488317,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"[Pasted text #1 +8 lines]","pastedContents":{"1":{"id":1,"type":"text","content":"PASTE-MARKER-NARWHAL-2 export SAM_TOKEN=made-up-0000\nline 0\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6"}},"timestamp":1767976855882,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"/commit","pastedContents":{},"timestamp":1768116566037,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"/security-review","pastedContents":{},"timestamp":1768154275951,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"/security-review","pastedContents":{},"timestamp":1768166799260,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"refactor the auth middleware into its own file","pastedContents":{},"timestamp":1768193891076,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"check the error handling in the upload handler","pastedContents":{},"timestamp":1768241288813,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"draft a README section about offline mode","pastedContents":{},"timestamp":1768526243297,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1768653679634,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1768671243294,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"look at this stack trace [Pasted text #1 +12 lines] and tell me what crashed","pastedContents":{"1":{"id":1,"type":"text","content":"PASTE-MARKER-QUOKKA-1 Traceback (most recent call last):\n  frame 0\n  frame 1\n  frame 2\n  frame 3\n  frame 4\n  frame 5\n  frame 6\n  frame 7\n  frame 8\n  frame 9\n  frame 10"}},"timestamp":1768697557000,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"/security-review","pastedContents":{},"timestamp":1768774636065,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"add a search box to the notes list","pastedContents":{},"timestamp":1768892384640,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1768928618590,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"/commit","pastedContents":{},"timestamp":1768971892219,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"here is what I want the endpoint to do\n\nGET /notes?tag=work returns only work notes\nGET /notes returns everything","pastedContents":{},"timestamp":1769094741596,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"add pagination to GET /notes","pastedContents":{},"timestamp":1769121187892,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"add pagination to GET /notes","pastedContents":{},"timestamp":1769130487006,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"bump the dependencies and run the tests","pastedContents":{},"timestamp":1769524537104,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"/commit","pastedContents":{},"timestamp":1769693074014,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"/commit","pastedContents":{},"timestamp":1769768223545,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1769857709044,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"bump the dependencies and run the tests","pastedContents":{},"timestamp":1769878063043,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"/security-review","pastedContents":{},"timestamp":1770061815660,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"draft a README section about offline mode","pastedContents":{},"timestamp":1770065594238,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"add rate limiting to the login endpoint","pastedContents":{},"timestamp":1770096889973,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"add rate limiting to the login endpoint","pastedContents":{},"timestamp":1770190082475,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"the dark mode colours look off on the settings page","pastedContents":{},"timestamp":1770202919502,"project":"/Users/sam/code/pocket-notes","sessionId":"5aa9b82a-ee46-1337-f660-df4d8510bb37"}
+{"display":"/commit","pastedContents":{},"timestamp":1770203359945,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"add rate limiting to the login endpoint","pastedContents":{},"timestamp":1770325107688,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1770573707115,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"/commit","pastedContents":{},"timestamp":1770647073054,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"the dark mode colours look off on the settings page","pastedContents":{},"timestamp":1770707690126,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"/compact","pastedContents":{},"timestamp":1770766393499,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"check the error handling in the upload handler","pastedContents":{},"timestamp":1770768225411,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"refactor the auth middleware into its own file","pastedContents":{},"timestamp":1770980813171,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"plan for the offline mode:\n1. cache the notes locally\n2. queue edits while offline\n3. replay them on reconnect","pastedContents":{},"timestamp":1771064811263,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"remove the old feature flag for shared notebooks","pastedContents":{},"timestamp":1771274307932,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"why does the sync test fail on CI?","pastedContents":{},"timestamp":1771964202581,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"refactor the auth middleware into its own file","pastedContents":{},"timestamp":1772023328077,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"add pagination to GET /notes","pastedContents":{},"timestamp":1772043819322,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"plan for the offline mode:\n1. cache the notes locally\n2. queue edits while offline\n3. replay them on reconnect","pastedContents":{},"timestamp":1772275548741,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"bump the dependencies and run the tests","pastedContents":{},"timestamp":1772354776127,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"/commit","pastedContents":{},"timestamp":1772605274048,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1772967863177,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"bump the dependencies and run the tests","pastedContents":{},"timestamp":1773039644857,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"rename NoteStore to NotesRepo everywhere","pastedContents":{},"timestamp":1773062164632,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"the dark mode colours look off on the settings page","pastedContents":{},"timestamp":1773356595971,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"rename NoteStore to NotesRepo everywhere","pastedContents":{},"timestamp":1773671964425,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"write a test for the empty notebook case","pastedContents":{},"timestamp":1773799200968,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"fix the flaky test\nit fails about one run in ten on CI","pastedContents":{},"timestamp":1774111221422,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"/commit","pastedContents":{},"timestamp":1774156250598,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"add pagination to GET /notes","pastedContents":{},"timestamp":1774590197291,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"bump the dependencies and run the tests","pastedContents":{},"timestamp":1774649531604,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"can you review the diff before I push?","pastedContents":{},"timestamp":1774708440543,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"remove the old feature flag for shared notebooks","pastedContents":{},"timestamp":1774786544210,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1774899019332,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"add rate limiting to the login endpoint","pastedContents":{},"timestamp":1774953724438,"project":"/Users/sam/code/pocket-api","sessionId":"b9ebdada-1226-eb81-68a6-df29d4e3fc04"}
+{"display":"add rate limiting to the login endpoint","pastedContents":{},"timestamp":1775049643523,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"half a line that was cut off","pastedCont
+{"display":"add rate limiting to the login endpoint","pastedContents":{},"timestamp":1775052204577,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"/review","pastedContents":{},"timestamp":1775086745894,"project":"/Users/sam/code/pocket-api","sessionId":"7d4cc026-d5a6-9308-7125-14254f504d24"}
+{"display":"the dark mode colours look off on the settings page","pastedContents":{},"timestamp":1775141849268,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"write a test for the empty notebook case","pastedContents":{},"timestamp":1775211605697,"project":"/Users/sam/code/pocket-api","sessionId":"6a6ec3a4-adfc-d0eb-dddd-97a656bee476"}
+{"display":"here is what I want the endpoint to do\n\nGET /notes?tag=work returns only work notes\nGET /notes returns everything","pastedContents":{},"timestamp":1775755710143,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1775828782203,"project":"/Users/sam/code/pocket-api","sessionId":"6a6ec3a4-adfc-d0eb-dddd-97a656bee476"}
+{"display":"why does the sync test fail on CI?","pastedContents":{},"timestamp":1775911065676,"project":"/Users/sam/code/pocket-api","sessionId":"6a6ec3a4-adfc-d0eb-dddd-97a656bee476"}
+{"display":"can you review the diff before I push?","pastedContents":{},"timestamp":1776069609747,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"add a search box to the notes list","pastedContents":{},"timestamp":1776144931809,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"refactor the auth middleware into its own file","pastedContents":{},"timestamp":1776225854005,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"/commit","pastedContents":{},"timestamp":1776305752699,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"/commit","pastedContents":{},"timestamp":1776417371006,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"draft a README section about offline mode","pastedContents":{},"timestamp":1776500107835,"project":"/Users/sam/code/pocket-notes","sessionId":"a88596b8-803d-e62d-a1b9-c71e56bb7635"}
+{"display":"refactor the auth middleware into its own file","pastedContents":{},"timestamp":1776506702214,"project":"/Users/sam/code/pocket-notes","sessionId":"48269e60-5e96-e467-5952-b713c5ddb901"}
+{"display":"plan for the offline mode:\n1. cache the notes locally\n2. queue edits while offline\n3. replay them on reconnect","pastedContents":{},"timestamp":1776789658846,"project":"/Users/sam/code/pocket-notes","sessionId":"48269e60-5e96-e467-5952-b713c5ddb901"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1776900893940,"project":"/Users/sam/code/pocket-notes","sessionId":"48269e60-5e96-e467-5952-b713c5ddb901"}
+{"display":"the API returns 500 when the tag is missing, fix it","pastedContents":{},"timestamp":1777126705183,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1777788461841,"project":"/Users/sam/code/pocket-notes","sessionId":"718c110a-7454-a17c-0b78-a1790c7c94f0"}
+{"display":"the API returns 500 when the tag is missing, fix it","pastedContents":{},"timestamp":1777895313084,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"check the error handling in the upload handler","pastedContents":{},"timestamp":1777901285182,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"add a search box to the notes list","pastedContents":{},"timestamp":1778039116915,"project":"/Users/sam/code/pocket-api","sessionId":"6a6ec3a4-adfc-d0eb-dddd-97a656bee476"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1778066747604,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"rename NoteStore to NotesRepo everywhere","pastedContents":{},"timestamp":1778471893499,"project":"/Users/sam/code/pocket-api","sessionId":"6a6ec3a4-adfc-d0eb-dddd-97a656bee476"}
+{"display":"the dark mode colours look off on the settings page","pastedContents":{},"timestamp":1778507805051,"project":"/Users/sam/code/pocket-api","sessionId":"ba194677-b443-d108-d7fb-f7a1da24123e"}
+{"display":"bump the dependencies and run the tests","pastedContents":{},"timestamp":1778639665500,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"rename NoteStore to NotesRepo everywhere","pastedContents":{},"timestamp":1778656623927,"project":"/Users/sam/code/pocket-notes","sessionId":"718c110a-7454-a17c-0b78-a1790c7c94f0"}
+{"display":"can you review the diff before I push?","pastedContents":{},"timestamp":1778754346334,"project":"/Users/sam/code/pocket-notes","sessionId":"718c110a-7454-a17c-0b78-a1790c7c94f0"}
+{"display":"/commit","pastedContents":{},"timestamp":1779222796851,"project":"/Users/sam/code/pocket-notes","sessionId":"718c110a-7454-a17c-0b78-a1790c7c94f0"}
+{"display":"rename NoteStore to NotesRepo everywhere","pastedContents":{},"timestamp":1779258630673,"project":"/Users/sam/code/pocket-api","sessionId":"ba194677-b443-d108-d7fb-f7a1da24123e"}
+{"display":"remove the old feature flag for shared notebooks","pastedContents":{},"timestamp":1779480702063,"project":"/Users/sam/code/pocket-notes","sessionId":"718c110a-7454-a17c-0b78-a1790c7c94f0"}
+{"display":"rename NoteStore to NotesRepo everywhere","pastedContents":{},"timestamp":1779496711183,"project":"/Users/sam/code/pocket-api","sessionId":"ba194677-b443-d108-d7fb-f7a1da24123e"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1779620249317,"project":"/Users/sam/code/pocket-notes","sessionId":"718c110a-7454-a17c-0b78-a1790c7c94f0"}
+{"display":"remove the old feature flag for shared notebooks","pastedContents":{},"timestamp":1779693927857,"project":"/Users/sam/code/pocket-notes","sessionId":"718c110a-7454-a17c-0b78-a1790c7c94f0"}
+{"display":"the dark mode colours look off on the settings page","pastedContents":{},"timestamp":1779783404942,"project":"/Users/sam/code/pocket-notes","sessionId":"718c110a-7454-a17c-0b78-a1790c7c94f0"}
+{"display":"/commit","pastedContents":{},"timestamp":1779797696390,"project":"/Users/sam/code/pocket-api","sessionId":"ba194677-b443-d108-d7fb-f7a1da24123e"}
+{"display":"bump the dependencies and run the tests","pastedContents":{},"timestamp":1779926704426,"project":"/Users/sam/code/pocket-api","sessionId":"ba194677-b443-d108-d7fb-f7a1da24123e"}
+{"display":"/commit","pastedContents":{},"timestamp":1780070004295,"project":"/Users/sam/code/pocket-notes","sessionId":"718c110a-7454-a17c-0b78-a1790c7c94f0"}
+{"display":"why does the sync test fail on CI?","pastedContents":{},"timestamp":1780074800600,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"the dark mode colours look off on the settings page","pastedContents":{},"timestamp":1780459903470,"project":"/Users/sam/code/pocket-api","sessionId":"bbd190b0-2637-90cd-0531-ed8cfd2f7d3a"}
+{"display":"/security-review","pastedContents":{},"timestamp":1780666580440,"project":"/Users/sam/code/pocket-notes","sessionId":"23cfc3ea-2438-0ff9-505f-bf1fff7baed8"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1780722786986,"project":"/Users/sam/code/pocket-api","sessionId":"bbd190b0-2637-90cd-0531-ed8cfd2f7d3a"}
+{"display":"refactor the auth middleware into its own file","pastedContents":{},"timestamp":1780738178100,"project":"/Users/sam/code/pocket-notes","sessionId":"23cfc3ea-2438-0ff9-505f-bf1fff7baed8"}
+{"display":"the dark mode colours look off on the settings page","pastedContents":{},"timestamp":1780763472145,"project":"/Users/sam/code/pocket-notes","sessionId":"23cfc3ea-2438-0ff9-505f-bf1fff7baed8"}
+{"display":"why does the sync test fail on CI?","pastedContents":{},"timestamp":1780862220866,"project":"/Users/sam/code/pocket-notes","sessionId":"23cfc3ea-2438-0ff9-505f-bf1fff7baed8"}
+{"display":"refactor the auth middleware into its own file","pastedContents":{},"timestamp":1781025169088,"project":"/Users/sam/code/pocket-api","sessionId":"bbd190b0-2637-90cd-0531-ed8cfd2f7d3a"}
+{"display":"draft a README section about offline mode","pastedContents":{},"timestamp":1781207908983,"project":"/Users/sam/code/pocket-api","sessionId":"bbd190b0-2637-90cd-0531-ed8cfd2f7d3a"}
+{"display":"remove the old feature flag for shared notebooks","pastedContents":{},"timestamp":1781320991606,"project":"/Users/sam/code/pocket-notes","sessionId":"23cfc3ea-2438-0ff9-505f-bf1fff7baed8"}
+{"display":"bump the dependencies and run the tests","pastedContents":{},"timestamp":1781678224468,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"check the error handling in the upload handler","pastedContents":{},"timestamp":1781843150338,"project":"/Users/sam/code/pocket-notes","sessionId":"23cfc3ea-2438-0ff9-505f-bf1fff7baed8"}
+{"display":"bump the dependencies and run the tests","pastedContents":{},"timestamp":1782087875994,"project":"/Users/sam/code/pocket-api","sessionId":"bbd190b0-2637-90cd-0531-ed8cfd2f7d3a"}
+{"display":"what's the quickest way to profile the startup?","pastedContents":{},"timestamp":1782152676860,"project":"/Users/sam/code/pocket-api","sessionId":"bbd190b0-2637-90cd-0531-ed8cfd2f7d3a"}
+{"display":"fix the flaky test\nit fails about one run in ten on CI","pastedContents":{},"timestamp":1782243063516,"project":"/Users/sam/code/pocket-notes","sessionId":"23cfc3ea-2438-0ff9-505f-bf1fff7baed8"}
+{"display":"refactor the auth middleware into its own file","pastedContents":{},"timestamp":1782276950977,"project":"/Users/sam/code/pocket-notes","sessionId":"23cfc3ea-2438-0ff9-505f-bf1fff7baed8"}
+{"display":"add rate limiting to the login endpoint","pastedContents":{},"timestamp":1782694400696,"project":"/Users/sam/code/pocket-api","sessionId":"bbd190b0-2637-90cd-0531-ed8cfd2f7d3a"}
+{"display":"the dark mode colours look off on the settings page","pastedContents":{},"timestamp":1782832393004,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1782924719966,"project":"/Users/sam/code/pocket-notes","sessionId":"23cfc3ea-2438-0ff9-505f-bf1fff7baed8"}
+{"display":"add rate limiting to the login endpoint","pastedContents":{},"timestamp":1783100329181,"project":"/Users/sam/code/pocket-notes","sessionId":"23cfc3ea-2438-0ff9-505f-bf1fff7baed8"}
+{"display":"bump the dependencies and run the tests","pastedContents":{},"timestamp":1783181062206,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"/model","pastedContents":{},"timestamp":1783250799758,"project":"/Users/sam/code/pocket-api","sessionId":"bbd190b0-2637-90cd-0531-ed8cfd2f7d3a"}
+{"display":"the dark mode colours look off on the settings page","pastedContents":{},"timestamp":1783346919454,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"/security-review","pastedContents":{},"timestamp":1783364279515,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"what's the quickest way to profile the startup?","pastedContents":{},"timestamp":1783414435358,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"why does the sync test fail on CI?","pastedContents":{},"timestamp":1783506221158,"project":"/Users/sam/code/pocket-api","sessionId":"bbd190b0-2637-90cd-0531-ed8cfd2f7d3a"}
+{"display":"check the error handling in the upload handler","pastedContents":{},"timestamp":1783576014820,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"fix the flaky test\nit fails about one run in ten on CI","pastedContents":{},"timestamp":1783579738214,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"why does the sync test fail on CI?","pastedContents":{},"timestamp":1783630030766,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"add rate limiting to the login endpoint","pastedContents":{},"timestamp":1783637765997,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"refactor the auth middleware into its own file","pastedContents":{},"timestamp":1784023960611,"project":"/Users/sam/code/pocket-api","sessionId":"1b92bcb8-9474-8fa6-483d-d7ab9d455e22"}
+{"display":"add a search box to the notes list","pastedContents":{},"timestamp":1784030605235,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1784060626524,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1784197110374,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"refactor the auth middleware into its own file","pastedContents":{},"timestamp":1784632211695,"project":"/Users/sam/code/pocket-api","sessionId":"1b92bcb8-9474-8fa6-483d-d7ab9d455e22"}
+{"display":"rename NoteStore to NotesRepo everywhere","pastedContents":{},"timestamp":1784730823968,"project":"/Users/sam/code/pocket-api","sessionId":"a86598a6-fe95-fec9-1fa4-9b0ad0236f3f"}
+{"display":"rename NoteStore to NotesRepo everywhere","pastedContents":{},"timestamp":1784803469756,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"add a search box to the notes list","pastedContents":{},"timestamp":1784836631401,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"why does the sync test fail on CI?","pastedContents":{},"timestamp":1784864786585,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"remove the old feature flag for shared notebooks","pastedContents":{},"timestamp":1784909486880,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"draft a README section about offline mode","pastedContents":{},"timestamp":1784939215981,"project":"/Users/sam/code/pocket-api","sessionId":"a86598a6-fe95-fec9-1fa4-9b0ad0236f3f"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1785020437230,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1785290038670,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"/commit","pastedContents":{},"timestamp":1785435039078,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"/commit","pastedContents":{},"timestamp":1785493420093,"project":"/Users/sam/code/pocket-api","sessionId":"a86598a6-fe95-fec9-1fa4-9b0ad0236f3f"}
+{"display":"refactor the auth middleware into its own file","pastedContents":{},"timestamp":1785502588203,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"/commit","pastedContents":{},"timestamp":1785616153422,"project":"/Users/sam/code/pocket-api","sessionId":"a86598a6-fe95-fec9-1fa4-9b0ad0236f3f"}
+{"display":"bump the dependencies and run the tests","pastedContents":{},"timestamp":1785667264661,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"/commit","pastedContents":{},"timestamp":1785704372889,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"/commit","pastedContents":{},"timestamp":1785771802592,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"refactor the auth middleware into its own file","pastedContents":{},"timestamp":1786111743699,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1786204326829,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"what's the quickest way to profile the startup?","pastedContents":{},"timestamp":1786267021505,"project":"/Users/sam/code/pocket-api","sessionId":"a86598a6-fe95-fec9-1fa4-9b0ad0236f3f"}
+{"display":"/commit","pastedContents":{},"timestamp":1786280861921,"project":"/Users/sam/code/pocket-api","sessionId":"a86598a6-fe95-fec9-1fa4-9b0ad0236f3f"}
+{"display":"/commit","pastedContents":{},"timestamp":1786299668067,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"remove the old feature flag for shared notebooks","pastedContents":{},"timestamp":1786593305689,"project":"/Users/sam/code/pocket-api","sessionId":"a86598a6-fe95-fec9-1fa4-9b0ad0236f3f"}
+{"display":"write a test for the empty notebook case","pastedContents":{},"timestamp":1786810771877,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"bump the dependencies and run the tests","pastedContents":{},"timestamp":1787054055690,"project":"/Users/sam/code/pocket-notes","sessionId":"5017bd05-c4e1-d0b9-5099-aad2debad87d"}
+{"display":"fix the flaky test\nit fails about one run in ten on CI","pastedContents":{},"timestamp":1787121215717,"project":"/Users/sam/code/pocket-notes","sessionId":"633e065a-dc51-914a-9afb-73e5b7cbba8e"}
+{"display":"refactor the auth middleware into its own file","pastedContents":{},"timestamp":1787192646242,"project":"/Users/sam/code/pocket-notes","sessionId":"633e065a-dc51-914a-9afb-73e5b7cbba8e"}
+{"display":"/commit","pastedContents":{},"timestamp":1787250039309,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"why does the sync test fail on CI?","pastedContents":{},"timestamp":1787254571903,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"rename NoteStore to NotesRepo everywhere","pastedContents":{},"timestamp":1787506823757,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"plan for the offline mode:\n1. cache the notes locally\n2. queue edits while offline\n3. replay them on reconnect","pastedContents":{},"timestamp":1787534117051,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"add pagination to GET /notes","pastedContents":{},"timestamp":1787942115908,"project":"/Users/sam/code/pocket-api","sessionId":"a86598a6-fe95-fec9-1fa4-9b0ad0236f3f"}
+{"display":"/security-review","pastedContents":{},"timestamp":1788050051904,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1788233454139,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"/commit","pastedContents":{},"timestamp":1788332529255,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1788380183822,"project":"/Users/sam/code/pocket-api","sessionId":"a86598a6-fe95-fec9-1fa4-9b0ad0236f3f"}
+{"display":"draft a README section about offline mode","pastedContents":{},"timestamp":1788402813085,"project":"/Users/sam/code/pocket-api","sessionId":"a86598a6-fe95-fec9-1fa4-9b0ad0236f3f"}
+{"display":"plan for the offline mode:\n1. cache the notes locally\n2. queue edits while offline\n3. replay them on reconnect","pastedContents":{},"timestamp":1788498582533,"project":"/Users/sam/code/pocket-api","sessionId":"a86598a6-fe95-fec9-1fa4-9b0ad0236f3f"}
+{"display":"remove the old feature flag for shared notebooks","pastedContents":{},"timestamp":1788502810295,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"why does the sync test fail on CI?","pastedContents":{},"timestamp":1788550671805,"project":"/Users/sam/scratch","sessionId":"c8f5d53d-5600-d601-b322-0b44b99736c4"}
+{"display":"add rate limiting to the login endpoint","pastedContents":{},"timestamp":1788979298962,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"/commit","pastedContents":{},"timestamp":1789132911012,"project":"/Users/sam/code/pocket-api","sessionId":"19f5fee7-4e55-6d0f-35b9-2de0a9488d2b"}
+{"display":"split this PR into two commits","pastedContents":{},"timestamp":1789178692406,"project":"/Users/sam/scratch","sessionId":"0c4e7245-37a1-1648-606c-229397d616fa"}
+{"display":"bump the dependencies and run the tests","pastedContents":{},"timestamp":1789252670337,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"draft a README section about offline mode","pastedContents":{},"timestamp":1789302786345,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"bump the dependencies and run the tests","pastedContents":{},"timestamp":1789348663270,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1789584487098,"project":"/Users/sam/scratch","sessionId":"0c4e7245-37a1-1648-606c-229397d616fa"}
+{"display":"/commit","pastedContents":{},"timestamp":1789626952476,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"/commit","pastedContents":{},"timestamp":1789825281627,"project":"/Users/sam/scratch","sessionId":"0c4e7245-37a1-1648-606c-229397d616fa"}
+{"display":"can you review the diff before I push?","pastedContents":{},"timestamp":1789847902624,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"can you review the diff before I push?","pastedContents":{},"timestamp":1789906552805,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"the dark mode colours look off on the settings page","pastedContents":{},"timestamp":1789950257212,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"/commit","pastedContents":{},"timestamp":1790198650979,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1790264561862,"project":"/Users/sam/scratch","sessionId":"0c4e7245-37a1-1648-606c-229397d616fa"}
+{"display":"what's the quickest way to profile the startup?","pastedContents":{},"timestamp":1790289199458,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"rename NoteStore to NotesRepo everywhere","pastedContents":{},"timestamp":1790333855589,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1790472867663,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"/review","pastedContents":{},"timestamp":1790564249414,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"make the export button use the new icon","pastedContents":{},"timestamp":1790639878494,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"the API returns 500 when the tag is missing, fix it","pastedContents":{},"timestamp":1790646172362,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"/commit","pastedContents":{},"timestamp":1790834362118,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"remove the old feature flag for shared notebooks","pastedContents":{},"timestamp":1790972713898,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"remove the old feature flag for shared notebooks","pastedContents":{},"timestamp":1791031459927,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"plan for the offline mode:\n1. cache the notes locally\n2. queue edits while offline\n3. replay them on reconnect","pastedContents":{},"timestamp":1791062486082,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"what's the quickest way to profile the startup?","pastedContents":{},"timestamp":1791106875912,"project":"/Users/sam/scratch","sessionId":"0c4e7245-37a1-1648-606c-229397d616fa"}
+{"display":"draft a README section about offline mode","pastedContents":{},"timestamp":1791133311656,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"add a search box to the notes list","pastedContents":{},"timestamp":1791151743882,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"can you review the diff before I push?","pastedContents":{},"timestamp":1791164359838,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"split this PR into two commits","pastedContents":{},"timestamp":1791285507309,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"/commit","pastedContents":{},"timestamp":1791368830565,"project":"/Users/sam/scratch","sessionId":"0c4e7245-37a1-1648-606c-229397d616fa"}
+{"display":"explain what this migration does","pastedContents":{},"timestamp":1791462087275,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"why does the sync test fail on CI?","pastedContents":{},"timestamp":1791536390622,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"/security-review","pastedContents":{},"timestamp":1791676206194,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"split this PR into two commits","pastedContents":{},"timestamp":1791963259135,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"the API returns 500 when the tag is missing, fix it","pastedContents":{},"timestamp":1791993612917,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"/clear","pastedContents":{},"timestamp":1792056942482,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"rename NoteStore to NotesRepo everywhere","pastedContents":{},"timestamp":1792185287571,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"split this PR into two commits","pastedContents":{},"timestamp":1792365969186,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}
+{"display":"what's the quickest way to profile the startup?","pastedContents":{},"timestamp":1792417709382,"project":"/Users/sam/code/pocket-notes","sessionId":"b779e1fe-de66-a5f1-38ef-fcc0ada38d2b"}
+{"display":"add pagination to GET /notes","pastedContents":{},"timestamp":1792437570180,"project":"/Users/sam/code/pocket-api","sessionId":"c06a3671-05f6-4a11-58c8-2b72bd265b4d"}

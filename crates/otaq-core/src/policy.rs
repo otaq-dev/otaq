@@ -165,6 +165,9 @@ pub enum Action {
     All(Vec<Action>),
     /// `otaq flow propose` for the project `project` (its key): the user, or a Project agent of that project (FLW-03).
     ProposeFlow { project: String },
+    /// `otaq history` (ONB-02): what the user typed in every project, so only the user and a Project agent (of any
+    /// project).
+    ReadHistory,
 }
 
 /// Allows or refuses `action` for `caller`. Refusals are [`Refusal::NotAllowed`] with a message for people. An epic
@@ -213,6 +216,12 @@ pub fn authorize_in_stage(
                 names.project.unwrap_or(own)
             )),
             _ => refuse(crate::flow::propose::ONLY_A_PROJECT_AGENT_OR_YOU.to_owned()),
+        };
+    }
+    if let Action::ReadHistory = action {
+        return match caller {
+            Caller::User | Caller::ProjectAgent { .. } => Ok(()),
+            _ => refuse(crate::agent_tools::history::only_a_project_agent()),
         };
     }
     if let Caller::Validator {
@@ -346,7 +355,10 @@ pub fn authorize_in_stage(
             target.label
         )),
         Action::UserOnly(what) => refuse(format!("{ticket}'s agent can't {what}; ask the user")),
-        Action::Verdict(_) | Action::LeadCommand { .. } | Action::ProposeFlow { .. } => {
+        Action::Verdict(_)
+        | Action::LeadCommand { .. }
+        | Action::ProposeFlow { .. }
+        | Action::ReadHistory => {
             unreachable!("handled above")
         }
         Action::All(actions) => all(actions),

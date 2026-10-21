@@ -11,7 +11,8 @@ use std::pin::Pin;
 use serde_json::json;
 
 use super::Shared;
-use crate::agent_tools::SetupOutcome;
+use crate::agent_tools::history::{self, KnownProject};
+use crate::agent_tools::{SetupOutcome, Tool};
 use crate::board::change_note::change_note;
 use crate::board::questions::validate_options;
 use crate::board::readiness::project_readiness;
@@ -1320,6 +1321,33 @@ pub(super) async fn handle(
                 },
             );
             Ok(Reply::FlowProposal(Some(Box::new(proposal))))
+        }),
+        // Read off the async workers: the file is the user's whole history, read line by line (ONB-01).
+        Request::HistoryRead(p) => boxed(move || async move {
+            let projects: Vec<KnownProject> = board
+                .projects()
+                .await?
+                .into_iter()
+                .map(|p| KnownProject {
+                    key: p.key,
+                    name: p.name,
+                    repo: p.repo_path,
+                })
+                .collect();
+            let adapters = shared.adapters.clone();
+            let now = crate::store::now_ms();
+            let page = tokio::task::spawn_blocking(move || {
+                let sources = Tool::ALL
+                    .iter()
+                    .map(|&tool| adapters.get(tool))
+                    .filter_map(|adapter| Some((adapter.display_name(), adapter.history()?)))
+                    .collect();
+                history::read(sources, &p, &projects, now)
+            })
+            .await
+            .map_err(|e| BoardError::NotFound(format!("can't read the history: {e}")))?
+            .map_err(BoardError::NotFound)?;
+            Ok(Reply::UserHistory(Box::new(page)))
         }),
         Request::FlowWaiting(p) => boxed(move || async move {
             Ok(Reply::FlowWaiting(

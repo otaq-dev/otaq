@@ -552,6 +552,16 @@ impl TestService {
         Self::bind_in(home, data, repos, configure).await
     }
 
+    /// The Claude Code folder a test service reads when its test names none: `claude-config` in the test's folder, empty
+    /// until the test writes into it.
+    pub fn claude_dir(&self) -> PathBuf {
+        Self::claude_dir_in(self.home.path())
+    }
+
+    fn claude_dir_in(home: &Path) -> PathBuf {
+        home.join("claude-config")
+    }
+
     /// Starts a service on an existing data folder (after a crash, say).
     pub async fn start_in(
         home: TempDir,
@@ -568,7 +578,11 @@ impl TestService {
         repos: TempRepos,
         configure: impl FnOnce(ServiceConfig) -> ServiceConfig,
     ) -> Self {
-        let service = Service::bind(configure(ServiceConfig::new(data.clone())))
+        let mut config = ServiceConfig::new(data.clone());
+        // Never the user's own Claude Code folder (their history, transcripts and settings, ONB-01): an empty one in
+        // the test's folder, unless the test gives its own.
+        config.tools.claude_config_dir = Some(Self::claude_dir_in(home.path()));
+        let service = Service::bind(configure(config))
             .await
             .expect("service starts");
         let inbox = service.inbox();

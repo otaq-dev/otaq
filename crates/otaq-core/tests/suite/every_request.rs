@@ -269,6 +269,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::FlowShow(_)
         | Request::FlowPropose(_)
         | Request::FlowAskForChanges(_)
+        | Request::HistoryRead(_)
         | Request::SessionList(_)
         | Request::SessionAttach(_)
         | Request::SessionDetach(_)

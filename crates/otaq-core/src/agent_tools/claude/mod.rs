@@ -3,6 +3,7 @@
 //! folder trust ([`trust`]); its tokens and "Before the restart" come from its saved conversations
 //! ([`transcript`]).
 
+mod history;
 pub mod hooks;
 mod launch;
 pub mod limits;
@@ -27,6 +28,7 @@ use super::{
     ToolEvent, ToolIdMode, TranscriptEntry, WindowsSource,
 };
 use crate::agent_tools::events::LimitWindow;
+use crate::agent_tools::history::HistorySource;
 use crate::data_dir::DataDir;
 use crate::naming;
 use crate::tools::{self, CheckEnv, PermissionVerdict};
@@ -406,6 +408,13 @@ impl AgentTool for ClaudeCode {
     ) -> Option<Vec<TranscriptEntry>> {
         find_transcript(self.claude_dir()?, cwd, tool_id)
             .and_then(|path| read_transcript(&path, limit))
+    }
+
+    fn history(&self) -> Option<HistorySource> {
+        Some(
+            self.claude_dir()
+                .map_or(HistorySource::Missing, history::read),
+        )
     }
 
     fn windows_source(&self) -> WindowsSource {

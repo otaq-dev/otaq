@@ -405,6 +405,7 @@ async fn action_for(
         R::FlowPropose(p) => Action::ProposeFlow {
             project: board.project(&p.project).await?.key,
         },
+        R::HistoryRead(_) => Action::ReadHistory,
         R::ServiceStop => Action::UserOnly("stop the background service"),
         R::DismissPermissionWarning => Action::UserOnly("change onboarding"),
         // Runs `gh` and `glab` and looks at the user's history file (ONB-03): the app's onboarding only.

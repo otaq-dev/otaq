@@ -492,6 +492,8 @@ pub(crate) mod testing {
                 config.build_id = build_id.clone();
             }
             config.claude = self.claude.clone();
+            // Never the user's own Claude Code folder (their history, transcripts and settings, ONB-01).
+            config.tools.claude_config_dir = Some(self.data.root().join("claude-config"));
             // Terminals run a plain `sh`, not the user's login shell (as the core's tests do).
             config.terminals.shell = "sh".into();
             config.terminals.shell_args = Vec::new();
