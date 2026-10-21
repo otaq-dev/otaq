@@ -914,3 +914,75 @@ async fn the_other_sources() {
     assert_eq!(theirs.instructions, "");
     w.stop().await;
 }
+
+/// FLW-06, FLW-09: a shape change applied on a board that is already quiet is stored once, whole (no in-between
+/// version, no waiting change). One applied while a ticket works stores its non-shape part now and the whole later;
+/// Back to the previous flow then skips that in-between part, to the flow the user had before the change.
+#[tokio::test(flavor = "multi_thread")]
+async fn one_version_per_apply_and_back_skips_the_part() {
+    let (w, key) = world().await;
+    // QA after Review, and Validate on 5 rounds: a shape change with a part that doesn't wait.
+    let change = |file: &mut FlowFile| {
+        file.flow
+            .stages
+            .iter_mut()
+            .find(|s| s.id == "validate")
+            .unwrap()
+            .rounds = Some(5);
+    };
+    let mut first = with_qa_after("review");
+    change(&mut first);
+    let proposal = propose_as(&w, &key, &stages_only(&first), planner())
+        .await
+        .unwrap();
+    assert!(proposal.diff.waits);
+    let applied = w
+        .board
+        .apply_proposal(&key, proposal.id, &ApplyChoices::default(), &models())
+        .await
+        .unwrap();
+    assert!(applied.waiting.is_none());
+    let versions = w.board.flow_versions(&key).await.unwrap();
+    assert_eq!(versions.len(), 2, "the quiet board takes it whole, once");
+    let now = versions[1].file().unwrap().flow;
+    assert!(now.stage("qa").is_some());
+    assert_eq!(now.stage("validate").unwrap().rounds, Some(5));
+
+    // While API-1 works: Validate on 2 rounds now, QA's removal waits; then API-1 reaches Review.
+    let api1 = create(&w, &key, "Rate limits").await;
+    w.force_stage(&api1, "dev", Status::Working).await;
+    let mut second = otaq_core::flow::default_file().clone();
+    second
+        .flow
+        .stages
+        .iter_mut()
+        .find(|s| s.id == "validate")
+        .unwrap()
+        .rounds = Some(2);
+    let proposal = propose_as(&w, &key, &stages_only(&second), planner())
+        .await
+        .unwrap();
+    let applied = w
+        .board
+        .apply_proposal(&key, proposal.id, &ApplyChoices::default(), &models())
+        .await
+        .unwrap();
+    assert!(applied.waiting.is_some());
+    assert_eq!(
+        applied.version.unwrap().version,
+        3,
+        "the part that doesn't wait"
+    );
+    w.force_stage(&api1, "review", Status::WaitingForYou).await;
+    assert!(w.board.settle_flow_change(&key).await.unwrap().is_some());
+    assert_eq!(w.board.flow_versions(&key).await.unwrap().len(), 4);
+
+    // Back goes to version 2, the flow before that change, not to the in-between version 3.
+    let back = w
+        .board
+        .propose_from(&key, &ProposeFrom::Previous { version: None }, &models())
+        .await
+        .unwrap();
+    assert_eq!(back.source, Source::Previous { version: 2 });
+    w.stop().await;
+}

@@ -206,12 +206,7 @@ impl Board {
             .flow;
         let old = self.effective_flow(&project.key).await?;
         let tickets = self.tickets(&project.key).await?;
-        // A Delivery session at work (Open PR, an automatic PR Delivery) holds the change.
-        let delivering: HashSet<String> = sqlx::query_scalar("SELECT ticket_id FROM pr_flows")
-            .fetch_all(self.store().pool())
-            .await?
-            .into_iter()
-            .collect();
+        let delivering = self.delivering().await?;
         let mut waiting_for: Vec<TicketKey> = still_working(&tickets, &old, &new, &delivering)
             .into_iter()
             .map(|t| t.key.clone())
@@ -227,6 +222,27 @@ impl Board {
             since,
             waiting_for,
         }))
+    }
+
+    /// The tickets a Delivery session works on now (Open PR, an automatic PR Delivery): they hold a change.
+    async fn delivering(&self) -> Result<HashSet<String>, BoardError> {
+        Ok(sqlx::query_scalar("SELECT ticket_id FROM pr_flows")
+            .fetch_all(self.store().pool())
+            .await?
+            .into_iter()
+            .collect())
+    }
+
+    /// Whether `project`'s board is quiet now for a change from `old` to `new` ([`still_working`]).
+    async fn is_quiet_for(
+        &self,
+        project: &str,
+        old: &Flow,
+        new: &Flow,
+    ) -> Result<bool, BoardError> {
+        let tickets = self.tickets(project).await?;
+        let delivering = self.delivering().await?;
+        Ok(still_working(&tickets, old, new, &delivering).is_empty())
     }
 
     /// `flow.propose_from` (FLW-08…FLW-10): a proposal from an earlier version, another project, a preset, a file or
@@ -248,7 +264,7 @@ impl Board {
             ProposeFrom::Previous { version } => {
                 let versions = self.flow_versions(&key).await?;
                 let current = versions.iter().find(|v| v.current).map_or(0, |v| v.version);
-                let wanted = version.unwrap_or(current.saturating_sub(1));
+                let wanted = version.unwrap_or_else(|| previous_version(&versions, current));
                 let Some(earlier) = versions
                     .iter()
                     .find(|v| v.version == wanted && v.version != current)
@@ -371,6 +387,12 @@ impl Board {
         if scope.stages() && !changes.is_empty() {
             let labels: Vec<String> = changes.iter().map(|c| c.label.clone()).collect();
             let target = self.document(&file.flow).await?;
+            let whole = NewFlowVersion {
+                yaml: target.clone(),
+                applied_by,
+                agent_name: agent_name.clone(),
+                preset: preset.clone(),
+            };
             if against_waiting {
                 self.merge_waiting(
                     &project,
@@ -381,7 +403,12 @@ impl Board {
                     preset.as_deref(),
                 )
                 .await?;
-            } else if view.diff.waits {
+            } else if view.diff.waits
+                && !self
+                    .is_quiet_for(&project.key, &base.flow, &file.flow)
+                    .await?
+            {
+                // The part that doesn't wait applies now; the whole change waits for a quiet board.
                 let now = applied_now(&base.flow, &file.flow);
                 if now != base.flow && super::check(&now).is_ok() {
                     version = Some(
@@ -389,9 +416,7 @@ impl Board {
                             &project.key,
                             &NewFlowVersion {
                                 yaml: self.document(&now).await?,
-                                applied_by,
-                                agent_name: agent_name.clone(),
-                                preset: preset.clone(),
+                                ..whole.clone()
                             },
                         )
                         .await?,
@@ -407,18 +432,8 @@ impl Board {
                 )
                 .await?;
             } else {
-                version = Some(
-                    self.store_flow(
-                        &project.key,
-                        &NewFlowVersion {
-                            yaml: target,
-                            applied_by,
-                            agent_name: agent_name.clone(),
-                            preset: preset.clone(),
-                        },
-                    )
-                    .await?,
-                );
+                // Nothing waits, or the board is quiet already: the whole change, as one version.
+                version = Some(self.store_flow(&project.key, &whole).await?);
             }
         }
         self.drop_proposal(id).await?;
@@ -760,6 +775,27 @@ impl Board {
         tracing::info!(ticket = %ticket.key, stage = %stage.id, %chose, %runs, "a removed choice falls back");
         Ok(())
     }
+}
+
+/// The version "Back to the previous flow" goes to from `current` (FLW-09): the one before it, except when that one
+/// is only the part of the current change that applied while the rest waited for a quiet board (the earlier flow
+/// with the current one's non-shape changes, [`applied_now`]): the user never chose that in-between flow, so Back
+/// skips it to the flow they had before the change.
+pub fn previous_version(versions: &[FlowVersion], current: u32) -> u32 {
+    let find = |v: u32| versions.iter().find(|x| x.version == v);
+    let before = current.saturating_sub(1);
+    let flow = |v: &FlowVersion| v.file().ok().map(|f| f.flow);
+    if let (Some(now), Some(part), Some(earlier)) = (
+        find(current).and_then(flow),
+        find(before).and_then(flow),
+        find(before.saturating_sub(1)).and_then(flow),
+    ) && part != earlier
+        && part != now
+        && applied_now(&earlier, &now) == part
+    {
+        return before - 1;
+    }
+    before
 }
 
 /// "Quick developer is no longer an option for Dev · runs Rust developer" (History, FLW-05).
