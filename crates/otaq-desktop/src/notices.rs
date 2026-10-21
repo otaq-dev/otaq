@@ -649,7 +649,7 @@ impl State {
         match waiting {
             Some(w) => self.banners.raise(Situation::FlowWaiting {
                 summary: w.summary(),
-                tickets: w.waiting_for.iter().map(ToString::to_string).collect(),
+                count: w.waiting_for.len(),
             }),
             None => self.banners.clear(SituationKind::FlowWaiting),
         }
@@ -972,8 +972,7 @@ mod tests {
                 .text
                 .starts_with("QA after Security \u{b7} 2 tickets still working.")
         );
-        assert_eq!(view.banners[0].tickets, ["SHOP-12", "SHOP-44"]);
-        assert_eq!(view.banners[0].buttons[0].label, "Show the 2 tickets");
+        assert_eq!(view.banners[0].buttons[0].label, "Apply now");
 
         n.on_flow_event("SHOP", &FlowEvent::Applied { version: 3 });
         let view = n.view();

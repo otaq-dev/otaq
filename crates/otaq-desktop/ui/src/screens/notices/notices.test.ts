@@ -71,7 +71,6 @@ const banner = (over: Partial<Banner> = {}): Banner => ({
   dismissable: true,
   tooltip: null,
   lines: [],
-  tickets: [],
   ...over,
 });
 

@@ -2,7 +2,7 @@
 // Settings → Flow (T-0422; FLW-06…FLW-11): the section draws Rust's table and waiting line; every action but Export
 // asks for a proposal and closes Settings (the preview opens on its event); Export and Import go through the system's
 // dialogs and a cancelled dialog does nothing; Change with the Project agent starts a Project agent with `/flow`; a
-// preset card proposes its file. The flow banner's Show the N tickets outlines its cards and Cancel change asks Rust.
+// preset card proposes its file. (The flow banner's Apply now and Cancel change: `notices/applyNow.test.ts`.)
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,8 +14,6 @@ import type { FlowSettings } from "../../generated/FlowSettings";
 import type { MenuItem } from "../../generated/MenuItem";
 import type { PresetDialog as PresetDialogView } from "../../generated/PresetDialog";
 import { request } from "../../tauri";
-import { flowBanner, flowShown, highlightRules } from "../notices/flowShow";
-import { pressBanner } from "../notices/notices";
 import { type PaneFocusRequest, paneFocusRequests, shownAgents } from "../pane/logic";
 import { FlowSectionBody, PresetDialog } from "./Flow";
 import {
@@ -138,7 +136,6 @@ afterEach(() => {
   paneFocusRequests.set(null);
   shellLayout.set(INITIAL_LAYOUT);
   selection.set(NOTHING_SELECTED);
-  flowShown.set(false);
 });
 
 describe("the Flow section", () => {
@@ -295,30 +292,5 @@ describe("the Flow actions", () => {
     expect(r.pane.selection.get().project).toBe("SHOP");
     expect(r.pane.layout.get().paneHidden).toBe(false);
     expect(r.pane.shown.get()).toEqual({ SHOP: "pa7" });
-  });
-});
-
-describe("the flow banner", () => {
-  it("Show the N tickets toggles the outline; Cancel change asks Rust", async () => {
-    const stack = { open: vi.fn() };
-    await pressBanner("flow_waiting", "action", { ask, overlays: stack });
-    expect(flowShown.get()).toBe(true);
-    await pressBanner("flow_waiting", "action", { ask, overlays: stack });
-    expect(flowShown.get()).toBe(false);
-    await pressBanner("flow_waiting", "secondary", { ask, overlays: stack });
-    expect(ask).toHaveBeenCalledWith("notices.flow_cancel", { project: null });
-    expect(stack.open).not.toHaveBeenCalled();
-  });
-
-  it("outlines the waiting tickets and dims the rest", () => {
-    const rules = highlightRules(["SHOP-12", "SHOP-44"], (k) => k);
-    expect(rules).toContain(
-      '.board-card[data-card]:not(.board-card[data-card="SHOP-12"], .board-card[data-card="SHOP-44"]) { opacity: 0.3;',
-    );
-    expect(rules).toContain(
-      '.board-card[data-card="SHOP-12"], .board-card[data-card="SHOP-44"] { box-shadow',
-    );
-    expect(highlightRules([])).toBe("");
-    expect(flowBanner([])).toBeUndefined();
   });
 });

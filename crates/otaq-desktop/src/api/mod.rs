@@ -15,6 +15,8 @@ pub use agent_tools::{
     SignIn as AgentToolSignIn, ViewParams as AgentToolsViewParams,
 };
 #[cfg(test)]
+pub use apply_now::export_types as export_apply_now_types;
+#[cfg(test)]
 pub use board::{
     DragBackParams as BoardDragBackParams, DropParams as BoardDropParams,
     FocusParams as BoardFocusParams, MenuParams as CardMenuParams, SearchParams,
@@ -195,6 +197,7 @@ areas! {
     limits,
     palette,
     flow_preview,
+    apply_now,
 }
 
 /// Reads the user's answer once the service answers, then sends the counts every [`crate::usage::FLUSH_EVERY`]

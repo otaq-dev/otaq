@@ -95,10 +95,10 @@ pub enum Situation {
     /// The first agent started while macOS hasn't been asked (ATT-13).
     NotificationsAsk,
     /// The project on screen's waiting flow change (FLW-06): what it changes ("QA after Security · Review can be
-    /// skipped") and the tickets it waits for, which Show the N tickets outlines.
+    /// skipped") and how many tickets it waits for. Apply now opens the window that lists them (APN-01).
     FlowWaiting {
         summary: String,
-        tickets: Vec<String>,
+        count: usize,
     },
     ServiceUpdateReady {
         working: u32,
@@ -162,8 +162,8 @@ pub struct BannerRow {
     pub kind: SituationKind,
     pub title: String,
     pub text: String,
-    /// The Restart now button (update ready, restart required), Start service (stopped), Resume all or Show the N
-    /// tickets.
+    /// The Restart now button (update ready, restart required), Start service (stopped), Resume all or Apply now (a
+    /// flow change waiting).
     pub action: Option<String>,
     /// A second button: "Review & resume" (opens the after-restart summary sheet).
     pub secondary: Option<&'static str>,
@@ -173,8 +173,6 @@ pub struct BannerRow {
     pub tooltip: Option<BannerTooltip>,
     /// The usage limit's lines, one per tool.
     pub lines: Vec<LineView>,
-    /// The tickets Show the N tickets outlines (the flow change waiting).
-    pub tickets: Vec<String>,
 }
 
 /// A banner's tooltip: a bold line, then one line each (the reasons of several failed projects).
@@ -201,7 +199,7 @@ pub enum BannerTone {
 #[serde(rename_all = "snake_case")]
 pub enum BannerButtonId {
     /// Restart now, Start service, Resume all (after interrupted sessions), Read the docs, Allow (the notifications
-    /// ask), Open System Settings (notifications blocked) or Show the N tickets (a flow change waiting).
+    /// ask), Open System Settings (notifications blocked) or Apply now (a flow change waiting: its window, APN-01).
     Action,
     /// Review & resume, the notifications ask's Not now, or Cancel change (a flow change waiting).
     Secondary,
@@ -236,9 +234,6 @@ pub struct BannerView {
     /// The usage limit's lines, one per tool (USG-10); empty for every other banner. The page draws these in place of
     /// the title, text and buttons when there are any.
     pub lines: Vec<LineView>,
-    /// The flow change waiting's tickets (FLW-06): Show the N tickets outlines them in amber and dims the rest.
-    /// Empty for every other banner.
-    pub tickets: Vec<String>,
 }
 
 impl BannerRow {
@@ -278,7 +273,7 @@ impl BannerRow {
                     (label, IconName::ExternalLink)
                 }
                 (SituationKind::NotificationsAsk, false) => (label, IconName::Bell),
-                (SituationKind::FlowWaiting, false) => (label, IconName::Eye),
+                (SituationKind::FlowWaiting, false) => (label, IconName::Play),
                 (_, false) => (label, IconName::RotateCw),
             };
             buttons.push(BannerButton {
@@ -322,7 +317,6 @@ impl BannerRow {
             dismissable: self.dismissable,
             tooltip: self.tooltip.clone(),
             lines: self.lines.clone(),
-            tickets: self.tickets.clone(),
         }
     }
 }
@@ -433,8 +427,6 @@ fn row(situation: &Situation) -> BannerRow {
     let mut resume = None;
     let mut tooltip = None;
     let mut lines = Vec::new();
-    let mut tickets = Vec::new();
-    let mut show = None;
     let (title, text, action) = match situation {
         Situation::ServiceStopped => (
             "Background service stopped".to_owned(),
@@ -547,18 +539,14 @@ fn row(situation: &Situation) -> BannerRow {
             "With 5–10 agents, permission prompts will stop agents often. See allowlists · auto mode in the Claude Code docs".to_owned(),
             Some("Read the docs"),
         ),
-        // *11 → A flow change waiting*: Show the N tickets, then Cancel change (no question).
-        Situation::FlowWaiting {
-            summary,
-            tickets: waiting_for,
-        } => {
-            tickets = waiting_for.clone();
+        // *11 → A flow change waiting*: Apply now (its window, APN-01), then Cancel change (no question). Show the N
+        // tickets went in M35 (d0108 changelog 2026-10-21): the window lists the same tickets.
+        Situation::FlowWaiting { summary, count } => {
             secondary = Some(CANCEL_CHANGE);
-            show = show_tickets(waiting_for.len());
             (
                 FLOW_CHANGE_WAITING.to_owned(),
-                flow_waiting_text(summary, waiting_for.len()),
-                None,
+                flow_waiting_text(summary, *count),
+                (*count > 0).then_some(APPLY_NOW),
             )
         }
         Situation::ServiceUpdateReady { working, waiting } => (
@@ -580,13 +568,12 @@ fn row(situation: &Situation) -> BannerRow {
         kind,
         title,
         text,
-        action: action.map(str::to_owned).or(show),
+        action: action.map(str::to_owned),
         secondary,
         dismissable: kind.dismissable(),
         resume,
         tooltip,
         lines,
-        tickets,
     }
 }
 
@@ -618,15 +605,9 @@ pub fn flow_waiting_text(summary: &str, count: usize) -> String {
     }
 }
 
-/// "Show the 8 tickets", "Show the ticket"; none while it waits for no ticket (it applies at the scheduler's next
-/// pass).
-pub fn show_tickets(count: usize) -> Option<String> {
-    match count {
-        0 => None,
-        1 => Some("Show the ticket".to_owned()),
-        n => Some(format!("Show the {n} tickets")),
-    }
-}
+/// Opens the Apply now window (APN-01); not offered while the change waits for no ticket (it applies at the
+/// scheduler's next pass).
+pub const APPLY_NOW: &str = crate::view_models::apply_now::APPLY_NOW;
 
 /// Otaq's ask before macOS's own question (ATT-13, d0090).
 pub fn notifications_ask() -> String {
@@ -695,15 +676,14 @@ mod tests {
         );
     }
 
-    /// FLW-06 (*11 → A flow change waiting*): the banner's text and count, Show the N tickets with the tickets it
-    /// outlines, Cancel change; under the permission warning; it can't be closed.
+    /// FLW-06, APN-01 (*11 → A flow change waiting*): the banner's text and count, Apply now and Cancel change (no
+    /// Show the N tickets any more); under the permission warning; it can't be closed.
     #[test]
     fn a_flow_change_waiting() {
         let mut m = BannerModel::default();
-        let tickets: Vec<String> = (1..=8).map(|n| format!("SHOP-{n}")).collect();
         m.raise(Situation::FlowWaiting {
             summary: "QA after Security".into(),
-            tickets: tickets.clone(),
+            count: 8,
         });
         m.raise(Situation::PermissionWarning);
         assert_eq!(
@@ -726,28 +706,28 @@ mod tests {
         assert_eq!(
             buttons,
             [
-                (BannerButtonId::Action, "Show the 8 tickets"),
+                (BannerButtonId::Action, "Apply now"),
                 (BannerButtonId::Secondary, "Cancel change")
             ]
         );
-        assert_eq!(view.tickets, tickets);
+        assert_eq!(view.buttons[0].icon, IconName::Play);
         assert!(!view.dismissable);
         m.dismiss(SituationKind::FlowWaiting);
         assert_eq!(m.rows().len(), 2, "stays until it applies or is cancelled");
 
-        // Two merged changes and one ticket; none left (it applies at the next pass): no Show.
+        // Two merged changes and one ticket; none left (it applies at the next pass): no Apply now.
         m.raise(Situation::FlowWaiting {
             summary: "QA after Security \u{b7} Review can be skipped".into(),
-            tickets: vec!["SHOP-3".into()],
+            count: 1,
         });
         let view = m.rows()[1].view(false);
         assert!(view.text.starts_with(
             "QA after Security \u{b7} Review can be skipped \u{b7} 1 ticket still working."
         ));
-        assert_eq!(view.buttons[0].label, "Show the ticket");
+        assert_eq!(view.buttons[0].label, "Apply now");
         m.raise(Situation::FlowWaiting {
             summary: "QA after Security".into(),
-            tickets: Vec::new(),
+            count: 0,
         });
         let view = m.rows()[1].view(false);
         assert_eq!(view.buttons.len(), 1);

@@ -16,6 +16,7 @@ pub mod agent_tools_page;
 pub mod agents;
 pub mod answer;
 pub mod answer_options;
+pub mod apply_now;
 pub mod approve;
 pub mod banners;
 pub mod board;

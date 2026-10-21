@@ -18,9 +18,4 @@ tooltip: BannerTooltip | null,
  * The usage limit's lines, one per tool (USG-10); empty for every other banner. The page draws these in place of
  * the title, text and buttons when there are any.
  */
-lines: Array<LimitLine>, 
-/**
- * The flow change waiting's tickets (FLW-06): Show the N tickets outlines them in amber and dims the rest.
- * Empty for every other banner.
- */
-tickets: Array<string>, };
+lines: Array<LimitLine>, };

@@ -113,6 +113,8 @@ export interface OverlayParams {
   /** The flow preview of a project's open proposal (T-0420, FLW-04), over the main area beside the Project agent
    * pane; `focus`: the user opened it (Settings → Flow), so the keyboard moves into it. */
   flow_preview: { project: string; focus?: boolean };
+  /** Apply now on a project's waiting flow change (T-0439, APN-02), from the flow change banner. */
+  apply_now: { project: string };
 }
 
 export type OverlayId = keyof OverlayParams;
@@ -159,6 +161,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   full_view: true,
   // The pane beside it stays usable: typing and shortcuts go on (FLW-04).
   flow_preview: false,
+  apply_now: true,
 };
 
 /**

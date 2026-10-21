@@ -1,6 +1,7 @@
 // Area 11 · Banners, toasts & OS notifications (T-0231): the banner area above board and panel (at most two rows,
-// one per situation), the toast host bottom-right, Restart now's confirmation, and notification clicks. What shows,
-// its wording and its buttons come from Rust (`src/notices.rs`); OS notifications are posted by the service.
+// one per situation), the toast host bottom-right, Restart now's confirmation, the flow change banner's Apply now window
+// (`ApplyNow.tsx`) and notification clicks. What shows, its wording and its buttons come from Rust (`src/notices.rs`);
+// OS notifications are posted by the service.
 import { useEffect, useRef, useState } from "react";
 
 import type { OverlayProps, Screen } from "../../app/registry";
@@ -15,7 +16,7 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { toolProblemAction } from "../panel/toolProblemRunner";
 import { type LimitLineHandlers, LimitLines } from "./LimitLines";
-import { flowBanner, flowShown, highlightRules } from "./flowShow";
+import { ApplyNowOverlay } from "./ApplyNow";
 import { followNotifications, limitLinesOf, noticesStore, pressBanner, watchNotices } from "./notices";
 import "./notices.css";
 
@@ -82,33 +83,6 @@ export function BannerRows({
   );
 }
 
-/**
- * Show the N tickets while it is on (FLW-06): the waiting change's tickets outlined, the rest dimmed. It goes off with
- * the banner (the change applied or was cancelled), on another project and on Esc.
- */
-function FlowShow({ banner, project }: { banner: BannerView | undefined; project: string | null }) {
-  const on = useStore(flowShown);
-  useEffect(() => {
-    flowShown.set(false);
-  }, [project]);
-  const waiting = banner !== undefined;
-  useEffect(() => {
-    if (!waiting) flowShown.set(false);
-  }, [waiting]);
-  useEffect(() => {
-    if (!on) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !e.defaultPrevented) flowShown.set(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [on]);
-  const rules = on && banner ? highlightRules(banner.tickets) : "";
-  return rules === "" ? null : <style data-flow-show="">{rules}</style>;
-}
-
 /** The banner slot: follows the notices and the notification clicks while the page is up. */
 function BannerArea() {
   const notices = useStore(noticesStore);
@@ -128,13 +102,7 @@ function BannerArea() {
       root.removeAttribute(INPUT_OFF);
     };
   }, [inputOff]);
-  const banners = notices?.banners ?? [];
-  return (
-    <>
-      <BannerRows banners={banners} />
-      <FlowShow banner={flowBanner(banners)} project={project} />
-    </>
-  );
+  return <BannerRows banners={notices?.banners ?? []} />;
 }
 
 function linkOf(toast: ToastView) {
@@ -278,4 +246,5 @@ export const notices: Screen = (app) => {
   app.slots.register("banners", { Component: BannerArea });
   app.slots.register("toasts", { Component: ToastHost });
   app.overlays.register("restart_service", { Component: RestartOverlay });
+  app.overlays.register("apply_now", { Component: ApplyNowOverlay });
 };

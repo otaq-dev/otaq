@@ -21,7 +21,6 @@ import type { NotificationTarget } from "../../generated/NotificationTarget";
 import { asRequestError, type PageEvents, pageEvents } from "../../service";
 import { request, windowAction } from "../../tauri";
 import { PANE_ROUTES, type PaneRoutes, showAgentInPane } from "../pane/logic";
-import { toggleFlowShown } from "./flowShow";
 
 /** The banner rows and toasts as last heard; `undefined` until the first answer. */
 export const noticesStore: Store<Notices | undefined> = createStore<Notices | undefined>(undefined);
@@ -64,6 +63,8 @@ export function watchNotices(
 export interface BannerRoutes {
   ask: typeof request;
   overlays: Pick<OverlayStack, "open">;
+  /** The project on screen (the flow change banner's); the selection's by default. */
+  project?: () => string | null;
 }
 
 const ROUTES: BannerRoutes = { ask: request, overlays };
@@ -72,17 +73,19 @@ const ROUTES: BannerRoutes = { ask: request, overlays };
 export async function pressBanner(
   kind: BannerKind,
   button: BannerButtonId,
-  { ask, overlays: stack }: BannerRoutes = ROUTES,
+  { ask, overlays: stack, project = () => selection.get().project }: BannerRoutes = ROUTES,
 ): Promise<void> {
   // The notifications ask (ATT-13): Allow brings up macOS's question in the app; Not now only answers the ask.
   if (kind === "notifications_ask") {
     await ask(button === "secondary" ? "notices.notifications_not_now" : "notices.notifications_allow");
     return;
   }
-  // A flow change waiting (FLW-06): Show the N tickets on the board, or Cancel change (no question; starts resume).
+  // A flow change waiting (FLW-06, APN-01): Apply now opens its window on the project on screen; Cancel change asks
+  // no question (starts resume).
   if (kind === "flow_waiting") {
+    const on = project();
     if (button === "secondary") await ask("notices.flow_cancel", { project: null });
-    else toggleFlowShown();
+    else if (on !== null) stack.open("apply_now", { project: on });
     return;
   }
   // "Review & resume": the after-restart summary sheet, where each ticket resumes on its own (T-0235).
