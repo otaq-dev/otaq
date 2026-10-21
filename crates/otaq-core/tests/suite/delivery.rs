@@ -890,3 +890,218 @@ async fn another_agent_delivers_in_a_fresh_session() {
     assert!(std::path::Path::new(&worktree).is_dir(), "kept until Done");
     w.stop().await;
 }
+
+/// d0108 second gap review rule 6 (T-0419 fix): when the Delivery's agent isn't Dev's, every PR step reaches the
+/// Delivery's own session. Retry after that session ended starts it again (never types into Dev's running session),
+/// and the user's click Open PR runs there too, with its dialog.
+#[tokio::test(flavor = "multi_thread")]
+async fn retry_and_the_click_reach_the_deliverys_own_agent() {
+    use otaq_core::board::settings::WorkflowStep;
+    use otaq_core::pr::service::PrOutcome;
+
+    let w = world().await;
+    let repo = w.repos.clone_with_origin("shop-web", "main", 1);
+    w.board
+        .add_project(&otaq_core::board::projects::AddProject {
+            path: repo.display().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
+    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
+    let shipper = |file: &mut otaq_core::flow::FlowFile| {
+        for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
+            stage.agent = Some("Validator".into());
+        }
+    };
+    w.board
+        .edit_flow_for_tests("SHOP", |file| {
+            automatic_pr_delivery(file);
+            shipper(file);
+        })
+        .await;
+    let t = working(&w, "Login redirect", None, "login.ts").await;
+    let key = t.key.to_string();
+    let dev = w.agent_shell(&t).await;
+
+    assert_eq!(pass(&w, &t).await.status, Status::ToDeliver);
+    let first = w
+        .sessions
+        .running_of(&t.id, SessionKind::Delivery)
+        .expect("the Delivery's own session");
+    // Its session ends before it reports the PR (it crashed, say): Retry starts the Delivery's agent again.
+    w.sessions.stop(&first.id).await.unwrap();
+    let outcome = w.prs.retry(&key, false).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    let again = w
+        .sessions
+        .running_of(&t.id, SessionKind::Delivery)
+        .expect("the Delivery's session again");
+    assert_ne!(again.id, first.id);
+    assert!(
+        w.deliveries.pending(&dev.session).await.unwrap().is_empty(),
+        "nothing queued for Dev's session"
+    );
+    let attached = w.sessions.attach(&dev.session).unwrap();
+    let dev_saw = String::from_utf8_lossy(&attached.scrollback).into_owned();
+    assert!(
+        !dev_saw.contains(&naming::copy_name("my-pr")),
+        "nothing typed into Dev's session: {dev_saw}"
+    );
+
+    // Click mode: the user's Open PR runs on the Delivery's agent too, in its own session.
+    w.prs.cancel(&key, &me()).await.unwrap();
+    assert!(
+        w.sessions
+            .running_of(&t.id, SessionKind::Delivery)
+            .is_none()
+    );
+    w.board
+        .edit_flow_for_tests("SHOP", |file| {
+            for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
+                stage.delivery = Some(otaq_core::flow::Delivery {
+                    mode: otaq_core::flow::DeliveryMode::Click,
+                    delivers: otaq_core::flow::Delivers::Pr,
+                });
+            }
+        })
+        .await;
+    let outcome = w.prs.open(&key, true, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    assert!(
+        w.sessions
+            .running_of(&t.id, SessionKind::Delivery)
+            .is_some()
+    );
+    let flow = w.board.pr_flow(&t.id).await.unwrap().unwrap();
+    assert!(!flow.automatic, "the click's flow keeps its dialog");
+    w.stop().await;
+}
+
+/// STG-09 (T-0419 fix): only the session that runs the card's stage can interrupt it. With the Delivery on its own
+/// agent, Dev's leftover session exiting (a crash, a signal) changes nothing while the card is To deliver or PR open,
+/// and the Delivery's `pr opened` leaves it "PR open" in its Delivery.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_leftover_dev_session_ending_leaves_the_delivery_alone() {
+    use otaq_core::board::settings::WorkflowStep;
+
+    let w = world().await;
+    let repo = w.repos.clone_with_origin("shop-web", "main", 1);
+    w.board
+        .add_project(&otaq_core::board::projects::AddProject {
+            path: repo.display().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
+    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.board
+        .edit_flow_for_tests("SHOP", |file| {
+            automatic_pr_delivery(file);
+            for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
+                stage.agent = Some("Validator".into());
+            }
+        })
+        .await;
+    let ended = |w: &TestService, session: String| {
+        let sessions = w.sessions.clone();
+        async move {
+            sessions.write(&session, b"exit 3\n").unwrap();
+            for _ in 0..500 {
+                let info = sessions.info(&session).unwrap();
+                if !info.is_running() {
+                    return info;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            panic!("the session never ended");
+        }
+    };
+
+    let t = working(&w, "Login redirect", None, "login.ts").await;
+    let key = t.key.to_string();
+    let dev = w.agent_shell(&t).await;
+    assert_eq!(pass(&w, &t).await.status, Status::ToDeliver);
+    let info = ended(&w, dev.session.clone()).await;
+    assert_eq!(w.recovery.agent_session_ended(&info).await.unwrap(), None);
+    let after = w.board.ticket(&key).await.unwrap();
+    assert_eq!(
+        (after.status, &after.place),
+        (Status::ToDeliver, &Place::stage_of(DELIVER))
+    );
+    assert!(after.flags.delivering_automatically);
+    assert!(
+        !w.board
+            .history(&key)
+            .await
+            .unwrap()
+            .iter()
+            .any(|e| e.kind == EventKind::Interrupted)
+    );
+
+    // The Delivery's own session reports the PR: PR open in the Delivery.
+    let open = w
+        .prs
+        .opened(
+            &key,
+            "https://github.com/acme/shop-web/pull/12",
+            &Actor::Agent(t.key.clone()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (open.status, &open.place, open.flags.pr_number),
+        (Status::PrOpen, &Place::stage_of(DELIVER), Some(12))
+    );
+
+    // PR open: a second leftover Dev session ending changes nothing either.
+    let dev = w.agent_shell(&t).await;
+    let info = ended(&w, dev.session.clone()).await;
+    assert_eq!(w.recovery.agent_session_ended(&info).await.unwrap(), None);
+    assert_eq!(w.status(&key).await, Status::PrOpen);
+    w.stop().await;
+}
+
+/// `pr opened` while a PR flow is under way puts the card in its Delivery as "PR open", even when something left it
+/// elsewhere meanwhile (T-0419 fix).
+#[tokio::test(flavor = "multi_thread")]
+async fn pr_opened_puts_the_card_in_its_delivery() {
+    use otaq_core::board::settings::WorkflowStep;
+
+    let w = world().await;
+    let repo = w.repos.clone_with_origin("shop-web", "main", 1);
+    w.board
+        .add_project(&otaq_core::board::projects::AddProject {
+            path: repo.display().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
+    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.board
+        .edit_flow_for_tests("SHOP", automatic_pr_delivery)
+        .await;
+    let t = working(&w, "Login redirect", None, "login.ts").await;
+    let key = t.key.to_string();
+    w.agent_shell(&t).await;
+    assert_eq!(pass(&w, &t).await.status, Status::ToDeliver);
+    w.force_stage(&t, DEV, Status::Interrupted).await;
+    let open = w
+        .prs
+        .opened(
+            &key,
+            "https://github.com/acme/shop-web/pull/12",
+            &Actor::Agent(t.key.clone()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (open.status, &open.place),
+        (Status::PrOpen, &Place::stage_of(DELIVER))
+    );
+    assert_eq!(open.interrupted_from, None);
+    w.stop().await;
+}

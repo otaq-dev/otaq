@@ -531,6 +531,16 @@ impl Recovery {
                 .start_failed(&ticket.id, ticket.status, tool, info)
                 .await;
         }
+        // A card that moved on from the ended session's stage: only the session that runs its stage counts (STG-09).
+        // An automatic PR Delivery run by the Delivery's own agent isn't Dev's leftover session's to interrupt.
+        if matches!(
+            StageAt::find(&flow, &ticket.place, ticket.status, None),
+            Some(StageAt::Delivery { .. })
+        ) && self.inner.board.delivery_session_kind(&ticket).await != SessionKind::Agent
+        {
+            tracing::info!(ticket = %ticket.key, session = info.id, "an earlier stage's session ended: nothing changes");
+            return Ok(None);
+        }
         let payload = ended_payload(info);
         match reconcile(&flow, &ticket.place, ticket.status, None, false) {
             Outcome::Interrupt { keep_label } => {

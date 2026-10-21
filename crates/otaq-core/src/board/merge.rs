@@ -305,6 +305,44 @@ impl Board {
         }))
     }
 
+    /// Whose session runs the ticket's Delivery (d0108 second gap review rule 6): the Dev stage's (an agent
+    /// session) when the Delivery's agent is the agent that ran it, else a delivery session of the Delivery's own
+    /// agent; an epic's is always a delivery session (EPC-08). A flow whose agents can't be read keeps the ticket's
+    /// agent.
+    pub async fn delivery_session_kind(&self, ticket: &Ticket) -> crate::session::SessionKind {
+        use crate::session::SessionKind;
+        if ticket.is_epic() {
+            return SessionKind::Delivery;
+        }
+        match self.delivery_agent_is_devs(ticket).await {
+            Ok(false) => SessionKind::Delivery,
+            Ok(true) => SessionKind::Agent,
+            Err(e) => {
+                tracing::warn!(key = %ticket.key, error = %e, "can't tell the Delivery's agent: the ticket's agent");
+                SessionKind::Agent
+            }
+        }
+    }
+
+    /// Whether the Delivery's agent is the agent that ran the ticket's nearest Agent stage before the Delivery (its
+    /// choice for that stage, else the stage's agent).
+    async fn delivery_agent_is_devs(&self, ticket: &Ticket) -> Result<bool, BoardError> {
+        use crate::agents::resolve;
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        let skips = self.ticket_skips(ticket, &flow).await?;
+        let Some(dev) = flow
+            .stages
+            .iter()
+            .find(|s| s.is_delivery())
+            .and_then(|d| engine::back_to(&flow, &d.id, &skips))
+        else {
+            return Ok(false);
+        };
+        let delivery = resolve::delivery_agent(self, ticket.key.project.as_str()).await?;
+        let dev = resolve::running_agent(self, ticket, &dev.id).await?;
+        Ok(delivery.id == dev.id)
+    }
+
     /// An automatic Delivery merged the ticket (AMG-02, FLW-15): "Merged automatically" (and "Delivered without
     /// checks" when no check passed before it), the conflict count back at 0, a History line.
     pub(crate) async fn record_delivered_automatically(
