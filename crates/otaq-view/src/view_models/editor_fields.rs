@@ -8,6 +8,7 @@ use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Kind, Status, TicketKey};
 
 use crate::icons::IconName;
+use crate::view_models::menu::MenuItem;
 
 /// The "Start from and merge into" field.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,6 +126,33 @@ pub fn base_choices(local: &[String], remote: &[String]) -> (Vec<String>, Vec<(S
     (local.to_vec(), remote)
 }
 
+/// A base-branch dropdown's rows (*Settings*, *Add project*): LOCAL branches, then REMOTE ones by their short name
+/// (id `origin/release/2.2`), `current` checked.
+pub fn branch_items(local: &[String], remote: &[String], current: &str) -> Vec<MenuItem> {
+    let (local, remote) = base_choices(local, remote);
+    let mut items = vec![MenuItem::header("LOCAL")];
+    for b in local {
+        let checked = b == current;
+        items.push(
+            MenuItem::new(b.clone(), b)
+                .icon(IconName::GitBranch)
+                .checked(checked),
+        );
+    }
+    if !remote.is_empty() {
+        items.push(MenuItem::header("REMOTE"));
+        for (full, name) in remote {
+            let checked = full == current || name == current;
+            items.push(
+                MenuItem::new(full, name)
+                    .icon(IconName::GitBranch)
+                    .checked(checked),
+            );
+        }
+    }
+    items
+}
+
 /// How a refusal reads in the editor: a title by its code, then the service's exact message.
 pub fn refusal_title(code: Option<&str>) -> &'static str {
     match code {
@@ -238,6 +266,22 @@ mod tests {
             [
                 ("origin/release/2.2".to_owned(), "release/2.2".to_owned()),
                 ("origin/next".to_owned(), "next".to_owned())
+            ]
+        );
+        let items = branch_items(&local, &remote, "origin/next");
+        let rows: Vec<_> = items
+            .iter()
+            .map(|i| (i.header, i.id.as_str(), i.label.as_str(), i.checked))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                (true, "", "LOCAL", false),
+                (false, "main", "main", false),
+                (false, "release/2.3", "release/2.3", false),
+                (true, "", "REMOTE", false),
+                (false, "origin/release/2.2", "release/2.2", false),
+                (false, "origin/next", "next", true),
             ]
         );
         assert_eq!(refusal_title(Some("cycle")), "That would create a loop");

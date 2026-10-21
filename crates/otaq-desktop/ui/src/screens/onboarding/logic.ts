@@ -79,6 +79,12 @@ export function baseText(form: AddProjectParams, view: AddProjectView | undefine
   return form.base_edited ? form.base_branch : (view?.base?.value ?? "");
 }
 
+/** The base branch as its dropdown shows it: a remote branch by its short name (`origin/next` → `next`). */
+export function baseLabel(form: AddProjectParams, view: AddProjectView | undefined): string {
+  const id = baseText(form, view);
+  return view?.base?.items.find((i) => !i.header && i.id === id)?.label ?? id;
+}
+
 /**
  * Ending onboarding: the permission-mode banner when the warning was shown and not closed (T-0231's
  * `notices.permission_warning`). Returns whether it was raised.

@@ -63,6 +63,12 @@ async fn adds_a_repo_with_suggested_key_and_remote_default_base() {
     assert_eq!(probe.name, "shop-web");
     assert_eq!(probe.suggested_key, "SHOP");
     assert_eq!(probe.base_branch, "develop");
+    assert_eq!(probe.branches.local, ["develop"], "local branches");
+    assert_eq!(
+        probe.branches.remote,
+        ["origin/develop"],
+        "remote-tracking branches, without origin/HEAD"
+    );
 
     let project = f.board.add_project(&add(&repo)).await.unwrap();
     assert_eq!(project.key, "SHOP");

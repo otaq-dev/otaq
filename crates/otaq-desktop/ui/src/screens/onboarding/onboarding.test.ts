@@ -14,6 +14,7 @@ import { onboarding, openOnboardingWhenNeeded } from ".";
 import {
   adoptKey,
   afterTools,
+  baseLabel,
   baseText,
   finishOnboarding,
   keyText,
@@ -46,6 +47,7 @@ const TOOLS: OnboardingTools = {
   other_heading: "OTHER TOOLS",
   rows: [
     {
+      tool: "git",
       name: "claude",
       badge: "required",
       look: "missing_required",
@@ -53,6 +55,8 @@ const TOOLS: OnboardingTools = {
       status: "not found on PATH",
       explanation: "nothing can start without it.",
       command: "npm install -g @anthropic-ai/claude-code",
+      button: null,
+      note: null,
     },
   ],
   waiting: null,
@@ -63,6 +67,14 @@ const TOOLS: OnboardingTools = {
   continue_reason: "Install claude to continue",
   has_projects: false,
   copy: "Copy",
+  terminal: {
+    hide: "Hide",
+    close: "Close",
+    retry: "Retry",
+    checking: "Ended \u00b7 checking again\u2026",
+    not_done: "Not done yet \u2014 see the output above",
+    done: "Done",
+  },
   agents_line: null,
 };
 
@@ -218,6 +230,8 @@ const agentRow = (tool: string, name: string, more: Partial<AgentToolRow>): Agen
   sign_in: null,
   show: null,
   install: null,
+  install_button: null,
+  install_note: null,
   update: null,
   can_see: null,
   notes: [],
@@ -320,6 +334,18 @@ describe("the Add project form", () => {
     expect(keyText(typed, view("SHOP"))).toBe("sh");
     expect(baseText(form, view("SHOP", "develop"))).toBe("develop");
     expect(baseText(typeBase(form, ""), view("SHOP", "develop"))).toBe("");
+  });
+
+  it("shows a picked remote branch by its short name", () => {
+    const row = (id: string, label: string) => ({ id, label, header: false });
+    const withItems = {
+      key: { value: "SHOP" },
+      base: { value: "main", items: [row("main", "main"), row("origin/next", "next")] },
+    } as unknown as AddProjectView;
+    const form = newForm(true, "/code/shop-web");
+    expect(baseLabel(form, withItems)).toBe("main");
+    expect(baseLabel(typeBase(form, "origin/next"), withItems)).toBe("next");
+    expect(baseLabel(typeBase(form, "gone"), withItems)).toBe("gone");
   });
 
   it("takes Rust's spelling of the key, unless the user typed on meanwhile", () => {

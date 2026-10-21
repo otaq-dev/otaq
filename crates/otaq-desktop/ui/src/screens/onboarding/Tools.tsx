@@ -1,8 +1,9 @@
 // The tools step (*2 · Tool checklist · everything installed*, *gh and az missing · non-blocking*; d0021, d0011, d0086;
 // *14* `y2FCwP` / `vnBdi`, `z8OVF` / `rZRuR`): the agent tools first ("AGENT TOOLS · AT LEAST ONE", how many are
 // connected, the blocking line while none is, and the same rows as Settings → Agent tools in their compact form:
-// Sign in…, Show, the install command, "Otaq can see", the tool's own warning, the … menu without Disconnect…), then
-// git, gh and az with their version or why they are missing and the command to copy; the old Claude Code warning
+// Sign in…, Install, Show, the install command, "Otaq can see", the tool's own warning, the … menu without
+// Disconnect…), then git, gh and az with their version or why they are missing, the command to copy and its Install /
+// Sign in… button; each button runs its command in a short terminal under the row (`RowTerminal`); the old Claude Code warning
 // when the service gives one, Re-check, and Continue (off while no agent tool is connected, with the reason beside
 // it), and under the list the starter agent's line (*14* `ODRG2`, M22). All of it is `OnboardingTools`'.
 import { Button, IconButton, ToolAvatar } from "../../components";
@@ -10,6 +11,8 @@ import type { AgentToolRow } from "../../generated/AgentToolRow";
 import type { OnboardingAgentTools } from "../../generated/OnboardingAgentTools";
 import type { OnboardingTools } from "../../generated/OnboardingTools";
 import type { ToolRowView } from "../../generated/ToolRowView";
+import type { ToolTerminalTexts } from "../../generated/ToolTerminalTexts";
+import type { ToolTerminalOpened } from "../../generated/ToolTerminalOpened";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import {
@@ -17,20 +20,31 @@ import {
   CanSee,
   CommandBox,
   DetailLine,
+  InstallLine,
   MARK_ICONS,
   markOf,
   RowMenu,
   ToolWarning,
 } from "../settings/AgentTools";
+import { RowTerminal, type RowTerminals } from "./RowTerminal";
+
+/** Whether the checklist rows still offer `key`'s action ("gh:login"): not, once it worked. */
+export function checklistStillOffered(rows: readonly ToolRowView[], key: string): boolean {
+  return rows.some((r) => r.button !== null && `${r.button.tool}:${r.button.action}` === key);
+}
 
 function AgentRow({
   row,
   menuLabel,
   onAction,
+  texts,
+  terminals,
 }: {
   row: AgentToolRow;
   menuLabel: string;
   onAction: (action: AgentToolAction) => void;
+  texts: ToolTerminalTexts;
+  terminals?: RowTerminals;
 }) {
   const mark = markOf(row);
   return (
@@ -58,7 +72,9 @@ function AgentRow({
         <RowMenu row={row} label={menuLabel} onAction={onAction} />
       </div>
       {row.install !== null && <CommandBox command={row.install} label={false} />}
+      <InstallLine row={row} onAction={onAction} />
       {row.update !== null && <CommandBox command={row.update} />}
+      {terminals && <RowTerminal row={row.tool} texts={texts} terminals={terminals} />}
       <CanSee row={row} />
       <ToolWarning row={row} onAction={onAction} />
     </li>
@@ -69,9 +85,14 @@ function AgentRow({
 export function AgentToolsBlock({
   block,
   onAction,
+  texts,
+  terminals,
 }: {
   block: OnboardingAgentTools;
   onAction: (tool: string, action: AgentToolAction) => void;
+  texts: ToolTerminalTexts;
+  /** The rows' Install / Sign in… terminal; none in the gallery. */
+  terminals?: RowTerminals;
 }) {
   return (
     <>
@@ -96,6 +117,8 @@ export function AgentToolsBlock({
               onAction={(action) => {
                 onAction(row.tool, action);
               }}
+              texts={texts}
+              terminals={terminals}
             />
           ))}
         </ul>
@@ -104,7 +127,18 @@ export function AgentToolsBlock({
   );
 }
 
-function Row({ row, copy }: { row: ToolRowView; copy: string }) {
+function Row({
+  row,
+  copy,
+  texts,
+  terminals,
+}: {
+  row: ToolRowView;
+  copy: string;
+  texts: ToolTerminalTexts;
+  terminals?: RowTerminals;
+}) {
+  const button = row.button;
   return (
     <li className="tool-row" data-look={row.look}>
       <div className="tool-row-head">
@@ -126,8 +160,27 @@ function Row({ row, copy }: { row: ToolRowView; copy: string }) {
               if (row.command !== null) navigator.clipboard.writeText(row.command).catch(() => undefined);
             }}
           />
+          {button !== null && terminals && (
+            <Button
+              label={button.label}
+              variant="secondary"
+              icon={button.action === "login" ? "square-terminal" : "arrow-down-to-line"}
+              compact
+              disabled={terminals.open?.row === row.tool}
+              onClick={() => {
+                terminals.start(row.tool, `${button.tool}:${button.action}`, () =>
+                  request("tools.terminal", { tool: button.tool, action: button.action }).then((opened) => ({
+                    session: (opened as ToolTerminalOpened).session,
+                    title: button.running,
+                  })),
+                );
+              }}
+            />
+          )}
         </div>
       )}
+      {row.note !== null && <p className="tool-row-note">{row.note}</p>}
+      {terminals && <RowTerminal row={row.tool} texts={texts} terminals={terminals} />}
     </li>
   );
 }
@@ -140,8 +193,10 @@ export interface ToolsListProps {
   onDismiss: () => void;
   onRecheck: () => void;
   onContinue: () => void;
-  /** A click on an agent tool's row (Sign in…, Show, its … menu). */
+  /** A click on an agent tool's row (Sign in…, Install, Show, its … menu). */
   onAgentAction: (tool: string, action: AgentToolAction) => void;
+  /** The rows' Install / Sign in… terminal (agent tools and git, gh, az); none in the gallery. */
+  terminals?: RowTerminals;
 }
 
 export function ToolsList({
@@ -152,6 +207,7 @@ export function ToolsList({
   onRecheck,
   onContinue,
   onAgentAction,
+  terminals,
 }: ToolsListProps) {
   return (
     <>
@@ -179,12 +235,19 @@ export function ToolsList({
           <IconButton icon="x" label={tools.warning.close} onClick={onDismiss} />
         </div>
       )}
-      {tools.waiting === null && <AgentToolsBlock block={tools.agent_tools} onAction={onAgentAction} />}
+      {tools.waiting === null && (
+        <AgentToolsBlock
+          block={tools.agent_tools}
+          onAction={onAgentAction}
+          texts={tools.terminal}
+          terminals={terminals}
+        />
+      )}
       {tools.waiting === null && <div className="tool-heading">{tools.other_heading}</div>}
       {tools.rows.length > 0 ? (
         <ul className="tool-rows">
           {tools.rows.map((row) => (
-            <Row key={row.name} row={row} copy={tools.copy} />
+            <Row key={row.name} row={row} copy={tools.copy} texts={tools.terminal} terminals={terminals} />
           ))}
         </ul>
       ) : (

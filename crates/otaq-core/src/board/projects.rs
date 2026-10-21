@@ -22,6 +22,9 @@ pub struct FolderProbe {
     pub suggested_key: String,
     /// The detected base branch: the remote default, else the current branch.
     pub base_branch: String,
+    /// The repository's branches, for the form's base-branch dropdown.
+    #[serde(default)]
+    pub branches: Branches,
 }
 
 /// Adds a project. `key` and `base_branch` default to the suggestions.
@@ -101,6 +104,7 @@ impl Board {
         Ok(FolderProbe {
             suggested_key: suggest_key(&name, &taken),
             base_branch: self.detect_base_branch(&root).await?,
+            branches: self.repo_branches(&root).await?,
             repo_path,
             name,
         })
@@ -151,8 +155,12 @@ impl Board {
     /// The project repository's local and remote branches (read only).
     pub async fn branches(&self, key: &str) -> Result<Branches, BoardError> {
         let project = self.project(key).await?;
+        self.repo_branches(Path::new(&project.repo_path)).await
+    }
+
+    /// A repository's local and remote-tracking branches, as they are (nothing is fetched).
+    async fn repo_branches(&self, repo: &Path) -> Result<Branches, BoardError> {
         let git = self.git()?;
-        let repo = Path::new(&project.repo_path);
         Ok(Branches {
             local: git.local_branches(repo).await?,
             remote: git.remote_branches(repo).await?,

@@ -145,6 +145,8 @@ pub use theme::{ActiveTheme, ThemeParams, ThemePick};
 #[cfg(test)]
 pub use ticket_comments::export_types as export_ticket_comment_types;
 #[cfg(test)]
+pub use tools::Opened as ToolTerminalOpened;
+#[cfg(test)]
 pub use usage::{Ask as UsageDataAsk, UsageChoice};
 pub use window::{WindowFocus, follow_window_focus, window_focused};
 
@@ -186,6 +188,7 @@ areas! {
     settings,
     drawer,
     onboarding,
+    tools,
     sections,
     editor,
     diff,

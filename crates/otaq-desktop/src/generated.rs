@@ -60,6 +60,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::status::PillView::export_all(&cfg)?;
     otaq_view::view_models::priority::PriorityView::export_all(&cfg)?;
     otaq_view::view_models::menu::MenuItem::export_all(&cfg)?;
+    otaq_view::view_models::menu::MenuSearch::export_all(&cfg)?;
     // Also writes the legend, keyboard-map, type-scale and icon rows it is made of.
     otaq_view::view_models::gallery::GalleryView::export_all(&cfg)?;
     // The header, rail and quick switcher (T-0219); each also writes the view-model types it is made of.
@@ -130,6 +131,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::onboarding_page::Tools::export_all(&cfg)?;
     otaq_view::view_models::onboarding_page::StepId::export_all(&cfg)?;
     crate::api::OnboardingStart::export_all(&cfg)?;
+    // A checklist row's Install / Sign in… terminal (`tools.terminal`).
+    crate::api::ToolTerminalOpened::export_all(&cfg)?;
     crate::api::AddProjectParams::export_all(&cfg)?;
     crate::api::AddProjectOutcome::export_all(&cfg)?;
     // The board's search and filter, card menu and delete confirmation (T-0221).

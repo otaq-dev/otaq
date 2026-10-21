@@ -2,14 +2,15 @@
 //! d0069), then the tools checklist from `tools.check`. `git` missing, or no agent tool connected (SET-02 `[M23]`,
 //! d0086), blocks Continue; gh and az are optional. The permission-mode
 //! warning shows only when the check says "prompting", and stays away once dismissed. Nothing on these screens
-//! installs a tool or changes a setting (d0021, d0011): the commands are only shown for copying.
+//! installs a tool or changes a setting on its own (d0021, d0011): each command is shown for copying, and its
+//! Install / Sign in… button runs exactly that command in a visible terminal under the row, on the user's click.
 //!
 //! After Tools comes 4 · Project (the add-project form, T-0034), then 5 · Flow (ONB-04: the project's flow, from an
 //! agent, a preset or the default); once the flow is settled the onboarding steps disappear and the empty board is
 //! step 6 · Done (ONB-10).
 
 use otaq_core::naming;
-use otaq_core::tools::{PermissionVerdict, Tool, ToolStatus, ToolsReport};
+use otaq_core::tools::{PermissionVerdict, Tool, ToolAction, ToolStatus, ToolsReport};
 
 /// What the tools step needs besides git (SET-02 `[M23]`; *14* `z8OVF` "None connected · blocking").
 const CONNECT_AN_AGENT_TOOL: &str = "connect one agent tool";
@@ -60,8 +61,22 @@ pub struct ToolRow {
     pub status: String,
     /// Why a missing required tool matters.
     pub explanation: Option<String>,
-    /// A command to copy (install, add the extension, or log in).
+    /// A command to copy (install, add the extension, or sign in).
     pub command: Option<String>,
+    /// The button that runs `command` in a terminal; none when its package manager is missing.
+    pub button: Option<RowButton>,
+    /// A line under the command: "Needs Homebrew first…".
+    pub note: Option<String>,
+}
+
+/// Install, Add extension or Sign in… on a row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowButton {
+    pub action: ToolAction,
+    /// "Install", "Add extension", "Sign in…".
+    pub label: &'static str,
+    /// The terminal's title while it runs: "Installing gh…".
+    pub running: String,
 }
 
 /// The Continue button on the tools step.
@@ -191,6 +206,20 @@ fn tool_row(t: &ToolStatus) -> ToolRow {
             status,
             explanation,
             command: t.install_command.clone(),
+            button: t.missing_package_manager.is_none().then(|| RowButton {
+                action: ToolAction::Install,
+                label: "Install",
+                running: format!("Installing {}\u{2026}", t.tool.command()),
+            }),
+            note: t
+                .missing_package_manager
+                .as_deref()
+                .map(|manager| match manager {
+                    "brew" => {
+                        "Needs Homebrew first (brew.sh). Install it, then Re-check.".to_owned()
+                    }
+                    other => format!("Needs {other} first. Install it, then Re-check."),
+                }),
         };
     }
     let mut parts = vec![t.version.clone().unwrap_or_else(|| "found".to_owned())];
@@ -225,6 +254,20 @@ fn tool_row(t: &ToolStatus) -> ToolRow {
             .install_command
             .clone()
             .or_else(|| t.login_command.clone()),
+        button: if t.install_command.is_some() {
+            Some(RowButton {
+                action: ToolAction::Install,
+                label: "Add extension",
+                running: "Adding the azure-devops extension\u{2026}".to_owned(),
+            })
+        } else {
+            t.login_command.as_ref().map(|_| RowButton {
+                action: ToolAction::Login,
+                label: "Sign in\u{2026}",
+                running: format!("Signing in to {}\u{2026}", t.tool.command()),
+            })
+        },
+        note: None,
     }
 }
 
@@ -244,6 +287,7 @@ pub(crate) mod tests {
             extension_installed: None,
             install_command: (!found).then(|| tool.install_command().to_owned()),
             login_command: None,
+            missing_package_manager: None,
         }
     }
 

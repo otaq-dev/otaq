@@ -88,6 +88,7 @@ const TEXTS: EditorTexts = {
   deps_none: "None",
   base: "Start from and merge into",
   base_hint: "project default · local and remote branches · locked once the ticket starts",
+  base_search: { placeholder: "Search branches…", empty: "No matching branches" },
   external_id: "External ID",
   external_id_hint: "optional · standalone tickets only · used in the branch and PR title",
   external_id_placeholder: "e.g. PAY-123",

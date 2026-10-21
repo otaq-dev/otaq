@@ -56,6 +56,7 @@ use crate::terminals::TerminalEnv;
 use crate::terminals::run::Runs;
 use crate::terminals::shell::Shells;
 use crate::terminals::suggest::Suggester;
+use crate::terminals::tool::ToolTerminals;
 use crate::tools::CheckEnv;
 use crate::usage::limit::PlanLimit;
 use crate::usage::{self, Usage};
@@ -202,6 +203,7 @@ struct Shared {
     runs: Runs,
     suggester: Suggester,
     shells: Shells,
+    tool_terminals: ToolTerminals,
     prs: crate::pr::service::Prs,
     messages: crate::messages::Messages,
     validation: crate::validation::Validation,
@@ -777,6 +779,13 @@ impl Service {
             }));
         }
         // The Shell (RUN-05) closes at Done and Close.
+        // A checklist row's Install / Log in terminal (git, gh, az).
+        let tool_terminals = ToolTerminals::new(
+            sessions.clone(),
+            config.data.clone(),
+            config.terminals.clone(),
+            config.tools.clone(),
+        );
         let shells = Shells::new(
             board.clone(),
             sessions.clone(),
@@ -973,6 +982,7 @@ impl Service {
             messages,
             prs,
             shells,
+            tool_terminals,
             suggester,
             runs,
             plan_limit,

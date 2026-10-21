@@ -176,9 +176,15 @@ pub struct ToolStatus {
     pub checked_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
-    /// **How to install** on this OS, for copying (Otaq never runs it).
+    /// **How to install** on this OS, for copying, and what **Install** runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_command: Option<String>,
+    /// **Install** applies: not installed, and the install command's package manager (`npm`) is on PATH.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub can_install: bool,
+    /// The package manager the install command needs and PATH lacks (`npm`): no Install, a note instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_needs: Option<String>,
     /// What Otaq's setup writes into the tool's config ("Otaq added…"), with which stay on Disconnect.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub setup_entries: Vec<SetupLine>,
@@ -255,6 +261,8 @@ impl Found {
             checked_at,
             notes: self.notes.get(&tool).cloned().unwrap_or_default(),
             install_command: None,
+            can_install: false,
+            install_needs: None,
             setup_entries: Vec::new(),
             setup: self.setups.get(&tool).cloned(),
             permission_warning: None,
@@ -495,6 +503,78 @@ impl ConnectedTools {
                 format!("{name} isn\u{2019}t installed"),
             ));
         };
+        let session = self
+            .open_terminal(w, tool, program.display().to_string(), args)
+            .await?;
+        tracing::info!(tool = %tool, session = %session.id, "sign-in terminal opened");
+        Ok(ProjectTerminal {
+            number: 0,
+            name: sign_in_title(tool),
+            session,
+        })
+    }
+
+    /// `agent_tools.install`: a plain terminal in the home folder, titled "Installing Codex", running the row's
+    /// **How to install** command (`npm install -g @openai/codex`) after a `$ …` line, on the user's click only;
+    /// when it ends, the tool is checked again. Refused unless the tool is not installed and the command's
+    /// package manager is on PATH.
+    pub async fn install(&self, tool: Tool) -> Result<ProjectTerminal, BoardError> {
+        let Some(wired) = self.wired.get() else {
+            return Err(not_built("agent_tools.install"));
+        };
+        let w = &wired.wiring;
+        let status = self
+            .with_page(vec![self.lock().status(tool)])
+            .pop()
+            .expect("one status");
+        let name = tool.display_name();
+        if status.state != AgentToolState::NotInstalled {
+            return Err(BoardError::refused(
+                Refusal::NotAvailableYet,
+                format!("{name} is installed already"),
+            ));
+        }
+        if let Some(manager) = &status.install_needs {
+            return Err(BoardError::refused(
+                Refusal::NotAvailableYet,
+                format!("{name}\u{2019}s install command needs {manager}"),
+            ));
+        }
+        let command = w.adapters.get(tool).install_command(Os::current());
+        let run = crate::terminals::tool::command_line(command, &w.terminals);
+        let session = self
+            .open_terminal_with(w, tool, run.program, run.args, run.env)
+            .await?;
+        tracing::info!(tool = %tool, session = %session.id, "install terminal opened");
+        Ok(ProjectTerminal {
+            number: 0,
+            name: install_title(tool),
+            session,
+        })
+    }
+
+    /// A terminal of no project in the home folder, running `program`; the tool is checked again when it ends.
+    async fn open_terminal(
+        &self,
+        w: &Wiring,
+        tool: Tool,
+        program: String,
+        args: Vec<String>,
+    ) -> Result<crate::session::SessionInfo, BoardError> {
+        self.open_terminal_with(w, tool, program, args, Vec::new())
+            .await
+    }
+
+    async fn open_terminal_with(
+        &self,
+        w: &Wiring,
+        tool: Tool,
+        program: String,
+        args: Vec<String>,
+        extra_env: Vec<(String, String)>,
+    ) -> Result<crate::session::SessionInfo, BoardError> {
+        let mut env = w.terminals.env(&w.data, None, None);
+        env.extend(extra_env);
         let session = w
             .sessions
             .spawn(SpawnSpec {
@@ -503,13 +583,13 @@ impl ConnectedTools {
                 project_id: String::new(),
                 project_key: String::new(),
                 ticket: None,
-                program: program.display().to_string(),
+                program,
                 args,
                 cwd: w
                     .home
                     .clone()
                     .unwrap_or_else(|| w.data.root().to_path_buf()),
-                env: w.terminals.env(&w.data, None, None),
+                env,
                 size: SIGN_IN_SIZE,
                 tool: None,
                 tool_session_id: None,
@@ -520,19 +600,14 @@ impl ConnectedTools {
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
-        tracing::info!(tool = %tool, session = %session.id, "sign-in terminal opened");
         let (this, sessions, id) = (self.clone(), w.sessions.clone(), session.id.clone());
         tokio::spawn(async move {
             sessions.wait_ended(&id).await;
             if let Err(e) = this.recheck(Some(tool)).await {
-                tracing::warn!(tool = %tool, error = %e, "can't check the tool after its sign-in");
+                tracing::warn!(tool = %tool, error = %e, "can't check the tool after its terminal ended");
             }
         });
-        Ok(ProjectTerminal {
-            number: 0,
-            name: sign_in_title(tool),
-            session,
-        })
+        Ok(session)
     }
 
     /// `agent_tools.disconnect`: the adapter removes Otaq's own entries (folder trust stays, d0086), then the tool
@@ -657,7 +732,16 @@ impl ConnectedTools {
         let offered = self.lock().sign_in_offered.clone();
         for status in &mut statuses {
             let adapter = wired.wiring.adapters.get(status.tool);
-            status.install_command = Some(adapter.install_command(Os::current()).to_owned());
+            let install = adapter.install_command(Os::current());
+            status.install_command = Some(install.to_owned());
+            if status.state == AgentToolState::NotInstalled {
+                status.install_needs = crate::tools::package_manager_of(install)
+                    .filter(|manager| {
+                        crate::tools::find_on_path(manager, &wired.wiring.path).is_none()
+                    })
+                    .map(str::to_owned);
+                status.can_install = status.install_needs.is_none();
+            }
             status.setup_entries = adapter
                 .setup_entries()
                 .into_iter()
@@ -717,6 +801,11 @@ const SIGN_IN_SIZE: TerminalSize = TerminalSize {
 /// "Codex sign in".
 pub fn sign_in_title(tool: Tool) -> String {
     format!("{} sign in", tool.display_name())
+}
+
+/// "Installing Codex".
+pub fn install_title(tool: Tool) -> String {
+    format!("Installing {}", tool.display_name())
 }
 
 /// "Codex has 2 agents running. End them first."

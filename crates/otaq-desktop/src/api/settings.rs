@@ -13,16 +13,14 @@ use otaq_core::protocol::{
     MoveRoleParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, ReimportSkillParams, Reply, Request,
 };
 use otaq_view::view_models::about;
-use otaq_view::view_models::editor_fields::base_choices;
+use otaq_view::view_models::editor_fields::branch_items;
 use otaq_view::view_models::licenses;
-use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::{agent_page, agents};
 use otaq_view::view_models::settings::data_paths;
 use otaq_view::view_models::settings_page::{
     self as page, GlobalInputs, Os, ProjectChange, ProjectInputs, Reveal, WarmInputs,
 };
 use otaq_view::view_models::warm_build;
-use otaq_view::icons::IconName;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -717,20 +715,7 @@ async fn branches(app: &App, p: SettingsProject) -> Result<Value, RequestError> 
     let Reply::Branches(branches) = app.service.send(request).await? else {
         return Err(RequestError::plain("unexpected answer to project.branches"));
     };
-    let (local, remote) = base_choices(&branches.local, &branches.remote);
-    let mut items = vec![MenuItem::header("LOCAL")];
-    for b in local {
-        let checked = b == current;
-        items.push(MenuItem::new(b.clone(), b).icon(IconName::GitBranch).checked(checked));
-    }
-    if !remote.is_empty() {
-        items.push(MenuItem::header("REMOTE"));
-        for (full, name) in remote {
-            let checked = name == current;
-            items.push(MenuItem::new(full, name).icon(IconName::GitBranch).checked(checked));
-        }
-    }
-    reply(&items)
+    reply(&branch_items(&branches.local, &branches.remote, &current))
 }
 
 /// The Remove project confirmation, with the project's ticket count.

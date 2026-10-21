@@ -7,6 +7,8 @@ import {
   defaultOutcome,
   dialogKey,
   EDGE,
+  filterMenu,
+  firstMatch,
   FLOAT_GAP,
   MARK_COLUMNS,
   MARK_FLAG_OVERLAP,
@@ -16,6 +18,7 @@ import {
   markStrokes,
   menuKey,
   placeFloating,
+  searchKey,
   stepMenu,
   trapFocus,
 } from "./logic";
@@ -86,6 +89,45 @@ describe("menu keyboard (menu.rs, MenuModel)", () => {
     expect(menuKey(menu, 0, "Escape")).toEqual({ kind: "close" });
     expect(menuKey(menu, 0, "Tab")).toEqual({ kind: "close" });
     expect(menuKey(menu, 0, "a")).toEqual({ kind: "none" });
+  });
+});
+
+describe("searchable lists", () => {
+  const branches = [
+    item("", { header: true, label: "LOCAL" }),
+    item("main", { checked: true }),
+    item("release/2.3"),
+    item("", { header: true, label: "REMOTE" }),
+    item("origin/release/2.2", { label: "release/2.2" }),
+    item("origin/next", { label: "next" }),
+  ];
+  const ids = (list: readonly MenuItem[]) => list.map((i) => (i.header ? `#${i.label}` : i.id));
+
+  it("keeps the rows matching the label or id, any case, with their headers", () => {
+    expect(filterMenu(branches, "")).toBe(branches);
+    expect(ids(filterMenu(branches, "RELEASE"))).toEqual([
+      "#LOCAL",
+      "release/2.3",
+      "#REMOTE",
+      "origin/release/2.2",
+    ]);
+    expect(ids(filterMenu(branches, " origin/ "))).toEqual(["#REMOTE", "origin/release/2.2", "origin/next"]);
+    expect(filterMenu(branches, "nothing")).toEqual([]);
+  });
+
+  it("highlights the checked row, else the first match", () => {
+    expect(firstMatch(branches)).toBe(1);
+    expect(firstMatch(filterMenu(branches, "next"))).toBe(1);
+    expect(firstMatch([])).toBeNull();
+  });
+
+  it("leaves Space, Home and End to the search field", () => {
+    expect(searchKey(branches, 1, " ")).toEqual({ kind: "none" });
+    expect(searchKey(branches, 1, "Home")).toEqual({ kind: "none" });
+    expect(searchKey(branches, 1, "End")).toEqual({ kind: "none" });
+    expect(searchKey(branches, 1, "ArrowDown")).toEqual({ kind: "highlight", index: 2 });
+    expect(searchKey(branches, 2, "Enter")).toEqual({ kind: "choose", id: "release/2.3" });
+    expect(searchKey(branches, 2, "Escape")).toEqual({ kind: "close" });
   });
 });
 

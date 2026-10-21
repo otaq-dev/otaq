@@ -59,7 +59,11 @@ use crate::view_models::cleanup::{ConfirmLine, WarmConfirmPage};
 use crate::view_models::limits::{
     BACK_PRESSURE_ITEMS, MAX_AGENTS, right_now, settings_rows, toggled,
 };
+use crate::view_models::menu::MenuSearch;
 use crate::view_models::onboarding::{OnboardingModel, RowIcon};
+use crate::view_models::onboarding_page::{
+    ToolButton, ToolTerminalTexts, tool_button, tool_terminal_texts, tools_intro,
+};
 use crate::view_models::settings::{
     GLOBAL_SECTIONS, PROJECT_ICON, ProviderTone, env_file_problem, problem_for, provider_row,
     remove_text,
@@ -271,6 +275,8 @@ pub enum Control {
     /// The base branch: a dropdown of the repository's branches (`settings.branches`).
     Branch {
         value: String,
+        /// The dropdown's search field.
+        search: MenuSearch,
     },
     /// The 15 themes (`theme.picker`, `theme.pick`).
     Themes,
@@ -861,9 +867,7 @@ pub fn global_page(input: &GlobalInputs) -> Page {
     );
 
     let tools = Section {
-        intro: Some(format!(
-            "{PRODUCT_NAME} uses the tools already on your machine. It never installs or updates them."
-        )),
+        intro: Some(tools_intro()),
         ..section(
             GlobalSection::Tools,
             Some("Tools"),
@@ -947,6 +951,7 @@ pub fn project_page(input: &ProjectInputs) -> Page {
                 "Prefilled from the remote’s default branch (origin/HEAD); editable. Tickets and epics branch from here, and Local merge squashes into it.",
                 Control::Branch {
                     value: info.base_branch.clone(),
+                    search: MenuSearch::branches(),
                 },
             ),
         ],
@@ -1731,6 +1736,8 @@ pub enum ToolLook {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SettingsToolRow")]
 pub struct ToolView {
+    /// "git", "gh", "az".
+    pub tool: String,
     pub name: String,
     pub icon: IconName,
     pub look: ToolLook,
@@ -1739,6 +1746,8 @@ pub struct ToolView {
     pub status: String,
     pub explanation: Option<String>,
     pub command: Option<String>,
+    pub button: Option<ToolButton>,
+    pub note: Option<String>,
 }
 
 /// The tools checklist (`settings.tools`), or why the check failed.
@@ -1747,6 +1756,8 @@ pub struct ToolView {
 pub struct ToolsView {
     pub rows: Vec<ToolView>,
     pub error: Option<String>,
+    pub copy: String,
+    pub terminal: ToolTerminalTexts,
 }
 
 pub fn tools(result: Result<ToolsReport, String>) -> ToolsView {
@@ -1765,6 +1776,9 @@ pub fn tools(result: Result<ToolsReport, String>) -> ToolsView {
                     RowIcon::MissingOptional => (IconName::CircleMinus, ToolLook::MissingOptional),
                 };
                 ToolView {
+                    tool: r.tool.command().to_owned(),
+                    button: tool_button(&r),
+                    note: r.note.clone(),
                     name: r.name.to_owned(),
                     icon,
                     look,
@@ -1776,6 +1790,8 @@ pub fn tools(result: Result<ToolsReport, String>) -> ToolsView {
             })
             .collect(),
         error,
+        copy: "Copy".to_owned(),
+        terminal: tool_terminal_texts(),
     }
 }
 

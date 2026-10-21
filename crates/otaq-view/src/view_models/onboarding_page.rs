@@ -24,9 +24,11 @@ use crate::view_models::agent_tools_page::{self, Place};
 use crate::view_models::banners::{self, BannerModel, BannerView, TrustFailure};
 use crate::view_models::flow_at_work::{self, View as FlowAtWork};
 use crate::view_models::flow_settings::{PresetCard, preset_card};
-use crate::view_models::onboarding::{OnboardingModel, RowIcon, STEPS, Step};
+use crate::view_models::onboarding::{OnboardingModel, RowIcon, STEPS, Step, ToolRow};
 use crate::view_models::tool_avatar::ToolAvatarView;
 use crate::view_models::tool_problems::Tools as ToolProblems;
+use crate::view_models::editor_fields::branch_items;
+use crate::view_models::menu::{MenuItem, MenuSearch};
 
 /// An onboarding step as the page names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -212,6 +214,8 @@ pub enum RowLook {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ToolRowView")]
 pub struct ToolRowView {
+    /// "git", "gh", "az": what `tools.terminal` takes, and whose terminal shows under the row.
+    pub tool: String,
     pub name: String,
     /// "required" or "optional".
     pub badge: String,
@@ -219,8 +223,82 @@ pub struct ToolRowView {
     pub icon: IconName,
     pub status: String,
     pub explanation: Option<String>,
-    /// The install or login command, copyable.
+    /// The install or sign-in command, copyable.
     pub command: Option<String>,
+    /// Install / Add extension / Sign in…: runs `command` in a terminal under the row.
+    pub button: Option<ToolButton>,
+    /// "Needs Homebrew first (brew.sh)…".
+    pub note: Option<String>,
+}
+
+/// What a checklist row's button asks the service to run (`tools.terminal`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "ToolActionKind")]
+pub enum ToolActionKind {
+    Install,
+    Login,
+}
+
+/// A checklist row's Install / Add extension / Sign in… button.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ToolButton")]
+pub struct ToolButton {
+    /// The tool as `tools.terminal` takes it: "git", "gh", "az".
+    pub tool: String,
+    pub action: ToolActionKind,
+    pub label: String,
+    /// The terminal's title while it runs: "Installing gh…".
+    pub running: String,
+}
+
+/// The words of the terminal under a row (the checklist and the agent tools, onboarding and Settings).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ToolTerminalTexts")]
+pub struct ToolTerminalTexts {
+    /// Hides a running terminal; it keeps running, and the row's button shows it again.
+    pub hide: String,
+    pub close: String,
+    pub retry: String,
+    /// The command ended; the tools are checked again.
+    pub checking: String,
+    /// The check after it still offers the same fix (failed, cancelled).
+    pub not_done: String,
+    /// The check after it found the fix done: the terminal closes by itself.
+    pub done: String,
+}
+
+pub fn tool_terminal_texts() -> ToolTerminalTexts {
+    ToolTerminalTexts {
+        hide: "Hide".to_owned(),
+        close: "Close".to_owned(),
+        retry: "Retry".to_owned(),
+        checking: "Ended \u{b7} checking again\u{2026}".to_owned(),
+        not_done: "Not done yet \u{2014} see the output above".to_owned(),
+        done: "Done".to_owned(),
+    }
+}
+
+/// A checklist row's button, as the page sends it back.
+pub fn tool_button(row: &ToolRow) -> Option<ToolButton> {
+    row.button.as_ref().map(|b| ToolButton {
+        tool: row.tool.command().to_owned(),
+        action: match b.action {
+            otaq_core::tools::ToolAction::Install => ToolActionKind::Install,
+            otaq_core::tools::ToolAction::Login => ToolActionKind::Login,
+        },
+        label: b.label.to_owned(),
+        running: b.running.clone(),
+    })
+}
+
+/// The checklist's intro (onboarding and Settings).
+pub fn tools_intro() -> String {
+    format!(
+        "{} uses the tools already on your machine and never updates them. Install and Sign in\u{2026} run the \
+         command shown, in a terminal here \u{2014} nothing installs without your click.",
+        naming::PRODUCT_NAME
+    )
 }
 
 /// The agent tools on the Tools step (*14* `y2FCwP`, `z8OVF`; SET-02 `[M23]`, d0086): the same rows as Settings →
@@ -263,6 +341,7 @@ pub struct Tools {
     /// The user has projects already (Check tools from the board): Continue ends here, no Project step.
     pub has_projects: bool,
     pub copy: String,
+    pub terminal: ToolTerminalTexts,
     /// Under the list once a tool is connected (*14* `ODRG2`, M22): the starter entry and where to make others.
     pub agents_line: Option<String>,
 }
@@ -292,10 +371,7 @@ pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
     }
     Tools {
         title: "Tools".to_owned(),
-        text: format!(
-            "{} uses the tools already on your machine. It never installs or updates them.",
-            naming::PRODUCT_NAME
-        ),
+        text: tools_intro(),
         warning: model.show_permission_warning().then(|| PermissionWarning {
             title: "Your Claude Code settings ask for permission prompts".to_owned(),
             before: "With 5\u{2013}10 agents, prompts will stop agents often. Consider allowlists or auto mode ("
@@ -331,6 +407,9 @@ pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
                     RowIcon::MissingOptional => (RowLook::MissingOptional, IconName::CircleMinus),
                 };
                 ToolRowView {
+                    tool: r.tool.command().to_owned(),
+                    button: tool_button(&r),
+                    note: r.note.clone(),
                     name: r.name.to_owned(),
                     badge: if r.required { "required" } else { "optional" }.to_owned(),
                     look,
@@ -356,6 +435,7 @@ pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
         continue_reason: state.reason,
         has_projects,
         copy: "Copy".to_owned(),
+        terminal: tool_terminal_texts(),
         agents_line: state.enabled.then(agents_line),
     }
 }
@@ -413,19 +493,22 @@ pub struct KeyField {
     pub error: Option<String>,
 }
 
-/// The base-branch field: the detected branch, editable before adding (PRJ-03).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+/// The base-branch field: the detected branch, changed before adding by picking another of the repository's local
+/// or remote branches from a searchable dropdown (PRJ-03).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "AddProjectBase")]
 pub struct BaseField {
     pub icon: IconName,
     pub label: String,
     pub value: String,
-    pub placeholder: String,
+    /// The dropdown's rows: LOCAL, then REMOTE branches, the current one checked.
+    pub items: Vec<MenuItem>,
+    pub search: MenuSearch,
 }
 
 /// The Add project form: the onboarding card (*3 · Add project · valid*, *Not a git repo*, *Already added*) and the
 /// dialog of a later project (*Adding a second project later*).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "AddProjectView")]
 pub struct AddProjectPage {
     pub first_run: bool,
@@ -520,11 +603,12 @@ pub fn add_project(
             label: "Name".to_owned(),
             value: p.name.clone(),
         }),
-        base: probe.map(|_| BaseField {
+        base: probe.map(|p| BaseField {
             icon: IconName::GitBranch,
             label: "Base branch".to_owned(),
             value: model.base_branch.clone(),
-            placeholder: "main".to_owned(),
+            items: branch_items(&p.branches.local, &p.branches.remote, &model.base_branch),
+            search: MenuSearch::branches(),
         }),
         key: probe.map(|_| KeyField {
             label: "Project key".to_owned(),
@@ -550,7 +634,7 @@ pub fn add_project(
 }
 
 /// One form of the folder trust gallery.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "TrustFormCell")]
 pub struct TrustFormCell {
     pub name: String,
@@ -568,7 +652,7 @@ pub struct TrustBannerCell {
 /// The folder trust in the component gallery (T-0306; *14 → step 4*, *11 → 4c*): the form with the line (onboarding
 /// card and dialog), the form after a failed trust, the note and the failed warning for one and two projects, and
 /// the warning and the note around the permission warning.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "TrustGallery")]
 pub struct TrustGallery {
     pub forms: Vec<TrustFormCell>,
@@ -577,7 +661,7 @@ pub struct TrustGallery {
 
 pub fn trust_gallery() -> TrustGallery {
     use otaq_core::agent_tools::claude::trust::TrustError;
-    use otaq_core::board::projects::FolderProbe;
+    use otaq_core::board::projects::{Branches, FolderProbe};
     let [claude, codex, copilot, _] = super::agent_tools_page::fixtures::tools();
     let picked = || {
         let mut m = AddProjectModel {
@@ -591,6 +675,7 @@ pub fn trust_gallery() -> TrustGallery {
                 name: "pocket-notes".into(),
                 suggested_key: "NOTE".into(),
                 base_branch: "main".into(),
+                branches: Branches::default(),
             }),
             &[],
             &KeyLabels::default(),
@@ -709,6 +794,7 @@ pub fn tools_gallery() -> ToolsGallery {
         extension_installed: (tool == Tool::Az).then_some(true),
         install_command: None,
         login_command: None,
+        missing_package_manager: None,
     };
     let step = |statuses| {
         let mut m = OnboardingModel::new(false);
@@ -1060,7 +1146,7 @@ pub fn texts(keys: &KeyLabels) -> Texts {
 
 #[cfg(test)]
 mod tests {
-    use otaq_core::board::projects::FolderProbe;
+    use otaq_core::board::projects::{Branches, FolderProbe};
     use otaq_core::tools::{PermissionCheck, PermissionVerdict, Tool, ToolStatus, ToolsReport};
 
     use super::*;
@@ -1076,6 +1162,7 @@ mod tests {
             extension_installed: None,
             install_command: (!found).then(|| tool.install_command().to_owned()),
             login_command: None,
+            missing_package_manager: None,
         }
     }
 
@@ -1550,6 +1637,10 @@ mod tests {
             name: "shop-web".into(),
             suggested_key: "SHOP".into(),
             base_branch: "main".into(),
+            branches: Branches {
+                local: vec!["main".into(), "release/2.3".into()],
+                remote: vec!["origin/main".into(), "origin/next".into()],
+            },
         }
     }
 
@@ -1567,7 +1658,24 @@ mod tests {
         let valid = add_project(&m, &[], true);
         assert_eq!(valid.folder_look, FolderLook::Valid);
         assert_eq!(valid.name.unwrap().value, "shop-web");
-        assert_eq!(valid.base.unwrap().value, "main");
+        let base = valid.base.unwrap();
+        assert_eq!(base.value, "main");
+        let rows: Vec<_> = base
+            .items
+            .iter()
+            .map(|i| (i.label.as_str(), i.checked))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("LOCAL", false),
+                ("main", true),
+                ("release/2.3", false),
+                ("REMOTE", false),
+                ("next", false)
+            ],
+            "local and remote branches, the detected one checked"
+        );
         let key = valid.key.unwrap();
         assert_eq!(key.value, "SHOP");
         assert_eq!(

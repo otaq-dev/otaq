@@ -31,7 +31,7 @@ use otaq_view::view_models::editor::{EditorModel, TITLE_REQUIRED};
 use otaq_view::view_models::editor_fields::{
     BaseField, base_choices, picker_rows, refusal_icon, refusal_title, visibility,
 };
-use otaq_view::view_models::menu::MenuItem;
+use otaq_view::view_models::menu::{MenuItem, MenuSearch};
 use otaq_view::view_models::priority::{self, FORM_HINT, PriorityView};
 use otaq_view::view_models::status::PillView;
 use otaq_view::view_models::validation_panel;
@@ -169,6 +169,8 @@ pub struct Texts {
     pub deps_none: &'static str,
     pub base: &'static str,
     pub base_hint: &'static str,
+    /// The base dropdown's search field.
+    pub base_search: MenuSearch,
     pub external_id: &'static str,
     pub external_id_hint: &'static str,
     pub external_id_placeholder: &'static str,
@@ -335,6 +337,7 @@ fn texts(create: bool) -> Texts {
         deps_none: "None",
         base: "Start from and merge into",
         base_hint: "project default \u{b7} local and remote branches \u{b7} locked once the ticket starts",
+        base_search: MenuSearch::branches(),
         external_id: "External ID",
         external_id_hint: "optional \u{b7} standalone tickets only \u{b7} used in the branch and PR title",
         external_id_placeholder: "e.g. PAY-123",

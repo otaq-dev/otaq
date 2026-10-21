@@ -240,6 +240,10 @@ pub(super) async fn handle(
             let terminal = shared.connected.sign_in(p.tool).await?;
             Ok(Reply::ProjectTerminal(Box::new(terminal)))
         }),
+        Request::AgentToolsInstall(p) => boxed(move || async move {
+            let terminal = shared.connected.install(p.tool).await?;
+            Ok(Reply::ProjectTerminal(Box::new(terminal)))
+        }),
         Request::AgentToolsDisconnect(p) => boxed(move || async move {
             shared.connected.disconnect(p.tool).await?;
             Ok(Reply::AgentTools(Box::new(shared.connected.list())))
@@ -1457,6 +1461,7 @@ pub(super) async fn handle(
         | Request::RunSuggest(_)
         | Request::RunSuggestCancel(_)
         | Request::ShellOpen(_)
+        | Request::ToolTerminalOpen(_)
         | Request::ProjectTerminalOpen(_)
         | Request::ProjectTerminalList(_)
         | Request::ProjectTerminalClose(_)
