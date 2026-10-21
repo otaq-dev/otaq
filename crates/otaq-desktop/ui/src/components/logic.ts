@@ -64,6 +64,49 @@ export function menuKey(items: readonly MenuItem[], highlighted: number | null, 
   }
 }
 
+/**
+ * The rows a searchable list shows for `query`: rows whose label or id holds it (any case), each header kept only
+ * when a row under it is. An empty query keeps every row.
+ */
+export function filterMenu(items: readonly MenuItem[], query: string): readonly MenuItem[] {
+  const q = query.trim().toLowerCase();
+  if (q === "") return items;
+  const out: MenuItem[] = [];
+  let header: MenuItem | null = null;
+  for (const item of items) {
+    if (item.header) {
+      header = item;
+      continue;
+    }
+    if (!item.label.toLowerCase().includes(q) && !item.id.toLowerCase().includes(q)) continue;
+    if (header !== null) {
+      out.push(header);
+      header = null;
+    }
+    out.push(item);
+  }
+  return out;
+}
+
+/**
+ * What a key does in a searchable list, whose focus is in its search field: as in a menu, except that Space, Home
+ * and End stay with the field (typing, moving the caret).
+ */
+export function searchKey(
+  items: readonly MenuItem[],
+  highlighted: number | null,
+  key: string,
+): MenuKeyResult {
+  if (key === " " || key === "Home" || key === "End") return { kind: "none" };
+  return menuKey(items, highlighted, key);
+}
+
+/** The row highlighted when a searchable list opens or its query changes: the checked row, else the first. */
+export function firstMatch(items: readonly MenuItem[]): number | null {
+  const checked = items.findIndex((i) => i.checked && selectable(i));
+  return checked >= 0 ? checked : stepMenu(items, null, 1);
+}
+
 /** A dialog's two outcomes. */
 export type DialogOutcome = "confirm" | "cancel";
 

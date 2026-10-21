@@ -299,6 +299,7 @@ function BaseSelect({
       icon="git-branch"
       mono
       trailing="chevrons-up-down"
+      search={view.texts.base_search}
       items={items.map((i) => ({ ...i, checked: !i.header && i.id === form.base_branch }))}
       onChange={(id) => {
         onChange({ ...form, base_branch: id });
