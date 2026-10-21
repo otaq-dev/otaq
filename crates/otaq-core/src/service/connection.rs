@@ -412,6 +412,7 @@ async fn respond(
         | Request::RunSuggest(_)
         | Request::RunSuggestCancel(_)
         | Request::ShellOpen(_)
+        | Request::ToolTerminalOpen(_)
         | Request::ProjectTerminalOpen(_)
         | Request::ProjectTerminalList(_)
         | Request::ProjectTerminalClose(_)

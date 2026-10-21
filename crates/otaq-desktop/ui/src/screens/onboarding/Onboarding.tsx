@@ -21,7 +21,9 @@ import { DRAG_REGION, request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { AddButton, AddProjectFields, useAddProject } from "./AddProjectForm";
 import { askUsageDataWhenNeeded } from "./UsageData";
-import { useAgentToolActions } from "../settings/AgentTools";
+import { agentStillOffered, useAgentToolActions } from "../settings/AgentTools";
+import { useRowTerminals } from "./RowTerminal";
+import { checklistStillOffered } from "./Tools";
 import { droppedFolder } from "./drops";
 import { afterTools, finishOnboarding, STEP_ORDER } from "./logic";
 import { ToolsList } from "./Tools";
@@ -99,30 +101,41 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
     );
   }, []);
 
-  const runCheck = useCallback(() => {
-    request("onboarding.tools").then(
-      (answer) => {
-        setTools(answer as OnboardingTools);
-        setChecking(false);
-      },
-      (error: unknown) => {
-        setChecking(false);
-        setFailure(asRequestError(error).message);
-      },
-    );
-  }, []);
+  const runCheck = useCallback(
+    () =>
+      request("onboarding.tools").then(
+        (answer) => {
+          setTools(answer as OnboardingTools);
+          setChecking(false);
+        },
+        (error: unknown) => {
+          setChecking(false);
+          setFailure(asRequestError(error).message);
+        },
+      ),
+    [],
+  );
 
   // An agent tool's row acts through `agent_tools.*`; the step then checks again (the page it answers is Settings').
   const ignorePage = useCallback(() => undefined, []);
   const recheckAfter = useCallback(() => {
     setChecking(true);
-    runCheck();
+    void runCheck();
   }, [runCheck]);
-  const agentTools = useAgentToolActions(ignorePage, setFailure, recheckAfter);
+  // One Install / Sign in… terminal for the agent tools and git, gh, az; `tools.check` checks every tool again.
+  const terminals = useRowTerminals(
+    (key) =>
+      agentStillOffered(tools?.agent_tools.rows ?? [], key) || checklistStillOffered(tools?.rows ?? [], key),
+    () => {
+      setChecking(true);
+      return runCheck();
+    },
+  );
+  const agentTools = useAgentToolActions(ignorePage, setFailure, recheckAfter, terminals);
 
   // Opened on the tools step (Check tools on the board): the check runs at once.
   useEffect(() => {
-    if (first === "tools") runCheck();
+    if (first === "tools") void runCheck();
   }, [first, runCheck]);
 
   // Each step's first button takes the keyboard.
@@ -133,7 +146,7 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
   const check = () => {
     setStep("tools");
     setChecking(true);
-    runCheck();
+    void runCheck();
   };
 
   const warningShown = tools?.warning !== null && tools?.warning !== undefined && !dismissed;
@@ -215,13 +228,14 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
                 }}
                 onRecheck={() => {
                   setChecking(true);
-                  runCheck();
+                  void runCheck();
                 }}
                 onContinue={() => {
                   if (afterTools(tools) === "done") finish();
                   else setStep("project");
                 }}
                 onAgentAction={agentTools.act}
+                terminals={terminals}
               />
             ) : (
               <p className="onboarding-text">{texts.checking}</p>

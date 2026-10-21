@@ -132,6 +132,8 @@ pub use terminal_tab::{
 #[cfg(test)]
 pub use theme::{ActiveTheme, ThemeParams, ThemePick};
 #[cfg(test)]
+pub use tools::Opened as ToolTerminalOpened;
+#[cfg(test)]
 pub use usage::{Ask as UsageDataAsk, UsageChoice};
 pub use window::{WindowFocus, follow_window_focus, window_focused};
 
@@ -173,6 +175,7 @@ areas! {
     settings,
     drawer,
     onboarding,
+    tools,
     sections,
     editor,
     diff,

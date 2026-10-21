@@ -4,7 +4,8 @@
 // tool's permission warning (both amber, never turquoise), and the … menu (Hide / Show, Re-check this tool,
 // Disconnect…, which asks first). Re-check under the list, with when it last checked. Opening the section rechecks
 // every tool (`agent_tools.view {recheck: true}`); the service's `agent_tools_changed` asks the page again. Sign in…
-// opens the tool's own login in a terminal (`agent_tools.sign_in`), and the row updates when it ends. The onboarding
+// (`agent_tools.sign_in`) and Install (`agent_tools.install`, the How to install command, on the user's click) open
+// a short terminal under the row (`onboarding/RowTerminal.tsx`), and the row updates when it ends. The onboarding
 // Tools step draws the same rows in its compact form (`onboarding/Tools.tsx`). Every word is
 // `agent_tools_page.rs`'s; this keeps the open menu and dialogs.
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -25,10 +26,16 @@ import { asRequestError, watchView } from "../../service";
 import { request } from "../../tauri";
 import { Terminal } from "../../terminal/Terminal";
 import { Icon } from "../../theme/Icon";
+import type { ToolTerminalTexts } from "../../generated/ToolTerminalTexts";
+import { RowTerminal, type RowTerminals, useRowTerminals } from "../onboarding/RowTerminal";
 
 /** What a click on a row asks for. */
 export type AgentToolAction =
-  { kind: "sign_in" } | { kind: "show" } | { kind: "docs" } | { kind: "menu"; action: AgentToolMenuAction };
+  | { kind: "sign_in" }
+  | { kind: "install" }
+  | { kind: "show" }
+  | { kind: "docs" }
+  | { kind: "menu"; action: AgentToolMenuAction };
 
 /** What the page does for an action: a request answered with the fresh page, the sign-in terminal, the docs, or
  * Disconnect's dialog first (Disconnect is never sent straight from the menu). */
@@ -36,6 +43,7 @@ export type AgentToolStep =
   | { kind: "page"; method: "agent_tools.set_hidden"; params: { tool: string; hidden: boolean } }
   | { kind: "page"; method: "agent_tools.recheck"; params: { tool: string | null } }
   | { kind: "sign_in"; params: { tool: string } }
+  | { kind: "install"; params: { tool: string } }
   | { kind: "docs"; params: { tool: string } }
   | { kind: "ask_disconnect"; params: { tool: string } };
 
@@ -43,6 +51,8 @@ export function stepOf(tool: string, action: AgentToolAction): AgentToolStep {
   switch (action.kind) {
     case "sign_in":
       return { kind: "sign_in", params: { tool } };
+    case "install":
+      return { kind: "install", params: { tool } };
     case "show":
       return { kind: "page", method: "agent_tools.set_hidden", params: { tool, hidden: false } };
     case "docs":
@@ -250,14 +260,59 @@ export function DetailLine({
 }
 
 /** One tool's row on Settings → Agent tools. */
+/** A row's Install / Sign in… terminal, when the page has one (not the gallery). */
+export interface AgentRowTerminal {
+  texts: ToolTerminalTexts;
+  terminals: RowTerminals;
+}
+
+/** Whether the rows still offer `key`'s action ("codex:install", "codex:sign_in"): not, once it worked. */
+export function agentStillOffered(rows: readonly AgentToolRow[], key: string): boolean {
+  return rows.some(
+    (r) =>
+      (key === `${r.tool}:install` && r.install_button !== null) ||
+      (key === `${r.tool}:sign_in` && r.sign_in !== null),
+  );
+}
+
+/** A not-installed row's Install button and why there is none ("Needs Node.js (npm) first…"). */
+export function InstallLine({
+  row,
+  onAction,
+}: {
+  row: AgentToolRow;
+  onAction: (action: AgentToolAction) => void;
+}) {
+  return (
+    <>
+      {row.install_button !== null && (
+        <span className="agent-tool-install">
+          <Button
+            label={row.install_button}
+            variant="secondary"
+            icon="arrow-down-to-line"
+            compact
+            onClick={() => {
+              onAction({ kind: "install" });
+            }}
+          />
+        </span>
+      )}
+      {row.install_note !== null && <span className="agent-tool-quiet">{row.install_note}</span>}
+    </>
+  );
+}
+
 export function AgentToolRowView({
   row,
   menuLabel,
   onAction,
+  terminal,
 }: {
   row: AgentToolRow;
   menuLabel: string;
   onAction: (action: AgentToolAction) => void;
+  terminal?: AgentRowTerminal;
 }) {
   return (
     <li className="agent-tool-row" data-look={row.pill?.look}>
@@ -277,7 +332,9 @@ export function AgentToolRowView({
           </div>
           <DetailLine row={row} onAction={onAction} />
           {row.install !== null && <CommandBox command={row.install} />}
+          <InstallLine row={row} onAction={onAction} />
           {row.update !== null && <CommandBox command={row.update} />}
+          {terminal && <RowTerminal row={row.tool} texts={terminal.texts} terminals={terminal.terminals} />}
           <CanSee row={row} />
           {row.notes.map((note) => (
             <span key={note} className="agent-tool-quiet">
@@ -324,11 +381,14 @@ export function AgentToolsPageBody({
   rechecking = false,
   onAction,
   onRecheck,
+  terminals,
 }: {
   page: AgentToolsPage;
   rechecking?: boolean;
   onAction: (tool: string, action: AgentToolAction) => void;
   onRecheck: () => void;
+  /** The rows' Install / Sign in… terminal; none in the gallery. */
+  terminals?: RowTerminals;
 }) {
   return (
     <section className="settings-section agent-tools" data-section="agent_tools" aria-label={page.title}>
@@ -350,6 +410,7 @@ export function AgentToolsPageBody({
               onAction={(action) => {
                 onAction(row.tool, action);
               }}
+              terminal={terminals && { texts: page.terminal, terminals }}
             />
           ))}
         </ul>
@@ -431,6 +492,8 @@ export function useAgentToolActions(
   onPage: (page: AgentToolsPage) => void,
   onError: (message: string) => void,
   onDone?: () => void,
+  /** Sign in… and Install open here, under the row; without it Sign in… opens its dialog. */
+  terminals?: RowTerminals,
 ) {
   const [open, setOpen] = useState<Open>(null);
   const fail = useCallback(
@@ -450,10 +513,19 @@ export function useAgentToolActions(
           }, fail);
           return;
         case "sign_in":
-          request("agent_tools.sign_in", step.params).then((signIn) => {
-            setOpen({ kind: "sign_in", signIn: signIn as AgentToolSignIn });
-          }, fail);
+        case "install": {
+          const method = step.kind === "sign_in" ? "agent_tools.sign_in" : "agent_tools.install";
+          if (terminals) {
+            terminals.start(tool, `${tool}:${step.kind}`, () =>
+              request(method, step.params).then((opened) => opened as AgentToolSignIn),
+            );
+          } else if (step.kind === "sign_in") {
+            request(method, step.params).then((signIn) => {
+              setOpen({ kind: "sign_in", signIn: signIn as AgentToolSignIn });
+            }, fail);
+          }
           return;
+        }
         case "docs":
           request("agent_tools.open_docs", step.params).catch(fail);
           return;
@@ -464,7 +536,7 @@ export function useAgentToolActions(
           return;
       }
     },
-    [onPage, onDone, fail],
+    [onPage, onDone, fail, terminals],
   );
   const close = () => {
     setOpen(null);
@@ -524,7 +596,16 @@ export function AgentToolsSection() {
     setPage(fresh);
     setError(null);
   }, []);
-  const { act, dialogs } = useAgentToolActions(onPage, setError);
+  const rows = page?.rows;
+  const terminals = useRowTerminals(
+    (key) => agentStillOffered(rows ?? [], key),
+    // The service checks the tool again when its terminal ends; this answers once that check is in.
+    () =>
+      request("agent_tools.recheck", { tool: null }).then((fresh) => {
+        onPage(fresh as AgentToolsPage);
+      }),
+  );
+  const { act, dialogs } = useAgentToolActions(onPage, setError, undefined, terminals);
   if (!page) return null;
   return (
     <>
@@ -537,6 +618,7 @@ export function AgentToolsSection() {
         page={page}
         rechecking={rechecking}
         onAction={act}
+        terminals={terminals}
         onRecheck={() => {
           setRechecking(true);
           request("agent_tools.recheck", { tool: null }).then(
