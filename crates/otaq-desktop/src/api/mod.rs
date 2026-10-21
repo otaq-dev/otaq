@@ -59,6 +59,8 @@ pub use notices::{
 #[cfg(test)]
 pub use onboarding::export_flow_at_work_types;
 #[cfg(test)]
+pub use onboarding::export_flow_setup_page_types;
+#[cfg(test)]
 pub use onboarding::export_flow_step_types;
 #[cfg(test)]
 pub use onboarding::{

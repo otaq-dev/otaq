@@ -1,10 +1,12 @@
 // Area 03 · Board (T-0220, T-0221): the board slot, New ticket (⌘N, `c`: a new Backlog ticket) and, inside the
 // board, ⌘D, Park and Esc during a drag; the header's search and filter field and `/`; the card's right-click menu, the
 // delete confirmation every place that deletes opens (`delete_ticket`) and the drag-back dialog (`drag_back`, T-0421). What it says is Rust's (`src/api/board.rs`,
-// the `otaq-view` board, filter, card-menu and delete view models).
+// the `otaq-view` board, filter, card-menu and delete view models). A project in Flow setup shows its Flow setup page
+// in the slot instead (ASK-04, `withFlowSetup`).
 import { openOverlay } from "../../app/overlays";
 import type { Screen } from "../../app/registry";
 import { selection } from "../../app/selection";
+import { withFlowSetup } from "../onboarding/FlowSetupPage";
 import { Board } from "./Board";
 import "./board.css";
 import { DeleteDialog } from "./DeleteDialog";
@@ -13,7 +15,7 @@ import { requestSearchFocus } from "./filter";
 import { SearchField } from "./Search";
 
 export const board: Screen = (app) => {
-  app.slots.register("board", { Component: Board });
+  app.slots.register("board", { Component: withFlowSetup(Board) });
   app.slots.register("header_search", { Component: SearchField });
   app.overlays.register("delete_ticket", { Component: DeleteDialog });
   app.overlays.register("drag_back", { Component: DragBackDialog });

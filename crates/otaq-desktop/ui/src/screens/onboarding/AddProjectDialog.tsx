@@ -1,14 +1,16 @@
 // Add project later (*14 → Adding a second project later*): from the rail's +, ⌘P → Add project, the empty
 // board's "Add project folder…" or a folder dropped on the window. Tools were checked already, so it is one dialog:
-// the folder, the key, the base branch; Esc or Cancel closes it. Adding shows the new project's board behind it, and
-// the dialog moves to the same go-ahead as onboarding's Flow step, shorter (ONB-08, d0108; *14 → Row · Another
-// project, and the presets* `s14-18`/`s14-19`): Ask <Tool> per connected tool, Use a preset instead (the presets in the
-// dialog) or Skip, use the default, which settles the default flow (Esc only closes). Either proposal opens in the
-// usual preview over the board (`flow_dialog.ts`). One `Dialog` throughout, so the box doesn't leave and come back between its moments.
+// the folder, the key, the base branch; Esc or Cancel closes it. Adding selects the new project, whose Flow setup page
+// shows behind the dialog, and the dialog moves to the go-ahead, shorter than onboarding's (ASK-08, d0108; *14 → Row ·
+// Another project, and the presets* `s14-18`/`s14-19`): "billing-api’s flow", the line, Ask <Tool> per connected tool,
+// the provider line, Skip, use the default (the board on the default flow) · Use a preset instead (the presets in the
+// dialog; a pick opens the usual preview over the Flow setup page). Ask closes the dialog onto the Flow setup page with
+// the agent at work there; Esc only closes, leaving the page on its go-ahead (`flow_dialog.ts`). One `Dialog`
+// throughout, so the box doesn't leave and come back between its moments.
 import { useEffect, useRef, useState } from "react";
 
 import type { OverlayProps } from "../../app/registry";
-import { Button, Dialog } from "../../components";
+import { Button, Dialog, ToolAvatar } from "../../components";
 import type { OnboardingFlowStep } from "../../generated/OnboardingFlowStep";
 import type { OnboardingProjectParams } from "../../generated/OnboardingProjectParams";
 import { asRequestError } from "../../service";
@@ -22,10 +24,10 @@ import {
   presetFromDialog,
   projectAdded,
 } from "./flow_dialog";
-import { AskRows, Preset } from "./FlowStep";
+import { Preset } from "./FlowStep";
 import { chooseDefault } from "./logic";
 
-/** The go-ahead in the dialog (`s14-18`): the intro, the line, a row per connected tool, the provider and tokens line. */
+/** The go-ahead in the dialog (`s14-18`): the line, a row per connected tool with its Ask, the provider and tokens line. */
 export function FlowDialogGoAhead({
   step,
   busy,
@@ -37,11 +39,26 @@ export function FlowDialogGoAhead({
 }) {
   return (
     <>
-      <p className="onboarding-text">{step.intro}</p>
-      <div className="flow-step-line">
-        <p>{step.line}</p>
+      <p className="onboarding-text">{step.line}</p>
+      <div className="flow-step-ask">
+        {step.rows.map((row) => (
+          <div key={row.tool} className="flow-step-ask-row">
+            <ToolAvatar avatar={row.avatar} />
+            <span className="flow-step-ask-name">{row.name}</span>
+            <span className="flow-step-ask-detail">{row.detail}</span>
+            <span className="flow-step-spacer" />
+            <Button
+              variant={row.primary ? "primary" : "secondary"}
+              icon="sparkles"
+              label={row.ask}
+              disabled={busy}
+              onClick={() => {
+                onAsk(row.tool);
+              }}
+            />
+          </div>
+        ))}
       </div>
-      <AskRows step={step} busy={busy} onAsk={onAsk} />
       <p className="flow-step-provider">
         <Icon name="info" size={12} />
         <span>{step.provider}</span>

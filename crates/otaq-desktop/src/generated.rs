@@ -312,6 +312,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::export_flow_step_types(&cfg)?;
     // The agents at work (T-0434): the tabs and the card, Ask's params and answer, and the gallery.
     crate::api::export_flow_at_work_types(&cfg)?;
+    // The Flow setup page (T-0436): whether it shows instead of the board.
+    crate::api::export_flow_setup_page_types(&cfg)?;
     Ok(())
 }
 

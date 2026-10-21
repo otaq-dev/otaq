@@ -169,10 +169,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(dialog["cells"][0]["step"]["title"], "billing-api\u{2019}s flow");
-        assert_eq!(
-            dialog["cells"][0]["step"]["intro"],
-            "Look at how you work here, like for shop-web."
-        );
         h.service.stop_all().await;
     }
 }

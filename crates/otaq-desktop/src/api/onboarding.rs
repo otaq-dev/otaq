@@ -25,7 +25,7 @@ use otaq_core::protocol::{
 };
 use otaq_core::tools::Os;
 use otaq_view::view_models::add_project::AddProjectModel;
-use otaq_view::view_models::flow_at_work;
+use otaq_view::view_models::{flow_at_work, flow_setup_page};
 use otaq_view::view_models::onboarding::OnboardingModel;
 use otaq_view::view_models::onboarding_page::{self, AddProjectPage, FlowStep, Texts, Tools};
 use serde::{Deserialize, Serialize};
@@ -48,6 +48,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "onboarding.add" => reply(&add(app, parse(params)?).await?),
         "onboarding.flow" => reply(&flow(app, parse(params)?).await?),
         "onboarding.flow_dialog" => reply(&flow_dialog(app, parse(params)?).await?),
+        "onboarding.flow_setup_page" => reply(&flow_setup_page(app, parse(params)?).await?),
         "onboarding.at_work" => reply(&at_work(app, parse(params)?).await?),
         "onboarding.ask" => reply(&ask(app, parse(params)?).await?),
         "onboarding.use_default" => reply(&use_default(app, parse(params)?).await?),
@@ -260,18 +261,24 @@ async fn flow(app: &App, params: ProjectKey) -> Result<FlowStep, RequestError> {
     Ok(onboarding_page::flow_step(&setup, &tools, Os::current()))
 }
 
-/// The Add project dialog's go-ahead for the project just added (`{"project": "BILL"}`): "billing-api’s flow", like
-/// for the first project added before it (ONB-08).
+/// The Add project dialog's go-ahead for the project just added (`{"project": "BILL"}`): "billing-api’s flow"
+/// (ASK-08).
 async fn flow_dialog(app: &App, params: ProjectKey) -> Result<FlowStep, RequestError> {
-    let projects = projects(app).await?;
     let setup = flow_setup(app, &params.project).await?;
     let tools = super::pane::tools(app).await;
-    Ok(onboarding_page::flow_dialog(
-        &setup,
-        &projects,
-        &tools,
-        Os::current(),
-    ))
+    Ok(onboarding_page::flow_dialog(&setup, &tools, Os::current()))
+}
+
+/// Whether the shown project's main area is its Flow setup page (`{"project": "BILL"}`; ASK-04): a project added
+/// later shows it instead of its board until its flow is settled. Its body is the Flow step's (`onboarding.flow`).
+async fn flow_setup_page(app: &App, params: ProjectKey) -> Result<flow_setup_page::Page, RequestError> {
+    Ok(flow_setup_page::page(&projects(app).await?, &params.project))
+}
+
+/// The Flow setup page's type (T-0436).
+#[cfg(test)]
+pub fn export_flow_setup_page_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
+    flow_setup_page::Page::export_all(cfg)
 }
 
 /// The Flow step's types (T-0429, T-0434): the step and its gallery.

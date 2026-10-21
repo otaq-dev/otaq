@@ -2,7 +2,8 @@
 // projects · long names*): every project in the user's order with its agents working and items needing you, quiet
 // when idle; a project that newly needs you while another is shown rings for 10 s. The 64 px column of tiles at every
 // width. Add project after the tiles; Cleanup, Terminals (the drawer on the last-used terminal, as ⌃`) and Settings (as
-// ⌘,) at the bottom (CHANGES-v §3, T-0329). Rows, order and wording are `shell.rail`'s.
+// ⌘,) at the bottom (CHANGES-v §3, T-0329). A project in Flow setup is marked "Flow setup" under its name (ASK-04,
+// T-0436); selecting it opens its Flow setup page. Rows, order and wording are `shell.rail`'s.
 import { useCallback, useEffect, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
@@ -102,6 +103,7 @@ export function RailTiles({ view, broom, actions }: RailProps) {
             className="rail-item"
             data-selected={item.selected || undefined}
             data-idle={item.idle || undefined}
+            data-flow-setup={item.flow_setup !== null || undefined}
             aria-current={item.selected || undefined}
             aria-label={item.title}
             onClick={() => {
@@ -120,6 +122,7 @@ export function RailTiles({ view, broom, actions }: RailProps) {
               )}
             </span>
             <span className="rail-name">{item.name}</span>
+            {item.flow_setup !== null && <span className="rail-flow-setup">{item.flow_setup}</span>}
           </button>
         </Tooltip>
       ))}

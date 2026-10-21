@@ -1,7 +1,9 @@
 // The header (SHL-02, SHL-03; d0087; *02 · App shell → Row · Title bars (0086 · V)*, *Row · Header states (0086 ·
 // V)*): four items. The shown project with its base branch (the folder on the name's hover, "Copy path" in its menu),
 // the search entry, Activity (agents and processes across all projects, the amber usage warning; a click or ⇧⌘U opens
-// its popover) and Needs you. Everything it says comes from `shell.header`. The row is the title bar: its empty parts
+// its popover) and Needs you. Everything it says comes from `shell.header`. A project in Flow setup (ASK-04, T-0436)
+// shows "billing-api · Flow setup" with "2 agents at work" or "2 proposals" in place of its base branch, and no search
+// (it has no board to filter). The row is the title bar: its empty parts
 // move the window, and the title bar's ends (T-0214) give it its outer padding.
 import { createRef, type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from "react";
 
@@ -9,7 +11,7 @@ import { toggleOverlay, useOpenOverlays } from "../../app/overlays";
 import { useRegistries } from "../../app/registry";
 import { useSelection } from "../../app/selection";
 import { createStore } from "../../app/store";
-import { AnchoredMenu, Kbd, MetaChip, Tooltip } from "../../components";
+import { AnchoredMenu, Kbd, MetaChip, StatusPill, Tooltip } from "../../components";
 import type { ActivityButton } from "../../generated/ActivityButton";
 import type { HeaderProject } from "../../generated/HeaderProject";
 import type { HeaderView } from "../../generated/HeaderView";
@@ -29,6 +31,8 @@ export const HEADER_EVENTS = [
   "usage_changed",
   "run_changed",
   "settings_changed",
+  // A project's Flow setup: its agents at work and proposals.
+  "flow_setup_changed",
 ] as const;
 
 /** Activity's reset times pass with the clock, not with an event: the header asks again this often. */
@@ -76,7 +80,15 @@ function ProjectItem({ project }: { project: HeaderProject }) {
           {project.name}
         </button>
       </Tooltip>
-      <MetaChip icon="git-branch" label={project.base_branch} />
+      {project.flow_setup === null ? (
+        <MetaChip icon="git-branch" label={project.base_branch} />
+      ) : (
+        <>
+          <span className="header-flow-setup-dot">·</span>
+          <span className="header-flow-setup">{project.flow_setup.label}</span>
+          {project.flow_setup.status !== null && <StatusPill pill={project.flow_setup.status} />}
+        </>
+      )}
       {menu && (
         <AnchoredMenu
           anchor={trigger}
@@ -155,12 +167,14 @@ export interface HeaderBarProps {
 
 export function HeaderBar({ view, activityOpen = false, onSearch, search }: HeaderBarProps) {
   const { inbox } = view;
+  // A project in Flow setup has no board, so no search.
+  const searches = view.project !== null && view.project.flow_setup === null;
   return (
     <div className="header">
       {view.project && <ProjectItem project={view.project} />}
       <div className="header-gap" />
-      {view.project && search}
-      {view.project && !search && (
+      {searches && search}
+      {searches && !search && (
         <button type="button" className="header-search" onClick={onSearch}>
           <Icon name="search" size={13} />
           <span className="header-search-text">{view.search.text}</span>

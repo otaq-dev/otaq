@@ -928,21 +928,12 @@ pub fn flow_step(setup: &FlowSetup, tools: &ToolProblems, os: Os) -> FlowStep {
     }
 }
 
-/// *s14-18*/*s14-19* (ONB-08): the go-ahead inside the Add project dialog, for a project added later. The same step,
-/// shorter: "billing-api’s flow", "Look at how you work here, like for shop-web." (the first project added before it,
-/// in `projects`' order, by when each was added). With no other project (every one removed, or onboarding skipped),
-/// the Flow step's intro. The rows and presets are the Flow step's.
-pub fn flow_dialog(
-    setup: &FlowSetup,
-    projects: &[ProjectInfo],
-    tools: &ToolProblems,
-    os: Os,
-) -> FlowStep {
+/// *s14-18*/*s14-19* (ASK-08): the go-ahead inside the Add project dialog, for a project added later. The same step,
+/// shorter: "billing-api’s flow", then the line, the rows and the provider line (the dialog draws no intro and no
+/// "ASK AN AGENT" heading); the presets are the Flow step's.
+pub fn flow_dialog(setup: &FlowSetup, tools: &ToolProblems, os: Os) -> FlowStep {
     let mut step = flow_step(setup, tools, os);
     step.title = format!("{}\u{2019}s flow", setup.project_name);
-    if let Some(first) = projects.iter().find(|p| p.key != setup.project) {
-        step.intro = format!("Look at how you work here, like for {}.", first.name);
-    }
     step
 }
 
@@ -1003,15 +994,6 @@ pub fn flow_gallery() -> FlowGallery {
 /// shop-web, with one tool and with none.
 pub fn flow_dialog_gallery() -> FlowGallery {
     use flow_at_work::fixtures::{CLAUDE, tools};
-    let shop = ProjectInfo {
-        key: "SHOP".into(),
-        name: "shop-web".into(),
-        repo_path: "~/code/shop-web".into(),
-        base_branch: "main".into(),
-        agents_working: 0,
-        needs_you: 0,
-        flow_setup_since: None,
-    };
     let cells = [
         ("Add project · the go-ahead", vec![CLAUDE]),
         ("Add project · no agent tool connected", vec![]),
@@ -1021,7 +1003,6 @@ pub fn flow_dialog_gallery() -> FlowGallery {
         name: name.to_owned(),
         step: flow_dialog(
             &not_asked("BILL", "billing-api", &connected),
-            std::slice::from_ref(&shop),
             &tools(),
             Os::Mac,
         ),
@@ -1364,42 +1345,28 @@ mod tests {
         );
     }
 
-    fn project(key: &str, name: &str) -> ProjectInfo {
-        ProjectInfo {
-            key: key.into(),
-            name: name.into(),
-            repo_path: format!("/code/{name}"),
-            base_branch: "main".into(),
-            agents_working: 0,
-            needs_you: 0,
-            flow_setup_since: None,
-        }
-    }
-
     #[test]
     fn the_add_project_dialogs_go_ahead_s14_18() {
-        let projects = [
-            project("NOTE", "pocket-notes"),
-            project("SCRATCH", "scratch"),
-            project("API", "pocket-api"),
-        ];
         let setup = not_asked("API", "pocket-api", &[CLAUDE, OPENCODE]);
-        let step = flow_dialog(&setup, &projects, &flow_tools(), Os::Mac);
+        let step = flow_dialog(&setup, &flow_tools(), Os::Mac);
         assert_eq!(step.project, "API");
         assert_eq!(step.title, "pocket-api’s flow");
-        // The first project added, not the most recent one.
-        assert_eq!(
-            step.intro,
-            "Look at how you work here, like for pocket-notes."
-        );
         assert_eq!(
             step.line,
             "Each agent looks at how you use it on this Mac and at this repo, and proposes a flow for pocket-api."
         );
-        assert_eq!(step.rows.len(), 2);
-        // No other project: the Flow step's intro.
-        let alone = flow_dialog(&setup, &projects[2..], &flow_tools(), Os::Mac);
-        assert_eq!(alone.intro, step_with(&[]).intro);
+        let asks: Vec<_> = step.rows.iter().map(|r| r.ask.as_str()).collect();
+        assert_eq!(asks, ["Ask Claude Code", "Ask OpenCode"]);
+        assert!(
+            step.rows.iter().all(|r| !r.primary),
+            "two tools: neither Ask is the primary button"
+        );
+        assert_eq!(step.provider, PROVIDER_AND_TOKENS);
+        assert_eq!(
+            (step.skip.as_str(), step.use_preset.as_str()),
+            (SKIP_USE_THE_DEFAULT, USE_A_PRESET_INSTEAD)
+        );
+        assert_eq!(step.opens, FlowOpens::GoAhead);
         assert_eq!(flow_dialog_gallery().cells.len(), 2);
     }
 
