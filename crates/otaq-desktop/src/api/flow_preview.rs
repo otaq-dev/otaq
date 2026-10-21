@@ -4,7 +4,8 @@
 //! `flow_preview.apply`, `flow_preview.cancel` and `flow_preview.ask` answer it (`flow.apply`,
 //! `flow.cancel_proposal`, `flow.ask_for_changes`), each delivered to the Project agent that proposed it.
 //! `flow_preview.propose { project, source }` is the way in for Settings → Flow's actions (`flow.propose_from`): the
-//! page opens the preview on the project it names.
+//! page opens the preview on the project it names. Onboarding's Flow step asks the same view with `onboarding`, for
+//! its own buttons (ONB-06: Use the default · Ask for changes · Use this flow).
 
 use otaq_core::board::tickets::Ticket;
 use otaq_core::flow::apply::{ApplyParams, ProposeFrom, ProposeFromParams};
@@ -46,6 +47,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
 #[cfg(test)]
 pub fn export_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     ViewParams::export_all(cfg)?;
+    OnboardingPreview::export_all(cfg)?;
     Load::export_all(cfg)?;
     ApplyRequest::export_all(cfg)?;
     AskRequest::export_all(cfg)?;
@@ -75,6 +77,18 @@ pub struct ViewParams {
     #[serde(default)]
     #[ts(optional)]
     pub choices: Option<Choices>,
+    /// Shown in onboarding's Flow step (ONB-06).
+    #[serde(default)]
+    #[ts(optional)]
+    pub onboarding: Option<OnboardingPreview>,
+}
+
+/// The Flow step's preview: the proposal it showed first, so a later one reads "Updated after your answer".
+#[derive(Debug, Clone, Default, Deserialize, TS)]
+#[ts(rename = "FlowPreviewOnboarding")]
+pub struct OnboardingPreview {
+    #[serde(default)]
+    pub first: Option<u32>,
 }
 
 /// What `flow_preview.view` answers: the preview, or none once the proposal is gone (applied, cancelled or replaced
@@ -220,8 +234,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
     let agents = super::settings::agent_list(app).await?;
     let tools = super::settings::agent_tools(app, false).await?;
     let choices = params.choices.unwrap_or_default();
-    Ok(Load {
-        view: Some(flow_preview::view(&flow_preview::Facts {
+    let view = flow_preview::view(&flow_preview::Facts {
             proposal: &proposal,
             current: current.as_ref(),
             base: &base,
@@ -230,7 +243,12 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
             tools: &tools,
             choices: &choices,
             now: otaq_core::store::now_ms(),
-        })),
+        });
+    Ok(Load {
+        view: Some(match params.onboarding {
+            Some(o) => flow_preview::onboarding(view, &proposal, o.first),
+            None => view,
+        }),
     })
 }
 
@@ -366,6 +384,96 @@ mod tests {
             .await
             .unwrap();
         assert!(view_of(&load).is_null(), "the preview closes");
+        h.service.stop_all().await;
+    }
+
+    /// The board's column titles.
+    async fn columns(h: &Harness) -> Vec<String> {
+        let params = json!({ "project": "SHOP", "width": 1376.0, "height": 856.0,
+                             "done_collapsed": null, "dev_unfolded": false });
+        let view = request(&h.app, "board.view", params).await.unwrap();
+        view["columns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["title"].as_str().unwrap_or_default().to_owned())
+            .collect()
+    }
+
+    /// Onboarding's Flow step (ONB-04, ONB-06): a preset picked in the step opens the preview with the step's buttons;
+    /// Use this flow applies it at once on the empty board, which then shows that flow's columns.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn onboarding_a_preset_then_use_this_flow_shows_its_columns() {
+        let h = Harness::new(None);
+        let repos = TempRepos::new();
+        shop_web(&h, &repos).await;
+        assert_eq!(
+            columns(&h).await,
+            ["Backlog", "Ready for Dev", "Dev", "Validate", "Review", "Done"],
+            "the default flow"
+        );
+        let proposed = request(
+            &h.app,
+            "flow_preview.propose",
+            json!({ "project": "SHOP", "source": { "from": "preset", "file": "grill-first.yaml" } }),
+        )
+        .await
+        .unwrap();
+        let load = request(
+            &h.app,
+            "flow_preview.view",
+            json!({ "project": "SHOP", "onboarding": { "first": proposed["proposal"] } }),
+        )
+        .await
+        .unwrap();
+        let view = view_of(&load);
+        assert_eq!(view["title"], "Grill first for shop-web");
+        assert_eq!(view["cancel"], "Use the default");
+        assert_eq!(view["apply"]["label"], "Use this flow");
+        assert!(view["ask"].is_null(), "a preset is the user's: no agent to ask");
+        assert_eq!(view["applies"], "Applies now: shop-web has no tickets yet.");
+        request(
+            &h.app,
+            "flow_preview.apply",
+            json!({ "project": "SHOP", "proposal": view["proposal"], "choices": view["choices"] }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            columns(&h).await,
+            ["Backlog", "Ready for Dev", "Grill", "Dev", "Validate", "Review", "Done"]
+        );
+        h.service.stop_all().await;
+    }
+
+    /// Onboarding's Use the default cancels the proposal: the board keeps the default flow.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn onboarding_use_the_default_cancels_the_proposal() {
+        let h = Harness::new(None);
+        let repos = TempRepos::new();
+        shop_web(&h, &repos).await;
+        request(
+            &h.app,
+            "flow_preview.propose",
+            json!({ "project": "SHOP", "source": { "from": "preset", "file": "solo-autopilot.yaml" } }),
+        )
+        .await
+        .unwrap();
+        request(&h.app, "flow_preview.cancel", json!({ "project": "SHOP" }))
+            .await
+            .unwrap();
+        let load = request(
+            &h.app,
+            "flow_preview.view",
+            json!({ "project": "SHOP", "onboarding": {} }),
+        )
+        .await
+        .unwrap();
+        assert!(view_of(&load).is_null(), "the proposal is gone");
+        assert_eq!(
+            columns(&h).await,
+            ["Backlog", "Ready for Dev", "Dev", "Validate", "Review", "Done"]
+        );
         h.service.stop_all().await;
     }
 

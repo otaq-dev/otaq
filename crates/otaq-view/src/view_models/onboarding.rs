@@ -4,8 +4,9 @@
 //! warning shows only when the check says "prompting", and stays away once dismissed. Nothing on these screens
 //! installs a tool or changes a setting (d0021, d0011): the commands are only shown for copying.
 //!
-//! After Tools comes 4 · Project (the add-project form, T-0034); once a project is added the onboarding steps
-//! disappear and the empty board is step 5 · Done.
+//! After Tools comes 4 · Project (the add-project form, T-0034), then 5 · Flow (ONB-04: the project's flow, from an
+//! agent, a preset or the default); once the flow is settled the onboarding steps disappear and the empty board is
+//! step 6 · Done (ONB-10).
 
 use otaq_core::naming;
 use otaq_core::tools::{PermissionVerdict, Tool, ToolStatus, ToolsReport};
@@ -19,10 +20,11 @@ pub enum Step {
     Theme,
     Tools,
     Project,
+    Flow,
 }
 
-/// The step indicator in the title bar.
-pub const STEPS: [&str; 5] = ["Welcome", "Theme", "Tools", "Project", "Done"];
+/// The step indicator in the title bar (ONB-10).
+pub const STEPS: [&str; 6] = ["Welcome", "Theme", "Tools", "Project", "Flow", "Done"];
 
 impl Step {
     /// The step's place in [`STEPS`] (0-based; the indicator shows it plus one).
@@ -32,6 +34,7 @@ impl Step {
             Self::Theme => 1,
             Self::Tools => 2,
             Self::Project => 3,
+            Self::Flow => 4,
         }
     }
 }
@@ -314,13 +317,17 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_indicator_has_five_steps_with_theme_second() {
-        assert_eq!(STEPS, ["Welcome", "Theme", "Tools", "Project", "Done"]);
+    fn the_indicator_has_six_steps_with_flow_fifth() {
+        assert_eq!(
+            STEPS,
+            ["Welcome", "Theme", "Tools", "Project", "Flow", "Done"]
+        );
         for (step, n) in [
             (Step::Welcome, 1),
             (Step::Theme, 2),
             (Step::Tools, 3),
             (Step::Project, 4),
+            (Step::Flow, 5),
         ] {
             assert_eq!(step.index() + 1, n, "{step:?}");
             assert_eq!(STEPS[step.index()], format!("{step:?}"));

@@ -70,6 +70,7 @@ import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import type { DecisionGallery } from "../../generated/DecisionGallery";
 import type { EnvVarsGallery } from "../../generated/EnvVarsGallery";
 import type { AgentToolsGallery } from "../../generated/AgentToolsGallery";
+import type { OnboardingFlowGallery } from "../../generated/OnboardingFlowGallery";
 import type { OnboardingToolsGallery } from "../../generated/OnboardingToolsGallery";
 import type { WarmSwitchGallery } from "../../generated/WarmSwitchGallery";
 import type { GalleryView } from "../../generated/GalleryView";
@@ -132,6 +133,7 @@ import { ActivityGallery } from "../shell/ActivityGallery";
 import { LimitLinesGallery } from "../notices/LimitLinesGallery";
 import { LeadTabBody } from "../lead_tab/LeadTab";
 import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
+import { FlowGoAhead, FlowPresets } from "../onboarding/FlowStep";
 import { ToolsList } from "../onboarding/Tools";
 import "../onboarding/onboarding.css";
 import "./gallery.css";
@@ -1588,6 +1590,7 @@ function CleanupWarmGallery() {
 const loadTrust = () => request("gallery.trust") as Promise<TrustGallery>;
 const loadAgentTools = () => request("gallery.agent_tools") as Promise<AgentToolsGallery>;
 const loadOnboardingTools = () => request("gallery.onboarding_tools") as Promise<OnboardingToolsGallery>;
+const loadOnboardingFlow = () => request("gallery.onboarding_flow") as Promise<OnboardingFlowGallery>;
 
 const THEMES = ["otaq-light", "otaq-dark"] as const;
 
@@ -1705,6 +1708,52 @@ function OnboardingToolsGallerySection() {
           </div>
         ))}
       </div>
+    </Section>
+  );
+}
+
+/** *14 → Row · Flow step: sources* `s14-12`/`s14-13` (T-0429, ONB-04): the Flow step's go-ahead and Nothing to look at
+ * yet with the four presets, from `gallery.onboarding_flow` in Otaq Light and Dark. Calls are only recorded. */
+function OnboardingFlowGallerySection() {
+  const { view, error } = useServiceView(loadOnboardingFlow, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const record = (what: string) => () => {
+    setPicked(what);
+  };
+  return (
+    <Section title="14 · Flow step: the go-ahead, Nothing to look at yet and the presets (T-0429)">
+      <Caption>Last call: {picked ?? "—"}</Caption>
+      {THEMES.map((theme) => (
+        <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+          <Caption>{theme.toUpperCase()}</Caption>
+          {view.cells.map((cell) => {
+            const props = {
+              step: cell.step,
+              busy: false,
+              onSkip: record("Skip, use the default"),
+              onPresets: record("Use a preset instead"),
+              onLook: record("Look and propose a flow"),
+            };
+            return (
+              <div key={cell.name} className="gallery-stack-tight">
+                <Caption>{cell.name.toUpperCase()}</Caption>
+                {cell.step.opens_on_presets ? (
+                  <FlowPresets
+                    {...props}
+                    onPick={(file) => {
+                      setPicked(file);
+                    }}
+                  />
+                ) : (
+                  <FlowGoAhead {...props} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
     </Section>
   );
 }
@@ -2435,6 +2484,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <ShortcutsGallerySection />
         <AgentToolsGallerySection />
         <OnboardingToolsGallerySection />
+        <OnboardingFlowGallerySection />
         <BoardReviewSection />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">
           <ThemeSection />

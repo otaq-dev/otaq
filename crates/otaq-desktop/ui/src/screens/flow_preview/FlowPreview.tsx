@@ -33,7 +33,7 @@ import {
 } from "./logic";
 
 /** What the preview refetches on: its proposal, the agents and tools it names, the tickets a change waits for. */
-const REFETCH_ON = [
+export const REFETCH_ON = [
   "flow_changed",
   "agents_changed",
   "agent_tools_changed",

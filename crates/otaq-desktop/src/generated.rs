@@ -308,6 +308,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::export_review_check_types(&cfg)?;
     // The Flow go-ahead's line (T-0427): its view and params.
     crate::api::export_flow_look_types(&cfg)?;
+    // The Flow step (T-0429): the go-ahead, the presets and its gallery.
+    crate::api::export_flow_step_types(&cfg)?;
     Ok(())
 }
 

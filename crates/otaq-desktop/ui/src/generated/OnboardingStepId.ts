@@ -3,4 +3,4 @@
 /**
  * An onboarding step as the page names it.
  */
-export type OnboardingStepId = "welcome" | "theme" | "tools" | "project";
+export type OnboardingStepId = "welcome" | "theme" | "tools" | "project" | "flow";

@@ -57,6 +57,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.agent_tools" => reply(&agent_tools_page::gallery()),
         // 14 · The Tools step with agent tools: the sample, none connected, one connected, hidden and warned (T-0365).
         "gallery.onboarding_tools" => reply(&onboarding_page::tools_gallery()),
+        // 14 · The Flow step: the go-ahead and Nothing to look at yet with the presets (T-0429).
+        "gallery.onboarding_flow" => reply(&onboarding_page::flow_gallery()),
         // 11 · The usage-limit banner's line per tool, Move waiting to…, a tool that isn't available (T-0364).
         "gallery.limit_lines" => reply(&limit_banner::gallery()),
         // The notification banners and Settings → Notifications in every state (T-0372).

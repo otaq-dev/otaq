@@ -7,6 +7,8 @@
 //! step's agent tool rows act through `agent_tools.*` (Sign in…, Show, Hide). A folder dropped on the window reaches
 //! the page as a `files_dropped` event ([`crate::drops`]). `onboarding.sources` answers the Flow go-ahead's line
 //! for a project (ONB-03, ONB-04, ONB-08; d0108): what the agent will look at, or "Nothing to look at yet".
+//! `onboarding.flow` answers the whole Flow step for the project just added (ONB-04; the go-ahead, the presets), asking
+//! what there is once. The step's proposal is `flow_preview.view` with its onboarding buttons (ONB-06).
 
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::snapshot::ProjectInfo;
@@ -16,7 +18,7 @@ use otaq_core::protocol::{OnboardingState, PathParams, ProjectParams, Reply, Req
 use otaq_view::view_models::add_project::AddProjectModel;
 use otaq_view::view_models::flow_sources::{self, View as FlowLook};
 use otaq_view::view_models::onboarding::OnboardingModel;
-use otaq_view::view_models::onboarding_page::{self, AddProjectPage, Texts, Tools};
+use otaq_view::view_models::onboarding_page::{self, AddProjectPage, FlowStep, Texts, Tools};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -36,6 +38,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "onboarding.form" => reply(&form(app, parse(params)?).await?.1),
         "onboarding.add" => reply(&add(app, parse(params)?).await?),
         "onboarding.sources" => reply(&sources(app, parse(params)?).await?),
+        "onboarding.flow" => reply(&flow(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -226,6 +229,27 @@ async fn sources(app: &App, params: SourcesParams) -> Result<FlowLook, RequestEr
 pub fn export_sources_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     SourcesParams::export_all(cfg)?;
     FlowLook::export_all(cfg)?;
+    Ok(())
+}
+
+/// The Flow step for the project (`{"project": "SHOP"}`, the same params as `onboarding.sources`): its go-ahead with
+/// the line for what there is, and the presets.
+async fn flow(app: &App, params: SourcesParams) -> Result<FlowStep, RequestError> {
+    let projects = projects(app).await?;
+    let project = projects
+        .iter()
+        .find(|p| p.key == params.project)
+        .ok_or_else(|| RequestError::plain(format!("no such project: {}", params.project)))?;
+    let (key, name) = (project.key.clone(), project.name.clone());
+    let look = sources(app, params).await?;
+    Ok(onboarding_page::flow_step(&key, &name, &look))
+}
+
+/// The Flow step's types (T-0429): the step and its gallery.
+#[cfg(test)]
+pub fn export_flow_step_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
+    FlowStep::export_all(cfg)?;
+    onboarding_page::FlowGallery::export_all(cfg)?;
     Ok(())
 }
 

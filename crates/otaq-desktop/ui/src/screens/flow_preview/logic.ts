@@ -2,6 +2,7 @@
 // Cancel, Ask for more changes), and when the preview opens. What it says is Rust's (`src/api/flow_preview.rs`,
 // `otaq-view`'s `flow_preview.rs`).
 import { openOverlay } from "../../app/overlays";
+import { createStore, type Store } from "../../app/store";
 import type { FlowPreviewChoices } from "../../generated/FlowPreviewChoices";
 import type { FlowPreviewClashPick } from "../../generated/FlowPreviewClashPick";
 import type { FlowPreviewProposed } from "../../generated/FlowPreviewProposed";
@@ -79,8 +80,15 @@ export function proposedIn(event: PageEvent): string | null {
 }
 
 /**
+ * The project whose proposals onboarding's Flow step shows itself (ONB-06): the usual preview doesn't open over it.
+ * `null` while no Flow step shows.
+ */
+export const previewHeld: Store<string | null> = createStore<string | null>(null);
+
+/**
  * Opens the preview whenever a proposal arrives, for any project (it names its project), and on the newest open one
- * when the stream opens or resyncs: a proposal made while the app was closed or away isn't missed. Returns the stop.
+ * when the stream opens or resyncs: a proposal made while the app was closed or away isn't missed (ONB-07). The
+ * project onboarding's Flow step holds is left to it. Returns the stop.
  */
 export function followProposals(
   events: PageEvents = pageEvents,
@@ -88,13 +96,17 @@ export function followProposals(
     openOverlay("flow_preview", { project });
   },
   ask: Ask = request,
+  held: Store<string | null> = previewHeld,
 ): () => void {
   let stopped = false;
+  const openUnheld = (project: string) => {
+    if (project !== held.get()) open(project);
+  };
   const openNewest = () => {
     ask("flow_preview.open").then(
       (projects) => {
         const newest = (projects as string[])[0];
-        if (!stopped && newest !== undefined) open(newest);
+        if (!stopped && newest !== undefined) openUnheld(newest);
       },
       () => undefined,
     );
@@ -105,7 +117,7 @@ export function followProposals(
       return;
     }
     const project = proposedIn(event);
-    if (project !== null) open(project);
+    if (project !== null) openUnheld(project);
   });
   listening.ready.then(openNewest, () => undefined);
   return () => {

@@ -1129,6 +1129,47 @@ pub fn view(facts: &Facts) -> View {
     }
 }
 
+/// Onboarding's Use this flow (Apply: the new project's board is empty, so it applies at once).
+pub const USE_THIS_FLOW: &str = "Use this flow";
+/// Onboarding's Ask for changes: the user tells the agent in its terminal.
+pub const ASK_FOR_CHANGES: &str = "Ask for changes";
+/// Onboarding's Use the default (Cancel: the agent gets Cancel).
+pub const USE_THE_DEFAULT: &str = "Use the default";
+/// The subtitle once the agent proposed again after the user's answer.
+pub const UPDATED_AFTER_YOUR_ANSWER: &str = "Updated after your answer";
+
+/// The preview inside onboarding's Flow step (ONB-06, d0108; *s14-16*, *s14-17*): Use the default · Ask for changes ·
+/// Use this flow in place of Cancel · Ask for more changes · Apply, and the agent named in the subtitle ("Proposed by
+/// Flow setup (Project agent)"). `first` is the proposal the step showed first: a later one is the agent's answer
+/// ("Updated after your answer"). "No changes" (the default itself) closes as Use the default.
+pub fn onboarding(mut view: View, proposal: &Proposal, first: Option<u32>) -> View {
+    if let Some(ask) = &mut view.ask {
+        ask.label = ASK_FOR_CHANGES.to_owned();
+    }
+    if let Some(apply) = &mut view.apply {
+        apply.label = USE_THIS_FLOW.to_owned();
+    }
+    if view.cancel.is_some() {
+        view.cancel = Some(USE_THE_DEFAULT.to_owned());
+    }
+    if view.close.is_some() {
+        view.close = Some(USE_THE_DEFAULT.to_owned());
+    }
+    if let ProposedBy::ProjectAgent { name, .. } = &proposal.proposed_by
+        && view.same.is_none()
+    {
+        let by = if first.is_some_and(|f| f != proposal.id) {
+            UPDATED_AFTER_YOUR_ANSWER.to_owned()
+        } else if name.trim().is_empty() {
+            "Proposed by the Project agent".to_owned()
+        } else {
+            format!("Proposed by {name} (Project agent)")
+        };
+        view.subtitle = format!("{by} \u{b7} {NOTHING_CHANGES}");
+    }
+    view
+}
+
 #[cfg(test)]
 mod tests {
     use otaq_core::agents::{AgentList, ModelRef};
@@ -2103,5 +2144,92 @@ flow:
         let json = serde_json::to_value(&picks).unwrap();
         let back: otaq_core::flow::proposal::ApplyChoices = serde_json::from_value(json).unwrap();
         assert_eq!(back, apply);
+    }
+
+    /// `s14-16`/`s14-17`: the onboarding preview's buttons, the agent named, and "Updated after your answer" once
+    /// it proposed again; a preset (the user's) has no Ask for changes.
+    #[test]
+    fn the_onboarding_buttons_s14_16() {
+        let p = proposal(
+            "shop-web",
+            SHOP_WEB,
+            Source::Document { file: None },
+            agent_by(),
+            &default_flow(),
+        );
+        let shipped = version(AppliedBy::Shipped, 0);
+        let v = onboarding(
+            build(&p, Some(&shipped), &[], &Choices::default()),
+            &p,
+            None,
+        );
+        assert_eq!(v.title, "A flow for shop-web");
+        assert_eq!(
+            v.subtitle,
+            "Proposed by Flow setup (Project agent) \u{b7} nothing changes until you apply it"
+        );
+        assert_eq!(v.cancel.as_deref(), Some("Use the default"));
+        assert_eq!(
+            v.ask.as_ref().map(|a| a.label.as_str()),
+            Some("Ask for changes")
+        );
+        assert_eq!(
+            v.apply.as_ref().map(|a| a.label.as_str()),
+            Some("Use this flow")
+        );
+        assert!(v.apply.as_ref().is_some_and(|a| a.enabled));
+        assert_eq!(
+            v.agent_waits.as_deref(),
+            Some("The agent waits for your answer in its terminal")
+        );
+        assert_eq!(
+            v.applies.as_deref(),
+            Some("Applies now: shop-web has no tickets yet.")
+        );
+        // The first proposal again: unchanged. A later one: the agent's answer.
+        let again = onboarding(
+            build(&p, Some(&shipped), &[], &Choices::default()),
+            &p,
+            Some(3),
+        );
+        assert_eq!(again.subtitle, v.subtitle);
+        let updated = onboarding(
+            build(&p, Some(&shipped), &[], &Choices::default()),
+            &p,
+            Some(2),
+        );
+        assert_eq!(
+            updated.subtitle,
+            "Updated after your answer \u{b7} nothing changes until you apply it"
+        );
+
+        // A preset picked in the step: the user's own, so no Ask for changes and no agent waiting.
+        let team = otaq_core::flow::presets::preset("team-pr.yaml").unwrap();
+        let preset = proposal(
+            "shop-web",
+            &yaml::write(&team.read()),
+            Source::Preset {
+                file: "team-pr.yaml".into(),
+            },
+            ProposedBy::User,
+            &default_flow(),
+        );
+        let v = onboarding(
+            build(&preset, Some(&shipped), &[], &Choices::default()),
+            &preset,
+            None,
+        );
+        assert_eq!(v.title, "Team PR for shop-web");
+        assert_eq!(
+            v.subtitle,
+            "Preset \u{b7} nothing changes until you apply it"
+        );
+        assert_eq!(v.cancel.as_deref(), Some("Use the default"));
+        assert!(v.ask.is_none());
+        assert!(v.agent_waits.is_none());
+        assert_eq!(
+            v.apply.as_ref().map(|a| a.label.as_str()),
+            Some("Use this flow")
+        );
     }
 }

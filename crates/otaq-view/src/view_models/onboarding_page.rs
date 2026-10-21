@@ -1,10 +1,11 @@
 //! First run and Add project as the Tauri page draws them (T-0233; UI-08, UI-11, SET-02, PRJ-01…PRJ-03; *14 · First
 //! run & onboarding*, *02 → No projects yet*): the title bar's step indicator (Welcome · Theme · Tools · Project ·
-//! Done), the Welcome and Theme steps' words, the tools checklist from [`OnboardingModel`] (rows, the permission-mode
+//! Flow · Done, ONB-10), the Welcome and Theme steps' words, the tools checklist from [`OnboardingModel`] (rows, the permission-mode
 //! warning, Continue and why it is off), the Add project form from [`AddProjectModel`] (the onboarding card and the
 //! later dialog), and the "No projects yet" board. Every text the GPUI app wrote in its drawing code lives here now.
 //! The form says that adding a project lets Claude Code work in its folder, and why the trust wasn't recorded when it
-//! wasn't (PRJ-07, d0085; *14 → step 4*, *Claude Code's trust couldn't be recorded*).
+//! wasn't (PRJ-07, d0085; *14 → step 4*, *Claude Code's trust couldn't be recorded*). The Flow step's go-ahead and
+//! presets ([`flow_step`]; ONB-04, d0108; *s14-12*, *s14-13*) come after Add your first project.
 
 use otaq_core::agent_tools::connected::AgentToolState;
 use otaq_core::board::snapshot::ProjectInfo;
@@ -19,6 +20,8 @@ use crate::shell::tilde;
 use crate::view_models::add_project::AddProjectModel;
 use crate::view_models::agent_tools_page::{self, Place};
 use crate::view_models::banners::{self, BannerModel, BannerView, TrustFailure};
+use crate::view_models::flow_settings::{PresetCard, preset_card};
+use crate::view_models::flow_sources::{self, Kind as LookKind, View as FlowLook};
 use crate::view_models::onboarding::{OnboardingModel, RowIcon, STEPS, Step};
 
 /// An onboarding step as the page names it.
@@ -30,6 +33,7 @@ pub enum StepId {
     Theme,
     Tools,
     Project,
+    Flow,
 }
 
 impl StepId {
@@ -39,10 +43,17 @@ impl StepId {
             Self::Theme => Step::Theme,
             Self::Tools => Step::Tools,
             Self::Project => Step::Project,
+            Self::Flow => Step::Flow,
         }
     }
 
-    pub const ALL: [Self; 4] = [Self::Welcome, Self::Theme, Self::Tools, Self::Project];
+    pub const ALL: [Self; 5] = [
+        Self::Welcome,
+        Self::Theme,
+        Self::Tools,
+        Self::Project,
+        Self::Flow,
+    ];
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -64,7 +75,7 @@ pub struct Dot {
     pub state: DotState,
 }
 
-/// The window's title bar during onboarding: the product name and the five steps.
+/// The window's title bar during onboarding: the product name and the six steps.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OnboardingTitleBar")]
 pub struct TitleBar {
@@ -755,6 +766,140 @@ pub fn tools_gallery() -> ToolsGallery {
     ToolsGallery { cells }
 }
 
+/// The Flow step's presets (ONB-04, FLW-08; *s14-12 → Nothing to look at yet*): Use a preset instead, or the step
+/// itself when there is nothing to look at. A pick proposes the preset and opens the preview in the step.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "OnboardingFlowPresets")]
+pub struct FlowPresets {
+    /// Under the title: "Nothing to look at yet · pick a preset to start. …" when there is nothing, else the intro.
+    pub text: String,
+    /// Why there is nothing, muted under it: "No Claude Code history on this Mac, …".
+    pub reason: Option<String>,
+    /// "START FROM A PRESET".
+    pub heading: String,
+    pub cards: Vec<PresetCard>,
+}
+
+/// While the onboarding agent works: the words beside its terminal (ONB-05; T-0430's card replaces them).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "OnboardingFlowWorking")]
+pub struct FlowWorking {
+    pub title: String,
+    pub text: String,
+}
+
+/// *5 · Flow* (ONB-04, d0108; *s14-12*, *s14-13*): the go-ahead, asked once, with the line naming what the agent will
+/// look at (T-0427's [`flow_sources`]), the presets, and the words while the agent works. No checkboxes, counts or
+/// sample lines (d0108 changelog 2026-10-21).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "OnboardingFlowStep")]
+pub struct FlowStep {
+    /// The project's key.
+    pub project: String,
+    /// "Build shop-web’s flow".
+    pub title: String,
+    pub intro: String,
+    /// "Claude looks at how you use Claude Code on this Mac (…), this repo and GitHub, and proposes a flow for
+    /// shop-web."
+    pub line: String,
+    /// "What the agent reads goes to your model provider, and it uses tokens."
+    pub provider: String,
+    pub skip: String,
+    pub use_preset: String,
+    pub propose: String,
+    /// Look and propose a flow is on: there is something to look at (ONB-03).
+    pub can_propose: bool,
+    /// Nothing to look at: the step opens on the presets.
+    pub opens_on_presets: bool,
+    pub presets: FlowPresets,
+    /// What Look and propose a flow starts the project's Project agent with: the `flow` skill.
+    pub start_message: String,
+    pub working: FlowWorking,
+}
+
+pub const SKIP_USE_THE_DEFAULT: &str = "Skip, use the default";
+pub const USE_A_PRESET_INSTEAD: &str = "Use a preset instead";
+pub const LOOK_AND_PROPOSE: &str = "Look and propose a flow";
+pub const PROVIDER_AND_TOKENS: &str =
+    "What the agent reads goes to your model provider, and it uses tokens.";
+
+/// The Flow step for `project_name` (its key `project`), from what there is to look at.
+pub fn flow_step(project: &str, project_name: &str, look: &FlowLook) -> FlowStep {
+    let intro = "An agent proposes the board\u{2019}s columns: who works on a ticket, what checks it, how it\u{2019}s delivered. Nothing changes until you say so."
+        .to_owned();
+    let nothing = look.kind == LookKind::Nothing;
+    FlowStep {
+        project: project.to_owned(),
+        title: format!("Build {project_name}\u{2019}s flow"),
+        presets: FlowPresets {
+            text: if nothing {
+                look.line.clone()
+            } else {
+                intro.clone()
+            },
+            reason: look.reason.clone().filter(|_| nothing),
+            heading: "START FROM A PRESET".to_owned(),
+            cards: otaq_core::flow::presets::presets()
+                .iter()
+                .map(preset_card)
+                .collect(),
+        },
+        intro,
+        line: look.line.clone(),
+        provider: PROVIDER_AND_TOKENS.to_owned(),
+        skip: SKIP_USE_THE_DEFAULT.to_owned(),
+        use_preset: USE_A_PRESET_INSTEAD.to_owned(),
+        propose: LOOK_AND_PROPOSE.to_owned(),
+        can_propose: !nothing,
+        opens_on_presets: nothing,
+        start_message: otaq_core::project_agents::FLOW_COMMAND.to_owned(),
+        working: FlowWorking {
+            title: "Reading how you work".to_owned(),
+            text: "This can take a few minutes. Watch the agent in its terminal, or come back later: the proposal waits for you."
+                .to_owned(),
+        },
+    }
+}
+
+/// One Flow step of the gallery.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "OnboardingFlowGalleryCell")]
+pub struct FlowGalleryCell {
+    pub name: String,
+    pub step: FlowStep,
+}
+
+/// The Flow step in the component gallery (T-0429; *s14-12*, *s14-13*): the example's go-ahead (history, a repo,
+/// GitHub) and Nothing to look at yet.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "OnboardingFlowGallery")]
+pub struct FlowGallery {
+    pub cells: Vec<FlowGalleryCell>,
+}
+
+pub fn flow_gallery() -> FlowGallery {
+    use otaq_core::onboarding::Sources;
+    let sources = |any: bool| Sources {
+        project_name: "shop-web".into(),
+        history: any,
+        commits: any,
+        gh: any,
+        glab: false,
+        tool: otaq_core::agent_tools::Tool::Claude,
+    };
+    let cells = [
+        ("Flow · the go-ahead", true),
+        ("Nothing to look at yet", false),
+    ]
+    .into_iter()
+    .map(|(name, any)| FlowGalleryCell {
+        name: name.to_owned(),
+        step: flow_step("SHOP", "shop-web", &flow_sources::view(&sources(any))),
+    })
+    .collect();
+    FlowGallery { cells }
+}
+
 /// *02 → No projects yet*: the board of an app with no project (onboarding skipped, or every project removed).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "NoProjectsView")]
@@ -859,11 +1004,163 @@ mod tests {
                 DotState::Done,
                 DotState::Current,
                 DotState::Next,
+                DotState::Next,
                 DotState::Next
             ]
         );
-        assert_eq!(bar.steps[4].label, "Done");
-        assert_eq!(texts(&fixtures::base()).title_bars.len(), 4);
+        let labels: Vec<(&str, &str)> = bar
+            .steps
+            .iter()
+            .map(|d| (d.number.as_str(), d.label.as_str()))
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                ("1", "Welcome"),
+                ("2", "Theme"),
+                ("3", "Tools"),
+                ("4", "Project"),
+                ("5", "Flow"),
+                ("6", "Done")
+            ]
+        );
+        // s14-12: on the Flow step the four before it are checked, Done is next.
+        let flow = title_bar(StepId::Flow);
+        let states: Vec<DotState> = flow.steps.iter().map(|d| d.state).collect();
+        assert_eq!(
+            states,
+            [
+                DotState::Done,
+                DotState::Done,
+                DotState::Done,
+                DotState::Done,
+                DotState::Current,
+                DotState::Next
+            ]
+        );
+        assert_eq!(texts(&fixtures::base()).title_bars.len(), 5);
+    }
+
+    fn look(any: bool) -> FlowLook {
+        use otaq_core::onboarding::Sources;
+        flow_sources::view_on(
+            otaq_core::tools::Os::Mac,
+            &Sources {
+                project_name: "shop-web".into(),
+                history: any,
+                commits: any,
+                gh: any,
+                glab: false,
+                tool: otaq_core::agent_tools::Tool::Claude,
+            },
+        )
+    }
+
+    #[test]
+    fn the_flow_go_ahead_s14_12() {
+        let step = flow_step("SHOP", "shop-web", &look(true));
+        assert_eq!(step.project, "SHOP");
+        assert_eq!(step.title, "Build shop-web’s flow");
+        assert_eq!(
+            step.intro,
+            "An agent proposes the board’s columns: who works on a ticket, what checks it, how it’s delivered. \
+             Nothing changes until you say so."
+        );
+        assert_eq!(
+            step.line,
+            "Claude looks at how you use Claude Code on this Mac (what you typed in it, your skills and CLAUDE.md \
+             files), this repo and GitHub, and proposes a flow for shop-web."
+        );
+        assert_eq!(
+            step.provider,
+            "What the agent reads goes to your model provider, and it uses tokens."
+        );
+        assert_eq!(
+            [
+                step.skip.as_str(),
+                step.use_preset.as_str(),
+                step.propose.as_str()
+            ],
+            [
+                "Skip, use the default",
+                "Use a preset instead",
+                "Look and propose a flow"
+            ]
+        );
+        assert!(step.can_propose);
+        assert!(!step.opens_on_presets);
+        // Use a preset instead: the intro above the presets, no reason.
+        assert_eq!(step.presets.text, step.intro);
+        assert_eq!(step.presets.reason, None);
+        assert_eq!(step.start_message, "/flow");
+    }
+
+    #[test]
+    fn nothing_to_look_at_opens_on_the_presets_s14_12() {
+        let step = flow_step("SHOP", "shop-web", &look(false));
+        assert_eq!(step.title, "Build shop-web’s flow");
+        assert!(!step.can_propose, "Look and propose a flow is off");
+        assert!(step.opens_on_presets);
+        assert_eq!(
+            step.presets.text,
+            "Nothing to look at yet · pick a preset to start. You can change it later by asking the Project agent."
+        );
+        assert_eq!(
+            step.presets.reason.as_deref(),
+            Some(
+                "No Claude Code history on this Mac, no commits in this repo yet, and neither gh nor glab is signed in."
+            )
+        );
+        assert_eq!(step.presets.heading, "START FROM A PRESET");
+    }
+
+    #[test]
+    fn the_flow_step_lists_the_four_presets() {
+        let cards = flow_step("SHOP", "shop-web", &look(false)).presets.cards;
+        let words: Vec<(&str, &str, &str)> = cards
+            .iter()
+            .map(|c| (c.name.as_str(), c.delivers.as_str(), c.line.as_str()))
+            .collect();
+        assert_eq!(
+            words,
+            [
+                ("Otaq default", "Done · click", "Today’s board"),
+                (
+                    "Solo autopilot",
+                    "Done · Local merge, automatic",
+                    "Solo projects that trust the checks"
+                ),
+                (
+                    "Grill first",
+                    "Done · click",
+                    "Settle the ticket with you before any code is written"
+                ),
+                (
+                    "Team PR",
+                    "Done · PR, automatic",
+                    "Teams that review on GitHub or GitLab: the PR is the review"
+                ),
+            ]
+        );
+        let columns =
+            |i: usize| -> Vec<&str> { cards[i].columns.iter().map(|c| c.label.as_str()).collect() };
+        assert_eq!(
+            columns(0),
+            ["Ready for Dev", "Dev", "Validate", "Review", "Done"]
+        );
+        assert_eq!(
+            columns(2),
+            [
+                "Ready for Dev",
+                "Grill",
+                "Dev",
+                "Validate",
+                "Review",
+                "Done"
+            ]
+        );
+        assert_eq!(columns(3), ["Ready for Dev", "Dev", "Validate", "Done"]);
+        assert_eq!(flow_gallery().cells.len(), 2);
     }
 
     #[test]
