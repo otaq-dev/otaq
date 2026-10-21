@@ -517,14 +517,17 @@ flow:
     #[test]
     fn one_ticket_in_a_removed_human_check() {
         let p = plan(
-            "Removes QA from shop-web\u{2019}s flow",
+            "Removes QA (your check) from shop-web\u{2019}s flow",
             vec![mv("SHOP-23", "Split user full name", "QA", "review")],
             seven_kept(),
         );
         let flow = new_flow();
         let v = view(&p, Some(&flow), &Picks::new(), None);
         assert_eq!(v.title, "Apply the flow change now?");
-        assert_eq!(v.summary, "Removes QA from shop-web\u{2019}s flow.");
+        assert_eq!(
+            v.summary,
+            "Removes QA (your check) from shop-web\u{2019}s flow."
+        );
         assert_eq!(v.moves_label, "Moves");
         assert_eq!(v.moves.len(), 1);
         let m = &v.moves[0];

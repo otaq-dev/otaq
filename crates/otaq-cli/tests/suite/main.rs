@@ -4,6 +4,7 @@
 
 mod agent;
 mod ask;
+mod ask_each_tool;
 mod attach;
 mod cli;
 mod client_start;

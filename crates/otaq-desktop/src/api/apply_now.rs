@@ -160,3 +160,6 @@ async fn apply(app: &App, p: ApplyRequest) -> Result<Answer, RequestError> {
         }
     })
 }
+
+#[cfg(test)]
+mod tests;

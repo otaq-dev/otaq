@@ -207,7 +207,10 @@ async fn the_plan_for_one_ticket_in_a_removed_human_check() {
     remove(&w, &["qa"]).await;
 
     let plan = plan(&w).await;
-    assert_eq!(plan.summary, "Removes QA from shop-web\u{2019}s flow");
+    assert_eq!(
+        plan.summary,
+        "Removes QA (your check) from shop-web\u{2019}s flow"
+    );
     assert_eq!(plan.removed, names(&["QA"]));
     assert_eq!(plan.moves.len(), 1);
     let m = &plan.moves[0];

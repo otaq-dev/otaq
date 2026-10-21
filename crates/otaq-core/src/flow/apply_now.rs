@@ -65,6 +65,18 @@ pub fn removes_summary(stages: &[String], project: &str) -> String {
     format!("Removes {names} from {project}\u{2019}s flow")
 }
 
+/// The removed stages as the summary names them: a human check with "(your check)" after it ("QA (your check)").
+fn removed_labels(old: &Flow, new: &Flow) -> Vec<String> {
+    old.stages
+        .iter()
+        .filter(|s| new.stage(&s.id).is_none())
+        .map(|s| match s.is_human_check() {
+            true => format!("{} (your check)", s.name),
+            false => s.name.clone(),
+        })
+        .collect()
+}
+
 /// "Dev resumes SHOP-19's earlier session" (APN-02's hint on a pick back to an Agent stage that ran).
 pub fn resumes_hint(stage: &str, key: &TicketKey) -> String {
     format!("{stage} resumes {key}\u{2019}s earlier session")
@@ -87,8 +99,8 @@ pub struct ApplyNowPlan {
     pub project: String,
     /// The project's name ("shop-web").
     pub project_name: String,
-    /// "Removes Grill and Security from shop-web's flow"; the waiting change's own words ("QA after Security") when
-    /// it removes no stage.
+    /// "Removes Grill and Security from shop-web's flow", "Removes QA (your check) from shop-web's flow"; the waiting
+    /// change's own words ("QA after Security") when it removes no stage.
     pub summary: String,
     /// What the waiting change changes, every merged change's parts in order (the banner's words).
     pub changes: Vec<String>,
@@ -375,7 +387,7 @@ pub fn plan(facts: &PlanFacts<'_>) -> ApplyNowPlan {
         .collect();
     let summary = match removed.is_empty() {
         true => facts.changes.join(" \u{b7} "),
-        false => removes_summary(&removed, facts.project_name),
+        false => removes_summary(&removed_labels(old, new), facts.project_name),
     };
     let stamp = stamp_of(facts.yaml, &moves, &keep);
     ApplyNowPlan {

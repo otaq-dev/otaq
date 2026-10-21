@@ -642,33 +642,7 @@ pub(crate) mod testing {
                 configure,
                 started: Mutex::new(Vec::new()),
             });
-            let mut settings = Settings::new(data, service.clone());
-            settings.client.backoff_min = Duration::from_millis(10);
-            settings.client.backoff_max = Duration::from_millis(50);
-            let events = Arc::new(EventHub::default());
-            let seen = Arc::new(Mutex::new(Vec::new()));
-            let record = seen.clone();
-            events.subscribe(Box::new(move |event| {
-                record.lock().unwrap().push(event);
-                true
-            }));
-            let link = ServiceLink::start(Ok(settings), events.clone());
-            let app = App {
-                notices: crate::notices::Notices::start(&link, events.clone()),
-                service: link,
-                events,
-                switcher: Default::default(),
-                drawer_tabs: Default::default(),
-                inbox: Default::default(),
-                inbox_run: Default::default(),
-                review: Default::default(),
-                terminals: crate::terminal::Terminals::default(),
-                pr_dialogs: Default::default(),
-                cleanup: Default::default(),
-                run_commands: Default::default(),
-                window_focus: Default::default(),
-                usage: crate::usage::Usage::new(tokio::runtime::Handle::current()),
-            };
+            let (app, seen) = app_with(Settings::new(data, service.clone()));
             Self {
                 _tmp: tmp,
                 service,
@@ -708,6 +682,48 @@ pub(crate) mod testing {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
         }
+    }
+
+    /// An app linked to the service `settings` names, with its page events recorded.
+    fn app_with(mut settings: Settings) -> (App, Arc<Mutex<Vec<serde_json::Value>>>) {
+        settings.client.backoff_min = Duration::from_millis(10);
+        settings.client.backoff_max = Duration::from_millis(50);
+        let events = Arc::new(EventHub::default());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let record = seen.clone();
+        events.subscribe(Box::new(move |event| {
+            record.lock().unwrap().push(event);
+            true
+        }));
+        let link = ServiceLink::start(Ok(settings), events.clone());
+        let app = App {
+            notices: crate::notices::Notices::start(&link, events.clone()),
+            service: link,
+            events,
+            switcher: Default::default(),
+            drawer_tabs: Default::default(),
+            inbox: Default::default(),
+            inbox_run: Default::default(),
+            review: Default::default(),
+            terminals: crate::terminal::Terminals::default(),
+            pr_dialogs: Default::default(),
+            cleanup: Default::default(),
+            run_commands: Default::default(),
+            window_focus: Default::default(),
+            usage: crate::usage::Usage::new(tokio::runtime::Handle::current()),
+        };
+        (app, seen)
+    }
+
+    /// An app on a service that is already running on `data` (a core `TestService`); it never starts one.
+    pub fn app_on(data: DataDir) -> App {
+        struct AlreadyRunning;
+        impl Launcher for AlreadyRunning {
+            fn launch(&self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + '_>> {
+                Box::pin(std::future::ready(Ok(())))
+            }
+        }
+        app_with(Settings::new(data, Arc::new(AlreadyRunning))).0
     }
 
     pub fn connected(c: &Connection) -> bool {
