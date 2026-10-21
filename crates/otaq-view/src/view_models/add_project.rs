@@ -254,6 +254,7 @@ mod tests {
             name: "new-app".into(),
             suggested_key: key.into(),
             base_branch: "develop".into(),
+            branches: Default::default(),
         }
     }
 

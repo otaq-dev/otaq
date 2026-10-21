@@ -1,6 +1,6 @@
 // The Add project form (PRJ-01…PRJ-03; *14 → 3 · Add project · valid*, *Not a git repo*, *Already added*, *Adding a
 // second project later*): the folder picker (the system's, through the door), the service's check of the folder,
-// the detected name and base branch (editable before adding), and the key with its live check and "Used in ticket
+// the detected name and base branch (another local or remote branch can be picked before adding), and the key with its live check and "Used in ticket
 // IDs like SHOP-18. Can’t be changed later." The page holds what was picked and typed; Rust words the rest
 // (`onboarding.form`) and adds the project (`onboarding.add`). The onboarding card and the dialog share it. Under the
 // folder, the line that adding it lets the connected tools work there (*14* `z8OVF` · step 4, d0086); when a tool's
@@ -8,14 +8,14 @@
 // (PRJ-07, d0085).
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
-import { Button, TextInput } from "../../components";
+import { Button, Select, TextInput } from "../../components";
 import type { AddProjectOutcome } from "../../generated/AddProjectOutcome";
 import type { AddProjectParams } from "../../generated/AddProjectParams";
 import type { AddProjectView } from "../../generated/AddProjectView";
 import { asRequestError } from "../../service";
 import { pickFolder as systemPicker, request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { adoptKey, type Ask, baseText, keyText, newForm, pickFolder, typeBase, typeKey } from "./logic";
+import { adoptKey, type Ask, baseLabel, keyText, newForm, pickFolder, typeBase, typeKey } from "./logic";
 
 /** How long typing settles before the form is asked again. */
 const TYPING_SETTLE_MS = 120;
@@ -168,14 +168,17 @@ export function AddProjectFields({ state }: { state: AddProjectState }) {
         <Icon name={view.base.icon} size={13} />
         <span className="add-project-detected-label">{view.base.label}</span>
         <span className="add-project-base">
-          <TextInput
-            value={baseText(form, view)}
-            onChange={(v) => {
-              setForm((f) => typeBase(f, v));
-            }}
-            placeholder={view.base.placeholder}
+          <Select
             label={view.base.label}
+            value={baseLabel(form, view)}
+            icon={null}
             mono
+            trailing="chevrons-up-down"
+            items={view.base.items}
+            search={view.base.search}
+            onChange={(id) => {
+              setForm((f) => typeBase(f, id));
+            }}
           />
         </span>
       </div>,
