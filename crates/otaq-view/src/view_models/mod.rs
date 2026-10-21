@@ -89,6 +89,7 @@ pub mod project_agent_page;
 pub mod project_terminal;
 pub mod queue;
 pub mod recovery;
+pub mod report_view;
 pub mod restart;
 pub mod review_page;
 pub mod run;

@@ -399,9 +399,16 @@ pub(super) async fn handle(
                 }
                 _ => Vec::new(),
             };
+            // An agent's or a lead's edit names it in History (CMT-14); the user's is "You".
+            let author = match caller {
+                Caller::User | Caller::ProjectAgent { .. } => None,
+                _ => board.caller_author(caller, &actor).await.ok(),
+            };
             let mut chosen = false;
             let after = mutate(shared, &project, async {
-                let after = board.update_ticket(&p.key, &p.update, &actor).await?;
+                let after = board
+                    .update_ticket_by(&p.key, &p.update, &actor, author.as_ref())
+                    .await?;
                 chosen = board
                     .write_choices(&after, &writes, &actor, lead_epic(caller))
                     .await?;

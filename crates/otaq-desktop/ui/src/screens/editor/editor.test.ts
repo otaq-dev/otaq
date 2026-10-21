@@ -723,9 +723,9 @@ describe("the editor", () => {
     unmount();
   });
 
-  it("registers quick-create, the edit modal, the full-window view and the Ticket tab from its folder", () => {
+  it("registers quick-create, the edit modal, the full-window view, the report view and the Ticket tab from its folder", () => {
     expect(registered(registerScreens({ editor }))).toMatchObject({
-      overlays: ["new_ticket", "edit_ticket", "full_view"],
+      overlays: ["new_ticket", "edit_ticket", "full_view", "report"],
       panelTabs: ["ticket"],
     });
   });

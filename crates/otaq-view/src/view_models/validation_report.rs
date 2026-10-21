@@ -1,6 +1,7 @@
-//! Validation reports in History and Review (VAL-12, UI-04, REV-02; d0063, d0064; *05 → Row · validation → History ·
-//! validation rounds*, *07 → Row · validation report & Auto-merge*): one History entry per validation round (outcome,
-//! duration, tokens) that opens its report, and on the Diff tab the Review entry ("Validated · round 2") with the
+//! Validation reports in History and Review (VAL-12, UI-04, REV-02, CMT-14; d0063, d0064, d0109; *05 → Row · validation
+//! → History · validation rounds*, *07 → Row · validation report & Auto-merge*): one History entry per validation round
+//! (outcome, duration, tokens; its verdict is the checker's comment, a row of its own with its report, so the round
+//! opens nothing), and on the Diff tab the Review entry ("Validated · round 2") with the
 //! final report next to the agent's summary: what was checked, the findings with their file and line, the notes with
 //! their linked keys, and **Create ticket** on each "Not covered by any ticket" note (the user's click; the validator
 //! never creates tickets). A ticket that failed every round and was moved on by the user shows the last findings,
@@ -180,11 +181,6 @@ pub fn report(r: &ValidationRecord, title: String, failed: bool) -> Report {
     }
 }
 
-/// How many findings a round's report has.
-fn findings_count(r: &ValidationRecord) -> usize {
-    report(r, String::new(), true).findings.len()
-}
-
 fn plural(n: usize, one: &str) -> String {
     if n == 1 {
         format!("1 {one}")
@@ -219,8 +215,6 @@ pub struct RoundRow {
     pub tokens: String,
     pub icon: IconName,
     pub palette: Palette,
-    /// A counted round (passed or failed) opens its report.
-    pub report: Option<Report>,
 }
 
 /// The outcome's icon and colours, as in the frame's OUTCOMES legend.
@@ -269,17 +263,11 @@ pub fn round_row(r: &ValidationRecord, rounds: u32) -> RoundRow {
                 "Round {} \u{b7} failed \u{b7} not sent to the agent",
                 r.round
             ),
-            Some(format!(
-                "{} \u{b7} the ticket comes to you",
-                plural(findings_count(r), "finding")
-            )),
+            Some("the ticket comes to you".to_owned()),
         ),
         Some(O::Fail) => (
             format!("Round {} \u{b7} failed", r.round),
-            Some(format!(
-                "{trigger} \u{b7} {}",
-                plural(findings_count(r), "finding")
-            )),
+            Some(trigger.to_owned()),
         ),
         Some(O::Cancelled) => (
             "Validation cancelled \u{b7} not counted".to_owned(),
@@ -305,7 +293,6 @@ pub fn round_row(r: &ValidationRecord, rounds: u32) -> RoundRow {
         ),
     };
     let (icon, palette) = outcome_look(r.outcome);
-    let counted = matches!(r.outcome, Some(O::Pass | O::Fail));
     RoundRow {
         title,
         detail,
@@ -321,13 +308,6 @@ pub fn round_row(r: &ValidationRecord, rounds: u32) -> RoundRow {
             .map_or_else(|| "\u{2014}".to_owned(), |t| tokens_label(t.shown())),
         icon,
         palette,
-        report: counted.then(|| {
-            report(
-                r,
-                "Validation report".to_owned(),
-                r.outcome == Some(O::Fail),
-            )
-        }),
     }
 }
 
@@ -626,20 +606,17 @@ mod tests {
     }
 
     /// *05 → History · validation rounds (SHOP-32)*: each round with its outcome and detail; a cancelled round isn't
-    /// counted and opens nothing; the last failed round isn't sent to the agent; the total under them.
+    /// counted; the last failed round isn't sent to the agent; the total under them. No round opens a report any more:
+    /// the verdict is the checker's comment, with its report (CMT-14).
     #[test]
     fn history_lists_every_round() {
         let fail = |round, findings: &str| record(round, Some(ValidationOutcome::Fail), findings);
         let first = round_row(&fail(1, "a.ts:1: x\nb.ts:2: y\nc.ts:3: z"), 3);
         assert_eq!(first.title, "Round 1 · failed");
-        assert_eq!(
-            first.detail.as_deref(),
-            Some("agent submitted · 3 findings")
-        );
+        assert_eq!(first.detail.as_deref(), Some("agent submitted"));
         assert_eq!(first.duration, "3 min");
         assert_eq!(first.tokens, "11k");
         assert_eq!(first.icon, IconName::ShieldX);
-        assert!(first.report.as_ref().unwrap().failed);
         let cancelled = round_row(
             &record(
                 2,
@@ -653,17 +630,12 @@ mod tests {
             cancelled.detail.as_deref(),
             Some("the code changed · round 2 starts over")
         );
-        assert_eq!(cancelled.report, None);
         let last = round_row(&fail(3, "x.ts:9: still broken"), 3);
         assert_eq!(last.title, "Round 3 · failed · not sent to the agent");
-        assert_eq!(
-            last.detail.as_deref(),
-            Some("1 finding · the ticket comes to you")
-        );
+        assert_eq!(last.detail.as_deref(), Some("the ticket comes to you"));
         let passed = round_row(&record(2, Some(ValidationOutcome::Pass), PASSED), 3);
         assert_eq!(passed.title, "Round 2 · passed");
         assert_eq!(passed.detail.as_deref(), Some("agent submitted · 2 notes"));
-        assert!(!passed.report.unwrap().failed);
         let running = round_row(&record(1, None, ""), 3);
         assert_eq!(running.duration, "running");
         let (label, tokens) = total(&[fail(1, ""), fail(2, ""), fail(3, ""), fail(4, "")]).unwrap();

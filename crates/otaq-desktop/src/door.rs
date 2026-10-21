@@ -94,6 +94,29 @@ async fn save_flow_file(app: tauri::AppHandle, title: String, file_name: String)
         .map(|path| path.display().to_string())
 }
 
+/// The system save dialog for a report (the report view's Download, CMT-12), offering `file_name`: where to save, or
+/// `None` when cancelled. The report is written there by `report.download`, from its file.
+#[tauri::command]
+async fn save_report_file(
+    app: tauri::AppHandle,
+    title: String,
+    file_name: String,
+) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title(title)
+        .set_file_name(file_name)
+        .save_file(move |file| {
+            let _ = tx.send(file.and_then(|f| f.into_path().ok()));
+        });
+    rx.await
+        .ok()
+        .flatten()
+        .map(|path| path.display().to_string())
+}
+
 // --- The window (T-0214) ---------------------------------------------------------------------------------------
 
 /// The window's label, which `capabilities/default.json` names.
@@ -257,7 +280,8 @@ pub fn run(
             window,
             pick_folder,
             pick_flow_file,
-            save_flow_file
+            save_flow_file,
+            save_report_file
         ])
         .setup(move |tauri_app| {
             open_window(tauri_app, &on_setup)?;

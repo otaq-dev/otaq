@@ -747,10 +747,10 @@
   gap: 8px;
 }
 
+/* A dialog's label over the box ("Comment for Dev (optional)", s07-20 / s03-50). */
 .comment-box-label {
-  color: var(--text-muted);
-  font: 400 10.5px var(--font-mono);
-  letter-spacing: 0.8px;
+  color: var(--text-secondary);
+  font: 500 12px var(--font-ui);
 }
 
 .comment-box-text {

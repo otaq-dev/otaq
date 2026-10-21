@@ -238,7 +238,9 @@ pub async fn send_back_view(app: &App, params: Params) -> Result<page::SendBackV
         Reply::ReviewComments(list) => list.comments,
         other => return Err(unexpected("review.comments", &other)),
     };
-    Ok(page::send_back_view(&ticket, &comments, &all?))
+    let flow = super::board::flow(app, &project).await;
+    let to = sb::back_stage(&ticket, &flow).map_or("Dev", |s| s.name.as_str());
+    Ok(page::send_back_view(&ticket, &comments, &all?, to))
 }
 
 /// Send back: the pending comments and the note go to the agent; `clear` is "Clear it and send" (d0048).

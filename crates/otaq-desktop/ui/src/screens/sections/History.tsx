@@ -1,17 +1,21 @@
-// The History tab (UI-04, REC-03; d0045; *05 → SHOP-20 · History*, *16 → History · Claude session IDs*): every
-// session with its time, duration, tokens and full Claude session ID (copyable, so `claude --resume <id>` finds
-// the conversation), and the ticket's events, newest first; one entry per validation round (VAL-12; *05 → History ·
-// validation rounds*) that opens its report under it, and the validation total.
+// The History tab (UI-04, REC-03, CMT-14; d0045, d0109; *05 → SHOP-20 · History*, *16 → History · Claude session
+// IDs*, *05 → Row · History* `s05-45`/`s05-46`): every session with its time, duration, tokens and full Claude
+// session ID (copyable, so `claude --resume <id>` finds the conversation), and the ticket's events, newest first; one
+// entry per validation round (VAL-12) and the validation total. Description changes and comments carry their
+// author's mark and open under the row: a before / after ("DESCRIPTION", "COMMENT"), or what a comment said with its
+// report, which opens in the report view (a deleted comment's too).
 import { Fragment, useCallback, useState } from "react";
 
 import type { TicketProps } from "../../app/registry";
 import { Tooltip } from "../../components";
+import type { HistoryOpens } from "../../generated/HistoryOpens";
 import type { HistoryView } from "../../generated/HistoryView";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { Mark, ReportChip } from "../editor/CommentThread";
+import { openReport } from "../editor/reportOpener";
 import { SECTION_EVENTS } from "./logic";
-import { ReportBody } from "./Report";
 
 const ignore = () => undefined;
 
@@ -35,9 +39,36 @@ function CopyId({ id, hint, copied }: { id: string; hint: string; copied: string
   );
 }
 
+/** What a description or comment row opens: its label, "Before / after", the lines and the comment's report. */
+function Opened({ opens, ticket }: { opens: HistoryOpens; ticket: string }) {
+  return (
+    <div className="history-opens">
+      <div className="history-opens-head">
+        <span className="history-opens-label">{opens.label}</span>
+        {opens.caption !== null && <span className="history-opens-caption">{opens.caption}</span>}
+      </div>
+      {opens.lines.map((l, i) => (
+        <div key={i} className="history-opens-line" data-kind={l.kind}>
+          <span className="history-opens-sign">{l.sign}</span>
+          <span className="history-opens-text">{l.text}</span>
+        </div>
+      ))}
+      {opens.report !== null && (
+        <ReportChip
+          chip={opens.report.chip}
+          onOpen={() => {
+            const n = opens.report?.n;
+            if (n !== undefined) openReport({ kind: "comment", ticket, n });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 export function HistoryBody({ view, opened = [] }: { view: HistoryView; opened?: readonly number[] }) {
   const [event, when, duration, tokens] = view.columns;
-  // The rounds whose report is open (by row).
+  // The rows that are open (by row).
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set(opened));
   const toggle = (i: number) => {
     const next = new Set(open);
@@ -64,12 +95,18 @@ export function HistoryBody({ view, opened = [] }: { view: HistoryView; opened?:
       {view.rows.length === 0 && <p className="history-empty">{view.empty}</p>}
       {view.rows.map((row, i) => (
         <Fragment key={`${row.when}-${row.title}-${String(i)}`}>
-          <div className="history-row" role="row" data-opens={row.report !== null || undefined}>
-            <span className="history-icon" data-palette={row.palette ?? undefined}>
-              <Icon name={row.icon} size={13} />
-            </span>
+          <div className="history-row" role="row" data-opens={row.opens !== null || undefined}>
+            {row.mark !== null ? (
+              <span className="history-icon history-mark">
+                <Mark row={{ mark: row.mark }} />
+              </span>
+            ) : (
+              <span className="history-icon" data-palette={row.palette ?? undefined}>
+                <Icon name={row.icon} size={13} />
+              </span>
+            )}
             <span className="history-event" role="cell">
-              {row.report !== null ? (
+              {row.opens !== null ? (
                 <button
                   type="button"
                   className="history-title history-round"
@@ -105,9 +142,9 @@ export function HistoryBody({ view, opened = [] }: { view: HistoryView; opened?:
               {row.tokens}
             </span>
           </div>
-          {row.report !== null && open.has(i) && (
+          {row.opens !== null && open.has(i) && (
             <div className="history-report">
-              <ReportBody report={row.report} ticket={view.key} />
+              <Opened opens={row.opens} ticket={view.key} />
             </div>
           )}
         </Fragment>

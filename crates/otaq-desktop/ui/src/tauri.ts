@@ -51,6 +51,11 @@ export function saveFlowFile(title: string, fileName: string): Promise<string | 
   return invoke<string | null>("save_flow_file", { title, fileName });
 }
 
+/** The system save dialog for a report (the report view's Download), offering `fileName`: where to save, or `null`. */
+export function saveReportFile(title: string, fileName: string): Promise<string | null> {
+  return invoke<string | null>("save_report_file", { title, fileName });
+}
+
 /**
  * Spread on an element to make it the window's drag region, children included: pressing it moves the window, a double
  * click maximizes (zooms on macOS). Buttons, inputs and links inside keep their clicks.

@@ -99,6 +99,9 @@ pub use recovery::{
     SummaryParams as AfterRestartParams, ToggleParams as CleanupToggleParams,
     WarmParams as CleanupWarmClearParams,
 };
+pub use report::OpenReports;
+#[cfg(test)]
+pub use report::export_types as export_report_types;
 #[cfg(test)]
 pub use review::{
     Available as ReviewAvailable, ChangeParams as DecisionChangeParams,
@@ -201,6 +204,7 @@ areas! {
     flow_preview,
     apply_now,
     ticket_comments,
+    report,
 }
 
 /// Reads the user's answer once the service answers, then sends the counts every [`crate::usage::FLUSH_EVERY`]

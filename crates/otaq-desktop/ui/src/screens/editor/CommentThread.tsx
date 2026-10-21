@@ -24,7 +24,8 @@ export const COMMENT_EVENTS = ["ticket_changed", "ticket_deleted", "session_stat
 
 const ignore = () => undefined;
 
-function Mark({ row }: { row: CommentRow }) {
+/** A comment author's mark: yours, an agent's tool avatar, or the plain agent mark (also the report view's poster). */
+export function Mark({ row }: { row: Pick<CommentRow, "mark"> }) {
   switch (row.mark.kind) {
     case "you":
       return (

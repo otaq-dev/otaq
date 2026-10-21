@@ -35,6 +35,7 @@ use crate::view_models::board::{
 };
 use crate::view_models::card_page::{EpicCardView, TicketCardView};
 use crate::view_models::chain;
+use crate::view_models::check_dialogs;
 use crate::view_models::close;
 use crate::view_models::drag::{self, DropAction, DropFeedback};
 use crate::view_models::empty_board;
@@ -42,6 +43,7 @@ use crate::view_models::epic_strip::Strip;
 use crate::view_models::filter::Token;
 use crate::view_models::flow_columns::{self, ColumnKind, Columns};
 use crate::view_models::search_page::FilterState;
+use crate::view_models::ticket_comments::CommentBoxView;
 
 /// A page column's id (SHL-06, STG-08): `"backlog"`, `"ready_for_dev"`, the id of a stage with its own column
 /// (the default flow's `"dev"` and `"review"`), `"done"`.
@@ -985,8 +987,10 @@ pub fn drop_step_in(
     }
 }
 
-/// *03 → Dragging a card back to an earlier stage* (s03-50/s03-51, FLW-18): "Send SHOP-19 back to Dev?" with the
-/// instructions for that stage's agent, or "Run Security again on SHOP-18?" with a note for the check. When an agent
+/// *03 → Dragging a card back to an earlier stage* (s03-50/s03-51, FLW-18, CMT-13): "Send SHOP-19 back to Dev?" with a
+/// comment for that stage ("Comment for Dev (Rust developer)"), or "Run Security again on SHOP-18?" with a comment for
+/// the check; either is posted as a comment every later stage reads, in the comment box (a long paste becomes its
+/// report). When an agent
 /// works where the card is now, the dialog says it stops ("Security reviewer is working on it now. It stops, and the
 /// check runs again after Dev.") and the button reads "Stop and send to Dev"; otherwise it says where the card goes
 /// after ("Then it goes on to Security, Review and Done as usual."). Cancel leaves the card where it was.
@@ -998,9 +1002,9 @@ pub struct DragBackDialog {
     pub target: DropTargetId,
     pub title: String,
     pub stops: Option<String>,
-    /// "Instructions for Dev (Rust developer)", "Note for Security (Security reviewer)".
-    pub label: String,
-    pub placeholder: Option<String>,
+    /// "Comment for Dev (Rust developer)", "Comment for Security (Security reviewer)", with "Posted as a comment for
+    /// Dev · every later stage reads it".
+    pub comment: CommentBoxView,
     pub then: Option<String>,
     pub cancel: String,
     pub confirm: String,
@@ -1046,10 +1050,12 @@ pub fn drag_back_dialog(
             key: key.clone(),
             target: target.clone(),
             title: format!("Send {key} back to {}?", to.name),
-            label: format!("Instructions for {}", named(to)),
-            placeholder: Some(
-                "What should change? The agent gets this with the ticket.".to_owned(),
-            ),
+            comment: CommentBoxView::dialog(
+                format!("Comment for {}", named(to)),
+                check_dialogs::posted_for(&to.name),
+                true,
+            )
+            .placeholder(check_dialogs::WHAT_SHOULD_CHANGE),
             then: stops
                 .is_none()
                 .then(|| then_line(flow, to, choices))
@@ -1066,8 +1072,13 @@ pub fn drag_back_dialog(
             key: key.clone(),
             target: target.clone(),
             title: format!("Run {} again on {key}?", to.name),
-            label: format!("Note for {}", named(to)),
-            placeholder: None,
+            // No placeholder drawn for a check (`s03-50`).
+            comment: CommentBoxView::dialog(
+                format!("Comment for {}", named(to)),
+                check_dialogs::posted_for(&to.name),
+                true,
+            )
+            .placeholder(""),
             then: None,
             cancel: "Cancel".to_owned(),
             confirm: match stops {
@@ -1139,7 +1150,7 @@ pub enum DropOutcome {
     /// The page shows the popover; a choice opens its dialog.
     Approve { menu: ApproveMenu },
     /// The page shows the drag-back dialog; its confirm sends `board.drag_back` (FLW-18).
-    DragBack { dialog: DragBackDialog },
+    DragBack { dialog: Box<DragBackDialog> },
     /// Allowed by the rules, but not built yet: shown as a toast.
     NotYet { message: String },
 }
@@ -1421,11 +1432,19 @@ mod tests {
         let failed = on_test_flow("SHOP-19", "security", Status::CheckFailed);
         let dialog = drag_back_dialog(&flow, &failed, &DropTargetId::DEV, &[]).unwrap();
         assert_eq!(dialog.title, "Send SHOP-19 back to Dev?");
-        assert_eq!(dialog.label, "Instructions for Dev (Rust developer)");
         assert_eq!(
-            dialog.placeholder.as_deref(),
-            Some("What should change? The agent gets this with the ticket.")
+            dialog.comment.label.as_deref(),
+            Some("Comment for Dev (Rust developer)")
         );
+        assert_eq!(
+            dialog.comment.placeholder,
+            "What should change? Every later stage reads it too."
+        );
+        assert_eq!(
+            dialog.comment.footer.as_deref(),
+            Some("Posted as a comment for Dev \u{b7} every later stage reads it")
+        );
+        assert!(dialog.comment.optional);
         assert_eq!(dialog.stops, None);
         assert_eq!(
             dialog.then.as_deref(),
@@ -1455,11 +1474,16 @@ mod tests {
         let qa = on_test_flow("SHOP-18", "qa", Status::WaitingForYou);
         let dialog = drag_back_dialog(&flow, &qa, &DropTargetId::new("security"), &[]).unwrap();
         assert_eq!(dialog.title, "Run Security again on SHOP-18?");
-        assert_eq!(dialog.label, "Note for Security (Security reviewer)");
         assert_eq!(
-            (dialog.placeholder, dialog.stops, dialog.then),
-            (None, None, None)
+            dialog.comment.label.as_deref(),
+            Some("Comment for Security (Security reviewer)")
         );
+        assert_eq!(
+            dialog.comment.footer.as_deref(),
+            Some("Posted as a comment for Security \u{b7} every later stage reads it")
+        );
+        assert_eq!(dialog.comment.placeholder, "");
+        assert_eq!((dialog.stops, dialog.then), (None, None));
         assert_eq!(dialog.confirm, "Run Security");
         assert_eq!(dialog.confirm_icon, IconName::RotateCcw);
 
@@ -1475,7 +1499,10 @@ mod tests {
         ]))
         .unwrap();
         let dialog = drag_back_dialog(&flow, &failed, &DropTargetId::DEV, &choices).unwrap();
-        assert_eq!(dialog.label, "Instructions for Dev (Quick developer)");
+        assert_eq!(
+            dialog.comment.label.as_deref(),
+            Some("Comment for Dev (Quick developer)")
+        );
         assert_eq!(
             dialog.then.as_deref(),
             Some("Then it goes on to Validate, Security and Done as usual.")
@@ -1485,7 +1512,10 @@ mod tests {
         let flow = otaq_core::flow::default_flow();
         let dialog = drag_back_dialog(&flow, &review, &DropTargetId::DEV, &[]).unwrap();
         assert_eq!(dialog.title, "Send NOTE-1 back to Dev?");
-        assert_eq!(dialog.label, "Instructions for Dev (Developer)");
+        assert_eq!(
+            dialog.comment.label.as_deref(),
+            Some("Comment for Dev (Developer)")
+        );
         assert_eq!(
             dialog.then.as_deref(),
             Some("Then it goes on to Validate, Review and Done as usual.")

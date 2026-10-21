@@ -100,6 +100,7 @@ icons! {
     Cpu = "cpu";
     Database = "database";
     Dot = "dot";
+    Download = "download";
     Ellipsis = "ellipsis";
     Equal = "equal";
     ExternalLink = "external-link";

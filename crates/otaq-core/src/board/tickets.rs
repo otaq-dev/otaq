@@ -608,6 +608,18 @@ impl Board {
         update: &TicketUpdate,
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
+        self.update_ticket_by(key, update, actor, None).await
+    }
+
+    /// [`Self::update_ticket`] naming who made the change in History (CMT-14): an agent's or a lead's edit records its
+    /// comment author ("Griller · Grill edited the description"); the user's needs none.
+    pub async fn update_ticket_by(
+        &self,
+        key: &str,
+        update: &TicketUpdate,
+        actor: &Actor,
+        author: Option<&super::ticket_comments::CommentAuthor>,
+    ) -> Result<Ticket, BoardError> {
         let ticket = self.ticket(key).await?;
         let mut changes = Vec::new();
 
@@ -718,7 +730,10 @@ impl Board {
             &ticket.id,
             EventKind::Updated,
             actor,
-            json!({ "changes": changes }),
+            match author {
+                Some(author) => json!({ "changes": changes, "author": author }),
+                None => json!({ "changes": changes }),
+            },
         )
         .await?;
         tx.commit().await?;

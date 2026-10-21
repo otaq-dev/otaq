@@ -728,3 +728,74 @@
 .ticket-decisions {
   margin-top: 16px;
 }
+
+/* Description changes and comments (CMT-14; *05 → Row · History*, s05-45 / s05-46): the author's mark, and what the
+   row opens: a before / after or what a comment said, with its report. */
+.history-icon.history-mark {
+  width: 18px;
+  padding-top: 0;
+}
+
+.history-opens {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border-radius: var(--r-md);
+  background: var(--bg-card);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.history-opens-head {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 2px;
+  font: 400 11.5px var(--font-ui);
+}
+
+.history-opens-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.history-opens-caption {
+  color: var(--accent);
+}
+
+.history-opens-line {
+  display: flex;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+}
+
+.history-opens-line[data-kind="added"] {
+  background: var(--diff-add-bg);
+}
+
+.history-opens-line[data-kind="removed"] {
+  background: var(--diff-del-bg);
+}
+
+.history-opens-sign {
+  flex: none;
+  width: 12px;
+  color: var(--text-muted);
+  font: 400 12px var(--font-mono);
+}
+
+.history-opens-text {
+  min-width: 0;
+  color: var(--text-primary);
+  font: 400 12.5px/1.45 var(--font-ui);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.history-opens-line[data-kind="gap"] .history-opens-text {
+  color: var(--text-muted);
+}
+
+.history-opens .comment-report {
+  margin-top: 6px;
+}

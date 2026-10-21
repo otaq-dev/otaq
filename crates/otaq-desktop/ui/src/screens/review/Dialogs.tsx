@@ -1,7 +1,8 @@
 // The review dialogs (REV-04, REV-06, REV-08, GIT-03, GIT-05, UI-02; *07 · Diff, review, approve & send back*):
 // Approve ▾ and Local merge in one overlay that walks its steps (the choice, changed since review, the confirmation
 // with the squash message, Merging…, and the conflict / refused / uncommitted results), and Send back with the
-// pending comments and a note. Their words come from `review.approve`, `review.local_merge` and
+// pending line comments and a comment for Dev in the comment box (CMT-13, `s07-20`: a long paste becomes its report,
+// the limit applies). Their words come from `review.approve`, `review.local_merge` and
 // `review.send_back_view`; Open PR and Push to PR hand over to T-0227's `open_pr` dialog. Change… on a recorded
 // decision (DEC-06, T-0288) opens "Change this decision" (a Send back with the other option) on a ticket, or "Add a
 // fix child" in an epic's review, from `review.change_view`.
@@ -21,10 +22,13 @@ import type { DiffFileView } from "../../generated/DiffFileView";
 import type { LocalMergeResult } from "../../generated/LocalMergeResult";
 import type { PanelSent } from "../../generated/PanelSent";
 import type { ReviewChanged } from "../../generated/ReviewChanged";
+import type { SendBackParams } from "../../generated/SendBackParams";
 import type { SendBackView } from "../../generated/SendBackView";
 import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { CommentBox } from "../editor/CommentBox";
+import { type BoxValue, boxState, EMPTY_BOX } from "../editor/commentRules";
 import {
   afterApproveAnyway,
   afterChoice,
@@ -516,26 +520,29 @@ export function SendBackDialog({ params, close }: OverlayProps<"send_back">) {
     [ticket],
   );
   const { view, error } = useServiceView(load, []);
-  const [note, setNote] = useState("");
+  const [comment, setComment] = useState<BoxValue>(EMPTY_BOX);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   useEffect(() => {
     if (error && !view) close();
   }, [error, view, close]);
   if (!view) return null;
+  const canSend = boxState(comment, view.comment.limits, view.comment.optional).canSubmit;
+  // "Clear it and send" sends the same comment and pasted report again.
   const send = (clear: boolean): Promise<unknown> =>
     (
       request("review.send_back", {
         key: ticket,
-        note,
+        note: comment.text,
+        report: comment.pasted?.text,
         clear,
         comments: view.comments.length,
-      }) as Promise<PanelSent>
+      } satisfies SendBackParams) as Promise<PanelSent>
     ).then((sent) => {
       afterSend(ticket, sent, () => send(true));
     });
   const confirm = () => {
-    if (busy) return;
+    if (busy || !canSend) return;
     setBusy(true);
     setRefusal(null);
     send(false).then(close, (e: unknown) => {
@@ -553,7 +560,7 @@ export function SendBackDialog({ params, close }: OverlayProps<"send_back">) {
       footer={
         <>
           <Button variant="ghost" label={view.cancel} onClick={close} />
-          <Button icon="undo-2" label={view.confirm} loading={busy} onClick={confirm} />
+          <Button icon="undo-2" label={view.confirm} loading={busy} disabled={!canSend} onClick={confirm} />
         </>
       }
     >
@@ -580,18 +587,12 @@ export function SendBackDialog({ params, close }: OverlayProps<"send_back">) {
             ))}
           </div>
         )}
-        <label className="review-label" htmlFor="review-note">
-          {view.note_label}
-        </label>
-        <textarea
-          id="review-note"
-          className="text-input text-area"
-          rows={3}
-          value={note}
-          placeholder={view.note_placeholder}
-          onChange={(e) => {
-            setNote(e.target.value);
-          }}
+        <CommentBox
+          ticket={ticket}
+          view={view.comment}
+          value={comment}
+          onChange={setComment}
+          onSubmit={confirm}
         />
         {view.waiting_title !== null && (
           <div className="review-waiting">

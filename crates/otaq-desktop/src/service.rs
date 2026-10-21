@@ -710,6 +710,7 @@ pub(crate) mod testing {
             cleanup: Default::default(),
             run_commands: Default::default(),
             window_focus: Default::default(),
+            reports: Default::default(),
             usage: crate::usage::Usage::new(tokio::runtime::Handle::current()),
         };
         (app, seen)

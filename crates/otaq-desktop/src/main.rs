@@ -56,6 +56,8 @@ pub struct App {
     usage: usage::Usage,
     /// Whether the window has keyboard focus, told to every connection to the service (`app.focus`, d0090).
     window_focus: api::WindowFocus,
+    /// The reports open in the report view (CMT-12), each indexed once.
+    reports: api::OpenReports,
 }
 
 fn main() {
@@ -110,6 +112,7 @@ fn main() {
         cleanup: Default::default(),
         run_commands: Default::default(),
         window_focus: Default::default(),
+        reports: Default::default(),
         usage: usage::Usage::new(runtime.handle().clone()),
     });
     runtime.spawn(api::usage_loop(app.clone()));

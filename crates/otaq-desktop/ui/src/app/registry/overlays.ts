@@ -9,6 +9,7 @@ import type { DragBackDialog } from "../../generated/DragBackDialog";
 import type { IconName } from "../../generated/IconName";
 import type { InboxAllClear } from "../../generated/InboxAllClear";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
+import type { ReportOpenParams } from "../../generated/ReportOpenParams";
 import type { UsageDataDialog } from "../../generated/UsageDataDialog";
 import type { GlobalSection, ProjectSection } from "./settings";
 
@@ -116,6 +117,8 @@ export interface OverlayParams {
   flow_preview: { project: string; focus?: boolean };
   /** Apply now on a project's waiting flow change (T-0439, APN-02), from the flow change banner. */
   apply_now: { project: string };
+  /** A comment's report, or a paste not posted yet, read-only over the panel (CMT-12, T-0447). */
+  report: ReportOpenParams;
 }
 
 export type OverlayId = keyof OverlayParams;
@@ -163,6 +166,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   // The pane beside it stays usable: typing and shortcuts go on (FLW-04).
   flow_preview: false,
   apply_now: true,
+  report: true,
 };
 
 /**

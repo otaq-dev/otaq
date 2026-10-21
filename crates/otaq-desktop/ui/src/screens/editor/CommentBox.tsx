@@ -105,7 +105,7 @@ export function CommentBox({
     <div className="comment-box" data-over={state.over || undefined}>
       {view.label !== null && (
         <label className="comment-box-label" htmlFor={id}>
-          {view.label.toUpperCase()}
+          {view.label}
         </label>
       )}
       <textarea
@@ -167,7 +167,7 @@ export function CommentBox({
       )}
       {view.footer !== null && (
         <p className="comment-box-footer">
-          <Icon name="arrow-right" size={12} />
+          <Icon name={view.footer_icon} size={12} />
           {view.footer}
         </p>
       )}

@@ -1,20 +1,81 @@
-//! The History tab (UI-04; d0045): every session the ticket had, with its time, duration, end reason and full
-//! tool session id (copyable, so the tool's resume finds the conversation), and the ticket's events
-//! (created, moved, start interrupted, held, retried, edited…), newest first; one entry per validation round, which
-//! opens its report (VAL-12, `validation_report.rs`).
+//! The History tab (UI-04, CMT-14; d0045, d0109): every session the ticket had, with its time, duration, end reason
+//! and full tool session id (copyable, so the tool's resume finds the conversation), and the ticket's events
+//! (created, moved, start interrupted, held, retried, edited…), newest first; one entry per validation round
+//! (VAL-12, `validation_report.rs`).
+//!
+//! **Description and comments** (*05 → Row · History* `s05-45` / `s05-46`): every description change by anyone
+//! ("Griller · Grill edited the description · added Agreed (4 lines)", "You edited the description · 1 line changed")
+//! and every comment posted ("Validator · Validate · round 2 commented · with a report (48 KB)"), edited ("You edited
+//! Rust developer's comment") or deleted ("You deleted a comment"), each with its author's mark, opening a before /
+//! after or what the comment said, with its report (a deleted comment's still opens). Agents never see History.
+
+use std::collections::BTreeMap;
 
 use otaq_core::board::epic_flight::EpicQueueMode;
+use otaq_core::board::reports::size_label;
+use otaq_core::board::ticket_comments::CommentAuthor;
 use otaq_core::board::tickets::{EventKind, HistoryEvent};
 use otaq_core::board::validation::ValidationRecord;
 use otaq_core::domain::{Actor, StartStep, Status};
 use otaq_core::session::{SessionInfo, SessionKind};
 use otaq_core::usage::SessionUsage;
+use serde::Serialize;
+use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::theme::Palette;
 use crate::view_models::clock;
 use crate::view_models::stage_choices::{self, HistoryLine};
-use crate::view_models::validation_report::{self, Report};
+use crate::view_models::ticket_comments::{self as comments, Mark, ReportChip};
+use crate::view_models::validation_report;
+
+/// What History knows beyond the events: the flow's stage names (a comment's author names its stage by id) and
+/// whether tool avatars show (SHL-08).
+#[derive(Debug, Clone, Default)]
+pub struct Facts {
+    /// Stage id → its name in the ticket's flow now.
+    pub stages: BTreeMap<String, String>,
+    pub avatars: bool,
+}
+
+/// How a line of a before / after reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "HistoryLineKind")]
+pub enum LineKind {
+    Same,
+    Added,
+    Removed,
+    /// Lines left out between two changes: "…".
+    Gap,
+}
+
+/// A line of a before / after: "+", "-" or nothing before it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "HistoryDiffLine")]
+pub struct DiffLine {
+    pub kind: LineKind,
+    pub sign: String,
+    pub text: String,
+}
+
+/// A comment's report in History: "Report · 48 KB" and Open (comment `n`'s, also once deleted).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "HistoryReport")]
+pub struct OpenReport {
+    pub n: u32,
+    pub chip: ReportChip,
+}
+
+/// What a row opens (`s05-45`): "DESCRIPTION" or "COMMENT", "Before / after" on an edit, the lines, a report.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "HistoryOpens")]
+pub struct Opens {
+    pub label: String,
+    pub caption: Option<String>,
+    pub lines: Vec<DiffLine>,
+    pub report: Option<OpenReport>,
+}
 
 /// One line of the History table.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,10 +93,12 @@ pub struct HistoryRow {
     pub is_session: bool,
     /// A validation round's outcome icon and colours; sessions and events have their own icons.
     pub outcome: Option<(IconName, Palette)>,
-    /// A counted validation round opens its report.
-    pub report: Option<Report>,
     /// A session row's session id (its title names the agent, [`with_agents`]).
     pub session: Option<String>,
+    /// A description or comment row's author mark, in place of the icon.
+    pub mark: Option<Mark>,
+    /// What the row opens: a before / after, or what a comment said.
+    pub opens: Option<Opens>,
 }
 
 /// "Built: only in the profile form · Other option: everywhere"; several other options read "Other options: a · b".
@@ -59,8 +122,18 @@ pub fn rows(
     sessions: &[SessionInfo],
     usage: &[SessionUsage],
 ) -> Vec<HistoryRow> {
+    rows_in(events, sessions, usage, &Facts::default())
+}
+
+/// [`rows`] knowing the flow's stage names and whether avatars show.
+pub fn rows_in(
+    events: &[HistoryEvent],
+    sessions: &[SessionInfo],
+    usage: &[SessionUsage],
+    facts: &Facts,
+) -> Vec<HistoryRow> {
     let mut rows: Vec<HistoryRow> = sessions.iter().map(|s| session_row(s, usage)).collect();
-    rows.extend(events.iter().filter_map(event_row));
+    rows.extend(events.iter().filter_map(|e| event_row_in(e, facts)));
     // Newest first; a session row comes before an event at the same moment.
     rows.sort_by(|a, b| b.at.cmp(&a.at).then(b.is_session.cmp(&a.is_session)));
     rows
@@ -74,13 +147,14 @@ pub fn rows_with_rounds(
     usage: &[SessionUsage],
     records: &[ValidationRecord],
     rounds: u32,
+    facts: &Facts,
 ) -> Vec<HistoryRow> {
     let events: Vec<HistoryEvent> = events
         .iter()
         .filter(|e| e.kind != EventKind::ValidationEnded)
         .cloned()
         .collect();
-    let mut rows = rows(&events, sessions, usage);
+    let mut rows = rows_in(&events, sessions, usage, facts);
     rows.extend(records.iter().map(|r| {
         let round = validation_report::round_row(r, rounds);
         HistoryRow {
@@ -92,8 +166,9 @@ pub fn rows_with_rounds(
             tool_session_id: None,
             is_session: false,
             outcome: Some((round.icon, round.palette)),
-            report: round.report,
             session: None,
+            mark: None,
+            opens: None,
         }
     }));
     rows.sort_by(|a, b| b.at.cmp(&a.at).then(b.is_session.cmp(&a.is_session)));
@@ -135,8 +210,9 @@ fn session_row(s: &SessionInfo, usage: &[SessionUsage]) -> HistoryRow {
         tool_session_id: s.tool_session_id.clone(),
         is_session: true,
         outcome: None,
-        report: None,
         session: Some(s.id.clone()),
+        mark: None,
+        opens: None,
     }
 }
 
@@ -307,13 +383,383 @@ fn text(payload: &serde_json::Value, field: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// How much of a comment a row quotes: "“Agreed with you: CSV only, admins only…”".
+const QUOTE_CHARS: usize = 40;
+
+/// The start of `text` in quotes, cut at a word to [`QUOTE_CHARS`] with "…".
+fn quote(text: &str) -> String {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut out = String::new();
+    let mut cut = false;
+    for word in &words {
+        let len = out.chars().count() + usize::from(!out.is_empty()) + word.chars().count();
+        if len > QUOTE_CHARS && !out.is_empty() {
+            cut = true;
+            break;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
+    if cut {
+        out = out.trim_end_matches(['.', ',', ';', ':']).to_owned();
+        out.push('\u{2026}');
+    }
+    format!("\u{201c}{out}\u{201d}")
+}
+
+/// "Rust developer · Dev", "Validator · Validate · round 2", "You", "Wishlist lead".
+fn author_label(author: &CommentAuthor, facts: &Facts) -> String {
+    match author {
+        CommentAuthor::User { .. } => "You".to_owned(),
+        CommentAuthor::Agent {
+            name, stage, round, ..
+        } => {
+            let mut parts = vec![name.clone().unwrap_or_else(|| "Agent".to_owned())];
+            parts.extend(
+                stage
+                    .as_ref()
+                    .map(|id| facts.stages.get(id).cloned().unwrap_or_else(|| id.clone())),
+            );
+            parts.extend(round.map(|r| format!("round {r}")));
+            parts.join(" \u{b7} ")
+        }
+        CommentAuthor::Lead { name, .. } => name.clone(),
+    }
+}
+
+fn author_mark(author: &CommentAuthor, facts: &Facts) -> Mark {
+    match author {
+        CommentAuthor::User { .. } => Mark::You,
+        CommentAuthor::Agent { tool, .. } | CommentAuthor::Lead { tool, .. } => {
+            comments::agent_mark(*tool, facts.avatars)
+        }
+    }
+}
+
+/// The payload's comment author.
+fn author_of(p: &serde_json::Value) -> Option<CommentAuthor> {
+    serde_json::from_value(p.get("author")?.clone()).ok()
+}
+
+/// "Rust developer's", "Wishlist lead's".
+fn whose(author: &CommentAuthor) -> String {
+    match author {
+        CommentAuthor::User { .. } => "your".to_owned(),
+        CommentAuthor::Agent { name, .. } => {
+            format!("{}\u{2019}s", name.as_deref().unwrap_or("an agent"))
+        }
+        CommentAuthor::Lead { name, .. } => format!("{name}\u{2019}s"),
+    }
+}
+
+fn line(kind: LineKind, text: &str) -> DiffLine {
+    let sign = match kind {
+        LineKind::Added => "+",
+        LineKind::Removed => "-",
+        LineKind::Same | LineKind::Gap => "",
+    };
+    DiffLine {
+        kind,
+        sign: sign.to_owned(),
+        text: text.to_owned(),
+    }
+}
+
+/// Above this many line pairs the before / after is shown as all removed, then all added.
+const DIFF_CELLS: usize = 1_000_000;
+
+/// `before` and `after` line by line: the lines both keep (a longest common subsequence) and what went and came.
+fn line_diff(before: &str, after: &str) -> Vec<DiffLine> {
+    let (a, b): (Vec<&str>, Vec<&str>) = (before.lines().collect(), after.lines().collect());
+    let (n, m) = (a.len(), b.len());
+    if n.saturating_mul(m) > DIFF_CELLS {
+        return a
+            .iter()
+            .map(|l| line(LineKind::Removed, l))
+            .chain(b.iter().map(|l| line(LineKind::Added, l)))
+            .collect();
+    }
+    let mut lcs = vec![vec![0u32; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            lcs[i][j] = if a[i] == b[j] {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
+        }
+    }
+    let (mut i, mut j, mut out) = (0, 0, Vec::new());
+    while i < n || j < m {
+        if i < n && j < m && a[i] == b[j] {
+            out.push(line(LineKind::Same, a[i]));
+            i += 1;
+            j += 1;
+        } else if i < n && (j == m || lcs[i + 1][j] >= lcs[i][j + 1]) {
+            // In a change the removed lines come first, then the added ones.
+            out.push(line(LineKind::Removed, a[i]));
+            i += 1;
+        } else {
+            out.push(line(LineKind::Added, b[j]));
+            j += 1;
+        }
+    }
+    out
+}
+
+/// Only the changes and `context` unchanged lines around each; a "…" line where more were left out.
+fn around_changes(lines: Vec<DiffLine>, context: usize) -> Vec<DiffLine> {
+    let changed: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.kind != LineKind::Same)
+        .map(|(i, _)| i)
+        .collect();
+    let near = |i: usize| changed.iter().any(|&c| c.abs_diff(i) <= context);
+    let mut out = Vec::new();
+    let mut skipped = false;
+    for (i, l) in lines.into_iter().enumerate() {
+        if l.kind != LineKind::Same || near(i) {
+            if skipped && !out.is_empty() {
+                out.push(line(LineKind::Gap, "\u{2026}"));
+            }
+            skipped = false;
+            out.push(l);
+        } else {
+            skipped = true;
+        }
+    }
+    out
+}
+
+/// A Markdown line as words: "## Agreed" → "Agreed", "- admins only" → "admins only".
+fn plain(text: &str) -> String {
+    let t = text.trim().trim_start_matches('#').trim_start();
+    let t = t
+        .strip_prefix("- ")
+        .or_else(|| t.strip_prefix("* "))
+        .unwrap_or(t);
+    quote(t.trim())
+        .trim_matches(['\u{201c}', '\u{201d}'])
+        .to_owned()
+}
+
+fn lines_count(n: usize) -> String {
+    match n {
+        1 => "1 line".to_owned(),
+        n => format!("{n} lines"),
+    }
+}
+
+/// What a description change did: "added Agreed (4 lines)", "removed Out of scope (2 lines)", "1 line changed".
+fn change_summary(diff: &[DiffLine]) -> String {
+    let added: Vec<&DiffLine> = diff.iter().filter(|l| l.kind == LineKind::Added).collect();
+    let removed: Vec<&DiffLine> = diff
+        .iter()
+        .filter(|l| l.kind == LineKind::Removed)
+        .collect();
+    let first = |lines: &[&DiffLine]| {
+        lines
+            .iter()
+            .map(|l| plain(&l.text))
+            .find(|t| !t.is_empty())
+            .unwrap_or_default()
+    };
+    match (added.len(), removed.len()) {
+        (0, 0) => "no line changed".to_owned(),
+        (a, 0) => format!("added {} ({})", first(&added), lines_count(a)),
+        (0, r) => format!("removed {} ({})", first(&removed), lines_count(r)),
+        (a, r) => format!("{} changed", lines_count(a.max(r))),
+    }
+}
+
+/// Who made a change the event doesn't name a comment author for: "You", the lead, "SHOP-34's agent".
+fn changed_by(e: &HistoryEvent) -> String {
+    if let Some(lead) = text(&e.payload, "lead") {
+        return lead;
+    }
+    match &e.actor {
+        Actor::User(_) => "You".to_owned(),
+        Actor::Agent(key) => format!("{key}\u{2019}s agent"),
+        Actor::ProjectAgent(_) => "A Project agent".to_owned(),
+    }
+}
+
+fn report_of(p: &serde_json::Value, n: u32, field: &str) -> Option<OpenReport> {
+    let bytes = p.get(field)?.get("bytes")?.as_u64()?;
+    Some(OpenReport {
+        n,
+        chip: ReportChip {
+            label: comments::REPORT.to_owned(),
+            size: format!("\u{b7} {}", size_label(bytes)),
+            open: comments::OPEN.to_owned(),
+        },
+    })
+}
+
+fn told(
+    e: &HistoryEvent,
+    title: String,
+    detail: Option<String>,
+    mark: Mark,
+    opens: Opens,
+) -> HistoryRow {
+    HistoryRow {
+        title,
+        detail,
+        at: e.at,
+        duration: "\u{2014}".to_owned(),
+        tokens: "\u{2014}".to_owned(),
+        tool_session_id: None,
+        is_session: false,
+        outcome: None,
+        session: None,
+        mark: Some(mark),
+        opens: Some(opens),
+    }
+}
+
+const BEFORE_AFTER: &str = "Before / after";
+
+/// The rows of CMT-14: a description change, and a comment posted, edited or deleted. `None` for anything else.
+fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
+    let p = &e.payload;
+    let n = p
+        .get("n")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
+        .unwrap_or(0);
+    let by_user = matches!(e.actor, Actor::User(_));
+    match e.kind {
+        EventKind::Updated => {
+            let changes = p.get("changes")?.as_array()?;
+            let body = changes
+                .iter()
+                .find(|c| text(c, "field").as_deref() == Some("body"))?;
+            let diff = line_diff(
+                &text(body, "before").unwrap_or_default(),
+                &text(body, "after").unwrap_or_default(),
+            );
+            let author = author_of(p);
+            let (who, mark) = match &author {
+                Some(a) => (author_label(a, facts), author_mark(a, facts)),
+                None if by_user && text(p, "lead").is_none() => ("You".to_owned(), Mark::You),
+                None => (changed_by(e), Mark::Agent),
+            };
+            let others = fields(
+                changes
+                    .iter()
+                    .filter_map(|c| text(c, "field"))
+                    .filter(|f| f != "body"),
+            );
+            Some(told(
+                e,
+                format!(
+                    "{who} edited the description \u{b7} {}",
+                    change_summary(&diff)
+                ),
+                (!others.is_empty()).then_some(others),
+                mark,
+                Opens {
+                    label: "DESCRIPTION".to_owned(),
+                    caption: Some(BEFORE_AFTER.to_owned()),
+                    lines: around_changes(diff, 1),
+                    report: None,
+                },
+            ))
+        }
+        EventKind::CommentPosted => {
+            let author = author_of(p)?;
+            let excerpt = text(p, "excerpt").unwrap_or_default();
+            let report = report_of(p, n, "report");
+            let with = p
+                .get("report")
+                .and_then(|r| r.get("bytes"))
+                .and_then(serde_json::Value::as_u64)
+                .map(|bytes| format!(" \u{b7} with a report ({})", size_label(bytes)))
+                .unwrap_or_default();
+            Some(told(
+                e,
+                format!("{} commented{with}", author_label(&author, facts)),
+                Some(quote(&excerpt)),
+                author_mark(&author, facts),
+                Opens {
+                    label: "COMMENT".to_owned(),
+                    caption: None,
+                    lines: excerpt.lines().map(|l| line(LineKind::Same, l)).collect(),
+                    report,
+                },
+            ))
+        }
+        EventKind::CommentEdited => {
+            let author = author_of(p)?;
+            let (title, mark) = match by_user {
+                true => (format!("You edited {} comment", whose(&author)), Mark::You),
+                false => (
+                    format!("{} edited its comment", author_label(&author, facts)),
+                    author_mark(&author, facts),
+                ),
+            };
+            Some(told(
+                e,
+                title,
+                None,
+                mark,
+                Opens {
+                    label: "COMMENT".to_owned(),
+                    caption: Some(BEFORE_AFTER.to_owned()),
+                    lines: line_diff(
+                        &text(p, "before").unwrap_or_default(),
+                        &text(p, "after").unwrap_or_default(),
+                    ),
+                    report: None,
+                },
+            ))
+        }
+        EventKind::CommentDeleted => {
+            let author = author_of(p)?;
+            let body = text(p, "body").unwrap_or_default();
+            let (title, mark) = match by_user {
+                true => ("You deleted a comment".to_owned(), Mark::You),
+                false => (
+                    format!("{} deleted its comment", author_label(&author, facts)),
+                    author_mark(&author, facts),
+                ),
+            };
+            Some(told(
+                e,
+                title,
+                Some(quote(&body)),
+                mark,
+                Opens {
+                    label: "COMMENT".to_owned(),
+                    caption: None,
+                    lines: body.lines().map(|l| line(LineKind::Same, l)).collect(),
+                    report: report_of(p, n, "report"),
+                },
+            ))
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
 fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
+    event_row_in(e, &Facts::default())
+}
+
+fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
+    if let Some(row) = comment_row(e, facts) {
+        return Some(row);
+    }
     let p = &e.payload;
     let first_line = |s: String| s.lines().next().unwrap_or_default().to_owned();
     let (title, detail) = match e.kind {
         // The session row stands for a successful start.
         EventKind::Started | EventKind::AgentEditsSeen => return None,
-        // Ticket comments' lines (CMT-14) are drawn by T-0447; until then History leaves them out.
+        // Each drawn by `comment_row`.
         EventKind::CommentPosted | EventKind::CommentEdited | EventKind::CommentDeleted => {
             return None;
         }
@@ -722,8 +1168,9 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
         tool_session_id: None,
         is_session: false,
         outcome: None,
-        report: None,
         session: None,
+        mark: None,
+        opens: None,
     })
 }
 
@@ -762,8 +1209,9 @@ pub fn with_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<Hist
                 tool_session_id: None,
                 is_session: false,
                 outcome: None,
-                report: None,
                 session: None,
+                mark: None,
+                opens: None,
             }),
         }
     }
@@ -844,12 +1292,258 @@ mod tests {
             &[],
             &[record],
             3,
+            &Facts::default(),
         );
         let titles: Vec<_> = rows.iter().map(|r| r.title.as_str()).collect();
         assert_eq!(titles, ["Round 1 · failed", "Created"]);
         assert_eq!(rows[0].outcome, Some((IconName::ShieldX, Palette::Attn)));
-        assert!(rows[0].report.is_some());
-        assert_eq!(rows[1].report, None);
+        // The verdict is the checker's comment (its own row, with its report): the round opens nothing (CMT-14).
+        assert_eq!(rows[0].opens, None);
+    }
+
+    fn agent(name: &str, stage: &str, round: Option<u32>, tool: Tool) -> serde_json::Value {
+        let mut a = json!({"kind": "agent", "id": name.to_lowercase(), "name": name, "tool": tool, "stage": stage});
+        if let Some(r) = round {
+            a["round"] = json!(r);
+        }
+        a
+    }
+
+    fn by_agent(kind: EventKind, at: i64, payload: serde_json::Value) -> HistoryEvent {
+        HistoryEvent {
+            actor: Actor::Agent("SHOP-34".parse().unwrap()),
+            ..event(kind, at, payload)
+        }
+    }
+
+    fn sign(lines: &[DiffLine]) -> Vec<String> {
+        lines
+            .iter()
+            .map(|l| format!("{}{}", l.sign, l.text))
+            .collect()
+    }
+
+    /// *05 → Row · History* (`s05-45` / `s05-46`), SHOP-34 word for word (the "Done when" sample built as "You edited
+    /// the description · 1 line changed", 0067): description edits with their before / after, comments posted (one
+    /// with a report), an edit with the original, a deleted comment with what it said and its report.
+    #[test]
+    fn description_and_comment_lines_read_like_the_frame() {
+        let plan = "Admins can export the orders table as CSV, with the filters on screen.";
+        let agreed =
+            format!("{plan}\n## Agreed\n- CSV only, no Excel\n- admins only\n- up to 10,000 rows");
+        let facts = Facts {
+            stages: [("grill", "Grill"), ("dev", "Dev"), ("validate", "Validate")]
+                .into_iter()
+                .map(|(a, b)| (a.to_owned(), b.to_owned()))
+                .collect(),
+            avatars: true,
+        };
+        let events = [
+            by_agent(
+                EventKind::Updated,
+                MIN,
+                json!({"changes": [{"field": "body", "before": plan, "after": agreed}],
+                       "author": agent("Griller", "grill", None, Tool::Claude)}),
+            ),
+            by_agent(
+                EventKind::CommentPosted,
+                2 * MIN,
+                json!({"n": 1, "excerpt": "Agreed with you: CSV only, admins only. Reuse the CSV writer in export.rs from SHOP-12.",
+                       "report": null, "author": agent("Griller", "grill", None, Tool::Claude)}),
+            ),
+            event(
+                EventKind::CommentPosted,
+                3 * MIN,
+                json!({"n": 2, "excerpt": "Also keep the column order the same as the table on screen.",
+                       "report": null, "author": {"kind": "user", "name": "me"}}),
+            ),
+            by_agent(
+                EventKind::CommentPosted,
+                4 * MIN,
+                json!({"n": 3, "excerpt": "Done. Excel not added; left a TODO where it would go.",
+                       "report": null, "author": agent("Rust developer", "dev", None, Tool::Claude)}),
+            ),
+            by_agent(
+                EventKind::CommentPosted,
+                5 * MIN,
+                json!({"n": 4, "excerpt": "Fail: the 10,000 row limit isn't enforced; 3 tests fail in export_tests.rs.",
+                       "report": {"bytes": 48 * 1024, "lines": 2310},
+                       "author": agent("Validator", "validate", Some(2), Tool::Codex)}),
+            ),
+            event(
+                EventKind::CommentEdited,
+                6 * MIN,
+                json!({"n": 3, "before": "Done. Excel not added; left a TODO where it would go.",
+                       "after": "Done. Excel not added; left a TODO in export.rs where it would go.",
+                       "author": agent("Rust developer", "dev", None, Tool::Claude)}),
+            ),
+            event(
+                EventKind::Updated,
+                7 * MIN,
+                json!({"changes": [{"field": "body", "before": agreed,
+                                    "after": agreed.replace("up to 10,000 rows", "up to 10,000 rows, then a message")}]}),
+            ),
+            event(
+                EventKind::CommentDeleted,
+                8 * MIN,
+                json!({"n": 5, "body": "Retry with the old writer if this fails.",
+                       "report": {"bytes": 6 * 1024, "lines": 120},
+                       "author": agent("Rust developer", "dev", None, Tool::Claude)}),
+            ),
+        ];
+        let rows = rows_in(&events, &[], &[], &facts);
+        let lines: Vec<_> = rows
+            .iter()
+            .rev()
+            .map(|r| (r.title.as_str(), r.detail.as_deref()))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                (
+                    "Griller \u{b7} Grill edited the description \u{b7} added Agreed (4 lines)",
+                    None
+                ),
+                (
+                    "Griller \u{b7} Grill commented",
+                    Some("\u{201c}Agreed with you: CSV only, admins only\u{2026}\u{201d}")
+                ),
+                (
+                    "You commented",
+                    Some("\u{201c}Also keep the column order the same as\u{2026}\u{201d}")
+                ),
+                (
+                    "Rust developer \u{b7} Dev commented",
+                    Some("\u{201c}Done. Excel not added; left a TODO where\u{2026}\u{201d}")
+                ),
+                (
+                    "Validator \u{b7} Validate \u{b7} round 2 commented \u{b7} with a report (48 KB)",
+                    Some("\u{201c}Fail: the 10,000 row limit isn't\u{2026}\u{201d}")
+                ),
+                ("You edited Rust developer\u{2019}s comment", None),
+                ("You edited the description \u{b7} 1 line changed", None),
+                (
+                    "You deleted a comment",
+                    Some("\u{201c}Retry with the old writer if this fails.\u{201d}")
+                ),
+            ]
+        );
+        let at = |title: &str| rows.iter().find(|r| r.title.starts_with(title)).unwrap();
+        // The description edit opens its before / after: the line before and the four added.
+        let grill = at("Griller \u{b7} Grill edited").opens.clone().unwrap();
+        assert_eq!(
+            (grill.label.as_str(), grill.caption.as_deref()),
+            ("DESCRIPTION", Some("Before / after"))
+        );
+        assert_eq!(
+            sign(&grill.lines),
+            [
+                plan.to_owned(),
+                "+## Agreed".into(),
+                "+- CSV only, no Excel".into(),
+                "+- admins only".into(),
+                "+- up to 10,000 rows".into()
+            ]
+        );
+        assert_eq!(
+            at("Griller \u{b7} Grill edited").mark,
+            Some(Mark::Tool {
+                avatar: crate::view_models::tool_avatar::ToolAvatarView::of(Tool::Claude, None)
+            })
+        );
+        // Only the changed line and one around it, with "…" where lines were left out.
+        let yours = at("You edited the description").opens.clone().unwrap();
+        assert_eq!(
+            sign(&yours.lines),
+            [
+                "- admins only".to_owned(),
+                "-- up to 10,000 rows".into(),
+                "+- up to 10,000 rows, then a message".into()
+            ]
+        );
+        assert_eq!(at("You edited the description").mark, Some(Mark::You));
+        // The edited comment: before / after.
+        let edited = at("You edited Rust").opens.clone().unwrap();
+        assert_eq!(
+            (edited.label.as_str(), edited.caption.as_deref()),
+            ("COMMENT", Some("Before / after"))
+        );
+        assert_eq!(
+            sign(&edited.lines),
+            [
+                "-Done. Excel not added; left a TODO where it would go.",
+                "+Done. Excel not added; left a TODO in export.rs where it would go."
+            ]
+        );
+        // Validate's comment and the deleted one open their reports (the deleted one's still opens).
+        let validate = at("Validator").opens.clone().unwrap();
+        let report = validate.report.unwrap();
+        assert_eq!((report.n, report.chip.size.as_str()), (4, "\u{b7} 48 KB"));
+        let deleted = at("You deleted").opens.clone().unwrap();
+        assert_eq!(
+            sign(&deleted.lines),
+            ["Retry with the old writer if this fails."]
+        );
+        assert_eq!(deleted.report.unwrap().n, 5);
+        // Never "Done when" (0067).
+        assert!(rows.iter().all(|r| !r.title.contains("Done when")));
+    }
+
+    #[test]
+    fn other_description_changes_and_who_made_them() {
+        let facts = Facts::default();
+        let row = |e: HistoryEvent| event_row_in(&e, &facts).unwrap();
+        // Lines removed; a lead's edit; another field changed with it; an agent with no author recorded.
+        let removed = row(event(
+            EventKind::Updated,
+            MIN,
+            json!({"changes": [{"field": "body", "before": "Plan\n## Out of scope\n- Excel", "after": "Plan"},
+                               {"field": "title", "before": "a", "after": "b"}]}),
+        ));
+        assert_eq!(
+            removed.title,
+            "You edited the description \u{b7} removed Out of scope (2 lines)"
+        );
+        assert_eq!(removed.detail.as_deref(), Some("title"));
+        let lead = row(by_agent(
+            EventKind::Updated,
+            MIN,
+            json!({"lead": "Wishlist lead", "changes": [{"field": "body", "before": "a\nb", "after": "a\nc\nd"}]}),
+        ));
+        assert_eq!(
+            lead.title,
+            "Wishlist lead edited the description \u{b7} 2 lines changed"
+        );
+        assert_eq!(lead.mark, Some(Mark::Agent));
+        // An agent that edits or deletes its own comment.
+        let own = row(by_agent(
+            EventKind::CommentEdited,
+            MIN,
+            json!({"n": 3, "before": "a", "after": "b", "author": agent("Rust developer", "dev", None, Tool::Claude)}),
+        ));
+        assert_eq!(own.title, "Rust developer \u{b7} dev edited its comment");
+        assert_eq!(own.mark, Some(Mark::Agent), "avatars hidden");
+        let gone = row(by_agent(
+            EventKind::CommentDeleted,
+            MIN,
+            json!({"n": 3, "body": "x", "report": null, "author": agent("Rust developer", "dev", None, Tool::Claude)}),
+        ));
+        assert_eq!(gone.title, "Rust developer \u{b7} dev deleted its comment");
+        assert_eq!(gone.opens.unwrap().report, None);
+        // The user's own comment edited.
+        let mine = row(event(
+            EventKind::CommentEdited,
+            MIN,
+            json!({"n": 2, "before": "a", "after": "b", "author": {"kind": "user", "name": "me"}}),
+        ));
+        assert_eq!(mine.title, "You edited your comment");
+        // An edit of other fields only stays "Edited · by you".
+        let title = row(event(
+            EventKind::Updated,
+            MIN,
+            json!({"changes": [{"field": "title", "before": "a", "after": "b"}]}),
+        ));
+        assert_eq!((title.title.as_str(), title.opens), ("Edited", None));
     }
 
     /// An epic's queue mode reads as what the user did (d0080).
@@ -1012,9 +1706,20 @@ mod tests {
             (
                 lead_event(
                     EventKind::Updated,
+                    json!({"lead": "Wishlist lead", "changes": [{"field": "title", "before": "a", "after": "b"}]}),
+                ),
+                ("Updated by Wishlist lead", Some("title")),
+            ),
+            // A description change is one of CMT-14's lines, by anyone.
+            (
+                lead_event(
+                    EventKind::Updated,
                     json!({"lead": "Wishlist lead", "changes": [{"field": "body", "before": "a", "after": "b"}]}),
                 ),
-                ("Updated by Wishlist lead", Some("description")),
+                (
+                    "Wishlist lead edited the description \u{b7} 1 line changed",
+                    None,
+                ),
             ),
             (
                 lead_event(EventKind::Updated, json!({"changes": []})),

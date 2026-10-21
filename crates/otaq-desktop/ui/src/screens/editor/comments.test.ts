@@ -41,6 +41,7 @@ const BOX: CommentBoxView = {
   placeholder: "Add a comment for the next stage…",
   submit: "Comment",
   footer: "Read by the next stage’s agent · to talk to Rust developer now, use its terminal",
+  footer_icon: "arrow-right",
   needs_line: "Say what the next agent should look for",
   pasted: "Pasted text",
   open: "Open",

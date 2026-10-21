@@ -98,6 +98,8 @@ pub struct CommentBoxView {
     /// The quiet line under it: "Read by the next stage's agent · to talk to Rust developer now, use its terminal"
     /// while an agent works, a dialog's "Posted as a comment for Dev · every later stage reads it".
     pub footer: Option<String>,
+    /// Before the line: an arrow in the thread, a speech bubble in a dialog (`s03-50`, `s07-20`).
+    pub footer_icon: IconName,
     /// The hint while only a pasted report is there.
     pub needs_line: String,
     /// The pasted chip's label: "Pasted text".
@@ -118,6 +120,10 @@ impl CommentBoxView {
         optional: bool,
     ) -> Self {
         Self {
+            footer_icon: match label {
+                Some(_) => IconName::MessageSquare,
+                None => IconName::ArrowRight,
+            },
             label,
             placeholder: PLACEHOLDER.to_owned(),
             submit,
@@ -301,7 +307,8 @@ fn row(comment: &TicketComment, avatars: bool, clock: &dyn Fn(i64) -> String) ->
     }
 }
 
-fn agent_mark(tool: Option<otaq_core::agent_tools::Tool>, avatars: bool) -> Mark {
+/// An agent's or a lead's mark: its tool's avatar once avatars show, else the plain agent mark (also History's, CMT-14).
+pub fn agent_mark(tool: Option<otaq_core::agent_tools::Tool>, avatars: bool) -> Mark {
     match tool.filter(|_| avatars) {
         Some(tool) => Mark::Tool {
             avatar: ToolAvatarView::of(tool, None),

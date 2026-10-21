@@ -23,13 +23,15 @@ use otaq_view::view_models::clock::local_hhmm;
 use otaq_view::view_models::epic_actions::{self, EpicChoice};
 use otaq_view::view_models::epic_review;
 use otaq_view::view_models::stage_choices;
-use otaq_view::view_models::history::{self, HistoryRow};
+use otaq_view::view_models::history::{self, HistoryRow, Opens};
 use otaq_core::epic_lead::log::LeadLog;
 use otaq_view::view_models::messages::{self, Line, Thread, Tone};
 use otaq_view::view_models::stack;
 use otaq_view::theme::Palette;
 use otaq_view::view_models::status::PillView;
-use otaq_view::view_models::validation_report::{self, Report};
+use otaq_view::view_models::ticket_comments::Mark;
+use otaq_view::view_models::tool_avatar;
+use otaq_view::view_models::validation_report;
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -464,8 +466,10 @@ pub struct HistoryRowView {
     pub icon: IconName,
     /// A validation round's outcome colours.
     pub palette: Option<Palette>,
-    /// A counted validation round's report, opened from the row.
-    pub report: Option<Report>,
+    /// A description or comment row's author mark, drawn in place of the icon (CMT-14).
+    pub mark: Option<Mark>,
+    /// What the row opens: a before / after, or what a comment said and its report (CMT-14).
+    pub opens: Option<Opens>,
 }
 
 impl From<HistoryRow> for HistoryRowView {
@@ -485,7 +489,8 @@ impl From<HistoryRow> for HistoryRowView {
             is_session: r.is_session,
             icon,
             palette: r.outcome.map(|(_, p)| p),
-            report: r.report,
+            mark: r.mark,
+            opens: r.opens,
         }
     }
 }
@@ -570,11 +575,26 @@ pub async fn history_view(app: &App, params: Params) -> Result<Option<HistoryVie
         _ => Vec::new(),
     };
     let records = validations(app, &params.key).await;
-    let rounds = match ticket(app, &params.key).await? {
-        Some(t) if !records.is_empty() => super::panel::check_rounds(app, &t).await,
+    let ticket = ticket(app, &params.key).await?;
+    let rounds = match &ticket {
+        Some(t) if !records.is_empty() => super::panel::check_rounds(app, t).await,
         _ => otaq_core::flow::check::DEFAULT_VALIDATION_ROUNDS,
     };
-    let rows = history::rows_with_rounds(&events, &sessions, &usage, &records, rounds);
+    // A comment's author names its stage by id; History shows its name in the flow now (CMT-14).
+    let stages = match &ticket {
+        Some(t) => super::board::flow(app, t.key.project.as_str())
+            .await
+            .stages
+            .into_iter()
+            .map(|s| (s.id, s.name))
+            .collect(),
+        None => Default::default(),
+    };
+    let facts = history::Facts {
+        stages,
+        avatars: tool_avatar::shown(),
+    };
+    let rows = history::rows_with_rounds(&events, &sessions, &usage, &records, rounds, &facts);
     // The named agents each session ran on (AGT-05): left out when the rows can't be read.
     let rows = match super::editor::agent_facts(app, super::editor::of_ticket(&params.key)).await {
         Some(agents) => {

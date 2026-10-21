@@ -425,7 +425,9 @@ pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestE
         DropStep::DragBack => {
             let choices = choices_of(app, &params.key).await;
             match board_page::drag_back_dialog(&flow, &ticket, &target, &choices) {
-                Some(dialog) => DropOutcome::DragBack { dialog },
+                Some(dialog) => DropOutcome::DragBack {
+                    dialog: Box::new(dialog),
+                },
                 None => DropOutcome::Nothing,
             }
         }
