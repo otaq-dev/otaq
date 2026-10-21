@@ -47,8 +47,6 @@ const STEP: OnboardingFlowStep = {
       },
     ],
   },
-  start_message: "/flow",
-  working: { title: "Reading how you work", text: "This can take a few minutes." },
 };
 
 const NOTHING: OnboardingFlowStep = {

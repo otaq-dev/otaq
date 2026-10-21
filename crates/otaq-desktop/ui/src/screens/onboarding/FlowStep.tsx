@@ -4,10 +4,11 @@
 // proposal in the step with Use the default · Ask for changes · Use this flow. What it says is Rust's
 // (`onboarding.flow`, `onboarding_page.rs`; `flow_preview.view` with `onboarding`, `flow_preview.rs`); the state
 // machine is `logic.ts`'s. The go-ahead, the presets and the proposal are their own components, for the Add project
-// dialog's go-ahead (T-0431); the agent at work is T-0430's (`FlowWorking` here until then).
+// dialog's go-ahead (T-0431); the agent at work is `FlowAtWork.tsx`'s (T-0430).
 import { type Ref, useCallback, useEffect, useRef, useState } from "react";
 
 import { Button, IconButton, Kbd, StatusPill } from "../../components";
+import type { FlowAtWorkButton } from "../../generated/FlowAtWorkButton";
 import type { FlowPreviewChoices } from "../../generated/FlowPreviewChoices";
 import type { FlowPreviewLoad } from "../../generated/FlowPreviewLoad";
 import type { FlowPreviewParams } from "../../generated/FlowPreviewParams";
@@ -15,7 +16,10 @@ import type { FlowPreviewView } from "../../generated/FlowPreviewView";
 import type { OnboardingFlowStep } from "../../generated/OnboardingFlowStep";
 import type { PaneParams } from "../../generated/PaneParams";
 import type { PaneView } from "../../generated/PaneView";
+import type { PillView } from "../../generated/PillView";
 import type { PresetCard } from "../../generated/PresetCard";
+import { keymap } from "../../app/keyboard";
+import { selection } from "../../app/selection";
 import { asRequestError, useServiceView, watchView } from "../../service";
 import { request } from "../../tauri";
 import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
@@ -23,14 +27,20 @@ import { Icon } from "../../theme/Icon";
 import { PreviewBody, PreviewFooter, REFETCH_ON } from "../flow_preview/FlowPreview";
 import { applyPreview, cancelPreview, NO_CHOICES, previewHeld } from "../flow_preview/logic";
 import { PANE_EVENTS } from "../pane/Pane";
+import { useAgentToolActions } from "../settings/AgentTools";
+import { FlowAtWork, type FlowAtWorkProps, useFlowAtWork } from "./FlowAtWork";
 import {
   type FlowStepState,
   flowAgent,
+  flowStarted,
   flowStepOpens,
+  focusesAgent,
   proposalGone,
   proposalShown,
   proposePreset,
+  retryFlowAgent,
   startFlowAgent,
+  stopFlowAgent,
 } from "./logic";
 
 /** The go-ahead's and the presets' buttons: Skip, use the default · Use a preset instead · Look and propose a flow. */
@@ -160,15 +170,22 @@ export function FlowPresets(props: GoAheadProps & { onPick: (file: string) => vo
   );
 }
 
-/** The onboarding agent's terminal (`s14-16`, left): its name and state, the terminal, and where typing goes. */
+/**
+ * The onboarding agent's terminal (`s14-14`, `s14-16`, left): its name and state, the terminal, and where typing goes.
+ * The agent at work's card may name another state ("Stopped" at the limit) and foot ("Read-only · the session ended").
+ */
 export function FlowAgentTerminal({
   project,
   agent,
   terminal,
+  pill = null,
+  foot = null,
 }: {
   project: string;
   agent: string;
   terminal?: Ref<TerminalHandle>;
+  pill?: PillView | null;
+  foot?: string | null;
 }) {
   const load = useCallback(() => {
     const params: PaneParams = { project, agent, window_width: null };
@@ -176,12 +193,13 @@ export function FlowAgentTerminal({
   }, [project, agent]);
   const view = useServiceView(load, PANE_EVENTS).view;
   const running = view?.running ?? null;
+  const headerPill = pill ?? view?.header.pill ?? null;
   return (
     <section className="flow-step-agent" aria-label={view?.header.title}>
       <header className="flow-step-agent-head">
         {view && <Icon name={view.header.icon} size={14} />}
         <span className="flow-step-agent-name">{view?.header.title}</span>
-        {view?.header.pill && <StatusPill pill={view.header.pill} />}
+        {headerPill && <StatusPill pill={headerPill} />}
       </header>
       <div className="flow-step-agent-terminal">
         {running?.session != null && (
@@ -194,7 +212,13 @@ export function FlowAgentTerminal({
           />
         )}
       </div>
-      {running && (
+      {foot !== null && (
+        <div className="flow-step-agent-foot" data-read-only>
+          <Icon name="lock" size={12} />
+          <span>{foot}</span>
+        </div>
+      )}
+      {running && foot === null && (
         <div className="flow-step-agent-foot">
           <Icon name={running.ended ? "circle-stop" : "keyboard"} size={12} />
           <span className="flow-step-agent-foot-text">{running.footer.text}</span>
@@ -207,13 +231,45 @@ export function FlowAgentTerminal({
   );
 }
 
-/** While the onboarding agent works, beside its terminal (T-0430's card replaces it). */
-function FlowWorking({ step }: { step: OnboardingFlowStep }) {
+/**
+ * The onboarding agent at work (`s14-14`): its terminal on the left, the card on the right. The card's words follow
+ * the agent (working, stopped at the limit, ended); Stop and use a preset ends it, Try again continues it.
+ */
+function FlowWorking({
+  project,
+  agent,
+  terminal,
+  busy,
+  onStop,
+  onSkip,
+  onPresets,
+  onRetry,
+}: {
+  project: string;
+  agent: string;
+  terminal: Ref<TerminalHandle>;
+} & Omit<FlowAtWorkProps, "view">) {
+  const view = useFlowAtWork(project, agent);
   return (
-    <section className="onboarding-card flow-step-side">
-      <h1 className="onboarding-title">{step.working.title}</h1>
-      <p className="onboarding-text">{step.working.text}</p>
-    </section>
+    <div className="flow-step-split">
+      <FlowAgentTerminal
+        project={project}
+        agent={agent}
+        terminal={terminal}
+        pill={view?.pill ?? null}
+        foot={view?.foot ?? null}
+      />
+      {view && (
+        <FlowAtWork
+          view={view}
+          busy={busy}
+          onStop={onStop}
+          onSkip={onSkip}
+          onPresets={onPresets}
+          onRetry={onRetry}
+        />
+      )}
+    </div>
   );
 }
 
@@ -274,6 +330,9 @@ export function FlowProposal({
     </section>
   );
 }
+
+/** Sign in…'s actions answer Settings' page, which the step doesn't show. */
+const ignorePage = () => undefined;
 
 /**
  * The Flow step for the project just added. `onDone` ends onboarding on the project's board (with the onboarding
@@ -338,6 +397,19 @@ export function FlowStep({ project, onDone }: { project: string; onDone: (agent:
       box.current?.querySelector<HTMLElement>(".button[data-variant='primary']:not(:disabled)")?.focus();
   }, [at]);
 
+  // ⌘L focuses the agent's terminal: the onboarding overlay holds the app's shortcuts back, so the step listens.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!focusesAgent(keymap.get(), e, selection.get().focusedTerminal !== null)) return;
+      e.preventDefault();
+      terminal.current?.focus();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, []);
+
   const agent = flowAgent(state);
   const done = () => {
     onDone(agent);
@@ -361,8 +433,31 @@ export function FlowStep({ project, onDone }: { project: string; onDone: (agent:
     ending.current = true;
     act(sent(), done);
   };
+  // Sign in…'s terminal closed: the tool is checked again, then the agent starts (or the card stays).
+  const afterSignIn = () => {
+    if (!step || state.at !== "cannot_start") return;
+    const action = state.card.retry?.action;
+    const tool = action?.kind === "sign_in" ? action.tool : null;
+    act(
+      request("agent_tools.recheck", { tool })
+        .then(() => startFlowAgent(step, request))
+        .then((started) => {
+          setState(flowStarted(started));
+        }),
+      () => undefined,
+    );
+  };
+  const agentTools = useAgentToolActions(ignorePage, setError, afterSignIn);
 
   if (!step) return error !== null ? <p className="onboarding-failure">{error}</p> : null;
+  const start = () => {
+    act(
+      startFlowAgent(step, request).then((started) => {
+        setState(flowStarted(started));
+      }),
+      () => undefined,
+    );
+  };
   const goAhead: GoAheadProps = {
     step,
     busy,
@@ -370,13 +465,19 @@ export function FlowStep({ project, onDone }: { project: string; onDone: (agent:
     onPresets: () => {
       setState({ at: "presets", agent });
     },
-    onLook: () => {
-      act(
-        startFlowAgent(step, request).then((id) => {
-          setState({ at: "working", agent: id });
-        }),
-        () => undefined,
-      );
+    onLook: start,
+  };
+  const failed = {
+    busy,
+    onStop: () => {
+      if (agent !== null) act(stopFlowAgent(project, agent, request).then(setState), () => undefined);
+    },
+    onSkip: done,
+    onPresets: goAhead.onPresets,
+    onRetry: (button: FlowAtWorkButton) => {
+      const { action } = button;
+      if (action.kind === "sign_in") agentTools.act(action.tool, { kind: "sign_in" });
+      else act(retryFlowAgent(action, request), () => undefined);
     },
   };
   let body;
@@ -401,12 +502,10 @@ export function FlowStep({ project, onDone }: { project: string; onDone: (agent:
       );
       break;
     case "working":
-      body = (
-        <div className="flow-step-split">
-          <FlowAgentTerminal project={project} agent={state.agent} terminal={terminal} />
-          <FlowWorking step={step} />
-        </div>
-      );
+      body = <FlowWorking project={project} agent={state.agent} terminal={terminal} {...failed} />;
+      break;
+    case "cannot_start":
+      body = <FlowAtWork view={state.card} {...failed} />;
       break;
     case "proposal":
       body = (
@@ -440,6 +539,7 @@ export function FlowStep({ project, onDone }: { project: string; onDone: (agent:
   return (
     <div className="flow-step" ref={box}>
       {body}
+      {agentTools.dialogs}
       {error !== null && state.at !== "proposal" && <p className="onboarding-failure">{error}</p>}
     </div>
   );

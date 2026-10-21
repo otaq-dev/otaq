@@ -70,6 +70,7 @@ import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import type { DecisionGallery } from "../../generated/DecisionGallery";
 import type { EnvVarsGallery } from "../../generated/EnvVarsGallery";
 import type { AgentToolsGallery } from "../../generated/AgentToolsGallery";
+import type { FlowAtWorkGallery } from "../../generated/FlowAtWorkGallery";
 import type { OnboardingFlowGallery } from "../../generated/OnboardingFlowGallery";
 import type { OnboardingToolsGallery } from "../../generated/OnboardingToolsGallery";
 import type { WarmSwitchGallery } from "../../generated/WarmSwitchGallery";
@@ -133,6 +134,7 @@ import { ActivityGallery } from "../shell/ActivityGallery";
 import { LimitLinesGallery } from "../notices/LimitLinesGallery";
 import { LeadTabBody } from "../lead_tab/LeadTab";
 import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
+import { FlowAtWork } from "../onboarding/FlowAtWork";
 import { FlowGoAhead, FlowPresets } from "../onboarding/FlowStep";
 import { FlowDialogButtons, FlowDialogGoAhead, FlowDialogPresets } from "../onboarding/AddProjectDialog";
 import { ToolsList } from "../onboarding/Tools";
@@ -1592,6 +1594,7 @@ const loadTrust = () => request("gallery.trust") as Promise<TrustGallery>;
 const loadAgentTools = () => request("gallery.agent_tools") as Promise<AgentToolsGallery>;
 const loadOnboardingTools = () => request("gallery.onboarding_tools") as Promise<OnboardingToolsGallery>;
 const loadOnboardingFlow = () => request("gallery.onboarding_flow") as Promise<OnboardingFlowGallery>;
+const loadFlowAtWork = () => request("gallery.onboarding_flow_at_work") as Promise<FlowAtWorkGallery>;
 const loadOnboardingFlowDialog = () =>
   request("gallery.onboarding_flow_dialog") as Promise<OnboardingFlowGallery>;
 
@@ -1812,6 +1815,44 @@ function OnboardingFlowDialogGallerySection() {
                   />
                 </div>
               </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </Section>
+  );
+}
+
+/** *14 → Row · Flow step: the agent at work* `s14-14`/`s14-15` (T-0430, ONB-05): the card beside the agent's terminal
+ * (working, the plan limit, not signed in, ended without a proposal), from `gallery.onboarding_flow_at_work` in Otaq
+ * Light and Dark. Calls are only recorded. */
+function FlowAtWorkGallerySection() {
+  const { view, error } = useServiceView(loadFlowAtWork, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const record = (what: string) => () => {
+    setPicked(what);
+  };
+  return (
+    <Section title="14 · Flow step: the agent at work and its failures (T-0430)">
+      <Caption>Last call: {picked ?? "—"}</Caption>
+      {THEMES.map((theme) => (
+        <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+          <Caption>{theme.toUpperCase()}</Caption>
+          {view.cells.map((cell) => (
+            <div key={cell.name} className="gallery-stack-tight">
+              <Caption>{cell.name.toUpperCase()}</Caption>
+              <FlowAtWork
+                view={cell.view}
+                busy={false}
+                onStop={record("Stop and use a preset")}
+                onSkip={record("Skip, use the default")}
+                onPresets={record("Use a preset instead")}
+                onRetry={(button) => {
+                  setPicked(button.label);
+                }}
+              />
             </div>
           ))}
         </div>
@@ -2548,6 +2589,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <OnboardingToolsGallerySection />
         <OnboardingFlowGallerySection />
         <OnboardingFlowDialogGallerySection />
+        <FlowAtWorkGallerySection />
         <BoardReviewSection />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">
           <ThemeSection />

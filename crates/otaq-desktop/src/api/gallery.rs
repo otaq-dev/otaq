@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 
 use otaq_core::naming;
 use otaq_view::view_models::{
-    activity, agent_pane, agent_tools_page, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
+    activity, agent_pane, agent_tools_page, flow_at_work, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
     limit_banner, onboarding_page, settings_page, stage_choices, tool_avatar,
 };
 use serde_json::Value;
@@ -61,6 +61,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.onboarding_flow" => reply(&onboarding_page::flow_gallery()),
         // 14 · The Add project dialog's go-ahead and Nothing to look at yet (T-0431).
         "gallery.onboarding_flow_dialog" => reply(&onboarding_page::flow_dialog_gallery()),
+        // 14 · The agent at work: working, the plan limit, not signed in, ended without a proposal (T-0430).
+        "gallery.onboarding_flow_at_work" => reply(&flow_at_work::gallery()),
         // 11 · The usage-limit banner's line per tool, Move waiting to…, a tool that isn't available (T-0364).
         "gallery.limit_lines" => reply(&limit_banner::gallery()),
         // The notification banners and Settings → Notifications in every state (T-0372).

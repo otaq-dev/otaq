@@ -88,6 +88,7 @@ icons! {
     CircleStop = "circle-stop";
     CircleX = "circle-x";
     ClipboardCopy = "clipboard-copy";
+    Clock = "clock";
     Code = "code";
     Coins = "coins";
     Columns2 = "columns-2";
@@ -147,6 +148,7 @@ icons! {
     Loader = "loader";
     LoaderCircle = "loader-circle";
     Lock = "lock";
+    LogIn = "log-in";
     Mail = "mail";
     Maximize = "maximize";
     Maximize2 = "maximize-2";

@@ -794,3 +794,47 @@
   width: 640px;
   max-height: none;
 }
+
+/* The agent at work (T-0430, `s14-14`/`s14-15`): the card beside the terminal, the elapsed time over a hairline, a
+   failure's red line on the error tint (text-primary on it, WCAG AA in both themes, d0096). */
+.onboarding-card.flow-at-work {
+  gap: 16px;
+  margin: 0;
+  align-self: center;
+}
+
+.flow-at-work-elapsed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font: 400 12.5px var(--font-ui);
+}
+
+.flow-at-work-elapsed > .icon {
+  color: var(--st-working);
+}
+
+.flow-at-work-problem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--st-error-bg);
+  color: var(--text-primary);
+  font: 400 12.5px/1.45 var(--font-ui);
+}
+
+.flow-at-work-problem > .icon {
+  flex: none;
+  color: var(--st-error);
+}
+
+.flow-step-agent-foot[data-read-only] {
+  color: var(--text-muted);
+}

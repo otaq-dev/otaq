@@ -780,17 +780,9 @@ pub struct FlowPresets {
     pub cards: Vec<PresetCard>,
 }
 
-/// While the onboarding agent works: the words beside its terminal (ONB-05; T-0430's card replaces them).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "OnboardingFlowWorking")]
-pub struct FlowWorking {
-    pub title: String,
-    pub text: String,
-}
-
 /// *5 · Flow* (ONB-04, d0108; *s14-12*, *s14-13*): the go-ahead, asked once, with the line naming what the agent will
-/// look at (T-0427's [`flow_sources`]), the presets, and the words while the agent works. No checkboxes, counts or
-/// sample lines (d0108 changelog 2026-10-21).
+/// look at (T-0427's [`flow_sources`]), and the presets; the agent at work is [`super::flow_at_work`]'s. No
+/// checkboxes, counts or sample lines (d0108 changelog 2026-10-21).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OnboardingFlowStep")]
 pub struct FlowStep {
@@ -812,9 +804,6 @@ pub struct FlowStep {
     /// Nothing to look at: the step opens on the presets.
     pub opens_on_presets: bool,
     pub presets: FlowPresets,
-    /// What Look and propose a flow starts the project's Project agent with: the `flow` skill.
-    pub start_message: String,
-    pub working: FlowWorking,
 }
 
 pub const SKIP_USE_THE_DEFAULT: &str = "Skip, use the default";
@@ -852,12 +841,6 @@ pub fn flow_step(project: &str, project_name: &str, look: &FlowLook) -> FlowStep
         propose: LOOK_AND_PROPOSE.to_owned(),
         can_propose: !nothing,
         opens_on_presets: nothing,
-        start_message: otaq_core::project_agents::FLOW_COMMAND.to_owned(),
-        working: FlowWorking {
-            title: "Reading how you work".to_owned(),
-            text: "This can take a few minutes. Watch the agent in its terminal, or come back later: the proposal waits for you."
-                .to_owned(),
-        },
     }
 }
 
@@ -1151,7 +1134,6 @@ mod tests {
         // Use a preset instead: the intro above the presets, no reason.
         assert_eq!(step.presets.text, step.intro);
         assert_eq!(step.presets.reason, None);
-        assert_eq!(step.start_message, "/flow");
     }
 
     #[test]

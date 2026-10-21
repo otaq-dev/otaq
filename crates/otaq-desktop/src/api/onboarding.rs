@@ -11,6 +11,8 @@
 //! what there is once. The step's proposal is `flow_preview.view` with its onboarding buttons (ONB-06).
 //! `onboarding.flow_dialog` answers the same go-ahead, shorter, for the Add project dialog after a project is added
 //! later (ONB-08); its proposal opens in the usual preview.
+//! `onboarding.at_work` answers the card beside the onboarding agent's terminal (ONB-05): working, stopped at the
+//! limit, ended without a proposal; before the start, whether the Project agent's tool isn't signed in.
 
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::snapshot::ProjectInfo;
@@ -18,6 +20,7 @@ use otaq_core::agent_tools::SetupOutcome as Outcome;
 use otaq_core::agent_tools::Tool;
 use otaq_core::protocol::{OnboardingState, PathParams, ProjectParams, Reply, Request};
 use otaq_view::view_models::add_project::AddProjectModel;
+use otaq_view::view_models::flow_at_work;
 use otaq_view::view_models::flow_sources::{self, View as FlowLook};
 use otaq_view::view_models::onboarding::OnboardingModel;
 use otaq_view::view_models::onboarding_page::{self, AddProjectPage, FlowStep, Texts, Tools};
@@ -42,6 +45,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "onboarding.sources" => reply(&sources(app, parse(params)?).await?),
         "onboarding.flow" => reply(&flow(app, parse(params)?).await?),
         "onboarding.flow_dialog" => reply(&flow_dialog(app, parse(params)?).await?),
+        "onboarding.at_work" => reply(&at_work(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -269,6 +273,57 @@ pub fn export_flow_step_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportEr
     Ok(())
 }
 
+/// `{"project": "SHOP", "agent": "a1"}`: the onboarding agent at work; without `agent`, the check before its start.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "FlowAtWorkParams")]
+pub struct AtWorkParams {
+    pub project: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub agent: Option<String>,
+}
+
+/// The agent at work's card (ONB-05). Without an agent: the not-signed-in card when the Project agent's tool is
+/// Found · not signed in (d0086), else `None` (Look and propose a flow starts it). With one: its card now (working,
+/// stopped at its tool's limit, or ended), from the project's agents, ended ones included.
+async fn at_work(app: &App, params: AtWorkParams) -> Result<Option<flow_at_work::View>, RequestError> {
+    let tools = super::pane::tools(app).await;
+    let Some(id) = params.agent else {
+        let tool = super::pane::project_agent(app)
+            .await?
+            .and_then(|agent| tools.tool_of(&agent));
+        return Ok(tool
+            .filter(|t| flow_at_work::not_signed_in(*t, &tools))
+            .map(flow_at_work::cannot_start));
+    };
+    let list = match app
+        .service
+        .send(Request::ProjectAgentList(ProjectParams {
+            project: params.project,
+        }))
+        .await?
+    {
+        Reply::ProjectAgents(list) => *list,
+        other => return Err(unexpected("project_agent.list", &other)),
+    };
+    let agent = list
+        .open
+        .iter()
+        .chain(&list.recent)
+        .find(|a| a.id == id)
+        .ok_or_else(|| RequestError::plain(format!("no such Project agent: {id}")))?;
+    Ok(Some(flow_at_work::view(agent, &tools)))
+}
+
+/// The agent at work's types (T-0430): its card, params and gallery.
+#[cfg(test)]
+pub fn export_flow_at_work_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
+    AtWorkParams::export_all(cfg)?;
+    flow_at_work::View::export_all(cfg)?;
+    flow_at_work::Gallery::export_all(cfg)?;
+    Ok(())
+}
+
 /// Which tools' trust failed for the project just added, from the service's notices (each tool's reason); the
 /// combined reason under the first tool that keeps folder trust when they can't be read.
 async fn failed_tools(app: &App, key: &str, reason: String) -> Vec<(Tool, String)> {
@@ -356,6 +411,228 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(start["show"], false);
+        h.service.stop_all().await;
+    }
+
+    /// A service whose agents start as a stand-in (`sh` running `cat`; no agent tool runs) and whose tools PATH is
+    /// empty (no `gh`, no `glab`), with shop-web (one commit: something to look at). The last part keeps the
+    /// temporary folders.
+    async fn flow_world() -> (Harness, TempRepos, tempfile::TempDir) {
+        use otaq_core::agent_tools::LaunchContext;
+        use otaq_core::agent_tools::claude::ClaudeLaunch;
+
+        let bin = tempfile::tempdir().unwrap();
+        let path = bin.path().as_os_str().to_owned();
+        let h = Harness::configured(move |c| {
+            c.tools.path = path.clone();
+            c.launch = Some(LaunchContext {
+                bin_dir: "/nonexistent".into(),
+                plugin_dir: "/nonexistent/plugin".into(),
+                path: std::env::var_os("PATH").unwrap_or_default(),
+                claude: ClaudeLaunch {
+                    program: vec!["sh".into(), "-c".into(), "exec cat".into(), "sh".into()],
+                    config_dir: None,
+                },
+            });
+        });
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let repo = repos.repo("shop-web", 1);
+        h.app
+            .service
+            .send(Request::ProjectAdd(AddProject {
+                path: repo.display().to_string(),
+                key: Some("SHOP".into()),
+                base_branch: None,
+            }))
+            .await
+            .unwrap();
+        (h, repos, bin)
+    }
+
+    async fn at_work(h: &Harness, agent: &str) -> Value {
+        request(
+            &h.app,
+            "onboarding.at_work",
+            json!({ "project": "SHOP", "agent": agent }),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn agent_of(h: &Harness, id: &str) -> otaq_core::project_agents::ProjectAgent {
+        h.service.agents().0.get(id).await.unwrap()
+    }
+
+    /// The agent's hook, as the service handles it: the signals map it, the Project agents apply it.
+    async fn hook(h: &Harness, id: &str, event: &str, payload: Value) {
+        let (agents, signals, _) = h.service.agents();
+        let agent = agents.get(id).await.unwrap();
+        let caller = otaq_core::caller::Caller::ProjectAgent {
+            project: agent.project.clone(),
+            agent: agent.id.clone(),
+            session: agent.session.as_ref().unwrap().id.clone(),
+        };
+        for signal in signals
+            .hook(&caller, agent.tool, event, &payload)
+            .await
+            .unwrap()
+        {
+            agents.hook(id, &signal).await.unwrap();
+        }
+    }
+
+    /// T-0430 (ONB-05, d0088): the onboarding agent at work; the plan limit stops it, Try again (its tool's Resume)
+    /// continues the same session; Stop and use a preset ends it into Recently ended.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_agent_at_work_stops_at_the_limit_and_try_again_continues_the_same_session() {
+        use otaq_core::usage::limit::{LimitHit, LimitKind};
+
+        let (h, _repos, _bin) = flow_world().await;
+        // Before the start: its tool isn't Found · not signed in, so Look and propose a flow starts it.
+        let check = request(&h.app, "onboarding.at_work", json!({ "project": "SHOP" }))
+            .await
+            .unwrap();
+        assert_eq!(check, Value::Null);
+        let started = request(&h.app, "pane.start_flow", json!({ "project": "SHOP" }))
+            .await
+            .unwrap();
+        let id = started["id"].as_str().unwrap().to_owned();
+        let session = started["session"].as_str().unwrap().to_owned();
+
+        let card = at_work(&h, &id).await;
+        assert_eq!(card["kind"], "working");
+        assert_eq!(card["title"], "Reading how you work");
+        assert_eq!(card["elapsed"], "Working · 0 min");
+        assert_eq!(card["stop"], "Stop and use a preset");
+
+        // The plan limit stops it: the stopped card, Try again off until the reset.
+        hook(&h, &id, "UserPromptSubmit", json!({ "prompt": "/flow" })).await;
+        let hit = LimitHit {
+            kind: LimitKind::Session,
+            text: "You've hit your session limit".into(),
+        };
+        hook(
+            &h,
+            &id,
+            "StopFailure",
+            json!({ "error": "rate_limit", "last_assistant_message": hit.text }),
+        )
+        .await;
+        let tool = agent_of(&h, &id).await.tool;
+        let now = otaq_core::store::now_ms();
+        let resets_at = now + 72 * 60_000;
+        h.service
+            .agents()
+            .2
+            .record_hit_reset(tool, &hit, Some(resets_at), now)
+            .await
+            .unwrap();
+        assert!(agent_of(&h, &id).await.limit_stopped);
+        let card = at_work(&h, &id).await;
+        assert_eq!(card["kind"], "stopped");
+        assert_eq!(card["title"], "The agent stopped");
+        assert!(
+            card["problem"]
+                .as_str()
+                .unwrap()
+                .contains(" limit reached · resets "),
+            "{card}"
+        );
+        assert_eq!(card["skip"], "Skip, use the default");
+        assert_eq!(card["use_preset"], "Use a preset instead");
+        assert_eq!(card["retry"]["action"]["kind"], "resume_tool");
+        let retry = &card["retry"];
+        let at = otaq_view::view_models::clock::reset_label(resets_at, now);
+        assert_eq!(retry["label"], format!("Try again at {at}"));
+        assert_eq!(retry["enabled"], false, "off until the limit resets");
+
+        // Try again (once the limit resets): "continue" goes to the same session, which keeps running.
+        request(
+            &h.app,
+            "limits.resume_tool",
+            json!({ "tool": retry["action"]["tool"] }),
+        )
+        .await
+        .unwrap();
+        let card = at_work(&h, &id).await;
+        assert_eq!((&card["kind"], &card["retry"]["enabled"]), (&json!("stopped"), &json!(true)));
+        let typed = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let seen = h
+                    .service
+                    .sessions()
+                    .attach(&session)
+                    .map(|s| String::from_utf8_lossy(&s.scrollback).contains("continue"))
+                    .unwrap_or(false);
+                if seen {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        })
+        .await;
+        assert!(typed.is_ok(), "continue typed into the same session");
+        hook(&h, &id, "UserPromptSubmit", json!({ "prompt": "continue" })).await;
+        let agent = agent_of(&h, &id).await;
+        assert_eq!(agent.session.as_ref().unwrap().id, session, "the same session");
+        assert_eq!(at_work(&h, &id).await["kind"], "working");
+
+        // Stop and use a preset: the agent ends and goes to Recently ended.
+        let ended = request(
+            &h.app,
+            "pane.end",
+            json!({ "project": "SHOP", "id": id, "confirm": true }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(ended["outcome"], "done");
+        let list = h.service.agents().0.list("SHOP").await.unwrap();
+        assert!(list.open.iter().all(|a| a.id != id));
+        assert_eq!(list.recent.first().map(|a| a.id.as_str()), Some(id.as_str()));
+        h.service.stop_all().await;
+    }
+
+    /// T-0430 (ONB-05, d0088): its session ends before a proposal (a crash, or `/exit`): the ended card, and Try
+    /// again resumes the same conversation.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn ending_without_a_proposal_shows_its_card_and_try_again_resumes_the_conversation() {
+        let (h, _repos, _bin) = flow_world().await;
+        let started = request(&h.app, "pane.start_flow", json!({ "project": "SHOP" }))
+            .await
+            .unwrap();
+        let id = started["id"].as_str().unwrap().to_owned();
+        let session = started["session"].as_str().unwrap().to_owned();
+        let conversation = agent_of(&h, &id).await.tool_session_id;
+        assert!(conversation.is_some());
+
+        h.service.sessions().stop(&session).await.unwrap();
+        let ended = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let card = at_work(&h, &id).await;
+                if card["kind"] == "ended" {
+                    return card;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("the ended card");
+        assert_eq!(ended["title"], "The agent ended without a proposal");
+        assert_eq!(ended["foot"], "Read-only · the session ended");
+        assert_eq!(ended["retry"]["label"], "Try again");
+        assert_eq!(
+            ended["retry"]["action"],
+            json!({ "kind": "resume", "agent": id })
+        );
+
+        let resumed = request(&h.app, "pane.resume", json!({ "id": id }))
+            .await
+            .unwrap();
+        assert_eq!(resumed, json!(id));
+        let agent = agent_of(&h, &id).await;
+        assert_eq!(agent.tool_session_id, conversation, "the same conversation");
+        assert_eq!(at_work(&h, &id).await["kind"], "working");
         h.service.stop_all().await;
     }
 

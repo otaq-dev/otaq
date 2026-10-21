@@ -62,8 +62,6 @@ const STEP: OnboardingFlowStep = {
       ]),
     ],
   },
-  start_message: "/flow",
-  working: { title: "Reading how you work", text: "This can take a few minutes." },
 };
 
 const NOTHING: OnboardingFlowStep = {
@@ -141,10 +139,14 @@ describe("the Flow step", () => {
   });
 
   it("Look and propose a flow starts the Project agent with the flow skill; its proposal shows in the step", async () => {
-    const { asked, ask } = recorder({ "pane.send": "pa-1" });
-    const agent = await startFlowAgent(STEP, ask);
-    expect(agent).toBe("pa-1");
-    expect(asked).toEqual([["pane.send", { project: "SHOP", message: "/flow" }]]);
+    const { asked, ask } = recorder({ "pane.start_flow": { id: "pa-1", session: "s-1" } });
+    const started = await startFlowAgent(STEP, ask);
+    expect(started).toEqual({ kind: "started", agent: "pa-1" });
+    const agent = "pa-1";
+    expect(asked).toEqual([
+      ["onboarding.at_work", { project: "SHOP" }],
+      ["pane.start_flow", { project: "SHOP" }],
+    ]);
     const proposal = proposalShown({ at: "working", agent }, 3);
     expect(proposal).toEqual({ at: "proposal", agent: "pa-1", first: 3 });
     // The agent proposes again after Ask for changes: the first stays, so the preview reads "Updated…".

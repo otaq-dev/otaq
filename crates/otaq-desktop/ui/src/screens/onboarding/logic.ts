@@ -2,13 +2,21 @@
 // ending onboarding asks of the app. Every word and rule is Rust's (`onboarding_page.rs`, `onboarding.rs`,
 // `add_project.rs`); this file only moves between them. The Flow step's moments (ONB-04…ONB-06) are at the end.
 import { selectProject } from "../../app/selection";
+import { bindingFor, type KeyLike } from "../../app/keys";
 import type { AddProjectParams } from "../../generated/AddProjectParams";
 import type { AddProjectView } from "../../generated/AddProjectView";
+import type { FlowAtWorkAction } from "../../generated/FlowAtWorkAction";
+import type { FlowAtWorkParams } from "../../generated/FlowAtWorkParams";
+import type { FlowAtWorkView } from "../../generated/FlowAtWorkView";
 import type { FlowPreviewProposed } from "../../generated/FlowPreviewProposed";
+import type { Keymap } from "../../generated/Keymap";
 import type { OnboardingFlowStep } from "../../generated/OnboardingFlowStep";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
 import type { OnboardingTools } from "../../generated/OnboardingTools";
-import type { PaneSendParams } from "../../generated/PaneSendParams";
+import type { PaneEndParams } from "../../generated/PaneEndParams";
+import type { PaneFlowStarted } from "../../generated/PaneFlowStarted";
+import type { PaneProjectParams } from "../../generated/PaneProjectParams";
+import type { PaneResumeParams } from "../../generated/PaneResumeParams";
 import { PANE_ROUTES, type PaneRoutes, showAgent, showPane } from "../pane/logic";
 
 /** The door's request call, or a fake one in the tests. */
@@ -75,13 +83,15 @@ export async function finishOnboarding(warningShown: boolean, ask: Ask): Promise
 
 /**
  * Where the Flow step is (ONB-04…ONB-06): the go-ahead; the presets (Use a preset instead, or nothing to look at);
- * the onboarding agent at work (`agent`, T-0430's card); the proposal in the step (`agent` when one proposed it,
- * `first` the proposal shown first, so a later one reads "Updated after your answer").
+ * the onboarding agent at work (`agent`, `FlowAtWork`'s card: working, stopped, ended); the agent that couldn't start
+ * (its tool isn't signed in: Rust's `card`); the proposal in the step (`agent` when one proposed it, `first` the
+ * proposal shown first, so a later one reads "Updated after your answer").
  */
 export type FlowStepState =
   | { at: "go_ahead" }
   | { at: "presets"; agent: string | null }
   | { at: "working"; agent: string }
+  | { at: "cannot_start"; card: FlowAtWorkView }
   | { at: "proposal"; agent: string | null; first: number };
 
 /** Where the step opens: the presets when there is nothing to look at, else the go-ahead. */
@@ -91,7 +101,7 @@ export function flowStepOpens(step: OnboardingFlowStep): FlowStepState {
 
 /** The onboarding agent behind the state, if one started. */
 export function flowAgent(state: FlowStepState): string | null {
-  return state.at === "go_ahead" ? null : state.agent;
+  return state.at === "go_ahead" || state.at === "cannot_start" ? null : state.agent;
 }
 
 /** A proposal shows (the agent's, or a preset picked): the proposal, keeping the first one seen. */
@@ -109,14 +119,66 @@ export function proposalGone(state: FlowStepState): FlowStepState {
   return state.agent !== null ? { at: "working", agent: state.agent } : { at: "presets", agent: null };
 }
 
+/** How Look and propose a flow went: the agent started, or its tool isn't signed in (the card says so). */
+export type FlowStart = { kind: "started"; agent: string } | { kind: "cannot_start"; card: FlowAtWorkView };
+
 /**
- * Look and propose a flow: starts the project's onboarding agent and resolves to its id. Every start goes through
- * here. Until T-0428's start request lands it opens a Project agent as the empty pane's Send does, with the `flow`
- * skill (`step.start_message`); the click is the go-ahead (d0087).
+ * Look and propose a flow (ONB-05): starts the project's onboarding agent (`pane.start_flow`: its first Project agent
+ * on the `flow` skill, or the one already running) unless its tool is Found · not signed in (`onboarding.at_work`
+ * without an agent, d0086). Every start goes through here, Sign in…'s afterwards too; the click is the go-ahead
+ * (d0087).
  */
-export async function startFlowAgent(step: OnboardingFlowStep, ask: Ask): Promise<string> {
-  const params: PaneSendParams = { project: step.project, message: step.start_message };
-  return (await ask("pane.send", params)) as string;
+export async function startFlowAgent(step: OnboardingFlowStep, ask: Ask): Promise<FlowStart> {
+  const check: FlowAtWorkParams = { project: step.project };
+  const card = (await ask("onboarding.at_work", check)) as FlowAtWorkView | null;
+  if (card !== null) return { kind: "cannot_start", card };
+  const params: PaneProjectParams = { project: step.project };
+  const started = (await ask("pane.start_flow", params)) as PaneFlowStarted;
+  return { kind: "started", agent: started.id };
+}
+
+/** Where a start leaves the step: the agent at work, or the card of a tool that isn't signed in. */
+export function flowStarted(start: FlowStart): FlowStepState {
+  return start.kind === "started"
+    ? { at: "working", agent: start.agent }
+    : { at: "cannot_start", card: start.card };
+}
+
+/**
+ * Stop and use a preset: ends the onboarding agent (asked nothing mid-turn: the click is the answer); it goes to
+ * Recently ended like any ended agent, and the step shows the presets with no agent left to open on the board.
+ */
+export async function stopFlowAgent(project: string, agent: string, ask: Ask): Promise<FlowStepState> {
+  const params: PaneEndParams = { project, id: agent, confirm: true };
+  await ask("pane.end", params);
+  return { at: "presets", agent: null };
+}
+
+/**
+ * Try again on a failure's card (Sign in… is the dialog's, not a request): its tool's Resume after the plan limit,
+ * which types "continue" into the same session; Resume of the ended agent's conversation (d0088).
+ */
+export async function retryFlowAgent(
+  action: Exclude<FlowAtWorkAction, { kind: "sign_in" }>,
+  ask: Ask,
+): Promise<void> {
+  if (action.kind === "resume_tool") {
+    await ask("limits.resume_tool", { tool: action.tool });
+    return;
+  }
+  const params: PaneResumeParams = { id: action.agent };
+  await ask("pane.resume", params);
+}
+
+/** How often the card asks again while it shows, so "Working · 2 min" moves on (the words stay Rust's). */
+export const AT_WORK_TICK_MS = 60_000;
+
+/**
+ * ⌘L inside the step (the onboarding overlay holds the app's shortcuts back): whether the key is the user's Focus the
+ * pane, which here focuses the onboarding agent's terminal.
+ */
+export function focusesAgent(map: Keymap | undefined, e: KeyLike, inTerminal: boolean): boolean {
+  return map !== undefined && bindingFor(map, e, inTerminal)?.action.action === "focus_pane";
 }
 
 /** A preset picked in the step: its proposal (`Source::Preset`), whose preview then shows in the step. */

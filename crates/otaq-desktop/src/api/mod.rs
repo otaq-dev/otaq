@@ -55,6 +55,8 @@ pub use notices::{
     DismissBanner, HoldToast, NoticesProject, NotificationOpen, ToastId, ToastPress,
 };
 #[cfg(test)]
+pub use onboarding::export_flow_at_work_types;
+#[cfg(test)]
 pub use onboarding::export_flow_step_types;
 #[cfg(test)]
 pub use onboarding::export_sources_types as export_flow_look_types;

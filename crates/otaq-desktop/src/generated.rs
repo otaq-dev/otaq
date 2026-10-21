@@ -311,6 +311,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::export_flow_look_types(&cfg)?;
     // The Flow step (T-0429): the go-ahead, the presets and its gallery.
     crate::api::export_flow_step_types(&cfg)?;
+    // The agent at work and its failures (T-0430): its card, params and gallery.
+    crate::api::export_flow_at_work_types(&cfg)?;
     Ok(())
 }
 
