@@ -129,8 +129,10 @@ async fn create(w: &TestService, key: &str, title: &str) -> Ticket {
     w.create(key, title).await
 }
 
-/// FLW-03: every refusal names its stage or agent. Each STG-02 rule (the broken files), an unknown agent, a model
-/// the tool doesn't list, a skill that isn't on this machine, a written `_` id and two skills with one copy name.
+/// FLW-03: every refusal names its stage or agent: each has its broken file in `tests/flows/broken/` (each STG-02
+/// rule; an unknown agent, a bad agent name, a model that doesn't read or the tool doesn't list, an agent's or a
+/// stage's skill that isn't on this machine, a written `_` id, a document that doesn't read), except two skills with
+/// one copy name, which needs a skill folder's absolute path.
 /// The user's own import opens with them marked instead, with what to do about the fixable ones.
 #[tokio::test(flavor = "multi_thread")]
 async fn each_refusal_names_its_stage_or_agent() {
@@ -149,12 +151,21 @@ async fn each_refusal_names_its_stage_or_agent() {
         .map(|e| e.unwrap().path())
         .collect();
     broken.sort();
-    assert_eq!(broken.len(), 13);
+    assert_eq!(broken.len(), 21);
     for path in broken {
         let text = std::fs::read_to_string(&path).unwrap();
+        let message = refusal(propose_as(&w, &key, &text, planner()).await);
+        // A refusal other than STG-02's says on its first line what it is refused with (T-0425).
+        if let Some(expected) = text.lines().next().unwrap().strip_prefix("# Refused: ") {
+            assert!(
+                message.contains(expected),
+                "{}: {message:?} lacks {expected:?}",
+                path.display()
+            );
+            continue;
+        }
         let file = yaml::read(&text).unwrap();
         let problems = check(&file.flow).expect_err("a broken file");
-        let message = refusal(propose_as(&w, &key, &text, planner()).await);
         for problem in problems {
             assert!(
                 message.contains(&problem.message),
@@ -171,13 +182,6 @@ async fn each_refusal_names_its_stage_or_agent() {
             }
         }
     }
-
-    // An unknown agent.
-    let unknown = default_with(|f| f.flow.stages[0].agent = Some("Rust developer".into()));
-    assert_eq!(
-        refusal(propose_as(&w, &key, &yaml::write(&unknown), planner()).await),
-        "Dev names the agent Rust developer, which isn't one of your agents"
-    );
 
     // A model the tool doesn't list, and a skill that isn't on this machine.
     let reviewer = "agents:\n  - name: Security reviewer\n    skills: [security-review]\n    model: claude:gpt-9\n";
@@ -260,15 +264,6 @@ async fn each_refusal_names_its_stage_or_agent() {
         .unwrap()
         .unwrap();
     assert_eq!(added.imported[0].name, "security-review");
-
-    // A written id starting with `_`.
-    let underscore = default_with(|f| f.flow.stages[2].id = "_review-epic".into());
-    assert!(
-        refusal(propose_as(&w, &key, &yaml::write(&underscore), planner()).await).contains(
-            "Review has the id `_review-epic`: ids starting with _ are Otaq's own, so leave the id out or pick \
-             another"
-        )
-    );
 
     // Two skills that copy under one name (Q297).
     let commit = otaq_core::skills::testing::skill_folder(w.home.path(), "commit");

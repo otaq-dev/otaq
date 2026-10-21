@@ -1,0 +1,29 @@
+# Refused: Dev names the agent Rust developer, which isn't one of your agents
+flow:
+  - id: dev
+    name: Dev
+    kind: agent
+    column: own
+    agent: Rust developer
+    skill: work-ticket
+  - id: validate
+    name: Validate
+    kind: check
+    by: agent
+    column: own
+    agent: Validator
+    skill: validate
+    rounds: 3
+  - id: review
+    name: Review
+    kind: check
+    by: you
+    column: own
+  - id: deliver
+    name: Done
+    kind: delivery
+    column: with-previous
+    agent: Developer
+    skill: open-pr
+    mode: click
+    delivers: either

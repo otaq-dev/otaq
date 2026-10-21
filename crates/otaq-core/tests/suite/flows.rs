@@ -262,7 +262,11 @@ fn each_rule_refuses_its_broken_file() {
         ),
     ];
     let dir = flows().join("broken");
-    let on_disk = std::fs::read_dir(&dir).unwrap().count();
+    // The files that say what they are refused with are refusals other than STG-02's (`flow_changes`).
+    let on_disk = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter(|e| !file(&e.as_ref().unwrap().path()).starts_with("# Refused: "))
+        .count();
     assert_eq!(
         on_disk,
         cases.len(),
