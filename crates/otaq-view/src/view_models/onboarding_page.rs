@@ -879,13 +879,14 @@ pub struct FlowGallery {
 
 pub fn flow_gallery() -> FlowGallery {
     use otaq_core::onboarding::Sources;
+    let [claude, ..] = super::agent_tools_page::fixtures::tools();
     let sources = |any: bool| Sources {
         project_name: "shop-web".into(),
         history: any,
         commits: any,
         gh: any,
         glab: false,
-        tool: otaq_core::agent_tools::Tool::Claude,
+        tool: claude,
     };
     let cells = [
         ("Flow · the go-ahead", true),
@@ -1117,6 +1118,7 @@ mod tests {
     #[test]
     fn the_flow_step_lists_the_four_presets() {
         let cards = flow_step("SHOP", "shop-web", &look(false)).presets.cards;
+        let default = format!("{} default", naming::PRODUCT_NAME);
         let words: Vec<(&str, &str, &str)> = cards
             .iter()
             .map(|c| (c.name.as_str(), c.delivers.as_str(), c.line.as_str()))
@@ -1124,7 +1126,7 @@ mod tests {
         assert_eq!(
             words,
             [
-                ("Otaq default", "Done · click", "Today’s board"),
+                (default.as_str(), "Done · click", "Today’s board"),
                 (
                     "Solo autopilot",
                     "Done · Local merge, automatic",
