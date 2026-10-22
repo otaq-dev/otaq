@@ -96,7 +96,8 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
   const well = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const xterm = useRef<XTerm | null>(null);
-  const fitter = useRef<FitAddon | null>(null);
+  // Fits the terminal to its box, except while a replay is written at the size it was drawn at.
+  const fitBox = useRef<(() => void) | null>(null);
   const search = useRef<SearchAddon | null>(null);
   // The terminal is open in the page (after its font loaded); the font size and the renderer apply from then on.
   const [opened, setOpened] = useState(false);
@@ -197,7 +198,10 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
       }),
     );
     xterm.current = term;
-    fitter.current = fit;
+    const fitToBox = () => {
+      if (term.element && !replaying) fit.fit();
+    };
+    fitBox.current = fitToBox;
     search.current = searchAddon;
 
     const sender = createSender(
@@ -302,11 +306,15 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
       if (disposed) return;
       switch (feed.kind) {
         case "replay":
-          // A fresh start: the first attach, or again after a reconnect.
+          // A fresh start: the first attach, or again after a reconnect. The output's cursor moves were drawn for
+          // the PTY's size, so it is written at that size; written at another, they land on the wrong lines. Then
+          // the terminal fits its box, and the PTY follows it.
           term.reset();
           replaying = true;
+          if (feed.size) term.resize(feed.size.cols, feed.size.rows);
           term.write(decodeBase64(feed.data), () => {
             replaying = false;
+            fitToBox();
           });
           break;
         case "live":
@@ -358,9 +366,7 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
       term.options.theme = terminalColors(getComputedStyle(element));
     });
     themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    const sizeWatch = new ResizeObserver(() => {
-      if (term.element) fit.fit();
-    });
+    const sizeWatch = new ResizeObserver(fitToBox);
 
     // Opened once the monospace font is loaded, so xterm.js measures its cells with it.
     const family = fontFamily(element);
@@ -371,7 +377,7 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
       term.textarea?.addEventListener("focus", onFocus);
       term.textarea?.addEventListener("blur", onBlur);
       sizeWatch.observe(element);
-      fit.fit();
+      fitToBox();
       setOpened(true);
     });
 
@@ -387,7 +393,7 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
       term.textarea?.removeEventListener("blur", onBlur);
       term.dispose();
       xterm.current = null;
-      fitter.current = null;
+      fitBox.current = null;
       search.current = null;
       setOpened(false);
     };
@@ -398,7 +404,7 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
     const term = xterm.current;
     if (!opened || !term) return;
     term.options.fontSize = fontSize;
-    fitter.current?.fit();
+    fitBox.current?.();
   }, [opened, fontSize]);
   const setting = settings?.renderer;
   useEffect(() => {
