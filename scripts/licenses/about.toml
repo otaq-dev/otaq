@@ -1,7 +1,7 @@
 # cargo-about configuration for THIRD-PARTY-LICENSES.md (regenerate with scripts/licenses.sh).
 #
 # Only the crates that end up in the shipped binaries are listed: build scripts, proc macros and test-only crates are
-# left out. Every license below lets Otaq (MIT, d0054) ship the crate as long as its notice ships with the app.
+# left out. Every license below lets Otaq (FSL-1.1-MIT) ship the crate as long as its notice ships with the app.
 
 accepted = [
     "MIT",
@@ -37,3 +37,6 @@ targets = [
 ignore-build-dependencies = true
 ignore-dev-dependencies = true
 ignore-transitive-dependencies = false
+
+# Otaq's own crates (all `publish = false`) are under FSL-1.1-MIT, see LICENSE: they are not third-party notices.
+private = { ignore = true }

@@ -13,6 +13,6 @@ version: string, commit: string, version_description: string, copy_label: string
  */
 version_info: string, 
 /**
- * "© 2026 The Otaq Authors · MIT License".
+ * "© 2026 The Otaq Authors · FSL-1.1-MIT".
  */
 copyright: string, license_description: string, view_license_label: string, licenses_label: string, licenses_description: string, view_licenses_label: string, credits_label: string, credits_description: string, view_credits_label: string, trademark: string, };

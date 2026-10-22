@@ -42,7 +42,7 @@ pub struct View {
     pub copied_label: String,
     /// What Copy version info puts on the clipboard: "Otaq 0.1.0 (bed9c10) · macOS 26.0 · arm64".
     pub version_info: String,
-    /// "© 2026 The Otaq Authors · MIT License".
+    /// "© 2026 The Otaq Authors · FSL-1.1-MIT".
     pub copyright: String,
     pub license_description: String,
     pub view_license_label: String,
@@ -55,7 +55,7 @@ pub struct View {
     pub trademark: String,
 }
 
-/// *View license · dialog*: Otaq's own MIT text.
+/// *View license · dialog*: Otaq's own license text (FSL-1.1-MIT).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OwnLicenseDialog")]
 pub struct LicenseView {
@@ -79,13 +79,14 @@ pub fn arch_name(arch: &str) -> &str {
     }
 }
 
-/// The license file's copyright holder line, as the About row shows it: "© 2026 The Otaq Authors · MIT License".
+/// The license file's copyright holder line, as the About row shows it: "© 2026 The Otaq Authors · FSL-1.1-MIT".
 pub fn copyright(license: &str) -> String {
     let holder = license
         .lines()
-        .find_map(|l| l.trim().strip_prefix("Copyright (c) "))
+        .find_map(|l| l.trim().strip_prefix("Copyright "))
+        .map(|h| h.strip_prefix("(c) ").unwrap_or(h))
         .unwrap_or(PRODUCT_NAME);
-    format!("© {holder} · MIT License")
+    format!("© {holder} · FSL-1.1-MIT")
 }
 
 /// The About section for this build. `rust_crates` and `npm_packages` are the notices file's counts.
@@ -107,7 +108,7 @@ pub fn view(build: &Build, license: &str, rust_crates: usize, npm_packages: usiz
         ),
         copyright: copyright(license),
         license_description: format!(
-            "{name} itself is free and open source under the MIT License."
+            "{name} itself is free to use under the Functional Source License (FSL-1.1-MIT). Each version becomes MIT two years after its release."
         ),
         view_license_label: "View license".into(),
         licenses_label: "Open-source licenses".into(),
@@ -124,15 +125,20 @@ pub fn view(build: &Build, license: &str, rust_crates: usize, npm_packages: usiz
     }
 }
 
-/// *View license · dialog* for the license file `text`.
+/// *View license · dialog* for the license file `text`. Its Markdown heading marks are dropped.
 pub fn license(text: &str) -> LicenseView {
     let paragraphs = text
         .split("\n\n")
-        .map(|p| p.split_whitespace().collect::<Vec<_>>().join(" "))
+        .map(|p| {
+            p.trim_start_matches('#')
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
         .filter(|p| !p.is_empty())
         .collect();
     LicenseView {
-        title: "MIT License".into(),
+        title: "Functional Source License".into(),
         description: format!(
             "{PRODUCT_NAME}’s own license. It applies to the app and its source code."
         ),
@@ -148,7 +154,7 @@ pub fn license(text: &str) -> LicenseView {
 mod tests {
     use super::*;
 
-    const LICENSE: &str = "MIT License\n\nCopyright (c) 2026 The Example Authors\n\nPermission is hereby granted, free of charge,\nto any person\n\nTHE SOFTWARE IS PROVIDED \"AS IS\"\n";
+    const LICENSE: &str = "# Functional Source License, Version 1.1, MIT Future License\n\n## Notice\n\nCopyright 2026 The Example Authors\n\nSubject to your compliance with this License Grant,\nwe hereby grant you\n";
 
     fn build() -> Build {
         Build {
@@ -165,7 +171,7 @@ mod tests {
         assert_eq!(v.product, PRODUCT_NAME);
         assert_eq!(v.version, "Version 0.1.0 · build");
         assert_eq!(v.commit, "bed9c10");
-        assert_eq!(v.copyright, "© 2026 The Example Authors · MIT License");
+        assert_eq!(v.copyright, "© 2026 The Example Authors · FSL-1.1-MIT");
         assert_eq!(
             v.licenses_description,
             format!(
@@ -191,10 +197,15 @@ mod tests {
     fn the_license_in_paragraphs_and_whole_for_the_clipboard() {
         let l = license(LICENSE);
         assert_eq!(l.paragraphs.len(), 4);
-        assert_eq!(l.paragraphs[1], "Copyright (c) 2026 The Example Authors");
         assert_eq!(
-            l.paragraphs[2],
-            "Permission is hereby granted, free of charge, to any person"
+            l.paragraphs[0],
+            "Functional Source License, Version 1.1, MIT Future License"
+        );
+        assert_eq!(l.paragraphs[1], "Notice");
+        assert_eq!(l.paragraphs[2], "Copyright 2026 The Example Authors");
+        assert_eq!(
+            l.paragraphs[3],
+            "Subject to your compliance with this License Grant, we hereby grant you"
         );
         assert_eq!(l.text, LICENSE);
     }

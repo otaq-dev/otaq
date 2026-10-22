@@ -408,7 +408,7 @@ export function Settings({
                   0.1.0
                 </span>
                 <span style={{ color: "var(--tx3)", fontSize: 12 }}>
-                  © 2026 The Otaq Authors · MIT License
+                  © 2026 The Otaq Authors · FSL-1.1-MIT
                 </span>
               </div>
             )}

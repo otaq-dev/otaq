@@ -47,7 +47,7 @@ function openSource(url: string) {
   void request("settings.open_source", { url });
 }
 
-/** *View license · dialog*: Otaq's own MIT text. */
+/** *View license · dialog*: Otaq's own license text (FSL-1.1-MIT). */
 function LicenseDialog({ view, onClose }: { view: OwnLicenseDialog; onClose: () => void }) {
   return (
     <Dialog

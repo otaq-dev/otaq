@@ -790,7 +790,7 @@ mod tests {
         assert_eq!(about["product"], otaq_core::naming::PRODUCT_NAME);
         assert!(about["version_info"].as_str().unwrap().contains(env!("CARGO_PKG_VERSION")));
         let license = request(&h.app, "settings.license", Value::Null).await.unwrap();
-        assert_eq!(license["title"], "MIT License");
+        assert_eq!(license["title"], "Functional Source License");
         let notices = request(&h.app, "settings.licenses", Value::Null).await.unwrap();
         assert!(notices["rust"].as_array().unwrap().len() > 3);
         h.service.stop_all().await;
