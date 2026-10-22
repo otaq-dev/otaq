@@ -12,3 +12,6 @@
 fail-fast = false
 # No retries: a test that passes only sometimes is a bug to fix, not something to retry.
 retries = 0
+# A test still running after 5 minutes is killed and fails, with its output. The slowest test takes about 2 minutes on
+# GitHub's Linux runner; with no limit, a deadlocked test (agent_tools.install, 2026-10-22) held every run for 6 hours.
+slow-timeout = { period = "60s", terminate-after = 5 }

@@ -1,0 +1,42 @@
+# The machine every Checks job starts from: the system libraries Tauri builds against, Rust, cargo-nextest, Node and
+# the caches. Each job then runs its own groups of scripts/check.sh.
+name: Set up the checks
+description: System libraries, Rust 1.99.0, cargo-nextest, Node 24, the caches and a git identity
+inputs:
+  save-rust-cache:
+    description: Whether this job saves the Rust cache (only one of jobs that build the same thing should)
+    default: "true"
+runs:
+  using: composite
+  steps:
+    # As in scripts/README.md (Linux VM, step 1).
+    - name: Install system libraries
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential pkg-config file \
+          libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
+          libssl-dev libdbus-1-dev libnotify-bin
+    - name: Install Rust 1.99.0
+      shell: bash
+      run: |
+        rustup toolchain install 1.99.0 --profile minimal -c rustfmt -c clippy
+        rustup default 1.99.0
+    - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+      with:
+        tool: cargo-nextest
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: crates/otaq-desktop/.nvmrc
+        cache: npm
+        cache-dependency-path: crates/otaq-desktop/package-lock.json
+    # One cache per job (the key holds the job's name): clippy's and the tests' builds don't share files.
+    - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        save-if: ${{ inputs.save-rust-cache }}
+    # The core tests commit into temporary git repositories.
+    - name: Set a git identity
+      shell: bash
+      run: |
+        git config --global user.name "Otaq CI"
+        git config --global user.email "ci@otaq.invalid"
