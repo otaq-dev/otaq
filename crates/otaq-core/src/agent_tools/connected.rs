@@ -523,10 +523,10 @@ impl ConnectedTools {
             return Err(not_built("agent_tools.install"));
         };
         let w = &wired.wiring;
-        let status = self
-            .with_page(vec![self.lock().status(tool)])
-            .pop()
-            .expect("one status");
+        // Its own statement: a guard taken inside `with_page(…)`'s argument would live until the end of the
+        // statement, and `with_page` takes the same lock (a deadlock that hung every check run).
+        let found = self.lock().status(tool);
+        let status = self.with_page(vec![found]).pop().expect("one status");
         let name = tool.display_name();
         if status.state != AgentToolState::NotInstalled {
             return Err(BoardError::refused(

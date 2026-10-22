@@ -21,8 +21,8 @@ then the Rust steps:
 
 9. `fmt`: `cargo fmt --all --check`
 10. `clippy`: `cargo clippy --workspace --all-targets -- -D warnings`
-11. `test`: `cargo nextest run --workspace` (each test in its own process, in parallel, no retries; settings in
-    `.config/nextest.toml`)
+11. `test`: `cargo nextest run --workspace` (each test in its own process, in parallel, no retries, and a test still
+    running after 5 minutes is killed and fails; settings in `.config/nextest.toml`)
 12. `doctest`: `cargo test --workspace --doc` (the doc examples, which nextest doesn't run)
 
 The test step needs **cargo-nextest**: `brew install cargo-nextest` on the Mac, `cargo install cargo-nextest --locked`
@@ -43,6 +43,12 @@ crate is linked once rather than once per file. To run one file, for example
 Both scripts print each step's name and stop at the first failing step with a non-zero exit. GitHub Actions runs
 `scripts/check.sh` on Linux for every pull request and every push to `main` (`.github/workflows/checks.yml`, d0056);
 macOS and Windows join it later, so until then they're checked locally.
+
+`check.sh` runs every step when it's given no arguments. Given group names, it runs only those: `frontend` (steps
+1–8), `lint` (9–10), `test` (11) and `doctest` (12), for example `scripts/check.sh lint test`. `CHECK_TEST_PARTITION`
+runs one share of the tests (`CHECK_TEST_PARTITION=hash:1/2 scripts/check.sh test`). GitHub Actions uses both to run
+the steps as four parallel jobs: the frontend steps, fmt and clippy, and the tests in two shares, the doc examples
+with the first. Before a commit, run it with no arguments.
 
 **Disk space on the Mac first.** The VMs' disk images live on the Mac and grow with every build inside them (a
 full check with its own target folder adds tens of GB per VM), and they don't shrink when the VM deletes files. Before
