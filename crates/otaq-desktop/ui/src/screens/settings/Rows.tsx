@@ -599,7 +599,7 @@ export function NotificationsSwitchRow({
   const { edit, act } = useSettings();
   const status = control.status;
   return (
-    <div className="settings-row">
+    <div className="settings-row settings-row-switch">
       <div className="settings-row-text">
         <span className="settings-row-label">{row.label}</span>
         <span className="settings-row-description">{row.description}</span>
