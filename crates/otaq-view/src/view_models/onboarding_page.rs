@@ -22,13 +22,13 @@ use crate::shell::tilde;
 use crate::view_models::add_project::AddProjectModel;
 use crate::view_models::agent_tools_page::{self, Place};
 use crate::view_models::banners::{self, BannerModel, BannerView, TrustFailure};
+use crate::view_models::editor_fields::branch_items;
 use crate::view_models::flow_at_work::{self, View as FlowAtWork};
 use crate::view_models::flow_settings::{PresetCard, preset_card};
+use crate::view_models::menu::{MenuItem, MenuSearch};
 use crate::view_models::onboarding::{OnboardingModel, RowIcon, STEPS, Step, ToolRow};
 use crate::view_models::tool_avatar::ToolAvatarView;
 use crate::view_models::tool_problems::Tools as ToolProblems;
-use crate::view_models::editor_fields::branch_items;
-use crate::view_models::menu::{MenuItem, MenuSearch};
 
 /// An onboarding step as the page names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
