@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 // A floating layer and a scroll behind it: mounted in a DOM, inside a scrolling container.
-import { act, createElement } from "react";
+import { act, createElement, createRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { MenuItem } from "../generated/MenuItem";
+import { useFloatingStyle } from "./Floating";
 import { AnchoredMenu } from "./Menu";
 import { Select } from "./Select";
 
@@ -128,5 +129,55 @@ describe("A menu and a press outside it", () => {
       outside.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     });
     expect(onClose).toHaveBeenCalledWith("outside");
+  });
+});
+
+/** A floating layer of its own, as a new dropdown would write it: placed with `useFloatingStyle` and its `onDismiss`. */
+const ownAnchor = createRef<HTMLButtonElement>();
+const ownFloating = createRef<HTMLDivElement>();
+
+function OwnLayer({ onClose }: { onClose: () => void }) {
+  const anchor = ownAnchor;
+  const floating = ownFloating;
+  const style = useFloatingStyle(anchor, floating, "start", onClose);
+  return createElement(
+    "div",
+    null,
+    createElement("button", { ref: anchor, className: "own-trigger" }),
+    createElement("div", { ref: floating, className: "own-layer", style }),
+  );
+}
+
+describe("Any floating layer that can close and a press outside it", () => {
+  it("closes once on a press outside, never on a press on the layer or its trigger", () => {
+    unmount();
+    const host = document.body.appendChild(document.createElement("div"));
+    const outside = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const onClose = vi.fn();
+    act(() => {
+      root.render(createElement(OwnLayer, { onClose }));
+    });
+    unmount = () => {
+      act(() => {
+        root.unmount();
+      });
+      host.remove();
+      outside.remove();
+    };
+    const press = (target: Element | null) => {
+      act(() => {
+        target?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      });
+    };
+    press(host.querySelector(".own-layer"));
+    press(host.querySelector(".own-trigger"));
+    expect(onClose).not.toHaveBeenCalled();
+    // A handler that stops the press (bubbling) can't keep the layer open.
+    outside.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+    });
+    press(outside);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

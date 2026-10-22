@@ -15,7 +15,7 @@ import {
   useState,
 } from "react";
 
-import { useFloatingStyle } from "../../components";
+import { useFloatingStyle, usePressOutside } from "../../components";
 import { menuKey } from "../../components/logic";
 import type { AgentsModelChoice } from "../../generated/AgentsModelChoice";
 import type { AgentsModelDropdown } from "../../generated/AgentsModelDropdown";
@@ -280,11 +280,22 @@ export function ModelPicker({
   onPick: (model: string | null) => void;
   onRetry: (tool: string) => void;
 }) {
+  const box = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  // The list opens in place, under the field: a press outside both closes it.
+  usePressOutside(
+    box,
+    null,
+    open
+      ? () => {
+          setOpen(false);
+        }
+      : undefined,
+  );
   const value = picker.value;
   return (
-    <div className="settings-model-picker">
+    <div ref={box} className="settings-model-picker">
       <button
         ref={button}
         id={id}

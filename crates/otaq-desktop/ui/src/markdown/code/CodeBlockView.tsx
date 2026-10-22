@@ -6,7 +6,7 @@
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react";
 import { type KeyboardEvent, type RefObject, useLayoutEffect, useRef, useState } from "react";
 
-import { useDismiss, useFloatingStyle } from "../../components";
+import { useEscape, useFloatingStyle } from "../../components";
 import { Icon } from "../../theme/Icon";
 import {
   type CodeLanguage,
@@ -113,7 +113,7 @@ interface LanguagePickerProps {
 function LanguagePicker({ anchor, language, onChoose, onClose }: LanguagePickerProps) {
   const floating = useRef<HTMLDivElement>(null);
   const style = useFloatingStyle(anchor, floating, "end", onClose);
-  useDismiss(floating, anchor, onClose);
+  useEscape(onClose);
   const [query, setQuery] = useState("");
   const rows = filterLanguages(query);
   const [highlighted, setHighlighted] = useState(() =>

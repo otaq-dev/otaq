@@ -196,6 +196,12 @@ destructive, onConfirm })`; the components screen (`ui/src/screens/components/`)
 Menus, popovers and tooltips are fixed-position layers inside their anchor's subtree, so a scrolling parent never cuts
 them and the anchor's theme applies.
 
+**A new dropdown, menu or popover** uses `Select`, `AnchoredMenu` or `Popover`. One that can't places itself with
+`useFloatingStyle(anchor, floating, align, onClose)`: passing `onClose` is what closes it on a press outside it and on
+a scroll behind it. A list that opens in place (not floating) closes with `usePressOutside(box, null, onClose)`. Never
+close a layer only on its blur: a list that never had the keyboard never loses it, and a press on the header's drag
+region moves no focus, so it stays open (`Floating.test.ts`, `screens/settings/dropdowns.test.ts`).
+
 **The gallery.** Start the app with `OTAQ_GALLERY=1` (`OTAQ_GALLERY=1 npm run tauri dev`) and the design
 gallery opens over it: every foundation and component next to each other, the token swatches of Otaq Light and
 Dark, the Status Legend, the keyboard map, the theme picker (it saves) and a palette switch over the 15 themes (it
