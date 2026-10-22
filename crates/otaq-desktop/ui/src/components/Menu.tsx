@@ -181,8 +181,7 @@ export interface AnchoredMenuProps extends MenuProps {
 
 /**
  * A menu under its trigger, or at the pointer, kept inside the window. A press outside it (and outside its trigger,
- * whose own click decides) closes it too: a press on the window's drag region (the header) moves no focus, so the
- * menu's blur alone would leave it open.
+ * whose own click decides) or a scroll behind it closes it (`useFloatingStyle`).
  */
 export function AnchoredMenu({ anchor, align, ...menu }: AnchoredMenuProps) {
   const floating = useRef<HTMLDivElement>(null);
@@ -193,18 +192,6 @@ export function AnchoredMenu({ anchor, align, ...menu }: AnchoredMenuProps) {
   const style = useFloatingStyle(anchor, floating, align, () => {
     close.current("outside");
   });
-  useEffect(() => {
-    const onPress = (e: PointerEvent) => {
-      const target = e.target as Node | null;
-      const trigger = "current" in anchor ? anchor.current : null;
-      if (floating.current?.contains(target) || trigger?.contains(target)) return;
-      close.current("outside");
-    };
-    document.addEventListener("pointerdown", onPress, true);
-    return () => {
-      document.removeEventListener("pointerdown", onPress, true);
-    };
-  }, [anchor]);
   return (
     <div ref={floating} className="floating" style={style}>
       <Menu {...menu} />

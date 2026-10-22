@@ -734,6 +734,7 @@ impl EpicLeads {
                 &project,
                 launched,
                 &id,
+                super::INITIAL_SIZE,
                 &runs_on,
                 Some((&epic.id, &epic.key)),
             )

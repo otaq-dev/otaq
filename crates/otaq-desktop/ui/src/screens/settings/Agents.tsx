@@ -217,6 +217,38 @@ function Row({ row, actions }: { row: AgentListRow; actions: AgentsActions }) {
 }
 
 /** The Agents page as the view says (`s15-58`): default model, fallbacks, the list. */
+/** Rows the skeleton draws for the agents list. */
+const SKELETON_ROWS = 4;
+
+/** Settings → Agents while `settings.agents` hasn't answered yet: the page's shape in grey bars, no words. */
+export function AgentsSkeleton() {
+  return (
+    <section className="settings-section settings-agents settings-agents-skeleton" aria-busy="true">
+      <span className="settings-skeleton-bar settings-skeleton-intro" />
+      <div className="settings-agents-settings">
+        {[0, 1].map((i) => (
+          <div key={i} className="settings-agents-setting">
+            <span className="settings-row-text">
+              <span className="settings-skeleton-bar settings-skeleton-label" />
+              <span className="settings-skeleton-bar settings-skeleton-description" />
+            </span>
+            <span className="settings-skeleton-bar settings-skeleton-control" />
+          </div>
+        ))}
+      </div>
+      <div className="settings-agents-table">
+        {Array.from({ length: SKELETON_ROWS + 1 }, (_, i) => (
+          <div key={i} className="settings-agents-row">
+            {[0, 1, 2, 3].map((c) => (
+              <span key={c} className="settings-skeleton-bar" />
+            ))}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function AgentsSectionBody({
   section,
   actions,
@@ -912,8 +944,10 @@ export function AgentsSection() {
         />
       ) : page ? (
         <AgentPageBody key={page.id ?? "draft"} page={page} actions={pageActions(page)} />
+      ) : section ? (
+        <AgentsSectionBody section={section} actions={actions} />
       ) : (
-        section && <AgentsSectionBody section={section} actions={actions} />
+        !error && <AgentsSkeleton />
       )}
       {asking?.kind === "delete" &&
         (asking.dialog.kind === "refused" ? (

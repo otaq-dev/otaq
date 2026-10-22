@@ -94,6 +94,11 @@ const INITIAL_SIZE: TerminalSize = TerminalSize {
     cols: 120,
 };
 
+/// The size a flow agent ("Flow setup · Claude Code") starts with: about what its terminal on the Flow setup page
+/// shows (420 px wide, `.flow-at-work-terminals`, at the 13 px monospace font), so the output it draws before the
+/// page attaches isn't redrawn for a narrower terminal.
+const FLOW_AGENT_SIZE: TerminalSize = TerminalSize { rows: 30, cols: 52 };
+
 stored_enum! {
     /// Where a Project agent's name came from (`project_agents.name_source`).
     pub enum NameSource ("name source") {
@@ -511,7 +516,16 @@ impl ProjectAgents {
         .bind(name.map(|_| NameSource::User.as_str()))
         .execute(self.inner.board.store().pool())
         .await?;
-        if let Err(e) = self.spawn(project, launched, &id, runs_on, None).await {
+        // Only flow agents are named from the start.
+        let size = if name.is_some() {
+            FLOW_AGENT_SIZE
+        } else {
+            INITIAL_SIZE
+        };
+        if let Err(e) = self
+            .spawn(project, launched, &id, size, runs_on, None)
+            .await
+        {
             self.release_checkout(&id).await;
             sqlx::query("DELETE FROM project_agents WHERE id = ?")
                 .bind(&id)
@@ -623,7 +637,10 @@ impl ProjectAgents {
         .bind(id)
         .execute(self.inner.board.store().pool())
         .await?;
-        if let Err(e) = self.spawn(project, launched, id, runs_on, lead).await {
+        if let Err(e) = self
+            .spawn(project, launched, id, INITIAL_SIZE, runs_on, lead)
+            .await
+        {
             self.set_state(id, agent.state).await?;
             sqlx::query("UPDATE project_agents SET ended_at = ?, closed_at = ? WHERE id = ?")
                 .bind(agent.ended_at)
@@ -1186,6 +1203,7 @@ impl ProjectAgents {
         project: &Project,
         launched: Launched,
         id: &str,
+        size: TerminalSize,
         runs_on: &RunsOn,
         lead: Option<(&str, &TicketKey)>,
     ) -> Result<SessionInfo, BoardError> {
@@ -1201,7 +1219,7 @@ impl ProjectAgents {
                 args: launched.plan.args,
                 cwd: launched.plan.cwd,
                 env: launched.plan.env,
-                size: INITIAL_SIZE,
+                size,
                 tool: Some(launched.tool),
                 tool_session_id: launched.tool_session_id,
                 model: launched.model,

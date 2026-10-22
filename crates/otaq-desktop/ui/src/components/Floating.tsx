@@ -13,12 +13,44 @@ function isRef(anchor: Anchor): anchor is RefObject<HTMLElement | null> {
 }
 
 /**
+ * Calls `onPress` on a press outside `inside` and outside `anchor` (whose own click toggles the layer); nothing while
+ * `onPress` is undefined. Heard while capturing, so a handler that stops the press can't keep a layer open, and on the
+ * window's drag region too, which moves no focus. Every open list, menu or popover closes through this (most through
+ * `useFloatingStyle`'s `onDismiss`): one that waits for its blur stays open whenever it never had the keyboard.
+ */
+export function usePressOutside(
+  inside: RefObject<HTMLElement | null>,
+  anchor: RefObject<HTMLElement | null> | null | undefined,
+  onPress: (() => void) | undefined,
+): void {
+  const latest = useRef(onPress);
+  useEffect(() => {
+    latest.current = onPress;
+  });
+  const listening = onPress !== undefined;
+  useEffect(() => {
+    if (!listening) return;
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as Node | null;
+      if (inside.current?.contains(target) || anchor?.current?.contains(target)) return;
+      latest.current?.();
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+    };
+  }, [listening, inside, anchor]);
+}
+
+/**
  * The fixed position of `floating` next to `anchor` (see `placeFloating`), measured before the first paint. Hidden
  * until measured, so it never flashes at the window's corner.
  *
- * A scroll anywhere behind the layer moves its anchor: a layer that can close (`onScrollAway`: a menu, a dropdown, a
- * popover) closes then, like a press outside and like a native popup; one that can't (a tooltip) follows its anchor.
- * A scroll inside the layer itself (a long list) is its own and changes nothing.
+ * A layer that can close (a menu, a dropdown, a popover) passes `onDismiss`, and this closes it the way a native popup
+ * closes: on a press outside it and outside its anchor element (whose own click toggles it), and on a scroll anywhere
+ * behind it, which moves its anchor (`usePressOutside`). Every such layer gets both here, so none has to remember
+ * them. A layer that can't close (a tooltip) follows its anchor instead. A scroll or press inside the layer itself (a
+ * long list) is its own and changes nothing.
  *
  * It fades in, dropping 4 px into place, and back out the same way when it closes (OT-6).
  */
@@ -26,7 +58,7 @@ export function useFloatingStyle(
   anchor: Anchor,
   floating: RefObject<HTMLElement | null>,
   align: "start" | "end" = "start",
-  onScrollAway?: () => void,
+  onDismiss?: () => void,
 ): CSSProperties {
   useEnterExit(floating, "floating");
   const [position, setPosition] = useState<{ left: number; top: number }>();
@@ -37,10 +69,11 @@ export function useFloatingStyle(
     ? `${String(rect.left)},${String(rect.top)},${String(rect.width)},${String(rect.height)}`
     : "";
   // The latest callback, so an owner's inline function doesn't re-place the layer on every render.
-  const scrollAway = useRef(onScrollAway);
+  const dismiss = useRef(onDismiss);
   useEffect(() => {
-    scrollAway.current = onScrollAway;
+    dismiss.current = onDismiss;
   });
+  usePressOutside(floating, ref, onDismiss);
   useLayoutEffect(() => {
     const f = floating.current;
     if (!f) return;
@@ -58,7 +91,7 @@ export function useFloatingStyle(
     };
     const onScroll = (e: Event) => {
       if (e.target instanceof Node && f.contains(e.target)) return;
-      if (scrollAway.current) scrollAway.current();
+      if (dismiss.current) dismiss.current();
       else place();
     };
     place();

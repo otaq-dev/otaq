@@ -16,7 +16,7 @@ export {
 export { DecisionItem, DecisionsList, type DecisionItemProps, type DecisionsListProps } from "./DecisionItem";
 export { ConfirmDialog, Dialog, type ConfirmDialogProps, type DialogProps } from "./Dialog";
 export { Checkbox, Field, Radio, TextArea, TextInput, type FieldProps } from "./Field";
-export { type Anchor, useFloatingStyle } from "./Floating";
+export { type Anchor, useFloatingStyle, usePressOutside } from "./Floating";
 export { Kbd } from "./Kbd";
 export { LeadStatus, leadAction, openLeadTab, type LeadStatusProps } from "./LeadStatus";
 export { AnchoredMenu, Menu, type AnchoredMenuProps, type MenuClose, type MenuProps } from "./Menu";
@@ -32,7 +32,7 @@ export {
 } from "./motion";
 export { OtaqMark } from "./OtaqMark";
 export { CountBadge, MetaChip, StatusPill, type ChipTone, type CountTone, type MetaChipProps } from "./Pill";
-export { Popover, useDismiss, type PopoverProps } from "./Popover";
+export { Popover, useDismiss, useEscape, type PopoverProps } from "./Popover";
 export { PriorityChip, PriorityLabel } from "./Priority";
 export { Select, type SelectProps } from "./Select";
 export {

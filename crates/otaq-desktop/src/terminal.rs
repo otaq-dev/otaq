@@ -35,12 +35,23 @@ use crate::events::Sink;
 #[ts(rename = "TerminalFeed")]
 pub enum Feed {
     /// Clear the terminal and write the session's stored output (base64; the bytes need not be UTF-8): the first
-    /// attach, and again after a reconnect.
-    Replay { data: String },
+    /// attach, and again after a reconnect. `size` is the PTY's size while the session runs: the output's cursor
+    /// moves were drawn for it, so the page writes the replay at that size and only then fits it to its box.
+    Replay {
+        data: String,
+        size: Option<ReplaySize>,
+    },
     /// Live output (base64), continuing exactly where the previous piece ended.
     Live { data: String },
     /// Where the terminal stands; it takes input only while `live`.
     Phase { phase: Phase },
+}
+
+/// The cells a replay was drawn in. `ReplaySize` on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+pub struct ReplaySize {
+    pub cols: u16,
+    pub rows: u16,
 }
 
 /// Where the output shown so far ends, in the session's whole output (the service numbers every byte it ever
@@ -250,6 +261,10 @@ async fn follow(
         };
         if !feed.send(Feed::Replay {
             data: attached.scrollback,
+            size: attached.session.size.map(|s| ReplaySize {
+                cols: s.cols,
+                rows: s.rows,
+            }),
         }) || !feed.phase(phase)
         {
             return;
@@ -327,9 +342,13 @@ mod tests {
         let json = |f: Feed| serde_json::to_value(f).unwrap();
         assert_eq!(
             json(Feed::Replay {
-                data: "aGk=".into()
+                data: "aGk=".into(),
+                size: Some(ReplaySize {
+                    cols: 120,
+                    rows: 40
+                }),
             }),
-            serde_json::json!({ "kind": "replay", "data": "aGk=" })
+            serde_json::json!({ "kind": "replay", "data": "aGk=", "size": { "cols": 120, "rows": 40 } })
         );
         assert_eq!(
             json(Feed::Phase {
