@@ -315,10 +315,10 @@ const FEATURES: &[&str] = &[
     "pr.start",
     "pr.confirm",
     "pr.retry",
-    // The needs-you inbox.
-    "inbox.act",
-    "inbox.answer",
-    "inbox.next",
+    // The Needs you strip.
+    "strip.next",
+    "strip.resume_all",
+    "strip.suggestion",
     // Epics.
     "sections.create_from_note",
     "sections.move_to_epic",

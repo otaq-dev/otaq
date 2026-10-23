@@ -1,0 +1,326 @@
+/*
+ * The Needs you strip (T-0459; *24 → Row · The two views* `s24-03`, *Row · Needs you: the next project, and every
+ * group* `s24-12`): one row on the panel colour under the toolbar, a hairline under it. Each group's head is in its
+ * status colour (turquoise needs you, violet suggestion, grey interrupted, the check's blue), its chips are pills on
+ * the status's soft colour; thin dividers between groups; Next with its key at the end, the accent button when it goes
+ * to another project. Theme variables only.
+ */
+.strip {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+
+.strip-groups {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.strip-group {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.strip-divider {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+}
+
+.strip-head {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.strip-head[data-tone="attn"],
+.strip-chip[data-tone="attn"] {
+  --strip-tone: var(--st-attn);
+  --strip-tone-bg: var(--st-attn-bg);
+}
+
+.strip-head[data-tone="error"],
+.strip-chip[data-tone="error"] {
+  --strip-tone: var(--st-error);
+  --strip-tone-bg: var(--st-error-bg);
+}
+
+.strip-head[data-tone="review"],
+.strip-chip[data-tone="review"] {
+  --strip-tone: var(--st-review);
+  --strip-tone-bg: var(--st-review-bg);
+}
+
+.strip-head[data-tone="investigate"],
+.strip-chip[data-tone="investigate"] {
+  --strip-tone: var(--st-investigate);
+  --strip-tone-bg: var(--st-investigate-bg);
+}
+
+.strip-head[data-tone="paused"],
+.strip-chip[data-tone="paused"] {
+  --strip-tone: var(--st-paused);
+  --strip-tone-bg: var(--st-paused-bg);
+}
+
+.strip-head[data-tone="approved"],
+.strip-chip[data-tone="approved"] {
+  --strip-tone: var(--st-approved);
+  --strip-tone-bg: var(--st-approved-bg);
+}
+
+.strip-head {
+  color: var(--strip-tone);
+}
+
+button.strip-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--strip-tone-bg);
+  color: var(--strip-tone);
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+button.strip-chip[data-suggestion] {
+  gap: 4px;
+  outline: 1px solid var(--strip-tone);
+  outline-offset: -1px;
+}
+
+button.strip-chip:hover {
+  filter: brightness(0.96);
+}
+
+.strip-chip-key {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.strip-chip-reason {
+  font-weight: 400;
+}
+
+button.strip-resume-all,
+button.strip-next {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 6px;
+  outline: 1px solid var(--border-strong);
+  outline-offset: -1px;
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+button.strip-resume-all {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11.5px;
+}
+
+button.strip-next {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+button.strip-resume-all > .icon,
+button.strip-next > .icon {
+  color: var(--text-secondary);
+}
+
+button.strip-resume-all:hover,
+button.strip-next:hover {
+  background: var(--bg-hover);
+}
+
+/* "Next · billing-api, 1": the accent button (`s24-12`). */
+button.strip-next[data-elsewhere] {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 7px;
+  outline: 0;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+button.strip-next[data-elsewhere] > .icon {
+  color: var(--text-on-accent);
+}
+
+button.strip-next[data-elsewhere]:hover {
+  background: var(--accent-hover);
+}
+
+button.strip-chip:focus-visible,
+button.strip-resume-all:focus-visible,
+button.strip-next:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.strip-next-wrap {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+/* "Needs you · 0 here" and "You’re through shop-web’s items." */
+.strip-empty {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+}
+
+.strip-empty > .icon {
+  color: var(--st-approved);
+}
+
+.strip-empty-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.strip-empty-text {
+  margin-left: 3px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.strip-gap {
+  flex: 1;
+}
+
+/* "Wishlist lead suggests" under a suggestion's chip (`s24-12`). */
+.strip-suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 330px;
+  max-width: calc(100vw - 32px);
+}
+
+.strip-suggestion-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.strip-suggestion-head > .icon {
+  color: var(--st-investigate);
+}
+
+.strip-suggestion-text {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.45;
+  overflow-wrap: break-word;
+}
+
+.strip-suggestion-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Resume all's confirmation: the sessions it resumes, and the ones it leaves out. */
+.strip-resume-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  list-style: none;
+}
+
+.strip-resume-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.strip-resume-list .icon {
+  color: var(--st-error);
+}
+
+.strip-resume-key {
+  flex: none;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.strip-resume-left-out {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.strip-resume-left-out .icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+/* The line a lead's suggestion adds to the close and delete confirmations. */
+.strip-suggested-by {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--st-investigate-bg);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.strip-suggested-by > .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--st-investigate);
+}

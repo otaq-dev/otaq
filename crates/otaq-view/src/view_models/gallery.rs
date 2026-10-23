@@ -283,7 +283,7 @@ fn shortcut_lists() -> [ShortcutList; 3] {
         works_in_terminals: false,
     };
     let changed = CustomKeys(vec![
-        replaced(KeyAction::OpenInbox, 0, "⌘I"),
+        replaced(KeyAction::OpenActivity, 0, "⌘I"),
         replaced(KeyAction::NewTicket, 1, "n"),
     ]);
     let list = |custom: &CustomKeys, letters| {

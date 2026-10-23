@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 
 use otaq_core::naming;
 use otaq_view::view_models::{
-    activity, agent_pane, agent_tools_page, ask_bar, flow_at_work, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
+    activity, agent_pane, agent_tools_page, ask_bar, flow_at_work, board_page, card_page, cleanup, decision_change, decision_item, gallery, lead_status, lead_tab, needs_you_strip,
     limit_banner, onboarding_page, settings_page, stage_choices, tool_avatar,
 };
 use serde_json::Value;
@@ -28,8 +28,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.leads" => reply(&lead_status::gallery()),
         // The epic panel's Lead tab in each state (T-0290).
         "gallery.lead_tabs" => reply(&lead_tab::gallery()),
-        // The epic lead's inbox items and the suggestion's line (T-0292).
-        "gallery.inbox_lead" => reply(&inbox_page::lead_gallery()),
+        // The Needs you strip in each state of `s24-03` and `s24-12` (T-0459).
+        "gallery.needs_you_strip" => reply(&needs_you_strip::gallery()),
         // Settings' Environment variables row in each state (T-0300).
         "gallery.env_vars" => reply(&settings_page::env_vars_gallery()),
         // Settings' warm build switch in each state (T-0301).
@@ -71,7 +71,7 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.notifications" => reply(&settings_page::notifications_gallery()),
         // Settings → Keyboard shortcuts in every frame of update AF, macOS and Windows / Linux (T-0395).
         "gallery.keyboard_page" => reply(&otaq_view::view_models::keyboard_page::gallery()),
-        // The answer options' notes in the inbox, the panel and the card's hover card (T-0375).
+        // The answer options' notes in the panel and the card's hover card (T-0375).
         "gallery.option_notes" => reply(&super::panel::notes_gallery()),
         // 25 · The ticket sheet's header, details line and path: needs you, your check, an epic's child, Backlog
         // (T-0464).
@@ -111,7 +111,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(view["legend"].as_array().map(Vec::len), Some(4));
-        assert_eq!(view["keyboard_map"]["letters"][0]["label"], "Next / previous ticket (panel, inbox)");
+        assert_eq!(view["keyboard_map"]["letters"][0]["label"], "Next / previous ticket (panel)");
         assert_eq!(view["shortcut_lists"][1]["columns"][1][0]["rows"][2]["mark"], "changed");
         assert_eq!(view["priority"]["chips"][0]["short"], "P1");
         let cards = crate::api::request(&h.app, "gallery.cards", Value::Null)

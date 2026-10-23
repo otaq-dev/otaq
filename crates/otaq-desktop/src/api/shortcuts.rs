@@ -41,7 +41,7 @@ mod tests {
     use crate::api::request;
     use crate::service::testing::{Harness, connected};
 
-    /// The stored keys and switch: Activity on ⌘J shows "changed", Next inbox item (which lost ⌘J) leaves the list,
+    /// The stored keys and switch: Activity on ⌘J shows "changed", Next item that needs you (which lost ⌘J) leaves the list,
     /// and with the letters off a letter-only row says "off".
     #[tokio::test(flavor = "multi_thread")]
     async fn the_list_follows_the_stored_keys() {
@@ -90,7 +90,7 @@ mod tests {
             .collect();
         let row = |title: &str| rows.iter().find(|r| r["title"] == title).copied();
         assert_eq!(row("Activity").unwrap()["mark"], "changed");
-        assert!(row("Next inbox item").is_none());
+        assert!(row("Next item that needs you").is_none());
         assert_eq!(row("Filter the board").unwrap()["mark"], "off");
         assert!(after["note"].as_str().unwrap().contains("are off"));
         assert!(request(&h.app, "shortcuts.nothing", Value::Null).await.is_err());

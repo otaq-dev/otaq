@@ -126,7 +126,6 @@ pub fn unavailable(action: KeyAction, context: &Context) -> Option<&'static str>
         | A::ShowShortcuts
         | A::ShowBoard
         | A::ShowList
-        | A::OpenInbox
         | A::OpenActivity
         | A::Settings
         | A::FocusPane
@@ -189,7 +188,7 @@ pub fn icon(action: KeyAction) -> IconName {
     match action {
         A::CommandPalette | A::FilterBoard => I::Search,
         A::SwitchProject | A::Project(_) => I::FolderGit2,
-        A::NextInboxItem | A::OpenInbox => I::Inbox,
+        A::NextInboxItem => I::Hand,
         A::NextTicket => I::ArrowDown,
         A::PreviousTicket => I::ArrowUp,
         A::FocusEpic => I::Layers,

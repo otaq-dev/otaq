@@ -78,9 +78,9 @@ use KeyAction::*;
 
 /// The single letters in the drawn order, with the drawn names where they say more than the title (where they work,
 /// "Go to").
-const LETTERS: [(Option<&str>, &[KeyAction]); 13] = [
+const LETTERS: [(Option<&str>, &[KeyAction]); 12] = [
     (
-        Some("Next / previous ticket (panel, inbox)"),
+        Some("Next / previous ticket (panel)"),
         &[NextTicket, PreviousTicket],
     ),
     (
@@ -92,7 +92,6 @@ const LETTERS: [(Option<&str>, &[KeyAction]); 13] = [
     (None, &[ExpandPanel]),
     (Some("Go to Board"), &[ShowBoard]),
     (Some("Go to List"), &[ShowList]),
-    (Some("Go to Inbox"), &[OpenInbox]),
     (Some("Go to Activity"), &[OpenActivity]),
     (Some("Go to Terminals"), &[Terminals]),
     (None, &[FocusEpic]),
@@ -101,7 +100,7 @@ const LETTERS: [(Option<&str>, &[KeyAction]); 13] = [
 ];
 
 /// The modifier keys in the drawn order (0097's base map table).
-const MODIFIERS: [&[KeyAction]; 20] = [
+const MODIFIERS: [&[KeyAction]; 19] = [
     &[CommandPalette],
     &[SwitchProject],
     &[
@@ -124,7 +123,6 @@ const MODIFIERS: [&[KeyAction]; 20] = [
     &[NextTab, PreviousTab],
     &[NextTicket, PreviousTicket],
     &[ShowBoard],
-    &[OpenInbox],
     &[OpenActivity],
     &[Approve],
     &[SendBack],
@@ -208,14 +206,13 @@ mod tests {
         assert_eq!(
             shown,
             [
-                ("Next / previous ticket (panel, inbox)", vec!["j / k"]),
+                ("Next / previous ticket (panel)", vec!["j / k"]),
                 ("Ticket tabs (sheet open)", vec!["1–4"]),
                 ("Filter the board", vec!["/"]),
                 ("Show all shortcuts", vec!["?"]),
                 ("Full page / back to the sheet", vec!["e"]),
                 ("Go to Board", vec!["g", "b"]),
                 ("Go to List", vec!["g", "l"]),
-                ("Go to Inbox", vec!["g", "i"]),
                 ("Go to Activity", vec!["g", "a"]),
                 ("Go to Terminals", vec!["g", "t"]),
                 ("Focus the epic of the selected card", vec!["g", "e"]),
@@ -295,7 +292,7 @@ mod tests {
                     "Ctrl+`",
                     "Ctrl+`"
                 ),
-                row("Next inbox item", "⌘J", "Ctrl+J", "Ctrl+Shift+J"),
+                row("Next item that needs you", "⌘J", "Ctrl+J", "Ctrl+Shift+J"),
                 row(
                     "Next / previous panel tab",
                     "⌃Tab / ⌃⇧Tab",
@@ -309,7 +306,6 @@ mod tests {
                     "Ctrl+Shift+] / Ctrl+Shift+["
                 ),
                 ("Board", None, one("⇧⌘B"), one("Ctrl+Shift+B"), none()),
-                row("Inbox", "⇧⌘I", "Ctrl+Shift+I", "Ctrl+Shift+I"),
                 row("Activity", "⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"),
                 row("Approve ▾", "⌘↵", "Ctrl+↵", "Ctrl+Shift+↵"),
                 row("Send back", "⌘⌫", "Ctrl+⌫", "Ctrl+Shift+⌫"),

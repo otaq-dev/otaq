@@ -46,11 +46,6 @@ pub use editor::{
 #[cfg(test)]
 pub use flow_preview::export_types as export_flow_preview_types;
 #[cfg(test)]
-pub use inbox::{
-    ActRequest as InboxActParams, AnswerRequest as InboxAnswerParams, Load as InboxLoad,
-    Next as InboxNext, RunBarRequest as InboxRunBarParams,
-};
-#[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
 pub use lead::{Load as LeadTabLoad, Params as LeadTabParams};
@@ -135,6 +130,8 @@ pub use shell::{
     Quick as QuickSwitcherView, QuickParams, Rail as RailView, StepParams,
 };
 #[cfg(test)]
+pub use strip::export_types as export_strip_types;
+#[cfg(test)]
 pub use terminal::{
     TerminalDetach, TerminalFocus, TerminalInput, TerminalLink, TerminalResize, TerminalSettings,
 };
@@ -196,7 +193,7 @@ areas! {
     diff,
     terminal_tab,
     review,
-    inbox,
+    strip,
     pr,
     recovery,
     run,

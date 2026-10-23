@@ -51,7 +51,7 @@ function page(changed = 0): ShortcutsPage {
       label: "Reset all",
       enabled: changed > 0,
       question: `Reset all ${String(changed)} changed shortcuts to their defaults?`,
-      body: "Activity, New ticket and Next inbox item go back to their default keys.",
+      body: "Activity, New ticket and Next item that needs you go back to their default keys.",
       cancel: "Cancel",
     },
     letters: { label: "Single-letter shortcuts", description: "Keys like j, k, / and g then b.", on: true },
@@ -61,7 +61,9 @@ function page(changed = 0): ShortcutsPage {
       {
         title: "Moving around",
         rows: [
-          row("next_inbox_item", "Next inbox item", [key(slot({ action: "next_inbox_item" }, 0), ["⌘J"])]),
+          row("next_inbox_item", "Next item that needs you", [
+            key(slot({ action: "next_inbox_item" }, 0), ["⌘J"]),
+          ]),
         ],
       },
       {
@@ -268,12 +270,12 @@ describe("a key another action has", () => {
         outcome: "taken",
         key: "⌘J",
         by: { action: "next_inbox_item" },
-        question: "⌘J is used by Next inbox item. Use it here instead?",
+        question: "⌘J is used by Next item that needs you. Use it here instead?",
       },
     });
     await pressKey({ key: "j", code: "KeyJ", metaKey: true });
     const ask = rowOf("open_activity").querySelector('[data-tone="ask"]');
-    expect(ask?.textContent).toContain("⌘J is used by Next inbox item. Use it here instead?");
+    expect(ask?.textContent).toContain("⌘J is used by Next item that needs you. Use it here instead?");
     // The new key waits in its cell, tinted, with the default under the name.
     expect(cells("open_activity")[0]?.textContent).toBe("⌘J");
     expect(cells("open_activity")[0]?.hasAttribute("data-changed")).toBe(true);

@@ -71,21 +71,21 @@ describe("the selection", () => {
 describe("the overlay stack", () => {
   it("opens by id with params, newest on top, and knows when a modal is open", () => {
     const stack = createOverlayStack();
-    stack.open("inbox");
+    stack.open("activity");
     stack.open("edit_ticket", { ticket: "SHOP-22" });
-    expect(stack.store.get().map((o) => o.id)).toEqual(["inbox", "edit_ticket"]);
+    expect(stack.store.get().map((o) => o.id)).toEqual(["activity", "edit_ticket"]);
     expect(modalOpen(stack.store.get())).toBe(true);
 
-    stack.open("inbox");
-    expect(stack.store.get().map((o) => o.id)).toEqual(["edit_ticket", "inbox"]);
+    stack.open("activity");
+    expect(stack.store.get().map((o) => o.id)).toEqual(["edit_ticket", "activity"]);
     stack.closeTop();
     stack.toggle("edit_ticket", { ticket: "SHOP-22" });
     expect(stack.store.get()).toEqual([]);
     expect(modalOpen(stack.store.get())).toBe(false);
 
-    stack.toggle("inbox");
+    stack.toggle("activity");
     expect(modalOpen(stack.store.get())).toBe(false);
-    stack.toggle("inbox");
+    stack.toggle("activity");
     stack.closeTop();
     expect(stack.store.get()).toEqual([]);
   });

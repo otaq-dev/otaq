@@ -89,7 +89,7 @@ impl Default for KeyLabels {
     }
 }
 
-/// Keyboard settings for the label tests, from the M29 example: Activity → ⌘J (which takes it from Next inbox item);
+/// Keyboard settings for the label tests, from the M29 example: Activity → ⌘J (which takes it from Next item that needs you);
 /// one key recorded or removed; letters off.
 pub mod fixtures {
     use otaq_core::board::settings::{KeyboardChange, KeyboardSettings};
@@ -107,7 +107,7 @@ pub mod fixtures {
         }
     }
 
-    /// Activity's ⇧⌘U recorded as ⌘J, confirmed: Next inbox item's ⌘J is removed.
+    /// Activity's ⇧⌘U recorded as ⌘J, confirmed: Next item that needs you's ⌘J is removed.
     pub fn activity_on_cmd_j() -> KeyboardSettings {
         KeyboardSettings {
             letters: true,
@@ -185,7 +185,7 @@ mod tests {
         assert_eq!(win.label(KeyAction::FindInTerminal), None);
     }
 
-    /// Activity → ⌘J takes the key from Next inbox item, which then has none (no chip).
+    /// Activity → ⌘J takes the key from Next item that needs you, which then has none (no chip).
     #[test]
     fn a_label_follows_the_users_keys() {
         let keys = mac(&activity_on_cmd_j());

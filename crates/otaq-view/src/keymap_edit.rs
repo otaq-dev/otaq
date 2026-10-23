@@ -724,7 +724,7 @@ mod tests {
             KeyEditAnswer::Taken {
                 key: "⌘J".into(),
                 by: KeyAction::NextInboxItem,
-                question: "⌘J is used by Next inbox item. Use it here instead?".into(),
+                question: "⌘J is used by Next item that needs you. Use it here instead?".into(),
             }
         );
         let moved = ok(MAC, &fresh, confirmed(edit));
@@ -734,7 +734,7 @@ mod tests {
             "no key"
         );
         assert_eq!(changed_count(&moved), 2);
-        // The stored shape: Activity's ⌘J, Next inbox item's key removed.
+        // The stored shape: Activity's ⌘J, Next item that needs you's key removed.
         assert_eq!(
             moved.changes,
             [
@@ -801,7 +801,7 @@ mod tests {
             ("⌘A", "⌘A selects all text. Press another key."),
         ] {
             assert_eq!(
-                answer(MAC, &fresh, record(KeyAction::OpenInbox, 0, key)),
+                answer(MAC, &fresh, record(KeyAction::OpenActivity, 0, key)),
                 refused_with(reason),
                 "{key}"
             );
@@ -815,14 +815,14 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                answer(WIN, &fresh, record(KeyAction::OpenInbox, 0, key)),
+                answer(WIN, &fresh, record(KeyAction::OpenActivity, 0, key)),
                 refused_with(reason),
                 "{key}"
             );
         }
         // ⌘Q's Windows/Linux twin is free there; the webview's keys Otaq switches off are free.
-        ok(WIN, &fresh, record(KeyAction::OpenInbox, 0, "Ctrl+Q"));
-        ok(MAC, &fresh, record(KeyAction::OpenInbox, 0, "⌘R"));
+        ok(WIN, &fresh, record(KeyAction::OpenActivity, 0, "Ctrl+Q"));
+        ok(MAC, &fresh, record(KeyAction::OpenActivity, 0, "⌘R"));
     }
 
     #[test]
@@ -1047,7 +1047,7 @@ mod tests {
             inside(KeyAction::OpenActivity, 0, false, false),
         );
         assert_eq!(off, r);
-        // A base key ticked: Next inbox item's Ctrl+J, after the warning; the base map's Ctrl+K is already on.
+        // A base key ticked: Next item that needs you's Ctrl+J, after the warning; the base map's Ctrl+K is already on.
         assert!(matches!(
             answer(
                 WIN,
@@ -1076,19 +1076,19 @@ mod tests {
     #[test]
     fn a_taken_shift_form_in_terminals_asks_the_same_question() {
         let fresh = KeyboardSettings::default();
-        // Ctrl+I's terminal form is Ctrl+Shift+I, Inbox's key.
-        let edit = record(KeyAction::Park, 0, "Ctrl+I");
+        // Ctrl+U's terminal form is Ctrl+Shift+U, Activity's key.
+        let edit = record(KeyAction::Park, 0, "Ctrl+U");
         assert_eq!(
             answer(WIN, &fresh, edit.clone()),
             KeyEditAnswer::Taken {
-                key: "Ctrl+Shift+I".into(),
-                by: KeyAction::OpenInbox,
-                question: "Ctrl+Shift+I is used by Inbox. Use it here instead?".into(),
+                key: "Ctrl+Shift+U".into(),
+                by: KeyAction::OpenActivity,
+                question: "Ctrl+Shift+U is used by Activity. Use it here instead?".into(),
             }
         );
         let moved = ok(WIN, &fresh, confirmed(edit));
-        assert_eq!(texts(WIN, &moved, KeyAction::OpenInbox), ["g i"]);
-        assert_eq!(texts(WIN, &moved, KeyAction::Park), ["Ctrl+I"]);
+        assert_eq!(texts(WIN, &moved, KeyAction::OpenActivity), ["g a"]);
+        assert_eq!(texts(WIN, &moved, KeyAction::Park), ["Ctrl+U"]);
     }
 
     #[test]

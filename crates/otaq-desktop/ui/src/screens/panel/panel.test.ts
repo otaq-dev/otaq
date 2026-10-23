@@ -212,10 +212,10 @@ describe("answer options", () => {
       },
     });
     expect(html).toContain(`>${long}</span>`);
-    expect(html.match(/class="inbox-option-note"/g)).toHaveLength(1);
+    expect(html.match(/class="panel-answer-note"/g)).toHaveLength(1);
     const described = [...html.matchAll(/aria-describedby="([^"]+)"/g)].map((m) => m[1]);
     expect(described).toHaveLength(1);
-    expect(html).toContain(`id="${described[0] ?? ""}" class="inbox-option-note"`);
+    expect(html).toContain(`id="${described[0] ?? ""}" class="panel-answer-note"`);
   });
 });
 

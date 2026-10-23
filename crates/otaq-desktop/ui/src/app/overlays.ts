@@ -17,7 +17,7 @@ export interface OverlayStack {
   close: (id: OverlayId) => void;
   /** Closes the newest overlay, if any. */
   closeTop: () => void;
-  /** Closes `id` if it is open, else opens it (⇧⌘I for the inbox). */
+  /** Closes `id` if it is open, else opens it (a header button). */
   toggle: <K extends OverlayId>(id: K, ...params: ParamsArg<K>) => void;
 }
 

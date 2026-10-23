@@ -47,8 +47,6 @@ const HEADER: HeaderView = {
     label: "Activity",
     keys: "⇧⌘U",
   },
-  inbox: { label: "Inbox", count: 7, active: true },
-  inbox_hint: hint("Inbox", "⇧⌘I"),
 };
 
 /** Every element with a click handler in a tree of elements, walked without a DOM, by its label or class. */
@@ -242,17 +240,18 @@ describe("a project in Flow setup (T-0436, `s14-18`)", () => {
 });
 
 describe("the header", () => {
-  it("draws the four items, left to right, and nothing else", () => {
+  it("draws the three items, left to right, and nothing else", () => {
     const out = renderToStaticMarkup(createElement(HeaderBar, { view: HEADER, onSearch: () => undefined }));
-    const order = ["shop-web", "main", "Search  ·  is:needs-you", 'aria-label="Activity"', "Inbox"].map(
-      (text) => out.indexOf(text),
+    const order = ["shop-web", "main", "Search  ·  is:needs-you", 'aria-label="Activity"'].map((text) =>
+      out.indexOf(text),
     );
     expect(order.every((at) => at >= 0)).toBe(true);
     expect(order).toEqual(order.toSorted((a, b) => a - b));
     // The path is the name's hover, not a label; New ticket, Terminals and Settings are on the rail or ⌘N.
     expect(out).not.toContain("~/code/shop-web");
-    for (const gone of ["New ticket", "Terminals", "Settings", "tokens"]) expect(out).not.toContain(gone);
-    expect(out).toContain('class="header-inbox" data-active="true"');
+    // Needs you is the board's strip (d0114): no Inbox button.
+    for (const gone of ["New ticket", "Terminals", "Settings", "tokens", "Inbox", "header-inbox"])
+      expect(out).not.toContain(gone);
   });
 
   it("Activity reads its counts and draws the warning only when the view has one, in the view's amber", () => {
@@ -286,14 +285,13 @@ describe("the header", () => {
     expect(calm).not.toContain("18% left");
   });
 
-  it("search, Activity and Inbox open what they open", () => {
+  it("search and Activity open what they open", () => {
     let searched = 0;
     const bar = clicksOf(HeaderBar({ view: HEADER, onSearch: () => (searched += 1) }));
     bar.get("header-search")?.();
     expect(searched).toBe(1);
     clicksOf(ActivityChip({ activity: HEADER.activity })).get("Activity")?.();
-    bar.get("header-inbox")?.();
-    expect(overlays.store.get().map((o) => o.id)).toEqual(["activity", "inbox"]);
+    expect(overlays.store.get().map((o) => o.id)).toEqual(["activity"]);
   });
 
   it("hides what has no data, and reads slots with limits on", () => {
@@ -306,14 +304,12 @@ describe("the header", () => {
         processes: null,
         warning: null,
       },
-      inbox: { label: "Inbox", count: 0, active: false },
     };
     const out = renderToStaticMarkup(createElement(HeaderBar, { view: quiet, onSearch: () => undefined }));
     expect(out).not.toContain("header-search");
     expect(out).not.toContain("▷");
     expect(out).not.toContain("header-warning");
     expect(out).toContain("0/5");
-    expect(out).toContain("<span>Inbox</span>");
   });
 });
 

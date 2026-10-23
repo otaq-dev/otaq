@@ -265,8 +265,12 @@
   min-width: 0;
 }
 
-.panel-answer-label > .inbox-option-note {
+.panel-answer-note {
+  color: var(--text-secondary);
+  font-size: 12px;
   font-weight: 400;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .panel-answer-rec {

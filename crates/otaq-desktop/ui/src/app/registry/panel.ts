@@ -28,13 +28,10 @@ export const PANEL_TABS: readonly PanelTab[] = [
 /** The panel's sections, in order (the epic section shows only for an epic), at the top of Overview. */
 export const PANEL_SECTIONS = ["epic", "stack", "messages"] as const;
 
-/** The bar on top of the sheet during a ⌘J run through the inbox (T-0230), registered like a section. */
-export const PANEL_TOP = "inbox_run" as const;
-
 /** The box under Overview's top while the ticket's PR is open (T-0227, *05 → SHOP-26 · Approved, PR open*). */
 export const PANEL_UNDER_TABS = "pr_open" as const;
 
-export type PanelSection = (typeof PANEL_SECTIONS)[number] | typeof PANEL_TOP | typeof PANEL_UNDER_TABS;
+export type PanelSection = (typeof PANEL_SECTIONS)[number] | typeof PANEL_UNDER_TABS;
 
 /** A tab or section is drawn for the open ticket, by key. */
 export interface TicketProps {

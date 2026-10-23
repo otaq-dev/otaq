@@ -124,7 +124,7 @@ describe("banner buttons", () => {
     expect(r.ask).toHaveBeenCalledWith("notices.restart");
   });
 
-  it("Resume all after interrupted sessions opens the inbox's confirmation with its ticket list", async () => {
+  it("Resume all after interrupted sessions opens the confirmation with its ticket list", async () => {
     const r = routes();
     await pressBanner("sessions_interrupted", "action", r.routes);
     expect(r.stack.store.get().map((o) => o.id)).toEqual(["resume_all"]);
@@ -163,7 +163,7 @@ describe("notification clicks", () => {
     return {
       selection,
       focus: createStore<TerminalFocusRequest | null>(null),
-      overlays: createOverlayStack(),
+      next: vi.fn(),
       pane: {
         selection,
         layout: createStore<ShellLayout>({ ...INITIAL_LAYOUT, agentOpen: false }),
@@ -180,7 +180,7 @@ describe("notification clicks", () => {
     expect(r.focus.get()).toEqual({ ticket: "SHOP-22", seq: 1 });
     openTarget({ kind: "ticket", project: "SHOP", ticket: "SHOP-22" }, r);
     expect(r.focus.get()?.seq).toBe(2);
-    expect(r.overlays.store.get()).toEqual([]);
+    expect(r.next).not.toHaveBeenCalled();
   });
 
   it("a validator's prompt: the Terminal tab with the validator's terminal focused", () => {
@@ -207,16 +207,17 @@ describe("notification clicks", () => {
     expect(r.focus.get()).toEqual({ ticket: "NOTE-40", seq: 1 });
   });
 
-  it("the inbox for a summary; the board for a tool that isn't available", () => {
+  it("a summary opens the Needs you strip's next item (NYS-03); the board for a tool that isn't available", () => {
     const r = routes();
-    openTarget({ kind: "inbox" }, r);
-    expect(r.overlays.store.get().map((o) => o.id)).toEqual(["inbox"]);
+    openTarget({ kind: "needs_you" }, r);
+    expect(r.next).toHaveBeenCalledTimes(1);
+    expect(r.selection.get()).toMatchObject({ project: null, ticket: null });
     const b = routes();
     openTarget({ kind: "board", project: null }, b);
     expect(b.selection.get()).toMatchObject({ project: null, ticket: null });
     openTarget({ kind: "board", project: "NOTE" }, b);
     expect(b.selection.get()).toMatchObject({ project: "NOTE", ticket: null });
-    expect(b.overlays.store.get()).toEqual([]);
+    expect(b.next).not.toHaveBeenCalled();
     expect(b.focus.get()).toBeNull();
   });
 
@@ -229,7 +230,7 @@ describe("notification clicks", () => {
       return Promise.resolve(
         target.kind === "ticket"
           ? { kind: "ticket", project: "SHOP", ticket: target.key }
-          : { kind: "inbox" },
+          : { kind: "needs_you" },
       );
     });
     const opened: NotificationTarget[] = [];
@@ -255,7 +256,7 @@ describe("notification clicks", () => {
     expect(opened).toEqual([
       { kind: "ticket", project: "SHOP", ticket: "SHOP-9" },
       { kind: "ticket", project: "SHOP", ticket: "SHOP-22" },
-      { kind: "inbox" },
+      { kind: "needs_you" },
     ]);
     expect(forward).toHaveBeenCalledTimes(2);
     stop();

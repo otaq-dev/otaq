@@ -128,7 +128,7 @@ pub struct NoticesView {
 
 /// What a notification click opens (`OTAQ_OPEN`, or the `open_from_notification` event; d0090 "What a click
 /// opens"), with the project to switch to: a ticket's or a validator's terminal, a Project agent in the pane, an
-/// epic's lead terminal, the inbox, or the board.
+/// epic's lead terminal, the next item that needs you (the Needs you strip's Next, d0114), or the board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "NotificationTarget")]
@@ -141,8 +141,8 @@ pub enum OpenTarget {
     ProjectAgent { project: String, agent: String },
     /// The epic's panel on its Lead tab, the lead's terminal focused.
     Lead { project: String, epic: String },
-    /// The Needs-you inbox (a grouped notification or a summary).
-    Inbox,
+    /// A grouped notification or a summary: the item the Needs you strip's Next opens (NYS-03).
+    NeedsYou,
     /// The board, of `project` when one is named (a tool that isn't available: its limit banner explains it).
     Board { project: Option<String> },
 }
@@ -160,7 +160,7 @@ impl From<Target> for OpenTarget {
                 project: epic.project.to_string(),
                 epic: epic.to_string(),
             },
-            Target::Inbox => Self::Inbox,
+            Target::Inbox => Self::NeedsYou,
             Target::Board { project } => Self::Board { project },
         }
     }
@@ -1338,7 +1338,7 @@ mod tests {
                 ticket: "SHOP-40.1".into()
             })
         );
-        assert_eq!(OpenTarget::parse("inbox"), Some(OpenTarget::Inbox));
+        assert_eq!(OpenTarget::parse("inbox"), Some(OpenTarget::NeedsYou));
         assert_eq!(
             OpenTarget::parse("validator:SHOP-33"),
             Some(OpenTarget::Validator {

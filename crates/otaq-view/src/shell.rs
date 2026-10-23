@@ -1,4 +1,4 @@
-//! What the app shell (header, rail, inbox) asks its owner to do, and how it shows paths.
+//! What the app shell (header, rail) asks its owner to do, and how it shows paths.
 
 /// What the shell asks its owner to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,23 +17,16 @@ pub enum ShellRequest {
         project: String,
         run: Option<Box<otaq_core::terminals::run::RunInfo>>,
     },
-    /// An inbox row: switch to its project if needed and open its panel on this tab (UI-06).
+    /// A needs-you item: switch to its project if needed and open its panel on this tab (UI-06).
     OpenTicket {
         project: String,
         key: otaq_core::domain::TicketKey,
         tab: crate::view_models::panel::Tab,
     },
-    /// "Resume all (N)" in the inbox: confirm, then resume the interrupted sessions.
+    /// Resume all: confirm, then resume the interrupted sessions.
     ResumeAll,
-    /// Resume after the usage limit reset (the inbox's limit row, USG-06): "continue" to the waiting agents.
+    /// Resume after the usage limit reset (USG-06): "continue" to the waiting agents.
     ResumeAfterLimit,
-    /// A button on an inbox row (Retry start, Reopen parent, Remove dependency).
-    InboxAction(
-        otaq_core::domain::TicketKey,
-        crate::view_models::inbox::RowAction,
-    ),
-    /// The next inbox item (⌘J, the inbox's Next).
-    NextInboxItem,
     /// An answer stopped at unsent text in the terminal (SES-07): ask first.
     Unsent(crate::view_models::terminal_strip::UnsentPrompt),
     /// The Cleanup window (the rail's broom, Settings → Data, the board filter's "cleanup"; REC-04).

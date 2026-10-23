@@ -1365,12 +1365,23 @@ fn delivery_part(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
     })
 }
 
+/// An age as a card says it: "now", "6 min", "3 h", "2 d".
+fn age(ms: i64) -> String {
+    let minutes = ms.max(0) / 60_000;
+    match minutes {
+        0 => "now".to_owned(),
+        m if m < 60 => format!("{m} min"),
+        m if m < 24 * 60 => format!("{} h", m / 60),
+        m => format!("{} d", m / (24 * 60)),
+    }
+}
+
 /// "Opened by Shipper · 2 h ago" (FLW-15, `s03-46`): the Delivery stage's agent and when the PR opened; with one
 /// agent (nobody to name, d0086) or no time, today's line that Otaq doesn't watch PRs.
 fn pr_opened_line(ticket: &Ticket, x: &CardExtras, now_ms: i64) -> String {
     match (&x.delivery_agent, ticket.status_since) {
         (Some(agent), Some(since)) if x.agents.count > 1 => {
-            let age = crate::view_models::inbox::age(now_ms - since);
+            let age = age(now_ms - since);
             let ago = if age == "now" {
                 "just now".to_owned()
             } else {

@@ -1,8 +1,8 @@
 // The header (SHL-02, SHL-03; d0087; *02 · App shell → Row · Title bars (0086 · V)*, *Row · Header states (0086 ·
-// V)*): four items. The shown project with its base branch (the folder on the name's hover, "Copy path" in its menu),
+// V)*): three items. The shown project with its base branch (the folder on the name's hover, "Copy path" in its menu),
 // the search entry, Activity (agents and processes across all projects, the amber usage warning; a click or ⇧⌘U opens
-// its popover), the place for Pause after it (the `header_pause` slot, T-0457; SHB-01) and Needs you. Everything it
-// says comes from `shell.header`. A project in Flow setup (ASK-04, T-0436)
+// its popover) and the place for Pause after it (the `header_pause` slot, T-0457; SHB-01); Needs you is the board's
+// strip (d0114, T-0459). Everything it says comes from `shell.header`. A project in Flow setup (ASK-04, T-0436)
 // shows "billing-api · Flow setup" with "2 agents at work" or "2 proposals" in place of its base branch, and no search
 // (it has no board to filter). The row is the title bar: its empty parts
 // move the window, and the title bar's ends (T-0214) give it its outer padding.
@@ -28,7 +28,6 @@ export const HEADER_EVENTS = [
   "ticket_changed",
   "ticket_deleted",
   "session_state",
-  "inbox_changed",
   "usage_changed",
   "run_changed",
   "settings_changed",
@@ -169,7 +168,6 @@ export interface HeaderBarProps {
 }
 
 export function HeaderBar({ view, activityOpen = false, onSearch, search, pause }: HeaderBarProps) {
-  const { inbox } = view;
   // A project in Flow setup has no board, so no search.
   const searches = view.project !== null && view.project.flow_setup === null;
   return (
@@ -187,20 +185,6 @@ export function HeaderBar({ view, activityOpen = false, onSearch, search, pause 
       <div className="header-gap" />
       <ActivityChip activity={view.activity} open={activityOpen} anchor={activityAnchor} />
       {pause}
-      <Tooltip text={view.inbox_hint.text} keys={view.inbox_hint.keys ?? undefined}>
-        <button
-          type="button"
-          className="header-inbox"
-          data-active={inbox.active || undefined}
-          onClick={() => {
-            toggleOverlay("inbox");
-          }}
-        >
-          <Icon name="inbox" size={14} />
-          <span>{inbox.label}</span>
-          <span className="header-inbox-count">{inbox.count}</span>
-        </button>
-      </Tooltip>
     </div>
   );
 }

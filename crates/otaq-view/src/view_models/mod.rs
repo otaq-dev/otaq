@@ -61,9 +61,6 @@ pub mod flow_settings;
 pub mod flow_setup_page;
 pub mod gallery;
 pub mod history;
-pub mod inbox;
-pub mod inbox_page;
-pub mod inbox_run;
 pub mod keyboard_map;
 pub mod keyboard_page;
 pub mod layout;
@@ -76,6 +73,7 @@ pub mod menu;
 pub mod messages;
 pub mod modal;
 pub mod model_picker;
+pub mod needs_you_strip;
 pub mod view_prefs;
 
 pub mod onboarding;

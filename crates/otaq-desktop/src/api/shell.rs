@@ -19,7 +19,6 @@ use otaq_view::keymap::KeyAction;
 use otaq_view::shell::tilde;
 use otaq_view::view_models::activity::{self, Button as ActivityButton, Inputs};
 use otaq_view::view_models::flow_setup_page::{self, Header as HeaderFlowSetup};
-use otaq_view::view_models::inbox::{self, HeaderButton};
 use otaq_view::view_models::limits::{self, Field, Popover};
 use otaq_view::view_models::search_page;
 use otaq_view::view_models::switcher::{self, QuickRow, RAIL_WIDTH, RailBottom, RailItem};
@@ -106,9 +105,6 @@ pub struct Header {
     /// (T-0221, KEY-09).
     pub search: Hint,
     pub activity: ActivityButton,
-    /// Needs you: turquoise with a count, a quiet outline at 0.
-    pub inbox: HeaderButton,
-    pub inbox_hint: Hint,
 }
 
 async fn projects(app: &App) -> Result<Vec<ProjectInfo>, RequestError> {
@@ -182,13 +178,9 @@ impl ActivityData {
 }
 
 pub async fn header(app: &App, params: Params) -> Result<Header, RequestError> {
-    let (projects, data, inbox, keys) = tokio::join!(
+    let (projects, data, keys) = tokio::join!(
         projects(app),
         ActivityData::fetch(app),
-        optional(app, Request::InboxCounts, |r| match r {
-            Reply::InboxCounts(c) => Some(c.total),
-            _ => None,
-        }),
         super::keymap::labels(app),
     );
     let (projects, data) = (projects?, data?);
@@ -214,7 +206,6 @@ pub async fn header(app: &App, params: Params) -> Result<Header, RequestError> {
         &projects,
         shown,
         &data.inputs(otaq_core::store::now_ms(), &tool_avatar::connected()),
-        inbox.unwrap_or(0),
         &keys,
     );
     if let (Some(project), Some(setup)) = (view.project.as_mut(), setup.as_ref()) {
@@ -227,7 +218,6 @@ fn header_view(
     projects: &[ProjectInfo],
     shown: Option<&str>,
     activity: &Inputs<'_>,
-    inbox_total: u32,
     keys: &KeyLabels,
 ) -> Header {
     Header {
@@ -245,8 +235,6 @@ fn header_view(
             }),
         search: Hint::new(search_page::PLACEHOLDER, KeyAction::FilterBoard, keys),
         activity: activity::button(activity, keys),
-        inbox: inbox::header_button(inbox_total),
-        inbox_hint: Hint::new("Inbox", KeyAction::OpenInbox, keys),
     }
 }
 
@@ -465,15 +453,15 @@ mod tests {
     }
 
     #[test]
-    fn the_header_has_exactly_four_items() {
+    fn the_header_has_exactly_three_items() {
         let projects = [project("NOTE", "pocket-notes", 2, 6), project("API", "notes-api", 1, 1)];
         let fixtures = activity::fixtures::Fixtures::new();
         let mac = KeyLabels::base(Platform::Mac);
-        let view = header_view(&projects, Some("API"), &fixtures.low_one.inputs(), 7, &mac);
+        let view = header_view(&projects, Some("API"), &fixtures.low_one.inputs(), &mac);
         let json = serde_json::to_value(&view).unwrap();
         let keys: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
-        // Project and branch, search, Activity, Needs you (with its tooltip).
-        assert_eq!(keys, ["activity", "inbox", "inbox_hint", "project", "search"]);
+        // Project and branch, search, Activity (Pause comes in its slot; Needs you is the board's strip, d0114).
+        assert_eq!(keys, ["activity", "project", "search"]);
 
         let shown = view.project.unwrap();
         assert_eq!((shown.name.as_str(), shown.base_branch.as_str()), ("notes-api", "main"));
@@ -481,15 +469,12 @@ mod tests {
         assert_eq!(view.activity.agents.count, "3");
         assert_eq!(view.activity.processes.as_deref(), Some("2"));
         assert_eq!(view.activity.warning.unwrap().text, "5h 18% left");
-        assert_eq!((view.inbox.label, view.inbox.count), ("Inbox", 7));
-        assert_eq!(view.inbox_hint.text, "Inbox");
 
         // No project shown, nothing running, nothing waiting.
-        let view = header_view(&projects, None, &fixtures.idle.inputs(), 0, &mac);
+        let view = header_view(&projects, None, &fixtures.idle.inputs(), &mac);
         assert_eq!(view.project, None);
         assert_eq!(view.activity.processes, None);
         assert_eq!(view.activity.warning, None);
-        assert!(!view.inbox.active);
     }
 
     /// KEY-08, KEY-09: the search field shows `/` (the board filter), the tooltips the user's keys; Activity → ⌘J
@@ -499,17 +484,16 @@ mod tests {
         use otaq_view::key_labels::fixtures as keys;
         let projects = [project("NOTE", "pocket-notes", 0, 0)];
         let idle = activity::fixtures::Fixtures::new().idle;
-        let view = |labels: &KeyLabels| header_view(&projects, Some("NOTE"), &idle.inputs(), 0, labels);
+        let view = |labels: &KeyLabels| header_view(&projects, Some("NOTE"), &idle.inputs(), labels);
         let base = view(&keys::base());
         assert_eq!(base.search.keys.as_deref(), Some("/"));
         assert_eq!(base.activity.keys.as_deref(), Some("⇧⌘U"));
-        assert_eq!(base.inbox_hint.keys.as_deref(), Some("⇧⌘I"));
         let j = view(&keys::mac(&keys::activity_on_cmd_j()));
         assert_eq!(j.activity.keys.as_deref(), Some("⌘J"));
-        let removed = view(&keys::with(true, &[("open_inbox", None, 0, None)]));
-        assert_eq!(removed.inbox_hint.keys.as_deref(), Some("g i"));
-        let off = view(&keys::with(false, &[("open_inbox", None, 0, None)]));
-        assert_eq!((off.search.keys, off.inbox_hint.keys), (None, None));
+        let removed = view(&keys::with(true, &[("open_activity", None, 0, None)]));
+        assert_eq!(removed.activity.keys.as_deref(), Some("g a"));
+        let off = view(&keys::with(false, &[("open_activity", None, 0, None)]));
+        assert_eq!((off.search.keys, off.activity.keys), (None, None));
     }
 
     /// The quick switcher's "add project" is New ticket's key, left out without one.
@@ -702,7 +686,7 @@ mod tests {
         assert_eq!(header["activity"]["agents"]["label"], "running");
         assert_eq!(header["activity"]["processes"], Value::Null);
         assert_eq!(header["activity"]["warning"], Value::Null);
-        assert_eq!(header["inbox"]["label"], "Inbox");
+        assert_eq!(header.get("inbox"), None);
 
         // The popover: Claude Code's block with no windows yet, nothing running, no processes. The connected tools are
         // passed in: the app's list is one global that the other tests in this binary set from their own services.

@@ -12,8 +12,8 @@ import type { PanelSubmitDialog } from "../../generated/PanelSubmitDialog";
 import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { confirmSuggestion } from "../inbox/logic";
-import { SuggestedBy } from "../inbox/SuggestedBy";
+import { confirmSuggestion } from "../strip/logic";
+import { SuggestedBy } from "../strip/SuggestedBy";
 
 /** Runs a confirm once at a time; its refusal stays on screen, success closes the dialog. */
 function useConfirm(close: () => void) {
@@ -67,9 +67,7 @@ export function CloseTicketDialog({ params, close }: OverlayProps<"close_ticket"
       onConfirm={() => {
         const { suggestion } = params;
         confirm.run(() =>
-          suggestion
-            ? confirmSuggestion(params.ticket, suggestion, "close")
-            : request("panel.close", { key: params.ticket }),
+          suggestion ? confirmSuggestion(suggestion) : request("panel.close", { key: params.ticket }),
         );
       }}
       onCancel={close}

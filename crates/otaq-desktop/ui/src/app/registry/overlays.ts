@@ -1,5 +1,5 @@
-// Every overlay of the page (dialogs, popovers, drawers, the inbox), fixed here so screens open one another's by id
-// (`openOverlay("inbox")`) without editing a shared list. Each overlay's own screen registers its component; opening
+// Every overlay of the page (dialogs, popovers, drawers), fixed here so screens open one another's by id
+// (`openOverlay("activity")`) without editing a shared list. Each overlay's own screen registers its component; opening
 // one that isn't registered yet does nothing visible. Menus and tooltips tied to one element stay local to their
 // component (they may portal into the overlay host, `OVERLAY_HOST_ID`).
 import type { ComponentType } from "react";
@@ -7,7 +7,6 @@ import type { ComponentType } from "react";
 import type { ConfirmRow } from "../../generated/ConfirmRow";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
 import type { IconName } from "../../generated/IconName";
-import type { InboxAllClear } from "../../generated/InboxAllClear";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
 import type { ReportOpenParams } from "../../generated/ReportOpenParams";
 import type { UsageDataDialog } from "../../generated/UsageDataDialog";
@@ -39,8 +38,6 @@ export interface SuggestionConfirm {
 }
 
 export interface OverlayParams {
-  /** The needs-you inbox (T-0230). */
-  inbox: undefined;
   /** The quick switcher, ⌘P (T-0219). */
   quick_switcher: undefined;
   /** The command palette, ⌘K / ⇧⌘P (T-0393); `terminal`: a terminal had the keyboard when it opened. */
@@ -102,10 +99,9 @@ export interface OverlayParams {
   confirm: Confirmation;
   /** Restart now's confirmation, naming who gets interrupted (T-0231). */
   restart_service: undefined;
-  /** Resume all's confirmation listing the sessions it resumes (T-0230), from the inbox and the banner. */
-  resume_all: undefined;
-  /** "All clear" over the board after the last ⌘J item (T-0230). */
-  all_clear: InboxAllClear;
+  /** Resume all's confirmation listing the sessions it resumes (T-0230): the Needs you strip's for its project
+   * (T-0459), the banner's for every project. */
+  resume_all: { project?: string } | undefined;
   /** The ? shortcut list (T-0394, KEY-07), from anywhere; Esc goes back. */
   shortcuts: undefined;
   /** The developer-only design gallery, over the whole window (T-0217, `OTAQ_GALLERY=1`). */
@@ -128,7 +124,6 @@ export type OverlayId = keyof OverlayParams;
  * asks `modalOpen`).
  */
 export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
-  inbox: false,
   quick_switcher: false,
   command_palette: false,
   new_ticket: true,
@@ -159,7 +154,6 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   confirm: true,
   restart_service: true,
   resume_all: true,
-  all_clear: false,
   shortcuts: true,
   gallery: true,
   full_view: true,

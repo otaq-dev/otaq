@@ -306,7 +306,7 @@ mod tests {
                 ("Command palette", keys(&[&["⌘K"], &["⇧⌘P"]]), None),
                 ("Switch project", keys(&[&["⌘P"]]), None),
                 ("Project 1–9", keys(&[&["⌘1–9"]]), None),
-                ("Next inbox item", keys(&[&["⌘J"]]), None),
+                ("Next item that needs you", keys(&[&["⌘J"]]), None),
                 (
                     "Next / previous ticket",
                     keys(&[&["⌘] / ⌘["], &["j / k"]]),
@@ -337,7 +337,6 @@ mod tests {
             [
                 ("Board", keys(&[&["⇧⌘B"], &["g", "b"]]), None),
                 ("List", keys(&[&["g", "l"]]), None),
-                ("Inbox", keys(&[&["⇧⌘I"], &["g", "i"]]), None),
                 ("Activity", keys(&[&["⇧⌘U"], &["g", "a"]]), None),
                 ("Settings", keys(&[&["⌘,"]]), None),
                 ("Open / close the Project agent", keys(&[&["⌘L"]]), None),
@@ -395,21 +394,21 @@ mod tests {
             .find(|r| r.title == title)
     }
 
-    /// `s02-24`'s second card (Inbox ⌘I, New ticket's letter n) and the ticket's example (Activity on ⌘J, which takes
-    /// it from Next inbox item): a changed row says "changed"; an action left with no key leaves the list.
+    /// `s02-24`'s second card (a key on ⌘I, New ticket's letter n; Activity here until Pause exists) and the ticket's example (Activity on ⌘J, which takes
+    /// it from Next item that needs you): a changed row says "changed"; an action left with no key leaves the list.
     #[test]
     fn a_changed_key_is_marked() {
         let list = mac(
             &CustomKeys(vec![
-                replaced(KeyAction::OpenInbox, 0, "⌘I"),
+                replaced(KeyAction::OpenActivity, 0, "⌘I"),
                 replaced(KeyAction::NewTicket, 1, "n"),
             ]),
             true,
         );
-        let inbox = row_of(&list, "Inbox").unwrap();
-        assert_eq!(inbox.keys[0].kbds, ["⌘I"]);
-        assert!(inbox.changed);
-        assert_eq!(inbox.mark, Some("changed"));
+        let activity = row_of(&list, "Activity").unwrap();
+        assert_eq!(activity.keys[0].kbds, ["⌘I"]);
+        assert!(activity.changed);
+        assert_eq!(activity.mark, Some("changed"));
         let new_ticket = row_of(&list, "New ticket").unwrap();
         let shown: Vec<&Vec<String>> = new_ticket.keys.iter().map(|k| &k.kbds).collect();
         assert_eq!(shown, [&["⌘N"], &["n"]]);
@@ -426,7 +425,7 @@ mod tests {
         let activity = row_of(&list, "Activity").unwrap();
         assert_eq!(activity.keys[0].kbds, ["⌘J"]);
         assert_eq!(activity.mark, Some("changed"));
-        assert!(row_of(&list, "Next inbox item").is_none());
+        assert!(row_of(&list, "Next item that needs you").is_none());
     }
 
     /// `s02-26`: with the letters off, rows with a modifier key show just that key; rows with only letters stay,
@@ -441,7 +440,7 @@ mod tests {
                 ("Command palette", keys(&[&["⌘K"], &["⇧⌘P"]]), None),
                 ("Switch project", keys(&[&["⌘P"]]), None),
                 ("Project 1–9", keys(&[&["⌘1–9"]]), None),
-                ("Next inbox item", keys(&[&["⌘J"]]), None),
+                ("Next item that needs you", keys(&[&["⌘J"]]), None),
                 ("Next / previous ticket", keys(&[&["⌘] / ⌘["]]), None),
                 ("Filter the board", keys(&[&["/"]]), Some("off")),
                 (
@@ -509,7 +508,7 @@ mod tests {
             ] {
                 assert!(!titles(&list).contains(&title), "{title}");
             }
-            assert_eq!(titles(&list).len(), 25);
+            assert_eq!(titles(&list).len(), 24);
         }
         let list = mac(&CustomKeys(vec![replaced(KeyAction::Park, 0, "g p")]), true);
         let park = row_of(&list, "Park").unwrap();

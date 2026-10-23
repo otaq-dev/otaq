@@ -73,7 +73,7 @@ impl KeyGroup {
     }
 }
 
-/// An app action of the map. On the page it is `{ action: "open_inbox" }`, or with its number
+/// An app action of the map. On the page it is `{ action: "open_activity" }`, or with its number
 /// `{ action: "project", number: 3 }`; screens register their handlers by `action` (T-0212).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(tag = "action", content = "number", rename_all = "snake_case")]
@@ -83,6 +83,7 @@ pub enum KeyAction {
     SwitchProject,
     /// Project 1–9.
     Project(u8),
+    /// The next item that needs you (d0114): the strip's Next, on to other projects after the open one's.
     NextInboxItem,
     NextTicket,
     PreviousTicket,
@@ -96,7 +97,6 @@ pub enum KeyAction {
     ShowBoard,
     /// The board's List view (BRD-01, SHB-04).
     ShowList,
-    OpenInbox,
     /// The Activity popover (d0087).
     OpenActivity,
     Settings,
@@ -147,7 +147,6 @@ impl KeyAction {
             Self::ShowShortcuts,
             Self::ShowBoard,
             Self::ShowList,
-            Self::OpenInbox,
             Self::OpenActivity,
             Self::Settings,
             Self::FocusPane,
@@ -196,14 +195,13 @@ impl KeyAction {
             Self::CommandPalette => "Command palette",
             Self::SwitchProject => "Switch project",
             Self::Project(_) => "Project 1–9",
-            Self::NextInboxItem => "Next inbox item",
+            Self::NextInboxItem => "Next item that needs you",
             Self::NextTicket | Self::PreviousTicket => "Next / previous ticket",
             Self::FilterBoard => "Filter the board",
             Self::FocusEpic => "Focus the epic of the selected card",
             Self::ShowShortcuts => "Show all shortcuts",
             Self::ShowBoard => "Board",
             Self::ShowList => "List",
-            Self::OpenInbox => "Inbox",
             Self::OpenActivity => "Activity",
             Self::Settings => "Settings",
             Self::FocusPane => "Open / close the Project agent",
@@ -252,7 +250,6 @@ impl KeyAction {
             | Self::ShowShortcuts => KeyGroup::MovingAround,
             Self::ShowBoard
             | Self::ShowList
-            | Self::OpenInbox
             | Self::OpenActivity
             | Self::Settings
             | Self::FocusPane
@@ -308,7 +305,6 @@ impl KeyAction {
             Self::ShowShortcuts => vec![letter("?")],
             Self::ShowBoard => vec![k("⇧⌘B", "Ctrl+Shift+B", ""), letter("g b")],
             Self::ShowList => vec![letter("g l")],
-            Self::OpenInbox => vec![k("⇧⌘I", "Ctrl+Shift+I", "Ctrl+Shift+I"), letter("g i")],
             Self::OpenActivity => vec![k("⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"), letter("g a")],
             Self::Settings => vec![k("⌘,", "Ctrl+,", "Ctrl+,")],
             Self::FocusPane => vec![k("⌘L", "Ctrl+L", "Ctrl+Shift+L")],
@@ -398,12 +394,11 @@ pub struct SequenceHint {
     pub name: &'static str,
 }
 
-/// The base map's sequences in the order the hint shows them ("g → b Board · l List · i Inbox · a Activity · t Terminals · e
+/// The base map's sequences in the order the hint shows them ("g → b Board · l List · a Activity · t Terminals · e
 /// Epic", 0097); the user's own sequences for other actions follow, in the map's order.
-const HINT_ORDER: [KeyAction; 6] = [
+const HINT_ORDER: [KeyAction; 5] = [
     KeyAction::ShowBoard,
     KeyAction::ShowList,
-    KeyAction::OpenInbox,
     KeyAction::OpenActivity,
     KeyAction::Terminals,
     KeyAction::FocusEpic,
@@ -1181,12 +1176,6 @@ mod tests {
             row(ShowBoard, &["⇧⌘B", "g b"], &["Ctrl+Shift+B", "g b"], &[]),
             row(ShowList, &["g l"], &["g l"], &[]),
             row(
-                OpenInbox,
-                &["⇧⌘I", "g i"],
-                &["Ctrl+Shift+I", "g i"],
-                &["Ctrl+Shift+I"],
-            ),
-            row(
                 OpenActivity,
                 &["⇧⌘U", "g a"],
                 &["Ctrl+Shift+U", "g a"],
@@ -1455,12 +1444,7 @@ mod tests {
         };
         // The Ctrl keys a terminal lets through; the rest that work in one already hold Shift.
         assert_eq!(everywhere(false), let_through);
-        for text in [
-            "Ctrl+Shift+Tab",
-            "Ctrl+Shift+P",
-            "Ctrl+Shift+I",
-            "Ctrl+Shift+U",
-        ] {
+        for text in ["Ctrl+Shift+Tab", "Ctrl+Shift+P", "Ctrl+Shift+U"] {
             assert!(everywhere(true).contains(&text.to_owned()), "{text}");
         }
         for b in win.iter().filter(|b| b.place == KeyPlace::InsideTerminals) {
@@ -1865,12 +1849,12 @@ mod tests {
             platform,
             function: false,
         };
-        let open_inbox = parse("⇧⌘I");
+        let activity = parse("⇧⌘U");
         assert_eq!(
-            (open_inbox.key.as_str(), open_inbox.code.as_str()),
-            ("i", "KeyI")
+            (activity.key.as_str(), activity.code.as_str()),
+            ("u", "KeyU")
         );
-        assert_eq!(open_inbox.modifiers, mods(false, false, true, true));
+        assert_eq!(activity.modifiers, mods(false, false, true, true));
         let approve = parse("Ctrl+Shift+↵");
         assert_eq!(
             (approve.key.as_str(), approve.code.as_str()),
@@ -1904,7 +1888,7 @@ mod tests {
             },
             works_in_terminals,
         };
-        // The example's custom keys (tickets/m29-tickets.md): Activity → ⌘J taking it from Next inbox item, New
+        // The example's custom keys (tickets/m29-tickets.md): Activity → ⌘J taking it from Next item that needs you, New
         // ticket's `c` → `n`, Park → `g` `p`.
         let custom = CustomKeys(vec![
             change(KeyAction::OpenActivity, 0, Some("⌘J"), false),
@@ -2121,8 +2105,8 @@ mod tests {
     fn the_page_reads_an_action_by_its_name_and_number() {
         let json = |a: KeyAction| serde_json::to_value(a).unwrap();
         assert_eq!(
-            json(KeyAction::OpenInbox),
-            serde_json::json!({ "action": "open_inbox" })
+            json(KeyAction::OpenActivity),
+            serde_json::json!({ "action": "open_activity" })
         );
         assert_eq!(
             json(KeyAction::CommandPalette),
@@ -2220,7 +2204,7 @@ mod tests {
                         "Command palette",
                         "Switch project",
                         "Project 1–9",
-                        "Next inbox item",
+                        "Next item that needs you",
                         "Next / previous ticket",
                         "Filter the board",
                         "Focus the epic of the selected card",
@@ -2232,7 +2216,6 @@ mod tests {
                     vec![
                         "Board",
                         "List",
-                        "Inbox",
                         "Activity",
                         "Settings",
                         "Open / close the Project agent",
@@ -2325,7 +2308,7 @@ mod tests {
         };
         assert_eq!(
             texts(&CustomKeys::default()),
-            "b Board · l List · i Inbox · a Activity · t Terminals · e Epic"
+            "b Board · l List · a Activity · t Terminals · e Epic"
         );
         let change = |action, slot, change| CustomKey {
             action,
@@ -2342,13 +2325,13 @@ mod tests {
         );
         assert_eq!(
             texts(&CustomKeys(vec![park.clone()])),
-            "b Board · l List · i Inbox · a Activity · t Terminals · e Epic · p Park"
+            "b Board · l List · a Activity · t Terminals · e Epic · p Park"
         );
         let custom = CustomKeys(vec![
             park,
             change(KeyAction::OpenActivity, 1, KeyChange::Removed),
             change(
-                KeyAction::OpenInbox,
+                KeyAction::Terminals,
                 1,
                 KeyChange::Replaced {
                     key: Key::parse("g n").unwrap(),
@@ -2357,7 +2340,7 @@ mod tests {
         ]);
         assert_eq!(
             texts(&custom),
-            "b Board · l List · n Inbox · t Terminals · e Epic · p Park"
+            "b Board · l List · n Terminals · e Epic · p Park"
         );
         // Windows/Linux: the same letters (they never work in a terminal).
         assert_eq!(

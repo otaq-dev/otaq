@@ -7,7 +7,6 @@ import { OVERLAY_IDS, type OverlayEntries } from "./overlays";
 import {
   PANEL_SECTIONS,
   PANEL_TABS,
-  PANEL_TOP,
   PANEL_UNDER_TABS,
   type PanelSectionEntries,
   type PanelTabEntries,
@@ -43,7 +42,7 @@ export function createRegistries(): Registries {
     overlays: createRegistry("overlays", OVERLAY_IDS),
     sheetTabs: createRegistry("sheet tabs", SHEET_TABS),
     panelTabs: createRegistry("panel tabs", PANEL_TABS),
-    panelSections: createRegistry("panel sections", [PANEL_TOP, ...PANEL_SECTIONS, PANEL_UNDER_TABS]),
+    panelSections: createRegistry("panel sections", [...PANEL_SECTIONS, PANEL_UNDER_TABS]),
     settings: {
       global: createRegistry("global settings sections", GLOBAL_SECTIONS),
       project: createRegistry("project settings sections", PROJECT_SECTIONS),

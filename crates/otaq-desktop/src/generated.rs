@@ -232,15 +232,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::TerminalTabLoad::export_all(&cfg)?;
     crate::api::TerminalTabParams::export_all(&cfg)?;
     crate::api::TerminalTabDeliverParams::export_all(&cfg)?;
-    // The inbox and ⌘J (T-0230); the load also writes the view, groups, rows, answers and buttons.
-    crate::api::InboxLoad::export_all(&cfg)?;
-    crate::api::InboxAnswerParams::export_all(&cfg)?;
-    crate::api::InboxActParams::export_all(&cfg)?;
-    crate::api::InboxNext::export_all(&cfg)?;
-    crate::api::InboxRunBarParams::export_all(&cfg)?;
-    otaq_view::view_models::inbox_page::RunBarView::export_all(&cfg)?;
-    otaq_view::view_models::inbox_page::ResumeAllDialog::export_all(&cfg)?;
-    otaq_view::view_models::inbox_page::LeadGallery::export_all(&cfg)?;
+    // The Needs you strip and ⌘J (T-0459): its view, Next, Resume all's confirmation and the Gallery's states.
+    crate::api::export_strip_types(&cfg)?;
     crate::api::OptionNotesGallery::export_all(&cfg)?;
     // Open PR / Push to PR (T-0227): the answer also writes the dialog's view, its stages and the Push intro.
     crate::api::PrAnswer::export_all(&cfg)?;

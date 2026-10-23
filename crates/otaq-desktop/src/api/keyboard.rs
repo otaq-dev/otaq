@@ -164,7 +164,7 @@ mod tests {
         assert_eq!(asked["outcome"], "taken");
         assert_eq!(
             asked["question"],
-            format!("{inbox_key} is used by Next inbox item. Use it here instead?")
+            format!("{inbox_key} is used by Next item that needs you. Use it here instead?")
         );
         assert_eq!(global_settings(&h.app).await.unwrap(), before);
 
@@ -267,7 +267,7 @@ mod tests {
         let page = request(&h.app, "keyboard.view", Value::Null).await.unwrap();
         assert_eq!(page["reset_all"]["enabled"], true);
 
-        // Activity ⌘J / Ctrl+J: the question; Use here through `keyboard.edit`; Next inbox item's reset asks back.
+        // Activity ⌘J / Ctrl+J: the question; Use here through `keyboard.edit`; Next item that needs you's reset asks back.
         let mut activity = press("j", "KeyJ", mac, false);
         activity["action"] = json!({ "action": "open_activity" });
         if !mac {

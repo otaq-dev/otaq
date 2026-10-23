@@ -10,7 +10,6 @@ import { createContext, Fragment, useCallback, useContext, useEffect, useRef, us
 import { mainWidth, shellLayout, toggleExpanded } from "../../app/layout";
 import { openOverlay } from "../../app/overlays";
 import { useRegistries, useShortcut } from "../../app/registry";
-import { PANEL_TOP } from "../../app/registry/panel";
 import { closeTicket, openTicket, selection, showTab, stepTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { AnchoredMenu, IconButton, StatusPill, Tabs, ToolAvatar, Tooltip } from "../../components";
@@ -244,7 +243,6 @@ export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
   const sheet = view.sheet;
   const shown = shownSheetTab(sheet.tabs, tab, sheet.opens_on);
   const Body = shown ? app.sheetTabs.get(shown.tab)?.Component : undefined;
-  const Top = app.panelSections.get(PANEL_TOP)?.Component;
   // At full page the project's crumb is "← Board", back to the sheet over the board (`s25-10`).
   const crumbs = fullPage ? sheet.crumbs.slice(1) : sheet.crumbs;
   return (
@@ -255,7 +253,6 @@ export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
         data-full-page={fullPage || undefined}
         style={fullPage ? undefined : { width }}
       >
-        {Top && <Top ticket={view.key} />}
         <div className="sheet-header">
           <div className="sheet-heading">
             <nav className="sheet-crumbs" aria-label="Breadcrumb">

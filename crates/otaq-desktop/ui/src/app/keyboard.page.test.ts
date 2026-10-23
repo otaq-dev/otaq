@@ -52,7 +52,7 @@ function map(letters: boolean): Keymap {
     terminal_app_modifiers: [],
     bindings: [
       sequence({ action: "show_board" }, "b"),
-      sequence({ action: "open_inbox" }, "i"),
+      sequence({ action: "terminals" }, "t"),
       sequence({ action: "park" }, "p"),
       binding({ action: "next_ticket" }, { kind: "letter", letter: "j" }, "j"),
       binding(
@@ -68,7 +68,7 @@ function map(letters: boolean): Keymap {
     ],
     sequences: [
       { then: "b", name: "Board" },
-      { then: "i", name: "Inbox" },
+      { then: "t", name: "Terminals" },
       { then: "p", name: "Park" },
     ],
   };
@@ -85,7 +85,7 @@ beforeEach(() => {
   ran = [];
   for (const name of [
     "show_board",
-    "open_inbox",
+    "terminals",
     "park",
     "next_ticket",
     "open_activity",
@@ -127,7 +127,7 @@ test("the hint shows after g with the user's sequences, and goes on the letter",
   act(() => root?.render(createElement(SequenceHint)));
   expect(hint()).toBeNull();
   expect(press("g").defaultPrevented).toBe(true);
-  expect(hint()).toBe("g→bBoard·iInbox·pPark");
+  expect(hint()).toBe("g→bBoard·tTerminals·pPark");
   press("p");
   expect(ran).toEqual(["park"]);
   expect(hint()).toBeNull();

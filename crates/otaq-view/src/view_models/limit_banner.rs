@@ -1,7 +1,6 @@
 //! The usage-limit banner (USG-06, USG-07, USG-08, USG-10, AGT-08; d0020, d0046, d0086; *11 · Banners → Usage limit ·
 //! just hit, waiting for reset, after reset, weekly, reset time unknown*, *Row · Limit banner per tool (0086)*, *Row ·
-//! Use fallback now (AGM-03, d0108)*, *Row · Not available, safety net, warnings per tool (0086)*) and its row at
-//! the top of the inbox (*10 → Usage limit active · no duplicates*, *Row · Inbox with per-tool lines (0086)*).
+//! Use fallback now (AGM-03, d0108)*, *Row · Not available, safety net, warnings per tool (0086)*).
 //!
 //! One banner for the situation, never one per agent (P6), with **one line per tool** ([`ToolLine`], T-0358): its
 //! limit ("Claude Code limit reached · Resets 3:45 pm · 4 tickets waiting", Resume Claude Code, Use fallback now
@@ -91,7 +90,7 @@ pub struct ResumeButton {
     pub primary: bool,
 }
 
-/// What one tool's line says, for the banner and the inbox.
+/// What one tool's line says, for the banner.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LimitBanner {
     /// "Session limit reached", "Claude Code limit reached", "Usage limit reset", "Codex isn't available".
@@ -102,9 +101,6 @@ pub struct LimitBanner {
     pub resume: Option<ResumeButton>,
     /// The reset has happened.
     pub after_reset: bool,
-    /// The inbox's row: "Usage limit reached · 8 agents waiting for limit reset · resets 3:00 pm. Resume appears
-    /// here after the reset."
-    pub inbox_row: String,
 }
 
 /// What a line's button does. Resume and Sign in… carry the tool as stored (`codex`).
@@ -281,10 +277,6 @@ fn one_tool_line(stopped: u32, limit: &Limit, now: i64) -> Option<LimitBanner> {
                 primary: true,
             }),
             after_reset: true,
-            inbox_row: format!(
-                "Usage limit reset · {} · nothing resumes until you click Resume.",
-                agents("waiting for limit reset")
-            ),
         });
     }
     let Some(at) = limit.resets_at else {
@@ -301,10 +293,6 @@ fn one_tool_line(stopped: u32, limit: &Limit, now: i64) -> Option<LimitBanner> {
                 primary: false,
             }),
             after_reset: false,
-            inbox_row: format!(
-                "Usage limit reached · {} · reset time unknown. Resume when you know it has reset.",
-                agents("waiting for limit reset")
-            ),
         });
     };
     let title = match limit.kind {
@@ -327,11 +315,6 @@ fn one_tool_line(stopped: u32, limit: &Limit, now: i64) -> Option<LimitBanner> {
             primary: false,
         }),
         after_reset: false,
-        inbox_row: format!(
-            "Usage limit reached · {} · {}. Resume appears here after the reset.",
-            agents("waiting for limit reset"),
-            when.replacen("Resets", "resets", 1)
-        ),
     })
 }
 
@@ -388,10 +371,6 @@ fn limit_line(l: &ToolLine, limit: &Limit, now: i64) -> Option<LimitBanner> {
                 primary: true,
             }),
             after_reset: true,
-            inbox_row: format!(
-                "{word} limit reset · {} · nothing resumes until you click {resume}.",
-                plural(l.stopped, "agent", "agents")
-            ),
         });
     }
     let title = match (limit.kind, limit.monthly) {
@@ -399,38 +378,21 @@ fn limit_line(l: &ToolLine, limit: &Limit, now: i64) -> Option<LimitBanner> {
         (_, true) => format!("{word} monthly limit reached"),
         _ => format!("{word} limit reached"),
     };
-    let (when, inbox_when) = match limit.resets_at {
-        Some(at) => {
-            let (when, _) = resets(at, now, "");
-            let inbox = when.replacen("Resets", "resets", 1);
-            (when, inbox)
-        }
-        None => (
-            format!("{word} didn\u{2019}t say when it resets"),
-            "reset time unknown".to_owned(),
-        ),
+    let when = match limit.resets_at {
+        Some(at) => resets(at, now, "").0,
+        None => format!("{word} didn\u{2019}t say when it resets"),
     };
     let mut parts = vec![when];
     parts.extend(waiting_parts(l.waiting, l.on_fallback, l.fallback.as_ref()));
-    let mut counts = Vec::new();
     if l.stopped > 0 {
         let stopped = format!(
             "{} stopped mid-ticket",
             plural(l.stopped, "agent", "agents")
         );
         parts.push(stopped);
-        counts.push(format!("{} stopped", plural(l.stopped, "agent", "agents")));
     }
-    if l.waiting > 0 {
-        counts.push(format!("{} waiting", tickets_n(l.waiting)));
-    }
-    counts.push(inbox_when);
-    let after = match limit.resets_at {
-        Some(_) => format!("{resume} appears here after the reset."),
-        None => format!("{resume} when you know it has reset."),
-    };
     Some(LimitBanner {
-        title: title.clone(),
+        title,
         text: sentences(&parts),
         resume: Some(ResumeButton {
             label: resume,
@@ -438,7 +400,6 @@ fn limit_line(l: &ToolLine, limit: &Limit, now: i64) -> Option<LimitBanner> {
             primary: false,
         }),
         after_reset: false,
-        inbox_row: format!("{title} · {}. {after}", counts.join(" · ")),
     })
 }
 
@@ -451,7 +412,6 @@ fn unavailable_line(l: &ToolLine, reason: &str) -> LimitBanner {
     parts.extend(waiting_parts(l.waiting, l.on_fallback, l.fallback.as_ref()));
     let text = parts.join(" \u{b7} ");
     LimitBanner {
-        inbox_row: format!("{title} · {text}"),
         title,
         text,
         resume: None,
@@ -785,14 +745,6 @@ mod tests {
                 primary: false
             })
         );
-        assert!(
-            b.inbox_row
-                .starts_with("Usage limit reached · 8 agents waiting for limit reset · resets at")
-        );
-        assert!(
-            b.inbox_row
-                .ends_with("Resume appears here after the reset.")
-        );
         // One tool: no avatar, no tool name, no Use fallback now (d0086).
         assert_eq!(l.view.avatar, None);
         assert!(!l.view.title.contains("Claude"));
@@ -850,10 +802,6 @@ mod tests {
         );
         let resume = l.banner.resume.unwrap();
         assert!(resume.enabled && !resume.primary);
-        assert_eq!(
-            l.banner.inbox_row,
-            "Usage limit reached · 2 agents waiting for limit reset · reset time unknown. Resume when you know it has reset."
-        );
     }
 
     #[test]
@@ -933,13 +881,6 @@ mod tests {
         assert_eq!(cc.view.avatar.as_ref().unwrap().letters, "CC");
         assert_eq!(cc.view.tone, BannerTone::Neutral, "a limit is neutral");
         assert_eq!(cc.view.icon, IconName::Gauge);
-        assert_eq!(
-            cc.banner.inbox_row,
-            format!(
-                "Claude Code limit reached · 4 tickets waiting · resets {}. Resume Claude Code appears here after the reset.",
-                clock(NOW + 4 * HOUR)
-            )
-        );
         // Codex has no fallback in this sample: only Resume.
         assert_eq!(cx.view.buttons.len(), 1);
     }

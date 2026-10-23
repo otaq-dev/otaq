@@ -374,10 +374,10 @@
   overflow: hidden;
 }
 
-/* The inbox popover drawn in place (T-0292): not fixed over the page. */
-.gallery-inbox.inbox {
+/* The Needs you strip's suggestion drawn open in place (T-0459): not fixed over the page. */
+.gallery-strip-suggestion.popover {
   position: static;
-  max-height: none;
+  width: fit-content;
 }
 
 /* T-0375: the panel's question bar at the panel's default width, and a card's hover card drawn open in place. */

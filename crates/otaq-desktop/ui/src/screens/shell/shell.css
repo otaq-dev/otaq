@@ -6,7 +6,6 @@
 button.header-project-name,
 button.header-search,
 button.header-activity,
-button.header-inbox,
 button.rail-item,
 button.rail-add,
 button.rail-broom,
@@ -157,43 +156,6 @@ button.header-activity[data-open] {
 
 .header-dot[data-active] {
   background: var(--st-working);
-}
-
-button.header-inbox {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  box-sizing: border-box;
-  height: 28px;
-  padding: 0 6px 0 9px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r-md);
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-
-button.header-inbox:hover {
-  background: var(--bg-hover);
-}
-
-button.header-inbox[data-active] {
-  border-color: var(--st-attn);
-  background: var(--st-attn-bg);
-  color: var(--st-attn);
-}
-
-.header-inbox-count {
-  padding: 0 5px;
-  border-radius: 8px;
-  background: var(--bg-column);
-  color: var(--text-muted);
-  font: 400 11px/14px var(--font-mono);
-}
-
-.header-inbox[data-active] .header-inbox-count {
-  background: var(--st-attn);
-  color: var(--on-attn);
-  font-weight: 600;
 }
 
 /* ---- Activity popover (*Activity popover*, *Activity popover states*) ---- */

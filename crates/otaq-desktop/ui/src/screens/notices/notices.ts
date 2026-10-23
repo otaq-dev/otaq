@@ -21,6 +21,7 @@ import type { NotificationTarget } from "../../generated/NotificationTarget";
 import { asRequestError, type PageEvents, pageEvents } from "../../service";
 import { request, windowAction } from "../../tauri";
 import { PANE_ROUTES, type PaneRoutes, showAgentInPane } from "../pane/logic";
+import { next } from "../strip/logic";
 
 /** The banner rows and toasts as last heard; `undefined` until the first answer. */
 export const noticesStore: Store<Notices | undefined> = createStore<Notices | undefined>(undefined);
@@ -59,7 +60,7 @@ export function watchNotices(
   };
 }
 
-/** What a banner button does, besides the requests: the dialogs and the inbox. */
+/** What a banner button does, besides the requests: the dialogs. */
 export interface BannerRoutes {
   ask: typeof request;
   overlays: Pick<OverlayStack, "open">;
@@ -106,7 +107,7 @@ export async function pressBanner(
     case "service_stopped":
       await ask("notices.restart");
       return;
-    // The inbox's confirmation listing the sessions (T-0230); it closes itself when nothing is left to resume.
+    // The confirmation listing every project's sessions (T-0230); it closes itself when nothing is left to resume.
     case "sessions_interrupted":
       stack.open("resume_all");
       return;
@@ -139,22 +140,22 @@ export function limitLinesOf(banner: Banner): readonly LimitLine[] {
   return several || more ? banner.lines : [];
 }
 
-/** Where opening a notification's target lands: the selection, the terminal focus requests, the overlays and the
- * Project agent pane (its `selection` is the same store). */
+/** Where opening a notification's target lands: the selection, the terminal focus requests, the Project agent pane
+ * (its `selection` is the same store) and the Needs you strip's Next. */
 export interface OpenRoutes {
   selection: Store<Selection>;
   focus: Store<TerminalFocusRequest | null>;
-  overlays: Pick<OverlayStack, "open">;
   pane: PaneRoutes;
+  next: () => void;
 }
 
-const OPEN_ROUTES: OpenRoutes = { selection, focus: terminalFocusRequests, overlays, pane: PANE_ROUTES };
+const OPEN_ROUTES: OpenRoutes = { selection, focus: terminalFocusRequests, pane: PANE_ROUTES, next };
 
 /**
  * Opens what a notification names (d0090 "What a click opens"), its project on screen: a ticket on its Terminal tab
  * with the terminal focused (the validator's for a validator's prompt), a Project agent in the pane, an epic's lead
- * on its Lead tab with the lead's terminal focused, the inbox, or the board. An item answered meanwhile opens the
- * same place.
+ * on its Lead tab with the lead's terminal focused, the item the Needs you strip's Next opens (a grouped notification
+ * or a summary, NYS-03), or the board. An item answered meanwhile opens the same place.
  */
 export function openTarget(target: NotificationTarget, routes: OpenRoutes = OPEN_ROUTES): void {
   switch (target.kind) {
@@ -176,8 +177,8 @@ export function openTarget(target: NotificationTarget, routes: OpenRoutes = OPEN
       openTicket(target.epic, "lead", routes.selection);
       requestTerminalFocus(target.epic, routes.focus);
       break;
-    case "inbox":
-      routes.overlays.open("inbox");
+    case "needs_you":
+      routes.next();
       break;
     case "board":
       if (target.project !== null) selectProject(target.project, routes.selection);

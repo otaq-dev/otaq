@@ -58,7 +58,7 @@ pub struct ResetAll {
     pub enabled: bool,
     /// "Reset all 3 changed shortcuts to their defaults?"
     pub question: String,
-    /// "Activity, New ticket and Next inbox item go back to their default keys."
+    /// "Activity, New ticket and Next item that needs you go back to their default keys."
     pub body: String,
     pub cancel: String,
 }
@@ -862,7 +862,7 @@ fn at(action: KeyAction, slot: u8) -> KeySlot {
     KeySlot { action, slot }
 }
 
-/// The frames' samples (d0097's example): Activity → ⌘J from Next inbox item, New ticket's `c` → `n`; the refusals,
+/// The frames' samples (d0097's example): Activity → ⌘J from Next item that needs you, New ticket's `c` → `n`; the refusals,
 /// the Windows / Linux rows with Ctrl+R and Ctrl+D.
 pub fn gallery() -> Gallery {
     use KeyAction::*;
@@ -945,7 +945,7 @@ pub fn gallery() -> Gallery {
         ),
         cell(
             "Some shortcuts changed",
-            "s15-46 · Activity has ⌘J (Use here took it from Next inbox item), New ticket c → n",
+            "s15-46 · Activity has ⌘J (Use here took it from Next item that needs you), New ticket c → n",
             MAC,
             &changed,
             &[],
@@ -988,7 +988,7 @@ pub fn gallery() -> Gallery {
         ),
         cell(
             "Remove key",
-            "s15-50 · recording Next inbox item's ⌘J",
+            "s15-50 · recording Next item that needs you's ⌘J",
             MAC,
             &none,
             &["next_inbox_item"],
@@ -1007,8 +1007,8 @@ pub fn gallery() -> Gallery {
             "s15-50 · after g the cell waits for the letter",
             MAC,
             &none,
-            &["open_inbox", "open_activity"],
-            moment(Some(at(OpenInbox, 1)), true, None),
+            &["open_activity", "terminals"],
+            moment(Some(at(OpenActivity, 1)), true, None),
         ),
         cell(
             "A key that's already taken",
@@ -1029,7 +1029,7 @@ pub fn gallery() -> Gallery {
         ),
         cell(
             "After \u{201c}Use here\u{201d}",
-            "s15-50 · Activity ⌘J, Next inbox item no key",
+            "s15-50 · Activity ⌘J, Next item that needs you no key",
             MAC,
             &activity_j,
             &["open_activity", "next_inbox_item"],
@@ -1040,16 +1040,16 @@ pub fn gallery() -> Gallery {
             "s15-52 · ⌘Q",
             MAC,
             &none,
-            &["open_inbox"],
-            refused("open_inbox", OpenInbox, "⌘Q"),
+            &["open_activity"],
+            refused("open_activity", OpenActivity, "⌘Q"),
         ),
         cell(
             "Refused: a text-editing key",
             "s15-52 · ⌘C",
             MAC,
             &none,
-            &["open_inbox"],
-            refused("open_inbox", OpenInbox, "⌘C"),
+            &["open_activity"],
+            refused("open_activity", OpenActivity, "⌘C"),
         ),
         cell(
             "Refused: g on its own",
@@ -1082,7 +1082,7 @@ pub fn gallery() -> Gallery {
                 "command_palette",
                 "next_inbox_item",
                 "new_ticket",
-                "open_inbox",
+                "open_activity",
                 "terminals",
                 "find_in_terminal",
             ],
@@ -1261,14 +1261,13 @@ mod tests {
             ("Command palette", vec!["⌘K", "⇧⌘P"]),
             ("Switch project", vec!["⌘P"]),
             ("Project 1–9", vec!["⌘1–9"]),
-            ("Next inbox item", vec!["⌘J"]),
+            ("Next item that needs you", vec!["⌘J"]),
             ("Next / previous ticket", vec!["⌘] / ⌘[", "j / k"]),
             ("Filter the board", vec!["/"]),
             ("Focus the epic of the selected card", vec!["g then e"]),
             ("Show all shortcuts", vec!["?"]),
             ("Board", vec!["⇧⌘B", "g then b"]),
             ("List", vec!["g then l"]),
-            ("Inbox", vec!["⇧⌘I", "g then i"]),
             ("Activity", vec!["⇧⌘U", "g then a"]),
             ("Settings", vec!["⌘,"]),
             ("Open / close the Project agent", vec!["⌘L"]),
@@ -1353,7 +1352,7 @@ mod tests {
         );
         assert_eq!(
             p.reset_all.body,
-            "Activity, New ticket and Next inbox item go back to their default keys."
+            "Activity, New ticket and Next item that needs you go back to their default keys."
         );
         assert!(!row(&p, "settings").changed);
     }
@@ -1457,7 +1456,7 @@ mod tests {
             PressText::Nothing
         );
 
-        let slot = at(OpenInbox, 0);
+        let slot = at(OpenActivity, 0);
         let (a, store) = record(MAC, &none, slot, &press("q", "KeyQ", CMD), false).unwrap();
         assert_eq!(
             a,
@@ -1506,7 +1505,7 @@ mod tests {
         };
         assert_eq!(
             question,
-            "⌘J is used by Next inbox item. Use it here instead?"
+            "⌘J is used by Next item that needs you. Use it here instead?"
         );
         assert_eq!(by, NextInboxItem);
         let s = ok(MAC, &none, rec(OpenActivity, 0, &key, true));
@@ -1626,7 +1625,7 @@ mod tests {
             check("new_ticket").unwrap().in_terminals.as_deref(),
             Some("· in terminals Ctrl+Shift+N")
         );
-        let i = check("open_inbox").unwrap();
+        let i = check("open_activity").unwrap();
         assert!(i.on && i.fixed);
         assert!(check("terminals").unwrap().on);
         let find = check("find_in_terminal").unwrap();

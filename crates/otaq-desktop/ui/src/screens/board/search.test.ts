@@ -139,8 +139,6 @@ describe("the search field", () => {
         label: "Activity",
         keys: null,
       },
-      inbox: { label: "Inbox", count: "0", active: false },
-      inbox_hint: { text: "Inbox", keys: null },
     } as unknown as HeaderView;
     const html = renderToStaticMarkup(
       createElement(HeaderBar, {

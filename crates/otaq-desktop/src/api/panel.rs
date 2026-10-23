@@ -1659,12 +1659,11 @@ pub async fn remove_dependency(app: &App, params: ParentParams) -> Result<(), Re
     }
 }
 
-/// The answer options with notes for the Gallery (`gallery.option_notes`, ATT-17): the inbox, the panels and the
-/// cards of NOTE-1's question and of the question the Sharing lead passed on.
+/// The answer options with notes for the Gallery (`gallery.option_notes`, ATT-17): the panels and the cards of
+/// NOTE-1's question and of the question the Sharing lead passed on.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "OptionNotesGallery")]
 pub struct NotesGallery {
-    pub inbox: otaq_view::view_models::inbox_page::View,
     pub panels: Vec<View>,
     pub cards: Vec<otaq_view::view_models::card_page::TicketCardView>,
 }
@@ -1691,7 +1690,6 @@ pub fn notes_gallery() -> NotesGallery {
     })
     .collect();
     NotesGallery {
-        inbox: otaq_view::view_models::inbox_page::notes_gallery(),
         panels: tickets
             .iter()
             .map(|ticket| {
@@ -1940,8 +1938,6 @@ mod tests {
         assert_eq!(notes(&g.panels[1]).iter().flatten().count(), 2);
         // The answer options left the card for the sheet (BRD-03, T-0460): its one action is Reply.
         assert_eq!(g.cards[0].action.as_ref().map(|a| a.label), Some("Reply"));
-        let inbox_rows: Vec<_> = g.inbox.groups.iter().flat_map(|g| &g.rows).collect();
-        assert_eq!(inbox_rows.len(), 2);
     }
 
     fn labels(view: &View) -> Vec<&str> {

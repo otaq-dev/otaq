@@ -262,9 +262,9 @@ export function AnswerBox({
               <span className="panel-answer-radio" />
               <span className="panel-answer-label">
                 {row.label}
-                {/* The option's note (ATT-17) in the inbox's note style, whole and wrapped: its description. */}
+                {/* The option's note (ATT-17), whole and wrapped: its description. */}
                 {row.note !== null && (
-                  <span id={`${noteId}-${String(row.number)}`} className="inbox-option-note" aria-hidden>
+                  <span id={`${noteId}-${String(row.number)}`} className="panel-answer-note" aria-hidden>
                     {row.note}
                   </span>
                 )}

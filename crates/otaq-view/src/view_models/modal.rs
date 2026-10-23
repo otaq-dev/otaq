@@ -40,7 +40,6 @@ mod tests {
             KeyAction::Project(1),
             KeyAction::SwitchTab(2),
             KeyAction::Settings,
-            KeyAction::OpenInbox,
             KeyAction::NextInboxItem,
             KeyAction::Park,
         ] {

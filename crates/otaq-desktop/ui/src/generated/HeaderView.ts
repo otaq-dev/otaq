@@ -2,7 +2,6 @@
 import type { ActivityButton } from "./ActivityButton";
 import type { HeaderHint } from "./HeaderHint";
 import type { HeaderProject } from "./HeaderProject";
-import type { InboxButton } from "./InboxButton";
 
 /**
  * The header, left to right (*02 → Row · Header states (0086 · V)*): exactly four items. New ticket, Terminals,
@@ -17,8 +16,4 @@ project: HeaderProject | null,
  * The search entry's placeholder and the user's key for Filter the board (`/`): it stays the board's filter
  * (T-0221, KEY-09).
  */
-search: HeaderHint, activity: ActivityButton, 
-/**
- * Needs you: turquoise with a count, a quiet outline at 0.
- */
-inbox: InboxButton, inbox_hint: HeaderHint, };
+search: HeaderHint, activity: ActivityButton, };

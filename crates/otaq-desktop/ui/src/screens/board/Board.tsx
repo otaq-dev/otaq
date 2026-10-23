@@ -64,6 +64,7 @@ import type { ViewChange } from "../../generated/ViewChange";
 import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { NeedsYouStrip } from "../strip/Strip";
 import { ApproveChoice } from "./ApproveChoice";
 import { createBackgroundClick } from "./background";
 import { activeChain } from "./chain";
@@ -936,6 +937,7 @@ export function Board() {
           }}
         />
       )}
+      <NeedsYouStrip />
       {view?.list_placeholder != null && (
         <div className="board-list-placeholder">{view.list_placeholder}</div>
       )}

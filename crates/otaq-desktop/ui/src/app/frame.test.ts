@@ -118,7 +118,7 @@ describe("the frame", () => {
       Component: ({ params }) => createElement("p", null, `editing ${params.ticket}`),
     });
     openOverlay("edit_ticket", { ticket: "SHOP-7" });
-    openOverlay("inbox");
+    openOverlay("activity");
     layoutView.set(VIEW);
 
     const html = render(app, createElement("p", { role: "alert" }, "service failed"));

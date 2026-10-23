@@ -13,6 +13,6 @@ enabled: boolean,
  */
 question: string, 
 /**
- * "Activity, New ticket and Next inbox item go back to their default keys."
+ * "Activity, New ticket and Next item that needs you go back to their default keys."
  */
 body: string, cancel: string, };

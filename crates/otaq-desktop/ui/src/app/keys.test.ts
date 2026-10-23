@@ -60,7 +60,7 @@ const MAC: Keymap = {
   bindings: [
     bind({ action: "command_palette" }, "⌘K", "k", "KeyK", CMD, EVERYWHERE),
     bind({ action: "switch_project" }, "⌘P", "p", "KeyP", CMD, EVERYWHERE),
-    bind({ action: "open_inbox" }, "⇧⌘I", "i", "KeyI", { ...CMD, shift: true }, EVERYWHERE),
+    bind({ action: "open_activity" }, "⇧⌘U", "u", "KeyU", { ...CMD, shift: true }, EVERYWHERE),
     bind({ action: "terminals" }, "⌃`", "`", "Backquote", CTRL, EVERYWHERE),
     bind({ action: "next_tab" }, "⌃Tab", "Tab", "Tab", CTRL, EVERYWHERE),
     bind({ action: "project", number: 1 }, "⌘1", "1", "Digit1", CMD, EVERYWHERE),
@@ -164,11 +164,11 @@ describe("the key dispatcher on the board", () => {
   });
 
   it("needs the exact modifiers", () => {
-    const { d, ran } = setup(MAC, ["command_palette", "open_inbox"]);
+    const { d, ran } = setup(MAC, ["command_palette", "open_activity"]);
     expect(dispatchKey(d, key("K", "KeyK", { metaKey: true, shiftKey: true }), BOARD).kind).toBe("passed");
-    expect(dispatchKey(d, key("I", "KeyI", { metaKey: true, shiftKey: true }), BOARD).kind).toBe("ran");
+    expect(dispatchKey(d, key("U", "KeyU", { metaKey: true, shiftKey: true }), BOARD).kind).toBe("ran");
     expect(dispatchKey(d, key("k", "KeyK", { ctrlKey: true }), BOARD).kind).toBe("passed");
-    expect(ran).toEqual(["open_inbox"]);
+    expect(ran).toEqual(["open_activity"]);
   });
 
   it("swallows a bound key nobody handles, so ⌘P never prints", () => {
@@ -370,12 +370,12 @@ describe("the key dispatcher in a focused terminal", () => {
   });
 
   it("still runs the ⌘ shortcuts on a Mac, Find among them", () => {
-    const { d, ran } = setup(MAC, ["command_palette", "switch_project", "open_inbox", "find_in_terminal"]);
+    const { d, ran } = setup(MAC, ["command_palette", "switch_project", "open_activity", "find_in_terminal"]);
     dispatchKey(d, key("k", "KeyK", { metaKey: true }), TERMINAL);
     dispatchKey(d, key("p", "KeyP", { metaKey: true }), TERMINAL);
-    dispatchKey(d, key("I", "KeyI", { metaKey: true, shiftKey: true }), TERMINAL);
+    dispatchKey(d, key("U", "KeyU", { metaKey: true, shiftKey: true }), TERMINAL);
     expect(dispatchKey(d, key("f", "KeyF", { metaKey: true }), TERMINAL).kind).toBe("ran");
-    expect(ran).toEqual(["command_palette", "switch_project", "open_inbox", "find_in_terminal"]);
+    expect(ran).toEqual(["command_palette", "switch_project", "open_activity", "find_in_terminal"]);
   });
 
   it("leaves the terminal on ⌃` (Terminals), which a Mac terminal gives the app (d0097)", () => {
@@ -507,7 +507,6 @@ const BASE: [KeyAction, Slot[]][] = [
   [{ action: "focus_epic" }, [letter("g e")]],
   [{ action: "show_shortcuts" }, [letter("?")]],
   [{ action: "show_board" }, [["⇧⌘B", "Ctrl+Shift+B", ""], letter("g b")]],
-  [{ action: "open_inbox" }, [["⇧⌘I", "Ctrl+Shift+I", "Ctrl+Shift+I"], letter("g i")]],
   [{ action: "open_activity" }, [["⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"], letter("g a")]],
   [{ action: "settings" }, [["⌘,", "Ctrl+,", "Ctrl+,"]]],
   [{ action: "focus_pane" }, [["⌘L", "Ctrl+L", "Ctrl+Shift+L"]]],
@@ -676,7 +675,6 @@ describe("0097's keys (KEY-01, KEY-02)", () => {
       [["e"], "expand_panel"],
       [["c"], "new_ticket"],
       [["g", "b"], "show_board"],
-      [["g", "i"], "open_inbox"],
       [["g", "a"], "switch_tab 4"],
       [["g", "t"], "terminals"],
       [["g", "e"], "focus_epic"],

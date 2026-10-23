@@ -15,8 +15,8 @@ import type { BoardTicketParams } from "../../generated/BoardTicketParams";
 import type { DeleteDialogView } from "../../generated/DeleteDialogView";
 import { asRequestError } from "../../service";
 import { request } from "../../tauri";
-import { confirmSuggestion } from "../inbox/logic";
-import { SuggestedBy } from "../inbox/SuggestedBy";
+import { confirmSuggestion } from "../strip/logic";
+import { SuggestedBy } from "../strip/SuggestedBy";
 
 export interface DeleteBodyProps {
   view: DeleteDialogView;
@@ -88,7 +88,7 @@ export function DeleteDialog({ params, close }: OverlayProps<"delete_ticket">) {
       onConfirm={() => {
         setDeleting(true);
         const done = suggestion
-          ? confirmSuggestion(ticket, suggestion, "delete").then(() => {
+          ? confirmSuggestion(suggestion).then(() => {
               if (selection.get().ticket === ticket) closeTicket();
             })
           : deleteTicket(ticket);

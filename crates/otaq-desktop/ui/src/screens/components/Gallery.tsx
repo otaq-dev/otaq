@@ -78,7 +78,6 @@ import type { GalleryView } from "../../generated/GalleryView";
 import type { IconName } from "../../generated/IconName";
 import type { KeyMapView } from "../../generated/KeyMapView";
 import type { ShortcutKey } from "../../generated/ShortcutKey";
-import type { InboxLeadGallery } from "../../generated/InboxLeadGallery";
 import type { LeadGallery } from "../../generated/LeadGallery";
 import type { LeadSplit } from "../../generated/LeadSplit";
 import type { LeadTabGallery } from "../../generated/LeadTabGallery";
@@ -93,7 +92,7 @@ import type { NotificationsGallery } from "../../generated/NotificationsGallery"
 import type { ShortcutsGallery } from "../../generated/ShortcutsGallery";
 import type { StageChoicesGallery } from "../../generated/StageChoicesGallery";
 import type { OptionNotesGallery } from "../../generated/OptionNotesGallery";
-import type { InboxView } from "../../generated/InboxView";
+import type { StripGallery } from "../../generated/StripGallery";
 import {
   MarkdownEditor,
   MarkdownSurface,
@@ -112,8 +111,6 @@ import { TokenSwatches } from "../../theme/Swatches";
 import { Column, type ColumnProps } from "../board/Column";
 import { Toolbar } from "../board/Toolbar";
 import { Strip } from "../board/strip/Strip";
-import { InboxBody, type InboxBodyProps } from "../inbox/Inbox";
-import { initialPick } from "../inbox/logic";
 import { AnswerBox as PanelAnswerBox } from "../panel/Panel";
 import { AskBarBody } from "../ask_bar/AskBar";
 import "../ask_bar/ask_bar.css";
@@ -124,7 +121,8 @@ import { DrawerBody } from "../terminals/Drawer";
 import "../terminals/terminals.css";
 import { CleanupBody } from "../recovery/Cleanup";
 import "../recovery/recovery.css";
-import { SuggestedBy } from "../inbox/SuggestedBy";
+import { StripBody, SuggestionCard } from "../strip/Strip";
+import { SuggestedBy } from "../strip/SuggestedBy";
 import { ChangeDecisionBody } from "../review/Dialogs";
 import { ShortcutCard } from "../shortcuts/ShortcutList";
 import "../shortcuts/shortcuts.css";
@@ -2417,31 +2415,42 @@ function TrustSection() {
   );
 }
 
-const loadInboxLead = () => request("gallery.inbox_lead") as Promise<InboxLeadGallery>;
+const loadStrip = () => request("gallery.needs_you_strip") as Promise<StripGallery>;
 
-/** *10 → Row · Epic lead items (0083)* (T-0292): the four items in one inbox, from `gallery.inbox_lead`, and the line
- * Close… adds to the usual confirmation. Rows only draw here; nothing is sent. */
-function InboxLead() {
-  const { view, error } = useServiceView(loadInboxLead, []);
-  const [selected, setSelected] = useState(0);
+/**
+ * *24 → Row · The two views* `s24-03` and *Row · Needs you: the next project, and every group* `s24-12` (T-0459): the
+ * Needs you strip for the example's shop-web, with every group, "Needs you · 0 here" with Next to billing-api and with
+ * nothing anywhere; the lead's suggestion opened, and the line its Confirm adds to the usual confirmation. Nothing is
+ * sent.
+ */
+function NeedsYouStripSection() {
+  const { view, error } = useServiceView(loadStrip, []);
   if (error) return <p role="alert">{error.message}</p>;
   if (!view) return null;
+  const suggestion = view.states.flatMap((s) => s.view.groups).flatMap((g) => g.suggestions)[0];
   return (
-    <Section title="10 · Needs-you inbox · Row · Epic lead items (0083) (T-0292)">
-      <div className="gallery-wrap">
-        <div className="inbox gallery-inbox">
-          <InboxBody
-            view={view.view}
-            selected={selected}
-            draft={null}
-            onDraft={() => undefined}
-            onSelect={setSelected}
-          />
-        </div>
-        <div className="gallery-stack">
-          <Caption>Close… → the usual confirmation (0044), with the lead's line</Caption>
-          <SuggestedBy line={view.suggested} />
-        </div>
+    <Section title="24 · The Needs you strip (T-0459)">
+      <div className="gallery-stack">
+        {view.states.map((state) => (
+          <div key={state.label} className="gallery-stack-tight">
+            <Caption>{state.label}</Caption>
+            <StripBody view={state.view} project="SHOP" />
+          </div>
+        ))}
+        {suggestion && (
+          <div className="gallery-wrap">
+            <div className="gallery-stack-tight">
+              <Caption>A suggestion opened</Caption>
+              <div className="popover gallery-strip-suggestion">
+                <SuggestionCard suggestion={suggestion} />
+              </div>
+            </div>
+            <div className="gallery-stack-tight">
+              <Caption>Confirm → the usual confirmation (0044), with the lead's line</Caption>
+              <SuggestedBy line={suggestion.line} />
+            </div>
+          </div>
+        )}
       </div>
     </Section>
   );
@@ -2449,38 +2458,16 @@ function InboxLead() {
 
 const loadOptionNotes = () => request("gallery.option_notes") as Promise<OptionNotesGallery>;
 
-/** One inbox with the answer box of `rowKey` open, its recommended option picked. */
-function DraftedInbox({ view, rowKey }: { view: InboxView; rowKey: string }) {
-  const row = view.groups.flatMap((g) => g.rows).find((r) => r.key === rowKey);
-  const [draft, setDraft] = useState<InboxBodyProps["draft"]>(() => ({
-    key: rowKey,
-    pick: initialPick(row?.answer?.options ?? []),
-    text: "",
-    sending: false,
-  }));
-  return (
-    <div className="inbox gallery-inbox">
-      <InboxBody view={view} selected={0} draft={draft} onDraft={setDraft} onSelect={() => undefined} />
-    </div>
-  );
-}
-
 /** ATT-17, d0061 (T-0375): answer options with notes, from `gallery.option_notes`: NOTE-1's four options (one note
- * about 300 characters long, one option without a note) and a question the lead passed on, in the inbox, the panel
- * and the card. The card's hover card shows on hover or Tab; each one is also drawn open beside its card. Nothing is
+ * about 300 characters long, one option without a note) and a question the lead passed on, in the panel and the
+ * card. The card's hover card shows on hover or Tab; each one is also drawn open beside its card. Nothing is
  * sent. */
 function OptionNotes() {
   const { view, error } = useServiceView(loadOptionNotes, []);
   if (error) return <p role="alert">{error.message}</p>;
   if (!view) return null;
-  const keys = view.cards.map((card) => card.key);
   return (
-    <Section title="10 · 05 · 04 · Answer options with notes (0061) · inbox, panel, card hover (T-0375)">
-      <div className="gallery-wrap gallery-wrap-wide">
-        {keys.map((key) => (
-          <DraftedInbox key={key} view={view.inbox} rowKey={key} />
-        ))}
-      </div>
+    <Section title="05 · 04 · Answer options with notes (0061) · panel, card hover (T-0375)">
       <div className="gallery-wrap gallery-wrap-wide">
         {view.panels.map(
           (panel) =>
@@ -2672,7 +2659,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <DecisionChange />
         <LeadTabs />
         <StageChoicesSection />
-        <InboxLead />
+        <NeedsYouStripSection />
         <OptionNotes />
         <Section title="25 · The ticket sheet · header, details line, path and tabs (T-0464)">
           <SheetGallery />

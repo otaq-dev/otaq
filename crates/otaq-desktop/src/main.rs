@@ -34,10 +34,6 @@ pub struct App {
     switcher: std::sync::Mutex<otaq_view::view_models::switcher::SwitcherModel>,
     /// Each project's last-used tab of the Terminals drawer, for Terminals (⌃`; T-0242, T-0331).
     drawer_tabs: std::sync::Mutex<std::collections::BTreeMap<String, String>>,
-    /// The Needs-you inbox, kept between requests so resolved rows fade out (T-0230).
-    inbox: std::sync::Mutex<otaq_view::view_models::inbox::InboxModel>,
-    /// The ⌘J run through the inbox, while one goes (T-0230).
-    inbox_run: std::sync::Mutex<Option<otaq_view::view_models::inbox_run::InboxRun>>,
     /// The Diff tabs' viewed ticks, folded summaries and Unified / Side-by-side, while the app runs (T-0225).
     review: std::sync::Mutex<otaq_view::view_models::diff::ReviewMemory>,
     terminals: terminal::Terminals,
@@ -105,8 +101,6 @@ fn main() {
         service,
         switcher: Default::default(),
         drawer_tabs: Default::default(),
-        inbox: Default::default(),
-        inbox_run: Default::default(),
         review: Default::default(),
         terminals: terminal::Terminals::default(),
         notices,

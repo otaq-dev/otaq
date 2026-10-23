@@ -474,7 +474,7 @@ mod tests {
             )
             .await
             .unwrap(),
-            json!({"kind": "inbox"})
+            json!({"kind": "needs_you"})
         );
         assert!(
             request(&h.app, "notices.open_target", json!({"key": "SHOP-22"}))
