@@ -133,7 +133,7 @@ export function HistoryBody({
   };
   const shown = shownRows(view, filter);
   return (
-    <div className="activity">
+    <div className="activity-tab">
       <Filters view={view} filter={filter} onFilter={setFilter} />
       <div className="history" role="table" aria-label="Activity">
         <div className="history-row history-head" role="row">
