@@ -1,7 +1,9 @@
 /*
- * The project Files view (FIL-01, `s28-03`, `s28-04`, `s28-08`, `s28-09`): the Files tab's layout (`files.css`) in
- * the main area. The tree narrows to 270 px at 1280 px or with the Project agent panel open (the main area 1216 px or
- * less). The source bar is a button that opens the picker; a picked ticket's tab carries the back link and its note.
+ * The project Files view (FIL-01, FIL-05, FIL-08; `s28-03`…`s28-10`): the Files tab's layout (`files.css`) in the
+ * main area, with Changed by in a 300 px column on the right of a picked file. At 1280 px or with the Project agent
+ * panel open (the main area 1216 px or less) the tree narrows to 270 px, Changed by becomes a line of chips above the
+ * file and New ticket from this file a + button. The source bar is a button that opens the picker; a picked ticket's
+ * tab carries the back link and its note.
  */
 .files-view,
 .files-view-picked {
@@ -20,6 +22,356 @@
   .files-view-picked .files-side {
     width: 270px;
   }
+
+  .files-view .files-view-by,
+  .files-view .files-view-wide {
+    display: none;
+  }
+
+  .files-view .files-view-narrow {
+    display: contents;
+  }
+
+  .files-view .files-view-chips {
+    display: flex;
+  }
+}
+
+/* Wide by default: the narrow parts show only under the container query above. */
+.files-view-narrow,
+.files-view-chips {
+  display: none;
+}
+
+.files-view-wide {
+  display: contents;
+}
+
+/* A picked file (`s28-03`). */
+.files-view-file .files-title[data-struck] {
+  text-decoration: line-through;
+}
+
+/* A long path cut in the middle stays on one line; the full path is its tooltip. */
+.files-view-file .files-main-title > .tooltip-anchor {
+  display: block;
+  min-width: 0;
+}
+
+.files-view-file .files-title[data-short] {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-view-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--st-queued-bg);
+  color: var(--text-primary);
+  font: 400 12.5px/1.45 var(--font-ui);
+}
+
+.files-view-note > .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--st-queued);
+}
+
+.files-view-note[data-kind="same-file"] {
+  background: var(--st-paused-bg);
+}
+
+.files-view-note[data-kind="same-file"] > .icon {
+  color: var(--st-paused);
+}
+
+/* One slot per ticket beside the line numbers: a 3 px bar along its lines, a tick where it adds lines. */
+.files-view-bars {
+  display: flex;
+  flex: none;
+  gap: 1px;
+  align-self: stretch;
+  padding-left: 6px;
+}
+
+.files-view-bar {
+  position: relative;
+  width: 3px;
+}
+
+.files-view-bar[data-bar="line"] {
+  background: currentcolor;
+}
+
+.files-view-bar[data-bar="add_after"]::after,
+.files-view-bar[data-bar="add_before"]::after {
+  position: absolute;
+  left: 0;
+  width: 7px;
+  height: 2px;
+  border-radius: 1px;
+  background: currentcolor;
+  content: "";
+}
+
+.files-view-bar[data-bar="add_after"]::after {
+  bottom: -1px;
+}
+
+.files-view-bar[data-bar="add_before"]::after {
+  top: -1px;
+}
+
+.files-view-fold {
+  padding: 4px 10px;
+  background: var(--bg-column);
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-mono);
+}
+
+.files-view-binary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.files-view-binary .diff-note {
+  padding-bottom: 0;
+  color: var(--text-secondary);
+}
+
+.files-view-no-preview {
+  margin: 0;
+  padding: 0 14px 10px 40px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+/* "of SHOP-29 ▾": Diff's ticket. */
+.files-view-of {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font: 400 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.files-view-of:hover {
+  background: var(--bg-hover);
+}
+
+/* Changed by (`s28-03`): a 300 px column on the right. */
+.files-view-by {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 300px;
+  min-height: 0;
+  padding: 14px 12px;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.files-view-by-title {
+  color: var(--text-muted);
+  font: 400 10.5px var(--font-mono);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.files-view-owner {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+}
+
+.files-view-edge {
+  flex: none;
+  align-self: stretch;
+  width: 3px;
+  border-radius: 2px;
+}
+
+.files-view-owner-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.files-view-owner-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.files-view-owner-key {
+  flex: none;
+  color: var(--text-primary);
+  font: 600 11.5px var(--font-mono);
+}
+
+.files-view-owner-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  font: 500 12.5px var(--font-ui);
+  overflow-wrap: break-word;
+}
+
+.files-view-owner-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font: 400 11.5px var(--font-ui);
+}
+
+.files-view-owner-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentcolor;
+}
+
+.files-view-owner-branch {
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.files-view-owner-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font: 400 11.5px var(--font-ui);
+}
+
+.files-view-owner-foot .files-link,
+.files-view-group-head .files-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.files-view-by-hint {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font: 400 11.5px/1.45 var(--font-ui);
+}
+
+/* At 1280 px (`s28-08`): Changed by as a line of chips over the file. */
+.files-view-chips {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.files-view-chips-title {
+  color: var(--text-primary);
+  font: 600 11.5px var(--font-ui);
+}
+
+.files-view-chip {
+  border: none;
+  cursor: pointer;
+}
+
+.files-view-chip:hover {
+  background: var(--bg-hover);
+}
+
+.files-view-chip-lines {
+  color: var(--text-muted);
+}
+
+.files-view-chip:focus-visible,
+.files-view-of:focus-visible,
+.files-view-group-toggle:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* All changes (`s28-06`): one group per ticket. */
+.files-view-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.files-view-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--bg-column);
+}
+
+.files-view-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.files-view-group-toggle > .files-view-edge {
+  height: 18px;
+}
+
+.files-view-group-title {
+  flex: none;
+  color: var(--text-primary);
+  font: 500 12.5px var(--font-ui);
+}
+
+.files-view-group-status {
+  min-width: 0;
+  overflow: hidden;
+  font: 400 11.5px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-view-group-summary {
+  flex: none;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-mono);
+}
+
+.files-view-group-files {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-left: 20px;
 }
 
 .files-view-source {

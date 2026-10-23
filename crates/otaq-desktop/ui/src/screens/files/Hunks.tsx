@@ -116,10 +116,20 @@ function Code({ spans }: { spans: readonly CodeSpan[] }) {
   );
 }
 
-/** A code line of a file as it is (File): its number and its highlighted text. */
-export function CodeLineRow({ number, spans }: { number: number; spans: readonly CodeSpan[] }) {
+/** A code line of a file as it is (File): its number and its highlighted text; `bars` before the number (the project
+ * Files view's bar per ticket). */
+export function CodeLineRow({
+  number,
+  spans,
+  bars,
+}: {
+  number: number;
+  spans: readonly CodeSpan[];
+  bars?: ReactNode;
+}) {
   return (
     <div className="diff-line" data-kind="context">
+      {bars}
       <span className="diff-gutter">
         <span className="diff-num">{number}</span>
       </span>

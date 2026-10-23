@@ -100,7 +100,7 @@ function useTabState(ticket: string): [FilesState, (change: (s: FilesState) => F
 }
 
 /** The element's width, followed as it resizes (Split depends on the pane's). */
-function useWidth<T extends HTMLElement>(): [RefObject<T | null>, number] {
+export function useWidth<T extends HTMLElement>(): [RefObject<T | null>, number] {
   const ref = useRef<T>(null);
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
@@ -120,7 +120,7 @@ function useWidth<T extends HTMLElement>(): [RefObject<T | null>, number] {
 }
 
 /** A path that may wrap after each "/" (as the frame's long names do), not inside a name. */
-function Path({ text }: { text: string }) {
+export function Path({ text }: { text: string }) {
   return (
     <>
       {pathParts(text).map((part, i) => (
@@ -133,14 +133,14 @@ function Path({ text }: { text: string }) {
   );
 }
 
-/** The project Files view's chips: one per ticket changing the file, in its status colour, then the other base's
- * tag ("release/2.3"); nothing in a ticket's tab. */
+/** The project Files view's chips: one per ticket changing the file, in the ticket's colour (its bar's), then the
+ * other base's tag ("release/2.3"); nothing in a ticket's tab. */
 function Chips({ chips, branch }: { chips: readonly FilesChip[]; branch: string | null }) {
   return (
     <>
       {chips.map((c) => (
-        <span key={c.key} className="files-chip" data-tone={c.tone}>
-          <span className="files-chip-dot" aria-hidden />
+        <span key={c.key} className="files-chip">
+          <span className="files-chip-dot" style={{ background: `var(--${c.colour})` }} aria-hidden />
           {c.key}
         </span>
       ))}
@@ -179,17 +179,20 @@ function Tags({ tags }: { tags: readonly FilesTag[] }) {
   );
 }
 
-/** One row of the tree: a folder opens and closes, a file opens on the right. */
+/** One row of the tree: a folder opens and closes, a file opens on the right; `onMenu` takes a right-click (the
+ * project Files view's file menu). */
 export function TreeRowButton({
   row,
   open,
   selected,
   onPress,
+  onMenu,
 }: {
   row: FilesTreeRow;
   open: boolean;
   selected: boolean;
   onPress: (row: FilesTreeRow) => void;
+  onMenu?: (row: FilesTreeRow, at: { left: number; top: number }) => void;
 }) {
   const folder = row.kind === "folder";
   return (
@@ -206,6 +209,13 @@ export function TreeRowButton({
       onClick={() => {
         onPress(row);
       }}
+      onContextMenu={
+        onMenu &&
+        ((e) => {
+          e.preventDefault();
+          onMenu(row, { left: e.clientX, top: e.clientY });
+        })
+      }
     >
       {folder ? (
         <Icon name={open ? "chevron-down" : "chevron-right"} size={12} />
@@ -426,7 +436,7 @@ function Notes({
   );
 }
 
-type DiffLoad =
+export type DiffLoad =
   { state: "loading" } | { state: "loaded"; view: DiffFileView } | { state: "failed"; message: string };
 
 /** Asks for one file's hunks once it comes near the view (or at once without an observer). */
@@ -472,7 +482,7 @@ function useDiffWhenVisible(
   return result;
 }
 
-function DiffLines({
+export function DiffLines({
   load,
   rows,
   sideBySide,
@@ -511,17 +521,21 @@ interface SectionProps {
   file: FilesChangeRow;
   open: boolean;
   sideBySide: boolean;
-  ctx: CommentContext;
+  /** `null`: no line comments (the project Files view). */
+  ctx: CommentContext | null;
   root: HTMLElement | null;
   openFileLabel: string;
   loadDiffLabel: string;
   onOpenLines: (id: string) => void;
   onOpenFile: (file: FilesChangeRow) => void;
   register: (id: string, el: HTMLElement | null) => void;
+  /** The project Files view's All changes: a file folds to its header line, a click on it unfolds it. */
+  folded?: boolean;
+  onFold?: (id: string) => void;
 }
 
 /** One file of All changes: its header (path, counts, Open file) and its lines, asked for as it comes near. */
-const ChangeSection = memo(function ChangeSection({
+export const ChangeSection = memo(function ChangeSection({
   ticket,
   file,
   open,
@@ -533,6 +547,8 @@ const ChangeSection = memo(function ChangeSection({
   onOpenLines,
   onOpenFile,
   register,
+  folded = false,
+  onFold,
 }: SectionProps) {
   const ref = useRef<HTMLElement | null>(null);
   const load = useCallback(
@@ -544,7 +560,7 @@ const ChangeSection = memo(function ChangeSection({
       }) as Promise<DiffFileView>,
     [ticket, file.path, file.child],
   );
-  const lines = useDiffWhenVisible(ref, root, open, load);
+  const lines = useDiffWhenVisible(ref, root, open && !folded, load);
   let body: ReactNode;
   if (file.binary_label !== null) {
     body = (
@@ -588,10 +604,28 @@ const ChangeSection = memo(function ChangeSection({
       aria-label={file.label}
     >
       <header className="files-change-head">
-        <Icon name="file" size={13} />
-        <span className="files-change-name">
-          <Path text={file.label} />
-        </span>
+        {onFold ? (
+          <button
+            type="button"
+            className="files-fold"
+            aria-expanded={!folded}
+            onClick={() => {
+              onFold(file.id);
+            }}
+          >
+            <Icon name={folded ? "chevron-right" : "chevron-down"} size={12} />
+            <span className="files-change-name">
+              <Path text={file.label} />
+            </span>
+          </button>
+        ) : (
+          <>
+            <Icon name="file" size={13} />
+            <span className="files-change-name">
+              <Path text={file.label} />
+            </span>
+          </>
+        )}
         {file.mark.counts !== null && <span className="files-counts">{file.mark.counts}</span>}
         {file.note !== null && <span className="files-note">{file.note}</span>}
         {file.mark.uncommitted !== null && <span className="files-note">{file.mark.uncommitted}</span>}
@@ -609,7 +643,7 @@ const ChangeSection = memo(function ChangeSection({
           </button>
         )}
       </header>
-      <div className="files-card">{body}</div>
+      {!folded && <div className="files-card">{body}</div>}
     </section>
   );
 });

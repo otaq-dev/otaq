@@ -1,17 +1,20 @@
-// The project Files view (FIL-01, FIL-03, FIL-04, FIL-07, FIL-10, FIL-11; T-0478; `s28-03`, `s28-04`, `s28-08`,
-// `s28-09`): the toolbar's third view. On the left the source bar ("main · every ticket’s changes"), which opens the
-// picker (the base branch, epics' branches, every ticket with a worktree), the search box (⌥⌘P, Go to file), All ·
-// Changed · Needs you · Same file with their counts, and the base's tree with every ticket's chips; on the right the
-// file pane. A ticket or epic picked in the picker shows its own Files tab, read-only, with the back link and "Open
-// SHOP-29". The base shows at once (`base_only`), the marks follow; the view asks again on the tickets' events and
-// every 5 s while an agent works, never while it isn't shown. Rows, marks and words are Rust's (`files_view.*`,
-// `files_view.rs`); this keeps the moment of interaction only.
+// The project Files view (FIL-01…FIL-11; T-0478, T-0479; `s28-03`…`s28-10`): the toolbar's third view. On the left
+// the source bar ("main · every ticket’s changes"), which opens the picker (the base branch, epics' branches, every
+// ticket with a worktree), the search box (⌥⌘P, Go to file), All · Changed · Needs you · Same file with their counts,
+// and the base's tree with every ticket's chips; on the right the picked file with Changed by (`FileViewer.tsx`), or
+// under Changed with no file every ticket's changes grouped (`AllChangesView.tsx`). Right-click on a file, the viewer's
+// button or ⌘N opens New ticket with its path (FIL-09). A ticket or epic picked in the picker shows its own Files tab,
+// read-only, with the back link and "Open SHOP-29". The base shows at once (`base_only`), the marks follow; the view
+// asks again on the tickets' events and every 5 s while an agent works, never while it isn't shown. Rows, marks and
+// words are Rust's (`files_view.*`, `files_view.rs`); this keeps the moment of interaction only.
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
+import { openOverlay } from "../../app/overlays";
 import { useShortcut } from "../../app/registry";
 import { openTicket, selection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { Kbd, Popover, Tooltip } from "../../components";
+import { AnchoredMenu, Kbd, Popover, Tooltip } from "../../components";
+import type { FilesViewChanges } from "../../generated/FilesViewChanges";
 import type { FilesSearchView } from "../../generated/FilesSearchView";
 import type { FilesTreeRow } from "../../generated/FilesTreeRow";
 import type { FilesViewFilter } from "../../generated/FilesViewFilter";
@@ -23,8 +26,10 @@ import type { FilesViewPickerRow } from "../../generated/FilesViewPickerRow";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { FilesTab, SearchResults, TreeRowButton } from "../files/FilesTab";
+import { FilesTab, SearchResults, TreeRowButton, openFileIn, useWidth } from "../files/FilesTab";
 import { steppedRow, toggled, visibleRows } from "../files/logic";
+import { AllChangesView } from "./AllChangesView";
+import { ProjectFilePane, copyPath } from "./FileViewer";
 import {
   PROJECT_FILES_EVENTS,
   FIRST,
@@ -35,6 +40,8 @@ import {
   pickerSections,
   viewSearchFocus,
   viewStates,
+  withFile,
+  withFilter,
 } from "./logic";
 import "./files_view.css";
 
@@ -227,9 +234,13 @@ export interface FilesViewBodyProps {
   selectedMatch: number;
   onOpenMatch: (path: string) => void;
   onRow: (row: FilesTreeRow) => void;
+  /** Right-click on a file: its menu (New ticket from this file, Copy path). */
+  onMenu?: (row: FilesTreeRow, at: { left: number; top: number }) => void;
   onFilter: (filter: FilesViewFilter) => void;
   /** The source bar (the gallery draws it without its picker). */
   source?: ReactNode;
+  /** The right side: the picked file with Changed by, or All changes; the pick line when absent. */
+  pane?: ReactNode;
 }
 
 /** The view for a loaded page (also what the gallery and the markup tests render). */
@@ -247,8 +258,10 @@ export function FilesViewBody({
   selectedMatch,
   onOpenMatch,
   onRow,
+  onMenu,
   onFilter,
   source,
+  pane,
 }: FilesViewBodyProps) {
   let left: ReactNode;
   if (found !== null) {
@@ -271,21 +284,31 @@ export function FilesViewBody({
             open={page.filter !== "all" || open.has(row.path)}
             selected={file === row.path}
             onPress={onRow}
+            {...(onMenu && row.kind !== "folder" && { onMenu })}
           />
         ))}
       </div>
     );
   }
   let main: ReactNode;
-  if (page.empty !== null) {
+  if (pane !== undefined) {
+    main = pane;
+  } else if (page.empty !== null) {
     main = (
-      <div className="files-view-empty">
-        <p className="files-view-empty-title">{page.empty.title}</p>
-        <p className="files-quiet">{page.empty.text}</p>
+      <div className="files-main">
+        <div className="files-view-empty">
+          <Icon name="folder-open" size={18} />
+          <p className="files-view-empty-title">{page.empty.title}</p>
+          <p className="files-quiet">{page.empty.text}</p>
+        </div>
       </div>
     );
   } else {
-    main = <p className="files-quiet files-pick">{page.pick}</p>;
+    main = (
+      <div className="files-main">
+        <p className="files-quiet files-pick">{page.pick}</p>
+      </div>
+    );
   }
   return (
     <div className="files files-view" data-project={project}>
@@ -311,9 +334,66 @@ export function FilesViewBody({
         )}
         {left}
       </aside>
-      <div className="files-main">{main}</div>
+      {main}
     </div>
   );
+}
+
+/** All changes for the shown project (`files_view.changes`), read again on the tickets' events and with the view. */
+function ProjectChanges({
+  project,
+  refresh,
+  onOpenFile,
+}: {
+  project: string;
+  refresh: number;
+  onOpenFile: (path: string) => void;
+}) {
+  const [tick, setTick] = useState(0);
+  const load = useCallback(
+    () => request("files_view.changes", { project }) as Promise<FilesViewChanges>,
+    // `refresh` (the view's poll) and `tick` (after Unified · Split) ask again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch triggers, not read
+    [project, refresh, tick],
+  );
+  const { view: changes, error } = useServiceView(load, PROJECT_FILES_EVENTS);
+  const [paneRef, width] = useWidth<HTMLDivElement>();
+  const [pane, setPane] = useState<HTMLElement | null>(null);
+  return (
+    <div
+      className="files-main"
+      ref={(el) => {
+        paneRef.current = el;
+        setPane(el);
+      }}
+    >
+      {changes?.project === project ? (
+        <AllChangesView
+          changes={changes}
+          pane={pane}
+          width={width}
+          onMode={(sideBySide) => {
+            request("files.mode", { side_by_side: sideBySide }).then(() => {
+              setTick((t) => t + 1);
+            }, ignore);
+          }}
+          onOpenFile={onOpenFile}
+          onOpen={(key) => {
+            openTicket(key, "files");
+          }}
+        />
+      ) : (
+        <p className="files-quiet files-problem">{error?.message ?? ""}</p>
+      )}
+    </div>
+  );
+}
+
+/** New ticket from this file (FIL-09): the form with the path in the description, the title focused. */
+function newTicketFrom(path: string): void {
+  (request("files_view.new_ticket_body", { path }) as Promise<string>).then((body) => {
+    openOverlay("new_ticket", { body });
+  }, ignore);
 }
 
 /** What the search box shows: its matches as it is typed (the answer to the latest text only). */
@@ -416,56 +496,125 @@ function ProjectSource({ project }: { project: string }) {
     setQuery("");
     update((s) => pickFile(s, path));
   };
+  // A right-clicked file's menu, at the pointer.
+  const [menu, setMenu] = useState<{ path: string; at: { left: number; top: number } } | null>(null);
+  // ⌘N with a file picked and no sheet open: New ticket from this file (FIL-09); else the board's New ticket.
+  useShortcut(
+    "new_ticket",
+    useCallback(() => {
+      const file = (viewStates.get().get(project) ?? FIRST).file;
+      if (file === null || selection.get().ticket !== null) return false;
+      newTicketFrom(file);
+      return true;
+    }, [project]),
+  );
 
   if (!page) return <p className="files-quiet files-problem">{full?.problem ?? error?.message ?? ""}</p>;
   const rows = page.filter === "all" ? visibleRows(page.rows, state.open, loaded) : page.rows;
+  let pane: ReactNode | undefined;
+  if (state.file !== null) {
+    pane = (
+      <ProjectFilePane
+        key={state.file}
+        project={project}
+        path={state.file}
+        mode={state.mode}
+        diffOf={state.diffOf}
+        checking={page.checking}
+        refresh={tick}
+        onMode={(mode) => {
+          update((s) => ({ ...s, mode }));
+        }}
+        onOwner={(diffOf) => {
+          update((s) => ({ ...s, diffOf }));
+        }}
+        onNewTicket={(body) => {
+          openOverlay("new_ticket", { body });
+        }}
+        onOpen={(key) => {
+          // Its sheet on Files with the same file; Esc comes back here, the selection kept (FIL-05).
+          if (state.file !== null) openFileIn(key, { path: state.file, child: null, mode: null });
+        }}
+      />
+    );
+  } else if (page.filter === "changed" && page.empty === null) {
+    pane = (
+      <ProjectChanges
+        project={project}
+        refresh={tick}
+        onOpenFile={(path) => {
+          update((s) => withFile(s, path));
+        }}
+      />
+    );
+  }
   return (
-    <FilesViewBody
-      project={project}
-      page={page}
-      rows={rows}
-      open={state.open}
-      file={state.file}
-      found={found}
-      query={query}
-      onQuery={setQuery}
-      searchRef={search}
-      searchKey={(e) => {
-        if (e.key === "Escape" && query !== "") {
-          e.preventDefault();
-          e.stopPropagation();
-          setQuery("");
-        } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-          e.preventDefault();
-          setMoved({
-            found,
-            index: steppedRow(selected, found?.rows.length ?? 0, e.key === "ArrowDown" ? 1 : -1),
-          });
-        } else if (e.key === "Enter") {
-          const row = found?.rows[selected];
-          if (row) {
+    <>
+      <FilesViewBody
+        project={project}
+        page={page}
+        rows={rows}
+        open={state.open}
+        file={state.file}
+        found={found}
+        query={query}
+        onQuery={setQuery}
+        searchRef={search}
+        searchKey={(e) => {
+          if (e.key === "Escape" && query !== "") {
             e.preventDefault();
             e.stopPropagation();
-            openMatch(row.path);
+            setQuery("");
+          } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            setMoved({
+              found,
+              index: steppedRow(selected, found?.rows.length ?? 0, e.key === "ArrowDown" ? 1 : -1),
+            });
+          } else if (e.key === "Enter") {
+            const row = found?.rows[selected];
+            if (row) {
+              e.preventDefault();
+              e.stopPropagation();
+              openMatch(row.path);
+            }
           }
-        }
-      }}
-      selectedMatch={selected}
-      onOpenMatch={openMatch}
-      onRow={(row) => {
-        if (row.kind !== "folder") {
-          update((s) => ({ ...s, file: row.path }));
-          return;
-        }
-        if (page.filter !== "all") return;
-        update((s) => ({ ...s, open: toggled(s.open, row.path) }));
-        if (!state.open.has(row.path) && !loaded.has(row.path)) askFolder(row.path);
-      }}
-      onFilter={(filter) => {
-        update((s) => ({ ...s, filter }));
-      }}
-      source={<SourceBar project={project} page={page} />}
-    />
+        }}
+        selectedMatch={selected}
+        onOpenMatch={openMatch}
+        onRow={(row) => {
+          if (row.kind !== "folder") {
+            update((s) => withFile(s, row.path));
+            return;
+          }
+          if (page.filter !== "all") return;
+          update((s) => ({ ...s, open: toggled(s.open, row.path) }));
+          if (!state.open.has(row.path) && !loaded.has(row.path)) askFolder(row.path);
+        }}
+        onMenu={(row, at) => {
+          setMenu({ path: row.path, at });
+        }}
+        onFilter={(filter) => {
+          update((s) => withFilter(s, filter));
+        }}
+        source={<SourceBar project={project} page={page} />}
+        {...(pane !== undefined && { pane })}
+      />
+      {menu && (
+        <AnchoredMenu
+          anchor={{ ...menu.at, width: 0, height: 0 }}
+          label={menu.path}
+          items={page.menu}
+          onChoose={(id) => {
+            if (id === "new_ticket") newTicketFrom(menu.path);
+            else if (id === "copy_path") copyPath(menu.path);
+          }}
+          onClose={() => {
+            setMenu(null);
+          }}
+        />
+      )}
+    </>
   );
 }
 

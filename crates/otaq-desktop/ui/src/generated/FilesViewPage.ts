@@ -5,6 +5,7 @@ import type { FilesTreeRow } from "./FilesTreeRow";
 import type { FilesViewFilter } from "./FilesViewFilter";
 import type { FilesViewFilterOption } from "./FilesViewFilterOption";
 import type { FilesViewSource } from "./FilesViewSource";
+import type { MenuItem } from "./MenuItem";
 
 /**
  * The Files view's left column and frame (`files_view.view`). `FilesViewPage` on the page.
@@ -30,6 +31,14 @@ empty: FilesEmpty | null,
  * The file pane before a file is picked.
  */
 pick: string, 
+/**
+ * A picked file's subtitle while it is read: "on main · checking which tickets change it…" (`s28-09`).
+ */
+checking: string, 
+/**
+ * Right-click on a file (FIL-09): New ticket from this file ⌘N, Copy path.
+ */
+menu: Array<MenuItem>, 
 /**
  * A ticket's agent is working: the page asks again every 5 s while the view is shown (commits have no event,
  * FIL-10).
