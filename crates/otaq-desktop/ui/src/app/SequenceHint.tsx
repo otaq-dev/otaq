@@ -1,5 +1,5 @@
 // The `g` hint (KEY-02; *02 → Row · The g hint*, `s02-29`…`s02-31`): while Otaq waits for a sequence's second key, a
-// quiet line at the bottom centre lists the second keys from the user's keys ("g → b Board · i Inbox …"). It comes and
+// quiet line at the bottom centre lists the second keys from the user's keys ("g → b Board · l List …"). It comes and
 // goes with the `toast` motion (0095; reduced motion fades). The wait and its timer are the dispatcher's.
 import { Fragment, useRef } from "react";
 

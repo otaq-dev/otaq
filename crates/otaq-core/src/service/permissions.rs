@@ -407,7 +407,7 @@ async fn action_for(
             parent: facts(board, &p.parent).await?,
         },
 
-        // The preview's buttons are the user's (FLW-04, FLW-06); proposing is a Project agent's too (FLW-03).
+        // The flow editor's buttons are the user's (FLW-04, FLW-06); proposing is a Project agent's too (FLW-03).
         R::FlowApply(_)
         | R::FlowCancelProposal(_)
         | R::FlowCancelWaiting(_)
@@ -458,7 +458,7 @@ async fn action_for(
             Action::UserOnly("resume agents")
         }
         R::TicketStartFromScratch(_) => Action::UserOnly("start agents from scratch"),
-        R::InboxAnswer(_) => Action::UserOnly("answer agents from the inbox"),
+        R::InboxAnswer(_) => Action::UserOnly("answer agents"),
         R::UsageMarkLimit(_) => Action::UserOnly("mark agents as stopped by the usage limit"),
         R::CleanupDelete(_) => Action::UserOnly("delete leftovers"),
         R::WarmClear(_) => Action::UserOnly("clear warm builds"),

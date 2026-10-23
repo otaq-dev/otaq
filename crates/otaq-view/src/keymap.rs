@@ -193,7 +193,7 @@ impl KeyAction {
     }
 
     /// The action's name in Settings, the `?` list and the palette (design `s15-46`). The two halves of a pair drawn
-    /// as one row (Next / previous ticket, Open / close the panel, Next / previous panel tab) and the numbered
+    /// as one row (Next / previous ticket, Open / close the ticket, Next / previous ticket tab) and the numbered
     /// actions share their row's title.
     pub fn title(self) -> &'static str {
         match self {
@@ -213,10 +213,10 @@ impl KeyAction {
             Self::FocusPane => "Open / close the Project agent",
             Self::NewProjectAgent => "New Project agent conversation",
             Self::NewTicket => "New ticket",
-            Self::OpenPanel | Self::ClosePanel => "Open / close the panel",
+            Self::OpenPanel | Self::ClosePanel => "Open / close the ticket",
             Self::ExpandPanel => "Full page / back to the sheet",
             Self::SwitchTab(_) => "Ticket tabs",
-            Self::NextTab | Self::PreviousTab => "Next / previous panel tab",
+            Self::NextTab | Self::PreviousTab => "Next / previous ticket tab",
             Self::Approve => "Approve ▾",
             Self::SendBack => "Send back",
             Self::StartDev => "Start / move to Dev",
@@ -706,7 +706,7 @@ fn code_of(c: char) -> Option<String> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Key {
-    /// A key with modifiers (⌘K, Ctrl+Shift+P, ⌃`), or ↵ / Esc alone (Open / close the panel, which stay keys of
+    /// A key with modifiers (⌘K, Ctrl+Shift+P, ⌃`), or ↵ / Esc alone (Open / close the ticket, which stay keys of
     /// the focused control as before, not single letters).
     Stroke { stroke: Keystroke },
     /// A single character with no modifier: `j`, `/`, `?`, `1`. Matched by the character it types, on any layout.
@@ -827,7 +827,7 @@ pub struct Binding {
 }
 
 /// The base map's macOS keys without ⌘ that work in terminals too (0097): Terminals (also how you leave one) and
-/// Next / previous panel tab. Every other macOS key without ⌘ stays the terminal's there.
+/// Next / previous ticket tab. Every other macOS key without ⌘ stays the terminal's there.
 const MAC_TERMINAL_KEYS: [&str; 3] = ["⌃`", "⌃Tab", "⌃⇧Tab"];
 
 /// Keys an app shortcut never takes from a terminal, on Windows/Linux and on macOS (0097): stop, exit, suspend,
@@ -2238,11 +2238,11 @@ mod tests {
                     "The ticket",
                     vec![
                         "New ticket",
-                        "Open / close the panel",
+                        "Open / close the ticket",
                         "Full page / back to the sheet",
                         "Ticket tabs",
                         "Search the ticket\u{2019}s files",
-                        "Next / previous panel tab",
+                        "Next / previous ticket tab",
                         "Approve ▾",
                         "Send back",
                         "Start / move to Dev",

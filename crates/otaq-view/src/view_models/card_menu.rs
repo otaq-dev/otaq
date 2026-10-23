@@ -153,7 +153,7 @@ pub enum Choice {
     MoveToEpic,
     /// Close epic… (the epic dialogs, T-0223).
     CloseEpic,
-    /// Open epic: the epic panel, as a double click on its track's name.
+    /// Open epic: the epic sheet, as a double click on its track's name.
     OpenEpic,
     /// Queue never-started (n): the epic dropped on Ready for Dev (EPC-12), with its queue toast.
     QueueEpic,

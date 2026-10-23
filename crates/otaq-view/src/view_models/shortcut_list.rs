@@ -348,7 +348,7 @@ mod tests {
             drawn(&list, KeyGroup::TheTicket),
             [
                 ("New ticket", keys(&[&["⌘N"], &["c"]]), None),
-                ("Open / close the panel", keys(&[&["↵ / Esc"]]), None),
+                ("Open / close the ticket", keys(&[&["↵ / Esc"]]), None),
                 ("Full page / back to the sheet", keys(&[&["e"]]), None),
                 (
                     "Ticket tabs",
@@ -357,7 +357,7 @@ mod tests {
                 ),
                 ("Search the ticket\u{2019}s files", keys(&[&["⌥⌘P"]]), None),
                 (
-                    "Next / previous panel tab",
+                    "Next / previous ticket tab",
                     keys(&[&["⌃Tab / ⌃⇧Tab"]]),
                     None
                 ),
@@ -466,7 +466,11 @@ mod tests {
         assert_eq!(ticket[0], ("New ticket", keys(&[&["⌘N"]]), None));
         assert_eq!(
             ticket[1],
-            ("Open / close the panel", keys(&[&["↵ / Esc"]]), Some("off"))
+            (
+                "Open / close the ticket",
+                keys(&[&["↵ / Esc"]]),
+                Some("off")
+            )
         );
         assert_eq!(ticket[2].2, Some("off"));
         assert_eq!(

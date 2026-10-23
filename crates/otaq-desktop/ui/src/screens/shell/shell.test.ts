@@ -324,7 +324,7 @@ const LIMITS = {
   title: "Agent limits",
   max_agents: { label: "Max agents running at once", value: 1, can_lower: false, can_raise: true },
   back_pressure: {
-    label: "Pause new starts when the inbox has",
+    label: "Pause new starts when Needs you has",
     value: 3,
     can_lower: true,
     can_raise: true,

@@ -23,7 +23,7 @@ import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { askBar } from "../ask_bar/logic";
-import { togglePane } from "../pane/logic";
+import { toggleAgentPanel } from "../pane/logic";
 import { cleanupScans } from "../recovery/logic";
 
 /** The service events that change the rail's projects or counts. */
@@ -101,7 +101,7 @@ export function RailAgentButton({ button }: { button: AskAgentButton }) {
         aria-pressed={button.tinted}
         data-tinted={button.tinted || undefined}
         onClick={() => {
-          togglePane();
+          toggleAgentPanel();
         }}
       >
         <Icon name={button.icon} size={17} />

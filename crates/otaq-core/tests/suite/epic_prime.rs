@@ -295,8 +295,8 @@ async fn shop_40_mid_flight_renders_every_section() {
     assert_eq!(
         section(&text, "The epic"),
         format!(
-            "## The epic\n\n- External ID: PAY-123\n- Branch: `{}` from `main`\n- Place: a track in Epics in \
-             flight\n- Queue: not queued\n\n### Description\n\n{PLAN}\n",
+            "## The epic\n\n- External ID: PAY-123\n- Branch: `{}` from `main`\n- Place: in flight: its children are \
+             cards on the board (its lane with Lanes: Epic)\n- Queue: not queued\n\n### Description\n\n{PLAN}\n",
             ctx.epic.branch
         )
     );

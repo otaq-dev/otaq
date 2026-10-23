@@ -8,7 +8,7 @@
 //!   file**.
 //! - **All changes** (the Changed filter): every changed file's diff in one scroll, **Unified · Split** (Split below
 //!   900 px reads as unified, [`ReviewMemory`]), "3 files · +13 −5 against main", **Open file** per file; the hunks are
-//!   the Diff tab's ([`super::diff_page`]).
+//!   [`super::diff_page`]'s.
 //! - **Line comments** (FTB-05) on any line of All changes or a file's Diff while the ticket waits in your check: they
 //!   wait "not sent yet" and go to the agent with **Send back** (`board/comments.rs`, REV-03).
 //! - **The review bar** (SHT-06) under every tab while the check is yours: "Your check · Security passed · comment on

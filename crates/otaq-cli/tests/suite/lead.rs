@@ -88,7 +88,7 @@ async fn the_lead_suggests_and_marks_from_its_session_and_an_agent_cant() {
     assert_eq!(ran.status, 0, "{ran:?}");
     assert_eq!(
         ran.stdout.trim(),
-        "Suggested closing SHOP-1.2. The user decides in the inbox; nothing waits for it, so carry on."
+        "Suggested closing SHOP-1.2. The user decides from Needs you; nothing waits for it, so carry on."
     );
     let listed = suggest::list_for_epic(&w.board, "SHOP-1").await.unwrap();
     assert_eq!(listed.len(), 1);

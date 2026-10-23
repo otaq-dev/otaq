@@ -5,7 +5,7 @@
 // Resume where Rust offers it; an epic with no lead shows only the labelled "Open lead" button ("Split with the
 // Project agent" while it has no children either, LEAD-13: it sends the Project agent pane Rust's first message and
 // shows the pane, d0091). Hovering shows the
-// tooltip Rust wrote (*03 → Interactions (0083)*); a click, ↵ or a double click on the status opens the epic panel
+// tooltip Rust wrote (*03 → Interactions (0083)*); a click, ↵ or a double click on the status opens the epic sheet
 // on its Lead tab. The status is never a drag handle: a press on it doesn't reach the card or the track.
 import type { PointerEvent, SyntheticEvent } from "react";
 
@@ -20,13 +20,13 @@ import { Icon } from "../theme/Icon";
 import { Tooltip } from "./Tooltip";
 import "./LeadStatus.css";
 
-/** Opens the epic panel on its Lead tab (a click on a Lead Status, ↵ or a double click on the lead line; T-0290). */
+/** Opens the epic sheet on its Lead tab (a click on a Lead Status, ↵ or a double click on the lead line; T-0290). */
 export function openLeadTab(epic: string): void {
   openTicket(epic, "lead");
 }
 
 /**
- * The status's button: Open lead (`board.lead_open`, then the epic panel) or Resume (`board.lead_resume`). A refusal
+ * The status's button: Open lead (`board.lead_open`, then the epic sheet) or Resume (`board.lead_resume`). A refusal
  * ("Usage limit reached · the lead opens once it resets") is a toast in the service's words.
  */
 export function leadAction(kind: LeadActionKind, epic: string, ask: typeof request = request): Promise<void> {

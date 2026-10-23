@@ -71,7 +71,7 @@ async fn attach(
     let mut events = client.subscribe().await.map_err(client_error)?;
     let attached = request_attach(&client, &key, stage).await?;
     let session = attached.session.id.clone();
-    // Attached means looking at it: no turquoise, inbox item or notification for this ticket meanwhile (ATT-03).
+    // Attached means looking at it: no turquoise, Needs you item or notification for this ticket meanwhile (ATT-03).
     // Disconnecting releases the focus too, so a killed `attach` never leaves it held.
     focus(&client, &session, true).await;
 

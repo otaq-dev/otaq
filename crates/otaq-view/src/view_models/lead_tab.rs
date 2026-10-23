@@ -1,4 +1,4 @@
-//! The epic panel's **Lead** tab (LEAD-11, LEAD-12; d0083, d0045, d0048; *05 · Ticket side panel → Row · Epic panel
+//! The epic sheet's **Lead** tab (LEAD-11, LEAD-12; d0083, d0045, d0048; *05 · Ticket side panel → Row · Epic panel
 //! · Lead tab (0083)* idle / re-planning / asks you, *Row · Lead tab · ended (0083)*, *16 → Row · Epic lead after a
 //! restart* "Before the restart").
 //!

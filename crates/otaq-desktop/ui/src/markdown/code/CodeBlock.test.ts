@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // The code block in the editor (T-0254): the picker's language is saved after the fence and round-trips, ``` on an
-// empty last line leaves the block, and the drawn block has its label, the Diff tab's colours, and read mode's Copy.
+// empty last line leaves the block, and the drawn block has its label, the Files tab's colours, and read mode's Copy.
 
 import { Editor } from "@tiptap/core";
 import { act, createElement } from "react";

@@ -52,56 +52,53 @@ The page is a fixed frame (`ui/src/app/Frame.tsx`, _02 · App shell → Window a
 screens. A screen touches only its own folders plus **one line in the screens index** and, if it calls the service,
 **one line in the request table**. Everything it can fill is listed, typed, in the registries (`ui/src/app/registry/`):
 
-| Registry                          | Ids (fixed in)                                                                              | A screen registers                                 |
-| --------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `app.slots`                       | `slots.ts`: title bar start/end, header, header search, rail, banners, board, panel, toasts | the component that fills the slot                  |
-| `app.overlays`                    | `overlays.ts`: every dialog, popover and drawer, with what it is opened with                | its overlay's component (gets `params`, `close`)   |
-| `app.sheetTabs`                   | the generated `SheetTab` (Rust `sheet::SheetTab`), in the order of `panel.ts`               | its tab's body (gets the open `ticket`)            |
-| `app.panelSections`               | `panel.ts`: Stack, Messages; `inbox_run`, the ⌘J run bar on top of the panel                | its section (gets the open `ticket`)               |
-| `app.settings.global`, `.project` | `settings.ts`: the global and the project sections, in nav order                            | its section (a project section gets the `project`) |
-| `app.shortcuts`                   | the generated `KeyAction` (Rust keymap)                                                     | a handler per action, `app.shortcuts.on(...)`      |
+| Registry                          | Ids (fixed in)                                                                                                             | A screen registers                                 |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `app.slots`                       | `slots.ts`: title bar ends, header, header search, header pause, rail, banners, agent panel, board, Ask bar, sheet, toasts | the component that fills the slot                  |
+| `app.overlays`                    | `overlays.ts`: every dialog, popover and drawer, with what it is opened with                                               | its overlay's component (gets `params`, `close`)   |
+| `app.sheetTabs`                   | the generated `SheetTab` (Rust `sheet::SheetTab`), in the order of `panel.ts`                                              | its tab's body (gets the open `ticket`)            |
+| `app.panelSections`               | `panel.ts`: Overview's sections (Stack) and the open PR's box under its top                                                | its section (gets the open `ticket`)               |
+| `app.settings.global`, `.project` | `settings.ts`: the global and the project sections, in nav order                                                           | its section (a project section gets the `project`) |
+| `app.shortcuts`                   | the generated `KeyAction` (Rust keymap)                                                                                    | a handler per action, `app.shortcuts.on(...)`      |
 
 Each id has one owner: registering one twice throws. The ids are unions, so a `switch` over them without a `default`
 is checked by ESLint's `switch-exhaustiveness-check`. A new overlay id, settings section or slot is one line in its
-registry file; a new panel tab or key action comes from Rust (regenerate the types).
+registry file; a new sheet tab or key action comes from Rust (regenerate the types).
 
 **1. The screen's folder.** `ui/src/screens/<area>/index.tsx` exports one `Screen`, a function that registers its
 parts; its components and logic sit next to it. `ui/src/screens/_sample/` is the template:
 
 ```tsx
-import { toggleOverlay } from "../../app/overlays";
 import type { Screen } from "../../app/registry";
 
-export const inbox: Screen = (app) => {
-  app.overlays.register("inbox", { Component: Inbox });
-  app.shortcuts.on("open_inbox", () => {
-    toggleOverlay("inbox");
-  });
+export const strip: Screen = (app) => {
+  app.overlays.register("resume_all", { Component: ResumeAll });
+  app.shortcuts.on("next_inbox_item", next);
 };
 ```
 
-**2. One line in the screens index**, `ui/src/screens/index.ts`: `export { inbox } from "./inbox";`. The page runs
+**2. One line in the screens index**, `ui/src/screens/index.ts`: `export { strip } from "./strip";`. The page runs
 every screen exported there once at start.
 
 **3. One line in the request table**, if it calls the service: a file `src/api/<area>.rs` with
-`pub async fn request(app, method, params)` matching its own full method names (`"inbox.list" => list(app,
+`pub async fn request(app, method, params)` matching its own full method names (`"strip.view" => view(app,
 params).await`) and ending with `_ => Err(unknown(method))`, plus its name in the `areas!` list of `src/api/mod.rs`.
-The page calls it with `request("inbox.list", params)` from `ui/src/tauri.ts`. Its reply types get the `TS` derive and
+The page calls it with `request("strip.view", params)` from `ui/src/tauri.ts`. Its reply types get the `TS` derive and
 one line in `export_all` (below).
 
 **Shared state.** Interaction state screens share lives in two small stores; everything else comes from the service
 (`useServiceView` in `ui/src/service.ts`) or stays inside the component (UIT-04):
 
-- `ui/src/app/selection.ts`: the project on screen, the ticket open in the panel and its tab, the focused terminal.
+- `ui/src/app/selection.ts`: the project on screen, the ticket open in the sheet and its tab, the focused terminal.
   Read it with `useSelection()`; change it with `selectProject`, `openTicket`, `closeTicket`, `showTab`,
-  `focusTerminal`. The panel slot shows while a ticket is open.
-- `ui/src/app/overlays.ts`: the open overlays, newest last. Any screen opens any overlay by id: `openOverlay("inbox")`,
+  `focusTerminal`. The sheet slot shows while a ticket is open.
+- `ui/src/app/overlays.ts`: the open overlays, newest last. Any screen opens any overlay by id: `openOverlay("resume_all")`,
   `openOverlay("edit_ticket", { ticket: "SHOP-22" })`, `toggleOverlay`, `closeOverlay`. An overlay that isn't
   registered yet draws nothing. `modalOpen()` says whether a modal one holds the app's shortcuts back (`modal.rs`).
 
 **Shortcuts.** T-0215's dispatcher turns a key into a `KeyAction` and calls `app.shortcuts.run(action)`; the newest
 handler for that action runs. A handler returns `false` to leave the key to the one registered before it (an open
-overlay's Esc before the panel's). A component whose key acts on it while mounted (Find in a focused terminal) uses
+overlay's Esc before the sheet's). A component whose key acts on it while mounted (Find in a focused terminal) uses
 `useShortcut(name, handler)` instead of registering at start.
 
 **Keys.** The dispatcher (`ui/src/app/keys.ts`, installed by `App`) takes the §21.3 map from Rust (`keymap.map`, built
@@ -112,14 +109,14 @@ handles it. Outside a terminal, bound keys that no handler takes, and keys the w
 find, zoom, devtools, caret browsing, history), are swallowed; a focused text field keeps Enter, Backspace and Esc. The
 app started with `OTAQ_KEY_LOG=1` shows the last keys and where each went, bottom right.
 
-**Testing a screen.** `registerScreens({ inbox })` gives fresh registries with only that screen; `registered(app)`
+**Testing a screen.** `registerScreens({ strip })` gives fresh registries with only that screen; `registered(app)`
 lists what it filled (see `ui/src/app/registry/registry.test.ts`). The frame renders without a DOM through
 `react-dom/server` (`ui/src/app/frame.test.ts`).
 
 ## The terminal component
 
-`ui/src/terminal/Terminal.tsx` is the one terminal of the app (T-0216, UIT-05, SES-09): the Terminal tab, the Shell
-tab, Project terminals and Project agents all show a session with it. It is **xterm.js 6** with its WebGL, fit, search
+`ui/src/terminal/Terminal.tsx` is the one terminal of the app (T-0216, UIT-05, SES-09): Session's agent, check,
+Run and Shell, Project terminals and Project agents all show a session with it. It is **xterm.js 6** with its WebGL, fit, search
 and web-links add-ons, inside the frame (it needs the registries' context for its Find shortcut):
 
 ```tsx
@@ -224,7 +221,7 @@ child state, gallery look) into theme colours with an exhaustive switch; a varia
 
 ## The ticket sheet
 
-The ticket opens as a sheet (_25 · The ticket view_, SHT-01, SHT-02, T-0464): `ui/src/screens/sheet/` fills the panel
+The ticket opens as a sheet (_25 · The ticket view_, SHT-01, SHT-02, T-0464): `ui/src/screens/sheet/` fills the sheet
 slot, served by `src/api/panel.rs`, whose `panel.view` carries the sheet's header, details line, flow path and tabs
 (`sheet`, worded by `otaq-view`'s `sheet.rs`) beside the ticket's action bar, "…" menu, answer options, queued notice,
 conflict strip and Start interrupted callout (Overview's top, `ui/src/screens/overview/NeedsYou.tsx`). The ticket's
@@ -268,29 +265,26 @@ Run (`run.tab`) leads with "pnpm dev · in SHOP-22’s worktree · :4022" and Op
 The sheet's Activity (SHT-05) is `ui/src/screens/activity/`: `sections.history`'s rows oldest first, each with its
 kind, under the filters All · Comments · Stages · Description (`history.rs`).
 
-## The inbox and ⌘J
+## The Needs you strip and ⌘J
 
-The Needs-you inbox (_10 · Needs-you inbox_, T-0230) is `ui/src/screens/inbox/`, served by `src/api/inbox.rs`. The
-inbox model (`otaq-view`'s `inbox.rs`, resolved rows fading out) and the ⌘J run (`inbox_run.rs`) live in the
-app's Rust side between requests; `inbox_page.rs` words the page: `inbox.view` (the head, the usage-limit row, the
-groups, each row's answer box and buttons, the empty state, the foot; `refresh_ms` while a row fades),
-`inbox.answer` (an option number or text, answered like `panel.answer`: done or the unsent-text question),
-`inbox.act` (a row's button, sent back as the `InboxRowAction` it came with), `inbox.next`, `inbox.run_bar`,
-`inbox.exit_run` and `inbox.resume_all_confirm`.
+The Needs you strip (_24 · The board_, NYS-01…NYS-03, d0114, T-0459) is `ui/src/screens/strip/`, served by
+`src/api/strip.rs` and worded by `otaq-view`'s `needs_you_strip.rs`. The Board and the List each render
+`<NeedsYouStrip />` under their toolbar; it shows only the open project's items, one chip each, in the order of the
+service's queue (`inbox.list`, d0016's groups, unchanged). Requests: `strip.view` (the chips, the count, Next),
+`strip.next` (where ⌘J goes: the next item here, else the next project with items), `strip.resume_all_confirm` and
+`strip.resume_all` (Resume all's confirmation and run), `strip.suggestion` (an epic lead's suggestion confirmed or
+dismissed).
 
-- **Overlays:** `inbox` (⇧⌘I and the header button; non-modal, under the button), `resume_all` (Resume all's
-  confirmation with its tickets, also opened by the "sessions were interrupted" banner) and `all_clear`.
-- **⌘J** works from anywhere, a focused terminal included: the next item opens on its Terminal tab with the
-  terminal focused (`requestTerminalFocus`), and the run bar (panel section `inbox_run`) shows on top of that ticket's
-  panel until the run ends. It never moves on by itself (ATT-07).
-- **New item kinds** (validation, Auto-merge, Project agents: T-0239, T-0241) add their buttons as new
-  `InboxRowAction` variants in `inbox_page.rs`; `describeAction` in `logic.ts` has no `default`, so the linter asks
-  for each new kind.
+- **Overlays:** `resume_all` (Resume all's confirmation with its tickets, also opened by the "sessions were
+  interrupted" banner).
+- **⌘J** (`next_inbox_item`) works from anywhere, a focused terminal included: the next item opens with its terminal
+  focused (`requestTerminalFocus`); after the open project's last item it switches to the next project with items. It
+  never moves on by itself (ATT-07).
 
 ## Terminals
 
 The drawer (_17 · Project terminals_, T-0242, T-0331) is `ui/src/screens/terminals/`, served by `src/api/drawer.rs`. It
-holds Project terminals only (d0087; Project agents live in the pane): `drawer.view` gives the shown project's tabs
+holds Project terminals only (d0087; Project agents live in the agent panel, d0113): `drawer.view` gives the shown project's tabs
 (terminals by number, from `otaq-view`'s `project_terminal.rs`, each with its hint and ended line) and the tab to show.
 Opening a tab goes through Rust, which keeps each project's last-used tab: `drawer.last_terminal` (the rail's Terminals,
 ⇧⌘T) and `drawer.new` (+, a new terminal) each answer the tab to show, which the page passes to `requestTab`
@@ -311,8 +305,8 @@ the toasts and their time-outs. The page draws `notices.view` and each `notices`
 - **Restart required:** `onlyRestartAllowed(useStore(noticesStore))` from the notices screen says when everything
   except Restart is disabled.
 - **Notification clicks** bring the window forward and land in the selection store: the project and the ticket on its
-  Terminal tab, plus a `terminalFocusRequests` entry (`ui/src/app/selection.ts`) the Terminal tab answers by focusing
-  the terminal; a grouped notification opens the inbox.
+  Session tab, plus a `terminalFocusRequests` entry (`ui/src/app/selection.ts`) Session answers by focusing the
+  terminal; a grouped notification goes to Needs you (the strip's next item, as ⌘J).
 
 ## View preferences
 
@@ -330,7 +324,7 @@ field in place of its search entry. The filter is kept per project while the app
 `board.view` and `board.search`; Rust parses the tokens and words the field. The card's right-click menu asks
 `board.menu` for its items and `board.menu_choose` for what a choice does: Pin, Unpin and the priorities are sent at
 once, the others open their dialog by overlay id (`delete_ticket`, `close_ticket`, `move_to_epic`, `close_epic`).
-**Every place that deletes a ticket** (the card menu, the panel's "…" menu, the Project agent's summary) opens the one
+**Every place that deletes a ticket** (the card menu, the sheet's "…" menu, the Project agent's summary) opens the one
 delete confirmation: `openOverlay("delete_ticket", { ticket })`.
 
 ## Settings

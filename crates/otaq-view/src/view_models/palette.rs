@@ -52,9 +52,9 @@ pub struct OpenTicket {
     pub send_back: bool,
     /// Close ticket: `None` when it can be closed, else why not.
     pub close: Option<&'static str>,
-    /// The panel shows Retry validation (a validation that ended without a result).
+    /// The sheet shows Retry validation (a validation that ended without a result).
     pub retry_validation: bool,
-    /// The panel has a Diff tab.
+    /// The sheet has a Files tab.
     pub diff: bool,
     /// An epic or one of its children.
     pub in_epic: bool,
@@ -142,7 +142,7 @@ pub fn unavailable(action: KeyAction, context: &Context) -> Option<&'static str>
 }
 
 /// Whether the palette lists `action`. Not the palette itself; not Project 1–9 (each project is a row of its own,
-/// with its key); not the numbered panel tabs; not Open the panel (↵ on a card: a ticket row opens its panel); not
+/// with its key); not the numbered ticket tabs; not Open the ticket (↵ on a card: a ticket row opens its sheet); not
 /// Pause / Resume agents (its scopes are rows of their own, [`Item::Pause`]); not the parked Files view.
 pub fn listed(action: KeyAction) -> bool {
     !matches!(
@@ -175,8 +175,8 @@ pub fn title(action: KeyAction) -> &'static str {
     match action {
         KeyAction::NextTicket => "Next ticket",
         KeyAction::PreviousTicket => "Previous ticket",
-        KeyAction::OpenPanel => "Open the panel",
-        KeyAction::ClosePanel => "Close the panel",
+        KeyAction::OpenPanel => "Open the ticket",
+        KeyAction::ClosePanel => "Close the ticket",
         KeyAction::NextTab => "Next panel tab",
         KeyAction::PreviousTab => "Previous panel tab",
         // As `s02-20` draws it.
@@ -943,7 +943,7 @@ mod tests {
             "Command palette",
             "Project 1–9",
             "Switch panel tab",
-            "Open the panel",
+            "Open the ticket",
             "Files view",
         ] {
             assert!(

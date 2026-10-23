@@ -661,11 +661,11 @@ pub enum Request {
     /// lists them all). Answered with [`Reply::FlowProposal`], `null` when there is none.
     #[serde(rename = "flow.proposal")]
     FlowProposal(ProjectParams),
-    /// Apply in the preview (FLW-05, FLW-06): the open proposal `proposal`, with the user's `choices` (import clashes,
+    /// Apply in the flow editor (FLW-05, FLW-06): the open proposal `proposal`, with the user's `choices` (import clashes,
     /// skill folders, local models). Answered with [`Reply::FlowApplied`].
     #[serde(rename = "flow.apply")]
     FlowApply(crate::flow::apply::ApplyParams),
-    /// `{"project": "SHOP"}`: Cancel in the preview drops the open proposal. Answered with [`Reply::Ok`].
+    /// `{"project": "SHOP"}`: Cancel in the flow editor drops the open proposal. Answered with [`Reply::Ok`].
     #[serde(rename = "flow.cancel_proposal")]
     FlowCancelProposal(ProjectParams),
     /// `{"project": "SHOP"}`: the waiting change and the tickets it waits for (FLW-06). Answered with
@@ -696,7 +696,7 @@ pub enum Request {
     /// it replaces only the open one from the same tool, ASK-03). Answered with [`Reply::FlowProposal`].
     #[serde(rename = "flow.propose")]
     FlowPropose(crate::flow::propose::ProposeParams),
-    /// Ask for more changes in the preview (FLW-04): closes the open proposal; the text goes to the Project agent
+    /// Ask for more changes in the flow editor (FLW-04): closes the open proposal; the text goes to the Project agent
     /// that proposed it. Answered with [`Reply::Ok`].
     #[serde(rename = "flow.ask_for_changes")]
     FlowAskForChanges(crate::flow::propose::AskForChangesParams),

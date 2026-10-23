@@ -1,4 +1,4 @@
-//! Epics in flight (EPC-11, EPC-13; d0080): the epic's queue mode, its place on the board, and the child groups
+//! An epic in flight (EPC-11, EPC-13; d0080): its queue mode, its place on the board, and the child groups
 //! the queue and take-back rules read.
 //!
 //! The epic moves as one thing: a **card** in Backlog before it starts (its children are rows inside it), a
@@ -69,7 +69,7 @@ pub enum EpicPlace {
     /// A card in Backlog with its children as rows: nothing is active, and either nothing ever started or a child
     /// is Parked (after Park all, or a single Park).
     Card,
-    /// In flight (a track): its children are on the board as cards (with Lanes: Epic, in its lane, EPL-01), until
+    /// In flight: its children are on the board as cards (with Lanes: Epic, in its lane, EPL-01), until
     /// the epic reaches Ready for Review.
     Track,
     /// The epic itself is in Ready for Review, Approved or Done (EPC-04): its delivery card.

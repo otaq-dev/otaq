@@ -1,4 +1,4 @@
-// The epic panel's Lead tab (*05 → Row · Epic panel · Lead tab (0083)*, *Row · Lead tab · ended (0083)*, *16 → Lead tab
+// The epic sheet's Lead tab (*05 → Row · Epic panel · Lead tab (0083)*, *Row · Lead tab · ended (0083)*, *16 → Lead tab
 // · ended by restart · Before the restart*; LEAD-11, LEAD-12; d0083, d0045, d0048). The header holds the Lead Status,
 // "read-only" and the tokens today; "Changes by the lead" lists the lead's changes by turn, each line opening its
 // ticket; the body is the live terminal (typing as in a ticket's Terminal tab), Open lead (Split with the Project

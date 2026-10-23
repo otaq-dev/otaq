@@ -288,7 +288,7 @@ async fn all_changes_include_uncommitted_files_with_their_diffs() {
         ]
     );
     assert_eq!((changes.added, changes.removed), (7, 0));
-    // The committed-only diff of the Diff tab doesn't see them; Files does.
+    // The committed-only diff (`board/diff.rs`) doesn't see them; Files does.
     let committed = f.board.diff_summary("SHOP-1").await.unwrap();
     assert_eq!(committed.files.len(), 2);
 

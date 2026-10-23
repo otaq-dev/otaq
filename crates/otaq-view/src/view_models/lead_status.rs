@@ -1,6 +1,6 @@
 //! The **Lead Status** (LEAD-11, LEAD-02, LEAD-12; d0083; *01 · Components · Epics on the board → Row · Lead Status
 //! (0083)*): the epic lead's icon, name and state, in two forms.
-//! - **Full form** ("Wishlist lead · re-planning") on the Backlog epic card, in the epic panel, inbox items and
+//! - **Full form** ("Wishlist lead · re-planning") on the Backlog epic card, in the epic sheet, Needs you items and
 //!   tooltips.
 //! - **Short form** (icon + state, "answering 40.2") where the epic's name is already said.
 //!
@@ -9,7 +9,7 @@
 //! offers the labelled button **Open lead** (its click is the go-ahead for the lead's tokens). A turn the user typed
 //! reads "re-planning", as a wake-up does: the lead no longer plans an epic from scratch (LEAD-13, d0091).
 //! - **Split with the Project agent** (LEAD-13, d0091) takes Open lead's place, in the same style, on an epic with no
-//!   lead and no children ([`LeadStatusView::of_epic`]): its click sends the Project agent pane the first message
+//!   lead and no children ([`LeadStatusView::of_epic`]): its click sends the Project agent the first message
 //!   "Split SHOP-40 into tickets". Open lead shows once the epic has a child.
 //!
 //! The tooltip (*03 → Interactions (0083)*) holds the full form, what woke it ("SHOP-40.1 merged") and its tokens
@@ -29,7 +29,7 @@ pub const OPEN_LEAD: &str = "Open lead";
 pub const SPLIT_WITH_PROJECT_AGENT: &str = "Split with the Project agent";
 pub const RESUME: &str = "Resume";
 /// The hint every live lead's tooltip ends with (frame 17).
-pub const CLICK_HINT: &str = "Click: open the epic panel on its Lead tab.";
+pub const CLICK_HINT: &str = "Click: open the epic sheet on its Lead tab.";
 
 /// The colour of the state. `LeadTone` on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -53,7 +53,7 @@ pub enum Tone {
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "LeadActionKind")]
 pub enum ActionKind {
-    /// `lead.open`, then the epic panel.
+    /// `lead.open`, then the epic sheet.
     Open,
     /// `lead.resume`: the same conversation.
     Resume,
@@ -142,7 +142,7 @@ pub struct LeadStatusView {
     /// Resume (ended by restart, ended), Open lead (no lead) or Split with the Project agent (no lead, no children).
     pub action: Option<Button>,
     pub tooltip: Tooltip,
-    /// A live lead: a click on the status opens the epic panel on its Lead tab.
+    /// A live lead: a click on the status opens the epic sheet on its Lead tab.
     pub opens_tab: bool,
 }
 
@@ -202,7 +202,7 @@ impl LeadStatusView {
             tooltip: Tooltip {
                 title: SPLIT_WITH_PROJECT_AGENT.to_owned(),
                 lines: vec![format!(
-                    "Sends the Project agent pane the first message \u{201c}{}\u{201d}.",
+                    "Sends the Project agent the first message \u{201c}{}\u{201d}.",
                     split_message(&epic.key)
                 )],
             },
@@ -753,7 +753,7 @@ mod tests {
         assert_eq!(
             v.tooltip.lines,
             [
-                "Sends the Project agent pane the first message \u{201c}Split SHOP-40 into tickets\u{201d}."
+                "Sends the Project agent the first message \u{201c}Split SHOP-40 into tickets\u{201d}."
             ]
         );
         // A lead row with no lead behaves as none.

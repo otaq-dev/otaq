@@ -1,5 +1,5 @@
 // The window's layout state (SHB-01, SHL-05, T-0327, T-0458): whether the Project agent panel is open, the dragged
-// ticket panel widths per window size class, and whether the ticket panel is expanded. All of it is page state, so
+// ticket sheet widths per window size class, and whether the ticket sheet is expanded. All of it is page state, so
 // each window keeps its own, for the app's life. The sizes and the size classes are Rust's (`layout.view`,
 // `panel.rs`); this file keeps only the moment of interaction: the drags and the switches.
 import { useEffect, useState } from "react";
@@ -17,7 +17,7 @@ export interface ShellLayout {
   /** The Project agent panel is open between the rail and the main area (⌘L, the rail's button, the Ask bar; d0113). */
   agentOpen: boolean;
   panelWidths: ClassDrags;
-  /** Expand (`e`): the ticket panel takes the main area. */
+  /** Expand (`e`): the ticket sheet takes the main area. */
   panelExpanded: boolean;
 }
 
@@ -29,7 +29,7 @@ export const INITIAL_LAYOUT: ShellLayout = {
 
 export const shellLayout = createStore<ShellLayout>(INITIAL_LAYOUT);
 
-/** Rust's sizes; `undefined` until `layout.view` answered (the agent panel and the ticket panel wait for it). */
+/** Rust's sizes; `undefined` until `layout.view` answered (the agent panel and the ticket sheet wait for it). */
 export const layoutView = createStore<LayoutView | undefined>(undefined);
 
 /** The main area's width now, measured by the frame: the panel's widest is this minus what the board keeps. */

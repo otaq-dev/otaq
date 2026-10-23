@@ -1,7 +1,7 @@
 //! An epic lead's own commands (LEAD-08, CLI-07; d0083), run from inside the lead's session. The lead works only
 //! through the `otaq` CLI, so any agent provider can be a lead:
 //! - `otaq suggest close|delete <KEY> --stdin`: suggests closing or deleting a never-started child of its epic, the
-//!   reason on stdin. The user decides from the inbox; nothing waits for it.
+//!   reason on stdin. The user decides from Needs you; nothing waits for it.
 //! - `otaq note <KEY> --stdin`: leaves an unread note for a running child of its epic (LEAD-10). Its agent reads it
 //!   before its next commit or submit. To a child whose first stop woke the lead, the note answers that stop as
 //!   "Answer the agent" would (LEAD-07); `--view "<text>"` adds the lead's view of the cause, shown to the user only

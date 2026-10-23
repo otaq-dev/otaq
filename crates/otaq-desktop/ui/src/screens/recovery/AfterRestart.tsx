@@ -2,7 +2,7 @@
 // were interrupted" banner, the interrupted tickets with a checkbox (all ticked) and Resume each, Resume selected,
 // what each Resume did (resumed, or Couldn't resume with Retry and Start from scratch) and what the restart left
 // alone. It opens by itself once per service start and from the banner's Review & resume; Later (or Esc) closes it
-// and the tickets stay in the inbox. Nothing resumes without a click. What it says is `recovery.summary`'s
+// and the tickets stay in Needs you. Nothing resumes without a click. What it says is `recovery.summary`'s
 // (`after_restart.rs`); a ticket that was validating says Resume starts a fresh validation, and the Project agents
 // the restart ended have their own rows with Resume, outside Resume selected (T-0244). With several tools (M23) each
 // row names its agent and tool; a row whose tool is logged out says so in amber with Sign in… in place of Resume, and

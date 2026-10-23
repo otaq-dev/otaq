@@ -21,7 +21,7 @@ const HINT = [
   "Terminal 1 · shop-web · a shell in ~/code/shop-web",
   "Run project commands, or make tickets yourself:",
   '  › otaq create "Wishlist share link"',
-  "Want an agent’s help? Ask the Project agent in the pane (⌘L).",
+  "Want an agent’s help? Ask the Project agent in the Ask bar (⌘L).",
 ];
 
 const tab = (id: string, label: string, more: Partial<DrawerTab> = {}): DrawerTab => ({
@@ -117,7 +117,7 @@ describe("the drawer", () => {
   it("a fresh terminal shows the hint (the gallery draws it as live)", () => {
     const html = render(VIEW, true);
     expect(html).toContain("Run project commands, or make tickets yourself:");
-    expect(html).toContain("Ask the Project agent in the pane (⌘L).");
+    expect(html).toContain("Ask the Project agent in the Ask bar (⌘L).");
   });
 
   it("an ended terminal keeps its scrollback with the exit line", () => {

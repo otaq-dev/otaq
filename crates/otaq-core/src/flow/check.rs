@@ -1,5 +1,5 @@
 //! The checks on a flow (STG-02; d0108's fixed rules and smaller rule 9, the second gap review's rules 1, 2 and 6).
-//! Each problem names the stage and the rule in plain words, as `otaq flow propose` and the preview will show it.
+//! Each problem names the stage and the rule in plain words, as `otaq flow propose` and the flow editor show it.
 
 use std::collections::HashSet;
 

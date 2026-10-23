@@ -1,4 +1,4 @@
-//! Epics in flight (EPC-11, EPC-13; d0080): the epic's place (card → track → card, delivery), the child groups,
+//! An epic in flight (EPC-11, EPC-13; d0080): the epic's place (card → track → card, delivery), the child groups,
 //! and the stored queue mode and "joined the queue" mark. The example is shop-web's SHOP-45 Search (45.1 Search
 //! index API, 45.2 Search results page).
 

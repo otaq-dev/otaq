@@ -358,7 +358,9 @@ export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
 
 /** Whether the keyboard is in the Project agent's panel (the frame's `pane` slot). */
 function inAgentPanel(): boolean {
-  return typeof document !== "undefined" && document.activeElement?.closest('[data-slot="pane"]') != null;
+  return (
+    typeof document !== "undefined" && document.activeElement?.closest('[data-slot="agent_panel"]') != null
+  );
 }
 
 /**

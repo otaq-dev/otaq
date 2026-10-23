@@ -1,4 +1,4 @@
-//! Answering the agent from the inbox (ATT-08; d0045, d0048, d0042; *10 → Answer · inline, Idle · third needs-you label,
+//! Answering the agent from Needs you (ATT-08; d0045, d0048, d0042; *10 → Answer · inline, Idle · third needs-you label,
 //! After a reboot · answer resumes*): Asks you and Idle items have **Answer**, which opens a reply box in the row;
 //! ↵ sends, Esc cancels. An Interrupted item that kept its question reads **Answer & resume**: the one click
 //! resumes the conversation and delivers the answer. Unsent text in the terminal asks *Keep it and cancel / Clear
@@ -78,7 +78,7 @@ pub fn request(key: &TicketKey, choice: &Choice, clear: bool) -> Request {
 /// What the app does with the service's answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnswerOutcome {
-    /// Delivered: the box closes; the item leaves with the next inbox update.
+    /// Delivered: the box closes; the item leaves with the next Needs you update.
     Sent,
     /// Unsent text in the terminal: ask first.
     Ask(UnsentPrompt),

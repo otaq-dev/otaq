@@ -12,7 +12,7 @@ export type AfterRestartSummary = { title: string, text: string, rows: Array<Aft
  */
 agents: AfterRestartAgents | null, notes_title: string, 
 /**
- * The tickets the restart left alone or that Resume selected leaves to the inbox.
+ * The tickets the restart left alone or that Resume selected leaves to Needs you.
  */
 notes: Array<string>, resume: string, retry: string, scratch: string, foot: string, later: string, 
 /**

@@ -1,4 +1,4 @@
-// A click on the board's own background closes the ticket panel (SHL-05, OT-3): a column's empty area, the gap between
+// A click on the board's own background closes the ticket sheet (SHL-05, OT-3): a column's empty area, the gap between
 // columns, the room after the last one. Only a plain left press and release on it counts: the press and the release
 // both on background, the pointer moved less than a drag's threshold, and no menu or popover open at the press (that
 // click is the one that closes it). Cards, buttons, the strip, the agent chip and the Done rail are no background.

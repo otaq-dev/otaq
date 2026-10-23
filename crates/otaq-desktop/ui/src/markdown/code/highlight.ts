@@ -1,5 +1,5 @@
 // Code colours in code blocks (T-0254, d0078): highlight.js, through lowlight, reads the code, and its classes are
-// mapped onto the Diff tab's tokens (otaq-view `highlight.rs`, `CodeToken`: keyword, string, number, type, comment,
+// mapped onto the Files tab's tokens (otaq-view `highlight.rs`, `CodeToken`: keyword, string, number, type, comment,
 // function), so code looks the same in both places and in every theme. Only the picker's languages are loaded.
 //
 // The lowlight instance handed to Tiptap is wrapped: each block comes back as flat spans with one `tok-<token>` class,
@@ -47,7 +47,7 @@ export function tokenOf(classes: readonly string[], language: string): CodeToken
   return null;
 }
 
-/** `code` in `language` as coloured runs; the innermost element that names a token wins, as in the Diff tab. */
+/** `code` in `language` as coloured runs; the innermost element that names a token wins, as in the Files tab. */
 export function highlightCode(language: string, code: string): CodeSpan[] {
   const spans: CodeSpan[] = [];
   const walk = (nodes: readonly TreeNode[], token: CodeToken) => {

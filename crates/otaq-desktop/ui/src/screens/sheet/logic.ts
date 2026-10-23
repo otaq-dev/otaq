@@ -2,7 +2,7 @@
 // what a tab key or ⌃Tab selects, the sheet's width now, and a tab's dot. The tabs, their keys and the widths are
 // Rust's (`view_models/sheet.rs`, sent as `PanelView.sheet`).
 import type { TabIndicator } from "../../components";
-import type { PanelTabMark } from "../../generated/PanelTabMark";
+import type { SheetTabMark } from "../../generated/SheetTabMark";
 import type { SheetContent } from "../../generated/SheetContent";
 import type { SheetTab } from "../../generated/SheetTab";
 import type { SheetTabView } from "../../generated/SheetTabView";
@@ -60,7 +60,7 @@ export function sheetWidth(view: SheetView, besideAgent: boolean, mainWidth: num
 
 /** A tab's dot, as the Tabs component draws it, else its count ("Tickets 5"). */
 export function tabIndicator(
-  mark: PanelTabMark | null,
+  mark: SheetTabMark | null,
   count: string | null = null,
 ): TabIndicator | undefined {
   if (mark !== null) return mark;

@@ -91,7 +91,7 @@ describe("the sections' interaction state", () => {
 });
 
 describe("the sections", () => {
-  it("Messages: the question, its answer and an Answer button on an inbox question", () => {
+  it("Messages: the question, its answer and an Answer button on a question sent to you", () => {
     const view: MessagesView = {
       title: "Messages",
       heading: "1 thread · linked tickets only",
@@ -110,7 +110,7 @@ describe("the sections", () => {
             to_name: null,
             time: "10:42",
             text: "Which endpoint returns the wishlist?",
-            status: "Sent to your inbox",
+            status: "Sent to you",
             icon: "inbox",
             tone: "attention",
           },
@@ -160,7 +160,7 @@ describe("the sections", () => {
             to_name: "Wishlist lead",
             time: "11:05",
             text: "Should the button show a filled heart once the item is saved?",
-            status: "Routed to the lead · no inbox item",
+            status: "Routed to the lead · not in Needs you",
             icon: "send",
             tone: "delivered",
           },
@@ -186,7 +186,7 @@ describe("the sections", () => {
     expect(out).not.toContain(">Answer<");
   });
 
-  it("the Diff tab's report draws its findings, checks and notes, with Create ticket", () => {
+  it("the Files tab's report draws its findings, checks and notes, with Create ticket", () => {
     const out = html(createElement(Report, { report: REPORT, ticket: "SHOP-32" }));
     expect(out).toContain("arrow keys do nothing");
     expect(out).toContain("components/AddressAutocomplete.tsx:88");

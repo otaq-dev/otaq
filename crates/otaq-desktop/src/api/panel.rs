@@ -1,4 +1,4 @@
-//! `panel.*`: the ticket side panel (UI-04, CLS-01, CLS-03, CLS-05, CLS-06, TKT-08, SES-02, ATT-12, REV-06, GIT-04;
+//! `panel.*`: the ticket sheet (UI-04, CLS-01, CLS-03, CLS-05, CLS-06, TKT-08, SES-02, ATT-12, REV-06, GIT-04;
 //! d0008, d0033, d0044, d0052, d0060, d0061, d0043; *05 · Ticket side panel*). One view per open ticket: the header
 //! (key, title, priority, status, branch, base, last signal, tokens), previous / next in the column, the action bar
 //! and the "…" menu of its state, the answer options of an Asks-you question, the queued notice, the conflict strip,
@@ -181,7 +181,7 @@ pub struct Button {
 /// The dot after a tab's name (the page's `TabIndicator`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-#[ts(rename = "PanelTabMark")]
+#[ts(rename = "SheetTabMark")]
 pub enum Mark {
     Live,
     LiveAttention,
@@ -349,7 +349,7 @@ pub struct Confirm {
     pub confirm: String,
 }
 
-/// The open ticket's panel.
+/// The open ticket's sheet.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "PanelView")]
 pub struct View {
@@ -549,7 +549,7 @@ fn notice_of(ticket: &Ticket, tickets: &[Ticket]) -> Option<Notice> {
 pub fn view_of(f: &Facts) -> View {
     let ticket = f.ticket;
     let live = running_agent(f.sessions);
-    // Run is built here (T-0232); `actions::buttons` leaves it out. Resume lead is the epic panel's (T-0290).
+    // Run is built here (T-0232); `actions::buttons` leaves it out. Resume lead is the epic sheet's (T-0290).
     let resume_lead = (ticket.is_epic() && resumes_lead(f.lead)).then_some((Action::ResumeLead, Look::Primary));
     let buttons: Vec<Button> = resume_lead
         .into_iter()
@@ -1459,7 +1459,7 @@ pub async fn answer(app: &App, params: AnswerParams) -> Result<Sent, RequestErro
     }
 }
 
-/// The epic lead's question answered from the epic panel's bar (T-0290): typed into the lead's session as for a
+/// The epic lead's question answered from the epic sheet's bar (T-0290): typed into the lead's session as for a
 /// Project agent (PAG-07); with unsent text in its input line the user is asked first (d0048).
 async fn answer_lead(app: &App, epic: &Ticket, params: &AnswerParams) -> Result<Sent, RequestError> {
     let lead = super::lead::lead_of(app, epic).await;

@@ -525,7 +525,7 @@ pub struct Section {
     pub title: String,
     pub intro: String,
     pub new_agent_label: String,
-    /// The header's ⋯ (FLW-10): Apply the shipped agents file again, which opens the preview for the project on
+    /// The header's ⋯ (FLW-10): Apply the shipped agents file again, which opens the flow editor for the project on
     /// screen.
     pub more_label: String,
     pub more: Vec<MenuItem>,
@@ -536,7 +536,7 @@ pub struct Section {
     pub rows: Vec<TableRow>,
 }
 
-/// The header's ⋯ item (FLW-10): the preview with `otaq-agents.yaml`, Keep mine · Take theirs per changed agent; the
+/// The header's ⋯ item (FLW-10): the flow editor with `otaq-agents.yaml`, Keep mine · Take theirs per changed agent; the
 /// way back after a broken edit.
 pub const AGENTS_FILE: &str = "agents_file";
 pub const APPLY_THE_SHIPPED_AGENTS_FILE_AGAIN: &str = "Apply the shipped agents file again";

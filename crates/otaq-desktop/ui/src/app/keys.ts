@@ -46,7 +46,7 @@ export function inKeyRecorder(element: FocusLike | null): boolean {
 
 /**
  * Which single letters stay with the focused element (KEY-02, "nobody is typing"): all of them while somebody types
- * or a menu or dialog has the keyboard; the digits in a radio group (the inbox's answer 1–4); none elsewhere.
+ * or a menu or dialog has the keyboard; the digits in a radio group (an answer's 1–4); none elsewhere.
  */
 export type LetterHold = "all" | "digits" | "none";
 
@@ -82,12 +82,11 @@ const WIDGET_KEYS: ReadonlySet<string> = new Set(["Enter", "Escape"]);
  * recorded on it (`description_editor_keys`). Its read mode isn't a text field and keeps nothing. */
 const DESCRIPTION_EDITOR = ".md-editor";
 const EDITOR_KEYS: ReadonlySet<string> = new Set([...TEXT_FIELD_KEYS, "k", "b"]);
-/** Where the app's single letters don't run (KEY-02): a menu, a list or a dialog has its own keys, unless it's marked
- * `data-letters` (the inbox, whose j / k are the app's Next / previous). */
-const LETTER_WIDGETS = '[role="menu"], [role="listbox"], [role="dialog"]:not([data-letters])';
+/** Where the app's single letters don't run (KEY-02): a menu, a list or a dialog has its own keys. */
+const LETTER_WIDGETS = '[role="menu"], [role="listbox"], [role="dialog"]';
 const RADIO_GROUP = '[role="radiogroup"]';
 /** A menu or dialog open anywhere on the page holds the letters back too; a leaving copy (`data-leaving`) doesn't. */
-const OPEN_WIDGETS = '[role="menu"], [role="dialog"]:not([data-letters])';
+const OPEN_WIDGETS = '[role="menu"], [role="dialog"]';
 
 /** What `keysKeptBy` reads of the focused element; an `HTMLElement` is one. */
 export interface FocusLike {
@@ -394,7 +393,7 @@ export function dispatchKey(d: Dispatch, e: KeyLike, ctx: KeyContext): KeyOutcom
   let binding = map && bindingFor(map, e, ctx.inTerminal);
   const stroke = binding && strokeOf(binding);
   if (stroke && keeps(ctx.focusKeeps, stroke)) binding = undefined;
-  // ↵ / Esc (Open / close the panel) are in 0097's single-letter table: the switch turns them off too. The key then
+  // ↵ / Esc (Open / close the ticket) are in 0097's single-letter table: the switch turns them off too. The key then
   // goes on to the page, so a focused control's own ↵ and Esc still work.
   if (stroke && map && !map.letters && withoutModifiers(stroke)) binding = undefined;
   if (binding) return runBinding(d, binding, ctx);

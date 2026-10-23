@@ -1,4 +1,4 @@
-//! A ticket's diff for the Diff tab (REV-01, REV-02, EPC-05; d0017, d0049, d0059).
+//! A ticket's diff for the Files tab (REV-01, REV-02, EPC-05; d0017, d0049, d0059).
 //!
 //! A ticket's diff is always **its branch against its `base_sha`** (`base_sha...branch`), where it left its
 //! base, never against the base's current head: a ticket never shows someone else's changes. The reply names
@@ -38,7 +38,7 @@ pub struct DiffSummary {
     /// "+412 −38": the sum over the files.
     pub added: u32,
     pub removed: u32,
-    /// The review round (1 + the Send backs so far): the Diff tab keeps its viewed ticks per round.
+    /// The review round (1 + the Send backs so far): the Files tab keeps its viewed ticks per round.
     pub round: u32,
     /// What the agent said at `review submit` (or "Submitted by you" and the note), shown above the diff.
     #[serde(default, skip_serializing_if = "Option::is_none")]

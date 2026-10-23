@@ -13,7 +13,7 @@
 //!
 //! **The answer** ([`Answer`]): the user's Apply, Cancel or Ask for more changes reaches the proposing Project agent's
 //! session as its next message ([`deliver_answer`]), typed once the agent is idle and its input line is empty (d0048),
-//! whatever triggered it (the preview, a request). A proposal from the user's terminal gets nothing.
+//! whatever triggered it (the flow editor, a request). A proposal from the user's terminal gets nothing.
 
 use serde::{Deserialize, Serialize};
 
@@ -52,7 +52,7 @@ pub struct ProposeParams {
     pub source: Proposed,
 }
 
-/// `flow.ask_for_changes`'s parameters: the preview's Ask for more changes on the open proposal `proposal`, with the
+/// `flow.ask_for_changes`'s parameters: the flow editor's Ask for more changes on the open proposal `proposal`, with the
 /// user's line of text for the agent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AskForChangesParams {
@@ -197,7 +197,7 @@ impl Board {
 
     /// `flow propose` (FLW-03): checks the proposal against the flow as it will be, then opens it (replacing the open
     /// one). Refused with [`SAME`] when nothing differs, and with its problems, one per line, when any can't be fixed
-    /// in the preview (any at all for a Project agent).
+    /// in the flow editor (any at all for a Project agent).
     pub async fn propose(
         &self,
         project: &str,

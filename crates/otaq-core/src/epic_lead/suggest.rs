@@ -1,5 +1,5 @@
 //! The lead's suggestions (LEAD-08; d0083): an epic lead never closes or deletes a child itself. It suggests it with
-//! `otaq suggest close|delete <KEY> --stdin`, the reason on stdin, and the user decides from the inbox:
+//! `otaq suggest close|delete <KEY> --stdin`, the reason on stdin, and the user decides from Needs you:
 //! - the suggestion is an inbox item in its own group right after group 1 ([`NeedsYouGroup::Suggestions`]): "Wishlist
 //!   lead suggests closing SHOP-40.6 Wishlist export (CSV)", with the reason;
 //! - it blocks no agent, so it sends no OS notification, doesn't change the lead's status and doesn't turn its track
@@ -101,7 +101,7 @@ pub fn headline(lead: &str, kind: SuggestionKind, child: &TicketKey, title: &str
 /// The reply to `otaq suggest`: nothing waits for it.
 pub fn suggested_message(suggestion: &Suggestion) -> String {
     format!(
-        "Suggested {} {}. The user decides in the inbox; nothing waits for it, so carry on.",
+        "Suggested {} {}. The user decides from Needs you; nothing waits for it, so carry on.",
         suggestion.kind.gerund(),
         suggestion.child
     )

@@ -293,7 +293,7 @@ const FEATURES: &[&str] = &[
     "editor.save",
     "editor.link",
     "editor.source_mode",
-    // The ticket panel.
+    // The ticket sheet.
     "panel.action",
     "panel.answer",
     "panel.answer_agent",
@@ -302,7 +302,7 @@ const FEATURES: &[&str] = &[
     "panel.close",
     "panel.mark_closed",
     "panel.remove_dependency",
-    // Review and the Diff tab.
+    // Review and the Files tab.
     "review.approve",
     "review.local_merge",
     "review.send_back",

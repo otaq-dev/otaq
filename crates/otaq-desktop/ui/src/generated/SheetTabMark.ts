@@ -3,4 +3,4 @@
 /**
  * The dot after a tab's name (the page's `TabIndicator`).
  */
-export type PanelTabMark = { "kind": "live" } | { "kind": "live_attention" } | { "kind": "problem" };
+export type SheetTabMark = { "kind": "live" } | { "kind": "live_attention" } | { "kind": "problem" };

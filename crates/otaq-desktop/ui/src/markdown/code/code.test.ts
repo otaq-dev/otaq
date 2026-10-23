@@ -1,5 +1,5 @@
 // The code block's plain parts (T-0254): the fence that fits the code (Q48), the picker's list and filter, and the
-// mapping of highlight.js onto the Diff tab's tokens.
+// mapping of highlight.js onto the Files tab's tokens.
 
 import { describe, expect, test } from "vitest";
 
@@ -70,7 +70,7 @@ describe("the language picker's list", () => {
   });
 });
 
-describe("code colours are the Diff tab's tokens", () => {
+describe("code colours are the Files tab's tokens", () => {
   test("highlight.js classes", () => {
     expect(tokenOf(["hljs-keyword"], "ts")).toBe("keyword");
     expect(tokenOf(["hljs-string"], "ts")).toBe("string");

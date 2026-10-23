@@ -73,7 +73,7 @@ const ignore = () => undefined;
 
 /**
  * The newest focus request the live pane carried out. Kept outside the component: a request from another project's
- * inbox row lands in the pane mounted for that project.
+ * strip item lands in the pane mounted for that project.
  */
 const focusHandled: { last: PaneFocusRequest | null } = { last: null };
 
@@ -476,7 +476,7 @@ type Floating = "switcher" | "menu" | "recent" | null;
 export interface PaneBodyProps {
   view: PaneView;
   project: string;
-  /** Follows ⌘L, ⇧⌘L and the inbox's focus requests (the live pane; not the gallery's copies). */
+  /** Follows ⌘L, ⇧⌘L and the strip's focus requests (the live pane; not the gallery's copies). */
   followFocus?: boolean;
 }
 
@@ -497,7 +497,7 @@ export function PaneBody({ view, project, followFocus = false }: PaneBodyProps) 
   const asked = useStore(paneFocusRequests);
   const target = focusTarget(view);
 
-  // ⌘L, ⇧⌘L, Send and the inbox ask for the keyboard: once per request, when the pane shows what it was asked for.
+  // ⌘L, ⇧⌘L, Send and Needs you ask for the keyboard: once per request, when the pane shows what it was asked for.
   useEffect(() => {
     if (!followFocus || !asked || asked === focusHandled.last || !focusFits(asked, view.agent)) return;
     if (target === "none") return;

@@ -3,7 +3,7 @@
 // short fade.
 //
 // Leaving: React removes a closed layer at once, so `useEnterExit` leaves an inert copy in its place, plays the leave
-// animation on the copy and removes it after. A layer that must keep drawing while it leaves (the side panel and its
+// animation on the copy and removes it after. A layer that must keep drawing while it leaves (the sheet and its
 // terminals) stays mounted instead, with `usePresence`.
 import { type RefObject, useCallback, useLayoutEffect, useState } from "react";
 
@@ -153,7 +153,7 @@ export function usePresence(open: boolean): { mounted: boolean; leaving: boolean
 export const ENTER_WAIT = 400;
 
 /**
- * Plays `preset` in on `el` once its content is ready: the side panel's slot shows `[data-loading]` while the ticket
+ * Plays `preset` in on `el` once its content is ready: the sheet's slot shows `[data-loading]` while the ticket
  * loads, and sliding in an empty panel that then fills read as a jump. Until then (at most `ENTER_WAIT`) the layer is
  * hidden. Returns the cleanup: it stops waiting and shows the layer.
  */

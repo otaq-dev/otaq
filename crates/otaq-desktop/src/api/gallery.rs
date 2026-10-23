@@ -26,7 +26,7 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.decision_change" => reply(&decision_change::gallery()),
         // The Lead Status, the track label and the epic card with a lead (T-0289).
         "gallery.leads" => reply(&lead_status::gallery()),
-        // The epic panel's Lead tab in each state (T-0290).
+        // The epic sheet's Lead tab in each state (T-0290).
         "gallery.lead_tabs" => reply(&lead_tab::gallery()),
         // The Needs you strip in each state of `s24-03` and `s24-12` (T-0459).
         "gallery.needs_you_strip" => reply(&needs_you_strip::gallery()),

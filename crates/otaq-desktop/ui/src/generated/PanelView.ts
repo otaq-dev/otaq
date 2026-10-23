@@ -21,7 +21,7 @@ import type { TicketPathView } from "./TicketPathView";
 import type { ToolProblemCallout } from "./ToolProblemCallout";
 
 /**
- * The open ticket's panel.
+ * The open ticket's sheet.
  */
 export type PanelView = { key: string, title: string, epic: boolean, priority: PriorityView, priority_hint: string, priority_menu: Array<MenuItem>, pill: PillView, branch: PanelBranch | null, copy_branch: string, base: string, signal: PanelSignal | null, tokens: PanelTokens | null, 
 /**

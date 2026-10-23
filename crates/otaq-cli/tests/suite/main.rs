@@ -22,6 +22,7 @@ mod hook;
 mod install_local;
 mod lead;
 mod limit;
+mod m38_example;
 mod notify_check;
 mod onboarding;
 mod open_pr;

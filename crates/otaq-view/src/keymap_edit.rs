@@ -162,7 +162,7 @@ pub fn taken_question(key: &str, by: KeyAction) -> String {
 }
 
 /// Plain `g`'s refusal: it starts every sequence (d0097).
-pub const G_REFUSED: &str = "g starts the g shortcuts (g b Board, g i Inbox…). Press another key.";
+pub const G_REFUSED: &str = "g starts the g shortcuts (g b Board, g l List…). Press another key.";
 
 /// The keys the OS or text editing has on this platform, with what they do (d0097, KEY-04); `{app}` is the product
 /// name (d0028).
@@ -830,7 +830,7 @@ mod tests {
         let fresh = KeyboardSettings::default();
         assert_eq!(
             answer(MAC, &fresh, record(KeyAction::Park, 0, "g")),
-            refused_with("g starts the g shortcuts (g b Board, g i Inbox…). Press another key.")
+            refused_with("g starts the g shortcuts (g b Board, g l List…). Press another key.")
         );
         let park = ok(MAC, &fresh, record(KeyAction::Park, 0, "g p"));
         assert_eq!(texts(MAC, &park, KeyAction::Park), ["g p"]);

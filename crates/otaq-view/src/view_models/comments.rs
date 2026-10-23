@@ -1,5 +1,5 @@
-//! Line comments in the Diff tab (REV-03; d0017): where a comment anchors, which comments make a thread, what a
-//! comment's header says, and the pending counter shown on the Diff tab and next to Send back. There is no
+//! Line comments in the Files tab (REV-03; d0017): where a comment anchors, which comments make a thread, what a
+//! comment's header says, and the pending counter shown on the Files tab and next to Send back. There is no
 //! partial approval: nothing here approves a file or a line.
 
 use otaq_core::board::comments::{ReviewComment, Side};

@@ -335,7 +335,7 @@ pub struct Rail {
 
 pub async fn rail(app: &App, params: Params) -> Result<Rail, RequestError> {
     let mut projects = projects(app).await?;
-    // Waiting Project agents count in their project's badge too (PAG-07); without the inbox, tickets only.
+    // Waiting Project agents count in their project's badge too (PAG-07); without the queue, tickets only.
     if let Some(agents) = optional(app, Request::InboxList, |r| match r {
         Reply::Inbox(list) => Some(list.project_agents),
         _ => None,

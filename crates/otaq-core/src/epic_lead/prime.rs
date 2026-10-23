@@ -263,7 +263,9 @@ pub async fn context(board: &Board, epic: &str) -> Result<EpicPrime, BoardError>
 fn place_text(place: EpicPlace) -> &'static str {
     match place {
         EpicPlace::Card => "a card in Backlog",
-        EpicPlace::Track => "a track in Epics in flight",
+        EpicPlace::Track => {
+            "in flight: its children are cards on the board (its lane with Lanes: Epic)"
+        }
         EpicPlace::Delivery => "its delivery card (Ready for Review or later)",
     }
 }

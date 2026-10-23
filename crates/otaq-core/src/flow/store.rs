@@ -25,7 +25,7 @@ stored_enum! {
     pub enum AppliedBy ("applied by") {
         /// Nobody: the shipped default flow a project gets when it is added (version 1).
         Shipped = "shipped",
-        /// The user (Settings → Flow, the preview's Apply, a test).
+        /// The user (the flow editor's Apply, a test).
         User = "user",
         /// A Project agent's proposal the user applied; its name is [`FlowVersion::agent_name`].
         ProjectAgent = "project_agent",

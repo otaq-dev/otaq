@@ -3,14 +3,14 @@
 //! and no Board | Files tab row: the project Files view stays parked ([`FILES_VIEW`], d0090). The page asks once at
 //! start (`layout.view`); only whether the panel is open stays on the page, per window.
 //!
-//! The ticket panel's sizes are `panel.rs`'s; it opens over the main area (SHL-05) and uses [`SizeClass`] too.
+//! The ticket sheet's sizes are `panel.rs`'s; it opens over the main area (SHL-05) and uses [`SizeClass`] too.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::view_models::switcher::RAIL_WIDTH;
 
-/// Which of the design's three windows a window is closest to (Q-C): the ticket panel's remembered width is kept per
+/// Which of the design's three windows a window is closest to (Q-C): the ticket sheet's remembered width is kept per
 /// class.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]

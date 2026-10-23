@@ -1,7 +1,7 @@
 //! Validation reports in History and Review (VAL-12, UI-04, REV-02, CMT-14; d0063, d0064, d0109; *05 → Row · validation
 //! → History · validation rounds*, *07 → Row · validation report & Auto-merge*): one History entry per validation round
 //! (outcome, duration, tokens; its verdict is the checker's comment, a row of its own with its report, so the round
-//! opens nothing), and on the Diff tab the Review entry ("Validated · round 2") with the
+//! opens nothing), and on the Files tab the Review entry ("Validated · round 2") with the
 //! final report next to the agent's summary: what was checked, the findings with their file and line, the notes with
 //! their linked keys, and **Create ticket** on each "Not covered by any ticket" note (the user's click; the validator
 //! never creates tickets). A ticket that failed every round and was moved on by the user shows the last findings,
@@ -330,7 +330,7 @@ pub fn total(records: &[ValidationRecord]) -> Option<(String, String)> {
     ))
 }
 
-/// How the ticket reached Review, at the top of the Diff tab: "Validated · round 2" with "passed on the 2nd of 3
+/// How the ticket reached Review, at the top of the Files tab: "Validated · round 2" with "passed on the 2nd of 3
 /// rounds · round 1 findings in History".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ReviewEntryView")]
@@ -381,7 +381,7 @@ pub fn entry(flag: ReviewEntryFlag, rounds: u32) -> Entry {
     }
 }
 
-/// The Diff tab's Review part: the entry, the final report (or the last findings of a ticket that didn't pass), and
+/// The Files tab's Review part: the entry, the final report (or the last findings of a ticket that didn't pass), and
 /// "Moved by you at 11:12 · earlier rounds in History" under a failed one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "DiffReviewView")]

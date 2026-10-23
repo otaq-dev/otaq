@@ -156,7 +156,7 @@ import "./gallery.css";
 const SHELL_PREVIEW = (() => {
   const app = createRegistries();
   const named = (name: string) => () => <div className="frame-placeholder">{name}</div>;
-  app.slots.register("pane", { Component: named("Project agent panel") });
+  app.slots.register("agent_panel", { Component: named("Project agent panel") });
   app.slots.register("ask_bar", { Component: named("Ask bar") });
   return app;
 })();
@@ -1057,7 +1057,7 @@ function MarkdownSample() {
   );
 }
 
-/** Code blocks (T-0254): the language label and picker, the Diff tab's colours, a long line, and read mode's Copy. */
+/** Code blocks (T-0254): the language label and picker, the Files tab's colours, a long line, and read mode's Copy. */
 const CODE_SAMPLE = [
   "## Sketch",
   "",
@@ -1280,7 +1280,7 @@ function LeadTabs() {
   if (error) return <p role="alert">{error.message}</p>;
   if (!view) return null;
   return (
-    <Section title="05 · Ticket side panel · Epic panel · Lead tab (0083) · every state (T-0290)">
+    <Section title="05 · Epic sheet · Lead tab (0083) · every state (T-0290)">
       <Caption>Last click: {picked ?? "—"}</Caption>
       <div className="gallery-wrap">
         {view.tabs.map((cell) => (
@@ -1781,7 +1781,7 @@ function PaneSection() {
   if (!view) return null;
   const running = view.states.find((s) => s.view.agent !== null)?.view;
   return (
-    <Section title="18 · Project agent pane: empty, running, waiting, ended, ended by restart, switcher, … menu (T-0330)">
+    <Section title="18 · Project agent panel: empty, running, waiting, ended, ended by restart, switcher, … menu (T-0330)">
       <div className="gallery-wrap gallery-wrap-wide" style={{ alignItems: "flex-start" }}>
         {view.states.map((state) => (
           <div key={state.name} className="gallery-stack-tight">

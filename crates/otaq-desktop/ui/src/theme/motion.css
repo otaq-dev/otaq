@@ -1,19 +1,19 @@
 /*
  * Motion (OT-6): the shared durations and easings. Motion is the same in every theme, so it lives here and not in
- * the generated tokens. The side panel, dialogs, floating layers and toasts read these from the page in
+ * the generated tokens. The sheet, dialogs, floating layers and toasts read these from the page in
  * `components/motion.ts`, which plays their enter and leave animations; hover and pressed states use
  * `--motion-colors`.
  */
 :root {
   /* Hover and pressed colours, tabs, menus, popovers and tooltips. */
   --motion-fast: 120ms;
-  /* Dialogs, toasts, and the side panel leaving. */
+  /* Dialogs, toasts, and the sheet leaving. */
   --motion-base: 200ms;
-  /* The side panel coming in: it travels its whole width. */
+  /* The sheet coming in: it travels its whole width. */
   --motion-panel: 260ms;
   /* Things arriving: quick out of the gate, settling gently. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  /* Things leaving off an edge (the side panel): gathering speed on the way out. */
+  /* Things leaving off an edge (the sheet): gathering speed on the way out. */
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
   /* Things leaving in place, and colour changes. */
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);

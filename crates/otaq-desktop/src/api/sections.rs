@@ -1,7 +1,7 @@
 //! `sections.*`: the ticket's sections and its Activity (UI-04, REC-03, MSG-01, MSG-03, MSG-06, EPC-01, EPC-04,
 //! EPC-06, EPC-07, TKT-07; d0045, d0030, d0039, d0044, d0059; *05 · Ticket side panel*). The Dependencies section is
 //! `dependencies.rs`'s (DPV-04). The **Messages** between linked agents
-//! with their states (`messages.rs`), answerable when one went to the inbox; the sheet's **Activity** (SHT-05), sessions
+//! with their states (`messages.rs`), answerable when one went to the user (Needs you); the sheet's **Activity** (SHT-05), sessions
 //! with their tool session ids and events oldest first under All · Comments · Stages · Description (`history.rs`),
 //! with one entry per validation round that opens
 //! its report and **Create ticket** from a report's note (`validation_report.rs`, VAL-12); and the epic dialogs, Move
@@ -188,7 +188,7 @@ pub struct ThreadView {
     pub id: String,
     pub question: LineView,
     pub answer: Option<LineView>,
-    /// Sent to the user's inbox: answered here.
+    /// Sent to the user (Needs you): answered here.
     pub answerable: bool,
 }
 
@@ -342,7 +342,7 @@ pub fn lead_entries(log: &LeadLog) -> Option<(String, Vec<messages::LeadEntry>)>
     Some((name, questions.chain(notes).collect()))
 }
 
-/// What `sections.answer_message` takes: a question that went to the inbox, and the typed answer.
+/// What `sections.answer_message` takes: a question that went to the user (Needs you), and the typed answer.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "AnswerMessageParams")]
 pub struct AnswerMessage {
@@ -350,7 +350,7 @@ pub struct AnswerMessage {
     pub answer: String,
 }
 
-/// The answer to a question sent to the inbox (MSG-06); a refusal toasts and rejects, so the box stays open.
+/// The answer to a question sent to the user (Needs you) (MSG-06); a refusal toasts and rejects, so the box stays open.
 pub async fn answer_message(app: &App, params: AnswerMessage) -> Result<(), RequestError> {
     let answer = params.answer.trim().to_owned();
     if answer.is_empty() {

@@ -1,4 +1,4 @@
-// The description's code block (T-0254, d0078): Tiptap's lowlight code block with the Diff tab's colours
+// The description's code block (T-0254, d0078): Tiptap's lowlight code block with the Files tab's colours
 // (highlight.ts), a fence that fits the code (fence.ts, Q48), the language label and Copy (CodeBlockView.tsx), and
 // ``` on an empty last line to leave it. ↓ at the end leaves it too (Tiptap's own). Tab and ⇧Tab indent and outdent
 // the line, or every selected line, by two spaces (Tiptap's own, T-0259, d0078 D3); Esc then Tab leaves the editor.

@@ -31,7 +31,7 @@
 //! v2 · all variants*): once two tools are connected the head's avatar shows the tool of whoever has the turn. A
 //! role held before it starts ([`AgentFacts::holds`], T-0357's `agent_holds`) takes the head with **Unavailable**
 //! (amber: its tool isn't available, or its model is no longer listed) or **Limit** (neutral: its tool is at its
-//! limit), never turquoise and never an inbox item. A model that can't run (its tool not available, the model no
+//! limit), never turquoise and never in Needs you. A model that can't run (its tool not available, the model no
 //! longer listed) says **Can't start** ("Griller's model can't run: Claude Code isn't available"); the card offers
 //! **Use fallback** (when the tool's fallback can take it) and **Open agent…** (AGM-03, d0108 second gap review rule
 //! 7). A session on its tool's fallback says so while it runs, amber ("On Codex · Claude Code limit", AGM-03). A
@@ -349,7 +349,7 @@ pub enum CardActionKind {
     PickOption(u32),
     /// "Send answer" with the preselected (recommended) option.
     SendAnswer,
-    /// "Answer", "Reply" or "Open": the ticket's panel, where the prompt, the question or the stop is dealt with
+    /// "Answer", "Reply" or "Open": the ticket's sheet, where the prompt, the question or the stop is dealt with
     /// (*Ticket Card v2*'s one action on a needs-you card).
     Open,
     Resume,
@@ -1038,7 +1038,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                 Tone::Attention,
             )
         }
-        // Stopped by the plan limit (neutral, no inbox item).
+        // Stopped by the plan limit (neutral, not in Needs you).
         Status::WaitingForLimitReset => Part::flag(
             flag(
                 R::Limit,

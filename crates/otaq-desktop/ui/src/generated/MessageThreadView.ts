@@ -3,6 +3,6 @@ import type { MessageLineView } from "./MessageLineView";
 
 export type MessageThreadView = { id: string, question: MessageLineView, answer: MessageLineView | null, 
 /**
- * Sent to the user's inbox: answered here.
+ * Sent to the user (Needs you): answered here.
  */
 answerable: boolean, };

@@ -219,7 +219,7 @@ mod tests {
                 ("Go to Terminals", vec!["g", "t"]),
                 ("Focus the epic of the selected card", vec!["g", "e"]),
                 ("New ticket", vec!["c"]),
-                ("Open / close the panel", vec!["↵ / Esc"]),
+                ("Open / close the ticket", vec!["↵ / Esc"]),
             ]
         );
     }
@@ -296,7 +296,7 @@ mod tests {
                 ),
                 row("Next item that needs you", "⌘J", "Ctrl+J", "Ctrl+Shift+J"),
                 row(
-                    "Next / previous panel tab",
+                    "Next / previous ticket tab",
                     "⌃Tab / ⌃⇧Tab",
                     "Ctrl+Tab / Ctrl+Shift+Tab",
                     "Ctrl+Tab / Ctrl+Shift+Tab"

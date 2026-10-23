@@ -71,7 +71,7 @@ pub fn popover(limits: &AgentLimits) -> Popover {
             &MAX_AGENTS,
         ),
         back_pressure: Stepper::new(
-            "Pause new starts when the inbox has",
+            "Pause new starts when Needs you has",
             limits.back_pressure,
             &BACK_PRESSURE_ITEMS,
         ),
@@ -198,7 +198,7 @@ pub fn settings_rows(limits: &AgentLimits) -> [LimitRow; 3] {
             enabled: on,
         },
         LimitRow {
-            label: "Pause new starts when the inbox has",
+            label: "Pause new starts when Needs you has",
             description: if on {
                 "Running agents are never stopped."
             } else {
@@ -210,7 +210,7 @@ pub fn settings_rows(limits: &AgentLimits) -> [LimitRow; 3] {
 }
 
 /// The "Right now" line under the ON section: "Right now: 3 running · 2 queued tickets waiting for a slot ·
-/// inbox 7 (new starts paused)".
+/// needs you 7 (new starts paused)".
 pub fn right_now(status: &SchedulerStatus) -> String {
     let waiting = match status.waiting_for_slot {
         1 => "1 ticket waiting for a slot".to_owned(),
@@ -222,7 +222,7 @@ pub fn right_now(status: &SchedulerStatus) -> String {
         ""
     };
     format!(
-        "Right now: {} running · {waiting} · inbox {}{paused}",
+        "Right now: {} running · {waiting} · needs you {}{paused}",
         status.holding, status.needs_you
     )
 }
@@ -350,7 +350,7 @@ mod tests {
         };
         assert_eq!(
             right_now(&status),
-            "Right now: 3 running · 2 tickets waiting for a slot · inbox 7 (new starts paused)"
+            "Right now: 3 running · 2 tickets waiting for a slot · needs you 7 (new starts paused)"
         );
         let calm = SchedulerStatus {
             waiting_for_slot: 1,
@@ -360,7 +360,7 @@ mod tests {
         };
         assert_eq!(
             right_now(&calm),
-            "Right now: 3 running · 1 ticket waiting for a slot · inbox 0"
+            "Right now: 3 running · 1 ticket waiting for a slot · needs you 0"
         );
     }
 

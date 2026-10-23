@@ -1,4 +1,4 @@
-//! Proposals (FLW-03, FLW-04, FLW-05, FLW-09, FLW-10; d0108): a flow document waiting in the preview for one project,
+//! Proposals (FLW-03, FLW-04, FLW-05, FLW-09, FLW-10; d0108): a flow document waiting in the flow editor for one project,
 //! with where it came from ([`Source`]) and who proposed it ([`ProposedBy`]). A project has at most one open
 //! proposal; a new one replaces it ([`Board::open_proposal`]). **During Flow setup** (ASK-03, ASK-04) it keeps one
 //! open proposal per flow agent instead, one for each agent tool asked, and the user's own beside them: a new one
@@ -42,10 +42,10 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::domain::TicketKey;
 use crate::store::now_ms;
 
-/// What the preview says when nothing differs (FLW-04).
+/// What the flow editor says when nothing differs (FLW-04).
 pub const SAME: &str = "This is the same as your current flow.";
 
-/// Where a proposal's document came from: the preview's title follows it ("A flow for shop-web", "Changes to
+/// Where a proposal's document came from: the flow editor's title follows it ("A flow for shop-web", "Changes to
 /// billing-api's flow", "Back to shop-web's previous flow", "Use a preset for shop-web").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -167,7 +167,7 @@ pub enum About {
     },
 }
 
-/// What the user can do in the preview about a problem (FLW-04); Apply takes it as an [`ApplyChoices`] entry.
+/// What the user can do in the flow editor about a problem (FLW-04); Apply takes it as an [`ApplyChoices`] entry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Fix {
@@ -305,7 +305,7 @@ impl Change {
     }
 }
 
-/// One stage change, as the preview lists it.
+/// One stage change, as the flow editor lists it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageChange {
     pub stage_id: String,
@@ -476,7 +476,7 @@ impl Proposal {
     }
 }
 
-/// The user's answers in the preview, sent with Apply: a pick per import clash (by the agent's name; Keep mine when
+/// The user's answers in the flow editor, sent with Apply: a pick per import clash (by the agent's name; Keep mine when
 /// left out), a folder per missing skill, a local model per agent whose model isn't listed (`claude:sonnet`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ApplyChoices {
@@ -555,7 +555,7 @@ pub fn match_ids(base: &Flow, proposed: &mut Flow, written: &[bool]) {
     }
 }
 
-/// A stage's kind in the preview's words: "agent stage", "agent check", "your check", "Delivery".
+/// A stage's kind in the flow editor's words: "agent stage", "agent check", "your check", "Delivery".
 pub fn kind_word(kind: StageKind) -> &'static str {
     match kind {
         StageKind::Agent => "agent stage",
@@ -768,7 +768,7 @@ pub fn stage_changes(base: &Flow, new: &Flow, waiting: bool) -> Vec<StageChange>
     changes
 }
 
-/// The preview's line and the banner's label for one change.
+/// The flow editor's line and the banner's label for one change.
 fn describe(stage: &Stage, change: &Change) -> (String, String) {
     let name = &stage.name;
     let detail = |field: &str, from: String, to: String| {
@@ -1074,7 +1074,7 @@ impl Board {
 
     /// Opens a proposal for `project`, replacing the open one (FLW-03; during Flow setup only the open one from the
     /// same tool, ASK-03): its stage ids matched to the flow as it will be, then checked. A Project agent's proposal with problems is refused with them, one per line, so it can fix
-    /// them; a document that doesn't read is refused for everyone. The proposal as the preview shows it.
+    /// them; a document that doesn't read is refused for everyone. The proposal as the flow editor shows it.
     pub async fn open_proposal(
         &self,
         project: &str,
@@ -1166,7 +1166,7 @@ impl Board {
     }
 
     /// `flow.proposal`: the project's open proposal, checked and compared now; `None` when there is none. During Flow
-    /// setup, the one the preview shows ([`Self::proposal_row`]); [`Self::proposals`] lists them all.
+    /// setup, the one the flow editor shows ([`Self::proposal_row`]); [`Self::proposals`] lists them all.
     pub async fn proposal(
         &self,
         project: &str,
@@ -1211,7 +1211,7 @@ impl Board {
         Ok(())
     }
 
-    /// The open proposal the preview shows: the only one outside Flow setup; during it the user's own draft (a
+    /// The open proposal the flow editor shows: the only one outside Flow setup; during it the user's own draft (a
     /// preset, or a tool's entry copied in, FED-02) when there is one, else the newest.
     pub(crate) async fn proposal_row(&self, project: &str) -> Result<Option<Row>, BoardError> {
         if let Some(draft) = self.draft_row(project).await? {

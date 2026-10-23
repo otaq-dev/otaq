@@ -22,7 +22,7 @@ import {
   shownAgents,
   startNewAgentOn,
   startOn,
-  togglePane,
+  toggleAgentPanel,
 } from "./logic";
 import { PaneBody } from "./Pane";
 
@@ -154,7 +154,7 @@ beforeEach(() => {
   terminalFocus.mockReset();
   box = document.body.appendChild(document.createElement("div"));
   // The frame's `pane` slot, which ⌘L looks for to close the panel from inside.
-  box.dataset.slot = "pane";
+  box.dataset.slot = "agent_panel";
   root = createRoot(box);
 });
 
@@ -245,7 +245,7 @@ describe("the empty pane", () => {
 describe("the pane's keys", () => {
   it("registers the panel, ⌘L and ⇧⌘L", () => {
     const app = registerScreens({ pane });
-    expect(registered(app)).toMatchObject({ slots: ["pane"] });
+    expect(registered(app)).toMatchObject({ slots: ["agent_panel"] });
     expect(app.shortcuts.names()).toEqual(["focus_pane", "new_project_agent"]);
     // No project shown: both keys pass.
     expect(app.shortcuts.run({ action: "focus_pane" })).toBe(false);
@@ -296,10 +296,10 @@ describe("the pane's keys", () => {
 
   it("the rail's button opens the panel with the keyboard, or closes an open one", () => {
     selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
-    expect(togglePane()).toBe(true);
+    expect(toggleAgentPanel()).toBe(true);
     expect(shellLayout.get().agentOpen).toBe(true);
     expect(paneFocusRequests.get()).not.toBeNull();
-    expect(togglePane()).toBe(true);
+    expect(toggleAgentPanel()).toBe(true);
     expect(shellLayout.get().agentOpen).toBe(false);
   });
 

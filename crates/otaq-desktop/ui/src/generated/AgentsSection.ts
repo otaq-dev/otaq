@@ -9,7 +9,7 @@ import type { MenuItem } from "./MenuItem";
  */
 export type AgentsSection = { title: string, intro: string, new_agent_label: string, 
 /**
- * The header's ⋯ (FLW-10): Apply the shipped agents file again, which opens the preview for the project on
+ * The header's ⋯ (FLW-10): Apply the shipped agents file again, which opens the flow editor for the project on
  * screen.
  */
 more_label: string, more: Array<MenuItem>, default_model: AgentsDefaultModel, fallbacks: AgentsFallbacks | null, 

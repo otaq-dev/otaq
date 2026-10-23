@@ -321,7 +321,7 @@ describe("the key dispatcher on the board", () => {
     expect(ran).toEqual([]);
   });
 
-  it("turns ↵ / Esc (Open / close the panel) off with the letters, leaving them to the page (KEY-02, T-0394)", () => {
+  it("turns ↵ / Esc (Open / close the ticket) off with the letters, leaving them to the page (KEY-02, T-0394)", () => {
     const { d, ran } = setup({ ...MAC, letters: false }, ["open_panel", "close_panel", "send_back"]);
     // NOTE-1's panel is open: Esc on the board runs nothing and isn't stopped, nor is ↵.
     const esc = dispatchKey(d, key("Escape", "Escape"), BOARD);
@@ -757,7 +757,7 @@ describe("0097's keys (KEY-01, KEY-02)", () => {
       // The letter goes to the focused element (or the terminal) as typed.
       for (const o of outcomes) expect(stopsEvent(o)).toBe(false);
     }
-    // A radio group keeps its digits (the inbox's answer 1–4), not the other letters.
+    // A radio group keeps its digits (an answer's 1–4), not the other letters.
     expect(run(MAC_0097, ["1", "j"], at("digits")).ran).toEqual(["next_ticket"]);
   });
 
@@ -777,19 +777,19 @@ describe("0097's keys (KEY-01, KEY-02)", () => {
     expect(lettersKeptBy(element("A", ".md-editor"))).toBe("all");
     expect(lettersKeptBy(element("BUTTON", '[role="menu"]'))).toBe("all");
     expect(lettersKeptBy(element("DIV", '[role="listbox"]'))).toBe("all");
-    expect(lettersKeptBy(element("BUTTON", '[role="dialog"]:not([data-letters])'))).toBe("all");
+    expect(lettersKeptBy(element("BUTTON", '[role="dialog"]'))).toBe("all");
     expect(lettersKeptBy(element("DIV", '[role="radiogroup"]'))).toBe("digits");
-    // A card, a button on the board, the inbox's list (a dialog marked data-letters) and nothing focused.
+    // A card, a button on the board and nothing focused.
     expect(lettersKeptBy(element("DIV", null, { role: "button" }))).toBe("none");
     expect(lettersKeptBy(element("BUTTON"))).toBe("none");
     expect(lettersKeptBy(element("INPUT", null, { type: "checkbox" }))).toBe("none");
     expect(lettersKeptBy(null)).toBe("none");
   });
 
-  it("knows a menu or a dialog is open, but not a leaving copy or the inbox", () => {
+  it("knows a menu or a dialog is open, but not a leaving copy", () => {
     const page = (found: { leaving: boolean }[]) => ({
       querySelectorAll: (selector: string) => {
-        expect(selector).toContain('[role="dialog"]:not([data-letters])');
+        expect(selector).toContain('[role="dialog"]');
         return found.map((f) => ({
           closest: (s: string) => (s === "[data-leaving]" && f.leaving ? {} : null),
         }));

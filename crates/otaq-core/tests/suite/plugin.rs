@@ -959,7 +959,7 @@ fn epic_lead_points_splits_to_the_project_agent_and_changes_choices_after_a_merg
         "**you don't plan an epic from scratch**",
         "The epic's description **is the plan**",
         "**If the user asks you to split the epic, or to split it again**",
-        "say that the Project agent does that (from its pane, or Split with the Project agent on an epic card with no children), and end your turn",
+        "say that the Project agent does that (from the Ask bar, or Split with the Project agent on an epic card with no children), and end your turn",
         "**Keeping the plan current is yours:**",
         "## Stage choices",
         "## Checking the plan",

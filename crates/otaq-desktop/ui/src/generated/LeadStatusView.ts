@@ -33,6 +33,6 @@ full: string, tone: LeadTone, icon: IconName,
  */
 action: LeadButton | null, tooltip: LeadTooltip, 
 /**
- * A live lead: a click on the status opens the epic panel on its Lead tab.
+ * A live lead: a click on the status opens the epic sheet on its Lead tab.
  */
 opens_tab: boolean, };

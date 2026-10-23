@@ -3,7 +3,7 @@
 //!
 //! **What is shown** ([`FilesFrom`]):
 //! - A ticket whose worktree is on disk: **the worktree**, uncommitted edits and untracked files included (and
-//!   marked), against where the ticket left its base (`base_sha`, as the Diff tab measured it).
+//!   marked), against where the ticket left its base (`base_sha`, as the Files tab measured it).
 //! - A ticket that started but whose worktree is gone (Done), and an **epic**: its **branch**, from git objects.
 //! - A ticket that never started (Backlog, Ready for Dev): its **base branch**, flagged, with no changes.
 //!
@@ -14,7 +14,7 @@
 //! **Read-only, and never the user's checkout** (d0087): files on disk are read only inside a ticket's worktree;
 //! everything else comes from git objects of the project's repository (`ls-tree`, `cat-file`, `diff` between
 //! commits). Paths are confined: relative, no `.`/`..`/`.git` parts, and a file on disk must resolve inside the
-//! worktree (a symlink out is refused). Diffs and reads keep the Diff tab's limits ([`MAX_FILE_LINES`],
+//! worktree (a symlink out is refused). Diffs and reads keep the Files tab's limits ([`MAX_FILE_LINES`],
 //! [`MAX_READ_BYTES`], binary files by size).
 
 use std::collections::{BTreeMap, HashMap, HashSet};

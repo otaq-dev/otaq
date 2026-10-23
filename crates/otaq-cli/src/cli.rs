@@ -486,7 +486,7 @@ pub enum FlowCommand {
     Show,
     /// The ready-made flows Otaq ships, one line each
     Presets,
-    /// Propose a flow to the user: it opens in Otaq's preview and nothing changes until they apply it
+    /// Propose a flow to the user: it opens in Otaq's flow editor and nothing changes until they apply it
     #[command(group(clap::ArgGroup::new("source").required(true).args(["file", "stdin", "from"])))]
     Propose {
         /// A flow file (YAML: agents and flow)

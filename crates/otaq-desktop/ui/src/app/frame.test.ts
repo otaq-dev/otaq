@@ -56,7 +56,7 @@ afterEach(() => {
 });
 
 describe("the frame", () => {
-  it("has rail | Project agent panel | main with the Ask bar, each empty slot showing its name; the ticket panel only with a ticket open", () => {
+  it("has rail | Project agent panel | main with the Ask bar, each empty slot showing its name; the ticket sheet only with a ticket open", () => {
     const app = createRegistries();
     // Before `layout.view` answers: no Project agent panel yet.
     expect(slots(render(app))).toEqual([
@@ -75,7 +75,7 @@ describe("the frame", () => {
       "header",
       "rail",
       "banners",
-      "pane",
+      "agent_panel",
       "board",
       "ask_bar",
       "overlays",
@@ -87,7 +87,7 @@ describe("the frame", () => {
     expect(closed).toContain('<div class="frame-main"><div class="frame-board" data-slot="board">');
     // The header row is the window's drag region, children included (T-0214).
     expect(closed).toContain('<div class="frame-header" data-slot="header" data-tauri-drag-region="deep">');
-    expect(closed).not.toContain("Ticket panel");
+    expect(closed).not.toContain("Ticket sheet");
 
     selection.set({ ...NOTHING_SELECTED, ticket: "SHOP-22" });
     const open = render(app);
@@ -95,20 +95,20 @@ describe("the frame", () => {
       "header",
       "rail",
       "banners",
-      "pane",
+      "agent_panel",
       "board",
-      "panel",
+      "sheet",
       "ask_bar",
       "overlays",
       "toasts",
     ]);
-    expect(open).toContain(">Ticket panel</div>");
+    expect(open).toContain(">Ticket sheet</div>");
   });
 
   it("draws what screens register: slots, and the open overlays that are registered", () => {
     const app = createRegistries();
     app.slots.register("board", { Component: () => createElement("p", null, "the board") });
-    app.slots.register("pane", { Component: () => createElement("p", null, "the pane") });
+    app.slots.register("agent_panel", { Component: () => createElement("p", null, "the agent panel") });
     app.slots.register("ask_bar", { Component: () => createElement("p", null, "the bar") });
     app.slots.register("title_bar_end", { Component: () => createElement("p", null, "caption buttons") });
     app.overlays.register("edit_ticket", {
@@ -120,7 +120,7 @@ describe("the frame", () => {
 
     const html = render(app, createElement("p", { role: "alert" }, "service failed"));
     expect(html).toContain("<p>the board</p>");
-    expect(html).toContain("<p>the pane</p>");
+    expect(html).toContain("<p>the agent panel</p>");
     expect(html).toContain('<div class="frame-ask" data-slot="ask_bar"><p>the bar</p></div>');
     expect(html).not.toContain(">Board</div>");
     expect(html).toMatch(/<p>caption buttons<\/p><\/div><div class="frame-rail" data-slot="rail"/);
@@ -141,19 +141,19 @@ describe("the frame", () => {
   it("the Project agent panel is 420 px while open and stays mounted, hidden, while closed (SHB-01)", () => {
     const closed = body(INITIAL_LAYOUT);
     expect(closed).toContain(
-      '<div class="frame-agent" data-slot="pane"><div class="frame-agent-body" style="width:420px" hidden="">',
+      '<div class="frame-agent" data-slot="agent_panel"><div class="frame-agent-body" style="width:420px" hidden="">',
     );
     const open = body({ ...INITIAL_LAYOUT, agentOpen: true });
     expect(open).toContain(
-      '<div class="frame-agent" data-slot="pane" data-open="true"><div class="frame-agent-body" style="width:420px">',
+      '<div class="frame-agent" data-slot="agent_panel" data-open="true"><div class="frame-agent-body" style="width:420px">',
     );
   });
 
-  it("the expanded ticket panel fills the main area while a ticket is open; the agent panel stays", () => {
+  it("the expanded ticket sheet fills the main area while a ticket is open; the agent panel stays", () => {
     const expanded = { ...INITIAL_LAYOUT, panelExpanded: true, agentOpen: true };
     const html = body(expanded, true);
     expect(html).toContain('<div class="frame-main" data-expanded="true">');
-    expect(html).toContain('data-slot="pane" data-open="true"');
+    expect(html).toContain('data-slot="agent_panel" data-open="true"');
     // With no ticket open there is nothing to expand.
     expect(body(expanded, false)).not.toContain("data-expanded");
   });

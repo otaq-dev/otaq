@@ -10,7 +10,7 @@
 // (`drag.ts`): one `board.drag` at its start, then only this page works while the pointer moves, drawing the targets'
 // verdicts (Review's Approved section is a target of its own), the lifted card and the hint or reason under it; a release on an allowed target sends
 // `board.drop`, whose answer may be the Park confirmation, the Approve choice (Ready for Review → Approved: nothing
-// moves until 1 or 2 is picked; Esc and the card stays) or the drag-back dialog (an earlier stage, FLW-18). Esc cancels a drag. While the ticket panel is open over the
+// moves until 1 or 2 is picked; Esc and the card stays) or the drag-back dialog (an earlier stage, FLW-18). Esc cancels a drag. While the ticket sheet is open over the
 // board (SHL-05) the board keeps its width, gets the panel's width of room after the columns and scrolls the selected
 // card's column into the part the panel leaves; a click on the open card closes the panel, and so does a plain click on
 // the board's own background (`background.ts`: a column's empty area, the gaps, the room after the columns; OT-3),
@@ -20,7 +20,7 @@
 // link drawn dashed (`chain.ts`, `ChainLayer`; T-0229, DPV-02); a blocked ticket started or dragged past Ready for Dev
 // opens DPV-03's dialog (`BlockedDialog`). With Lanes: Epic
 // (EPL-01, `Lanes.tsx`) the columns' headers sit once on top and each epic has its lane across them, "No epic" last;
-// the "Epics in flight" strip is gone, and with Lanes: None an epic child's card names its epic. The epic card, one of
+// with Lanes: None an epic child's card names its epic. The epic card, one of
 // its rows and a lane's head are dragged the same way (EPC-12, EPC-14, T-0270, T-0271): Rust answers what each queues
 // or takes back, and the drop sends `board.drop`, whose outcome is the queue toast or the Park-all confirmation; a row
 // lifts as a small row, a lane head as its name. `g` `e` on a selected epic, child or lane head focuses the epic
@@ -370,7 +370,7 @@ function useCovered(board: HTMLElement | null, open: boolean): number {
   useLayoutEffect(() => {
     // The frame's panel over the main area (T-0327); the gallery and the tests have none.
     const panel = open
-      ? board?.closest(".frame-main")?.querySelector<HTMLElement>(":scope > .frame-panel")
+      ? board?.closest(".frame-main")?.querySelector<HTMLElement>(":scope > .frame-sheet")
       : null;
     // The ticket sheet floats over the board, which stays as it was under it (SHT-01, T-0464).
     if (!board || !panel || panel.querySelector(":scope > .sheet")) return;

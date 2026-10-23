@@ -689,7 +689,7 @@ type Asking = { kind: "delete"; dialog: AgentDeleteDialog } | null;
 /** The global page's Agents topic: its page, or one agent's. It shows Otaq's copy of the model lists at once, then
  * asks the tools for their lists again (once per opening, d0086) and redraws with them. */
 export function AgentsSection() {
-  // The project on screen: the shipped agents file's preview is its (FLW-10).
+  // The project on screen: the shipped agents file's flow editor is its (FLW-10).
   const screenProject = useSelection().project;
   const settings = useContext(SettingsContext);
   // `undefined` outside Settings (the gallery, tests): the header's buttons are drawn above the page instead.
@@ -906,7 +906,7 @@ export function AgentsSection() {
             open({ id: null, duplicate: null, draft: null, change: null });
           }}
         />
-        {/* Apply the shipped agents file again (FLW-10): the preview, for the project on screen. */}
+        {/* Apply the shipped agents file again (FLW-10): the flow editor, for the project on screen. */}
         <MoreMenu
           label={section.more_label}
           items={section.more.map((m) =>

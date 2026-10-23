@@ -89,7 +89,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::notices::OpenTarget::export_all(&cfg)?;
     // Also writes the Ticket Card and Epic Card shapes it is made of.
     otaq_view::view_models::card_page::CardGallery::export_all(&cfg)?;
-    // The side panel (T-0222): the view writes its header, buttons, tabs and callouts; then the requests' own types.
+    // The sheet (T-0222): the view writes its header, buttons, tabs and callouts; then the requests' own types.
     crate::api::PanelLoad::export_all(&cfg)?;
     crate::api::PanelParams::export_all(&cfg)?;
     crate::api::PanelActionParams::export_all(&cfg)?;
@@ -284,7 +284,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::lead_status::Gallery::export_all(&cfg)?;
     // The List grouped by Epic (EPL-02, T-0462): its groups, parent rows and their tracks.
     otaq_view::view_models::lanes::ByEpic::export_all(&cfg)?;
-    // The epic panel's Lead tab (T-0290): its view, body, changes and gallery.
+    // The epic sheet's Lead tab (T-0290): its view, body, changes and gallery.
     crate::api::LeadTabLoad::export_all(&cfg)?;
     crate::api::LeadTabParams::export_all(&cfg)?;
     otaq_view::view_models::lead_tab::Gallery::export_all(&cfg)?;

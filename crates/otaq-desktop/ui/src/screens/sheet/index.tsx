@@ -9,7 +9,7 @@ import { TicketSheet } from "./Sheet";
 import "./sheet.css";
 
 export const sheet: Screen = (app) => {
-  app.slots.register("panel", { Component: TicketSheet });
+  app.slots.register("sheet", { Component: TicketSheet });
   app.overlays.register("close_ticket", { Component: CloseTicketDialog });
   app.overlays.register("submit_for_review", { Component: SubmitForReviewDialog });
 };

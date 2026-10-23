@@ -148,7 +148,7 @@ pub enum OpenTarget {
     Validator { project: String, ticket: String },
     /// The agent in the Project agent pane, focused.
     ProjectAgent { project: String, agent: String },
-    /// The epic's panel on its Lead tab, the lead's terminal focused.
+    /// The epic's sheet on its Lead tab, the lead's terminal focused.
     Lead { project: String, epic: String },
     /// A grouped notification or a summary: the item the Needs you strip's Next opens (NYS-03).
     NeedsYou,
@@ -498,7 +498,7 @@ impl Notices {
 
     /// A `flow_changed` event: when the waiting change of `project` applied, "shop-web’s flow changed"; when it was
     /// cancelled, "Flow change cancelled" (FLW-06, *11 → Applied, or cancelled*). The banner goes with it. A change
-    /// that applied at once (nothing waited) shows no toast: the preview's Apply said it.
+    /// that applied at once (nothing waited) shows no toast: the flow editor's Apply said it.
     pub fn on_flow_event(&self, project: &str, change: &FlowEvent) {
         {
             let mut state = self.lock();

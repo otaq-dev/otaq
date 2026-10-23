@@ -80,7 +80,7 @@ pub enum Action {
     /// Auto-merge stopped: Ready for Review, not merged again (AMG-04).
     MoveToReview,
     /// An epic whose lead ended (by restart, or its agent tool exited): the same conversation (LEAD-12, d0083).
-    /// Added by the epic panel's view, not by [`all_buttons`].
+    /// Added by the epic sheet's view, not by [`all_buttons`].
     ResumeLead,
     /// A model the tool refused (AGT-05: Start failed, or a check's No result on the model): Settings → Agents on
     /// that agent's page (d0108 second gap review rule 7; replaces Change agent, Q280).

@@ -7,12 +7,12 @@ disable-model-invocation: true
 # Change the project's flow
 
 You are a **Project agent** of an Otaq project, and the user wants its **flow** changed: the stages a ticket walks
-between Backlog and Done, and the agents that run them. They started you with this skill (Settings → Flow → **Change
-with the Project agent**, or by typing `/flow`), they asked your agent tool for a new project's first flow (see "A
-first flow"), or they just asked ("add a Security check after Validate").
+between Backlog and Done, and the agents that run them. They started you with this skill (by typing in the flow
+editor's Project agent panel, opened with **Change flow…**, or by typing `/flow`), they asked your agent tool for a
+new project's first flow (see "A first flow"), or they just asked ("add a Security check after Validate").
 
-**You never change the live flow.** You write the whole flow file and **propose** it; Otaq shows the user a preview
-and nothing changes until they click **Apply**.
+**You never change the live flow.** You write the whole flow file and **propose** it; it lands in the user's flow
+editor as the draft, each stage you changed marked, and nothing changes until they click **Apply**.
 
 ## Steps
 
@@ -61,9 +61,9 @@ and nothing changes until they click **Apply**.
    the agents' names and models, the skills. **If it refuses**, it names the stage or agent and the reason (for
    example "Review is a check by you before any Agent stage: a Fail would have nowhere to go"): fix exactly that and
    propose again. Don't tell the user about a refusal you can fix yourself.
-6. **End your turn and wait.** A valid proposal returns at once ("Proposal 3 is waiting for the user") and the preview
-   opens beside you. Tell the user in one or two lines what you proposed, then end your turn; don't wait in a loop or
-   propose again meanwhile. **The user's answer arrives as your next message**:
+6. **End your turn and wait.** A valid proposal returns at once ("Proposal 3 is waiting for the user") and the flow
+   editor beside you shows it. Tell the user in one or two lines what you proposed, then end your turn; don't wait in
+   a loop or propose again meanwhile. **The user's answer arrives as your next message**:
    - **Applied:** say what changes and when, in a line ("Security runs from the next ticket that reaches it; adding
      the stage waits until the board is quiet"). You're done.
    - **Cancelled:** acknowledge it in a line. Don't propose again unless the user asks.
@@ -139,7 +139,7 @@ agents:
 
 - **`name`**: what the board and Settings show. Agents belong to the account and are shared by every project: an
   agent that already exists (in `flow show`, or one the user has) is reused by its name. Changing a shared agent
-  changes it everywhere it is used, and the preview lists those projects; to change it for this project only, add a
+  changes it everywhere it is used, and the flow editor lists those projects; to change it for this project only, add a
   new agent with its own name.
 - **`role`** (rare): `project-agent` or `epic-lead`. Exactly one agent holds each role; leave it out unless the user
   asks to move a role.
@@ -147,7 +147,7 @@ agents:
 - **`skills`**: the names of skills Otaq ships (`work-ticket`, `commit`, `validate`, `grill`, `open-pr`, `restack`, …)
   or that an agent already has, or the absolute path of a skill folder (holding a `SKILL.md`) to import on Apply,
   for example `/Users/me/.claude/skills/security-review`. Every skill is copied into the worktree as `otaq-<name>`.
-- **`why`**: optional, one line on why the agent is there; the preview shows it. Otaq doesn't act on it.
+- **`why`**: optional, one line on why the agent is there; the flow editor shows it. Otaq doesn't act on it.
 - **`model`**: `default` (the account's default model; prefer it unless the user names one), a tool (`claude`,
   `codex`, `copilot`, `opencode`: that tool's default model) or `tool:model` (`claude:opus`, `claude:haiku`).
 
@@ -177,7 +177,7 @@ flow:
 | `options` | agent, check | Other agents a ticket may use instead (`[Quick developer]`), and `skip` when a ticket may skip the stage. Default: none. |
 | `rounds` | agent check | How many fails in a row (1–5) before the card stops for the user. |
 | `mode` | delivery | `click`: waits for the user's Local merge or Open PR. `automatic`: merges, or pushes and opens the PR, with no click and no dialog. |
-| `why` | every stage | One line on why the stage is there, naming its source (below). The preview shows it; Otaq doesn't act on it. |
+| `why` | every stage | One line on why the stage is there, naming its source (below). The flow editor shows it; Otaq doesn't act on it. |
 | `delivers` | delivery | `local` (Local merge, no agent), `pr` (runs its agent and skill), or `either` (the user picks; click mode only). |
 
 A whole example, the default flow with Grill first:
@@ -243,13 +243,13 @@ flow:
 
 ### What you add only when the user asks
 
-- **`skip`** on any stage, and an **automatic Delivery with no check before it**. Otaq allows both; the preview warns
+- **`skip`** on any stage, and an **automatic Delivery with no check before it**. Otaq allows both; the flow editor warns
   about the second ("Done opens a PR on GitHub without any check before it"). Don't add them on your own.
 - An automatic PR Delivery pushes and opens the PR without asking; Applying the flow is the user's go-ahead for it.
 
 ## Why lines
 
-The preview shows one line per stage saying **why it is there**: the stage's `why:` (and an agent you add or change
+The flow editor shows one line per stage saying **why it is there**: the stage's `why:` (and an agent you add or change
 can carry one too). Give every stage one. **Every why line names its source**: what you read that led to it, with
 the numbers you actually counted:
 

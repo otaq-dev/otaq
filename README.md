@@ -54,7 +54,7 @@ board.
 - **The real terminal of each tool.** Agents run the actual `claude`, `codex`, `copilot` or `opencode` program, not
   an imitation. You can watch any agent and type into its session at any moment.
 - **You only look when it matters.** Cards that need you (a question, a permission prompt, an agent that stopped)
-  turn turquoise and jump to the top, and land in one inbox across all projects.
+  turn turquoise and show in the Needs you strip above the board; ⌘J takes you to the next one, in any project.
 - **A second pair of eyes.** When an agent says it's done, a separate read-only *validator* agent checks the change
   against the ticket. Failures go straight back to the agent; only passing work reaches you.
 - **Review like a pull request.** Diff against the ticket's starting point, line comments, Send back, then Approve with a
@@ -140,8 +140,8 @@ come, and flags children that touch the same files. It never edits code or merge
 
 ### Project agents and terminals
 
-The **Project agent** sits in the pane left of the board: type a message and a session starts on its named agent,
-investigates the codebase and writes Backlog tickets for you, including importing them from your team's tracker with
+The **Project agent** waits in the Ask bar at the bottom of the board: type a message and it opens as a panel on the
+left, where a session starts on its named agent, investigates the codebase and writes Backlog tickets for you, including importing them from your team's tracker with
 your own skills. It reads code but never edits it. **Terminals** on the left rail (⇧⌘T) opens plain terminals in the
 project.
 
@@ -154,17 +154,19 @@ project.
 
 ![The board in the Daylight theme](docs/images/board-light.png)
 
-Five columns: Backlog, Ready for Dev, Dev, Review (with its Ready for Review and Approved sections) and Done. Above them, **Epics in flight** shows one
-track per active epic, with a stop for each child under the column it's in. Cards show status, priority, what they
-wait for (`waits for NOTE-8 to merge`), validation rounds, recorded decisions and conflicts with the base branch.
-Hover a card to highlight its dependency chain. Turquoise means "needs you", magenta means "in review".
+The board has two views, **Board** and **List**. The Board has a column per stage of the project's flow (by default
+Backlog, Ready for Dev, Dev, Validate, Review and Done); with **Lanes: Epic** each epic in flight gets a lane of its own,
+and the List groups the same tickets by stage, status, agent or epic. Above the tickets, the **Needs you** strip lists
+what waits for you. **Pause** stops every agent of a project (or of all projects) at once until you resume. Cards
+show status, priority, what they wait for (`waits for NOTE-8 to merge`), validation rounds, recorded decisions and
+conflicts with the base branch. Hover a card to highlight its dependency chain. Turquoise means "needs you", magenta means "in review".
 
 ### A live agent
 
-![An agent's Claude Code session in the ticket panel](docs/images/terminal.png)
+![An agent's Claude Code session in the ticket's Session tab](docs/images/terminal.png)
 
-Click a card to open its side panel, with the tabs **Terminal · Diff · Run · Shell · Ticket · History**. The terminal is
-the agent's real session in its own tool, and you can type into it at any time. Otaq never mixes its own messages into text
+Click a card to open the ticket as a sheet, with the tabs **Overview · Session · Files · Activity**. Session holds the
+agent's real session in its own tool, and you can type into it at any time. Otaq never mixes its own messages into text
 you've started typing. Here the agent has finished `NOTE-4` (colorize the output) and explains a product choice it
 made on its own: dim only the id column for now, since the age column belongs to `NOTE-3`. From any terminal,
 `otaq attach NOTE-4` opens the same session.
@@ -177,16 +179,17 @@ A ticket in Ready for Review shows what the agent says it did, every decision it
 option, and why), and the validator's report. **Approve** keeps the decisions; **Change…** on a decision, or **Send
 back** with comments, returns the ticket to the same agent.
 
-![The Diff tab](docs/images/diff.png)
+![The Files tab](docs/images/diff.png)
 
-Below that is the diff against the commit where the ticket started, unified or side by side, with a file list, "viewed"
-checkboxes and line comments. Approve offers **Local merge** or **Open PR**.
+The **Files** tab shows the diff against the commit where the ticket started (All changes, unified or split) and every
+file of the worktree, with line comments. Approve offers **Local merge** or **Open PR**.
 
 ### Epics and the epic lead
 
 ![An epic's lead agent asking a planning question with answer options](docs/images/epic-lead.png)
 
-The epic panel lists the epic's tickets and their dependencies, and holds the lead's terminal. Here the lead of the
+The epic opens as a sheet too: its Tickets tab lists the epic's tickets and their dependencies, and its Lead tab holds
+the lead's terminal. Here the lead of the
 *Notebooks* epic is planning: it has already made `NOTE-13.3` wait for `NOTE-13.2` (under **Changes by the lead**),
 and now asks a question it can't settle from the code (what plain `notes ls` should show once there are notebooks),
 with a recommended answer. You answer with a click (or in its terminal), and the children it refined start when the

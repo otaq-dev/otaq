@@ -29,7 +29,7 @@ export interface EpicCardProps {
   onChildPress?: (key: string, e: PointerEvent) => void;
   onAdd?: () => void;
   onAction?: (kind: CardActionKind) => void;
-  /** A click on the Lead Status (the default opens the epic panel on its Lead tab). */
+  /** A click on the Lead Status (the default opens the epic sheet on its Lead tab). */
   onLead?: (epic: string) => void;
   /** Open lead or Resume (the default asks the service). */
   onLeadAction?: (kind: LeadActionKind, epic: string) => void;

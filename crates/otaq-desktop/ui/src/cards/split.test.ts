@@ -50,7 +50,7 @@ const SHARING: EpicCardView = {
     },
     tooltip: {
       title: "Split with the Project agent",
-      lines: ["Sends the Project agent pane the first message “Split NOTE-10 into tickets”."],
+      lines: ["Sends the Project agent the first message “Split NOTE-10 into tickets”."],
     },
     opens_tab: false,
   },

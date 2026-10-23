@@ -35,7 +35,7 @@ export function MetaChip({ icon, label, tone = "plain" }: MetaChipProps) {
 /** Turquoise for items needing you, neutral, or accent. */
 export type CountTone = "attention" | "neutral" | "accent";
 
-/** A small rounded count (inbox, switcher, tab counts). */
+/** A small rounded count (Needs you, switcher, tab counts). */
 export function CountBadge({ count, tone }: { count: number; tone: CountTone }) {
   return (
     <span className="count-badge" data-tone={tone}>

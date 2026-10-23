@@ -1,6 +1,6 @@
 // The Project agent panel's moment of interaction (T-0330, T-0458; SHL-04, SHB-03, SHB-04, d0087, d0113): which
 // conversation each project shows, opening and closing the panel, the requests to give it the keyboard (⌘L, ⇧⌘L, an
-// inbox row, the Ask bar), and Send's guard against a second start. Everything the panel says, and where a project
+// strip item, the Ask bar), and Send's guard against a second start. Everything the panel says, and where a project
 // opens the first time (`opens_on`), is Rust's (`pane.view`, `otaq-view`'s `agent_pane.rs`). Nothing here starts an
 // agent except Send with words, the user's go-ahead (d0087, d0018). The code calls the panel "the pane", as before.
 import { setAgentOpen, type ShellLayout, shellLayout } from "../../app/layout";
@@ -125,11 +125,11 @@ export function focusPane(routes: PaneRoutes = PANE_ROUTES, inPanel = false): bo
 
 /** Whether `element` is in the Project agent panel (the frame's `pane` slot). */
 export function inPanel(element: Element | null): boolean {
-  return element?.closest('[data-slot="pane"]') != null;
+  return element?.closest('[data-slot="agent_panel"]') != null;
 }
 
 /** The rail's Project agent button: opens the panel with the keyboard in it, or closes an open one. */
-export function togglePane(routes: PaneRoutes = PANE_ROUTES): boolean {
+export function toggleAgentPanel(routes: PaneRoutes = PANE_ROUTES): boolean {
   if (routes.layout.get().agentOpen) {
     closePane(routes);
     return true;
@@ -149,7 +149,7 @@ export function newProjectAgent(routes: PaneRoutes = PANE_ROUTES, starts: Store<
 }
 
 /**
- * An inbox row, an OS notification of a Project agent, or the Ask bar's "New reply": its project on screen, the agent
+ * A strip item, an OS notification of a Project agent, or the Ask bar's "New reply": its project on screen, the agent
  * in the panel (opened) and its terminal focused (PAG-07, ATT-03: the focus clears its wait).
  */
 export function showAgentInPane(project: string, agent: string, routes: PaneRoutes = PANE_ROUTES): void {

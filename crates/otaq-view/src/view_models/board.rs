@@ -1117,7 +1117,7 @@ mod tests {
     }
 
     /// EPC-11, EPC-12, EPL-01: SHOP-45.1 queued puts the epic in flight: no epic card, 45.1 in Ready for Dev, 45.2
-    /// a Backlog card of its own (the "Epics in flight" strip and its "not queued" stops are gone). Backlog counts
+    /// a Backlog card of its own (no "not queued" stop above the columns). Backlog counts
     /// what it shows.
     #[test]
     fn a_queued_child_puts_the_epic_in_flight() {
@@ -1872,7 +1872,7 @@ flow:
     }
 
     /// FLW-19, Q273, EPL-01: an epic of a flow with no human check, done with its children, waits at Review epic as
-    /// its card in the Delivery's column (the "Epics in flight" strip that showed it is gone).
+    /// its card in the Delivery's column (nothing above the columns shows it).
     #[test]
     fn an_epic_at_review_epic_is_a_card_in_the_deliverys_column() {
         let mut flow = crate::view_models::flow_columns::every_kind();

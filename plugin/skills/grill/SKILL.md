@@ -89,7 +89,7 @@ QUESTION
 ```
 
 - **One question per turn.** A ticket holds one open question; a second one would replace the first.
-- The user may answer in the agent's terminal instead of the inbox; treat it the same.
+- The user may answer in the agent's terminal instead of Needs you; treat it the same.
 - The user's Agent instructions take precedence over this guidance.
 
 ## Writing the agreement

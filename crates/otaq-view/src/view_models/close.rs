@@ -87,7 +87,7 @@ pub fn close_text(ticket: &Ticket, tickets: &[Ticket], agent_running: bool) -> C
     dependents.sort_by(|a, b| a.key.cmp(&b.key));
     for d in dependents {
         lines.push(format!(
-            "{} {} depends on it. It stays Queued with \u{201c}parent {} closed\u{201d}, and an inbox item offers \
+            "{} {} depends on it. It stays Queued with \u{201c}parent {} closed\u{201d}, and Needs you offers \
              Reopen parent or Remove dependency.",
             d.key, d.title, ticket.key
         ));
@@ -294,7 +294,7 @@ mod tests {
             [
                 "Its agent is running. Closing stops it; the session is not kept.".to_owned(),
                 "SHOP-20 Checkout page depends on it. It stays Queued with \u{201c}parent SHOP-19 closed\u{201d}, \
-                 and an inbox item offers Reopen parent or Remove dependency."
+                 and Needs you offers Reopen parent or Remove dependency."
                     .to_owned(),
             ]
         );

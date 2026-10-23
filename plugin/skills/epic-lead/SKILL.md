@@ -52,7 +52,7 @@ scratch**. The epic's description **is the plan**: what the epic delivers, one l
 why it comes where it does, and the sources. Cite it as "plan, step 2" in your answers, notes and marks.
 
 - **If the user asks you to split the epic, or to split it again** ("Split PAY-123 into tickets of about a day"), say
-  that the Project agent does that (from its pane, or Split with the Project agent on an epic card with no children),
+  that the Project agent does that (from the Ask bar, or Split with the Project agent on an epic card with no children),
   and end your turn.
 - **Keeping the plan current is yours:** after a merge, or when the user asks for a small change, add a missing child,
   re-order children, or change a never-started one, naming the source of each change:
@@ -202,7 +202,7 @@ your turn ends.
 
 ## Suggesting a close or a delete
 
-You can't close or delete a child; suggest it with your reason, and the user decides from the inbox. Nothing waits
+You can't close or delete a child; suggest it with your reason, and the user decides from Needs you. Nothing waits
 for it:
 
 ```sh

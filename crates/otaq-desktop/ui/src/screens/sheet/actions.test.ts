@@ -274,7 +274,7 @@ describe("what it needs from you, at the top of Overview", () => {
   it("the sheet registers the ticket's two dialogs from its folder", () => {
     const app = registerScreens({ sheet });
     expect(registered(app)).toMatchObject({
-      slots: ["panel"],
+      slots: ["sheet"],
       overlays: ["close_ticket", "submit_for_review"],
     });
   });

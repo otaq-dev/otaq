@@ -543,7 +543,7 @@ pub(crate) mod testing {
                 .clone()
         }
 
-        /// The inbox of the service started last.
+        /// The needs-you queue of the service started last.
         pub fn inbox(&self) -> otaq_core::attention::Inbox {
             self.started
                 .lock()

@@ -1,4 +1,4 @@
-//! `lead.*`: the epic panel's Lead tab (LEAD-11, LEAD-12; d0083, d0045; *05 → Row · Epic panel · Lead tab (0083)*,
+//! `lead.*`: the epic sheet's Lead tab (LEAD-11, LEAD-12; d0083, d0045; *05 → Row · Epic panel · Lead tab (0083)*,
 //! *Row · Lead tab · ended*, *16 → Before the restart*). `lead.view` gathers the epic, its project's tickets, its
 //! lead (`lead.list`), the epic's History (the lead's changes) and, after a restart, the lead's saved conversation
 //! (`session.before_restart` on the epic's key reads its lead's), and `lead_tab.rs` says what the tab shows. Open

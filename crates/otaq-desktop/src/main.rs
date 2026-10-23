@@ -34,7 +34,7 @@ pub struct App {
     switcher: std::sync::Mutex<otaq_view::view_models::switcher::SwitcherModel>,
     /// Each project's last-used tab of the Terminals drawer, for Terminals (⌃`; T-0242, T-0331).
     drawer_tabs: std::sync::Mutex<std::collections::BTreeMap<String, String>>,
-    /// The Diff tabs' viewed ticks, folded summaries and Unified / Side-by-side, while the app runs (T-0225).
+    /// The Files tabs' viewed ticks, folded summaries and Unified / Side-by-side, while the app runs (T-0225).
     review: std::sync::Mutex<otaq_view::view_models::diff::ReviewMemory>,
     terminals: terminal::Terminals,
     notices: Arc<notices::Notices>,

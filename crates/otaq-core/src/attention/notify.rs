@@ -91,15 +91,15 @@ impl Kind {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Target {
-    /// The ticket's panel on the Terminal tab, its terminal focused.
+    /// The ticket's sheet on the Session tab, its terminal focused.
     Ticket { key: TicketKey },
     /// The ticket's validator terminal, focused.
     Validator { key: TicketKey },
-    /// The Project agent in the pane, focused.
+    /// The Project agent in the agent panel, focused.
     ProjectAgent { project: String, agent: String },
     /// The epic's lead terminal, focused.
     Lead { epic: TicketKey },
-    /// The Needs-you inbox (grouped notifications and summaries).
+    /// Needs you, the strip (grouped notifications and summaries).
     Inbox,
     /// The board (a tool that isn't available: its limit banner explains it), of `project` when one is named.
     Board {

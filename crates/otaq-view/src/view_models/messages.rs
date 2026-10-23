@@ -1,6 +1,6 @@
 //! The panel's Messages section (MSG-01, MSG-03, MSG-06; d0030; *05 → Messages · agent-to-agent (SHOP-40.2),
 //! Message states*): every question between this ticket and its directly linked tickets, oldest first, each with
-//! its answer and one status line. Read-only, except answering a question that was sent to the user's inbox.
+//! its answer and one status line. Read-only, except answering a question that was sent to the user (Needs you).
 //!
 //! **The epic lead's threads** (LEAD-06, LEAD-07, LEAD-10; d0083; *05 → Row · Messages · the lead (0083)*): every
 //! question a child asked its lead, the lead's answer or its pass-on to the user (with the user's answer), and the
@@ -23,7 +23,7 @@ pub enum Tone {
     Delivered,
     /// Answered.
     Done,
-    /// Sent to the user's inbox.
+    /// Sent to the user (Needs you).
     Attention,
 }
 
@@ -53,7 +53,7 @@ pub struct Thread {
     pub asked_at: i64,
     pub question: Line,
     pub answer: Option<Line>,
-    /// A question sent to the user's inbox: answered here (the only thing the section lets the user do).
+    /// A question sent to the user (Needs you): answered here (the only thing the section lets the user do).
     pub answerable: bool,
 }
 
@@ -124,7 +124,7 @@ pub struct UserAnswer {
 /// What became of a question a child asked its lead.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LeadOutcome {
-    /// Typed into the lead (or waiting to be): "asked lead · waiting", no inbox item.
+    /// Typed into the lead (or waiting to be): "asked lead · waiting", not in Needs you.
     Waiting,
     /// `otaq answer` by the lead.
     Answered {
@@ -224,7 +224,7 @@ fn your_answer(child: &TicketKey, a: &UserAnswer) -> Line {
 }
 
 /// The lead's threads, oldest first (*05 → Messages on the epic (SHOP-40 · Ticket tab)*, *Messages on SHOP-40.2*).
-/// Read-only: a passed-on question is answered in the inbox, on the card or in the child's header.
+/// Read-only: a passed-on question is answered from Needs you, on the card or in the child's header.
 pub fn lead_threads(entries: &[LeadEntry], lead: &str) -> Vec<Thread> {
     let mut entries: Vec<&LeadEntry> = entries.iter().collect();
     entries.sort_by_key(|e| e.at());
@@ -240,7 +240,7 @@ pub fn lead_threads(entries: &[LeadEntry], lead: &str) -> Vec<Thread> {
             } => {
                 let (status, icon, tone, answer) = match outcome {
                     LeadOutcome::Waiting => (
-                        "Routed to the lead \u{b7} asked lead \u{b7} waiting (no inbox item)".to_owned(),
+                        "Routed to the lead \u{b7} asked lead \u{b7} waiting (not in Needs you)".to_owned(),
                         IconName::Send,
                         Tone::Delivered,
                         None,
@@ -250,7 +250,7 @@ pub fn lead_threads(entries: &[LeadEntry], lead: &str) -> Vec<Thread> {
                         at,
                         delivered,
                     } => (
-                        "Routed to the lead \u{b7} no inbox item".to_owned(),
+                        "Routed to the lead \u{b7} not in Needs you".to_owned(),
                         IconName::Send,
                         Tone::Delivered,
                         Some(from_lead(
@@ -289,7 +289,7 @@ pub fn lead_threads(entries: &[LeadEntry], lead: &str) -> Vec<Thread> {
                         )
                     }
                     LeadOutcome::HandedBack { answer } => (
-                        format!("Sent to your inbox \u{b7} {lead} didn\u{2019}t answer it"),
+                        format!("Sent to you \u{b7} {lead} didn\u{2019}t answer it"),
                         IconName::Inbox,
                         Tone::Attention,
                         answer.as_ref().map(|a| your_answer(child, a)),
@@ -347,7 +347,7 @@ fn thread(m: &Message, now: i64) -> Thread {
     let (status, icon, tone) = match (state, m.route) {
         (MessageState::InInbox, _) => (
             format!(
-                "Sent to your inbox \u{b7} {} doesn\u{2019}t answer while it\u{2019}s finished",
+                "Sent to you \u{b7} {} doesn\u{2019}t answer while it\u{2019}s finished",
                 m.to
             ),
             IconName::Inbox,
@@ -367,7 +367,7 @@ fn thread(m: &Message, now: i64) -> Thread {
             Tone::Delivered,
         ),
         (_, Some(Route::Inbox)) => (
-            "Answered from your inbox".to_owned(),
+            "Answered by you".to_owned(),
             IconName::Inbox,
             Tone::Delivered,
         ),
@@ -482,7 +482,7 @@ mod tests {
 
         let inbox = message(Some(Route::Inbox));
         let t = &threads(&[inbox], 0)[0];
-        assert!(t.question.status.starts_with("Sent to your inbox"));
+        assert!(t.question.status.starts_with("Sent to you \u{b7}"));
         assert_eq!(t.question.tone, Tone::Attention);
         assert_eq!(t.question.icon, IconName::Inbox);
         assert!(t.answerable);
@@ -630,11 +630,11 @@ mod tests {
         assert!(waiting[0].answer.is_none());
         assert_eq!(
             waiting[1].question.status,
-            "Routed to the lead \u{b7} asked lead \u{b7} waiting (no inbox item)"
+            "Routed to the lead \u{b7} asked lead \u{b7} waiting (not in Needs you)"
         );
         assert_eq!(
             waiting[2].question.status,
-            "Sent to your inbox \u{b7} Wishlist lead didn\u{2019}t answer it"
+            "Sent to you \u{b7} Wishlist lead didn\u{2019}t answer it"
         );
     }
 

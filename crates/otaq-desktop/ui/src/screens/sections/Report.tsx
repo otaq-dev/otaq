@@ -1,7 +1,7 @@
 // A validation round's report (VAL-12; d0063; *07 → SHOP-18 · Diff · Validated · round 2*, *Review · Failed 3 times ·
 // moved by you*, *05 → History · validation rounds*): what was checked, the findings with their file and line, the
 // notes with their linked keys, and Create ticket on a "Not covered by any ticket" note (the user's click). Drawn in
-// the History tab under a round and on the Diff tab next to the agent's summary. Every text comes from Rust
+// the History tab under a round and on the Files tab next to the agent's summary. Every text comes from Rust
 // (`otaq-view`'s `validation_report.rs`); this keeps only whether it is open and which note is being created.
 import { useState } from "react";
 

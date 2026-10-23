@@ -303,7 +303,7 @@ pub struct ProposeFromParams {
     pub source: ProposeFrom,
 }
 
-/// A change in a project's flow, for the app (`flow_changed`): the preview opens on a proposal, the banner follows the
+/// A change in a project's flow, for the app (`flow_changed`): the flow editor refetches a proposal, the banner follows the
 /// waiting change, the toast says "shop-web's flow changed".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "what", rename_all = "snake_case")]

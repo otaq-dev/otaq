@@ -217,7 +217,7 @@ pub struct SummaryPage {
     /// The Project agents the restart ended; `None` when it ended none and discarded none.
     pub agents: Option<AgentsPart>,
     pub notes_title: &'static str,
-    /// The tickets the restart left alone or that Resume selected leaves to the inbox.
+    /// The tickets the restart left alone or that Resume selected leaves to Needs you.
     pub notes: Vec<String>,
     pub resume: &'static str,
     pub retry: &'static str,
@@ -476,7 +476,7 @@ pub fn summary_with(
     if interrupted.is_empty() && agents_part.is_none() && report.leads_ended.is_empty() {
         return None;
     }
-    // Needs-you tickets kept their question: answering from the inbox resumes and delivers it (d0045).
+    // Needs-you tickets kept their question: answering from Needs you resumes and delivers it (d0045).
     let (kept, listed): (Vec<&Ticket>, Vec<&Ticket>) = interrupted
         .iter()
         .partition(|t| t.status == Status::Interrupted && t.interrupted_from.is_some());
@@ -527,7 +527,7 @@ pub fn summary_with(
     let mut notes = Vec::new();
     if !kept.is_empty() {
         notes.push(format!(
-            "Turquoise tickets keep their question — {}. Answering from the inbox resumes and delivers it.",
+            "Turquoise tickets keep their question — {}. Answering it from Needs you resumes and delivers it.",
             joined(&kept)
         ));
     }
@@ -556,7 +556,7 @@ pub fn summary_with(
         resume: "Resume",
         retry: "Retry",
         scratch: "Start from scratch",
-        foot: "They stay in your inbox if you close this.",
+        foot: "They stay in Needs you if you close this.",
         later: "Not now",
         resume_selected: format!("Resume selected ({})", selected.len()),
         selected,
@@ -669,7 +669,7 @@ mod tests {
         assert_eq!(
             page.notes,
             [
-                "Turquoise tickets keep their question — SHOP-22. Answering from the inbox resumes and delivers it.",
+                "Turquoise tickets keep their question — SHOP-22. Answering it from Needs you resumes and delivers it.",
                 "Review and Approved are untouched — SHOP-18. Run and Shell show “stopped by restart”."
             ]
         );

@@ -16,7 +16,7 @@ serde_json = "1.0.151"
 # point 3, UIT-04); the desktop crate writes the files and checks they are fresh.
 serde = { version = "1.0.229", features = ["derive"] }
 ts-rs = "12.0.1"
-# Syntax highlighting in the Diff tab (d0017, d0055): the bundled grammars, parsed with the pure-Rust regex engine;
+# Syntax highlighting in the Files tab (d0017, d0055): the bundled grammars, parsed with the pure-Rust regex engine;
 # scopes are coloured with the app's own tokens, so no syntect theme is used.
 syntect = { version = "5.3.0", default-features = false, features = ["default-syntaxes", "parsing", "regex-fancy"] }
 

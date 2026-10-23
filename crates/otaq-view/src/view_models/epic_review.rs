@@ -1,6 +1,6 @@
-//! An epic as a delivery unit in the panel (EPC-03…EPC-05; d0059; *05 → Epic panel · SHOP-40 Wishlist, Epic in
+//! An epic as a delivery unit in the sheet (EPC-03…EPC-05; d0059; *05 → Epic panel · SHOP-40 Wishlist, Epic in
 //! Review · Diff by child, Approve ▾ on an epic*): External ID, progress, its local branch, the child list, the
-//! note about Send back, and the Diff tab's grouping by child.
+//! note about Send back, and the Files tab's grouping by child.
 
 use otaq_core::board::diff::{ChildDiff, DiffSummary};
 use otaq_core::board::epics::progress_of;
@@ -9,7 +9,7 @@ use otaq_core::domain::{Status, TicketKey};
 
 use crate::view_models::diff::counts;
 
-/// One child in the epic panel's list.
+/// One child in the epic sheet's list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChildRow {
     pub key: TicketKey,

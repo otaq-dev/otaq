@@ -225,7 +225,7 @@ async fn resume_after_limit(app: &App) -> Result<Value, RequestError> {
     resume_tool(app, tool).await
 }
 
-/// Resume one tool after its limit (USG-10): the inbox's limit row, a notice's Resume after reset (`limits.resume_tool`).
+/// Resume one tool after its limit (USG-10): the strip's limit item, a notice's Resume after reset (`limits.resume_tool`).
 pub(super) async fn resume_tool(app: &App, tool: Tool) -> Result<Value, RequestError> {
     let toast = match app
         .service

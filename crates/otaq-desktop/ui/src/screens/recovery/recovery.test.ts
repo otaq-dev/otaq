@@ -86,7 +86,7 @@ const SUMMARY: AfterRestartSummary = {
   resume: "Resume",
   retry: "Retry",
   scratch: "Start from scratch",
-  foot: "They stay in your inbox if you close this.",
+  foot: "They stay in Needs you if you close this.",
   later: "Not now",
   resume_selected: "Resume selected (4)",
   selected: ["SHOP-25", "SHOP-30", "SHOP-40.4", "SHOP-40.2"],

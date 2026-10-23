@@ -639,7 +639,7 @@ async fn take_back(app: &App, epic: String, confirm: bool) -> Result<(), Request
 }
 
 /// Open lead on a Backlog epic card (LEAD-02): the click is the go-ahead for the lead's tokens. The page then
-/// opens the epic panel (its Lead tab from T-0290).
+/// opens the epic sheet (its Lead tab from T-0290).
 pub async fn lead_open(app: &App, params: TicketParams) -> Result<(), RequestError> {
     match app
         .service

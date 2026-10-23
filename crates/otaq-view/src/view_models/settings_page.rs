@@ -980,7 +980,7 @@ pub fn project_page(input: &ProjectInputs) -> Page {
             "let_finished_tickets_answer",
             "Let finished tickets answer questions",
             format!(
-                "When a linked agent asks a Done ticket something, {PRODUCT_NAME} resumes that ticket\u{2019}s session answer-only (it changes nothing). Off: those questions go to your inbox."
+                "When a linked agent asks a Done ticket something, {PRODUCT_NAME} resumes that ticket\u{2019}s session answer-only (it changes nothing). Off: those questions go to Needs you."
             ),
             Control::Toggle {
                 on: s.let_finished_tickets_answer,

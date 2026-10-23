@@ -3,7 +3,7 @@ import type { ReviewEntryView } from "./ReviewEntryView";
 import type { ValidationReportView } from "./ValidationReportView";
 
 /**
- * The Diff tab's Review part: the entry, the final report (or the last findings of a ticket that didn't pass), and
+ * The Files tab's Review part: the entry, the final report (or the last findings of a ticket that didn't pass), and
  * "Moved by you at 11:12 · earlier rounds in History" under a failed one.
  */
 export type DiffReviewView = { entry: ReviewEntryView, report: ValidationReportView | null, foot: string | null, };

@@ -1,6 +1,6 @@
 // The Messages section (MSG-01, MSG-03, MSG-06; d0030; *05 → Messages · agent-to-agent (SHOP-40.2), Message
 // states, Dark · Messages*): each question between this ticket and its linked tickets with its answer and status
-// line, oldest first. A key opens that ticket; a question sent to the inbox is answered here. The epic lead's threads
+// line, oldest first. A key opens that ticket; a question sent to the user (Needs you) is answered here. The epic lead's threads
 // (T-0290, *05 → Row · Messages · the lead (0083)*) name the lead at their other end ("SHOP-40.2 → Wishlist lead").
 import { useCallback, useState } from "react";
 

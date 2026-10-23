@@ -229,7 +229,7 @@ pub fn hint(
         ),
         Phase::Live if status == Status::WorkingInBackground => line(
             IconName::MousePointerClick,
-            "Not needs-you: no inbox item until it actually asks for something",
+            "Not needs-you: not in Needs you until it actually asks for something",
             HintTone::Muted,
         ),
         Phase::Live => line(
@@ -390,7 +390,7 @@ pub enum Click {
     PrConfirm,
     /// The PR dialog's Retry after the skill reported a problem.
     PrRetry,
-    /// An answer to the agent's question from the inbox, card or panel (ATT-08, ATT-12).
+    /// An answer to the agent's question from Needs you, card or panel (ATT-08, ATT-12).
     Answer {
         choice: otaq_core::board::questions::Choice,
     },
@@ -689,7 +689,7 @@ mod tests {
         assert_eq!(
             text(Phase::Live, false, Status::WorkingInBackground, false, 0),
             Some((
-                s("Not needs-you: no inbox item until it actually asks for something"),
+                s("Not needs-you: not in Needs you until it actually asks for something"),
                 Muted
             ))
         );

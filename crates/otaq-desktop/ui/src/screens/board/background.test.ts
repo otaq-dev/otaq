@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// A click on the board's background closes the ticket panel (OT-3); a click on another card still switches it, and a
+// A click on the board's background closes the ticket sheet (OT-3); a click on another card still switches it, and a
 // column's button, a drag, a right click or a click that closes a menu leave it open.
 import { afterEach, describe, expect, it, vi } from "vitest";
 

@@ -133,7 +133,7 @@ describe("the sheet", () => {
   it("fills the panel slot and registers the ticket's dialogs; each tab's body is its own screen's", () => {
     const app = registerScreens({ sheet });
     expect(registered(app)).toMatchObject({
-      slots: ["panel"],
+      slots: ["sheet"],
       overlays: ["close_ticket", "submit_for_review"],
       sheetTabs: [],
     });
@@ -188,7 +188,7 @@ describe("the sheet's keys (0097, SHT-02)", () => {
     openTicket("SHOP-19");
     const { app, done } = mount(VIEW);
     const pane = document.body.appendChild(document.createElement("div"));
-    pane.dataset.slot = "pane";
+    pane.dataset.slot = "agent_panel";
     const input = pane.appendChild(document.createElement("textarea"));
     input.focus();
     expect(app.shortcuts.run({ action: "close_panel" })).toBe(false);

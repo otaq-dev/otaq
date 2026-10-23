@@ -1979,7 +1979,7 @@ mod tests {
         );
     }
 
-    /// EPL-01: the "Epics in flight" strip is gone. While SHOP-45 is a card its children are its rows; once
+    /// EPL-01: no strip above the columns. While SHOP-45 is a card its children are its rows; once
     /// SHOP-45.1 is queued, SHOP-45.2 left in Backlog is a card of its own that names its epic, and no epic card
     /// is left.
     #[test]

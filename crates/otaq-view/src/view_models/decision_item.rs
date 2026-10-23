@@ -1,7 +1,7 @@
 //! Recorded decisions in the review (DEC-04, DEC-05; d0084, d0059, d0063; *07 → Row · Decision Item (0084)*, *Row ·
 //! SHOP-23 review · Decisions (0084)*, *Row · SHOP-40 epic review · Decisions (0084)*): one Decision Item per
 //! recorded decision (the question, Built, Other option, Why, the lead's mark, what the review did with it, and
-//! Change… while it is open in review), and the Decisions section on the Diff tab, grouped by child for an epic.
+//! Change… while it is open in review), and the Decisions section on the Files tab, grouped by child for an epic.
 //! No decisions → no section.
 
 use crate::view_models::flow_columns::place_set;
@@ -231,7 +231,7 @@ fn with_groups(groups: Vec<GroupView>, hint: Option<&'static str>) -> Option<Dec
     })
 }
 
-/// The section for `ticket` on the Diff tab: its own decisions, and for an epic every child's. `None` when there is
+/// The section for `ticket` on the Files tab: its own decisions, and for an epic every child's. `None` when there is
 /// nothing to list or the ticket hasn't reached its review.
 pub fn section(
     ticket: &Ticket,
@@ -255,7 +255,7 @@ pub fn section(
 pub const HINT_TICKET_TAB: &str = "recorded by the agent \u{b7} you keep or change them in review";
 
 /// The read-only section under "What and why" in the Ticket tab (DEC-03; *05 → Row · Recorded decisions (0084)*):
-/// while the ticket works and in review, with the hint and no Change… (that is the Diff tab's); after approval the
+/// while the ticket works and in review, with the hint and no Change… (that is the Files tab's); after approval the
 /// items with what the review did, no hint. `None` without decisions.
 pub fn ticket_tab(
     ticket: &Ticket,
@@ -668,7 +668,7 @@ mod tests {
             "no Change\u{2026} while it works"
         );
         assert_eq!(s.groups[0].items[0].status, None);
-        // In review the Ticket tab stays read-only: Change… is on the Diff tab.
+        // In review Overview stays read-only: Change… is on the Files tab.
         shop23.status = Status::WaitingForYou;
         shop23.place = otaq_core::domain::Place::stage_of("review");
         let s = ticket_tab(&shop23, &[full_name()], &[], &[]).unwrap();

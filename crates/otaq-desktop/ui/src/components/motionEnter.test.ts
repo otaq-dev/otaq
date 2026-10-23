@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// The side panel's wait for its content before it slides in (0095).
+// The sheet's wait for its content before it slides in (0095).
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ENTER_WAIT, playEnterWhenReady } from "./motion";

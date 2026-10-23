@@ -1,4 +1,4 @@
-//! Syntax highlighting for the Diff tab (REV-02; d0017, d0055) with `syntect`'s bundled grammars, chosen by the
+//! Syntax highlighting for the Files tab (REV-02; d0017, d0055) with `syntect`'s bundled grammars, chosen by the
 //! file's extension. Scopes are reduced to a few kinds coloured with the app's own tokens (the design colours
 //! keywords purple, strings magenta, functions blue, numbers and types amber), so light and dark follow the theme.
 //!

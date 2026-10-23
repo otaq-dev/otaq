@@ -470,7 +470,7 @@ pub async fn open_decisions(app: &App, ticket: &Ticket, tickets: &[Ticket]) -> u
         .map_or(0, |(own, children)| di::open_count(&own, &children))
 }
 
-/// The Decisions section on the Diff tab, under the agent summary; `null` when there is nothing to list.
+/// The Decisions section on the Files tab, under the agent summary; `null` when there is nothing to list.
 pub async fn decisions(app: &App, params: Params) -> Result<Option<DecisionsSection>, RequestError> {
     let ticket = ticket(app, &params.key).await?;
     let all = tickets(app, &ticket.key.project.to_string()).await?;

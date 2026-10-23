@@ -45,7 +45,7 @@ pub const BUNDLED: [Bundled; 4] = [
         license: "MIT",
     },
     Bundled {
-        project: "Syntax definitions (Diff tab)",
+        project: "Syntax definitions (Files tab)",
         source: Some("https://github.com/sublimehq/Packages"),
         license: "Sublime HQ Packages license",
     },

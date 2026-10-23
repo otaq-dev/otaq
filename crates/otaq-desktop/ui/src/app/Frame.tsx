@@ -1,7 +1,7 @@
 // The app frame (*24 → Row · The two views*, *Row · The Project agent*; SHB-01, d0113): the header row (also the title
 // bar), the banner area across the window that pushes everything under it down, then **rail | Project agent panel
 // (only while open, 420 px, pushing the board) | main area**. The main area holds the board (no Board | Files tabs:
-// the project Files view stays parked, d0090); the ticket panel opens over its right side (SHL-05) and the Ask bar
+// the project Files view stays parked, d0090); the ticket sheet opens over its right side (SHL-05) and the Ask bar
 // floats at its bottom centre. The overlay and toast hosts go over everything. Each slot is filled by the screen
 // registered for it; an empty slot shows its name so the layout can be checked before its screen exists.
 import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
@@ -70,7 +70,7 @@ function OverlayHost() {
 }
 
 /**
- * The ticket panel's layer: a drawer, sliding in from the right edge once the ticket has loaded and back out when it
+ * The ticket sheet's layer: a drawer, sliding in from the right edge once the ticket has loaded and back out when it
  * closes, staying mounted until the slide ends (OT-6, 0095). Switching tickets keeps it mounted, so the slide doesn't play again; resizing
  * changes only its width, so the drag stays instant.
  */
@@ -84,8 +84,8 @@ function PanelLayer({ open }: { open: boolean }) {
   useLayoutEffect(() => (leaving ? playLeave(layer.current, "panel", done) : undefined), [leaving, done]);
   if (!mounted) return null;
   return (
-    <div ref={layer} className="frame-panel" data-slot="panel">
-      <Slot id="panel" placeholder={<Placeholder name="Ticket panel" />} />
+    <div ref={layer} className="frame-sheet" data-slot="sheet">
+      <Slot id="sheet" placeholder={<Placeholder name="Ticket sheet" />} />
     </div>
   );
 }
@@ -96,9 +96,9 @@ function PanelLayer({ open }: { open: boolean }) {
  */
 function AgentColumn({ view, open }: { view: LayoutView; open: boolean }) {
   return (
-    <div className="frame-agent" data-slot="pane" data-open={open || undefined}>
+    <div className="frame-agent" data-slot="agent_panel" data-open={open || undefined}>
       <div className="frame-agent-body" style={{ width: view.agent_panel }} hidden={!open}>
-        <Slot id="pane" />
+        <Slot id="agent_panel" />
       </div>
     </div>
   );
@@ -116,7 +116,7 @@ export interface FrameBodyProps {
 
 /**
  * Everything under the hosts: header, banners, rail, the Project agent panel while open, the main area with the
- * ticket panel and the Ask bar over it.
+ * ticket sheet and the Ask bar over it.
  */
 export function FrameBody({ view, layout, ticketOpen, bannerFallback, mainRef }: FrameBodyProps) {
   const expanded = layout.panelExpanded && ticketOpen;

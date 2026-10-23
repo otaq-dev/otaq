@@ -460,7 +460,7 @@
   font: 400 11px var(--font-mono);
 }
 
-/* A validation report (History and the Diff tab): checks, findings, notes with links and Create ticket. */
+/* A validation report (History and the Files tab): checks, findings, notes with links and Create ticket. */
 .report {
   display: flex;
   flex: none;

@@ -20,16 +20,15 @@ export const SLOT_IDS = [
    * The Project agent panel between the rail and the main area (SHB-01, SHB-03, T-0330, T-0458). The frame sets its
    * width and keeps it mounted while closed; it reads `shellLayout.agentOpen` if it needs to know.
    */
-  "pane",
+  "agent_panel",
   /** The board, filling the main area (T-0220, T-0328). */
   "board",
   /** The Ask bar at the main area's bottom centre, over the board and the ticket (SHB-03, T-0458). */
   "ask_bar",
   /**
-   * The side panel, shown over the main area's right side while a ticket is open (T-0222, SHL-05). It sets its own
-   * width; expanded, it fills the main area.
+   * The ticket sheet over the main area while a ticket is open (SHT-01, T-0464); full page, it fills the main area.
    */
-  "panel",
+  "sheet",
   /** The toasts, over everything (T-0231). */
   "toasts",
 ] as const;

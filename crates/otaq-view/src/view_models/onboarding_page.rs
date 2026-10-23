@@ -124,7 +124,7 @@ pub struct Welcome {
 
 pub fn welcome(keys: &KeyLabels) -> Welcome {
     // Without a key for Next item that needs you the sentence about it is left out.
-    let inbox_key = keys
+    let next_key = keys
         .label(KeyAction::NextInboxItem)
         .map(|k| format!(" {k} opens the next."))
         .unwrap_or_default();
@@ -145,9 +145,9 @@ pub fn welcome(keys: &KeyLabels) -> Welcome {
             },
             Point {
                 icon: IconName::Inbox,
-                title: "One inbox".to_owned(),
+                title: "Needs you".to_owned(),
                 text: format!(
-                    "Permission prompts, questions and reviews from every project in one list.{inbox_key}"
+                    "Permission prompts, questions and reviews wait in one strip above the board.{next_key}"
                 ),
             },
             Point {
@@ -1014,7 +1014,7 @@ mod tests {
         assert!(
             w.points[1]
                 .text
-                .ends_with("in one list. ⌘J opens the next.")
+                .ends_with("above the board. ⌘J opens the next.")
         );
         // KEY-08: the user's key for Next item that needs you, and no sentence about it without one.
         let custom = fixtures::replaced("next_inbox_item", None, 0, "⇧⌘J");
@@ -1027,7 +1027,7 @@ mod tests {
         assert!(
             welcome(&moved).points[1]
                 .text
-                .ends_with("from every project in one list.")
+                .ends_with("in one strip above the board.")
         );
         assert!(
             welcome(&fixtures::letters_off()).points[1]

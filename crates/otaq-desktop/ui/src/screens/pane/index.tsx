@@ -7,7 +7,7 @@ import { Pane } from "./Pane";
 import "./pane.css";
 
 export const pane: Screen = (app) => {
-  app.slots.register("pane", { Component: Pane });
+  app.slots.register("agent_panel", { Component: Pane });
   app.shortcuts.on("focus_pane", () =>
     focusPane(PANE_ROUTES, typeof document !== "undefined" && inPanel(document.activeElement)),
   );
