@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 
 import "./frame.css";
-import { playEnterWhenReady, playLeave, usePresence } from "../components";
+import { OVERLAY_HOST_ID, playEnterWhenReady, playLeave, usePresence } from "../components";
 import type { LayoutView } from "../generated/LayoutView";
 import { DRAG_REGION } from "../tauri";
 import { useTheme } from "../theme/theme";
@@ -16,9 +16,6 @@ import { closeOverlay, useOpenOverlays } from "./overlays";
 import { type OverlayId, type OverlayProps, type SlotId, useRegistries } from "./registry";
 import { useSelection } from "./selection";
 import { useStore } from "./store";
-
-/** The element the overlay host draws into; local menus and popovers may portal there too. */
-export const OVERLAY_HOST_ID = "overlay-host";
 
 interface SlotProps {
   id: SlotId;

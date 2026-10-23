@@ -6,6 +6,8 @@
 // and the board asks for its view again.
 import type { KeyboardEvent } from "react";
 
+import { mainWidth } from "../../app/layout";
+import { useStore } from "../../app/store";
 import { Tooltip } from "../../components";
 import type { BoardToolbar } from "../../generated/BoardToolbar";
 import type { ToolbarGroup } from "../../generated/ToolbarGroup";
@@ -114,10 +116,19 @@ function Switch({ option, onView }: { option: ToolbarOption; onView: ToolbarProp
   );
 }
 
+/** The toolbar's 16 px sides: it is 760 px or less (`s28-08`) in a main area this wide or less. */
+const NARROW_MAIN = 760 + 2 * 16;
+
 export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket }: ToolbarProps) {
   const choices = toolbar.lanes ?? toolbar.group_by;
+  const main = useStore(mainWidth);
   return (
-    <div className="board-toolbar" role="toolbar" aria-label="Board">
+    <div
+      className="board-toolbar"
+      role="toolbar"
+      aria-label="Board"
+      data-narrow={(main > 0 && main <= NARROW_MAIN) || undefined}
+    >
       <Segments group={toolbar.views} name="View" onView={onView} />
       {choices && (
         <>

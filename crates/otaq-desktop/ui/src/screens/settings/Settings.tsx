@@ -205,7 +205,14 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
   };
 
   return (
-    <div className="settings-backdrop" role="presentation">
+    <div
+      className="settings-backdrop"
+      role="presentation"
+      // A press on the dim around it closes Settings, as Esc does and as every dialog does.
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) close();
+      }}
+    >
       <div
         ref={root}
         className="settings"

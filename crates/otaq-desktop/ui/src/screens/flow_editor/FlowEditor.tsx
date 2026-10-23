@@ -1245,7 +1245,14 @@ function Editor({ params, close }: OverlayProps<"flow_editor">) {
   }, []);
 
   return (
-    <div className="fe-scrim" role="presentation">
+    <div
+      className="fe-scrim"
+      role="presentation"
+      // A press on the dim around it closes the editor, as Esc does (the draft stays in the service).
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) close();
+      }}
+    >
       <section
         ref={dialog}
         className="fe-dialog"

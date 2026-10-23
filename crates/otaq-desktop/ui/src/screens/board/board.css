@@ -11,6 +11,8 @@
 .board-screen {
   position: relative;
   display: flex;
+  /* The main area's whole width in every view (Board, List, Files), whatever its content's own width. */
+  flex: 1;
   flex-direction: column;
   box-sizing: border-box;
   min-width: 0;
@@ -543,12 +545,8 @@
   flex: 1;
 }
 
-/* The Files view (`s28-03`): its subtitle after the switch, dropped when the toolbar narrows (`s28-08`), and the Live
+/* The Files view (`s28-03`): its subtitle after the switch, dropped when the toolbar is 760 px or less (`s28-08`), and the Live
  * dot on the right while it follows the tickets' changes (FIL-10). */
-.board-toolbar {
-  container-type: inline-size;
-}
-
 .board-toolbar-subtitle {
   min-width: 0;
   overflow: hidden;
@@ -558,11 +556,11 @@
   white-space: nowrap;
 }
 
-@container (max-width: 760px) {
-  .board-toolbar-subtitle,
-  .board-toolbar-subtitle-divider {
-    display: none;
-  }
+/* Not a size container: that would make the toolbar the frame of its tooltips' fixed boxes. The main area's width
+   (`mainWidth`) sets `data-narrow` instead. */
+.board-toolbar[data-narrow] .board-toolbar-subtitle,
+.board-toolbar[data-narrow] .board-toolbar-subtitle-divider {
+  display: none;
 }
 
 .board-toolbar-live {
