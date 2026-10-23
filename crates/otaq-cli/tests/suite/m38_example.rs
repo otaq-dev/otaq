@@ -690,6 +690,12 @@ async fn the_flow_editor_adds_plan_and_moves_security() {
         ["grill", "plan", "dev", "security", "validate", "qa", "ship"]
     );
     world.until_in("SHOP-12", "dev", Status::Working).await;
+    // The stand-in logs its start a moment after the session counts as working.
+    world
+        .until("SHOP-12's Dev agent logs its start", async || {
+            dev(&world) == 1
+        })
+        .await;
     assert_eq!(dev(&world), 1);
     let t = world.ticket("SHOP-33").await;
     assert!(t.place.is_in("validate"), "{:?}", t.place);
