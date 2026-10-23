@@ -2954,7 +2954,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
-        "list_placeholder": null,
+        "list": null,
         "min_column_width": 180.0,
         "more_stages": {
           "at_start": null,
@@ -4094,7 +4094,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
-        "list_placeholder": null,
+        "list": null,
         "min_column_width": 180.0,
         "more_stages": {
           "at_start": null,
@@ -5234,7 +5234,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
-        "list_placeholder": null,
+        "list": null,
         "min_column_width": 180.0,
         "more_stages": {
           "at_start": null,
@@ -5674,7 +5674,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
-        "list_placeholder": null,
+        "list": null,
         "min_column_width": 180.0,
         "more_stages": {
           "at_start": null,
@@ -6043,7 +6043,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
-        "list_placeholder": null,
+        "list": null,
         "min_column_width": 180.0,
         "more_stages": {
           "at_start": null,
@@ -6412,7 +6412,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
-        "list_placeholder": null,
+        "list": null,
         "min_column_width": 180.0,
         "more_stages": {
           "at_start": null,
@@ -7533,7 +7533,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
-        "list_placeholder": null,
+        "list": null,
         "min_column_width": 180.0,
         "more_stages": {
           "at_start": null,
@@ -8138,7 +8138,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
-        "list_placeholder": null,
+        "list": null,
         "min_column_width": 180.0,
         "more_stages": {
           "at_start": null,
@@ -8743,7 +8743,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
-        "list_placeholder": null,
+        "list": null,
         "min_column_width": 180.0,
         "more_stages": {
           "at_start": null,

@@ -610,14 +610,9 @@
 }
 
 /* The List view until it arrives (T-0461). */
-.board-list-placeholder {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  color: var(--text-muted);
-  font: 400 13px var(--font-ui);
+/* The List view (LST-01) fills the board edge to edge and scrolls its own rows. */
+.board[data-view="list"] {
+  padding: 0;
 }
 
 /* The lifted card, its hint or reason and the cursor badge follow the pointer (`translate` set by the page). */

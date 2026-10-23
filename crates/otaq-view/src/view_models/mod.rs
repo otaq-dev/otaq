@@ -71,6 +71,7 @@ pub mod lead_tab;
 pub mod licenses;
 pub mod limit_banner;
 pub mod limits;
+pub mod list_view;
 pub mod menu;
 pub mod messages;
 pub mod modal;

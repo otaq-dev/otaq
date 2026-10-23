@@ -41,6 +41,7 @@ use crate::view_models::drag::{self, DropAction, DropFeedback};
 use crate::view_models::empty_board;
 use crate::view_models::filter::Token;
 use crate::view_models::flow_columns::{self, ColumnKind, Columns};
+use crate::view_models::list_view;
 use crate::view_models::search_page::FilterState;
 use crate::view_models::ticket_comments::CommentBoxView;
 use crate::view_models::view_prefs::{self, Change, Prefs, Toolbar, ViewKind};
@@ -374,8 +375,8 @@ pub struct BoardPage {
     pub prefs: Prefs,
     /// The toolbar of both views (BRD-01).
     pub toolbar: Toolbar,
-    /// The List's words until it arrives (T-0461); `null` on the Board.
-    pub list_placeholder: Option<String>,
+    /// The List view (LST-01, T-0461); `null` on the Board.
+    pub list: Option<list_view::ListView>,
 }
 
 /// The chip of the agent filter (d0087; Q-G): ✕ or Esc sets `Params::agent` back to `None`.
@@ -720,6 +721,8 @@ pub fn page(
         starts_held: project.starts_held,
         paused: project.paused,
     };
+    let view: ViewKind = prefs.view.into();
+    let list = (view == ViewKind::List).then(|| list_view::view(&input, prefs, project.leads));
     let mut built = board::build(&input);
     with_leads(&mut built, tickets, project.leads);
     let view: ViewKind = prefs.view.into();
@@ -770,7 +773,7 @@ pub fn page(
         done,
         prefs: Prefs::from(prefs),
         toolbar: view_prefs::toolbar(prefs, keys),
-        list_placeholder: (view == ViewKind::List).then(|| view_prefs::LIST_PLACEHOLDER.to_owned()),
+        list,
     }
 }
 
@@ -3305,7 +3308,7 @@ flow:
         );
         assert_eq!(page.toolbar.views.options[0].label, "Board");
         assert!(page.toolbar.views.options[0].selected);
-        assert_eq!(page.list_placeholder, None);
+        assert_eq!(page.list, None);
 
         let s = |text: &str| Some(text.to_owned());
         assert_eq!(
@@ -3476,7 +3479,7 @@ flow:
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert!(list.list_placeholder.is_some());
+        assert!(list.list.is_some());
         assert_eq!(list.prefs.view, ViewKind::List);
     }
 }

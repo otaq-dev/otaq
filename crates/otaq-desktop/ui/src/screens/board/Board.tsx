@@ -2,7 +2,9 @@
 // empty columns, All tickets, New ticket; `Toolbar.tsx`), then the columns of the shown project's flow from
 // `board.view`, refetched on the service's events, at the board's size (one width rule: every open column at least
 // `min_column_width`, sharing the width when they fit, else the board scrolls sideways with the "7 more stages" pill at
-// its right edge; Rust folds Dev by height). The List view draws its placeholder until T-0461. How the board looks is
+// its right edge; Rust folds Dev by height). The List view (`list/List.tsx`, LST-01) draws `board.view`'s `list` in
+// place of the columns: its rows press, open, drag and open their menu as cards do, and Group by Stage's groups are the
+// drop targets (a row dragged onto Ready queues it); ↑/↓ walk the rows. How the board looks is
 // the project's view preferences, kept by the service (SHB-05): folds, the view and the lanes change with
 // `board.set_view`, then the board asks for its view again; `g b` and `g l` switch the view. A drag is the UIT-04 way
 // (`drag.ts`): one `board.drag` at its start, then only this page works while the pointer moves, drawing the targets'
@@ -64,6 +66,8 @@ import type { ViewChange } from "../../generated/ViewChange";
 import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { List, type ListHandlers } from "../list/List";
+import { findRow, groupSpans, listTargets, nextRow, rowKeys } from "../list/rows";
 import { NeedsYouStrip } from "../strip/Strip";
 import { ApproveChoice } from "./ApproveChoice";
 import { createBackgroundClick } from "./background";
@@ -453,6 +457,18 @@ export function Board() {
   const [cardMenu, setCardMenu] = useState<OpenCardMenu | null>(null);
   const ghost = useRef<HTMLDivElement>(null);
   const columns = useRef(new Map<BoardDropTarget, HTMLElement>());
+  // The List's groups that take a drop (LST-02), measured like the columns when a drag starts.
+  const listGroups = useRef(new Map<BoardDropTarget, HTMLElement>());
+  const list = view?.list ?? null;
+  const listRef = useRef(list);
+  const listKeys = useMemo(() => (list === null ? [] : rowKeys(list)), [list]);
+  const listKeysRef = useRef(listKeys);
+  const listTargetsRef = useRef<BoardDropTarget[]>([]);
+  useLayoutEffect(() => {
+    listRef.current = list;
+    listKeysRef.current = listKeys;
+    listTargetsRef.current = list === null ? [] : listTargets(list);
+  }, [list, listKeys]);
   const pointer = useRef({ x: 0, y: 0 });
   // The sections that are drop targets of their own (Review's Approved), with the column each is in (STG-08).
   const sectionOwners = useMemo(
@@ -504,20 +520,22 @@ export function Board() {
   // where the cards scroll.
   const spans = useCallback(
     (): ColumnSpan[] =>
-      [...columns.current.entries()].map(([id, el]) => {
-        const r = el.getBoundingClientRect();
-        const owner = sectionOwnersRef.current.get(id);
-        if (owner === undefined) return { id, left: r.left, right: r.right };
-        const column = columns.current.get(owner)?.getBoundingClientRect();
-        const cards = el.closest(".board-column-cards")?.getBoundingClientRect();
-        return {
-          id,
-          left: r.left,
-          right: r.right,
-          top: Math.max(r.top, cards?.top ?? r.top),
-          bottom: column?.bottom ?? r.bottom,
-        };
-      }),
+      listRef.current !== null
+        ? groupSpans(listGroups.current)
+        : [...columns.current.entries()].map(([id, el]) => {
+            const r = el.getBoundingClientRect();
+            const owner = sectionOwnersRef.current.get(id);
+            if (owner === undefined) return { id, left: r.left, right: r.right };
+            const column = columns.current.get(owner)?.getBoundingClientRect();
+            const cards = el.closest(".board-column-cards")?.getBoundingClientRect();
+            return {
+              id,
+              left: r.left,
+              right: r.right,
+              top: Math.max(r.top, cards?.top ?? r.top),
+              bottom: column?.bottom ?? r.bottom,
+            };
+          }),
     [],
   );
 
@@ -751,6 +769,66 @@ export function Board() {
     if (el) columns.current.set(id, el);
     else columns.current.delete(id);
   }, []);
+  const group$ = useCallback((id: BoardDropTarget, el: HTMLElement | null) => {
+    if (el) listGroups.current.set(id, el);
+    else listGroups.current.delete(id);
+  }, []);
+
+  // A List row does what a card does (LST-02): a press is a click or a drag, its action opens the ticket and asks for
+  // it, Start is ⌘D's drop, the menu is the card's. Space lifts it onto its own group (Group by Stage), ↑/↓ then move
+  // it between the groups that take it, and walk the rows otherwise.
+  const listHandlers: ListHandlers = useMemo(
+    () => ({
+      press: (key, e: PointerEvent) => {
+        if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+        controller.press(key, e.clientX, e.clientY);
+        placeGhost(e.clientX, e.clientY);
+      },
+      key: (key, target, e: KeyboardEvent) => {
+        if (e.target !== e.currentTarget) return;
+        const lifted = controller.state();
+        if (e.key === " ") {
+          e.preventDefault();
+          if (lifted !== null) release();
+          else if (target !== null) controller.lift(key, target);
+          return;
+        }
+        if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+          e.preventDefault();
+          const step = e.key === "ArrowUp" ? -1 : 1;
+          if (lifted !== null) {
+            controller.step(step, listTargetsRef.current);
+            return;
+          }
+          const next = nextRow(listKeysRef.current, key, step);
+          if (next !== null) document.querySelector<HTMLElement>(`[data-row="${CSS.escape(next)}"]`)?.focus();
+          return;
+        }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          openTicket(key);
+          return;
+        }
+        if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+          e.preventDefault();
+          const r = e.currentTarget.getBoundingClientRect();
+          openMenu(key, { left: r.left + 12, top: r.top + 24 });
+        }
+      },
+      action: (key, kind: CardActionKind) => {
+        openTicket(key);
+        requestCardAction(key, kind);
+      },
+      start: (key, target) => {
+        void dropCard(key, target, showApprove);
+      },
+      menu: openMenu,
+      open: (key) => {
+        openTicket(key);
+      },
+    }),
+    [controller, release, placeGhost, openMenu, showApprove],
+  );
 
   const place = scrollPlace(project ?? "");
   // The board's own sideways scroll comes back with its project too.
@@ -767,7 +845,7 @@ export function Board() {
   );
 
   const draggedCard = useMemo(() => {
-    if (drag === null || !view) return null;
+    if (drag === null || !view || view.list !== null) return null;
     for (const c of view.columns) {
       const found = cardsOf(c).find((card) => card.card.key === drag.key);
       if (found) return found;
@@ -776,6 +854,11 @@ export function Board() {
   }, [drag, view]);
   const draggedRow = useMemo(() => {
     if (drag === null || !view || draggedCard !== null) return null;
+    // A List row lifts as a small row with its key and title.
+    if (view.list !== null) {
+      const found = findRow(view.list, drag.key);
+      return found ? { key: drag.key, title: found.row.card.title } : null;
+    }
     const epics = view.columns.flatMap((c) =>
       cardsOf(c).flatMap((card) => (card.kind === "epic" ? [card.card] : [])),
     );
@@ -917,12 +1000,9 @@ export function Board() {
         />
       )}
       <NeedsYouStrip />
-      {view?.list_placeholder != null && (
-        <div className="board-list-placeholder">{view.list_placeholder}</div>
-      )}
       <div
         className="board"
-        hidden={view?.list_placeholder != null}
+        data-view={list === null ? undefined : "list"}
         ref={(el) => {
           boardEl.current = el;
           setElement(el);
@@ -950,7 +1030,17 @@ export function Board() {
             }}
           />
         )}
-        {view?.lanes != null ? (
+        {list !== null ? (
+          <List
+            list={list}
+            selected={selected}
+            lifted={drag?.key ?? null}
+            verdict={(target) => (drag ? verdictOf(drag.answer, target) : undefined)}
+            handlers={listHandlers}
+            group={group$}
+            onView={changeView}
+          />
+        ) : view?.lanes != null ? (
           <Lanes
             columns={view.columns}
             lanes={view.lanes}
@@ -1001,7 +1091,7 @@ export function Board() {
         )}
         {view?.empty && <EmptyBoard view={view.empty} />}
         {project === null && <NoProjects />}
-        <ChainLayer chain={chain} board={element} layout={view} />
+        {list === null && <ChainLayer chain={chain} board={element} layout={view} />}
         <div className="board-ghost" ref={ghost} hidden={drag === null}>
           {draggedCard && (
             <div className="board-ghost-card">

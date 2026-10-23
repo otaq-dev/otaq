@@ -353,10 +353,6 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
     }
 }
 
-/// Until the List arrives (LST-01, T-0461), the List view says so; the toolbar and the strip stay.
-pub const LIST_PLACEHOLDER: &str =
-    "The List view isn\u{2019}t built yet. Switch to Board to see these tickets.";
-
 #[cfg(test)]
 mod tests {
     use super::*;

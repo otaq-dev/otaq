@@ -488,6 +488,78 @@ fn delivery_agent(flow: &Flow) -> Option<String> {
         .and_then(|s| s.agent.clone())
 }
 
+/// A ticket's card view model as the board builds it (its queue facts, signal, named agents and the pause), for the
+/// board's columns and the List's rows (LST-01).
+pub fn ticket_card(input: &BoardInput, t: &Ticket) -> CardViewModel {
+    let all = input.tickets;
+    // The default flow's board keeps today's cards (d0108, STG-06); other flows draw the M33 ones.
+    let custom_flow = !crate::view_models::flow_columns::keeps_default_look(input.flow);
+    // What a Queued card waits for, from the core's readiness: updates as each parent moves (T-0083). One
+    // that would start says why it doesn't while starts are held (FLW-06).
+    let mut queue = queue_facts(t, all);
+    if input
+        .starts_held
+        .is_some_and(|hold| queue.starting && hold.holds(&t.place))
+    {
+        queue.starting = false;
+        queue.waits_for = Some(WAITING_FOR_THE_FLOW_CHANGE.to_owned());
+    }
+    // Nothing starts while paused (PAU-04): Ready for Dev's next one "starts next" (`s24-07`), one in a stage
+    // waits for Resume.
+    if otaq_core::agents::kept::starts_on_resume(t, all, input.paused) {
+        queue.starting = false;
+        queue.waits_for = Some(
+            if t.place == otaq_core::domain::Place::Waiting(None) {
+                crate::view_models::card::STARTS_NEXT
+            } else {
+                KEPT_START
+            }
+            .to_owned(),
+        );
+    }
+    let extras = CardExtras {
+        waits_for: queue.waits_for,
+        waits_for_merge: queue.waits_for_merge,
+        starting: queue.starting,
+        closed_parent: queue.closed_parent,
+        project_base: input.project_base.map(str::to_owned),
+        sleeve: crate::view_models::card::sleeve(t, all),
+        start_failure: (t.status == Status::StartInterrupted)
+            .then(|| {
+                t.start_problem
+                    .as_ref()
+                    .map(|p| p.step.failure_label().to_owned())
+            })
+            .flatten(),
+        held_reason: (t.status == Status::Held)
+            .then(|| t.start_problem.as_ref().map(|p| p.message.clone()))
+            .flatten(),
+        held_by_limit: otaq_core::scheduler::held_by_tool_limit(t),
+        was_validating: input.was_validating.contains(&t.key),
+        // Its Delivery (FLW-15): Ready to merge or Ready for PR, and who opens the PR.
+        delivers: otaq_core::board::epic_flight::delivery_of(input.flow, t).map(|d| d.delivers),
+        delivery_agent: delivery_agent(input.flow),
+        custom_flow,
+        paused: input.paused,
+        agent_name: match &t.created_by {
+            otaq_core::domain::Actor::ProjectAgent(id) => input
+                .agent_names
+                .iter()
+                .find(|(agent, _)| agent == id)
+                .map(|(_, name)| name.clone()),
+            _ => None,
+        },
+        ..CardExtras::default()
+    }
+    .with_signal(t, input.now_ms);
+    // Its named agents, holds, moves and avatars (T-0345, T-0362).
+    let extras = match input.agents {
+        Some(agents) => extras.with_agents(agents, &t.key),
+        None => extras,
+    };
+    CardViewModel::from(t, &extras, input.now_ms)
+}
+
 pub fn build(input: &BoardInput) -> Vec<ColumnView> {
     let all = input.tickets;
     let cards: Vec<&TicketKey> = all
@@ -500,78 +572,12 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
         None => cards.clone(),
     };
     let filtered = input.visible.is_some();
-    // The default flow's board keeps today's cards (d0108, STG-06); other flows draw the M33 ones.
-    let custom_flow = !crate::view_models::flow_columns::keeps_default_look(input.flow);
     let entry = |key: &TicketKey| -> Option<CardEntry> {
         let t = all.iter().find(|t| &t.key == key)?;
         Some(if t.kind == Kind::Epic {
             CardEntry::Epic(EpicViewModel::from(t, all, None).with_pr_comments(t))
         } else {
-            // What a Queued card waits for, from the core's readiness: updates as each parent moves (T-0083). One
-            // that would start says why it doesn't while starts are held (FLW-06).
-            let mut queue = queue_facts(t, all);
-            if input
-                .starts_held
-                .is_some_and(|hold| queue.starting && hold.holds(&t.place))
-            {
-                queue.starting = false;
-                queue.waits_for = Some(WAITING_FOR_THE_FLOW_CHANGE.to_owned());
-            }
-            // Nothing starts while paused (PAU-04): Ready for Dev's next one "starts next" (`s24-07`), one in a stage
-            // waits for Resume.
-            if otaq_core::agents::kept::starts_on_resume(t, all, input.paused) {
-                queue.starting = false;
-                queue.waits_for = Some(
-                    if t.place == otaq_core::domain::Place::Waiting(None) {
-                        crate::view_models::card::STARTS_NEXT
-                    } else {
-                        KEPT_START
-                    }
-                    .to_owned(),
-                );
-            }
-            let extras = CardExtras {
-                waits_for: queue.waits_for,
-                waits_for_merge: queue.waits_for_merge,
-                starting: queue.starting,
-                closed_parent: queue.closed_parent,
-                project_base: input.project_base.map(str::to_owned),
-                sleeve: crate::view_models::card::sleeve(t, all),
-                start_failure: (t.status == Status::StartInterrupted)
-                    .then(|| {
-                        t.start_problem
-                            .as_ref()
-                            .map(|p| p.step.failure_label().to_owned())
-                    })
-                    .flatten(),
-                held_reason: (t.status == Status::Held)
-                    .then(|| t.start_problem.as_ref().map(|p| p.message.clone()))
-                    .flatten(),
-                held_by_limit: otaq_core::scheduler::held_by_tool_limit(t),
-                was_validating: input.was_validating.contains(&t.key),
-                // Its Delivery (FLW-15): Ready to merge or Ready for PR, and who opens the PR.
-                delivers: otaq_core::board::epic_flight::delivery_of(input.flow, t)
-                    .map(|d| d.delivers),
-                delivery_agent: delivery_agent(input.flow),
-                custom_flow,
-                paused: input.paused,
-                agent_name: match &t.created_by {
-                    otaq_core::domain::Actor::ProjectAgent(id) => input
-                        .agent_names
-                        .iter()
-                        .find(|(agent, _)| agent == id)
-                        .map(|(_, name)| name.clone()),
-                    _ => None,
-                },
-                ..CardExtras::default()
-            }
-            .with_signal(t, input.now_ms);
-            // Its named agents, holds, moves and avatars (T-0345, T-0362).
-            let extras = match input.agents {
-                Some(agents) => extras.with_agents(agents, &t.key),
-                None => extras,
-            };
-            CardEntry::Ticket(CardViewModel::from(t, &extras, input.now_ms))
+            CardEntry::Ticket(ticket_card(input, t))
         })
     };
     let entries = |keys: &[TicketKey]| keys.iter().filter_map(entry).collect::<Vec<_>>();

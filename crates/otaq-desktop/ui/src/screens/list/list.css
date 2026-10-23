@@ -1,0 +1,256 @@
+/* The List view (LST-01; *24 · The two views* `s24-03`): one grid for the header and the rows, so the columns line up;
+   What's happening takes what is left (`s24-05`: the agent panel open narrows only it). */
+.list {
+  --list-columns: 14px 64px 230px 200px minmax(120px, 1fr) 160px 36px 76px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-panel);
+}
+
+.list-header,
+.list-row {
+  display: grid;
+  grid-template-columns: var(--list-columns);
+  column-gap: 10px;
+  align-items: center;
+}
+
+.list-header {
+  flex: none;
+  padding: 8px 14px 4px 17px;
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+}
+
+.list-header-ticket {
+  grid-column: 2 / span 2;
+}
+
+.list-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.list-header,
+.list-body > .list-group {
+  min-width: calc(14px + 64px + 230px + 200px + 120px + 160px + 36px + 76px + 70px + 31px);
+}
+
+.list-group[data-verdict="allowed"] {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.list-group[data-verdict="forbidden"] {
+  box-shadow: inset 0 0 0 2px var(--st-error);
+  cursor: not-allowed;
+}
+
+.list-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 14px 4px;
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+}
+
+.list-group-title {
+  color: var(--text-primary);
+  font: 600 12.5px var(--font-ui);
+}
+
+.list-group-toggle {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.list-group-toggle:hover {
+  color: var(--text-secondary);
+  text-decoration: underline;
+}
+
+.list-group-toggle:focus-visible,
+.list-row:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.list-group-refused {
+  margin-left: auto;
+  color: var(--st-error);
+}
+
+.list-group-empty {
+  padding: 6px 14px 10px 41px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+}
+
+/* A row: the 3 px edge (in its colour when it needs you), then the grid. */
+.list-row {
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  background: transparent;
+  cursor: default;
+}
+
+.list-row:hover {
+  background: var(--bg-hover);
+}
+
+.list-row[data-selected] {
+  background: var(--selection);
+}
+
+.list-row[data-lifted] {
+  opacity: 0.4;
+}
+
+.list-row[data-dimmed] {
+  opacity: 0.45;
+}
+
+.list-row-icon {
+  display: flex;
+}
+
+.list-row-key {
+  overflow: hidden;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.list-row-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.list-row-title-text {
+  display: block;
+  overflow: hidden;
+  color: var(--text-primary);
+  font: 500 13.5px var(--font-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.list-row-epic {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+  font: 500 11px var(--font-ui);
+}
+
+.list-track {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.list-track-steps {
+  display: flex;
+  flex: none;
+  gap: 3px;
+}
+
+/* A long flow's steps shrink to fit the track's width. */
+.list-track-step {
+  display: block;
+  flex: 0 1 18px;
+  min-width: 4px;
+  width: 18px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+}
+
+.list-track-label {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font: 400 11.5px var(--font-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.list-row-status {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font: 400 12.5px var(--font-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.list-row-who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.list-row-who-name {
+  overflow: hidden;
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.list-row-time {
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-mono);
+}
+
+.list-row-time[data-stale] {
+  color: var(--st-paused);
+}
+
+.list-row-action {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Group by Epic (EPL-02): an epic's parent row, its children indented under it. */
+.list-parent .list-row-title-text {
+  font-weight: 600;
+}
+
+.list-parent-fold {
+  display: flex;
+  margin: -4px;
+  padding: 4px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.list-parent-fold:hover {
+  background: var(--bg-hover);
+}
+
+.list-parent-fold:focus-visible {
+  outline: 2px solid var(--focus);
+}
+
+.list-family > .list-row:not(.list-parent) {
+  padding-left: 38px;
+}

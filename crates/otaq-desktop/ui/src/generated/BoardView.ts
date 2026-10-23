@@ -9,6 +9,7 @@ import type { BoardScrollChip } from "./BoardScrollChip";
 import type { BoardToolbar } from "./BoardToolbar";
 import type { ChainView } from "./ChainView";
 import type { EmptyBoardView } from "./EmptyBoardView";
+import type { ListView } from "./ListView";
 import type { ViewPrefs } from "./ViewPrefs";
 
 /**
@@ -63,6 +64,6 @@ prefs: ViewPrefs,
  */
 toolbar: BoardToolbar, 
 /**
- * The List's words until it arrives (T-0461); `null` on the Board.
+ * The List view (LST-01, T-0461); `null` on the Board.
  */
-list_placeholder: string | null, };
+list: ListView | null, };

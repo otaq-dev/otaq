@@ -121,6 +121,7 @@ import { OverviewGallery } from "../overview/OverviewGallery";
 import { SheetGallery } from "../sheet/SheetGallery";
 import { FilesGallery } from "../files/FilesGallery";
 import { SessionGallery } from "../session/SessionGallery";
+import { ListGallery } from "../list/ListGallery";
 import "../files/files.css";
 import { PaneBody, SwitcherList } from "../pane/Pane";
 import "../pane/pane.css";
@@ -2716,6 +2717,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <DecisionChange />
         <LeadTabs />
         <StageChoicesSection />
+        <Section title="24 · The List view · by stage, status and agent (LST-01, T-0461)">
+          <ListGallery />
+        </Section>
         <NeedsYouStripSection />
         <PauseSection />
         <OptionNotes />

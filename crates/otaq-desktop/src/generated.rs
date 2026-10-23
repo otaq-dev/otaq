@@ -224,6 +224,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::FilesCommentAdd::export_all(&cfg)?;
     crate::api::FilesCommentText::export_all(&cfg)?;
     crate::api::FilesCommentId::export_all(&cfg)?;
+    // The List view's Gallery states (T-0461); the List itself comes with `BoardView`.
+    otaq_view::view_models::list_view::Gallery::export_all(&cfg)?;
     // Review (T-0226): Approve ▾ / Local merge and Send back, their results and requests.
     otaq_view::view_models::review_page::ApproveView::export_all(&cfg)?;
     otaq_view::view_models::review_page::MergeResult::export_all(&cfg)?;
