@@ -27,6 +27,7 @@ const tab = (
   number,
   keys: String(number),
   mark: null,
+  count: null,
   contents,
   lands_on: contents[0] ?? "overview",
   parts: [],
@@ -84,6 +85,7 @@ export const SHEET: SheetView = {
       change: null,
     },
   ],
+  epic: null,
   steps: [
     { stage: "Grill", state: "done", attention: false },
     { stage: "Dev", state: "current", attention: false },

@@ -63,6 +63,12 @@ export const FILES_EVENTS = ["card_status_changed", "ticket_changed"] as const;
 
 const ignore = () => undefined;
 
+/** A changed file's section in All changes: its path, and the running child's key for an epic child's change on top
+ * (Rust's `FilesChangeRow.id`). */
+function changeId(row: FilesTreeRow): string {
+  return row.child === null ? row.path : `${row.path}\u0000${row.child}`;
+}
+
 /** The last ⌥⌘P a search box took. */
 let focusHandled = 0;
 
@@ -208,7 +214,8 @@ export function SearchResults({
 }: {
   found: FilesSearchView;
   selected: number;
-  onOpen: (path: string) => void;
+  /** The match's path, and the running child writing it on an epic (its worktree's version opens). */
+  onOpen: (path: string, child: string | null) => void;
 }) {
   return (
     <div className="files-list" role="listbox" aria-label={found.query}>
@@ -222,7 +229,7 @@ export function SearchResults({
           data-quiet={row.quiet || undefined}
           data-selected={i === selected || undefined}
           onClick={() => {
-            onOpen(row.path);
+            onOpen(row.path, row.child);
           }}
         >
           <Icon name="file" size={13} />
@@ -286,7 +293,8 @@ function Tree({
   }, [ticket, keep]);
   const press = (row: FilesTreeRow) => {
     if (row.kind !== "folder") {
-      onState((s) => openFile(s, { path: row.path, child: null, mode: null }));
+      // An epic's file a running child is writing opens from that child's worktree (FTB-06).
+      onState((s) => openFile(s, { path: row.path, child: row.child, mode: null }));
       return;
     }
     onState((s) => ({ ...s, open: toggled(s.open, row.path) }));
@@ -724,6 +732,12 @@ export function FileBody({ ticket, page, file, ctx, sideBySide, onMode }: FileBo
           }}
         />
       </div>
+      {page.writing !== null && (
+        <p className="files-writing">
+          <Icon name="pencil" size={13} />
+          <span>{page.writing}</span>
+        </p>
+      )}
       <div className="files-card">
         {mode === "file" ? (
           <>
@@ -849,8 +863,8 @@ export function FilesTabBody({
       <SearchResults
         found={found}
         selected={selected}
-        onOpen={(path) => {
-          open({ path, child: null, mode: null });
+        onOpen={(path, child) => {
+          open({ path, child, mode: null });
         }}
       />
     );
@@ -862,9 +876,9 @@ export function FilesTabBody({
             key={`${row.kind}:${row.path}`}
             row={row}
             open
-            selected={scrollTo === row.path}
+            selected={scrollTo === changeId(row)}
             onPress={(r) => {
-              if (r.kind !== "folder") setScrollTo(r.path);
+              if (r.kind !== "folder") setScrollTo(changeId(r));
             }}
           />
         ))}
@@ -918,6 +932,20 @@ export function FilesTabBody({
             <span className="files-source-sub">{view.source.subtitle}</span>
           </div>
         </div>
+        {view.source.legend.length > 0 && (
+          // An epic's key to its tags (FTB-06): "40.1 merged", "40.2 on top · its own worktree".
+          <div className="files-legend">
+            {view.source.legend.map((t) => (
+              <span
+                key={t.label}
+                className="files-tag files-legend-tag"
+                data-writing={t.writing || undefined}
+              >
+                {t.label}
+              </span>
+            ))}
+          </div>
+        )}
         <label className="files-search">
           <Icon name="search" size={13} />
           <input
@@ -944,7 +972,7 @@ export function FilesTabBody({
                 if (row) {
                   e.preventDefault();
                   e.stopPropagation();
-                  open({ path: row.path, child: null, mode: null });
+                  open({ path: row.path, child: row.child, mode: null });
                 }
               }
             }}

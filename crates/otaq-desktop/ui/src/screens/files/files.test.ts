@@ -64,6 +64,7 @@ const row = (path: string, extra: Partial<FilesTreeRow> = {}): FilesTreeRow => (
   quiet: true,
   opens: true,
   tags: [],
+  child: null,
   ...extra,
 });
 
@@ -77,7 +78,7 @@ const M = (counts: string, uncommitted = false) => ({
 /** SHOP-22's worktree (`s25-07`): e2e/ and src/ on top, three unchanged files. */
 const SHOP_22: FilesTabView = {
   key: "SHOP-22",
-  source: { kind: "worktree", title: "SHOP-22’s worktree", subtitle: "otaq/SHOP-22 · from main" },
+  source: { kind: "worktree", title: "SHOP-22’s worktree", subtitle: "otaq/SHOP-22 · from main", legend: [] },
   search: { placeholder: "Search files by name", keys: "⌥⌘P" },
   filters: ["All files", "Changed · 3"],
   changed: 3,
@@ -182,6 +183,65 @@ function body(view: FilesTabView, extra: Partial<Parameters<typeof FilesTabBody>
 }
 
 describe("the Files tab", () => {
+  it("shows an epic's branch with the key to its tags, and a running child's file with whose change it is (FTB-06)", () => {
+    const epic: FilesTabView = {
+      ...SHOP_22,
+      key: "SHOP-40",
+      source: {
+        kind: "branch",
+        title: "Wishlist’s branch",
+        subtitle: "otaq/PAY-123 · what its tickets merged",
+        legend: [
+          { label: "40.1 merged", writing: false },
+          { label: "40.2 on top · its own worktree", writing: true },
+        ],
+      },
+      rows: [
+        row("src/components/WishlistButton.tsx", {
+          quiet: false,
+          tags: [{ label: "40.2 ✎", writing: true }],
+          child: "SHOP-40.2",
+        }),
+      ],
+    };
+    const out = body(epic);
+    for (const text of [
+      "Wishlist’s branch",
+      "otaq/PAY-123 · what its tickets merged",
+      "40.1 merged",
+      "40.2 ✎",
+    ]) {
+      expect(out).toContain(text);
+    }
+    expect(out).toContain('data-writing="true">40.2 on top · its own worktree');
+    const page: FilesFilePage = {
+      path: "src/components/WishlistButton.tsx",
+      child: "SHOP-40.2",
+      subtitle: "40.2’s change, on top of the epic’s branch · not merged yet",
+      modes: ["File", "Diff"],
+      opens_in: "file",
+      can_file: true,
+      can_diff: true,
+      new_ticket: "New ticket from this file",
+      new_ticket_body: "",
+      lines: [],
+      note: null,
+      writing: "40.2’s agent (Rust developer) is writing this file in 40.2’s own worktree.",
+    };
+    const file = renderToStaticMarkup(
+      createElement(FileBody, {
+        ticket: "SHOP-40",
+        page,
+        file: { path: page.path, child: "SHOP-40.2", mode: "file" },
+        ctx: {} as CommentContext,
+        sideBySide: false,
+        onMode: ignore,
+      }),
+    );
+    expect(file).toContain('class="files-writing"');
+    expect(file).toContain("40.2’s agent (Rust developer) is writing this file");
+  });
+
   it("registers itself as the sheet's Files tab, and ⌥⌘P shows it with the search box asked for", () => {
     const app = registerScreens({ files });
     expect(registered(app)).toMatchObject({ sheetTabs: ["files"] });
@@ -231,6 +291,7 @@ describe("the Files tab", () => {
           mark: M("+6 −1"),
           quiet: false,
           tags: [],
+          child: null,
         },
       ],
       empty: null,
@@ -256,6 +317,7 @@ describe("the Files tab", () => {
       new_ticket_body: "`src/middleware.ts`\n\n",
       lines: [{ number: 1, spans: [{ text: "import { NextResponse } from 'next/server'", token: "plain" }] }],
       note: null,
+      writing: null,
     };
     const ctx = {} as CommentContext;
     const file = { path: page.path, child: null, mode: "file" as const };

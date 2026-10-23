@@ -18,4 +18,9 @@ quiet: boolean,
 /**
  * A submodule is shown, never opened.
  */
-opens: boolean, tags: Array<FilesTag>, };
+opens: boolean, tags: Array<FilesTag>, 
+/**
+ * An epic's file a running child is writing: that child's key, so it opens from the child's worktree
+ * (`files.read`'s `child`, FTB-06).
+ */
+child: string | null, };

@@ -17,3 +17,12 @@
   color: var(--text-muted);
   font-size: 12px;
 }
+
+/* The Messages above History (MSG-01): the section's own look, inset like the rows; nothing while there are none. */
+.activity-messages:empty {
+  display: none;
+}
+
+.activity-messages {
+  padding: 14px 24px 0;
+}

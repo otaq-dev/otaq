@@ -70,7 +70,7 @@ describe("a registry", () => {
 
 describe("the fixed ids", () => {
   it("sheet tabs: Overview · Session · Files · Activity and an epic's Lead (SHT-02)", () => {
-    expect(SHEET_TABS).toEqual(["overview", "session", "files", "activity", "lead"]);
+    expect(SHEET_TABS).toEqual(["overview", "session", "files", "activity", "lead", "tickets"]);
   });
 
   it("overlays: every id has its modality; popovers and drawers don't hold shortcuts back", () => {
@@ -94,6 +94,8 @@ describe("the fixed ids", () => {
           return tab;
         case "lead":
           return "bot";
+        case "tickets":
+          return "list";
       }
     };
     const kind = (id: OverlayId): string => {

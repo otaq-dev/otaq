@@ -180,6 +180,7 @@ describe("answer options", () => {
     const html = render({
       ...VIEW,
       answer: {
+        asker: null,
         question: "q1",
         text: "Which email provider?",
         rows,
@@ -202,6 +203,7 @@ describe("answer options", () => {
     const html = render({
       ...VIEW,
       answer: {
+        asker: null,
         question: "q1",
         text: "Which email provider?",
         rows: rows.map((r) => (r.number === 1 ? { ...r, note: long } : r)),

@@ -35,8 +35,3 @@ export function canMove(view: MoveDialogView, picked: string | null): boolean {
 export function followMove(shown: string | null, oldKey: string, newKey: string): string | null {
   return shown === oldKey ? newKey : null;
 }
-
-/** The progress bar's fill, 0–100 %. */
-export function progressPercent(merged: number, total: number): number {
-  return total === 0 ? 0 : Math.round((merged / total) * 100);
-}

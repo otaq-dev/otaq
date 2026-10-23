@@ -10,4 +10,8 @@ export type FilesSearchRow = { path: string, name: Array<FilesHitPart>,
 /**
  * "src/app/login"; empty at the top.
  */
-folder: Array<FilesHitPart>, mark: FilesMark | null, quiet: boolean, tags: Array<FilesTag>, };
+folder: Array<FilesHitPart>, mark: FilesMark | null, quiet: boolean, tags: Array<FilesTag>, 
+/**
+ * An epic's file a running child is writing: opens from that child's worktree.
+ */
+child: string | null, };

@@ -59,6 +59,7 @@ function Part({ ticket, shown, head }: { ticket: string; shown: SheetContent; he
     case "files":
     case "activity":
     case "lead":
+    case "tickets":
       return <TerminalTab key="agent" ticket={ticket} side="agent" head={head} />;
   }
 }

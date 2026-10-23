@@ -5,9 +5,10 @@
 //! the Start interrupted callout and the tab strip with its indicators. The buttons that talk to the service land
 //! here too, so their wording (toasts, refusals) stays in Rust; the ones that open a tab or a dialog are the page's.
 //!
-//! An epic's panel (T-0290; d0083): Ticket · Lead · History (Diff first in review), numbered in that order; its
-//! lead's own question is the header's question bar, answered with `project_agent.answer`; "Resume lead" leads the
-//! bar while its lead ended by restart (or its agent tool exited).
+//! An epic's sheet (SHT-07, T-0469; d0083): Overview · Tickets · Lead · Files · Activity, "1 of 5 merged" and its
+//! lead's state by the title, Lead, Model and Tickets on its details line; its lead's own question ("Wishlist lead
+//! asks") is Overview's top, answered with `project_agent.answer`; "Resume lead" leads the bar while its lead ended by
+//! restart (or its agent tool exited).
 //!
 //! From M38 the panel is the ticket sheet (SHT-01, SHT-02, T-0464): [`View::sheet`] carries its header, details line
 //! and tabs (`view_models/sheet.rs`); the rest of the view is what today's tabs and Overview's top still show until
@@ -205,12 +206,14 @@ pub struct TabView {
     pub tab: SheetTab,
     pub label: &'static str,
     pub icon: IconName,
-    /// Its `SwitchTab` number: 1–4 (`g o` / `s` / `f` / `a`); an epic's Lead is 2.
-    pub number: u8,
+    /// Its `SwitchTab` number: 1–4 (`g o` / `s` / `f` / `a`); an epic's Lead is 2, its Tickets has none (Q-A).
+    pub number: Option<u8>,
     /// The user's first key for it (`1`).
     pub keys: Option<String>,
     /// The live dot (Session: its agents'; Lead: the lead's).
     pub mark: Option<Mark>,
+    /// The short note after its name: an epic's Tickets "5" (`s25-11`).
+    pub count: Option<String>,
     /// What it can show: itself, or Session's parts (the check only once one ran).
     pub contents: Vec<Content>,
     /// What it shows when the selection names none of its contents: Session the check while one runs or needs you,
@@ -228,6 +231,8 @@ pub struct SheetView {
     pub details: Vec<Detail>,
     /// The flow path under the details line; empty for an epic.
     pub steps: Vec<Step>,
+    /// An epic's "1 of 5 merged" and its lead's state beside the title (SHT-07); its header has no Move….
+    pub epic: Option<otaq_view::view_models::epic_sheet::Head>,
     pub tabs: Vec<TabView>,
     pub opens_on: SheetTab,
     /// "Move…": the drag's columns (`panel.move_menu`).
@@ -260,6 +265,8 @@ pub struct AnswerRow {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "PanelAnswer")]
 pub struct Answer {
+    /// Who asks, over an epic lead's question: "Wishlist lead asks" (`s25-11`); the lead's options are its buttons.
+    pub asker: Option<String>,
     pub question: String,
     pub text: String,
     pub rows: Vec<AnswerRow>,
@@ -474,7 +481,9 @@ fn lead_answer_of(lead: &Lead) -> Option<Answer> {
     if lead.status != LeadStatus::AsksYou {
         return None;
     }
-    question_bar(lead.agent.question.as_ref()?)
+    let mut bar = question_bar(lead.agent.question.as_ref()?)?;
+    bar.asker = Some(format!("{} asks", lead.name));
+    Some(bar)
 }
 
 /// An epic lead that ended and can continue: "Resume lead" leads the bar (*05 → Lead tab · ended by restart*).
@@ -490,6 +499,7 @@ fn resumes_lead(lead: Option<&Lead>) -> bool {
 fn question_bar(question: &otaq_core::board::questions::HumanQuestion) -> Option<Answer> {
     let options = AnswerOptions::of(question)?;
     Some(Answer {
+        asker: None,
         question: question.id.clone(),
         text: question.text.clone(),
         rows: options
@@ -738,8 +748,15 @@ fn sheet_of(f: &Facts) -> SheetView {
                 label: tab.label(),
                 icon: tab.icon(),
                 number: tab.number(),
-                keys: f.keys.label(KeyAction::SwitchTab(tab.number())),
+                keys: tab
+                    .number()
+                    .and_then(|n| f.keys.label(KeyAction::SwitchTab(n))),
                 mark: dot.map(Mark::of),
+                count: (tab == SheetTab::Tickets).then(|| {
+                    otaq_view::view_models::epic_sheet::children(ticket, f.tickets)
+                        .len()
+                        .to_string()
+                }),
                 contents,
                 lands_on,
                 parts,
@@ -753,9 +770,14 @@ fn sheet_of(f: &Facts) -> SheetView {
             agents: f.agents,
             tools: f.tools,
             epic_title: f.epic_title,
+            lead: f.lead,
+            tickets: f.tickets,
             now: f.now,
         }),
         steps: sheet::steps(ticket, f.agents),
+        epic: ticket
+            .is_epic()
+            .then(|| otaq_view::view_models::epic_sheet::head(ticket, f.tickets, f.lead)),
         tabs,
         opens_on: sheet::opens_on(ticket),
         move_label: sheet::MOVE,
@@ -796,7 +818,7 @@ async fn ticket(app: &App, key: &str) -> Result<Option<Ticket>, RequestError> {
     }
 }
 
-async fn tickets(app: &App, project: &str) -> Result<Vec<Ticket>, RequestError> {
+pub(super) async fn tickets(app: &App, project: &str) -> Result<Vec<Ticket>, RequestError> {
     match app
         .service
         .send(Request::TicketList(ProjectParams {
@@ -2184,8 +2206,9 @@ mod tests {
         assert_eq!(view.sheet.tabs[1].parts[1].dot, Some(Dot::Problem));
     }
 
-    /// An epic's sheet (T-0290, until T-0469): Overview · Lead · Activity, Lead on `2`, the Lead tab's dot, the lead's
-    /// question in the header bar, and Resume lead after a restart.
+    /// An epic's sheet (SHT-07): Overview · Tickets (its count, no key) · Lead · Files · Activity, Lead on `2`, the Lead
+    /// tab's dot, "1 of N merged" and the lead's state by the title, the lead's question with "<lead> asks", and Resume
+    /// lead after a restart.
     #[test]
     fn an_epic_shows_its_lead() {
         use otaq_core::project_agents::lead::LeadStatus;
@@ -2198,13 +2221,23 @@ mod tests {
             lead: Some(&idle),
             ..facts(&epic, &all, &[])
         });
-        assert_eq!(tabs(&view), ["Overview", "Lead", "Activity"]);
-        assert_eq!(view.sheet.tabs[1].mark, Some(Mark::Live));
         assert_eq!(
-            view.sheet.tabs[1].keys.as_deref(),
+            tabs(&view),
+            ["Overview", "Tickets", "Lead", "Files", "Activity"]
+        );
+        let children = otaq_view::view_models::epic_sheet::children(&epic, &all).len();
+        assert_eq!(view.sheet.tabs[1].count, Some(children.to_string()));
+        assert_eq!((view.sheet.tabs[1].number, view.sheet.tabs[1].keys.as_deref()), (None, None));
+        assert_eq!(view.sheet.tabs[2].mark, Some(Mark::Live));
+        assert_eq!(
+            view.sheet.tabs[2].keys.as_deref(),
             Some("2"),
             "the Lead tab takes Session's key on an epic"
         );
+        let head = view.sheet.epic.as_ref().unwrap();
+        assert!(head.progress.ends_with(" merged"), "{}", head.progress);
+        assert_eq!(head.lead.as_ref().unwrap().label, "Lead idle");
+        assert_eq!(view.sheet.details[0].label, "Lead");
         assert_eq!(view.answer, None);
         assert!(!labels(&view).contains(&"Resume lead"));
 
@@ -2222,8 +2255,9 @@ mod tests {
             lead: Some(&asking),
             ..facts(&epic, &all, &[])
         });
-        assert_eq!(view.sheet.tabs[1].mark, Some(Mark::LiveAttention));
+        assert_eq!(view.sheet.tabs[2].mark, Some(Mark::LiveAttention));
         let answer = view.answer.unwrap();
+        assert_eq!(answer.asker, Some(format!("{} asks", asking.name)));
         assert_eq!(answer.question, "q-lead");
         assert_eq!(answer.rows.len(), 3, "two options and Other");
 
@@ -2234,7 +2268,7 @@ mod tests {
         });
         assert_eq!(labels(&view)[0], "Resume lead");
         assert_eq!(view.buttons[0].look, Look::Primary);
-        assert_eq!(view.sheet.tabs[1].mark, None);
+        assert_eq!(view.sheet.tabs[2].mark, None);
     }
 
     #[test]

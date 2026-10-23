@@ -306,7 +306,7 @@ fn stage_target(columns: &Columns, stage: &Stage) -> Option<DropTargetId> {
 
 /// Whether the ticket waits for the user as the Needs you strip counts it (NYS-01, d0114): its question, a stop, your
 /// check or a Delivery's click.
-fn needs_you(ticket: &Ticket) -> bool {
+pub(crate) fn needs_you(ticket: &Ticket) -> bool {
     group_of(ticket.status).is_some() && waits_for_click(ticket) && !ticket.flags.your_turn
 }
 
@@ -315,35 +315,44 @@ fn this_week(ticket: &Ticket, now_ms: i64) -> bool {
     now_ms - ticket.status_since.unwrap_or(ticket.updated_at) <= WEEK_MS
 }
 
+/// `t`'s row on `columns`' flow (LST-01): its card from [`board::ticket_card`], its status icon and track, Start
+/// on a Backlog row (the drop on `start`, the first agent column) and whether it needs you. The epic sheet's Tickets
+/// tab draws its children with it (SHT-07).
+pub fn row(input: &BoardInput, columns: &Columns, start: Option<&DropTargetId>, t: &Ticket) -> Row {
+    let card = board::ticket_card(input, t);
+    let pill = PillView::of(status::shown(t));
+    Row {
+        card: TicketCardView::from_vm(card, t),
+        icon: pill.icon,
+        palette: pill.palette,
+        track: track(columns, t),
+        start: start
+            .filter(|_| t.place == Place::Backlog)
+            .map(|target| RowStart {
+                label: START.to_owned(),
+                target: target.clone(),
+            }),
+        needs_you: needs_you(t),
+        dim: input.strong.is_some_and(|strong| !strong.contains(&t.key)),
+    }
+}
+
+/// The first agent column: where a Backlog row's Start drops it (⌘D's drop on the Board).
+pub fn start_target(columns: &Columns) -> Option<DropTargetId> {
+    columns
+        .first(ColumnKind::Agent)
+        .map(|c| DropTargetId::new(c.id.clone()))
+}
+
 /// The List for `input`'s project, grouped and folded by `prefs`.
 pub fn view<'a>(input: &BoardInput<'a>, prefs: &ViewPrefs, leads: &[Lead]) -> ListView {
     let columns = Columns::of(input.flow);
     let all = input.tickets;
-    let start = columns
-        .first(ColumnKind::Agent)
-        .map(|c| DropTargetId::new(c.id.clone()));
+    let start = start_target(&columns);
     let listed = |t: &'_ Ticket| {
         t.kind != Kind::Epic && (t.place != Place::Done || this_week(t, input.now_ms))
     };
-    let row = |t: &Ticket| {
-        let card = board::ticket_card(input, t);
-        let pill = PillView::of(status::shown(t));
-        Row {
-            card: TicketCardView::from_vm(card, t),
-            icon: pill.icon,
-            palette: pill.palette,
-            track: track(&columns, t),
-            start: (t.place == Place::Backlog)
-                .then(|| start.clone())
-                .flatten()
-                .map(|target| RowStart {
-                    label: START.to_owned(),
-                    target,
-                }),
-            needs_you: needs_you(t),
-            dim: input.strong.is_some_and(|strong| !strong.contains(&t.key)),
-        }
-    };
+    let row = |t: &Ticket| row(input, &columns, start.as_ref(), t);
     let header = Header {
         ticket: HEADER_TICKET.to_owned(),
         flow: HEADER_FLOW.to_owned(),

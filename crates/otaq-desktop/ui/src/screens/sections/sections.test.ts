@@ -4,16 +4,14 @@ import { describe, expect, it } from "vitest";
 
 import { registered, registerScreens } from "../../app/registry";
 import type { CloseEpicDialogView } from "../../generated/CloseEpicDialogView";
-import type { EpicView } from "../../generated/EpicView";
 import type { MessagesView } from "../../generated/MessagesView";
 import type { MoveDialogView } from "../../generated/MoveDialogView";
 import type { PillView } from "../../generated/PillView";
 import type { StackView } from "../../generated/StackView";
 import type { ValidationReportView } from "../../generated/ValidationReportView";
 import { sections } from ".";
-import { EpicBody } from "./Epic";
 import { CloseEpicBody, MoveDialogBody } from "./EpicDialogs";
-import { canMove, followMove, pickedChoice, progressPercent, stackOpen } from "./logic";
+import { canMove, followMove, pickedChoice, stackOpen } from "./logic";
 import { MessagesBody } from "./Messages";
 import { Report } from "./Report";
 import { StackBody } from "./Stack";
@@ -120,11 +118,6 @@ describe("the sections' interaction state", () => {
   it("the panel follows a moved ticket to its new key", () => {
     expect(followMove("SHOP-51", "SHOP-51", "SHOP-40.4")).toBe("SHOP-40.4");
     expect(followMove("SHOP-12", "SHOP-51", "SHOP-40.4")).toBeNull();
-  });
-
-  it("the progress bar's fill", () => {
-    expect(progressPercent(1, 4)).toBe(25);
-    expect(progressPercent(0, 0)).toBe(0);
   });
 });
 
@@ -254,42 +247,6 @@ describe("the sections", () => {
     expect(out).toContain('class="report-key"');
   });
 
-  it("the epic panel: progress, branch, children and Add ticket to epic", () => {
-    const view: EpicView = {
-      external_id: "PAY-123",
-      progress: "1 of 3 merged",
-      merged: 1,
-      total: 3,
-      branch: "otaq/SHOP-40 · local",
-      heading: "TICKETS · 3",
-      children: [
-        { key: "SHOP-40.1", title: "Wishlist API", deps: null, pill: pill("Merged"), finished: true },
-        {
-          key: "SHOP-40.2",
-          title: "Wishlist button",
-          deps: "⛓ SHOP-40.1",
-          pill: pill("Working"),
-          finished: false,
-        },
-      ],
-      add: "Add ticket to epic",
-      next_key: "· new tickets get the next key, SHOP-40.4",
-      note: "When every child is merged…",
-    };
-    const out = html(createElement(EpicBody, { ticket: "SHOP-40", view }));
-    for (const text of [
-      "PAY-123",
-      "1 of 3 merged",
-      "TICKETS · 3",
-      "⛓ SHOP-40.1",
-      "Add ticket to epic",
-      "SHOP-40.4",
-    ]) {
-      expect(out).toContain(text);
-    }
-    expect(out).toContain('aria-valuenow="1"');
-  });
-
   it("the epic dialogs: the new key, the base note, the agents and what stays merged", () => {
     const move = html(
       createElement(MoveDialogBody, { view: MOVE, picked: "SHOP-60", onPick: () => undefined, error: null }),
@@ -325,7 +282,7 @@ describe("the sections", () => {
 
   it("registers the sections and the epic dialogs from its folder", () => {
     expect(registered(registerScreens({ sections }))).toMatchObject({
-      panelSections: ["epic", "stack", "messages"],
+      panelSections: ["stack"],
       sheetTabs: [],
       overlays: ["move_to_epic", "close_epic"],
     });

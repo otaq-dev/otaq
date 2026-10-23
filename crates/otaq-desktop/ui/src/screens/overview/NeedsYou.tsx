@@ -25,6 +25,7 @@ import type { PanelView } from "../../generated/PanelView";
 import { asRequestError } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { LeadAsks } from "../epic/EpicSheet";
 import { askUnsent, type CardAnswer, type PanelActions } from "../sheet/actions";
 import { canSend, initialPick, pickByKey, picksOther } from "../sheet/actionRoutes";
 import { toolProblemAction } from "../tool_problems/toolProblemRunner";
@@ -440,7 +441,10 @@ export function NeedsYou({ view, actions }: { view: PanelView; actions: PanelAct
             <span className="panel-conflict-line">{view.conflict.line}</span>
           </div>
         )}
-        {view.answer ? (
+        {view.answer?.asker != null ? (
+          // An epic's lead asks (SHT-07, `s25-11`): its options are buttons.
+          <LeadAsks key={view.answer.question} view={view} answer={view.answer} />
+        ) : view.answer ? (
           <AnswerBox
             key={view.answer.question}
             view={view}

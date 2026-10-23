@@ -11,9 +11,9 @@ import type { SheetTab } from "./SheetTab";
  */
 export type SheetTabView = { tab: SheetTab, label: string, icon: IconName, 
 /**
- * Its `SwitchTab` number: 1–4 (`g o` / `s` / `f` / `a`); an epic's Lead is 2.
+ * Its `SwitchTab` number: 1–4 (`g o` / `s` / `f` / `a`); an epic's Lead is 2, its Tickets has none (Q-A).
  */
-number: number, 
+number: number | null, 
 /**
  * The user's first key for it (`1`).
  */
@@ -22,6 +22,10 @@ keys: string | null,
  * The live dot (Session: its agents'; Lead: the lead's).
  */
 mark: PanelTabMark | null, 
+/**
+ * The short note after its name: an epic's Tickets "5" (`s25-11`).
+ */
+count: string | null, 
 /**
  * What it can show: itself, or Session's parts (the check only once one ran).
  */

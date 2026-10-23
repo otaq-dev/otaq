@@ -29,7 +29,7 @@ use otaq_core::board::files::{
 };
 use otaq_core::board::human_check::Arrival;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::StatusSet;
+use otaq_core::domain::{StatusSet, TicketKey};
 use otaq_core::git::diff::FileStatus;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -130,6 +130,8 @@ pub struct SourceView {
     pub kind: SourceKind,
     pub title: String,
     pub subtitle: String,
+    /// An epic's key to its tags (FTB-06): "40.1 merged", "40.2 on top · its own worktree"; empty for a ticket.
+    pub legend: Vec<TagView>,
 }
 
 pub fn source_view(source: &FilesSource) -> SourceView {
@@ -139,17 +141,56 @@ pub fn source_view(source: &FilesSource) -> SourceView {
             kind: SourceKind::Worktree,
             title: format!("{key}\u{2019}s worktree"),
             subtitle: format!("{} \u{b7} from {}", source.branch, source.base_branch),
+            legend: Vec::new(),
         },
         FilesFrom::Branch => SourceView {
             kind: SourceKind::Branch,
             title: format!("{key}\u{2019}s branch"),
             subtitle: format!("{} \u{b7} from {}", source.branch, source.base_branch),
+            legend: Vec::new(),
         },
         FilesFrom::Base => SourceView {
             kind: SourceKind::Base,
             title: source.branch.clone(),
             subtitle: format!("the base branch \u{b7} {key} hasn\u{2019}t started"),
+            legend: Vec::new(),
         },
+    }
+}
+
+/// An epic's Files (FTB-06, `s25-11`): "Wishlist’s branch" over "otaq/PAY-123 · what its tickets merged", and the key
+/// to its tags from its own children: the first merged one ("40.1 merged") and the first one running in its own
+/// worktree ("40.2 on top · its own worktree"). Before it started, its base branch as for a ticket.
+pub fn epic_source(epic: &Ticket, source: &FilesSource, tickets: &[Ticket]) -> SourceView {
+    if source.from == FilesFrom::Base {
+        return source_view(source);
+    }
+    let children = super::epic_sheet::children(epic, tickets);
+    let merged = children
+        .iter()
+        .find(|c| c.status == otaq_core::domain::Status::Merged)
+        .map(|c| TagView {
+            label: format!("{} merged", super::epic_sheet::short_key(c)),
+            writing: false,
+        });
+    let writing = children
+        .iter()
+        .find(|c| {
+            otaq_core::epic_lead::overlap::is_running(c.status)
+                && c.work.as_ref().is_some_and(|w| w.worktree.is_some())
+        })
+        .map(|c| TagView {
+            label: format!(
+                "{} on top \u{b7} its own worktree",
+                super::epic_sheet::short_key(c)
+            ),
+            writing: true,
+        });
+    SourceView {
+        kind: SourceKind::Branch,
+        title: format!("{}\u{2019}s branch", epic.title),
+        subtitle: format!("{} \u{b7} what its tickets merged", source.branch),
+        legend: merged.into_iter().chain(writing).collect(),
     }
 }
 
@@ -256,6 +297,16 @@ pub struct TreeRow {
     /// A submodule is shown, never opened.
     pub opens: bool,
     pub tags: Vec<TagView>,
+    /// An epic's file a running child is writing: that child's key, so it opens from the child's worktree
+    /// (`files.read`'s `child`, FTB-06).
+    pub child: Option<String>,
+}
+
+/// The running child writing a file on top of the epic's branch, by key.
+fn writing_child(tags: &[ChildTag]) -> Option<String> {
+    tags.iter()
+        .find(|t| t.kind == TagKind::Writing)
+        .map(|t| t.key.to_string())
 }
 
 /// A folder's entries at `depth` (`files.tree`).
@@ -271,6 +322,7 @@ pub fn tree_rows(entries: &[TreeEntry], depth: u32) -> Vec<TreeRow> {
             quiet: e.kind != EntryKind::Folder && e.change.is_none() && e.tags.is_empty(),
             opens: e.kind != EntryKind::Submodule,
             tags: tags(&e.tags),
+            child: writing_child(&e.tags),
         })
         .collect()
 }
@@ -306,6 +358,7 @@ pub fn changed_tree(files: &[ChangedEntry]) -> Vec<TreeRow> {
                 quiet: false,
                 opens: true,
                 tags: Vec::new(),
+                child: None,
             });
             walk(inner, &format!("{path}/"), depth + 1, rows);
         }
@@ -319,6 +372,7 @@ pub fn changed_tree(files: &[ChangedEntry]) -> Vec<TreeRow> {
                 quiet: false,
                 opens: true,
                 tags: tags(&entry.tags),
+                child: entry.child.as_ref().map(ToString::to_string),
             });
         }
     }
@@ -356,6 +410,8 @@ pub struct SearchRow {
     pub mark: Option<MarkView>,
     pub quiet: bool,
     pub tags: Vec<TagView>,
+    /// An epic's file a running child is writing: opens from that child's worktree.
+    pub child: Option<String>,
 }
 
 /// The search's answer: the matches, best first, and what to say when there are none or too many.
@@ -408,6 +464,7 @@ pub fn search_view(query: &str, matches: &[FileMatch], total: u32) -> SearchView
                 mark: m.change.as_ref().map(mark),
                 quiet: m.change.is_none() && m.tags.is_empty(),
                 tags: tags(&m.tags),
+                child: writing_child(&m.tags),
             }
         })
         .collect();
@@ -708,6 +765,34 @@ pub struct FilePage {
     pub lines: Vec<CodeLine>,
     /// "Binary file · 184 KB", "Showing the first 20000 lines: the file is too long to show in full."
     pub note: Option<String>,
+    /// An epic's file a running child is writing (FTB-06): "40.2’s agent (Rust developer) is writing this file in
+    /// 40.2’s own worktree; you see its change on top of the epic’s branch."
+    pub writing: Option<String>,
+}
+
+/// The note over a file `child` is writing on top of its epic's branch, naming its agent when known (FTB-06).
+pub fn writing_note(child: &TicketKey, agent: Option<&str>) -> String {
+    let short = match child.child {
+        Some(n) => format!("{}.{n}", child.number),
+        None => child.to_string(),
+    };
+    let who = match agent {
+        Some(agent) => format!("{short}\u{2019}s agent ({agent})"),
+        None => format!("{short}\u{2019}s agent"),
+    };
+    format!(
+        "{who} is writing this file in {short}\u{2019}s own worktree; you see its change on top of the epic\u{2019}s \
+         branch."
+    )
+}
+
+/// The subtitle of a file `child` is writing: "40.2’s change, on top of the epic’s branch · not merged yet".
+fn child_subtitle(child: &TicketKey) -> String {
+    let short = match child.child {
+        Some(n) => format!("{}.{n}", child.number),
+        None => child.to_string(),
+    };
+    format!("{short}\u{2019}s change, on top of the epic\u{2019}s branch \u{b7} not merged yet")
 }
 
 /// A file read with `files.read`.
@@ -730,6 +815,9 @@ pub fn file_page(content: &FileContent) -> FilePage {
             }
         }
         None => subtitle.push_str(" \u{b7} not changed"),
+    }
+    if let Some(child) = &content.child {
+        subtitle = child_subtitle(child);
     }
     let lines = if content.binary {
         Vec::new()
@@ -788,6 +876,7 @@ pub fn file_page(content: &FileContent) -> FilePage {
         new_ticket_body: new_ticket_body(&content.path),
         lines,
         note,
+        writing: content.child.as_ref().map(|c| writing_note(c, None)),
     }
 }
 
@@ -805,6 +894,7 @@ pub fn deleted_page(source: &FilesSource, path: &str, child: Option<String>) -> 
         new_ticket_body: new_ticket_body(path),
         lines: Vec::new(),
         note: None,
+        writing: None,
     }
 }
 
@@ -1688,6 +1778,120 @@ mod tests {
         );
         let titles: Vec<&str> = g.bars.iter().map(|b| b.title.as_str()).collect();
         assert_eq!(titles, ["Your check", "1 line comment, 1 being written"]);
+    }
+
+    /// The Wishlist epic's Files (FTB-06, `s25-11`): its branch with "40.1 merged" and "40.2 on top · its own
+    /// worktree", each file tagged with the child that changed it ("40.1", "40.2 ✎" opening 40.2's worktree), files no
+    /// child wrote dimmed, and 40.2's file with its "being written" note.
+    #[test]
+    fn the_wishlist_epics_files_and_their_tags() {
+        use otaq_core::board::files::{ChildTag, TagKind};
+        let mut tickets = crate::view_models::epic_sheet::samples::wishlist();
+        tickets[2].work = Some(otaq_core::board::tickets::Work {
+            worktree: Some("/tmp/wt/SHOP-40.2".into()),
+            ..Default::default()
+        });
+        let epic = &tickets[0];
+        let mut branch = source("SHOP-40", FilesFrom::Branch);
+        branch.branch = otaq_core::naming::branch("PAY-123");
+        let view = epic_source(epic, &branch, &tickets);
+        assert_eq!(view.title, "Wishlist\u{2019}s branch");
+        assert_eq!(
+            view.subtitle,
+            format!("{} \u{b7} what its tickets merged", branch.branch)
+        );
+        let legend: Vec<(&str, bool)> = view
+            .legend
+            .iter()
+            .map(|t| (t.label.as_str(), t.writing))
+            .collect();
+        assert_eq!(
+            legend,
+            [
+                ("40.1 merged", false),
+                ("40.2 on top \u{b7} its own worktree", true)
+            ]
+        );
+        // A ticket's source has no legend; an epic that never started reads its base branch.
+        assert!(source_view(&branch).legend.is_empty());
+        assert_eq!(
+            epic_source(epic, &source("SHOP-40", FilesFrom::Base), &tickets).title,
+            "main"
+        );
+
+        let tag = |k: &str, kind| ChildTag { key: key(k), kind };
+        let rows = tree_rows(
+            &[
+                TreeEntry {
+                    tags: vec![tag("SHOP-40.1", TagKind::Merged)],
+                    ..entry(
+                        "route.ts",
+                        "src/app/api/wishlist/route.ts",
+                        EntryKind::File,
+                        Some(change(FileStatus::Added, 12, 0, false)),
+                    )
+                },
+                TreeEntry {
+                    tags: vec![tag("SHOP-40.2", TagKind::Writing)],
+                    ..entry(
+                        "WishlistButton.tsx",
+                        "src/components/WishlistButton.tsx",
+                        EntryKind::File,
+                        Some(change(FileStatus::Added, 12, 0, true)),
+                    )
+                },
+                entry("package.json", "package.json", EntryKind::File, None),
+            ],
+            0,
+        );
+        let shown: Vec<(&str, Vec<&str>, bool, Option<&str>)> = rows
+            .iter()
+            .map(|r| {
+                (
+                    r.name.as_str(),
+                    r.tags.iter().map(|t| t.label.as_str()).collect(),
+                    r.quiet,
+                    r.child.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("route.ts", vec!["40.1"], false, None),
+                (
+                    "WishlistButton.tsx",
+                    vec!["40.2 \u{270e}"],
+                    false,
+                    Some("SHOP-40.2")
+                ),
+                ("package.json", vec![], true, None),
+            ]
+        );
+
+        let page = file_page(&FileContent {
+            source: branch.clone(),
+            path: "src/components/WishlistButton.tsx".into(),
+            child: Some(key("SHOP-40.2")),
+            size: 300,
+            binary: false,
+            text: "'use client'\n".into(),
+            truncated: false,
+            change: Some(change(FileStatus::Added, 12, 0, true)),
+            tags: vec![tag("SHOP-40.2", TagKind::Writing)],
+        });
+        assert_eq!(
+            page.subtitle,
+            "40.2\u{2019}s change, on top of the epic\u{2019}s branch \u{b7} not merged yet"
+        );
+        assert_eq!(page.opens_in, FileMode::Diff);
+        assert_eq!(page.child.as_deref(), Some("SHOP-40.2"));
+        assert_eq!(
+            writing_note(&key("SHOP-40.2"), Some("Rust developer")),
+            "40.2\u{2019}s agent (Rust developer) is writing this file in 40.2\u{2019}s own worktree; you see its \
+             change on top of the epic\u{2019}s branch."
+        );
+        assert_eq!(page.writing, Some(writing_note(&key("SHOP-40.2"), None)));
     }
 
     #[test]

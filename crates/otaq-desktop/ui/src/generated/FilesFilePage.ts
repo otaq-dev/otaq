@@ -26,4 +26,9 @@ new_ticket_body: string, lines: Array<FilesCodeLine>,
 /**
  * "Binary file · 184 KB", "Showing the first 20000 lines: the file is too long to show in full."
  */
-note: string | null, };
+note: string | null, 
+/**
+ * An epic's file a running child is writing (FTB-06): "40.2’s agent (Rust developer) is writing this file in
+ * 40.2’s own worktree; you see its change on top of the epic’s branch."
+ */
+writing: string | null, };

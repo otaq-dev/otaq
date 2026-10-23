@@ -50,6 +50,7 @@ pub mod empty_board;
 pub mod epic_actions;
 pub mod epic_card;
 pub mod epic_review;
+pub mod epic_sheet;
 pub mod epic_toast;
 pub mod fields;
 pub mod files_tab;

@@ -4,13 +4,12 @@
 //! with their states (`messages.rs`), answerable when one went to the inbox; the sheet's **Activity** (SHT-05), sessions
 //! with their tool session ids and events oldest first under All · Comments · Stages · Description (`history.rs`),
 //! with one entry per validation round that opens
-//! its report and **Create ticket** from a report's note (`validation_report.rs`, VAL-12); the **epic panel**, children and progress
-//! (`epic_review.rs`); and the epic dialogs, Move to epic… and Close epic… (`epic_actions.rs`). Each view is `null`
-//! when its section has nothing to show for the ticket.
+//! its report and **Create ticket** from a report's note (`validation_report.rs`, VAL-12); and the epic dialogs, Move
+//! to epic… and Close epic… (`epic_actions.rs`). The epic's children are its sheet's (`epic.*`, SHT-07). Each view is
+//! `null` when its section has nothing to show for the ticket.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use otaq_core::board::epics::progress_of;
 use otaq_core::board::validation::ValidationRecord;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::TicketKey;
@@ -22,7 +21,6 @@ use otaq_core::session::SessionInfo;
 use otaq_view::icons::IconName;
 use otaq_view::view_models::clock::local_hhmm;
 use otaq_view::view_models::epic_actions::{self, EpicChoice};
-use otaq_view::view_models::epic_review;
 use otaq_view::view_models::stage_choices;
 use otaq_view::view_models::history::{self, HistoryRow, Opens};
 use otaq_core::epic_lead::log::LeadLog;
@@ -48,7 +46,6 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "sections.answer_message" => reply(&answer_message(app, parse(params)?).await?),
         "sections.history" => reply(&history_view(app, parse(params)?).await?),
         "sections.create_from_note" => reply(&create_from_note(app, parse(params)?).await?),
-        "sections.epic" => reply(&epic_view(app, parse(params)?).await?),
         "sections.move_dialog" => reply(&move_dialog(app, parse(params)?).await?),
         "sections.move_to_epic" => reply(&move_to_epic(app, parse(params)?).await?),
         "sections.close_epic_dialog" => reply(&close_epic_dialog(app, parse(params)?).await?),
@@ -677,83 +674,6 @@ pub async fn create_from_note(app: &App, params: NoteRequest) -> Result<String, 
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// The epic panel (EPC-01, EPC-04; d0059)
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "EpicChildView")]
-pub struct ChildView {
-    pub key: String,
-    pub title: String,
-    /// "⛓ SHOP-40.1".
-    pub deps: Option<String>,
-    pub pill: PillView,
-    /// Merged or closed: drawn muted.
-    pub finished: bool,
-}
-
-/// What the panel shows for an epic, above its tabs; `null` for a ticket.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "EpicView")]
-pub struct EpicView {
-    pub external_id: Option<String>,
-    /// "1 / 4 merged".
-    pub progress: String,
-    pub merged: u32,
-    pub total: u32,
-    /// "otaq/SHOP-40 · local".
-    pub branch: String,
-    /// "TICKETS · 3".
-    pub heading: String,
-    pub children: Vec<ChildView>,
-    pub add: &'static str,
-    /// "· new tickets get the next key, SHOP-40.4".
-    pub next_key: Option<String>,
-    pub note: String,
-}
-
-pub fn epic_of(epic: &Ticket, tickets: &[Ticket]) -> Option<EpicView> {
-    if !epic.is_epic() {
-        return None;
-    }
-    let header = epic_review::header(epic, tickets);
-    let progress = progress_of(&epic.key, tickets);
-    let finished = |key: &TicketKey| {
-        tickets
-            .iter()
-            .find(|t| &t.key == key)
-            .is_some_and(|t| t.place.is_done())
-    };
-    Some(EpicView {
-        external_id: header.external_id,
-        progress: header.progress,
-        merged: progress.merged,
-        total: progress.total,
-        branch: header.branch,
-        heading: format!("TICKETS \u{b7} {}", header.children.len()),
-        children: header
-            .children
-            .into_iter()
-            .map(|c| ChildView {
-                finished: finished(&c.key),
-                key: c.key.to_string(),
-                title: c.title,
-                deps: c.deps,
-                pill: PillView::of(c.status),
-            })
-            .collect(),
-        add: "Add ticket to epic",
-        next_key: header.next_key,
-        note: header.note,
-    })
-}
-
-pub async fn epic_view(app: &App, params: Params) -> Result<Option<EpicView>, RequestError> {
-    Ok(with_project(app, &params.key)
-        .await?
-        .and_then(|(ticket, all)| epic_of(&ticket, &all)))
-}
-
-// ---------------------------------------------------------------------------------------------------------------
 // Move to epic… (EPC-07, TKT-07; d0044) and Close epic… (EPC-06; d0033)
 
 /// An epic the ticket can move into, with the dialog's texts for it.
@@ -1099,7 +1019,7 @@ mod tests {
     }
 
     #[test]
-    fn the_epic_panel_lists_children_and_move_is_for_never_started_tickets() {
+    fn move_is_for_never_started_tickets() {
         let mut epic = fixture("SHOP-40", "Wishlist", Status::Backlog);
         epic.kind = Kind::Epic;
         epic.next_child_number = Some(3);
@@ -1112,14 +1032,6 @@ mod tests {
         let mut working = fixture("SHOP-19", "Price table", Status::Working);
         working.started_at = Some(1);
         let all = vec![epic.clone(), api, button, share.clone(), working.clone()];
-
-        assert_eq!(epic_of(&share, &all), None, "a ticket has no epic panel");
-        let view = epic_of(&epic, &all).unwrap();
-        assert_eq!(view.progress, "1 of 2 merged");
-        assert_eq!((view.merged, view.total), (1, 2));
-        assert_eq!(view.heading, "TICKETS \u{b7} 2");
-        assert_eq!(view.children[1].deps.as_deref(), Some("\u{26d3} SHOP-40.1"));
-        assert!(view.children[0].finished && !view.children[1].finished);
 
         let dialog = move_dialog_of(&share, &all);
         assert_eq!(dialog.refusal, None);
@@ -1176,11 +1088,13 @@ mod tests {
         let child = create(&h, &project, "Wishlist API", Kind::Ticket, Some(&epic)).await;
         let lone = create(&h, &project, "Share link", Kind::Ticket, None).await;
 
-        let view = table(&h.app, "sections.epic", json!({ "key": epic })).await.unwrap();
-        assert_eq!(view["children"][0]["key"], child.as_str());
-        assert_eq!(view["progress"], "0 of 1 merged");
-        let none = table(&h.app, "sections.epic", json!({ "key": lone })).await.unwrap();
-        assert_eq!(none, Value::Null);
+        // The epic's sheet (SHT-07): its Tickets tab and Overview's grid list its children.
+        let view = table(&h.app, "epic.tickets", json!({ "key": epic })).await.unwrap();
+        assert_eq!(view["rows"][0]["card"]["key"], child.as_str());
+        assert_eq!(view["add"], "Add ticket to epic");
+        let overview = table(&h.app, "epic.overview", json!({ "key": epic })).await.unwrap();
+        assert_eq!(overview["grid"]["heading"], "TICKETS \u{b7} 1");
+        assert_eq!(overview["grid"]["rows"][0]["key"], child.as_str());
 
         let stack = table(&h.app, "sections.stack", json!({ "key": lone })).await.unwrap();
         assert_eq!(stack["rows"], json!([]));
@@ -1212,8 +1126,8 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(moved, new_key.as_str());
-        let view = table(&h.app, "sections.epic", json!({ "key": epic })).await.unwrap();
-        assert_eq!(view["children"].as_array().unwrap().len(), 2);
+        let view = table(&h.app, "epic.tickets", json!({ "key": epic })).await.unwrap();
+        assert_eq!(view["rows"].as_array().unwrap().len(), 2);
 
         let close = table(&h.app, "sections.close_epic_dialog", json!({ "epic": epic }))
             .await

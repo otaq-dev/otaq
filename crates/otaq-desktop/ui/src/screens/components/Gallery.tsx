@@ -121,6 +121,7 @@ import { SheetGallery } from "../sheet/SheetGallery";
 import { FilesGallery } from "../files/FilesGallery";
 import { SessionGallery } from "../session/SessionGallery";
 import { ListGallery } from "../list/ListGallery";
+import { EpicGallery } from "../epic/EpicGallery";
 import "../files/files.css";
 import { PaneBody, SwitcherList } from "../pane/Pane";
 import "../pane/pane.css";
@@ -2600,6 +2601,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         </Section>
         <Section title="25 · Session's switch and lines, Activity's filters (T-0466)">
           <SessionGallery />
+        </Section>
+        <Section title="25 · The epic's sheet · progress, the lead, TICKETS and the Tickets tab (SHT-07, T-0469)">
+          <EpicGallery />
         </Section>
         <EnvVarsSection />
         <WarmSwitchSection />

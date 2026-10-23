@@ -84,6 +84,7 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.sheet" => reply(&super::panel::sheet_gallery()),
         // 25 · Overview's attachments and description words for SHOP-22 (T-0465).
         "gallery.overview" => reply(&otaq_view::view_models::overview::gallery()),
+        "gallery.epic_sheet" => reply(&otaq_view::view_models::epic_sheet::gallery()),
         _ => Err(unknown(method)),
     }
 }

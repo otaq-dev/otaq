@@ -100,16 +100,24 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     );
     let ticket = ticket?;
     Ok(match top {
-        Ok(Reply::FilesTree(tree)) => Load {
-            view: Some(vm::tab_view(
+        Ok(Reply::FilesTree(tree)) => {
+            let mut view = vm::tab_view(
                 &ticket,
                 &tree.source,
                 &tree.entries,
                 tree.changed,
                 keys.label(KeyAction::GoToFile),
-            )),
-            problem: None,
-        },
+            );
+            // An epic's is its branch, with the key to its children's tags (FTB-06).
+            if ticket.is_epic() {
+                let all = super::panel::tickets(app, ticket.key.project.as_str()).await?;
+                view.source = vm::epic_source(&ticket, &tree.source, &all);
+            }
+            Load {
+                view: Some(view),
+                problem: None,
+            }
+        }
         Ok(other) => return Err(unexpected("files.tree", &other)),
         Err(e) => Load {
             view: None,
@@ -207,9 +215,26 @@ pub async fn read(app: &App, params: FileParams) -> Result<vm::FilePage, Request
         child: params.child.clone(),
     });
     match app.service.send(request).await {
-        Ok(Reply::FileContent(content)) => tokio::task::spawn_blocking(move || vm::file_page(&content))
-            .await
-            .map_err(|e| RequestError::plain(e.to_string())),
+        Ok(Reply::FileContent(content)) => {
+            let child = content.child.clone();
+            let mut page = tokio::task::spawn_blocking(move || vm::file_page(&content))
+                .await
+                .map_err(|e| RequestError::plain(e.to_string()))?;
+            // A running child's file on an epic: its note names the child's agent (FTB-06).
+            if let Some(child) = child {
+                let agents =
+                    super::editor::agent_facts(app, super::editor::of_ticket(&child.to_string())).await;
+                let agent = agents.as_ref().and_then(|a| {
+                    a.sessions
+                        .iter()
+                        .rev()
+                        .find(|s| s.running)
+                        .and_then(|s| s.agent_name.clone())
+                });
+                page.writing = Some(vm::writing_note(&child, agent.as_deref()));
+            }
+            Ok(page)
+        }
         Ok(other) => Err(unexpected("files.read", &other)),
         // Deleted: not on disk, but its diff shows what it was.
         Err(e) if e.not_found => {

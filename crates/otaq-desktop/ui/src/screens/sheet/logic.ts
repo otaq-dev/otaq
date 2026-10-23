@@ -58,7 +58,11 @@ export function sheetWidth(view: SheetView, besideAgent: boolean, mainWidth: num
   return Math.max(Math.min(wanted, mainWidth - 2 * view.margin), 0);
 }
 
-/** A tab's dot, as the Tabs component draws it. */
-export function tabIndicator(mark: PanelTabMark | null): TabIndicator | undefined {
-  return mark ?? undefined;
+/** A tab's dot, as the Tabs component draws it, else its count ("Tickets 5"). */
+export function tabIndicator(
+  mark: PanelTabMark | null,
+  count: string | null = null,
+): TabIndicator | undefined {
+  if (mark !== null) return mark;
+  return count === null ? undefined : { kind: "note", text: count };
 }

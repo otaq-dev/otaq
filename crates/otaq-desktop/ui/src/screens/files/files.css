@@ -85,6 +85,39 @@
   white-space: nowrap;
 }
 
+/* An epic's key to its tags (FTB-06, `s25-11`): "40.1 merged" green, "40.2 on top · its own worktree" working. */
+.files-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.files-legend-tag {
+  padding: 2px 6px;
+  background: var(--st-approved-bg);
+  color: var(--st-approved);
+  font: 500 11px var(--font-ui);
+}
+
+/* A file a running child is writing on top of the epic's branch: whose change it is. */
+.files-writing {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--st-working-bg);
+  color: var(--text-secondary);
+  font: 400 12px/1.45 var(--font-ui);
+}
+
+.files-writing > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--st-working);
+}
+
 .files-search {
   display: flex;
   align-items: center;

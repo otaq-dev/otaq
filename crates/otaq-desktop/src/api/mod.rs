@@ -38,6 +38,8 @@ pub use editor::{
     SourceModeParams as EditorSourceModeParams, View as EditorView,
 };
 #[cfg(test)]
+pub use epic::export_types as export_epic_types;
+#[cfg(test)]
 pub use files::{
     AddParams as FilesCommentAdd, BarParams as FilesBarParams, FileParams as FilesFileParams,
     IdParams as FilesCommentId, Load as FilesLoad, ModeParams as FilesModeParams,
@@ -117,7 +119,7 @@ pub use run::{
 pub use sections::NoteRequest as CreateFromNoteParams;
 #[cfg(test)]
 pub use sections::{
-    AnswerMessage as AnswerMessageParams, CloseEpicDialogView, EpicParams, EpicView, HistoryView,
+    AnswerMessage as AnswerMessageParams, CloseEpicDialogView, EpicParams, HistoryView,
     MessagesView, MoveDialogView, MoveTo as MoveToEpicParams, Params as SectionParams, StackView,
 };
 #[cfg(test)]
@@ -211,6 +213,7 @@ areas! {
     ticket_comments,
     report,
     overview,
+    epic,
 }
 
 /// Reads the user's answer once the service answers, then sends the counts every [`crate::usage::FLUSH_EVERY`]

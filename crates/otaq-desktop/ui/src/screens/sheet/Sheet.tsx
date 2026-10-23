@@ -3,7 +3,8 @@
 // "← Board"). The header: breadcrumb, title and status, Move… (the drag's columns), ⋯ (the ticket's menu), ⤢ and ✕;
 // the details line (Assignee, Model, Working, Priority, Branch, Epic; a value with a menu changes it); the flow
 // path; the tabs Overview · Session · Files · Activity (`1`–`4`, `g o` / `s` / `f` / `a`, ⌃Tab), each tab's body
-// registered in `sheetTabs`. It comes in as the drawer of 0095 (the frame's panel layer). Everything it says is Rust's
+// registered in `sheetTabs`. An epic (SHT-07, `s25-11`) shows "1 of 5 merged" and its lead's state by its title, no
+// Move…, and its tabs Overview · Tickets (with their count) · Lead · Files · Activity. It comes in as the drawer of 0095 (the frame's panel layer). Everything it says is Rust's
 // (`panel.view`'s `sheet`); it keeps open menus only. Its keys: Esc, `e`, j / k (⌘[ / ⌘]), the tab keys.
 import { createContext, Fragment, useCallback, useContext, useEffect, useRef, useState } from "react";
 
@@ -25,6 +26,7 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { dropCard } from "../board/Board";
 import { DescriptionSaveBar } from "../overview/SaveBar";
+import { EpicHeadPills } from "../epic/EpicSheet";
 import { ReviewBar } from "../files/ReviewBar";
 import { MoreMenu, PANEL_EVENTS, type PanelActions, usePanelActions } from "./actions";
 import {
@@ -295,12 +297,18 @@ export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
               ))}
             </nav>
             <div className="sheet-title-row">
+              {sheet.epic !== null && (
+                <span className="sheet-title-icon">
+                  <Icon name="layers" size={18} />
+                </span>
+              )}
               <h2 className="sheet-title">{view.title}</h2>
-              <StatusPill pill={view.pill} />
+              {sheet.epic !== null && <EpicHeadPills head={sheet.epic} />}
+              {sheet.epic?.lead == null && <StatusPill pill={view.pill} />}
             </div>
           </div>
           <div className="sheet-actions">
-            <MoveButton key={view.key} view={view} />
+            {sheet.epic === null && <MoveButton key={view.key} view={view} />}
             <MoreMenu view={view} onChoose={actions.choose} />
             <HintButton
               icon={fullPage ? "minimize-2" : "maximize-2"}
@@ -324,7 +332,7 @@ export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
             items={sheet.tabs.map((t) => ({
               icon: t.icon,
               label: t.label,
-              indicator: tabIndicator(t.mark),
+              indicator: tabIndicator(t.mark, t.count),
               keys: t.keys ?? undefined,
             }))}
             active={Math.max(

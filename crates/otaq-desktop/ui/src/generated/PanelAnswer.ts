@@ -4,4 +4,8 @@ import type { PanelAnswerRow } from "./PanelAnswerRow";
 /**
  * The question with its options in the header (*SHOP-21 · Asks you · answer options*).
  */
-export type PanelAnswer = { question: string, text: string, rows: Array<PanelAnswerRow>, recommended_label: string, other_placeholder: string, hint: string, in_terminal: string, send: string, };
+export type PanelAnswer = { 
+/**
+ * Who asks, over an epic lead's question: "Wishlist lead asks" (`s25-11`); the lead's options are its buttons.
+ */
+asker: string | null, question: string, text: string, rows: Array<PanelAnswerRow>, recommended_label: string, other_placeholder: string, hint: string, in_terminal: string, send: string, };

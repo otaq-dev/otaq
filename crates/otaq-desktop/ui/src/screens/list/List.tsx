@@ -51,7 +51,8 @@ export interface ListProps {
   onView: (change: ViewChange) => void;
 }
 
-function Track({ track }: { track: ListTrack }) {
+/** A row's track: a step per stage, then its place (the epic sheet's Tickets tab draws it too). */
+export function Track({ track }: { track: ListTrack }) {
   return (
     <span className="list-track">
       <span className="list-track-steps">
@@ -69,7 +70,7 @@ function Track({ track }: { track: ListTrack }) {
   );
 }
 
-interface RowProps {
+export interface RowProps {
   row: ListRow;
   target: BoardDropTarget | null;
   selected: boolean;
@@ -78,7 +79,8 @@ interface RowProps {
   handlers: ListHandlers;
 }
 
-const Row = memo(function Row({ row, target, selected, lifted, focusable, handlers }: RowProps) {
+/** One ticket's row (LST-01); the epic sheet's Tickets tab draws its children with it (SHT-07). */
+export const Row = memo(function Row({ row, target, selected, lifted, focusable, handlers }: RowProps) {
   const { card } = row;
   const key = card.key;
   // The buttons keep their own clicks: the row's press (a click opens it, a drag moves it) doesn't start there.

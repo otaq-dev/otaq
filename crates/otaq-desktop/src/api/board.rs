@@ -169,7 +169,7 @@ pub struct MenuParams {
     pub id: String,
 }
 
-async fn snapshot(app: &App, project: &str) -> Result<BoardSnapshot, RequestError> {
+pub(super) async fn snapshot(app: &App, project: &str) -> Result<BoardSnapshot, RequestError> {
     match app
         .service
         .send(Request::BoardSnapshot(ProjectParams {

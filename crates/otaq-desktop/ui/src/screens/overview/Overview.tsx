@@ -3,8 +3,8 @@
 // you (the question with its options or the action bar, the callouts; `NeedsYou`; USG-07's "Mark as usage
 // limit" while the agent is Idle, the Inbox's row action before T-0459), the description in place
 // (`DescriptionSection`; ⋯ Edit ticket… swaps in the whole form, `EditForm`), the agent's recorded decisions, the
-// sections not moved elsewhere yet (Epic, Stack, Messages: T-0463 replaces Stack with the dependencies section,
-// T-0469 the epic's parts), then the comments and their box. On the right, 300 px, the Attachments column: every
+// sections not moved elsewhere yet (Stack: T-0463 replaces it with the dependencies section), an epic's TICKETS grid
+// (SHT-07, `EpicGrid`; its lead's question is `NeedsYou`'s), then the comments and their box. On the right, 300 px, the Attachments column: every
 // report of the ticket with its size, who added it and in which stage, and its comment's first line; a row opens the
 // report view. Add (the system picker), a file dropped anywhere on Overview, or a file pasted outside a text field
 // opens the comment box with it as a chip. Its words are Rust's (`overview.view`, `editor.open`).
@@ -30,6 +30,7 @@ import { EDITOR_EVENTS } from "../editor/logic";
 import { openReport } from "../editor/reportOpener";
 import { NeedsYou } from "./NeedsYou";
 import { TicketDecisions } from "../sections/Decisions";
+import { EpicGrid, useEpicOverview } from "../epic/EpicSheet";
 import { useSheet } from "../sheet/Sheet";
 import { DescriptionSection, SavedNote } from "./Description";
 
@@ -182,6 +183,7 @@ export function OverviewTab({ ticket }: TicketProps) {
   };
 
   const overviewTabs = sheet?.view.sheet.tabs.find((t) => t.tab === "overview")?.contents ?? [];
+  const epic = useEpicOverview(ticket, sheet?.view.epic ?? false);
   const editing = form === ticket && editor?.key === ticket;
   return (
     // The paste of a file outside a text field is Overview's own (RPT-02); every other key stays with the page.
@@ -230,6 +232,7 @@ export function OverviewTab({ ticket }: TicketProps) {
           )
         )}
         <TicketDecisions ticket={ticket} />
+        {epic && <EpicGrid grid={epic.grid} />}
         {PANEL_SECTIONS.map((id) => {
           const Section = app.panelSections.get(id)?.Component;
           return Section ? <Section key={id} ticket={ticket} /> : null;
@@ -239,7 +242,7 @@ export function OverviewTab({ ticket }: TicketProps) {
       {overview?.key === ticket && (
         <Attachments
           ticket={ticket}
-          view={overview}
+          view={epic ? { ...overview, note: epic.attachments_note } : overview}
           error={error}
           onAdd={() => {
             pickReportFile(overview.pick_title).then(

@@ -6,6 +6,7 @@ export { askBar } from "./ask_bar";
 export { board } from "./board";
 export { components } from "./components";
 export { editor } from "./editor";
+export { epic } from "./epic";
 export { files } from "./files";
 export { flowEditor } from "./flow_editor";
 export { leadTab } from "./lead_tab";
