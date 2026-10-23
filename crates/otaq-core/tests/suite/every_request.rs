@@ -21,7 +21,7 @@ fn base_params() -> Value {
         "body": "b", "message": "m", "question": "q", "answer": "a", "proposal": "p", "name": "n",
         "url": "https://example.invalid/pr/1", "settings": {}, "cols": 80, "rows": 24, "data": "",
         "focused": false, "pass": false, "action": "stop",
-        "note": "Not covered by any ticket: x", "query": "q"
+        "note": "Not covered by any ticket: x", "query": "q", "ticket": "NOPE-1"
     })
 }
 
@@ -216,6 +216,12 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::FilesRead(_)
         | Request::FilesDiff(_)
         | Request::FilesChanges(_)
+        | Request::FilesProjectTree(_)
+        | Request::FilesProjectSearch(_)
+        | Request::FilesProjectRead(_)
+        | Request::FilesProjectDiff(_)
+        | Request::FilesProjectChanges(_)
+        | Request::FilesProjectSources(_)
         | Request::ReviewCommentAdd(_)
         | Request::ReviewCommentReply(_)
         | Request::ReviewCommentEdit(_)
