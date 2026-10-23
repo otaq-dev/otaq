@@ -94,6 +94,24 @@ describe("the tokens", () => {
     expect(colors.brightRed).toBe("#ff8a8f");
     expect(colors.black).toBe("");
   });
+
+  it("give every theme's selected text its terminal text colour on the selection tint, focused or not", async () => {
+    // Read as text with Node's fs (the test runner hands CSS imports over empty; the page has no Node types).
+    const fsModule = "node:fs";
+    const fs = (await import(fsModule)) as { readFileSync(path: URL, encoding: "utf8"): string };
+    const tokensCss = fs.readFileSync(new URL("generated/tokens.css", import.meta.url), "utf8");
+    const themes = [...tokensCss.matchAll(/\[data-theme="([^"]+)"\] \{([^}]*)\}/g)];
+    expect(themes.map((t) => t[1])).toEqual([...THEME_KEYS]);
+    for (const [, key, body] of themes) {
+      const vars = new Map([...(body ?? "").matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2]]));
+      const colors = terminalColors({ getPropertyValue: (name) => vars.get(name) ?? "" });
+      expect(colors.selectionForeground, key).toBe(vars.get("--term-fg"));
+      expect(colors.selectionForeground, key).toMatch(/^#[0-9a-f]{6}$/);
+      expect(colors.selectionBackground, key).toBe(vars.get("--selection"));
+      expect(colors.selectionInactiveBackground, key).toBe(vars.get("--selection"));
+      expect(colors.selectionInactiveBackground, key).toMatch(/^#[0-9a-f]{6,8}$/);
+    }
+  });
 });
 
 describe("the icons", () => {

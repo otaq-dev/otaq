@@ -20,6 +20,7 @@ import { watchView } from "../service";
 import { attachTerminal, request } from "../tauri";
 import { Icon } from "../theme/Icon";
 import { terminalColors } from "../theme/theme";
+import { countWidthsAsUnicode11, MINIMUM_CONTRAST_RATIO } from "./drawing";
 import { dropTargets } from "./drops";
 import { binaryBytes, createSender, decodeBase64, encodeBase64, isReply, type Outgoing } from "./input";
 import {
@@ -183,8 +184,13 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
       disableStdin: true,
       cursorBlink: false,
       macOptionIsMeta: true,
+      // Option-drag selects, also inside a tool that takes the mouse (d0117 point 3).
+      macOptionClickForcesSelection: true,
+      minimumContrastRatio: MINIMUM_CONTRAST_RATIO,
       drawBoldTextInBrightColors: false,
     });
+    // Before anything is written, the replay too.
+    countWidthsAsUnicode11(term);
     const fit = new FitAddon();
     const searchAddon = new SearchAddon({ highlightLimit: SEARCH_LIMIT });
     term.loadAddon(fit);
