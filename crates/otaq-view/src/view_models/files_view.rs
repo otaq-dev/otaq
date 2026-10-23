@@ -19,19 +19,27 @@ use std::collections::{BTreeMap, HashSet};
 
 use otaq_core::board::files::EntryKind;
 use otaq_core::board::project_files::{
-    EpicSource, FileOwner, NoWorktree, OwnerTicket, ProjectChanges, ProjectCounts, ProjectEntry,
-    ProjectSearch, ProjectSource, ProjectSources,
+    EpicSource, FileOwner, LineRange, NoWorktree, OwnerLines, OwnerTicket, ProjectChanges,
+    ProjectCounts, ProjectEntry, ProjectFile, ProjectSearch, ProjectSource, ProjectSources,
 };
+use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Status, StatusSet, TicketKey};
-use otaq_core::git::diff::FileStatus;
+use otaq_core::git::diff::{FileDiff, FileStatus};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::card::Tone;
+use super::card::CardViewModel;
+use super::diff::{self as diff_vm, ReviewMemory};
+use super::diff_page::{self as diff_page, SpanView};
 use super::files_tab::{
-    self as tab, ChipView, EmptyView, EntryKindView, MarkView, SearchBox, SearchRow, SearchView,
-    TabView, TreeRow,
+    self as tab, ChangeRow, ChipView, EmptyView, EntryKindView, FileMode, MarkView, SearchBox,
+    SearchRow, SearchView, TabView, TreeRow,
 };
+use super::flow_columns::Columns;
+use super::menu::MenuItem;
+use super::tool_avatar::ToolAvatarView;
+use crate::icons::IconName;
+use crate::theme::Palette;
 
 // ---- Words ----
 
@@ -143,34 +151,55 @@ pub fn filters(counts: Option<&ProjectCounts>) -> Vec<FilterOption> {
     ]
 }
 
-// ---- The tree ----
+// ---- A ticket's colour ----
 
-/// A chip's colour: the ticket's status (FIL-03), turquoise while it needs you.
-pub fn tone(status: Status, needs_you: bool) -> Tone {
-    if needs_you {
-        return Tone::Attention;
-    }
-    match status {
-        Status::Interrupted
-        | Status::ResumeFailed
-        | Status::CheckFailed
-        | Status::StartInterrupted => Tone::Error,
-        _ => match status.set() {
-            StatusSet::AgentStage | StatusSet::AgentCheck => Tone::Working,
-            StatusSet::HumanCheck => Tone::Review,
-            StatusSet::Backlog | StatusSet::Waiting | StatusSet::Delivery | StatusSet::Done => {
-                Tone::Muted
-            }
-        },
-    }
+/// The colours a ticket takes in the view, from the terminal palette (`ansi-*`, every theme has them): its chip in the
+/// tree, its bar beside the lines it changes and its edge in Changed by and All changes, so chip and bar match
+/// (`s28-03`; Q456, built as option 2). Two tickets working on one file stay apart, which status colours can't do.
+/// Picked by the ticket's number, in the order that gives page 28's tickets their drawn colours (SHOP-29 blue,
+/// SHOP-19 violet, SHOP-22 teal, SHOP-36 amber).
+pub const TICKET_COLOURS: [&str; 12] = [
+    "ansi-3", "ansi-12", "ansi-11", "ansi-10", "ansi-14", "ansi-4", "ansi-13", "ansi-5", "ansi-1",
+    "ansi-2", "ansi-6", "ansi-9",
+];
+
+fn colour_index(key: &TicketKey) -> usize {
+    (key.number as usize + 5 * key.child.unwrap_or(0) as usize) % TICKET_COLOURS.len()
 }
+
+/// A ticket's own colour, the same wherever it shows.
+pub fn ticket_colour(key: &TicketKey) -> &'static str {
+    TICKET_COLOURS[colour_index(key)]
+}
+
+/// One colour per ticket of a file, in order: each its own, or the next free one when an earlier ticket of the same
+/// file already has it.
+pub fn owner_colours<'a>(keys: impl IntoIterator<Item = &'a TicketKey>) -> Vec<&'static str> {
+    let mut taken: Vec<usize> = Vec::new();
+    keys.into_iter()
+        .map(|key| {
+            let mut i = colour_index(key);
+            for _ in 0..TICKET_COLOURS.len() {
+                if !taken.contains(&i) {
+                    break;
+                }
+                i = (i + 1) % TICKET_COLOURS.len();
+            }
+            taken.push(i);
+            TICKET_COLOURS[i]
+        })
+        .collect()
+}
+
+// ---- The tree ----
 
 fn chips(owners: &[FileOwner]) -> Vec<ChipView> {
     owners
         .iter()
-        .map(|o| ChipView {
+        .zip(owner_colours(owners.iter().map(|o| &o.key)))
+        .map(|(o, colour)| ChipView {
             key: o.key.to_string(),
-            tone: tone(o.status, o.needs_you),
+            colour,
         })
         .collect()
 }
@@ -350,7 +379,7 @@ pub fn changed_rows(changes: &ProjectChanges, filter: Filter) -> Vec<TreeRow> {
 // ---- The view ----
 
 /// The Files view's left column and frame (`files_view.view`). `FilesViewPage` on the page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "FilesViewPage")]
 pub struct Page {
     pub project: String,
@@ -368,9 +397,20 @@ pub struct Page {
     pub empty: Option<EmptyView>,
     /// The file pane before a file is picked.
     pub pick: &'static str,
+    /// A picked file's subtitle while it is read: "on main · checking which tickets change it…" (`s28-09`).
+    pub checking: String,
+    /// Right-click on a file (FIL-09): New ticket from this file ⌘N, Copy path.
+    pub menu: Vec<MenuItem>,
     /// A ticket's agent is working: the page asks again every 5 s while the view is shown (commits have no event,
     /// FIL-10).
     pub working: bool,
+}
+
+/// The keys the view shows: Go to file's in the search box, New ticket's in a file's menu.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ViewKeys {
+    pub go_to_file: Option<String>,
+    pub new_ticket: Option<String>,
 }
 
 /// The view for `rows`: `counts` is `None` while only the base is listed.
@@ -379,7 +419,7 @@ pub fn page(
     counts: Option<&ProjectCounts>,
     filter: Filter,
     rows: Vec<TreeRow>,
-    search_keys: Option<String>,
+    keys: ViewKeys,
     working: bool,
 ) -> Page {
     Page {
@@ -388,7 +428,7 @@ pub fn page(
         source: source_bar(source, counts),
         search: SearchBox {
             placeholder: tab::SEARCH_PLACEHOLDER,
-            keys: search_keys,
+            keys: keys.go_to_file,
         },
         filters: filters(counts),
         filter,
@@ -399,8 +439,27 @@ pub fn page(
             text: EMPTY_TEXT.to_owned(),
         }),
         pick: tab::PICK_A_FILE,
+        checking: format!(
+            "on {} \u{b7} checking which tickets change it\u{2026}",
+            source.base_branch
+        ),
+        menu: file_menu(keys.new_ticket),
         working,
     }
+}
+
+pub const COPY_PATH: &str = "Copy path";
+
+/// A file's menu (FIL-09, `s28-07`): New ticket from this file with its key, Copy path.
+pub fn file_menu(new_ticket_keys: Option<String>) -> Vec<MenuItem> {
+    let new_ticket = MenuItem::new("new_ticket", tab::NEW_TICKET).icon(IconName::Plus);
+    vec![
+        match new_ticket_keys {
+            Some(keys) => new_ticket.shortcut(keys),
+            None => new_ticket,
+        },
+        MenuItem::new("copy_path", COPY_PATH).icon(IconName::Copy),
+    ]
 }
 
 /// An agent is at work on the ticket right now, so its changes move without an event (FIL-10).
@@ -645,13 +704,667 @@ pub fn picked(base_branch: &str, mut tab: TabView) -> Picked {
     }
 }
 
+// ---- A selected file ----
+
+pub const CHANGED_BY: &str = "Changed by";
+pub const CHANGED_BY_HINT: &str = "Click a ticket to open its sheet on the Files tab. Diff shows one ticket\u{2019}s change at a time.";
+pub const OPEN_ON_FILES: &str = "Open on Files";
+/// The narrow line of chips' link (`s28-08`).
+pub const OPEN: &str = "Open";
+pub const OF: &str = "of";
+pub const NO_PREVIEW: &str = "No preview";
+/// Over this many lines, a file some ticket changes shows only the parts tickets change, the rest folded (FIL-05).
+pub const HUGE_LINES: usize = 3_000;
+/// The lines kept around each change of a huge file.
+pub const FOLD_CONTEXT: u32 = 3;
+/// A path longer than this many characters is cut in the middle, the full path on hover (FIL-05, `s28-10`).
+pub const LONG_PATH: usize = 48;
+
+/// What the view knows of a ticket changing files besides `files.project_*`: its title, where it is, its card's
+/// line and tool (as the board's card says them), and when it last changed. Built by the API from the board's cards.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct OwnerFacts {
+    pub title: String,
+    /// "Dev", "Security", "PR open".
+    pub place: Option<String>,
+    /// The card's one line ("Working · back from Security", "Needs you: allow rm -rf .next?") and its colour.
+    pub line: Option<(String, Palette)>,
+    /// The tool mark of whoever has the turn (`null` while only one tool is connected, d0086).
+    pub avatar: Option<ToolAvatarView>,
+    /// When the ticket last changed (ms): Diff starts on the latest when none needs you.
+    pub changed_at: i64,
+}
+
+/// A ticket's facts from its board card (`board::ticket_card`): where it is ("PR open" for an open PR, else its stage
+/// or column), the card's line and avatar.
+pub fn owner_facts(columns: &Columns, ticket: &Ticket, card: CardViewModel) -> OwnerFacts {
+    let place = match ticket.status {
+        Status::PrOpen => "PR open".to_owned(),
+        _ => super::dependencies::place_name(columns, ticket),
+    };
+    OwnerFacts {
+        title: ticket.title.clone(),
+        place: Some(place),
+        line: card.one_line.line.map(|l| (l.text, l.dot)),
+        avatar: card.avatar,
+        changed_at: ticket.updated_at,
+    }
+}
+
+/// "Dev · Working · back from Security": where it is, then its card's line.
+fn status_words(facts: &OwnerFacts) -> Option<String> {
+    let parts: Vec<&str> = [
+        facts.place.as_deref(),
+        facts.line.as_ref().map(|(t, _)| t.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    (!parts.is_empty()).then(|| parts.join(" \u{b7} "))
+}
+
+/// "12,400".
+fn thousands(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// "src/app/(storefront)/…/checkout/[step]/AddressField.tsx": a long path keeps its first three and last three parts.
+pub fn short_path(path: &str) -> Option<String> {
+    let parts: Vec<&str> = path.split('/').collect();
+    (path.chars().count() > LONG_PATH && parts.len() > 6).then(|| {
+        format!(
+            "{}/\u{2026}/{}",
+            parts[..3].join("/"),
+            parts[parts.len() - 3..].join("/")
+        )
+    })
+}
+
+/// The last base line a range touches; an addition, the line it follows (line 1 for one before the first line).
+fn range_last(r: LineRange) -> u32 {
+    if r.lines == 0 {
+        r.start.max(1)
+    } else {
+        r.start + r.lines - 1
+    }
+}
+
+fn range_first(r: LineRange) -> u32 {
+    r.start.max(1)
+}
+
+/// "lines 41–52", "line 7".
+fn lines_label(first: u32, last: u32) -> String {
+    if first == last {
+        format!("line {first}")
+    } else {
+        format!("lines {first}\u{2013}{last}")
+    }
+}
+
+/// The lines an owner touches on its base, first to last; for the file shown as a diff, the diff's new lines.
+fn owner_lines(ranges: Option<&OwnerLines>, diff: Option<&FileDiff>) -> Option<String> {
+    if let Some(ranges) = ranges.filter(|r| !r.ranges.is_empty()) {
+        let first = ranges.ranges.iter().map(|r| range_first(*r)).min()?;
+        let last = ranges.ranges.iter().map(|r| range_last(*r)).max()?;
+        return Some(lines_label(first, last));
+    }
+    let hunks = &diff?.hunks;
+    let first = hunks.iter().map(|h| h.new_start.max(1)).min()?;
+    let last = hunks
+        .iter()
+        .map(|h| {
+            (h.new_start + h.new_lines)
+                .saturating_sub(1)
+                .max(h.new_start)
+        })
+        .max()?;
+    Some(lines_label(first, last))
+}
+
+/// How a bar sits beside one line: along it, or as a tick for lines a ticket adds after (or before) it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "FilesViewBar")]
+pub enum Bar {
+    None,
+    Line,
+    AddAfter,
+    AddBefore,
+}
+
+/// One bar's column: a ticket on the project's base changing the file. `FilesViewBarColumn` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FilesViewBarColumn")]
+pub struct BarColumn {
+    pub key: String,
+    pub colour: &'static str,
+}
+
+/// A row of the file as it is on the base: a line with its bars, or the lines a huge file folds. `FilesViewRow` on
+/// the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(rename = "FilesViewRow")]
+pub enum FileRow {
+    Line {
+        number: u32,
+        spans: Vec<SpanView>,
+        /// One per bar column.
+        bars: Vec<Bar>,
+    },
+    /// "⋯ 2,300 lines unchanged".
+    Fold { label: String },
+}
+
+/// A ticket in Changed by (`s28-03`): its tool, key, title, "Dev · Working · back from Security", "otaq/SHOP-29 · from
+/// main", "lines 41–52", "+7 −2" and Open on Files; the same facts name it in Diff's "of SHOP-29 ▾" and the narrow
+/// line of chips. `FilesViewOwner` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FilesViewOwner")]
+pub struct OwnerCard {
+    pub key: String,
+    pub title: String,
+    pub avatar: Option<ToolAvatarView>,
+    pub colour: &'static str,
+    pub status: Option<String>,
+    /// The line's colour (the card's dot).
+    pub palette: Option<Palette>,
+    /// "otaq/SHOP-29 · from main".
+    pub branch: String,
+    /// "lines 41–52".
+    pub lines: Option<String>,
+    /// "+7 −2", "binary".
+    pub counts: Option<String>,
+    /// Diff's subtitle with this ticket's change: "SHOP-29’s diff against main · +7 −2".
+    pub diff_subtitle: String,
+    /// Diff's menu: "SHOP-29 · Coupon field" over "Dev · lines 41–52 · +7 −2".
+    pub menu_label: String,
+    pub menu_hint: String,
+}
+
+/// A file picked in the view (FIL-03, FIL-05, FIL-06, FIL-09; `s28-03`, `s28-05`, `s28-08`, `s28-09`, `s28-10`):
+/// "src/lib/pricing.ts" over "on main · 2 tickets change it · read-only", File · Diff, New ticket from this file, the
+/// same-file note, the file as it is on the base with a bar per ticket beside the lines it changes, and Changed by.
+/// `FilesViewFile` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "FilesViewFile")]
+pub struct FilePane {
+    pub path: String,
+    /// A long path cut in the middle; the full one on hover.
+    pub short_path: Option<String>,
+    /// A ticket deletes it: the path struck through.
+    pub struck: bool,
+    pub subtitle: String,
+    /// At 1280 px or with the agent panel open, where the line of chips names the tickets: "on main · read-only".
+    pub narrow_subtitle: String,
+    pub modes: [&'static str; 2],
+    /// File for a file on the base; Diff for one only in a ticket's changes.
+    pub opens_in: FileMode,
+    /// Off for a file that isn't on the base.
+    pub can_file: bool,
+    /// Some ticket changes it.
+    pub can_diff: bool,
+    pub new_ticket: &'static str,
+    pub new_ticket_body: String,
+    pub copy_path: &'static str,
+    /// Same file (FIL-06): the notes as `files.project_read` words them, one per shared base.
+    pub same_file: Vec<String>,
+    /// A file only on another base: "SHOP-36 works on release/2.3, not main. …" (`s28-05`).
+    pub other_base: Option<String>,
+    /// "12,400 lines: only the parts tickets change are shown, with the lines between folded."
+    pub huge: Option<String>,
+    /// One column per ticket on the project's base, in Changed by's order; a ticket on another base has none (its
+    /// lines are numbered on its own base, Q454).
+    pub bars: Vec<BarColumn>,
+    pub rows: Vec<FileRow>,
+    /// "Showing the first 20000 lines: the file is too long to show in full."
+    pub note: Option<String>,
+    /// "Binary file · 182 KB on main, 164 KB in SHOP-26" with "No preview".
+    pub binary: Option<String>,
+    pub no_preview: Option<&'static str>,
+    /// A file not on the base: the diff it previews as, and whose.
+    pub diff: Option<diff_page::FileView>,
+    pub diff_of: Option<String>,
+    /// Changed by, the one that needs you first, then flow order.
+    pub owners: Vec<OwnerCard>,
+    pub changed_by: &'static str,
+    pub changed_by_hint: &'static str,
+    pub open_on_files: &'static str,
+    pub open: &'static str,
+    /// Diff's ticket at first: the one that needs you, else the last to change it.
+    pub diff_default: Option<String>,
+    pub of: &'static str,
+    /// Diff's menu title: "Diff against main".
+    pub diff_title: String,
+}
+
+/// Diff's ticket at first (FIL-05): the first that needs you, else the one that changed last (its ticket's last
+/// change), else the first.
+fn diff_default(owners: &[FileOwner], facts: &BTreeMap<String, OwnerFacts>) -> Option<String> {
+    let changed_at = |o: &FileOwner| facts.get(&o.key.to_string()).map_or(0, |f| f.changed_at);
+    owners
+        .iter()
+        .find(|o| o.needs_you)
+        .or_else(|| owners.iter().rev().max_by_key(|o| changed_at(o)))
+        .map(|o| o.key.to_string())
+}
+
+fn owner_card(
+    owner: &FileOwner,
+    colour: &'static str,
+    facts: Option<&OwnerFacts>,
+    lines: Option<String>,
+) -> OwnerCard {
+    let key = owner.key.to_string();
+    let counts = if owner.file.binary {
+        Some("binary".to_owned())
+    } else {
+        tab::counts(owner.file.added, owner.file.removed)
+    };
+    let mut diff_subtitle = format!("{key}\u{2019}s diff against {}", owner.base_branch);
+    if let Some(c) = &counts {
+        diff_subtitle.push_str(&format!(" \u{b7} {c}"));
+    }
+    let title = facts.map(|f| f.title.clone()).unwrap_or_default();
+    let place = facts.and_then(|f| f.place.clone());
+    let menu_hint: Vec<String> = [place, lines.clone(), counts.clone()]
+        .into_iter()
+        .flatten()
+        .collect();
+    OwnerCard {
+        menu_label: if title.is_empty() {
+            key.clone()
+        } else {
+            format!("{key} \u{b7} {title}")
+        },
+        menu_hint: menu_hint.join(" \u{b7} "),
+        status: facts.and_then(status_words),
+        palette: facts.and_then(|f| f.line.as_ref().map(|(_, p)| *p)),
+        avatar: facts.and_then(|f| f.avatar.clone()),
+        branch: format!("{} \u{b7} from {}", owner.branch, owner.base_branch),
+        title,
+        colour,
+        lines,
+        counts,
+        diff_subtitle,
+        key,
+    }
+}
+
+/// "SHOP-26 changes it", "2 tickets change it".
+fn who_changes(owners: &[FileOwner]) -> Option<String> {
+    match owners {
+        [] => None,
+        [one] => Some(format!("{} changes it", one.key)),
+        many => Some(format!("{} tickets change it", many.len())),
+    }
+}
+
+/// "Binary file · 182 KB on main, 164 KB in SHOP-26".
+fn binary_line(file: &ProjectFile) -> String {
+    let mut sizes = vec![format!(
+        "{} on {}",
+        diff_vm::size_label(file.size),
+        file.source.base_branch
+    )];
+    for o in &file.owners {
+        match (o.file.status, o.file.size) {
+            (FileStatus::Deleted, _) => sizes.push(format!("deleted in {}", o.key)),
+            (_, Some(size)) => sizes.push(format!("{} in {}", diff_vm::size_label(size), o.key)),
+            (_, None) => {}
+        }
+    }
+    format!("Binary file \u{b7} {}", sizes.join(", "))
+}
+
+/// The base's lines with each column's bar; a huge file keeps only the lines around the changes, the rest folded.
+fn file_rows(
+    file: &ProjectFile,
+    columns: &[(&FileOwner, &'static str)],
+) -> (Vec<FileRow>, Option<String>) {
+    let lines = tab::code_lines(&file.path, &file.text);
+    let ranges: Vec<Vec<LineRange>> = columns
+        .iter()
+        .map(|(o, _)| {
+            file.lines
+                .iter()
+                .find(|l| l.key == o.key)
+                .map(|l| l.ranges.clone())
+                .unwrap_or_default()
+        })
+        .collect();
+    let bar = |ranges: &[LineRange], n: u32| -> Bar {
+        if ranges
+            .iter()
+            .any(|r| r.lines > 0 && r.start <= n && n < r.start + r.lines)
+        {
+            Bar::Line
+        } else if ranges.iter().any(|r| r.lines == 0 && r.start == n) {
+            Bar::AddAfter
+        } else if n == 1 && ranges.iter().any(|r| r.lines == 0 && r.start == 0) {
+            Bar::AddBefore
+        } else {
+            Bar::None
+        }
+    };
+    let every: Vec<LineRange> = ranges.iter().flatten().copied().collect();
+    let huge = lines.len() > HUGE_LINES && !every.is_empty();
+    let kept = |n: u32| {
+        !huge
+            || every.iter().any(|r| {
+                let first = range_first(*r).saturating_sub(FOLD_CONTEXT);
+                let last = range_last(*r) + u32::from(r.lines == 0) + FOLD_CONTEXT;
+                first <= n && n <= last
+            })
+    };
+    let mut rows = Vec::new();
+    let mut folded = 0usize;
+    let fold = |folded: &mut usize, rows: &mut Vec<FileRow>| {
+        if *folded > 0 {
+            rows.push(FileRow::Fold {
+                label: format!(
+                    "\u{22ef} {} {} unchanged",
+                    thousands(*folded),
+                    if *folded == 1 { "line" } else { "lines" }
+                ),
+            });
+            *folded = 0;
+        }
+    };
+    for line in lines.iter() {
+        if !kept(line.number) {
+            folded += 1;
+            continue;
+        }
+        fold(&mut folded, &mut rows);
+        rows.push(FileRow::Line {
+            number: line.number,
+            spans: line.spans.clone(),
+            bars: ranges.iter().map(|r| bar(r, line.number)).collect(),
+        });
+    }
+    fold(&mut folded, &mut rows);
+    let note = huge.then(|| {
+        let count = if file.truncated {
+            format!("More than {}", thousands(lines.len()))
+        } else {
+            thousands(lines.len())
+        };
+        format!(
+            "{count} lines: only the parts tickets change are shown, with the lines between folded."
+        )
+    });
+    (rows, note)
+}
+
+/// A file read with `files.project_read`, with its owners' facts from their cards.
+pub fn file_pane(file: &ProjectFile, facts: &BTreeMap<String, OwnerFacts>) -> FilePane {
+    let base = &file.source.base_branch;
+    let colours = owner_colours(file.owners.iter().map(|o| &o.key));
+    let deleting = file
+        .owners
+        .iter()
+        .find(|o| o.file.status == FileStatus::Deleted);
+    let diff_of = file.diff_of.as_ref().map(ToString::to_string);
+    let shown_as = file
+        .diff_of
+        .as_ref()
+        .and_then(|k| file.owners.iter().find(|o| &o.key == k));
+    let huge_lines = !file.binary && file.text.lines().count() > HUGE_LINES;
+    // On the base: its lines with the bars of the tickets on the project's base.
+    let columns: Vec<(&FileOwner, &'static str)> = file
+        .owners
+        .iter()
+        .zip(colours.iter().copied())
+        .filter(|(o, _)| !o.other_base)
+        .collect();
+    let (rows, huge) = if file.on_base && !file.binary {
+        file_rows(file, &columns)
+    } else {
+        (Vec::new(), None)
+    };
+    let (subtitle, narrow_subtitle) = match (file.on_base, deleting, shown_as) {
+        (false, _, owner) => {
+            let line = match owner {
+                Some(o) => format!(
+                    "not on {base} \u{b7} only on {} \u{b7} {}\u{2019}s diff",
+                    if o.other_base {
+                        &o.base_branch
+                    } else {
+                        &o.branch
+                    },
+                    o.key
+                ),
+                None => format!("not on {base}"),
+            };
+            (line.clone(), line)
+        }
+        (true, Some(d), _) => {
+            let line = format!("deleted by {} \u{b7} shown as it is on {base}", d.key);
+            (line.clone(), line)
+        }
+        (true, None, _) => {
+            let on = format!("on {base}");
+            let huge = huge_lines.then_some("huge file");
+            let wide: Vec<String> = [
+                Some(on.clone()),
+                huge.map(str::to_owned),
+                who_changes(&file.owners),
+            ]
+            .into_iter()
+            .flatten()
+            .chain([READ_ONLY.to_owned()])
+            .collect();
+            let narrow: Vec<String> = [Some(on), huge.map(str::to_owned)]
+                .into_iter()
+                .flatten()
+                .chain([READ_ONLY.to_owned()])
+                .collect();
+            (wide.join(" \u{b7} "), narrow.join(" \u{b7} "))
+        }
+    };
+    let other_base = match shown_as {
+        Some(o) if !file.on_base && o.other_base => Some(format!(
+            "{key} works on {branch}, not {base}. Its files show here tagged with that branch. This one doesn\u{2019}t \
+             exist on {base}, so it previews as {key}\u{2019}s diff. The same-file note only compares tickets on the \
+             same base branch.",
+            key = o.key,
+            branch = o.base_branch,
+        )),
+        _ => None,
+    };
+    let owners = file
+        .owners
+        .iter()
+        .zip(colours.iter().copied())
+        .map(|(o, colour)| {
+            let lines = owner_lines(
+                file.lines.iter().find(|l| l.key == o.key),
+                file.diff
+                    .as_ref()
+                    .filter(|_| shown_as.is_some_and(|s| s.key == o.key)),
+            );
+            owner_card(o, colour, facts.get(&o.key.to_string()), lines)
+        })
+        .collect();
+    FilePane {
+        path: file.path.clone(),
+        short_path: short_path(&file.path),
+        struck: deleting.is_some(),
+        subtitle,
+        narrow_subtitle,
+        modes: tab::FILE_MODES,
+        opens_in: if file.on_base {
+            FileMode::File
+        } else {
+            FileMode::Diff
+        },
+        can_file: file.on_base,
+        can_diff: !file.owners.is_empty(),
+        new_ticket: tab::NEW_TICKET,
+        new_ticket_body: tab::new_ticket_body(&file.path),
+        copy_path: COPY_PATH,
+        same_file: file.same_file.iter().map(|s| s.note.clone()).collect(),
+        other_base,
+        huge,
+        bars: columns
+            .iter()
+            .map(|(o, colour)| BarColumn {
+                key: o.key.to_string(),
+                colour,
+            })
+            .collect(),
+        rows,
+        note: (file.on_base && !file.binary && file.truncated).then(|| {
+            format!(
+                "Showing the first {} lines: the file is too long to show in full.",
+                file.text.lines().count()
+            )
+        }),
+        binary: (file.on_base && file.binary).then(|| binary_line(file)),
+        no_preview: (file.on_base && file.binary).then_some(NO_PREVIEW),
+        diff: file.diff.as_ref().map(diff_page::file_view),
+        diff_of,
+        owners,
+        changed_by: CHANGED_BY,
+        changed_by_hint: CHANGED_BY_HINT,
+        open_on_files: OPEN_ON_FILES,
+        open: OPEN,
+        diff_default: diff_default(&file.owners, facts),
+        of: OF,
+        diff_title: format!("Diff against {base}"),
+    }
+}
+
+// ---- All changes ----
+
+/// One ticket's group of All changes (FIL-08, `s28-06`): its tool, key, title, "Dev · Needs you: allow rm -rf .next?",
+/// "3 files · +13 −5" and Open, then its files (the first group open, its first file unfolded). `FilesViewGroup` on
+/// the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FilesViewGroup")]
+pub struct GroupView {
+    pub key: String,
+    pub title: String,
+    pub avatar: Option<ToolAvatarView>,
+    pub colour: &'static str,
+    pub status: Option<String>,
+    pub palette: Option<Palette>,
+    /// "3 files · +13 −5", "2 files · on release/2.3 · +26 −2".
+    pub summary: String,
+    /// Open at first: the first group.
+    pub open: bool,
+    /// The file unfolded at first in an open group: its first.
+    pub unfolded: Option<String>,
+    /// The tab's rows, without line comments (d0017: the view has none).
+    pub files: Vec<ChangeRow>,
+}
+
+/// All changes (FIL-08): Changed with no file picked. `FilesViewChanges` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "FilesViewChanges")]
+pub struct ChangesPane {
+    pub project: String,
+    pub title: &'static str,
+    /// "8 tickets · 11 files against main · grouped by ticket, the ones that need you first".
+    pub summary: String,
+    pub modes: [&'static str; 2],
+    pub side_by_side: bool,
+    pub side_by_side_from: f32,
+    pub groups: Vec<GroupView>,
+    pub empty: Option<EmptyView>,
+    pub open: &'static str,
+    pub open_file: &'static str,
+    pub load_diff: &'static str,
+}
+
+pub fn changes_pane(
+    changes: &ProjectChanges,
+    facts: &BTreeMap<String, OwnerFacts>,
+    memory: &ReviewMemory,
+) -> ChangesPane {
+    let c = &changes.counts;
+    let groups = changes
+        .groups
+        .iter()
+        .enumerate()
+        .map(|(i, g)| {
+            let t = &g.ticket;
+            let f = facts.get(&t.key.to_string());
+            let files: Vec<ChangeRow> = g
+                .files
+                .iter()
+                .map(|e| ChangeRow {
+                    commentable: false,
+                    ..tab::change_row(e)
+                })
+                .collect();
+            let summary: Vec<String> = [
+                Some(tab::files_label(g.files.len())),
+                t.other_base.then(|| format!("on {}", t.base_branch)),
+                tab::counts(t.added, t.removed),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            GroupView {
+                key: t.key.to_string(),
+                title: t.title.clone(),
+                avatar: f.and_then(|f| f.avatar.clone()),
+                colour: ticket_colour(&t.key),
+                status: match f {
+                    Some(f) => status_words(f),
+                    None => t.stage.clone(),
+                },
+                palette: f.and_then(|f| f.line.as_ref().map(|(_, p)| *p)),
+                summary: summary.join(" \u{b7} "),
+                open: i == 0,
+                unfolded: (i == 0)
+                    .then(|| files.first().map(|r| r.id.clone()))
+                    .flatten(),
+                files,
+            }
+        })
+        .collect();
+    ChangesPane {
+        project: changes.source.project.clone(),
+        title: tab::ALL_CHANGES,
+        summary: format!(
+            "{} \u{b7} {} against {} \u{b7} grouped by ticket, the ones that need you first",
+            plural(c.tickets, "ticket", "tickets"),
+            plural(c.changed, "file", "files"),
+            changes.source.base_branch
+        ),
+        modes: tab::MODES,
+        side_by_side: memory.side_by_side,
+        side_by_side_from: diff_vm::SIDE_BY_SIDE_FROM,
+        groups,
+        empty: changes.groups.is_empty().then(|| EmptyView {
+            title: EMPTY_TITLE,
+            text: EMPTY_TEXT.to_owned(),
+        }),
+        open: OPEN,
+        open_file: tab::OPEN_FILE,
+        load_diff: tab::LOAD_DIFF,
+    }
+}
+
 // ---- The example and the gallery ----
 
 /// The example's shop-web (page 28) as the view models read it: the tests' and the gallery's data.
 pub mod example {
     use otaq_core::board::files::{ChangedEntry, FilesFrom};
     use otaq_core::board::project_files::ChangeGroup;
-    use otaq_core::git::diff::ChangedFile;
+    use otaq_core::git::diff::{ChangedFile, DiffLine, Hunk, LineKind};
 
     use super::*;
 
@@ -702,6 +1415,8 @@ pub mod example {
 
     pub fn group(mut t: OwnerTicket, files: Vec<ChangedFile>) -> ChangeGroup {
         t.files = u32::try_from(files.len()).unwrap();
+        t.added = files.iter().map(|f| f.added).sum();
+        t.removed = files.iter().map(|f| f.removed).sum();
         ChangeGroup {
             ticket: t,
             files: files
@@ -780,6 +1495,420 @@ pub mod example {
         }
     }
 
+    /// The owners of `path` in [`shop_web`], in its groups' order.
+    pub fn owners_of(path: &str) -> Vec<FileOwner> {
+        by_path(&shop_web()).remove(path).unwrap_or_default()
+    }
+
+    /// What the cards say of the example's tickets: title, place, line and when each last changed.
+    pub fn facts() -> BTreeMap<String, OwnerFacts> {
+        let fact = |title: &str, place: &str, line: &str, palette, changed_at| OwnerFacts {
+            title: title.to_owned(),
+            place: Some(place.to_owned()),
+            line: Some((line.to_owned(), palette)),
+            avatar: None,
+            changed_at,
+        };
+        [
+            (
+                "SHOP-22",
+                fact(
+                    "Fix flaky login redirect",
+                    "Dev",
+                    "Needs you: allow rm -rf .next?",
+                    Palette::Attn,
+                    50,
+                ),
+            ),
+            (
+                "SHOP-18",
+                fact("Checkout API", "Review", "Your check", Palette::Review, 40),
+            ),
+            (
+                "SHOP-29",
+                fact(
+                    "Coupon field",
+                    "Dev",
+                    "Working \u{b7} back from Security",
+                    Palette::Working,
+                    30,
+                ),
+            ),
+            (
+                "SHOP-19",
+                fact(
+                    "Price table",
+                    "Security",
+                    "Checking \u{b7} round 1 of 3",
+                    Palette::Working,
+                    20,
+                ),
+            ),
+            (
+                "SHOP-36",
+                fact(
+                    "VAT rounding hotfix",
+                    "Dev",
+                    "Working",
+                    Palette::Working,
+                    10,
+                ),
+            ),
+        ]
+        .into_iter()
+        .map(|(k, f)| (k.to_owned(), f))
+        .collect()
+    }
+
+    fn range(start: u32, lines: u32) -> LineRange {
+        LineRange { start, lines }
+    }
+
+    /// pricing.ts on main (59 lines): SHOP-29 changes lines 41–52, SHOP-19 lines 47–58, both in applyDiscount.
+    pub fn pricing() -> ProjectFile {
+        let mut text: Vec<String> = vec![
+            "// Prices for the cart and the checkout.".to_owned(),
+            "import type { Coupon, Tier } from './types'".to_owned(),
+            String::new(),
+        ];
+        text.extend((4..=37).map(|n| format!("export const RATE_{n} = {n}")));
+        text.extend(
+            [
+                "import { Money } from './money'",
+                "",
+                "/** Applies a coupon, then the customer\u{2019}s tier, to a cart total. */",
+                "export function applyDiscount(total: Money, coupon?: Coupon, tier?: Tier): Money {",
+                "  if (!coupon) return applyTier(total, tier)",
+                "  if (coupon.expiresAt && coupon.expiresAt < now()) {",
+                "    throw new CouponExpired(coupon.code)",
+                "  }",
+                "  const off = coupon.kind === 'percent'",
+                "    ? total.times(coupon.value / 100)",
+                "    : Money.of(coupon.value, total.currency)",
+                "  const capped = Money.min(off, total)",
+                "  return applyTier(total.minus(capped), tier)",
+                "}",
+                "",
+                "function applyTier(total: Money, tier?: Tier): Money {",
+                "  if (!tier) return total",
+                "  const rate = TIER_RATES[tier]",
+                "  return total.times(1 - rate).round()",
+                "}",
+                "",
+                "export const TIER_RATES = { silver: 0.05, gold: 0.1 } as const",
+            ]
+            .map(str::to_owned),
+        );
+        ProjectFile {
+            source: base("main"),
+            path: "src/lib/pricing.ts".to_owned(),
+            on_base: true,
+            size: 1_812,
+            binary: false,
+            text: text.join("\n"),
+            truncated: false,
+            owners: owners_of("src/lib/pricing.ts"),
+            not_on_base: false,
+            diff: None,
+            diff_of: None,
+            lines: vec![
+                OwnerLines {
+                    key: key("SHOP-29"),
+                    ranges: vec![range(41, 12)],
+                },
+                OwnerLines {
+                    key: key("SHOP-19"),
+                    ranges: vec![range(47, 12)],
+                },
+            ],
+            same_file: vec![otaq_core::board::project_files::SameFile {
+                base_branch: "main".to_owned(),
+                keys: vec![key("SHOP-19"), key("SHOP-29")],
+                spans: vec![otaq_core::board::project_files::LineSpan {
+                    first: 41,
+                    last: 58,
+                }],
+                function: Some("applyDiscount".to_owned()),
+                note: "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41\u{2013}58). Whichever merges second \
+                       will rebase on the other."
+                    .to_owned(),
+            }],
+        }
+    }
+
+    fn diff_line(kind: LineKind, old: Option<u32>, new: Option<u32>, text: &str) -> DiffLine {
+        DiffLine {
+            kind,
+            old,
+            new,
+            text: text.to_owned(),
+            no_newline: false,
+        }
+    }
+
+    /// SHOP-29's change of pricing.ts (`s28-03`'s Diff).
+    pub fn pricing_diff() -> FileDiff {
+        use LineKind::*;
+        FileDiff {
+            file: file(FileStatus::Modified, "src/lib/pricing.ts", 7, 2),
+            hunks: vec![Hunk {
+                old_start: 41,
+                old_lines: 5,
+                new_start: 41,
+                new_lines: 11,
+                header: "export function applyDiscount".to_owned(),
+                lines: vec![
+                    diff_line(
+                        Context,
+                        Some(41),
+                        Some(41),
+                        "export function applyDiscount(total: Money, coupon?: Coupon, tier?: Tier): Money {",
+                    ),
+                    diff_line(
+                        Context,
+                        Some(42),
+                        Some(42),
+                        "  if (!coupon) return applyTier(total, tier)",
+                    ),
+                    diff_line(
+                        Added,
+                        None,
+                        Some(43),
+                        "  if (coupon.expiresAt && coupon.expiresAt < now()) {",
+                    ),
+                    diff_line(
+                        Added,
+                        None,
+                        Some(44),
+                        "    throw new CouponExpired(coupon.code)",
+                    ),
+                    diff_line(Added, None, Some(45), "  }"),
+                    diff_line(
+                        Removed,
+                        Some(43),
+                        None,
+                        "  const off = coupon.percent ? total.times(coupon.value / 100) : coupon.value",
+                    ),
+                    diff_line(
+                        Added,
+                        None,
+                        Some(46),
+                        "  const off = coupon.kind === 'percent'",
+                    ),
+                    diff_line(
+                        Added,
+                        None,
+                        Some(47),
+                        "    ? total.times(coupon.value / 100)",
+                    ),
+                    diff_line(
+                        Added,
+                        None,
+                        Some(48),
+                        "    : Money.of(coupon.value, total.currency)",
+                    ),
+                    diff_line(
+                        Removed,
+                        Some(44),
+                        None,
+                        "  return applyTier(total.minus(off), tier)",
+                    ),
+                    diff_line(
+                        Added,
+                        None,
+                        Some(49),
+                        "  const capped = Money.min(off, total)",
+                    ),
+                    diff_line(
+                        Added,
+                        None,
+                        Some(50),
+                        "  return applyTier(total.minus(capped), tier)",
+                    ),
+                    diff_line(Context, Some(45), Some(51), "}"),
+                ],
+            }],
+            truncated: false,
+        }
+    }
+
+    /// vat-table.ts, only on release/2.3 (`s28-05`): SHOP-36 adds it, so it previews as SHOP-36's diff.
+    pub fn vat_table() -> ProjectFile {
+        use LineKind::*;
+        let mut owner = owners_of("src/lib/vat.ts").remove(0);
+        owner.file = file(FileStatus::Added, "src/lib/vat-table.ts", 10, 0);
+        let lines = [
+            "// VAT rates as they were on release 2.3, kept for invoices issued then.",
+            "export const VAT_TABLE_2_3 = {",
+            "  DE: 0.19,",
+            "  FR: 0.2,",
+            "  NL: 0.21,",
+            "} as const",
+            "",
+            "export function vatFor(country: keyof typeof VAT_TABLE_2_3) {",
+            "  return VAT_TABLE_2_3[country]",
+            "}",
+        ];
+        ProjectFile {
+            source: base("main"),
+            path: "src/lib/vat-table.ts".to_owned(),
+            on_base: false,
+            size: 0,
+            binary: false,
+            text: String::new(),
+            truncated: false,
+            owners: vec![owner],
+            not_on_base: true,
+            diff: Some(FileDiff {
+                file: file(FileStatus::Added, "src/lib/vat-table.ts", 10, 0),
+                hunks: vec![Hunk {
+                    old_start: 0,
+                    old_lines: 0,
+                    new_start: 1,
+                    new_lines: 10,
+                    header: String::new(),
+                    lines: lines
+                        .iter()
+                        .enumerate()
+                        .map(|(i, l)| diff_line(Added, None, Some(i as u32 + 1), l))
+                        .collect(),
+                }],
+                truncated: false,
+            }),
+            diff_of: Some(key("SHOP-36")),
+            lines: Vec::new(),
+            same_file: Vec::new(),
+        }
+    }
+
+    /// legacy-price.ts, deleted by SHOP-19 (`s28-09`): shown as it is on main with SHOP-19's bar along it.
+    pub fn legacy_price() -> ProjectFile {
+        ProjectFile {
+            source: base("main"),
+            path: "src/lib/legacy-price.ts".to_owned(),
+            on_base: true,
+            size: 160,
+            binary: false,
+            text: "// Kept for orders placed before the tier rework.\nexport function legacyPrice(total: number, \
+                   pct: number) {\n  return Math.round(total * (1 - pct / 100))\n}"
+                .to_owned(),
+            truncated: false,
+            owners: owners_of("src/lib/legacy-price.ts"),
+            not_on_base: false,
+            diff: None,
+            diff_of: None,
+            lines: vec![OwnerLines {
+                key: key("SHOP-19"),
+                ranges: vec![range(1, 4)],
+            }],
+            same_file: Vec::new(),
+        }
+    }
+
+    /// og-image.png, which SHOP-26 replaces (`s28-10`): sizes, no preview.
+    pub fn og_image() -> ProjectFile {
+        let mut owner = owners_of("src/lib/vat.ts").remove(0);
+        owner.key = key("SHOP-26");
+        owner.branch = otaq_core::naming::branch("SHOP-26");
+        owner.base_branch = "main".to_owned();
+        owner.other_base = false;
+        owner.status = Status::PrOpen;
+        owner.file = ChangedFile {
+            binary: true,
+            size: Some(164 * 1024),
+            old_size: Some(182 * 1024),
+            ..file(FileStatus::Modified, "public/og-image.png", 0, 0)
+        };
+        ProjectFile {
+            source: base("main"),
+            path: "public/og-image.png".to_owned(),
+            on_base: true,
+            size: 182 * 1024,
+            binary: true,
+            text: String::new(),
+            truncated: false,
+            owners: vec![owner],
+            not_on_base: false,
+            diff: None,
+            diff_of: None,
+            lines: Vec::new(),
+            same_file: Vec::new(),
+        }
+    }
+
+    /// schema.graphql, 12,400 lines, SHOP-18 adding after line 2301 and changing line 6418 (`s28-10`).
+    pub fn schema() -> ProjectFile {
+        let mut owner = owners_of("prisma/schema.prisma").remove(0);
+        owner.file = file(FileStatus::Modified, "src/generated/schema.graphql", 9, 2);
+        let text: Vec<String> = (1..=12_400)
+            .map(|n| match n {
+                2301 => "type Coupon {".to_owned(),
+                2302 => "  code: String!".to_owned(),
+                2303 => "}".to_owned(),
+                6417 => "input ApplyCoupon {".to_owned(),
+                6418 => "  code: String".to_owned(),
+                6419 => "}".to_owned(),
+                n => format!("# line {n}"),
+            })
+            .collect();
+        ProjectFile {
+            source: base("main"),
+            path: "src/generated/schema.graphql".to_owned(),
+            on_base: true,
+            size: 300_000,
+            binary: false,
+            text: text.join("\n"),
+            truncated: false,
+            owners: vec![owner],
+            not_on_base: false,
+            diff: None,
+            diff_of: None,
+            lines: vec![OwnerLines {
+                key: key("SHOP-18"),
+                ranges: vec![range(2301, 0), range(6418, 1)],
+            }],
+            same_file: Vec::new(),
+        }
+    }
+
+    /// A long path (`s28-10`): cut in the middle, the full path on hover.
+    pub fn address_field() -> ProjectFile {
+        let path = "src/app/(storefront)/[locale]/(shop)/checkout/[step]/AddressField.tsx";
+        let mut owner = owners_of("src/middleware.ts").remove(0);
+        owner.key = key("SHOP-32");
+        owner.branch = otaq_core::naming::branch("SHOP-32");
+        owner.needs_you = false;
+        owner.status = Status::CheckFailed;
+        owner.file = file(FileStatus::Modified, path, 1, 1);
+        let text: Vec<String> = (1..=15)
+            .map(|n| match n {
+                12 => "export function AddressField({ step }: Props) {".to_owned(),
+                13 => "  const q = useAddressQuery(step.country)".to_owned(),
+                14 => "  // \u{2026}".to_owned(),
+                15 => "}".to_owned(),
+                n => format!("// {n}"),
+            })
+            .collect();
+        ProjectFile {
+            source: base("main"),
+            path: path.to_owned(),
+            on_base: true,
+            size: 420,
+            binary: false,
+            text: text.join("\n"),
+            truncated: false,
+            owners: vec![owner],
+            not_on_base: false,
+            diff: None,
+            diff_of: None,
+            lines: vec![OwnerLines {
+                key: key("SHOP-32"),
+                ranges: vec![range(13, 1)],
+            }],
+            same_file: Vec::new(),
+        }
+    }
+
     pub fn tab_of(k: &str) -> TabView {
         TabView {
             key: k.to_owned(),
@@ -802,14 +1931,29 @@ pub mod example {
     }
 }
 
-/// The gallery's Files view (`gallery.files_view`): shop-web on All with src/lib open and pricing.ts picked, Needs you,
-/// the loading and empty states, the picker and SHOP-29's worktree. `FilesViewGallery` on the page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+/// The gallery's Files view (`gallery.files_view`): shop-web on All with src/lib open and pricing.ts picked (its file,
+/// its Diff of SHOP-29), Needs you, Changed with All changes, the loading and empty states, the picker, SHOP-29's
+/// worktree, and the file states (another base, deleted, binary, huge, a long path). `FilesViewGallery` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "FilesViewGallery")]
 pub struct Gallery {
     pub all: Page,
     /// The rows of All with src and src/lib open, as the page draws them.
     pub all_rows: Vec<TreeRow>,
+    /// pricing.ts picked (`s28-03`).
+    pub file: FilePane,
+    /// Its Diff of SHOP-29.
+    pub diff: diff_page::FileView,
+    /// Changed with no file picked: All changes (`s28-06`).
+    pub changed: Page,
+    pub changes: ChangesPane,
+    /// vat-table.ts, only on release/2.3 (`s28-05`).
+    pub not_on_base: FilePane,
+    /// `s28-09`, `s28-10`.
+    pub deleted: FilePane,
+    pub binary: FilePane,
+    pub huge: FilePane,
+    pub long_path: FilePane,
     pub needs_you: Page,
     pub loading: Page,
     /// The bare base's top rows while the tickets' changes load.
@@ -887,7 +2031,11 @@ pub fn gallery() -> Gallery {
     all_rows.extend(top[4..].iter().cloned());
     let counts = changes.counts;
     let source = changes.source.clone();
-    let keys = Some("\u{2325}\u{2318}P".to_owned());
+    let keys = ViewKeys {
+        go_to_file: Some("\u{2325}\u{2318}P".to_owned()),
+        new_ticket: Some("\u{2318}N".to_owned()),
+    };
+    let facts = facts();
     let sources = ProjectSources {
         source: source.clone(),
         epics: vec![EpicSource {
@@ -909,6 +2057,22 @@ pub fn gallery() -> Gallery {
     Gallery {
         all: page(&source, Some(&counts), Filter::All, top, keys.clone(), true),
         all_rows,
+        file: file_pane(&pricing(), &facts),
+        diff: diff_page::file_view(&pricing_diff()),
+        changed: page(
+            &source,
+            Some(&counts),
+            Filter::Changed,
+            changed_rows(&changes, Filter::Changed),
+            keys.clone(),
+            true,
+        ),
+        changes: changes_pane(&changes, &facts, &ReviewMemory::default()),
+        not_on_base: file_pane(&vat_table(), &facts),
+        deleted: file_pane(&legacy_price(), &facts),
+        binary: file_pane(&og_image(), &facts),
+        huge: file_pane(&schema(), &facts),
+        long_path: file_pane(&address_field(), &facts),
         needs_you: page(
             &source,
             Some(&counts),
@@ -986,7 +2150,14 @@ mod tests {
                 "Same file \u{2026}"
             ]
         );
-        let p = page(&base("main"), None, Filter::All, Vec::new(), None, false);
+        let p = page(
+            &base("main"),
+            None,
+            Filter::All,
+            Vec::new(),
+            ViewKeys::default(),
+            false,
+        );
         assert_eq!(
             p.loading,
             Some("Loading the tickets\u{2019} changes\u{2026}")
@@ -1003,7 +2174,10 @@ mod tests {
             Some(&none),
             Filter::All,
             Vec::new(),
-            Some("⌥⌘P".into()),
+            ViewKeys {
+                go_to_file: Some("⌥⌘P".into()),
+                new_ticket: None,
+            },
             false,
         );
         let empty = p.empty.unwrap();
@@ -1037,7 +2211,14 @@ mod tests {
         };
         let mut source = base("develop");
         source.project = "BILL".to_owned();
-        let p = page(&source, Some(&counts), Filter::All, Vec::new(), None, false);
+        let p = page(
+            &source,
+            Some(&counts),
+            Filter::All,
+            Vec::new(),
+            ViewKeys::default(),
+            false,
+        );
         assert_eq!(p.base_branch, "develop");
         assert_eq!(
             p.source.title,
@@ -1100,14 +2281,16 @@ mod tests {
         );
         assert!(rows[0].struck && !rows[2].struck);
         assert!(rows[1].quiet && !rows[2].quiet);
+        // Each ticket in its own colour, the colour of its bar (Q456).
         assert_eq!(
-            rows[2].chips.iter().map(|c| c.tone).collect::<Vec<_>>(),
-            [Tone::Working, Tone::Working]
+            rows[2].chips.iter().map(|c| c.colour).collect::<Vec<_>>(),
+            owner_colours([&key("SHOP-29"), &key("SHOP-19")])
         );
+        assert_ne!(rows[2].chips[0].colour, rows[2].chips[1].colour);
         let folder = entry_rows(&[entry("src", "src", EntryKind::Folder, 8)], 0);
         assert_eq!(texts(&folder), ["src 8 changed"]);
         assert_eq!(folder[0].mark, None);
-        // SHOP-22 needs you: turquoise; SHOP-18 in your check: also needs you; its middleware is uncommitted.
+        // SHOP-22's middleware is uncommitted.
         let mid = entry_rows(
             &[entry(
                 "middleware.ts",
@@ -1117,14 +2300,11 @@ mod tests {
             )],
             1,
         );
-        assert_eq!(mid[0].chips[0].tone, Tone::Attention);
+        assert_eq!(mid[0].chips[0].colour, ticket_colour(&key("SHOP-22")));
         assert_eq!(
             mid[0].mark.as_ref().unwrap().uncommitted,
             Some("uncommitted")
         );
-        assert_eq!(tone(Status::WaitingForYou, false), Tone::Review);
-        assert_eq!(tone(Status::PrOpen, false), Tone::Muted);
-        assert_eq!(tone(Status::CheckFailed, false), Tone::Error);
     }
 
     /// Changed, Needs you and Same file list their files as a tree, every folder open with its count.
@@ -1388,5 +2568,421 @@ mod tests {
         assert!(!agent_works(Status::NeedsYou));
         assert!(!agent_works(Status::WaitingForYou));
         assert!(!agent_works(Status::PrOpen));
+    }
+
+    /// The bars of a line, as `|` (along it), `^` (a tick after it), `v` (a tick before it) or `.`.
+    fn bars_at(pane: &FilePane, number: u32) -> String {
+        pane.rows
+            .iter()
+            .find_map(|r| match r {
+                FileRow::Line {
+                    number: n, bars, ..
+                } if *n == number => Some(
+                    bars.iter()
+                        .map(|b| match b {
+                            Bar::None => '.',
+                            Bar::Line => '|',
+                            Bar::AddAfter => '^',
+                            Bar::AddBefore => 'v',
+                        })
+                        .collect(),
+                ),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no line {number}"))
+    }
+
+    fn row_texts(pane: &FilePane) -> Vec<String> {
+        pane.rows
+            .iter()
+            .map(|r| match r {
+                FileRow::Line { number, .. } => number.to_string(),
+                FileRow::Fold { label } => label.clone(),
+            })
+            .collect()
+    }
+
+    /// `s28-03`: pricing.ts on main, a bar per ticket beside its lines, the same-file note word for word, Changed by
+    /// with each ticket's line, branch, lines and +/−; the narrow subtitle (`s28-08`) and New ticket's body.
+    #[test]
+    fn a_file_has_a_bar_per_ticket_the_note_and_changed_by() {
+        let p = file_pane(&pricing(), &facts());
+        assert_eq!(p.path, "src/lib/pricing.ts");
+        assert_eq!(
+            p.subtitle,
+            "on main \u{b7} 2 tickets change it \u{b7} read-only"
+        );
+        assert_eq!(p.narrow_subtitle, "on main \u{b7} read-only");
+        assert_eq!(p.modes, ["File", "Diff"]);
+        assert_eq!(p.opens_in, FileMode::File);
+        assert!(p.can_file && p.can_diff && !p.struck);
+        assert_eq!(
+            p.same_file,
+            [
+                "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41\u{2013}58). Whichever merges second will \
+              rebase on the other."
+            ]
+        );
+        assert_eq!(p.other_base, None);
+        assert_eq!(p.huge, None);
+        // One column per ticket, in Changed by's order, in the chips' colours.
+        let colours = owner_colours([&key("SHOP-29"), &key("SHOP-19")]);
+        assert_eq!(
+            p.bars
+                .iter()
+                .map(|b| (b.key.as_str(), b.colour))
+                .collect::<Vec<_>>(),
+            [("SHOP-29", colours[0]), ("SHOP-19", colours[1])]
+        );
+        assert_eq!(bars_at(&p, 40), "..");
+        assert_eq!(bars_at(&p, 41), "|.");
+        assert_eq!(bars_at(&p, 47), "||");
+        assert_eq!(bars_at(&p, 52), "||");
+        assert_eq!(bars_at(&p, 53), ".|");
+        assert_eq!(bars_at(&p, 59), "..");
+        assert_eq!(p.rows.len(), 59, "a small file shows whole");
+        // Changed by.
+        assert_eq!(
+            (p.changed_by, p.open_on_files),
+            ("Changed by", "Open on Files")
+        );
+        assert_eq!(
+            p.changed_by_hint,
+            "Click a ticket to open its sheet on the Files tab. Diff shows one ticket\u{2019}s change at a time."
+        );
+        let card = |o: &OwnerCard| {
+            [
+                o.key.clone(),
+                o.title.clone(),
+                o.status.clone().unwrap_or_default(),
+                o.branch.clone(),
+                o.lines.clone().unwrap_or_default(),
+                o.counts.clone().unwrap_or_default(),
+            ]
+            .join(" | ")
+        };
+        assert_eq!(
+            p.owners.iter().map(card).collect::<Vec<_>>(),
+            [
+                format!(
+                    "SHOP-29 | Coupon field | Dev \u{b7} Working \u{b7} back from Security | {} \u{b7} from main | \
+                     lines 41\u{2013}52 | +7 \u{2212}2",
+                    otaq_core::naming::branch("SHOP-29")
+                ),
+                format!(
+                    "SHOP-19 | Price table | Security \u{b7} Checking \u{b7} round 1 of 3 | {} \u{b7} from main | \
+                     lines 47\u{2013}58 | +5 \u{2212}2",
+                    otaq_core::naming::branch("SHOP-19")
+                ),
+            ]
+        );
+        assert_eq!(p.owners[0].colour, colours[0]);
+        assert_eq!(p.owners[0].palette, Some(Palette::Working));
+        // New ticket from this file: the path in the description (FIL-09).
+        assert_eq!(p.new_ticket, "New ticket from this file");
+        assert_eq!(p.new_ticket_body, "`src/lib/pricing.ts`\n\n");
+        assert_eq!(p.copy_path, "Copy path");
+        assert_eq!(p.short_path, None);
+    }
+
+    /// FIL-05: Diff starts on the ticket that needs you, else the last to change it; "of SHOP-29 ▾" lists each with
+    /// its stage, lines and +/−.
+    #[test]
+    fn diff_starts_on_the_one_that_needs_you_else_the_last_to_change_it() {
+        let p = file_pane(&pricing(), &facts());
+        assert_eq!(p.diff_default.as_deref(), Some("SHOP-29"), "changed last");
+        assert_eq!((p.of, p.diff_title.as_str()), ("of", "Diff against main"));
+        assert_eq!(
+            p.owners
+                .iter()
+                .map(|o| (o.menu_label.as_str(), o.menu_hint.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    "SHOP-29 \u{b7} Coupon field",
+                    "Dev \u{b7} lines 41\u{2013}52 \u{b7} +7 \u{2212}2"
+                ),
+                (
+                    "SHOP-19 \u{b7} Price table",
+                    "Security \u{b7} lines 47\u{2013}58 \u{b7} +5 \u{2212}2"
+                ),
+            ]
+        );
+        assert_eq!(
+            p.owners[0].diff_subtitle,
+            "SHOP-29\u{2019}s diff against main \u{b7} +7 \u{2212}2"
+        );
+        // SHOP-19 changed later: it starts there.
+        let mut later = facts();
+        later.get_mut("SHOP-19").unwrap().changed_at = 99;
+        assert_eq!(
+            file_pane(&pricing(), &later).diff_default.as_deref(),
+            Some("SHOP-19")
+        );
+        // One needing you wins over the latest.
+        let mut file = pricing();
+        file.owners[1].needs_you = true;
+        assert_eq!(
+            file_pane(&file, &facts()).diff_default.as_deref(),
+            Some("SHOP-19")
+        );
+        // The Diff's lines are SHOP-29's change, highlighted (diff_page).
+        let diff = diff_page::file_view(&pricing_diff());
+        assert_eq!(diff.hunks[0].lines.len(), 13);
+    }
+
+    /// `s28-05`: vat-table.ts exists only on release/2.3: "not on main", File off, SHOP-36's diff, the note; a ticket
+    /// on another base never has a bar on main's lines (Q454).
+    #[test]
+    fn a_file_only_on_another_base_previews_as_its_diff() {
+        let p = file_pane(&vat_table(), &facts());
+        assert_eq!(
+            p.subtitle,
+            "not on main \u{b7} only on release/2.3 \u{b7} SHOP-36\u{2019}s diff"
+        );
+        assert_eq!(p.opens_in, FileMode::Diff);
+        assert!(!p.can_file && p.can_diff);
+        assert_eq!(p.diff_of.as_deref(), Some("SHOP-36"));
+        assert_eq!(p.diff.as_ref().unwrap().hunks[0].lines.len(), 10);
+        assert_eq!(
+            p.other_base.as_deref(),
+            Some(
+                "SHOP-36 works on release/2.3, not main. Its files show here tagged with that branch. This one \
+                 doesn\u{2019}t exist on main, so it previews as SHOP-36\u{2019}s diff. The same-file note only \
+                 compares tickets on the same base branch."
+            )
+        );
+        assert!(p.rows.is_empty() && p.bars.is_empty());
+        assert_eq!(
+            p.owners[0].branch,
+            format!(
+                "{} \u{b7} from release/2.3",
+                otaq_core::naming::branch("SHOP-36")
+            )
+        );
+        assert_eq!(p.owners[0].lines.as_deref(), Some("lines 1\u{2013}10"));
+        assert_eq!(
+            p.owners[0].diff_subtitle,
+            "SHOP-36\u{2019}s diff against release/2.3 \u{b7} +10"
+        );
+        // On main with a ticket of another base too: only main's tickets get a bar.
+        let mut file = pricing();
+        let mut other = owners_of("src/lib/vat.ts").remove(0);
+        other.file.path = "src/lib/pricing.ts".to_owned();
+        file.owners.push(other);
+        let p = file_pane(&file, &facts());
+        assert_eq!(p.owners.len(), 3);
+        assert_eq!(
+            p.bars.iter().map(|b| b.key.as_str()).collect::<Vec<_>>(),
+            ["SHOP-29", "SHOP-19"]
+        );
+        assert_eq!(bars_at(&p, 47), "||");
+    }
+
+    /// FIL-08, `s28-06`: grouped by ticket, the ones that need you first (SHOP-22), each with its line, files, +/−
+    /// and Open; the first group open on its first file; no line comments.
+    #[test]
+    fn all_changes_are_grouped_by_ticket_the_ones_that_need_you_first() {
+        let c = changes_pane(&shop_web(), &facts(), &ReviewMemory::default());
+        assert_eq!(c.title, "All changes");
+        assert_eq!(
+            c.summary,
+            "5 tickets \u{b7} 8 files against main \u{b7} grouped by ticket, the ones that need you first"
+        );
+        assert_eq!(c.modes, ["Unified", "Split"]);
+        let groups: Vec<String> = c
+            .groups
+            .iter()
+            .map(|g| {
+                format!(
+                    "{} {} \u{b7} {} \u{b7} {}",
+                    g.key,
+                    g.title,
+                    g.status.clone().unwrap_or_default(),
+                    g.summary
+                )
+            })
+            .collect();
+        assert_eq!(
+            groups,
+            [
+                "SHOP-22 Fix flaky login redirect \u{b7} Dev \u{b7} Needs you: allow rm -rf .next? \u{b7} 3 files \
+                 \u{b7} +13 \u{2212}5",
+                "SHOP-18 Checkout API \u{b7} Review \u{b7} Your check \u{b7} 2 files \u{b7} +3 \u{2212}1",
+                "SHOP-29 Coupon field \u{b7} Dev \u{b7} Working \u{b7} back from Security \u{b7} 1 file \u{b7} +7 \
+                 \u{2212}2",
+                "SHOP-19 Price table \u{b7} Security \u{b7} Checking \u{b7} round 1 of 3 \u{b7} 2 files \u{b7} +5 \
+                 \u{2212}33",
+                "SHOP-36 VAT rounding hotfix \u{b7} Dev \u{b7} Working \u{b7} 1 file \u{b7} on release/2.3 \u{b7} \
+                 +3 \u{2212}1",
+            ]
+        );
+        assert!(c.groups[0].open && !c.groups[1].open);
+        assert_eq!(c.groups[0].unfolded.as_deref(), Some("e2e/login.spec.ts"));
+        assert_eq!(c.groups[1].unfolded, None);
+        assert!(
+            c.groups
+                .iter()
+                .flat_map(|g| &g.files)
+                .all(|f| !f.commentable)
+        );
+        assert_eq!(c.groups[0].files[2].mark.uncommitted, Some("uncommitted"));
+        assert_eq!(c.groups[0].colour, ticket_colour(&key("SHOP-22")));
+        assert!(
+            !c.groups[3].files[0].can_open,
+            "a deleted file has nothing to open"
+        );
+        assert_eq!((c.open, c.open_file), ("Open", "Open file"));
+        assert_eq!(c.empty, None);
+        let none = ProjectChanges {
+            groups: Vec::new(),
+            counts: ProjectCounts::default(),
+            ..shop_web()
+        };
+        let empty = changes_pane(&none, &facts(), &ReviewMemory::default());
+        assert_eq!(
+            empty.empty.unwrap().text,
+            "Start one from the board, or ask the Project agent."
+        );
+    }
+
+    /// The view's page: the subtitle while a picked file is read (`s28-09`) and a file's menu (FIL-09, `s28-07`).
+    #[test]
+    fn a_files_menu_and_the_checking_line() {
+        let p = page(
+            &base("main"),
+            None,
+            Filter::All,
+            Vec::new(),
+            ViewKeys {
+                go_to_file: None,
+                new_ticket: Some("\u{2318}N".to_owned()),
+            },
+            false,
+        );
+        assert_eq!(
+            p.checking,
+            "on main \u{b7} checking which tickets change it\u{2026}"
+        );
+        assert_eq!(
+            p.menu
+                .iter()
+                .map(|m| (m.id.as_str(), m.label.as_str(), m.shortcut.as_deref()))
+                .collect::<Vec<_>>(),
+            [
+                ("new_ticket", "New ticket from this file", Some("\u{2318}N")),
+                ("copy_path", "Copy path", None),
+            ]
+        );
+    }
+
+    /// `s28-09`, `s28-10`: deleted, binary, huge and long-path files.
+    #[test]
+    fn deleted_binary_huge_and_long_files() {
+        let deleted = file_pane(&legacy_price(), &facts());
+        assert!(deleted.struck);
+        assert_eq!(
+            deleted.subtitle,
+            "deleted by SHOP-19 \u{b7} shown as it is on main"
+        );
+        assert_eq!(deleted.opens_in, FileMode::File);
+        assert_eq!(row_texts(&deleted), ["1", "2", "3", "4"]);
+        assert!((1..=4).all(|n| bars_at(&deleted, n) == "|"));
+
+        let binary = file_pane(&og_image(), &facts());
+        assert_eq!(
+            binary.binary.as_deref(),
+            Some("Binary file \u{b7} 182 KB on main, 164 KB in SHOP-26")
+        );
+        assert_eq!(binary.no_preview, Some("No preview"));
+        assert!(binary.rows.is_empty());
+        assert_eq!(
+            binary.subtitle,
+            "on main \u{b7} SHOP-26 changes it \u{b7} read-only"
+        );
+        assert_eq!(binary.owners[0].counts.as_deref(), Some("binary"));
+
+        let huge = file_pane(&schema(), &facts());
+        assert_eq!(
+            huge.subtitle,
+            "on main \u{b7} huge file \u{b7} SHOP-18 changes it \u{b7} read-only"
+        );
+        assert_eq!(
+            huge.huge.as_deref(),
+            Some(
+                "12,400 lines: only the parts tickets change are shown, with the lines between folded."
+            )
+        );
+        let rows = row_texts(&huge);
+        assert_eq!(rows[0], "\u{22ef} 2,297 lines unchanged");
+        assert_eq!(
+            rows[1..9],
+            [
+                "2298", "2299", "2300", "2301", "2302", "2303", "2304", "2305"
+            ]
+        );
+        assert_eq!(rows[9], "\u{22ef} 4,109 lines unchanged");
+        assert_eq!(
+            rows[10..17],
+            ["6415", "6416", "6417", "6418", "6419", "6420", "6421"]
+        );
+        assert_eq!(rows[17], "\u{22ef} 5,979 lines unchanged");
+        assert_eq!(rows.len(), 18);
+        assert_eq!(
+            bars_at(&huge, 2301),
+            "^",
+            "an addition after 2301 is a tick"
+        );
+        assert_eq!(bars_at(&huge, 2302), ".");
+        assert_eq!(bars_at(&huge, 6418), "|");
+
+        let long = file_pane(&address_field(), &facts());
+        assert_eq!(
+            long.short_path.as_deref(),
+            Some("src/app/(storefront)/\u{2026}/checkout/[step]/AddressField.tsx")
+        );
+        assert_eq!(
+            long.path,
+            "src/app/(storefront)/[locale]/(shop)/checkout/[step]/AddressField.tsx"
+        );
+        assert_eq!(long.owners[0].lines.as_deref(), Some("line 13"));
+        assert_eq!(short_path("src/lib/pricing.ts"), None);
+        assert_eq!(thousands(999), "999");
+        assert_eq!(thousands(1_000), "1,000");
+    }
+
+    /// A ticket's colour stays its own; two tickets of one file never share one.
+    #[test]
+    fn each_ticket_has_its_colour() {
+        assert_eq!(
+            ticket_colour(&key("SHOP-29")),
+            ticket_colour(&key("SHOP-29"))
+        );
+        let same = key("SHOP-41"); // 41 and 29 fall on the same colour
+        assert_eq!(ticket_colour(&same), ticket_colour(&key("SHOP-29")));
+        let both = owner_colours([&key("SHOP-29"), &same]);
+        assert_eq!(both[0], ticket_colour(&key("SHOP-29")));
+        assert_ne!(both[0], both[1]);
+    }
+
+    /// billing-api on develop: the file's labels say develop.
+    #[test]
+    fn a_file_on_develop_says_develop() {
+        let mut file = pricing();
+        file.source = base("develop");
+        for o in &mut file.owners {
+            o.base_branch = "develop".to_owned();
+        }
+        let p = file_pane(&file, &facts());
+        assert_eq!(
+            p.subtitle,
+            "on develop \u{b7} 2 tickets change it \u{b7} read-only"
+        );
+        assert_eq!(p.diff_title, "Diff against develop");
+        assert!(p.owners[0].branch.ends_with("\u{b7} from develop"));
+        assert_eq!(
+            p.owners[0].diff_subtitle,
+            "SHOP-29\u{2019}s diff against develop \u{b7} +7 \u{2212}2"
+        );
     }
 }

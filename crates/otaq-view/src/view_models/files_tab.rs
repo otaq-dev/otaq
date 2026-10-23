@@ -310,13 +310,14 @@ pub struct TreeRow {
     pub struck: bool,
 }
 
-/// A ticket's chip on a file of the project Files view: its key in its status colour (FIL-03). `FilesChip` on the
-/// page.
+/// A ticket's chip on a file of the project Files view: its key in the ticket's colour, the colour of its bar beside
+/// the lines it changes (FIL-03, FIL-05; Q456). `FilesChip` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FilesChip")]
 pub struct ChipView {
     pub key: String,
-    pub tone: super::card::Tone,
+    /// The theme token: `ansi-4`.
+    pub colour: &'static str,
 }
 
 /// The running child writing a file on top of the epic's branch, by key.
@@ -631,7 +632,7 @@ pub struct ChangesView {
     pub load_diff: &'static str,
 }
 
-fn change_row(entry: &ChangedEntry) -> ChangeRow {
+pub fn change_row(entry: &ChangedEntry) -> ChangeRow {
     let file = &entry.file;
     let child = entry.child.as_ref().map(ToString::to_string);
     ChangeRow {
@@ -661,7 +662,7 @@ fn change_row(entry: &ChangedEntry) -> ChangeRow {
 }
 
 /// "1 file", "3 files".
-fn files_label(n: usize) -> String {
+pub(crate) fn files_label(n: usize) -> String {
     if n == 1 {
         "1 file".to_owned()
     } else {
@@ -829,6 +830,34 @@ fn child_subtitle(child: &TicketKey) -> String {
     format!("{short}\u{2019}s change, on top of the epic\u{2019}s branch \u{b7} not merged yet")
 }
 
+/// A file's text as numbered lines, highlighted by its name (the project Files view's file too).
+pub fn code_lines(path: &str, text: &str) -> Vec<CodeLine> {
+    let texts: Vec<&str> = text.lines().collect();
+    let spans = highlight::highlight(path, &texts);
+    texts
+        .iter()
+        .enumerate()
+        .map(|(i, text)| CodeLine {
+            number: i as u32 + 1,
+            spans: match spans.get(i) {
+                Some(spans) => spans
+                    .iter()
+                    .filter_map(|(range, token)| {
+                        Some(SpanView {
+                            text: text.get(range.clone())?.to_owned(),
+                            token: (*token).into(),
+                        })
+                    })
+                    .collect(),
+                None => vec![SpanView {
+                    text: (*text).to_owned(),
+                    token: TokenView::Plain,
+                }],
+            },
+        })
+        .collect()
+}
+
 /// A file read with `files.read`.
 pub fn file_page(content: &FileContent) -> FilePage {
     let changed = content.change.as_ref();
@@ -856,30 +885,7 @@ pub fn file_page(content: &FileContent) -> FilePage {
     let lines = if content.binary {
         Vec::new()
     } else {
-        let texts: Vec<&str> = content.text.lines().collect();
-        let spans = highlight::highlight(&content.path, &texts);
-        texts
-            .iter()
-            .enumerate()
-            .map(|(i, text)| CodeLine {
-                number: i as u32 + 1,
-                spans: match spans.get(i) {
-                    Some(spans) => spans
-                        .iter()
-                        .filter_map(|(range, token)| {
-                            Some(SpanView {
-                                text: text.get(range.clone())?.to_owned(),
-                                token: (*token).into(),
-                            })
-                        })
-                        .collect(),
-                    None => vec![SpanView {
-                        text: (*text).to_owned(),
-                        token: TokenView::Plain,
-                    }],
-                },
-            })
-            .collect()
+        code_lines(&content.path, &content.text)
     };
     let note = if content.binary {
         Some(format!(

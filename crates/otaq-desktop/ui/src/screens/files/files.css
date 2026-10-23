@@ -354,6 +354,26 @@
   color: var(--text-muted);
 }
 
+/* A folded file of the project Files view's All changes: its header line opens it. */
+.files-fold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.files-fold:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 .files-change-name {
   min-width: 0;
   color: var(--text-primary);
@@ -790,27 +810,12 @@
   white-space: nowrap;
 }
 
+/* The dot takes the ticket's colour (`ansi-*`, set inline), the colour of its bar beside the file's lines. */
 .files-chip-dot {
   width: 6px;
   height: 6px;
   border-radius: 2px;
   background: var(--text-muted);
-}
-
-.files-chip[data-tone="attention"] .files-chip-dot {
-  background: var(--st-attn);
-}
-
-.files-chip[data-tone="working"] .files-chip-dot {
-  background: var(--st-working);
-}
-
-.files-chip[data-tone="review"] .files-chip-dot {
-  background: var(--st-review);
-}
-
-.files-chip[data-tone="error"] .files-chip-dot {
-  background: var(--st-error);
 }
 
 .files-branch {

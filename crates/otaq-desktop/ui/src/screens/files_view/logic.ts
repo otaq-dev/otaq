@@ -1,8 +1,11 @@
-// The project Files view's interaction state (UIT-04): the filter, the folders opened, the file picked, the source
-// picked in the picker and what is typed in it, per project while the app runs. Everything worded or counted comes
-// from Rust (`files_view.rs`).
+// The project Files view's interaction state (UIT-04): the filter, the folders opened, the file picked with File or
+// Diff and Diff's ticket, the source picked in the picker and what is typed in it, per project while the app runs.
+// Everything worded or counted comes from Rust (`files_view.rs`).
 import { createStore, type Store } from "../../app/store";
+import type { FilesFileMode } from "../../generated/FilesFileMode";
+import type { FilesViewFile } from "../../generated/FilesViewFile";
 import type { FilesViewFilter } from "../../generated/FilesViewFilter";
+import type { MenuItem } from "../../generated/MenuItem";
 import type { FilesViewPicker } from "../../generated/FilesViewPicker";
 import type { FilesViewPickerSection } from "../../generated/FilesViewPickerSection";
 import { folders, searchFocus } from "../files/logic";
@@ -18,11 +21,68 @@ export interface ViewState {
   open: ReadonlySet<string>;
   /** The file picked in the tree or the search. */
   file: string | null;
+  /** File or Diff, as chosen for the picked file; `null`: as it opens. */
+  mode: FilesFileMode | null;
+  /** Diff's ticket, as chosen in "of SHOP-29 ▾"; `null`: the one the file starts on. */
+  diffOf: string | null;
   /** A ticket or epic picked in the picker (its key); `null`: the base branch with every ticket's changes. */
   picked: string | null;
 }
 
-export const FIRST: ViewState = { filter: "all", open: new Set(), file: null, picked: null };
+export const FIRST: ViewState = {
+  filter: "all",
+  open: new Set(),
+  file: null,
+  mode: null,
+  diffOf: null,
+  picked: null,
+};
+
+/** A file picked where it shows (the tree, All changes' Open file): as it opens, on its first ticket. */
+export function withFile(state: ViewState, path: string | null): ViewState {
+  return state.file === path ? state : { ...state, file: path, mode: null, diffOf: null };
+}
+
+/** A filter chosen: Changed with no file shows All changes (FIL-08), so choosing it drops the picked file. */
+export function withFilter(state: ViewState, filter: FilesViewFilter): ViewState {
+  return filter === "changed" ? { ...withFile(state, null), filter } : { ...state, filter };
+}
+
+/** How the file shows: as chosen, else as it opens; File is off for a file not on the base, Diff for one nobody
+ * changes. */
+export function shownFileMode(mode: FilesFileMode | null, view: FilesViewFile): FilesFileMode {
+  const wanted = mode ?? view.opens_in;
+  if (!view.can_file) return "diff";
+  if (!view.can_diff) return "file";
+  return wanted;
+}
+
+/** Diff's ticket: the one chosen while it still changes the file, else the one it starts on (FIL-05). */
+export function diffOwner(chosen: string | null, view: FilesViewFile): string | null {
+  if (chosen !== null && view.owners.some((o) => o.key === chosen)) return chosen;
+  return view.diff_default ?? view.owners[0]?.key ?? null;
+}
+
+/** "of SHOP-29 ▾"'s list: "Diff against main", then each ticket with its stage, lines and +/−, the shown one checked. */
+export function ownerMenu(view: FilesViewFile, current: string | null): MenuItem[] {
+  const item = (fields: Partial<MenuItem> & Pick<MenuItem, "id" | "label">): MenuItem => ({
+    icon: null,
+    shortcut: null,
+    danger: false,
+    disabled: false,
+    hint: null,
+    separated: false,
+    checked: false,
+    header: false,
+    ...fields,
+  });
+  return [
+    item({ id: "", label: view.diff_title, header: true }),
+    ...view.owners.map((o) =>
+      item({ id: o.key, label: o.menu_label, hint: o.menu_hint, checked: o.key === current }),
+    ),
+  ];
+}
 
 /** Each project's view while the app runs, so leaving the view and coming back keeps it. */
 export const viewStates: Store<ReadonlyMap<string, ViewState>> = createStore<ReadonlyMap<string, ViewState>>(
@@ -33,7 +93,7 @@ export const viewStates: Store<ReadonlyMap<string, ViewState>> = createStore<Rea
 export function pickFile(state: ViewState, path: string): ViewState {
   const open = new Set(state.open);
   for (const folder of folders(path)) open.add(folder);
-  return { ...state, filter: "all", file: path, open };
+  return { ...withFile(state, path), filter: "all", open };
 }
 
 /** The picker's sections with only the rows whose key or title holds `query` (any case); empty sections go. */
