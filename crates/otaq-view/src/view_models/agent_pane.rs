@@ -1,8 +1,10 @@
-//! The Project agent pane (T-0326, T-0342; SHL-04, PAG-01, PAG-05, PAG-06, PAG-07, TKT-08; d0087, d0086, d0068,
-//! d0060, d0077, d0018;
+//! The Project agent panel (T-0326, T-0342, T-0458; SHL-04, SHB-03, PAG-01, PAG-05, PAG-06, PAG-07, TKT-08; d0113,
+//! d0087, d0086, d0068, d0060, d0077, d0018;
 //! *18 · Project agents & terminals → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row · More pane
-//! states (0086 · V)*, *Row · Switching agents, attention (0086 · V)*): everything the pane between the rail and the
-//! main area draws, for one project and the agent it shows.
+//! states (0086 · V)*, *Row · Switching agents, attention (0086 · V)*, *24 → Row · The Project agent* `s24-05`):
+//! everything the panel between the rail and the main area draws while it is open, for one project and the
+//! conversation it shows. Closed, the Project agent is the Ask bar (`ask_bar.rs`). The code still calls it "the
+//! pane", as `pane.*` and the page do.
 //!
 //! The pane shows one Project agent, or the **empty pane** "Ask the Project agent". The empty pane is the page's own
 //! state, never a session or a row: no agent exists until the first message is sent, and that message is the
@@ -46,8 +48,11 @@ pub fn agent_waits(agent: &ProjectAgent) -> bool {
         && !agent.focused
 }
 
-/// The empty pane's header.
-pub const TITLE: &str = "Project agent";
+/// The panel's name in its header, before the conversation switcher (`s24-05`).
+pub const LABEL: &str = "Project agent";
+
+/// The switcher's text on the empty pane: the conversation the first message starts.
+pub const TITLE: &str = "New conversation";
 
 /// The example prompts: a fixed generic set, the same for every project (d0087, Q-E). A click fills the box and
 /// never sends.
@@ -78,12 +83,15 @@ pub struct Button {
     pub keys: Option<String>,
 }
 
-/// The pane's header: the bot icon, the switcher (the name ▾), the state pill, Recently ended, + and ….
+/// The panel's header (`s24-05`): the bot icon, "Project agent", the switcher (the conversation's name ▾), the state
+/// pill, …, Recently ended, + and the close icon.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "PaneHeader")]
 pub struct Header {
     pub icon: IconName,
-    /// The shown agent's name, or "Project agent" on the empty pane.
+    /// "Project agent".
+    pub label: &'static str,
+    /// The shown conversation's name, or "New conversation" on the empty pane.
     pub title: String,
     /// "New agent" until it is named reads muted.
     pub unnamed: bool,
@@ -95,6 +103,8 @@ pub struct Header {
     /// + shows the empty pane (as ⇧⌘L does); nothing starts.
     pub new: Button,
     pub more: Button,
+    /// Folds the panel back into the Ask bar, as ⌘L and Esc do; the conversation is kept (d0113).
+    pub close: Button,
 }
 
 /// The line under the header: the tool avatar (hidden while one tool is connected), the named agent, then the tokens
@@ -422,7 +432,7 @@ pub fn switcher(
                 selected: shown == Some(a.id.as_str()),
             })
             .collect(),
-        new_label: "New Project agent (empty)",
+        new_label: TITLE,
         new_keys: keys.label(KeyAction::NewProjectAgent),
     }
 }
@@ -475,10 +485,6 @@ pub struct PaneView {
     pub menu: Vec<MenuItem>,
     /// Recently ended (the history icon, the … menu, and the empty pane's list), each with Resume.
     pub recent: Recent,
-    /// A Project agent of the project waits for you: the hidden strip's turquoise dot (d0077).
-    pub agent_waits: bool,
-    /// The hidden strip: a click or the user's key for it (⌘B) shows the pane.
-    pub strip: Button,
 }
 
 /// What [`view`] reads.
@@ -512,6 +518,7 @@ pub fn view(f: &Facts) -> PaneView {
     let shown = f.shown.and_then(|id| open.iter().find(|a| a.id == id));
     let header = Header {
         icon: IconName::Bot,
+        label: LABEL,
         title: shown.map_or_else(|| TITLE.to_owned(), |a| a.name.clone()),
         unnamed: shown.is_some_and(|a| a.name_source.is_none()),
         switcher: !open.is_empty(),
@@ -523,13 +530,18 @@ pub fn view(f: &Facts) -> PaneView {
         },
         new: Button {
             icon: IconName::Plus,
-            label: "New Project agent",
+            label: TITLE,
             keys: f.keys.label(KeyAction::NewProjectAgent),
         },
         more: Button {
             icon: IconName::Ellipsis,
             label: "More",
             keys: None,
+        },
+        close: Button {
+            icon: IconName::PanelLeftClose,
+            label: "Close",
+            keys: f.keys.label(KeyAction::FocusPane),
         },
     };
     let running = shown.map(|a| Running {
@@ -560,12 +572,6 @@ pub fn view(f: &Facts) -> PaneView {
         switcher: switcher(open, shown.map(|a| a.id.as_str()), &f.keys, f.tools),
         menu: menu(shown, open),
         recent: agent_page::recent(&f.agents.recent, f.project_name, f.now_ms),
-        agent_waits: open.iter().any(agent_waits),
-        strip: Button {
-            icon: IconName::Bot,
-            label: "Show the Project agent",
-            keys: f.keys.label(KeyAction::TogglePane),
-        },
     }
 }
 
@@ -640,6 +646,7 @@ pub fn gallery() -> Gallery {
         },
         session: None,
         epic: None,
+        turn_ended_at: None,
     };
     let mut working = agent("a1", "Search slowness", 3);
     working.session = Some(session_on("Strong"));
@@ -857,6 +864,7 @@ fn gallery_agent(id: &str, name: &str) -> ProjectAgent {
         },
         session: None,
         epic: None,
+        turn_ended_at: None,
     }
 }
 
@@ -923,6 +931,7 @@ mod tests {
             },
             session: None,
             epic: None,
+            turn_ended_at: None,
         }
     }
 
@@ -1165,7 +1174,21 @@ mod tests {
         );
         assert_eq!(
             (v.header.new.label, v.header.new.keys.as_deref()),
-            ("New Project agent", Some("\u{21e7}\u{2318}L"))
+            ("New conversation", Some("\u{21e7}\u{2318}L"))
+        );
+        assert_eq!(
+            (
+                v.header.label,
+                v.header.close.icon,
+                v.header.close.label,
+                v.header.close.keys.as_deref()
+            ),
+            (
+                "Project agent",
+                IconName::PanelLeftClose,
+                "Close",
+                Some("\u{2318}L")
+            )
         );
         assert_eq!(
             (v.header.recent.icon, v.header.more.icon),
@@ -1240,7 +1263,7 @@ mod tests {
         assert!(view_of(&agents, Some("a1")).running.unwrap().ended);
     }
 
-    /// KEY-08: the pane's new button, switcher, strip and footer show the user's keys (⌘L, ⇧⌘L, ⌘B by default), a
+    /// KEY-08: the panel's new and close buttons, switcher and footer show the user's keys (⌘L, ⇧⌘L by default), a
     /// recorded key, and none once removed.
     #[test]
     fn the_pane_shows_the_users_keys() {
@@ -1267,14 +1290,15 @@ mod tests {
         });
         assert_eq!((v.header.new.keys, v.switcher.new_keys), (None, None));
         let v = view(&Facts {
-            keys: fixtures::replaced("toggle_pane", None, 0, "⌥B"),
+            keys: fixtures::replaced("focus_pane", None, 0, "⌥L"),
             ..facts(&agents, None)
         });
-        assert_eq!(v.strip.keys.as_deref(), Some("⌥B"));
-        assert_eq!(
-            view(&facts(&agents, None)).strip.keys.as_deref(),
-            Some("⌘B")
-        );
+        assert_eq!(v.header.close.keys.as_deref(), Some("⌥L"));
+        let v = view(&Facts {
+            keys: fixtures::removed("focus_pane", None, 0),
+            ..facts(&agents, None)
+        });
+        assert_eq!(v.header.close.keys, None);
     }
 
     #[test]
@@ -1366,7 +1390,7 @@ mod tests {
         );
         assert!(v.switcher.rows[0].unnamed);
         assert!(v.switcher.rows.iter().all(|r| r.avatar.is_none()));
-        assert_eq!(v.switcher.new_label, "New Project agent (empty)");
+        assert_eq!(v.switcher.new_label, "New conversation");
         assert_eq!(v.switcher.new_keys.as_deref(), Some("\u{21e7}\u{2318}L"));
         assert_eq!(
             v.opens_on.as_deref(),
@@ -1425,20 +1449,13 @@ mod tests {
     }
 
     #[test]
-    fn the_strip_dot_shows_when_an_agent_waits() {
+    fn agent_waits_when_one_needs_you() {
         let mut a = agent("a1", "Search slowness", 1);
-        let agents = list(vec![a.clone()]);
-        assert!(!view_of(&agents, None).agent_waits);
+        assert!(!agent_waits(&a));
         a.needs_you = Some("Allow npm test?".into());
-        let agents = list(vec![a.clone()]);
-        let v = view_of(&agents, None);
-        assert!(v.agent_waits, "even while another one is shown");
-        assert_eq!(v.strip.keys.as_deref(), Some("\u{2318}B"));
+        assert!(agent_waits(&a));
         a.focused = true;
-        assert!(
-            !view_of(&list(vec![a]), None).agent_waits,
-            "you are in its terminal"
-        );
+        assert!(!agent_waits(&a), "you are in its terminal");
     }
 
     #[test]
@@ -1501,7 +1518,6 @@ mod tests {
                 Some("Strong".to_owned())
             )
         );
-        assert!(g.states[0].view.agent_waits, "the strip's dot");
     }
 
     // -----------------------------------------------------------------------------------------------------------

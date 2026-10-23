@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { overlays } from "../../app/overlays";
 import { createRegistries, registered, registerScreens } from "../../app/registry";
 import { NOTHING_SELECTED, selection } from "../../app/selection";
+import type { AskAgentButton } from "../../generated/AskAgentButton";
 import type { ActivityPopover } from "../../generated/ActivityPopover";
 import type { HeaderView } from "../../generated/HeaderView";
 import type { QuickSwitcherView } from "../../generated/QuickSwitcherView";
@@ -140,13 +141,34 @@ describe("the rail", () => {
     expect(out).toContain('aria-label="Add project"');
   });
 
-  it("ends with Cleanup, Terminals and Settings, which open their screens as Terminals and Settings do", () => {
-    const out = renderToStaticMarkup(createElement(RailTiles, { view: RAIL }));
-    const order = ['aria-label="Cleanup"', 'aria-label="Terminals"', 'aria-label="Settings"'].map((t) =>
-      out.indexOf(t),
-    );
+  it("ends with the Project agent, Terminals, Cleanup and Settings, which open their screens as Terminals and Settings do", () => {
+    const agent: AskAgentButton = {
+      icon: "bot",
+      label: "Project agent",
+      hint: "Open or close · ⌘L",
+      tinted: false,
+      dot: true,
+    };
+    const out = renderToStaticMarkup(createElement(RailTiles, { view: RAIL, agent }));
+    const order = [
+      'aria-label="Project agent"',
+      'class="rail-rule"',
+      'aria-label="Terminals"',
+      'aria-label="Cleanup"',
+      'aria-label="Settings"',
+    ].map((t) => out.indexOf(t));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect(order).toEqual(order.toSorted((a, b) => a - b));
+    // SHB-02: a dot while a reply waits; tinted only while the panel is open.
+    expect(out).toContain('<span class="rail-agent-dot"></span>');
+    expect(out).not.toContain("data-tinted");
+    const open = renderToStaticMarkup(
+      createElement(RailTiles, { view: RAIL, agent: { ...agent, tinted: true, dot: false } }),
+    );
+    expect(open).toContain('aria-pressed="true" data-tinted="true"');
+    expect(open).not.toContain("rail-agent-dot");
+    // Before the Ask bar loaded: no button yet.
+    expect(renderToStaticMarkup(createElement(RailTiles, { view: RAIL }))).not.toContain("rail-agent");
 
     const app = createRegistries();
     const ran: string[] = [];

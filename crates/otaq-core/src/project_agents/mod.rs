@@ -177,6 +177,10 @@ pub struct ProjectAgent {
     /// An epic lead's epic (d0083); its name is then "<epic title> lead".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epic: Option<TicketKey>,
+    /// When its last turn ended, since the service started (in memory): the Ask bar's "New reply" is a turn that
+    /// ended after the user last looked at the conversation (SHB-03, d0113).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_ended_at: Option<i64>,
 }
 
 /// A project's Project agents: the open ones (tabs) and the most recent ended ones.
@@ -270,6 +274,8 @@ struct Inner {
     deliveries: Deliveries,
     /// Agents waiting on a permission prompt: the prompt and since when. In memory: a restart ends them.
     waiting: Mutex<HashMap<String, (String, i64)>>,
+    /// When each agent's last turn ended ([`ProjectAgent::turn_ended_at`]). In memory, as `waiting`.
+    turn_ends: Mutex<HashMap<String, i64>>,
     /// Epic leads' turns, by Project agent id: why the current turn runs, and why the next one will (d0083).
     lead_turns: Mutex<HashMap<String, lead::LeadTurn>>,
     /// Epic leads seen so far, by Project agent id: their project and epic, for [`Event::LeadChanged`].
@@ -338,6 +344,7 @@ impl ProjectAgents {
                 idle,
                 deliveries,
                 waiting: Mutex::new(HashMap::new()),
+                turn_ends: Mutex::new(HashMap::new()),
                 lead_turns: Mutex::new(HashMap::new()),
                 lead_epics: Mutex::new(HashMap::new()),
                 handovers: Default::default(),
@@ -826,6 +833,11 @@ impl ProjectAgents {
             changed = true;
         }
         if signal.ends_turn() {
+            self.inner
+                .turn_ends
+                .lock()
+                .expect("turn ends")
+                .insert(id.to_owned(), now_ms());
             let unnamed: Option<(Option<String>,)> = sqlx::query_as(
                 "SELECT first_request FROM project_agents
                  WHERE id = ? AND name_source IS NULL AND epic_id IS NULL",
@@ -926,6 +938,38 @@ impl ProjectAgents {
             typed.map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
         if matches!(delivery, Delivery::Sent { .. }) {
             self.inner.board.record_answer(&question.id, &text).await?;
+            self.changed(&agent.project, id);
+        }
+        Ok(delivery)
+    }
+
+    /// The user's message for a running Project agent, typed into its session as the user's click: the Ask bar's
+    /// Continue (SHB-03, d0113). With unsent text in its input line: `needs_confirmation` (d0048), nothing typed.
+    pub async fn send(&self, id: &str, message: &str) -> Result<Delivery, BoardError> {
+        if message.trim().is_empty() {
+            return Err(BoardError::refused(
+                Refusal::EmptyField,
+                "Type a message to send",
+            ));
+        }
+        let agent = self.get(id).await?;
+        let session = agent
+            .session
+            .as_ref()
+            .filter(|s| s.is_running())
+            .ok_or_else(|| {
+                BoardError::refused(
+                    Refusal::SessionEnded,
+                    format!("{}'s session has ended", agent.name),
+                )
+            })?;
+        let delivery = self
+            .inner
+            .deliveries
+            .deliver_from_click(&session.id, message.trim())
+            .await
+            .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
+        if matches!(delivery, Delivery::Sent { .. }) {
             self.changed(&agent.project, id);
         }
         Ok(delivery)
@@ -1170,10 +1214,18 @@ impl ProjectAgents {
         .bind(&row.id)
         .fetch_one(self.inner.board.store().pool())
         .await?;
+        let turn_ended_at = self
+            .inner
+            .turn_ends
+            .lock()
+            .expect("turn ends")
+            .get(&row.id)
+            .copied();
         Ok(ProjectAgent {
             question,
             needs_you,
             focused,
+            turn_ended_at,
             tokens: crate::usage::tokens(usage),
             name: match &epic {
                 Some(epic) => lead::lead_name(&epic.title),

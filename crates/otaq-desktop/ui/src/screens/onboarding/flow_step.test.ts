@@ -54,7 +54,7 @@ const PREVIEW: FlowPreviewView = {
 function routes(): PaneRoutes {
   return {
     selection: createSelection(),
-    layout: createStore<ShellLayout>({ ...INITIAL_LAYOUT, paneHidden: true }),
+    layout: createStore<ShellLayout>({ ...INITIAL_LAYOUT, agentOpen: false }),
     shown: createStore<ShownAgents>({}),
     focus: createStore<PaneFocusRequest | null>(null),
   };
@@ -83,7 +83,7 @@ describe("the Flow step", () => {
     afterFlowStep("SHOP", null, r);
     expect(r.selection.get().project).toBe("SHOP");
     expect(r.shown.get()).toEqual({});
-    expect(r.layout.get().paneHidden).toBe(true);
+    expect(r.layout.get().agentOpen).toBe(false);
   });
 
   it("an agent's proposal shows in the step; Use this flow keeps that agent open in the pane", async () => {
@@ -105,7 +105,7 @@ describe("the Flow step", () => {
     const r = routes();
     afterFlowStep("SHOP", proposingAgent(proposing, 3), r);
     expect(r.shown.get()).toEqual({ SHOP: "a-cc" });
-    expect(r.layout.get().paneHidden).toBe(false);
+    expect(r.layout.get().agentOpen).toBe(true);
   });
 
   it("compared proposals keep the one each agent showed first", () => {

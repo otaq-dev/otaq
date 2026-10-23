@@ -8,6 +8,8 @@ export const SLOT_IDS = [
   "header",
   /** The header's search and filter field (T-0221), drawn by the header in place of its search entry. */
   "header_search",
+  /** The title bar's place after Activity for Pause (PAU-08, T-0457; SHB-01). */
+  "header_pause",
   /** The end of the header row: the Windows and Linux caption buttons (T-0214). */
   "title_bar_end",
   /** The project rail (T-0219). */
@@ -15,16 +17,14 @@ export const SLOT_IDS = [
   /** The banner area across the window under the header, pushing everything under it down (T-0231). */
   "banners",
   /**
-   * The Project agent pane between the rail and the main area (SHL-04, T-0330). The frame sets its width and keeps it
-   * mounted while ⌘B folds it to the strip; it reads `shellLayout.paneHidden` if it needs to know.
+   * The Project agent panel between the rail and the main area (SHB-01, SHB-03, T-0330, T-0458). The frame sets its
+   * width and keeps it mounted while closed; it reads `shellLayout.agentOpen` if it needs to know.
    */
   "pane",
-  /** Under the strip's bot icon while the pane is folded: the turquoise dot while an agent waits (T-0330). */
-  "pane_strip",
-  /** The board, under the main area's Board tab (T-0220, T-0328). */
+  /** The board, filling the main area (T-0220, T-0328). */
   "board",
-  /** The Files view, under the Files tab (M24); until then a quiet line. */
-  "files",
+  /** The Ask bar at the main area's bottom centre, over the board and the ticket (SHB-03, T-0458). */
+  "ask_bar",
   /**
    * The side panel, shown over the main area's right side while a ticket is open (T-0222, SHL-05). It sets its own
    * width; expanded, it fills the main area.

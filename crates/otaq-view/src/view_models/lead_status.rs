@@ -391,6 +391,7 @@ pub fn sample(epic: &Ticket, status: LeadStatus, tokens: u64) -> Lead {
             tokens: Default::default(),
             session: None,
             epic: Some(epic.key.clone()),
+            turn_ended_at: None,
         },
         woke_by: None,
         tokens_today: otaq_core::usage::Tokens {

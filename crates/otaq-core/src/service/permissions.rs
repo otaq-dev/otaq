@@ -280,6 +280,7 @@ async fn action_for(
         }
         R::AgentName(_) | R::AgentAsk(_) | R::AgentAskHuman(_) => Action::Read,
         R::ProjectAgentAnswer(_) => Action::UserOnly("answer Project agents"),
+        R::ProjectAgentSend(_) => Action::UserOnly("message Project agents"),
         // A hook only ever signals the caller's own session.
         R::Hook(_) => Action::Read,
         // Bookkeeping from the agent's own status line: the plan windows Claude Code reported.

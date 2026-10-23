@@ -2,8 +2,8 @@
 // into a `KeyAction` are T-0215's (the Rust keymap stays the only map); it calls `run`.
 //
 // ⌘K and ⌘B in the description: Link and Bold. While the description editor has focus, ⌘K / Ctrl+K never reaches the
-// `command_palette` handlers nor ⌘B / Ctrl+B the `toggle_pane` ones: the dispatcher leaves them to the editor
-// (`keysKeptBy`, d0078 D2); everywhere else they are the palette and Hide / show the pane (d0097).
+// `command_palette` handlers, nor ⌘B / Ctrl+B whatever action the user recorded on it: the dispatcher leaves them to
+// the editor (`keysKeptBy`, d0078 D2); everywhere else ⌘K is the palette (d0097; the base map has no ⌘B since d0113).
 import type { KeyAction } from "../../generated/KeyAction";
 
 export type KeyActionName = KeyAction["action"];

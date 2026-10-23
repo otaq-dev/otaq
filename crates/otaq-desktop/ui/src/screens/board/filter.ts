@@ -4,7 +4,6 @@
 // page only keeps it (UIT-04).
 import type { BoardFilter } from "../../generated/BoardFilter";
 import type { BoardFocusParams } from "../../generated/BoardFocusParams";
-import { showTab } from "../../app/layout";
 import { createStore, type Store } from "../../app/store";
 import { request } from "../../tauri";
 
@@ -107,14 +106,13 @@ export function agentOf(kept: AgentFilter | null, project: string | null): strin
   return kept !== null && kept.project === project ? kept.agent : null;
 }
 
-/** Show on board: the Board tab shows only `agent`'s tickets. */
+/** Show on board: the board shows only `agent`'s tickets. */
 export function showAgentOnBoard(
   project: string,
   agent: string,
   store: Store<AgentFilter | null> = boardAgent,
 ): void {
   store.set({ project, agent });
-  showTab("board");
 }
 
 /** The chip's ✕, or Esc. */

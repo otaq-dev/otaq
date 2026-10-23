@@ -1,8 +1,9 @@
-// The pane's moment of interaction (T-0330; SHL-04, d0087): which agent each project shows, the requests to give the
-// pane the keyboard (⌘L, ⇧⌘L, an inbox row), and Send's guard against a second start. Everything the pane says, and
-// where a project opens the first time (`opens_on`), is Rust's (`pane.view`, `otaq-view`'s `agent_pane.rs`). Nothing
-// here starts an agent except Send with words in the box, the user's go-ahead (d0087, d0018).
-import { type ShellLayout, shellLayout } from "../../app/layout";
+// The Project agent panel's moment of interaction (T-0330, T-0458; SHL-04, SHB-03, SHB-04, d0087, d0113): which
+// conversation each project shows, opening and closing the panel, the requests to give it the keyboard (⌘L, ⇧⌘L, an
+// inbox row, the Ask bar), and Send's guard against a second start. Everything the panel says, and where a project
+// opens the first time (`opens_on`), is Rust's (`pane.view`, `otaq-view`'s `agent_pane.rs`). Nothing here starts an
+// agent except Send with words, the user's go-ahead (d0087, d0018). The code calls the panel "the pane", as before.
+import { setAgentOpen, type ShellLayout, shellLayout } from "../../app/layout";
 import { type Selection, selectProject, selection } from "../../app/selection";
 import { createStore, type Store } from "../../app/store";
 import type { LeadSplit } from "../../generated/LeadSplit";
@@ -52,9 +53,6 @@ export function clearStartOn(project: string, store: Store<StartOn> = startOn): 
   });
 }
 
-/** A Project agent of the shown project waits for you: the hidden strip's turquoise dot (`agent_waits`, d0077). */
-export const agentWaits: Store<boolean> = createStore(false);
-
 /** A request to give the pane the keyboard: the shown agent's terminal, or the empty pane's box. */
 export interface PaneFocusRequest {
   /** Counts up with each request, so asking twice is two requests. */
@@ -100,17 +98,43 @@ export const PANE_ROUTES: PaneRoutes = {
   focus: paneFocusRequests,
 };
 
-/** A hidden pane (⌘B) shows again; the rest of the layout stays. */
+/** Opens the panel (d0113); the rest of the layout stays. */
 export function showPane(routes: PaneRoutes = PANE_ROUTES): void {
-  if (routes.layout.get().paneHidden) routes.layout.update((l) => ({ ...l, paneHidden: false }));
+  setAgentOpen(true, routes.layout);
 }
 
-/** ⌘L: shows a hidden pane, then gives the keyboard to the shown agent's terminal or the empty pane's box. */
-export function focusPane(routes: PaneRoutes = PANE_ROUTES): boolean {
+/** Folds the panel back into the Ask bar: its close icon, ⌘L from inside it, Esc (d0113). The conversation is kept. */
+export function closePane(routes: PaneRoutes = PANE_ROUTES): void {
+  setAgentOpen(false, routes.layout);
+}
+
+/**
+ * ⌘L (SHB-04): opens the panel and gives the keyboard to the shown conversation's terminal or the empty panel's box;
+ * pressed while the panel has the keyboard (`inPanel`), it closes it.
+ */
+export function focusPane(routes: PaneRoutes = PANE_ROUTES, inPanel = false): boolean {
   if (routes.selection.get().project === null) return false;
+  if (routes.layout.get().agentOpen && inPanel) {
+    closePane(routes);
+    return true;
+  }
   showPane(routes);
   requestPaneFocus(undefined, routes.focus);
   return true;
+}
+
+/** Whether `element` is in the Project agent panel (the frame's `pane` slot). */
+export function inPanel(element: Element | null): boolean {
+  return element?.closest('[data-slot="pane"]') != null;
+}
+
+/** The rail's Project agent button: opens the panel with the keyboard in it, or closes an open one. */
+export function togglePane(routes: PaneRoutes = PANE_ROUTES): boolean {
+  if (routes.layout.get().agentOpen) {
+    closePane(routes);
+    return true;
+  }
+  return focusPane(routes);
 }
 
 /** ⇧⌘L and +: the empty pane, its box focused. Nothing is asked of the service, so nothing starts (d0087). */
@@ -125,8 +149,8 @@ export function newProjectAgent(routes: PaneRoutes = PANE_ROUTES, starts: Store<
 }
 
 /**
- * An inbox row or an OS notification of a Project agent: its project on screen, the agent in the pane (shown if
- * hidden) and its terminal focused (PAG-07, ATT-03: the focus clears its wait).
+ * An inbox row, an OS notification of a Project agent, or the Ask bar's "New reply": its project on screen, the agent
+ * in the panel (opened) and its terminal focused (PAG-07, ATT-03: the focus clears its wait).
  */
 export function showAgentInPane(project: string, agent: string, routes: PaneRoutes = PANE_ROUTES): void {
   selectProject(project, routes.selection);

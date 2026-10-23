@@ -153,6 +153,7 @@ icons! {
     Mail = "mail";
     Maximize = "maximize";
     Maximize2 = "maximize-2";
+    MessageCircle = "message-circle";
     MessageCircleQuestionMark = "message-circle-question-mark";
     MessageCircleReply = "message-circle-reply";
     MessageSquare = "message-square";
@@ -164,6 +165,7 @@ icons! {
     Minus = "minus";
     MousePointerClick = "mouse-pointer-click";
     Palette = "palette";
+    PanelLeftClose = "panel-left-close";
     PanelRight = "panel-right";
     Pencil = "pencil";
     Pin = "pin";
@@ -207,6 +209,7 @@ icons! {
     Tag = "tag";
     Terminal = "terminal";
     TextQuote = "text-quote";
+    Ticket = "ticket";
     Trash2 = "trash-2";
     TriangleAlert = "triangle-alert";
     Undo2 = "undo-2";

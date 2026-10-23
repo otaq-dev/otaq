@@ -17,6 +17,8 @@ pub use agent_tools::{
 #[cfg(test)]
 pub use apply_now::export_types as export_apply_now_types;
 #[cfg(test)]
+pub use ask_bar::export_types as export_ask_bar_types;
+#[cfg(test)]
 pub use board::{
     DragBackParams as BoardDragBackParams, DropParams as BoardDropParams,
     FocusParams as BoardFocusParams, MenuParams as CardMenuParams, SearchParams,
@@ -201,6 +203,7 @@ areas! {
     lead,
     usage,
     pane,
+    ask_bar,
     agent_tools,
     limits,
     palette,

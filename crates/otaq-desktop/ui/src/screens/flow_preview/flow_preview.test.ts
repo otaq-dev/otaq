@@ -203,17 +203,8 @@ describe("the flow preview screen", () => {
     });
     layoutView.set({
       classes: [{ class: "w1440", below: null }],
-      pane_defaults: { w1280: 320, w1440: 400, w1920: 460 },
-      pane_min: 320,
-      pane_max: 560,
-      strip: 28,
-      tabs: [{ tab: "board", label: "Board", icon: "columns-3" }],
-      tab_row: false,
-      tab_keys: "⇧⌘B",
-      files_empty: "",
-      show_pane: "Show the pane",
-      pane_resize: "Pane width",
-      pane_keys: "⌘B",
+      rail: 64,
+      agent_panel: 420,
     } satisfies LayoutView);
     openOverlay("flow_preview", { project: "API" });
     const html = renderToStaticMarkup(createElement(RegistriesContext, { value: app }, createElement(Frame)));

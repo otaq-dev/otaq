@@ -11,6 +11,7 @@ button.rail-item,
 button.rail-add,
 button.rail-broom,
 button.rail-bottom,
+button.rail-agent,
 button.activity-link,
 .stepper button {
   margin: 0;
@@ -578,7 +579,53 @@ button.rail-broom:hover .rail-broom-icon {
   flex: 1;
 }
 
-/* Terminals and Settings under Cleanup (*Rail bottom: Terminals & Settings*): no dot. */
+/*
+ * The Project agent button (SHB-02, `s24-05`): outlined, the bot in the secondary text colour; tinted in the
+ * investigate colour while the panel is open; a turquoise dot while a reply waits (d0077). Then a short rule.
+ */
+button.rail-agent {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  color: var(--text-secondary);
+}
+
+button.rail-agent:hover {
+  background: var(--bg-hover);
+}
+
+button.rail-agent[data-tinted] {
+  border-color: var(--st-investigate);
+  background: var(--st-investigate-bg);
+  color: var(--st-investigate);
+}
+
+.rail-agent-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  outline: 2px solid var(--bg-panel);
+  background: var(--st-attn);
+}
+
+.rail-rule {
+  flex: none;
+  width: 24px;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Terminals and Settings around Cleanup (*Rail bottom: Terminals & Settings*): no dot. */
 button.rail-bottom {
   display: flex;
   flex: none;

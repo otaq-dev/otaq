@@ -5,10 +5,10 @@
   flex-direction: column;
 }
 
-/* Reconnecting, stopped or "Restart required": the rail, the pane, the board and the panel dim and swallow clicks
+/* Reconnecting, stopped or "Restart required": the rail, the agent panel, the board and the panel dim and swallow clicks
    (SVC-04). */
 :root[data-service-input-off] .frame-rail,
-:root[data-service-input-off] .frame-pane,
+:root[data-service-input-off] .frame-agent,
 :root[data-service-input-off] .frame-main {
   opacity: 0.6;
   pointer-events: none;

@@ -1493,6 +1493,7 @@ pub(super) async fn handle(
         | Request::AgentAsk(_)
         | Request::AgentAskHuman(_)
         | Request::ProjectAgentAnswer(_)
+        | Request::ProjectAgentSend(_)
         | Request::ProjectAgentPrime(_)
         | Request::ProjectAgentCreated(_)
         | Request::LeadOpen(_)

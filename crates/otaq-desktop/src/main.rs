@@ -58,6 +58,8 @@ pub struct App {
     window_focus: api::WindowFocus,
     /// The reports open in the report view (CMT-12), each indexed once.
     reports: api::OpenReports,
+    /// When the user last looked at each Project agent conversation, for the Ask bar's "New reply" (SHB-03).
+    looked: std::sync::Mutex<otaq_view::view_models::ask_bar::Looked>,
 }
 
 fn main() {
@@ -113,6 +115,9 @@ fn main() {
         run_commands: Default::default(),
         window_focus: Default::default(),
         reports: Default::default(),
+        looked: std::sync::Mutex::new(otaq_view::view_models::ask_bar::Looked::new(
+            otaq_core::store::now_ms(),
+        )),
         usage: usage::Usage::new(runtime.handle().clone()),
     });
     runtime.spawn(api::usage_loop(app.clone()));

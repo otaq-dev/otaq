@@ -806,6 +806,10 @@ pub enum Request {
     /// `needs_confirmation`). Answered with [`Reply::Delivery`].
     #[serde(rename = "project_agent.answer")]
     ProjectAgentAnswer(ProjectAgentAnswerParams),
+    /// The user's message for a running Project agent from the Ask bar's Continue (SHB-03, d0113), typed into its
+    /// session (with unsent text: `needs_confirmation`, nothing typed). Answered with [`Reply::Delivery`].
+    #[serde(rename = "project_agent.send")]
+    ProjectAgentSend(ProjectAgentSendParams),
     /// `otaq prime --project` (PAG-03). Answered with [`Reply::ProjectPrime`].
     #[serde(rename = "project_agent.prime")]
     ProjectAgentPrime(ProjectParams),
@@ -1172,6 +1176,13 @@ pub struct ProjectAgentAnswerParams {
     pub choice: crate::board::questions::Choice,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub clear: bool,
+}
+
+/// `{"id": "…", "message": "and the cart page?"}`: the user's message for a running Project agent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectAgentSendParams {
+    pub id: String,
+    pub message: String,
 }
 
 /// `{"project": "SHOP", "message": "Why is checkout slow?"}`: open a Project agent with its first message.
@@ -1949,6 +1960,7 @@ impl Request {
             Self::AgentAsk(_) => "agent.ask",
             Self::AgentAskHuman(_) => "agent.ask_human",
             Self::ProjectAgentAnswer(_) => "project_agent.answer",
+            Self::ProjectAgentSend(_) => "project_agent.send",
             Self::ProjectAgentPrime(_) => "project_agent.prime",
             Self::ProjectAgentCreated(_) => "project_agent.created",
             Self::LeadOpen(_) => "lead.open",

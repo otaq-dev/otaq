@@ -510,7 +510,6 @@ const BASE: [KeyAction, Slot[]][] = [
   [{ action: "open_inbox" }, [["⇧⌘I", "Ctrl+Shift+I", "Ctrl+Shift+I"], letter("g i")]],
   [{ action: "open_activity" }, [["⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"], letter("g a")]],
   [{ action: "settings" }, [["⌘,", "Ctrl+,", "Ctrl+,"]]],
-  [{ action: "toggle_pane" }, [["⌘B", "Ctrl+B", "Ctrl+Shift+B"]]],
   [{ action: "focus_pane" }, [["⌘L", "Ctrl+L", "Ctrl+Shift+L"]]],
   [{ action: "new_project_agent" }, [["⇧⌘L", "Ctrl+Shift+L", ""]]],
   [{ action: "new_ticket" }, [["⌘N", "Ctrl+N", "Ctrl+Shift+N"], letter("c")]],
@@ -667,7 +666,6 @@ describe("0097's keys (KEY-01, KEY-02)", () => {
       [["⇧⌘P"], "command_palette"],
       [["?"], "show_shortcuts"],
       [["/"], "filter_board"],
-      [["⌘B"], "toggle_pane"],
       [["⌘L"], "focus_pane"],
       [["⇧⌘L"], "new_project_agent"],
       [["⌃`"], "terminals"],
@@ -701,7 +699,6 @@ describe("0097's keys (KEY-01, KEY-02)", () => {
       [["Ctrl+Shift+P"], "command_palette"],
       [["?"], "show_shortcuts"],
       [["/"], "filter_board"],
-      [["Ctrl+B"], "toggle_pane"],
       [["Ctrl+L"], "focus_pane"],
       [["Ctrl+Shift+L"], "new_project_agent"],
       [["Ctrl+`"], "terminals"],
@@ -839,8 +836,9 @@ describe("0097's terminal rule (KEY-03)", () => {
     expect(t(["Ctrl+`"]).left()).toBe(1);
     expect(t(["Ctrl+Shift+D"]).ran).toEqual(["start_dev"]);
     expect(t(["Ctrl+D"]).outcomes).toEqual([{ kind: "terminal" }]);
-    // Ctrl+Shift+B is Hide / show the pane there, never Board; Ctrl+Shift+L focuses the pane, never New Project agent.
-    expect(t(["Ctrl+Shift+B"]).ran).toEqual(["toggle_pane"]);
+    // Ctrl+Shift+B is nothing there (never Board; the pane's hide / show key went, d0113); Ctrl+Shift+L opens or
+    // closes the Project agent, never New conversation.
+    expect(t(["Ctrl+Shift+B"]).ran).toEqual([]);
     expect(t(["Ctrl+Shift+L"]).ran).toEqual(["focus_pane"]);
     expect(t(["Ctrl+Tab"]).ran).toEqual(["next_tab"]);
     expect(t(["Ctrl+1"]).ran).toEqual(["project 1"]);
@@ -866,7 +864,7 @@ describe("0097's terminal rule (KEY-03)", () => {
       "terminal",
       "terminal",
     ]);
-    expect(t(["⌘K", "⌘D", "⌘B"]).ran).toEqual(["command_palette", "start_dev", "toggle_pane"]);
+    expect(t(["⌘K", "⌘D", "⌘L"]).ran).toEqual(["command_palette", "start_dev", "focus_pane"]);
   });
 });
 
@@ -904,8 +902,8 @@ describe("the description editor's ⌘B and ⌘K (0097, d0078)", () => {
       expect(outcomes).toEqual([{ kind: "passed" }, { kind: "passed" }]);
       expect(ran).toEqual([]);
       expect(run(map, [board], text).ran).toEqual(["show_board"]);
-      // Elsewhere ⌘B hides the pane.
-      expect(run(map, [keys[0]]).ran).toEqual(["toggle_pane"]);
+      // Elsewhere ⌘B is no app key (d0113).
+      expect(run(map, [keys[0]]).ran).toEqual([]);
     }
   });
 });

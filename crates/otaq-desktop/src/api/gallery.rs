@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 
 use otaq_core::naming;
 use otaq_view::view_models::{
-    activity, agent_pane, agent_tools_page, flow_at_work, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
+    activity, agent_pane, agent_tools_page, ask_bar, flow_at_work, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
     limit_banner, onboarding_page, settings_page, stage_choices, tool_avatar,
 };
 use serde_json::Value;
@@ -46,6 +46,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.activity" => reply(&activity::gallery()),
         // The Project agent pane in each state (T-0330).
         "gallery.pane" => reply(&agent_pane::gallery()),
+        // The Ask bar and the rail's Project agent button (T-0458).
+        "gallery.ask_bar" => reply(&ask_bar::gallery()),
         // The Terminals drawer: terminals only (T-0331).
         "gallery.drawer" => reply(&super::drawer::gallery()),
         // 15 · Settings → Agents: fresh install, a list you made, the picker, the mark, ⋯ and Delete, the project

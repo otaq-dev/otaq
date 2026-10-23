@@ -763,6 +763,7 @@ mod tests {
             tokens: Default::default(),
             session: None,
             epic: None,
+            turn_ended_at: None,
         }
     }
 

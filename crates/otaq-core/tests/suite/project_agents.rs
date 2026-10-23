@@ -311,6 +311,53 @@ async fn the_agent_names_itself_once_and_the_users_rename_wins() {
     w.stop().await;
 }
 
+/// SHB-03 (d0113): the Ask bar's Continue types the user's message into a running conversation, and a turn's end is
+/// kept for its "New reply"; nothing is typed without words or into an ended one.
+#[tokio::test(flavor = "multi_thread")]
+async fn continue_types_into_a_running_agent_and_its_turn_end_is_kept() {
+    let w = world().await;
+    let a = open(&w, "why is checkout slow?").await;
+    assert_eq!(a.turn_ended_at, None);
+    prompt(&w, &a, "why is checkout slow?").await;
+    let before = now_ms();
+    stop(&w, &a).await;
+    let ended = w.project_agents.get(&a.id).await.unwrap();
+    assert!(ended.turn_ended_at.is_some_and(|at| at >= before));
+
+    let session = a.session.clone().unwrap();
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let sent = client
+        .request(Request::ProjectAgentSend(
+            otaq_core::protocol::ProjectAgentSendParams {
+                id: a.id.clone(),
+                message: "and the cart page?".into(),
+            },
+        ))
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            sent,
+            Reply::Delivery(otaq_core::session::deliveries::Delivery::Sent { count: 1 })
+        ),
+        "{sent:?}"
+    );
+    w.wait_for_output(&session.id, "and the cart page?").await;
+
+    let (code, _) = refusal(w.project_agents.send(&a.id, "  ").await.unwrap_err());
+    assert_eq!(code, Some(Refusal::EmptyField));
+    w.sessions.stop(&session.id).await.unwrap();
+    wait_for_state(&w, &a.id, AgentState::Ended).await;
+    let (code, _) = refusal(
+        w.project_agents
+            .send(&a.id, "still there?")
+            .await
+            .unwrap_err(),
+    );
+    assert_eq!(code, Some(Refusal::SessionEnded));
+    w.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn without_a_name_the_first_words_of_the_message_name_it_after_its_first_turn() {
     let w = world().await;

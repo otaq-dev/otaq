@@ -166,7 +166,7 @@ describe("notification clicks", () => {
       overlays: createOverlayStack(),
       pane: {
         selection,
-        layout: createStore<ShellLayout>({ ...INITIAL_LAYOUT, paneHidden: true }),
+        layout: createStore<ShellLayout>({ ...INITIAL_LAYOUT, agentOpen: false }),
         shown: createStore<ShownAgents>({}),
         focus: createStore<PaneFocusRequest | null>(null),
       },
@@ -195,7 +195,7 @@ describe("notification clicks", () => {
     openTarget({ kind: "project_agent", project: "NOTE", agent: "pa7" }, r);
     expect(r.selection.get().project).toBe("NOTE");
     expect(r.pane.shown.get()).toEqual({ NOTE: "pa7" });
-    expect(r.pane.layout.get().paneHidden).toBe(false);
+    expect(r.pane.layout.get().agentOpen).toBe(true);
     expect(r.pane.focus.get()).toEqual({ seq: 1, agent: "pa7" });
     expect(r.focus.get()).toBeNull();
   });

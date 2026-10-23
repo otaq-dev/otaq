@@ -78,8 +78,8 @@ const CONTROL_ROLES = new Set(["button", "link", "menuitem", "option", "tab", "c
 const WIDGETS = '[role="menu"], [role="dialog"]';
 const WIDGET_KEYS: ReadonlySet<string> = new Set(["Enter", "Escape"]);
 /** The description editor (d0078 D2, d0097): while its text or one of its fields (the link popover's URL)
- * has the focus, ⌘K / Ctrl+K is its Link, not the command palette, and ⌘B / Ctrl+B its Bold, not Hide / show the
- * pane (`description_editor_keys`). Its read mode isn't a text field and keeps nothing. */
+ * has the focus, ⌘K / Ctrl+K is its Link, not the command palette, and ⌘B / Ctrl+B its Bold, whatever the user
+ * recorded on it (`description_editor_keys`). Its read mode isn't a text field and keeps nothing. */
 const DESCRIPTION_EDITOR = ".md-editor";
 const EDITOR_KEYS: ReadonlySet<string> = new Set([...TEXT_FIELD_KEYS, "k", "b"]);
 /** Where the app's single letters don't run (KEY-02): a menu, a list or a dialog has its own keys, unless it's marked

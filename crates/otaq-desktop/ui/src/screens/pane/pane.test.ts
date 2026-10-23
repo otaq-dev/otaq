@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-// The pane's own rules (T-0330): Enter sends once and shows the new agent, an example fills the box, ⌘L shows a
-// hidden pane and focuses the box or the terminal, ⇧⌘L shows the empty pane without asking the service anything.
+// The Project agent panel's own rules (T-0330, T-0458): Enter sends once and shows the new agent, an example fills the
+// box, ⌘L opens the panel and focuses the box or the terminal (and closes it from inside), ⇧⌘L shows the empty panel
+// without asking the service anything, the close icon and Esc fold it.
 import { act, createElement, useImperativeHandle } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,6 +22,7 @@ import {
   shownAgents,
   startNewAgentOn,
   startOn,
+  togglePane,
 } from "./logic";
 import { PaneBody } from "./Pane";
 
@@ -39,7 +41,7 @@ vi.mock("../../terminal/Terminal", () => ({
 
 const ask = vi.mocked(request);
 
-const button = (icon: PaneView["strip"]["icon"], label: string) => ({ icon, label, keys: null });
+const button = (icon: PaneView["header"]["more"]["icon"], label: string) => ({ icon, label, keys: null });
 
 /** The empty pane as `agent_pane.rs` words it for pocket-notes. */
 const EMPTY: PaneView = {
@@ -47,13 +49,15 @@ const EMPTY: PaneView = {
   opens_on: null,
   header: {
     icon: "bot",
-    title: "Project agent",
+    label: "Project agent",
+    title: "New conversation",
     unnamed: false,
     switcher: false,
     pill: null,
     recent: button("history", "Recently ended"),
-    new: { icon: "plus", label: "New Project agent", keys: "⇧⌘L" },
+    new: { icon: "plus", label: "New conversation", keys: "⇧⌘L" },
     more: button("ellipsis", "More"),
+    close: { icon: "panel-left-close", label: "Close", keys: "⌘L" },
   },
   empty: {
     line: { avatar: null, agent: "Claude Code", note: "· starts when you send", rename: null },
@@ -71,11 +75,9 @@ const EMPTY: PaneView = {
     starts_on: null,
   },
   running: null,
-  switcher: { rows: [], new_label: "New Project agent (empty)", new_keys: "⇧⌘L" },
+  switcher: { rows: [], new_label: "New conversation", new_keys: "⇧⌘L" },
   menu: [],
   recent: { title: "RECENTLY ENDED · POCKET-NOTES", rows: [], empty: "No ended Project agents yet." },
-  agent_waits: false,
-  strip: { icon: "bot", label: "Show the Project agent", keys: "⌘B" },
 };
 
 /** "Which tickets wait on NOTE-5?" running, its terminal attached. */
@@ -151,6 +153,8 @@ beforeEach(() => {
   ask.mockReset();
   terminalFocus.mockReset();
   box = document.body.appendChild(document.createElement("div"));
+  // The frame's `pane` slot, which ⌘L looks for to close the panel from inside.
+  box.dataset.slot = "pane";
   root = createRoot(box);
 });
 
@@ -239,42 +243,74 @@ describe("the empty pane", () => {
 });
 
 describe("the pane's keys", () => {
-  it("registers the pane, the strip's dot, ⌘L and ⇧⌘L", () => {
+  it("registers the panel, ⌘L and ⇧⌘L", () => {
     const app = registerScreens({ pane });
-    expect(registered(app)).toMatchObject({ slots: ["pane", "pane_strip"] });
+    expect(registered(app)).toMatchObject({ slots: ["pane"] });
     expect(app.shortcuts.names()).toEqual(["focus_pane", "new_project_agent"]);
     // No project shown: both keys pass.
     expect(app.shortcuts.run({ action: "focus_pane" })).toBe(false);
     expect(app.shortcuts.run({ action: "new_project_agent" })).toBe(false);
   });
 
-  it("⌘L shows a hidden pane and focuses the box, or the shown agent's terminal", () => {
+  it("⌘L opens the panel and focuses the box, or the shown agent's terminal; from inside it closes it", () => {
     const app = registerScreens({ pane });
     selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
-    shellLayout.set({ ...INITIAL_LAYOUT, paneHidden: true });
+    shellLayout.set({ ...INITIAL_LAYOUT, agentOpen: false });
     show(EMPTY);
     act(() => {
       app.shortcuts.run({ action: "focus_pane" });
     });
-    expect(shellLayout.get().paneHidden).toBe(false);
+    expect(shellLayout.get().agentOpen).toBe(true);
     expect(document.activeElement).toBe(textarea());
+
+    // The keyboard is in the panel: ⌘L folds it, conversation kept.
+    act(() => {
+      app.shortcuts.run({ action: "focus_pane" });
+    });
+    expect(shellLayout.get().agentOpen).toBe(false);
 
     show(RUNNING);
     act(() => {
       app.shortcuts.run({ action: "focus_pane" });
     });
+    expect(shellLayout.get().agentOpen).toBe(true);
     expect(terminalFocus).toHaveBeenCalledTimes(1);
     expect(ask).not.toHaveBeenCalled();
+  });
+
+  it("the close icon and Esc in the box fold the panel; the box keeps its words", () => {
+    shellLayout.set({ ...INITIAL_LAYOUT, agentOpen: true });
+    show(EMPTY);
+    act(() => {
+      box.querySelector<HTMLButtonElement>('button[aria-label="Close"]')?.click();
+    });
+    expect(shellLayout.get().agentOpen).toBe(false);
+    shellLayout.set({ ...INITIAL_LAYOUT, agentOpen: true });
+    type("half a question");
+    act(() => {
+      textarea().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(shellLayout.get().agentOpen).toBe(false);
+    expect(textarea().value).toBe("half a question");
+  });
+
+  it("the rail's button opens the panel with the keyboard, or closes an open one", () => {
+    selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
+    expect(togglePane()).toBe(true);
+    expect(shellLayout.get().agentOpen).toBe(true);
+    expect(paneFocusRequests.get()).not.toBeNull();
+    expect(togglePane()).toBe(true);
+    expect(shellLayout.get().agentOpen).toBe(false);
   });
 
   it("⇧⌘L shows the empty pane, focused, without asking the service anything", () => {
     const app = registerScreens({ pane });
     selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
     shownAgents.set({ NOTE: "a1" });
-    shellLayout.set({ ...INITIAL_LAYOUT, paneHidden: true });
+    shellLayout.set({ ...INITIAL_LAYOUT, agentOpen: false });
     expect(app.shortcuts.run({ action: "new_project_agent" })).toBe(true);
     expect(shownAgents.get()).toEqual({ NOTE: null });
-    expect(shellLayout.get().paneHidden).toBe(false);
+    expect(shellLayout.get().agentOpen).toBe(true);
     expect(paneFocusRequests.get()).toMatchObject({ agent: null });
     expect(ask).not.toHaveBeenCalled();
   });

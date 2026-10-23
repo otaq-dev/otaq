@@ -18,6 +18,7 @@ pub mod answer;
 pub mod answer_options;
 pub mod apply_now;
 pub mod approve;
+pub mod ask_bar;
 pub mod banners;
 pub mod board;
 pub mod board_page;

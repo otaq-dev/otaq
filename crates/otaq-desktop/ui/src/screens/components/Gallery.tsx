@@ -84,6 +84,7 @@ import type { LeadSplit } from "../../generated/LeadSplit";
 import type { LeadTabGallery } from "../../generated/LeadTabGallery";
 import type { LegendTier } from "../../generated/LegendTier";
 import type { PaneGallery } from "../../generated/PaneGallery";
+import type { AskBarGallery } from "../../generated/AskBarGallery";
 import type { DrawerGallery } from "../../generated/DrawerGallery";
 import type { PillView } from "../../generated/PillView";
 import type { ToolAvatarGallery } from "../../generated/ToolAvatarGallery";
@@ -113,6 +114,8 @@ import { Strip } from "../board/strip/Strip";
 import { InboxBody, type InboxBodyProps } from "../inbox/Inbox";
 import { initialPick } from "../inbox/logic";
 import { AnswerBox as PanelAnswerBox } from "../panel/Panel";
+import { AskBarBody } from "../ask_bar/AskBar";
+import "../ask_bar/ask_bar.css";
 import { PaneBody, SwitcherList } from "../pane/Pane";
 import "../pane/pane.css";
 import { DrawerBody } from "../terminals/Drawer";
@@ -131,6 +134,7 @@ import { type ShortcutsCalls, ShortcutsView } from "../settings/Keyboard";
 import { Section as SettingsSectionRows, WarmBuildRow } from "../settings/Rows";
 import "../settings/settings.css";
 import { ActivityGallery } from "../shell/ActivityGallery";
+import { RailAgentButton } from "../shell/Rail";
 import { LimitLinesGallery } from "../notices/LimitLinesGallery";
 import { LeadTabBody } from "../lead_tab/LeadTab";
 import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
@@ -145,11 +149,15 @@ import "./gallery.css";
 const SHELL_PREVIEW = (() => {
   const app = createRegistries();
   const named = (name: string) => () => <div className="frame-placeholder">{name}</div>;
-  app.slots.register("pane", { Component: named("Project agent pane") });
+  app.slots.register("pane", { Component: named("Project agent panel") });
+  app.slots.register("ask_bar", { Component: named("Ask bar") });
   return app;
 })();
 
-/** The shell at the design's three windows, pane shown, and folded at 1440 (T-0327, SHL-01). Drawn at half size. */
+/**
+ * The shell at the design's three windows with the Project agent closed (the Ask bar over the board), and open at
+ * 1440 (T-0327, T-0458; SHB-01). Drawn at half size.
+ */
 function ShellFrames() {
   const view = useStore(layoutView);
   useEffect(loadLayout, []);
@@ -162,21 +170,16 @@ function ShellFrames() {
   ];
   return (
     <div className="gallery-wrap gallery-wrap-wide">
-      {frames.map(([width, height, hidden]) => (
-        <figure key={`${String(width)}${String(hidden)}`} className="gallery-shell">
+      {frames.map(([width, height, open]) => (
+        <figure key={`${String(width)}${String(open)}`} className="gallery-shell">
           <figcaption>
             {width} × {height}
-            {hidden ? " · pane hidden (⌘B)" : ""}
+            {open ? " · Project agent open (⌘L)" : ""}
           </figcaption>
           <div className="gallery-shell-box" style={{ width: width / 2, height: height / 2 }}>
             <div className="frame gallery-shell-frame" style={{ width, height }}>
               <RegistriesContext value={SHELL_PREVIEW}>
-                <FrameBody
-                  view={view}
-                  layout={{ ...INITIAL_LAYOUT, paneHidden: hidden }}
-                  windowWidth={width}
-                  ticketOpen={false}
-                />
+                <FrameBody view={view} layout={{ ...INITIAL_LAYOUT, agentOpen: open }} ticketOpen={false} />
               </RegistriesContext>
             </div>
           </div>
@@ -1915,8 +1918,8 @@ function DrawerSection() {
 const loadPane = () => request("gallery.pane") as Promise<PaneGallery>;
 
 /** *18 → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row · More pane states (0086 · V)* and *Row ·
- * Switching agents, attention (0086 · V)* (T-0330): the pane in each state at 400 px (the 1440 class), the switcher
- * and the … menu open, and the strip's waiting dot. Clicks talk to the service as in the app. */
+ * Switching agents, attention (0086 · V)* (T-0330): the panel in each state, the switcher and the … menu open.
+ * Clicks talk to the service as in the app. */
 function PaneSection() {
   const { view, error } = useServiceView(loadPane, []);
   if (error) return <p role="alert">{error.message}</p>;
@@ -1950,16 +1953,35 @@ function PaneSection() {
                 onClose={() => undefined}
               />
             </div>
-            <div className="gallery-stack-tight">
-              <Caption>HIDDEN WITH ⌘B · AN AGENT WAITS</Caption>
-              <div className="gallery-pane-strip">
-                <Icon name="bot" size={15} />
-                {view.states[0]?.view.agent_waits && <span className="pane-strip-dot" />}
-                <Icon name="chevrons-right" size={13} />
-              </div>
-            </div>
           </>
         )}
+      </div>
+    </Section>
+  );
+}
+
+const loadAskBar = () => request("gallery.ask_bar") as Promise<AskBarGallery>;
+
+/**
+ * *24 → Row · The Project agent* `s24-05` (T-0458): the Ask bar closed, typing with "ASK ABOUT", a reply waiting, and
+ * the rail's Project agent button in each state (tinted while open, a dot while a reply waits).
+ */
+function AskBarSection() {
+  const { view, error } = useServiceView(loadAskBar, []);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  return (
+    <Section title="24 · The Ask bar and the rail's Project agent button (T-0458)">
+      <div className="gallery-wrap gallery-wrap-wide" style={{ alignItems: "flex-end" }}>
+        {view.states.map((state) => (
+          <div key={state.name} className="gallery-stack-tight gallery-ask">
+            <Caption>{state.name.toUpperCase()}</Caption>
+            <AskBarBody view={state.view} text={state.typed} typing={state.typed !== ""} choice={0} />
+            <div className="rail gallery-ask-rail">
+              <RailAgentButton button={state.view.button} />
+            </div>
+          </div>
+        ))}
       </div>
     </Section>
   );
@@ -2574,6 +2596,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
           <ShellFrames />
         </Section>
         <PaneSection />
+        <AskBarSection />
         <DrawerSection />
         <Section title="02 · Header v2, Activity states and popover (T-0329)">
           <ActivityGallery />

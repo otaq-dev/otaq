@@ -35,7 +35,7 @@ pub const NOTES: [&str; 3] = [
      leaves the terminal.",
     "Replaces 0058’s map (decision 0097). Files view (⇧⌘O) and Go to file (⌥⌘P) keep their keys, parked with the \
      Files view: the app hides them while the view is parked, and Settings and the ? list don’t show them. Open diff \
-     has no key (the palette runs it); ⌘D is Start / move to Dev. ⇧⌘T → ⌃`, ⇧⌘A → ⇧⌘L, ⌘\\ → ⌘B, ⇧⌘E → e, ⌘⌥1–6 → \
+     has no key (the palette runs it); ⌘D is Start / move to Dev. ⇧⌘T → ⌃`, ⇧⌘A → ⇧⌘L, ⇧⌘E → e, ⌘⌥1–6 → \
      1–6, ⇧⌘G → g e, ⇧⌘D → ⌘D, ⌘K search → / (⌘K is the command palette).",
 ];
 
@@ -107,7 +107,7 @@ const LETTERS: [(Option<&str>, &[KeyAction]); 12] = [
 ];
 
 /// The modifier keys in the drawn order (0097's base map table).
-const MODIFIERS: [&[KeyAction]; 21] = [
+const MODIFIERS: [&[KeyAction]; 20] = [
     &[CommandPalette],
     &[SwitchProject],
     &[
@@ -123,7 +123,6 @@ const MODIFIERS: [&[KeyAction]; 21] = [
     ],
     &[NewTicket],
     &[Settings],
-    &[TogglePane],
     &[FocusPane],
     &[NewProjectAgent],
     &[Terminals],
@@ -283,19 +282,13 @@ mod tests {
                 row("New ticket", "⌘N", "Ctrl+N", "Ctrl+Shift+N"),
                 row("Settings", "⌘,", "Ctrl+,", "Ctrl+,"),
                 row(
-                    "Hide / show the Project agent pane",
-                    "⌘B",
-                    "Ctrl+B",
-                    "Ctrl+Shift+B"
-                ),
-                row(
-                    "Focus the Project agent pane",
+                    "Open / close the Project agent",
                     "⌘L",
                     "Ctrl+L",
                     "Ctrl+Shift+L"
                 ),
                 (
-                    "New Project agent",
+                    "New Project agent conversation",
                     None,
                     one("⇧⌘L"),
                     one("Ctrl+Shift+L"),

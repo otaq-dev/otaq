@@ -65,7 +65,7 @@ beforeEach(() => {
   box = document.body.appendChild(document.createElement("div"));
   root = createRoot(box);
   selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
-  shellLayout.set({ ...INITIAL_LAYOUT, paneHidden: true });
+  shellLayout.set({ ...INITIAL_LAYOUT, agentOpen: false });
 });
 
 afterEach(() => {
@@ -101,7 +101,7 @@ describe("Split with the Project agent (T-0377)", () => {
       project: "NOTE",
       message: "Split NOTE-10 into tickets",
     });
-    expect(shellLayout.get().paneHidden).toBe(false);
+    expect(shellLayout.get().agentOpen).toBe(true);
     expect(shownAgents.get()).toEqual({ NOTE: "a1" });
     expect(paneFocusRequests.get()).toMatchObject({ agent: "a1" });
     expect(onLeadAction).not.toHaveBeenCalled();

@@ -1,13 +1,16 @@
-// The Project agent pane (T-0330; SHL-04, PAG-01…PAG-07, ATT-03; d0087, d0068, d0060, d0077; *18 · Project agents &
-// terminals → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row · More pane states (0086 · V)*, *Row ·
-// Switching agents, attention (0086 · V)*): the `pane` slot between the rail and the main area. It shows one Project
-// agent, or the empty pane "Ask the Project agent" whose first message starts one (d0087). A running agent has its
-// header (switcher, state pill, …, Recently ended, +), the agent line, Created and changed, its real terminal
-// (T-0216's component, `terminal.attach`) and the footer. Everything it says comes from `pane.view`.
+// The Project agent panel (T-0330, T-0458; SHL-04, SHB-03, PAG-01…PAG-07, ATT-03; d0113, d0087, d0068, d0060, d0077;
+// *18 · Project agents & terminals → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row · More pane states
+// (0086 · V)*, *Row · Switching agents, attention (0086 · V)*, *24 → Row · The Project agent*): the `pane` slot, 420 px
+// between the rail and the main area while open. It shows one conversation, or the empty panel "Ask the Project
+// agent" whose first message starts one (d0087). Its header has "Project agent", the switcher (the conversation ▾),
+// the state pill, …, Recently ended, + and the close icon; then the agent line, Created and changed, its real
+// terminal (T-0216's component, `terminal.attach`) and the footer. The close icon, ⌘L and Esc (outside the terminal)
+// fold it back into the Ask bar. Everything it says comes from `pane.view`.
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useSizeClass, useWindowWidth } from "../../app/layout";
+import { shellLayout, useSizeClass, useWindowWidth } from "../../app/layout";
 import { openOverlay } from "../../app/overlays";
+import { useShortcut } from "../../app/registry";
 import { openTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
 import {
@@ -38,9 +41,11 @@ import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
 import { Icon } from "../../theme/Icon";
 import { showAgentOnBoard } from "../board/filter";
 import { toolProblemAction } from "../panel/toolProblemRunner";
+import { lookedAt } from "../ask_bar/logic";
 import {
-  agentWaits,
   chosenAgent,
+  closePane,
+  inPanel,
   focusFits,
   focusTarget,
   hasChoice,
@@ -365,7 +370,12 @@ function EmptyState({
               onDraft(e.target.value);
             }}
             onKeyDown={(e) => {
-              // Enter sends, Shift+Enter is a new line.
+              // Esc folds the panel (the box keeps its words, d0113); Enter sends, Shift+Enter is a new line.
+              if (e.key === "Escape") {
+                e.preventDefault();
+                closePane();
+                return;
+              }
               if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
               e.preventDefault();
               onSend();
@@ -585,11 +595,12 @@ export function PaneBody({ view, project, followFocus = false }: PaneBodyProps) 
   }
 
   return (
-    <section className="pane" aria-label={header.title} data-agent={view.agent ?? undefined}>
+    <section className="pane" aria-label={header.label} data-agent={view.agent ?? undefined}>
       <div className="pane-header">
         <span className="pane-bot" data-running={running !== null || undefined}>
           <Icon name={header.icon} size={15} />
         </span>
+        <span className="pane-label">{header.label}</span>
         {title}
         {header.pill !== null && <StatusPill pill={header.pill} />}
         <span className="pane-spacer" />
@@ -617,6 +628,12 @@ export function PaneBody({ view, project, followFocus = false }: PaneBodyProps) 
             }}
           />
         )}
+        <HeaderButton
+          button={header.close}
+          onClick={() => {
+            closePane();
+          }}
+        />
       </div>
       {running === null && view.empty !== null && (
         <EmptyState
@@ -697,6 +714,16 @@ export function PaneBody({ view, project, followFocus = false }: PaneBodyProps) 
   );
 }
 
+/**
+ * Esc folds the open panel while the keyboard is in it (d0113); in its terminal Esc is the agent's own (0097 binds no
+ * Esc there), elsewhere it is the next taker's (the ticket's Close), and the box keeps Esc for itself.
+ */
+function foldFromInside(): boolean {
+  if (!shellLayout.get().agentOpen || !inPanel(document.activeElement)) return false;
+  closePane();
+  return true;
+}
+
 /** One project's pane: asks `pane.view` for the agent the page shows, and opens on `opens_on` the first time. */
 function ProjectPane({ project }: { project: string }) {
   const shown = useStore(shownAgents);
@@ -723,9 +750,18 @@ function ProjectPane({ project }: { project: string }) {
   useEffect(() => {
     if (!chose && view?.opens_on != null) showAgent(project, view.opens_on);
   }, [chose, view?.opens_on, project]);
+  useShortcut("close_panel", foldFromInside);
+  // The user looks at the shown conversation while the panel is open, until it closes or shows another: its replies
+  // until then aren't new on the Ask bar (SHB-03).
+  const open = useStore(shellLayout).agentOpen;
+  const shownAgent = view?.agent ?? null;
   useEffect(() => {
-    agentWaits.set(view?.agent_waits ?? false);
-  }, [view?.agent_waits]);
+    if (!open || shownAgent === null) return;
+    lookedAt(shownAgent);
+    return () => {
+      lookedAt(shownAgent);
+    };
+  }, [open, shownAgent]);
   if (!view) return <section className="pane" />;
   return <PaneBody view={view} project={project} followFocus />;
 }
@@ -735,10 +771,4 @@ export function Pane() {
   const { project } = useSelection();
   if (project === null) return <section className="pane" />;
   return <ProjectPane key={project} project={project} />;
-}
-
-/** The `pane_strip` slot: the turquoise dot under the strip's bot icon while an agent of the project waits (d0077). */
-export function PaneStripDot() {
-  const waits = useStore(agentWaits);
-  return waits ? <span className="pane-strip-dot" /> : null;
 }

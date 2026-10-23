@@ -1,7 +1,8 @@
 // The header (SHL-02, SHL-03; d0087; *02 · App shell → Row · Title bars (0086 · V)*, *Row · Header states (0086 ·
 // V)*): four items. The shown project with its base branch (the folder on the name's hover, "Copy path" in its menu),
 // the search entry, Activity (agents and processes across all projects, the amber usage warning; a click or ⇧⌘U opens
-// its popover) and Needs you. Everything it says comes from `shell.header`. A project in Flow setup (ASK-04, T-0436)
+// its popover), the place for Pause after it (the `header_pause` slot, T-0457; SHB-01) and Needs you. Everything it
+// says comes from `shell.header`. A project in Flow setup (ASK-04, T-0436)
 // shows "billing-api · Flow setup" with "2 agents at work" or "2 proposals" in place of its base branch, and no search
 // (it has no board to filter). The row is the title bar: its empty parts
 // move the window, and the title bar's ends (T-0214) give it its outer padding.
@@ -163,9 +164,11 @@ export interface HeaderBarProps {
   onSearch: () => void;
   /** The board's search and filter field (the `header_search` slot, T-0221), drawn in place of the entry. */
   search?: ReactNode;
+  /** Pause, after Activity (the `header_pause` slot, PAU-08, T-0457; SHB-01). */
+  pause?: ReactNode;
 }
 
-export function HeaderBar({ view, activityOpen = false, onSearch, search }: HeaderBarProps) {
+export function HeaderBar({ view, activityOpen = false, onSearch, search, pause }: HeaderBarProps) {
   const { inbox } = view;
   // A project in Flow setup has no board, so no search.
   const searches = view.project !== null && view.project.flow_setup === null;
@@ -183,6 +186,7 @@ export function HeaderBar({ view, activityOpen = false, onSearch, search }: Head
       )}
       <div className="header-gap" />
       <ActivityChip activity={view.activity} open={activityOpen} anchor={activityAnchor} />
+      {pause}
       <Tooltip text={view.inbox_hint.text} keys={view.inbox_hint.keys ?? undefined}>
         <button
           type="button"
@@ -226,11 +230,13 @@ export function ShellHeader() {
   }, [view]);
   if (view === undefined) return null;
   const Search = app.slots.get("header_search")?.Component;
+  const Pause = app.slots.get("header_pause")?.Component;
   return (
     <HeaderBar
       view={view}
       activityOpen={activityOpen}
       search={Search && <Search />}
+      pause={Pause && <Pause />}
       onSearch={() => {
         app.shortcuts.run({ action: "filter_board" });
       }}

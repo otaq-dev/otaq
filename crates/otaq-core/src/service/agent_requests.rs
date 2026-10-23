@@ -90,6 +90,11 @@ pub(super) async fn handle(
             .await
             .map(Reply::Delivery)
             .map_err(|e| error_body(&e)),
+        Request::ProjectAgentSend(p) => agents
+            .send(&p.id, &p.message)
+            .await
+            .map(Reply::Delivery)
+            .map_err(|e| error_body(&e)),
         Request::ProjectAgentPrime(p) => project_prime(shared, &p.project)
             .await
             .map(|c| Reply::ProjectPrime(Box::new(c)))

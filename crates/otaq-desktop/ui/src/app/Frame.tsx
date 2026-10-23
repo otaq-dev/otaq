@@ -1,37 +1,17 @@
-// The app frame (*02 → Row · Window 1440 × 900 (0086 · V)*, SHL-01): the header row (also the title bar), the banner
-// area across the window that pushes everything under it down, then **rail | Project agent pane | main area**. The
-// main area has the Board | Files tabs at its top, then the board or the Files view; the ticket panel opens over its
-// right side (SHL-05). ⌘B folds the pane to a 28 px strip; the expanded panel (`e`) takes the pane's room too. The
-// overlay and toast hosts go over everything. Each slot is filled by the screen registered for it; an empty slot
-// shows its name so the layout can be checked before its screen exists.
-import { useCallback, useEffect, useLayoutEffect, useRef, type PointerEvent, type ReactNode } from "react";
+// The app frame (*24 → Row · The two views*, *Row · The Project agent*; SHB-01, d0113): the header row (also the title
+// bar), the banner area across the window that pushes everything under it down, then **rail | Project agent panel
+// (only while open, 420 px, pushing the board) | main area**. The main area holds the board (no Board | Files tabs:
+// the project Files view stays parked, d0090); the ticket panel opens over its right side (SHL-05) and the Ask bar
+// floats at its bottom centre. The overlay and toast hosts go over everything. Each slot is filled by the screen
+// registered for it; an empty slot shows its name so the layout can be checked before its screen exists.
+import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 
 import "./frame.css";
-import { playEnterWhenReady, playLeave, Tooltip, usePresence } from "../components";
+import { playEnterWhenReady, playLeave, usePresence } from "../components";
 import type { LayoutView } from "../generated/LayoutView";
-import type { MainTab } from "../generated/MainTab";
-import type { SizeClass } from "../generated/SizeClass";
 import { DRAG_REGION } from "../tauri";
-import { Icon } from "../theme/Icon";
 import { useTheme } from "../theme/theme";
-import {
-  clampPane,
-  layoutShortcuts,
-  layoutView,
-  loadLayout,
-  mainWidth,
-  paneShows,
-  paneWidth,
-  type ShellLayout,
-  shellLayout,
-  showTab,
-  shownTab,
-  sizeClass,
-  tabCounts,
-  togglePane,
-  useWindowWidth,
-  withDrag,
-} from "./layout";
+import { layoutView, loadLayout, mainWidth, type ShellLayout, shellLayout } from "./layout";
 import { closeOverlay, useOpenOverlays } from "./overlays";
 import { type OverlayId, type OverlayProps, type SlotId, useRegistries } from "./registry";
 import { OVERLAY_MAIN_AREA } from "./registry/overlays";
@@ -40,9 +20,6 @@ import { useStore } from "./store";
 
 /** The element the overlay host draws into; local menus and popovers may portal there too. */
 export const OVERLAY_HOST_ID = "overlay-host";
-
-/** How far an arrow key moves the focused pane edge. */
-const KEY_STEP = 16;
 
 interface SlotProps {
   id: SlotId;
@@ -95,8 +72,8 @@ function OverlayHost() {
 }
 
 /**
- * The main area's own overlay layer (FLW-04's preview): over the board, the Files view and the ticket panel, while
- * the rail, the header and the Project agent pane beside it stay usable. Empty, it takes no clicks.
+ * The main area's own overlay layer (FLW-04's preview): over the board, the ticket panel and the Ask bar, while the
+ * rail, the header and the Project agent panel beside it stay usable. Empty, it takes no clicks.
  */
 function MainAreaHost() {
   return (
@@ -128,162 +105,35 @@ function PanelLayer({ open }: { open: boolean }) {
   );
 }
 
-/** The pane's right edge: drag to resize (320–560 px), double-click for the class's default; ←/→ when focused. */
-function PaneEdge({
-  view,
-  width,
-  resize,
-}: {
-  view: LayoutView;
-  width: number;
-  resize: ((width: number | null) => void) | undefined;
-}) {
-  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (!resize) return;
-    e.preventDefault();
-    const edge = e.currentTarget;
-    const left = edge.parentElement?.getBoundingClientRect().left ?? 0;
-    edge.setPointerCapture(e.pointerId);
-    const move = (m: globalThis.PointerEvent) => {
-      resize(clampPane(m.clientX - left, view));
-    };
-    const up = () => {
-      edge.removeEventListener("pointermove", move);
-      edge.removeEventListener("pointerup", up);
-    };
-    edge.addEventListener("pointermove", move);
-    edge.addEventListener("pointerup", up);
-  };
-  /* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex --
-     a focusable separator with a value is a widget in WAI-ARIA (a splitter); jsx-a11y treats every separator as static */
-  return (
-    <div
-      className="frame-pane-edge"
-      role="separator"
-      aria-orientation="vertical"
-      aria-label={view.pane_resize}
-      aria-valuenow={width}
-      aria-valuemin={view.pane_min}
-      aria-valuemax={view.pane_max}
-      tabIndex={0}
-      onPointerDown={onPointerDown}
-      onKeyDown={(e) => {
-        const step = e.key === "ArrowRight" ? KEY_STEP : e.key === "ArrowLeft" ? -KEY_STEP : 0;
-        if (step === 0 || !resize) return;
-        e.preventDefault();
-        resize(clampPane(width + step, view));
-      }}
-      onDoubleClick={() => {
-        resize?.(null);
-      }}
-    />
-  );
-  /* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex -- the splitter ends here */
-}
-
-/** The pane's column: the pane at its width, its strip while hidden (⌘B), nothing under an expanded panel. */
-function PaneColumn({
-  view,
-  layout,
-  cls,
-  ticketOpen,
-  resize,
-}: {
-  view: LayoutView;
-  layout: ShellLayout;
-  cls: SizeClass;
-  ticketOpen: boolean;
-  resize: ((width: number | null) => void) | undefined;
-}) {
-  const shows = paneShows(layout, ticketOpen);
-  const width = paneWidth(layout, cls, view);
-  // The pane stays mounted while folded, so its terminal keeps its place; only the strip shows.
-  return (
-    <div className="frame-pane" data-slot="pane" data-shows={shows}>
-      <div className="frame-pane-body" style={{ width }} hidden={shows !== "pane"}>
-        <Slot id="pane" />
-        <PaneEdge view={view} width={width} resize={resize} />
-      </div>
-      {shows === "strip" && (
-        <Tooltip text={view.show_pane} keys={view.pane_keys ?? undefined}>
-          <button
-            type="button"
-            className="frame-pane-strip"
-            style={{ width: view.strip }}
-            aria-label={view.show_pane}
-            onClick={togglePane}
-          >
-            <span className="frame-pane-strip-bot">
-              <Icon name="bot" size={15} />
-            </span>
-            <Slot id="pane_strip" />
-            <Icon name="chevrons-right" size={13} />
-          </button>
-        </Tooltip>
-      )}
-    </div>
-  );
-}
-
 /**
- * Board | Files at the main area's top, with ⇧⌘B · ⇧⌘O at the right end (*Main tabs*); not drawn while the Files view
- * is parked (`tab_row`).
+ * The Project agent panel's column (SHB-01, d0113): the panel at 420 px between the rail and the main area while it is
+ * open, pushing the board; nothing while it is closed. It stays mounted closed, so its terminal keeps its place.
  */
-function MainTabs({ view, tab }: { view: LayoutView; tab: MainTab }) {
-  const counts = useStore(tabCounts);
+function AgentColumn({ view, open }: { view: LayoutView; open: boolean }) {
   return (
-    <div className="frame-tabs" role="tablist">
-      {view.tabs.map((t) => {
-        const selected = tab === t.tab;
-        const count = counts[t.tab];
-        return (
-          <button
-            key={t.tab}
-            type="button"
-            role="tab"
-            className="frame-tab"
-            aria-selected={selected}
-            onClick={() => {
-              showTab(t.tab);
-            }}
-          >
-            <Icon name={t.icon} size={13} />
-            <span className="frame-tab-label">{t.label}</span>
-            {count !== undefined && <span className="frame-tab-count">{count}</span>}
-          </button>
-        );
-      })}
-      <span className="frame-tabs-keys">{view.tab_keys}</span>
+    <div className="frame-agent" data-slot="pane" data-open={open || undefined}>
+      <div className="frame-agent-body" style={{ width: view.agent_panel }} hidden={!open}>
+        <Slot id="pane" />
+      </div>
     </div>
   );
 }
 
 export interface FrameBodyProps {
-  /** `undefined` until `layout.view` answered: the pane and the tabs wait for it. */
+  /** `undefined` until `layout.view` answered: the Project agent panel waits for it. */
   view: LayoutView | undefined;
   layout: ShellLayout;
-  /** The window's width, for its size class. */
-  windowWidth: number;
   ticketOpen: boolean;
   bannerFallback?: ReactNode;
-  /** Keeps a dragged pane width for this window's class; the gallery's frames leave it out. */
-  resizePane?: (cls: SizeClass, width: number | null) => void;
   /** Gets the main area's element, to measure it. */
   mainRef?: (element: HTMLDivElement | null) => void;
 }
 
-/** Everything under the hosts: header, banners, rail, pane, main area and the panel over it. */
-export function FrameBody({
-  view,
-  layout,
-  windowWidth,
-  ticketOpen,
-  bannerFallback,
-  resizePane,
-  mainRef,
-}: FrameBodyProps) {
-  const cls = view ? sizeClass(windowWidth, view.classes) : null;
-  const tab = view ? shownTab(layout, view) : layout.tab;
+/**
+ * Everything under the hosts: header, banners, rail, the Project agent panel while open, the main area with the
+ * ticket panel and the Ask bar over it.
+ */
+export function FrameBody({ view, layout, ticketOpen, bannerFallback, mainRef }: FrameBodyProps) {
   const expanded = layout.panelExpanded && ticketOpen;
   return (
     <>
@@ -301,32 +151,16 @@ export function FrameBody({
       <div className="frame-banners" data-slot="banners">
         <Slot id="banners" placeholder={bannerFallback} />
       </div>
-      {view && cls && (
-        <PaneColumn
-          view={view}
-          layout={layout}
-          cls={cls}
-          ticketOpen={ticketOpen}
-          resize={
-            resizePane &&
-            ((width) => {
-              resizePane(cls, width);
-            })
-          }
-        />
-      )}
+      {view && <AgentColumn view={view} open={layout.agentOpen} />}
       <div className="frame-main" ref={mainRef} data-expanded={expanded || undefined}>
-        {view?.tab_row && <MainTabs view={view} tab={tab} />}
-        {tab === "files" && view ? (
-          <div className="frame-files" data-slot="files">
-            <Slot id="files" placeholder={<p className="frame-files-empty">{view.files_empty}</p>} />
-          </div>
-        ) : (
-          <div className="frame-board" data-slot="board">
-            <Slot id="board" placeholder={<Placeholder name="Board" />} />
-          </div>
-        )}
+        <div className="frame-board" data-slot="board">
+          <Slot id="board" placeholder={<Placeholder name="Board" />} />
+        </div>
         <PanelLayer open={ticketOpen} />
+        {/* Over the board, the List and the ticket, at the bottom centre; it hides itself while the panel is open. */}
+        <div className="frame-ask" data-slot="ask_bar">
+          <Slot id="ask_bar" />
+        </div>
         <MainAreaHost />
       </div>
     </>
@@ -344,10 +178,7 @@ export function Frame({ bannerFallback }: FrameProps) {
   const { ticket } = useSelection();
   const layout = useStore(shellLayout);
   const view = useStore(layoutView);
-  const windowWidth = useWindowWidth();
-  const app = useRegistries();
   useEffect(loadLayout, []);
-  useEffect(() => layoutShortcuts(app), [app]);
   // The panel's widest is the main area minus what the board keeps, so the frame measures it.
   const observer = useRef<ResizeObserver | null>(null);
   const mainRef = useCallback((element: HTMLDivElement | null) => {
@@ -364,12 +195,8 @@ export function Frame({ bannerFallback }: FrameProps) {
       <FrameBody
         view={view}
         layout={layout}
-        windowWidth={windowWidth}
         ticketOpen={ticket !== null}
         bannerFallback={bannerFallback}
-        resizePane={(cls, width) => {
-          shellLayout.update((l) => ({ ...l, paneWidths: withDrag(l.paneWidths, cls, width) }));
-        }}
         mainRef={mainRef}
       />
       <OverlayHost />

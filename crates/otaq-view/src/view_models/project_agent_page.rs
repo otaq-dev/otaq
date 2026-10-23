@@ -233,6 +233,7 @@ mod tests {
             },
             session: None,
             epic: None,
+            turn_ended_at: None,
         }
     }
 

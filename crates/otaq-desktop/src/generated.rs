@@ -42,7 +42,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::keymap_edit::KeyEditAnswer::export_all(&cfg)?;
     // The `?` shortcut list (T-0394, KEY-07); also writes its groups, rows and keys.
     otaq_view::view_models::shortcut_list::ShortcutList::export_all(&cfg)?;
-    // Also writes `SizeClass`, `SizeClassBound`, `ClassWidths`, `MainTab` and `MainTabView`.
+    // Also writes `SizeClass` and `SizeClassBound`.
     otaq_view::view_models::layout::View::export_all(&cfg)?;
     crate::terminal::Feed::export_all(&cfg)?;
     crate::api::TerminalInput::export_all(&cfg)?;
@@ -118,6 +118,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::PaneEnded::export_all(&cfg)?;
     crate::api::PaneProjectParams::export_all(&cfg)?;
     crate::api::PaneResumeParams::export_all(&cfg)?;
+    // The Ask bar and the rail's Project agent button (T-0458): its view, gallery and requests.
+    crate::api::export_ask_bar_types(&cfg)?;
     // The board (T-0220): its view with the cards, the drag's one answer, the drop's outcome, and the requests'.
     otaq_view::view_models::board_page::BoardPage::export_all(&cfg)?;
     otaq_view::view_models::board_page::Params::export_all(&cfg)?;

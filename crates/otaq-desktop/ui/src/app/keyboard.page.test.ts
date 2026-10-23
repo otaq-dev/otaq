@@ -56,7 +56,7 @@ function map(letters: boolean): Keymap {
       sequence({ action: "park" }, "p"),
       binding({ action: "next_ticket" }, { kind: "letter", letter: "j" }, "j"),
       binding(
-        { action: "toggle_pane" },
+        { action: "open_activity" },
         { kind: "stroke", stroke: { key: "b", code: "KeyB", modifiers: MOD } },
         "⌘B",
       ),
@@ -88,7 +88,7 @@ beforeEach(() => {
     "open_inbox",
     "park",
     "next_ticket",
-    "toggle_pane",
+    "open_activity",
     "command_palette",
   ] as const)
     app.shortcuts.on(name, () => {
@@ -196,10 +196,10 @@ test("in the description editor ⌘B makes text bold and ⌘K opens the link; ne
   press("k", { ...mods, keyCode: 75 });
   expect(linkUi(editor).get().popover).not.toBeNull();
   expect(ran).toEqual([]);
-  // Outside the editor ⌘B is the app's again.
+  // Outside the editor a ⌘B the user recorded (Activity here) is the app's again.
   act(() => {
     (document.activeElement as HTMLElement | null)?.blur();
   });
   press("b", mods);
-  expect(ran).toEqual(["toggle_pane"]);
+  expect(ran).toEqual(["open_activity"]);
 });

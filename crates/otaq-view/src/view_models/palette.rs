@@ -128,7 +128,6 @@ pub fn unavailable(action: KeyAction, context: &Context) -> Option<&'static str>
         | A::OpenInbox
         | A::OpenActivity
         | A::Settings
-        | A::TogglePane
         | A::FocusPane
         | A::NewProjectAgent
         | A::NewTicket
@@ -197,7 +196,6 @@ pub fn icon(action: KeyAction) -> IconName {
         A::ShowBoard => I::Columns3,
         A::OpenActivity => I::Activity,
         A::Settings => I::Settings,
-        A::TogglePane => I::PanelRight,
         A::FocusPane => I::Bot,
         A::NewProjectAgent => I::SquarePlus,
         A::NewTicket => I::Plus,

@@ -161,7 +161,7 @@ function routes() {
     overlays: createOverlayStack(),
     pane: {
       selection,
-      layout: createStore<ShellLayout>({ ...INITIAL_LAYOUT, paneHidden: true }),
+      layout: createStore<ShellLayout>({ ...INITIAL_LAYOUT, agentOpen: false }),
       shown: createStore<ShownAgents>({}),
       focus: createStore<PaneFocusRequest | null>(null),
     },
@@ -380,7 +380,7 @@ describe("Project agent items", () => {
     expect(r.selection.get().ticket).toBeNull();
     expect(r.overlays.store.get()).toEqual([]);
     expect(r.pane.shown.get()).toEqual({ SHOP: "a1" });
-    expect(r.pane.layout.get().paneHidden).toBe(false);
+    expect(r.pane.layout.get().agentOpen).toBe(true);
     expect(r.pane.focus.get()).toEqual({ seq: 1, agent: "a1" });
     expect(r.focus.get()).toBeNull();
   });

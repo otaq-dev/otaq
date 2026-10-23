@@ -93,11 +93,10 @@ pub enum KeyAction {
     /// The Activity popover (d0087).
     OpenActivity,
     Settings,
-    /// Hide the Project agent pane to its strip, or show it again (d0087).
-    TogglePane,
-    /// Focus the Project agent pane (d0087).
+    /// Open the Project agent panel and focus it, or close it when it has the keyboard (d0113).
     FocusPane,
-    /// The Project agent pane's empty state: nothing starts until the first message is sent (d0068, d0087, PAG-01).
+    /// A new Project agent conversation: the panel's empty state; nothing starts until the first message is sent
+    /// (d0068, d0087, d0113, PAG-01).
     NewProjectAgent,
     NewTicket,
     OpenPanel,
@@ -142,7 +141,6 @@ impl KeyAction {
             Self::OpenInbox,
             Self::OpenActivity,
             Self::Settings,
-            Self::TogglePane,
             Self::FocusPane,
             Self::NewProjectAgent,
             Self::NewTicket,
@@ -192,9 +190,8 @@ impl KeyAction {
             Self::OpenInbox => "Inbox",
             Self::OpenActivity => "Activity",
             Self::Settings => "Settings",
-            Self::TogglePane => "Hide / show the Project agent pane",
-            Self::FocusPane => "Focus the Project agent pane",
-            Self::NewProjectAgent => "New Project agent",
+            Self::FocusPane => "Open / close the Project agent",
+            Self::NewProjectAgent => "New Project agent conversation",
             Self::NewTicket => "New ticket",
             Self::OpenPanel | Self::ClosePanel => "Open / close the panel",
             Self::ExpandPanel => "Expand / shrink the panel",
@@ -241,7 +238,6 @@ impl KeyAction {
             | Self::OpenInbox
             | Self::OpenActivity
             | Self::Settings
-            | Self::TogglePane
             | Self::FocusPane
             | Self::NewProjectAgent
             | Self::ShowFiles
@@ -297,7 +293,6 @@ impl KeyAction {
             Self::OpenInbox => vec![k("⇧⌘I", "Ctrl+Shift+I", "Ctrl+Shift+I"), letter("g i")],
             Self::OpenActivity => vec![k("⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"), letter("g a")],
             Self::Settings => vec![k("⌘,", "Ctrl+,", "Ctrl+,")],
-            Self::TogglePane => vec![k("⌘B", "Ctrl+B", "Ctrl+Shift+B")],
             Self::FocusPane => vec![k("⌘L", "Ctrl+L", "Ctrl+Shift+L")],
             Self::NewProjectAgent => vec![k("⇧⌘L", "Ctrl+Shift+L", "")],
             Self::NewTicket => vec![k("⌘N", "Ctrl+N", "Ctrl+Shift+N"), letter("c")],
@@ -1040,9 +1035,9 @@ fn custom_bindings(
     }
 }
 
-/// The description editor's own keys that are also app keys (0097, d0078): while its text has the focus, ⌘K /
-/// Ctrl+K inserts a link (not the palette) and ⌘B / Ctrl+B is Bold (not Hide / show the pane). The only keys allowed
-/// two meanings, by focus.
+/// The description editor's own keys that may also be app keys (0097, d0078): while its text has the focus, ⌘K /
+/// Ctrl+K inserts a link (not the palette) and ⌘B / Ctrl+B is Bold (the base map has no ⌘B since d0113; a key the
+/// user records there stays Bold in the editor). The only keys allowed two meanings, by focus.
 pub fn description_editor_keys(platform: Platform) -> [&'static str; 2] {
     if platform.is_mac() {
         ["⌘K", "⌘B"]
@@ -1170,7 +1165,6 @@ mod tests {
                 &["Ctrl+Shift+U"],
             ),
             row(Settings, &["⌘,"], &["Ctrl+,"], &["Ctrl+,"]),
-            row(TogglePane, &["⌘B"], &["Ctrl+B"], &["Ctrl+Shift+B"]),
             row(FocusPane, &["⌘L"], &["Ctrl+L"], &["Ctrl+Shift+L"]),
             row(NewProjectAgent, &["⇧⌘L"], &["Ctrl+Shift+L"], &[]),
             row(NewTicket, &["⌘N", "c"], &["Ctrl+N", "c"], &["Ctrl+Shift+N"]),
@@ -1367,8 +1361,9 @@ mod tests {
         assert_eq!(in_terminal("Ctrl+Shift+D"), Some(KeyAction::StartDev));
         assert_eq!(in_terminal("Ctrl+D"), None);
         assert_eq!(in_terminal("Ctrl+L"), None);
-        // Their Shift forms belong to the pane, so Board and New Project agent have no key there.
-        assert_eq!(in_terminal("Ctrl+Shift+B"), Some(KeyAction::TogglePane));
+        // Ctrl+Shift+L belongs to the Project agent, so New conversation has no key there; Board has none either, and
+        // Ctrl+Shift+B is free since the pane's hide / show key went (d0113).
+        assert_eq!(in_terminal("Ctrl+Shift+B"), None);
         assert_eq!(in_terminal("Ctrl+Shift+L"), Some(KeyAction::FocusPane));
         for action in [KeyAction::ShowBoard, KeyAction::NewProjectAgent] {
             assert!(
@@ -1538,9 +1533,9 @@ mod tests {
         }
     }
 
-    /// 0097, d0078: the description editor's toolbar keys share only ⌘K (Link) and ⌘B (Bold) with the map, which the
-    /// editor keeps while its text has the focus. ⇧⌘B is the editor's Blockquote too: Board takes it first, as under
-    /// 0058 (a deferred question of T-0389).
+    /// 0097, d0078, d0113: the description editor's toolbar keys share only ⌘K (Link) with the map, which the editor
+    /// keeps while its text has the focus (⌘B is Bold alone since the pane's key went). ⇧⌘B is the editor's
+    /// Blockquote too: Board takes it first, as under 0058 (a deferred question of T-0389).
     #[test]
     fn only_link_and_bold_share_a_key_with_the_description_editor() {
         // `ui/src/markdown/toolbar/buttons.ts`: Bold, Italic, Strikethrough, Code, Link, lists, Blockquote, Code block.
@@ -1564,8 +1559,7 @@ mod tests {
                 .map(|b| b.text.clone())
                 .collect();
             shared.sort();
-            let mut want: Vec<String> =
-                description_editor_keys(platform).map(String::from).to_vec();
+            let mut want: Vec<String> = vec![description_editor_keys(platform)[0].to_owned()];
             want.push(
                 if platform == Platform::Mac {
                     "⇧⌘B"
@@ -1582,10 +1576,8 @@ mod tests {
             runs(Platform::Mac, false, "⌘K", &mac),
             Some(KeyAction::CommandPalette)
         );
-        assert_eq!(
-            runs(Platform::Mac, false, "⌘B", &mac),
-            Some(KeyAction::TogglePane)
-        );
+        // ⌘B is Bold in the editor only: the app has no ⌘B since the pane went (d0113).
+        assert_eq!(runs(Platform::Mac, false, "⌘B", &mac), None);
     }
 
     /// 0097 on macOS: ⌃`, ⌃Tab and ⌃⇧Tab reach the app from a focused terminal; ⌃C, ⌃D, ⌃R and a bare letter stay the
@@ -2189,9 +2181,8 @@ mod tests {
                         "Inbox",
                         "Activity",
                         "Settings",
-                        "Hide / show the Project agent pane",
-                        "Focus the Project agent pane",
-                        "New Project agent",
+                        "Open / close the Project agent",
+                        "New Project agent conversation",
                     ]
                 ),
                 (

@@ -4,11 +4,16 @@ import type { PaneButton } from "./PaneButton";
 import type { PillView } from "./PillView";
 
 /**
- * The pane's header: the bot icon, the switcher (the name ▾), the state pill, Recently ended, + and ….
+ * The panel's header (`s24-05`): the bot icon, "Project agent", the switcher (the conversation's name ▾), the state
+ * pill, …, Recently ended, + and the close icon.
  */
 export type PaneHeader = { icon: IconName, 
 /**
- * The shown agent's name, or "Project agent" on the empty pane.
+ * "Project agent".
+ */
+label: string, 
+/**
+ * The shown conversation's name, or "New conversation" on the empty pane.
  */
 title: string, 
 /**
@@ -26,4 +31,8 @@ pill: PillView | null, recent: PaneButton,
 /**
  * + shows the empty pane (as ⇧⌘L does); nothing starts.
  */
-new: PaneButton, more: PaneButton, };
+new: PaneButton, more: PaneButton, 
+/**
+ * Folds the panel back into the Ask bar, as ⌘L and Esc do; the conversation is kept (d0113).
+ */
+close: PaneButton, };

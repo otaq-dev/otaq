@@ -50,7 +50,7 @@ fn toast_error(app: &App, title: &str, error: &RequestError) {
     ));
 }
 
-async fn agents(app: &App, project: &str) -> Result<ProjectAgentList, RequestError> {
+pub(super) async fn agents(app: &App, project: &str) -> Result<ProjectAgentList, RequestError> {
     match app
         .service
         .send(Request::ProjectAgentList(ProjectParams {
@@ -394,7 +394,6 @@ mod tests {
                 .contains("in pocket-notes (never edits)")
         );
         assert_eq!(view["switcher"]["rows"], json!([]));
-        assert_eq!(view["agent_waits"], false);
         // An agent the page remembers but the project doesn't have: the empty pane.
         let gone = table(
             &h.app,

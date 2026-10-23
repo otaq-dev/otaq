@@ -1,6 +1,6 @@
 /*
- * The frame's layout (*02 → Row · Window 1440 × 900 (0086 · V)*, SHL-01): rail | pane | main area. The window itself
- * never scrolls: every region clips, and the board, the pane and the panel scroll inside themselves. Colors are T-0213's theme variables; the fallbacks are Otaq Light,
+ * The frame's layout (*24 → Row · The Project agent*, SHB-01): rail | Project agent panel (while open) | main area. The
+ * window itself never scrolls: every region clips, and the board and the panels scroll inside themselves. Colors are T-0213's theme variables; the fallbacks are Otaq Light,
  * used only until the root stylesheet defines them.
  */
 html,
@@ -10,7 +10,7 @@ body {
 
 .frame {
   display: grid;
-  /* The rail and the pane set their own widths (64 px rail; the pane's from `layout.view`). */
+  /* The rail and the Project agent panel set their own widths (64 px rail; the panel's 420 px from `layout.view`). */
   grid-template-columns: auto auto minmax(0, 1fr);
   /*
    * Header 44 px (`density::HEADER`); banners only take room while there are some (36 px each, at most 2). They span
@@ -58,15 +58,15 @@ body {
   min-width: 0;
 }
 
-/* The pane's column: the pane (its width inline), or the 28 px strip while Hide / show the pane (⌘B) hid it (*18 → Hidden*). */
-.frame-pane {
+/* The Project agent panel's column (SHB-01, d0113): 420 px while open, pushing the main area; nothing while closed. */
+.frame-agent {
   grid-area: pane;
   display: flex;
   min-height: 0;
   overflow: hidden;
 }
 
-.frame-pane-body {
+.frame-agent-body {
   position: relative;
   display: flex;
   flex: none;
@@ -76,43 +76,8 @@ body {
   background: var(--bg-panel);
 }
 
-.frame-pane-body[hidden] {
+.frame-agent-body[hidden] {
   display: none;
-}
-
-.frame-pane-edge {
-  position: absolute;
-  top: 0;
-  right: -3px;
-  bottom: 0;
-  z-index: 1;
-  width: 6px;
-  cursor: col-resize;
-}
-
-.frame-pane-strip {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  box-sizing: border-box;
-  height: 100%;
-  padding: 12px 0 0;
-  border: none;
-  border-right: 1px solid var(--border);
-  background: var(--bg-panel);
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.frame-pane-strip:hover {
-  background: var(--bg-hover);
-}
-
-.frame-pane-strip-bot {
-  display: flex;
-  color: var(--st-investigate);
 }
 
 .frame-main {
@@ -125,59 +90,7 @@ body {
   overflow: hidden;
 }
 
-/* *Main tabs*: Board | Files, then ⇧⌘B · ⇧⌘O at the right end. */
-.frame-tabs {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 2px;
-  height: 30px;
-  padding: 8px 10px 0;
-}
-
-.frame-tab {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  box-sizing: border-box;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: none;
-  color: var(--text-secondary);
-  font: 400 12.5px/normal var(--font-ui);
-  cursor: pointer;
-}
-
-.frame-tab > .icon {
-  color: var(--text-muted);
-}
-
-.frame-tab[aria-selected="true"] {
-  border-color: var(--border);
-  background: var(--bg-card);
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.frame-tab[aria-selected="true"] > .icon {
-  color: var(--text-primary);
-}
-
-.frame-tab-count,
-.frame-tabs-keys {
-  color: var(--text-muted);
-  font: 400 11px/normal var(--font-mono);
-}
-
-.frame-tabs-keys {
-  margin-left: auto;
-  white-space: nowrap;
-}
-
-.frame-board,
-.frame-files {
+.frame-board {
   display: flex;
   flex: 1;
   min-width: 0;
@@ -185,21 +98,29 @@ body {
   overflow: hidden;
 }
 
-.frame-files {
-  align-items: center;
+/*
+ * The Ask bar's layer (SHB-03, `s24-03`): the bottom centre of the main area, over the board, the List and the ticket
+ * panel (same z-index, later in the page), under the main area's overlays. Only the bar takes clicks.
+ */
+.frame-ask {
+  position: absolute;
+  right: 0;
+  bottom: 32px;
+  left: 0;
+  z-index: 8;
+  display: flex;
   justify-content: center;
+  pointer-events: none;
 }
 
-.frame-files-empty {
-  margin: 0;
-  color: var(--text-muted);
-  font: 400 13px/normal var(--font-ui);
+.frame-ask > * {
+  pointer-events: auto;
 }
 
 /*
  * The panel over the main area's right side (SHL-05, *05 → Row · Ticket open over the board (0086 · V)*): a shadow
  * edge, the board keeps its width underneath. Above the board's chain arrows and legend (fixed, z-index 5 and 6),
- * under the lifted card (30). Expanded (`e`) it fills the main area, which then takes the pane's room.
+ * under the lifted card (30). Expanded (`e`) it fills the main area.
  */
 .frame-panel {
   position: absolute;

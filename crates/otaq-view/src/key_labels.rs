@@ -181,7 +181,7 @@ mod tests {
         assert_eq!(mac.label(KeyAction::Project(2)).as_deref(), Some("⌘2"));
         assert_eq!(mac.label(KeyAction::Park), None);
         let win = KeyLabels::base(Platform::WinLinux);
-        assert_eq!(win.label(KeyAction::TogglePane).as_deref(), Some("Ctrl+B"));
+        assert_eq!(win.label(KeyAction::FocusPane).as_deref(), Some("Ctrl+L"));
         assert_eq!(win.label(KeyAction::FindInTerminal), None);
     }
 

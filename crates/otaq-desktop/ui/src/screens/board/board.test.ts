@@ -32,7 +32,6 @@ import {
   targetOrder,
 } from "./drag";
 import { agentOf, boardAgent, clearAgentFilter, escapeStep, showAgentOnBoard } from "./filter";
-import { shellLayout } from "../../app/layout";
 import type { EpicCardView } from "../../generated/EpicCardView";
 import type { EpicTrack } from "../../generated/EpicTrack";
 import { board } from ".";
@@ -1097,10 +1096,8 @@ describe("the panel over the board (SHL-05)", () => {
 });
 
 describe("the agent filter (d0087)", () => {
-  it("is kept for its project, switches to the Board tab, and ✕ clears it", () => {
-    shellLayout.update((l) => ({ ...l, tab: "files" }));
+  it("is kept for its project, and ✕ clears it", () => {
     showAgentOnBoard("NOTE", "a1");
-    expect(shellLayout.get().tab).toBe("board");
     expect(agentOf(boardAgent.get(), "NOTE")).toBe("a1");
     expect(agentOf(boardAgent.get(), "API")).toBeNull();
     clearAgentFilter("API");

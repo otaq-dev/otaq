@@ -1,8 +1,9 @@
-// The project rail (UI-01, ATT-10, PRJ-01; d0024, d0058, d0087; *02 → One project, Another project needs you, Ten
-// projects · long names*): every project in the user's order with its agents working and items needing you, quiet
-// when idle; a project that newly needs you while another is shown rings for 10 s. The 64 px column of tiles at every
-// width. Add project after the tiles; Cleanup, Terminals (the drawer on the last-used terminal, as ⌃`) and Settings (as
-// ⌘,) at the bottom (CHANGES-v §3, T-0329). A project in Flow setup is marked "Flow setup" under its name (ASK-04,
+// The project rail (UI-01, ATT-10, PRJ-01, SHB-02; d0024, d0058, d0087, d0113; *02 → One project, Another project
+// needs you, Ten projects · long names*, *24 → Row · The Project agent*): every project in the user's order with its
+// agents working and items needing you, quiet when idle; a project that newly needs you while another is shown rings
+// for 10 s. The 64 px column of tiles at every width. Add project after the tiles; at the bottom the Project agent
+// button (tinted while its panel is open, a dot while a reply waits; ⌘L), then Terminals (the drawer on the last-used
+// terminal, as ⌃`), Cleanup and Settings (as ⌘,) (T-0329, T-0458). A project in Flow setup is marked "Flow setup" under its name (ASK-04,
 // T-0436); selecting it opens its Flow setup page. Rows, order and wording are `shell.rail`'s.
 import { useCallback, useEffect, useState } from "react";
 
@@ -17,9 +18,12 @@ import type { RailItem } from "../../generated/RailItem";
 import type { RailView } from "../../generated/RailView";
 import type { ShellParams } from "../../generated/ShellParams";
 import type { IconName } from "../../generated/IconName";
+import type { AskAgentButton } from "../../generated/AskAgentButton";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { askBar } from "../ask_bar/logic";
+import { togglePane } from "../pane/logic";
 import { cleanupScans } from "../recovery/logic";
 
 /** The service events that change the rail's projects or counts. */
@@ -86,14 +90,37 @@ function bottomButton(button: RailButton, icon: IconName, onClick: () => void) {
   );
 }
 
+/** The Project agent button: opens the panel (and focuses it), or closes it; its look is the Ask bar's view's. */
+export function RailAgentButton({ button }: { button: AskAgentButton }) {
+  return (
+    <Tooltip text={button.label} detail={[button.hint]}>
+      <button
+        type="button"
+        className="rail-agent"
+        aria-label={button.label}
+        aria-pressed={button.tinted}
+        data-tinted={button.tinted || undefined}
+        onClick={() => {
+          togglePane();
+        }}
+      >
+        <Icon name={button.icon} size={17} />
+        {button.dot && <span className="rail-agent-dot" />}
+      </button>
+    </Tooltip>
+  );
+}
+
 export interface RailProps {
   view: RailView;
   broom?: CleanupBroom | undefined;
   actions?: RailActions;
+  /** The open project's Project agent button; none before its Ask bar loaded. */
+  agent?: AskAgentButton | undefined;
 }
 
 /** The 64 px rail of tiles. */
-export function RailTiles({ view, broom, actions }: RailProps) {
+export function RailTiles({ view, broom, actions, agent }: RailProps) {
   return (
     <nav className="rail" aria-label="Projects">
       {view.items.map((item) => (
@@ -132,8 +159,14 @@ export function RailTiles({ view, broom, actions }: RailProps) {
         </button>
       </Tooltip>
       <div className="rail-fill" />
-      <Broom broom={broom} />
+      {agent && (
+        <>
+          <RailAgentButton button={agent} />
+          <div className="rail-rule" />
+        </>
+      )}
       {bottomButton(view.bottom.terminals, "square-terminal", () => actions?.onTerminals())}
+      <Broom broom={broom} />
       {bottomButton(view.bottom.settings, "settings", () => actions?.onSettings())}
     </nav>
   );
@@ -158,6 +191,7 @@ export function ShellRail() {
     [scans],
   );
   const broom = useServiceView(loadBroom, []).view;
+  const agent = useStore(askBar)?.button;
 
   // The first project when nothing is selected yet, or when the shown one was removed. Only an answer for the
   // selection now counts: one asked before a click would switch back.
@@ -179,5 +213,5 @@ export function ShellRail() {
   }, [ringEnds]);
 
   if (view === undefined) return null;
-  return <RailTiles view={view.rail} broom={broom} actions={railActions(app)} />;
+  return <RailTiles view={view.rail} broom={broom} actions={railActions(app)} agent={agent} />;
 }

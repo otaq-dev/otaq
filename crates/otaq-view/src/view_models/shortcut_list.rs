@@ -329,9 +329,8 @@ mod tests {
                 ("Inbox", keys(&[&["⇧⌘I"], &["g", "i"]]), None),
                 ("Activity", keys(&[&["⇧⌘U"], &["g", "a"]]), None),
                 ("Settings", keys(&[&["⌘,"]]), None),
-                ("Hide / show the Project agent pane", keys(&[&["⌘B"]]), None),
-                ("Focus the Project agent pane", keys(&[&["⌘L"]]), None),
-                ("New Project agent", keys(&[&["⇧⌘L"]]), None),
+                ("Open / close the Project agent", keys(&[&["⌘L"]]), None),
+                ("New Project agent conversation", keys(&[&["⇧⌘L"]]), None),
             ]
         );
         assert_eq!(
@@ -491,7 +490,7 @@ mod tests {
             ] {
                 assert!(!titles(&list).contains(&title), "{title}");
             }
-            assert_eq!(titles(&list).len(), 25);
+            assert_eq!(titles(&list).len(), 24);
         }
         let list = mac(&CustomKeys(vec![replaced(KeyAction::Park, 0, "g p")]), true);
         let park = row_of(&list, "Park").unwrap();
