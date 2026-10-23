@@ -22,6 +22,8 @@
 //! ticket changed (its status, place or work, the points that publish `TicketChanged` / `CardStatusChanged`), its
 //! worktree's HEAD or index moved, or its branch's tip moved, and, for a ticket whose agent is working, when they are
 //! older than [`WORKING_FRESH`] (the view asks every 5 s while it is open; commits and unstaged edits have no event).
+//! The owners are read side by side, and one request at a time reads them: the view's first requests arrive
+//! together (the tree, the open folders, All changes), and the later ones then find the cache filled.
 //! Nothing runs while no client asks. Every path goes through [`clean_path`] / the Files tab's reads; nothing here
 //! writes to a worktree, an index or the checkout.
 
@@ -31,6 +33,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
+use tokio::task::JoinSet;
 
 use super::diff::short_sha;
 use super::epic_flight::{REVIEW_EPIC, epic_stop};
@@ -341,6 +344,8 @@ fn count(n: usize) -> u32 {
 #[derive(Debug, Clone, Default)]
 pub struct ProjectFilesCache {
     inner: Arc<Mutex<CacheState>>,
+    /// Held while the owners' changes are read, so requests that arrive together read git once.
+    reading: Arc<tokio::sync::Mutex<()>>,
 }
 
 #[derive(Debug, Default)]
@@ -1110,11 +1115,30 @@ impl Board {
         .enumerate()
         .map(|(i, item)| (item.key, i))
         .collect();
-        let tips = branch_tips(git, Path::new(&project.repo_path)).await?;
+        let tips = Arc::new(branch_tips(git, Path::new(&project.repo_path)).await?);
+
+        // Every owner's changes side by side (each is several `git` calls, and a slow one in a big repository).
+        let candidates: Vec<&Ticket> = tickets
+            .iter()
+            .filter(|t| !t.is_epic() && open(t))
+            .collect();
+        let mut read: Vec<Option<Arc<Owned>>> = vec![None; candidates.len()];
+        {
+            let _reading = self.project_files().reading.lock().await;
+            let mut reads = JoinSet::new();
+            for (i, ticket) in candidates.iter().enumerate() {
+                let (board, ticket, tips) = (self.clone(), (*ticket).clone(), tips.clone());
+                reads.spawn(async move { (i, board.owned(&ticket, &tips).await) });
+            }
+            while let Some(done) = reads.join_next().await {
+                let (i, owned) = done.unwrap_or_else(|e| std::panic::resume_unwind(e.into_panic()));
+                read[i] = owned?;
+            }
+        }
 
         let mut owners = Vec::new();
-        for ticket in tickets.iter().filter(|t| !t.is_epic() && open(t)) {
-            let Some(owned) = self.owned(git, ticket, &tips).await? else {
+        for (ticket, owned) in candidates.into_iter().zip(read) {
+            let Some(owned) = owned else {
                 continue;
             };
             let (files, added, removed) = owned.entries.iter().fold((0, 0u32, 0u32), |acc, e| {
@@ -1183,11 +1207,10 @@ impl Board {
     /// else read from git as its Files tab reads them. `None`: it has no worktree or branch to read yet.
     async fn owned(
         &self,
-        git: &Git,
         ticket: &Ticket,
         tips: &HashMap<String, String>,
     ) -> Result<Option<Arc<Owned>>, BoardError> {
-        let Some(stamp) = stamp(git, ticket, tips).await else {
+        let Some(stamp) = stamp(self.git()?, ticket, tips).await else {
             return Ok(None);
         };
         let cache = self.project_files();
