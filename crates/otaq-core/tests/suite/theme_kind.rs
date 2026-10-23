@@ -49,6 +49,7 @@ async fn spawn(
             agent: None,
             effort: None,
             fallback: None,
+            theme: None,
         })
         .await
         .unwrap()
@@ -123,6 +124,47 @@ async fn colorfgbg_is_otaqs_own_so_project_and_ticket_variables_lose() {
         colorfgbg(&w, &project, SessionKind::Project, None, &file).await,
         "0;15"
     );
+    w.stop().await;
+}
+
+/// An agent's session is told the theme its launch read (the tool's own setting came from the same read), even
+/// when the setting changed in between; a session without one reads the theme in use.
+#[tokio::test]
+async fn an_agent_session_keeps_the_theme_its_launch_read() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    use_theme(&w, Theme::OtaqDark).await;
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("launched");
+    w.sessions
+        .spawn(SpawnSpec {
+            kind: SessionKind::Agent,
+            start: Start::User,
+            project_id: project.id.clone(),
+            project_key: project.key.clone(),
+            ticket: None,
+            program: "sh".into(),
+            args: vec![
+                "-c".into(),
+                format!(
+                    "printf '%s\\n' \"$COLORFGBG\" done > '{0}.tmp'; mv '{0}.tmp' '{0}'",
+                    file.display()
+                ),
+            ],
+            cwd: PathBuf::from(&project.repo_path),
+            env: vec![("PATH".to_owned(), path_without_build_folders())],
+            size: TerminalSize::default(),
+            tool: None,
+            tool_session_id: None,
+            model: None,
+            agent: None,
+            effort: None,
+            fallback: None,
+            theme: Some(Theme::Daylight),
+        })
+        .await
+        .unwrap();
+    assert_eq!(read_when_done(&file).await.trim(), "0;15");
     w.stop().await;
 }
 

@@ -292,7 +292,7 @@ impl Messages {
                 model: runs_on.model,
                 effort: runs_on.effort.clone(),
                 title: Some(target.title.clone()),
-                theme: board.theme_in_use().await.kind(),
+                theme: board.theme_in_use().await,
             },
         )?;
         let session = inner
@@ -318,6 +318,7 @@ impl Messages {
                 agent: runs_on.agent,
                 effort: runs_on.effort,
                 fallback: runs_on.fallback,
+                theme: Some(launched.theme),
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;

@@ -699,7 +699,7 @@ impl Prs {
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
                 title: Some(epic.title.clone()),
-                theme: self.inner.board.theme_in_use().await.kind(),
+                theme: self.inner.board.theme_in_use().await,
             },
         )?;
         self.spawn(epic, SessionKind::Delivery, launched, &runs_on, start)
@@ -829,6 +829,7 @@ impl Prs {
                 agent: runs_on.agent.clone(),
                 effort: runs_on.effort.clone(),
                 fallback: runs_on.fallback.clone(),
+                theme: Some(launched.theme),
             })
             .await
             .map_err(other)
@@ -1008,7 +1009,7 @@ impl Prs {
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
                 title: Some(ticket.title.clone()),
-                theme: self.inner.board.theme_in_use().await.kind(),
+                theme: self.inner.board.theme_in_use().await,
             },
         )?;
         self.spawn(ticket, kind, launched, &runs_on, start).await

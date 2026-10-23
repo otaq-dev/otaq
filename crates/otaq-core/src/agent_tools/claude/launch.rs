@@ -723,7 +723,7 @@ mod tests {
                 model: None,
                 title: None,
                 effort: None,
-                theme: crate::agent_tools::ThemeKind::Dark,
+                theme: crate::board::settings::Theme::OtaqDark,
             }
         }
 
@@ -740,7 +740,7 @@ mod tests {
                 model: None,
                 title: None,
                 effort: None,
-                theme: crate::agent_tools::ThemeKind::Dark,
+                theme: crate::board::settings::Theme::OtaqDark,
             }
         }
 

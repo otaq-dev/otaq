@@ -102,7 +102,7 @@ pub(super) fn launch(
     ));
     env.push((
         CLI_CONFIG_CONTENT.to_owned(),
-        cli_config(request.theme).to_string(),
+        cli_config(request.theme.kind()).to_string(),
     ));
     Ok(LaunchPlan {
         program: COMMAND_NAME.to_owned(),
@@ -270,7 +270,7 @@ mod tests {
             model: model.map(Into::into),
             title: None,
             effort: None,
-            theme: crate::agent_tools::ThemeKind::Dark,
+            theme: crate::board::settings::Theme::OtaqDark,
         }
     }
 

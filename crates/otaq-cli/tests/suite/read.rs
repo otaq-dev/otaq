@@ -288,6 +288,7 @@ async fn show_terminal_prints_the_screen_as_plain_text() {
             agent: None,
             effort: None,
             fallback: None,
+            theme: None,
         })
         .await
         .unwrap();
@@ -360,6 +361,7 @@ async fn show_terminal_stage_reads_the_check_running_it() {
         agent: None,
         effort: None,
         fallback: None,
+        theme: None,
     };
     let agent = w
         .sessions

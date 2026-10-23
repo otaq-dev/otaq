@@ -69,6 +69,7 @@ async fn agent_on(
             agent: None,
             effort: None,
             fallback: None,
+            theme: None,
         })
         .await
         .unwrap();

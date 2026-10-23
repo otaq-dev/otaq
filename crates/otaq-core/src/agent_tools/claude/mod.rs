@@ -105,16 +105,20 @@ impl ClaudeCode {
         let data = &self.context.data;
         let path = match (request.role, &request.ticket) {
             (LaunchRole::ProjectAgent | LaunchRole::EpicLead, _) | (_, None) => {
-                statusline::project_agent_settings_path(data, &request.project, request.theme)
+                statusline::project_agent_settings_path(
+                    data,
+                    &request.project,
+                    request.theme.kind(),
+                )
             }
-            (_, Some(ticket)) => statusline::settings_path(data, ticket, request.theme),
+            (_, Some(ticket)) => statusline::settings_path(data, ticket, request.theme.kind()),
         };
         statusline::write_settings_at(
             path,
             &request.cwd,
             launch.claude.config_dir.as_deref(),
             &launch.bin_dir,
-            request.theme,
+            request.theme.kind(),
         )
         .inspect_err(|e| tracing::warn!(project = %request.project, error = %e, "can't write the status-line settings"))
         .ok()
@@ -508,7 +512,7 @@ mod tests {
             model: None,
             title: None,
             effort: None,
-            theme: crate::agent_tools::ThemeKind::Dark,
+            theme: crate::board::settings::Theme::OtaqDark,
         }
     }
 

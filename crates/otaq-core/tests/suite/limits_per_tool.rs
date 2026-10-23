@@ -355,6 +355,7 @@ async fn shell_on(w: &TestService, ticket: &Ticket, tool: Tool) -> String {
             agent: None,
             effort: None,
             fallback: None,
+            theme: None,
         })
         .await
         .unwrap()

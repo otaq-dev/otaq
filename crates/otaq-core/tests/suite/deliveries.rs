@@ -72,6 +72,7 @@ async fn setup() -> Setup {
             agent: None,
             effort: None,
             fallback: None,
+            theme: None,
         })
         .await
         .unwrap();
@@ -337,6 +338,7 @@ async fn deliver_now_over_the_socket() {
             agent: None,
             effort: None,
             fallback: None,
+            theme: None,
         })
         .await
         .unwrap();

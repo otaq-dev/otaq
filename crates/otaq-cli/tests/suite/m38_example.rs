@@ -353,6 +353,12 @@ async fn pause_answer_restart_and_resume() {
     world.until_in("SHOP-33", "grill", Status::Working).await;
     world.go("SHOP-33");
     world.until_in("SHOP-33", "dev", Status::Working).await;
+    // Entering Dev sets Working before its agent starts: wait for the stand-in's start.
+    world
+        .until("SHOP-33's Dev agent starts", async || {
+            world.starts_of("SHOP-33").len() == 2
+        })
+        .await;
     world.until_status("BILL-7", Status::Working).await;
     let shop33 = world.ticket("SHOP-33").await;
     let run = world.w.shell(&shop33, SessionKind::Run).await;
@@ -409,6 +415,11 @@ async fn pause_answer_restart_and_resume() {
         .unwrap();
     assert!(matches!(reply, Reply::Delivery(_)), "{reply:?}");
     world.until_status("SHOP-12", Status::Working).await;
+    world
+        .until("SHOP-12's Griller starts with the answer", async || {
+            world.starts_of("SHOP-12").len() == 2
+        })
+        .await;
     let griller = &world.sessions("SHOP-12").await[0];
     assert!(griller.is_running());
     assert_eq!(
@@ -450,18 +461,22 @@ async fn pause_answer_restart_and_resume() {
     world.until_in("SHOP-35", "grill", Status::Working).await;
     let again = world.pause(Request::AgentsResume(shop())).await;
     assert_eq!(again.projects[0].paused_since, None);
+    let starts = |world: &World| -> Vec<usize> {
+        ["SHOP-12", "SHOP-33", "SHOP-35"]
+            .iter()
+            .map(|key| world.starts_of(key).len())
+            .collect()
+    };
+    world
+        .until("each stand-in starts again", async || {
+            starts(&world) == [3, 3, 1]
+        })
+        .await;
     settle().await;
     for key in ["SHOP-12", "SHOP-33", "SHOP-35"] {
         assert_eq!(world.running(key).await, 1, "{key}");
     }
-    let after: Vec<usize> = {
-        let mut n = Vec::new();
-        for key in ["SHOP-12", "SHOP-33", "SHOP-35"] {
-            n.push(world.starts_of(key).len());
-        }
-        n
-    };
-    assert_eq!(after, [3, 3, 1], "one start each");
+    assert_eq!(starts(&world), [3, 3, 1], "one start each");
     let back = world.starts_of("SHOP-33").pop().unwrap();
     assert!(back.contains(&format!("--resume {conversation}")), "{back}");
     world.stop().await;

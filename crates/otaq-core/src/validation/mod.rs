@@ -1245,7 +1245,7 @@ impl Validation {
                 model: runs_on.model,
                 effort: runs_on.effort.clone(),
                 title: Some(ticket.title.clone()),
-                theme: board.theme_in_use().await.kind(),
+                theme: board.theme_in_use().await,
             },
         )?;
         let project = board.project(ticket.key.project.as_str()).await?;
@@ -1272,6 +1272,7 @@ impl Validation {
                 agent: runs_on.agent,
                 effort: runs_on.effort,
                 fallback: runs_on.fallback,
+                theme: Some(launched.theme),
             })
             .await
             .map_err(other)?;

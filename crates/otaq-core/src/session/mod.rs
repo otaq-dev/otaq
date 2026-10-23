@@ -357,6 +357,9 @@ pub struct SpawnSpec {
     pub effort: Option<String>,
     /// It runs on its tool's fallback (AGM-03).
     pub fallback: Option<crate::agents::FallbackFrom>,
+    /// The theme the session is told (`COLORFGBG`, the colour answers; d0117 point 4): an agent's launch read it
+    /// ([`crate::agent_tools::Launched::theme`]); `None` reads the theme in use now (Shell, Run, terminals).
+    pub theme: Option<Theme>,
 }
 
 /// [`Sessions::spawn`] after a launch's step ([`Sessions::prepared`]).
@@ -695,9 +698,10 @@ impl Sessions {
             _ => Vec::new(),
         };
         // The theme in use now (d0117 point 4); a running session keeps what it was told.
-        let theme = match self.inner.theme.get() {
-            Some(provider) => provider().await,
-            None => ThemeSetting::default().in_use(),
+        let theme = match (spec.theme, self.inner.theme.get()) {
+            (Some(theme), _) => theme,
+            (None, Some(provider)) => provider().await,
+            (None, None) => ThemeSetting::default().in_use(),
         };
         // COLORFGBG ("text;background" as two of the 16 colours) comes last, so a ticket's or the spec's variable
         // of that name doesn't override what the theme is.
