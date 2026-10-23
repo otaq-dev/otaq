@@ -498,7 +498,13 @@ impl ProjectAgents {
             LaunchRequest {
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
-                ..request(project, LaunchRole::ProjectAgent, first_prompt)
+                ..request(
+                    &self.inner.board,
+                    project,
+                    LaunchRole::ProjectAgent,
+                    first_prompt,
+                )
+                .await
             },
         ) {
             Ok(launched) => launched,
@@ -577,7 +583,7 @@ impl ProjectAgents {
                 resume: Some(conversation),
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
-                ..request(&project, LaunchRole::ProjectAgent, None)
+                ..request(&self.inner.board, &project, LaunchRole::ProjectAgent, None).await
             },
         );
         let started = match launched {
@@ -1455,9 +1461,10 @@ impl ProjectAgents {
     }
 }
 
-/// A new conversation in `project`'s own folder for `role`, with no ticket and no port; the caller sets the epic,
-/// or the conversation and model to resume.
-fn request(
+/// A new conversation in `project`'s own folder for `role`, with no ticket and no port, told the theme in use; the
+/// caller sets the epic, or the conversation and model to resume.
+async fn request(
+    board: &Board,
     project: &Project,
     role: LaunchRole,
     first_prompt: Option<FirstPrompt>,
@@ -1474,6 +1481,7 @@ fn request(
         model: None,
         effort: None,
         title: None,
+        theme: board.theme_in_use().await.kind(),
     }
 }
 

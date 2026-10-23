@@ -177,14 +177,20 @@ async fn a_successful_start_leaves_the_ticket_working() {
     let (agent, run) = (work.agent_port.unwrap(), work.run_port.unwrap());
     assert_ne!(agent, run);
 
-    // Otaq's status line (USG-04): a settings file in the data folder, never in the worktree, whose only
-    // key is `statusLine`.
-    let settings = otaq_core::agent_tools::claude::statusline::settings_path(&s.data, &t.key);
+    // Otaq's status line (USG-04) and the theme's kind (d0117 point 4): a settings file in the data folder, never
+    // in the worktree.
+    let settings = otaq_core::agent_tools::claude::statusline::settings_path(
+        &s.data,
+        &t.key,
+        otaq_core::agent_tools::ThemeKind::Dark,
+    );
     assert!(settings.starts_with(s.data.root()));
     let written: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&settings).unwrap()).unwrap();
     let keys: Vec<&String> = written.as_object().unwrap().keys().collect();
-    assert_eq!(keys, ["statusLine"]);
+    assert_eq!(keys, ["statusLine", "theme"]);
+    // Nothing picked yet: the service's theme is the dark one (d0117 point 4).
+    assert_eq!(written["theme"], "dark");
     assert_eq!(
         written["statusLine"]["command"],
         otaq_core::agent_tools::claude::statusline::command_line(std::path::Path::new(

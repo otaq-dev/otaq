@@ -1245,6 +1245,7 @@ impl Validation {
                 model: runs_on.model,
                 effort: runs_on.effort.clone(),
                 title: Some(ticket.title.clone()),
+                theme: board.theme_in_use().await.kind(),
             },
         )?;
         let project = board.project(ticket.key.project.as_str()).await?;

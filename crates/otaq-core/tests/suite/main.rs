@@ -133,6 +133,7 @@ mod stock;
 mod store;
 mod submit_by_user;
 mod suggest;
+mod theme_kind;
 mod ticket_comments;
 mod ticket_path;
 mod ticket_resources;

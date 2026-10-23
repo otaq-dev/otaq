@@ -609,6 +609,23 @@ impl Status {
 mod tests {
     use super::*;
 
+    /// The service answers a program's colour questions with the core's copy of `term-fg` / `term-bg` (d0117 point
+    /// 4): it must be the design's, theme by theme, and the kind it tells agents must be the theme's appearance.
+    #[test]
+    fn the_cores_terminal_colours_are_the_tokens() {
+        for theme in ThemeId::ALL {
+            let colors = Colors::new(theme);
+            let core = theme.stored().terminal_colors();
+            assert_eq!(core.fg, colors.term_fg >> 8, "{theme:?} term-fg");
+            assert_eq!(core.bg, colors.term_bg >> 8, "{theme:?} term-bg");
+            assert_eq!(
+                theme.stored().kind() == otaq_core::board::settings::ThemeKind::Dark,
+                theme.appearance() == Appearance::Dark,
+                "{theme:?}"
+            );
+        }
+    }
+
     fn hex(s: &str) -> u32 {
         let v = u32::from_str_radix(s.trim_start_matches('#'), 16).unwrap();
         if s.len() == 7 { (v << 8) | 0xFF } else { v }

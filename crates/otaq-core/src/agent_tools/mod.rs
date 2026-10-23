@@ -34,6 +34,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub use crate::board::settings::ThemeKind;
 use crate::domain::{TicketKey, stored_enum};
 pub use crate::recovery::TranscriptEntry;
 pub use crate::tools::Os;
@@ -303,6 +304,9 @@ pub struct LaunchRequest {
     /// The ticket's or the epic's own title ("Add coupon codes"), for a tool that names its conversations (OpenCode's
     /// session list: "Otaq · SHOP-18 · Add coupon codes"); `None` for a Project agent.
     pub title: Option<String>,
+    /// Whether Otaq's theme is light or dark when the agent starts (d0117 point 4), for a tool with a setting for
+    /// it, set for this session only. A running agent keeps what it was told.
+    pub theme: ThemeKind,
 }
 
 /// What [`AgentTool::launch`] answers: the program to start in the session's terminal, and how the tool id is
@@ -1020,6 +1024,7 @@ mod tests {
             model: None,
             title: None,
             effort: None,
+            theme: crate::agent_tools::ThemeKind::Dark,
         };
         let launched = adapters.launch(Some(Tool::OpenCode), &request).unwrap();
         let ToolIdMode::CreatedBeforeLaunch { id, step } = &launched.plan.tool_id else {
@@ -1030,6 +1035,94 @@ mod tests {
         let claude = adapters.launch(Some(Tool::Claude), &request).unwrap();
         assert_eq!(claude.prepare, None);
         assert!(claude.tool_session_id.is_some());
+    }
+
+    /// d0117 point 4: each tool with a light/dark setting is told the theme's kind for this session only (Claude
+    /// Code: `theme` in Otaq's settings file in the data folder; OpenCode: its theme mode in the launch's
+    /// environment); Codex and Copilot have none, so their launches don't change. No launch names the user's own
+    /// tool config folders.
+    #[test]
+    fn each_tool_is_told_the_themes_kind_for_this_session_only() {
+        let home = tempfile::tempdir().unwrap();
+        let data = crate::data_dir::DataDir::new(home.path().join("data"));
+        // Copilot's launch needs its plugin's manifest in place.
+        let plugin = home.path().join("plugin");
+        let manifest = plugin.join("copilot").join(".claude-plugin");
+        std::fs::create_dir_all(&manifest).unwrap();
+        std::fs::write(manifest.join("plugin.json"), "{}").unwrap();
+        let launch = LaunchContext {
+            bin_dir: "/opt/cb/bin".into(),
+            plugin_dir: plugin,
+            path: OsString::new(),
+            claude: claude::ClaudeLaunch {
+                program: vec![Tool::Claude.command_name().into()],
+                config_dir: None,
+            },
+        };
+        let adapters = Adapters::launching_only(Some(launch), data);
+        let plan = |tool: Tool, theme: ThemeKind| {
+            let request = LaunchRequest {
+                role: LaunchRole::TicketAgent,
+                cwd: "/wt/SHOP-18".into(),
+                project: "SHOP".into(),
+                ticket: Some("SHOP-18".parse().unwrap()),
+                epic: None,
+                port: 4012,
+                first_prompt: None,
+                resume: Some("ses_c1".into()),
+                model: None,
+                title: None,
+                effort: None,
+                theme,
+            };
+            adapters.launch(Some(tool), &request).unwrap().plan
+        };
+        let env = |plan: &LaunchPlan, name: &str| {
+            plan.env
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, v)| v.clone())
+        };
+        for (theme, word) in [(ThemeKind::Light, "light"), (ThemeKind::Dark, "dark")] {
+            let claude = plan(Tool::Claude, theme);
+            let at = claude.args.iter().position(|a| a == "--settings").unwrap();
+            let file = Path::new(&claude.args[at + 1]);
+            assert!(
+                file.starts_with(home.path().join("data")),
+                "{}",
+                file.display()
+            );
+            assert!(
+                file.ends_with(format!("SHOP-18.{word}.settings.json")),
+                "{}",
+                file.display()
+            );
+            let written: Value = serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
+            assert_eq!(written["theme"], word);
+
+            let opencode = plan(Tool::OpenCode, theme);
+            let cli: Value =
+                serde_json::from_str(&env(&opencode, "OPENCODE_CLI_CONFIG_CONTENT").unwrap())
+                    .unwrap();
+            assert_eq!(cli, serde_json::json!({ "theme": { "mode": word } }));
+            assert!(env(&opencode, "OPENCODE_CONFIG_DIR").is_none());
+
+            for tool in Tool::ALL {
+                let plan = plan(*tool, theme);
+                for value in plan.args.iter().chain(plan.env.iter().map(|(_, v)| v)) {
+                    for user in ["/.claude", "/.codex", "/.copilot", "/.config/opencode"] {
+                        assert!(!value.contains(user), "{tool:?}: {value}");
+                    }
+                }
+            }
+        }
+        for tool in [Tool::Codex, Tool::Copilot] {
+            assert_eq!(
+                plan(tool, ThemeKind::Light),
+                plan(tool, ThemeKind::Dark),
+                "{tool:?}: no setting; covered by COLORFGBG and the colour answers"
+            );
+        }
     }
 
     /// A new session runs on Claude Code; what the launch returns is what the session stores (ADP-04).
@@ -1052,6 +1145,7 @@ mod tests {
             model: Some("opus".into()),
             title: None,
             effort: None,
+            theme: crate::agent_tools::ThemeKind::Dark,
         };
 
         let none = Adapters::launching_only(None, data.clone());

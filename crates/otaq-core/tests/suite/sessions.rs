@@ -349,11 +349,14 @@ async fn protocol_list_attach_resize_detach() {
     .unwrap();
     // Attach by ticket key: the stored output comes in the reply.
     let Reply::SessionAttached(attached) = client
-        .request(Request::SessionAttach(SessionTarget {
-            session: None,
-            key: Some("SHOP-1".into()),
-            ..Default::default()
-        }))
+        .request(Request::SessionAttach(
+            SessionTarget {
+                session: None,
+                key: Some("SHOP-1".into()),
+                ..Default::default()
+            }
+            .into(),
+        ))
         .await
         .unwrap()
     else {
@@ -422,11 +425,14 @@ async fn protocol_list_attach_resize_detach() {
         panic!()
     };
     let err = client
-        .request(Request::SessionAttach(SessionTarget {
-            session: Some("nope".into()),
-            key: None,
-            ..Default::default()
-        }))
+        .request(Request::SessionAttach(
+            SessionTarget {
+                session: Some("nope".into()),
+                key: None,
+                ..Default::default()
+            }
+            .into(),
+        ))
         .await
         .unwrap_err();
     assert!(err.to_string().contains("no session"), "{err}");
@@ -592,6 +598,7 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
                 model: None,
                 title: None,
                 effort: None,
+                theme: otaq_core::agent_tools::ThemeKind::Dark,
             },
         )
         .unwrap();
@@ -730,10 +737,13 @@ async fn attaching_again_on_one_connection_keeps_the_running_feed_whole() {
     let client = Client::connect(ClientConfig::new(&data)).await.unwrap();
     let mut events = client.subscribe().await.unwrap();
     let attach = || {
-        client.request(Request::SessionAttach(SessionTarget {
-            session: Some(info.id.clone()),
-            ..Default::default()
-        }))
+        client.request(Request::SessionAttach(
+            SessionTarget {
+                session: Some(info.id.clone()),
+                ..Default::default()
+            }
+            .into(),
+        ))
     };
     let Reply::SessionAttached(first) = attach().await.unwrap() else {
         panic!()

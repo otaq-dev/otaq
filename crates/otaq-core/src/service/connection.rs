@@ -22,7 +22,7 @@ use crate::protocol::{
     Body, DecodeError, ErrorBody, ErrorKind, Event, FrameReader, Message, OnboardingState,
     PROTOCOL_VERSION, Reply, Request, decode, write_message,
 };
-use crate::session::OutputChunk;
+use crate::session::{Answering, OutputChunk};
 use crate::store::StoreError;
 use crate::store::settings::PERMISSION_WARNING_DISMISSED;
 use crate::tools;
@@ -66,6 +66,9 @@ pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>)
     let mut subscribed = None;
     // Live output of the sessions this client attached to.
     let mut attached: HashMap<String, JoinHandle<()>> = HashMap::new();
+    // The sessions this client's terminal answers the program's questions in (d0117 point 4): as its latest
+    // attach of the session said.
+    let mut answering: HashMap<String, Answering> = HashMap::new();
     let mut reader = FrameReader::new(BufReader::new(read));
     loop {
         let frame = tokio::select! {
@@ -118,7 +121,15 @@ pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>)
             // repeated between the two. Attached already (two terminals of one app show the session): the running
             // feed carries on, since replacing it would drop or repeat chunks for the terminal reading it; the new
             // terminal skips what its scrollback holds by offset.
-            Then::Attach { session, output } => {
+            Then::Attach {
+                session,
+                output,
+                answers,
+            } => {
+                match answers {
+                    Some(held) => answering.insert(session.clone(), held),
+                    None => answering.remove(&session),
+                };
                 if attached.get(&session).is_none_or(|task| task.is_finished()) {
                     let task = tokio::spawn(forward_output(
                         session.clone(),
@@ -130,6 +141,7 @@ pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>)
                 }
             }
             Then::Detach(session) => {
+                answering.remove(&session);
                 if let Some(task) = attached.remove(&session) {
                     task.abort();
                 }
@@ -138,6 +150,7 @@ pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>)
         }
     }
     drop(subscribed);
+    drop(answering);
     // A client that went away isn't looking at any terminal (ATT-03) or window (d0090) any more.
     shared.sessions.client_gone(client);
     shared.inbox.client_gone(client);
@@ -158,6 +171,8 @@ pub(super) enum Then {
     Attach {
         session: String,
         output: broadcast::Receiver<OutputChunk>,
+        /// Held while the client's terminal answers the program's questions; `None` for one that doesn't.
+        answers: Option<Answering>,
     },
     Detach(String),
 }

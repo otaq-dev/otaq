@@ -2,7 +2,7 @@
 //!
 //! Part of the Claude Code adapter: its launch writes the file ([`super::ClaudeCode`]). Agents launch with
 //! `--settings <file>`, a file Otaq writes in its data folder (never in the worktree or
-//! the user's repository) whose only key is `statusLine`: `otaq statusline`. That command records the plan
+//! the user's repository) whose keys are `statusLine`, `otaq statusline`, and the theme (below). That command records the plan
 //! windows from the status-line JSON, then runs the **user's own** status-line command with the same input and
 //! passes its output through unchanged, so the user's status line looks the same.
 //!
@@ -17,12 +17,21 @@
 //! (`.claude/settings.json` in the session's folder), then the user's `settings.json`. A managed `statusLine`
 //! overrides Otaq's too, so the user's managed one simply keeps running. The user's `padding` and
 //! `refreshInterval` are copied into Otaq's file so their status line keeps its spacing and timer.
+//!
+//! **The theme** (d0117 point 4). The file also sets `theme` to `light` or `dark`, Otaq's theme's kind when the
+//! session starts. Checked with Claude Code 2.1.309 (its binary read with a scratch HOME and config folder, no
+//! login, no model call): the theme is read as a setting, highest source first, and `flagSettings` (this file) is
+//! always enabled and ranks above the user, project and local files, so it wins over the user's choice for this
+//! session only; `~/.claude.json`'s old `theme` is only the fallback. Accepted values: `auto`, `dark`, `light`,
+//! their `-daltonized` and `-ansi` versions, and custom themes; Otaq's sessions get plain `light` or `dark`. One
+//! file per kind, so a session starting in the other kind never rewrites the file a running one was started with.
 
 use std::io;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
+use crate::agent_tools::ThemeKind;
 use crate::data_dir::DataDir;
 use crate::domain::TicketKey;
 use crate::naming;
@@ -91,29 +100,39 @@ pub fn user_command(claude_dir: Option<&Path>, cwd: &Path) -> Option<String> {
 }
 
 /// Otaq's settings: only `statusLine`, running `command`, with the user's `padding` and `refreshInterval`.
-pub fn settings_json(user: Option<&Value>, command: &str) -> Value {
+pub fn settings_json(user: Option<&Value>, command: &str, theme: ThemeKind) -> Value {
     let mut line = json!({ "type": "command", "command": command });
     for key in ["padding", "refreshInterval"] {
         if let Some(value) = user.and_then(|u| u.get(key)) {
             line[key] = value.clone();
         }
     }
-    json!({ "statusLine": line })
+    json!({ "statusLine": line, "theme": theme_value(theme) })
 }
 
-/// Where a ticket's settings file lives: `<data>/claude/<KEY>.settings.json`.
-pub fn settings_path(data: &DataDir, ticket: &TicketKey) -> PathBuf {
-    data.root()
-        .join("claude")
-        .join(format!("{ticket}.settings.json"))
+/// Claude Code's `theme` value for a kind.
+fn theme_value(theme: ThemeKind) -> &'static str {
+    match theme {
+        ThemeKind::Light => "light",
+        ThemeKind::Dark => "dark",
+    }
 }
 
-/// Where a project's Project agents' settings file lives: `<data>/claude/<PROJECT>.project-agent.settings.json`
-/// (they all run in the project's folder, so they share it).
-pub fn project_agent_settings_path(data: &DataDir, project: &str) -> PathBuf {
+/// Where a ticket's settings file for a theme kind lives: `<data>/claude/<KEY>.<light|dark>.settings.json`.
+pub fn settings_path(data: &DataDir, ticket: &TicketKey, theme: ThemeKind) -> PathBuf {
     data.root()
         .join("claude")
-        .join(format!("{project}.project-agent.settings.json"))
+        .join(format!("{ticket}.{}.settings.json", theme_value(theme)))
+}
+
+/// Where a project's Project agents' settings file for a theme kind lives:
+/// `<data>/claude/<PROJECT>.project-agent.<light|dark>.settings.json` (they all run in the project's folder, so they
+/// share it).
+pub fn project_agent_settings_path(data: &DataDir, project: &str, theme: ThemeKind) -> PathBuf {
+    data.root().join("claude").join(format!(
+        "{project}.project-agent.{}.settings.json",
+        theme_value(theme)
+    ))
 }
 
 /// Writes the settings file at `path` for a session in `cwd` and returns the path.
@@ -122,12 +141,13 @@ pub fn write_settings_at(
     cwd: &Path,
     claude_dir: Option<&Path>,
     bin_dir: &Path,
+    theme: ThemeKind,
 ) -> io::Result<PathBuf> {
     if let Some(dir) = path.parent() {
         DataDir::ensure_dir(dir)?;
     }
     let user = user_status_line(claude_dir, cwd);
-    let settings = settings_json(user.as_ref(), &command_line(bin_dir));
+    let settings = settings_json(user.as_ref(), &command_line(bin_dir), theme);
     std::fs::write(&path, serde_json::to_vec_pretty(&settings)?)?;
     Ok(path)
 }
@@ -161,17 +181,36 @@ mod tests {
     }
 
     #[test]
-    fn the_settings_hold_only_the_status_line_with_the_users_spacing() {
+    fn the_settings_hold_the_status_line_with_the_users_spacing_and_the_theme() {
         let user = json!({"type": "command", "command": "~/.claude/statusline.sh", "padding": 2,
                           "refreshInterval": 5});
         assert_eq!(
-            settings_json(Some(&user), "cb statusline"),
+            settings_json(Some(&user), "cb statusline", ThemeKind::Dark),
             json!({"statusLine": {"type": "command", "command": "cb statusline", "padding": 2,
-                                  "refreshInterval": 5}})
+                                  "refreshInterval": 5},
+                   "theme": "dark"})
         );
         assert_eq!(
-            settings_json(None, "cb statusline"),
-            json!({"statusLine": {"type": "command", "command": "cb statusline"}})
+            settings_json(None, "cb statusline", ThemeKind::Light),
+            json!({"statusLine": {"type": "command", "command": "cb statusline"}, "theme": "light"})
+        );
+    }
+
+    #[test]
+    fn each_theme_kind_has_its_own_file_in_the_data_folder() {
+        let data = DataDir::new(Path::new("/data"));
+        let key: TicketKey = "SHOP-18".parse().unwrap();
+        assert_eq!(
+            settings_path(&data, &key, ThemeKind::Light),
+            Path::new("/data/claude/SHOP-18.light.settings.json")
+        );
+        assert_eq!(
+            settings_path(&data, &key, ThemeKind::Dark),
+            Path::new("/data/claude/SHOP-18.dark.settings.json")
+        );
+        assert_eq!(
+            project_agent_settings_path(&data, "SHOP", ThemeKind::Light),
+            Path::new("/data/claude/SHOP.project-agent.light.settings.json")
         );
     }
 

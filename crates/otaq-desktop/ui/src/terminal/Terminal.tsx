@@ -380,7 +380,7 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
           break;
       }
     };
-    attachTerminal(session, onFeed).then(
+    attachTerminal(session, onFeed, readOnly).then(
       (number) => {
         if (disposed) {
           request("terminal.detach", { attach: number }).catch(() => undefined);

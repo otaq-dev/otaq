@@ -4,6 +4,7 @@
 //! OTAQ_TICKET=SHOP-18  PORT=<agent port>  PATH=<otaq bin dir>:$PATH
 //! OPENCODE_CONFIG_CONTENT={"plugins":["<otaq plugin>/opencode"],
 //!                          "permissions":[{"action":"shell","resource":"otaq *","effect":"allow"}],"model":"<m>"}
+//! OPENCODE_CLI_CONFIG_CONTENT={"theme":{"mode":"light"|"dark"}}
 //! opencode --standalone --session <ses_…> --prompt "<first prompt>"
 //! ```
 //!
@@ -16,17 +17,29 @@
 //! never `--auto` (it approves every prompt; d0011). The user's own data folder is used (no `XDG_*` change), so
 //! the session shows in their OpenCode session list. Resume is `--session <id>` with an optional prompt; the
 //! session's stored model wins over the config there.
+//!
+//! **Light or dark** (d0117 point 4). Checked with OpenCode 2.0.17 (its binary and embedded guide read with a scratch
+//! HOME and XDG folders, no provider, no model call): its terminal settings live apart from `opencode.json`, in
+//! `cli.json`, and `OPENCODE_CLI_CONFIG_CONTENT` is merged over them for that process only ("Set
+//! `OPENCODE_CLI_CONFIG_CONTENT` to merge inline JSON over the global settings"). `theme.mode` `light` or `dark`
+//! fixes the mode; anything else (`system`) takes the mode OpenCode detected from the terminal's answer to its colour
+//! questions, after a timeout. Otaq sets the theme's kind explicitly, so the mode doesn't hang on that answer's
+//! timing; the user's own theme name (`theme.name`) is kept.
 
 use serde_json::{Value, json};
 
 use super::{COMMAND_NAME, DISPLAY_NAME, OpenCode, OpenCodeContext, prepare};
 use crate::agent_tools::{
-    FirstPrompt, LaunchContext, LaunchError, LaunchPlan, LaunchRequest, LaunchRole, ToolIdMode,
+    FirstPrompt, LaunchContext, LaunchError, LaunchPlan, LaunchRequest, LaunchRole, ThemeKind,
+    ToolIdMode,
 };
 use crate::naming;
 
 /// The variable OpenCode reads its extra config from (not in `--help`; checked on 2.0.17).
 const CONFIG_CONTENT: &str = "OPENCODE_CONFIG_CONTENT";
+
+/// The variable OpenCode merges over its terminal settings (`cli.json`) for this run (checked on 2.0.17).
+const CLI_CONFIG_CONTENT: &str = "OPENCODE_CLI_CONFIG_CONTENT";
 
 /// The folder of Otaq's OpenCode plugin inside Otaq's plugin folder (`package.json` and `index.js`).
 const PLUGIN_FOLDER: &str = "opencode";
@@ -86,6 +99,10 @@ pub(super) fn launch(
     env.push((
         CONFIG_CONTENT.to_owned(),
         config(launch, model.map(|(m, _)| m)).to_string(),
+    ));
+    env.push((
+        CLI_CONFIG_CONTENT.to_owned(),
+        cli_config(request.theme).to_string(),
     ));
     Ok(LaunchPlan {
         program: COMMAND_NAME.to_owned(),
@@ -182,6 +199,15 @@ fn otaq_env(request: &LaunchRequest, path: String) -> Result<Vec<(String, String
     Ok(env)
 }
 
+/// `OPENCODE_CLI_CONFIG_CONTENT`: the theme's kind as OpenCode's theme mode.
+fn cli_config(theme: ThemeKind) -> Value {
+    let mode = match theme {
+        ThemeKind::Light => "light",
+        ThemeKind::Dark => "dark",
+    };
+    json!({ "theme": { "mode": mode } })
+}
+
 /// `OPENCODE_CONFIG_CONTENT`: Otaq's plugin, the one `otaq *` shell rule, and `model` when set.
 fn config(launch: &LaunchContext, model: Option<&str>) -> Value {
     let mut config = json!({
@@ -244,6 +270,7 @@ mod tests {
             model: model.map(Into::into),
             title: None,
             effort: None,
+            theme: crate::agent_tools::ThemeKind::Dark,
         }
     }
 
@@ -325,7 +352,11 @@ mod tests {
         assert_eq!(env(&plan, &naming::ticket_env_var()), Some("SHOP-50"));
         assert_eq!(env(&plan, "PORT"), Some("4012"));
         assert_eq!(env(&plan, "PATH"), Some(path().as_str()));
-        assert_eq!(plan.env.len(), 4);
+        assert_eq!(
+            env(&plan, CLI_CONFIG_CONTENT),
+            Some(r#"{"theme":{"mode":"dark"}}"#)
+        );
+        assert_eq!(plan.env.len(), 5);
     }
 
     /// No model: no `model` key and no model in the session made first (OpenCode's own default).
