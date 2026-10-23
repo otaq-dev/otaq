@@ -33,6 +33,7 @@ vi.mock("@xterm/xterm", () => {
     element = undefined;
     textarea = undefined;
     buffer = { active: { baseY: 0, viewportY: 0 } };
+    registerLinkProvider = () => ({ dispose: () => undefined });
     constructor(options: Record<string, unknown>) {
       this.options = { ...options };
       this.record = { current: this.options, calls: [] };

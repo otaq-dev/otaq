@@ -110,7 +110,13 @@ function Body({ view, body, terminal, onAction, onSplit }: LeadTabBodyProps & { 
       return (
         <div className="terminal-tab-well">
           <div className="terminal-tab-terminal">
-            <Terminal key={body.session} session={body.session} label={body.label} ref={terminal} />
+            <Terminal
+              key={body.session}
+              session={body.session}
+              label={body.label}
+              files={{ kind: "ticket", key: view.epic }}
+              ref={terminal}
+            />
           </div>
         </div>
       );
@@ -170,7 +176,13 @@ function Body({ view, body, terminal, onAction, onSplit }: LeadTabBodyProps & { 
         <div className="terminal-tab-well">
           <div className="terminal-tab-terminal">
             {body.session !== null && (
-              <Terminal key={body.session} session={body.session} label={body.label} readOnly />
+              <Terminal
+                key={body.session}
+                session={body.session}
+                label={body.label}
+                readOnly
+                files={{ kind: "ticket", key: view.epic }}
+              />
             )}
           </div>
           <div className="lead-tab-ended">

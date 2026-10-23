@@ -2,6 +2,7 @@
 //! the keyboard map, the icon names and the diff highlighting they read. The desktop app draws what these say; the
 //! tests here run without a display (SDD §23.1).
 
+pub mod file_paths;
 pub mod highlight;
 pub mod icons;
 pub mod key_labels;

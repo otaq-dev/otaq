@@ -24,6 +24,7 @@ vi.mock("@xterm/xterm", () => {
     element = undefined;
     textarea = undefined;
     buffer = { active: { baseY: 0, viewportY: 0 } };
+    registerLinkProvider = () => ({ dispose: () => undefined });
     loadAddon = () => undefined;
     onData = disposable;
     onBinary = disposable;

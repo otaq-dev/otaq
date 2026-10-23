@@ -42,7 +42,7 @@ import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { Report } from "../sections/Report";
-import { type CommentContext, CodeLineRow, Hunk, useComments } from "./Hunks";
+import { type CommentContext, CodeLineRow, Hunk, useComments, useScrollToLine } from "./Hunks";
 import {
   type FilesState,
   LINE_HEIGHT,
@@ -783,6 +783,10 @@ export function FileBody({ ticket, page, file, ctx, sideBySide, onMode }: FileBo
       current = false;
     };
   }, [mode, load]);
+  // A terminal's `path:line` (d0117 point 8): the line to the middle, marked, once per open.
+  const card = useRef<HTMLDivElement>(null);
+  const marked = mode === "file" ? (file.line ?? null) : null;
+  useScrollToLine(card, marked, file, page);
   return (
     <div className="files-file">
       <div className="files-main-head">
@@ -818,7 +822,7 @@ export function FileBody({ ticket, page, file, ctx, sideBySide, onMode }: FileBo
           <span>{page.writing}</span>
         </p>
       )}
-      <div className="files-card">
+      <div className="files-card" ref={card}>
         {mode === "file" ? (
           <>
             {chunks(page.lines.length).map(([start, end]) => (
@@ -828,7 +832,12 @@ export function FileBody({ ticket, page, file, ctx, sideBySide, onMode }: FileBo
                 style={{ containIntrinsicSize: `auto ${String((end - start) * LINE_HEIGHT)}px` }}
               >
                 {page.lines.slice(start, end).map((line) => (
-                  <CodeLineRow key={line.number} number={line.number} spans={line.spans} />
+                  <CodeLineRow
+                    key={line.number}
+                    number={line.number}
+                    spans={line.spans}
+                    marked={line.number === marked}
+                  />
                 ))}
               </div>
             ))}

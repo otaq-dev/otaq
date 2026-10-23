@@ -18,7 +18,9 @@ import { FilesViewBody, PickerBody } from "./FilesView";
 import {
   FIRST,
   diffOwner,
+  filesViewWanted,
   goToFile,
+  openProjectFile,
   ownerMenu,
   pickFile,
   pickerSections,
@@ -563,5 +565,34 @@ describe("All changes, by ticket (FIL-08, s28-06)", () => {
     expect(out.match(/>Open</g)?.length).toBe(2);
     expect(out).toContain(">Unified</button>");
     expect(out).not.toContain("data-commentable");
+  });
+});
+
+describe("a terminal's path link (d0117 point 8)", () => {
+  it("opens the base's file as File at the line, closing an open sheet, and asks the board for the view", () => {
+    selection.set({ ...NOTHING_SELECTED, project: "SHOP", ticket: "SHOP-3" });
+    viewStates.set(new Map([["SHOP", { ...FIRST, picked: "SHOP-29", file: "a.ts", mode: "diff" as const }]]));
+    const before = filesViewWanted.get()?.n ?? 0;
+    openProjectFile("SHOP", "src/lib/pricing.ts", 47);
+    const state = viewStates.get().get("SHOP");
+    expect(state).toMatchObject({
+      file: "src/lib/pricing.ts",
+      mode: "file",
+      picked: null,
+      filter: "all",
+      line: { line: 47 },
+    });
+    expect(state?.open.has("src/lib")).toBe(true);
+    expect(selection.get().ticket).toBeNull();
+    expect(filesViewWanted.get()).toEqual({ project: "SHOP", n: before + 1 });
+    // Without a line: as it opens, nothing marked.
+    openProjectFile("SHOP", "README.md", null);
+    expect(viewStates.get().get("SHOP")).toMatchObject({ file: "README.md", mode: null, line: null });
+  });
+
+  it("marks the asked line in File, not in Diff", () => {
+    expect(viewer(PRICING, { line: { line: 47 } })).toMatch(/data-line="47" data-marked="true"/);
+    expect(viewer(PRICING, { line: { line: 47 } })).not.toMatch(/data-line="40" data-marked/);
+    expect(viewer(PRICING, { line: { line: 47 }, mode: "diff" })).not.toContain("data-marked");
   });
 });

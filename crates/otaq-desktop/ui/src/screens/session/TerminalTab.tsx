@@ -211,6 +211,7 @@ export function TerminalTabBody({
               label={validator?.terminal_label ?? view.label}
               readOnly={validator?.read_only}
               onState={onState}
+              files={{ kind: "ticket", key: view.key }}
               ref={terminal}
             />
             {!validator && state.phase === "ended" && view.ended && (

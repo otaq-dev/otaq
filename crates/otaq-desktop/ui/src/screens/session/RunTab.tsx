@@ -108,7 +108,13 @@ export function RunTabBody({ view, ticket, head }: { view: RunTabView; ticket: s
         {view.session === null ? (
           <div className="run-idle">{view.idle}</div>
         ) : (
-          <Terminal key={view.session} session={view.session} label={`${ticket} · run`} readOnly />
+          <Terminal
+            key={view.session}
+            session={view.session}
+            label={`${ticket} · run`}
+            readOnly
+            files={{ kind: "ticket", key: ticket }}
+          />
         )}
       </div>
     </div>

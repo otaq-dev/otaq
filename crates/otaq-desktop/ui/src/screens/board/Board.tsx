@@ -71,6 +71,7 @@ import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { FilesView } from "../files_view/FilesView";
+import { filesViewWanted } from "../files_view/logic";
 import { List, type ListHandlers } from "../list/List";
 import { findRow, groupSpans, listTargets, nextRow, rowKeys } from "../list/rows";
 import { NeedsYouStrip } from "../strip/Strip";
@@ -477,6 +478,14 @@ export function Board() {
     useCallback(() => showView("files"), [showView]),
   );
   const filesShown = view?.prefs.view === "files";
+  // A terminal's path link asked for this project's Files view (d0117 point 8).
+  const wanted = useStore(filesViewWanted);
+  const wantedShown = useRef(0);
+  useEffect(() => {
+    if (wanted === null || wanted.project !== project || wanted.n === wantedShown.current || !view) return;
+    wantedShown.current = wanted.n;
+    showView("files");
+  }, [wanted, project, view, showView]);
 
   // The drag: state for what the columns draw, the pointer only in a ref (the lifted card follows it unrendered).
   const [drag, setDrag] = useState<DragState | null>(null);

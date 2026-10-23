@@ -521,6 +521,7 @@ function ProjectSource({ project }: { project: string }) {
         path={state.file}
         mode={state.mode}
         diffOf={state.diffOf}
+        line={state.line}
         checking={page.checking}
         refresh={tick}
         onMode={(mode) => {

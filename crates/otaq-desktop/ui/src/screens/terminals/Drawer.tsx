@@ -188,6 +188,7 @@ export function DrawerBody({
                   label={`${tab.label} · ${view.title}`}
                   readOnly={tab.ended}
                   onState={onState}
+                  files={{ kind: "project", project }}
                   ref={terminal}
                 />
               )}

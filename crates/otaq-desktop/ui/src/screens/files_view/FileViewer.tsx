@@ -20,7 +20,7 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { paletteInk } from "../../cards/look";
 import { type DiffLoad, DiffLines, Path } from "../files/FilesTab";
-import { CodeLineRow } from "../files/Hunks";
+import { CodeLineRow, useScrollToLine } from "../files/Hunks";
 import { chunks, LINE_HEIGHT } from "../files/logic";
 import { PROJECT_FILES_EVENTS, diffOwner, ownerMenu, shownFileMode } from "./logic";
 
@@ -42,7 +42,7 @@ function Bars({ columns, bars }: { columns: readonly FilesViewBarColumn[]; bars:
 }
 
 /** The base's rows: lines with their bars, and the folds of a huge file, drawn in chunks laid out near the view. */
-function FileRows({ view }: { view: FilesViewFile }) {
+function FileRows({ view, marked }: { view: FilesViewFile; marked: number | null }) {
   return (
     <>
       {chunks(view.rows.length).map(([start, end]) => (
@@ -58,6 +58,7 @@ function FileRows({ view }: { view: FilesViewFile }) {
                 number={row.number}
                 spans={row.spans}
                 bars={<Bars columns={view.bars} bars={row.bars} />}
+                marked={row.number === marked}
               />
             ) : (
               <div key={`fold-${String(start + i)}`} className="files-view-fold">
@@ -223,6 +224,8 @@ export interface FileViewerProps {
   owner: string | null;
   /** Diff's lines for `owner`. */
   diff: DiffLoad | undefined;
+  /** The line a terminal's path link asked for (d0117 point 8): scrolled to and marked in File. */
+  line?: { line: number } | null;
   onMode: (mode: FilesFileMode) => void;
   onOwner: (key: string) => void;
   onNewTicket: () => void;
@@ -237,12 +240,16 @@ export function FileViewer({
   mode,
   owner,
   diff,
+  line = null,
   onMode,
   onOwner,
   onNewTicket,
   onCopyPath,
   onOpen,
 }: FileViewerProps) {
+  const card = useRef<HTMLDivElement>(null);
+  const marked = mode === "file" ? (line?.line ?? null) : null;
+  useScrollToLine(card, marked, line, view);
   const shownOwner = view.owners.find((o) => o.key === owner);
   // Diff of a file on the base names whose change it is; a file only in a ticket's changes keeps "not on main".
   const subtitle = mode === "diff" && view.can_file && shownOwner ? shownOwner.diff_subtitle : view.subtitle;
@@ -274,7 +281,7 @@ export function FileViewer({
   } else {
     body = (
       <>
-        <FileRows view={view} />
+        <FileRows view={view} marked={marked} />
         {view.note !== null && <p className="diff-note">{view.note}</p>}
       </>
     );
@@ -335,7 +342,9 @@ export function FileViewer({
               <span>{view.huge}</span>
             </p>
           )}
-          <div className="files-card">{body}</div>
+          <div className="files-card" ref={card}>
+            {body}
+          </div>
         </div>
       </div>
       <ChangedBy view={view} onOpen={onOpen} />
@@ -384,6 +393,8 @@ export interface ProjectFilePaneProps {
   path: string;
   mode: FilesFileMode | null;
   diffOf: string | null;
+  /** The line to scroll to and mark (a terminal's path link). */
+  line?: { line: number } | null;
   /** While it is read: "on main · checking which tickets change it…" (`s28-09`). */
   checking: string;
   /** Counts up with the view's poll while an agent works: the file is read again (FIL-10). */
@@ -400,6 +411,7 @@ export function ProjectFilePane({
   path,
   mode,
   diffOf,
+  line = null,
   checking,
   refresh,
   onMode,
@@ -440,6 +452,7 @@ export function ProjectFilePane({
       mode={shown}
       owner={owner}
       diff={diff}
+      line={line}
       onMode={onMode}
       onOwner={onOwner}
       onNewTicket={() => {

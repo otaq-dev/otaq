@@ -56,7 +56,13 @@ export function ShellTabBody({
     );
   else if (view.session !== null)
     body = (
-      <Terminal key={view.session} session={view.session} label={view.terminal_label} onState={onState} />
+      <Terminal
+        key={view.session}
+        session={view.session}
+        label={view.terminal_label}
+        onState={onState}
+        files={{ kind: "ticket", key: view.key }}
+      />
     );
   return (
     <div className="shell-tab" data-focused={state.focused || undefined}>

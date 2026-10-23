@@ -40,6 +40,8 @@ pub use editor::{
 #[cfg(test)]
 pub use epic::export_types as export_epic_types;
 #[cfg(test)]
+pub use file_links::{FileLinkCheck, FileLinksFind};
+#[cfg(test)]
 pub use files::{
     AddParams as FilesCommentAdd, BarParams as FilesBarParams, FileParams as FilesFileParams,
     IdParams as FilesCommentId, Load as FilesLoad, ModeParams as FilesModeParams,
@@ -184,6 +186,7 @@ areas! {
     shortcuts,
     layout,
     terminal,
+    file_links,
     gallery,
     shell,
     notices,
