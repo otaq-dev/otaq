@@ -45,6 +45,9 @@ tauri-plugin-dialog = "2.8.2"
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "native-tls"] }
 # A new random session per launch (d0085). Already in the workspace through otaq-core.
 uuid = { version = "1.27.0", features = ["v4"] }
+# The installed font families for the Terminal font setting and the Nerd Font fallback (d0117 point 5,
+# `src/fonts.rs`): reads the OS font folders. MIT.
+fontdb = "0.23.0"
 
 [target.'cfg(windows)'.dependencies]
 # WebView2's settings, to switch its browser accelerator keys off (UIT-06, `src/door.rs`); Tauri doesn't expose that

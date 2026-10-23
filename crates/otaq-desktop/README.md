@@ -159,7 +159,11 @@ attach command, the hint line under it) are the host's, drawn from `onState` (`T
   terminal's font size until the setting changes, and ⇧↵, which types ESC + CR (as ⌥↵) instead of xterm.js's `\r`, so
   it starts a new line in the agent's prompt instead of sending it (OT-5). ⌘F / Ctrl+Shift+F opens the find bar
   (`useShortcut`).
-- **Settings.** `terminal.settings` gives the font size (8–32) and the renderer, asked again on `settings_changed`. The
+- **Settings.** `terminal.settings` gives the font size (8–32), the font stack and the renderer, asked again on
+  `settings_changed`. The font stack (d0117 point 5) is the Terminal font (Geist Mono by default, or when the chosen one
+  is no longer installed), then every installed Nerd Font for prompt icons, then `monospace`; the installed families are
+  read once per start with fontdb (`src/fonts.rs`). A font change reaches every open terminal at once, scrollback kept,
+  and its glyph atlas is cleared. The
   renderer (`terminal_renderer` in the global settings: WebGL or DOM; DOM by default on Linux, WebGL on macOS and
   Windows, Q37) picks xterm.js's renderer for every terminal; only a WebGL context that fails to start falls back to
   DOM, because a broken driver that draws garbage raises no error. Its row in Settings → Appearance is T-0234's (Q38).

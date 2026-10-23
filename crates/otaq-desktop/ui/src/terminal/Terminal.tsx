@@ -86,6 +86,7 @@ interface Find {
 
 const CLOSED_FIND: Find = { open: false, text: "", index: -1, count: 0 };
 
+/** The font a terminal opens with, until the setting's font stack arrives (`TerminalSettings.font_family`). */
 function fontFamily(element: Element): string {
   return getComputedStyle(element).getPropertyValue("--font-mono").trim() || "monospace";
 }
@@ -128,7 +129,7 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
     });
   }, []);
 
-  // The settings every terminal follows (font size, renderer), again on each change.
+  // The settings every terminal follows (font size, font, renderer), again on each change.
   useEffect(
     () =>
       watchView(
@@ -461,6 +462,27 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
     term.options.fontSize = fontSize;
     fitBox.current?.();
   }, [opened, fontSize]);
+  // The font (d0117 point 5): every open terminal follows the setting at once and keeps its scrollback. The font is
+  // loaded first so xterm.js measures its cells with it, and the glyph atlas (WebGL) is drawn again with it.
+  const family = settings?.font_family;
+  useEffect(() => {
+    const term = xterm.current;
+    if (!opened || !term || family === undefined || term.options.fontFamily === family) return;
+    let live = true;
+    const size = String(term.options.fontSize ?? INITIAL_STATE.fontSize);
+    void document.fonts
+      .load(`${size}px ${family}`)
+      .catch(() => [])
+      .then(() => {
+        if (!live) return;
+        term.options.fontFamily = family;
+        term.clearTextureAtlas();
+        fitBox.current?.();
+      });
+    return () => {
+      live = false;
+    };
+  }, [opened, family]);
   const setting = settings?.renderer;
   useEffect(() => {
     const term = xterm.current;

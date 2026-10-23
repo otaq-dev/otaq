@@ -33,6 +33,7 @@ import { Icon } from "../../theme/Icon";
 import { fieldId, sectionOf, useSettings } from "./context";
 import { WarmOffDialog } from "./Dialogs";
 import { EnvVarsRow } from "./EnvVars";
+import { Dropdown } from "./ModelPicker";
 
 type Of<K extends SettingsControl["kind"]> = Extract<SettingsControl, { kind: K }>;
 
@@ -413,6 +414,35 @@ function Control({ row }: { row: SettingsRow }) {
           onSelect={(i) => {
             const choice = c.choices[i];
             if (choice) edit(row.field, choice.id);
+          }}
+        />
+      );
+    case "select":
+      return (
+        <Dropdown
+          id={fieldId(row.field)}
+          label={row.label}
+          value={
+            <span className="select-value">
+              <span>{c.choices.find((choice) => choice.id === c.value)?.label ?? c.value}</span>
+            </span>
+          }
+          choices={() =>
+            c.choices.map((choice) => ({
+              kind: "option" as const,
+              id: choice.id,
+              label: choice.label,
+              detail: null,
+              mono: false,
+              detailMono: false,
+              checked: choice.id === c.value,
+              icon: null,
+            }))
+          }
+          readOnly={false}
+          className="settings-select"
+          onChoose={(id) => {
+            if (id !== c.value) edit(row.field, id);
           }}
         />
       );

@@ -21,7 +21,7 @@ suffix: string, disabled: boolean,
  * Shown in place of the value while a project uses the global one: "Use global (3)". − and + start from
  * `value` (the global one).
  */
-empty: string | null, } | { "kind": "segmented", choices: Array<SettingsChoice>, value: string, } | { "kind": "note", text: string, } | { "kind": "value", text: string, mono: boolean, boxed: boolean, } | { "kind": "path", text: string, reveal: SettingsReveal, reveal_label: string, } | { "kind": "button", label: string, icon: IconName, destructive: boolean, action: SettingsButtonAction, } | { "kind": "env_files", rows: Array<SettingsEnvFile>, add_placeholder: string, remove_label: string, } | { "kind": "env_vars", rows: Array<SettingsEnvVar>, 
+empty: string | null, } | { "kind": "segmented", choices: Array<SettingsChoice>, value: string, } | { "kind": "select", choices: Array<SettingsChoice>, value: string, } | { "kind": "note", text: string, } | { "kind": "value", text: string, mono: boolean, boxed: boolean, } | { "kind": "path", text: string, reveal: SettingsReveal, reveal_label: string, } | { "kind": "button", label: string, icon: IconName, destructive: boolean, action: SettingsButtonAction, } | { "kind": "env_files", rows: Array<SettingsEnvFile>, add_placeholder: string, remove_label: string, } | { "kind": "env_vars", rows: Array<SettingsEnvVar>, 
 /**
  * The always-visible example: `CI = true`, then its reason.
  */

@@ -199,6 +199,10 @@ pub struct GlobalSettings {
     /// One theme, used all the time (d0070).
     pub theme: ThemeSetting,
     pub terminal_font_size: u32,
+    /// The terminal font (d0117 point 5): an installed monospace family; `None` is Geist Mono. Checked against the
+    /// installed fonts when set ([`Self::set_terminal_font_family`]); one no longer installed reads as Geist Mono
+    /// ([`Self::terminal_font_family_in`]).
+    pub terminal_font_family: Option<String>,
     /// How terminals draw (Q37, Q38): one setting for every terminal.
     pub terminal_renderer: TerminalRenderer,
     /// The description editor shows the raw Markdown source instead of formatted text (d0078 D9): every editor opens
@@ -214,6 +218,40 @@ pub struct GlobalSettings {
 pub const DEFAULT_TERMINAL_FONT_SIZE: u32 = 13;
 /// The terminal font sizes accepted without a warning.
 pub const TERMINAL_FONT_SIZES: std::ops::RangeInclusive<u32> = 8..=32;
+/// The terminal font when none is chosen (d0117 point 5): the app's own monospace font, shipped with the page.
+pub const DEFAULT_TERMINAL_FONT_FAMILY: &str = "Geist Mono";
+
+impl GlobalSettings {
+    /// Chooses the terminal font from the installed monospace families: `""` (or Geist Mono) goes back to the
+    /// default, a name not in `installed` is refused. Stored with the installed family's own spelling.
+    pub fn set_terminal_font_family(
+        &mut self,
+        family: &str,
+        installed: &[String],
+    ) -> Result<(), String> {
+        let family = family.trim();
+        if family.is_empty() || family.eq_ignore_ascii_case(DEFAULT_TERMINAL_FONT_FAMILY) {
+            self.terminal_font_family = None;
+            return Ok(());
+        }
+        let found = installed
+            .iter()
+            .find(|name| name.eq_ignore_ascii_case(family))
+            .ok_or_else(|| format!("{family} isn't an installed monospace font"))?;
+        self.terminal_font_family = Some(found.clone());
+        Ok(())
+    }
+
+    /// The chosen terminal font when it is still installed; `None` (Geist Mono) otherwise, quietly: a font removed
+    /// since it was chosen is no error.
+    pub fn terminal_font_family_in(&self, installed: &[String]) -> Option<&str> {
+        let family = self.terminal_font_family.as_deref()?;
+        installed
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(family))
+            .then_some(family)
+    }
+}
 
 impl Default for GlobalSettings {
     fn default() -> Self {
@@ -224,6 +262,7 @@ impl Default for GlobalSettings {
             notification_sound: true,
             theme: ThemeSetting::default(),
             terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,
+            terminal_font_family: None,
             terminal_renderer: TerminalRenderer::default(),
             description_source_mode: false,
             usage_data: UsageData::NotAsked,
@@ -1100,6 +1139,59 @@ mod tests {
         let settings: GlobalSettings = read_or_default(stored);
         assert_eq!(settings.terminal_renderer, default);
         assert_eq!(settings.terminal_font_size, 15);
+    }
+
+    #[test]
+    fn the_terminal_font_is_geist_mono_until_an_installed_one_is_chosen() {
+        let installed = ["MesloLGS NF".to_owned(), "JetBrains Mono".to_owned()];
+        let mut settings = GlobalSettings::default();
+        assert_eq!(settings.terminal_font_family, None);
+        assert_eq!(settings.terminal_font_family_in(&installed), None);
+
+        // An installed family is kept with its own spelling and round-trips through the stored file.
+        settings
+            .set_terminal_font_family("meslolgs nf", &installed)
+            .unwrap();
+        assert_eq!(
+            settings.terminal_font_family.as_deref(),
+            Some("MesloLGS NF")
+        );
+        let stored = serde_json::to_value(&settings).unwrap();
+        assert_eq!(stored["terminal_font_family"], "MesloLGS NF");
+        let read: GlobalSettings = read_or_default(stored);
+        assert_eq!(read, settings);
+        assert_eq!(
+            read.terminal_font_family_in(&installed),
+            Some("MesloLGS NF")
+        );
+
+        // An unknown name is refused and changes nothing.
+        let refused = settings.set_terminal_font_family("Comic Mono", &installed);
+        assert_eq!(
+            refused,
+            Err("Comic Mono isn't an installed monospace font".into())
+        );
+        assert_eq!(
+            settings.terminal_font_family.as_deref(),
+            Some("MesloLGS NF")
+        );
+
+        // Uninstalled since: the stored name stays, it reads as Geist Mono.
+        let now = ["JetBrains Mono".to_owned()];
+        assert_eq!(settings.terminal_font_family_in(&now), None);
+        assert_eq!(
+            settings.terminal_font_family.as_deref(),
+            Some("MesloLGS NF")
+        );
+
+        // Empty, or Geist Mono by name, goes back to the default.
+        for default in ["", "Geist Mono"] {
+            settings
+                .set_terminal_font_family("JetBrains Mono", &now)
+                .unwrap();
+            settings.set_terminal_font_family(default, &now).unwrap();
+            assert_eq!(settings.terminal_font_family, None);
+        }
     }
 
     #[test]

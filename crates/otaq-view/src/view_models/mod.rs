@@ -113,6 +113,7 @@ pub mod shortcut_list;
 pub mod stage_choices;
 pub mod status;
 pub mod switcher;
+pub mod terminal_font;
 pub mod terminal_strip;
 pub mod theme_credits;
 pub mod theme_picker;

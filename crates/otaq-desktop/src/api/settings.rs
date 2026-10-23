@@ -628,6 +628,7 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
                 Ok(Reply::NotificationsState(state)) => state.permission,
                 _ => otaq_core::attention::notify::PermissionState::Unknown,
             };
+            let fonts = app.fonts.get().await;
             page::global_page(&GlobalInputs {
                 settings: &settings,
                 problems: &problems,
@@ -636,6 +637,7 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
                 cleanup_count,
                 os: Os::current(),
                 notification_permission,
+                fonts: &fonts,
             })
         }
     };
@@ -647,7 +649,9 @@ async fn edit(app: &App, edit: SettingsEdit) -> Result<Value, RequestError> {
     match &edit.project {
         None => {
             let (mut settings, _) = global(app).await?;
-            page::edit_global(&mut settings, &edit.field, &edit.value).map_err(RequestError::plain)?;
+            let fonts = app.fonts.get().await;
+            page::edit_global(&mut settings, &edit.field, &edit.value, &fonts)
+                .map_err(RequestError::plain)?;
             // The service applies it at once (limits, notifications) and announces `settings_changed`, on which
             // the theme and the terminals follow.
             app.service.send(Request::SettingsSet(settings)).await?;
@@ -769,8 +773,21 @@ mod tests {
         )
         .await
         .unwrap();
-        let renderer = edited["page"]["sections"][6]["rows"][3]["control"]["value"].clone();
+        let renderer = edited["page"]["sections"][6]["rows"][4]["control"]["value"].clone();
         assert_eq!(renderer, "dom");
+        // No fonts in the test's folders: only Geist Mono is listed, and a family not installed is refused.
+        let font = &edited["page"]["sections"][6]["rows"][3];
+        assert_eq!(font["field"], "terminal_font_family");
+        assert_eq!(font["control"]["kind"], "select");
+        assert_eq!(font["control"]["choices"][0]["label"], "Geist Mono (default)");
+        let refused = request(
+            &h.app,
+            "settings.edit",
+            json!({ "field": "terminal_font_family", "value": "MesloLGS NF" }),
+        )
+        .await
+        .unwrap_err();
+        assert!(refused.message.contains("isn't an installed"), "{refused:?}");
         let (stored, _) = global(&h.app).await.unwrap();
         assert_eq!(
             stored.terminal_renderer,

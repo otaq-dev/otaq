@@ -8,4 +8,9 @@ export type TerminalSettings = {
 /**
  * Points, 8–32.
  */
-font_size: number, renderer: TerminalRenderer, };
+font_size: number, 
+/**
+ * The CSS font stack (d0117 point 5): the chosen font or Geist Mono, the installed Nerd Fonts for missing
+ * symbols, then `monospace`.
+ */
+font_family: string, renderer: TerminalRenderer, };

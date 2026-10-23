@@ -25,6 +25,7 @@ use otaq_core::warm::store::{WarmBuildInfo, WarmList};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::terminal_font::{self, InstalledFonts};
 use crate::icons::IconName;
 use crate::keymap::{Platform, TerminalKey};
 
@@ -209,6 +210,11 @@ pub enum Control {
         empty: Option<String>,
     },
     Segmented {
+        choices: Vec<Choice>,
+        value: String,
+    },
+    /// A dropdown of `choices`, `value` the chosen one's id (the Terminal font, d0117 point 5).
+    Select {
         choices: Vec<Choice>,
         value: String,
     },
@@ -480,6 +486,8 @@ pub struct GlobalInputs<'a> {
     pub os: Os,
     /// What the OS allows Otaq's notifications (`notifications.state`); `Unknown` when it couldn't be read.
     pub notification_permission: PermissionState,
+    /// The installed fonts, for the Terminal font dropdown (d0117 point 5).
+    pub fonts: &'a InstalledFonts,
 }
 
 /// What a project page is built from.
@@ -843,7 +851,7 @@ pub fn global_page(input: &GlobalInputs) -> Page {
             row(
                 "terminal_font_size",
                 "Terminal font size",
-                format!("Geist Mono. Also {bigger} / {smaller} inside a focused terminal."),
+                format!("Also {bigger} / {smaller} inside a focused terminal."),
                 Control::Stepper {
                     value: s.terminal_font_size,
                     min: *TERMINAL_FONT_SIZES.start(),
@@ -851,6 +859,16 @@ pub fn global_page(input: &GlobalInputs) -> Page {
                     suffix: " px".into(),
                     disabled: false,
                     empty: None,
+                },
+            ),
+            // d0117 point 5 (T-0482): every terminal follows it at once. Its layout is provisional (designer notes).
+            row(
+                "terminal_font_family",
+                "Terminal font",
+                "Icons your font lacks come from an installed Nerd Font.",
+                Control::Select {
+                    choices: terminal_font::choices(input.fonts),
+                    value: terminal_font::chosen(s, input.fonts),
                 },
             ),
             // Q38, built as option 1: one global row, read by every terminal (T-0216).
@@ -1423,6 +1441,7 @@ pub fn notifications_gallery() -> NotificationsGallery {
                 cleanup_count: 0,
                 os: Os::Mac,
                 notification_permission: permission,
+                fonts: &InstalledFonts::default(),
             };
             let Page::Global { sections, .. } = global_page(&input) else {
                 unreachable!("the global page")
@@ -1926,8 +1945,14 @@ impl Value {
     }
 }
 
-/// Applies one edit to the global settings. Steppers clamp to their range; the service flags the rest.
-pub fn edit_global(s: &mut GlobalSettings, field: &str, value: &Value) -> Result<(), String> {
+/// Applies one edit to the global settings. Steppers clamp to their range; a terminal font must be one of `fonts`;
+/// the service flags the rest.
+pub fn edit_global(
+    s: &mut GlobalSettings,
+    field: &str,
+    value: &Value,
+    fonts: &InstalledFonts,
+) -> Result<(), String> {
     let clamp = |n: u32, r: std::ops::RangeInclusive<u32>| n.clamp(*r.start(), *r.end());
     match field {
         "agent_limits.enabled" => s.agent_limits = toggled(&s.agent_limits, value.flag()?),
@@ -1954,6 +1979,7 @@ pub fn edit_global(s: &mut GlobalSettings, field: &str, value: &Value) -> Result
             }
         }
         "terminal_font_size" => s.terminal_font_size = clamp(value.number()?, TERMINAL_FONT_SIZES),
+        "terminal_font_family" => s.set_terminal_font_family(value.text()?, &fonts.monospace)?,
         "terminal_renderer" => {
             s.terminal_renderer = match value.text()? {
                 "webgl" => TerminalRenderer::Webgl,
@@ -2084,6 +2110,7 @@ mod tests {
             cleanup_count: 0,
             os: Os::Mac,
             notification_permission: PermissionState::Unknown,
+            fonts: &InstalledFonts::default(),
         };
         match global_page(&input) {
             Page::Global { sections, .. } => sections,
@@ -2101,6 +2128,7 @@ mod tests {
             cleanup_count: 0,
             os: Os::Mac,
             notification_permission: permission,
+            fonts: &InstalledFonts::default(),
         };
         let Page::Global { sections, .. } = global_page(&input) else {
             unreachable!()
@@ -2215,16 +2243,50 @@ mod tests {
             assert!(!row.dimmed);
         }
 
-        edit_global(&mut s, "notification_kinds.question", &Value::Flag(false)).unwrap();
-        edit_global(&mut s, "notification_sound", &Value::Flag(false)).unwrap();
+        edit_global(
+            &mut s,
+            "notification_kinds.question",
+            &Value::Flag(false),
+            &InstalledFonts::default(),
+        )
+        .unwrap();
+        edit_global(
+            &mut s,
+            "notification_sound",
+            &Value::Flag(false),
+            &InstalledFonts::default(),
+        )
+        .unwrap();
         assert!(!s.notification_kinds.allows(Kind::Question));
         assert!(s.notification_kinds.allows(Kind::Permission));
         assert!(!s.notification_sound);
-        assert!(edit_global(&mut s, "notification_kinds.nothing", &Value::Flag(false)).is_err());
-        assert!(edit_global(&mut s, "notification_sound", &Value::Text("no".into())).is_err());
+        assert!(
+            edit_global(
+                &mut s,
+                "notification_kinds.nothing",
+                &Value::Flag(false),
+                &InstalledFonts::default()
+            )
+            .is_err()
+        );
+        assert!(
+            edit_global(
+                &mut s,
+                "notification_sound",
+                &Value::Text("no".into()),
+                &InstalledFonts::default()
+            )
+            .is_err()
+        );
         for kind in Kind::ALL {
             let field = notification_kind_row(kind).0;
-            edit_global(&mut s, field, &Value::Flag(false)).unwrap();
+            edit_global(
+                &mut s,
+                field,
+                &Value::Flag(false),
+                &InstalledFonts::default(),
+            )
+            .unwrap();
             assert!(!s.notification_kinds.allows(kind), "{field}");
         }
 
@@ -2318,7 +2380,15 @@ mod tests {
         let labels: Vec<&str> = usage.rows.iter().map(|r| r.label.as_str()).collect();
         assert_eq!(labels, ["Token count"]);
         let mut s = GlobalSettings::default();
-        assert!(edit_global(&mut s, "dollar_estimate", &Value::Flag(true)).is_err());
+        assert!(
+            edit_global(
+                &mut s,
+                "dollar_estimate",
+                &Value::Flag(true),
+                &InstalledFonts::default()
+            )
+            .is_err()
+        );
     }
 
     /// FLW-01: Validation & Auto-merge is no section and no setting any more, global or per project.
@@ -2334,7 +2404,13 @@ mod tests {
                 "{field}"
             );
             assert!(
-                edit_global(&mut GlobalSettings::default(), field, &Value::Flag(false)).is_err()
+                edit_global(
+                    &mut GlobalSettings::default(),
+                    field,
+                    &Value::Flag(false),
+                    &InstalledFonts::default()
+                )
+                .is_err()
             );
             assert!(
                 edit_project(&mut ProjectSettings::default(), field, &Value::Flag(false)).is_err()
@@ -2515,10 +2591,22 @@ mod tests {
                 ..
             }
         ));
-        edit_global(&mut s, "agent_limits.enabled", &Value::Flag(true)).unwrap();
+        edit_global(
+            &mut s,
+            "agent_limits.enabled",
+            &Value::Flag(true),
+            &InstalledFonts::default(),
+        )
+        .unwrap();
         assert!(s.agent_limits.enabled);
         assert!(!find(&global(&s), "agent_limits.max_concurrency").dimmed);
-        edit_global(&mut s, "agent_limits.max_concurrency", &Value::Number(99)).unwrap();
+        edit_global(
+            &mut s,
+            "agent_limits.max_concurrency",
+            &Value::Number(99),
+            &InstalledFonts::default(),
+        )
+        .unwrap();
         assert_eq!(s.agent_limits.max_concurrency, 50, "a stepper clamps");
         let status = SchedulerStatus::default();
         let input = GlobalInputs {
@@ -2529,6 +2617,7 @@ mod tests {
             cleanup_count: 2,
             os: Os::Linux,
             notification_permission: PermissionState::Unknown,
+            fonts: &InstalledFonts::default(),
         };
         let Page::Global { sections, .. } = global_page(&input) else {
             unreachable!()
@@ -2555,8 +2644,105 @@ mod tests {
             .unwrap();
         assert_eq!(
             size.description,
-            "Geist Mono. Also Ctrl+Shift+= / Ctrl+Shift+- inside a focused terminal."
+            "Also Ctrl+Shift+= / Ctrl+Shift+- inside a focused terminal."
         );
+    }
+
+    #[test]
+    fn appearance_has_the_terminal_font_row_after_the_size_and_it_takes_only_installed_fonts() {
+        // The fixture folder's faces, as the desktop reads them: a monospace font, a proportional one, a Nerd Font.
+        let fonts = InstalledFonts::from_faces([
+            ("Fixture Mono", true),
+            ("Fixture Sans", false),
+            ("Fixture Nerd Font Mono", true),
+        ]);
+        let mut s = GlobalSettings::default();
+        let page = |s: &GlobalSettings| {
+            let input = GlobalInputs {
+                settings: s,
+                problems: &[],
+                scheduler: None,
+                data: None,
+                cleanup_count: 0,
+                os: Os::Mac,
+                notification_permission: PermissionState::Unknown,
+                fonts: &fonts,
+            };
+            let Page::Global { sections, .. } = global_page(&input) else {
+                unreachable!()
+            };
+            sections
+        };
+        let sections = page(&s);
+        let appearance = sections
+            .iter()
+            .find(|s| s.id == GlobalSection::Appearance)
+            .unwrap();
+        let fields: Vec<_> = appearance.rows.iter().map(|r| r.field.as_str()).collect();
+        assert_eq!(
+            fields,
+            [
+                "theme",
+                "",
+                "terminal_font_size",
+                "terminal_font_family",
+                "terminal_renderer"
+            ]
+        );
+        let row = find(&sections, "terminal_font_family");
+        assert_eq!(row.label, "Terminal font");
+        assert_eq!(
+            row.description,
+            "Icons your font lacks come from an installed Nerd Font."
+        );
+        let Control::Select { choices, value } = &row.control else {
+            panic!("{:?}", row.control)
+        };
+        let labels: Vec<_> = choices.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            [
+                "Geist Mono (default)",
+                "Fixture Mono",
+                "Fixture Nerd Font Mono"
+            ]
+        );
+        assert_eq!(choices[0].id, "");
+        assert_eq!(value, "");
+
+        edit_global(
+            &mut s,
+            "terminal_font_family",
+            &Value::Text("Fixture Mono".into()),
+            &fonts,
+        )
+        .unwrap();
+        assert_eq!(s.terminal_font_family.as_deref(), Some("Fixture Mono"));
+        let row = find(&page(&s), "terminal_font_family").clone();
+        assert!(matches!(&row.control, Control::Select { value, .. } if value == "Fixture Mono"));
+        assert_eq!(
+            terminal_font::stack(&s, &fonts),
+            r#""Fixture Mono", "Fixture Nerd Font Mono", monospace"#
+        );
+        // A proportional or unknown font is refused; "" is Geist Mono again.
+        for refused in ["Fixture Sans", "Nowhere Mono"] {
+            let edit = edit_global(
+                &mut s,
+                "terminal_font_family",
+                &Value::Text(refused.into()),
+                &fonts,
+            );
+            assert!(edit.is_err(), "{refused}");
+        }
+        assert_eq!(s.terminal_font_family.as_deref(), Some("Fixture Mono"));
+        edit_global(
+            &mut s,
+            "terminal_font_family",
+            &Value::Text(String::new()),
+            &fonts,
+        )
+        .unwrap();
+        assert_eq!(s.terminal_font_family, None);
     }
 
     #[test]
@@ -2569,10 +2755,30 @@ mod tests {
         };
         assert_eq!(choices.len(), 2);
         assert_eq!(choices[1].label, "DOM (safer)");
-        edit_global(&mut s, "terminal_renderer", &Value::Text("dom".into())).unwrap();
+        edit_global(
+            &mut s,
+            "terminal_renderer",
+            &Value::Text("dom".into()),
+            &InstalledFonts::default(),
+        )
+        .unwrap();
         assert_eq!(s.terminal_renderer, TerminalRenderer::Dom);
-        assert!(edit_global(&mut s, "terminal_renderer", &Value::Text("x".into())).is_err());
-        edit_global(&mut s, "terminal_font_size", &Value::Number(3)).unwrap();
+        assert!(
+            edit_global(
+                &mut s,
+                "terminal_renderer",
+                &Value::Text("x".into()),
+                &InstalledFonts::default()
+            )
+            .is_err()
+        );
+        edit_global(
+            &mut s,
+            "terminal_font_size",
+            &Value::Number(3),
+            &InstalledFonts::default(),
+        )
+        .unwrap();
         assert_eq!(s.terminal_font_size, 8);
         // The workflow skills moved to the agents (AGM-02): no such setting any more.
         assert!(
@@ -2580,18 +2786,61 @@ mod tests {
                 &mut s,
                 "workflow_skills.open_pr",
                 &Value::Text(" /my-pr ".into()),
+                &InstalledFonts::default()
             )
             .is_err()
         );
-        edit_global(&mut s, "usage_data", &Value::Flag(true)).unwrap();
+        edit_global(
+            &mut s,
+            "usage_data",
+            &Value::Flag(true),
+            &InstalledFonts::default(),
+        )
+        .unwrap();
         assert_eq!(s.usage_data, UsageData::On);
-        edit_global(&mut s, "usage_data", &Value::Flag(false)).unwrap();
+        edit_global(
+            &mut s,
+            "usage_data",
+            &Value::Flag(false),
+            &InstalledFonts::default(),
+        )
+        .unwrap();
         assert_eq!(s.usage_data, UsageData::Off);
-        assert!(edit_global(&mut s, "usage_data", &Value::Text("yes".into())).is_err());
-        edit_global(&mut s, "notifications", &Value::Flag(false)).unwrap();
+        assert!(
+            edit_global(
+                &mut s,
+                "usage_data",
+                &Value::Text("yes".into()),
+                &InstalledFonts::default()
+            )
+            .is_err()
+        );
+        edit_global(
+            &mut s,
+            "notifications",
+            &Value::Flag(false),
+            &InstalledFonts::default(),
+        )
+        .unwrap();
         assert!(!s.notifications);
-        assert!(edit_global(&mut s, "notifications", &Value::Text("no".into())).is_err());
-        assert!(edit_global(&mut s, "nothing", &Value::Flag(true)).is_err());
+        assert!(
+            edit_global(
+                &mut s,
+                "notifications",
+                &Value::Text("no".into()),
+                &InstalledFonts::default()
+            )
+            .is_err()
+        );
+        assert!(
+            edit_global(
+                &mut s,
+                "nothing",
+                &Value::Flag(true),
+                &InstalledFonts::default()
+            )
+            .is_err()
+        );
         let data = sections
             .iter()
             .find(|s| s.id == GlobalSection::Data)
