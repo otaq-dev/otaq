@@ -1,14 +1,15 @@
 // Settings → Flow's actions (T-0422; FLW-07…FLW-11): what each button asks of Rust, and where the user goes next.
 // Every action but Export asks for a proposal (`settings.flow_propose`), closes Settings and opens the preview (T-0420,
 // `openFlowPreview`: it is drawn under the window's overlays, and the keyboard moves into it). Export and Import go through
-// the system's save and open dialogs. Change with the Project agent starts a Project agent with Rust's first message
-// (`/flow`), as the empty pane's Send would: the click is the go-ahead (d0087).
+// the system's save and open dialogs. Change with the Project agent opens the flow editor (T-0471, d0115), whose agent
+// panel starts nothing until the user asks; T-0473 renames the button Change flow….
 import { closeOverlay } from "../../app/overlays";
 import type { FlowSettings } from "../../generated/FlowSettings";
 import type { FlowSource } from "../../generated/FlowSource";
 import { pickFlowFile, request, saveFlowFile } from "../../tauri";
+import { openFlowEditor } from "../flow_editor/logic";
 import { openFlowPreview } from "../flow_preview/logic";
-import { PANE_ROUTES, type PaneRoutes, sendFirstMessage, showPane } from "../pane/logic";
+import { PANE_ROUTES, type PaneRoutes } from "../pane/logic";
 import { selectProject } from "../../app/selection";
 
 export interface FlowRoutes {
@@ -17,6 +18,8 @@ export interface FlowRoutes {
   closeSettings: () => void;
   /** Opens the preview of the project's open proposal, the keyboard in it. */
   openPreview: (project: string) => void;
+  /** Opens the flow editor on the project's flow. */
+  openEditor: (project: string) => void;
   pickFile: typeof pickFlowFile;
   saveFile: typeof saveFlowFile;
   pane: PaneRoutes;
@@ -29,6 +32,9 @@ export const FLOW_ROUTES: FlowRoutes = {
   },
   openPreview: (project) => {
     openFlowPreview(project);
+  },
+  openEditor: (project) => {
+    openFlowEditor({ project, from: "project" });
   },
   pickFile: (title) => pickFlowFile(title),
   saveFile: (title, fileName) => saveFlowFile(title, fileName),
@@ -65,15 +71,11 @@ export async function exportFlow(section: FlowSettings, routes: FlowRoutes = FLO
   return true;
 }
 
-/** Change with the Project agent: Settings closes, the pane shows and a new Project agent starts with `/flow`. */
-export function changeWithProjectAgent(
-  section: FlowSettings,
-  routes: FlowRoutes = FLOW_ROUTES,
-): Promise<string | null> {
+/** Change with the Project agent: Settings closes and the flow editor opens on the project; nothing starts. */
+export function changeFlow(section: FlowSettings, routes: FlowRoutes = FLOW_ROUTES): void {
   routes.closeSettings();
   selectProject(section.project, routes.pane.selection);
-  showPane(routes.pane);
-  return sendFirstMessage(section.project, section.change_message, routes.ask, routes.pane);
+  routes.openEditor(section.project);
 }
 
 /** The ⋯ menu's choice, by its id from Rust. */

@@ -71,6 +71,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.onboarding_flow_dialog" => reply(&onboarding_page::flow_dialog_gallery()),
         // 14 · Agents at work: two at work, one not asked, the plan limit, not signed in, ended (T-0434).
         "gallery.onboarding_flow_at_work" => reply(&flow_at_work::gallery()),
+        // 27 · The flow editor: shop-web's flow in the project, Otaq default in onboarding with two tools (T-0471).
+        "gallery.flow_editor" => reply(&otaq_view::view_models::flow_editor::gallery()),
         // 11 · The usage-limit banner's line per tool, Move waiting to…, a tool that isn't available (T-0364).
         "gallery.limit_lines" => reply(&limit_banner::gallery()),
         // The notification banners and Settings → Notifications in every state (T-0372).

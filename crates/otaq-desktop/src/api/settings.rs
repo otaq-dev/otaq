@@ -32,6 +32,8 @@ mod agent_reads;
 mod flow;
 #[cfg(test)]
 pub use flow::export_types as export_flow_types;
+/// Import a flow…'s file read (the flow editor's too).
+pub(super) use flow::import as read_flow_file;
 
 pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
     match method {

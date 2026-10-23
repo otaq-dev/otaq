@@ -15,7 +15,7 @@ import type { RequestError } from "../../generated/RequestError";
 import { asRequestError, watchView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { changeWithProjectAgent, menuChoice, proposeFrom } from "./flowActions";
+import { changeFlow, menuChoice, proposeFrom } from "./flowActions";
 
 /** The service events after which the section is fetched again: the flow, its waiting change, the agents. */
 const REFETCH_ON = ["flow_changed", "agents_changed", "projects_changed", "ticket_changed"];
@@ -277,7 +277,7 @@ export function FlowSection({ project }: { project: string }) {
           }, failed);
         }}
         onChange={() => {
-          changeWithProjectAgent(section).catch(failed);
+          changeFlow(section);
         }}
         onPreset={() => {
           request("settings.flow_presets", { project }).then((d) => {

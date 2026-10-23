@@ -57,6 +57,7 @@ pub mod files_tab;
 pub mod filter;
 pub mod flow_at_work;
 pub mod flow_columns;
+pub mod flow_editor;
 pub mod flow_preview;
 pub mod flow_settings;
 pub mod flow_setup_page;

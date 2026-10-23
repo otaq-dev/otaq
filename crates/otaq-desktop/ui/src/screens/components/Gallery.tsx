@@ -8,6 +8,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -71,6 +72,7 @@ import type { DecisionGallery } from "../../generated/DecisionGallery";
 import type { EnvVarsGallery } from "../../generated/EnvVarsGallery";
 import type { AgentToolsGallery } from "../../generated/AgentToolsGallery";
 import type { FlowAtWorkGallery } from "../../generated/FlowAtWorkGallery";
+import type { FlowEditorGallery } from "../../generated/FlowEditorGallery";
 import type { OnboardingFlowGallery } from "../../generated/OnboardingFlowGallery";
 import type { OnboardingToolsGallery } from "../../generated/OnboardingToolsGallery";
 import type { WarmSwitchGallery } from "../../generated/WarmSwitchGallery";
@@ -144,6 +146,7 @@ import { LimitLinesGallery } from "../notices/LimitLinesGallery";
 import { LeadTabBody } from "../lead_tab/LeadTab";
 import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
 import { AgentsAtWork } from "../onboarding/FlowAtWork";
+import { FlowEditorBody, recordingActions } from "../flow_editor/FlowEditor";
 import { FlowGoAhead, FlowPresets } from "../onboarding/FlowStep";
 import { FlowDialogButtons, FlowDialogGoAhead, FlowDialogPresets } from "../onboarding/AddProjectDialog";
 import { ToolsList } from "../onboarding/Tools";
@@ -1603,6 +1606,7 @@ const loadAgentTools = () => request("gallery.agent_tools") as Promise<AgentTool
 const loadOnboardingTools = () => request("gallery.onboarding_tools") as Promise<OnboardingToolsGallery>;
 const loadOnboardingFlow = () => request("gallery.onboarding_flow") as Promise<OnboardingFlowGallery>;
 const loadFlowAtWork = () => request("gallery.onboarding_flow_at_work") as Promise<FlowAtWorkGallery>;
+const loadFlowEditor = () => request("gallery.flow_editor") as Promise<FlowEditorGallery>;
 const loadOnboardingFlowDialog = () =>
   request("gallery.onboarding_flow_dialog") as Promise<OnboardingFlowGallery>;
 
@@ -1834,6 +1838,35 @@ function OnboardingFlowDialogGallerySection() {
                     onPresets={record("Use a preset instead")}
                   />
                 </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </Section>
+  );
+}
+
+/** *27 → The flow editor* `s27-03`/`s27-05` (T-0471, FED-01…FED-07): the editor in the project (shop-web's flow) and in
+ * onboarding (Otaq default, two tools), from `gallery.flow_editor`, in Otaq Light and Dark at the frames' 1376 × 808.
+ * Clicks are only recorded. */
+function FlowEditorGallerySection() {
+  const { view, error } = useServiceView(loadFlowEditor, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  const actions = useMemo(() => recordingActions(setPicked), []);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  return (
+    <Section title="27 · The flow editor (T-0471)">
+      <Caption>Last call: {picked ?? "—"}</Caption>
+      {THEMES.map((theme) => (
+        <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+          <Caption>{theme.toUpperCase()}</Caption>
+          {view.cells.map(([name, cell]) => (
+            <div key={name} className="gallery-stack-tight">
+              <Caption>{name.toUpperCase()}</Caption>
+              <div className="fe-dialog" style={{ width: 1376, height: 808, flex: "none" }}>
+                <FlowEditorBody view={cell} actions={actions} />
               </div>
             </div>
           ))}
@@ -2722,6 +2755,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <OnboardingFlowGallerySection />
         <OnboardingFlowDialogGallerySection />
         <FlowAtWorkGallerySection />
+        <FlowEditorGallerySection />
         <BoardReviewSection />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">
           <ThemeSection />

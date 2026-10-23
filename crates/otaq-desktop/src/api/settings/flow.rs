@@ -205,7 +205,7 @@ async fn propose(app: &App, project: &str, source: ProposeFrom) -> Result<(), Re
 }
 
 /// Import flow…: the picked file's name and text (FLW-09). The preview marks what it lacks (FLW-04).
-async fn import(path: &str) -> Result<ProposeFrom, RequestError> {
+pub(in crate::api) async fn import(path: &str) -> Result<ProposeFrom, RequestError> {
     let path = PathBuf::from(path);
     let name = path
         .file_name()

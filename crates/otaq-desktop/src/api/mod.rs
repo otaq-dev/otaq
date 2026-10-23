@@ -45,6 +45,8 @@ pub use files::{
     TextParams as FilesCommentText, TreeParams as FilesTreeParams,
 };
 #[cfg(test)]
+pub use flow_editor::export_types as export_flow_editor_types;
+#[cfg(test)]
 pub use flow_preview::export_types as export_flow_preview_types;
 #[cfg(test)]
 pub use keymap::Keymap;
@@ -211,6 +213,7 @@ areas! {
     palette,
     pause,
     flow_preview,
+    flow_editor,
     apply_now,
     ticket_comments,
     report,

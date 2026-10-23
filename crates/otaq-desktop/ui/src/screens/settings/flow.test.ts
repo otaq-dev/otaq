@@ -16,14 +16,7 @@ import type { PresetDialog as PresetDialogView } from "../../generated/PresetDia
 import { request } from "../../tauri";
 import { type PaneFocusRequest, paneFocusRequests, shownAgents } from "../pane/logic";
 import { FlowSectionBody, PresetDialog } from "./Flow";
-import {
-  changeWithProjectAgent,
-  exportFlow,
-  type FlowRoutes,
-  importFlow,
-  menuChoice,
-  proposeFrom,
-} from "./flowActions";
+import { changeFlow, exportFlow, type FlowRoutes, importFlow, menuChoice, proposeFrom } from "./flowActions";
 
 vi.mock("../../tauri", () => ({
   request: vi.fn(),
@@ -95,9 +88,12 @@ const ask = vi.mocked(request);
 let box: HTMLElement;
 let root: Root;
 
-function routes(over: Partial<FlowRoutes> = {}): FlowRoutes & { closed: () => number; previews: string[] } {
+function routes(
+  over: Partial<FlowRoutes> = {},
+): FlowRoutes & { closed: () => number; previews: string[]; editors: string[] } {
   let closed = 0;
   const previews: string[] = [];
+  const editors: string[] = [];
   return {
     ask,
     closeSettings: () => {
@@ -106,7 +102,11 @@ function routes(over: Partial<FlowRoutes> = {}): FlowRoutes & { closed: () => nu
     openPreview: (project) => {
       previews.push(project);
     },
+    openEditor: (project) => {
+      editors.push(project);
+    },
     previews,
+    editors,
     pickFile: vi.fn(() => Promise.resolve(null)),
     saveFile: vi.fn(() => Promise.resolve(null)),
     pane: {
@@ -283,14 +283,12 @@ describe("the Flow actions", () => {
     expect(await exportFlow(SECTION, routes())).toBe(false);
   });
 
-  it("Change with the Project agent starts one with /flow in that project, the pane shown", async () => {
-    ask.mockResolvedValueOnce("pa7");
+  it("Change with the Project agent opens the flow editor on the project and starts nothing", () => {
     const r = routes();
-    expect(await changeWithProjectAgent(SECTION, r)).toBe("pa7");
+    changeFlow(SECTION, r);
     expect(r.closed()).toBe(1);
-    expect(ask).toHaveBeenCalledWith("pane.send", { project: "SHOP", message: "/flow" });
+    expect(r.editors).toEqual(["SHOP"]);
     expect(r.pane.selection.get().project).toBe("SHOP");
-    expect(r.pane.layout.get().agentOpen).toBe(true);
-    expect(r.pane.shown.get()).toEqual({ SHOP: "pa7" });
+    expect(ask).not.toHaveBeenCalled();
   });
 });

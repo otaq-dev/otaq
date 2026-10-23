@@ -6,6 +6,7 @@ import type { ComponentType } from "react";
 
 import type { ConfirmRow } from "../../generated/ConfirmRow";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
+import type { FlowEditorFrom } from "../../generated/FlowEditorFrom";
 import type { IconName } from "../../generated/IconName";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
 import type { ReportOpenParams } from "../../generated/ReportOpenParams";
@@ -114,6 +115,9 @@ export interface OverlayParams {
   flow_preview: { project: string; focus?: boolean };
   /** Apply now on a project's waiting flow change (T-0439, APN-02), from the flow change banner. */
   apply_now: { project: string };
+  /** The flow editor over the window (T-0471, FED-01): onboarding's Flow step or the project's; a stage to select
+   * (Edit <stage>…) or to add a new one after (Add a stage after <stage>). T-0473 opens it from every entry. */
+  flow_editor: { project: string; from: FlowEditorFrom; select_stage?: string; add_after?: string };
   /** A comment's report, or a paste not posted yet, read-only over the panel (CMT-12, T-0447). */
   report: ReportOpenParams;
 }
@@ -161,6 +165,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   // The pane beside it stays usable: typing and shortcuts go on (FLW-04).
   flow_preview: false,
   apply_now: true,
+  flow_editor: true,
   report: true,
 };
 
