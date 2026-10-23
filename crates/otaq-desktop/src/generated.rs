@@ -52,6 +52,10 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // Also writes `TerminalRenderer`.
     crate::api::TerminalSettings::export_all(&cfg)?;
     crate::api::TerminalLink::export_all(&cfg)?;
+    // File paths in terminals (d0117 point 8); also writes `FileLink`.
+    crate::api::FileLinksFind::export_all(&cfg)?;
+    crate::api::FileLinkCheck::export_all(&cfg)?;
+    otaq_view::file_paths::FileLink::export_all(&cfg)?;
     crate::api::ThemePick::export_all(&cfg)?;
     // The "Help improve Otaq" dialog (d0085); also writes `UsageDataDialog`.
     crate::api::UsageDataAsk::export_all(&cfg)?;

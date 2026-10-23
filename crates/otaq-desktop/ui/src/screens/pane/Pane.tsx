@@ -443,6 +443,7 @@ function RunningAgent({
               session={agent.session}
               label={`${name} · ${agent.line.agent}`}
               readOnly={agent.ended}
+              files={{ kind: "project", project }}
               ref={terminal}
             />
           )}

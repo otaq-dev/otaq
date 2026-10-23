@@ -8,6 +8,7 @@ import type { FilesViewFilter } from "../../generated/FilesViewFilter";
 import type { MenuItem } from "../../generated/MenuItem";
 import type { FilesViewPicker } from "../../generated/FilesViewPicker";
 import type { FilesViewPickerSection } from "../../generated/FilesViewPickerSection";
+import { closeTicket, selection } from "../../app/selection";
 import { folders, searchFocus } from "../files/logic";
 
 /** While an agent works, the view asks again this often: commits have no event (FIL-10). */
@@ -27,6 +28,9 @@ export interface ViewState {
   diffOf: string | null;
   /** A ticket or epic picked in the picker (its key); `null`: the base branch with every ticket's changes. */
   picked: string | null;
+  /** The line of the picked file to scroll to and mark (a terminal's path link): a new object each time it is asked
+   * for, so asking for the same line again scrolls again. */
+  line: { line: number } | null;
 }
 
 export const FIRST: ViewState = {
@@ -36,11 +40,12 @@ export const FIRST: ViewState = {
   mode: null,
   diffOf: null,
   picked: null,
+  line: null,
 };
 
 /** A file picked where it shows (the tree, All changes' Open file): as it opens, on its first ticket. */
 export function withFile(state: ViewState, path: string | null): ViewState {
-  return state.file === path ? state : { ...state, file: path, mode: null, diffOf: null };
+  return state.file === path ? state : { ...state, file: path, mode: null, diffOf: null, line: null };
 }
 
 /** A filter chosen: Changed with no file shows All changes (FIL-08), so choosing it drops the picked file. */
@@ -94,6 +99,30 @@ export function pickFile(state: ViewState, path: string): ViewState {
   const open = new Set(state.open);
   for (const folder of folders(path)) open.add(folder);
   return { ...withFile(state, path), filter: "all", open };
+}
+
+/** A project whose Files view was asked for from outside it (a terminal's path link), counted so asking twice
+ * shows it twice; the board shows the view. */
+export const filesViewWanted: Store<{ project: string; n: number } | null> = createStore<{
+  project: string;
+  n: number;
+} | null>(null);
+
+/**
+ * Opens `path` in `project`'s Files view (d0117 point 8): the base with the file picked, as File at `line` with the
+ * line marked when there is one; an open ticket's sheet closes so the view shows.
+ */
+export function openProjectFile(project: string, path: string, line: number | null): void {
+  viewStates.update((m) => {
+    const state = pickFile({ ...(m.get(project) ?? FIRST), picked: null }, path);
+    return new Map(m).set(project, {
+      ...state,
+      mode: line === null ? state.mode : "file",
+      line: line === null ? null : { line },
+    });
+  });
+  if (selection.get().ticket !== null) closeTicket();
+  filesViewWanted.update((w) => ({ project, n: (w?.n ?? 0) + 1 }));
 }
 
 /** The picker's sections with only the rows whose key or title holds `query` (any case); empty sections go. */

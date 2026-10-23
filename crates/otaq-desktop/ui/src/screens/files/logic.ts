@@ -88,6 +88,8 @@ export interface OpenFile {
   path: string;
   child: string | null;
   mode: FilesFileMode | null;
+  /** The line to scroll to and mark (a terminal's `src/a.ts:42`, d0117 point 8); none from the tree. */
+  line?: number | null;
 }
 
 /** The tab's own state for a ticket: the filter (null: where Rust opens it), the open file, the folders opened. */

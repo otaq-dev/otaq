@@ -6,6 +6,7 @@
 import {
   type Dispatch,
   type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useMemo,
@@ -117,18 +118,20 @@ function Code({ spans }: { spans: readonly CodeSpan[] }) {
 }
 
 /** A code line of a file as it is (File): its number and its highlighted text; `bars` before the number (the project
- * Files view's bar per ticket). */
+ * Files view's bar per ticket); `marked`: the line a terminal's path link opened at (d0117 point 8). */
 export function CodeLineRow({
   number,
   spans,
   bars,
+  marked = false,
 }: {
   number: number;
   spans: readonly CodeSpan[];
   bars?: ReactNode;
+  marked?: boolean;
 }) {
   return (
-    <div className="diff-line" data-kind="context">
+    <div className="diff-line" data-kind="context" data-line={number} data-marked={marked || undefined}>
       {bars}
       <span className="diff-gutter">
         <span className="diff-num">{number}</span>
@@ -137,6 +140,26 @@ export function CodeLineRow({
       <Code spans={spans} />
     </div>
   );
+}
+
+/**
+ * Scrolls the line `line` of the File shown in `container` to the middle, once per `ask` (a new value each time the
+ * line is asked for), as soon as the line is drawn.
+ */
+export function useScrollToLine(
+  container: RefObject<HTMLElement | null>,
+  line: number | null | undefined,
+  ask: unknown,
+  drawn: unknown,
+): void {
+  const done = useRef<unknown>(null);
+  useEffect(() => {
+    if (line == null || done.current === ask) return;
+    const row = container.current?.querySelector(`.diff-line[data-line="${String(line)}"]`);
+    if (!row) return;
+    done.current = ask;
+    row.scrollIntoView({ block: "center" });
+  }, [container, line, ask, drawn]);
 }
 
 /** The line numbers; with comments allowed, a button that opens a comment box on the line (+ on hover). */

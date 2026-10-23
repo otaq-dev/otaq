@@ -10,6 +10,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { type Ref, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 
+import type { FileLink } from "../generated/FileLink";
 import type { TerminalFeed } from "../generated/TerminalFeed";
 import type { TerminalPhase } from "../generated/TerminalPhase";
 import type { TerminalSettings } from "../generated/TerminalSettings";
@@ -23,6 +24,8 @@ import { terminalColors } from "../theme/theme";
 import { copyFromPrograms } from "./clipboard";
 import { countWidthsAsUnicode11, MINIMUM_CONTRAST_RATIO } from "./drawing";
 import { dropTargets } from "./drops";
+import { filePathLinks } from "./file_links";
+import { type FilesPlace, openPathIn } from "./files_place";
 import { binaryBytes, createSender, decodeBase64, encodeBase64, isReply, type Outgoing } from "./input";
 import {
   createLinkGate,
@@ -70,6 +73,8 @@ export interface TerminalProps {
   readOnly?: boolean;
   /** Hears every change of what a header or hint strip shows. */
   onState?: (state: TerminalState) => void;
+  /** Where file paths in its output open (d0117 point 8); without it they aren't links. */
+  files?: FilesPlace;
   ref?: Ref<TerminalHandle>;
 }
 
@@ -104,7 +109,7 @@ function searchOptions(element: Element) {
   };
 }
 
-export function Terminal({ session, label, readOnly = false, onState, ref }: TerminalProps) {
+export function Terminal({ session, label, readOnly = false, onState, files, ref }: TerminalProps) {
   const well = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -122,6 +127,11 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
   // "⌘-click to open" at a link while ⌘ is held, in the box's coordinates.
   const [linkHint, setLinkHint] = useState<(LinkHint & { above: boolean }) | null>(null);
   const webglFailed = useRef(false);
+  // Read at each click, so a host's new object doesn't attach the terminal again.
+  const filesPlace = useRef(files);
+  useEffect(() => {
+    filesPlace.current = files;
+  }, [files]);
   const update = useCallback((change: Partial<TerminalState>) => {
     setState((s) => {
       const next = { ...s, ...change };
@@ -215,7 +225,26 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
         console.error("the link couldn't open", e);
       });
     };
-    const hidden: HiddenLinkOptions = { mac: macKeys, openWeb };
+    // File paths and `file:` links (d0117 point 8): only an existing file inside the session's folder, checked by Rust,
+    // opens where the host says.
+    const openFileLink = (path: string) => {
+      (request("file_links.check", { session, path }) as Promise<string | null>).then(
+        (file) => {
+          const place = filesPlace.current;
+          if (file !== null && place) openPathIn(place, file, null);
+        },
+        (e: unknown) => {
+          console.warn("the file link couldn't be checked", e);
+        },
+      );
+    };
+    const hidden: HiddenLinkOptions = {
+      mac: macKeys,
+      openWeb,
+      get openFile() {
+        return filesPlace.current ? openFileLink : undefined;
+      },
+    };
     term.options.linkHandler = hiddenLinkHandler(hidden);
     const links = createLinkGate({
       mac: macKeys,
@@ -242,6 +271,23 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
         webLinks.dispose();
       },
     });
+    // File paths in the output (d0117 point 8), after the add-ons' providers.
+    const paths = links.register(
+      term,
+      filePathLinks({
+        buffer: () => term.buffer.active,
+        rows: () => term.rows,
+        cols: () => term.cols,
+        find: (lines) =>
+          filesPlace.current
+            ? (request("file_links.find", { session, lines }) as Promise<FileLink[][]>)
+            : Promise.resolve(lines.map(() => [])),
+        open: (path, line) => {
+          const place = filesPlace.current;
+          if (place) openPathIn(place, path, line);
+        },
+      }),
+    );
     // Programs copy to the clipboard (OSC 52), never from a replay; they can't read it.
     const copying = copyFromPrograms(
       term,
@@ -443,7 +489,7 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
       if (attach !== undefined) request("terminal.detach", { attach }).catch(() => undefined);
       themeWatch.disconnect();
       sizeWatch.disconnect();
-      for (const d of [typed, binary, resized, scrolled, lineFed, parsed, results, copying, links])
+      for (const d of [typed, binary, resized, scrolled, lineFed, parsed, results, copying, paths, links])
         d.dispose();
       term.textarea?.removeEventListener("focus", onFocus);
       term.textarea?.removeEventListener("blur", onBlur);

@@ -534,6 +534,11 @@
   background: var(--diff-del-bg);
 }
 
+/* The line a terminal's path link opened the file at (d0117 point 8): the tree's selected-row tint. */
+.diff-line[data-marked] {
+  background: var(--selection);
+}
+
 .diff-side-row {
   display: flex;
 }
