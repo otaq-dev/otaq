@@ -117,6 +117,12 @@ body {
   pointer-events: auto;
 }
 
+/* While a modal is open anywhere (a dialog, Settings, the flow editor), the bar goes under it: a dialog drawn inside
+   the ticket panel shares the panel's z-index, which the bar would otherwise cover. */
+.frame:has([aria-modal="true"]) .frame-ask {
+  z-index: 0;
+}
+
 /*
  * The panel over the main area's right side (SHL-05, *05 → Row · Ticket open over the board (0086 · V)*): a shadow
  * edge, the board keeps its width underneath. Above the board's chain arrows and legend (fixed, z-index 5 and 6),

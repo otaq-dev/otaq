@@ -14,7 +14,14 @@ export {
   type ShownState,
 } from "./Button";
 export { DecisionItem, DecisionsList, type DecisionItemProps, type DecisionsListProps } from "./DecisionItem";
-export { ConfirmDialog, Dialog, type ConfirmDialogProps, type DialogProps } from "./Dialog";
+export {
+  ConfirmDialog,
+  Dialog,
+  inOverlayHost,
+  OVERLAY_HOST_ID,
+  type ConfirmDialogProps,
+  type DialogProps,
+} from "./Dialog";
 export { Checkbox, Field, Radio, TextArea, TextInput, type FieldProps } from "./Field";
 export { type Anchor, useFloatingStyle, usePressOutside } from "./Floating";
 export { Kbd } from "./Kbd";

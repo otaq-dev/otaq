@@ -72,7 +72,7 @@ describe("Settings' dropdowns and a press outside", () => {
     expect(onChoose).not.toHaveBeenCalled();
   });
 
-  it("closes an agent's Model picker, whose list opens in place", () => {
+  it("closes an agent's Model picker, whose list floats under the field", () => {
     const { host, outside } = open(
       createElement(ModelPicker, {
         label: "Model",

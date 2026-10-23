@@ -1777,15 +1777,9 @@
   gap: 4px;
 }
 
-/* The model list opens under the field, in the dialog (`k8WyHN`). */
+/* The model list floats under the field (`k8WyHN`), over the dialog rather than inside it. */
 .settings-model-list {
-  display: flex;
-  flex-direction: column;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--bg-raised);
-  outline: none;
+  max-width: 360px;
 }
 
 .settings-model-list .menu-header {

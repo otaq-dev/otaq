@@ -1,9 +1,11 @@
 // Modal dialogs (*01 · Components → Overlays & feedback → Confirm dialog*): a dimmed backdrop over the whole window
-// that takes every press, and a raised box with a title, a body and a footer with the `esc cancel` hint. Focus moves
+// that takes every press (a press on it cancels), drawn in the overlay host wherever the dialog is opened from, so no
+// panel's stacking or a size container's frame can shrink it or let a press through to what is behind; and a raised box with a title, a body and a footer with the `esc cancel` hint. Focus moves
 // in when it opens (to the default button), Tab and ⇧Tab stay inside, Esc cancels, and focus goes back where it was
 // when it closes. ↵ presses the default button: confirm on an ordinary dialog, Cancel on a destructive one
 // (`dialog.rs`).
 import { type ReactNode, type RefObject, useCallback, useEffect, useId, useRef } from "react";
+import { createPortal } from "react-dom";
 
 import type { IconName } from "../generated/IconName";
 import { inKeyLayer } from "../markdown/keys";
@@ -89,6 +91,16 @@ export interface DialogProps {
 
 const DIALOG_BOX = { selector: ".dialog", preset: "dialog" } as const;
 
+/** The element the frame's overlay host draws into (`app/Frame.tsx`), above every panel; local menus and popovers may
+ * portal there too. Absent outside the frame (a test, the gallery). */
+export const OVERLAY_HOST_ID = "overlay-host";
+
+/** `modal` in the overlay host, or in place where there is none (or no page at all: a static render). */
+export function inOverlayHost(modal: ReactNode): ReactNode {
+  const host = typeof document === "undefined" ? null : document.getElementById(OVERLAY_HOST_ID);
+  return host === null ? modal : createPortal(modal, host);
+}
+
 /** The modal shell; `ConfirmDialog` is the common case. */
 export function Dialog({
   title,
@@ -120,7 +132,7 @@ export function Dialog({
   useEffect(() => {
     (initialFocus?.current ?? box.current?.querySelector<HTMLElement>(FOCUSABLE) ?? box.current)?.focus();
   }, [initialFocus]);
-  return (
+  return inOverlayHost(
     <div
       ref={backdrop}
       className="dialog-backdrop"
@@ -154,7 +166,7 @@ export function Dialog({
           {footer}
         </div>
       </div>
-    </div>
+    </div>,
   );
 }
 

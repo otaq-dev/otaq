@@ -15,7 +15,7 @@ import {
   useState,
 } from "react";
 
-import { useFloatingStyle, usePressOutside } from "../../components";
+import { useFloatingStyle } from "../../components";
 import { menuKey } from "../../components/logic";
 import type { AgentsModelChoice } from "../../generated/AgentsModelChoice";
 import type { AgentsModelDropdown } from "../../generated/AgentsModelDropdown";
@@ -265,8 +265,8 @@ function ListStatus({ status, onRetry }: { status: ModelPickerStatus; onRetry: (
 }
 
 /** The dialog's Model field: a button with the picked model and what it runs today ("no longer listed" in amber when
- * the tool's list dropped it), and the list under it. Nothing in it takes text. `onRetry` reads the tool's list again
- * (`settings.agent_models_retry`). */
+ * the tool's list dropped it), and the list floating under it, at least as wide as it. Nothing in it takes text.
+ * `onRetry` reads the tool's list again (`settings.agent_models_retry`). */
 export function ModelPicker({
   id,
   label,
@@ -280,22 +280,12 @@ export function ModelPicker({
   onPick: (model: string | null) => void;
   onRetry: (tool: string) => void;
 }) {
-  const box = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  // The list opens in place, under the field: a press outside both closes it.
-  usePressOutside(
-    box,
-    null,
-    open
-      ? () => {
-          setOpen(false);
-        }
-      : undefined,
-  );
+  const [width, setWidth] = useState<number>();
   const value = picker.value;
   return (
-    <div ref={box} className="settings-model-picker">
+    <div className="settings-model-picker">
       <button
         ref={button}
         id={id}
@@ -309,11 +299,13 @@ export function ModelPicker({
           if (open) e.preventDefault();
         }}
         onClick={() => {
+          setWidth(button.current?.offsetWidth);
           setOpen((o) => !o);
         }}
         onKeyDown={(e) => {
           if (!opensList(e.key)) return;
           e.preventDefault();
+          setWidth(button.current?.offsetWidth);
           setOpen(true);
         }}
       >
@@ -323,15 +315,17 @@ export function ModelPicker({
         {value.no_longer_listed !== null ? (
           <span className="settings-model-detail settings-model-gone">{value.no_longer_listed}</span>
         ) : (
-          !open && value.detail !== null && <span className="settings-model-detail">{value.detail}</span>
+          value.detail !== null && <span className="settings-model-detail">{value.detail}</span>
         )}
         <Icon name="chevron-down" size={12} />
       </button>
       {open && (
-        <ChoiceList
+        <FloatingList
+          anchor={button}
+          minWidth={width}
           label={label}
           choices={modelChoices(picker)}
-          className="settings-model-list"
+          className="menu settings-model-list"
           onChoose={(picked) => {
             onPick(picked === TOOL_DEFAULT_ID ? null : picked);
           }}
@@ -341,32 +335,41 @@ export function ModelPicker({
           }}
         >
           {picker.status && <ListStatus status={picker.status} onRetry={onRetry} />}
-        </ChoiceList>
+        </FloatingList>
       )}
     </div>
   );
 }
 
-/** The open dropdown, under its field and as wide as it. */
+/** The open dropdown, fixed under its field (so no dialog or scrolling page clips or pushes it) and as wide as it,
+ * or at least `minWidth` wide. */
 function FloatingList({
   anchor,
   width,
+  minWidth,
+  className = "menu",
+  children,
   ...list
 }: {
   anchor: RefObject<HTMLElement | null>;
-  width: number | undefined;
+  width?: number;
+  minWidth?: number;
+  className?: string;
   label: string;
   choices: readonly Choice[];
   onChoose: (id: string) => void;
   onClose: (how: ListClose) => void;
+  children?: ReactNode;
 }) {
   const floating = useRef<HTMLDivElement>(null);
   const style = useFloatingStyle(anchor, floating, "start", () => {
     list.onClose("outside");
   });
   return (
-    <div ref={floating} className="floating" style={{ ...style, width }}>
-      <ChoiceList {...list} className="menu" />
+    <div ref={floating} className="floating" style={{ ...style, width, minWidth }}>
+      <ChoiceList {...list} className={className}>
+        {children}
+      </ChoiceList>
     </div>
   );
 }

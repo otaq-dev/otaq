@@ -10,34 +10,38 @@
   display: flex;
   flex: 1;
   min-height: 0;
-  container-type: inline-size;
 }
 
 .files-view-picked > .files {
   flex: 1;
 }
 
-@container (max-width: 1216px) {
-  .files-view > .files-side,
-  .files-view-picked .files-side {
-    width: 270px;
-  }
-
-  .files-view .files-view-by,
-  .files-view .files-view-wide {
-    display: none;
-  }
-
-  .files-view .files-view-narrow {
-    display: contents;
-  }
-
-  .files-view .files-view-chips {
-    display: flex;
-  }
+/* The view's wrapper, there only to carry `data-narrow`. */
+.files-view-root {
+  display: contents;
 }
 
-/* Wide by default: the narrow parts show only under the container query above. */
+/* Narrow: the main area 1216 px or less (`data-narrow` from `mainWidth`). Not a size container, which would make the
+   view the frame of its menus' and popovers' fixed boxes. */
+.files-view-root[data-narrow] .files-view > .files-side,
+.files-view-root[data-narrow] .files-view-picked .files-side {
+  width: 270px;
+}
+
+.files-view-root[data-narrow] .files-view .files-view-by,
+.files-view-root[data-narrow] .files-view .files-view-wide {
+  display: none;
+}
+
+.files-view-root[data-narrow] .files-view .files-view-narrow {
+  display: contents;
+}
+
+.files-view-root[data-narrow] .files-view .files-view-chips {
+  display: flex;
+}
+
+/* Wide by default: the narrow parts show only under `data-narrow` above. */
 .files-view-narrow,
 .files-view-chips {
   display: none;

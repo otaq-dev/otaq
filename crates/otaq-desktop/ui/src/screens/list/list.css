@@ -1,7 +1,7 @@
 /* The List view (LST-01; *24 · The two views* `s24-03`): one grid for the header and the rows, so the columns line up;
-   What's happening takes what is left (`s24-05`: the agent panel open narrows only it). */
+   the title and What's happening share what is left (the agent panel open narrows them, down to 230 and 120 px). */
 .list {
-  --list-columns: 14px 64px 230px 200px minmax(120px, 1fr) 160px 36px 76px;
+  --list-columns: 14px 64px minmax(230px, 1fr) 200px minmax(120px, 1fr) 160px 36px 76px;
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -141,8 +141,16 @@
   min-width: 0;
 }
 
+/* The title's tooltip anchor shrinks with the column, so a long title ends in an ellipsis inside it. */
+.list-row-title > .tooltip-anchor,
+.list-row-title-line > .tooltip-anchor {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .list-row-title-text {
   display: block;
+  min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
   font: 500 13.5px var(--font-ui);

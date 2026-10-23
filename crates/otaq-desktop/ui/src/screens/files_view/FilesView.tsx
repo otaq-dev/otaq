@@ -10,6 +10,7 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
+import { mainWidth } from "../../app/layout";
 import { useShortcut } from "../../app/registry";
 import { openTicket, selection } from "../../app/selection";
 import { useStore } from "../../app/store";
@@ -677,6 +678,9 @@ function PickedSource({ project, picked }: { project: string; picked: string }) 
   );
 }
 
+/** The main area's width at and under which the view narrows (`s28-08`). */
+const NARROW_MAIN = 1216;
+
 /** The view for the shown project (`Board.tsx` draws it in place of the columns on Files). */
 export function FilesView({ project }: { project: string }) {
   const [state] = useViewState(project);
@@ -686,9 +690,14 @@ export function FilesView({ project }: { project: string }) {
     "go_to_file",
     useCallback(() => goToFile(project, selection.get().ticket !== null), [project]),
   );
-  return state.picked === null ? (
-    <ProjectSource key={project} project={project} />
-  ) : (
-    <PickedSource key={`${project}:${state.picked}`} project={project} picked={state.picked} />
+  const main = useStore(mainWidth);
+  return (
+    <div className="files-view-root" data-narrow={(main > 0 && main <= NARROW_MAIN) || undefined}>
+      {state.picked === null ? (
+        <ProjectSource key={project} project={project} />
+      ) : (
+        <PickedSource key={`${project}:${state.picked}`} project={project} picked={state.picked} />
+      )}
+    </div>
   );
 }

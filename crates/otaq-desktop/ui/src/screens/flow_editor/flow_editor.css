@@ -426,6 +426,17 @@
   position: relative;
 }
 
+/* A stage with a caption sits in its tooltip's anchor: stretch both, so every stage is the list's full width. */
+.fe-step-wrap > .tooltip-anchor {
+  display: flex;
+}
+
+.fe-step-wrap > .tooltip-anchor > .fe-step,
+.fe-step-wrap > .fe-step {
+  flex: 1;
+  min-width: 0;
+}
+
 .fe-step {
   display: flex;
   align-items: center;
