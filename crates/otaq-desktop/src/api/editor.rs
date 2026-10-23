@@ -2,8 +2,9 @@
 //! SES-08; d0019, d0051, d0059, d0065, d0067, d0048; *08 · Ticket editor*). One view per ticket (or new ticket):
 //! the form's labels, hints and first values, which fields it shows (`editor_fields.rs`), and for an existing
 //! ticket its read mode with the agent-edit markers (`agent_edits.rs`). The page keeps what is typed and sends the
-//! whole form back on save; the rules (title required, only what changed, priority only once picked, deps linked
-//! after create) are `editor.rs`'s, and the service's refusals come back worded for the field they belong to.
+//! whole form back on save; the rules (title required, only what changed, priority only once picked) are
+//! `editor.rs`'s, and the service's refusals come back worded for the field they belong to. Dependencies are the
+//! sheet's (DPV-04, `dependencies.rs`), not the form's.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -18,7 +19,7 @@ use otaq_core::agents::facts::TicketAgents;
 use otaq_core::board::stage_choices::{ChoicePick, TicketChoices};
 use otaq_core::board::tickets::TicketUpdate;
 use otaq_core::protocol::{
-    DepParams, KeyParams, ModelsParams, ProjectParams, Reply, Request, SessionListParams,
+    KeyParams, ModelsParams, ProjectParams, Reply, Request, SessionListParams,
     TicketAgentsParams, TicketChoicesParams, TicketUpdateParams,
 };
 use otaq_core::session::{SessionInfo, SessionKind};
@@ -31,11 +32,10 @@ use otaq_view::view_models::editor::{
     EditorModel, NewReport, REPORT_LINE_REQUIRED, ReportField, TITLE_REQUIRED, report_field,
 };
 use otaq_view::view_models::editor_fields::{
-    BaseField, base_choices, picker_rows, refusal_icon, refusal_title, visibility,
+    BaseField, base_choices, refusal_icon, refusal_title, visibility,
 };
 use otaq_view::view_models::menu::{MenuItem, MenuSearch};
 use otaq_view::view_models::priority::{self, FORM_HINT, PriorityView};
-use otaq_view::view_models::status::PillView;
 use otaq_view::view_models::validation_panel;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -48,8 +48,6 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
     match method {
         "editor.open" => reply(&open(app, parse(params)?).await?),
         "editor.save" => reply(&save(app, parse(params)?).await?),
-        "editor.picker" => reply(&picker(app, parse(params)?).await?),
-        "editor.link" => reply(&link(app, parse(params)?).await?),
         "editor.branches" => reply(&branches(app, parse(params)?).await?),
         "editor.compare" => reply(&compare_view(app, parse(params)?).await?),
         "editor.source_mode" => {
@@ -115,8 +113,6 @@ pub struct Form {
     pub epic_kind: bool,
     /// Create only: the epic the new ticket goes into.
     pub epic: Option<String>,
-    /// Create only: linked right after the ticket is created (an existing ticket links on each pick).
-    pub deps: Vec<String>,
     pub base_branch: Option<String>,
     pub external_id: String,
     /// The stage choices picked in the form (AGM-09): sent with the new ticket, or with the save.
@@ -151,14 +147,6 @@ pub struct FormChoice {
 // ---------------------------------------------------------------------------------------------------------------
 // What the page gets
 
-/// A dependency chip: the key with its live status.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "EditorDepChip")]
-pub struct DepChip {
-    pub key: String,
-    pub pill: PillView,
-}
-
 /// The "Start from and merge into" field: a dropdown, fixed after start, or the epic's branch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -189,10 +177,6 @@ pub struct Texts {
     pub plan: &'static str,
     pub body_hint: &'static str,
     pub body_placeholder: &'static str,
-    pub deps: &'static str,
-    pub deps_hint: &'static str,
-    pub deps_placeholder: &'static str,
-    pub deps_none: &'static str,
     pub base: &'static str,
     pub base_hint: &'static str,
     /// The base dropdown's search field.
@@ -251,7 +235,6 @@ pub struct ReadView {
     pub priority_menu: Vec<MenuItem>,
     /// "follows SHOP-40" for an epic child without its own priority.
     pub follows: Option<String>,
-    pub deps: Vec<DepChip>,
     /// "main", or "the epic’s branch (SHOP-40)".
     pub base: String,
     pub external_id: Option<String>,
@@ -322,10 +305,6 @@ pub struct View {
     pub base: BaseView,
     /// Standalone tickets and epics; not epic children.
     pub external_id_shown: bool,
-    /// Epics have no Depends on of their own in the form (*Full form · filled*).
-    pub deps_shown: bool,
-    /// The chips of an existing ticket's links.
-    pub deps: Vec<DepChip>,
     /// "SHOP-19’s agent will be told what changed." while its agent runs (SES-08).
     pub save_hint: Option<String>,
     /// While it validates (VAL-08): "SHOP-29’s validation will be cancelled and its agent told what changed."
@@ -359,10 +338,6 @@ fn texts(create: bool) -> Texts {
         plan: "Description \u{b7} the plan",
         body_hint: "Markdown \u{b7} paste keeps formatting",
         body_placeholder: "Context, constraints, links\u{2026}",
-        deps: "Depends on",
-        deps_hint: "same project only",
-        deps_placeholder: "Search tickets by # or title",
-        deps_none: "None",
         base: "Start from and merge into",
         base_hint: "project default \u{b7} local and remote branches \u{b7} locked once the ticket starts",
         base_search: MenuSearch::branches(),
@@ -408,20 +383,6 @@ fn priorities() -> Vec<PriorityOption> {
         .collect()
 }
 
-fn chips(keys: &[TicketKey], tickets: &[Ticket]) -> Vec<DepChip> {
-    keys.iter()
-        .map(|k| DepChip {
-            key: k.to_string(),
-            pill: PillView::of(
-                tickets
-                    .iter()
-                    .find(|t| &t.key == k)
-                    .map_or(otaq_core::domain::Status::Backlog, |t| t.status),
-            ),
-        })
-        .collect()
-}
-
 fn base_view(field: BaseField) -> BaseView {
     match field {
         BaseField::Editable => BaseView::Editable,
@@ -439,7 +400,6 @@ fn form_of(model: &EditorModel) -> Form {
         priority: model.priority.map(Priority::number),
         epic_kind: model.kind == Kind::Epic,
         epic: model.epic.as_ref().map(ToString::to_string),
-        deps: model.deps.iter().map(ToString::to_string).collect(),
         base_branch: model.base_branch.clone(),
         external_id: model.external_id.clone(),
         choices: Vec::new(),
@@ -483,8 +443,6 @@ pub fn create_view(project: &ProjectInfo, epic: Option<TicketKey>, tickets: &[Ti
             .collect(),
         base: base_view(fields.base),
         external_id_shown: fields.external_id,
-        deps_shown: true,
-        deps: Vec::new(),
         save_hint: None,
         save_warning: None,
         unsaved_warning: None,
@@ -508,7 +466,6 @@ pub fn edit_view(
     let shown = model.shown_priority(epic_priority(model.epic.as_ref(), tickets));
     let fields = visibility(model.kind, model.epic.as_ref(), model.base_locked);
     let follows = model.follows_epic().map(|e| format!("follows {e}"));
-    let deps = chips(&model.deps, tickets);
     let marked = [
         Field::Title,
         Field::Body,
@@ -534,8 +491,6 @@ pub fn edit_view(
         epic_menu: Vec::new(),
         base: base_view(fields.base),
         external_id_shown: fields.external_id,
-        deps_shown: ticket.kind == Kind::Ticket,
-        deps: deps.clone(),
         save_hint: agent_activity::save_hint(ticket, live_agent),
         save_warning: validation_panel::editor_warning(ticket),
         unsaved_warning: validation_panel::editor_warning(ticket)
@@ -549,7 +504,6 @@ pub fn edit_view(
             priority: priority::view(shown),
             priority_menu: priority::menu_items(shown),
             follows,
-            deps,
             base: match &ticket.base {
                 Base::Epic(epic) => format!("the epic\u{2019}s branch ({epic})"),
                 Base::Branch(b) => b.clone(),
@@ -740,7 +694,6 @@ pub struct SaveParams {
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "EditorRefusalField")]
 pub enum RefusalField {
-    Deps,
     Base,
     Form,
 }
@@ -807,7 +760,6 @@ pub fn model_of(base: EditorModel, form: &Form) -> EditorModel {
             Kind::Ticket
         };
         model.epic = form.epic.as_deref().and_then(|e| e.parse().ok());
-        model.deps = form.deps.iter().filter_map(|d| d.parse().ok()).collect();
         model.report = form.report.clone().map(|r| match r {
             FormReport::File { path } => NewReport::File(path),
             FormReport::Pasted { text } => NewReport::Pasted(text),
@@ -869,21 +821,6 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
                 if let Err(e) = set_choices(app, &key, picks).await {
                     return Ok(SaveOutcome::Refused {
                         refusal: Refusal::of(&e, RefusalField::Form),
-                        created: Some(key),
-                    });
-                }
-            }
-            for parent in &model.deps {
-                if let Err(e) = app
-                    .service
-                    .send(Request::DepAdd(DepParams {
-                        child: key.clone(),
-                        parent: parent.to_string(),
-                    }))
-                    .await
-                {
-                    return Ok(SaveOutcome::Refused {
-                        refusal: Refusal::of(&e, RefusalField::Deps),
                         created: Some(key),
                     });
                 }
@@ -1099,95 +1036,6 @@ async fn project_base(app: &App, project: &str) -> Result<String, RequestError> 
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// editor.picker and editor.link (DEP-01, DEP-02, DEP-04)
-
-/// What `editor.picker` takes: the project, the ticket being edited (greyed out), the links already made and
-/// what is typed.
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "EditorPickerParams")]
-pub struct PickerParams {
-    pub project: String,
-    pub editing: Option<String>,
-    pub chosen: Vec<String>,
-    pub query: String,
-}
-
-/// One row of the Depends-on picker (*08 → Depends on · picker open*).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "EditorPickerRow")]
-pub struct PickerRowView {
-    pub key: String,
-    pub title: String,
-    pub pill: PillView,
-    /// "this ticket will wait for it", "already merged — nothing to wait for"…
-    pub note: String,
-    pub enabled: bool,
-    /// "Epic · 1 / 3".
-    pub epic_progress: Option<String>,
-}
-
-pub async fn picker(app: &App, params: PickerParams) -> Result<Vec<PickerRowView>, RequestError> {
-    let all = tickets(app, &params.project).await?;
-    let editing = params.editing.as_deref().map(key_of).transpose()?;
-    let chosen: Vec<TicketKey> = params
-        .chosen
-        .iter()
-        .filter_map(|k| k.parse().ok())
-        .collect();
-    Ok(picker_rows(editing.as_ref(), &chosen, &params.query, &all)
-        .into_iter()
-        .map(|r| PickerRowView {
-            key: r.key.to_string(),
-            title: r.title,
-            pill: PillView::of(r.status),
-            note: r.note,
-            enabled: r.enabled,
-            epic_progress: r.epic_progress,
-        })
-        .collect())
-}
-
-/// What `editor.link` takes: an existing ticket's link to add or remove (the service checks loops and bases).
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "EditorLinkParams")]
-pub struct LinkParams {
-    pub key: String,
-    pub parent: String,
-    pub add: bool,
-}
-
-/// The ticket's links after the change, or the refusal under Depends on.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[serde(tag = "outcome", rename_all = "snake_case")]
-#[ts(rename = "EditorLinked")]
-pub enum Linked {
-    Linked { deps: Vec<DepChip> },
-    Refused { refusal: Refusal },
-}
-
-pub async fn link(app: &App, params: LinkParams) -> Result<Linked, RequestError> {
-    let dep = DepParams {
-        child: params.key.clone(),
-        parent: params.parent,
-    };
-    let request = if params.add {
-        Request::DepAdd(dep)
-    } else {
-        Request::DepRemove(dep)
-    };
-    if let Err(e) = app.service.send(request).await {
-        return Ok(Linked::Refused {
-            refusal: Refusal::of(&e, RefusalField::Deps),
-        });
-    }
-    let ticket = found(app, &params.key).await?;
-    let all = tickets(app, &ticket.key.project.to_string()).await?;
-    Ok(Linked::Linked {
-        deps: chips(&ticket.depends_on, &all),
-    })
-}
-
-// ---------------------------------------------------------------------------------------------------------------
 // editor.branches (DEP-04, d0051)
 
 /// The base dropdown (*08 → Row · base branch per ticket*): LOCAL branches, the project default marked, then
@@ -1313,7 +1161,6 @@ mod tests {
             priority: None,
             epic_kind: false,
             epic: None,
-            deps: Vec::new(),
             base_branch: None,
             external_id: String::new(),
             choices: Vec::new(),
@@ -1448,11 +1295,9 @@ mod tests {
     fn the_form_becomes_the_model_and_refusals_find_their_field() {
         let mut f = form("  ");
         f.priority = Some(2);
-        f.deps = vec!["SHOP-18".into()];
         let model = model_of(EditorModel::create("SHOP", "", "main"), &f);
         assert_eq!(model.title_error(), Some(TITLE_REQUIRED));
         assert_eq!(model.priority, Some(Priority::High));
-        assert_eq!(model.deps.len(), 1);
 
         let cross = RequestError {
             message: "SHOP-31 starts from release/2.3".into(),
@@ -1460,9 +1305,8 @@ mod tests {
             not_found: false,
         };
         assert_eq!(Refusal::of(&cross, RefusalField::Form).field, RefusalField::Base);
-        assert_eq!(Refusal::of(&cross, RefusalField::Deps).field, RefusalField::Deps);
         assert_eq!(
-            Refusal::of(&cross, RefusalField::Deps).title,
+            Refusal::of(&cross, RefusalField::Form).title,
             "Different base branches"
         );
         let local = branches_of(
@@ -1524,12 +1368,10 @@ mod tests {
         assert_eq!(saved["outcome"], "saved");
         let parent = saved["key"].as_str().unwrap().to_owned();
 
-        let mut child_form = form("Checkout page");
-        child_form.deps = vec![parent.clone()];
         let saved = table(
             &h.app,
             "editor.save",
-            json!({ "target": create, "form": child_form }),
+            json!({ "target": create, "form": form("Checkout page") }),
         )
         .await
         .unwrap();
@@ -1537,29 +1379,8 @@ mod tests {
 
         let edit = json!({ "mode": "edit", "key": child });
         let view = table(&h.app, "editor.open", edit.clone()).await.unwrap();
-        assert_eq!(view["deps"][0]["key"], parent.as_str());
+        assert_eq!(view["deps"], Value::Null, "dependencies are the sheet's (DPV-04)");
         assert_eq!(view["read"]["origin"], "Created by you");
-
-        // A loop is refused with the frame's title, under Depends on.
-        let refused = table(
-            &h.app,
-            "editor.link",
-            json!({ "key": parent, "parent": child, "add": true }),
-        )
-        .await
-        .unwrap();
-        assert_eq!(refused["outcome"], "refused");
-        assert_eq!(refused["refusal"]["title"], "That would create a loop");
-
-        let rows = table(
-            &h.app,
-            "editor.picker",
-            json!({ "project": project, "editing": child, "chosen": [parent], "query": "" }),
-        )
-        .await
-        .unwrap();
-        assert_eq!(rows[0]["key"], child.as_str());
-        assert_eq!(rows[0]["enabled"], false);
 
         let mut changed = view["form"].clone();
         changed["title"] = json!("Checkout page v2");

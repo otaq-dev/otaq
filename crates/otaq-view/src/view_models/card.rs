@@ -9,8 +9,8 @@
 //! - **Title**, two lines.
 //! - **Situation line:** one line with a 2 px edge in the state's colour, mono only for a command. The flag that
 //!   wins the head says its words here first; every flag that loses the head joins it with " · " in the flag order
-//!   ("Allow rm -rf .next? · also running :4022 · after SHOP-17, SHOP-18"), then the quiet facts that never take
-//!   the head (waits, background work, messages waiting, the lead's markers, the review entry, the diff).
+//!   ("Allow rm -rf .next? · also running :4022"), then the quiet facts that never take the head (waits, background
+//!   work, messages waiting, the lead's markers, the review entry, the diff).
 //! - **Origin line** of a card an agent created ("Created by Checkout slowness", violet, d0068).
 //! - **Footer, only when it has something to say:** while an agent runs, the tokens its tool reports and the last
 //!   signal ("182k · 40s"; "not reported" when Otaq can't read the usage file, d0086); and the card's one action.
@@ -132,6 +132,11 @@ pub struct CardExtras {
     /// Its project is paused (PAU-03, d0112): a ticket the pause stopped reads "Paused" in amber with what it was
     /// doing, its timer held; one that needs the user keeps its question.
     pub paused: bool,
+    /// It hasn't started and waits for a parent (DPV-01): "Blocked · waits for SHOP-18 and SHOP-29 to merge" is its
+    /// one line ([`crate::view_models::dependencies::blocked_line`]).
+    pub blocked: Option<String>,
+    /// Others wait for it (DPV-01): "Blocks SHOP-20", "blocks 1".
+    pub blocks: Option<crate::view_models::dependencies::Blocks>,
 }
 
 /// What the card knows about its agents (`board.agents`, AGT-04): the footer's agent part ([`footer_agent`]).
@@ -572,6 +577,8 @@ pub struct StatusLine {
     pub dot: Palette,
     /// The words' colour: secondary, or the edge's while the card needs the user.
     pub tone: Tone,
+    /// An icon in place of the dot: the link of a blocked ticket (DPV-01).
+    pub icon: Option<IconName>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -621,6 +628,10 @@ pub struct OneLine {
     /// The card's one action: the needs-you card's (Answer, Reply, Review, **Decide** for a check out of rounds,
     /// Resume…) or another primary one (Open PR, Local merge).
     pub action: Option<CardAction>,
+    /// DPV-01's blocked line, which takes the line's place ([`CardExtras::blocked`]).
+    pub blocked: Option<String>,
+    /// What waits for it (DPV-01).
+    pub blocks: Option<crate::view_models::dependencies::Blocks>,
 }
 
 /// "setup command failed" → "Setup command failed".
@@ -1582,6 +1593,8 @@ impl CardViewModel {
             fresh: crate::view_models::agent_activity::fresh_from_project_agent(ticket, now_ms),
             one_line: Box::new(OneLine {
                 who: who(ticket, status, x),
+                blocked: x.blocked.clone(),
+                blocks: x.blocks.clone(),
                 ..OneLine::default()
             }),
         }
@@ -1592,6 +1605,17 @@ impl CardViewModel {
     fn with_one_line(mut self, ticket: &Ticket, kept: bool, paused: bool) -> Self {
         let status = status::shown(ticket);
         let one = &mut self.one_line;
+        if let Some(text) = one.blocked.clone() {
+            // A ticket that hasn't started and waits for its parents (DPV-01): amber, the link in place of the dot,
+            // nothing to do but wait (Start is refused, DPV-03).
+            one.line = Some(StatusLine {
+                text,
+                dot: Palette::Paused,
+                tone: Tone::Paused,
+                icon: Some(crate::view_models::dependencies::ICON),
+            });
+            return self;
+        }
         if paused {
             // What the pause stopped (PAU-03, `s24-07`): amber words, no edge and no action (Resume is the title
             // bar's, or the sheet's for this one ticket), and the time it had when it stopped.
@@ -1732,8 +1756,8 @@ pub const STARTS_NEXT: &str = "starts next";
 /// The one status line (BRD-03): the head flag's words, then the situation's ("Needs you: allow rm -rf .next?" after
 /// a needs-you or stopped flag, "Checking · round 1 of 3" otherwise); the situation alone when it already says what the flag
 /// says ("Security failed 3 times · …" under "Failed ×3"); a waiting card leads with its priority ("P1 · starts
-/// next"). The words keep their case, as drawn ("waits for SHOP-18", "after SHOP-40.2"). Nothing to say: no line (a
-/// calm Backlog card).
+/// next"). The words keep their case, as drawn ("Checking · round 1 of 3"); a blocked ticket's line is DPV-01's.
+/// Nothing to say: no line (a calm Backlog card).
 pub fn status_line(
     ticket: &Ticket,
     status: Status,
@@ -1780,6 +1804,7 @@ pub fn status_line(
         text,
         dot,
         tone: edge.unwrap_or(Tone::Secondary),
+        icon: None,
     })
 }
 
@@ -1807,7 +1832,7 @@ fn says(words: &str, lead: &str) -> bool {
 
 /// The agent's own words after "Needs you:": "Allow rm -rf .next?" reads "allow rm -rf .next?"; a word in
 /// capitals ("SHOP-18", "API") stays.
-fn lowered(words: &str) -> String {
+pub(crate) fn lowered(words: &str) -> String {
     let mut chars = words.chars();
     match (chars.next(), chars.next()) {
         (Some(first), Some(second)) if first.is_uppercase() && second.is_lowercase() => {
@@ -2155,40 +2180,13 @@ fn lead_parts(ticket: &Ticket) -> Vec<Part> {
     parts
 }
 
-/// The quiet facts at the end of the line: the diff, the parents, another base, open decisions, a schema
-/// overlap.
+/// The quiet facts at the end of the line: the diff, another base, open decisions, a schema overlap. The parents
+/// are DPV-01's blocked line ([`crate::view_models::dependencies`]), no longer "after SHOP-18".
 fn fact_parts(ticket: &Ticket, x: &CardExtras) -> Vec<Part> {
     let mut parts = Vec::new();
     if let Some((added, removed, files)) = x.diff {
         parts.push(Part::quiet(
             format!("+{added} \u{2212}{removed} \u{b7} {files} files"),
-            Tone::Muted,
-        ));
-    }
-    // A waiting line already names the parents (*Queued · waiting on deps*); a closed parent and the parents the
-    // lead linked are named by their own words.
-    let waits = ticket.status == Status::Queued && x.waits_for.is_some();
-    let named: Vec<&TicketKey> = x
-        .closed_parent
-        .iter()
-        .chain(
-            updated_by_lead(ticket)
-                .into_iter()
-                .flat_map(|by| &by.waits_for),
-        )
-        .collect();
-    let keys: Vec<String> = ticket
-        .depends_on
-        .iter()
-        .filter(|k| !named.contains(k))
-        .map(ToString::to_string)
-        .collect();
-    if !keys.is_empty()
-        && !waits
-        && !matches!(ticket.status, Status::Merged | Status::ClosedNotMerged)
-    {
-        parts.push(Part::quiet(
-            format!("after {}", deps_label(&keys, 2)),
             Tone::Muted,
         ));
     }
@@ -3176,7 +3174,7 @@ mod tests {
             (
                 "Needs you + running + 2 dependencies",
                 Some("Needs you"),
-                Some("Allow rm -rf .next? · also running :4022 · after SHOP-18, SHOP-19"),
+                Some("Allow rm -rf .next? · also running :4022"),
                 Some("[Answer]"),
             ),
         ];
@@ -3743,7 +3741,7 @@ mod tests {
         assert_eq!(
             line(&vm),
             Some(
-                "Allow rm -rf .next? · conflicts with main · also running :4024 · 2 messages waiting · after SHOP-17"
+                "Allow rm -rf .next? · conflicts with main · also running :4024 · 2 messages waiting"
             )
         );
         // Synthetic: whatever order the card collects them in.
@@ -4778,7 +4776,11 @@ mod tests {
         let (mut t, _) = variant("Ready for Dev · Updated by Wishlist lead");
         t.status = Status::Working;
         t.place = otaq_core::domain::Place::stage_of("review");
-        assert_eq!(line(&card(&t)), Some("after SHOP-40.4"));
+        assert_eq!(
+            line(&card(&t)),
+            None,
+            "no more \"after SHOP-40.4\" (DPV-01)"
+        );
 
         let (mut t, vm) = variant("Dev · Lead's note sent (round 0 of 3)");
         assert_eq!(

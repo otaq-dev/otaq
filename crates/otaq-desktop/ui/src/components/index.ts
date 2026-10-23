@@ -42,7 +42,6 @@ export {
   type StageChoicesLook,
   type StageChoicesProps,
 } from "./StageChoices";
-export { StackList, StackRow, type StackListProps, type StackRowProps } from "./StackList";
 export { Segmented, Tabs, Toggle, type TabIndicator, type TabItem, type TabsProps } from "./Tabs";
 export { pickTheme, ThemePicker, useThemePicker, type ThemePickerProps } from "./ThemePicker";
 export { Toast, type ToastIconTone, type ToastKind, type ToastProps } from "./Toast";

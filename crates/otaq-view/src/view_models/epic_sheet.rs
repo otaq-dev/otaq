@@ -517,9 +517,10 @@ mod tests {
             [
                 "Merged \u{b7} PR #470",
                 "Dev \u{b7} working",
-                "Ready \u{b7} waits for SHOP-40.2 to merge",
+                // DPV-01's blocked line, as the children's cards say it (T-0463).
+                "Ready \u{b7} blocked \u{b7} waits for SHOP-40.2 to merge",
                 "Ready \u{b7} starting\u{2026}",
-                "Backlog \u{b7} after SHOP-40.2",
+                "Backlog \u{b7} blocked \u{b7} waits for SHOP-40.2 to merge",
             ]
         );
         assert!(grid.rows.iter().all(|r| !r.attention));

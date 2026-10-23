@@ -25,6 +25,8 @@ pub use board::{
     SetViewParams as BoardSetViewParams, TicketParams as BoardTicketParams,
 };
 #[cfg(test)]
+pub use dependencies::export_types as export_dependency_types;
+#[cfg(test)]
 pub use drawer::{
     Gallery as DrawerGallery, Params as DrawerParams, TabParams as DrawerTabParams,
     View as DrawerView,
@@ -32,10 +34,8 @@ pub use drawer::{
 #[cfg(test)]
 pub use editor::{
     BranchesParams as EditorBranchesParams, CompareEntry as EditorCompareEntry,
-    CompareParams as EditorCompareParams, LinkParams as EditorLinkParams, Linked as EditorLinked,
-    PickerParams as EditorPickerParams, PickerRowView as EditorPickerRow,
-    SaveOutcome as EditorSaved, SaveParams as EditorSaveParams,
-    SourceModeParams as EditorSourceModeParams, View as EditorView,
+    CompareParams as EditorCompareParams, SaveOutcome as EditorSaved,
+    SaveParams as EditorSaveParams, SourceModeParams as EditorSourceModeParams, View as EditorView,
 };
 #[cfg(test)]
 pub use epic::export_types as export_epic_types;
@@ -120,7 +120,7 @@ pub use sections::NoteRequest as CreateFromNoteParams;
 #[cfg(test)]
 pub use sections::{
     AnswerMessage as AnswerMessageParams, CloseEpicDialogView, EpicParams, HistoryView,
-    MessagesView, MoveDialogView, MoveTo as MoveToEpicParams, Params as SectionParams, StackView,
+    MessagesView, MoveDialogView, MoveTo as MoveToEpicParams, Params as SectionParams,
 };
 #[cfg(test)]
 pub use settings::{
@@ -214,6 +214,7 @@ areas! {
     report,
     overview,
     epic,
+    dependencies,
 }
 
 /// Reads the user's answer once the service answers, then sends the counts every [`crate::usage::FLUSH_EVERY`]

@@ -3,7 +3,7 @@
 // you (the question with its options or the action bar, the callouts; `NeedsYou`; USG-07's "Mark as usage
 // limit" while the agent is Idle, the Inbox's row action before T-0459), the description in place
 // (`DescriptionSection`; ⋯ Edit ticket… swaps in the whole form, `EditForm`), the agent's recorded decisions, the
-// sections not moved elsewhere yet (Stack: T-0463 replaces it with the dependencies section), an epic's TICKETS grid
+// DEPENDENCIES with Blocked by and Blocks (`screens/dependencies`, DPV-04), an epic's TICKETS grid
 // (SHT-07, `EpicGrid`; its lead's question is `NeedsYou`'s), then the comments and their box. On the right, 300 px, the Attachments column: every
 // report of the ticket with its size, who added it and in which stage, and its comment's first line; a row opens the
 // report view. Add (the system picker), a file dropped anywhere on Overview, or a file pasted outside a text field
@@ -124,7 +124,7 @@ export function OverviewTab({ ticket }: TicketProps) {
   const { view: editor } = useServiceView(loadEditor, EDITOR_EVENTS);
   const [error, setError] = useState<string | null>(null);
 
-  // ⋯ Edit ticket… (and Stack's "+ Add dependency") opens the whole form in place of the description.
+  // ⋯ Edit ticket… opens the whole form in place of the description.
   const [form, setForm] = useState<string | null>(null);
   const [formNote, setFormNote] = useState<string | null>(null);
   // Another ticket: the last one's note and error go.

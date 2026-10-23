@@ -4,6 +4,7 @@
 // component (they may portal into the overlay host, `OVERLAY_HOST_ID`).
 import type { ComponentType } from "react";
 
+import type { BlockedDialog } from "../../generated/BlockedDialog";
 import type { ConfirmRow } from "../../generated/ConfirmRow";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
 import type { FlowEditorFrom } from "../../generated/FlowEditorFrom";
@@ -86,6 +87,8 @@ export interface OverlayParams {
   send_back: { ticket: string };
   /** A card dragged back to an earlier Agent stage or agent check: its instructions or note (T-0421, FLW-18). */
   drag_back: DragBackDialog;
+  /** A blocked ticket dragged past Ready for Dev or started (DPV-03, T-0463): why it waits; Keep it waiting only. */
+  blocked: BlockedDialog;
   /** Fail on a human check with what's wrong (FLW-14, T-0424). */
   fail: { ticket: string };
   /** Send back with PR comments and an optional note (FLW-16, T-0424). */
@@ -149,6 +152,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   close_epic: true,
   send_back: true,
   drag_back: true,
+  blocked: true,
   fail: true,
   send_back_pr: true,
   change_decision: true,

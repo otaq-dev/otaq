@@ -16,7 +16,9 @@
 // the board's own background (`background.ts`: a column's empty area, the gaps, the room after the columns; OT-3),
 // unless that click closes an open menu or popover. "Show on board" in a Project agent's pane filters the board to its tickets
 // (`boardAgent`, d0087), with a chip whose ✕ (or Esc) clears it.
-// Hovering (or selecting) a linked card highlights its chain (`chain.ts`, `ChainLayer`; T-0229). With Lanes: Epic
+// Hovering (or selecting) a linked card highlights its chain, with its tooltip, and Dependencies: Always keeps every
+// link drawn dashed (`chain.ts`, `ChainLayer`; T-0229, DPV-02); a blocked ticket started or dragged past Ready for Dev
+// opens DPV-03's dialog (`BlockedDialog`). With Lanes: Epic
 // (EPL-01, `Lanes.tsx`) the columns' headers sit once on top and each epic has its lane across them, "No epic" last;
 // the "Epics in flight" strip is gone, and with Lanes: None an epic child's card names its epic. The epic card, one of
 // its rows and a lane's head are dragged the same way (EPC-12, EPC-14, T-0270, T-0271): Rust answers what each queues
@@ -265,6 +267,10 @@ export function afterDrop(
     case "drag_back":
       openOverlay("drag_back", outcome.dialog);
       return;
+    // A blocked ticket (DPV-03): it already waits in Ready for Dev; the dialog says why it can't start.
+    case "blocked":
+      openOverlay("blocked", outcome.dialog);
+      return;
     case "not_yet": {
       const notice: NewToast = {
         level: "success",
@@ -300,6 +306,19 @@ export function dropCard(
   return ask("board.drop", params).then(
     (outcome) => {
       afterDrop(outcome as DropOutcome, showApprove, ask);
+    },
+    (error: unknown) => {
+      toast(error, ask);
+    },
+  );
+}
+
+/** The sheet's Start (`board.start`): a drop on the first agent column, as ⌘D; a blocked ticket opens DPV-03's
+ * dialog. */
+export function startTicket(key: string, ask: typeof request = request): Promise<void> {
+  return ask("board.start", { key }).then(
+    (outcome) => {
+      afterDrop(outcome as DropOutcome, () => undefined, ask);
     },
     (error: unknown) => {
       toast(error, ask);
@@ -1091,7 +1110,15 @@ export function Board() {
         )}
         {view?.empty && <EmptyBoard view={view.empty} />}
         {project === null && <NoProjects />}
-        {list === null && <ChainLayer chain={chain} board={element} layout={view} />}
+        {list === null && (
+          <ChainLayer
+            chain={chain}
+            links={view?.links ?? []}
+            hovered={hovered}
+            board={element}
+            layout={view}
+          />
+        )}
         <div className="board-ghost" ref={ghost} hidden={drag === null}>
           {draggedCard && (
             <div className="board-ghost-card">

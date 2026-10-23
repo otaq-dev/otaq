@@ -30,6 +30,7 @@ function row(
       epic: null,
       title,
       status: null,
+      blocks: null,
       avatar: null,
       who: null,
       time: null,
@@ -114,7 +115,12 @@ const LIST: ListView = {
             },
           },
           {
-            status: { text: "Asks you: follow the system setting?", dot: "attn", tone: "attention" },
+            status: {
+              text: "Asks you: follow the system setting?",
+              dot: "attn",
+              tone: "attention",
+              icon: null,
+            },
             edge: "attention",
             who: "Griller",
             time: { text: "8m", stale: false },

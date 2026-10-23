@@ -284,3 +284,67 @@ async fn cycles_finds_loops_written_around_the_rules() {
     // The tree still terminates.
     f.board.dependency_tree("SHOP-20").await.unwrap();
 }
+
+/// DPV-03 (d0049): a drag or Start past Ready for Dev is refused while a dependency isn't merged ("SHOP-20 is
+/// blocked"); a drop on Ready for Dev still queues it, and from there it can't be dragged on into Dev either. Once
+/// every parent is merged the same drag goes through as before.
+#[tokio::test]
+async fn a_blocked_ticket_cant_start_past_ready_for_dev() {
+    use otaq_core::board::moves::DropTarget;
+    let f = sample().await;
+    let refused = |r: Result<otaq_core::board::tickets::Ticket, otaq_core::board::BoardError>| {
+        let e = r.expect_err("refused");
+        assert_eq!(e.refusal(), Some(Refusal::MoveRefused), "{e}");
+        e.to_string()
+    };
+    let into_dev = f
+        .board
+        .move_ticket("SHOP-20", DropTarget::Dev, false, &me())
+        .await;
+    assert!(refused(into_dev).contains("SHOP-20 is blocked"));
+    assert_eq!(f.ticket("SHOP-20").await.status, Status::Backlog);
+
+    let queued = f
+        .board
+        .move_ticket("SHOP-20", DropTarget::ReadyForDev, false, &me())
+        .await
+        .unwrap();
+    assert_eq!(queued.status, Status::Queued, "into Ready it queues");
+    let again = f
+        .board
+        .move_ticket("SHOP-20", DropTarget::Dev, false, &me())
+        .await;
+    assert!(refused(again).contains("SHOP-20 is blocked"));
+
+    // SHOP-17 has no parents: dragged into Dev it queues as before.
+    let free = f
+        .board
+        .move_ticket("SHOP-17", DropTarget::Dev, false, &me())
+        .await
+        .unwrap();
+    assert_eq!(free.status, Status::Queued);
+
+    // Merged parents: SHOP-18 (whose own parent is SHOP-17) and SHOP-19. SHOP-20 is no longer blocked.
+    for key in ["SHOP-18", "SHOP-19"] {
+        let t = f.ticket(key).await;
+        f.force_status(&t, Status::Merged).await;
+    }
+    let tickets = f.board.tickets("SHOP").await.unwrap();
+    let t20 = tickets
+        .iter()
+        .find(|t| t.key.to_string() == "SHOP-20")
+        .unwrap();
+    assert!(otaq_core::board::readiness::readiness(t20, &tickets).is_ready());
+    let check = f
+        .board
+        .check_drag(t20, &DropTarget::Dev.into())
+        .await
+        .unwrap();
+    assert_eq!(
+        check,
+        otaq_core::board::moves::MoveCheck::Refused {
+            reason: otaq_core::board::moves::STARTS_BY_ITSELF.into()
+        },
+        "a ready ticket in Ready for Dev starts by itself, as before"
+    );
+}

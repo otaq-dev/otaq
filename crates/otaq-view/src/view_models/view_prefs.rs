@@ -252,6 +252,8 @@ pub struct ToolbarOption {
 pub struct ToolbarGroup {
     /// The words before it ("Lanes", "Group by"); `null` for Board · List.
     pub label: Option<String>,
+    /// An icon before the words: the link before "Dependencies".
+    pub icon: Option<IconName>,
     pub options: Vec<ToolbarOption>,
 }
 
@@ -265,6 +267,8 @@ pub struct Toolbar {
     pub lanes: Option<ToolbarGroup>,
     /// The List's Group by Stage · Status · Epic · Agent (LST-01).
     pub group_by: Option<ToolbarGroup>,
+    /// The Board's Dependencies On hover · Always (DPV-02), on the right before the switch.
+    pub dependencies: Option<ToolbarGroup>,
     /// Fold empty columns (Board) or Hide empty stages (List): a switch.
     pub switch: ToolbarOption,
     /// "All tickets": the board's filter (`/`).
@@ -297,9 +301,11 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
         };
     let lanes: Lanes = prefs.lanes.into();
     let group_by: GroupBy = prefs.group_by.into();
+    let dependencies: Dependencies = prefs.dependencies.into();
     Toolbar {
         views: ToolbarGroup {
             label: None,
+            icon: None,
             options: vec![
                 view_option(
                     ViewKind::Board,
@@ -312,6 +318,7 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
         },
         lanes: (view == ViewKind::Board).then(|| ToolbarGroup {
             label: Some("Lanes".to_owned()),
+            icon: None,
             options: [(Lanes::None, "None"), (Lanes::Epic, "Epic")]
                 .into_iter()
                 .map(|(l, label)| option(label, None, lanes == l, Change::Lanes { lanes: l }))
@@ -319,6 +326,7 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
         }),
         group_by: (view == ViewKind::List).then(|| ToolbarGroup {
             label: Some("Group by".to_owned()),
+            icon: None,
             options: [
                 (GroupBy::Stage, "Stage"),
                 (GroupBy::Status, "Status"),
@@ -327,6 +335,24 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
             ]
             .into_iter()
             .map(|(g, label)| option(label, None, group_by == g, Change::GroupBy { group_by: g }))
+            .collect(),
+        }),
+        dependencies: (view == ViewKind::Board).then(|| ToolbarGroup {
+            label: Some("Dependencies".to_owned()),
+            icon: Some(IconName::Link),
+            options: [
+                (Dependencies::OnHover, "On hover"),
+                (Dependencies::Always, "Always"),
+            ]
+            .into_iter()
+            .map(|(d, label)| {
+                option(
+                    label,
+                    None,
+                    dependencies == d,
+                    Change::Dependencies { dependencies: d },
+                )
+            })
             .collect(),
         }),
         switch: match view {
@@ -449,6 +475,22 @@ mod tests {
             [("None".to_owned(), true), ("Epic".to_owned(), false)]
         );
         assert_eq!(board.group_by, None);
+        // DPV-02: Dependencies On hover · Always, On hover by default, the link before its words; a click sends Always.
+        let deps = board.dependencies.as_ref().unwrap();
+        assert_eq!(
+            (deps.label.as_deref(), deps.icon),
+            (Some("Dependencies"), Some(IconName::Link))
+        );
+        assert_eq!(
+            labels(deps),
+            [("On hover".to_owned(), true), ("Always".to_owned(), false)]
+        );
+        assert_eq!(
+            deps.options[1].change,
+            Change::Dependencies {
+                dependencies: Dependencies::Always
+            }
+        );
         assert_eq!(
             (
                 board.switch.label.as_str(),
@@ -475,6 +517,7 @@ mod tests {
             &keys,
         );
         assert_eq!(list.lanes, None);
+        assert_eq!(list.dependencies, None, "the List draws no arrows");
         let group = list.group_by.as_ref().unwrap();
         assert_eq!(group.label.as_deref(), Some("Group by"));
         assert_eq!(

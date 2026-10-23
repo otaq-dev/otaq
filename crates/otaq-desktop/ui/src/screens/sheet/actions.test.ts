@@ -45,7 +45,6 @@ afterEach(() => {
 describe("where buttons and menu items go", () => {
   it("service buttons call panel.action; the rest open a tab or a dialog", () => {
     const service: PanelAction[] = [
-      "start",
       "retry_start",
       "resume",
       "retry_resume",
@@ -54,6 +53,8 @@ describe("where buttons and menu items go", () => {
       "resume_lead",
     ];
     for (const action of service) expect(actionRoute(action)).toEqual({ kind: "service" });
+    // Start opens DPV-03's dialog for a blocked ticket (`board.start`).
+    expect(actionRoute("start")).toEqual({ kind: "start" });
     expect(actionRoute("answer_in_terminal")).toEqual({ kind: "terminal" });
     expect(actionRoute("open_agent")).toEqual({ kind: "open_agent" });
     expect(cardRoute("open_agent")).toEqual({ kind: "open_agent" });
@@ -229,7 +230,7 @@ describe("what it needs from you, at the top of Overview", () => {
       expect(html).toContain(text);
     }
     expect(html).toContain("Open terminal");
-    expect(html).toContain("the stack");
+    expect(html).toContain("the dependencies");
     expect(html.indexOf("sheet-tabs")).toBeLessThan(html.indexOf("panel-bar"));
   });
 

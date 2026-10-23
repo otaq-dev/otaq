@@ -1,4 +1,4 @@
-// The sections' interaction state (T-0223): whether the Stack list is open, the picked epic in Move to epic…, and
+// The sections' interaction state (T-0223): the picked epic in Move to epic…, and
 // which question's reply box is open. What they show comes from Rust (`src/api/sections.rs`).
 import type { MoveChoiceView } from "../../generated/MoveChoiceView";
 import type { MoveDialogView } from "../../generated/MoveDialogView";
@@ -15,11 +15,6 @@ export const SECTION_EVENTS = [
   // The epic lead's answers, pass-ons and notes (T-0290).
   "lead_changed",
 ] as const;
-
-/** The Stack list opens by itself when the ticket has links; the user's toggle wins (`null`: not toggled). */
-export function stackOpen(toggled: boolean | null, rows: number): boolean {
-  return rows > 0 && (toggled ?? true);
-}
 
 /** The epic picked in Move to epic…: the clicked one, else the first. */
 export function pickedChoice(view: MoveDialogView, picked: string | null): MoveChoiceView | undefined {

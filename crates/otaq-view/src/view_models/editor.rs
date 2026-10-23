@@ -92,8 +92,6 @@ pub struct EditorModel {
     pub priority: Option<Priority>,
     /// Create the ticket inside this epic.
     pub epic: Option<TicketKey>,
-    /// Direct parents. For a new ticket they are linked right after it is created.
-    pub deps: Vec<TicketKey>,
     /// "Start from and merge into" for standalone tickets and epics; `None` for epic children.
     pub base_branch: Option<String>,
     pub base_locked: bool,
@@ -127,7 +125,6 @@ impl EditorModel {
             kind: Kind::Ticket,
             priority: None,
             epic: None,
-            deps: Vec::new(),
             base_branch: Some(base.to_owned()),
             base_locked: false,
             external_id: String::new(),
@@ -152,7 +149,6 @@ impl EditorModel {
             kind: ticket.kind,
             priority: (!ticket.priority_inherited).then_some(ticket.priority),
             epic: ticket.epic.clone(),
-            deps: ticket.depends_on.clone(),
             base_branch: match &ticket.base {
                 otaq_core::board::tickets::Base::Branch(b) => Some(b.clone()),
                 otaq_core::board::tickets::Base::Epic(_) => None,

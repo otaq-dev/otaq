@@ -21,7 +21,7 @@ let root: Root | null = null;
 let host: HTMLElement | null = null;
 const shown: { editor?: Editor } = {};
 
-/** Priority before the description and Depends on after it, as in the form; `source` shows the Markdown source. */
+/** Priority before the description and Start from and merge into after it, as in the form; `source` shows the Markdown source. */
 function Form({
   onEditor,
   source,
@@ -48,7 +48,7 @@ function Form({
             }),
           }),
     }),
-    createElement("input", { id: "deps" }),
+    createElement("input", { id: "base" }),
   );
 }
 
@@ -132,12 +132,12 @@ test("Tab and ⇧Tab indent and outdent the code line (Tiptap's own, two spaces)
   expect(serializeMarkdown(editor)).toBe("```ts\nif (a) {\nb();\n```");
 });
 
-test("Tab out of a paragraph goes to Depends on, ⇧Tab back to Priority, and nothing is reported", () => {
+test("Tab out of a paragraph goes to Start from and merge into, ⇧Tab back to Priority, and nothing is reported", () => {
   const onChange = vi.fn();
   const { editor, page } = render({ value: "Users mistype addresses.\n", onChange });
   caretAfter(editor, "Users");
   press("Tab");
-  expect(document.activeElement).toBe(page.querySelector("#deps"));
+  expect(document.activeElement).toBe(page.querySelector("#base"));
   caretAfter(editor, "Users");
   press("Tab", { shiftKey: true });
   expect(document.activeElement).toBe(page.querySelector("#priority"));
@@ -159,7 +159,7 @@ test("Esc leaves the text for the field; then Tab leaves, ↵ goes back, and Esc
   expect(document.activeElement).toBe(editor.view.dom);
   press("Escape");
   press("Tab");
-  expect(document.activeElement).toBe(page.querySelector("#deps"));
+  expect(document.activeElement).toBe(page.querySelector("#base"));
   act(() => {
     field.focus();
   });
@@ -232,7 +232,7 @@ test("in the source view's text area (T-0251), Esc leaves it for the field and T
     source.focus();
   });
   press("Tab");
-  expect(document.activeElement).toBe(page.querySelector("#deps"));
+  expect(document.activeElement).toBe(page.querySelector("#base"));
   expect(source.value).toBe("- one\n");
   act(() => {
     source.focus();

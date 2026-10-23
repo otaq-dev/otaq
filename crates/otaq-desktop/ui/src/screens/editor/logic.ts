@@ -1,5 +1,5 @@
-// The editor's form state (T-0228): what is typed, which dependency row is highlighted, what a key does. The rules
-// (title required, only what changed is saved, priority only once picked, links checked for loops and bases) are
+// The editor's form state (T-0228): what is typed and what a key does. The rules (title required, only what changed
+// is saved, priority only once picked) are
 // Rust's (`src/api/editor.rs`, `editor.rs`); this file keeps only the moment of typing.
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorRefusal } from "../../generated/EditorRefusal";
@@ -55,15 +55,6 @@ export function shownPriority(view: EditorView, form: EditorForm): number {
   return form.priority ?? view.shown_priority;
 }
 
-/** A new ticket's chosen dependency, once. */
-export function withDep(form: EditorForm, key: string): EditorForm {
-  return form.deps.includes(key) ? form : { ...form, deps: [...form.deps, key] };
-}
-
-export function withoutDep(form: EditorForm, key: string): EditorForm {
-  return { ...form, deps: form.deps.filter((d) => d !== key) };
-}
-
 /** The refusal shown under one field (`null`: none there). */
 export function refusalFor(
   refusal: EditorRefusal | null,
@@ -75,26 +66,6 @@ export function refusalFor(
 /** Whether the form differs from what it opened with (Esc on a changed form still discards: the frames say so). */
 export function changed(initial: EditorForm, form: EditorForm): boolean {
   return JSON.stringify(initial) !== JSON.stringify(form);
-}
-
-/**
- * The picker row ↵ picks (`dep_picker.rs`): the hovered or arrowed-to row if it can be picked, else the first that
- * can.
- */
-export function highlighted(hover: number | null, enabled: readonly boolean[]): number | null {
-  if (hover !== null && enabled[hover]) return hover;
-  const first = enabled.indexOf(true);
-  return first < 0 ? null : first;
-}
-
-/** ↑ / ↓ in the picker: the previous or next row that can be picked, stopping at the ends. */
-export function step(hover: number | null, delta: 1 | -1, enabled: readonly boolean[]): number | null {
-  const from = highlighted(hover, enabled);
-  if (from === null) return null;
-  for (let i = from + delta; i >= 0 && i < enabled.length; i += delta) {
-    if (enabled[i]) return i;
-  }
-  return from;
 }
 
 /** How long Copy as Markdown shows its check and "Copied" (*05 → c · Copied state*), in ms. */

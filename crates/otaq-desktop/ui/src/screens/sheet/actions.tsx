@@ -15,6 +15,7 @@ import type { PanelCardParams } from "../../generated/PanelCardParams";
 import type { PanelSent } from "../../generated/PanelSent";
 import type { PanelView } from "../../generated/PanelView";
 import { request } from "../../tauri";
+import { startTicket } from "../board/Board";
 import { passTicket } from "../review/CheckDialogs";
 import { startRun } from "../session/logic";
 import { actionRoute, agentSettings, cardRoute, CLOSE_TICKET, menuRoute } from "./actionRoutes";
@@ -131,6 +132,12 @@ export function usePanelActions(view: PanelView): PanelActions {
           .finally(() => {
             setBusy(null);
           });
+        return;
+      case "start":
+        setBusy(button.action);
+        void startTicket(view.key).finally(() => {
+          setBusy(null);
+        });
         return;
       case "terminal":
         showTab("agent");

@@ -7,6 +7,7 @@ import type { BoardColumn } from "../../generated/BoardColumn";
 import type { ChainView } from "../../generated/ChainView";
 import type { TicketCardView } from "../../generated/TicketCardView";
 import { activeChain, arrow, chainStateOf, inView, membersIn } from "./chain";
+import { arrowsOf, quietLinks } from "./ChainLayer";
 import { Column, type ColumnProps } from "./Column";
 
 /** *03 → Chain highlight · hover or select SHOP-20*. */
@@ -19,9 +20,28 @@ const SHOP_20: ChainView = {
     { parent: "SHOP-19", child: "SHOP-20" },
     { parent: "SHOP-20", child: "SHOP-21" },
   ],
-  legend: "Chain of SHOP-20 · SHOP-17 → SHOP-18 → SHOP-20 ← SHOP-19 · SHOP-20 → SHOP-21",
+  tip: { title: "SHOP-20 is blocked", detail: "by SHOP-18 (Review) and SHOP-19 (Dev)" },
 };
 const SHOP_21: ChainView = { ...SHOP_20, key: "SHOP-21" };
+
+describe("Dependencies: Always (DPV-02)", () => {
+  it("draws every link whose two cards are in view, except those the chain shown draws in accent", () => {
+    const links = [
+      { parent: "SHOP-18", child: "SHOP-20" },
+      { parent: "SHOP-29", child: "SHOP-20" },
+      { parent: "SHOP-33", child: "SHOP-34" },
+    ];
+    const box = (left: number) => ({ left, top: 0, right: left + 100, bottom: 50 });
+    const boxes = new Map([
+      ["SHOP-18", box(0)],
+      ["SHOP-20", box(300)],
+      ["SHOP-29", box(600)],
+    ]);
+    expect(arrowsOf(links, boxes)).toHaveLength(2);
+    expect(quietLinks(links, null)).toEqual(links);
+    expect(quietLinks(links, SHOP_20)).toEqual(links.slice(1));
+  });
+});
 
 describe("the chain highlight", () => {
   it("follows the hovered card, else the selected one, and never a drag", () => {
@@ -72,6 +92,7 @@ const card = (key: string): BoardCard => {
     epic: null,
     title: "Checkout page",
     status: null,
+    blocks: null,
     avatar: null,
     who: null,
     time: null,

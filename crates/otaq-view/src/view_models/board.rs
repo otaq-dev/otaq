@@ -541,6 +541,9 @@ pub fn ticket_card(input: &BoardInput, t: &Ticket) -> CardViewModel {
         delivery_agent: delivery_agent(input.flow),
         custom_flow,
         paused: input.paused,
+        // DPV-01: the blocked line of a ticket that hasn't started, and what waits for it.
+        blocked: crate::view_models::dependencies::blocked_line(t, all),
+        blocks: crate::view_models::dependencies::blocks(t, all),
         agent_name: match &t.created_by {
             otaq_core::domain::Actor::ProjectAgent(id) => input
                 .agent_names

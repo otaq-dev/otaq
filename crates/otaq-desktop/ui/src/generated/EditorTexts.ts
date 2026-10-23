@@ -8,7 +8,7 @@ export type EditorTexts = { title: string, title_placeholder: string, title_requ
 /**
  * The description's label in the Ticket tab's read mode, over the comments (CMT-10, `s05-41`).
  */
-plan: string, body_hint: string, body_placeholder: string, deps: string, deps_hint: string, deps_placeholder: string, deps_none: string, base: string, base_hint: string, 
+plan: string, body_hint: string, body_placeholder: string, base: string, base_hint: string, 
 /**
  * The base dropdown's search field.
  */

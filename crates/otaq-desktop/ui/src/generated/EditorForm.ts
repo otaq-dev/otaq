@@ -13,11 +13,7 @@ priority: number | null, epic_kind: boolean,
 /**
  * Create only: the epic the new ticket goes into.
  */
-epic: string | null, 
-/**
- * Create only: linked right after the ticket is created (an existing ticket links on each pick).
- */
-deps: Array<string>, base_branch: string | null, external_id: string, 
+epic: string | null, base_branch: string | null, external_id: string, 
 /**
  * The stage choices picked in the form (AGM-09): sent with the new ticket, or with the save.
  */

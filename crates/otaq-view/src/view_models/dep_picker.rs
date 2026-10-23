@@ -1,7 +1,7 @@
-//! The Depends-on picker's list in the ticket editor (*08 · Ticket editor → Depends on · picker open*): typing
-//! opens it; picking a ticket adds its chip and closes it (typing again adds another); Esc, leaving the field
-//! or a click outside close it without picking. The highlighted row (the design's accent row) is the one ↵
-//! picks: the hovered or arrowed-to row, else the first one that can be picked.
+//! The Add picker's list in the sheet's Dependencies section (DPV-04, *24 → Adding and removing* `s24-11`; the
+//! editor's Depends-on picker before M38): typing opens it; picking a ticket links it and closes it (typing again
+//! adds another); Esc, leaving the field or a click outside close it without picking. The highlighted row (the
+//! design's accent row) is the one ↵ picks: the hovered or arrowed-to row, else the first one that can be picked.
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DepPicker {

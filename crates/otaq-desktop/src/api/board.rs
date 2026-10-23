@@ -80,6 +80,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "board.set_view" => reply(&set_view(app, parse(params)?).await?),
         "board.drag" => reply(&drag(app, parse(params)?).await?),
         "board.drop" => reply(&drop(app, parse(params)?).await?),
+        "board.start" => reply(&start(app, parse(params)?).await?),
         "board.park" => reply(&park(app, parse(params)?).await?),
         "board.drag_back" => reply(&drag_back(app, parse(params)?).await?),
         "board.park_all" => reply(&park_all(app, parse(params)?).await?),
@@ -438,29 +439,82 @@ async fn merge_target(app: &App, ticket: &Ticket) -> String {
 
 pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestError> {
     let ticket = ticket(app, &params.key).await?;
-    let target = params.target;
     let flow = flow(app, &ticket.key.project.to_string()).await;
-    // An epic's drop depends on its place (its card or its track) and its children.
-    let tickets: Vec<Ticket> = if ticket.is_epic() {
+    // An epic's drop depends on its place (its card or its track) and its children; a linked ticket's on its parents
+    // (DPV-03).
+    let tickets: Vec<Ticket> = if ticket.is_epic() || !ticket.depends_on.is_empty() {
         let board = snapshot(app, &ticket.key.project.to_string()).await?;
         board.tickets().cloned().collect()
     } else {
         Vec::new()
     };
-    Ok(match board_page::drop_step_in(&flow, &ticket, &tickets, &target) {
+    let step = board_page::drop_step_in(&flow, &ticket, &tickets, &params.target);
+    match step {
+        // A blocked ticket goes to (or stays in) Ready for Dev, then the dialog says why it can't start (DPV-03).
+        DropStep::Blocked { dialog, queue } => {
+            if queue {
+                let ready = DropTargetId::new(otaq_view::view_models::flow_columns::READY_FOR_DEV);
+                let step = board_page::drop_step_in(&flow, &ticket, &tickets, &ready);
+                carry_out(app, &params.key, &ticket, &flow, ready, step).await?;
+            }
+            Ok(DropOutcome::Blocked { dialog })
+        }
+        step => carry_out(app, &params.key, &ticket, &flow, params.target, step).await,
+    }
+}
+
+/// What `board.start` takes: the ticket the sheet shows.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "BoardStartParams")]
+pub struct StartParams {
+    pub key: String,
+}
+
+/// The sheet's Start: a drop on the first agent column, as ⌘D (DPV-03: a blocked ticket waits in Ready for Dev and
+/// the page shows why).
+pub async fn start(app: &App, params: StartParams) -> Result<DropOutcome, RequestError> {
+    let ticket = ticket(app, &params.key).await?;
+    let flow = flow(app, &ticket.key.project.to_string()).await;
+    let Some(column) = otaq_view::view_models::flow_columns::Columns::of(&flow)
+        .first(otaq_view::view_models::flow_columns::ColumnKind::Agent)
+        .map(|c| c.id.clone())
+    else {
+        return Ok(DropOutcome::Nothing);
+    };
+    drop(
+        app,
+        DropParams {
+            key: params.key,
+            target: DropTargetId::new(column),
+        },
+    )
+    .await
+}
+
+/// Carries out a drop's step: sends the move, or answers with the dialog the page shows first.
+async fn carry_out(
+    app: &App,
+    key: &str,
+    ticket: &Ticket,
+    flow: &Flow,
+    target: DropTargetId,
+    step: DropStep,
+) -> Result<DropOutcome, RequestError> {
+    Ok(match step {
         DropStep::Nothing => DropOutcome::Nothing,
         DropStep::NotYet(message) => DropOutcome::NotYet { message },
+        DropStep::Blocked { dialog, .. } => DropOutcome::Blocked { dialog },
         DropStep::Park => DropOutcome::Park {
-            dialog: board_page::park_dialog(&ticket),
+            dialog: board_page::park_dialog(ticket),
         },
         DropStep::Move => {
             // A move only follows a target the flow has (drop_step_in says Nothing otherwise).
-            let Some(target) = board_page::core_target(&flow, &target) else {
+            let Some(target) = board_page::core_target(flow, &target) else {
                 return Ok(DropOutcome::Nothing);
             };
             app.service
                 .send(Request::TicketDrag(DragParams {
-                    key: params.key,
+                    key: key.to_owned(),
                     target,
                     confirmed: false,
                     note: String::new(),
@@ -471,8 +525,8 @@ pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestE
             DropOutcome::Moved
         }
         DropStep::DragBack => {
-            let choices = choices_of(app, &params.key).await;
-            match board_page::drag_back_dialog(&flow, &ticket, &target, &choices) {
+            let choices = choices_of(app, key).await;
+            match board_page::drag_back_dialog(flow, ticket, &target, &choices) {
                 Some(dialog) => DropOutcome::DragBack {
                     dialog: Box::new(dialog),
                 },
@@ -501,7 +555,7 @@ pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestE
             let project = ticket.key.project.to_string();
             let (board, target, provider) = tokio::join!(
                 snapshot(app, &project),
-                merge_target(app, &ticket),
+                merge_target(app, ticket),
                 app.service.send(Request::ProjectPrProvider(ProjectParams {
                     project: project.clone(),
                 })),
@@ -512,7 +566,7 @@ pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestE
                 _ => None,
             };
             DropOutcome::Approve {
-                menu: board_page::approve_menu(&ticket, &target, &tickets, provider.as_ref()),
+                menu: board_page::approve_menu(ticket, &target, &tickets, provider.as_ref()),
             }
         }
     })

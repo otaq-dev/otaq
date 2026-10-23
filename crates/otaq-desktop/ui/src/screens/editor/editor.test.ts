@@ -22,14 +22,10 @@ import {
   COPIED_FOR,
   copyMarkdown,
   formReport,
-  highlighted,
   isSaveKey,
   quickKey,
   refusalFor,
   shownPriority,
-  step,
-  withDep,
-  withoutDep,
 } from "./logic";
 import { Compare, Description, DescriptionTools, LabelRow } from "./ReadMode";
 import { useFormKeys } from "./Modal";
@@ -133,38 +129,25 @@ describe("the editor's form state", () => {
     expect(canSave({ ...FORM, title: "Checkout" }, false)).toBe(true);
   });
 
-  it("priority shows the picked one, else the view's; deps are added once", () => {
+  it("priority shows the picked one, else the view's; a change is a change", () => {
     expect(shownPriority(VIEW, FORM)).toBe(3);
     expect(shownPriority(VIEW, { ...FORM, priority: 1 })).toBe(1);
-    const one = withDep(withDep(FORM, "SHOP-18"), "SHOP-18");
-    expect(one.deps).toEqual(["SHOP-18"]);
-    expect(withoutDep(one, "SHOP-18").deps).toEqual([]);
-    expect(changed(FORM, one)).toBe(true);
+    expect(changed(FORM, { ...FORM, title: "Checkout" })).toBe(true);
     expect(changed(FORM, { ...FORM })).toBe(false);
-  });
-
-  it("the picker highlights the first row that can be picked and steps over the rest", () => {
-    const enabled = [false, true, false, true];
-    expect(highlighted(null, enabled)).toBe(1);
-    expect(highlighted(0, enabled)).toBe(1);
-    expect(step(null, 1, enabled)).toBe(3);
-    expect(step(3, 1, enabled)).toBe(3);
-    expect(step(3, -1, enabled)).toBe(1);
-    expect(highlighted(null, [false])).toBeNull();
   });
 
   it("a refusal shows under its own field", () => {
     const refusal = {
-      field: "deps" as const,
-      title: "That would create a loop",
-      message: "SHOP-18 waits on it",
-      icon: "refresh-ccw" as const,
+      field: "base" as const,
+      title: "Different base branches",
+      message: "SHOP-31 starts from release/2.3",
+      icon: "circle-x" as const,
     };
-    expect(refusalFor(refusal, "deps")).toBe(refusal);
-    expect(refusalFor(refusal, "base")).toBeNull();
+    expect(refusalFor(refusal, "base")).toBe(refusal);
+    expect(refusalFor(refusal, "form")).toBeNull();
     const out = html(createElement(RefusalBox, { refusal }));
-    expect(out).toContain("That would create a loop");
-    expect(out).toContain("SHOP-18 waits on it");
+    expect(out).toContain("Different base branches");
+    expect(out).toContain("SHOP-31 starts from release/2.3");
   });
 
   it("an edit request is taken once, by its own ticket's tab", () => {
@@ -266,9 +249,6 @@ describe("the editor", () => {
       onChange: noop,
       titleMissing: true,
       refusal: null,
-      chips: [],
-      onAddDep: noop,
-      onRemoveDep: noop,
       onSave: noop,
     };
     const out = html(createElement(EditorFields, props));
@@ -279,19 +259,16 @@ describe("the editor", () => {
       "Ticket",
       "No epic",
       "What and why",
-      "Depends on",
-      "same project only",
       "Start from and merge into",
       "External ID",
     ]) {
       expect(out).toContain(text);
     }
-    // An epic child has no base or External ID of its own; an epic has no Depends on.
+    // An epic child has no base or External ID of its own; nobody has Depends on (the sheet's, DPV-04).
+    expect(out).not.toContain("Depends on");
     const child = html(createElement(EditorFields, { ...props, form: { ...FORM, epic: "SHOP-40" } }));
     expect(child).not.toContain("External ID");
     expect(child).not.toContain("Start from and merge into");
-    const epic = html(createElement(EditorFields, { ...props, form: { ...FORM, epic_kind: true } }));
-    expect(epic).not.toContain("same project only");
   });
 
   it("a locked base shows why", () => {
@@ -302,9 +279,6 @@ describe("the editor", () => {
         onChange: noop,
         titleMissing: false,
         refusal: null,
-        chips: [],
-        onAddDep: noop,
-        onRemoveDep: noop,
         onSave: noop,
       }),
     );
@@ -463,9 +437,6 @@ describe("the editor", () => {
         onChange: editor.setForm,
         titleMissing: false,
         refusal: null,
-        chips: editor.chips,
-        onAddDep: editor.addDep,
-        onRemoveDep: editor.removeDep,
         onSave: save,
       }),
       createElement("button", { className: "harness-save", onClick: save }, "Save"),
@@ -720,9 +691,6 @@ describe("the Stage choices in the form (T-0411, AGM-09)", () => {
       onChange: setForm,
       titleMissing: false,
       refusal: null,
-      chips: [],
-      onAddDep: noop,
-      onRemoveDep: noop,
       onSave: noop,
     });
   }

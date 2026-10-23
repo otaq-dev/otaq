@@ -1,6 +1,6 @@
-//! `sections.*`: the ticket's sections and its Activity (UI-04, DEP-05, REC-03, MSG-01, MSG-03, MSG-06,
-//! EPC-01, EPC-04, EPC-06, EPC-07, TKT-07; d0045, d0030, d0039, d0044, d0059; *05 · Ticket side panel*). The
-//! **Stack** list with parents, children and "waits for" lines (`stack.rs`); the **Messages** between linked agents
+//! `sections.*`: the ticket's sections and its Activity (UI-04, REC-03, MSG-01, MSG-03, MSG-06, EPC-01, EPC-04,
+//! EPC-06, EPC-07, TKT-07; d0045, d0030, d0039, d0044, d0059; *05 · Ticket side panel*). The Dependencies section is
+//! `dependencies.rs`'s (DPV-04). The **Messages** between linked agents
 //! with their states (`messages.rs`), answerable when one went to the inbox; the sheet's **Activity** (SHT-05), sessions
 //! with their tool session ids and events oldest first under All · Comments · Stages · Description (`history.rs`),
 //! with one entry per validation round that opens
@@ -25,9 +25,7 @@ use otaq_view::view_models::stage_choices;
 use otaq_view::view_models::history::{self, HistoryRow, Opens};
 use otaq_core::epic_lead::log::LeadLog;
 use otaq_view::view_models::messages::{self, Line, Thread, Tone};
-use otaq_view::view_models::stack;
 use otaq_view::theme::Palette;
-use otaq_view::view_models::status::PillView;
 use otaq_view::view_models::ticket_comments::Mark;
 use otaq_view::view_models::tool_avatar;
 use otaq_view::view_models::validation_report;
@@ -41,7 +39,6 @@ use crate::App;
 
 pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
     match method {
-        "sections.stack" => reply(&stack_view(app, parse(params)?).await?),
         "sections.messages" => reply(&messages_view(app, parse(params)?).await?),
         "sections.answer_message" => reply(&answer_message(app, parse(params)?).await?),
         "sections.history" => reply(&history_view(app, parse(params)?).await?),
@@ -126,71 +123,6 @@ async fn found(app: &App, key: &str) -> Result<(Ticket, Vec<Ticket>), RequestErr
     with_project(app, key)
         .await?
         .ok_or_else(|| RequestError::plain(format!("{key} is gone.")))
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Stack (DEP-05)
-
-/// One line of the Stack list: indented by its depth, the open ticket marked, a Queued ticket's waiting text.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "StackRowView")]
-pub struct StackRowView {
-    pub key: String,
-    pub title: String,
-    pub depth: u32,
-    pub current: bool,
-    pub waits: Option<String>,
-    pub pill: PillView,
-}
-
-/// The Stack section between the header and the tabs: open with its list when the ticket has links, else one
-/// line saying it has none.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "StackView")]
-pub struct StackView {
-    pub title: &'static str,
-    /// "Depends on SHOP-18, SHOP-19 · SHOP-21 waits on it", or "No dependencies · nothing waits on SHOP-12".
-    pub summary: String,
-    /// "6 tickets": the list's rows.
-    pub count: String,
-    pub rows: Vec<StackRowView>,
-    /// Opens the Ticket tab's form at Depends on.
-    pub add_dependency: &'static str,
-    pub show_hint: &'static str,
-    pub hide_hint: &'static str,
-}
-
-pub fn stack_of(ticket: &Ticket, tickets: &[Ticket]) -> StackView {
-    let rows: Vec<StackRowView> = stack::stack_rows(&ticket.key, tickets)
-        .into_iter()
-        .map(|r| StackRowView {
-            key: r.key.to_string(),
-            title: r.title,
-            depth: u32::try_from(r.depth).unwrap_or(u32::MAX),
-            current: r.current,
-            waits: r.waits,
-            pill: PillView::of(r.status),
-        })
-        .collect();
-    let count = match rows.len() {
-        1 => "1 ticket".to_owned(),
-        n => format!("{n} tickets"),
-    };
-    StackView {
-        title: "Dependencies",
-        summary: stack::summary(&ticket.key, tickets),
-        count,
-        rows,
-        add_dependency: "+ Add dependency",
-        show_hint: "Show dependencies",
-        hide_hint: "Hide dependencies",
-    }
-}
-
-pub async fn stack_view(app: &App, params: Params) -> Result<Option<StackView>, RequestError> {
-    Ok(with_project(app, &params.key)
-        .await?
-        .map(|(ticket, all)| stack_of(&ticket, &all)))
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -860,25 +792,6 @@ mod tests {
     }
 
     #[test]
-    fn the_stack_lists_the_chain_and_marks_the_open_ticket() {
-        let parent = fixture("SHOP-18", "Checkout API", Status::WaitingForYou);
-        let mut child = fixture("SHOP-20", "Checkout page", Status::Queued);
-        child.depends_on = vec![key("SHOP-18")];
-        let lone = fixture("SHOP-12", "Footer", Status::Backlog);
-        let all = vec![parent, child.clone(), lone.clone()];
-
-        let view = stack_of(&child, &all);
-        assert_eq!(view.summary, "Depends on SHOP-18");
-        assert_eq!(view.count, "2 tickets");
-        let rows: Vec<_> = view.rows.iter().map(|r| (r.key.as_str(), r.depth, r.current)).collect();
-        assert_eq!(rows, [("SHOP-18", 0, false), ("SHOP-20", 1, true)]);
-
-        let none = stack_of(&lone, &all);
-        assert!(none.rows.is_empty());
-        assert_eq!(none.summary, "No dependencies \u{b7} nothing waits on SHOP-12");
-    }
-
-    #[test]
     fn no_messages_no_section_and_history_has_its_columns() {
         assert_eq!(with_lead(Vec::new(), None), None);
         assert_eq!(with_lead(Vec::new(), Some("Wishlist lead")), None);
@@ -1097,8 +1010,6 @@ mod tests {
         assert_eq!(overview["grid"]["heading"], "TICKETS \u{b7} 1");
         assert_eq!(overview["grid"]["rows"][0]["key"], child.as_str());
 
-        let stack = table(&h.app, "sections.stack", json!({ "key": lone })).await.unwrap();
-        assert_eq!(stack["rows"], json!([]));
         let messages = table(&h.app, "sections.messages", json!({ "key": lone })).await.unwrap();
         assert_eq!(messages, Value::Null);
         let history = table(&h.app, "sections.history", json!({ "key": lone })).await.unwrap();
@@ -1137,7 +1048,7 @@ mod tests {
         table(&h.app, "sections.close_epic", json!({ "epic": epic }))
             .await
             .unwrap();
-        let gone = table(&h.app, "sections.stack", json!({ "key": "SHOP-99" })).await.unwrap();
+        let gone = table(&h.app, "sections.messages", json!({ "key": "SHOP-99" })).await.unwrap();
         assert_eq!(gone, Value::Null);
         h.service.stop_all().await;
     }

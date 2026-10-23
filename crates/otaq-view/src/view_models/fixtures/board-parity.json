@@ -1922,6 +1922,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -1948,6 +1949,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -1964,6 +1966,7 @@
                   "origin": null,
                   "status": {
                     "dot": "paused",
+                    "icon": null,
                     "text": "Parked · has work · branch, files and conversation kept",
                     "tone": "secondary"
                   },
@@ -2005,6 +2008,7 @@
                     "primary": true
                   },
                   "avatar": null,
+                  "blocks": null,
                   "edge": "error",
                   "epic": null,
                   "faded": null,
@@ -2021,6 +2025,7 @@
                   "origin": null,
                   "status": {
                     "dot": "error",
+                    "icon": null,
                     "text": "Parent closed: A parent was closed without merging",
                     "tone": "error"
                   },
@@ -2040,6 +2045,7 @@
                     "primary": true
                   },
                   "avatar": null,
+                  "blocks": null,
                   "edge": "attention",
                   "epic": null,
                   "faded": null,
@@ -2056,6 +2062,7 @@
                   "origin": null,
                   "status": {
                     "dot": "attn",
+                    "icon": null,
                     "text": "Start failed: start didn’t finish · agent never started",
                     "tone": "attention"
                   },
@@ -2070,6 +2077,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -2086,6 +2094,7 @@
                   "origin": null,
                   "status": {
                     "dot": "queued",
+                    "icon": null,
                     "text": "Starting…",
                     "tone": "secondary"
                   },
@@ -2100,6 +2109,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -2116,6 +2126,7 @@
                   "origin": null,
                   "status": {
                     "dot": "queued",
+                    "icon": null,
                     "text": "waiting for a free slot",
                     "tone": "secondary"
                   },
@@ -2130,6 +2141,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -2146,6 +2158,7 @@
                   "origin": null,
                   "status": {
                     "dot": "queued",
+                    "icon": null,
                     "text": "Held",
                     "tone": "secondary"
                   },
@@ -2255,6 +2268,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -2271,6 +2285,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Asks you a question",
                       "tone": "attention"
                     },
@@ -2290,6 +2305,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -2306,6 +2322,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Needs you: waiting for your permission",
                       "tone": "attention"
                     },
@@ -2325,6 +2342,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -2341,6 +2359,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Idle: ended its turn",
                       "tone": "attention"
                     },
@@ -2360,6 +2379,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -2376,6 +2396,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Conflicts 1 time: delivery stopped",
                       "tone": "attention"
                     },
@@ -2395,6 +2416,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -2411,6 +2433,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Interrupted: session lost after reboot",
                       "tone": "attention"
                     },
@@ -2430,6 +2453,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -2446,6 +2470,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Resume failed · retry or start from scratch",
                       "tone": "attention"
                     },
@@ -2462,6 +2487,7 @@
                   "card": {
                     "action": null,
                     "avatar": null,
+                    "blocks": null,
                     "edge": null,
                     "epic": null,
                     "faded": null,
@@ -2478,6 +2504,7 @@
                     "origin": null,
                     "status": {
                       "dot": "working",
+                      "icon": null,
                       "text": "Working",
                       "tone": "secondary"
                     },
@@ -2604,6 +2631,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -2620,6 +2648,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Validator asks: waiting for your permission",
                       "tone": "attention"
                     },
@@ -2639,6 +2668,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -2655,6 +2685,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Validation failed 1 time",
                       "tone": "attention"
                     },
@@ -2674,6 +2705,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -2690,6 +2722,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "No result: validation ended without a result",
                       "tone": "attention"
                     },
@@ -2706,6 +2739,7 @@
                   "card": {
                     "action": null,
                     "avatar": null,
+                    "blocks": null,
                     "edge": null,
                     "epic": null,
                     "faded": null,
@@ -2722,6 +2756,7 @@
                     "origin": null,
                     "status": {
                       "dot": "queued",
+                      "icon": null,
                       "text": "Validating",
                       "tone": "secondary"
                     },
@@ -2938,6 +2973,7 @@
                         "primary": true
                       },
                       "avatar": null,
+                      "blocks": null,
                       "edge": "review",
                       "epic": null,
                       "faded": null,
@@ -2977,6 +3013,7 @@
                     "card": {
                       "action": null,
                       "avatar": null,
+                      "blocks": null,
                       "edge": null,
                       "epic": null,
                       "faded": null,
@@ -3003,6 +3040,7 @@
                     "card": {
                       "action": null,
                       "avatar": null,
+                      "blocks": null,
                       "edge": null,
                       "epic": null,
                       "faded": null,
@@ -3019,6 +3057,7 @@
                       "origin": null,
                       "status": {
                         "dot": "review",
+                        "icon": null,
                         "text": "PR #481 open · Otaq doesn’t watch PRs. Mark it once it’s merged on GitHub.",
                         "tone": "secondary"
                       },
@@ -3059,6 +3098,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": 0.550000011920929,
@@ -3085,6 +3125,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": 0.800000011920929,
@@ -3101,6 +3142,7 @@
                   "origin": null,
                   "status": {
                     "dot": "queued",
+                    "icon": null,
                     "text": "closed without merging",
                     "tone": "secondary"
                   },
@@ -3182,6 +3224,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
+        "links": [],
         "list": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -3209,8 +3252,37 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
+          "dependencies": {
+            "icon": "link",
+            "label": "Dependencies",
+            "options": [
+              {
+                "change": {
+                  "dependencies": "on_hover",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "On hover",
+                "selected": true,
+                "tooltip": null
+              },
+              {
+                "change": {
+                  "dependencies": "always",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "Always",
+                "selected": false,
+                "tooltip": null
+              }
+            ]
+          },
           "group_by": null,
           "lanes": {
+            "icon": null,
             "label": "Lanes",
             "options": [
               {
@@ -3251,6 +3323,7 @@
             "tooltip": null
           },
           "views": {
+            "icon": null,
             "label": null,
             "options": [
               {
@@ -3290,6 +3363,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -3316,6 +3390,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -3332,6 +3407,7 @@
                   "origin": null,
                   "status": {
                     "dot": "paused",
+                    "icon": null,
                     "text": "Parked · has work · branch, files and conversation kept",
                     "tone": "secondary"
                   },
@@ -3373,6 +3449,7 @@
                     "primary": true
                   },
                   "avatar": null,
+                  "blocks": null,
                   "edge": "error",
                   "epic": null,
                   "faded": null,
@@ -3389,6 +3466,7 @@
                   "origin": null,
                   "status": {
                     "dot": "error",
+                    "icon": null,
                     "text": "Parent closed: A parent was closed without merging",
                     "tone": "error"
                   },
@@ -3408,6 +3486,7 @@
                     "primary": true
                   },
                   "avatar": null,
+                  "blocks": null,
                   "edge": "attention",
                   "epic": null,
                   "faded": null,
@@ -3424,6 +3503,7 @@
                   "origin": null,
                   "status": {
                     "dot": "attn",
+                    "icon": null,
                     "text": "Start failed: start didn’t finish · agent never started",
                     "tone": "attention"
                   },
@@ -3438,6 +3518,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -3454,6 +3535,7 @@
                   "origin": null,
                   "status": {
                     "dot": "queued",
+                    "icon": null,
                     "text": "Starting…",
                     "tone": "secondary"
                   },
@@ -3468,6 +3550,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -3484,6 +3567,7 @@
                   "origin": null,
                   "status": {
                     "dot": "queued",
+                    "icon": null,
                     "text": "waiting for a free slot",
                     "tone": "secondary"
                   },
@@ -3498,6 +3582,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -3514,6 +3599,7 @@
                   "origin": null,
                   "status": {
                     "dot": "queued",
+                    "icon": null,
                     "text": "Held",
                     "tone": "secondary"
                   },
@@ -3623,6 +3709,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -3639,6 +3726,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Asks you a question",
                       "tone": "attention"
                     },
@@ -3658,6 +3746,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -3674,6 +3763,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Needs you: waiting for your permission",
                       "tone": "attention"
                     },
@@ -3693,6 +3783,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -3709,6 +3800,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Idle: ended its turn",
                       "tone": "attention"
                     },
@@ -3728,6 +3820,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -3744,6 +3837,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Conflicts 1 time: delivery stopped",
                       "tone": "attention"
                     },
@@ -3763,6 +3857,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -3779,6 +3874,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Interrupted: session lost after reboot",
                       "tone": "attention"
                     },
@@ -3798,6 +3894,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -3814,6 +3911,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Resume failed · retry or start from scratch",
                       "tone": "attention"
                     },
@@ -3830,6 +3928,7 @@
                   "card": {
                     "action": null,
                     "avatar": null,
+                    "blocks": null,
                     "edge": null,
                     "epic": null,
                     "faded": null,
@@ -3846,6 +3945,7 @@
                     "origin": null,
                     "status": {
                       "dot": "working",
+                      "icon": null,
                       "text": "Working",
                       "tone": "secondary"
                     },
@@ -3972,6 +4072,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -3988,6 +4089,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Validator asks: waiting for your permission",
                       "tone": "attention"
                     },
@@ -4007,6 +4109,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -4023,6 +4126,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Validation failed 1 time",
                       "tone": "attention"
                     },
@@ -4042,6 +4146,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -4058,6 +4163,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "No result: validation ended without a result",
                       "tone": "attention"
                     },
@@ -4074,6 +4180,7 @@
                   "card": {
                     "action": null,
                     "avatar": null,
+                    "blocks": null,
                     "edge": null,
                     "epic": null,
                     "faded": null,
@@ -4090,6 +4197,7 @@
                     "origin": null,
                     "status": {
                       "dot": "queued",
+                      "icon": null,
                       "text": "Validating",
                       "tone": "secondary"
                     },
@@ -4306,6 +4414,7 @@
                         "primary": true
                       },
                       "avatar": null,
+                      "blocks": null,
                       "edge": "review",
                       "epic": null,
                       "faded": null,
@@ -4345,6 +4454,7 @@
                     "card": {
                       "action": null,
                       "avatar": null,
+                      "blocks": null,
                       "edge": null,
                       "epic": null,
                       "faded": null,
@@ -4371,6 +4481,7 @@
                     "card": {
                       "action": null,
                       "avatar": null,
+                      "blocks": null,
                       "edge": null,
                       "epic": null,
                       "faded": null,
@@ -4387,6 +4498,7 @@
                       "origin": null,
                       "status": {
                         "dot": "review",
+                        "icon": null,
                         "text": "PR #481 open · Otaq doesn’t watch PRs. Mark it once it’s merged on GitHub.",
                         "tone": "secondary"
                       },
@@ -4427,6 +4539,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": 0.550000011920929,
@@ -4453,6 +4566,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": 0.800000011920929,
@@ -4469,6 +4583,7 @@
                   "origin": null,
                   "status": {
                     "dot": "queued",
+                    "icon": null,
                     "text": "closed without merging",
                     "tone": "secondary"
                   },
@@ -4550,6 +4665,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
+        "links": [],
         "list": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -4577,8 +4693,37 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
+          "dependencies": {
+            "icon": "link",
+            "label": "Dependencies",
+            "options": [
+              {
+                "change": {
+                  "dependencies": "on_hover",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "On hover",
+                "selected": true,
+                "tooltip": null
+              },
+              {
+                "change": {
+                  "dependencies": "always",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "Always",
+                "selected": false,
+                "tooltip": null
+              }
+            ]
+          },
           "group_by": null,
           "lanes": {
+            "icon": null,
             "label": "Lanes",
             "options": [
               {
@@ -4619,6 +4764,7 @@
             "tooltip": null
           },
           "views": {
+            "icon": null,
             "label": null,
             "options": [
               {
@@ -4658,6 +4804,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -4684,6 +4831,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -4700,6 +4848,7 @@
                   "origin": null,
                   "status": {
                     "dot": "paused",
+                    "icon": null,
                     "text": "Parked · has work · branch, files and conversation kept",
                     "tone": "secondary"
                   },
@@ -4741,6 +4890,7 @@
                     "primary": true
                   },
                   "avatar": null,
+                  "blocks": null,
                   "edge": "error",
                   "epic": null,
                   "faded": null,
@@ -4757,6 +4907,7 @@
                   "origin": null,
                   "status": {
                     "dot": "error",
+                    "icon": null,
                     "text": "Parent closed: A parent was closed without merging",
                     "tone": "error"
                   },
@@ -4776,6 +4927,7 @@
                     "primary": true
                   },
                   "avatar": null,
+                  "blocks": null,
                   "edge": "attention",
                   "epic": null,
                   "faded": null,
@@ -4792,6 +4944,7 @@
                   "origin": null,
                   "status": {
                     "dot": "attn",
+                    "icon": null,
                     "text": "Start failed: start didn’t finish · agent never started",
                     "tone": "attention"
                   },
@@ -4806,6 +4959,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -4822,6 +4976,7 @@
                   "origin": null,
                   "status": {
                     "dot": "queued",
+                    "icon": null,
                     "text": "Starting…",
                     "tone": "secondary"
                   },
@@ -4836,6 +4991,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -4852,6 +5008,7 @@
                   "origin": null,
                   "status": {
                     "dot": "queued",
+                    "icon": null,
                     "text": "waiting for a free slot",
                     "tone": "secondary"
                   },
@@ -4866,6 +5023,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -4882,6 +5040,7 @@
                   "origin": null,
                   "status": {
                     "dot": "queued",
+                    "icon": null,
                     "text": "Held",
                     "tone": "secondary"
                   },
@@ -4991,6 +5150,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -5007,6 +5167,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Asks you a question",
                       "tone": "attention"
                     },
@@ -5026,6 +5187,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -5042,6 +5204,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Needs you: waiting for your permission",
                       "tone": "attention"
                     },
@@ -5061,6 +5224,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -5077,6 +5241,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Idle: ended its turn",
                       "tone": "attention"
                     },
@@ -5096,6 +5261,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -5112,6 +5278,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Conflicts 1 time: delivery stopped",
                       "tone": "attention"
                     },
@@ -5131,6 +5298,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -5147,6 +5315,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Interrupted: session lost after reboot",
                       "tone": "attention"
                     },
@@ -5166,6 +5335,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -5182,6 +5352,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Resume failed · retry or start from scratch",
                       "tone": "attention"
                     },
@@ -5198,6 +5369,7 @@
                   "card": {
                     "action": null,
                     "avatar": null,
+                    "blocks": null,
                     "edge": null,
                     "epic": null,
                     "faded": null,
@@ -5214,6 +5386,7 @@
                     "origin": null,
                     "status": {
                       "dot": "working",
+                      "icon": null,
                       "text": "Working",
                       "tone": "secondary"
                     },
@@ -5340,6 +5513,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -5356,6 +5530,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Validator asks: waiting for your permission",
                       "tone": "attention"
                     },
@@ -5375,6 +5550,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -5391,6 +5567,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "Validation failed 1 time",
                       "tone": "attention"
                     },
@@ -5410,6 +5587,7 @@
                       "primary": true
                     },
                     "avatar": null,
+                    "blocks": null,
                     "edge": "attention",
                     "epic": null,
                     "faded": null,
@@ -5426,6 +5604,7 @@
                     "origin": null,
                     "status": {
                       "dot": "attn",
+                      "icon": null,
                       "text": "No result: validation ended without a result",
                       "tone": "attention"
                     },
@@ -5442,6 +5621,7 @@
                   "card": {
                     "action": null,
                     "avatar": null,
+                    "blocks": null,
                     "edge": null,
                     "epic": null,
                     "faded": null,
@@ -5458,6 +5638,7 @@
                     "origin": null,
                     "status": {
                       "dot": "queued",
+                      "icon": null,
                       "text": "Validating",
                       "tone": "secondary"
                     },
@@ -5674,6 +5855,7 @@
                         "primary": true
                       },
                       "avatar": null,
+                      "blocks": null,
                       "edge": "review",
                       "epic": null,
                       "faded": null,
@@ -5713,6 +5895,7 @@
                     "card": {
                       "action": null,
                       "avatar": null,
+                      "blocks": null,
                       "edge": null,
                       "epic": null,
                       "faded": null,
@@ -5739,6 +5922,7 @@
                     "card": {
                       "action": null,
                       "avatar": null,
+                      "blocks": null,
                       "edge": null,
                       "epic": null,
                       "faded": null,
@@ -5755,6 +5939,7 @@
                       "origin": null,
                       "status": {
                         "dot": "review",
+                        "icon": null,
                         "text": "PR #481 open · Otaq doesn’t watch PRs. Mark it once it’s merged on GitHub.",
                         "tone": "secondary"
                       },
@@ -5795,6 +5980,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": 0.550000011920929,
@@ -5821,6 +6007,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": 0.800000011920929,
@@ -5837,6 +6024,7 @@
                   "origin": null,
                   "status": {
                     "dot": "queued",
+                    "icon": null,
                     "text": "closed without merging",
                     "tone": "secondary"
                   },
@@ -5918,6 +6106,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
+        "links": [],
         "list": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -5945,8 +6134,37 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
+          "dependencies": {
+            "icon": "link",
+            "label": "Dependencies",
+            "options": [
+              {
+                "change": {
+                  "dependencies": "on_hover",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "On hover",
+                "selected": true,
+                "tooltip": null
+              },
+              {
+                "change": {
+                  "dependencies": "always",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "Always",
+                "selected": false,
+                "tooltip": null
+              }
+            ]
+          },
           "group_by": null,
           "lanes": {
+            "icon": null,
             "label": "Lanes",
             "options": [
               {
@@ -5987,6 +6205,7 @@
             "tooltip": null
           },
           "views": {
+            "icon": null,
             "label": null,
             "options": [
               {
@@ -6204,6 +6423,7 @@
                   "card": {
                     "action": null,
                     "avatar": null,
+                    "blocks": null,
                     "edge": null,
                     "epic": null,
                     "faded": null,
@@ -6220,6 +6440,7 @@
                     "origin": null,
                     "status": {
                       "dot": "working",
+                      "icon": null,
                       "text": "Working",
                       "tone": "secondary"
                     },
@@ -6529,6 +6750,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
+        "links": [],
         "list": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -6556,8 +6778,37 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
+          "dependencies": {
+            "icon": "link",
+            "label": "Dependencies",
+            "options": [
+              {
+                "change": {
+                  "dependencies": "on_hover",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "On hover",
+                "selected": true,
+                "tooltip": null
+              },
+              {
+                "change": {
+                  "dependencies": "always",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "Always",
+                "selected": false,
+                "tooltip": null
+              }
+            ]
+          },
           "group_by": null,
           "lanes": {
+            "icon": null,
             "label": "Lanes",
             "options": [
               {
@@ -6598,6 +6849,7 @@
             "tooltip": null
           },
           "views": {
+            "icon": null,
             "label": null,
             "options": [
               {
@@ -6744,6 +6996,7 @@
                   "card": {
                     "action": null,
                     "avatar": null,
+                    "blocks": null,
                     "edge": null,
                     "epic": null,
                     "faded": null,
@@ -6760,6 +7013,7 @@
                     "origin": null,
                     "status": {
                       "dot": "working",
+                      "icon": null,
                       "text": "Working",
                       "tone": "secondary"
                     },
@@ -7069,6 +7323,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
+        "links": [],
         "list": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -7096,8 +7351,37 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
+          "dependencies": {
+            "icon": "link",
+            "label": "Dependencies",
+            "options": [
+              {
+                "change": {
+                  "dependencies": "on_hover",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "On hover",
+                "selected": true,
+                "tooltip": null
+              },
+              {
+                "change": {
+                  "dependencies": "always",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "Always",
+                "selected": false,
+                "tooltip": null
+              }
+            ]
+          },
           "group_by": null,
           "lanes": {
+            "icon": null,
             "label": "Lanes",
             "options": [
               {
@@ -7138,6 +7422,7 @@
             "tooltip": null
           },
           "views": {
+            "icon": null,
             "label": null,
             "options": [
               {
@@ -7284,6 +7569,7 @@
                   "card": {
                     "action": null,
                     "avatar": null,
+                    "blocks": null,
                     "edge": null,
                     "epic": null,
                     "faded": null,
@@ -7300,6 +7586,7 @@
                     "origin": null,
                     "status": {
                       "dot": "working",
+                      "icon": null,
                       "text": "Working",
                       "tone": "secondary"
                     },
@@ -7609,6 +7896,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
+        "links": [],
         "list": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -7636,8 +7924,37 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
+          "dependencies": {
+            "icon": "link",
+            "label": "Dependencies",
+            "options": [
+              {
+                "change": {
+                  "dependencies": "on_hover",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "On hover",
+                "selected": true,
+                "tooltip": null
+              },
+              {
+                "change": {
+                  "dependencies": "always",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "Always",
+                "selected": false,
+                "tooltip": null
+              }
+            ]
+          },
           "group_by": null,
           "lanes": {
+            "icon": null,
             "label": "Lanes",
             "options": [
               {
@@ -7678,6 +7995,7 @@
             "tooltip": null
           },
           "views": {
+            "icon": null,
             "label": null,
             "options": [
               {
@@ -8151,13 +8469,13 @@
       {
         "key": "NOTE-2",
         "steps": {
-          "approved": "Nothing",
+          "approved": "Blocked { dialog: Dialog { key: \"NOTE-2\", title: \"NOTE-2 is blocked\", body: \"It waits for NOTE-1 (in Review) to merge. Started now, its agent works without its changes and may have to redo work when it lands.\", hint: \"To start it, remove the dependency in the ticket first.\", keep: \"Keep it waiting\" }, queue: false }",
           "backlog": "Move",
-          "dev": "Nothing",
+          "dev": "Blocked { dialog: Dialog { key: \"NOTE-2\", title: \"NOTE-2 is blocked\", body: \"It waits for NOTE-1 (in Review) to merge. Started now, its agent works without its changes and may have to redo work when it lands.\", hint: \"To start it, remove the dependency in the ticket first.\", keep: \"Keep it waiting\" }, queue: false }",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Nothing",
-          "validate": "Nothing"
+          "review": "Blocked { dialog: Dialog { key: \"NOTE-2\", title: \"NOTE-2 is blocked\", body: \"It waits for NOTE-1 (in Review) to merge. Started now, its agent works without its changes and may have to redo work when it lands.\", hint: \"To start it, remove the dependency in the ticket first.\", keep: \"Keep it waiting\" }, queue: false }",
+          "validate": "Blocked { dialog: Dialog { key: \"NOTE-2\", title: \"NOTE-2 is blocked\", body: \"It waits for NOTE-1 (in Review) to merge. Started now, its agent works without its changes and may have to redo work when it lands.\", hint: \"To start it, remove the dependency in the ticket first.\", keep: \"Keep it waiting\" }, queue: false }"
         }
       },
       {
@@ -8233,11 +8551,14 @@
               }
             ],
             "key": "NOTE-1",
-            "legend": "Chain of NOTE-1 · NOTE-1 → NOTE-2",
             "members": [
               "NOTE-1",
               "NOTE-2"
-            ]
+            ],
+            "tip": {
+              "detail": "NOTE-2 (Ready)",
+              "title": "NOTE-1 blocks"
+            }
           },
           {
             "edges": [
@@ -8247,11 +8568,14 @@
               }
             ],
             "key": "NOTE-2",
-            "legend": "Chain of NOTE-2 · NOTE-1 → NOTE-2",
             "members": [
               "NOTE-1",
               "NOTE-2"
-            ]
+            ],
+            "tip": {
+              "detail": "by NOTE-1 (Review)",
+              "title": "NOTE-2 is blocked"
+            }
           }
         ],
         "columns": [
@@ -8262,6 +8586,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -8310,6 +8635,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -8325,9 +8651,10 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "status": {
-                    "dot": "queued",
-                    "text": "waits for NOTE-1 to merge (in Review)",
-                    "tone": "secondary"
+                    "dot": "paused",
+                    "icon": "link",
+                    "text": "Blocked · waits for NOTE-1 to merge",
+                    "tone": "paused"
                   },
                   "time": null,
                   "title": "Export as CSV",
@@ -8427,6 +8754,7 @@
                   "card": {
                     "action": null,
                     "avatar": null,
+                    "blocks": null,
                     "edge": null,
                     "epic": null,
                     "faded": null,
@@ -8443,6 +8771,7 @@
                     "origin": null,
                     "status": {
                       "dot": "working",
+                      "icon": null,
                       "text": "Working",
                       "tone": "secondary"
                     },
@@ -8457,6 +8786,7 @@
                   "card": {
                     "action": null,
                     "avatar": null,
+                    "blocks": null,
                     "edge": null,
                     "epic": "Sharing",
                     "faded": null,
@@ -8473,6 +8803,7 @@
                     "origin": null,
                     "status": {
                       "dot": "working",
+                      "icon": null,
                       "text": "Working",
                       "tone": "secondary"
                     },
@@ -8796,6 +9127,10 @@
                         "primary": true
                       },
                       "avatar": null,
+                      "blocks": {
+                        "line": "Blocks NOTE-2",
+                        "tag": "blocks 1"
+                      },
                       "edge": "review",
                       "epic": null,
                       "faded": null,
@@ -8857,6 +9192,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": "Sharing",
                   "faded": 0.550000011920929,
@@ -8958,6 +9294,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
+        "links": [],
         "list": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -8985,8 +9322,37 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
+          "dependencies": {
+            "icon": "link",
+            "label": "Dependencies",
+            "options": [
+              {
+                "change": {
+                  "dependencies": "on_hover",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "On hover",
+                "selected": true,
+                "tooltip": null
+              },
+              {
+                "change": {
+                  "dependencies": "always",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "Always",
+                "selected": false,
+                "tooltip": null
+              }
+            ]
+          },
           "group_by": null,
           "lanes": {
+            "icon": null,
             "label": "Lanes",
             "options": [
               {
@@ -9027,6 +9393,7 @@
             "tooltip": null
           },
           "views": {
+            "icon": null,
             "label": null,
             "options": [
               {
@@ -9066,11 +9433,14 @@
               }
             ],
             "key": "NOTE-1",
-            "legend": "Chain of NOTE-1 · NOTE-1 → NOTE-2",
             "members": [
               "NOTE-1",
               "NOTE-2"
-            ]
+            ],
+            "tip": {
+              "detail": "NOTE-2 (Ready)",
+              "title": "NOTE-1 blocks"
+            }
           },
           {
             "edges": [
@@ -9080,11 +9450,14 @@
               }
             ],
             "key": "NOTE-2",
-            "legend": "Chain of NOTE-2 · NOTE-1 → NOTE-2",
             "members": [
               "NOTE-1",
               "NOTE-2"
-            ]
+            ],
+            "tip": {
+              "detail": "by NOTE-1 (Review)",
+              "title": "NOTE-2 is blocked"
+            }
           }
         ],
         "columns": [
@@ -9095,6 +9468,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -9143,6 +9517,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -9158,9 +9533,10 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "status": {
-                    "dot": "queued",
-                    "text": "waits for NOTE-1 to merge (in Review)",
-                    "tone": "secondary"
+                    "dot": "paused",
+                    "icon": "link",
+                    "text": "Blocked · waits for NOTE-1 to merge",
+                    "tone": "paused"
                   },
                   "time": null,
                   "title": "Export as CSV",
@@ -9260,6 +9636,7 @@
                   "card": {
                     "action": null,
                     "avatar": null,
+                    "blocks": null,
                     "edge": null,
                     "epic": null,
                     "faded": null,
@@ -9276,6 +9653,7 @@
                     "origin": null,
                     "status": {
                       "dot": "working",
+                      "icon": null,
                       "text": "Working",
                       "tone": "secondary"
                     },
@@ -9290,6 +9668,7 @@
                   "card": {
                     "action": null,
                     "avatar": null,
+                    "blocks": null,
                     "edge": null,
                     "epic": "Sharing",
                     "faded": null,
@@ -9306,6 +9685,7 @@
                     "origin": null,
                     "status": {
                       "dot": "working",
+                      "icon": null,
                       "text": "Working",
                       "tone": "secondary"
                     },
@@ -9629,6 +10009,10 @@
                         "primary": true
                       },
                       "avatar": null,
+                      "blocks": {
+                        "line": "Blocks NOTE-2",
+                        "tag": "blocks 1"
+                      },
                       "edge": "review",
                       "epic": null,
                       "faded": null,
@@ -9690,6 +10074,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": "Sharing",
                   "faded": 0.550000011920929,
@@ -9791,6 +10176,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
+        "links": [],
         "list": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -9818,8 +10204,37 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
+          "dependencies": {
+            "icon": "link",
+            "label": "Dependencies",
+            "options": [
+              {
+                "change": {
+                  "dependencies": "on_hover",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "On hover",
+                "selected": true,
+                "tooltip": null
+              },
+              {
+                "change": {
+                  "dependencies": "always",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "Always",
+                "selected": false,
+                "tooltip": null
+              }
+            ]
+          },
           "group_by": null,
           "lanes": {
+            "icon": null,
             "label": "Lanes",
             "options": [
               {
@@ -9860,6 +10275,7 @@
             "tooltip": null
           },
           "views": {
+            "icon": null,
             "label": null,
             "options": [
               {
@@ -9899,11 +10315,14 @@
               }
             ],
             "key": "NOTE-1",
-            "legend": "Chain of NOTE-1 · NOTE-1 → NOTE-2",
             "members": [
               "NOTE-1",
               "NOTE-2"
-            ]
+            ],
+            "tip": {
+              "detail": "NOTE-2 (Ready)",
+              "title": "NOTE-1 blocks"
+            }
           },
           {
             "edges": [
@@ -9913,11 +10332,14 @@
               }
             ],
             "key": "NOTE-2",
-            "legend": "Chain of NOTE-2 · NOTE-1 → NOTE-2",
             "members": [
               "NOTE-1",
               "NOTE-2"
-            ]
+            ],
+            "tip": {
+              "detail": "by NOTE-1 (Review)",
+              "title": "NOTE-2 is blocked"
+            }
           }
         ],
         "columns": [
@@ -9928,6 +10350,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -9976,6 +10399,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": null,
                   "faded": null,
@@ -9991,9 +10415,10 @@
                   "open_terminal": "Open terminal",
                   "origin": null,
                   "status": {
-                    "dot": "queued",
-                    "text": "waits for NOTE-1 to merge (in Review)",
-                    "tone": "secondary"
+                    "dot": "paused",
+                    "icon": "link",
+                    "text": "Blocked · waits for NOTE-1 to merge",
+                    "tone": "paused"
                   },
                   "time": null,
                   "title": "Export as CSV",
@@ -10093,6 +10518,7 @@
                   "card": {
                     "action": null,
                     "avatar": null,
+                    "blocks": null,
                     "edge": null,
                     "epic": null,
                     "faded": null,
@@ -10109,6 +10535,7 @@
                     "origin": null,
                     "status": {
                       "dot": "working",
+                      "icon": null,
                       "text": "Working",
                       "tone": "secondary"
                     },
@@ -10123,6 +10550,7 @@
                   "card": {
                     "action": null,
                     "avatar": null,
+                    "blocks": null,
                     "edge": null,
                     "epic": "Sharing",
                     "faded": null,
@@ -10139,6 +10567,7 @@
                     "origin": null,
                     "status": {
                       "dot": "working",
+                      "icon": null,
                       "text": "Working",
                       "tone": "secondary"
                     },
@@ -10462,6 +10891,10 @@
                         "primary": true
                       },
                       "avatar": null,
+                      "blocks": {
+                        "line": "Blocks NOTE-2",
+                        "tag": "blocks 1"
+                      },
                       "edge": "review",
                       "epic": null,
                       "faded": null,
@@ -10523,6 +10956,7 @@
                 "card": {
                   "action": null,
                   "avatar": null,
+                  "blocks": null,
                   "edge": null,
                   "epic": "Sharing",
                   "faded": 0.550000011920929,
@@ -10624,6 +11058,7 @@
         "focus": null,
         "folded_width": 52.0,
         "lanes": null,
+        "links": [],
         "list": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -10651,8 +11086,37 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
+          "dependencies": {
+            "icon": "link",
+            "label": "Dependencies",
+            "options": [
+              {
+                "change": {
+                  "dependencies": "on_hover",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "On hover",
+                "selected": true,
+                "tooltip": null
+              },
+              {
+                "change": {
+                  "dependencies": "always",
+                  "kind": "dependencies"
+                },
+                "icon": null,
+                "keys": null,
+                "label": "Always",
+                "selected": false,
+                "tooltip": null
+              }
+            ]
+          },
           "group_by": null,
           "lanes": {
+            "icon": null,
             "label": "Lanes",
             "options": [
               {
@@ -10693,6 +11157,7 @@
             "tooltip": null
           },
           "views": {
+            "icon": null,
             "label": null,
             "options": [
               {

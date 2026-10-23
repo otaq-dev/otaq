@@ -228,6 +228,21 @@
   min-width: 0;
 }
 
+/* A blocked ticket's link in place of the dot (DPV-01, `s24-09`). */
+.card-status-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+/* "Blocks SHOP-20" (DPV-01): muted, under the line. */
+.card-blocks {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+}
+
 .card-status-dot {
   flex: none;
   width: 7px;

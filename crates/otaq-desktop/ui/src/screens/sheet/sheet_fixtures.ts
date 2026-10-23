@@ -171,7 +171,8 @@ export const VIEW: PanelView = {
   holds: [],
 };
 
-/** Registries with the sheet's, Overview's and Session's screens, and Activity's and the Stack section's stand-ins. */
+/** Registries with the sheet's, Overview's and Session's screens, and Activity's and the Dependencies section's
+ * stand-ins. */
 export function sheetRegistries(): Registries {
   const app = createRegistries();
   sheetScreen(app);
@@ -180,7 +181,9 @@ export function sheetRegistries(): Registries {
   app.sheetTabs.register("activity", {
     Component: ({ ticket }) => createElement("p", null, `activity of ${ticket}`),
   });
-  app.panelSections.register("stack", { Component: () => createElement("p", null, "the stack") });
+  app.panelSections.register("dependencies", {
+    Component: () => createElement("p", null, "the dependencies"),
+  });
   return app;
 }
 

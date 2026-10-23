@@ -107,9 +107,6 @@ function FullForm({
           onChange={editor.setForm}
           titleMissing={editor.titleMissing}
           refusal={editor.refusal}
-          chips={editor.chips}
-          onAddDep={editor.addDep}
-          onRemoveDep={editor.removeDep}
           autoFocusTitle
           onSave={save}
         />

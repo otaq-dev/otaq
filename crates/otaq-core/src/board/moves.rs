@@ -7,7 +7,8 @@
 //! ([`crate::flow::engine::drag`], STG-06). [`Board::move_ticket`] carries out the bookkeeping moves: Start (a parked
 //! ticket returns to the stage it left), Unqueue, Reopen and PR rework. Park and Approve have their own requests;
 //! the drags that stop or start sessions (back to any earlier stage, forward past stages) are
-//! [`crate::review::Review::drag`]'s.
+//! [`crate::review::Review::drag`]'s. A ticket whose dependencies aren't merged can't be started past Ready for Dev,
+//! by a drag or by Start ([`blocks_start`], DPV-03, d0049): [`Board::check_drag`] refuses it ("SHOP-20 is blocked").
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -158,6 +159,24 @@ pub const EPIC_NO_DRAG_BACK: &str = "An epic can\u{2019}t be dragged back";
 /// A Backlog ticket dropped on an agent check: it starts with its first Agent stage.
 pub const QUEUE_FIRST: &str = "Drag it to Ready for Dev to queue it";
 
+/// The refusal of a drag or Start past Ready for Dev for a ticket whose dependencies aren't all merged (DPV-03,
+/// d0049): "SHOP-20 is blocked". There is no way to start it anyway; a drop on Ready for Dev queues it as before.
+pub fn blocked_text(key: &crate::domain::TicketKey) -> String {
+    format!("{key} is blocked")
+}
+
+/// Whether dropping `ticket` on `target` would start it past Ready for Dev while a dependency isn't merged (DPV-03,
+/// d0049): a ticket that hasn't started yet (Backlog or Ready for Dev) dropped on any stage of `flow`, while
+/// [`readiness`](super::readiness::readiness) says it waits (or a parent closed, which never counts as merged).
+/// `tickets` are its project's. Epics queue their children, who each wait on their own.
+pub fn blocks_start(flow: &Flow, ticket: &Ticket, tickets: &[Ticket], target: &DropOn) -> bool {
+    !ticket.is_epic()
+        && !ticket.depends_on.is_empty()
+        && matches!(ticket.place, Place::Backlog | Place::Waiting(None))
+        && matches!(target.in_flow(flow), Some(Target::Stage(_)))
+        && !super::readiness::readiness(ticket, tickets).is_ready()
+}
+
 /// Decides a drag or a "Start" (⇧⌘D, which is a drop on [`DropTarget::ReadyForDev`]) on the default flow.
 pub fn check_move(ticket: &Ticket, target: impl Into<DropOn>) -> MoveCheck {
     check_move_in(&crate::flow::default_file().flow, ticket, target)
@@ -293,6 +312,16 @@ impl Board {
         target: &DropOn,
     ) -> Result<MoveCheck, BoardError> {
         let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        // A blocked ticket can't be started past Ready for Dev, by a drag or by Start (DPV-03): the scheduler would
+        // hold it anyway, and an agent started now would work without its parents' changes.
+        if !ticket.depends_on.is_empty() {
+            let tickets = self.tickets(ticket.key.project.as_str()).await?;
+            if blocks_start(&flow, ticket, &tickets, target) {
+                return Ok(MoveCheck::Refused {
+                    reason: blocked_text(&ticket.key),
+                });
+            }
+        }
         let skips = self.ticket_skips(ticket, &flow).await?;
         Ok(check_with(&flow, ticket, &skips, target))
     }

@@ -1,15 +1,13 @@
-// The editor's form (UI-05, TKT-03, TKT-09, DEP-01, DEP-02, DEP-04; d0019, d0051, d0065, d0067; *08 · Ticket editor
-// → Full form · filled, Validation · empty form, Depends on · picker open, Cycle prevention, Row · base branch per
-// ticket, Row · epics and base branches*): Title, Priority, Type and Epic (when creating), What and why, Depends
-// on with its picker, Start from and merge into, External ID. Text fields are the webview's own (selection, IME,
+// The editor's form (UI-05, TKT-03, TKT-09, DEP-02, DEP-04; d0019, d0051, d0065, d0067; *08 · Ticket editor → Full
+// form · filled, Validation · empty form, Row · base branch per ticket, Row · epics and base branches*): Title,
+// Priority, Type and Epic (when creating), What and why, Start from and merge into, External ID. Dependencies are the
+// sheet's (DPV-04, `screens/dependencies`). Text fields are the webview's own (selection, IME,
 // undo); What and why is the Markdown editor with its toolbar (TKT-10; d0078 D5; *08 → b · Filled · edit mode,
 // i · At max height, scrolled*). Used by the modal (new ticket, ⌘N) and the Ticket tab.
-import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
-import { Button, Field, Kbd, Segmented, Select, StageChoices, StatusPill } from "../../components";
-import type { EditorDepChip } from "../../generated/EditorDepChip";
+import { Button, Field, Kbd, Segmented, Select, StageChoices } from "../../components";
 import type { EditorForm } from "../../generated/EditorForm";
-import type { EditorPickerRow } from "../../generated/EditorPickerRow";
 import type { EditorRefusal } from "../../generated/EditorRefusal";
 import type { EditorView } from "../../generated/EditorView";
 import type { MenuItem } from "../../generated/MenuItem";
@@ -30,7 +28,7 @@ import {
 } from "../../markdown";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { highlighted, isSaveKey, refusalFor, SAVE_KEYS, shownPriority, step } from "./logic";
+import { isSaveKey, refusalFor, SAVE_KEYS, shownPriority } from "./logic";
 
 const ignore = () => undefined;
 
@@ -43,155 +41,6 @@ export function RefusalBox({ refusal }: { refusal: EditorRefusal | null }) {
         <p className="editor-refusal-title">{refusal.title}</p>
         <p className="editor-refusal-message">{refusal.message}</p>
       </div>
-    </div>
-  );
-}
-
-interface DepsProps {
-  view: EditorView;
-  chips: readonly EditorDepChip[];
-  refusal: EditorRefusal | null;
-  onAdd: (row: EditorPickerRow) => void;
-  onRemove: (key: string) => void;
-}
-
-/** Depends on: the chips with their live status, and the picker that opens as you type (same project only). */
-function DepsField({ view, chips, refusal, onAdd, onRemove }: DepsProps) {
-  const input = useRef<HTMLInputElement>(null);
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-  const [hover, setHover] = useState<number | null>(null);
-  const [rows, setRows] = useState<readonly EditorPickerRow[]>([]);
-  const chosen = chips.map((c) => c.key).join(" ");
-  useEffect(() => {
-    if (!open) return;
-    let live = true;
-    const params = {
-      project: view.project,
-      editing: view.key,
-      chosen: chosen === "" ? [] : chosen.split(" "),
-      query,
-    };
-    (request("editor.picker", params) as Promise<EditorPickerRow[]>).then((r) => {
-      if (live) setRows(r);
-    }, ignore);
-    return () => {
-      live = false;
-    };
-  }, [open, query, chosen, view.project, view.key]);
-  const enabled = rows.map((r) => r.enabled);
-  const lit = open ? highlighted(hover, enabled) : null;
-  const pick = (row: EditorPickerRow) => {
-    if (!row.enabled) return;
-    onAdd(row);
-    setQuery("");
-    setOpen(false);
-    setHover(null);
-  };
-  // Native, so the keys stay here before an enclosing dialog's ↵ / Esc see them.
-  const onKey = useEffectEvent((e: KeyboardEvent) => {
-    if (!open || e.isComposing) return;
-    if (e.key === "Escape") {
-      setOpen(false);
-    } else if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) {
-      const row = lit === null ? undefined : rows[lit];
-      if (row) pick(row);
-    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      setHover((h) => step(h, e.key === "ArrowDown" ? 1 : -1, enabled));
-    } else {
-      return;
-    }
-    e.preventDefault();
-    e.stopPropagation();
-  });
-  useEffect(() => {
-    const el = input.current;
-    if (!el) return;
-    const listener = (e: KeyboardEvent) => {
-      onKey(e);
-    };
-    el.addEventListener("keydown", listener);
-    return () => {
-      el.removeEventListener("keydown", listener);
-    };
-  }, []);
-  return (
-    <div className="editor-field">
-      <div className="editor-label">
-        <span>{view.texts.deps}</span>
-        <span className="editor-hint">{view.texts.deps_hint}</span>
-      </div>
-      <div className="editor-deps" data-invalid={refusal !== null || undefined}>
-        {chips.map((chip) => (
-          <span key={chip.key} className="editor-chip">
-            <span className="editor-chip-key">{chip.key}</span>
-            <StatusPill pill={chip.pill} />
-            <button
-              type="button"
-              className="editor-chip-remove"
-              aria-label={`${view.texts.deps}: ${chip.key} ×`}
-              onClick={() => {
-                onRemove(chip.key);
-              }}
-            >
-              <Icon name="x" size={11} />
-            </button>
-          </span>
-        ))}
-        <input
-          ref={input}
-          className="editor-deps-input"
-          value={query}
-          placeholder={view.texts.deps_placeholder}
-          aria-label={view.texts.deps}
-          aria-expanded={open}
-          role="combobox"
-          aria-controls="editor-picker"
-          spellCheck={false}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setOpen(true);
-            setHover(null);
-          }}
-          onBlur={() => {
-            setOpen(false);
-          }}
-        />
-        {open && rows.length > 0 && (
-          <div className="editor-picker" id="editor-picker" role="listbox" aria-label={view.texts.deps}>
-            {rows.map((row, i) => (
-              <div
-                key={row.key}
-                role="option"
-                tabIndex={-1}
-                aria-selected={i === lit}
-                aria-disabled={!row.enabled || undefined}
-                className="editor-picker-row"
-                data-lit={i === lit || undefined}
-                onMouseEnter={() => {
-                  setHover(i);
-                }}
-                // Picking must not blur the field first (that would close the list before the click lands).
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  pick(row);
-                }}
-              >
-                <span className="editor-picker-key">{row.key}</span>
-                <span className="editor-picker-text">
-                  <span className="editor-picker-title">{row.title}</span>
-                  <span className="editor-picker-note">{row.note}</span>
-                </span>
-                {row.epic_progress !== null && (
-                  <span className="editor-picker-epic">{row.epic_progress}</span>
-                )}
-                <StatusPill pill={row.pill} />
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <RefusalBox refusal={refusal} />
     </div>
   );
 }
@@ -452,10 +301,6 @@ export interface FieldsProps {
   onChange: (form: EditorForm) => void;
   titleMissing: boolean;
   refusal: EditorRefusal | null;
-  /** The dependency chips: an existing ticket's live links, or a new ticket's picks. */
-  chips: readonly EditorDepChip[];
-  onAddDep: (row: EditorPickerRow) => void;
-  onRemoveDep: (key: string) => void;
   autoFocusTitle?: boolean;
   /** Saves the form: the full-window view's Save and ⌘↵ (T-0260). */
   onSave: () => void;
@@ -467,9 +312,6 @@ export function EditorFields({
   onChange,
   titleMissing,
   refusal,
-  chips,
-  onAddDep,
-  onRemoveDep,
   autoFocusTitle = false,
   onSave,
 }: FieldsProps) {
@@ -567,15 +409,6 @@ export function EditorFields({
           onSave={onSave}
         />
       </div>
-      {view.deps_shown && !form.epic_kind && (
-        <DepsField
-          view={view}
-          chips={chips}
-          refusal={refusalFor(refusal, "deps")}
-          onAdd={onAddDep}
-          onRemove={onRemoveDep}
-        />
-      )}
       {!(view.create && epicChild) && (
         <div className="editor-field">
           <div className="editor-label">

@@ -3,4 +3,4 @@
 /**
  * Which field a refusal belongs to.
  */
-export type EditorRefusalField = "deps" | "base" | "form";
+export type EditorRefusalField = "base" | "form";

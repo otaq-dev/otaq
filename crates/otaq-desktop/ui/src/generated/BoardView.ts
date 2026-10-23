@@ -7,6 +7,7 @@ import type { BoardLane } from "./BoardLane";
 import type { BoardMoreStages } from "./BoardMoreStages";
 import type { BoardScrollChip } from "./BoardScrollChip";
 import type { BoardToolbar } from "./BoardToolbar";
+import type { ChainEdge } from "./ChainEdge";
 import type { ChainView } from "./ChainView";
 import type { EmptyBoardView } from "./EmptyBoardView";
 import type { ListView } from "./ListView";
@@ -24,6 +25,11 @@ empty: EmptyBoardView | null, scroll_chip: BoardScrollChip,
  * The chain of every linked card, for the highlight on hover or selection (DEP-05, T-0229).
  */
 chains: Array<ChainView>, 
+/**
+ * Dependencies: Always (DPV-02): every link between open tickets, drawn dashed where both cards are in view;
+ * empty with On hover.
+ */
+links: Array<ChainEdge>, 
 /**
  * Lanes: Epic (EPL-01): one lane per epic across `columns`, "No epic" last; `null` with Lanes: None (and in
  * the List). The columns keep their headers and counts; their cards are the lanes'.

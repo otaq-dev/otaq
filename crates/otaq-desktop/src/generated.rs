@@ -178,9 +178,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::AgentsOpen::export_all(&cfg)?;
     // Settings → Flow, Use a preset… and the flow banner's requests (T-0422).
     crate::api::export_flow_types(&cfg)?;
-    // Overview's Stack and Messages sections, Activity (History) and the epic dialogs (T-0223, T-0466).
+    // Overview's Messages sections, Activity (History) and the epic dialogs (T-0223, T-0466).
     crate::api::SectionParams::export_all(&cfg)?;
-    crate::api::StackView::export_all(&cfg)?;
     crate::api::MessagesView::export_all(&cfg)?;
     crate::api::AnswerMessageParams::export_all(&cfg)?;
     crate::api::HistoryView::export_all(&cfg)?;
@@ -192,10 +191,6 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::EditorView::export_all(&cfg)?;
     crate::api::EditorSaveParams::export_all(&cfg)?;
     crate::api::EditorSaved::export_all(&cfg)?;
-    crate::api::EditorPickerParams::export_all(&cfg)?;
-    crate::api::EditorPickerRow::export_all(&cfg)?;
-    crate::api::EditorLinkParams::export_all(&cfg)?;
-    crate::api::EditorLinked::export_all(&cfg)?;
     crate::api::EditorBranchesParams::export_all(&cfg)?;
     crate::api::EditorCompareParams::export_all(&cfg)?;
     crate::api::EditorCompareEntry::export_all(&cfg)?;
@@ -328,6 +323,9 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::export_overview_types(&cfg)?;
     // The epic's sheet (T-0469, SHT-07): its header, Overview's stage grid, the Tickets tab.
     crate::api::export_epic_types(&cfg)?;
+    // Dependencies (T-0463, DPV-01…DPV-04): the sheet's section, its search and link, the blocked dialog, the card's
+    // "Blocks SHOP-20".
+    crate::api::export_dependency_types(&cfg)?;
     crate::api::export_report_types(&cfg)?;
     // The project menu (T-0473, FED-09): its view and its gallery.
     otaq_view::view_models::project_menu::ProjectMenu::export_all(&cfg)?;

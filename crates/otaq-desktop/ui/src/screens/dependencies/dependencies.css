@@ -1,0 +1,198 @@
+/*
+ * The sheet's DEPENDENCIES (DPV-04, `s24-11`): the label row with Add, BLOCKED BY and BLOCKS in mono capitals, each
+ * row on the column colour with its key, title and where it is now (a dot in its state's colour), its ✕ at the end;
+ * the Add picker (340 px): the direction, the search, the rows and the loop rule.
+ */
+.dependencies {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dependency-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dependency-group-label {
+  color: var(--text-muted);
+  font: 400 10.5px var(--font-mono);
+  letter-spacing: 0.6px;
+}
+
+.dependency-empty {
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+}
+
+.dependency-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 6px;
+  border-radius: 6px;
+  background: var(--bg-column);
+}
+
+.dependency-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dependency-open:focus-visible,
+.dependency-remove:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.dependency-key {
+  flex: none;
+  width: 64px;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-mono);
+}
+
+.dependency-title {
+  overflow: hidden;
+  flex: none;
+  width: 170px;
+  color: var(--text-primary);
+  font: 500 13px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dependency-place {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font: 400 12px var(--font-ui);
+  white-space: nowrap;
+}
+
+.dependency-place > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dependency-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.dependency-remove {
+  display: inline-flex;
+  flex: none;
+  padding: 4px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.dependency-remove:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.dependency-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  width: 316px;
+}
+
+.dependency-search {
+  display: flex;
+  align-self: stretch;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--text-muted);
+}
+
+.dependency-search:focus-within {
+  box-shadow: inset 0 0 0 1px var(--focus);
+}
+
+.dependency-search > input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+  font: 400 13px var(--font-ui);
+}
+
+.dependency-search > input::placeholder {
+  color: var(--text-muted);
+}
+
+.dependency-results {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  gap: 2px;
+}
+
+.dependency-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.dependency-result[data-lit] {
+  background: var(--bg-column);
+}
+
+.dependency-result-title {
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  font: 400 13px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dependency-result-place {
+  flex: none;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+}
+
+.dependency-rule {
+  margin: 0;
+  color: var(--text-muted);
+  font: 400 11.5px/1.4 var(--font-ui);
+}
+
+.dependency-rule[data-refused] {
+  color: var(--st-error);
+}

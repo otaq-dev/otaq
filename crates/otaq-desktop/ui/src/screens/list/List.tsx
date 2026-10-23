@@ -2,6 +2,7 @@
 // `s24-05`): the header TICKET · WHERE IN THE FLOW · WHAT'S HAPPENING · WHO, then the groups of the project's Group by,
 // each with its icon, count and hint, and their rows: the coloured edge, the status icon, key, title, the track (one
 // step per stage, then the place), the card's status line, who, time and the one action (or Start on a Backlog row).
+// A blocked row leads with the link and reads its amber line; a ticket others wait for says "blocks 1" (DPV-01).
 // What's happening takes whatever width is left, so the agent panel open narrows only it. Every word is Rust's
 // (`list_view.rs`, inside `board.view`). The Board (`board/Board.tsx`) owns the drag, the menu and the keys: a row is
 // pressed, clicked and dragged as a card is (`board.drag` / `board.drop`), and a group that is a drop target (Group by
@@ -122,9 +123,21 @@ export const Row = memo(function Row({ row, target, selected, lifted, focusable,
             <span>{card.epic}</span>
           </span>
         )}
-        <Tooltip text={card.title}>
-          <span className="list-row-title-text">{card.title}</span>
-        </Tooltip>
+        {card.blocks === null ? (
+          <Tooltip text={card.title}>
+            <span className="list-row-title-text">{card.title}</span>
+          </Tooltip>
+        ) : (
+          <span className="list-row-title-line">
+            <Tooltip text={card.title}>
+              <span className="list-row-title-text">{card.title}</span>
+            </Tooltip>
+            <span className="list-row-blocks">
+              <Icon name="link" size={11} />
+              <span>{card.blocks.tag}</span>
+            </span>
+          </span>
+        )}
       </span>
       <Track track={row.track} />
       <span

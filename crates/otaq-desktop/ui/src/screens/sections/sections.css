@@ -88,14 +88,6 @@
   box-shadow: var(--focus-ring);
 }
 
-.section-stack-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 30vh;
-  overflow-y: auto;
-}
-
 /* Messages · agent-to-agent: one raised card per thread, the answer indented 16 px. */
 .section-messages {
   gap: 8px;

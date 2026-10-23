@@ -21,7 +21,7 @@ interface Calls {
   onEditor: (editor: Editor) => void;
 }
 
-/** Priority, the description and Depends on, with a menu open in the form, the way both forms hold them. */
+/** Priority, the description and Start from and merge into, with a menu open in the form, the way both forms hold them. */
 function Fields({ onEditor, value }: { onEditor: (editor: Editor) => void; value: string }) {
   const editor = useMarkdownEditor({ value, label: "What and why" });
   useEffect(() => {
@@ -32,7 +32,7 @@ function Fields({ onEditor, value }: { onEditor: (editor: Editor) => void; value
     null,
     createElement("button", { id: "priority" }, "P3"),
     createElement(MarkdownSurface, { editor }),
-    createElement("input", { id: "deps" }),
+    createElement("input", { id: "base" }),
     createElement("div", { role: "menu", tabIndex: -1, id: "menu" }),
   );
 }
@@ -137,7 +137,7 @@ describe.each(["tab", "modal"] as const)("the %s form", (kind) => {
     expect(serializeMarkdown(editor)).toBe("line");
   });
 
-  it("Tab nests a list item and stays; Tab from a paragraph goes to Depends on, ⇧Tab to Priority", () => {
+  it("Tab nests a list item and stays; Tab from a paragraph goes to Start from and merge into, ⇧Tab to Priority", () => {
     const { editor, page } = mount(kind, "- one\n- two\n\nend\n");
     caretIn(editor, "two");
     press("Tab");
@@ -145,7 +145,7 @@ describe.each(["tab", "modal"] as const)("the %s form", (kind) => {
     expect(document.activeElement).toBe(editor.view.dom);
     caretIn(editor, "end");
     press("Tab");
-    expect(document.activeElement).toBe(page.querySelector("#deps"));
+    expect(document.activeElement).toBe(page.querySelector("#base"));
     caretIn(editor, "end");
     press("Tab", { shiftKey: true });
     expect(document.activeElement).toBe(page.querySelector("#priority"));

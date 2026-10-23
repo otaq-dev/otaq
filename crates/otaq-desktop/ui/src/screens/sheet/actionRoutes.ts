@@ -8,6 +8,8 @@ import type { PanelAnswerRow } from "../../generated/PanelAnswerRow";
 /** Where a button goes: the service (`panel.action`), a tab, or a dialog. */
 export type ActionRoute =
   | { kind: "service" }
+  // Start (DPV-03): `board.start`, whose answer may be the blocked ticket's dialog.
+  | { kind: "start" }
   | { kind: "terminal" }
   | { kind: "check" }
   | { kind: "answer_agent" }
@@ -26,6 +28,7 @@ export type ActionRoute =
 export function actionRoute(action: PanelAction): ActionRoute {
   switch (action) {
     case "start":
+      return { kind: "start" };
     case "retry_start":
     case "resume":
     case "retry_resume":

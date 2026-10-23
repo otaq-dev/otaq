@@ -376,6 +376,9 @@ pub struct BoardPage {
     pub scroll_chip: ScrollChip,
     /// The chain of every linked card, for the highlight on hover or selection (DEP-05, T-0229).
     pub chains: Vec<chain::View>,
+    /// Dependencies: Always (DPV-02): every link between open tickets, drawn dashed where both cards are in view;
+    /// empty with On hover.
+    pub links: Vec<chain::Edge>,
     /// Lanes: Epic (EPL-01): one lane per epic across `columns`, "No epic" last; `null` with Lanes: None (and in
     /// the List). The columns keep their headers and counts; their cards are the lanes'.
     pub lanes: Option<Vec<crate::view_models::lanes::Lane>>,
@@ -819,7 +822,16 @@ pub fn page(
             above: SCROLL_CHIP_ABOVE.to_owned(),
             need_you: SCROLL_CHIP_NEED_YOU.to_owned(),
         },
-        chains: chain::views(tickets),
+        chains: chain::views(
+            &crate::view_models::flow_columns::Columns::of(project.flow),
+            tickets,
+        ),
+        // Always (DPV-02): every open link drawn, quiet and dashed.
+        links: if prefs.dependencies == otaq_core::board::settings::Dependencies::Always {
+            crate::view_models::dependencies::links(tickets)
+        } else {
+            Vec::new()
+        },
         focus: strong.map(|keys| EpicFocus {
             epics: filter
                 .focused_epics(tickets)
@@ -1081,6 +1093,12 @@ pub enum DropStep {
     /// Cancel leaves the card where it was.
     DragBack,
     NotYet(String),
+    /// A blocked ticket dropped past Ready for Dev, or started (DPV-03): DPV-03's dialog. From Backlog it is queued in
+    /// Ready for Dev first (`queue`), where it waits; there is no way to start it.
+    Blocked {
+        dialog: crate::view_models::dependencies::Dialog,
+        queue: bool,
+    },
 }
 
 /// The core's drop target a page target means on `flow`'s board; `None` for an id the board doesn't have.
@@ -1108,6 +1126,12 @@ pub fn drop_step_in(
     let Some(target) = core_target(flow, target) else {
         return DropStep::Nothing;
     };
+    if otaq_core::board::moves::blocks_start(flow, ticket, tickets, &target) {
+        return DropStep::Blocked {
+            dialog: crate::view_models::dependencies::dialog(&Columns::of(flow), ticket, tickets),
+            queue: ticket.place == otaq_core::domain::Place::Backlog,
+        };
+    }
     match drag::on_drop_in(flow, ticket, tickets, target) {
         DropAction::Nothing => DropStep::Nothing,
         DropAction::Move => DropStep::Move,
@@ -1290,6 +1314,10 @@ pub enum DropOutcome {
     DragBack { dialog: Box<DragBackDialog> },
     /// Allowed by the rules, but not built yet: shown as a toast.
     NotYet { message: String },
+    /// A blocked ticket (DPV-03): the page shows the dialog; it already waits in Ready for Dev.
+    Blocked {
+        dialog: crate::view_models::dependencies::Dialog,
+    },
 }
 
 /// Where a card is, as today's board names it: its section in a human check's column ("Ready for Review",
@@ -3159,6 +3187,113 @@ mod tests {
             .unwrap_or_else(|| panic!("{key} is on the board"))
     }
 
+    /// DPV-03: SHOP-20 (Backlog, waiting for SHOP-18 and SHOP-19) dropped on Dev, or started with ⌘D or Start, opens
+    /// the dialog and queues it in Ready for Dev first; dropped on Ready for Dev it queues as today. Once in Ready, a
+    /// drag on to Dev opens the dialog with nothing to queue.
+    #[test]
+    fn a_blocked_ticket_past_ready_for_dev_opens_the_dialog() {
+        let flow = &otaq_core::flow::default_file().flow;
+        let tickets = storyboard(Status::WaitingForYou, Status::Working, Status::Backlog);
+        let t20 = tickets
+            .iter()
+            .find(|t| t.key.to_string() == "SHOP-20")
+            .unwrap();
+        let DropStep::Blocked { dialog, queue } =
+            drop_step_in(flow, t20, &tickets, &DropTargetId::DEV)
+        else {
+            panic!("the dialog");
+        };
+        assert!(queue, "from Backlog it goes to Ready for Dev");
+        assert_eq!(dialog.title, "SHOP-20 is blocked");
+        assert!(
+            dialog
+                .body
+                .starts_with("It waits for SHOP-18 (in Review) and SHOP-19 (in Dev) to merge."),
+            "{}",
+            dialog.body
+        );
+        assert_eq!(
+            drop_step_in(flow, t20, &tickets, &DropTargetId::READY_FOR_DEV),
+            DropStep::Move
+        );
+        let queued = storyboard(Status::WaitingForYou, Status::Working, Status::Queued);
+        let t20 = queued
+            .iter()
+            .find(|t| t.key.to_string() == "SHOP-20")
+            .unwrap();
+        assert!(matches!(
+            drop_step_in(flow, t20, &queued, &DropTargetId::DEV),
+            DropStep::Blocked { queue: false, .. }
+        ));
+        // A ticket whose parents merged is no longer blocked: Backlog → Dev queues it as before.
+        let free = storyboard(Status::Merged, Status::Merged, Status::Backlog);
+        let t20 = free
+            .iter()
+            .find(|t| t.key.to_string() == "SHOP-20")
+            .unwrap();
+        assert_eq!(
+            drop_step_in(flow, t20, &free, &DropTargetId::DEV),
+            DropStep::Move
+        );
+    }
+
+    /// DPV-02: Always sends every open link (the page draws those in view, dashed); On hover sends none, and each
+    /// chain carries its tooltip.
+    #[test]
+    fn always_sends_every_link_and_each_chain_its_tooltip() {
+        let tickets = storyboard(Status::WaitingForYou, Status::Working, Status::Queued);
+        let on_hover = page(
+            &tickets,
+            &facts(),
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
+        assert!(on_hover.links.is_empty());
+        let tip = on_hover
+            .chains
+            .iter()
+            .find(|c| c.key == "SHOP-20")
+            .and_then(|c| c.tip.clone())
+            .unwrap();
+        assert_eq!(
+            (tip.title.as_str(), tip.detail.as_str()),
+            (
+                "SHOP-20 is blocked",
+                "by SHOP-18 (Review) and SHOP-19 (Dev)"
+            )
+        );
+        let always = ProjectFacts {
+            view: view(ViewPrefs {
+                dependencies: otaq_core::board::settings::Dependencies::Always,
+                ..ViewPrefs::default()
+            }),
+            ..facts()
+        };
+        let page = page(
+            &tickets,
+            &always,
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
+        let links: Vec<(&str, &str)> = page
+            .links
+            .iter()
+            .map(|e| (e.parent.as_str(), e.child.as_str()))
+            .collect();
+        // SHOP-17 is merged: its link to SHOP-18 is history.
+        assert_eq!(
+            links,
+            [
+                ("SHOP-18", "SHOP-20"),
+                ("SHOP-19", "SHOP-20"),
+                ("SHOP-20", "SHOP-21")
+            ]
+        );
+        assert!(page.toolbar.dependencies.unwrap().options[1].selected);
+    }
+
     /// *12 · Stack & dependencies → 2 · The chain runs … 6 · Closed parent*, as the page receives them (the hand
     /// check walks them on the real board).
     #[test]
@@ -3173,24 +3308,26 @@ mod tests {
                 &KeyLabels::base(Platform::Mac),
             )
         };
-        // 1 · Planning: the parents on the situation line.
+        // 1 · Planning: DPV-01's blocked line, in Backlog too.
         let planning = at(Status::Backlog, Status::Backlog, Status::Backlog);
-        assert!(card_text(&planning, "SHOP-20").contains("after SHOP-18, SHOP-19"));
-        // 2 · The chain runs, then SHOP-18 in Review.
+        let blocked = "Blocked \u{b7} waits for SHOP-18 and SHOP-19 to merge";
+        assert!(card_text(&planning, "SHOP-20").contains(blocked));
+        // 2 · The chain runs, then SHOP-18 in Review: the same line until a parent merges.
         let runs = at(Status::Working, Status::Working, Status::Queued);
-        assert!(card_text(&runs, "SHOP-20").contains("waits for SHOP-18, SHOP-19 to merge"));
-        assert!(card_text(&runs, "SHOP-21").contains("waits for SHOP-20 to merge"));
+        assert!(card_text(&runs, "SHOP-20").contains(blocked));
+        assert!(card_text(&runs, "SHOP-21").contains("Blocked \u{b7} waits for SHOP-20 to merge"));
+        assert!(card_text(&runs, "SHOP-18").contains("Blocks SHOP-20"));
         let review = at(Status::WaitingForYou, Status::Working, Status::Queued);
-        assert!(card_text(&review, "SHOP-20").contains("SHOP-18 in Review"));
+        assert!(card_text(&review, "SHOP-20").contains(blocked));
         // 3 · One parent merged.
         let one = at(Status::Merged, Status::WaitingForYou, Status::Queued);
-        assert!(card_text(&one, "SHOP-20").contains("waits for SHOP-19 to merge"));
+        assert!(card_text(&one, "SHOP-20").contains("Blocked \u{b7} waits for SHOP-19 to merge"));
         // 4 · All parents merged: SHOP-20 works from the new main; SHOP-21 still waits.
         let all = at(Status::Merged, Status::Merged, Status::Working);
         assert!(
             card_text(&all, "SHOP-20").contains("from main @ 3b7d0e1 · all dependencies merged")
         );
-        assert!(card_text(&all, "SHOP-21").contains("waits for SHOP-20 to merge"));
+        assert!(card_text(&all, "SHOP-21").contains("Blocked \u{b7} waits for SHOP-20 to merge"));
         // 5 · PR variant.
         let mut tickets = storyboard(Status::PrOpen, Status::Merged, Status::Queued);
         tickets[1].flags.pr_number = Some(482);
@@ -3201,7 +3338,7 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert!(card_text(&pr, "SHOP-20").contains("PR #482 open"));
+        assert!(card_text(&pr, "SHOP-20").contains("Blocked \u{b7} waits for SHOP-18 to merge"));
         // Mark merged is the sheet's now: a card that doesn't need the user has no button (BRD-03).
         assert!(!card_text(&pr, "SHOP-18").contains("Mark merged"));
         // 6 · Closed parent never counts as merged.
@@ -3508,7 +3645,7 @@ flow:
         let p1 = line_of(&page, "SHOP-35").0.unwrap();
         assert!(p1.starts_with("P1 \u{b7} "), "{p1}");
         let waits = line_of(&page, "SHOP-20").0.unwrap();
-        assert!(waits.starts_with("waits for SHOP-18"), "{waits}");
+        assert_eq!(waits, "Blocked \u{b7} waits for SHOP-18 to merge");
         let child = page.columns[0].cards.iter().find_map(|c| match c {
             BoardCard::Ticket { card, .. } if card.key == "SHOP-40.3" => Some(card),
             _ => None,

@@ -1,6 +1,6 @@
 // The board's toolbar, in both views (BRD-01; *24 · The two views*): Board · List first (`g b`, `g l`), then the
-// Board's Lanes None · Epic or the List's Group by, the Fold empty columns (or Hide empty stages) switch, All tickets
-// and New ticket. Every word and every change it sends is Rust's (`BoardToolbar`, `view_prefs.rs`); a click sends
+// Board's Lanes None · Epic or the List's Group by; on the right the Board's Dependencies On hover · Always (DPV-02,
+// `s24-09`), the Fold empty columns (or Hide empty stages) switch, All tickets and New ticket. Every word and every change it sends is Rust's (`BoardToolbar`, `view_prefs.rs`); a click sends
 // the option's change (`board.set_view`) and the board asks for its view again.
 import type { KeyboardEvent } from "react";
 
@@ -73,6 +73,11 @@ function Segments({
   };
   return (
     <>
+      {group.icon !== null && (
+        <span className="board-toolbar-label-icon" aria-hidden>
+          <Icon name={group.icon} size={13} />
+        </span>
+      )}
       {group.label !== null && <span className="board-toolbar-label">{group.label}</span>}
       {/* eslint-disable-next-line jsx-a11y/interactive-supports-focus -- its radios take the focus */}
       <div
@@ -101,6 +106,9 @@ export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket }: ToolbarP
         </>
       )}
       <span className="board-toolbar-spacer" />
+      {toolbar.dependencies && (
+        <Segments group={toolbar.dependencies} name={toolbar.dependencies.label ?? ""} onView={onView} />
+      )}
       <button
         type="button"
         role="switch"

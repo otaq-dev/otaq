@@ -1,5 +1,5 @@
 // The whole-form editor in place (UI-05, SES-08; d0019, d0048; *08 → Editing while the agent works*): what ⋯ Edit
-// ticket… (and Stack's "+ Add dependency", through `ticketEditRequests`) opens in the sheet's Overview, in place of the
+// ticket… (through `ticketEditRequests`) opens in the sheet's Overview, in place of the
 // description (T-0465: the description itself edits in place, `screens/overview`). Saving a working ticket tells its
 // agent what changed: Overview shows the note, with Open terminal. While it validates, the form warns first that
 // saving cancels the validation (VAL-08, *Editing while it validates*).
@@ -70,9 +70,6 @@ export function EditForm({ view, onDone }: { view: EditorView; onDone: (note: st
           onChange={editor.setForm}
           titleMissing={editor.titleMissing}
           refusal={editor.refusal}
-          chips={editor.chips}
-          onAddDep={editor.addDep}
-          onRemoveDep={editor.removeDep}
           autoFocusTitle
           onSave={save}
         />

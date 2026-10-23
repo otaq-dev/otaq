@@ -5,6 +5,7 @@ export { activity } from "./activity";
 export { askBar } from "./ask_bar";
 export { board } from "./board";
 export { components } from "./components";
+export { dependencies } from "./dependencies";
 export { editor } from "./editor";
 export { epic } from "./epic";
 export { files } from "./files";

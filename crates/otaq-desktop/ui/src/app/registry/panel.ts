@@ -17,8 +17,8 @@ export const SHEET_TABS: readonly SheetTab[] = [
 ];
 
 /** Overview's sections, in order (the epic's children are its own Overview's grid and Tickets tab, SHT-07; the
- * Messages are Activity's). */
-export const PANEL_SECTIONS = ["stack"] as const;
+ * Messages are Activity's): DEPENDENCIES (DPV-04, `screens/dependencies`). */
+export const PANEL_SECTIONS = ["dependencies"] as const;
 
 /** The box under Overview's top while the ticket's PR is open (T-0227, *05 → SHOP-26 · Approved, PR open*). */
 export const PANEL_UNDER_TABS = "pr_open" as const;

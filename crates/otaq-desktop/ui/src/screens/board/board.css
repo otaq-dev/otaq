@@ -521,6 +521,18 @@
   font: 400 12px var(--font-ui);
 }
 
+/* The link before "Dependencies" (DPV-02): 6 px from its words, as drawn. */
+.board-toolbar-label-icon {
+  display: inline-flex;
+  margin-right: -6px;
+  color: var(--text-muted);
+}
+
+/* DPV-03's dialog: how to start it, under what it waits for. */
+.board-blocked-hint {
+  font-size: 12.5px;
+}
+
 .board-toolbar-divider {
   width: 1px;
   height: 20px;
@@ -1090,10 +1102,10 @@ button.board-search-option[data-highlighted] {
 }
 
 /*
- * The chain highlight (*03 → Chain highlight · hover or select SHOP-20*, T-0229): accent arrows between members in
- * view and the legend at the board's bottom right, fixed to the window over the board's box (placed by
- * `ChainLayer`), under the lifted card. Chips that hide a member (the above chip, Dev's fold) and the Done rail's
- * member keys turn accent.
+ * The dependencies (DPV-02, `s24-09`, `s24-10`; T-0229, T-0463): Always's quiet dashed links, the hovered or selected
+ * card's chain in accent over them, and the hovered card's tooltip under it, fixed to the window over the board's box
+ * (placed by `ChainLayer`), under the lifted card. Chips that hide a member (the above chip, Dev's fold) and the Done
+ * rail's member keys turn accent.
  */
 .board-chain-arrows {
   position: fixed;
@@ -1113,31 +1125,27 @@ button.board-search-option[data-highlighted] {
   fill: var(--accent);
 }
 
-.board-chain-legend {
+/* Always (`s24-10`): every open link, quiet and dashed. */
+.board-link-line {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  stroke-linecap: round;
+}
+
+.board-link-head {
+  fill: var(--border-strong);
+}
+
+/* The hovered card's tooltip (`s24-09`): "SHOP-20 is blocked" over "by SHOP-18 (Review) and SHOP-29 (Dev)". */
+.board-chain-tip {
   position: fixed;
   z-index: 6;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  box-sizing: border-box;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--bg-raised);
-  color: var(--text-secondary);
-  font: 400 11px/normal var(--font-ui);
-  pointer-events: none;
 }
 
-.board-chain-legend > .icon {
-  flex: none;
-  color: var(--accent);
-}
-
-.board-chain-legend > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.board-chain-tip[hidden] {
+  display: none;
 }
 
 .board-chip[data-chain] {

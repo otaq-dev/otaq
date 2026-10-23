@@ -13,6 +13,8 @@ import type { BoardReviewSection } from "../../generated/BoardReviewSection";
 import { afterDrop, coveredWidth, dropCard, openApproveChoice } from "./Board";
 import { EMPTY_BOX } from "../editor/commentRules";
 import { DragBackBody, sendDragBack } from "./DragBackDialog";
+import { BlockedBody } from "./BlockedDialog";
+import type { BlockedDialog } from "../../generated/BlockedDialog";
 import type { CommentBoxView } from "../../generated/CommentBoxView";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
 import { columnsAfter, moreText, nextScroll } from "./more";
@@ -95,6 +97,7 @@ const cardOf = (key: string): BoardCard => ({
     epic: null,
     title: key,
     status: null,
+    blocks: null,
     avatar: null,
     who: null,
     time: null,
@@ -511,6 +514,30 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
     expect(asked).toEqual([]);
   });
 
+  it("a blocked ticket's drop opens DPV-03's dialog, whose only button keeps it waiting", () => {
+    const blocked: BlockedDialog = {
+      key: "SHOP-20",
+      title: "SHOP-20 is blocked",
+      body: "It waits for SHOP-18 (in Review) and SHOP-29 (in Dev) to merge. Started now, its agent works without their changes and may have to redo work when they land.",
+      hint: "To start it, remove the dependency in the ticket first.",
+      keep: "Keep it waiting",
+    };
+    const asked: string[] = [];
+    afterDrop(
+      { kind: "blocked", dialog: blocked },
+      () => undefined,
+      (method: string) => {
+        asked.push(method);
+        return Promise.resolve(null);
+      },
+    );
+    expect(overlays.store.get()).toEqual([{ id: "blocked", params: blocked }]);
+    expect(asked).toEqual([]);
+    const out = renderToStaticMarkup(createElement(BlockedBody, { view: blocked }));
+    expect(out).toContain("It waits for SHOP-18 (in Review) and SHOP-29 (in Dev) to merge.");
+    expect(out).toContain("To start it, remove the dependency in the ticket first.");
+  });
+
   it("draws the three dialogs: back to Dev, stop and send, and run a check again", () => {
     const back = body(sendBack);
     expect(back).toContain(">Comment for Dev (Rust developer)</label>");
@@ -598,7 +625,7 @@ describe("the board screen", () => {
   it("fills the board and search slots, the delete dialog, and ⌘N opens a new ticket", () => {
     const app = registerScreens({ board });
     expect(registered(app).slots).toEqual(["header_search", "board"]);
-    expect(registered(app).overlays).toEqual(["delete_ticket", "drag_back"]);
+    expect(registered(app).overlays).toEqual(["delete_ticket", "drag_back", "blocked"]);
     expect(app.shortcuts.run({ action: "new_ticket" })).toBe(true);
     expect(overlays.store.get()).toEqual([{ id: "new_ticket", params: undefined }]);
   });
@@ -774,6 +801,7 @@ describe("the board screen", () => {
       epic: null,
       title: "Child",
       status: null,
+      blocks: null,
       avatar: null,
       who: null,
       time: null,
@@ -912,6 +940,7 @@ describe("the Review column (T-0328, d0087)", () => {
       epic: null,
       title: "Checkout API",
       status: null,
+      blocks: null,
       avatar: null,
       who: null,
       time: null,
@@ -1069,6 +1098,7 @@ describe("the toolbar (BRD-01)", () => {
   const TOOLBAR = {
     views: {
       label: null,
+      icon: null,
       options: [
         {
           ...option("Board", true, { kind: "view", view: "board" }),
@@ -1086,12 +1116,21 @@ describe("the toolbar (BRD-01)", () => {
     },
     lanes: {
       label: "Lanes",
+      icon: null,
       options: [
         option("None", true, { kind: "lanes", lanes: "none" }),
         option("Epic", false, { kind: "lanes", lanes: "epic" }),
       ],
     },
     group_by: null,
+    dependencies: {
+      label: "Dependencies",
+      icon: "link",
+      options: [
+        option("On hover", true, { kind: "dependencies", dependencies: "on_hover" }),
+        option("Always", false, { kind: "dependencies", dependencies: "always" }),
+      ],
+    },
     switch: {
       ...option("Fold empty columns", false, { kind: "fold_empty_columns", on: true }),
       icon: "fold-horizontal",
@@ -1114,6 +1153,10 @@ describe("the toolbar (BRD-01)", () => {
       /role="radio" class="board-segment" aria-checked="true" tabindex="0">.*<span>Board<\/span>/,
     );
     expect(html).toContain('<span class="board-toolbar-label">Lanes</span>');
+    // DPV-02: the link, "Dependencies", then On hover · Always.
+    expect(html).toMatch(
+      /board-toolbar-label-icon.*<span class="board-toolbar-label">Dependencies<\/span><div class="board-segments" role="radiogroup" aria-label="Dependencies">.*<span>On hover<\/span>.*<span>Always<\/span>/,
+    );
     expect(html).toMatch(/role="switch" class="board-chip-button" aria-checked="false">.*Fold empty columns/);
     expect(html).toContain("<span>All tickets</span>");
     expect(html).toContain("<span>New ticket</span>");

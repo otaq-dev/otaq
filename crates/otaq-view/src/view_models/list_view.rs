@@ -319,12 +319,21 @@ fn this_week(ticket: &Ticket, now_ms: i64) -> bool {
 /// on a Backlog row (the drop on `start`, the first agent column) and whether it needs you. The epic sheet's Tickets
 /// tab draws its children with it (SHT-07).
 pub fn row(input: &BoardInput, columns: &Columns, start: Option<&DropTargetId>, t: &Ticket) -> Row {
-    let card = board::ticket_card(input, t);
+    let card = TicketCardView::from_vm(board::ticket_card(input, t), t);
     let pill = PillView::of(status::shown(t));
+    // A blocked row leads with the link, in the line's amber (DPV-01, `s24-10`).
+    let (icon, palette) = match card
+        .status
+        .as_ref()
+        .and_then(|s| s.icon.map(|i| (i, s.dot)))
+    {
+        Some(blocked) => blocked,
+        None => (pill.icon, pill.palette),
+    };
     Row {
-        card: TicketCardView::from_vm(card, t),
-        icon: pill.icon,
-        palette: pill.palette,
+        card,
+        icon,
+        palette,
         track: track(columns, t),
         start: start
             .filter(|_| t.place == Place::Backlog)
@@ -1321,6 +1330,32 @@ mod tests {
     }
 
     /// LST-02: Backlog rows have Start, the drop on the first agent column that ⌘D sends; other rows don't.
+    #[test]
+    fn a_blocked_row_leads_with_the_link_and_a_blocker_says_blocks_n() {
+        use otaq_core::board::settings::GroupBy as G;
+        let flow = shop_web();
+        let tickets = tickets();
+        let list = view(&input(&flow, &tickets), &prefs(G::Stage));
+        // DPV-01 (`s24-10`): SHOP-20 waits for SHOP-18, in amber with the link; SHOP-18 "blocks 1".
+        let blocked = row(&list, "SHOP-20");
+        assert_eq!(
+            (blocked.icon, blocked.palette),
+            (IconName::Link, Palette::Paused)
+        );
+        let line = blocked.card.status.as_ref().unwrap();
+        assert_eq!(
+            (line.text.as_str(), line.icon),
+            (
+                "Blocked \u{b7} waits for SHOP-18 to merge",
+                Some(IconName::Link)
+            )
+        );
+        let blocker = row(&list, "SHOP-18");
+        assert_eq!(blocker.card.blocks.as_ref().unwrap().tag, "blocks 1");
+        assert_eq!(blocker.card.blocks.as_ref().unwrap().line, "Blocks SHOP-20");
+        assert_ne!(blocker.icon, IconName::Link);
+    }
+
     #[test]
     fn backlog_rows_start() {
         use otaq_core::board::settings::GroupBy as G;

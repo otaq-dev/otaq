@@ -6,37 +6,12 @@ import { registered, registerScreens } from "../../app/registry";
 import type { CloseEpicDialogView } from "../../generated/CloseEpicDialogView";
 import type { MessagesView } from "../../generated/MessagesView";
 import type { MoveDialogView } from "../../generated/MoveDialogView";
-import type { PillView } from "../../generated/PillView";
-import type { StackView } from "../../generated/StackView";
 import type { ValidationReportView } from "../../generated/ValidationReportView";
 import { sections } from ".";
 import { CloseEpicBody, MoveDialogBody } from "./EpicDialogs";
-import { canMove, followMove, pickedChoice, stackOpen } from "./logic";
+import { canMove, followMove, pickedChoice } from "./logic";
 import { MessagesBody } from "./Messages";
 import { Report } from "./Report";
-import { StackBody } from "./Stack";
-
-const pill = (label: string): PillView => ({ palette: "queued", icon: "hourglass", label });
-
-const STACK: StackView = {
-  title: "Dependencies",
-  summary: "Depends on SHOP-18",
-  count: "2 tickets",
-  rows: [
-    { key: "SHOP-18", title: "Checkout API", depth: 0, current: false, waits: null, pill: pill("Review") },
-    {
-      key: "SHOP-20",
-      title: "Checkout page",
-      depth: 1,
-      current: true,
-      waits: "waits for SHOP-18 to merge",
-      pill: pill("Ready for Dev"),
-    },
-  ],
-  add_dependency: "+ Add dependency",
-  show_hint: "Show dependencies",
-  hide_hint: "Hide dependencies",
-};
 
 const MOVE: MoveDialogView = {
   old_key: "SHOP-51",
@@ -101,12 +76,6 @@ export const REPORT: ValidationReportView = {
 };
 
 describe("the sections' interaction state", () => {
-  it("the Stack opens by itself when there are links; a toggle wins", () => {
-    expect(stackOpen(null, 2)).toBe(true);
-    expect(stackOpen(false, 2)).toBe(false);
-    expect(stackOpen(true, 0)).toBe(false);
-  });
-
   it("Move to epic picks the first epic until one is clicked; a refusal blocks it", () => {
     expect(pickedChoice(MOVE, null)?.key).toBe("SHOP-40");
     expect(pickedChoice(MOVE, "SHOP-60")?.new_key).toBe("SHOP-60.2");
@@ -122,28 +91,6 @@ describe("the sections' interaction state", () => {
 });
 
 describe("the sections", () => {
-  it("Stack: rows with their waiting text, the open ticket marked", () => {
-    const out = html(createElement(StackBody, { ticket: "SHOP-20", view: STACK }));
-    for (const text of [
-      "Dependencies",
-      "2 tickets",
-      "Checkout API",
-      "waits for SHOP-18 to merge",
-      "+ Add dependency",
-    ]) {
-      expect(out).toContain(text);
-    }
-    expect(out).toContain('aria-current="true"');
-    const none = html(
-      createElement(StackBody, {
-        ticket: "SHOP-12",
-        view: { ...STACK, summary: "No dependencies · nothing waits on SHOP-12", rows: [] },
-      }),
-    );
-    expect(none).toContain("No dependencies · nothing waits on SHOP-12");
-    expect(none).not.toContain("stack-row");
-  });
-
   it("Messages: the question, its answer and an Answer button on an inbox question", () => {
     const view: MessagesView = {
       title: "Messages",
@@ -282,7 +229,7 @@ describe("the sections", () => {
 
   it("registers the sections and the epic dialogs from its folder", () => {
     expect(registered(registerScreens({ sections }))).toMatchObject({
-      panelSections: ["stack"],
+      panelSections: [],
       sheetTabs: [],
       overlays: ["move_to_epic", "close_epic"],
     });

@@ -1,6 +1,7 @@
 // The one-line ticket card (BRD-03; *24 · The two views*): the key (with its epic's name on the same row for an
 // epic child), the title on two lines (the full title in a tooltip), one status line in words with a dot in the
-// state's colour, then who (tool mark and agent name) and when, and the card's one action. A card that needs the user
+// state's colour (a blocked ticket's in amber after a link, DPV-01), a muted "Blocks SHOP-20" when others wait for
+// it, then who (tool mark and agent name) and when, and the card's one action. A card that needs the user
 // has a coloured edge (turquoise, the review colour for your check, red for a closed parent). The pill, the model,
 // the tokens and the answer options are the ticket's sheet's. Everything it says comes from a `TicketCardView`
 // (`card_page.rs`); the board (or the gallery) decides the moment of interaction: hovered, selected, chain, dragging
@@ -100,12 +101,18 @@ function WithHover({ content, children }: { content: ReactNode; children: ReactN
   );
 }
 
-/** The one status line: a 7 px dot in the state's colour, then the words (in the edge's colour while the card needs
- * the user). */
+/** The one status line: a 7 px dot in the state's colour (a blocked ticket's link, DPV-01), then the words (in the
+ * edge's colour while the card needs the user). */
 function StatusLine({ line }: { line: CardStatusLine }) {
   return (
     <div className="card-status">
-      <span className="card-status-dot" style={{ background: paletteInk(line.dot) }} />
+      {line.icon === null ? (
+        <span className="card-status-dot" style={{ background: paletteInk(line.dot) }} />
+      ) : (
+        <span className="card-status-icon" style={{ color: paletteInk(line.dot) }}>
+          <Icon name={line.icon} size={12} />
+        </span>
+      )}
       <span className="card-status-text" style={{ color: toneInk(line.tone).fg }}>
         {line.text}
       </span>
@@ -192,6 +199,12 @@ function Body({ card, onAction }: Pick<TicketCardProps, "card" | "onAction">) {
         <div className="card-title">{card.title}</div>
       </Tooltip>
       {card.status && <StatusLine line={card.status} />}
+      {card.blocks !== null && (
+        <div className="card-blocks">
+          <Icon name="link" size={11} />
+          <span>{card.blocks.line}</span>
+        </div>
+      )}
       {card.origin !== null && <div className="card-origin">{card.origin}</div>}
       <WhoRow card={card} {...(onAction ? { onAction } : {})} />
     </>

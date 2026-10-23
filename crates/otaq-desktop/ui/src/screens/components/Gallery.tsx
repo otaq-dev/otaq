@@ -45,8 +45,6 @@ import {
   Segmented,
   Select,
   type ShownState,
-  StackList,
-  StackRow,
   StageChoices,
   StatusPill,
   Tabs,
@@ -123,6 +121,7 @@ import { FilesGallery } from "../files/FilesGallery";
 import { SessionGallery } from "../session/SessionGallery";
 import { ListGallery } from "../list/ListGallery";
 import { EpicGallery } from "../epic/EpicGallery";
+import { DependenciesGallery } from "../dependencies/DependenciesGallery";
 import "../files/files.css";
 import { PaneBody, SwitcherList } from "../pane/Pane";
 import "../pane/pane.css";
@@ -808,43 +807,6 @@ function Banners() {
         title="Reconnecting…"
         text="Trying to reach the background service"
       />
-    </div>
-  );
-}
-
-function Stack({ view }: { view: GalleryView }) {
-  const find = (label: string) =>
-    view.legend.flatMap((t) => [...t.pills, ...t.m12]).find((p) => p.label === label);
-  const merged = find("Merged");
-  const backlog = find("Backlog");
-  const queued = find("Ready for Dev");
-  const [current, setCurrent] = useState("SHOP-20");
-  if (!merged || !backlog || !queued) return null;
-  const rows = [
-    { key: "SHOP-17", title: "Add Stripe client", pill: merged, depth: 0 },
-    { key: "SHOP-18", title: "Checkout API", pill: backlog, depth: 1 },
-    { key: "SHOP-20", title: "Checkout page", pill: queued, depth: 2, waits: "Waits for SHOP-18 SHOP-19" },
-    { key: "SHOP-21", title: "Order confirmation email", pill: backlog, depth: 3 },
-  ];
-  return (
-    <div className="gallery-two">
-      <StackList title="Dependencies">
-        {rows.map((row) => (
-          <StackRow
-            key={row.key}
-            depth={row.depth}
-            ticketKey={row.key}
-            title={row.title}
-            waits={row.waits}
-            pill={row.pill}
-            current={row.key === current}
-            onSelect={() => {
-              setCurrent(row.key);
-            }}
-          />
-        ))}
-      </StackList>
-      <StackList title="Dependencies" empty="SHOP-12 has no dependencies and nothing depends on it." />
     </div>
   );
 }
@@ -2588,6 +2550,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <Section title="24 · The List view · by stage, status and agent (LST-01, T-0461)">
           <ListGallery />
         </Section>
+        <Section title="24 · Dependencies · a blocked card, a blocker, the sheet's section, Add, the blocked dialog (T-0463)">
+          <DependenciesGallery />
+        </Section>
         <NeedsYouStripSection />
         <PauseSection />
         <OptionNotes />
@@ -2656,9 +2621,6 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
             </Section>
             <Section title="Banners">
               <Banners />
-            </Section>
-            <Section title="Stack list row">
-              <Stack view={view} />
             </Section>
             <Section title="Keyboard map (update AF · 0097)">
               <KeyboardMap map={view.keyboard_map} />

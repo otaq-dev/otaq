@@ -43,6 +43,8 @@ pub struct TicketCardView {
     pub title: String,
     /// The one status line; `null` on a calm Backlog card.
     pub status: Option<StatusLine>,
+    /// "Blocks SHOP-20" under the line, muted, with the List's "blocks 1" (DPV-01).
+    pub blocks: Option<crate::view_models::dependencies::Blocks>,
     /// The tool mark of whoever has the turn; `null` while only one tool is connected (d0086).
     pub avatar: Option<ToolAvatarView>,
     /// The agent's name ("Rust developer"); `null` while there is only one agent (d0086).
@@ -78,6 +80,7 @@ impl TicketCardView {
             epic: vm.sleeve.map(|s| s.name),
             title: vm.title,
             status: vm.one_line.line,
+            blocks: vm.one_line.blocks,
             avatar: vm.avatar,
             who: vm.one_line.who,
             time: vm.one_line.time,
@@ -323,7 +326,7 @@ mod tests {
         assert_eq!(
             line(card),
             (
-                "Needs you: allow rm -rf .next? \u{b7} also running :4022 \u{b7} after SHOP-18, SHOP-19",
+                "Needs you: allow rm -rf .next? \u{b7} also running :4022",
                 Palette::Attn,
                 Tone::Attention
             )

@@ -1,13 +1,16 @@
-//! The dependency chain of a hovered or selected card (DEP-05, d0006; *03 · Board & columns → Chain highlight ·
-//! hover or select SHOP-20*): its parents and children, transitively, keep full opacity with an accent
-//! outline; everything else dims; arrows are drawn only for this chain, parent → child. No graph view.
-
-use std::collections::HashSet;
+//! The dependency chain of a hovered or selected card (DEP-05, DPV-02; d0006; *24 · Dependencies on the board*
+//! `s24-09`): its parents and children, transitively, keep full opacity with an accent outline; everything else dims;
+//! arrows are drawn for this chain, parent → child, and a tooltip says why ("SHOP-20 is blocked" · "by SHOP-18
+//! (Review) and SHOP-29 (Dev)"). With Dependencies: Always every open link stays drawn as well
+//! ([`crate::view_models::dependencies::links`]). No graph view.
 
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::TicketKey;
 use serde::Serialize;
 use ts_rs::TS;
+
+use crate::view_models::dependencies::{self, Tip};
+use crate::view_models::flow_columns::Columns;
 
 pub use otaq_core::board::stack::{Chain, chain};
 
@@ -29,13 +32,13 @@ pub struct View {
     /// The card itself, its parents and its children, transitively, in board key order.
     pub members: Vec<String>,
     pub edges: Vec<Edge>,
-    /// The note at the board's bottom right: "Chain of SHOP-20 · SHOP-17 → SHOP-18 → SHOP-20 ← SHOP-19 ·
-    /// SHOP-20 → SHOP-21".
-    pub legend: String,
+    /// The tooltip under the hovered card (DPV-02); `null` when its links are all merged.
+    pub tip: Option<Tip>,
 }
 
-/// The chain of every linked ticket in `tickets` (unlinked ones have none: nothing to highlight).
-pub fn views(tickets: &[Ticket]) -> Vec<View> {
+/// The chain of every linked ticket in `tickets` (unlinked ones have none: nothing to highlight), its tooltip
+/// naming where each linked ticket is in `columns`.
+pub fn views(columns: &Columns, tickets: &[Ticket]) -> Vec<View> {
     tickets
         .iter()
         .filter_map(|t| {
@@ -53,72 +56,10 @@ pub fn views(tickets: &[Ticket]) -> Vec<View> {
                         child: child.to_string(),
                     })
                     .collect(),
-                legend: legend(&t.key, tickets),
+                tip: dependencies::tip(columns, t, tickets),
             })
         })
         .collect()
-}
-
-/// The line from `from` following each ticket's first link (`next`), as far as it goes, `from` first.
-fn line(
-    from: &TicketKey,
-    next: &dyn Fn(&TicketKey) -> Option<TicketKey>,
-    seen: &mut HashSet<TicketKey>,
-) -> Vec<TicketKey> {
-    let mut keys = vec![from.clone()];
-    seen.insert(from.clone());
-    while let Some(k) = next(keys.last().expect("not empty")) {
-        if !seen.insert(k.clone()) {
-            break;
-        }
-        keys.push(k);
-    }
-    keys
-}
-
-fn join(keys: &[TicketKey], arrow: &str) -> String {
-    keys.iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(arrow)
-}
-
-/// "Chain of SHOP-20 · SHOP-17 → SHOP-18 → SHOP-20 ← SHOP-19 · SHOP-20 → SHOP-21": the first parent's line up to the
-/// card, its other parents after "←", then one line down from each child. A branching line follows the first link
-/// only; the highlight itself always shows the whole chain.
-pub fn legend(key: &TicketKey, tickets: &[Ticket]) -> String {
-    let find = |k: &TicketKey| tickets.iter().find(|t| &t.key == k);
-    let parents = |k: &TicketKey| find(k).map(|t| t.depends_on.clone()).unwrap_or_default();
-    let children = |k: &TicketKey| -> Vec<TicketKey> {
-        tickets
-            .iter()
-            .filter(|t| t.depends_on.contains(k))
-            .map(|t| t.key.clone())
-            .collect()
-    };
-    let first_parent = |k: &TicketKey| parents(k).into_iter().next();
-    let first_child = |k: &TicketKey| children(k).into_iter().next();
-    let mut parts = vec![format!("Chain of {key}")];
-    let ups = parents(key);
-    if let Some((first, rest)) = ups.split_first() {
-        let mut seen = HashSet::from([key.clone()]);
-        let mut up = line(first, &first_parent, &mut seen);
-        up.reverse();
-        up.push(key.clone());
-        let mut text = join(&up, " → ");
-        for other in rest {
-            text.push_str(" ← ");
-            text.push_str(&join(&line(other, &first_parent, &mut seen), " ← "));
-        }
-        parts.push(text);
-    }
-    for child in children(key) {
-        let mut seen = HashSet::from([key.clone()]);
-        let mut down = vec![key.clone()];
-        down.extend(line(&child, &first_child, &mut seen));
-        parts.push(join(&down, " → "));
-    }
-    parts.join(" · ")
 }
 
 #[cfg(test)]
@@ -196,26 +137,11 @@ mod tests {
     }
 
     #[test]
-    fn the_legend_reads_the_chain_as_the_frame_does() {
-        let tickets = sample();
-        assert_eq!(
-            legend(&key("SHOP-20"), &tickets),
-            "Chain of SHOP-20 · SHOP-17 → SHOP-18 → SHOP-20 ← SHOP-19 · SHOP-20 → SHOP-21",
-            "*03 → Chain highlight · hover or select SHOP-20 → Chain legend*"
-        );
-        assert_eq!(
-            legend(&key("SHOP-17"), &tickets),
-            "Chain of SHOP-17 · SHOP-17 → SHOP-18 → SHOP-20 → SHOP-21"
-        );
-        assert_eq!(
-            legend(&key("SHOP-19"), &tickets),
-            "Chain of SHOP-19 · SHOP-19 → SHOP-20 → SHOP-21 · SHOP-19 → SHOP-23"
-        );
-    }
-
-    #[test]
     fn every_linked_card_gets_its_chain_up_front() {
-        let views = views(&sample());
+        let views = views(
+            &Columns::of(&otaq_core::flow::default_file().flow),
+            &sample(),
+        );
         let keys: Vec<&str> = views.iter().map(|v| v.key.as_str()).collect();
         assert_eq!(
             keys,
@@ -235,6 +161,17 @@ mod tests {
                 parent: "SHOP-18".into(),
                 child: "SHOP-20".into()
             }
+        );
+        // Every ticket of the sample is in Backlog: SHOP-20 waits for both parents (DPV-02's tooltip).
+        assert_eq!(
+            shop_20
+                .tip
+                .as_ref()
+                .map(|t| (t.title.as_str(), t.detail.as_str())),
+            Some((
+                "SHOP-20 is blocked",
+                "by SHOP-18 (Backlog) and SHOP-19 (Backlog)"
+            ))
         );
         let json = serde_json::to_value(shop_20).unwrap();
         assert_eq!(json["edges"][0]["parent"], "SHOP-17");

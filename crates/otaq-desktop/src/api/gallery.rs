@@ -87,6 +87,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.epic_sheet" => reply(&otaq_view::view_models::epic_sheet::gallery()),
         // The New ticket form's report: its words and its box (T-0474).
         "gallery.new_ticket_report" => reply(&otaq_view::view_models::editor::report_field()),
+        // 24 · Dependencies: a blocked card, a blocker, the sheet's section and picker, DPV-03's dialog (T-0463).
+        "gallery.dependencies" => reply(&otaq_view::view_models::dependencies::gallery()),
         _ => Err(unknown(method)),
     }
 }
