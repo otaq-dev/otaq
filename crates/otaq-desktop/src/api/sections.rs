@@ -1054,6 +1054,7 @@ mod tests {
                 epic: epic.map(str::to_owned),
                 base_branch: None,
                 external_id: None,
+                first_comment: None,
             }))
             .await
             .unwrap()

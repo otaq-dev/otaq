@@ -181,6 +181,7 @@ mod tests {
                 epic: None,
                 base_branch: None,
                 external_id: None,
+                first_comment: None,
             }))
             .await
             .unwrap()
@@ -210,6 +211,7 @@ mod tests {
             epic: Some(epic.clone()),
             base_branch: None,
             external_id: None,
+            first_comment: None,
         };
         h.app
             .service

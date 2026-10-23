@@ -4,6 +4,7 @@
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorRefusal } from "../../generated/EditorRefusal";
 import type { EditorView } from "../../generated/EditorView";
+import type { BoxValue } from "./commentRules";
 
 /** The service events that change what the editor shows. */
 export const EDITOR_EVENTS = ["ticket_changed", "ticket_deleted", "session_state"] as const;
@@ -36,6 +37,17 @@ export function isSaveKey(e: {
 /** Save is enabled once there is a title (`EditorModel::can_save`; Rust checks again). */
 export function canSave(form: EditorForm, saving: boolean): boolean {
   return form.title.trim() !== "" && !saving;
+}
+
+/**
+ * The form's report fields from the New ticket form's box (RPT-03): the file by its path or the pasted text, and the
+ * line typed with it; no report, no line.
+ */
+export function formReport(box: BoxValue): Pick<EditorForm, "report" | "report_line"> {
+  if (box.file !== null) return { report: { kind: "file", path: box.file.path }, report_line: box.text };
+  if (box.pasted !== null)
+    return { report: { kind: "pasted", text: box.pasted.text }, report_line: box.text };
+  return { report: undefined, report_line: undefined };
 }
 
 /** The priority the segmented control shows: the picked one, else Normal or the epic's. */

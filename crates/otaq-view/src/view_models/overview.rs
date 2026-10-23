@@ -14,7 +14,7 @@
 //!   chip, since a comment always has its own line (d0109).
 
 use otaq_core::board::reports::size_label;
-use otaq_core::board::ticket_comments::{CommentAuthor, TicketComment};
+use otaq_core::board::ticket_comments::{AT_CREATION_LABEL, CommentAuthor, TicketComment};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -38,8 +38,6 @@ pub const DROP: &str = "Drop files here or paste";
 pub const NOTE: &str = "Markdown reports, yours and the agents\u{2019} (a test run summary, findings, notes), each \
                         with the comment it came with. Agents open reports when they need them; yours are marked from \
                         you and read first.";
-/// A report's name until reports keep their file's own (Q-A): the thread's chip says the same.
-pub const REPORT: &str = "Report";
 /// The system file picker's title for Add.
 pub const PICK_TITLE: &str = "Attach a report";
 
@@ -152,7 +150,7 @@ pub struct AttachmentRow {
     /// "3 KB".
     pub size: String,
     pub mark: Mark,
-    /// "Rust developer · Dev", "You", "Wishlist lead".
+    /// "Rust developer · Dev", "You", "You · at creation" (RPT-03), "Wishlist lead".
     pub who: String,
     /// The user's own (RPT-01: marked from you).
     pub mine: bool,
@@ -173,6 +171,9 @@ fn who(comment: &TicketComment) -> String {
     let author = comment.author_label();
     match (&comment.author, &comment.stage_name) {
         (CommentAuthor::Agent { .. }, Some(stage)) => format!("{author} \u{b7} {stage}"),
+        (CommentAuthor::User { .. }, _) if comment.at_creation => {
+            format!("{author} \u{b7} {AT_CREATION_LABEL}")
+        }
         _ => author,
     }
 }
@@ -193,7 +194,7 @@ pub fn attachments(comments: &[TicketComment], avatars: bool) -> Vec<AttachmentR
             };
             Some(AttachmentRow {
                 n: c.n,
-                name: REPORT.to_owned(),
+                name: c.report_label().unwrap_or_default(),
                 size: size_label(report.bytes),
                 mark,
                 who: who(c),
@@ -328,10 +329,27 @@ pub mod fixtures {
             }),
             posted_at: (14 * 60 + minute) * MIN,
             edited_at: None,
+            report_name: None,
+            at_creation: false,
         }
     }
 
+    /// `s25-05`'s three reports, each under its file's name; yours posted with the ticket ("at creation").
     pub fn shop_22() -> Vec<TicketComment> {
+        let mut comments = shop_22_unnamed();
+        for (c, name) in comments.iter_mut().zip([
+            Some("safari-notes.md"),
+            Some("repro-findings.md"),
+            None,
+            Some("test-run-login.md"),
+        ]) {
+            c.report_name = name.map(str::to_owned);
+        }
+        comments[0].at_creation = true;
+        comments
+    }
+
+    fn shop_22_unnamed() -> Vec<TicketComment> {
         let you = || CommentAuthor::User { name: "me".into() };
         vec![
             comment(1, you(), None, "Steps I used to reproduce it", Some(1), 0),
@@ -423,7 +441,13 @@ mod tests {
                     "Repro: 18 of 20 pass on Safari; the cookie is set after the first navigation.",
                     false
                 ),
-                (1, "1 KB", "You", "Steps I used to reproduce it", true),
+                (
+                    1,
+                    "1 KB",
+                    "You \u{b7} at creation",
+                    "Steps I used to reproduce it",
+                    true
+                ),
             ]
         );
         // Agents carry their tool's avatar; yours the person mark.
@@ -437,10 +461,29 @@ mod tests {
             })
             .collect();
         assert_eq!(marks, ["CX", "CC", "you"]);
-        assert!(v.attachments.iter().all(|r| r.name == "Report"));
+        // Each under its file's own name (Q414).
+        let names: Vec<&str> = v.attachments.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["test-run-login.md", "repro-findings.md", "safari-notes.md"]
+        );
         // With one tool connected, agents get the plain mark.
         let plain = attachments(&fixtures::shop_22(), false);
         assert_eq!(plain[0].mark, Mark::Agent);
+    }
+
+    /// Pasted text has no name: "Pasted text"; a comment you posted later is plain "You".
+    #[test]
+    fn a_pasted_report_and_a_later_one_of_yours() {
+        let mut comments = fixtures::shop_22();
+        comments[0].report_name = None;
+        comments[0].at_creation = false;
+        let rows = attachments(&comments, true);
+        let mine = rows.iter().find(|r| r.n == 1).unwrap();
+        assert_eq!(
+            (mine.name.as_str(), mine.who.as_str()),
+            ("Pasted text", "You")
+        );
     }
 
     #[test]

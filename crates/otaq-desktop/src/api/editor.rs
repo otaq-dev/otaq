@@ -27,7 +27,9 @@ use otaq_view::view_models::agent_activity;
 use otaq_view::view_models::stage_choices::{self, ChoicesView};
 use otaq_view::view_models::tool_problems::Tools;
 use otaq_view::view_models::agent_edits::{changed, compare, origin_line};
-use otaq_view::view_models::editor::{EditorModel, TITLE_REQUIRED};
+use otaq_view::view_models::editor::{
+    EditorModel, NewReport, REPORT_LINE_REQUIRED, ReportField, TITLE_REQUIRED, report_field,
+};
 use otaq_view::view_models::editor_fields::{
     BaseField, base_choices, picker_rows, refusal_icon, refusal_title, visibility,
 };
@@ -120,6 +122,22 @@ pub struct Form {
     /// The stage choices picked in the form (AGM-09): sent with the new ticket, or with the save.
     #[serde(default)]
     pub choices: Vec<FormChoice>,
+    /// Create only: the report the form took (RPT-03), posted with `report_line` as the ticket's first comment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub report: Option<FormReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub report_line: Option<String>,
+}
+
+/// The New ticket form's report (RPT-03): a file by its path (Add, a drop), or a pasted file's text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(rename = "EditorReport")]
+pub enum FormReport {
+    File { path: String },
+    Pasted { text: String },
 }
 
 /// One stage choice picked in the form: the stage's id and the word (`Quick developer`, `skip`, `required`).
@@ -320,6 +338,8 @@ pub struct View {
     /// "Stage choices" under Priority (AGM-09, `s08-29`): a picker per stage with options, none on the default flow
     /// and for an epic (the page hides it once Type is Epic).
     pub choices: Option<ChoicesView>,
+    /// Create only: the report place under the description (RPT-03; the page hides it once Type is Epic).
+    pub report: Option<ReportField>,
 }
 
 fn texts(create: bool) -> Texts {
@@ -423,6 +443,8 @@ fn form_of(model: &EditorModel) -> Form {
         base_branch: model.base_branch.clone(),
         external_id: model.external_id.clone(),
         choices: Vec::new(),
+        report: None,
+        report_line: None,
     }
 }
 
@@ -469,6 +491,7 @@ pub fn create_view(project: &ProjectInfo, epic: Option<TicketKey>, tickets: &[Ti
         read: None,
         source_mode: false,
         choices: None,
+        report: Some(report_field()),
     }
 }
 
@@ -536,6 +559,7 @@ pub fn edit_view(
         }),
         source_mode: false,
         choices: None,
+        report: None,
     }
 }
 
@@ -784,6 +808,11 @@ pub fn model_of(base: EditorModel, form: &Form) -> EditorModel {
         };
         model.epic = form.epic.as_deref().and_then(|e| e.parse().ok());
         model.deps = form.deps.iter().filter_map(|d| d.parse().ok()).collect();
+        model.report = form.report.clone().map(|r| match r {
+            FormReport::File { path } => NewReport::File(path),
+            FormReport::Pasted { text } => NewReport::Pasted(text),
+        });
+        model.report_line = form.report_line.clone().unwrap_or_default();
     }
     if model.epic.is_none() && !model.base_locked {
         model.base_branch = form.base_branch.clone().or(model.base_branch);
@@ -807,6 +836,16 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
             let model = model_of(EditorModel::create(&project, "", &info), &form);
             if model.title_error().is_some() {
                 return Ok(SaveOutcome::TitleMissing);
+            }
+            // A report needs its line (d0109): the box says so, and Create is refused here too.
+            if model.report_error().is_some() {
+                return Ok(SaveOutcome::Refused {
+                    refusal: Refusal::of(
+                        &RequestError::plain(REPORT_LINE_REQUIRED),
+                        RefusalField::Form,
+                    ),
+                    created: None,
+                });
             }
             let Some(input) = model.create_input() else {
                 return Ok(SaveOutcome::TitleMissing);
@@ -1278,6 +1317,8 @@ mod tests {
             base_branch: None,
             external_id: String::new(),
             choices: Vec::new(),
+            report: None,
+            report_line: None,
         }
     }
 

@@ -16,7 +16,9 @@ before.
 1. **Get the context first.** Run `otaq prime` and read all of it: the ticket and its description, the
    **comments** (the user's comment from the Send back is the latest one), Otaq's rules, the user's **Agent
    instructions** and the project's notes. Otaq refuses to end your stage until you have run it since it sent the
-   ticket back: "Run `otaq prime` first: SHOP-27 has 1 comment you haven't read."
+   ticket back: "Run `otaq prime` first: SHOP-27 has 1 comment you haven't read." **Open the reports from you before you start.** `prime` lists the files the user attached under "Reports from
+   you · read these before you start"; read each one (`otaq report SHOP-27 1`, or search a long one with
+   `grep -n "Safari" "$(otaq report SHOP-27 1 --path)"`). The agents' reports you open only when you need them.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step
    below. They add to these steps; they never remove getting the context (step 1) or ending your stage (step 6).
 3. **Read the line comments:** run `otaq review feedback`. It prints the line comments of the latest round, by file

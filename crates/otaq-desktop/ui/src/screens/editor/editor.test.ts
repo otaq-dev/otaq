@@ -21,6 +21,7 @@ import {
   changed,
   COPIED_FOR,
   copyMarkdown,
+  formReport,
   highlighted,
   isSaveKey,
   quickKey,
@@ -34,7 +35,10 @@ import { Compare, Description, DescriptionTools, LabelRow } from "./ReadMode";
 import { useFormKeys } from "./Modal";
 import { takeEditRequest } from "./EditForm";
 import { useEditor } from "./useEditor";
-import { FORM, READ, TEXTS, VIEW } from "./editor_fixtures";
+import { FORM, READ, REPORT_FIELD, TEXTS, VIEW } from "./editor_fixtures";
+import { EMPTY_BOX } from "./commentRules";
+import { NewTicketReport, useReportAttach } from "./NewTicketReport";
+import { dropTargets } from "../../terminal/drops";
 
 // The service, for the form's save: `ipc.reply` answers each request (an empty list by default, for the branch list).
 type Reply = (method: string, params: unknown) => unknown;
@@ -169,6 +173,88 @@ describe("the editor's form state", () => {
     expect(takeEditRequest("SHOP-19")).toBe(false);
     expect(takeEditRequest("SHOP-12")).toBe(true);
     expect(takeEditRequest("SHOP-12")).toBe(false);
+  });
+});
+
+describe("the New ticket form's report (RPT-03, T-0474)", () => {
+  it("turns the box into the form's fields: a file by its path, pasted text, nothing without a report", () => {
+    const file = { path: "/Users/me/test-run-login.md", name: "test-run-login.md", size: "3 KB" };
+    expect(formReport({ ...EMPTY_BOX, file, text: "The run." })).toEqual({
+      report: { kind: "file", path: "/Users/me/test-run-login.md" },
+      report_line: "The run.",
+    });
+    expect(formReport({ text: "", pasted: { text: "log", bytes: 3 }, file: null })).toEqual({
+      report: { kind: "pasted", text: "log" },
+      report_line: "",
+    });
+    expect(formReport({ ...EMPTY_BOX, text: "a line alone" })).toEqual({
+      report: undefined,
+      report_line: undefined,
+    });
+  });
+
+  it("a dropped file becomes the chip waiting for its line; the line goes with it; ✕ takes it away", async () => {
+    ipc.reply = (method, params) =>
+      method === "overview.file"
+        ? { path: (params as { path: string }).path, name: "test-run-login.md", size: "3 KB" }
+        : [];
+    const seen: Partial<EditorForm>[] = [];
+    function Harness() {
+      const root = useRef<HTMLDivElement>(null);
+      const attach = useReportAttach(root, true, (fields) => seen.push(fields));
+      return createElement(
+        "div",
+        { ref: root },
+        createElement(NewTicketReport, { field: REPORT_FIELD, project: "SHOP", attach, onSave: noop }),
+      );
+    }
+    const page = mount(createElement(Harness));
+    expect(page.textContent).toContain("Drop files here or paste");
+    expect(page.querySelector("textarea")).toBeNull();
+    await act(async () => {
+      dropTargets.at(page.firstElementChild)?.takeFiles?.(["/Users/me/test-run-login.md"]);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(page.querySelector(".comment-chip-label")?.textContent).toBe("test-run-login.md");
+    expect(page.textContent).toContain("A comment always has its own line; the file goes with it.");
+    expect(seen.at(-1)).toEqual({
+      report: { kind: "file", path: "/Users/me/test-run-login.md" },
+      report_line: "",
+    });
+    const line = page.querySelector("textarea");
+    expect(line?.getAttribute("placeholder")).toBe("One line: what the report shows…");
+    act(() => {
+      Reflect.set(HTMLTextAreaElement.prototype, "value", "Fails 2 in 20 on Safari.", line);
+      line?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(seen.at(-1)?.report_line).toBe("Fails 2 in 20 on Safari.");
+    act(() => {
+      page.querySelector<HTMLButtonElement>(".comment-chip-remove")?.click();
+    });
+    expect(seen.at(-1)).toEqual({ report: undefined, report_line: undefined });
+    expect(page.textContent).toContain("Drop files here or paste");
+    unmount();
+  });
+
+  it("a file that can't be a report says why", () => {
+    function Harness() {
+      const root = useRef<HTMLDivElement>(null);
+      const attach = useReportAttach(root, true, noop);
+      return createElement(
+        "div",
+        { ref: root },
+        createElement(NewTicketReport, {
+          field: REPORT_FIELD,
+          project: "SHOP",
+          attach: { ...attach, error: "The report is 212 MB; the limit is 20 MB." },
+          onSave: noop,
+        }),
+      );
+    }
+    const page = mount(createElement(Harness));
+    expect(page.querySelector("[role=alert]")?.textContent).toBe("The report is 212 MB; the limit is 20 MB.");
+    expect(page.textContent).not.toContain("agents read yours before they start");
+    unmount();
   });
 });
 

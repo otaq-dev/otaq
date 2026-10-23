@@ -4,6 +4,7 @@ import type { EditorDepChip } from "./EditorDepChip";
 import type { EditorForm } from "./EditorForm";
 import type { EditorPriorityOption } from "./EditorPriorityOption";
 import type { EditorReadView } from "./EditorReadView";
+import type { EditorReportField } from "./EditorReportField";
 import type { EditorTexts } from "./EditorTexts";
 import type { MenuItem } from "./MenuItem";
 import type { StageChoicesView } from "./StageChoicesView";
@@ -60,4 +61,8 @@ source_mode: boolean,
  * "Stage choices" under Priority (AGM-09, `s08-29`): a picker per stage with options, none on the default flow
  * and for an epic (the page hides it once Type is Epic).
  */
-choices: StageChoicesView | null, };
+choices: StageChoicesView | null, 
+/**
+ * Create only: the report place under the description (RPT-03; the page hides it once Type is Epic).
+ */
+report: EditorReportField | null, };

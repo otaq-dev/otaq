@@ -324,6 +324,7 @@ pub async fn change_with_fix_child(
                 epic: Some(epic.key.to_string()),
                 base_branch: None,
                 external_id: None,
+                first_comment: None,
             },
             actor,
         )

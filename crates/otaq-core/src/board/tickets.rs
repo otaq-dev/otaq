@@ -249,6 +249,10 @@ pub struct NewTicketInput {
     pub base_branch: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
+    /// The user's first comment, with the report the New ticket form took (RPT-03): posted with the ticket, as the
+    /// user's, marked "at creation". Only the user sends one (the policy).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_comment: Option<super::ticket_comments::FirstComment>,
 }
 
 /// Changes to a ticket's fields. Absent fields stay as they are.
@@ -513,6 +517,14 @@ impl Board {
             (None, _) => Some(project.base_branch.clone()),
         };
         let external_id = non_empty(input.external_id.as_deref());
+        // The first comment's text is checked before anything is created; its report is copied once the key is known.
+        let first_comment = match &input.first_comment {
+            Some(c) => Some((
+                super::ticket_comments::check_body(&c.body)?,
+                c.report.clone(),
+            )),
+            None => None,
+        };
         // A child of an epic queued as a whole joins the queue on its own (EPC-13, d0080): the user's drag of the
         // epic is the go-ahead, whoever creates the child (the user, an agent, a Project agent).
         let joins_queue = epic.as_ref().is_some_and(joins_epic_queue);
@@ -591,7 +603,23 @@ impl Board {
             )
             .await?;
         }
-        tx.commit().await?;
+        let stored = match first_comment {
+            Some((body, report)) => {
+                let key = key_from_parts(&project.key, number, child_number)
+                    .ok_or_else(|| BoardError::NotFound(format!("no key for ticket {id}")))?;
+                Some(
+                    self.post_first_comment(&mut tx, &project, &id, &key, &body, report, actor)
+                        .await?,
+                )
+            }
+            None => None,
+        };
+        if let Err(e) = tx.commit().await {
+            if let Some(Some(stored)) = &stored {
+                stored.discard();
+            }
+            return Err(e.into());
+        }
         let ticket = self.ticket_by_id(&id).await?;
         tracing::info!(key = %ticket.key, actor = %actor, "ticket created");
         // A new child returns an epic in Review to Backlog until it is merged (EPC-05).
@@ -599,6 +627,48 @@ impl Board {
             self.epic_back_to_backlog(&epic.to_string(), actor).await?;
         }
         Ok(ticket)
+    }
+
+    /// Posts a new ticket's first comment inside its creation's transaction (RPT-03): the user's, "at creation", with
+    /// its report copied first. Returns the stored report, which the caller discards when the transaction fails.
+    #[allow(clippy::too_many_arguments)]
+    async fn post_first_comment(
+        &self,
+        tx: &mut Transaction<'_, Sqlite>,
+        project: &Project,
+        ticket_id: &str,
+        key: &TicketKey,
+        body: &str,
+        report: Option<super::reports::ReportSource>,
+        actor: &Actor,
+    ) -> Result<Option<super::reports::StoredReport>, BoardError> {
+        let stored = match report {
+            Some(source) => {
+                let repo = crate::warm::store::repo_name(project);
+                Some(self.prepare_report(&repo, key, source).await?)
+            }
+            None => None,
+        };
+        let author = super::ticket_comments::CommentAuthor::User {
+            name: actor.to_string(),
+        };
+        let posted = super::ticket_comments::post_comment_in(
+            tx,
+            ticket_id,
+            &author,
+            body,
+            stored.as_ref(),
+            true,
+            actor,
+        )
+        .await;
+        if let Err(e) = posted {
+            if let Some(stored) = &stored {
+                stored.discard();
+            }
+            return Err(e);
+        }
+        Ok(stored)
     }
 
     /// Changes a ticket's fields and records each change with its actor.

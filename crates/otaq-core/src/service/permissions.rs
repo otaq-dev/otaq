@@ -359,6 +359,10 @@ async fn action_for(
                 target: facts_of(board, target).await?,
             }
         }
+        // A first comment at creation is the user's (RPT-03): the New ticket form's report.
+        R::TicketCreate(input) if input.first_comment.is_some() => {
+            Action::UserOnly("post a new ticket's first comment")
+        }
         R::TicketCreate(input) => Action::CreateTicket {
             epic: epic_of_new(board, input.epic.as_deref()).await?,
         },

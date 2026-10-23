@@ -17,7 +17,9 @@ Otaq starts, validates and merges the children, not you.
   child in start order (status, worktree and branch, last comment, recorded decisions), the files two running
   children both change, the open questions, your unread notes and suggestions, any stuck child, the **stage
   choices** you may set (none on the default flow), Otaq's rules, the user's **Agent instructions** and the project's
-  notes.
+  notes. **The user's reports come first:** when the user attached a report to a child (`otaq comments <KEY>` lists its
+  comments with a "Report:" line under each one that has a report), read it before you answer about that child: `otaq report SHOP-40.3 1`, or search a long one with
+  `grep -n "Safari" "$(otaq report SHOP-40.3 1 --path)"`. The agents' reports you open only when you need them.
 - **Never edit, create or delete files, never commit.** You are read-only: read the code, the epic branch and the
   children's worktrees, and run read-only commands (tests, `git log`, `git diff`). Code changes go through children.
 - **Work only through `otaq` commands.** Never use subagents or agent teams to do a child's work, and never do a

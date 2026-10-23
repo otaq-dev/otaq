@@ -1,5 +1,7 @@
 //! Comment reports (CMT-03, d0109): long text attached to one ticket comment, kept as a file in Otaq's data folder
-//! (`reports/<repo>/<KEY>/<comment id>.txt`, [`DataDir::report_path`]), never in the repository (d0023).
+//! ([`DataDir::report_path`]), never in the repository (d0023). A copied file keeps its own name
+//! (`reports/<repo>/<KEY>/<comment id>/test-run-login.md`), which the Attachments column and `prime` show (RPT-02);
+//! pasted text is `reports/<repo>/<KEY>/<comment id>.txt` and shows as "Pasted text".
 //!
 //! A report comes from a file an agent's tool wrote (`cargo test > "$OTAQ_RESOURCE_DIR/test-run.txt"`, then
 //! `--report-file`) or from text the user pasted in the app. Either way it is **copied** (the original stays where it
@@ -19,6 +21,9 @@ use crate::store::new_id;
 
 /// The largest report Otaq keeps: 20 MB (20 × 1024 × 1024 bytes). Exactly this size is accepted (CMT-03).
 pub const REPORT_LIMIT_BYTES: u64 = 20 * 1024 * 1024;
+
+/// What the Attachments column and `prime` call a report without a name of its own: text the user pasted.
+pub const PASTED_TEXT: &str = "Pasted text";
 
 /// Where a new report's text comes from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,18 +49,46 @@ pub struct ReportInfo {
 pub struct StoredReport {
     /// The id the comment gets: the file is named after it.
     pub comment_id: String,
-    /// The file, relative to the data folder (`reports/shop-web/SHOP-34/<id>.txt`), as the comment stores it.
+    /// The file, relative to the data folder (`reports/shop-web/SHOP-34/<id>/test-run.txt`), as the comment stores
+    /// it.
     pub relative: String,
     /// The file's full path.
     pub path: PathBuf,
     pub info: ReportInfo,
 }
 
+/// The name a report's source file gives it (`test-run-login.md`); pasted text has none. A `\` (a folder separator
+/// on Windows, a plain character elsewhere) becomes `_` so the name is one path part everywhere.
+fn source_name(source: &ReportSource) -> Option<String> {
+    match source {
+        ReportSource::Path(path) => path
+            .file_name()
+            .map(|n| n.to_string_lossy().replace('\\', "_")),
+        ReportSource::Text(_) => None,
+    }
+}
+
+/// A stored report's own name, from the path its comment stores: the file's name when it sits in its comment's folder
+/// (`reports/shop-web/SHOP-34/<id>/test-run-login.md`), `None` for pasted text (`…/<id>.txt`).
+pub fn stored_name(relative: &str, comment_id: &str) -> Option<String> {
+    let path = Path::new(relative);
+    let folder = path.parent()?.file_name()?;
+    (folder == comment_id)
+        .then(|| path.file_name())
+        .flatten()
+        .map(|n| n.to_string_lossy().into_owned())
+}
+
 impl StoredReport {
-    /// Removes the copied file: its comment wasn't posted.
+    /// Removes the copied file, and its comment's folder for a named one: its comment wasn't posted.
     pub fn discard(&self) {
         if let Err(e) = std::fs::remove_file(&self.path) {
             tracing::warn!(path = %self.path.display(), error = %e, "can't remove an unposted report");
+        }
+        if stored_name(&self.relative, &self.comment_id).is_some()
+            && let Some(folder) = self.path.parent()
+        {
+            let _ = std::fs::remove_dir(folder);
         }
     }
 }
@@ -211,7 +244,10 @@ pub(crate) fn copy_report(source: &ReportSource, dest: &Path) -> Result<ReportIn
     if let Some(folder) = dest.parent() {
         DataDir::ensure_dir(folder).map_err(store_error)?;
     }
-    let part = dest.with_extension("part");
+    // `<name>.part`, next to it: never the name itself (a report called `run.part`).
+    let mut part = dest.as_os_str().to_owned();
+    part.push(".part");
+    let part = PathBuf::from(part);
     let copied = (|| {
         let mut out = Counting::new(File::create(&part).map_err(store_error)?);
         // One byte past the limit is enough to know it is over (a file that grew since it was checked).
@@ -247,9 +283,10 @@ impl Board {
         source: ReportSource,
     ) -> Result<StoredReport, BoardError> {
         let comment_id = new_id();
+        let name = source_name(&source);
         let path = self
             .data()
-            .report_path(repo, key, &comment_id)
+            .report_path(repo, key, &comment_id, name.as_deref())
             .map_err(|e| refused(format!("Can't store the report: {e}")))?;
         let relative = path
             .strip_prefix(self.data().root())
@@ -285,11 +322,13 @@ impl Board {
                     tracing::warn!(path = %path.display(), error = %e, "can't remove a deleted ticket's report");
                 }
             }
-            // The ticket's folder, then the repository's, when nothing else is in them.
+            // The comment's folder (a named report), the ticket's, then the repository's, when nothing else is in them;
+            // never the reports folder itself.
             let mut folder = path.parent();
-            for _ in 0..2 {
+            let stop = self.data().reports_dir();
+            for _ in 0..3 {
                 let Some(dir) = folder else { break };
-                if std::fs::remove_dir(dir).is_err() {
+                if dir == stop || std::fs::remove_dir(dir).is_err() {
                     break;
                 }
                 folder = dir.parent();
@@ -337,6 +376,34 @@ mod tests {
             "The report is more than 20 MB; the limit is 20 MB. Keep the part that matters, for example the failing \
              tests."
         );
+    }
+
+    #[test]
+    fn a_copied_file_keeps_its_name_and_pasted_text_has_none() {
+        let path = ReportSource::Path("/tmp/runs/test-run-login.md".into());
+        assert_eq!(source_name(&path).as_deref(), Some("test-run-login.md"));
+        // On Windows `\` separates folders already.
+        #[cfg(unix)]
+        assert_eq!(
+            source_name(&ReportSource::Path("/tmp/a\\b.txt".into())).as_deref(),
+            Some("a_b.txt")
+        );
+        assert_eq!(source_name(&ReportSource::Text("x".into())), None);
+        assert_eq!(
+            stored_name("reports/shop-web/SHOP-34/c1/test-run-login.md", "c1").as_deref(),
+            Some("test-run-login.md")
+        );
+        assert_eq!(stored_name("reports/shop-web/SHOP-34/c1.txt", "c1"), None);
+    }
+
+    #[test]
+    fn a_report_named_like_its_part_file_is_copied_whole() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let dest = dir.path().join("c1").join("run.part");
+        let info = copy_report(&ReportSource::Text("one\n".into()), &dest).unwrap();
+        assert_eq!(info.bytes, 4);
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "one\n");
+        assert!(!dir.path().join("c1").join("run.part.part").exists());
     }
 
     #[test]

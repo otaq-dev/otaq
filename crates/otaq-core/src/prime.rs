@@ -1074,14 +1074,54 @@ pub fn render_earlier(earlier: &[EarlierStage]) -> String {
     out
 }
 
+/// The heading of the user's reports in `prime` (RPT-01): the shipped skills tell agents to open them first.
+pub const REPORTS_FROM_YOU: &str = "Reports from you \u{b7} read these before you start";
+
+/// The "## Reports from you" section (RPT-01, d0109): each report the user attached, oldest first, with its name,
+/// size and `otaq report KEY N`, and the first line of the comment it came with; nothing when the user attached none.
+/// Never a report's text.
+pub fn render_reports_from_you(key: &TicketKey, comments: &[TicketComment]) -> String {
+    let mine: Vec<&TicketComment> = comments
+        .iter()
+        .filter(|c| c.report.is_some() && matches!(c.author, CommentAuthor::User { .. }))
+        .collect();
+    if mine.is_empty() {
+        return String::new();
+    }
+    let mut out = format!("\n## {REPORTS_FROM_YOU}\n\n");
+    for c in mine {
+        let (Some(report), Some(name)) = (c.report, c.report_label()) else {
+            continue;
+        };
+        let line = c
+            .body
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "- {name} \u{b7} {}, {} line{} \u{b7} `{} report {key} {}`\n  With comment {} ({}): {line}\n",
+            crate::board::reports::size_label(report.bytes),
+            crate::board::reports::count_label(report.lines),
+            if report.lines == 1 { "" } else { "s" },
+            naming::COMMAND_NAME,
+            c.n,
+            c.n,
+            c.heading(),
+        ));
+    }
+    out
+}
+
 /// The "## Comments" section (CMT-07): every comment in full, oldest first, under its heading ("Validator · Validate
-/// · round 2 · 3:05 pm"), with one line naming its report; nothing when the ticket has none. Reports are never
-/// printed.
+/// · round 2 · 3:05 pm"), with one line naming its report; nothing when the ticket has none. The user's reports are
+/// listed first ([`render_reports_from_you`], RPT-01). Reports are never printed.
 pub fn render_comments(key: &TicketKey, comments: &[TicketComment]) -> String {
     if comments.is_empty() {
         return String::new();
     }
-    let mut out = String::from("\n## Comments\n");
+    let mut out = render_reports_from_you(key, comments);
+    out.push_str("\n## Comments\n");
     for c in comments {
         out.push_str(&format!("\n### {}\n\n{}\n", c.heading(), c.body.trim()));
         if let Some(line) = c.report_line(key) {

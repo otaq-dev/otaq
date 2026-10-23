@@ -805,6 +805,7 @@ mod tests {
                     epic: None,
                     base_branch: None,
                     external_id: None,
+                    first_comment: None,
                 }),
             )
             .await
@@ -905,6 +906,7 @@ mod tests {
                     epic: None,
                     base_branch: None,
                     external_id: None,
+                    first_comment: None,
                 }),
             )
             .await;
@@ -950,6 +952,7 @@ mod tests {
                     epic: None,
                     base_branch: None,
                     external_id: None,
+                    first_comment: None,
                 }),
             )
             .await
@@ -1064,6 +1067,7 @@ mod tests {
                 epic,
                 base_branch: None,
                 external_id: None,
+                first_comment: None,
             })
         };
         let Reply::Ticket(epic) = send(&h, create(otaq_core::domain::Kind::Epic, "Search", None)).await
@@ -1210,6 +1214,7 @@ mod tests {
                 epic,
                 base_branch: None,
                 external_id: None,
+                first_comment: None,
             })
         };
         let Reply::Ticket(epic) = send(&h, create(otaq_core::domain::Kind::Epic, "Search", None)).await

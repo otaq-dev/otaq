@@ -7,6 +7,8 @@
 //! - `n` numbers a ticket's comments 1, 2, 3…, never reused: a deleted comment keeps its row (History shows what it
 //!   said) and no list shows it. Its report stays until the ticket is deleted.
 //! - Posting, editing and deleting log `comment_posted`, `comment_edited` and `comment_deleted` with the actor.
+//! - A comment the user wrote with a new ticket ([`super::tickets::NewTicketInput::first_comment`], RPT-03) is marked
+//!   "at creation": its row's `stage_id` is [`AT_CREATION`] (a user's comment has no stage otherwise).
 //! - Who may do what (CMT-04) is the policy's ([`crate::policy::Action::Comment`]); a check's checker posts only
 //!   through its verdict, which calls [`post_in`] itself.
 
@@ -28,6 +30,21 @@ pub const COMMENT_LIMIT_CHARS: usize = 2_000;
 
 /// The refusal of an empty comment (or one of only spaces), with or without a report.
 pub const EMPTY_COMMENT: &str = "Write the comment first";
+
+/// The `stage_id` of the user's comment posted with a new ticket (RPT-03): no stage id can take it (a stage's id is
+/// its name's lowercase letters and digits). Shown as "at creation".
+pub const AT_CREATION: &str = "@creation";
+
+/// What a comment posted with its ticket says where its stage would: "You · at creation".
+pub const AT_CREATION_LABEL: &str = "at creation";
+
+/// The first comment of a new ticket (RPT-03): the user's line and, usually, the report the New ticket form took.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FirstComment {
+    pub body: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<ReportSource>,
+}
 
 /// How many characters of a comment History's "commented" line keeps.
 const EXCERPT_CHARS: usize = 120;
@@ -107,6 +124,12 @@ pub struct TicketComment {
     pub body: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report: Option<ReportInfo>,
+    /// The report's own name, its file's (`test-run-login.md`); `None` for pasted text ("Pasted text", RPT-02).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report_name: Option<String>,
+    /// The user posted it with the new ticket (RPT-03): "You · at creation".
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub at_creation: bool,
     pub posted_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edited_at: Option<i64>,
@@ -122,11 +145,24 @@ impl TicketComment {
         }
     }
 
+    /// What its report is called (RPT-02): its file's name, "Pasted text" for pasted text; `None` without a report.
+    pub fn report_label(&self) -> Option<String> {
+        self.report?;
+        Some(
+            self.report_name
+                .clone()
+                .unwrap_or_else(|| super::reports::PASTED_TEXT.to_owned()),
+        )
+    }
+
     /// Its heading in `prime` and `otaq comments` (CMT-07): "Validator · Validate · round 2 · 3:05 pm", "You · 2:14
-    /// pm", local time.
+    /// pm", "You · at creation · 2:14 pm", local time.
     pub fn heading(&self) -> String {
         let mut parts = vec![self.author_label()];
         parts.extend(self.stage_name.clone());
+        if self.at_creation {
+            parts.push(AT_CREATION_LABEL.to_owned());
+        }
         if let CommentAuthor::Agent {
             round: Some(round), ..
         } = &self.author
@@ -246,12 +282,22 @@ impl Row {
         u32::try_from(self.n).unwrap_or(0)
     }
 
+    /// A user's comment posted with its ticket (RPT-03).
+    fn at_creation(&self) -> bool {
+        self.author_kind == "user" && self.stage_id.as_deref() == Some(AT_CREATION)
+    }
+
     fn into_comment(self, stage_name: Option<String>) -> TicketComment {
         TicketComment {
             n: self.n(),
             author: self.author(),
             stage_name,
             report: self.report(),
+            report_name: self
+                .report_file
+                .as_deref()
+                .and_then(|f| super::reports::stored_name(f, &self.id)),
+            at_creation: self.at_creation(),
             body: self.body,
             posted_at: self.posted_at,
             edited_at: self.edited_at,
@@ -285,6 +331,19 @@ pub async fn post_in(
     report: Option<&StoredReport>,
     actor: &Actor,
 ) -> Result<Posted, BoardError> {
+    post_comment_in(tx, ticket_id, author, body, report, false, actor).await
+}
+
+/// [`post_in`], marking a user's comment "at creation" when `at_creation` (the new ticket's first comment, RPT-03).
+pub(crate) async fn post_comment_in(
+    tx: &mut Transaction<'_, Sqlite>,
+    ticket_id: &str,
+    author: &CommentAuthor,
+    body: &str,
+    report: Option<&StoredReport>,
+    at_creation: bool,
+    actor: &Actor,
+) -> Result<Posted, BoardError> {
     // Never reused: deleted rows stay and count.
     let last: Option<i64> =
         sqlx::query_scalar("SELECT MAX(n) FROM ticket_comments WHERE ticket_id = ?")
@@ -294,7 +353,13 @@ pub async fn post_in(
     let n = last.unwrap_or(0) + 1;
     let id = report.map_or_else(new_id, |r| r.comment_id.clone());
     let (author_id, author_name, tool, stage, round) = match author {
-        CommentAuthor::User { name } => (None, Some(name.clone()), None, None, None),
+        CommentAuthor::User { name } => (
+            None,
+            Some(name.clone()),
+            None,
+            at_creation.then(|| AT_CREATION.to_owned()),
+            None,
+        ),
         CommentAuthor::Agent {
             id,
             name,
@@ -329,19 +394,16 @@ pub async fn post_in(
     .bind(now_ms())
     .execute(&mut **tx)
     .await?;
-    record_event(
-        tx,
-        ticket_id,
-        EventKind::CommentPosted,
-        actor,
-        json!({
-            "n": n,
-            "excerpt": excerpt(body),
-            "report": report_json(report.map(|r| r.info)),
-            "author": author,
-        }),
-    )
-    .await?;
+    let mut detail = json!({
+        "n": n,
+        "excerpt": excerpt(body),
+        "report": report_json(report.map(|r| r.info)),
+        "author": author,
+    });
+    if at_creation {
+        detail["at_creation"] = Value::Bool(true);
+    }
+    record_event(tx, ticket_id, EventKind::CommentPosted, actor, detail).await?;
     Ok(Posted {
         id,
         n: u32::try_from(n).unwrap_or(0),
@@ -475,7 +537,11 @@ impl Board {
             comments: rows
                 .into_iter()
                 .map(|row| {
-                    let name = stage_name(row.stage_id.as_ref());
+                    let name = if row.at_creation() {
+                        None
+                    } else {
+                        stage_name(row.stage_id.as_ref())
+                    };
                     row.into_comment(name)
                 })
                 .collect(),

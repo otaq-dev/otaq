@@ -19,7 +19,9 @@ The one place you may write is `$OTAQ_RESOURCE_DIR`, for long output (see "Long 
 1. **Get the context first.** Run `otaq prime` and read all of it: the ticket and its description, the
    **comments**, the user's **Agent instructions** and the project's notes, the tickets it depends on, and the stages
    after yours. Otaq refuses to end your stage until you have run it: "Run `otaq prime` first: SHOP-18 has 1 comment
-   you haven't read."
+   you haven't read." **Open the reports from you before you start.** `prime` lists the files the user attached under "Reports from
+   you · read these before you start"; read each one (`otaq report SHOP-18 1`, or search a long one with
+   `grep -n "Safari" "$(otaq report SHOP-18 1 --path)"`). The agents' reports you open only when you need them.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step
    below. They add to these steps; they never remove getting the context (step 1), asking one question at a time
    (step 4) or ending your stage (step 6).

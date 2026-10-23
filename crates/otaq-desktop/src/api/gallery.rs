@@ -85,6 +85,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         // 25 · Overview's attachments and description words for SHOP-22 (T-0465).
         "gallery.overview" => reply(&otaq_view::view_models::overview::gallery()),
         "gallery.epic_sheet" => reply(&otaq_view::view_models::epic_sheet::gallery()),
+        // The New ticket form's report: its words and its box (T-0474).
+        "gallery.new_ticket_report" => reply(&otaq_view::view_models::editor::report_field()),
         _ => Err(unknown(method)),
     }
 }

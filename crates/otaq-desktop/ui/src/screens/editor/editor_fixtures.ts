@@ -2,6 +2,7 @@
 // "Dark mode" in words as Rust gives them (`editor.open`).
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorReadView } from "../../generated/EditorReadView";
+import type { EditorReportField } from "../../generated/EditorReportField";
 import type { EditorTexts } from "../../generated/EditorTexts";
 import type { EditorView } from "../../generated/EditorView";
 import type { PriorityView } from "../../generated/PriorityView";
@@ -133,6 +134,7 @@ export const VIEW: EditorView = {
   read: null,
   source_mode: false,
   choices: null,
+  report: null,
 };
 
 export const READ: EditorReadView = {
@@ -148,4 +150,28 @@ export const READ: EditorReadView = {
   base: "main",
   external_id: "PAY-123",
   marked: ["body"],
+};
+
+/** The New ticket form's report place (RPT-03, T-0474), as `report_field()` words it. */
+export const REPORT_FIELD: EditorReportField = {
+  label: "Report",
+  hint: "Optional · posted as your first comment; agents read yours before they start",
+  add: "Add",
+  pick_title: "Attach a report",
+  drop: "Drop files here or paste",
+  line_box: {
+    label: null,
+    placeholder: "One line: what the report shows…",
+    submit: null,
+    footer: "Posted as your first comment · You · at creation",
+    footer_icon: "message-square",
+    needs_line: "Say what the next agent should look for",
+    pasted: "Pasted text",
+    file_line: "A comment always has its own line; the file goes with it.",
+    remove_file: "Remove the file",
+    open: "Open",
+    remove: "Remove the pasted text",
+    optional: true,
+    limits: { chars: 2000, report_bytes: 20 * 1024 * 1024, report_label: "20 MB" },
+  },
 };

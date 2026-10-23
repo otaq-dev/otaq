@@ -1,13 +1,16 @@
 //! Ticket comments and reports (T-0442; CMT-01…CMT-04, CMT-06, CMT-14; d0109, d0060): the 2,000-character limit, N
 //! per ticket never reused, the three History events, reports copied by streaming with their size and lines (20 MB
 //! accepted, one byte more refused with nothing left behind), kept on a comment's delete and removed with the ticket;
-//! and who may write, through the socket from inside sessions (an ordinary `sh`, never an agent tool).
+//! and who may write, through the socket from inside sessions (an ordinary `sh`, never an agent tool). T-0474 (RPT-02,
+//! RPT-03): a copied report keeps its file's name; a ticket created with a report has it as its first comment.
 
 use std::time::Duration;
 
 use otaq_core::board::Refusal;
 use otaq_core::board::reports::{REPORT_LIMIT_BYTES, ReportInfo, ReportSource};
-use otaq_core::board::ticket_comments::{COMMENT_LIMIT_CHARS, CommentAuthor, TicketComment};
+use otaq_core::board::ticket_comments::{
+    COMMENT_LIMIT_CHARS, CommentAuthor, FirstComment, TicketComment,
+};
 use otaq_core::board::tickets::{EventKind, HistoryEvent, NewTicketInput};
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
@@ -254,7 +257,15 @@ async fn reports_are_copied_sized_and_counted_and_live_as_long_as_the_ticket() {
         "{}",
         report.path
     );
-    assert!(report.path.ends_with(".txt"));
+    // The file keeps its name, in its comment's folder (Q414): reports/shop-web/SHOP-1/<id>/test-run.txt.
+    assert_eq!(fail.report_name.as_deref(), Some("test-run.txt"));
+    assert_eq!(fail.report_label().as_deref(), Some("test-run.txt"));
+    let stored = std::path::Path::new(&report.path);
+    assert!(stored.ends_with("test-run.txt"), "{}", report.path);
+    assert_eq!(
+        stored.parent().unwrap().parent().unwrap(),
+        w.data.reports_dir().join("shop-web").join("SHOP-1")
+    );
     assert_eq!(std::fs::read_to_string(&report.path).unwrap(), text);
     assert!(!report.deleted);
     let events = comment_events(&w, "SHOP-1").await;
@@ -276,6 +287,9 @@ async fn reports_are_copied_sized_and_counted_and_live_as_long_as_the_ticket() {
         .await
         .unwrap();
     assert_eq!(pasted.report, Some(ReportInfo { bytes: 7, lines: 2 }));
+    // Pasted text has no name of its own: "Pasted text".
+    assert_eq!(pasted.report_name, None);
+    assert_eq!(pasted.report_label().as_deref(), Some("Pasted text"));
 
     // Exactly 20 MB is accepted; one byte more refused, with nothing posted and no file left.
     let at_limit = resources.path().join("at-limit.txt");
@@ -404,6 +418,128 @@ async fn reports_are_copied_sized_and_counted_and_live_as_long_as_the_ticket() {
             .join("shop-web")
             .join("SHOP-1")
             .exists()
+    );
+    w.stop().await;
+}
+
+/// RPT-03 (T-0474): a ticket created with a report has it as its first comment: the user's, marked "at creation",
+/// the report under its file's own name; a report that can't be copied creates nothing; an agent can't send one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_ticket_created_with_a_report_has_it_as_its_first_comment() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let resources = tempfile::TempDir::new().unwrap();
+    let run = resources.path().join("test-run-login.md");
+    std::fs::write(&run, "# Test run\n2 failed\n18 passed\n").unwrap();
+    let input = |report: ReportSource, line: &str| NewTicketInput {
+        project: "SHOP".into(),
+        title: "Fix flaky login redirect".into(),
+        first_comment: Some(FirstComment {
+            body: line.into(),
+            report: Some(report),
+        }),
+        ..Default::default()
+    };
+    let t = w
+        .board
+        .create_ticket(
+            &input(
+                ReportSource::Path(run.clone()),
+                "  Fails 2 in 20 on Safari; the run is attached. ",
+            ),
+            &me(),
+        )
+        .await
+        .unwrap();
+    let key = t.key.to_string();
+    let comments = w.board.ticket_comments(&key).await.unwrap().comments;
+    assert_eq!(comments.len(), 1);
+    let first = &comments[0];
+    assert_eq!((first.n, &first.author), (1, &you()));
+    assert!(first.at_creation);
+    assert_eq!(first.stage_name, None);
+    assert!(
+        first
+            .heading()
+            .starts_with("You \u{b7} at creation \u{b7} "),
+        "{}",
+        first.heading()
+    );
+    assert_eq!(first.body, "Fails 2 in 20 on Safari; the run is attached.");
+    assert_eq!(
+        first.report,
+        Some(ReportInfo {
+            bytes: 30,
+            lines: 3
+        })
+    );
+    assert_eq!(first.report_name.as_deref(), Some("test-run-login.md"));
+    let report = w.board.ticket_report(&key, 1).await.unwrap();
+    assert!(
+        std::path::Path::new(&report.path).ends_with("test-run-login.md"),
+        "{}",
+        report.path
+    );
+    assert!(run.exists(), "copied, never moved");
+    let events = comment_events(&w, &key).await;
+    assert_eq!(events[0].payload["at_creation"], json!(true));
+    // A comment posted later isn't "at creation".
+    let later = post(&w, &key, "Also check Firefox.").await;
+    assert!(!later.at_creation);
+
+    // Pasted text: "Pasted text".
+    let pasted = w
+        .board
+        .create_ticket(
+            &input(ReportSource::Text("one\ntwo".into()), "My log."),
+            &me(),
+        )
+        .await
+        .unwrap();
+    let first = w
+        .board
+        .ticket_comment(&pasted.key.to_string(), 1)
+        .await
+        .unwrap();
+    assert!(first.at_creation);
+    assert_eq!(first.report_label().as_deref(), Some("Pasted text"));
+
+    // Refused before anything is created: a missing report, an empty line.
+    let files_before = report_files(&w);
+    let missing = w
+        .board
+        .create_ticket(
+            &input(
+                ReportSource::Path(resources.path().join("nope.md")),
+                "The run.",
+            ),
+            &me(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(missing.refusal(), Some(Refusal::BadReport), "{missing}");
+    let empty = w
+        .board
+        .create_ticket(&input(ReportSource::Path(run.clone()), "  "), &me())
+        .await
+        .unwrap_err();
+    assert_eq!(empty.refusal(), Some(Refusal::EmptyField), "{empty}");
+    assert!(w.board.ticket("SHOP-3").await.is_err(), "nothing created");
+    assert_eq!(report_files(&w), files_before, "no file left behind");
+
+    // An agent can't send one (its tickets have no first comment from it).
+    let dev = w.agent_shell(&t).await;
+    w.run_as_agent(&dev, "rust-dev", "Rust developer").await;
+    let answer = send(
+        &w,
+        &dev,
+        "ticket.create",
+        json!({"project": "SHOP", "title": "Follow-up", "first_comment": {"body": "See this."}}),
+    )
+    .await;
+    assert_eq!(
+        refusal(&answer),
+        "SHOP-1's agent can't post a new ticket's first comment; ask the user"
     );
     w.stop().await;
 }

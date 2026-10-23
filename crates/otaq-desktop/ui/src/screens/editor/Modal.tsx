@@ -15,6 +15,7 @@ import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { EditorFields } from "./Fields";
 import { quickKey, SAVE_KEYS } from "./logic";
+import { NewTicketReport, useReportAttach } from "./NewTicketReport";
 import { useEditor } from "./useEditor";
 
 /**
@@ -70,6 +71,10 @@ function FullForm({
     editor.save(close);
   };
   useFormKeys(root, save);
+  // A new ticket's report (RPT-03): not for an epic, whose lead reads no comments of its own.
+  const takesReport = view.report !== null && !editor.form.epic_kind;
+  const { patchForm } = editor;
+  const report = useReportAttach(root, takesReport, patchForm);
   const t = view.texts;
   return (
     <Dialog
@@ -95,7 +100,7 @@ function FullForm({
         </>
       }
     >
-      <div ref={root} className="editor-modal-body">
+      <div ref={root} className="editor-modal-body" onPaste={report.onPaste}>
         <EditorFields
           view={view}
           form={editor.form}
@@ -108,6 +113,9 @@ function FullForm({
           autoFocusTitle
           onSave={save}
         />
+        {takesReport && view.report !== null && (
+          <NewTicketReport field={view.report} project={view.project} attach={report} onSave={save} />
+        )}
       </div>
     </Dialog>
   );

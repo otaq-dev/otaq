@@ -2,13 +2,14 @@
 //! instructions. T-0409 (AGM-06; d0108): the agent's instructions, then the project's notes, then the stage and its
 //! skill, then the earlier stages; the parents' last stage summaries; the stage choices the reader may set, with their
 //! models (none on the default flow). T-0444 (CMT-07; d0109): "## Comments" in full, oldest first, with a report's
-//! line and never its text; "Earlier stages" one line each; a parent's last comment from an Agent stage.
+//! line and never its text; "Earlier stages" one line each; a parent's last comment from an Agent stage. T-0474
+//! (RPT-01; d0109): the user's reports first, under "Reports from you", never their text.
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::models::{ModelCopy, ModelEntry, ModelKind, ModelList, settings_key};
 use otaq_core::board::reports::ReportSource;
-use otaq_core::board::ticket_comments::CommentAuthor;
-use otaq_core::board::tickets::TicketUpdate;
+use otaq_core::board::ticket_comments::{CommentAuthor, FirstComment};
+use otaq_core::board::tickets::{NewTicketInput, TicketUpdate};
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{Actor, Status};
@@ -667,6 +668,102 @@ async fn prime_prints_the_examples_four_comments() {
         "\n7. Long output goes to a file in `$OTAQ_RESOURCE_DIR`; attach it with `--report-file`.\n"
     ));
     w.stop().await;
+}
+
+/// RPT-01 (T-0474): `prime` lists the user's report first, under "Reports from you · read these before you start",
+/// with its name, size, `otaq report KEY N` and its comment's line; the agent's report stays a line under its comment;
+/// neither report's text is printed. `prime --validate` lists it the same way.
+#[tokio::test(flavor = "multi_thread")]
+async fn prime_lists_the_users_reports_first() {
+    let w = with_agents().await;
+    let resources = tempfile::TempDir::new().unwrap();
+    let mine = resources.path().join("test-run-login.md");
+    std::fs::write(&mine, "SECRET-USER-RUN\n2 failed\n18 passed\n").unwrap();
+    let theirs = resources.path().join("test-run.txt");
+    std::fs::write(&theirs, "SECRET-AGENT-RUN\n").unwrap();
+    let t = w
+        .board
+        .create_ticket(
+            &NewTicketInput {
+                project: "SHOP".into(),
+                title: "Fix flaky login redirect".into(),
+                first_comment: Some(FirstComment {
+                    body: "Fails 2 in 20 on Safari.\nThe full run is attached.".into(),
+                    report: Some(ReportSource::Path(mine)),
+                }),
+                ..Default::default()
+            },
+            &Actor::User("me".into()),
+        )
+        .await
+        .unwrap();
+    let key = t.key.to_string();
+    set_posted_at(&w, &key, 1, (14, 20)).await;
+    let n = w
+        .board
+        .post_ticket_comment(
+            &key,
+            &agent("Rust developer", "dev", None),
+            "The middleware reads the cookie too early.",
+            Some(ReportSource::Path(theirs)),
+            &Actor::User("me".into()),
+        )
+        .await
+        .unwrap()
+        .n;
+    set_posted_at(&w, &key, n, (14, 38)).await;
+    w.force_status(&t, Status::Working).await;
+
+    let context = w
+        .board
+        .prime_context(&key, w.adapters.for_new_session())
+        .await
+        .unwrap();
+    let text = render(&context);
+    let expected = format!(
+        "\n## Reports from you \u{b7} read these before you start\n\n\
+         - test-run-login.md \u{b7} 35 bytes, 3 lines \u{b7} `otaq report {key} 1`\n  \
+         With comment 1 (You \u{b7} at creation \u{b7} 2:20 pm): Fails 2 in 20 on Safari.\n\
+         \n## Comments\n\n\
+         ### You \u{b7} at creation \u{b7} 2:20 pm\n\n\
+         Fails 2 in 20 on Safari.\nThe full run is attached.\n\n\
+         Report: 35 bytes, 3 lines \u{b7} `otaq report {key} 1`\n\
+         \n### Rust developer \u{b7} Dev \u{b7} 2:38 pm\n\n\
+         The middleware reads the cookie too early.\n\n\
+         Report: 17 bytes, 1 line \u{b7} `otaq report {key} 2`\n"
+    );
+    assert!(text.contains(&expected), "missing {expected:?} in\n{text}");
+    assert_eq!(text.matches("Reports from you").count(), 1, "{text}");
+    for gone in ["SECRET-USER-RUN", "SECRET-AGENT-RUN", "test-run.txt"] {
+        assert!(!text.contains(gone), "{gone:?} in\n{text}");
+    }
+
+    let validate = otaq_core::prime::render_validate(&w.board.validate_prime(&key).await.unwrap());
+    assert!(validate.contains(&expected), "{validate}");
+
+    // Without a report of yours, no section.
+    let plain = w.create("SHOP", "Order list paging").await;
+    post_agent_report(&w, &plain.key.to_string()).await;
+    let ctx = w
+        .board
+        .prime_context(&plain.key.to_string(), w.adapters.for_new_session())
+        .await
+        .unwrap();
+    assert!(!render(&ctx).contains("Reports from you"));
+    w.stop().await;
+}
+
+async fn post_agent_report(w: &TestService, key: &str) {
+    w.board
+        .post_ticket_comment(
+            key,
+            &agent("Validator", "validate", Some(1)),
+            "Fail: 3 tests fail.",
+            Some(ReportSource::Text("FAILED\n".into())),
+            &Actor::User("me".into()),
+        )
+        .await
+        .unwrap();
 }
 
 /// CMT-07: `prime --validate` prints the comments too (earlier rounds' findings are among them); "Earlier rounds'

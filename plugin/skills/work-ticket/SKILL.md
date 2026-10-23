@@ -17,7 +17,9 @@ time.
    **comments** (what the user and the earlier stages' agents handed over), the tickets it depends on (with their
    agents' last comments) and Otaq's rules. Otaq refuses to end your stage until you have run it: "Run `otaq prime`
    first: SHOP-19 has 2 comments you haven't read." The description is the plan; when a comment changes it, follow the
-   comment.
+   comment. **Open the reports from you before you start.** `prime` lists the files the user attached under "Reports from
+   you · read these before you start"; read each one (`otaq report SHOP-19 1`, or search a long one with
+   `grep -n "Safari" "$(otaq report SHOP-19 1 --path)"`). The agents' reports you open only when you need them.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules (tests to run, skills to use,
    how to plan) and they apply to every step below. They add to these steps; they never remove getting the context
    (step 1) or ending your stage (step 6).

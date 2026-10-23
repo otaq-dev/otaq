@@ -107,23 +107,26 @@ impl DataDir {
         self.root.join("reports")
     }
 
-    /// The report of one ticket comment (CMT-03): `reports/<repo-name>/<KEY>/<comment id>.txt`, for example
-    /// `reports/shop-web/SHOP-34/0f3a….txt`. Otaq's own copy, never in the repository (d0023).
+    /// The report of one ticket comment (CMT-03): a copied file keeps its own name in its comment's folder,
+    /// `reports/<repo-name>/<KEY>/<comment id>/<name>` (`reports/shop-web/SHOP-34/0f3a…/test-run-login.md`, RPT-02);
+    /// pasted text has none, `reports/<repo-name>/<KEY>/<comment id>.txt`. Otaq's own copy, never in the repository
+    /// (d0023).
     pub fn report_path(
         &self,
         repo_name: &str,
         key: &TicketKey,
         comment_id: &str,
+        name: Option<&str>,
     ) -> Result<PathBuf, DataDirError> {
         let repo = path_component(repo_name)?;
         let key = key.to_string();
         let key = path_component(&key)?;
         let id = path_component(comment_id)?;
-        Ok(self
-            .reports_dir()
-            .join(repo)
-            .join(key)
-            .join(format!("{id}.txt")))
+        let folder = self.reports_dir().join(repo).join(key);
+        Ok(match name {
+            Some(name) => folder.join(id).join(path_component(name)?),
+            None => folder.join(format!("{id}.txt")),
+        })
     }
 
     /// Otaq's own scratch worktree for a repository (`scratch/<repo-name>`), where Local merges happen,

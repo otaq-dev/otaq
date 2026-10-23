@@ -21,7 +21,9 @@ the worktree: your check runs' output goes there (see "Long output").
    user's **Agent instructions** and the project's notes, the earlier stages, the **comments** (the agent's comment on
    its work, the user's, and earlier rounds' verdicts), the diff, the user's line comments when the ticket was sent
    back, and the linked tickets. Otaq refuses your verdict until you have run it: "Run `otaq prime` first: SHOP-29 has
-   3 comments you haven't read."
+   3 comments you haven't read." **Open the reports from you before you start.** `prime` lists the files the user attached under "Reports from
+   you · read these before you start"; read each one (`otaq report SHOP-29 1`, or search a long one with
+   `grep -n "Safari" "$(otaq report SHOP-29 1 --path)"`). The agents' reports you open only when you need them.
 2. **Follow the Agent instructions** that `prime --validate` prints. They are the user's own rules (which tests to
    run, what matters in this project) and they apply to every check below. They never allow you to change anything.
 3. **Check the change against the description.** Does it do what this ticket's description asks, including any

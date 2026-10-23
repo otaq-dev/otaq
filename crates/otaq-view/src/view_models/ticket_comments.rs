@@ -160,6 +160,12 @@ impl CommentBoxView {
         Self::new(Some(label.into()), None, Some(footer.into()), optional)
     }
 
+    /// No label over the box (the New ticket form's report has its own field label).
+    pub fn without_label(mut self) -> Self {
+        self.label = None;
+        self
+    }
+
     /// A different placeholder (a dialog's own).
     pub fn placeholder(mut self, text: impl Into<String>) -> Self {
         self.placeholder = text.into();
@@ -278,7 +284,16 @@ pub fn menu() -> Vec<MenuItem> {
 fn row(comment: &TicketComment, avatars: bool, clock: &dyn Fn(i64) -> String) -> CommentRow {
     let time = clock(comment.posted_at);
     let (mine, mark, mut meta) = match &comment.author {
-        CommentAuthor::User { .. } => (true, Mark::You, Vec::new()),
+        // The user's comment posted with the ticket (RPT-03): "You · at creation · 2:20 pm".
+        CommentAuthor::User { .. } => (
+            true,
+            Mark::You,
+            comment
+                .at_creation
+                .then(|| otaq_core::board::ticket_comments::AT_CREATION_LABEL.to_owned())
+                .into_iter()
+                .collect(),
+        ),
         CommentAuthor::Agent { tool, round, .. } => {
             let mut meta: Vec<String> = comment.stage_name.iter().cloned().collect();
             meta.extend(round.map(|r| format!("round {r}")));
@@ -413,6 +428,8 @@ mod tests {
             report: None,
             posted_at: posted,
             edited_at: None,
+            report_name: None,
+            at_creation: false,
         }
     }
 
@@ -529,6 +546,19 @@ mod tests {
         assert_eq!(b.label, None);
         assert!(!b.optional);
         assert_eq!(b.limits, CommentLimits::current());
+    }
+
+    /// RPT-03: your comment posted with the ticket reads "You · at creation · 2:20 pm".
+    #[test]
+    fn your_first_comment_says_at_creation() {
+        let mut comments = shop_34();
+        comments[1].at_creation = true;
+        let v = view(&comments, None);
+        assert_eq!(v.comments[1].meta, "at creation \u{b7} 2:20 pm");
+        assert_eq!(
+            v.comments[1].heading,
+            "You \u{b7} at creation \u{b7} 2:20 pm"
+        );
     }
 
     #[test]
