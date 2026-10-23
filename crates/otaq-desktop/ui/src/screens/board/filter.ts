@@ -84,8 +84,9 @@ export function focusEpic(
 /** Filter the board (`/`) asks the field for the keyboard: each request counts up, so pressing it twice is two requests. */
 export const searchFocusRequests: Store<number> = createStore(0);
 
-export function requestSearchFocus(store: Store<number> = searchFocusRequests): void {
-  store.update((n) => n + 1);
+/** Takes no arguments, so it can be a click handler (the toolbar's All tickets) without taking the event for a store. */
+export function requestSearchFocus(): void {
+  searchFocusRequests.update((n) => n + 1);
 }
 
 /**
