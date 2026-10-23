@@ -607,7 +607,12 @@ async fn outside_flow_setup_a_new_proposal_still_replaces_the_old() {
     b.tool = Tool::OpenCode;
     let first = propose(&w, &shop, &a, GRILL_FIRST_FILE).await;
     let second = propose(&w, &shop, &b, TEAM_PR_FILE).await;
-    assert_ne!(first.id, second.id);
+    // Both land in the project's one draft (FED-02): the second replaces the first's content, the agent waiting for
+    // the answer is the second's.
+    assert_eq!(first.id, second.id);
+    assert!(
+        matches!(&second.proposed_by, ProposedBy::ProjectAgent { agent, .. } if *agent == b.id)
+    );
     let ids: Vec<u32> = open_proposals(&w, &shop)
         .await
         .iter()

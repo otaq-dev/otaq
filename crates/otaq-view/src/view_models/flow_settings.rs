@@ -568,6 +568,8 @@ mod tests {
             preset: None,
             changes: changes.iter().map(|c| (*c).to_owned()).collect(),
             since: 0,
+            wait: otaq_core::flow::apply::Wait::WholeBoard,
+            hold: otaq_core::flow::apply::Hold::READY_FOR_DEV,
             waiting_for: (1..=tickets)
                 .map(|n| format!("SHOP-{n}").parse().unwrap())
                 .collect(),

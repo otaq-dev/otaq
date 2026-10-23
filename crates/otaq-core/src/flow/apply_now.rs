@@ -5,7 +5,8 @@
 //! counts whole) and [`super::apply::still_working`]: the change's summary ("Removes Grill and Security from shop-web's
 //! flow"); the **moves**, one per ticket in a stage the new flow doesn't have (in it, or waiting before it), each with
 //! whether its agent will stop, its state line ("failed ×3"), its choices and its default; the tickets that **keep**
-//! their place (every other ticket still working, "keeps running" or "keeps its place"); and a **stamp** of the board
+//! their place (every other ticket still working inside what the change waits for, its span or the whole board,
+//! FED-08: "keeps running" or "keeps its place"); and a **stamp** of the board
 //! the plan was made from.
 //!
 //! **The removed stage's place** in the new flow is just before the first surviving stage that followed it in the old
@@ -29,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use super::apply::still_working;
+use super::apply::{Wait, still_working};
 use super::engine::{self, At, RunResult, skipped_by_drag};
 use super::model::{Flow, Stage};
 use super::store::{FlowVersion, NewFlowVersion};
@@ -254,6 +255,8 @@ pub struct PlanFacts<'a> {
     pub tickets: &'a [Ticket],
     /// The tickets a Delivery session works on now.
     pub delivering: &'a HashSet<String>,
+    /// What the change waits for: only the tickets inside it are listed (FED-08).
+    pub wait: &'a Wait,
     pub live: &'a Live,
     /// The Agent stages each ticket ran in a session of its own, by ticket id (they can resume).
     pub ran: &'a HashMap<String, HashSet<String>>,
@@ -355,10 +358,11 @@ pub fn plan(facts: &PlanFacts<'_>) -> ApplyNowPlan {
             moves.push(planned_move(facts, ticket, &stage));
         }
     }
-    let working: HashSet<&str> = still_working(facts.tickets, old, new, facts.delivering)
-        .into_iter()
-        .map(|t| t.id.as_str())
-        .collect();
+    let working: HashSet<&str> =
+        still_working(facts.tickets, old, new, facts.delivering, facts.wait)
+            .into_iter()
+            .map(|t| t.id.as_str())
+            .collect();
     let keep: Vec<KeptTicket> = tickets
         .iter()
         .filter(|t| working.contains(t.id.as_str()) && !moving.contains(&t.id))
@@ -610,6 +614,7 @@ impl Board {
             changes: &waiting.changes,
             tickets: &tickets,
             delivering: &delivering,
+            wait: &waiting.wait,
             live,
             ran: &ran,
             skips: &skips,

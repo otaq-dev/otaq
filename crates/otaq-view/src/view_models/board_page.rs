@@ -498,9 +498,9 @@ pub struct ProjectFacts<'a> {
     pub agents: Option<&'a otaq_core::agents::facts::BoardAgents>,
     /// Every agent (`agents.list`): the column headers' tooltips name each stage's tool and model (FLW-12).
     pub agent_list: Option<&'a otaq_core::agents::AgentList>,
-    /// Why no ticket starts from Ready for Dev (FLW-06: [`board::WAITING_FOR_THE_FLOW_CHANGE`] while a flow change
-    /// waits); `None` while starts run.
-    pub starts_held: Option<&'a str>,
+    /// The starts a waiting flow change holds back (FLW-06, FED-08): its cards say
+    /// [`board::WAITING_FOR_THE_FLOW_CHANGE`]; `None` while starts run.
+    pub starts_held: Option<&'a otaq_core::flow::apply::Hold>,
     /// The project's view preferences (`ProjectSettings.view`, SHB-05).
     pub view: &'a ViewPrefs,
 }

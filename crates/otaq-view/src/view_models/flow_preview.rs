@@ -20,10 +20,10 @@ use otaq_core::agent_tools::Tool;
 use otaq_core::agents::in_use::StageUse;
 use otaq_core::agents::{AgentList, AgentModel, ModelRef, shipped};
 use otaq_core::board::tickets::Ticket;
-use otaq_core::flow::apply::still_working;
+use otaq_core::flow::apply::{Wait, affected_span, still_working};
 use otaq_core::flow::proposal::{
     AgentChange, AgentChangeKind, AgentField, Applies, Change, ClashChoice, Fix, Level, Proposal,
-    ProposedBy, SAME, Scope, Source,
+    ProposedBy, SAME, Scope, Source, applied_now,
 };
 use otaq_core::flow::{
     AppliedBy, CheckBy, Column, Delivers, DeliveryMode, Flow, FlowAgent, FlowFile, FlowVersion,
@@ -959,8 +959,25 @@ fn applies(file: &FlowFile, whole: bool, facts: &Facts) -> Option<String> {
                 .to_owned(),
         );
     }
-    if diff.waits {
-        let working = still_working(facts.tickets, facts.base, &file.flow, &HashSet::new()).len();
+    if diff.waits || whole {
+        // What it waits for (FED-08): the whole board for a whole new flow, else the span it touches; a whole flow
+        // that doesn't wait applies now.
+        let wait = match whole {
+            true => Wait::WholeBoard,
+            false => affected_span(&applied_now(facts.base, &file.flow), &file.flow)
+                .map_or(Wait::WholeBoard, Wait::Span),
+        };
+        let working = match diff.waits {
+            true => still_working(
+                facts.tickets,
+                facts.base,
+                &file.flow,
+                &HashSet::new(),
+                &wait,
+            )
+            .len(),
+            false => 0,
+        };
         let what = if whole {
             "The new flow"
         } else if diff.stages.len() == 1 && matches!(diff.stages[0].change, Change::Added { .. }) {
@@ -1376,7 +1393,7 @@ mod tests {
         let mut file = file;
         proposal::match_ids(base, &mut file.flow, &written);
         let stages = stage_changes(base, &file.flow, false);
-        let waits = stages.iter().any(|c| c.change.is_shape());
+        let waits = stages.iter().any(|c| c.change.reorders());
         Proposal {
             id: 3,
             project: "SHOP".into(),
@@ -1742,7 +1759,10 @@ flow:
         assert_eq!(
             texts,
             [
-                ("shop-web \u{b7} stage QA (your check) after Review", None),
+                (
+                    "shop-web \u{b7} stage QA (your check) after Review",
+                    Some("applies at once")
+                ),
                 (
                     "Security reviewer \u{b7} instructions: + \u{201c}Fail on any unescaped SQL\u{201d}",
                     Some("Used in: shop-web (Security)")
@@ -1754,12 +1774,10 @@ flow:
             ]
         );
         assert_eq!(v.changes[0].icon, IconName::Plus);
+        // A new stage applies at once (FED-08): nothing waits.
         assert_eq!(
             v.applies.as_deref(),
-            Some(
-                "The new stage waits for a quiet board: 8 tickets in shop-web are still working, and no new \
-                 ticket starts meanwhile. Agent changes apply to the next session that starts."
-            )
+            Some("Agent changes apply to the next session that starts.")
         );
         assert!(v.agents.is_none(), "it adds no agent");
     }

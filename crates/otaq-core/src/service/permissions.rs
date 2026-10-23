@@ -261,6 +261,7 @@ async fn action_for(
         | R::FlowCurrent(_)
         | R::FlowVersions(_)
         | R::FlowProposal(_)
+        | R::FlowDraft(_)
         | R::FlowWaiting(_)
         | R::SessionList(_)
         | R::SessionBeforeRestart(_)
@@ -409,7 +410,8 @@ async fn action_for(
         | R::FlowApplyNowPlan(_)
         | R::FlowApplyNow(_)
         | R::FlowProposeFrom(_)
-        | R::FlowAskForChanges(_) => Action::UserOnly("change flows"),
+        | R::FlowAskForChanges(_)
+        | R::FlowDraftUpdate(_) => Action::UserOnly("change flows"),
         R::FlowShow(_) => Action::Read,
         R::FlowPropose(p) => Action::ProposeFlow {
             project: board.project(&p.project).await?.key,

@@ -119,6 +119,8 @@ impl Review {
     ) -> Result<ReturnOutcome, BoardError> {
         let board = self.board();
         let ticket = board.ticket(key).await?;
+        // While a flow change waits for a span, a drop past its edge stops there (FED-08).
+        let target = &board.span_edge(&ticket, target).await?;
         let check = board.check_drag(&ticket, target).await?;
         let action = match &check {
             MoveCheck::Unchanged => return done(board, key).await,

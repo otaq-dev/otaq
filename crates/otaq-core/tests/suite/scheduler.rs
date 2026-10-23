@@ -3,7 +3,7 @@
 
 use crate::common;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -264,9 +264,13 @@ fn a_paused_project_starts_nothing_and_a_waiting_flow_change_holds_only_ready_fo
         bill_between,
     ];
     let none = HashSet::new();
+    let no_holds = HashMap::new();
     let shop = HashSet::from(["SHOP".to_owned()]);
-    let bill = HashSet::from(["BILL".to_owned()]);
-    let paused = plan_holding(&board, &none, &Gate::default(), &none, &shop);
+    let bill = HashMap::from([(
+        "BILL".to_owned(),
+        otaq_core::flow::apply::Hold::READY_FOR_DEV,
+    )]);
+    let paused = plan_holding(&board, &none, &Gate::default(), &no_holds, &shop);
     assert_eq!(keys(&paused.start), ["BILL-1", "BILL-2"]);
     assert!(paused.changes.is_empty(), "they wait as they are");
     let flow_change = plan_holding(&board, &none, &Gate::default(), &bill, &none);

@@ -1,19 +1,27 @@
-//! Applying a proposal, and the quiet-board wait (FLW-05, FLW-06, FLW-09, FLW-10; d0108 "Only changes to the flow's
-//! shape wait", "A flow change waits for a quiet board", second gap review rules 11 and 13).
+//! Applying a proposal, and when a change reaches tickets (FLW-05, FLW-06, FLW-09, FLW-10, FED-08; d0108 "A flow
+//! change waits for a quiet board", second gap review rules 11 and 13; d0115 "When an applied change reaches
+//! tickets").
 //!
 //! **What applies when** ([`Board::apply_proposal`]): agent changes and skill imports apply now (each session's next
-//! start; running ones keep what they started with, d0088). Stage changes that aren't shape changes are stored as a
-//! new version now: a stage's agent, skill, options and rounds are read when that stage next starts, its column and a
-//! Delivery's mode or target by the next card that arrives. **A shape change waits** (adding, removing or reordering
-//! stages, or a stage's kind): the parts that don't wait are stored now ([`super::proposal::applied_now`]), and the
-//! whole proposed flow becomes the project's **waiting change**.
+//! start; running ones keep what they started with, d0088). **Adding a stage or editing one applies at once**: stored
+//! as a new version now, so a ticket that hasn't reached that point follows it (Plan added after Grill: SHOP-12 in
+//! Grill goes to Plan next) and tickets in or past it finish as they are; a stage's agent, skill, options and rounds
+//! are read when that stage next starts, its name, column and a Delivery's mode or target by the next card that
+//! arrives. **Removing or reordering stages, or a stage's kind, waits for its affected span** ([`affected_span`]): the
+//! parts that don't wait are stored now ([`super::proposal::applied_now`]) and the whole proposed flow becomes the
+//! project's **waiting change**. **A swap to another flow** (a Start from pick, `flow propose --from`) waits for the
+//! whole board, as before: only its edits apply now ([`super::proposal::edits_only`]).
 //!
-//! **The wait** ([`still_working`]): it applies once every ticket of the project is in Backlog, Ready for Dev or
-//! Done, waiting in a human check the new flow still has, waiting in the Delivery stage with no Delivery session at
-//! work (To deliver, PR open), or an epic at its Review epic stop (`epic_is_quiet`). Cards in an Agent stage, an agent
-//! check, a running Delivery session or a stage the change removes hold it. Meanwhile no ticket of that
-//! project starts from Ready for Dev (the scheduler's hold: [`Board::settle_flow_changes`]; other projects keep
-//! starting). When it is quiet the new flow is stored and starts resume. **A change while another waits** was compared
+//! **The wait** ([`still_working`], [`Wait`]): it applies once no ticket inside what it waits for is at work. A
+//! ticket is quiet in Backlog, Ready for Dev or Done, waiting in a human check the new flow still has, waiting in the
+//! Delivery stage with no Delivery session at work (To deliver, PR open), or an epic at its Review epic stop
+//! (`epic_is_quiet`). Cards in an Agent stage, an agent check, a running Delivery session or a stage the change
+//! removes hold it. For a span only the cards inside it count (Security moved before Validate: Dev to Review); tickets
+//! before it move on freely and those past it are untouched. **Meanwhile no ticket enters it** ([`Hold`]): a ticket
+//! that would waits at its edge, before its first stage, "Waiting for the flow change": the scheduler doesn't start it
+//! ([`Board::settle_flow_changes`]; other projects and the rest of the board keep starting), and a drag past the edge
+//! stops there ([`Board::span_edge`]). For the whole board no ticket starts from Ready for Dev. When it is quiet the
+//! new flow is stored and starts resume. **A change while another waits** was compared
 //! with the waiting flow, so it shows only the new part; Apply merges it into the waiting change, even its parts that
 //! would otherwise apply at once; **Cancel change** drops both, and nothing else. **Apply now** forces it, with a stage
 //! picked for each ticket in a removed stage: [`super::apply_now`].
@@ -22,21 +30,24 @@
 //! longer offers, the stage's own agent runs and History says so ("Quick developer is no longer an option for Dev ·
 //! runs Rust developer").
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use super::draft::DraftMemory;
+use super::engine::Target;
 use super::model::{Flow, FlowAgent, FlowFile, Stage, StageOption};
 use super::proposal::{
     AgentChangeKind, ApplyChoices, ClashChoice, Proposal, ProposedBy, SkillSource, Source,
-    applied_now, effective_file, flow_agent_of, skill_source,
+    applied_now, edits_only, effective_file, flow_agent_of, skill_source,
 };
 use super::store::{AppliedBy, FlowVersion, NewFlowVersion};
 use super::yaml;
 use crate::agents::store::NewAgent;
 use crate::agents::{Agent, CameFrom, ModelCatalog, Role, SkillRef, shipped};
 use crate::board::epic_flight::epic_is_quiet;
+use crate::board::moves::DropOn;
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::{Actor, Place, StatusSet, TicketKey};
@@ -44,6 +55,160 @@ use crate::store::{Store, now_ms};
 
 /// Why a ticket in Ready for Dev doesn't start while its project's flow change waits (the card's footer, FLW-06).
 pub const WAITING_FOR_THE_FLOW_CHANGE: &str = "Waiting for the flow change";
+
+/// The **affected span** of a removal or reorder (FED-08): the stages from the first to the last one it touches, in
+/// the flow in use. Moving Security before Validate touches Dev to Review.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Span {
+    /// The stages' ids, first to last. Empty: nothing is left to wait for.
+    pub stages: Vec<String>,
+    /// The first and last stages' names: "Dev", "Review".
+    pub first: String,
+    pub last: String,
+}
+
+impl Span {
+    pub fn contains(&self, id: &str) -> bool {
+        self.stages.iter().any(|s| s == id)
+    }
+
+    /// Whether a ticket at `place` is inside it: in one of its stages, or waiting before one of them but the first
+    /// (before the first it waits at the edge, outside).
+    pub fn has_inside(&self, place: &Place) -> bool {
+        match place {
+            Place::InStage(id) => self.contains(id),
+            Place::Waiting(Some(id)) => self.contains(id) && self.stages.first() != Some(id),
+            _ => false,
+        }
+    }
+
+    /// Whether a ticket at `place` comes before it in `flow`: in or waiting before an earlier stage.
+    fn is_before(&self, flow: &Flow, place: &Place) -> bool {
+        let Some(first) = self.stages.first().and_then(|id| flow.position(id)) else {
+            return false;
+        };
+        place
+            .stage_id()
+            .and_then(|id| flow.position(id))
+            .is_some_and(|at| at < first)
+    }
+}
+
+/// What a waiting change waits for (FED-08).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "until", rename_all = "snake_case")]
+pub enum Wait {
+    /// A swap to another flow: a quiet board (FLW-06).
+    WholeBoard,
+    /// A removal or reorder: no ticket at work inside the span.
+    Span(Span),
+}
+
+impl Wait {
+    /// Whether a ticket at `place` counts for it.
+    pub fn covers(&self, place: &Place) -> bool {
+        match self {
+            Self::WholeBoard => true,
+            Self::Span(span) => span.has_inside(place),
+        }
+    }
+
+    /// The starts it holds back in `flow` (the flow in use).
+    pub fn hold(&self, flow: &Flow) -> Hold {
+        match self {
+            Self::WholeBoard => Hold::READY_FOR_DEV,
+            Self::Span(span) => Hold {
+                ready_for_dev: flow
+                    .first_agent_stage()
+                    .is_some_and(|s| span.contains(&s.id)),
+                before: span
+                    .stages
+                    .first()
+                    .filter(|id| flow.stage(id).is_some_and(Stage::is_agent_stage))
+                    .cloned(),
+            },
+        }
+    }
+}
+
+/// The starts a waiting change holds back in its project ("Waiting for the flow change"): from Ready for Dev (the
+/// whole board, or a span that holds the first Agent stage), and of the tickets waiting at the span's edge.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Hold {
+    pub ready_for_dev: bool,
+    /// The span's first stage: tickets waiting before it don't start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<String>,
+}
+
+impl Hold {
+    /// No ticket starts from Ready for Dev (the whole board's wait).
+    pub const READY_FOR_DEV: Self = Self {
+        ready_for_dev: true,
+        before: None,
+    };
+
+    /// Whether a ticket waiting at `place` is held.
+    pub fn holds(&self, place: &Place) -> bool {
+        match place {
+            Place::Waiting(None) => self.ready_for_dev,
+            Place::Waiting(Some(id)) => self.before.as_deref() == Some(id.as_str()),
+            _ => false,
+        }
+    }
+}
+
+/// The affected span of changing `old` into `new` (FED-08), `None` when nothing in it waits. A stage is touched when
+/// a step from it or into it in `old` is gone from `new` (it or its neighbour removed, or another stage now between
+/// them), or when its kind changes; stages `new` adds don't count, they apply at once. The span runs from the first
+/// touched stage to the last, starting at the Agent stage at or before it: a ticket waits before an Agent stage
+/// (STG-07), so that is its edge. Security moved before Validate: Dev → Validate, Validate → Security and Security →
+/// Review are gone, so Dev to Review.
+pub fn affected_span(old: &Flow, new: &Flow) -> Option<Span> {
+    // `new`'s order of the stages `old` has.
+    let kept: Vec<&str> = new
+        .stages
+        .iter()
+        .filter(|s| old.stage(&s.id).is_some())
+        .map(|s| s.id.as_str())
+        .collect();
+    let next = |id: &str| -> Option<Option<&str>> {
+        let at = kept.iter().position(|k| *k == id)?;
+        Some(kept.get(at + 1).copied())
+    };
+    let n = old.stages.len();
+    let mut touched = vec![false; n];
+    // The step into the first stage, each step between two, and the step out of the last.
+    if kept.first().copied() != old.stages.first().map(|s| s.id.as_str()) {
+        touched[0] = true;
+    }
+    for i in 0..n {
+        let after = old.stages.get(i + 1).map(|s| s.id.as_str());
+        if next(&old.stages[i].id) != Some(after) {
+            touched[i] = true;
+            if i + 1 < n {
+                touched[i + 1] = true;
+            }
+        }
+    }
+    for (i, stage) in old.stages.iter().enumerate() {
+        if new.stage(&stage.id).is_some_and(|s| s.kind != stage.kind) {
+            touched[i] = true;
+        }
+    }
+    let first = touched.iter().position(|t| *t)?;
+    let last = touched.iter().rposition(|t| *t)?;
+    let first = old.stages[..=first]
+        .iter()
+        .rposition(Stage::is_agent_stage)
+        .unwrap_or(first);
+    let stages = &old.stages[first..=last];
+    Some(Span {
+        stages: stages.iter().map(|s| s.id.clone()).collect(),
+        first: stages[0].name.clone(),
+        last: stages[stages.len() - 1].name.clone(),
+    })
+}
 
 /// A project's waiting change (`flow.waiting`): the flow as it will be, and what holds it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,8 +226,21 @@ pub struct WaitingChange {
     pub changes: Vec<String>,
     /// Since when it waits, in Unix milliseconds.
     pub since: i64,
+    /// What it waits for: its span, or the whole board for a swap (FED-08).
+    pub wait: Wait,
+    /// The starts it holds back meanwhile.
+    pub hold: Hold,
     /// The tickets it waits for, in key order ("8 tickets still working", Show the 8 tickets).
     pub waiting_for: Vec<TicketKey>,
+}
+
+/// A waiting change's `changes_json`: what it changes, and whether a swap merged into it (it then waits for the whole
+/// board, FED-08).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct WaitingMemo {
+    changes: Vec<String>,
+    #[serde(default)]
+    whole_board: bool,
 }
 
 impl WaitingChange {
@@ -136,6 +314,9 @@ pub enum FlowEvent {
     ProposalClosed { proposal: u32 },
     /// A change waits for a quiet board, or another merged into it.
     Waiting,
+    /// The project's draft changed (FED-02): a Project agent's proposal landed in it, or the user edited it. No
+    /// preview opens for it: the flow editor shows the draft.
+    DraftChanged { proposal: u32 },
     /// A new version is the current flow.
     Applied { version: u32 },
     /// Cancel change dropped the waiting change.
@@ -160,16 +341,18 @@ pub fn is_quiet(ticket: &Ticket, old: &Flow, new: &Flow, delivering: &HashSet<St
     }
 }
 
-/// The tickets a change from `old` to `new` waits for, in `tickets`' order ([`is_quiet`]).
+/// The tickets a change from `old` to `new` waits for, in `tickets`' order: those `wait` covers that aren't quiet
+/// ([`is_quiet`]).
 pub fn still_working<'t>(
     tickets: &'t [Ticket],
     old: &Flow,
     new: &Flow,
     delivering: &HashSet<String>,
+    wait: &Wait,
 ) -> Vec<&'t Ticket> {
     tickets
         .iter()
-        .filter(|t| !is_quiet(t, old, new, delivering))
+        .filter(|t| wait.covers(&t.place) && !is_quiet(t, old, new, delivering))
         .collect()
 }
 
@@ -178,8 +361,8 @@ pub fn still_working<'t>(
 pub struct Settled {
     /// The versions stored now, one per project whose board was quiet.
     pub applied: Vec<FlowVersion>,
-    /// The keys of the projects whose change still waits: no ticket of theirs starts from Ready for Dev.
-    pub held: HashSet<String>,
+    /// The projects whose change still waits, by key, with the starts it holds back.
+    pub held: HashMap<String, Hold>,
 }
 
 type WaitingRow = (String, String, Option<String>, Option<String>, String, i64);
@@ -194,9 +377,10 @@ impl Board {
         .bind(&project.id)
         .fetch_optional(self.store().pool())
         .await?;
-        let Some((text, applied_by, agent_name, preset, changes, since)) = row else {
+        let Some((text, applied_by, agent_name, preset, memo, since)) = row else {
             return Ok(None);
         };
+        let memo: WaitingMemo = serde_json::from_str(&memo).unwrap_or_default();
         let new = yaml::read(&text)
             .map_err(|e| {
                 BoardError::NotFound(format!(
@@ -206,12 +390,14 @@ impl Board {
             })?
             .flow;
         let old = self.effective_flow(&project.key).await?;
+        let wait = wait_of(&old, &new, memo.whole_board);
         let tickets = self.tickets(&project.key).await?;
         let delivering = self.delivering().await?;
-        let mut waiting_for: Vec<TicketKey> = still_working(&tickets, &old, &new, &delivering)
-            .into_iter()
-            .map(|t| t.key.clone())
-            .collect();
+        let mut waiting_for: Vec<TicketKey> =
+            still_working(&tickets, &old, &new, &delivering, &wait)
+                .into_iter()
+                .map(|t| t.key.clone())
+                .collect();
         waiting_for.sort();
         Ok(Some(WaitingChange {
             project: project.key,
@@ -219,14 +405,16 @@ impl Board {
             applied_by: applied_by.parse().unwrap_or(AppliedBy::User),
             agent_name,
             preset,
-            changes: serde_json::from_str(&changes).unwrap_or_default(),
+            changes: memo.changes,
             since,
+            hold: wait.hold(&old),
+            wait,
             waiting_for,
         }))
     }
 
     /// The tickets a Delivery session works on now (Open PR, an automatic PR Delivery): they hold a change.
-    async fn delivering(&self) -> Result<HashSet<String>, BoardError> {
+    pub(crate) async fn delivering(&self) -> Result<HashSet<String>, BoardError> {
         Ok(sqlx::query_scalar("SELECT ticket_id FROM pr_flows")
             .fetch_all(self.store().pool())
             .await?
@@ -234,20 +422,45 @@ impl Board {
             .collect())
     }
 
-    /// Whether `project`'s board is quiet now for a change from `old` to `new` ([`still_working`]).
-    async fn is_quiet_for(
+    /// Whether nothing `wait` covers on `project`'s board is at work now for a change from `old` to `new`
+    /// ([`still_working`]).
+    pub(crate) async fn is_quiet_for(
         &self,
         project: &str,
         old: &Flow,
         new: &Flow,
+        wait: &Wait,
     ) -> Result<bool, BoardError> {
         let tickets = self.tickets(project).await?;
         let delivering = self.delivering().await?;
-        Ok(still_working(&tickets, old, new, &delivering).is_empty())
+        Ok(still_working(&tickets, old, new, &delivering, wait).is_empty())
     }
 
-    /// `flow.propose_from` (FLW-08…FLW-10): a proposal from an earlier version, another project, a preset, a file or
-    /// the shipped agents file, by the user.
+    /// Where a drop of `ticket` on `target` lands while its project's change waits for a span (FED-08): a forward drag
+    /// from before the span to a stage inside it, past its first stage, stops at the edge (dropped on the first stage,
+    /// it waits before it there, "Waiting for the flow change"). Any other drop as it is.
+    pub async fn span_edge(&self, ticket: &Ticket, target: &DropOn) -> Result<DropOn, BoardError> {
+        let project = ticket.key.project.as_str();
+        let Some(Wait::Span(span)) = self.waiting_change(project).await?.map(|w| w.wait) else {
+            return Ok(target.clone());
+        };
+        let flow = self.effective_flow(project).await?;
+        let Some(first) = span.stages.first() else {
+            return Ok(target.clone());
+        };
+        let inside = match target.in_flow(&flow) {
+            Some(Target::Stage(stage)) => span.contains(&stage.id) && stage.id != *first,
+            _ => false,
+        };
+        if inside && !ticket.is_epic() && span.is_before(&flow, &ticket.place) {
+            tracing::info!(ticket = %ticket.key, edge = %first, "a drop into the waiting span stops at its edge");
+            return Ok(DropOn::stage(first.clone()));
+        }
+        Ok(target.clone())
+    }
+
+    /// `flow.propose_from` (FLW-08…FLW-10, FED-02): a proposal from an earlier version, another project, a preset, a
+    /// file or the shipped agents file, by the user: a Start from pick copied into the draft, replacing it.
     pub async fn propose_from(
         &self,
         project: &str,
@@ -260,6 +473,11 @@ impl Board {
                 .map_err(|e| refuse(format!("The flow doesn't read: {e}")))
         };
         let me = ProposedBy::User;
+        // Another flow copied into the draft: applying it is a swap, which waits for the whole board (FED-08).
+        let swap = DraftMemory {
+            swap: true,
+            ..DraftMemory::default()
+        };
         let key = self.project(project).await?.key;
         match from {
             ProposeFrom::Previous { version } => {
@@ -279,7 +497,7 @@ impl Board {
                 let source = Source::Previous {
                     version: earlier.version,
                 };
-                self.open_read_proposal(&key, file, &written, &source, &me, models)
+                self.open_read_proposal(&key, file, &written, &source, &me, &swap, models)
                     .await
             }
             ProposeFrom::Project { project: other } => {
@@ -294,7 +512,7 @@ impl Board {
                     key: other.key,
                     name: other.name,
                 };
-                self.open_read_proposal(&key, file, &written, &source, &me, models)
+                self.open_read_proposal(&key, file, &written, &source, &me, &swap, models)
                     .await
             }
             ProposeFrom::Preset { file } => {
@@ -304,7 +522,7 @@ impl Board {
                 let source = Source::Preset {
                     file: preset.file.to_owned(),
                 };
-                self.open_read_proposal(&key, read, &written, &source, &me, models)
+                self.open_read_proposal(&key, read, &written, &source, &me, &swap, models)
                     .await
             }
             ProposeFrom::File { name, yaml: text } => {
@@ -312,7 +530,7 @@ impl Board {
                 let source = Source::Document {
                     file: Some(name.clone()),
                 };
-                self.open_read_proposal(&key, file, &written, &source, &me, models)
+                self.open_read_proposal(&key, file, &written, &source, &me, &swap, models)
                     .await
             }
             ProposeFrom::AgentsFile => {
@@ -320,8 +538,16 @@ impl Board {
                     agents: shipped::agents_file().to_vec(),
                     flow: Flow::default(),
                 };
-                self.open_read_proposal(&key, file, &[], &Source::AgentsFile, &me, models)
-                    .await
+                self.open_read_proposal(
+                    &key,
+                    file,
+                    &[],
+                    &Source::AgentsFile,
+                    &me,
+                    &DraftMemory::default(),
+                    models,
+                )
+                .await
             }
         }
     }
@@ -393,23 +619,37 @@ impl Board {
                 agent_name: agent_name.clone(),
                 preset: preset.clone(),
             };
+            let swap = row.draft.swap;
+            let waiting = Waiting {
+                project: &project,
+                target: &target,
+                labels: &labels,
+                applied_by,
+                agent_name: agent_name.as_deref(),
+                preset: preset.as_deref(),
+                whole_board: swap,
+            };
+            // What applies at once (FED-08): additions and edits; a swap's edits only.
+            let now = match swap {
+                true => edits_only(&base.flow, &file.flow),
+                false => applied_now(&base.flow, &file.flow),
+            };
+            let now = match super::check(&now) {
+                Ok(()) => now,
+                Err(_) => edits_only(&base.flow, &file.flow),
+            };
+            let wait = match swap {
+                true => view.diff.waits.then_some(Wait::WholeBoard),
+                false => affected_span(&now, &file.flow).map(Wait::Span),
+            };
             if against_waiting {
-                self.merge_waiting(
-                    &project,
-                    &target,
-                    &labels,
-                    applied_by,
-                    agent_name.as_deref(),
-                    preset.as_deref(),
-                )
-                .await?;
-            } else if view.diff.waits
+                self.merge_waiting(&waiting).await?;
+            } else if let Some(wait) = wait
                 && !self
-                    .is_quiet_for(&project.key, &base.flow, &file.flow)
+                    .is_quiet_for(&project.key, &now, &file.flow, &wait)
                     .await?
             {
-                // The part that doesn't wait applies now; the whole change waits for a quiet board.
-                let now = applied_now(&base.flow, &file.flow);
+                // The part that doesn't wait applies now; the whole change waits for its span (or the board).
                 if now != base.flow && super::check(&now).is_ok() {
                     version = Some(
                         self.store_flow(
@@ -422,17 +662,9 @@ impl Board {
                         .await?,
                     );
                 }
-                self.merge_waiting(
-                    &project,
-                    &target,
-                    &labels,
-                    applied_by,
-                    agent_name.as_deref(),
-                    preset.as_deref(),
-                )
-                .await?;
+                self.merge_waiting(&waiting).await?;
             } else {
-                // Nothing waits, or the board is quiet already: the whole change, as one version.
+                // Nothing waits, or nothing it waits for is at work: the whole change, as one version.
                 version = Some(self.store_flow(&project.key, &whole).await?);
             }
         }
@@ -450,7 +682,7 @@ impl Board {
     }
 
     /// A flow document to store: `flow` and the agents it names as they are now (an export's content).
-    async fn document(&self, flow: &Flow) -> Result<String, BoardError> {
+    pub(crate) async fn document(&self, flow: &Flow) -> Result<String, BoardError> {
         let stored = self.store().agents().await?;
         let mut agents: Vec<FlowAgent> = Vec::new();
         let named = flow.stages.iter().flat_map(|s| {
@@ -476,31 +708,33 @@ impl Board {
         }))
     }
 
-    /// Makes `target` the project's waiting change, adding `labels` to what an earlier one changes (FLW-06: one
-    /// waiting change).
-    async fn merge_waiting(
-        &self,
-        project: &crate::store::projects::Project,
-        target: &str,
-        labels: &[String],
-        applied_by: AppliedBy,
-        agent_name: Option<&str>,
-        preset: Option<&str>,
-    ) -> Result<(), BoardError> {
+    /// Makes the change's target the project's waiting change, adding its labels to what an earlier one changes
+    /// (FLW-06: one waiting change); a swap merged in makes it wait for the whole board (FED-08).
+    async fn merge_waiting(&self, change: &Waiting<'_>) -> Result<(), BoardError> {
+        let Waiting {
+            project,
+            target,
+            labels,
+            applied_by,
+            agent_name,
+            preset,
+            whole_board,
+        } = *change;
         let mut tx = self.store().begin_write().await?;
         let earlier: Option<(String, i64)> =
             sqlx::query_as("SELECT changes_json, since FROM flow_waiting WHERE project_id = ?")
                 .bind(&project.id)
                 .fetch_optional(&mut *tx)
                 .await?;
-        let (mut changes, since) = match earlier {
-            Some((changes, since)) => (
-                serde_json::from_str::<Vec<String>>(&changes).unwrap_or_default(),
+        let (mut memo, since) = match earlier {
+            Some((memo, since)) => (
+                serde_json::from_str::<WaitingMemo>(&memo).unwrap_or_default(),
                 since,
             ),
-            None => (Vec::new(), now_ms()),
+            None => (WaitingMemo::default(), now_ms()),
         };
-        changes.extend(labels.iter().cloned());
+        memo.changes.extend(labels.iter().cloned());
+        memo.whole_board |= whole_board;
         sqlx::query(
             "INSERT INTO flow_waiting (project_id, yaml, applied_by, agent_name, preset, changes_json, since)
              VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -513,12 +747,12 @@ impl Board {
         .bind(applied_by.as_str())
         .bind(agent_name)
         .bind(preset)
-        .bind(serde_json::to_string(&changes).expect("labels serialize"))
+        .bind(serde_json::to_string(&memo).expect("labels serialize"))
         .bind(since)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        tracing::info!(project = %project.key, changes = ?changes, "flow change waits for a quiet board");
+        tracing::info!(project = %project.key, changes = ?memo.changes, whole_board = memo.whole_board, "flow change waits");
         Ok(())
     }
 
@@ -574,12 +808,12 @@ impl Board {
         )
         .await?;
         tx.commit().await?;
-        tracing::info!(project = %project.key, "waiting flow change applied: the board is quiet");
+        tracing::info!(project = %project.key, "waiting flow change applied: nothing it waits for is at work");
         Ok(Some(self.current_flow(&project.key).await?))
     }
 
-    /// Every project's waiting change, for a scheduler pass: the ones whose board is quiet apply, the others hold
-    /// their project's starts from Ready for Dev.
+    /// Every project's waiting change, for a scheduler pass: the ones nothing holds apply, the others hold their
+    /// project's starts into what they wait for ([`Hold`]).
     pub async fn settle_flow_changes(&self) -> Result<Settled, BoardError> {
         let keys: Vec<String> = sqlx::query_scalar(
             "SELECT p.key FROM flow_waiting w JOIN projects p ON p.id = w.project_id ORDER BY p.key",
@@ -591,11 +825,16 @@ impl Board {
             match self.settle_flow_change(&key).await {
                 Ok(Some(version)) => settled.applied.push(version),
                 Ok(None) => {
-                    settled.held.insert(key);
+                    let hold = match self.waiting_change(&key).await {
+                        Ok(Some(waiting)) => waiting.hold,
+                        Ok(None) => continue,
+                        Err(_) => Hold::READY_FOR_DEV,
+                    };
+                    settled.held.insert(key, hold);
                 }
                 Err(e) => {
                     tracing::warn!(project = %key, error = %e, "can't apply the waiting flow change");
-                    settled.held.insert(key);
+                    settled.held.insert(key, Hold::READY_FOR_DEV);
                 }
             }
         }
@@ -777,10 +1016,33 @@ impl Board {
     }
 }
 
+/// What a waiting change waits for, from the flow in use `old` to `new`: the whole board when a swap is in it, else
+/// its span (empty when nothing is left to wait for).
+fn wait_of(old: &Flow, new: &Flow, whole_board: bool) -> Wait {
+    match whole_board {
+        true => Wait::WholeBoard,
+        false => Wait::Span(affected_span(old, new).unwrap_or_default()),
+    }
+}
+
+/// A change to make the project's waiting one ([`Board::merge_waiting`]).
+#[derive(Clone, Copy)]
+struct Waiting<'a> {
+    project: &'a crate::store::projects::Project,
+    /// The flow document it applies.
+    target: &'a str,
+    labels: &'a [String],
+    applied_by: AppliedBy,
+    agent_name: Option<&'a str>,
+    preset: Option<&'a str>,
+    /// A swap: it waits for the whole board.
+    whole_board: bool,
+}
+
 /// The version "Back to the previous flow" goes to from `current` (FLW-09): the one before it, except when that one
-/// is only the part of the current change that applied while the rest waited for a quiet board (the earlier flow
-/// with the current one's non-shape changes, [`applied_now`]): the user never chose that in-between flow, so Back
-/// skips it to the flow they had before the change.
+/// is only the part of the current change that applied while the rest waited (the earlier flow with the current
+/// one's additions and edits, [`applied_now`], or a swap's edits, [`edits_only`]): the user never chose that
+/// in-between flow, so Back skips it to the flow they had before the change.
 pub fn previous_version(versions: &[FlowVersion], current: u32) -> u32 {
     let find = |v: u32| versions.iter().find(|x| x.version == v);
     let before = current.saturating_sub(1);
@@ -791,7 +1053,7 @@ pub fn previous_version(versions: &[FlowVersion], current: u32) -> u32 {
         find(before.saturating_sub(1)).and_then(flow),
     ) && part != earlier
         && part != now
-        && applied_now(&earlier, &now) == part
+        && (applied_now(&earlier, &now) == part || edits_only(&earlier, &now) == part)
     {
         return before - 1;
     }

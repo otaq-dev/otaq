@@ -20,7 +20,7 @@ use otaq_core::agents::{Agent, AgentList, AgentModel};
 use otaq_core::board::epic_flight::{EpicPlace, REVIEW_EPIC, children_of, epic_place};
 use otaq_core::board::order::{ColumnOrder, fold_dev};
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Kind, Place, Status, StatusSet, TicketKey};
+use otaq_core::domain::{Kind, Status, StatusSet, TicketKey};
 use otaq_core::flow::check::DEFAULT_VALIDATION_ROUNDS;
 use otaq_core::flow::{CheckBy, Delivers, DeliveryMode, Flow, Stage, StageKind, StageOption};
 
@@ -280,6 +280,7 @@ pub const AGENT_CHECK_EMPTY: &str = "An agent checks each ticket here before it 
 /// The hint under Ready for Dev's title (BRD-03, *24 · The two views*; d0065 unchanged).
 pub const READY_FOR_DEV_HINT: &str = "Starts in priority order";
 
+use otaq_core::flow::apply::Hold;
 /// What a Ready for Dev card that would start says while a flow change waits for a quiet board (FLW-06, *Row · A
 /// flow change waiting*): [`BoardInput::starts_held`].
 pub use otaq_core::flow::apply::WAITING_FOR_THE_FLOW_CHANGE;
@@ -380,9 +381,10 @@ pub struct BoardInput<'a> {
     /// Every agent (`agents.list`): the headers' tooltips name each stage's tool and model (FLW-12); `None` names
     /// only the agents.
     pub agent_list: Option<&'a AgentList>,
-    /// Why no ticket starts from Ready for Dev ([`WAITING_FOR_THE_FLOW_CHANGE`] while a flow change waits, FLW-06):
-    /// a card that would start says it in place of "Starting…". `None` while starts run.
-    pub starts_held: Option<&'a str>,
+    /// The starts a waiting flow change holds back (FLW-06, FED-08): from Ready for Dev, or at its span's edge. A card
+    /// it holds that would start says [`WAITING_FOR_THE_FLOW_CHANGE`] in place of "Starting…". `None` while starts
+    /// run.
+    pub starts_held: Option<&'a Hold>,
 }
 
 /// An epic waiting at the implicit Review epic stop (a flow with no human check, d0108 rule 7): its track shows it
@@ -493,12 +495,12 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
             // What a Queued card waits for, from the core's readiness: updates as each parent moves (T-0083). One
             // that would start says why it doesn't while starts are held (FLW-06).
             let mut queue = queue_facts(t, all);
-            if let Some(reason) = input
+            if input
                 .starts_held
-                .filter(|_| queue.starting && t.place == Place::Waiting(None))
+                .is_some_and(|hold| queue.starting && hold.holds(&t.place))
             {
                 queue.starting = false;
-                queue.waits_for = Some(reason.to_owned());
+                queue.waits_for = Some(WAITING_FOR_THE_FLOW_CHANGE.to_owned());
             }
             let extras = CardExtras {
                 waits_for: queue.waits_for,
@@ -809,6 +811,7 @@ fn dev_sections(
 mod tests {
     use super::*;
     use crate::view_models::card_fixtures::{NOW, ticket};
+    use otaq_core::domain::Place;
     use otaq_core::domain::Status;
 
     fn board() -> Vec<Ticket> {
@@ -1759,7 +1762,7 @@ flow:
     fn held_starts_say_they_wait_for_the_flow_change() {
         let tickets = board();
         let held = build(&BoardInput {
-            starts_held: Some(WAITING_FOR_THE_FLOW_CHANGE),
+            starts_held: Some(&Hold::READY_FOR_DEV),
             ..input(&tickets, None)
         });
         let card = |key: &str| -> CardViewModel {

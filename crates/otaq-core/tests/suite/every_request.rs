@@ -55,6 +55,9 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "project_view.set" {
             params["view"] = json!({});
         }
+        if method == "flow.draft_update" {
+            params["edit"] = json!({"edit": "undo_all"});
+        }
         if method == "flow.apply_now" {
             params["stamp"] = json!("s");
         }
@@ -307,6 +310,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::FlowShow(_)
         | Request::FlowPropose(_)
         | Request::FlowAskForChanges(_)
+        | Request::FlowDraft(_)
+        | Request::FlowDraftUpdate(_)
         | Request::SessionList(_)
         | Request::SessionAttach(_)
         | Request::SessionDetach(_)

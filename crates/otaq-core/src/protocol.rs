@@ -691,15 +691,23 @@ pub enum Request {
     /// Answered with [`Reply::FlowDocument`].
     #[serde(rename = "flow.show")]
     FlowShow(ProjectParams),
-    /// `otaq flow propose` (FLW-03), from a Project agent's session or the user: a document or another project's
-    /// stages, checked, opened in the preview (replacing the open one; during Flow setup only the open one from the
-    /// same tool, ASK-03). Answered with [`Reply::FlowProposal`].
+    /// `otaq flow propose` (FLW-03, FED-02), from a Project agent's session or the user: a document or another
+    /// project's stages, checked, then put in the project's draft with the agent's changes marked (during Flow setup
+    /// it replaces only the open one from the same tool, ASK-03). Answered with [`Reply::FlowProposal`].
     #[serde(rename = "flow.propose")]
     FlowPropose(crate::flow::propose::ProposeParams),
     /// Ask for more changes in the preview (FLW-04): closes the open proposal; the text goes to the Project agent
     /// that proposed it. Answered with [`Reply::Ok`].
     #[serde(rename = "flow.ask_for_changes")]
     FlowAskForChanges(crate::flow::propose::AskForChangesParams),
+    /// The flow editor's draft (FED-02, FED-08): `flow.draft` `{"project": "SHOP"}` reads it, with the stages a
+    /// Project agent changed and when it would apply; `flow.draft_update` `{"project", "edit": {"edit": "document",
+    /// "yaml"} | {"edit": "undo_stage", "stage"} | {"edit": "undo_all"} | {"edit": "start_from", "source"} |
+    /// {"edit": "entry", "proposal"} | {"edit": "flow_in_use"}}` changes it. Both answered with [`Reply::FlowDraft`].
+    #[serde(rename = "flow.draft")]
+    FlowDraft(ProjectParams),
+    #[serde(rename = "flow.draft_update")]
+    FlowDraftUpdate(crate::flow::draft::DraftUpdateParams),
 
     // Sessions (SES-04, SVC-05).
     /// With `key`, every session the ticket ever had (newest first); without, every session in the service's
@@ -1979,6 +1987,8 @@ impl Request {
             Self::FlowShow(_) => "flow.show",
             Self::FlowPropose(_) => "flow.propose",
             Self::FlowAskForChanges(_) => "flow.ask_for_changes",
+            Self::FlowDraft(_) => "flow.draft",
+            Self::FlowDraftUpdate(_) => "flow.draft_update",
             Self::SessionList(_) => "session.list",
             Self::SessionAttach(_) => "session.attach",
             Self::SessionDetach(_) => "session.detach",
@@ -2127,6 +2137,7 @@ pub enum Reply {
     FlowVersion(Box<crate::flow::FlowVersion>),
     FlowVersions(Vec<crate::flow::FlowVersion>),
     FlowProposal(Option<Box<crate::flow::proposal::Proposal>>),
+    FlowDraft(Box<crate::flow::draft::Draft>),
     FlowApplied(Box<crate::flow::apply::Applied>),
     FlowWaiting(Option<Box<crate::flow::apply::WaitingChange>>),
     ApplyNowPlan(Option<Box<crate::flow::apply_now::ApplyNowPlan>>),

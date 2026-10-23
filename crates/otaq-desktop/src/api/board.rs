@@ -318,7 +318,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         Ok(Reply::Agents(list)) => Some(*list),
         _ => None,
     };
-    // No ticket starts from Ready for Dev while a flow change waits for a quiet board (FLW-06): its cards say why.
+    // No ticket enters what a waiting flow change waits for (FLW-06, FED-08): the cards it holds say why.
     let starts_held = match app
         .service
         .send(Request::FlowWaiting(ProjectParams {
@@ -326,9 +326,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         }))
         .await
     {
-        Ok(Reply::FlowWaiting(Some(_))) => {
-            Some(otaq_core::flow::apply::WAITING_FOR_THE_FLOW_CHANGE)
-        }
+        Ok(Reply::FlowWaiting(Some(waiting))) => Some(waiting.hold),
         _ => None,
     };
     let flow = flow(app, &params.project).await;
@@ -346,7 +344,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
             agent_filter: agent_filter.as_ref(),
             agents: agents.as_ref(),
             agent_list: agent_list.as_ref(),
-            starts_held,
+            starts_held: starts_held.as_ref(),
             view: &view,
         },
         &params,

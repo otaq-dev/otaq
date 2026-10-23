@@ -10,6 +10,9 @@
 //! same copy name (Q297). Each problem names its stage or agent. A Project agent's proposal with problems is refused
 //! (it can act on them); a user's opens with them marked, and Apply waits for their fixes ([`Fix`]).
 //!
+//! **The draft** ([`super::draft`], FED-02): outside Flow setup the open proposal is the project's draft, which the
+//! flow editor and a Project agent's `flow propose` both edit; during it, the user's own one is.
+//!
 //! **Stage ids** ([`match_ids`]): a written id is kept; otherwise a stage takes the id of the stage with its name in
 //! the flow it changes, else of the stage at its position (when that stage's name is gone), so "rename Review to QA"
 //! is a rename. The agent never writes ids.
@@ -29,6 +32,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use super::draft::DraftMemory;
 use super::model::{Flow, FlowAgent, FlowFile, Stage, StageKind, StageOption};
 use super::yaml;
 use crate::agent_tools::Tool;
@@ -182,12 +186,15 @@ pub struct ProposalProblem {
     pub fix: Option<Fix>,
 }
 
-/// When a change takes effect (FLW-05).
+/// When a change takes effect (FLW-05, FED-08).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "when", rename_all = "snake_case")]
 pub enum Applies {
-    /// A shape change, or any stage change merged into a waiting one (FLW-06).
+    /// A swap to another flow's shape change (FED-08), or any stage change merged into a waiting one (FLW-06).
     QuietBoard,
+    /// Removing or reordering stages, or a stage's kind (FED-08): once no ticket is inside the affected span, from
+    /// `first` to `last` ([`super::apply::affected_span`]).
+    Span { first: String, last: String },
     /// A stage's agent, skill, options or rounds: when that stage next starts.
     StageStarts { stage: String },
     /// A stage's name and column, a Delivery's mode or target: the next card that arrives.
@@ -201,6 +208,12 @@ impl Applies {
     pub fn text(&self) -> String {
         match self {
             Self::QuietBoard => "waits for a quiet board".to_owned(),
+            Self::Span { first, last } if first == last => {
+                format!("waits until no ticket is in {first}")
+            }
+            Self::Span { first, last } => {
+                format!("waits until no ticket is between {first} and {last}")
+            }
             Self::StageStarts { stage } => format!("applies when {stage} next starts"),
             Self::AtOnce => "applies at once".to_owned(),
             Self::NextSession => "applies to the next session that starts".to_owned(),
@@ -262,18 +275,25 @@ pub enum Change {
 }
 
 impl Change {
-    /// Adding, removing or reordering stages, or a stage's kind (FLW-05): it waits for a quiet board.
+    /// Adding, removing or reordering stages, or a stage's kind (FLW-05): what a swap to another flow waits for the
+    /// whole board with (FED-08).
     pub fn is_shape(&self) -> bool {
-        matches!(
-            self,
-            Self::Added { .. } | Self::Removed | Self::Moved { .. } | Self::Kind { .. }
-        )
+        self.reorders() || matches!(self, Self::Added { .. })
     }
 
-    /// When it applies on its own, with no waiting change (FLW-05).
-    fn applies(&self, stage: &str) -> Applies {
+    /// Removing or reordering stages, or a stage's kind (FED-08): it waits for its affected span. Adding a stage
+    /// applies at once.
+    pub fn reorders(&self) -> bool {
+        matches!(self, Self::Removed | Self::Moved { .. } | Self::Kind { .. })
+    }
+
+    /// When it applies on its own, with no waiting change (FLW-05, FED-08); `span` is the change's affected span.
+    fn applies(&self, stage: &str, span: Option<&super::apply::Span>) -> Applies {
         match self {
-            _ if self.is_shape() => Applies::QuietBoard,
+            _ if self.reorders() => span.map_or(Applies::AtOnce, |s| Applies::Span {
+                first: s.first.clone(),
+                last: s.last.clone(),
+            }),
             Self::Agent { .. }
             | Self::Skill { .. }
             | Self::Options { .. }
@@ -611,8 +631,10 @@ fn list_or_none(values: &[String]) -> String {
 }
 
 /// The stage changes from `base` to `new` (ids matched), in `new`'s order, then the removed stages in `base`'s.
-/// `waiting`: a change already waits, so every one of them waits too (FLW-06).
+/// `waiting`: a change already waits, so every one of them waits too (FLW-06). A reorder waits for the span it
+/// touches once what applies at once has ([`applied_now`], [`super::apply::affected_span`]).
 pub fn stage_changes(base: &Flow, new: &Flow, waiting: bool) -> Vec<StageChange> {
+    let span = super::apply::affected_span(&applied_now(base, new), new);
     let common_base: Vec<&str> = base
         .stages
         .iter()
@@ -632,7 +654,7 @@ pub fn stage_changes(base: &Flow, new: &Flow, waiting: bool) -> Vec<StageChange>
         let applies = if waiting {
             Applies::QuietBoard
         } else {
-            change.applies(&stage.name)
+            change.applies(&stage.name, span.as_ref())
         };
         changes.push(StageChange {
             stage_id: stage.id.clone(),
@@ -819,10 +841,30 @@ fn describe(stage: &Stage, change: &Change) -> (String, String) {
     }
 }
 
-/// `base` with `new`'s changes that don't wait (FLW-05): each stage `new` keeps with the same kind takes its new
-/// fields (name, agent, skill, options, rounds, column, mode, target); stages stay where they are, none is added or
-/// removed. What a shape change applies now while it waits for a quiet board.
+/// `base` with `new`'s changes that don't wait (FED-08): its edits ([`edits_only`]) and its added stages, each just
+/// after the stage before it in `new` (first when none is); no stage is removed or moved. What applies now while a
+/// removal or reorder waits for its span. Plan added after Grill: SHOP-12 in Grill goes to Plan next, SHOP-33 in Dev
+/// never meets it.
 pub fn applied_now(base: &Flow, new: &Flow) -> Flow {
+    let mut flow = edits_only(base, new);
+    for (i, stage) in new.stages.iter().enumerate() {
+        if base.stage(&stage.id).is_some() {
+            continue;
+        }
+        let at = new.stages[..i]
+            .iter()
+            .rev()
+            .find_map(|s| flow.position(&s.id))
+            .map_or(0, |p| p + 1);
+        flow.stages.insert(at, stage.clone());
+    }
+    flow
+}
+
+/// `base` with `new`'s edits (FLW-05): each stage `new` keeps with the same kind takes its new fields (name, agent,
+/// skill, options, rounds, column, mode, target); stages stay where they are, none is added or removed. What a swap
+/// to another flow applies now while the rest waits for a quiet board (FED-08).
+pub fn edits_only(base: &Flow, new: &Flow) -> Flow {
     Flow {
         stages: base
             .stages
@@ -1048,12 +1090,15 @@ impl Board {
             &written,
             &new.source,
             &new.proposed_by,
+            &DraftMemory::default(),
             models,
         )
         .await
     }
 
-    /// [`Self::open_proposal`] for a document already read; `written[i]` says whether stage `i` keeps its id.
+    /// [`Self::open_proposal`] for a document already read; `written[i]` says whether stage `i` keeps its id, `memory`
+    /// what the draft remembers with it (a Start from pick is a swap, FED-08).
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn open_read_proposal(
         &self,
         project: &str,
@@ -1061,6 +1106,7 @@ impl Board {
         written: &[bool],
         source: &Source,
         proposed_by: &ProposedBy,
+        memory: &DraftMemory,
         models: &dyn ModelCatalog,
     ) -> Result<Proposal, BoardError> {
         let refuse = |message: String| BoardError::refused(Refusal::BadFlow, message);
@@ -1077,6 +1123,7 @@ impl Board {
             yaml: text,
             source: source.clone(),
             proposed_by: proposed_by.clone(),
+            draft: memory.clone(),
             created_at: now_ms(),
         };
         let proposal = self.view(&row, models, &ApplyChoices::default()).await?;
@@ -1106,7 +1153,7 @@ impl Board {
         .bind(&project.id)
         .bind(tool)
         .bind(&row.yaml)
-        .bind(serde_json::to_string(&row.source).expect("a source serializes"))
+        .bind(row.source_json())
         .bind(serde_json::to_string(&row.proposed_by).expect("a proposer serializes"))
         .bind(row.created_at)
         .fetch_one(&mut *tx)
@@ -1164,15 +1211,13 @@ impl Board {
         Ok(())
     }
 
-    /// The open proposal the preview shows: the only one outside Flow setup; during it the user's own (a preset
-    /// opened over the Flow setup page) when there is one, else the newest.
+    /// The open proposal the preview shows: the only one outside Flow setup; during it the user's own draft (a
+    /// preset, or a tool's entry copied in, FED-02) when there is one, else the newest.
     pub(crate) async fn proposal_row(&self, project: &str) -> Result<Option<Row>, BoardError> {
-        let rows = self.proposal_rows(project).await?;
-        let users = rows.iter().rposition(|r| r.proposed_by == ProposedBy::User);
-        Ok(match users {
-            Some(i) => rows.into_iter().nth(i),
-            None => rows.into_iter().last(),
-        })
+        if let Some(draft) = self.draft_row(project).await? {
+            return Ok(Some(draft));
+        }
+        Ok(self.proposal_rows(project).await?.into_iter().last())
     }
 
     /// The open proposal `id` of `project`, if it is open.
@@ -1203,13 +1248,16 @@ impl Board {
                 let read = |what: &str, e: serde_json::Error| {
                     BoardError::NotFound(format!("proposal {id}'s {what} doesn't read: {e}"))
                 };
+                let stored: StoredSource =
+                    serde_json::from_str(&source).map_err(|e| read("source", e))?;
                 Ok(Row {
                     id: u32::try_from(id).unwrap_or(0),
                     project: project.key.clone(),
                     yaml,
-                    source: serde_json::from_str(&source).map_err(|e| read("source", e))?,
+                    source: stored.source,
                     proposed_by: serde_json::from_str(&proposed_by)
                         .map_err(|e| read("proposer", e))?,
+                    draft: stored.draft,
                     created_at,
                 })
             })
@@ -1233,11 +1281,17 @@ impl Board {
         let stored = self.store().agents().await?;
         let problems = problems(&file, scope, &stored, models, &choices.skill_folders);
 
-        let stages = if scope.stages() {
+        let mut stages = if scope.stages() {
             stage_changes(&base.flow, &file.flow, against_waiting)
         } else {
             Vec::new()
         };
+        // A swap to another flow waits for the whole board (FED-08): its shape changes say so.
+        if row.draft.swap {
+            for change in stages.iter_mut().filter(|c| c.change.is_shape()) {
+                change.applies = Applies::QuietBoard;
+            }
+        }
         let mut agents = Vec::new();
         for agent in &file.agents {
             agents.push(
@@ -1263,8 +1317,12 @@ impl Board {
             Vec::new()
         };
         let same = stages.is_empty() && agents.iter().all(|a| a.change == AgentChangeKind::Same);
-        let waits =
-            !stages.is_empty() && (against_waiting || stages.iter().any(|c| c.change.is_shape()));
+        let waits = !stages.is_empty()
+            && (against_waiting
+                || stages.iter().any(|c| match row.draft.swap {
+                    true => c.change.is_shape(),
+                    false => c.change.reorders(),
+                }));
         Ok(Proposal {
             id: row.id,
             project: project.key.clone(),
@@ -1442,7 +1500,30 @@ pub(crate) struct Row {
     pub yaml: String,
     pub source: Source,
     pub proposed_by: ProposedBy,
+    /// What the draft remembers besides its document (FED-02).
+    pub draft: DraftMemory,
     pub created_at: i64,
+}
+
+impl Row {
+    /// Its `source_json`: the source, and the draft's memory beside it ([`StoredSource`]).
+    pub(crate) fn source_json(&self) -> String {
+        serde_json::to_string(&StoredSource {
+            source: self.source.clone(),
+            draft: self.draft.clone(),
+        })
+        .expect("a source serializes")
+    }
+}
+
+/// A proposal row's `source_json`: its [`Source`], with the draft's memory beside the source's own fields (FED-02;
+/// no column of its own, M38 adds no migration for it).
+#[derive(Serialize, Deserialize)]
+struct StoredSource {
+    #[serde(flatten)]
+    source: Source,
+    #[serde(default, skip_serializing_if = "DraftMemory::is_empty")]
+    draft: DraftMemory,
 }
 
 /// Every problem of a proposal's document (FLW-03), each naming its stage or agent.
@@ -1683,9 +1764,9 @@ mod tests {
         assert!(!changes[0].change.is_shape());
     }
 
-    /// Adding QA after Review is a shape change: a new id, and it waits for a quiet board.
+    /// Adding QA after Review is a shape change with a new id, and it applies at once (FED-08).
     #[test]
-    fn adding_qa_is_a_shape_change() {
+    fn adding_qa_applies_at_once() {
         let base = default_flow();
         let text = DEFAULT_RENAMED.replace(
             "  - name: QA\n    kind: check\n    by: you\n",
@@ -1703,10 +1784,16 @@ mod tests {
             }
         );
         assert!(changes[0].change.is_shape());
-        assert_eq!(changes[0].applies, Applies::QuietBoard);
+        assert!(!changes[0].change.reorders());
+        assert_eq!(changes[0].applies, Applies::AtOnce);
         assert_eq!(changes[0].text, "stage QA (your check) after Review");
         assert_eq!(changes[0].label, "QA after Review");
-        assert_eq!(changes[0].applies.text(), "waits for a quiet board");
+        assert_eq!(changes[0].applies.text(), "applies at once");
+        assert_eq!(
+            applied_now(&base, &new),
+            new,
+            "the whole change applies now"
+        );
     }
 
     /// Reordering moves only the stages out of order; a written id is kept as written.
@@ -1718,7 +1805,11 @@ mod tests {
         let changes = stage_changes(&base, &swapped, false);
         let kinds: Vec<&Change> = changes.iter().map(|c| &c.change).collect();
         assert_eq!(kinds.len(), 1, "{changes:?}");
-        assert!(kinds[0].is_shape());
+        assert!(kinds[0].reorders());
+        assert_eq!(
+            changes[0].applies.text(),
+            "waits until no ticket is between Dev and Review"
+        );
         let new = read(
             "flow:\n  - id: build\n    name: Dev\n    kind: agent\n    agent: Developer\n    skill: work-ticket\n  - \
              name: Done\n    kind: delivery\n    mode: click\n    delivers: local\n",

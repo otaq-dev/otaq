@@ -17,7 +17,7 @@ use otaq_core::board::stage_choices::{ChoicePick, Chooser};
 use otaq_core::board::tickets::{EventKind, NewTicketInput, Ticket};
 use otaq_core::board::{BoardError, Refusal};
 use otaq_core::domain::{Actor, Kind, Status};
-use otaq_core::flow::apply::{ProposeFrom, is_quiet, still_working};
+use otaq_core::flow::apply::{ProposeFrom, Wait, is_quiet, still_working};
 use otaq_core::flow::proposal::{
     About, AgentChangeKind, Applies, ApplyChoices, Change, ClashChoice, Fix, NewProposal, Proposal,
     ProposedBy, SAME, Source,
@@ -284,14 +284,14 @@ async fn each_refusal_names_its_stage_or_agent() {
     w.stop().await;
 }
 
-/// FLW-03, FLW-05: a rename is a rename (Review's id kept, applied at once, nothing waits); adding QA is a shape
-/// change that waits; a stage's new agent "applies when Security next starts"; a changed shared agent lists every
+/// FLW-03, FLW-05, FED-08: a rename is a rename (Review's id kept, applied at once, nothing waits); adding QA applies
+/// at once, removing Validate waits for its span; a stage's new agent "applies when Security next starts"; a changed shared agent lists every
 /// project that uses it; a removed option lists the tickets that chose it.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_diff_says_what_changes_and_when() {
     let (w, key) = world().await;
 
-    // Adding QA after Validate is a shape change.
+    // Adding QA after Validate applies at once (FED-08).
     let qa = with_qa_after("validate");
     let proposal = propose_as(&w, &key, &stages_only(&qa), planner())
         .await
@@ -314,9 +314,27 @@ async fn the_diff_says_what_changes_and_when() {
             "QA",
             "stage QA (your check) after Validate",
             true,
-            "waits for a quiet board".to_owned()
+            "applies at once".to_owned()
         )),
         "{added:?}"
+    );
+    assert!(!proposal.diff.waits);
+    w.board.cancel_proposal(&key).await.unwrap();
+
+    // Removing Validate waits for Dev to Review: Dev → Validate and Validate → Review are gone.
+    let no_validate = default_with(|f| f.flow.stages.retain(|s| s.id != "validate"));
+    let proposal = propose_as(&w, &key, &stages_only(&no_validate), planner())
+        .await
+        .unwrap();
+    let removed: Vec<String> = proposal
+        .diff
+        .stages
+        .iter()
+        .map(|c| format!("{} \u{2014} {}", c.text, c.applies.text()))
+        .collect();
+    assert_eq!(
+        removed,
+        ["stage Validate removed \u{2014} waits until no ticket is between Dev and Review"]
     );
     assert!(proposal.diff.waits);
     w.board.cancel_proposal(&key).await.unwrap();
@@ -470,13 +488,14 @@ async fn would_start(w: &TestService, key: &str) -> Vec<String> {
     .collect()
 }
 
-/// FLW-06, sentence by sentence: QA added while API-1 is in Dev waits, and no ticket of pocket-api starts from Ready
-/// for Dev (another project's still does); when API-1 reaches Review (a check by you that stays) the board is quiet:
-/// the change applies and starts resume. Cancel change resumes starts too. A second apply while one waits was
-/// compared with the waiting flow (only its own part shows) and merges into it, even a part that would otherwise
-/// apply at once; the banner names both.
+/// FLW-06, FED-08, sentence by sentence: Validate removed while API-1 is in Dev waits for its span, Dev to Review,
+/// which holds the first Agent stage, so no ticket of pocket-api starts from Ready for Dev (another project's still
+/// does); when API-1 reaches Review (a check by you that stays) nothing inside is at work: the change applies and
+/// starts resume. Cancel change resumes starts too. A second apply while one waits was compared with the waiting flow
+/// (only its own part shows) and merges into it, even a part that would otherwise apply at once; the banner names
+/// both.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_shape_change_waits_for_a_quiet_board() {
+async fn a_removal_waits_for_its_span() {
     let (w, key) = world().await;
     let api1 = create(&w, &key, "Rate limits").await;
     let api2 = create(&w, &key, "Pagination").await;
@@ -496,9 +515,9 @@ async fn a_shape_change_waits_for_a_quiet_board() {
     w.force_stage(&api3, "deliver", Status::PrOpen).await;
     assert_eq!(would_start(&w, &key).await, [api2.key.to_string()]);
 
-    // QA after Review: it waits for API-1 only.
-    let qa = with_qa_after("review");
-    let proposal = propose_as(&w, &key, &stages_only(&qa), planner())
+    // Validate removed: it waits for API-1 only.
+    let no_validate = default_with(|f| f.flow.stages.retain(|s| s.id != "validate"));
+    let proposal = propose_as(&w, &key, &stages_only(&no_validate), planner())
         .await
         .unwrap();
     let applied = w
@@ -508,8 +527,13 @@ async fn a_shape_change_waits_for_a_quiet_board() {
         .unwrap();
     assert_eq!(applied.version, None, "nothing applies now");
     let waiting = applied.waiting.unwrap();
-    assert_eq!(waiting.summary(), "QA after Review");
+    assert_eq!(waiting.summary(), "Validate removed");
     assert_eq!(waiting.waiting_for, std::slice::from_ref(&api1.key));
+    let Wait::Span(span) = &waiting.wait else {
+        panic!("{:?}", waiting.wait)
+    };
+    assert_eq!((span.first.as_str(), span.last.as_str()), ("Dev", "Review"));
+    assert!(waiting.hold.ready_for_dev);
     assert!(w.board.proposal(&key, &models()).await.unwrap().is_none());
     assert!(would_start(&w, &key).await.is_empty(), "starts held");
     assert_eq!(
@@ -522,12 +546,12 @@ async fn a_shape_change_waits_for_a_quiet_board() {
             .effective_flow(&key)
             .await
             .unwrap()
-            .stage("qa")
-            .is_none()
+            .stage("validate")
+            .is_some()
     );
 
     // A second change while it waits: compared with the waiting flow, so only Review's skip shows; it merges.
-    let mut skippable = with_qa_after("review");
+    let mut skippable = no_validate.clone();
     skippable
         .flow
         .stages
@@ -557,7 +581,7 @@ async fn a_shape_change_waits_for_a_quiet_board() {
     );
     assert_eq!(
         merged.waiting.unwrap().summary(),
-        "QA after Review \u{b7} Review can be skipped"
+        "Validate removed \u{b7} Review can be skipped"
     );
     assert!(!w.board.effective_flow(&key).await.unwrap().stages[2].can_skip());
 
@@ -567,7 +591,7 @@ async fn a_shape_change_waits_for_a_quiet_board() {
     assert!(w.board.waiting_change(&key).await.unwrap().is_none());
     let flow = w.board.effective_flow(&key).await.unwrap();
     let ids: Vec<&str> = flow.stages.iter().map(|s| s.id.as_str()).collect();
-    assert_eq!(ids, ["dev", "validate", "review", "qa", "deliver"]);
+    assert_eq!(ids, ["dev", "review", "deliver"]);
     assert!(flow.stage("review").unwrap().can_skip());
     let current = w.board.current_flow(&key).await.unwrap();
     assert_eq!(
@@ -575,11 +599,11 @@ async fn a_shape_change_waits_for_a_quiet_board() {
         (2, Some("Planner"))
     );
 
-    // Cancel change: API-1 back in Dev, a change waits, Cancel drops it and starts resume. Nothing else changes.
+    // Cancel change: API-1 back in Dev, a removal waits, Cancel drops it and starts resume. Nothing else changes.
     w.force_stage(&api1, "dev", Status::Working).await;
-    // Taking QA out again: a shape change alone.
     let mut removing = w.board.current_flow_file(&key).await.unwrap();
-    removing.flow.stages.retain(|s| s.id != "qa");
+    removing.flow.stages.retain(|s| s.id != "review");
+    removing.flow.stages.last_mut().unwrap().column = otaq_core::flow::Column::Own;
     let proposal = propose_as(&w, &key, &stages_only(&removing), planner())
         .await
         .unwrap();
@@ -590,7 +614,10 @@ async fn a_shape_change_waits_for_a_quiet_board() {
     assert!(would_start(&w, &key).await.is_empty());
     assert!(w.board.cancel_waiting(&key).await.unwrap());
     assert_eq!(would_start(&w, &key).await, [api2.key.to_string()]);
-    assert_eq!(w.board.current_flow(&key).await.unwrap().version, 2);
+    // Done's own column applied at once (an edit); Review's removal is gone.
+    let current = w.board.current_flow(&key).await.unwrap();
+    assert_eq!(current.version, 3);
+    assert!(current.file().unwrap().flow.stage("review").is_some());
     w.stop().await;
 }
 
@@ -627,10 +654,11 @@ async fn an_epic_at_review_epic_is_quiet() {
     let mut new = old.clone();
     new.stages.retain(|s| s.id != "validate");
     let tickets = w.board.tickets(&key).await.unwrap();
-    let holding: Vec<String> = still_working(&tickets, &old, &new, &HashSet::new())
-        .into_iter()
-        .map(|t| t.key.to_string())
-        .collect();
+    let holding: Vec<String> =
+        still_working(&tickets, &old, &new, &HashSet::new(), &Wait::WholeBoard)
+            .into_iter()
+            .map(|t| t.key.to_string())
+            .collect();
     assert_eq!(holding, [checking.key.to_string()], "the epic is quiet");
 
     // A card in the Delivery stage is quiet, unless a Delivery session works on it.
@@ -642,7 +670,8 @@ async fn an_epic_at_review_epic_is_quiet() {
     assert!(!is_quiet(&shipping, &old, &new, &at_work));
     w.force_status(&shipping, Status::Merged).await;
 
-    // Applied while only the epic waits at Review epic: no wait at all.
+    // A swap (an imported file, which waits for the whole board) applied while only the epic waits at Review epic:
+    // no wait at all.
     w.force_stage(&checking, "deliver", Status::ToDeliver).await;
     w.force_status(&checking, Status::Merged).await;
     let with_docs = default_with(|f| {
@@ -653,10 +682,28 @@ async fn an_epic_at_review_epic_is_quiet() {
         docs.name = "Docs".into();
         f.flow.stages.insert(1, docs);
     });
-    let proposal = propose_as(&w, &key, &stages_only(&with_docs), planner())
+    let proposal = w
+        .board
+        .propose_from(
+            &key,
+            &ProposeFrom::File {
+                name: "docs.yaml".into(),
+                yaml: stages_only(&with_docs),
+            },
+            &models(),
+        )
         .await
         .unwrap();
     assert!(proposal.diff.waits);
+    assert!(
+        proposal
+            .diff
+            .stages
+            .iter()
+            .all(|c| c.applies == Applies::QuietBoard || !c.change.is_shape()),
+        "{:?}",
+        proposal.diff.stages
+    );
     let applied = w
         .board
         .apply_proposal(&key, proposal.id, &ApplyChoices::default(), &models())
@@ -925,13 +972,13 @@ async fn the_other_sources() {
     w.stop().await;
 }
 
-/// FLW-06, FLW-09: a shape change applied on a board that is already quiet is stored once, whole (no in-between
-/// version, no waiting change). One applied while a ticket works stores its non-shape part now and the whole later;
-/// Back to the previous flow then skips that in-between part, to the flow the user had before the change.
+/// FLW-06, FLW-09, FED-08: an addition with an edit is stored once, whole (no in-between version, no waiting change).
+/// A removal applied while a ticket works inside its span stores its edit now and the whole later; Back to the
+/// previous flow then skips that in-between part, to the flow the user had before the change.
 #[tokio::test(flavor = "multi_thread")]
 async fn one_version_per_apply_and_back_skips_the_part() {
     let (w, key) = world().await;
-    // QA after Review, and Validate on 5 rounds: a shape change with a part that doesn't wait.
+    // QA after Review, and Validate on 5 rounds: both apply at once.
     let change = |file: &mut FlowFile| {
         file.flow
             .stages
@@ -945,7 +992,7 @@ async fn one_version_per_apply_and_back_skips_the_part() {
     let proposal = propose_as(&w, &key, &stages_only(&first), planner())
         .await
         .unwrap();
-    assert!(proposal.diff.waits);
+    assert!(!proposal.diff.waits);
     let applied = w
         .board
         .apply_proposal(&key, proposal.id, &ApplyChoices::default(), &models())
@@ -953,7 +1000,7 @@ async fn one_version_per_apply_and_back_skips_the_part() {
         .unwrap();
     assert!(applied.waiting.is_none());
     let versions = w.board.flow_versions(&key).await.unwrap();
-    assert_eq!(versions.len(), 2, "the quiet board takes it whole, once");
+    assert_eq!(versions.len(), 2, "stored whole, once");
     let now = versions[1].file().unwrap().flow;
     assert!(now.stage("qa").is_some());
     assert_eq!(now.stage("validate").unwrap().rounds, Some(5));

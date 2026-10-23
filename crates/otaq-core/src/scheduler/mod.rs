@@ -28,14 +28,15 @@
 //! not available (or a model no longer listed) waits as **Held**, and tickets on other tools keep starting. Held
 //! tickets are skipped; the gate lifts their holds when the cause goes, never on a tick.
 //!
-//! **A waiting flow change** (FLW-06, d0108): each pass first applies the waiting changes whose board is quiet
-//! ([`crate::board::Board::settle_flow_changes`]); a project whose change still waits starts nothing from Ready for
-//! Dev ([`plan_holding`]) until it applies or is cancelled.
+//! **A waiting flow change** (FLW-06, FED-08; d0108, d0115): each pass first applies the waiting changes nothing holds
+//! any more ([`crate::board::Board::settle_flow_changes`]); until one applies or is cancelled, no ticket of its
+//! project enters what it waits for ([`plan_holding`]): a swap starts nothing from Ready for Dev, a removal or reorder
+//! starts nothing into its span.
 //!
 //! **A paused project** (PAU-04, d0112) starts nothing at all: neither from Ready for Dev nor between two Agent stages
 //! ([`plan_holding`]'s `paused`). Its queued tickets wait as they are, and the project's Resume wakes the scheduler.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -52,6 +53,7 @@ use crate::board::settings::AgentLimits;
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError};
 use crate::domain::{Actor, StartStep, Status, TicketKey};
+use crate::flow::apply::Hold;
 use crate::git::BaseSync;
 use crate::protocol::Event;
 use crate::service::EventBus;
@@ -200,17 +202,18 @@ pub struct SchedulerStatus {
 /// those a PR Delivery session works on ([`running_count`]'s `busy`): neither is started.
 /// Ready tickets beyond the free slots wait as "waiting for a slot", oldest first when slots free up.
 pub fn plan(tickets: &[Ticket], starting: &HashSet<String>, gate: &Gate) -> Plan {
-    plan_holding(tickets, starting, gate, &HashSet::new(), &HashSet::new())
+    plan_holding(tickets, starting, gate, &HashMap::new(), &HashSet::new())
 }
 
-/// [`plan`], with the keys of the projects whose flow change waits for a quiet board (FLW-06): their tickets in Ready
-/// for Dev don't start ("Waiting for the flow change"); tickets waiting between two Agent stages, and other
-/// projects, start as usual. The `paused` projects' tickets don't start anywhere (PAU-04): they wait as they are.
+/// [`plan`], with the projects whose flow change waits, by key, and the starts each holds back (FLW-06, FED-08):
+/// their tickets in Ready for Dev (the whole board's wait, or a span holding the first Agent stage) and those waiting
+/// at the span's edge don't start ("Waiting for the flow change"); other tickets, and other projects, start as usual.
+/// The `paused` projects' tickets don't start anywhere (PAU-04): they wait as they are.
 pub fn plan_holding(
     tickets: &[Ticket],
     starting: &HashSet<String>,
     gate: &Gate,
-    held: &HashSet<String>,
+    held: &HashMap<String, Hold>,
     paused: &HashSet<String>,
 ) -> Plan {
     let mut plan = Plan::default();
@@ -229,8 +232,9 @@ pub fn plan_holding(
             ReadyState::Waiting { .. } => change(&mut plan, ticket, Status::Queued),
             ReadyState::Ready if paused.contains(ticket.key.project.as_str()) => {}
             ReadyState::Ready
-                if ticket.place.is_ready_for_dev()
-                    && held.contains(ticket.key.project.as_str()) => {}
+                if held
+                    .get(ticket.key.project.as_str())
+                    .is_some_and(|h| h.holds(&ticket.place)) => {}
             ReadyState::Ready => ready.push(ticket),
         }
     }

@@ -1409,17 +1409,39 @@ pub(super) async fn handle(
                 }
                 _ => ProposedBy::User,
             };
+            // Outside Flow setup it lands in the draft, and no preview opens (FED-02).
+            let setup = board.project(&p.project).await?.flow_setup_since.is_some();
             let proposal = board
                 .propose(&p.project, &p.source, &by, shared.agents.models())
                 .await?;
-            flow_event(
-                shared,
-                &proposal.project,
-                FlowEvent::Proposed {
+            let change = match setup {
+                true => FlowEvent::Proposed {
                     proposal: proposal.id,
                 },
-            );
+                false => FlowEvent::DraftChanged {
+                    proposal: proposal.id,
+                },
+            };
+            flow_event(shared, &proposal.project, change);
             Ok(Reply::FlowProposal(Some(Box::new(proposal))))
+        }),
+        Request::FlowDraft(p) => boxed(move || async move {
+            Ok(Reply::FlowDraft(Box::new(
+                board.draft(&p.project, shared.agents.models()).await?,
+            )))
+        }),
+        Request::FlowDraftUpdate(p) => boxed(move || async move {
+            let draft = board
+                .update_draft(&p.project, &p.edit, shared.agents.models())
+                .await?;
+            flow_event(
+                shared,
+                &draft.proposal.project,
+                FlowEvent::DraftChanged {
+                    proposal: draft.proposal.id,
+                },
+            );
+            Ok(Reply::FlowDraft(Box::new(draft)))
         }),
         Request::FlowWaiting(p) => boxed(move || async move {
             Ok(Reply::FlowWaiting(

@@ -237,7 +237,9 @@ impl Board {
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
         let ticket = self.ticket(key).await?;
-        let check = self.check_drag(&ticket, &target.into()).await?;
+        // While a flow change waits for a span, a drop past its edge stops there (FED-08).
+        let target = self.span_edge(&ticket, &target.into()).await?;
+        let check = self.check_drag(&ticket, &target).await?;
         match &check {
             MoveCheck::Unchanged => return Ok(ticket),
             MoveCheck::Refused { reason } => {
