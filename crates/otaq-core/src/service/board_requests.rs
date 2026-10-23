@@ -555,6 +555,42 @@ pub(super) async fn handle(
                 .await
                 .map(|c| Reply::FilesChanges(Box::new(c)))
         }),
+        Request::FilesProjectTree(p) => boxed(move || async move {
+            board
+                .files_project_tree(&p.project, &p.path, p.base_only)
+                .await
+                .map(|t| Reply::ProjectTree(Box::new(t)))
+        }),
+        Request::FilesProjectSearch(p) => boxed(move || async move {
+            board
+                .files_project_search(&p.project, &p.query)
+                .await
+                .map(|s| Reply::ProjectSearch(Box::new(s)))
+        }),
+        Request::FilesProjectRead(p) => boxed(move || async move {
+            board
+                .files_project_read(&p.project, &p.path)
+                .await
+                .map(|f| Reply::ProjectFile(Box::new(f)))
+        }),
+        Request::FilesProjectDiff(p) => boxed(move || async move {
+            board
+                .files_project_diff(&p.project, &p.path, &p.ticket)
+                .await
+                .map(|d| Reply::FileDiff(Box::new(d)))
+        }),
+        Request::FilesProjectChanges(p) => boxed(move || async move {
+            board
+                .files_project_changes(&p.project)
+                .await
+                .map(|c| Reply::ProjectChanges(Box::new(c)))
+        }),
+        Request::FilesProjectSources(p) => boxed(move || async move {
+            board
+                .files_project_sources(&p.project)
+                .await
+                .map(|s| Reply::ProjectSources(Box::new(s)))
+        }),
         Request::ReviewCommentAdd(p) => boxed(move || async move {
             let added = board.add_comment(&p).await;
             comment_changed(shared, added).await

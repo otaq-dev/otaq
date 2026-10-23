@@ -105,6 +105,7 @@ mod priority;
 mod project_agent_scope;
 mod project_agents;
 mod project_env;
+mod project_files;
 mod project_terminals;
 mod projects;
 mod quiet_turn_ends;

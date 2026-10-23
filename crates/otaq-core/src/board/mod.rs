@@ -20,6 +20,7 @@ pub mod moves;
 pub mod needs_you;
 pub mod order;
 pub mod primed;
+pub mod project_files;
 pub mod projects;
 pub mod questions;
 pub mod readiness;
@@ -61,6 +62,8 @@ pub struct Board {
     run_ports: RunPorts,
     /// Running epic children's changed files: the cards' "same file as SHOP-40.4" (LEAD-09).
     overlaps: Overlaps,
+    /// Every owner's changes for the project Files view, per ticket (FIL-10).
+    project_files: project_files::ProjectFilesCache,
     /// The epic leads, told when an epic is queued, a child merges or closes, the epic reaches Review (d0083).
     leads: LeadLink,
     /// The agent tools' folder trust, recorded when a project is added (PRJ-06); the service sets the registry.
@@ -87,6 +90,7 @@ impl Board {
             limit_stops: LimitStops::default(),
             run_ports: RunPorts::default(),
             overlaps: Overlaps::default(),
+            project_files: Default::default(),
             leads: LeadLink::default(),
             trust: Trust::default(),
             delivery: merge::DeliveryLink::default(),

@@ -483,6 +483,28 @@ pub enum Request {
     /// Every changed file against the base, uncommitted ones included; answered with [`Reply::FilesChanges`].
     #[serde(rename = "files.changes")]
     FilesChanges(KeyParams),
+    // The project Files view (FIL-02…FIL-04, FIL-07, FIL-08, FIL-10; T-0476): the project's base branch from git with
+    // every ticket's changes on top, keyed by project.
+    /// One folder of the base with each file's owners; answered with [`Reply::ProjectTree`].
+    #[serde(rename = "files.project_tree")]
+    FilesProjectTree(ProjectFilesPathParams),
+    /// File names on the base and in the owners' changes; answered with [`Reply::ProjectSearch`].
+    #[serde(rename = "files.project_search")]
+    FilesProjectSearch(ProjectFilesSearchParams),
+    /// One file as it is on the base (a file only on another base: a ticket's diff); answered with
+    /// [`Reply::ProjectFile`].
+    #[serde(rename = "files.project_read")]
+    FilesProjectRead(ProjectFilesPathParams),
+    /// One owner's change of a file; answered with [`Reply::FileDiff`].
+    #[serde(rename = "files.project_diff")]
+    FilesProjectDiff(ProjectFilesDiffParams),
+    /// Every owner's changed files, grouped by ticket; answered with [`Reply::ProjectChanges`].
+    #[serde(rename = "files.project_changes")]
+    FilesProjectChanges(ProjectParams),
+    /// The source picker's rows: the base, epics, tickets with a worktree, tickets without; answered with
+    /// [`Reply::ProjectSources`].
+    #[serde(rename = "files.project_sources")]
+    FilesProjectSources(ProjectParams),
     /// A line comment in the ticket's current round; answered with [`Reply::ReviewComment`].
     #[serde(rename = "review.comment_add")]
     ReviewCommentAdd(NewComment),
@@ -1351,6 +1373,32 @@ pub struct FilesSearchParams {
     pub query: String,
 }
 
+/// `{"project": "SHOP", "path": "src/lib"}`: a file or folder of the project Files view; `base_only` lists the base's
+/// entries without reading any ticket's changes (the tree shows at once, the marks follow).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectFilesPathParams {
+    pub project: String,
+    #[serde(default)]
+    pub path: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub base_only: bool,
+}
+
+/// `{"project": "SHOP", "query": "pricing"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectFilesSearchParams {
+    pub project: String,
+    pub query: String,
+}
+
+/// `{"project": "SHOP", "path": "src/lib/pricing.ts", "ticket": "SHOP-29"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectFilesDiffParams {
+    pub project: String,
+    pub path: String,
+    pub ticket: String,
+}
+
 /// `{"key": "SHOP-22", "note": "…"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubmitByUserParams {
@@ -1906,6 +1954,12 @@ impl Request {
             Self::FilesRead(_) => "files.read",
             Self::FilesDiff(_) => "files.diff",
             Self::FilesChanges(_) => "files.changes",
+            Self::FilesProjectTree(_) => "files.project_tree",
+            Self::FilesProjectSearch(_) => "files.project_search",
+            Self::FilesProjectRead(_) => "files.project_read",
+            Self::FilesProjectDiff(_) => "files.project_diff",
+            Self::FilesProjectChanges(_) => "files.project_changes",
+            Self::FilesProjectSources(_) => "files.project_sources",
             Self::ReviewCommentAdd(_) => "review.comment_add",
             Self::ReviewCommentReply(_) => "review.comment_reply",
             Self::ReviewCommentEdit(_) => "review.comment_edit",
@@ -2163,6 +2217,11 @@ pub enum Reply {
     FilesSearch(Box<crate::board::files::FilesSearch>),
     FileContent(Box<crate::board::files::FileContent>),
     FilesChanges(Box<crate::board::files::FilesChanges>),
+    ProjectTree(Box<crate::board::project_files::ProjectTree>),
+    ProjectSearch(Box<crate::board::project_files::ProjectSearch>),
+    ProjectFile(Box<crate::board::project_files::ProjectFile>),
+    ProjectChanges(Box<crate::board::project_files::ProjectChanges>),
+    ProjectSources(Box<crate::board::project_files::ProjectSources>),
     ReviewComment(ReviewComment),
     ReviewComments(ReviewComments),
     TicketComment(Box<crate::board::ticket_comments::TicketComment>),

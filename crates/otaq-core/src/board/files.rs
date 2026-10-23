@@ -218,17 +218,17 @@ fn is_zero(n: &u32) -> bool {
     *n == 0
 }
 
-/// Where a ticket's files come from.
-struct Source {
-    info: FilesSource,
+/// Where a ticket's files come from (the project Files view reads its owners' the same way).
+pub(super) struct Source {
+    pub(super) info: FilesSource,
     /// Where git runs: the worktree for [`FilesFrom::Worktree`], else the project's repository (objects only).
-    cwd: PathBuf,
+    pub(super) cwd: PathBuf,
     /// The revision whose tree is listed: `HEAD` in the worktree, `refs/heads/<branch>` otherwise.
-    rev: String,
+    pub(super) rev: String,
     /// The worktree on disk.
-    worktree: Option<PathBuf>,
+    pub(super) worktree: Option<PathBuf>,
     /// Worktrees: the commit the changes count from (where the ticket left `base_sha`).
-    from: Option<String>,
+    pub(super) from: Option<String>,
     /// Epics: the epic itself, for its children.
     epic: Option<Ticket>,
 }
@@ -242,8 +242,8 @@ struct Running {
 }
 
 /// Every change of a source, by path, with the epic's tags.
-struct Changes {
-    entries: Vec<ChangedEntry>,
+pub(super) struct Changes {
+    pub(super) entries: Vec<ChangedEntry>,
     by_path: BTreeMap<String, (Option<FileChange>, Vec<ChildTag>)>,
 }
 
@@ -276,7 +276,7 @@ impl Changes {
     }
 }
 
-fn file_change(entry: &ChangedEntry) -> FileChange {
+pub(super) fn file_change(entry: &ChangedEntry) -> FileChange {
     FileChange {
         status: entry.file.status,
         added: entry.file.added,
@@ -295,34 +295,14 @@ impl Board {
         let changes = self.files_changes_of(&source).await?;
         let git = self.git()?;
 
-        let mut args = vec!["--literal-pathspecs", "ls-tree", "-z", source.rev.as_str()];
-        let spec = format!("{folder}/");
-        if !folder.is_empty() {
-            args.extend(["--", spec.as_str()]);
-        }
-        let listed = match git.run(&source.cwd, &args).await {
-            Ok(out) => out,
+        let mut entries = match list_folder(git, &source.cwd, &source.rev, &folder).await {
+            Ok(entries) => entries,
             // A worktree with no commit of its own yet has a HEAD all the same; an unborn one lists nothing.
             Err(GitError::Failed { .. }) if source.info.from == FilesFrom::Worktree => {
-                String::new()
+                BTreeMap::new()
             }
             Err(e) => return Err(e.into()),
         };
-        let mut entries: BTreeMap<String, EntryKind> = BTreeMap::new();
-        for record in listed.split('\0').filter(|r| !r.is_empty()) {
-            let Some((meta, path)) = record.split_once('\t') else {
-                continue;
-            };
-            let mut meta = meta.split(' ');
-            let (mode, kind) = (meta.next().unwrap_or(""), meta.next().unwrap_or(""));
-            let kind = match (kind, mode) {
-                ("tree", _) => EntryKind::Folder,
-                ("commit", _) => EntryKind::Submodule,
-                (_, "120000") => EntryKind::Link,
-                _ => EntryKind::File,
-            };
-            entries.insert(path.to_owned(), kind);
-        }
         // Files git doesn't list at this revision: untracked or staged ones, deleted ones, a child's new ones.
         let mut extra: Vec<&String> = changes.by_path.keys().collect();
         let untracked = match &source.worktree {
@@ -376,12 +356,7 @@ impl Board {
                 }
             })
             .collect();
-        list.sort_by(|a, b| {
-            (a.kind != EntryKind::Folder)
-                .cmp(&(b.kind != EntryKind::Folder))
-                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-                .then_with(|| a.name.cmp(&b.name))
-        });
+        list.sort_by(|a, b| entry_order((a.kind, &a.name), (b.kind, &b.name)));
         Ok(FilesTree {
             changed: u32::try_from(changes.changed_paths().count()).unwrap_or(u32::MAX),
             source: source.info,
@@ -579,20 +554,7 @@ impl Board {
                     .ok_or_else(missing)?
             }
         };
-        let binary = looks_binary(&bytes);
-        let (text, truncated) = if binary {
-            (String::new(), false)
-        } else {
-            let text = String::from_utf8_lossy(&bytes);
-            let cut = text
-                .match_indices('\n')
-                .nth(MAX_FILE_LINES - 1)
-                .map(|(at, _)| at + 1);
-            match cut {
-                Some(at) if at < text.len() => (text[..at].to_owned(), true),
-                _ => (text.into_owned(), (bytes.len() as u64) < size),
-            }
-        };
+        let (binary, text, truncated) = text_of(&bytes, size);
         Ok(FileContent {
             source: source.info,
             path,
@@ -606,7 +568,7 @@ impl Board {
         })
     }
 
-    async fn files_source(&self, ticket: &Ticket) -> Result<Source, BoardError> {
+    pub(super) async fn files_source(&self, ticket: &Ticket) -> Result<Source, BoardError> {
         let project = self.project(ticket.key.project.as_str()).await?;
         let repo = PathBuf::from(project.repo_path);
         let git = self.git()?;
@@ -696,7 +658,7 @@ impl Board {
     }
 
     /// Every change of `source`, with an epic's tags and its running children's changes on top.
-    async fn files_changes_of(&self, source: &Source) -> Result<Changes, BoardError> {
+    pub(super) async fn files_changes_of(&self, source: &Source) -> Result<Changes, BoardError> {
         let git = self.git()?;
         let mut entries = match (source.info.from, &source.worktree, &source.from) {
             (FilesFrom::Worktree, Some(wt), Some(from)) => self.worktree_changes(wt, from).await?,
@@ -953,26 +915,84 @@ async fn read_entry(worktree: &Path, path: &str) -> Option<(Vec<u8>, u64)> {
     Some((bytes, meta.len()))
 }
 
-async fn branch_exists(git: &Git, repo: &Path, branch: &str) -> bool {
+/// One folder's entries at `rev` (`folder` empty: the top), by path: `git ls-tree` of that folder only, never the
+/// whole tree.
+pub(super) async fn list_folder(
+    git: &Git,
+    cwd: &Path,
+    rev: &str,
+    folder: &str,
+) -> Result<BTreeMap<String, EntryKind>, GitError> {
+    let mut args = vec!["--literal-pathspecs", "ls-tree", "-z", rev];
+    let spec = format!("{folder}/");
+    if !folder.is_empty() {
+        args.extend(["--", spec.as_str()]);
+    }
+    let listed = git.run(cwd, &args).await?;
+    let mut entries: BTreeMap<String, EntryKind> = BTreeMap::new();
+    for record in listed.split('\0').filter(|r| !r.is_empty()) {
+        let Some((meta, path)) = record.split_once('\t') else {
+            continue;
+        };
+        let mut meta = meta.split(' ');
+        let (mode, kind) = (meta.next().unwrap_or(""), meta.next().unwrap_or(""));
+        let kind = match (kind, mode) {
+            ("tree", _) => EntryKind::Folder,
+            ("commit", _) => EntryKind::Submodule,
+            (_, "120000") => EntryKind::Link,
+            _ => EntryKind::File,
+        };
+        entries.insert(path.to_owned(), kind);
+    }
+    Ok(entries)
+}
+
+/// A tree's order: folders first, then by name ignoring case.
+pub(super) fn entry_order(a: (EntryKind, &str), b: (EntryKind, &str)) -> std::cmp::Ordering {
+    (a.0 != EntryKind::Folder)
+        .cmp(&(b.0 != EntryKind::Folder))
+        .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
+        .then_with(|| a.1.cmp(b.1))
+}
+
+/// A file's bytes as the File view shows them: binary or not, the text cut after [`MAX_FILE_LINES`] lines, and
+/// whether it was cut (`size` is the whole file's).
+pub(super) fn text_of(bytes: &[u8], size: u64) -> (bool, String, bool) {
+    if looks_binary(bytes) {
+        return (true, String::new(), false);
+    }
+    let text = String::from_utf8_lossy(bytes);
+    let cut = text
+        .match_indices('\n')
+        .nth(MAX_FILE_LINES - 1)
+        .map(|(at, _)| at + 1);
+    let (text, truncated) = match cut {
+        Some(at) if at < text.len() => (text[..at].to_owned(), true),
+        _ => (text.into_owned(), (bytes.len() as u64) < size),
+    };
+    (false, text, truncated)
+}
+
+pub(super) async fn branch_exists(git: &Git, repo: &Path, branch: &str) -> bool {
     let spec = format!("refs/heads/{branch}^{{commit}}");
     git.run(repo, &["rev-parse", "--verify", "--quiet", &spec])
         .await
         .is_ok()
 }
 
-fn nul_paths(out: &str) -> impl Iterator<Item = String> + '_ {
+pub(super) fn nul_paths(out: &str) -> impl Iterator<Item = String> + '_ {
     out.split('\0').filter(|p| !p.is_empty()).map(str::to_owned)
 }
 
 /// `path` relative to `folder` when it is inside it (any depth); the top folder holds everything.
-fn under<'a>(path: &'a str, folder: &str) -> Option<&'a str> {
+pub(super) fn under<'a>(path: &'a str, folder: &str) -> Option<&'a str> {
     if folder.is_empty() {
         return Some(path);
     }
     path.strip_prefix(folder)?.strip_prefix('/')
 }
 
-fn join_path(folder: &str, name: &str) -> String {
+pub(super) fn join_path(folder: &str, name: &str) -> String {
     if folder.is_empty() {
         name.to_owned()
     } else {
@@ -981,7 +1001,7 @@ fn join_path(folder: &str, name: &str) -> String {
 }
 
 /// How well `path` matches `needle` (lowercase), lower is better, and the matched characters.
-fn rank(path: &str, needle: &str) -> Option<(u8, [u32; 2])> {
+pub(super) fn rank(path: &str, needle: &str) -> Option<(u8, [u32; 2])> {
     let lower = path.to_lowercase();
     // Lowercasing can change lengths outside ASCII: count the hit in characters of the lowercased path, which
     // is the same as the path's for every name a repository usually has.
