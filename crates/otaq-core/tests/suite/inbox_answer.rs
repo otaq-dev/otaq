@@ -18,7 +18,7 @@ use otaq_core::protocol::{InboxAnswerParams, Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::deliveries::Delivery;
-use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, TerminalSize};
+use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, Start, TerminalSize};
 use otaq_core::store::now_ms;
 
 fn me() -> Actor {
@@ -31,6 +31,7 @@ async fn cat_agent(w: &TestService, ticket: &Ticket) -> String {
     w.sessions
         .spawn(SpawnSpec {
             kind: SessionKind::Agent,
+            start: Start::User,
             project_id: project.id,
             project_key: project.key,
             ticket: Some(SessionTicket {
@@ -253,7 +254,10 @@ async fn an_interrupted_question_resumes_and_delivers_in_one_click() {
         .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start("SHOP-1", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     let first = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
     asks(&w, &t, &first.id, &["Postmark", "SES"]).await;
     let w = w.restart_with(launch).await;

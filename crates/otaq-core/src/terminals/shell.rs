@@ -28,7 +28,7 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::review::finish::FinishedTicket;
 use crate::session::{
-    END_STOPPED_BY_RESTART, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec,
+    END_STOPPED_BY_RESTART, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, Start,
     TerminalSize,
 };
 use crate::ticket_env::TicketEnv;
@@ -172,6 +172,7 @@ impl Shells {
             .sessions
             .spawn(SpawnSpec {
                 kind: SessionKind::Project,
+                start: Start::User,
                 project_id: project.id.clone(),
                 project_key: project.key.clone(),
                 ticket: None,
@@ -292,6 +293,7 @@ impl Shells {
             .sessions
             .spawn(SpawnSpec {
                 kind: SessionKind::Shell,
+                start: Start::User,
                 project_id: project.id.clone(),
                 project_key: project.key.clone(),
                 ticket: Some(SessionTicket {

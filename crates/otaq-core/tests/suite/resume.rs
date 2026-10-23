@@ -65,7 +65,10 @@ async fn interrupted(script: &'static str) -> TestService {
         .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start("SHOP-1", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(&w, "SHOP-1", Status::Working).await;
     let w = w.restart_with(launch(script)).await;
     assert_eq!(w.status("SHOP-1").await, Status::Interrupted);

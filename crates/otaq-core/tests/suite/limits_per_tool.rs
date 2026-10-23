@@ -33,7 +33,7 @@ use otaq_core::naming;
 use otaq_core::protocol::{KeyParams, Reply, Request, ToolParams, UsageParams};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{TestService, path_without_build_folders};
-use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, TerminalSize};
+use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, Start, TerminalSize};
 use otaq_core::store::now_ms;
 use otaq_core::usage::limit::{CONTINUE, LimitHit, LimitKind, ResetSource};
 use tempfile::TempDir;
@@ -329,6 +329,7 @@ async fn shell_on(w: &TestService, ticket: &Ticket, tool: Tool) -> String {
     w.sessions
         .spawn(SpawnSpec {
             kind: SessionKind::Agent,
+            start: Start::User,
             project_id: project.id.clone(),
             project_key: project.key.clone(),
             ticket: Some(SessionTicket {

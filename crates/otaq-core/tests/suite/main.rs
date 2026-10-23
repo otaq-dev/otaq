@@ -88,6 +88,7 @@ mod order;
 mod parent_merged;
 mod park;
 mod pause;
+mod pause_starts;
 mod permissions;
 mod plan_limit;
 mod plugin;

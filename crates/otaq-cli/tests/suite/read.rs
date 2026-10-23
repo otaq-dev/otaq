@@ -7,7 +7,7 @@ use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{Actor, Status};
 use otaq_core::naming;
 use otaq_core::service::testing::TestService;
-use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, TerminalSize};
+use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, Start, TerminalSize};
 use serde_json::Value;
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
@@ -266,6 +266,7 @@ async fn show_terminal_prints_the_screen_as_plain_text() {
         .sessions
         .spawn(SpawnSpec {
             kind: SessionKind::Agent,
+            start: Start::User,
             project_id: project.id.clone(),
             project_key: project.key.clone(),
             ticket: Some(SessionTicket {
@@ -341,6 +342,7 @@ async fn show_terminal_stage_reads_the_check_running_it() {
     w.force_status(&ticket, Status::Working).await;
     let print = |kind, text: &str| SpawnSpec {
         kind,
+        start: Start::User,
         project_id: project.id.clone(),
         project_key: project.key.clone(),
         ticket: Some(SessionTicket {

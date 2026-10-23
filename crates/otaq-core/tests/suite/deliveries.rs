@@ -14,7 +14,7 @@ use otaq_core::data_dir::DataDir;
 use otaq_core::protocol::Event;
 use otaq_core::service::EventBus;
 use otaq_core::session::deliveries::{Deliveries, Delivery, DeliveryKind, IdleSignal};
-use otaq_core::session::{SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
+use otaq_core::session::{SessionKind, SessionTicket, Sessions, SpawnSpec, Start, TerminalSize};
 use tokio::sync::broadcast;
 
 #[derive(Default)]
@@ -54,6 +54,7 @@ async fn setup() -> Setup {
     let info = sessions
         .spawn(SpawnSpec {
             kind: SessionKind::Agent,
+            start: Start::User,
             project_id: f.board.project("SHOP").await.unwrap().id,
             project_key: "SHOP".into(),
             ticket: Some(SessionTicket {
@@ -318,6 +319,7 @@ async fn deliver_now_over_the_socket() {
     let info = sessions
         .spawn(SpawnSpec {
             kind: SessionKind::Agent,
+            start: Start::User,
             project_id: project.id,
             project_key: "SHOP".into(),
             ticket: Some(SessionTicket {

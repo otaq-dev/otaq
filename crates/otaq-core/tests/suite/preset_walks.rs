@@ -162,7 +162,10 @@ async fn started(w: &TestService, title: &str) -> Ticket {
         .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start(&key, &me()).await.unwrap();
+    w.starter
+        .start(&key, &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     w.board.ticket(&key).await.unwrap()
 }
 

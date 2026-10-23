@@ -208,7 +208,10 @@ async fn start(w: &TestService, t: &Ticket) -> SessionInfo {
         .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start(&key, &me()).await.unwrap();
+    w.starter
+        .start(&key, &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(w, &key, Status::Working).await;
     w.sessions
         .running_of(&t.id, SessionKind::Agent)
@@ -328,7 +331,10 @@ async fn retry_start_after_the_model_changed_runs_the_new_model() {
         .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start("SHOP-1", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(w, "SHOP-1", Status::StartInterrupted).await;
 
     settings.setup_command = String::new();
@@ -338,7 +344,10 @@ async fn retry_start_after_the_model_changed_runs_the_new_model() {
         .unwrap();
     world.set_model("Developer", Some("haiku")).await;
     w.starter.retry("SHOP-1", &me()).await.unwrap();
-    w.starter.start("SHOP-1", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(w, "SHOP-1", Status::Working).await;
     let session = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
     let id = session.tool_session_id.clone().unwrap();
@@ -364,7 +373,7 @@ async fn a_check_round_runs_its_own_agent() {
     let developer = start(w, &t).await;
     let validator = w
         .validation
-        .start_validator(&t.id)
+        .start_validator(&t.id, otaq_core::session::Start::Auto)
         .await
         .unwrap()
         .session()
@@ -397,7 +406,7 @@ async fn a_check_round_runs_its_own_agent() {
     world.set_model("Validator", Some("sonnet")).await;
     let next = w
         .validation
-        .start_validator(&t.id)
+        .start_validator(&t.id, otaq_core::session::Start::Auto)
         .await
         .unwrap()
         .session()

@@ -32,6 +32,11 @@
 //! begins, checked before its launch like any new one. The ticket enters the stage it waited before
 //! ([`crate::flow::engine::Move::Begin`]).
 //!
+//! **While the project is paused** (PAU-04, d0112) an automatic start ([`Start::Auto`]: the scheduler, a drag, a
+//! conflict's `restack`) does nothing: the ticket stays waiting where it is ([`StartOutcome::Kept`]) and the scheduler
+//! starts it once the user resumes the project. Only the user's click on this one ticket ([`Start::User`]: its Resume,
+//! an answer) starts it while paused, and the pause stays.
+//!
 //! **A model the tool refused** on the Developer's first turn (AGT-05) sends the ticket back the same way, as Start
 //! interrupted at the `model` step (Start failed), counted as not started ([`Starter::model_refused`]).
 //!
@@ -67,7 +72,7 @@ use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::session::env::applied;
 use crate::session::{
-    END_MODEL_REFUSED, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec,
+    END_MODEL_REFUSED, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, Start,
     StoredConversation, TerminalSize,
 };
 use crate::skills::Marker;
@@ -103,6 +108,9 @@ pub enum StartOutcome {
     Interrupted { step: StartStep, message: String },
     /// The ticket isn't Queued (any more), or a start for it is already running: nothing was done.
     Skipped,
+    /// Its project is paused and the start was automatic: it stays waiting, and starts once the user resumes the
+    /// project (PAU-04). Nothing was done.
+    Kept,
 }
 
 /// Runs start sequences. Cheap to clone.
@@ -217,8 +225,14 @@ impl Starter {
     /// scheduler decides when (T-0079); this never checks dependencies or limits.
     ///
     /// The ticket is claimed before its status is read, so two callers can't both start it: the second one
-    /// either finds the claim or, once the first has finished, a ticket that isn't waiting any more.
-    pub async fn start(&self, key: &str, actor: &Actor) -> Result<StartOutcome, BoardError> {
+    /// either finds the claim or, once the first has finished, a ticket that isn't waiting any more. `start` says who
+    /// asked: an automatic start in a paused project is kept ([`StartOutcome::Kept`]).
+    pub async fn start(
+        &self,
+        key: &str,
+        actor: &Actor,
+        start: Start,
+    ) -> Result<StartOutcome, BoardError> {
         let id = self.inner.board.ticket(key).await?.id;
         if !self
             .inner
@@ -231,7 +245,11 @@ impl Starter {
         }
         let outcome = match self.inner.board.ticket_by_id(&id).await {
             Ok(ticket) if WAITING_TO_START.contains(&ticket.status) => {
-                self.run(&ticket, actor).await
+                match self.kept(&ticket, start).await {
+                    Ok(true) => Ok(StartOutcome::Kept),
+                    Ok(false) => self.run(&ticket, actor, start).await,
+                    Err(e) => Err(e),
+                }
             }
             Ok(_) => Ok(StartOutcome::Skipped),
             Err(e) => Err(e),
@@ -242,6 +260,21 @@ impl Starter {
             .expect("running starts")
             .remove(&id);
         outcome
+    }
+
+    /// Whether an automatic start of `ticket` is kept because its project is paused (PAU-04).
+    async fn kept(&self, ticket: &Ticket, start: Start) -> Result<bool, BoardError> {
+        if start == Start::User
+            || !crate::agents::pause::is_paused(
+                self.inner.board.store(),
+                ticket.key.project.as_str(),
+            )
+            .await?
+        {
+            return Ok(false);
+        }
+        tracing::info!(ticket = %ticket.key, "start kept: the project is paused");
+        Ok(true)
     }
 
     /// The ids of the tickets whose start sequence is running now.
@@ -412,9 +445,14 @@ impl Starter {
         Ok(true)
     }
 
-    async fn run(&self, ticket: &Ticket, actor: &Actor) -> Result<StartOutcome, BoardError> {
+    async fn run(
+        &self,
+        ticket: &Ticket,
+        actor: &Actor,
+        start: Start,
+    ) -> Result<StartOutcome, BoardError> {
         let key = ticket.key.to_string();
-        match self.steps(ticket, actor).await {
+        match self.steps(ticket, actor, start).await {
             Ok(Done::Started(session)) => {
                 self.set_state(
                     ticket,
@@ -477,6 +515,19 @@ impl Starter {
                 }
                 Ok(StartOutcome::Held { message })
             }
+            // Paused while its steps ran: it waits as it was, its worktree kept, and the step mark goes so a restart
+            // doesn't take it for a cut-short start.
+            Ok(Done::Kept) => {
+                sqlx::query(
+                    "UPDATE tickets SET start_problem_step = NULL, start_problem_message = NULL WHERE id = ?",
+                )
+                .bind(&ticket.id)
+                .execute(self.inner.board.store().pool())
+                .await?;
+                self.publish_changed(ticket).await;
+                tracing::info!(ticket = %key, "start kept at the launch: the project is paused");
+                Ok(StartOutcome::Kept)
+            }
             Ok(Done::Held(message)) => {
                 self.set_state(
                     ticket,
@@ -507,7 +558,12 @@ impl Starter {
         }
     }
 
-    async fn steps(&self, ticket: &Ticket, actor: &Actor) -> Result<Done, (StartStep, StartError)> {
+    async fn steps(
+        &self,
+        ticket: &Ticket,
+        actor: &Actor,
+        start: Start,
+    ) -> Result<Done, (StartStep, StartError)> {
         let inner = &self.inner;
         let board = &inner.board;
         let key = ticket.key.to_string();
@@ -837,10 +893,20 @@ impl Starter {
                 agent_new.as_ref(),
                 resume,
                 first_prompt,
+                start,
             )
             .await
         {
             Ok(session) => Ok(Done::Started(Box::new(session))),
+            // The backstop refused it: the project was paused meanwhile.
+            Err(_)
+                if self
+                    .kept(ticket, start)
+                    .await
+                    .map_err(|e| (StartStep::Launch, e.into()))? =>
+            {
+                Ok(Done::Kept)
+            }
             Err(e) => {
                 // A launch that failed because of its tool: checked again, then held if it can't start now.
                 if let (Some(gate), Some(agent)) = (inner.gate.get(), agent_new.as_ref())
@@ -869,6 +935,7 @@ impl Starter {
         agent: Option<&Agent>,
         resume: Option<String>,
         first_prompt: Option<FirstPrompt>,
+        start: Start,
     ) -> Result<SessionInfo, StartError> {
         let inner = &self.inner;
         // Every skill of the running agent, and the one it runs first, written into the worktree by one name
@@ -912,6 +979,7 @@ impl Starter {
             .prepared(launched.prepare)
             .spawn(SpawnSpec {
                 kind: SessionKind::Agent,
+                start,
                 project_id: project.id.clone(),
                 project_key: project.key.clone(),
                 ticket: Some(SessionTicket {
@@ -1120,6 +1188,8 @@ enum Done {
     Held(String),
     /// The check before the launch held it.
     AgentHeld(Box<Held>),
+    /// The project was paused before the launch (an automatic start).
+    Kept,
 }
 
 /// A ticket coming back to Dev with its work: parked, sent back to its agent with a skill to run, or resumed

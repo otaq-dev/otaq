@@ -93,7 +93,10 @@ async fn until_status(w: &TestService, key: &str, want: Status) {
 
 /// Starts SHOP-1 and returns its running agent session's id, once Codex printed its arguments.
 async fn started(w: &TestService) -> (String, String) {
-    w.starter.start("SHOP-1", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(w, "SHOP-1", Status::Working).await;
     let ticket = w.board.ticket("SHOP-1").await.unwrap();
     let session = w
@@ -140,7 +143,10 @@ async fn park_waits_for_the_id_and_the_conversation_resumes() {
         .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start("SHOP-1", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(&w, "SHOP-1", Status::Working).await;
     let resumed = w
         .sessions
@@ -175,7 +181,10 @@ async fn park_without_an_id_waits_then_stops_and_the_next_start_is_fresh() {
         .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start("SHOP-1", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(&w, "SHOP-1", Status::Working).await;
     let fresh = w
         .sessions

@@ -224,7 +224,10 @@ async fn a_held_start_is_skipped() {
     let (hold, starting) = w.starter.hold([api.id.clone()]);
     assert!(starting.is_empty());
     assert_eq!(
-        w.starter.start(&key(&api), &me()).await.unwrap(),
+        w.starter
+            .start(&key(&api), &me(), otaq_core::session::Start::Auto)
+            .await
+            .unwrap(),
         otaq_core::start::StartOutcome::Skipped
     );
     assert_eq!(w.status(&key(&api)).await, Status::Queued);

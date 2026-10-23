@@ -467,6 +467,53 @@ async fn a_fix_child_from_the_epics_review_resumes_its_lead() {
     w.stop().await;
 }
 
+/// T-0456 (PAU-04; d0112): a child added while the project is paused doesn't resume the lead that ended in review:
+/// it becomes Paused, and the project's Resume resumes it on its conversation.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_child_added_while_paused_leaves_the_lead_paused_until_resume() {
+    let w = world().await;
+    let wishlist = epic(&w, "Wishlist").await;
+    let api = child(&w, &wishlist, "Wishlist API").await;
+    let open = w
+        .project_agents
+        .leads()
+        .open(&key(&wishlist))
+        .await
+        .unwrap();
+    w.wait_for_output(&session(&open), "ARGS").await;
+    merge_child(&w, &api, "api.ts").await;
+    wait_state(&w, &wishlist, AgentState::Ended).await;
+    let shop = otaq_core::agents::pause::PauseScope::Project {
+        project: "SHOP".into(),
+    };
+    w.pause.pause(&shop).await.unwrap();
+
+    child(&w, &wishlist, "Wishlist share link").await;
+    let kept = wait_state(&w, &wishlist, AgentState::Paused).await;
+    assert!(!kept.agent.session.is_some_and(|s| s.is_running()));
+
+    w.pause.resume(&shop, &me()).await.unwrap();
+    let resumed = wait_state(&w, &wishlist, AgentState::Running).await;
+    assert_eq!(resumed.agent.id, open.agent.id);
+    let out = w.wait_for_output(&session(&resumed), "ARGS").await;
+    assert!(
+        out.contains(&format!(
+            "--resume {}",
+            open.agent.tool_session_id.as_deref().unwrap()
+        )),
+        "{out}"
+    );
+    for s in w
+        .sessions
+        .in_memory()
+        .into_iter()
+        .filter(|s| s.is_running())
+    {
+        let _ = w.sessions.stop(&s.id).await;
+    }
+    w.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn after_a_restart_the_lead_waits_for_the_users_click_and_is_counted_on_its_own() {
     let w = world().await;

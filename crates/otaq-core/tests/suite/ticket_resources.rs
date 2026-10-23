@@ -83,7 +83,11 @@ async fn create_waits_while_the_template_refreshes() {
     let refresh = tokio::spawn(async move { review.finish(&finished).await });
     appears(&began).await;
     assert!(!done.exists(), "the refresh is still under way");
-    let outcome = w.starter.start("SHOP-2", &me()).await.unwrap();
+    let outcome = w
+        .starter
+        .start("SHOP-2", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
     refresh.await.unwrap().unwrap();
 

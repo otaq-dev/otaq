@@ -457,11 +457,17 @@ async fn the_diff_says_what_changes_and_when() {
 async fn would_start(w: &TestService, key: &str) -> Vec<String> {
     let settled = w.board.settle_flow_changes().await.unwrap();
     let tickets = w.board.tickets(key).await.unwrap();
-    plan_holding(&tickets, &HashSet::new(), &Gate::default(), &settled.held)
-        .start
-        .into_iter()
-        .map(|t| t.key.to_string())
-        .collect()
+    plan_holding(
+        &tickets,
+        &HashSet::new(),
+        &Gate::default(),
+        &settled.held,
+        &HashSet::new(),
+    )
+    .start
+    .into_iter()
+    .map(|t| t.key.to_string())
+    .collect()
 }
 
 /// FLW-06, sentence by sentence: QA added while API-1 is in Dev waits, and no ticket of pocket-api starts from Ready
@@ -759,7 +765,10 @@ async fn a_removed_choice_falls_back_with_a_history_note() {
         .move_ticket(&k, DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start(&k, &me()).await.unwrap();
+    w.starter
+        .start(&k, &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     let reached = tokio::time::timeout(Duration::from_secs(20), async {
         while w.status(&k).await != Status::Working {
             tokio::time::sleep(Duration::from_millis(20)).await;

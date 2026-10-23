@@ -567,6 +567,24 @@ impl Recovery {
         Ok(interrupted)
     }
 
+    /// A start Otaq kept because the ticket's project is paused (PAU-04, d0112): the ticket is taken the pause's way
+    /// ([`Self::paused`]) though no session ran, so a checker that would have started leaves it interrupted from its
+    /// check (the round not counted) and the project's Resume starts a fresh one. Its key when it became Interrupted.
+    pub async fn kept_paused(&self, ticket_id: &str) -> Result<Option<TicketKey>, BoardError> {
+        let ticket = self.inner.board.ticket_by_id(ticket_id).await?;
+        let why = Why {
+            reason: REASON_PAUSED,
+            end_reason: END_PAUSED,
+            since: 0,
+        };
+        let mut flows = Flows::default();
+        let flow = flows.of(&self.inner.board, &ticket).await?;
+        Ok(match self.reconcile_ticket(&ticket, flow, why).await? {
+            Reconciled::Interrupted(key) | Reconciled::WasValidating(key) => Some(key),
+            Reconciled::Nothing | Reconciled::SessionEnded(_) => None,
+        })
+    }
+
     /// An agent session ended while the service runs. If the agent tool exited on its own (not stopped by Otaq)
     /// while its ticket was at work in the Agent stage this session runs (or the automatic Delivery it delivers),
     /// the ticket is Interrupted (d0018, STG-09). A session that ran an agent check is its checker

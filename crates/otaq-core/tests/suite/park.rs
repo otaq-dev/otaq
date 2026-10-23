@@ -60,7 +60,10 @@ async fn park_keeps_the_work_and_back_in_dev_resumes_the_conversation() {
         .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start("SHOP-1", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(&w, "SHOP-1", Status::Working).await;
     let first = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
     let conversation = first.tool_session_id.clone().unwrap();
@@ -103,7 +106,10 @@ async fn park_keeps_the_work_and_back_in_dev_resumes_the_conversation() {
         .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start("SHOP-1", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(&w, "SHOP-1", Status::Working).await;
     let resumed = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
     assert_ne!(resumed.id, first.id);

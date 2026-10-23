@@ -66,7 +66,10 @@ async fn start_agent(w: &TestService, key: &str) {
         .move_ticket(key, DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start(key, &me()).await.unwrap();
+    w.starter
+        .start(key, &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(w, key, Status::Working).await;
 }
 

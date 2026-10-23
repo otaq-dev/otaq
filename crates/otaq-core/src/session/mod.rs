@@ -317,10 +317,24 @@ pub async fn moved_on(
     })
 }
 
+/// Who asked for a session (PAU-04, PAU-05; d0112). Every [`SpawnSpec`] says it; there is no default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Start {
+    /// Otaq on its own: the scheduler, a check after a stage, an answer session (d0030), a conflict's `restack`
+    /// (d0064), a lead's start or wake (d0083), a lifted hold (d0086), a drag's start. Refused while its project is
+    /// paused ([`Sessions::spawn`]); its caller keeps the start for Resume instead.
+    Auto,
+    /// The user's click on this one agent (answering it, its Resume, a Project agent's first message, a lead's Open or
+    /// Resume), or the user's own terminal: it starts whether or not the project is paused, and the pause stays.
+    User,
+}
+
 /// What to run.
 #[derive(Debug, Clone)]
 pub struct SpawnSpec {
     pub kind: SessionKind,
+    /// Who asked for it: an automatic start doesn't run in a paused project.
+    pub start: Start,
     /// Empty for a terminal of no project (an agent tool's Sign in…): it is kept in memory only, never stored.
     pub project_id: String,
     pub project_key: String,
@@ -575,7 +589,8 @@ impl Sessions {
     }
 
     /// Starts `spec.program` in a new PTY and records its `sessions` row. A second running agent session for
-    /// the same ticket is refused.
+    /// the same ticket is refused, and so is an automatic start ([`Start::Auto`]) in a paused project (the backstop of
+    /// PAU-04: its caller keeps the start for Resume).
     pub async fn spawn(&self, spec: SpawnSpec) -> Result<SessionInfo, SessionError> {
         self.spawn_with(None, spec).await
     }
@@ -593,6 +608,15 @@ impl Sessions {
                 ticket: ticket.key.clone(),
                 session: running.id,
             });
+        }
+        if spec.start == Start::Auto
+            && let Some(name) =
+                crate::agents::pause::paused_name(&self.inner.store, &spec.project_key)
+                    .await
+                    .map_err(SessionError::Store)?
+        {
+            tracing::info!(project = %spec.project_key, kind = ?spec.kind, "automatic start refused: paused");
+            return Err(SessionError::Paused { project: name });
         }
         if let Some(step) = prepare {
             run_prepare(step, PREPARE_TIMEOUT).await?;
@@ -1567,6 +1591,10 @@ pub enum SessionError {
         session: String,
     },
     NotFound(String),
+    /// An automatic start in a paused project (PAU-04): the project's name.
+    Paused {
+        project: String,
+    },
     /// The session has ended; it takes no input or resize.
     Ended(String),
     /// The program (or the launch's step before it, [`Sessions::prepared`]) couldn't start: why, or what the
@@ -1583,6 +1611,7 @@ impl fmt::Display for SessionError {
                 write!(f, "{ticket} already has a running agent session")
             }
             Self::NotFound(id) => write!(f, "no session {id}"),
+            Self::Paused { project } => f.write_str(&crate::agents::pause::paused_refusal(project)),
             Self::Ended(id) => write!(f, "session {id} has ended"),
             Self::Spawn(message) | Self::Io(message) => f.write_str(message),
             Self::Store(e) => write!(f, "{e}"),

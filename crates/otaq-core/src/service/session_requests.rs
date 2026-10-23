@@ -210,6 +210,7 @@ pub(super) fn session_error(e: SessionError) -> ErrorBody {
         SessionError::NotFound(_) => ErrorBody::new(ErrorKind::NotFound, e.to_string()),
         SessionError::AlreadyRunning { .. } => refused(Refusal::AlreadyRunning, e.to_string()),
         SessionError::Ended(_) => refused(Refusal::SessionEnded, e.to_string()),
+        SessionError::Paused { .. } => refused(Refusal::NotAllowed, e.to_string()),
         SessionError::Spawn(_) | SessionError::Io(_) | SessionError::Store(_) => {
             tracing::error!(error = %e, "session request failed");
             ErrorBody::new(ErrorKind::Internal, e.to_string())

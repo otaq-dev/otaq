@@ -16,7 +16,7 @@ use otaq_core::domain::Status;
 use otaq_core::protocol::{InputParams, Request, encode_bytes};
 use otaq_core::service::testing::TestService;
 use otaq_core::session::deliveries::Delivery;
-use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, TerminalSize};
+use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, Start, TerminalSize};
 use otaq_core::signals::background::BackgroundWork;
 use otaq_core::signals::quiet::QuietTiming;
 
@@ -48,6 +48,7 @@ async fn agent_on(
         .sessions
         .spawn(SpawnSpec {
             kind: SessionKind::Agent,
+            start: Start::User,
             project_id: project.id.clone(),
             project_key: project.key.clone(),
             ticket: Some(SessionTicket {

@@ -147,7 +147,11 @@ async fn a_successful_start_leaves_the_ticket_working() {
     .await;
     queued(&s.f, "Checkout API").await;
 
-    let outcome = s.starter.start("SHOP-1", &me()).await.unwrap();
+    let outcome = s
+        .starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     let StartOutcome::Started(session) = outcome else {
         panic!("{outcome:?}")
     };
@@ -235,7 +239,11 @@ async fn a_failed_setup_is_start_interrupted_and_retry_runs_it_all_again() {
     .await;
     let t = queued(&s.f, "Fix flaky login redirect").await;
 
-    let outcome = s.starter.start("SHOP-1", &me()).await.unwrap();
+    let outcome = s
+        .starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     let StartOutcome::Interrupted { step, message } = &outcome else {
         panic!("{outcome:?}")
     };
@@ -265,7 +273,10 @@ async fn a_failed_setup_is_start_interrupted_and_retry_runs_it_all_again() {
     // Never re-run by itself: time passes, a start call finds it not Queued.
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(
-        s.starter.start("SHOP-1", &me()).await.unwrap(),
+        s.starter
+            .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+            .await
+            .unwrap(),
         StartOutcome::Skipped
     );
     assert_eq!(s.f.ticket("SHOP-1").await.status, Status::StartInterrupted);
@@ -282,7 +293,11 @@ async fn a_failed_setup_is_start_interrupted_and_retry_runs_it_all_again() {
     let retried = s.starter.retry("SHOP-1", &me()).await.unwrap();
     assert_eq!(retried.status, Status::Queued);
     assert_eq!(retried.start_problem, None);
-    let outcome = s.starter.start("SHOP-1", &me()).await.unwrap();
+    let outcome = s
+        .starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
     assert_eq!(s.f.ticket("SHOP-1").await.status, Status::Working);
     assert_eq!(
@@ -307,7 +322,10 @@ async fn without_a_launch_context_the_launch_step_stops() {
     let f = Fixture::shop().await;
     let (sessions, starter, _) = starter_for(&f, None);
     queued(&f, "t").await;
-    let outcome = starter.start("SHOP-1", &me()).await.unwrap();
+    let outcome = starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     let StartOutcome::Interrupted { step, message } = outcome else {
         panic!()
     };
@@ -345,7 +363,10 @@ async fn a_diverged_base_holds_the_ticket_without_a_worktree() {
         .unwrap();
     let (_sessions, starter, data) = starter_for(&f, Some(stand_in()));
 
-    let outcome = starter.start("BILL-1", &me()).await.unwrap();
+    let outcome = starter
+        .start("BILL-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     let message = "`develop` and `origin/develop` have diverged. Push or pull, then retry";
     assert_eq!(
         outcome,
@@ -371,7 +392,10 @@ async fn a_diverged_base_holds_the_ticket_without_a_worktree() {
     // After the user pulls (here: the local commit goes away), Retry start works.
     git(&clone, &["reset", "--quiet", "--hard", "origin/develop"]);
     starter.retry("BILL-1", &me()).await.unwrap();
-    let outcome = starter.start("BILL-1", &me()).await.unwrap();
+    let outcome = starter
+        .start("BILL-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
     drop(t);
 }
@@ -396,7 +420,11 @@ async fn the_first_epic_child_syncs_the_epic_base() {
         )
         .await
         .unwrap();
-    let outcome = s.starter.start("SHOP-1.1", &me()).await.unwrap();
+    let outcome = s
+        .starter
+        .start("SHOP-1.1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
     let epic_branch = otaq_core::naming::branch("SHOP-1");
     assert_eq!(
@@ -595,7 +623,11 @@ async fn with_empty_resource_settings_nothing_changes() {
         .await
         .unwrap();
     w.force_status(&ticket, Status::Queued).await;
-    let outcome = w.starter.start("SHOP-1", &me()).await.unwrap();
+    let outcome = w
+        .starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
 
     let resource_vars = [naming::db_name_env_var(), naming::db_template_env_var()];
@@ -663,7 +695,11 @@ async fn create_runs_after_env_files_and_before_setup() {
     )
     .await;
     let t = queued(&s.f, "Checkout API").await;
-    let outcome = s.starter.start("SHOP-1", &me()).await.unwrap();
+    let outcome = s
+        .starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
 
     let name = resources::db_name("SHOP", &t.key);
@@ -709,7 +745,11 @@ async fn a_failed_create_is_start_interrupted_at_resources_and_retry_runs_it_aga
     };
     set_project(&s.f, failing.clone()).await;
     let t = queued(&s.f, "Orders").await;
-    let outcome = s.starter.start("SHOP-1", &me()).await.unwrap();
+    let outcome = s
+        .starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     let StartOutcome::Interrupted { step, message } = &outcome else {
         panic!("{outcome:?}")
     };
@@ -744,7 +784,11 @@ async fn a_failed_create_is_start_interrupted_at_resources_and_retry_runs_it_aga
     )
     .await;
     s.starter.retry("SHOP-1", &me()).await.unwrap();
-    let outcome = s.starter.start("SHOP-1", &me()).await.unwrap();
+    let outcome = s
+        .starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
     assert!(worktree.join("setup-ran.txt").is_file());
     assert_eq!(
@@ -771,7 +815,11 @@ async fn retry_start_does_not_create_twice() {
     )
     .await;
     let t = queued(&s.f, "Orders").await;
-    let outcome = s.starter.start("SHOP-1", &me()).await.unwrap();
+    let outcome = s
+        .starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     assert!(
         matches!(
             outcome,
@@ -794,7 +842,11 @@ async fn retry_start_does_not_create_twice() {
     )
     .await;
     s.starter.retry("SHOP-1", &me()).await.unwrap();
-    let outcome = s.starter.start("SHOP-1", &me()).await.unwrap();
+    let outcome = s
+        .starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
     let creates = std::fs::read_to_string(&counter).unwrap();
     assert_eq!(creates.lines().count(), 1, "{creates}");

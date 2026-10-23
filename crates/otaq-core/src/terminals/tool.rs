@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use super::TerminalEnv;
 use crate::board::{BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::session::{SessionInfo, SessionKind, Sessions, SpawnSpec, TerminalSize};
+use crate::session::{SessionInfo, SessionKind, Sessions, SpawnSpec, Start, TerminalSize};
 use crate::shell::ShellCommand;
 use crate::tools::{self, CheckEnv, Tool, ToolAction};
 
@@ -80,6 +80,7 @@ impl ToolTerminals {
             .sessions
             .spawn(SpawnSpec {
                 kind: SessionKind::Project,
+                start: Start::User,
                 // No project: the terminal belongs to the checklist, and isn't stored.
                 project_id: String::new(),
                 project_key: String::new(),

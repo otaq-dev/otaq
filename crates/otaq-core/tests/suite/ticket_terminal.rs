@@ -14,7 +14,7 @@ use otaq_core::git::testing::TempRepos;
 use otaq_core::protocol::{ErrorKind, Reply, Request, TerminalParams};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService, path_without_build_folders};
-use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, TerminalSize};
+use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, Start, TerminalSize};
 use serde_json::{Value, json};
 
 /// The sample board (SHOP, with the epic SHOP-40 Wishlist and its children), a second project `notes-api`, and
@@ -62,6 +62,7 @@ async fn printing(
         .sessions
         .spawn(SpawnSpec {
             kind,
+            start: Start::User,
             project_id: project.id.clone(),
             project_key: project.key.clone(),
             ticket: Some(SessionTicket {

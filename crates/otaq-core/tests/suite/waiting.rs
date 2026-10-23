@@ -416,7 +416,10 @@ async fn a_ticket_finishing_grill_waits_for_a_slot_before_dev() {
         .move_ticket("NOTE-1", DropTarget::ReadyForDev, true, &me)
         .await
         .unwrap();
-    w.starter.start("NOTE-1", &me).await.unwrap();
+    w.starter
+        .start("NOTE-1", &me, otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     let in_grill = until(&w, "NOTE-1", Status::Working).await;
     assert_eq!(in_grill.place, Place::stage_of("grill"));
     let grill_session = w

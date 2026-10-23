@@ -16,6 +16,9 @@
 //! - **Status** ([`LeadStatus`]): from the row, the session, its turn state and the reason for the current turn,
 //!   which whoever types sets ([`EpicLeads::set_turn_reason`]; the user's Enter in its terminal is
 //!   [`TurnReason::UserTyped`]). Each change publishes [`crate::protocol::Event::LeadChanged`].
+//! - **While the project is paused** (PAU-04, PAU-05; d0112): Open lead and Resume are the user's click and start it;
+//!   nothing else does. A queued epic's lead waits for the project's Resume ([`EpicLeads::start_kept`]), and an
+//!   ended lead whose epic came back from review becomes Paused, so that Resume resumes it.
 //! - **Tokens** ([`EpicLeads::lead_tokens`]) count on the epic and in today's total (d0020), never toward the agent
 //!   limit (d0016).
 
@@ -31,6 +34,7 @@ use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, StatusSet, TicketKey};
 use crate::epic_lead::wake::{Finished, Handovers, LeadEvents, closed_text, merged_text};
 use crate::naming;
+use crate::session::Start;
 use crate::session::deliveries::Deliveries;
 use crate::store::{new_id, now_ms};
 
@@ -324,10 +328,10 @@ impl EpicLeads {
                 ));
             }
             if !self.forget_if_not_started(&epic, &lead).await? {
-                return self.resume_for(&epic, lead.agent).await;
+                return self.resume_for(&epic, lead.agent, Start::User).await;
             }
         }
-        self.launch_new(&epic, None).await
+        self.launch_new(&epic, None, Start::User).await
     }
 
     /// **Resume** (LEAD-12): the same conversation, its tool's resume, the user's click; it clears "ended by
@@ -344,9 +348,9 @@ impl EpicLeads {
             return Ok(lead);
         }
         if self.forget_if_not_started(&epic, &lead).await? {
-            return self.launch_new(&epic, None).await;
+            return self.launch_new(&epic, None, Start::User).await;
         }
-        self.resume_for(&epic, lead.agent).await
+        self.resume_for(&epic, lead.agent, Start::User).await
     }
 
     /// A lead whose first turn the tool refused on the model never started (AGT-05, Q-C): there is no conversation
@@ -369,7 +373,8 @@ impl EpicLeads {
     }
 
     /// Starts the lead of a queued epic (LEAD-02, called when the epic is queued; T-0279): the first message asks
-    /// it to check the plan, and its status is "checking the plan". Refused when the epic already has a lead.
+    /// it to check the plan, and its status is "checking the plan". Refused when the epic already has a lead, and
+    /// while its project is paused (PAU-04).
     pub async fn start_for_queue(&self, epic: &str) -> Result<Lead, BoardError> {
         let epic = self.epic(epic).await?;
         if let Some(lead) = self.get_for(&epic).await? {
@@ -379,7 +384,7 @@ impl EpicLeads {
             ));
         }
         let message = check_plan_message(&epic.key);
-        self.launch_new(&epic, Some((&message, TurnReason::CheckPlan)))
+        self.launch_new(&epic, Some((&message, TurnReason::CheckPlan)), Start::Auto)
             .await
     }
 
@@ -395,10 +400,10 @@ impl EpicLeads {
             StatusSet::Waiting | StatusSet::AgentStage
         ) {
             let message = check_plan_message(&epic.key);
-            self.launch_new(&epic, Some((&message, TurnReason::CheckPlan)))
+            self.launch_new(&epic, Some((&message, TurnReason::CheckPlan)), Start::Auto)
                 .await
         } else {
-            self.launch_new(&epic, None).await
+            self.launch_new(&epic, None, Start::Auto).await
         }
     }
 
@@ -510,13 +515,53 @@ impl EpicLeads {
     }
 
     /// A whole epic was queued (LEAD-02): an epic with no lead at all gets one that checks the plan; an ended
-    /// lead isn't restarted (the user resumes it). Whether one started.
+    /// lead isn't restarted (the user resumes it). While its project is paused the start is kept: the project's
+    /// Resume starts it ([`Self::start_kept`]). Whether one started.
     pub async fn start_if_none(&self, epic: &str) -> Result<bool, BoardError> {
-        if self.get(epic).await?.is_some() {
+        let ticket = self.epic(epic).await?;
+        if self.get_for(&ticket).await?.is_some() {
+            return Ok(false);
+        }
+        if crate::agents::pause::is_paused(self.inner().board.store(), ticket.key.project.as_str())
+            .await?
+        {
+            tracing::info!(epic = %ticket.key, "lead start kept: the project is paused");
             return Ok(false);
         }
         self.start_for_queue(epic).await?;
         Ok(true)
+    }
+
+    /// The project resumed (PAU-06): the leads kept while it was paused start, checking the plan: each whole epic
+    /// queued (and not in review) that has no lead and no held start (the launch gate's, which its lift runs). The
+    /// epics whose lead started.
+    pub async fn start_kept(&self, project: &str) -> Result<Vec<TicketKey>, BoardError> {
+        let board = &self.inner().board;
+        let mut started = Vec::new();
+        for epic in board.tickets(project).await? {
+            if !epic.is_epic()
+                || epic.epic_queue_mode != crate::board::epic_flight::EpicQueueMode::Whole
+                || refuse_in_review(&epic).is_err()
+                || board
+                    .store()
+                    .agent_hold(
+                        crate::agents::store::HoldScope::Ticket(&epic.id),
+                        SessionRole::EpicLead,
+                    )
+                    .await?
+                    .is_some()
+            {
+                continue;
+            }
+            match self.start_if_none(&epic.key.to_string()).await {
+                Ok(true) => started.push(epic.key),
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::warn!(epic = %epic.key, error = %e, "the kept lead didn't start")
+                }
+            }
+        }
+        Ok(started)
     }
 
     /// The epic reached Ready for Review (LEAD-12): its running lead ends normally, `state = ended`, History "Lead
@@ -579,7 +624,18 @@ impl EpicLeads {
             return Ok(false);
         }
         refuse_in_review(&epic)?;
-        self.resume_for(&epic, lead.agent).await?;
+        // Kept as the pause leaves a lead (PAU-04): Paused, which the project's Resume resumes.
+        if crate::agents::pause::is_paused(self.inner().board.store(), epic.key.project.as_str())
+            .await?
+        {
+            self.agents
+                .set_state(&lead.agent.id, AgentState::Paused)
+                .await?;
+            self.agents.changed(&lead.agent.project, &lead.agent.id);
+            tracing::info!(epic = %epic.key, "lead resume kept: the project is paused");
+            return Ok(false);
+        }
+        self.resume_for(&epic, lead.agent, Start::Auto).await?;
         Ok(true)
     }
 
@@ -644,7 +700,15 @@ impl EpicLeads {
         &self,
         epic: &Ticket,
         first: Option<(&str, TurnReason)>,
+        start: Start,
     ) -> Result<Lead, BoardError> {
+        if start == Start::Auto {
+            crate::agents::pause::refuse_while_paused(
+                self.inner().board.store(),
+                epic.key.project.as_str(),
+            )
+            .await?;
+        }
         let (message, reason) = first.unzip();
         let agents = &self.agents;
         // The agent with the Epic lead role (LEAD-01, AGM-05), after the check before every launch (a hold keeps the
@@ -741,6 +805,7 @@ impl EpicLeads {
                 super::INITIAL_SIZE,
                 &runs_on,
                 Some((&epic.id, &epic.key)),
+                start,
             )
             .await
         {
@@ -763,7 +828,12 @@ impl EpicLeads {
             .ok_or_else(|| BoardError::NotFound(format!("{}'s lead is gone", epic.key)))
     }
 
-    async fn resume_for(&self, epic: &Ticket, agent: ProjectAgent) -> Result<Lead, BoardError> {
+    async fn resume_for(
+        &self,
+        epic: &Ticket,
+        agent: ProjectAgent,
+        start: Start,
+    ) -> Result<Lead, BoardError> {
         let agents = &self.agents;
         // An ended lead's Resume continues on its tool, model and named agent (d0086), unless that tool is at its
         // limit (USG-10).
@@ -804,6 +874,7 @@ impl EpicLeads {
                 launched,
                 &runs_on,
                 Some((&epic.id, &epic.key)),
+                start,
             )
             .await
         {

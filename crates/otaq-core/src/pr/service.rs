@@ -14,7 +14,8 @@
 //! no dialog ([`Prs::open_automatically`]): the Delivery's agent gets the skill followed by [`automatic_message`] (the
 //! Dev stage's session when the Delivery's agent is the same, else a fresh delivery session in the worktree), and
 //! once it proposes, Otaq confirms the proposal as it is and tells it to push ([`automatic_instruction`]). Both are
-//! queued for its input line, like any automatic message.
+//! queued for its input line, like any automatic message. **While the project is paused** (PAU-04, d0112) an
+//! automatic Delivery doesn't start its agent: the card waits in its Delivery and the project's Resume runs it.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -39,7 +40,8 @@ use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, Delivery, DeliveryKind};
 use crate::session::{
-    SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, StoredConversation, TerminalSize,
+    SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, Start, StoredConversation,
+    TerminalSize,
 };
 use crate::store::now_ms;
 
@@ -92,6 +94,16 @@ enum Typing {
     Click { clear_first: bool },
     /// An automatic Delivery's: queued until the session is idle with an empty input line.
     Queued,
+}
+
+impl Typing {
+    /// Who asked for a session it starts (PAU-04, PAU-05).
+    fn start(self) -> Start {
+        match self {
+            Self::Click { .. } => Start::User,
+            Self::Queued => Start::Auto,
+        }
+    }
 }
 
 /// What follows the PR skill's name when an automatic Delivery starts it (FLW-15): the skill proposes as usual and
@@ -258,7 +270,7 @@ impl Prs {
         board.start_pr_flow(&ticket, kind, false).await?;
         let started = match (session, &live) {
             (SessionKind::Delivery, None) => self
-                .start_delivery(&ticket, PrStep::Skill(step))
+                .start_delivery(&ticket, PrStep::Skill(step), Start::User)
                 .await
                 .map(|_| ()),
             _ => {
@@ -355,6 +367,9 @@ impl Prs {
     ) -> Result<(), BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
+        // Kept: the project's Resume runs the Deliveries that wait (PAU-04).
+        crate::agents::pause::refuse_while_paused(board.store(), ticket.key.project.as_str())
+            .await?;
         if ticket.status != Status::ToDeliver {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
@@ -410,7 +425,7 @@ impl Prs {
         let live = self.live_of(&ticket, session);
         let started = match (session, &live) {
             (SessionKind::Delivery, None) => self
-                .start_delivery(&ticket, PrStep::Skill(step))
+                .start_delivery(&ticket, PrStep::Skill(step), Start::Auto)
                 .await
                 .map(|_| ()),
             _ => {
@@ -514,9 +529,10 @@ impl Prs {
             .execute(board.store().pool())
             .await?;
         match (session, &live) {
-            (SessionKind::Delivery, None) if !pushing => {
-                self.start_delivery(&ticket, step).await.map(|_| ())?
-            }
+            (SessionKind::Delivery, None) if !pushing => self
+                .start_delivery(&ticket, step, Start::User)
+                .await
+                .map(|_| ())?,
             _ => {
                 self.run_in_session(&ticket, live.as_ref(), step, Typing::Click { clear_first })
                     .await?
@@ -660,6 +676,7 @@ impl Prs {
         &self,
         epic: &Ticket,
         step: PrStep<'_>,
+        start: Start,
     ) -> Result<SessionInfo, BoardError> {
         let runs_on = self.delivery_runs_on(epic).await?;
         self.inner.adapters.unavailable(runs_on.tool)?;
@@ -684,7 +701,7 @@ impl Prs {
                 title: Some(epic.title.clone()),
             },
         )?;
-        self.spawn(epic, SessionKind::Delivery, launched, &runs_on)
+        self.spawn(epic, SessionKind::Delivery, launched, &runs_on, start)
             .await
     }
 
@@ -781,6 +798,7 @@ impl Prs {
         kind: SessionKind,
         launched: Launched,
         runs_on: &RunsOn,
+        start: Start,
     ) -> Result<SessionInfo, BoardError> {
         let project = self
             .inner
@@ -792,6 +810,7 @@ impl Prs {
             .prepared(launched.prepare)
             .spawn(SpawnSpec {
                 kind,
+                start,
                 project_id: project.id,
                 project_key: project.key,
                 ticket: Some(SessionTicket {
@@ -918,15 +937,16 @@ impl Prs {
             }
             None => {
                 let kind = self.session_kind_for(ticket).await;
-                match self.resume(ticket, kind, step).await {
+                match self.resume(ticket, kind, step, typing.start()).await {
                     Ok(_) => Ok(()),
                     // A delivery session that left no conversation to resume: a fresh one, on the Delivery's agent.
                     Err(BoardError::Refused {
                         code: Refusal::SessionEnded,
                         ..
-                    }) if kind == SessionKind::Delivery => {
-                        self.start_delivery(ticket, step).await.map(|_| ())
-                    }
+                    }) if kind == SessionKind::Delivery => self
+                        .start_delivery(ticket, step, typing.start())
+                        .await
+                        .map(|_| ()),
                     Err(e) => Err(e),
                 }
             }
@@ -940,6 +960,7 @@ impl Prs {
         ticket: &Ticket,
         kind: SessionKind,
         step: PrStep<'_>,
+        start: Start,
     ) -> Result<SessionInfo, BoardError> {
         let inner = &self.inner;
         let history = inner
@@ -988,7 +1009,7 @@ impl Prs {
                 title: Some(ticket.title.clone()),
             },
         )?;
-        self.spawn(ticket, kind, launched, &runs_on).await
+        self.spawn(ticket, kind, launched, &runs_on, start).await
     }
 }
 

@@ -843,6 +843,7 @@ impl Service {
             events.clone(),
         );
         validation.set_gate(gate.clone());
+        validation.set_recovery(recovery.clone());
         prs.set_gate(gate.clone());
         inbox.set_tools(gate.clone(), connected.clone());
         // A model the tool refused (AGT-05): back to not started, No result, or a failed turn.
@@ -853,7 +854,7 @@ impl Service {
         });
         {
             let review = review.clone();
-            validation.on_resume_agent(Arc::new(move |id, prompt| {
+            validation.on_resume_agent(Arc::new(move |id, prompt, start| {
                 let review = review.clone();
                 Box::pin(async move {
                     let ticket = review.board().ticket_by_id(&id).await?;
@@ -862,6 +863,7 @@ impl Service {
                             &ticket.key.to_string(),
                             &prompt,
                             &crate::domain::Actor::current_user(),
+                            start,
                         )
                         .await
                         .map(|_| ())
@@ -889,9 +891,9 @@ impl Service {
         }
         {
             let validation = validation.clone();
-            review.on_resume_validation(Arc::new(move |id| {
+            review.on_resume_validation(Arc::new(move |id, start| {
                 let validation = validation.clone();
-                Box::pin(async move { validation.resume_interrupted(&id).await })
+                Box::pin(async move { validation.resume_interrupted(&id, start).await })
             }));
         }
         // Park and Close stop the validator too; the validation is recorded as stopped (CLS-01, CLS-06).
@@ -953,6 +955,16 @@ impl Service {
             scheduler: scheduler.clone(),
             events: events.clone(),
         });
+        // The starts kept while a project was paused run on its Resume (PAU-04, PAU-06).
+        crate::agents::kept::register(
+            &pause,
+            crate::agents::kept::KeptParts {
+                board: board.clone(),
+                gate: gate.clone(),
+                messages: messages.clone(),
+                project_agents: project_agents.clone(),
+            },
+        );
         plan_limit.set_project_agents(project_agents.clone());
         inbox.set_project_agents(project_agents.clone());
         project_agents.set_gate(gate.clone());

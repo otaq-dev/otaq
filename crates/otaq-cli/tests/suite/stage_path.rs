@@ -162,7 +162,10 @@ async fn start_check_fail_resume_send_back_and_local_merge() {
         .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start(&key, &me()).await.unwrap();
+    w.starter
+        .start(&key, &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until(&w, &key, "was interrupted", async |w| {
         w.status(&key).await == Status::Interrupted
     })

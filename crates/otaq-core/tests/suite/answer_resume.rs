@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agent_tools::claude::transcript::project_folder;
+use otaq_core::agents::pause::PauseScope;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Actor, Status};
 use otaq_core::git::testing::{commit, git};
@@ -226,6 +227,35 @@ async fn the_plan_limit_holds_the_question_and_a_lost_conversation_refuses() {
         )
     );
     let _ = Path::new("");
+    w.stop().await;
+}
+
+/// T-0456 (PAU-04; d0030, d0112): while the target's project is paused the question waits, the route's tick
+/// included; the project's Resume routes it, and the answer session starts once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paused_projects_finished_ticket_answers_once_it_resumes() {
+    let World {
+        w, _claude, parent, ..
+    } = world(false).await;
+    let shop = PauseScope::Project {
+        project: "SHOP".into(),
+    };
+    w.pause.pause(&shop).await.unwrap();
+    let asked = w
+        .messages
+        .ask("SHOP-2", "SHOP-1", "Which status code?", &agent("SHOP-2"))
+        .await
+        .unwrap();
+    assert_eq!(asked.route, None, "waits while paused");
+    w.messages.route_waiting().await.unwrap();
+    assert!(answer_session(&w, &parent).is_none(), "kept, not started");
+
+    let me = Actor::User("me".into());
+    w.pause.resume(&shop, &me).await.unwrap();
+    let session = answer_session(&w, &parent).expect("Resume routed it");
+    w.pause.resume(&shop, &me).await.unwrap();
+    w.messages.route_waiting().await.unwrap();
+    assert_eq!(answer_session(&w, &parent), Some(session), "once");
     w.stop().await;
 }
 

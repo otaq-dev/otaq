@@ -220,7 +220,7 @@ async fn the_example_applies_now_through_the_window() {
         .move_ticket("NOTE-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    let started = w.starter.start("NOTE-1", &me()).await.unwrap();
+    let started = w.starter.start("NOTE-1", &me(), otaq_core::session::Start::Auto).await.unwrap();
     assert!(matches!(started, StartOutcome::Started(_)), "{started:?}");
     assert_eq!(
         place_and_status(&w, "NOTE-1").await.0,

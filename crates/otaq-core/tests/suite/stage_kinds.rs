@@ -57,7 +57,10 @@ async fn start_agent(w: &TestService, key: &str) {
         .move_ticket(key, DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start(key, &me()).await.unwrap();
+    w.starter
+        .start(key, &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(w, key, Status::Working).await;
 }
 
@@ -196,7 +199,10 @@ async fn a_forward_wait_before_dev_starts_a_new_conversation() {
         place(&w, "SHOP-1").await,
         Place::Waiting(Some("dev".into()))
     );
-    w.starter.start("SHOP-1", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(&w, "SHOP-1", Status::Working).await;
     assert_eq!(place(&w, "SHOP-1").await, Place::stage_of("dev"));
     let dev = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
@@ -391,7 +397,10 @@ async fn a_send_back_with_the_limit_full_waits_before_its_agent_stage() {
 
     // The slot frees: it Begins in Dev and continues Dev's conversation with the skill.
     w.force_status(&busy, Status::WaitingForYou).await;
-    w.starter.start("SHOP-2", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-2", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(&w, "SHOP-2", Status::Working).await;
     assert_eq!(place(&w, "SHOP-2").await, Place::stage_of("dev"));
     let session = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();

@@ -149,7 +149,10 @@ async fn until<F: std::future::Future<Output = bool>>(what: &str, mut done: impl
 
 /// Starts SHOP-1 and returns its agent's caller, once Codex printed its arguments.
 async fn started(w: &TestService) -> Caller {
-    w.starter.start("SHOP-1", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until("SHOP-1 works", || async {
         w.status("SHOP-1").await == Status::Working
     })

@@ -784,7 +784,10 @@ async fn a_full_run_records_every_stage() {
         .move_ticket(key, DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start(key, &me()).await.unwrap();
+    w.starter
+        .start(key, &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(&w, key, Status::Working).await;
     let agent = w
         .sessions

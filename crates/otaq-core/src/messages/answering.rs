@@ -4,7 +4,8 @@
 //! path** on the ticket's kept branch, resumes the conversation answer-only on the tool it ran on, with the
 //! answer-question skill as its first prompt (session kind `answer`), and once `otaq answer` arrives ends the session and
 //! removes the worktree, unless files changed there (then it is kept and listed in Cleanup). While the plan limit is
-//! active the question waits.
+//! active the question waits, and so it does while the target's project is paused (PAU-04, d0112): the project's
+//! Resume routes it again. The user's **Resume SHOP-17** on it starts the answer session anyway (PAU-05).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -18,7 +19,7 @@ use crate::board::tickets::Ticket;
 use crate::board::{BoardError, Refusal};
 use crate::naming;
 use crate::session::{
-    SessionInfo, SessionKind, SessionTicket, SpawnSpec, StoredConversation, TerminalSize,
+    SessionInfo, SessionKind, SessionTicket, SpawnSpec, Start, StoredConversation, TerminalSize,
 };
 use crate::store::now_ms;
 
@@ -139,8 +140,12 @@ impl Messages {
             if self.limit_active().await {
                 continue;
             }
+            // Kept for the project's Resume, which routes the waiting questions again.
+            if crate::agents::pause::is_paused(board.store(), target.key.project.as_str()).await? {
+                continue;
+            }
             busy.push(target_id);
-            match self.start_answer_session(&target).await {
+            match self.start_answer_session(&target, Start::Auto).await {
                 Ok(_) => {
                     sqlx::query(
                         "UPDATE messages SET delivery = 'resumed', delivered_at = ? WHERE id = ?",
@@ -198,7 +203,7 @@ impl Messages {
                     no_longer_available(&target.key),
                 ));
             }
-            self.start_answer_session(&target).await?;
+            self.start_answer_session(&target, Start::User).await?;
             sqlx::query("UPDATE messages SET delivery = 'resumed', delivered_at = ? WHERE id = ?")
                 .bind(now_ms())
                 .bind(id)
@@ -218,8 +223,13 @@ impl Messages {
         Ok(())
     }
 
-    /// Recreates the worktree at its path on the kept branch and resumes the conversation answer-only.
-    async fn start_answer_session(&self, target: &Ticket) -> Result<SessionInfo, BoardError> {
+    /// Recreates the worktree at its path on the kept branch and resumes the conversation answer-only, as `start`
+    /// says.
+    async fn start_answer_session(
+        &self,
+        target: &Ticket,
+        start: Start,
+    ) -> Result<SessionInfo, BoardError> {
         let inner = &self.inner;
         let board = &inner.board;
         inner.adapters.unavailable(None)?;
@@ -289,6 +299,7 @@ impl Messages {
             .prepared(launched.prepare)
             .spawn(SpawnSpec {
                 kind: SessionKind::Answer,
+                start,
                 project_id: project.id,
                 project_key: project.key,
                 ticket: Some(SessionTicket {

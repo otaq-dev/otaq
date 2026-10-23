@@ -31,6 +31,9 @@
 //! **A waiting flow change** (FLW-06, d0108): each pass first applies the waiting changes whose board is quiet
 //! ([`crate::board::Board::settle_flow_changes`]); a project whose change still waits starts nothing from Ready for
 //! Dev ([`plan_holding`]) until it applies or is cancelled.
+//!
+//! **A paused project** (PAU-04, d0112) starts nothing at all: neither from Ready for Dev nor between two Agent stages
+//! ([`plan_holding`]'s `paused`). Its queued tickets wait as they are, and the project's Resume wakes the scheduler.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -52,6 +55,7 @@ use crate::domain::{Actor, StartStep, Status, TicketKey};
 use crate::git::BaseSync;
 use crate::protocol::Event;
 use crate::service::EventBus;
+use crate::session::Start;
 use crate::start::Starter;
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
@@ -196,17 +200,18 @@ pub struct SchedulerStatus {
 /// those a PR Delivery session works on ([`running_count`]'s `busy`): neither is started.
 /// Ready tickets beyond the free slots wait as "waiting for a slot", oldest first when slots free up.
 pub fn plan(tickets: &[Ticket], starting: &HashSet<String>, gate: &Gate) -> Plan {
-    plan_holding(tickets, starting, gate, &HashSet::new())
+    plan_holding(tickets, starting, gate, &HashSet::new(), &HashSet::new())
 }
 
 /// [`plan`], with the keys of the projects whose flow change waits for a quiet board (FLW-06): their tickets in Ready
 /// for Dev don't start ("Waiting for the flow change"); tickets waiting between two Agent stages, and other
-/// projects, start as usual.
+/// projects, start as usual. The `paused` projects' tickets don't start anywhere (PAU-04): they wait as they are.
 pub fn plan_holding(
     tickets: &[Ticket],
     starting: &HashSet<String>,
     gate: &Gate,
     held: &HashSet<String>,
+    paused: &HashSet<String>,
 ) -> Plan {
     let mut plan = Plan::default();
     let mut ready: Vec<&Ticket> = Vec::new();
@@ -222,6 +227,7 @@ pub fn plan_holding(
         match state {
             ReadyState::ParentClosed { .. } => change(&mut plan, ticket, Status::ParentClosed),
             ReadyState::Waiting { .. } => change(&mut plan, ticket, Status::Queued),
+            ReadyState::Ready if paused.contains(ticket.key.project.as_str()) => {}
             ReadyState::Ready
                 if ticket.place.is_ready_for_dev()
                     && held.contains(ticket.key.project.as_str()) => {}
@@ -274,8 +280,12 @@ impl StartTickets for Starter {
         let starter = self.clone();
         let key = ticket.key.to_string();
         tokio::spawn(async move {
-            // The user's drag queued it; the scheduler only picks the moment (SCH-02).
-            if let Err(e) = starter.start(&key, &Actor::current_user()).await {
+            // The user's drag queued it; the scheduler only picks the moment (SCH-02). It is automatic all the same: a
+            // paused project's tickets wait (PAU-04).
+            if let Err(e) = starter
+                .start(&key, &Actor::current_user(), Start::Auto)
+                .await
+            {
                 tracing::error!(ticket = %key, error = %e, "start failed");
             }
         });
@@ -489,11 +499,19 @@ impl Scheduler {
         }
         let limits = self.inner.board.global_settings().await?.agent_limits;
         let (tickets, needs_you) = self.load(limits.enabled).await?;
+        // A paused project starts nothing (PAU-04).
+        let paused: HashSet<String> =
+            crate::agents::pause::paused_projects(self.inner.board.store())
+                .await?
+                .into_iter()
+                .map(|(key, _)| key)
+                .collect();
         let plan = plan_holding(
             &tickets,
             &self.busy().await?,
             &Gate { limits, needs_you },
             &settled.held,
+            &paused,
         );
         for change in &plan.changes {
             if let Err(e) = self.apply(change).await {

@@ -27,7 +27,7 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::domain::{Actor, MovedPast, Status};
 use crate::flow::engine::{RunResult, Target, skipped_by_drag};
 use crate::flow::{Flow, Stage};
-use crate::session::SessionKind;
+use crate::session::{SessionKind, Start};
 use crate::start::StartOutcome;
 use crate::validation::Validation;
 
@@ -338,8 +338,12 @@ impl Review {
         if self.limit_full().await? {
             inner.scheduler.wake();
         } else {
-            match inner.starter.start(&ticket.key.to_string(), actor).await? {
-                StartOutcome::Started(_) | StartOutcome::Skipped => {}
+            match inner
+                .starter
+                .start(&ticket.key.to_string(), actor, Start::Auto)
+                .await?
+            {
+                StartOutcome::Started(_) | StartOutcome::Skipped | StartOutcome::Kept => {}
                 StartOutcome::Held { message } | StartOutcome::Interrupted { message, .. } => {
                     tracing::warn!(ticket = %ticket.key, %message, "the stage dragged back to didn't start");
                 }

@@ -287,7 +287,10 @@ impl World {
     }
 
     async fn start(&self, key: &str) -> StartOutcome {
-        self.starter.start(key, &me()).await.unwrap()
+        self.starter
+            .start(key, &me(), otaq_core::session::Start::Auto)
+            .await
+            .unwrap()
     }
 
     fn worktree(&self, key: &str) -> PathBuf {
@@ -685,7 +688,12 @@ async fn three_starts_with_three_builds_all_start_warm() {
         .into_iter()
         .map(|key| {
             let starter = w.starter.clone();
-            tokio::spawn(async move { starter.start(key, &me()).await.unwrap() })
+            tokio::spawn(async move {
+                starter
+                    .start(key, &me(), otaq_core::session::Start::Auto)
+                    .await
+                    .unwrap()
+            })
         })
         .collect();
     for start in starts {
@@ -755,7 +763,12 @@ async fn clear_waits_for_a_running_seed() {
         w.f.skip_to(21).await;
         assert_eq!(w.queued("SHOP-21").await.key.to_string(), "SHOP-21");
         let starter = w.starter.clone();
-        let start = tokio::spawn(async move { starter.start("SHOP-21", &me()).await.unwrap() });
+        let start = tokio::spawn(async move {
+            starter
+                .start("SHOP-21", &me(), otaq_core::session::Start::Auto)
+                .await
+                .unwrap()
+        });
         tokio::task::spawn_blocking(move || {
             began
                 .recv_timeout(Duration::from_secs(60))

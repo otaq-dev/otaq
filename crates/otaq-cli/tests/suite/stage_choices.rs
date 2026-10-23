@@ -390,7 +390,10 @@ async fn a_ticket_agent_and_an_epic_lead() {
         )
         .await
         .unwrap();
-    w.starter.start("SHOP-2", &me).await.unwrap();
+    w.starter
+        .start("SHOP-2", &me, otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     for _ in 0..500 {
         if w.status("SHOP-2").await == Status::Working {
             break;

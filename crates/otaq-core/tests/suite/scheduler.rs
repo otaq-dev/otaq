@@ -13,7 +13,7 @@ use otaq_core::board::tickets::{Base, NewTicketInput, StartProblem, Ticket};
 use otaq_core::domain::{Actor, Flags, Kind, Priority, StartStep, Status, TicketKey};
 use otaq_core::protocol::Event;
 use otaq_core::scheduler::{
-    Gate, Plan, Scheduler, StartTickets, StatusChange, ToStart, plan, stock_limit,
+    Gate, Plan, Scheduler, StartTickets, StatusChange, ToStart, plan, plan_holding, stock_limit,
 };
 use otaq_core::service::EventBus;
 use otaq_core::start::Starter;
@@ -247,6 +247,30 @@ fn the_scheduler_never_queues_retries_or_touches_other_states() {
         plan(&board, &HashSet::new(), &Gate::default()),
         Plan::default()
     );
+}
+
+/// PAU-04 (d0112): a paused project starts nothing, from Ready for Dev or between two Agent stages; a waiting flow
+/// change holds only Ready for Dev; other projects start.
+#[test]
+fn a_paused_project_starts_nothing_and_a_waiting_flow_change_holds_only_ready_for_dev() {
+    let mut between = t("SHOP-2", Status::Queued, 2);
+    between.place = otaq_core::domain::Place::Waiting(Some("dev".into()));
+    let mut bill_between = t("BILL-2", Status::Queued, 4);
+    bill_between.place = otaq_core::domain::Place::Waiting(Some("dev".into()));
+    let board = [
+        t("SHOP-1", Status::Queued, 1),
+        between,
+        t("BILL-1", Status::Queued, 3),
+        bill_between,
+    ];
+    let none = HashSet::new();
+    let shop = HashSet::from(["SHOP".to_owned()]);
+    let bill = HashSet::from(["BILL".to_owned()]);
+    let paused = plan_holding(&board, &none, &Gate::default(), &none, &shop);
+    assert_eq!(keys(&paused.start), ["BILL-1", "BILL-2"]);
+    assert!(paused.changes.is_empty(), "they wait as they are");
+    let flow_change = plan_holding(&board, &none, &Gate::default(), &bill, &none);
+    assert_eq!(keys(&flow_change.start), ["SHOP-1", "SHOP-2", "BILL-2"]);
 }
 
 #[test]
@@ -535,8 +559,8 @@ async fn the_start_sequence_runs_a_ticket_once_when_called_twice_at_once() {
     queue(&f, "SHOP-1").await;
     let actor = me();
     let (a, b) = tokio::join!(
-        starter.start("SHOP-1", &actor),
-        starter.start("SHOP-1", &actor)
+        starter.start("SHOP-1", &actor, otaq_core::session::Start::Auto),
+        starter.start("SHOP-1", &actor, otaq_core::session::Start::Auto)
     );
     let outcomes = [a.unwrap(), b.unwrap()];
     let skipped = outcomes

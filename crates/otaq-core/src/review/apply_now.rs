@@ -58,6 +58,8 @@ impl Review {
         let inner = &self.inner;
         let board = &inner.board;
         let key = board.project(&params.project).await?.key;
+        // Apply now starts agents on its own: refused while the project is paused (PAU-04).
+        crate::agents::pause::refuse_while_paused(board.store(), &key).await?;
         let Some(plan) = self.apply_now_plan(&key).await? else {
             return Ok(match board.applied_since(&key, &params.stamp).await? {
                 Some(version) => ApplyNowAnswer::AlreadyApplied {

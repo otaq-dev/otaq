@@ -26,7 +26,8 @@
 //! **A hold lifts** when its cause may have gone ([`LaunchGate::run`]): a tool's state changes, a limit is resumed or
 //! resets, a list is read again, an agent changes, or the user's Use fallback. Each lift re-runs the check once for
 //! every hold ([`LaunchGate::lift`]); the held start then runs as the drag already asked for it (Q-D). Nothing retries
-//! on a timer.
+//! on a timer. **A paused project's holds stay** (PAU-04, d0112): a lift leaves them as they are, and the project's
+//! Resume lifts them once more.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
@@ -693,6 +694,9 @@ impl LaunchGate {
             else {
                 return Ok(false);
             };
+            if super::pause::is_paused(store, &project.key).await? {
+                return Ok(false);
+            }
             let scope = Scope::Project {
                 id: &project.id,
                 name: &project.name,
@@ -712,6 +716,10 @@ impl LaunchGate {
             return Ok(false);
         };
         let ticket = board.ticket_by_id(ticket_id).await?;
+        // Kept for the project's Resume (PAU-04).
+        if super::pause::is_paused(store, ticket.key.project.as_str()).await? {
+            return Ok(false);
+        }
         let scope = Scope::ticket(&ticket);
         if !still_waits(&ticket, hold.role) {
             store

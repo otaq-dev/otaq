@@ -91,7 +91,10 @@ async fn a_reopened_ticket_rebases_and_starts_a_new_session() {
         .await
         .unwrap();
     // What the scheduler does once it sees the ticket in Queued.
-    w.starter.start("SHOP-1", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(&w, "SHOP-1", Status::Working).await;
 
     assert!(
@@ -153,7 +156,10 @@ async fn a_conflicting_rebase_is_announced_through_prime_and_the_agent_still_sta
         .await
         .unwrap();
     // What the scheduler does once it sees the ticket in Queued.
-    w.starter.start("SHOP-1", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(&w, "SHOP-1", Status::Working).await;
 
     assert_eq!(
@@ -306,7 +312,10 @@ async fn a_reopened_ticket_takes_the_nearest_build_after_the_rebase() {
         .unwrap();
     assert_eq!(freed::entries(&w, &project).len(), 2);
 
-    w.starter.start("SHOP-1", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(&w, "SHOP-1", Status::Working).await;
 
     assert_eq!(git(&wt, &["rev-parse", "HEAD~1"]), main, "rebased");

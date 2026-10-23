@@ -700,7 +700,14 @@ async fn a_start_that_isnt_refused_is_untouched() {
             .await
             .unwrap()
     );
-    let started = w.w.starter.start("SHOP-1", &Actor::User("me".into())).await;
+    let started =
+        w.w.starter
+            .start(
+                "SHOP-1",
+                &Actor::User("me".into()),
+                otaq_core::session::Start::Auto,
+            )
+            .await;
     assert_eq!(started.unwrap(), StartOutcome::Skipped);
     w.w.stop().await;
 }

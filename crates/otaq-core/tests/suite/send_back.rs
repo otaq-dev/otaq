@@ -497,7 +497,10 @@ async fn a_full_limit_queues_and_the_start_brings_the_build_back() {
 
     // A slot frees.
     w.force_status(&busy, Status::Backlog).await;
-    w.starter.start(&key, &me()).await.unwrap();
+    w.starter
+        .start(&key, &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     for _ in 0..400 {
         if w.status(&key).await == Status::Working {
             break;

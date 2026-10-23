@@ -16,7 +16,7 @@ use otaq_core::git::testing::TempRepos;
 use otaq_core::naming;
 use otaq_core::service::testing::TestService;
 use otaq_core::service::{Service, ServiceConfig, Stopper};
-use otaq_core::session::{SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
+use otaq_core::session::{SessionKind, SessionTicket, Sessions, SpawnSpec, Start, TerminalSize};
 
 struct World {
     home: tempfile::TempDir,
@@ -95,6 +95,7 @@ impl World {
         self.sessions
             .spawn(SpawnSpec {
                 kind,
+                start: Start::User,
                 project_id: self.project_id.clone(),
                 project_key: "SHOP".into(),
                 ticket: Some(SessionTicket {

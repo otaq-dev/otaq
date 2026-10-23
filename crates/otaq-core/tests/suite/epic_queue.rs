@@ -333,7 +333,10 @@ async fn queueing_after_park_resumes_the_parked_child() {
         .unwrap();
 
     w.board.queue_epic_child(&key(&api), &me()).await.unwrap();
-    w.starter.start(&key(&api), &me()).await.unwrap();
+    w.starter
+        .start(&key(&api), &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(&w, &key(&api), Status::Working).await;
     let first = w.sessions.running_of(&api.id, SessionKind::Agent).unwrap();
     let conversation = first.tool_session_id.clone().unwrap();

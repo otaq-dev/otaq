@@ -279,7 +279,10 @@ async fn the_example_hands_over_through_comments_and_a_report() {
         .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start(&key, &me()).await.unwrap();
+    w.starter
+        .start(&key, &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until(&w, state, &key, "started Dev", async |w| {
         let t = w.board.ticket(&key).await.unwrap();
         t.place == Place::stage_of("dev")

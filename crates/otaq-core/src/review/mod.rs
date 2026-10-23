@@ -51,7 +51,7 @@ use crate::git::merge::{MergeOutcome, MergeRequest};
 use crate::ports::PortPool;
 use crate::scheduler::Scheduler;
 use crate::session::deliveries::{Deliveries, Delivery};
-use crate::session::{SessionKind, Sessions};
+use crate::session::{SessionKind, Sessions, Start};
 use crate::start::{StartOutcome, Starter};
 use crate::ticket_env::TicketEnv;
 use crate::ticket_env::fetch::FetchWhy;
@@ -626,8 +626,8 @@ impl Review {
             (None, false) => {
                 self.record(ticket, action, Status::Queued, Some(skill), actor)
                     .await?;
-                match inner.starter.start(&key, actor).await? {
-                    StartOutcome::Started(_) | StartOutcome::Skipped => {}
+                match inner.starter.start(&key, actor, Start::Auto).await? {
+                    StartOutcome::Started(_) | StartOutcome::Skipped | StartOutcome::Kept => {}
                     StartOutcome::Held { message } | StartOutcome::Interrupted { message, .. } => {
                         tracing::warn!(ticket = %ticket.key, %message, "resuming the agent stopped");
                     }

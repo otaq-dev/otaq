@@ -18,7 +18,7 @@ use otaq_core::git::testing::{commit, git};
 use otaq_core::naming;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{TestService, path_without_build_folders};
-use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, TerminalSize};
+use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, Start, TerminalSize};
 use otaq_core::ticket_env::resources;
 
 fn rows(pairs: &[(&str, &str)]) -> Vec<EnvVar> {
@@ -190,6 +190,7 @@ async fn every_session_kind_gets_the_rows() {
         w.sessions
             .spawn(SpawnSpec {
                 kind: *kind,
+                start: Start::User,
                 project_id: project.id.clone(),
                 project_key: project.key.clone(),
                 ticket: Some(SessionTicket {
@@ -273,7 +274,11 @@ async fn the_setup_command_and_the_started_agent_get_the_rows() {
 
     w.force_status(&ticket, Status::Queued).await;
     w.starter
-        .start(&ticket.key.to_string(), &me())
+        .start(
+            &ticket.key.to_string(),
+            &me(),
+            otaq_core::session::Start::Auto,
+        )
         .await
         .unwrap();
 
@@ -393,6 +398,7 @@ async fn spawn_writing_env(
     w.sessions
         .spawn(SpawnSpec {
             kind,
+            start: Start::User,
             project_id: project.id.clone(),
             project_key: project.key.clone(),
             ticket: ticket.map(|t| SessionTicket {

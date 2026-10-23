@@ -30,7 +30,7 @@ use crate::board::{BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::protocol::Event;
 use crate::service::EventBus;
-use crate::session::{SessionKind, Sessions, SpawnSpec, TerminalSize};
+use crate::session::{SessionKind, Sessions, SpawnSpec, Start, TerminalSize};
 use crate::store::settings::{AGENT_TOOLS_CONNECTED, AGENT_TOOLS_HIDDEN};
 use crate::store::{Store, StoreError, now_ms};
 use crate::terminals::TerminalEnv;
@@ -579,6 +579,7 @@ impl ConnectedTools {
             .sessions
             .spawn(SpawnSpec {
                 kind: SessionKind::Project,
+                start: Start::User,
                 // No project: the terminal belongs to the tool, and isn't stored.
                 project_id: String::new(),
                 project_key: String::new(),

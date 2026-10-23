@@ -104,6 +104,37 @@ pub async fn is_paused(store: &Store, key: &str) -> Result<bool, StoreError> {
     Ok(since.is_some_and(|(since,)| since.is_some()))
 }
 
+/// The name of the project `key` ("shop-web") while it is paused; `None` while it runs (or isn't a project: an agent
+/// tool's Sign in… terminal has none).
+pub async fn paused_name(store: &Store, key: &str) -> Result<Option<String>, StoreError> {
+    if key.is_empty() {
+        return Ok(None);
+    }
+    let name: Option<(String,)> =
+        sqlx::query_as("SELECT name FROM projects WHERE key = ? AND paused_since IS NOT NULL")
+            .bind(key)
+            .fetch_optional(store.pool())
+            .await?;
+    Ok(name.map(|(name,)| name))
+}
+
+/// What an automatic start in a paused project is refused with (PAU-04), and Apply now: "shop-web is paused. Resume
+/// to continue."
+pub fn paused_refusal(name: &str) -> String {
+    format!("{name} is paused. Resume to continue.")
+}
+
+/// Refused with [`paused_refusal`] while the project `key` is paused.
+pub async fn refuse_while_paused(store: &Store, key: &str) -> Result<(), BoardError> {
+    match paused_name(store, key).await? {
+        Some(name) => Err(BoardError::refused(
+            crate::board::Refusal::NotAllowed,
+            paused_refusal(&name),
+        )),
+        None => Ok(()),
+    }
+}
+
 /// What runs when a project resumes, after its stopped agents were resumed: the starts kept while it was paused
 /// (T-0456). Given the project's key.
 pub type ResumeHook = Arc<dyn Fn(String) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;

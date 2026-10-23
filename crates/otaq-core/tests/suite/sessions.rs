@@ -16,7 +16,7 @@ use otaq_core::protocol::{
 use otaq_core::service::{EventBus, Service, ServiceConfig};
 use otaq_core::session::{
     Attached, END_STOPPED, SessionError, SessionKind, SessionState, SessionTicket, Sessions,
-    SpawnSpec, TerminalSize,
+    SpawnSpec, Start, TerminalSize,
 };
 use tokio::sync::broadcast;
 
@@ -25,6 +25,7 @@ const WAIT: Duration = Duration::from_secs(10);
 fn spec(f: &Fixture, ticket: Option<SessionTicket>, script: &str) -> SpawnSpec {
     SpawnSpec {
         kind: SessionKind::Agent,
+        start: Start::User,
         project_id: String::new(),
         project_key: "SHOP".into(),
         ticket,
@@ -308,6 +309,7 @@ async fn protocol_list_attach_resize_detach() {
     let info = sessions
         .spawn(SpawnSpec {
             kind: SessionKind::Agent,
+            start: Start::User,
             project_id: project.id.clone(),
             project_key: "SHOP".into(),
             ticket: Some(SessionTicket {
@@ -485,6 +487,7 @@ async fn keystrokes_from_several_clients_reach_cat_and_track_unsent_text() {
     let info = sessions
         .spawn(SpawnSpec {
             kind: SessionKind::Shell,
+            start: Start::User,
             project_id: project.id,
             project_key: "SHOP".into(),
             ticket: None,
@@ -597,6 +600,7 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
         .prepared(cmd.prepare)
         .spawn(SpawnSpec {
             kind: SessionKind::Agent,
+            start: Start::User,
             project_id: project_id(&f).await,
             project_key: "SHOP".into(),
             ticket: Some(t.clone()),
@@ -701,6 +705,7 @@ async fn attaching_again_on_one_connection_keeps_the_running_feed_whole() {
     let info = sessions
         .spawn(SpawnSpec {
             kind: SessionKind::Shell,
+            start: Start::User,
             project_id: project.id,
             project_key: "SHOP".into(),
             ticket: None,

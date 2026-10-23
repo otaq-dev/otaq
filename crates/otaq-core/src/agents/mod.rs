@@ -18,6 +18,7 @@
 pub mod facts;
 pub mod gate;
 pub mod in_use;
+pub mod kept;
 pub mod limits;
 pub mod mark;
 pub mod pause;

@@ -35,8 +35,8 @@ use crate::epic_lead::stuck::{FirstStop, hold_in_dev};
 use crate::flow::Delivers;
 use crate::pr::service::Prs;
 use crate::protocol::Event;
-use crate::session::SessionKind;
 use crate::session::deliveries::DeliveryKind;
+use crate::session::{SessionKind, Start};
 use crate::start::StartOutcome;
 
 /// What one automatic Delivery, or a Delivery's conflict, did.
@@ -248,8 +248,12 @@ impl Review {
             (None, false) => {
                 self.record(ticket, &action, Status::Queued, Some(skill), actor)
                     .await?;
-                match inner.starter.start(&ticket.key.to_string(), actor).await? {
-                    StartOutcome::Started(_) | StartOutcome::Skipped => {}
+                match inner
+                    .starter
+                    .start(&ticket.key.to_string(), actor, Start::Auto)
+                    .await?
+                {
+                    StartOutcome::Started(_) | StartOutcome::Skipped | StartOutcome::Kept => {}
                     StartOutcome::Held { message } | StartOutcome::Interrupted { message, .. } => {
                         tracing::warn!(ticket = %ticket.key, %message, "resuming the agent stopped");
                     }

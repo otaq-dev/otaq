@@ -29,6 +29,11 @@
 //! when its tool isn't available or its model isn't listed the round stays open without a validator (Validating…,
 //! with the hold). The automatic fallback may move its Validator row instead. The validator starts once the hold
 //! lifts ([`Validation::start_held`]), or with its tool's Resume ([`Validation::start_waiting`]).
+//!
+//! **While the project is paused** (PAU-04, d0112) a checker Otaq would start on its own ([`Start::Auto`]: after a
+//! submit or a pass, a drag into a check, a lifted hold, a tool's Resume) doesn't start: the ticket is taken the
+//! pause's way ([`crate::recovery::Recovery::kept_paused`]: interrupted from its check, the round not counted), and the
+//! project's Resume starts a fresh check. The user's Retry validation, or Resume on the one ticket, starts it.
 
 use std::collections::HashSet;
 use std::future::Future;
@@ -54,7 +59,8 @@ use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::session::{
-    END_MODEL_REFUSED, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize,
+    END_MODEL_REFUSED, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, Start,
+    TerminalSize,
 };
 use crate::signals::{LIVE, Signal};
 use crate::store::tickets::set_state_since;
@@ -110,6 +116,8 @@ struct Inner {
     resume_agent: Mutex<Option<AgentResume>>,
     /// The check before every launch (set by the service; unset, nothing is checked).
     gate: std::sync::OnceLock<LaunchGate>,
+    /// Keeps a checker's start while the project is paused (set by the service; unset, the ticket is left as it is).
+    recovery: std::sync::OnceLock<crate::recovery::Recovery>,
 }
 
 /// How a validator's start went.
@@ -118,6 +126,8 @@ pub enum ValidatorStart {
     Started(Box<SessionInfo>),
     /// The check before the launch held it: the round waits without a validator.
     Held(Box<Held>),
+    /// The project is paused and the start was automatic: the ticket was taken the pause's way (PAU-04).
+    Kept,
 }
 
 impl ValidatorStart {
@@ -125,14 +135,14 @@ impl ValidatorStart {
     pub fn session(self) -> Option<Box<SessionInfo>> {
         match self {
             Self::Started(session) => Some(session),
-            Self::Held(_) => None,
+            Self::Held(_) | Self::Kept => None,
         }
     }
 }
 
-/// Resumes the agent of a ticket (its id) with a first prompt.
+/// Resumes the agent of a ticket (its id) with a first prompt, started as `Start` says.
 pub type AgentResume = Arc<
-    dyn Fn(String, String) -> Pin<Box<dyn Future<Output = Result<(), BoardError>> + Send>>
+    dyn Fn(String, String, Start) -> Pin<Box<dyn Future<Output = Result<(), BoardError>> + Send>>
         + Send
         + Sync,
 >;
@@ -156,6 +166,7 @@ impl Validation {
                 starting: Mutex::new(std::collections::HashMap::new()),
                 resume_agent: Mutex::new(None),
                 gate: std::sync::OnceLock::new(),
+                recovery: std::sync::OnceLock::new(),
             }),
         }
     }
@@ -163,6 +174,31 @@ impl Validation {
     /// Gives the validators the service's check before every launch (SCH-04 `[M23]`).
     pub fn set_gate(&self, gate: LaunchGate) {
         let _ = self.inner.gate.set(gate);
+    }
+
+    /// Gives the validators the service's recovery, which keeps a checker's start while its project is paused.
+    pub fn set_recovery(&self, recovery: crate::recovery::Recovery) {
+        let _ = self.inner.recovery.set(recovery);
+    }
+
+    /// Whether an automatic checker start for `ticket` is kept because its project is paused (PAU-04): then the
+    /// ticket is taken the pause's way, once.
+    async fn kept(&self, ticket: &Ticket, start: Start) -> Result<bool, BoardError> {
+        if start == Start::User
+            || !crate::agents::pause::is_paused(
+                self.inner.board.store(),
+                ticket.key.project.as_str(),
+            )
+            .await?
+        {
+            return Ok(false);
+        }
+        tracing::info!(key = %ticket.key, "checker start kept: the project is paused");
+        if let Some(recovery) = self.inner.recovery.get() {
+            recovery.kept_paused(&ticket.id).await?;
+        }
+        self.forget_turns(&ticket.id);
+        Ok(true)
     }
 
     /// `otaq check pass|fail --stdin [--report-file PATH]` from the ticket's checker (VAL-03 … VAL-06): the verdict's
@@ -260,7 +296,7 @@ impl Validation {
             // The findings are the checker's comment: the agent reads them in `prime` (CMT-05).
             let round = facts.fails + 1;
             let check = check_name(&facts.flow, &ticket.place);
-            self.tell_agent(&ticket, &check_failed_text(&check, round))
+            self.tell_agent(&ticket, &check_failed_text(&check, round), Start::Auto)
                 .await;
         }
         if step.start_validator {
@@ -312,7 +348,7 @@ impl Validation {
         }
         board.open_next_check(&ticket, trigger).await?;
         self.forget_turns(ticket_id);
-        if let Err(e) = self.start_validator(ticket_id).await {
+        if let Err(e) = self.start_validator(ticket_id, Start::Auto).await {
             tracing::warn!(key = %ticket.key, error = %e, "the next check's checker didn't start");
             board
                 .validator_did_not_start(ticket_id, &e.to_string())
@@ -380,7 +416,8 @@ impl Validation {
             .await?;
         self.forget_turns(&ticket.id);
         if step.tell_cancelled {
-            self.tell_agent(ticket, &cancelled_message(&check)).await;
+            self.tell_agent(ticket, &cancelled_message(&check), Start::Auto)
+                .await;
         }
         let (title, message) = cancelled_toast(&ticket.key.to_string(), by);
         self.inner.events.publish(Event::ValidationCancelled {
@@ -572,7 +609,8 @@ impl Validation {
                 board.back_to_agent(&ticket, &step, actor).await?;
                 let after = board.ticket_by_id(&ticket.id).await?;
                 let text = user_findings_message(&after, &findings, note, step.extra_round);
-                self.tell_agent(&after, &text).await;
+                // The user's Give it another round / Answer the agent: a click on this one agent (PAU-05).
+                self.tell_agent(&after, &text, Start::User).await;
             }
             // A stopped Delivery's (FLW-17): back to where it is offered; Retry merge runs an automatic one again.
             ValidationAction::RetryMerge | ValidationAction::MoveToReview => {
@@ -586,7 +624,8 @@ impl Validation {
                 let head = board.submit_head(&ticket).await?;
                 board.reopen_round(&ticket, &head, actor).await?;
                 self.forget_turns(&ticket.id);
-                if let Err(e) = self.start_validator(&ticket.id).await {
+                // Retry validation: the user's click on this one check (PAU-05).
+                if let Err(e) = self.start_validator(&ticket.id, Start::User).await {
                     board
                         .validator_did_not_start(&ticket.id, &e.to_string())
                         .await?;
@@ -667,6 +706,7 @@ impl Validation {
         self.tell_agent(
             &after,
             &lead_findings_message(&after, &findings, lead, note),
+            Start::Auto,
         )
         .await;
         Ok(after)
@@ -674,8 +714,12 @@ impl Validation {
 
     /// Resume of a ticket interrupted while it validated (REC-01, VAL-07): a fresh validator on a new row with
     /// the same round number (not counted); the old validator conversation is never resumed and the agent's
-    /// session is left alone.
-    pub async fn resume_interrupted(&self, ticket_id: &str) -> Result<(), BoardError> {
+    /// session is left alone. `start` is who asked (the user's Resume, or Resume all).
+    pub async fn resume_interrupted(
+        &self,
+        ticket_id: &str,
+        start: Start,
+    ) -> Result<(), BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket_by_id(ticket_id).await?;
         let head = board.submit_head(&ticket).await?;
@@ -683,7 +727,7 @@ impl Validation {
             .reopen_round(&ticket, &head, &Actor::current_user())
             .await?;
         self.forget_turns(ticket_id);
-        if let Err(e) = self.start_validator(ticket_id).await {
+        if let Err(e) = self.start_validator(ticket_id, start).await {
             board
                 .validator_did_not_start(ticket_id, &e.to_string())
                 .await?;
@@ -721,14 +765,14 @@ impl Validation {
 
     /// Queues `text` for the ticket's agent (SES-06 rules: typed once it is idle and its input line is empty).
     /// An agent whose session is gone (a restart ended it) is resumed with `text` as its first prompt: the only
-    /// time a validation resumes the agent (VAL-07).
-    async fn tell_agent(&self, ticket: &Ticket, text: &str) {
+    /// time a validation resumes the agent (VAL-07); an automatic one (`start`) waits while the project is paused.
+    async fn tell_agent(&self, ticket: &Ticket, text: &str, start: Start) {
         let inner = &self.inner;
         let Some(session) = inner.sessions.running_of(&ticket.id, SessionKind::Agent) else {
             let hook = inner.resume_agent.lock().expect("resume agent").clone();
             match hook {
                 Some(hook) => {
-                    if let Err(e) = hook(ticket.id.clone(), text.to_owned()).await {
+                    if let Err(e) = hook(ticket.id.clone(), text.to_owned(), start).await {
                         tracing::warn!(key = %ticket.key, error = %e, "can't resume the agent");
                     }
                 }
@@ -980,7 +1024,8 @@ impl Validation {
             )
             .await?;
         self.forget_turns(&ticket.id);
-        if let Err(e) = self.start_validator(&ticket.id).await {
+        // Automatic, even after the user's Move to next stage: the check isn't the agent the user clicked (PAU-04).
+        if let Err(e) = self.start_validator(&ticket.id, Start::Auto).await {
             // Shown, never retried by itself (P2): Retry validation is the user's click.
             tracing::warn!(key = %ticket.key, error = %e, "the validator didn't start");
             board
@@ -994,7 +1039,7 @@ impl Validation {
     /// ends the round without a result, as a submit's would.
     pub async fn start_held(&self, ticket_id: &str) -> Result<(), BoardError> {
         // Started meanwhile (the tool's Resume): kept, not started again.
-        if let Err(e) = self.start_waiting_checker(ticket_id).await {
+        if let Err(e) = self.start_waiting_checker(ticket_id, Start::Auto).await {
             tracing::warn!(ticket = ticket_id, error = %e, "the held validator didn't start");
             self.inner
                 .board
@@ -1050,15 +1095,23 @@ impl Validation {
     /// Starts the validator of the ticket's open round (a submit, Retry validation, a tool's Resume after its limit, a
     /// lifted hold), after the check before every launch: held, the round waits without one. Any validator still
     /// running for the ticket is stopped first: one per ticket.
-    pub async fn start_validator(&self, ticket_id: &str) -> Result<ValidatorStart, BoardError> {
+    pub async fn start_validator(
+        &self,
+        ticket_id: &str,
+        start: Start,
+    ) -> Result<ValidatorStart, BoardError> {
         let lock = self.start_lock(ticket_id);
         let _one_start = lock.lock().await;
-        self.start_validator_locked(ticket_id).await
+        self.start_validator_locked(ticket_id, start).await
     }
 
     /// Starts the checker of a round that waits for one (a lifted hold, a tool's Resume), unless one already runs
     /// for the ticket: the first of two overlapping starts wins and the second keeps its checker.
-    async fn start_waiting_checker(&self, ticket_id: &str) -> Result<ValidatorStart, BoardError> {
+    async fn start_waiting_checker(
+        &self,
+        ticket_id: &str,
+        start: Start,
+    ) -> Result<ValidatorStart, BoardError> {
         let lock = self.start_lock(ticket_id);
         let _one_start = lock.lock().await;
         if let Some(running) = self
@@ -1068,7 +1121,7 @@ impl Validation {
         {
             return Ok(ValidatorStart::Started(Box::new(running)));
         }
-        self.start_validator_locked(ticket_id).await
+        self.start_validator_locked(ticket_id, start).await
     }
 
     fn start_lock(&self, ticket_id: &str) -> Arc<tokio::sync::Mutex<()>> {
@@ -1081,10 +1134,17 @@ impl Validation {
             .clone()
     }
 
-    async fn start_validator_locked(&self, ticket_id: &str) -> Result<ValidatorStart, BoardError> {
+    async fn start_validator_locked(
+        &self,
+        ticket_id: &str,
+        start: Start,
+    ) -> Result<ValidatorStart, BoardError> {
         let inner = &self.inner;
         let board = &inner.board;
         let ticket = board.ticket_by_id(ticket_id).await?;
+        if self.kept(&ticket, start).await? {
+            return Ok(ValidatorStart::Kept);
+        }
         if let Some(old) = inner
             .sessions
             .running_of(&ticket.id, SessionKind::Validator)
@@ -1106,8 +1166,10 @@ impl Validation {
             },
             None => RunsOn::agent(&agent, board.store().default_model().await?.as_ref()),
         };
-        match self.launch_validator(&ticket, runs_on, &agent).await {
+        match self.launch_validator(&ticket, runs_on, &agent, start).await {
             Ok(session) => Ok(ValidatorStart::Started(Box::new(session))),
+            // The backstop refused it: the project was paused meanwhile.
+            Err(_) if self.kept(&ticket, start).await? => Ok(ValidatorStart::Kept),
             Err(e) => {
                 // A launch that failed because of its tool: checked again, then held if it can't start now (ADP-10).
                 if let Some(gate) = inner.gate.get()
@@ -1128,6 +1190,7 @@ impl Validation {
         ticket: &Ticket,
         runs_on: RunsOn,
         agent: &crate::agents::Agent,
+        start: Start,
     ) -> Result<SessionInfo, BoardError> {
         let inner = &self.inner;
         let board = &inner.board;
@@ -1190,6 +1253,7 @@ impl Validation {
             .prepared(launched.prepare)
             .spawn(SpawnSpec {
                 kind: SessionKind::Validator,
+                start,
                 project_id: project.id,
                 project_key: project.key,
                 ticket: Some(SessionTicket {
@@ -1221,9 +1285,9 @@ impl Validation {
         let waiting = self.inner.board.validations_waiting_for_limit().await?;
         let mut started = Vec::new();
         for id in waiting {
-            match self.start_waiting_checker(&id).await {
+            match self.start_waiting_checker(&id, Start::Auto).await {
                 Ok(ValidatorStart::Started(_)) => started.push(id),
-                Ok(ValidatorStart::Held(_)) => {}
+                Ok(ValidatorStart::Held(_) | ValidatorStart::Kept) => {}
                 Err(e) => {
                     tracing::warn!(ticket = %id, error = %e, "can't start a waiting validator")
                 }

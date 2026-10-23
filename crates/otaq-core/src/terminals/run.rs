@@ -38,7 +38,7 @@ use crate::protocol::Event;
 use crate::review::finish::FinishedTicket;
 use crate::service::EventBus;
 use crate::session::{
-    END_STOPPED_BY_RESTART, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec,
+    END_STOPPED_BY_RESTART, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, Start,
     TerminalSize,
 };
 use crate::store::now_ms;
@@ -296,6 +296,7 @@ impl Runs {
             .sessions
             .spawn(SpawnSpec {
                 kind: SessionKind::Run,
+                start: Start::User,
                 project_id: project.id.clone(),
                 project_key: project.key.clone(),
                 ticket: Some(SessionTicket {

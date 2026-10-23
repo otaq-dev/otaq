@@ -61,7 +61,10 @@ async fn start_agent(w: &TestService, key: &str) {
         .move_ticket(key, DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start(key, &me()).await.unwrap();
+    w.starter
+        .start(key, &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(w, key, Status::Working).await;
 }
 
@@ -277,7 +280,10 @@ async fn an_agent_that_exits_before_its_start_is_recorded_still_interrupts() {
         .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start("SHOP-1", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(&w, "SHOP-1", Status::Interrupted).await;
     w.stop().await;
 }
@@ -331,7 +337,10 @@ async fn crash_child_service() {
             .move_ticket(key, DropTarget::ReadyForDev, true, &me())
             .await
             .unwrap();
-        starter.start(key, &me()).await.unwrap();
+        starter
+            .start(key, &me(), otaq_core::session::Start::Auto)
+            .await
+            .unwrap();
     }
     println!("{READY}");
     let _ = task.await;

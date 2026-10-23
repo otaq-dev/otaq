@@ -29,7 +29,7 @@ use crate::recovery::Recovery;
 use crate::recovery::cleanup::Cleanup;
 use crate::review::Review;
 use crate::session::deliveries::Deliveries;
-use crate::session::{SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
+use crate::session::{SessionKind, SessionTicket, Sessions, SpawnSpec, Start, TerminalSize};
 use crate::signals::Signals;
 use crate::start::Starter;
 use crate::store::projects::Project;
@@ -428,6 +428,7 @@ impl TestService {
             .sessions
             .spawn(SpawnSpec {
                 kind,
+                start: Start::User,
                 project_id: project.id.clone(),
                 project_key: project.key.clone(),
                 ticket: Some(SessionTicket {

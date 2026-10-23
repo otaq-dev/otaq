@@ -561,7 +561,10 @@ async fn a_skipped_grill_starts_in_dev_on_the_chosen_agent() {
         Place::Waiting(None),
         "waiting before the first stage it runs"
     );
-    w.starter.start("SHOP-1", &me()).await.unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     until_status(&w, "SHOP-1", Status::Working).await;
     assert_eq!(
         w.board.ticket("SHOP-1").await.unwrap().place,

@@ -11,6 +11,9 @@
 //!   ([`crate::recovery::Recovery`]); **Retry** runs the same resume again, **Start from scratch** (after a
 //!   confirmation) starts a new conversation in the same worktree. Branch, commits and files are kept; every
 //!   session and its tool id stay in History.
+//! - **While the project is paused** (PAU-05, d0112) Resume, an inbox answer, Retry and Start from scratch are the
+//!   user's click on this one ticket: its agent starts and the pause stays. Resume all leaves paused projects alone
+//!   (their Resume is the pause's).
 
 use serde_json::json;
 
@@ -19,7 +22,7 @@ use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, Status, TicketKey};
 use crate::recovery::{RETURN_RESUME, RETURN_SCRATCH, ResumeAs, resume_all_eligible, resume_as};
-use crate::session::SessionKind;
+use crate::session::{SessionKind, Start};
 use crate::start::StartOutcome;
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
@@ -32,10 +35,11 @@ pub fn start_from_scratch_message(key: &str) -> String {
     )
 }
 
-/// Resumes a ticket interrupted while it validated (by its id).
+/// Resumes a ticket interrupted while it validated (by its id), started as `Start` says.
 pub type ValidationResume = std::sync::Arc<
     dyn Fn(
             String,
+            Start,
         )
             -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), BoardError>> + Send>>
         + Send
@@ -70,7 +74,7 @@ impl Review {
                 .expect("validation resume")
                 .clone();
             if let Some(hook) = hook {
-                hook(ticket.id.clone()).await?;
+                hook(ticket.id.clone(), Start::User).await?;
                 return self.inner.board.ticket_by_id(&ticket.id).await;
             }
         }
@@ -81,6 +85,7 @@ impl Review {
             EventKind::Resumed,
             json!({}),
             actor,
+            Start::User,
         )
         .await
     }
@@ -89,12 +94,13 @@ impl Review {
     /// to a question asked before the restart, in one click (ATT-08, d0045).
     /// Resumes the agent's conversation of a ticket whose session is gone with `prompt` as its first prompt: a
     /// validation's findings or "cancelled" for an agent that a restart ended (VAL-07, d0063). Its ports and the
-    /// agent limit apply as for any resume.
+    /// agent limit apply as for any resume. Automatic (`start`), it waits in Queued while the project is paused.
     pub async fn resume_with_prompt(
         &self,
         key: &str,
         prompt: &str,
         actor: &Actor,
+        start: Start,
     ) -> Result<Ticket, BoardError> {
         let ticket = self.inner.board.ticket(key).await?;
         self.bring_back(
@@ -104,6 +110,7 @@ impl Review {
             EventKind::Resumed,
             json!({ "for": "validation" }),
             actor,
+            start,
         )
         .await
     }
@@ -141,6 +148,7 @@ impl Review {
             EventKind::Resumed,
             json!({ "answer": true }),
             actor,
+            Start::User,
         )
         .await
     }
@@ -155,6 +163,7 @@ impl Review {
             EventKind::Resumed,
             json!({ "retry": true }),
             actor,
+            Start::User,
         )
         .await
     }
@@ -199,12 +208,13 @@ impl Review {
                 "old_tool_session_id": old.map(|c| c.id),
             }),
             actor,
+            Start::User,
         )
         .await
     }
 
-    /// **Resume all**: every Interrupted ticket, of one project or of all (the inbox is global). Returns the
-    /// tickets resumed, in key order.
+    /// **Resume all**: every Interrupted ticket, of one project or of all (the inbox is global), except a paused
+    /// project's (PAU-04: its Resume is the pause's). Returns the tickets resumed, in key order.
     pub async fn resume_all(
         &self,
         project: Option<&str>,
@@ -217,6 +227,9 @@ impl Review {
         };
         let mut resumed = Vec::new();
         for project in projects {
+            if crate::agents::pause::is_paused(board.store(), &project).await? {
+                continue;
+            }
             let tickets = board.tickets(&project).await?;
             for key in resume_all_eligible(&tickets) {
                 self.resume(&key.to_string(), actor).await?;
@@ -261,8 +274,9 @@ impl Review {
         Ok(stage.and_then(|s| crate::board::send_back::waits_before(&flow, &s.id)))
     }
 
-    /// Back to Queued with how to continue (`mode`), then the start sequence right away, or a wait for a slot
-    /// while the agent limit is full.
+    /// Back to Queued with how to continue (`mode`), then the start sequence right away (as `start` says: an
+    /// automatic one waits in Queued while the project is paused), or a wait for a slot while the agent limit is full.
+    #[allow(clippy::too_many_arguments)]
     async fn bring_back(
         &self,
         ticket: &Ticket,
@@ -271,6 +285,7 @@ impl Review {
         kind: EventKind,
         mut payload: serde_json::Value,
         actor: &Actor,
+        start: Start,
     ) -> Result<Ticket, BoardError> {
         let inner = &self.inner;
         let board = &inner.board;
@@ -322,8 +337,12 @@ impl Review {
         if full {
             inner.scheduler.wake();
         } else {
-            match inner.starter.start(&ticket.key.to_string(), actor).await? {
-                StartOutcome::Started(_) | StartOutcome::Skipped => {}
+            match inner
+                .starter
+                .start(&ticket.key.to_string(), actor, start)
+                .await?
+            {
+                StartOutcome::Started(_) | StartOutcome::Skipped | StartOutcome::Kept => {}
                 StartOutcome::Held { message } | StartOutcome::Interrupted { message, .. } => {
                     tracing::warn!(ticket = %ticket.key, %message, "resuming the agent stopped");
                 }

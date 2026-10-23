@@ -13,7 +13,7 @@ use otaq_core::domain::Status;
 use otaq_core::flow::yaml;
 use otaq_core::naming;
 use otaq_core::service::testing::TestService;
-use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, TerminalSize};
+use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, Start, TerminalSize};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
 /// shop-web on the test flow (`otaq-core/tests/flows/every-kind.yaml`), SHOP-1 with an agent session and a check
@@ -38,6 +38,7 @@ impl World {
         service.create("SHOP", "without one").await;
         let spawn = |kind| SpawnSpec {
             kind,
+            start: Start::User,
             project_id: project.id.clone(),
             project_key: "SHOP".into(),
             ticket: Some(SessionTicket {

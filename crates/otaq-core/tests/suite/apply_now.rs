@@ -414,7 +414,11 @@ async fn apply_now_stops_the_removed_stages_and_moves_every_ticket_together() {
         .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    let started = w.starter.start("SHOP-1", &me()).await.unwrap();
+    let started = w
+        .starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     assert!(
         matches!(started, otaq_core::start::StartOutcome::Started(_)),
         "{started:?}"

@@ -47,7 +47,7 @@ use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, Delivery, IdleSignal};
 use crate::session::{
     END_PAUSED, END_SERVICE_STOPPED, SessionAgent, SessionInfo, SessionKind, Sessions, SpawnSpec,
-    TerminalSize,
+    Start, TerminalSize,
 };
 use crate::signals::Signal;
 use crate::store::projects::Project;
@@ -534,7 +534,8 @@ impl ProjectAgents {
             INITIAL_SIZE
         };
         if let Err(e) = self
-            .spawn(project, launched, &id, size, runs_on, None)
+            // The user's first message (or Ask each tool): it starts while paused too (PAU-05).
+            .spawn(project, launched, &id, size, runs_on, None, Start::User)
             .await
         {
             self.release_checkout(&id).await;
@@ -581,7 +582,7 @@ impl ProjectAgents {
         );
         let started = match launched {
             Ok(launched) => {
-                self.restart(&agent, &project, launched, &runs_on, None)
+                self.restart(&agent, &project, launched, &runs_on, None, Start::User)
                     .await
             }
             Err(e) => Err(e),
@@ -639,6 +640,7 @@ impl ProjectAgents {
         launched: Launched,
         runs_on: &RunsOn,
         lead: Option<(&str, &TicketKey)>,
+        start: Start,
     ) -> Result<(), BoardError> {
         let id = agent.id.as_str();
         self.set_state(id, AgentState::Running).await?;
@@ -649,7 +651,7 @@ impl ProjectAgents {
         .execute(self.inner.board.store().pool())
         .await?;
         if let Err(e) = self
-            .spawn(project, launched, id, INITIAL_SIZE, runs_on, lead)
+            .spawn(project, launched, id, INITIAL_SIZE, runs_on, lead, start)
             .await
         {
             self.set_state(id, agent.state).await?;
@@ -1255,6 +1257,7 @@ impl ProjectAgents {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn spawn(
         &self,
         project: &Project,
@@ -1263,12 +1266,14 @@ impl ProjectAgents {
         size: TerminalSize,
         runs_on: &RunsOn,
         lead: Option<(&str, &TicketKey)>,
+        start: Start,
     ) -> Result<SessionInfo, BoardError> {
         let sessions = &self.inner.sessions;
         let session = sessions
             .prepared(launched.prepare)
             .spawn(SpawnSpec {
                 kind: SessionKind::ProjectAgent,
+                start,
                 project_id: project.id.clone(),
                 project_key: project.key.clone(),
                 ticket: None,

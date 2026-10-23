@@ -135,7 +135,10 @@ async fn started(w: &TestService, t: &Ticket) -> String {
         .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
-    w.starter.start(&key, &me()).await.unwrap();
+    w.starter
+        .start(&key, &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
     let agent = tokio::time::timeout(Duration::from_secs(20), async {
         loop {
             if let Some(s) = w.sessions.running_of(&t.id, SessionKind::Agent) {
