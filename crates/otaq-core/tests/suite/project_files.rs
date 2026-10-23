@@ -7,7 +7,7 @@ use std::path::Path;
 use crate::common::{Fixture, me};
 use otaq_core::board::Refusal;
 use otaq_core::board::files::{EntryKind, FilesFrom};
-use otaq_core::board::project_files::{FileOwner, ProjectEntry, ProjectTree};
+use otaq_core::board::project_files::{FileOwner, ProjectEntry, ProjectFile, ProjectTree};
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::tickets::NewTicketInput;
 use otaq_core::domain::Status;
@@ -543,4 +543,201 @@ async fn the_cache_reads_a_ticket_again_only_when_it_moved() {
     let tree = f.board.files_project_tree("SHOP", "", false).await.unwrap();
     assert_eq!(cache.recomputes(), 5);
     assert_eq!(tree.counts.unwrap().tickets, 1);
+}
+
+/// `pricing.ts` on the base: `applyDiscount` from line 30 to 66, `applyTier` from 68 to 76 (bodies indented, so git
+/// names the function each change is in).
+fn pricing_base() -> Vec<String> {
+    let mut lines: Vec<String> = (1..30).map(|n| format!("// note {n}")).collect();
+    lines.push("export function applyDiscount(total: Money, coupon?: Coupon): Money {".into());
+    lines.extend((31..66).map(|n| format!("  const step{n} = {n}")));
+    lines.push("}".into());
+    lines.push(String::new());
+    lines.push("export function applyTier(total: Money, tier?: Tier): Money {".into());
+    lines.extend((69..76).map(|n| format!("  const rate{n} = {n}")));
+    lines.push("}".into());
+    lines
+}
+
+/// The base's lines with `first..=last` (1-based) rewritten; `0, 0` rewrites none.
+fn rewrite(base: &[String], first: usize, last: usize) -> String {
+    base.iter()
+        .enumerate()
+        .map(|(i, line)| match (first..=last).contains(&(i + 1)) {
+            true => format!("{line} * 2\n"),
+            false => format!("{line}\n"),
+        })
+        .collect()
+}
+
+fn ranges(file: &ProjectFile, key: &str) -> Vec<(u32, u32)> {
+    file.lines
+        .iter()
+        .find(|l| l.key.to_string() == key)
+        .unwrap_or_else(|| panic!("{key}'s lines in {:?}", file.lines))
+        .ranges
+        .iter()
+        .map(|r| (r.start, r.lines))
+        .collect()
+}
+
+#[tokio::test]
+async fn two_tickets_on_one_file_get_the_note_with_their_lines() {
+    let f = Fixture::shop().await;
+    let repo = f.repo();
+    std::fs::create_dir_all(repo.join("src/lib")).unwrap();
+    let base = pricing_base();
+    commit(&repo, "src/lib/pricing.ts", &rewrite(&base, 0, 0));
+    let legacy: String = (1..=31).map(|n| format!("old {n}\n")).collect();
+    commit(&repo, "src/lib/legacy-price.ts", &legacy);
+    commit(&repo, "src/lib/cart.ts", "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n");
+
+    // SHOP-19 changes lines 47–58 of applyDiscount and line 70 of applyTier, deletes legacy-price.ts, and
+    // changes line 2 of cart.ts.
+    f.skip_to(19).await;
+    let first = f.create("Coupon expiry").await;
+    assert_eq!(first.key.to_string(), "SHOP-19");
+    let first_wt = f.start_worktree(&first).await;
+    commit(&first_wt, "src/lib/pricing.ts", &{
+        let mut text = rewrite(&base, 47, 58);
+        text = text.replace("  const rate70 = 70\n", "  const rate70 = 70 * 3\n");
+        text
+    });
+    git(&first_wt, &["rm", "--quiet", "src/lib/legacy-price.ts"]);
+    git(&first_wt, &["commit", "--quiet", "-m", "drop legacy"]);
+    commit(
+        &first_wt,
+        "src/lib/cart.ts",
+        "1\ntwo\n3\n4\n5\n6\n7\n8\n9\n10\n",
+    );
+    f.force_status(&first, Status::Working).await;
+    // SHOP-29 changes lines 41–52, uncommitted, and line 9 of cart.ts.
+    f.skip_to(29).await;
+    let second = f.create("Tier discount").await;
+    assert_eq!(second.key.to_string(), "SHOP-29");
+    let second_wt = f.start_worktree(&second).await;
+    std::fs::write(second_wt.join("src/lib/pricing.ts"), rewrite(&base, 41, 52)).unwrap();
+    commit(
+        &second_wt,
+        "src/lib/cart.ts",
+        "1\n2\n3\n4\n5\n6\n7\n8\nnine\n10\n",
+    );
+    f.force_status(&second, Status::NeedsYou).await;
+
+    let pricing = f
+        .board
+        .files_project_read("SHOP", "src/lib/pricing.ts")
+        .await
+        .unwrap();
+    // Group order (the one that needs you first); the lines on the base's numbering.
+    assert_eq!(ranges(&pricing, "SHOP-29"), [(41, 12)]);
+    assert_eq!(ranges(&pricing, "SHOP-19"), [(47, 12), (70, 1)]);
+    assert_eq!(pricing.lines[0].key, second.key);
+    let [note] = pricing.same_file.as_slice() else {
+        panic!("one note: {:?}", pricing.same_file);
+    };
+    // Flow order in the note, the spans merged, the name from git's hunk header.
+    assert_eq!(
+        note.note,
+        "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41\u{2013}58). Whichever merges second will rebase on the other."
+    );
+    assert_eq!(note.base_branch, "main");
+    assert_eq!(note.function.as_deref(), Some("applyDiscount"));
+    assert_eq!(
+        note.spans
+            .iter()
+            .map(|s| (s.first, s.last))
+            .collect::<Vec<_>>(),
+        [(41, 58)]
+    );
+
+    let cart = f
+        .board
+        .files_project_read("SHOP", "src/lib/cart.ts")
+        .await
+        .unwrap();
+    assert_eq!(ranges(&cart, "SHOP-19"), [(2, 1)]);
+    assert_eq!(ranges(&cart, "SHOP-29"), [(9, 1)]);
+    assert_eq!(
+        cart.same_file[0].note,
+        "SHOP-19 and SHOP-29 both change this file."
+    );
+
+    // A deleted file: the deleting ticket's whole range, as on the base, and no note.
+    let deleted = f
+        .board
+        .files_project_read("SHOP", "src/lib/legacy-price.ts")
+        .await
+        .unwrap();
+    assert_eq!(ranges(&deleted, "SHOP-19"), [(1, 31)]);
+    assert!(deleted.same_file.is_empty());
+
+    // The Same file count still comes from paths.
+    let tree = f.board.files_project_tree("SHOP", "", false).await.unwrap();
+    assert_eq!(tree.counts.unwrap().same_file, 2);
+}
+
+#[tokio::test]
+async fn three_owners_are_named_in_flow_order_and_other_bases_are_never_compared() {
+    let f = Fixture::shop().await;
+    let repo = f.repo();
+    let money = "export function round(m: Money): Money {\n  const r2 = 2\n  const r3 = 3\n  const r4 = 4\n  \
+                 const r5 = 5\n  const r6 = 6\n  const r7 = 7\n}\n";
+    commit(&repo, "money.ts", money);
+    git(&repo, &["branch", "release/2.3"]);
+
+    // SHOP-1 waits for you in Review (needs you, later in the flow): lines 4–6.
+    let review = f.create("Rounding mode").await;
+    let review_wt = f.start_worktree(&review).await;
+    commit(
+        &review_wt,
+        "money.ts",
+        &money
+            .replace("r4 = 4", "r4 = 40")
+            .replace("r5 = 5", "r5 = 50")
+            .replace("r6 = 6", "r6 = 60"),
+    );
+    f.force_status(&review, Status::WaitingForYou).await;
+    // SHOP-2 in Dev: line 5.
+    let dev = f.create("Half up").await;
+    let dev_wt = f.start_worktree(&dev).await;
+    commit(&dev_wt, "money.ts", &money.replace("r5 = 5", "r5 = 5.0"));
+    f.force_status(&dev, Status::Working).await;
+    // SHOP-3 in Dev: two new lines after line 5, inside SHOP-1's 4–6.
+    let adds = f.create("Bankers rounding").await;
+    let adds_wt = f.start_worktree(&adds).await;
+    commit(
+        &adds_wt,
+        "money.ts",
+        &money.replace("r5 = 5\n", "r5 = 5\n  const a = 1\n  const b = 2\n"),
+    );
+    f.force_status(&adds, Status::Working).await;
+    // SHOP-4 on release/2.3 changes line 5 too: never compared.
+    let hotfix = f
+        .create_with(NewTicketInput {
+            title: "Rounding hotfix".into(),
+            base_branch: Some("release/2.3".into()),
+            ..crate::common::shop_input()
+        })
+        .await;
+    let hotfix_wt = f.start_worktree(&hotfix).await;
+    commit(&hotfix_wt, "money.ts", &money.replace("r5 = 5", "r5 = 5.5"));
+    f.force_status(&hotfix, Status::Working).await;
+
+    let file = f
+        .board
+        .files_project_read("SHOP", "money.ts")
+        .await
+        .unwrap();
+    assert_eq!(ranges(&file, "SHOP-3"), [(5, 0)]);
+    assert_eq!(ranges(&file, "SHOP-4"), [(5, 1)]);
+    let [note] = file.same_file.as_slice() else {
+        panic!("one note, for main only: {:?}", file.same_file);
+    };
+    assert_eq!(note.base_branch, "main");
+    assert_eq!(
+        note.note,
+        "SHOP-2, SHOP-3 and SHOP-1 all edit round (lines 4\u{2013}6). Each one that merges later will rebase on the ones before it."
+    );
+    assert!(!note.keys.contains(&hotfix.key));
 }

@@ -29,8 +29,8 @@ use super::{Board, BoardError, Refusal};
 use crate::domain::{Status, TicketKey};
 use crate::epic_lead::overlap::is_running;
 use crate::git::diff::{
-    ChangedFile, DiffSpec, FileDiff, FileStatus, MAX_FILE_LINES, MAX_READ_BYTES, looks_binary,
-    new_file_diff,
+    ChangedFile, DIFF_CONTEXT, DiffSpec, FileDiff, FileStatus, MAX_FILE_LINES, MAX_READ_BYTES,
+    looks_binary, new_file_diff,
 };
 use crate::git::{Git, GitError};
 
@@ -481,7 +481,7 @@ impl Board {
             let child = self.epic_child(&ticket, child).await?;
             return match self.running(&ticket, &child).await? {
                 Some(running) => self
-                    .worktree_file_diff(&running.worktree, &running.from, &path)
+                    .worktree_file_diff(&running.worktree, &running.from, &path, DIFF_CONTEXT)
                     .await?
                     .ok_or_else(not_changed),
                 None => {
@@ -490,20 +490,33 @@ impl Board {
                 }
             };
         }
-        let source = self.files_source(&ticket).await?;
+        self.ticket_file_diff(&ticket, &path, DIFF_CONTEXT)
+            .await?
+            .ok_or_else(not_changed)
+    }
+
+    /// The ticket's own change of `path` (already clean) against where it left its base, uncommitted edits
+    /// included, with `context` unchanged lines around each change; `None` when it didn't change it.
+    pub(crate) async fn ticket_file_diff(
+        &self,
+        ticket: &Ticket,
+        path: &str,
+        context: u32,
+    ) -> Result<Option<FileDiff>, BoardError> {
+        let source = self.files_source(ticket).await?;
         let git = self.git()?;
-        match (source.info.from, &source.worktree, &source.from) {
+        Ok(match (source.info.from, &source.worktree, &source.from) {
             (FilesFrom::Worktree, Some(wt), Some(from)) => {
-                self.worktree_file_diff(wt, from, &path).await?
+                self.worktree_file_diff(wt, from, path, context).await?
             }
             (FilesFrom::Branch, _, _) => {
                 let base_sha = source.info.base_sha.as_deref().unwrap_or_default();
-                git.file_diff(&source.cwd, &DiffSpec::since(base_sha, &source.rev), &path)
+                let spec = DiffSpec::since(base_sha, &source.rev);
+                git.file_diff_with(&source.cwd, &spec, path, context)
                     .await?
             }
             _ => None,
-        }
-        .ok_or_else(not_changed)
+        })
     }
 
     /// `files.read`: the file as it is: on disk in a worktree, else from git. `child` (epics): from that
@@ -758,12 +771,14 @@ impl Board {
             .collect())
     }
 
-    /// One file's diff in a worktree since `from`; `None` when it didn't change.
+    /// One file's diff in a worktree since `from`, with `context` lines around each change; `None` when it
+    /// didn't change.
     async fn worktree_file_diff(
         &self,
         worktree: &Path,
         from: &str,
         path: &str,
+        context: u32,
     ) -> Result<Option<FileDiff>, BoardError> {
         let git = self.git()?;
         if git
@@ -777,7 +792,7 @@ impl Board {
                 .map(|(bytes, size)| new_file_diff(path, &bytes, size)));
         }
         Ok(git
-            .file_diff(worktree, &DiffSpec::working_tree(from), path)
+            .file_diff_with(worktree, &DiffSpec::working_tree(from), path, context)
             .await?)
     }
 
