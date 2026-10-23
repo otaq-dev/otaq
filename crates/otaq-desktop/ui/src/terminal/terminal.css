@@ -139,3 +139,25 @@
   width: 13px;
   height: 13px;
 }
+
+/*
+ * "⌘-click to open" (d0117 point 9): under the pointer while ⌘ (Ctrl) is held over a link. Provisional look, the
+ * reconnecting strip's raised surface at the meta size, below the pointer; it lets the mouse through.
+ */
+.terminal-link-hint {
+  position: absolute;
+  transform: translate(-50%, 18px);
+  padding: 2px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Near the box's bottom edge it goes above the pointer. */
+.terminal-link-hint[data-above="true"] {
+  transform: translate(-50%, calc(-100% - 10px));
+}

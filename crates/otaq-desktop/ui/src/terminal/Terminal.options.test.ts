@@ -52,6 +52,7 @@ vi.mock("@xterm/xterm", () => {
     onScroll = disposable;
     onLineFeed = disposable;
     onWriteParsed = disposable;
+    parser = { registerOscHandler: disposable };
     attachCustomKeyEventHandler = () => undefined;
     open = () => undefined;
     reset = () => undefined;
