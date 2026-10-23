@@ -1,5 +1,5 @@
-//! The project **Files** view's data (FIL-02, FIL-03, FIL-04, FIL-07, FIL-08, FIL-10; d0087, d0051, d0059, d0010,
-//! d0023): the project's base branch with every ticket's changes on top, keyed by project.
+//! The project **Files** view's data (FIL-02…FIL-08, FIL-10; d0087, d0051, d0059, d0010, d0023, d0079): the
+//! project's base branch with every ticket's changes on top, keyed by project.
 //!
 //! **The base** is the project's setting (`projects.base_branch`, d0051: `main`, or `develop` where the project is
 //! set so), read as `refs/heads/<base>` in the project's repository: the tree with `git ls-tree` of one folder at a
@@ -11,6 +11,12 @@
 //! branch from git. An epic child's base is the epic's branch. A ticket on another base than the project's (SHOP-36 on
 //! `release/2.3`, an epic child) is tagged with it; a file that exists only there is "not on <base>" and reads as that
 //! ticket's diff. A ticket without a branch or worktree yet isn't an owner; the picker names it.
+//!
+//! **Who changes which lines** (FIL-05, FIL-06): for the file read, each owner's changed lines on its base's
+//! numbering, from its own `git diff -U0` (one hunk per changed run; an addition is a point between two lines).
+//! Owners on one base that change the file get a note: the overlap of their lines merged into spans, and the
+//! function when git's hunk context names one for every overlapping change. The Same file count comes from paths
+//! alone (`same_file`); owners on other bases are never compared.
 //!
 //! **No file watcher** (FIL-10): each owner's changes are cached in memory per ticket and read again only when the
 //! ticket changed (its status, place or work, the points that publish `TicketChanged` / `CardStatusChanged`), its
@@ -198,6 +204,71 @@ pub struct ProjectFile {
     pub diff: Option<FileDiff>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diff_of: Option<TicketKey>,
+    /// On the base, a text file: each owner's changed lines, in `owners` order (FIL-05: a bar per ticket, the
+    /// lines Changed by names, and what a huge file keeps unfolded). Each owner's lines are numbered as on its own
+    /// base, where it left it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lines: Vec<OwnerLines>,
+    /// Same file (FIL-06): one note per base that two or more owners share.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub same_file: Vec<SameFile>,
+}
+
+/// Lines a ticket changes on its base's numbering, as `git diff -U0` gives them: `lines` lines from `start`, or,
+/// when `lines` is 0, new lines added after line `start` (0: before the first line).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineRange {
+    pub start: u32,
+    pub lines: u32,
+}
+
+impl LineRange {
+    /// The last line it changes; for an addition, the line it follows.
+    fn last(self) -> u32 {
+        (self.start + self.lines).saturating_sub(1).max(self.start)
+    }
+
+    /// The two share a line, or an addition falls between two of the other's lines, or both add at one place.
+    fn overlaps(self, other: LineRange) -> bool {
+        // New lines after line `at` land inside `range` when both lines around them are in it.
+        let inside = |at: u32, range: LineRange| range.start <= at && at < range.last();
+        match (self.lines, other.lines) {
+            (0, 0) => self.start == other.start,
+            (0, _) => inside(self.start, other),
+            (_, 0) => inside(other.start, self),
+            _ => self.start <= other.last() && other.start <= self.last(),
+        }
+    }
+}
+
+/// One owner's changed lines of the file read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OwnerLines {
+    pub key: TicketKey,
+    pub ranges: Vec<LineRange>,
+}
+
+/// Lines `first` to `last` of the base, both included.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineSpan {
+    pub first: u32,
+    pub last: u32,
+}
+
+/// Owners on one base changing the file (FIL-06): "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41–58).
+/// Whichever merges second will rebase on the other."
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SameFile {
+    pub base_branch: String,
+    /// The tickets the note names, in flow order: those whose lines overlap, else every owner on the base.
+    pub keys: Vec<TicketKey>,
+    /// The lines they both touch: the overlapping changes, merged. Empty without overlapping lines.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub spans: Vec<LineSpan>,
+    /// The function every overlapping change is in, from git's hunk context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function: Option<String>,
+    pub note: String,
 }
 
 /// One ticket's group of All changes.
@@ -392,8 +463,259 @@ impl View {
 
 /// Two owners of one file on the same base (FIL-06: tickets on other bases are never compared).
 fn same_file(owners: &[FileOwner]) -> bool {
-    let mut bases = HashSet::new();
-    owners.iter().any(|o| !bases.insert(o.base_branch.as_str()))
+    !same_base(owners).is_empty()
+}
+
+/// The owners of one file grouped by base, each base two or more of them share, in the owners' order.
+fn same_base(owners: &[FileOwner]) -> Vec<(&str, Vec<&FileOwner>)> {
+    let mut bases: Vec<(&str, Vec<&FileOwner>)> = Vec::new();
+    for owner in owners {
+        match bases.iter_mut().find(|(b, _)| *b == owner.base_branch) {
+            Some((_, group)) => group.push(owner),
+            None => bases.push((&owner.base_branch, vec![owner])),
+        }
+    }
+    bases.retain(|(_, group)| group.len() > 1);
+    bases
+}
+
+/// The Same file notes of a file read: one per base its owners share, each naming them in flow order. Owners
+/// without changes in `changed` (the base has no such text file) are compared by path alone.
+fn same_file_notes(
+    view: &View,
+    owners: &[FileOwner],
+    changed: &[(TicketKey, Vec<Change>)],
+) -> Vec<SameFile> {
+    let rank = |key: &TicketKey| {
+        view.owners
+            .iter()
+            .find(|o| &o.ticket.key == key)
+            .map(|o| o.flow_rank)
+    };
+    same_base(owners)
+        .into_iter()
+        .map(|(base, mut group)| {
+            group.sort_by_key(|o| (rank(&o.key), o.key.clone()));
+            let group: Vec<_> = group
+                .iter()
+                .map(|o| {
+                    let changes = changed.iter().find(|(k, _)| *k == o.key);
+                    (&o.key, changes.map(|(_, c)| c.as_slice()))
+                })
+                .collect();
+            same_file_note(base, &group)
+        })
+        .collect()
+}
+
+/// One change of an owner: its lines and the function git names in its hunk header.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Change {
+    range: LineRange,
+    function: Option<String>,
+}
+
+/// The changes of `-U0` hunks: one per changed run, each with its own function context.
+fn changes(diff: &FileDiff) -> Vec<Change> {
+    diff.hunks
+        .iter()
+        .map(|h| Change {
+            range: LineRange {
+                start: h.old_start,
+                lines: h.old_lines,
+            },
+            function: function_name(&h.header),
+        })
+        .collect()
+}
+
+/// The identifier git's hunk header names (`export function applyDiscount(total: Money) {` → `applyDiscount`,
+/// `impl Board {` → `Board`), or `None` when it names none plainly.
+fn function_name(header: &str) -> Option<String> {
+    const KEYWORDS: &[&str] = &[
+        "async",
+        "class",
+        "const",
+        "def",
+        "enum",
+        "export",
+        "fn",
+        "func",
+        "function",
+        "impl",
+        "interface",
+        "let",
+        "module",
+        "mod",
+        "namespace",
+        "pub",
+        "static",
+        "struct",
+        "trait",
+        "type",
+        "var",
+        "if",
+        "for",
+        "while",
+        "switch",
+        "catch",
+        "return",
+        "else",
+        "match",
+    ];
+    const DECLARES: &[&str] = &[
+        "class",
+        "enum",
+        "impl",
+        "interface",
+        "module",
+        "mod",
+        "namespace",
+        "struct",
+        "trait",
+        "type",
+    ];
+    let ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    let plain = |word: &str| {
+        word.chars().next().is_some_and(|c| !c.is_ascii_digit())
+            && word.chars().all(ident)
+            && !KEYWORDS.contains(&word)
+    };
+    // The name just before a `(` (or before `= (` for an arrow function), skipping generics.
+    for (at, _) in header.match_indices('(') {
+        let mut before = header[..at].trim_end();
+        if let Some(rest) = before.strip_suffix('>')
+            && let Some(open) = rest.rfind('<')
+        {
+            before = rest[..open].trim_end();
+        }
+        if let Some(rest) = before.strip_suffix('=') {
+            before = rest.trim_end();
+        }
+        let word = &before[before.rfind(|c: char| !ident(c)).map_or(0, |i| i + 1)..];
+        if plain(word) {
+            return Some(word.to_owned());
+        }
+    }
+    if header.contains('(') {
+        return None;
+    }
+    // A declaration without parentheses: the name after `class`, `impl`, `struct` …
+    let words: Vec<&str> = header
+        .split(|c: char| !ident(c))
+        .filter(|w| !w.is_empty())
+        .collect();
+    let at = words.iter().position(|w| DECLARES.contains(w))?;
+    words
+        .get(at + 1)
+        .filter(|w| plain(w))
+        .map(|w| (*w).to_owned())
+}
+
+/// The note of owners on one base (in flow order, with their changes; `None`: not compared by lines, as for a
+/// file the base doesn't have or a binary one).
+fn same_file_note(base_branch: &str, owners: &[(&TicketKey, Option<&[Change]>)]) -> SameFile {
+    let mut keys = Vec::new();
+    let mut overlapping: Vec<&Change> = Vec::new();
+    for (i, (key, changes)) in owners.iter().enumerate() {
+        let mut named = false;
+        for change in changes.unwrap_or_default() {
+            let hits = owners.iter().enumerate().any(|(j, (_, other))| {
+                j != i
+                    && other
+                        .unwrap_or_default()
+                        .iter()
+                        .any(|o| change.range.overlaps(o.range))
+            });
+            if hits {
+                overlapping.push(change);
+                named = true;
+            }
+        }
+        if named {
+            keys.push((*key).clone());
+        }
+    }
+    if keys.is_empty() {
+        keys = owners.iter().map(|(k, _)| (*k).clone()).collect();
+    }
+    let mut spans: Vec<LineSpan> = overlapping
+        .iter()
+        .map(|c| match c.range.lines {
+            0 => LineSpan {
+                first: c.range.start.max(1),
+                last: c.range.start.max(1),
+            },
+            _ => LineSpan {
+                first: c.range.start,
+                last: c.range.last(),
+            },
+        })
+        .collect();
+    spans.sort_by_key(|s| (s.first, s.last));
+    spans.dedup();
+    let mut merged: Vec<LineSpan> = Vec::new();
+    for span in spans {
+        match merged.last_mut() {
+            Some(last) if span.first <= last.last => last.last = last.last.max(span.last),
+            _ => merged.push(span),
+        }
+    }
+    let function = overlapping
+        .first()
+        .and_then(|c| c.function.clone())
+        .filter(|name| {
+            overlapping
+                .iter()
+                .all(|c| c.function.as_ref() == Some(name))
+        });
+    let note = note_text(&keys, &merged, function.as_deref());
+    SameFile {
+        base_branch: base_branch.to_owned(),
+        keys,
+        spans: merged,
+        function,
+        note,
+    }
+}
+
+/// "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41–58). Whichever merges second will rebase on the
+/// other." / "SHOP-19 and SHOP-29 both change this file."; three or more: "SHOP-19, SHOP-29 and SHOP-33 all …".
+fn note_text(keys: &[TicketKey], spans: &[LineSpan], function: Option<&str>) -> String {
+    let keys: Vec<String> = keys.iter().map(ToString::to_string).collect();
+    let (names, all) = match keys.split_last() {
+        Some((last, rest)) if !rest.is_empty() => {
+            (format!("{} and {last}", rest.join(", ")), keys.len() > 2)
+        }
+        _ => (keys.concat(), false),
+    };
+    let both = if all { "all" } else { "both" };
+    if spans.is_empty() {
+        return format!("{names} {both} change this file.");
+    }
+    let each: Vec<String> = spans
+        .iter()
+        .map(|s| match s.first == s.last {
+            true => s.first.to_string(),
+            false => format!("{}\u{2013}{}", s.first, s.last),
+        })
+        .collect();
+    let list = match each.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        _ => each.concat(),
+    };
+    let one_line = spans.len() == 1 && spans[0].first == spans[0].last;
+    let lines = format!("{} {list}", if one_line { "line" } else { "lines" });
+    let what = match function {
+        Some(name) => format!("{name} ({lines})"),
+        None => lines,
+    };
+    let then = if all {
+        "Each one that merges later will rebase on the ones before it."
+    } else {
+        "Whichever merges second will rebase on the other."
+    };
+    format!("{names} {both} edit {what}. {then}")
 }
 
 /// Only tickets on other bases have it, and the base doesn't.
@@ -579,13 +901,19 @@ impl Board {
             not_on_base: not_on_base(blob.is_some(), &owners),
             diff: None,
             diff_of: None,
+            lines: Vec::new(),
+            same_file: Vec::new(),
             owners,
-            source: view.source,
+            source: view.source.clone(),
         };
+        let mut changed = Vec::new();
         match blob {
             Some((bytes, size)) => {
                 (file.binary, file.text, file.truncated) = text_of(&bytes, size);
                 file.size = size;
+                if !file.binary {
+                    changed = self.owner_changes(&view, &file.owners, &path).await?;
+                }
             }
             None => {
                 let Some(first) = file.owners.first() else {
@@ -599,7 +927,37 @@ impl Board {
                 file.diff_of = Some(key);
             }
         }
+        file.same_file = same_file_notes(&view, &file.owners, &changed);
+        file.lines = changed
+            .into_iter()
+            .map(|(key, changes)| OwnerLines {
+                key,
+                ranges: changes.into_iter().map(|c| c.range).collect(),
+            })
+            .collect();
         Ok(file)
+    }
+
+    /// Each owner's changes of `path` (clean), from its own `-U0` diff, so each changed run is a hunk with its own
+    /// function context. Read only for the file asked for, and not cached: one `git diff` per owner of it.
+    async fn owner_changes(
+        &self,
+        view: &View,
+        owners: &[FileOwner],
+        path: &str,
+    ) -> Result<Vec<(TicketKey, Vec<Change>)>, BoardError> {
+        let mut changed = Vec::new();
+        for owner in owners {
+            let Some(ticket) = view.tickets.iter().find(|t| t.key == owner.key) else {
+                continue;
+            };
+            let diff = self.ticket_file_diff(ticket, path, 0).await?;
+            changed.push((
+                owner.key.clone(),
+                diff.as_ref().map(changes).unwrap_or_default(),
+            ));
+        }
+        Ok(changed)
     }
 
     /// `files.project_diff`: one owner's change of `path`, as `files.diff` gives it on the ticket's Files tab.
@@ -1026,6 +1384,185 @@ mod tests {
         ];
         assert!(!same_file(&apart));
         assert!(!same_file(&both[..1]));
+    }
+
+    fn key(key: &str) -> TicketKey {
+        key.parse().unwrap()
+    }
+
+    fn change(start: u32, lines: u32, function: Option<&str>) -> Change {
+        Change {
+            range: LineRange { start, lines },
+            function: function.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn function_names_come_from_the_hunk_header_alone() {
+        let name = |h: &str| function_name(h);
+        assert_eq!(
+            name("export function applyDiscount(total: Money, coupon?: Coupon): Money {"),
+            Some("applyDiscount".into())
+        );
+        assert_eq!(
+            name("pub async fn total<T>(x: T) -> u32 {"),
+            Some("total".into())
+        );
+        assert_eq!(
+            name("def apply_tier(self, tier):"),
+            Some("apply_tier".into())
+        );
+        assert_eq!(
+            name("func (s *Server) Handle(w http.ResponseWriter) {"),
+            Some("Handle".into())
+        );
+        assert_eq!(
+            name("const applyTier = (total) => {"),
+            Some("applyTier".into())
+        );
+        assert_eq!(name("impl Board {"), Some("Board".into()));
+        assert_eq!(name("class Cart extends Base {"), Some("Cart".into()));
+        // Nothing named plainly: no name, never a guess.
+        assert_eq!(name(""), None);
+        assert_eq!(name("import { Money } from './money'"), None);
+        assert_eq!(name("if (coupon) {"), None);
+        assert_eq!(name("export const TIER_RATES = { silver: 0.05 }"), None);
+    }
+
+    #[test]
+    fn ranges_overlap_on_shared_lines_and_additions_inside() {
+        let r = |start, lines| LineRange { start, lines };
+        assert!(r(41, 12).overlaps(r(47, 12)));
+        assert!(r(41, 12).overlaps(r(52, 1)));
+        assert!(!r(41, 12).overlaps(r(53, 6)));
+        // New lines after line 45 land between two of 41–52's lines.
+        assert!(r(45, 0).overlaps(r(41, 12)));
+        assert!(r(41, 12).overlaps(r(41, 0)));
+        // Right before or right after the range: next to it, not inside.
+        assert!(!r(40, 0).overlaps(r(41, 12)));
+        assert!(!r(52, 0).overlaps(r(41, 12)));
+        // Both adding at one place.
+        assert!(r(10, 0).overlaps(r(10, 0)));
+        assert!(!r(10, 0).overlaps(r(11, 0)));
+    }
+
+    #[test]
+    fn the_note_names_the_function_and_the_merged_lines() {
+        let (k19, k29) = (key("SHOP-19"), key("SHOP-29"));
+        let a = [
+            change(47, 12, Some("applyDiscount")),
+            change(70, 1, Some("applyTier")),
+        ];
+        let b = [change(41, 12, Some("applyDiscount"))];
+        let note = same_file_note("main", &[(&k19, Some(&a[..])), (&k29, Some(&b[..]))]);
+        assert_eq!(
+            note.note,
+            "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41\u{2013}58). Whichever merges second will rebase on the other."
+        );
+        assert_eq!(
+            note.spans,
+            [LineSpan {
+                first: 41,
+                last: 58
+            }]
+        );
+        assert_eq!(note.function.as_deref(), Some("applyDiscount"));
+        assert_eq!(note.keys, [k19.clone(), k29.clone()]);
+
+        // Overlaps in two functions: no single name.
+        let a = [
+            change(47, 12, Some("applyDiscount")),
+            change(70, 2, Some("applyTier")),
+        ];
+        let b = [
+            change(41, 12, Some("applyDiscount")),
+            change(71, 1, Some("applyTier")),
+        ];
+        let note = same_file_note("main", &[(&k19, Some(&a[..])), (&k29, Some(&b[..]))]);
+        assert_eq!(
+            note.note,
+            "SHOP-19 and SHOP-29 both edit lines 41\u{2013}58 and 70\u{2013}71. Whichever merges second will rebase on the other."
+        );
+        assert_eq!(note.function, None);
+
+        // A header without a plain name on one side: no name.
+        let a = [change(5, 1, Some("round"))];
+        let b = [change(5, 1, None)];
+        let note = same_file_note("main", &[(&k19, Some(&a[..])), (&k29, Some(&b[..]))]);
+        assert_eq!(
+            note.note,
+            "SHOP-19 and SHOP-29 both edit line 5. Whichever merges second will rebase on the other."
+        );
+    }
+
+    #[test]
+    fn without_overlapping_lines_the_note_is_plain() {
+        let (k19, k29) = (key("SHOP-19"), key("SHOP-29"));
+        let a = [change(2, 1, None)];
+        let b = [change(9, 3, None), change(1, 0, None)];
+        let note = same_file_note("main", &[(&k19, Some(&a[..])), (&k29, Some(&b[..]))]);
+        assert_eq!(note.note, "SHOP-19 and SHOP-29 both change this file.");
+        assert!(note.spans.is_empty() && note.function.is_none());
+        // Not compared by lines (a file the base doesn't have): plain too.
+        let note = same_file_note("main", &[(&k19, None), (&k29, None)]);
+        assert_eq!(note.note, "SHOP-19 and SHOP-29 both change this file.");
+    }
+
+    #[test]
+    fn three_owners_are_listed_with_all() {
+        let (k1, k2, k3) = (key("SHOP-29"), key("SHOP-33"), key("SHOP-19"));
+        let a = [change(5, 1, Some("round"))];
+        let b = [change(5, 0, Some("round"))];
+        let c = [change(4, 3, Some("round"))];
+        let note = same_file_note(
+            "main",
+            &[
+                (&k1, Some(&a[..])),
+                (&k2, Some(&b[..])),
+                (&k3, Some(&c[..])),
+            ],
+        );
+        assert_eq!(
+            note.note,
+            "SHOP-29, SHOP-33 and SHOP-19 all edit round (lines 4\u{2013}6). Each one that merges later will rebase on the ones before it."
+        );
+        let plain = same_file_note("main", &[(&k1, None), (&k2, None), (&k3, None)]);
+        assert_eq!(
+            plain.note,
+            "SHOP-29, SHOP-33 and SHOP-19 all change this file."
+        );
+        // Only the two whose lines overlap are named; the third changes elsewhere.
+        let far = [change(90, 1, None)];
+        let note = same_file_note(
+            "main",
+            &[
+                (&k1, Some(&a[..])),
+                (&k2, Some(&far[..])),
+                (&k3, Some(&c[..])),
+            ],
+        );
+        assert_eq!(note.keys, [k1, k3]);
+        assert!(
+            note.note
+                .starts_with("SHOP-29 and SHOP-19 both edit round (lines 4")
+        );
+    }
+
+    #[test]
+    fn same_base_groups_only_shared_bases() {
+        let owners = [
+            owner("SHOP-19", "main", false),
+            owner("SHOP-36", "release/2.3", true),
+            owner("SHOP-29", "main", false),
+        ];
+        let groups: Vec<_> = same_base(&owners)
+            .into_iter()
+            .map(|(b, g)| (b, g.iter().map(|o| o.key.to_string()).collect::<Vec<_>>()))
+            .collect();
+        assert_eq!(
+            groups,
+            [("main", vec!["SHOP-19".to_owned(), "SHOP-29".to_owned()])]
+        );
     }
 
     #[test]

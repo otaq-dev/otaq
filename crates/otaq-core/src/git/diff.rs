@@ -30,6 +30,9 @@ pub const MAX_FILE_LINES: usize = 20_000;
 /// `truncated`, as [`MAX_FILE_LINES`] is.
 pub const MAX_READ_BYTES: u64 = 8 * 1024 * 1024;
 
+/// The unchanged lines shown around each change of a diff.
+pub const DIFF_CONTEXT: u32 = 3;
+
 /// How far git looks for a NUL byte to call a file binary (git's own `FIRST_FEW_BYTES`).
 const BINARY_PROBE: usize = 8000;
 
@@ -232,6 +235,18 @@ impl Git {
         spec: &DiffSpec,
         path: &str,
     ) -> Result<Option<FileDiff>, GitError> {
+        self.file_diff_with(repo, spec, path, DIFF_CONTEXT).await
+    }
+
+    /// [`Git::file_diff`] with `context` unchanged lines around each change: 0 gives one hunk per changed run,
+    /// each with its own function context in `header`.
+    pub async fn file_diff_with(
+        &self,
+        repo: &Path,
+        spec: &DiffSpec,
+        path: &str,
+        context: u32,
+    ) -> Result<Option<FileDiff>, GitError> {
         let files = self.changed_files(repo, spec).await?;
         let Some(file) = files.into_iter().find(|f| f.path == path) else {
             return Ok(None);
@@ -244,13 +259,14 @@ impl Git {
             }));
         }
         let revs = spec.revs();
+        let unified = format!("--unified={context}");
         let mut args = vec![
             "--no-optional-locks",
             "diff",
             "--no-color",
             "--no-ext-diff",
             "-M",
-            "--unified=3",
+            &unified,
         ];
         args.extend(revs.iter().map(String::as_str));
         args.push("--");
