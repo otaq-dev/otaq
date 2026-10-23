@@ -20,9 +20,19 @@ import { watchView } from "../service";
 import { attachTerminal, request } from "../tauri";
 import { Icon } from "../theme/Icon";
 import { terminalColors } from "../theme/theme";
+import { copyFromPrograms } from "./clipboard";
 import { countWidthsAsUnicode11, MINIMUM_CONTRAST_RATIO } from "./drawing";
 import { dropTargets } from "./drops";
 import { binaryBytes, createSender, decodeBase64, encodeBase64, isReply, type Outgoing } from "./input";
+import {
+  createLinkGate,
+  gateHiddenLinks,
+  type HiddenLinkOptions,
+  hiddenLinkHandler,
+  type LinkHint,
+  macKeys,
+  withGatedLinks,
+} from "./links";
 import {
   clampFontSize,
   findCount,
@@ -96,6 +106,7 @@ function searchOptions(element: Element) {
 export function Terminal({ session, label, readOnly = false, onState, ref }: TerminalProps) {
   const well = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLDivElement>(null);
   const xterm = useRef<XTerm | null>(null);
   // Fits the terminal to its box, except while a replay is written at the size it was drawn at.
   const fitBox = useRef<(() => void) | null>(null);
@@ -107,6 +118,8 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
   const [settings, setSettings] = useState<TerminalSettings>();
   const [picked, setPicked] = useState<PickedSize>();
   const [find, setFind] = useState<Find>(CLOSED_FIND);
+  // "⌘-click to open" at a link while ⌘ is held, in the box's coordinates.
+  const [linkHint, setLinkHint] = useState<(LinkHint & { above: boolean }) | null>(null);
   const webglFailed = useRef(false);
   const update = useCallback((change: Partial<TerminalState>) => {
     setState((s) => {
@@ -195,13 +208,48 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
     const searchAddon = new SearchAddon({ highlightLimit: SEARCH_LIMIT });
     term.loadAddon(fit);
     term.loadAddon(searchAddon);
-    term.loadAddon(
-      new WebLinksAddon((event, uri) => {
-        event.preventDefault();
-        request("terminal.open_link", { url: uri }).catch((e: unknown) => {
-          console.error("the link couldn't open", e);
+    // Links (d0117 points 7 and 9): every kind opens on ⌘-click only, through the gate; OSC 8 links too.
+    const openWeb = (url: string) => {
+      request("terminal.open_link", { url }).catch((e: unknown) => {
+        console.error("the link couldn't open", e);
+      });
+    };
+    const hidden: HiddenLinkOptions = { mac: macKeys, openWeb };
+    term.options.linkHandler = hiddenLinkHandler(hidden);
+    const links = createLinkGate({
+      mac: macKeys,
+      element,
+      onHint: (hint) => {
+        const at = box.current?.getBoundingClientRect();
+        setLinkHint(
+          hint && at
+            ? { ...hint, x: hint.x - at.left, y: hint.y - at.top, above: at.bottom - hint.y < 48 }
+            : null,
+        );
+      },
+    });
+    gateHiddenLinks(term, links, hidden);
+    const webLinks = new WebLinksAddon((event, uri) => {
+      event.preventDefault();
+      openWeb(uri);
+    });
+    term.loadAddon({
+      activate: (t) => {
+        webLinks.activate(withGatedLinks(t, links));
+      },
+      dispose: () => {
+        webLinks.dispose();
+      },
+    });
+    // Programs copy to the clipboard (OSC 52), never from a replay; they can't read it.
+    const copying = copyFromPrograms(
+      term,
+      () => replaying,
+      (text) => {
+        navigator.clipboard.writeText(text).catch((err: unknown) => {
+          console.warn("a program's copy failed", err);
         });
-      }),
+      },
     );
     xterm.current = term;
     const fitToBox = () => {
@@ -394,7 +442,8 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
       if (attach !== undefined) request("terminal.detach", { attach }).catch(() => undefined);
       themeWatch.disconnect();
       sizeWatch.disconnect();
-      for (const d of [typed, binary, resized, scrolled, lineFed, parsed, results]) d.dispose();
+      for (const d of [typed, binary, resized, scrolled, lineFed, parsed, results, copying, links])
+        d.dispose();
       term.textarea?.removeEventListener("focus", onFocus);
       term.textarea?.removeEventListener("blur", onBlur);
       term.dispose();
@@ -512,8 +561,18 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
           </button>
         </div>
       )}
-      <div className="terminal-box">
+      <div className="terminal-box" ref={box}>
         <div className="terminal-host" ref={host} role="group" aria-label={label} />
+        {linkHint && (
+          <div
+            className="terminal-link-hint"
+            data-above={linkHint.above}
+            style={{ left: linkHint.x, top: linkHint.y }}
+            aria-hidden="true"
+          >
+            {linkHint.label}
+          </div>
+        )}
         {state.scrolledUp > 0 && (
           <button type="button" className="terminal-jump" onClick={jumpToLatest}>
             <Icon name="arrow-down" />

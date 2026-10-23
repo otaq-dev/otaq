@@ -169,7 +169,15 @@ attach command, the hint line under it) are the host's, drawn from `onState` (`T
   a contrast floor of 4.5 (`minimumContrastRatio`, WCAG AA: xterm.js shifts a text colour too close to its background
   at draw time, the theme's values stay), Option-drag always selects (`macOptionClickForcesSelection`), and character
   widths by Unicode 11 as the tools count them, set before anything is written, the replay included.
-- **Links.** A clicked `http(s)` link opens in the system browser (`terminal.open_link`).
+- **Links** (d0117 points 7 and 9, T-0484; `links.ts`). Every link opens with ⌘-click (Ctrl-click on Windows and
+  Linux) only; a plain click or drag selects. One gate wraps every link provider: it opens a link only on that gesture
+  (`isOpenGesture`), and underlines it, with the hint "⌘-click to open", only while the key is held. Plain `http(s)`
+  links come from the web-links add-on, links programs hide behind text (OSC 8) from xterm.js's own provider (wrapped
+  in place, `gateHiddenLinks`), which keeps http and https links (their address shows as a tooltip); `file:` links
+  wait for T-0485, other schemes are no link. Web links open in the system browser (`terminal.open_link`).
+- **Copying from programs** (d0117 point 7, T-0484; `clipboard.ts`). An OSC 52 copy (Claude Code, vim, tmux) goes to
+  the clipboard (`navigator.clipboard.writeText`), never from the replay; a program asking for the clipboard gets no
+  answer.
 
 ## Components
 
