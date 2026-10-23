@@ -112,6 +112,7 @@ icons! {
     FileText = "file-text";
     Files = "files";
     Flame = "flame";
+    FoldHorizontal = "fold-horizontal";
     Folder = "folder";
     FolderTree = "folder-tree";
     FolderGit2 = "folder-git-2";

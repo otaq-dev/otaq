@@ -1,7 +1,8 @@
-//! A card as the Tauri page draws it (T-0218, Ticket Card v2 since T-0322): [`CardViewModel`] and
-//! [`EpicViewModel`] turned into plain, serialized shapes (`TicketCardView`, `EpicCardView`) with every text the card
-//! shows already worded: the head flag, the situation line, the origin line, the footer, the compact answer
-//! options, the hover's full status and the quick actions. The page only lays them out.
+//! A card as the Tauri page draws it (T-0218; Ticket Card v2 since T-0322; the one-line card of BRD-03 since T-0460):
+//! [`CardViewModel`] and [`EpicViewModel`] turned into plain, serialized shapes (`TicketCardView`, `EpicCardView`)
+//! with every text the card shows already worded. A ticket card is its key (with its epic's name when it is a
+//! child), its title, one status line, who and when, a coloured edge when it needs the user, and one action; the
+//! pill, the model, the tokens and the answer options are the ticket's sheet's. The page only lays them out.
 
 use otaq_core::board::tickets::Ticket;
 use serde::Serialize;
@@ -9,8 +10,7 @@ use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::view_models::card::{
-    CardAction, CardActionKind, CardExtras, CardViewModel, Footer, Outline, Situation, Sleeve,
-    StatusHover,
+    CardAction, CardExtras, CardViewModel, Signal, StatusHover, StatusLine, Tone,
 };
 use crate::view_models::card_fixtures::{self, Look, NOW};
 use crate::view_models::epic_card::{ChildState, EpicViewModel};
@@ -24,56 +24,39 @@ pub const OPEN_PANEL_KEYS: &str = "\u{21b5}";
 pub const OPEN_TERMINAL: &str = "Open terminal";
 /// The epic card's last row.
 pub const ADD_TO_EPIC: &str = "Add ticket to epic";
-/// The recommended option's badge on a card (the panel and inbox say "Recommended").
-pub const RECOMMENDED_SHORT: &str = "Rec.";
-/// The last option on a card (the panel says "Other… type your own answer").
-pub const OTHER_SHORT: &str = "Other\u{2026}";
 
-/// The card's width in the frames (*Ticket Card v2*, 240 px) and at a 1280 window (*Cards at 1280*, the column
-/// about 200 px wide).
-pub const CARD_WIDTH: u32 = 240;
-pub const CARD_WIDTH_1280: u32 = 200;
+/// The card's width in the frames (*24 · The two views*: a 7-stage flow at 1440, about 180 px; the narrowest a column
+/// gets, BRD-02) and the width the gallery draws next to it.
+pub const CARD_WIDTH: u32 = 220;
+pub const CARD_WIDTH_1280: u32 = 164;
 
-/// One answer option in the card's compact list (ATT-12): number, label, the short "Rec." badge.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "CardOption")]
-pub struct OptionView {
-    pub number: u32,
-    pub label: String,
-    pub recommended: Option<String>,
-    pub picked: bool,
-    pub other: bool,
-    /// What a click sends: the option's number (Other… is the last).
-    pub action: CardActionKind,
-    /// The option's own note, its pros and cons (ATT-17), whole: the option's hover card.
-    pub note: Option<String>,
-}
-
-/// A Ticket Card v2 for the page (SHL-07): head (avatar, key, pin, priority, flag), title, situation line, origin
-/// line, footer, and the hover. `faded` is the Done cards' opacity.
+/// A ticket card for the page (BRD-03; *24 · The two views*): key and epic name, title, one status line, who and
+/// when, the coloured edge and one action. `faded` is the Done cards' opacity.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "TicketCardView")]
 pub struct TicketCardView {
     pub key: String,
     /// "SHOP-51 → SHOP-40.4" after Move to epic.
     pub key_label: String,
-    /// Whoever has the turn; `null` while only one tool is connected.
-    pub avatar: Option<ToolAvatarView>,
-    pub pinned: bool,
-    pub priority: Option<PriorityView>,
-    /// The one short flag (≤ 12 characters); `null` when nothing takes the head.
-    pub flag: Option<PillView>,
+    /// The epic's name on the key's row, for an epic child ("Wishlist").
+    pub epic: Option<String>,
     pub title: String,
-    pub situation: Option<Situation>,
-    /// "Created by Checkout slowness": violet (d0068).
+    /// The one status line; `null` on a calm Backlog card.
+    pub status: Option<StatusLine>,
+    /// The tool mark of whoever has the turn; `null` while only one tool is connected (d0086).
+    pub avatar: Option<ToolAvatarView>,
+    /// The agent's name ("Rust developer"); `null` while there is only one agent (d0086).
+    pub who: Option<String>,
+    /// How long ago the working agent last said something ("3m").
+    pub time: Option<Signal>,
+    /// The coloured edge of a card that needs the user: its colour.
+    pub edge: Option<Tone>,
+    /// The card's one action (Answer, Reply, Review, Decide…).
+    pub action: Option<CardAction>,
+    /// "Created by Checkout slowness": violet, a card a Project agent created names it (d0068; Q-E).
     pub origin: Option<String>,
-    pub options: Vec<OptionView>,
-    pub footer: Option<Footer>,
     /// The full status and what the card has no room for.
     pub hover: StatusHover,
-    /// The violet band on top of an epic child's card (EPC-09).
-    pub sleeve: Option<Sleeve>,
-    pub outline: Outline,
     pub faded: Option<f32>,
     /// A Project agent just created it: the page plays the fading highlight once.
     pub fresh: bool,
@@ -89,39 +72,19 @@ impl TicketCardView {
 
     /// From a view model already built (the board's, with its queue facts and signal).
     pub fn from_vm(vm: CardViewModel, _ticket: &Ticket) -> Self {
-        let options = vm.options.as_ref().map_or_else(Vec::new, |o| {
-            o.rows()
-                .into_iter()
-                .map(|row| OptionView {
-                    number: row.number,
-                    label: if row.other {
-                        OTHER_SHORT.to_owned()
-                    } else {
-                        row.label
-                    },
-                    recommended: row.recommended.then(|| RECOMMENDED_SHORT.to_owned()),
-                    picked: row.picked,
-                    other: row.other,
-                    action: CardActionKind::PickOption(row.number),
-                    note: row.note,
-                })
-                .collect()
-        });
         Self {
             key: vm.key.to_string(),
             key_label: vm.key_label,
-            avatar: vm.avatar,
-            pinned: vm.pinned,
-            priority: vm.priority.map(priority::view),
-            flag: vm.flag.as_ref().map(|f| f.pill()),
+            epic: vm.sleeve.map(|s| s.name),
             title: vm.title,
-            situation: vm.situation,
+            status: vm.one_line.line,
+            avatar: vm.avatar,
+            who: vm.one_line.who,
+            time: vm.one_line.time,
+            edge: vm.one_line.edge,
+            action: vm.one_line.action,
             origin: vm.origin,
-            options,
-            footer: vm.footer,
             hover: vm.hover,
-            sleeve: vm.sleeve,
-            outline: vm.outline,
             faded: vm.faded,
             fresh: vm.fresh,
             open_panel: OPEN_PANEL.to_owned(),
@@ -279,27 +242,128 @@ pub fn gallery() -> CardGallery {
 mod tests {
     use super::*;
     use crate::theme::Palette;
+    use crate::view_models::card::CardActionKind;
 
     fn cell<'a>(g: &'a CardGallery, name: &str) -> &'a TicketCardView {
-        &g.variants
+        g.variants
             .iter()
+            .chain(&g.sleeves)
+            .chain(&g.flows)
             .find(|c| c.name == name)
+            .map(|c| &c.card)
             .unwrap_or_else(|| panic!("no variant {name}"))
-            .card
+    }
+
+    fn line(card: &TicketCardView) -> (&str, Palette, Tone) {
+        let line = card.status.as_ref().expect("a status line");
+        (line.text.as_str(), line.dot, line.tone)
     }
 
     #[test]
-    fn the_page_gets_the_view_models_flag() {
+    fn a_needs_you_card_has_one_line_an_edge_and_one_action() {
         let g = gallery();
         let card = cell(&g, "Needs you + running + 2 dependencies");
-        let flag = card.flag.as_ref().unwrap();
         assert_eq!(
-            (flag.label.as_str(), flag.palette),
-            ("Needs you", Palette::Attn)
+            line(card),
+            (
+                "Needs you: allow rm -rf .next? \u{b7} also running :4022 \u{b7} after SHOP-18, SHOP-19",
+                Palette::Attn,
+                Tone::Attention
+            )
         );
-        assert_eq!(card.outline, Outline::Attention);
+        assert_eq!(card.edge, Some(Tone::Attention));
+        assert_eq!(card.action.as_ref().unwrap().label, "Answer");
         assert_eq!(card.hover.status, "Needs you \u{b7} permission");
-        assert!(card.avatar.is_none(), "one tool connected: no avatar");
+        assert!(card.avatar.is_none(), "one tool connected: no tool mark");
+    }
+
+    #[test]
+    fn the_pill_the_model_and_the_tokens_leave_the_card() {
+        let g = gallery();
+        let json = serde_json::to_value(cell(&g, "Working")).unwrap();
+        let card = json.as_object().unwrap();
+        for gone in [
+            "flag",
+            "situation",
+            "footer",
+            "options",
+            "sleeve",
+            "priority",
+            "pinned",
+            "outline",
+        ] {
+            assert!(!card.contains_key(gone), "{gone}");
+        }
+        assert_eq!(json["status"]["text"], "Working");
+        assert_eq!(json["time"]["text"], "40s");
+        assert_eq!(json["edge"], serde_json::Value::Null);
+        assert_eq!(json["action"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn a_check_out_of_rounds_says_decide() {
+        let g = gallery();
+        let card = cell(&g, "Security failed \u{d7}3");
+        assert_eq!(
+            line(card).0,
+            "Security failed 3 times \u{b7} unescaped SQL in search \u{b7} see comment"
+        );
+        let action = card.action.as_ref().unwrap();
+        assert_eq!(
+            (action.kind, action.label),
+            (CardActionKind::Decide, "Decide")
+        );
+        let card = cell(&g, "Validation failed 3 times (0063)");
+        assert_eq!(card.action.as_ref().unwrap().kind, CardActionKind::Decide);
+        assert_eq!(
+            line(card).0,
+            "Failed 3 times: arrow keys do nothing in the list \u{b7} see comment"
+        );
+    }
+
+    #[test]
+    fn your_check_has_the_review_edge_and_review() {
+        let g = gallery();
+        let card = cell(&g, "Your check \u{b7} passed Security");
+        assert_eq!(
+            line(card),
+            (
+                "Your check \u{b7} Passed Security \u{b7} round 2",
+                Palette::Review,
+                Tone::Review
+            )
+        );
+        assert_eq!(card.edge, Some(Tone::Review));
+        assert_eq!(card.action.as_ref().unwrap().kind, CardActionKind::Review);
+    }
+
+    #[test]
+    fn an_epic_child_names_its_epic_and_quiet_buttons_leave() {
+        let g = gallery();
+        let card = cell(&g, "Dev \u{b7} epic child \u{b7} working");
+        assert_eq!(card.epic.as_deref(), Some("Wishlist"));
+        // Send back with PR comments is a quiet button: the sheet has it.
+        let pr = cell(&g, "PR #481 open \u{b7} opened by Shipper");
+        assert_eq!(
+            line(pr).0,
+            "PR #481 open \u{b7} Opened by Shipper \u{b7} 2 h ago"
+        );
+        assert_eq!(pr.action, None);
+        assert_eq!(pr.edge, None);
+    }
+
+    /// d0068 (Q-E): a card a Project agent created keeps naming it.
+    #[test]
+    fn an_agent_made_card_names_its_agent() {
+        let g = gallery();
+        let card = cell(&g, "Created by a Project agent (0068)");
+        assert!(
+            card.origin
+                .as_deref()
+                .is_some_and(|o| o.starts_with("Created by")),
+            "{:?}",
+            card.origin
+        );
     }
 
     #[test]
@@ -313,9 +377,9 @@ mod tests {
         assert_eq!(g.tools.len(), card_fixtures::tool_variants().len());
         assert!(
             g.tools.iter().all(|c| c.card.avatar.is_some()),
-            "several tools: avatars on"
+            "several tools: tool marks on"
         );
-        assert_eq!((g.width, g.width_1280), (240, 200));
+        assert_eq!((g.width, g.width_1280), (CARD_WIDTH, CARD_WIDTH_1280));
         let looks: Vec<Look> = g.variants.iter().map(|c| c.look).collect();
         for look in [
             Look::Plain,
@@ -327,103 +391,18 @@ mod tests {
         ] {
             assert!(looks.contains(&look), "{look:?}");
         }
-        let json = serde_json::to_value(&g).unwrap();
-        assert_eq!(json["variants"][0]["look"], "plain");
-        assert_eq!(json["variants"][0]["card"]["outline"], "normal");
-        // No field of the v1 card is left (SHL-07).
-        let card = json["variants"][0]["card"].as_object().unwrap();
-        for old in [
-            "pill",
-            "pill_short",
-            "callout",
-            "entry",
-            "meta",
-            "bars",
-            "actions",
-            "compact",
-        ] {
-            assert!(!card.contains_key(old), "{old}");
-        }
     }
 
     #[test]
-    fn options_footer_and_epic_rows_are_worded_here() {
+    fn epic_rows_are_worded_here() {
         let g = gallery();
-        let footer = cell(&g, "Working").footer.as_ref().unwrap();
-        let json = serde_json::to_value(footer).unwrap();
-        assert_eq!(json["tokens"]["text"], "182k");
-        assert_eq!(json["signal"]["text"], "40s");
-        assert_eq!(json["action"], serde_json::Value::Null);
         let epics = &g.epics;
         assert_eq!(epics[0].card.add.as_deref(), Some(ADD_TO_EPIC));
         assert_eq!(epics[0].card.children[0].status_label, "Merged");
-        let done = epics.iter().find(|e| e.name == "Epic · Done").unwrap();
+        let done = epics.iter().find(|e| e.name == "Epic \u{b7} Done").unwrap();
         assert_eq!(done.card.add, None);
         let json = serde_json::to_value(&epics[2].card).unwrap();
         assert_eq!(json["actions"][0]["kind"], "mark_merged");
         assert_eq!(json["segments"][0], "merged");
-    }
-
-    #[test]
-    fn answer_options_use_the_short_wording() {
-        use otaq_core::board::questions::HumanQuestion;
-        let mut t =
-            card_fixtures::ticket("SHOP-21", "Order email", otaq_core::domain::Status::AsksYou);
-        t.question = Some(HumanQuestion {
-            options: vec!["Only the profile form".into(), "Everywhere".into()],
-            recommended: Some(1),
-            notes: Vec::new(),
-            id: "q1".into(),
-            text: "Split fullName everywhere?".into(),
-            asked_at: NOW,
-            via_lead: None,
-        });
-        let card = TicketCardView::of(&t, &CardExtras::default(), NOW);
-        assert_eq!(
-            card.options[0].recommended.as_deref(),
-            Some(RECOMMENDED_SHORT)
-        );
-        let last = card.options.last().unwrap();
-        assert_eq!((last.label.as_str(), last.other), (OTHER_SHORT, true));
-        assert_eq!(
-            serde_json::to_value(last.action).unwrap(),
-            serde_json::json!({ "pick_option": 3 })
-        );
-        assert_eq!(
-            card.footer.unwrap().action.unwrap().kind,
-            CardActionKind::SendAnswer
-        );
-    }
-
-    /// ATT-17: the compact list keeps its labels; each option carries its note whole for the hover card.
-    #[test]
-    fn each_option_carries_its_note_for_the_hover_card() {
-        use otaq_core::board::questions::HumanQuestion;
-        let long = "y".repeat(600);
-        let mut t =
-            card_fixtures::ticket("NOTE-1", "Add export", otaq_core::domain::Status::AsksYou);
-        t.question = Some(HumanQuestion {
-            options: vec!["Markdown files".into(), "One ZIP".into()],
-            recommended: Some(1),
-            notes: vec![None, Some(long.clone())],
-            id: "q1".into(),
-            text: "Question 1 of 2: Which export format?".into(),
-            asked_at: NOW,
-            via_lead: None,
-        });
-        let card = TicketCardView::of(&t, &CardExtras::default(), NOW);
-        let shown: Vec<(&str, Option<&str>)> = card
-            .options
-            .iter()
-            .map(|o| (o.label.as_str(), o.note.as_deref()))
-            .collect();
-        assert_eq!(
-            shown,
-            [
-                ("Markdown files", None),
-                ("One ZIP", Some(long.as_str())),
-                (OTHER_SHORT, None)
-            ]
-        );
     }
 }

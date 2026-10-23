@@ -4,8 +4,12 @@
 //! Review and Approved), each with its own count and its own cards in its status set's order, and the column counts
 //! both. Ready for Dev shows the queued cards (d0066); an agent column (Dev) the cards that need the user (and pins)
 //! on top, then the Agent Working section; the "N more · working" fold that never hides needs-you cards (T-0027);
-//! the Done column that collapses to a 34 px rail; epic cards in Backlog; and the empty-column hints. Order comes
-//! from the core ([`otaq_core::board::order`]), so the board, the service and the tests agree.
+//! epic cards in Backlog; and the empty-column hints. Order comes from the core ([`otaq_core::board::order`]), so the
+//! board, the service and the tests agree.
+//!
+//! T-0460 (BRD-02): one width rule ([`COLUMN_MIN_WIDTH`], [`fits`], [`columns_after`] for the "7 more stages" pill)
+//! replaces the long-flow folding and the stage strip; a column is folded ([`is_folded`]) from its ⋯ or by Fold empty
+//! columns (the project's view preferences), Done at first.
 //!
 //! Each child is on the board exactly once (EPC-11, d0080): an epic is a card in Backlog only in its Card place
 //! and a delivery card in Review / Done; in its Track place the strip draws it instead. Epic children never show
@@ -30,27 +34,16 @@ use crate::view_models::queue::queue_facts;
 use crate::view_models::tool_problems::tool_word;
 use otaq_core::agents::facts::BoardAgents;
 
-/// From this board width Done opens as a column; below it Done is its rail (SHL-01; CHANGES-v §1: "At ≥ 1360 px of
-/// board width Done opens as a column"). The board width is the main area's: the pane and the project rail are not
-/// part of it, and the panel over the board doesn't change it.
-pub const DONE_OPEN_FROM_WIDTH: f32 = 1360.;
+/// The one width rule (BRD-02): a column is never narrower than this; when the flow fits, the columns share the
+/// board's width, otherwise the board scrolls sideways with the "7 more stages" pill at its edge.
+pub const COLUMN_MIN_WIDTH: f32 = 180.;
 
-/// The columns fill the board's width; below this width per column the board scrolls sideways (SHL-01).
-pub const MIN_COLUMN_WIDTH: f32 = 200.;
+/// A column folded from its ⋯ (or by Fold empty columns): the narrow rail with its icon, count and name (`s26-10`).
+pub const FOLDED_COLUMN_WIDTH: f32 = 52.;
 
-/// Done as a rail, and an empty stage of a long flow.
-pub const DONE_RAIL_WIDTH: f32 = 34.;
-
-/// A flow with this many columns or more is long (FLW-12; the designer's "8+ columns"): its columns keep the
-/// compact width, and when they don't fit, an empty stage folds to its rail and the stage strip names every column.
-pub const LONG_FLOW_COLUMNS: usize = 8;
-
-/// A long flow's columns (FLW-12: "columns keep 184 px and the board scrolls sideways").
-pub const COMPACT_COLUMN_WIDTH: f32 = 184.;
-
-/// The board's padding on each side and the gap between its columns (`board.css`).
-const BOARD_PADDING: f32 = 10.;
-const COLUMN_GAP: f32 = 8.;
+/// The board's padding on each side and the gap between its columns (`board.css`; *24 · The two views*).
+pub const BOARD_PADDING: f32 = 16.;
+pub const COLUMN_GAP: f32 = 12.;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CardEntry {
@@ -108,7 +101,7 @@ pub struct SectionView {
 }
 
 /// A stage folded into an agent column (`column: with-previous`, FLW-12, Q270): the header adds "· Validating 1"
-/// after the column's own count, and the stage strip lists "Validate 1" under the column.
+/// after the column's own count.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FoldedView {
     /// The word its cards carry: "Validating" for a Validate check, else the stage's name.
@@ -157,8 +150,10 @@ pub struct ColumnView {
     pub hint: Option<&'static str>,
     /// Shown when the column is empty.
     pub empty_hint: &'static str,
-    /// Drawn as a narrow rail: Done folded, or an empty stage of a long flow that doesn't fit ([`lay_out`]).
+    /// Folded (BRD-02): a stage's narrow rail, Done's "Done 4 →" line ([`is_folded`]).
     pub collapsed: bool,
+    /// Its cards that need the user: the folded rail's dot and "1 needs you".
+    pub needs_you: usize,
     /// Cards a filter hides in this column ("6 hidden by filter").
     pub hidden: usize,
     /// Done only: one line per epic over its merged children, which follow each other in `cards` from where the
@@ -282,11 +277,8 @@ pub fn column_look(column: &FlowColumn, quiet: bool) -> (IconName, &'static str)
 /// An empty agent check's column (Validate's own, FLW-01). No frame draws it: the designer's notes have it.
 pub const AGENT_CHECK_EMPTY: &str = "An agent checks each ticket here before it moves on.";
 
-/// The hint under Ready for Dev's title (*03 · Board — shop-web*).
-pub const READY_FOR_DEV_HINT: &str = "Starts when ready, in priority order";
-
-/// Ready for Dev's hint in a long flow's compact column (*Row · A flow with many stages*).
-pub const READY_FOR_DEV_SHORT_HINT: &str = "Starts when ready";
+/// The hint under Ready for Dev's title (BRD-03, *24 · The two views*; d0065 unchanged).
+pub const READY_FOR_DEV_HINT: &str = "Starts in priority order";
 
 /// What a Ready for Dev card that would start says while a flow change waits for a quiet board (FLW-06, *Row · A
 /// flow change waiting*): [`BoardInput::starts_held`].
@@ -303,36 +295,57 @@ pub const NOTHING_APPROVED: &str = "Nothing approved";
 /// The empty Approved section while a Ready for Review card is dragged (the old Approved column's hint).
 pub const APPROVED_DRAG_HINT: &str = "Drag a ticket here from Ready for Review to approve it. It always asks how: Local merge or Open PR.";
 
-/// Whether Done shows as a rail: the user's choice, else by the board's width (the main area's).
-pub fn done_collapsed(user_choice: Option<bool>, board_width: f32) -> bool {
-    user_choice.unwrap_or(board_width < DONE_OPEN_FROM_WIDTH)
+/// Whether a column is folded (BRD-02): folded from its ⋯ (Done is at first, `ViewPrefs::folded_columns`), or
+/// empty while Fold empty columns is on. Backlog never folds: tickets are written there.
+pub fn is_folded(
+    id: &str,
+    kind: ColumnKind,
+    total: usize,
+    folded: &[String],
+    fold_empty: bool,
+) -> bool {
+    kind != ColumnKind::Backlog && (folded.iter().any(|f| f == id) || (fold_empty && total == 0))
 }
 
-/// The columns scrolled out of the board's view, as the chip at that edge names them (*02 · App shell & project
-/// switcher → 1280 × 800 · minimum*: a narrower board "scrolls horizontally with a fade and a chip naming the
-/// hidden columns").
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct HiddenColumns {
-    /// Off the left edge, once the board is scrolled ("Backlog · Dev").
-    pub before: Option<String>,
-    /// Off the right edge ("Review · Done").
-    pub after: Option<String>,
+/// How the open and folded columns sit at the board's width (BRD-02): `fits` when every open column gets at least
+/// [`COLUMN_MIN_WIDTH`] (they share what is left); otherwise each keeps the minimum and the board scrolls.
+pub fn fits(width: f32, open: usize, folded: usize) -> bool {
+    let n = open + folded;
+    let gaps = n.saturating_sub(1) as f32 * COLUMN_GAP;
+    2. * BOARD_PADDING + open as f32 * COLUMN_MIN_WIDTH + folded as f32 * FOLDED_COLUMN_WIDTH + gaps
+        <= width
 }
 
-/// Which columns are out of view: `columns` are each column's title and its left and right edge, `view` the
-/// visible span, in the same coordinates. A column is hidden as soon as more than a pixel of it is cut off.
-pub fn hidden_columns(columns: &[(&str, f32, f32)], view: (f32, f32)) -> HiddenColumns {
-    let names = |hidden: &dyn Fn(f32, f32) -> bool| {
-        let names: Vec<&str> = columns
-            .iter()
-            .filter(|(_, left, right)| hidden(*left, *right))
-            .map(|(title, ..)| *title)
-            .collect();
-        (!names.is_empty()).then(|| names.join(" · "))
-    };
-    HiddenColumns {
-        before: names(&|left, _| left < view.0 - 1.),
-        after: names(&|_, right| right > view.1 + 1.),
+/// How many columns are cut off at the right edge of a board `width` wide scrolled to `left` (BRD-02's "7 more
+/// stages"): `folded` says, column by column, which are rails. Nothing is cut off when the columns fit.
+pub fn columns_after(width: f32, left: f32, folded: &[bool]) -> usize {
+    let open = folded.iter().filter(|f| !**f).count();
+    if fits(width, open, folded.len() - open) {
+        return 0;
+    }
+    let mut x = BOARD_PADDING;
+    let mut after = 0;
+    for &rail in folded {
+        let right = x + if rail {
+            FOLDED_COLUMN_WIDTH
+        } else {
+            COLUMN_MIN_WIDTH
+        };
+        // A pixel of rounding is not cut off.
+        if right > left + width - BOARD_PADDING + 1. {
+            after += 1;
+        }
+        x = right + COLUMN_GAP;
+    }
+    after
+}
+
+/// The pill at the board's right edge while columns are cut off (BRD-02, `s24-04`): "7 more stages".
+pub fn more_stages(n: usize) -> Option<String> {
+    match n {
+        0 => None,
+        1 => Some("1 more stage".to_owned()),
+        n => Some(format!("{n} more stages")),
     }
 }
 
@@ -354,7 +367,10 @@ pub struct BoardInput<'a> {
     pub now_ms: i64,
     /// Dev's card budget; `None` when the user unfolded Dev.
     pub dev_budget: Option<usize>,
-    pub done_collapsed: bool,
+    /// The columns folded from their ⋯, by id (`ViewPrefs::folded_columns`; Done at first).
+    pub folded: &'a [String],
+    /// Fold empty columns (BRD-02).
+    pub fold_empty: bool,
     /// The project's Project agents by id and current name: cards they created name them (d0068).
     pub agent_names: &'a [(String, String)],
     /// Interrupted tickets that were validating (the startup report, T-0244).
@@ -565,7 +581,8 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 sections: Vec::new(),
                 hint: (column.kind == ColumnKind::ReadyForDev).then_some(READY_FOR_DEV_HINT),
                 empty_hint,
-                collapsed: column.kind == ColumnKind::Done && input.done_collapsed,
+                collapsed: is_folded(id, column.kind, whole.total, input.folded, input.fold_empty),
+                needs_you: needs_you_in(&columns, id, all, &cards),
                 hidden: whole.total - whole.visible,
                 folds: Vec::new(),
             };
@@ -707,80 +724,13 @@ fn runs_on(agent: &Agent, list: &AgentList) -> Option<String> {
     Some(line.join(" \u{b7} "))
 }
 
-/// One column in the stage strip (FLW-12; *Row · A flow with many stages*): its title and count, and the stages
-/// folded into it with theirs ("Dev 1" over "Validate 1").
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StripColumn {
-    pub column: ColumnId,
-    pub title: String,
-    pub count: String,
-    /// (name, count).
-    pub folded: Vec<(String, String)>,
-}
-
-/// How the columns are laid out at the board's width (FLW-12, SHL-01).
-#[derive(Debug, Clone, PartialEq)]
-pub struct Layout {
-    /// The least width of an open column: 200 px, 184 in a long flow.
-    pub column_width: f32,
-    /// The strip above a long flow's board that doesn't fit, naming every column.
-    pub strip: Option<Vec<StripColumn>>,
-}
-
-/// Whether `open` columns of `column_width` and `rails` rails fit `width` (the board's, its padding included).
-fn fits(width: f32, open: usize, rails: usize, column_width: f32) -> bool {
-    let n = open + rails;
-    let gaps = n.saturating_sub(1) as f32 * COLUMN_GAP;
-    2. * BOARD_PADDING + open as f32 * column_width + rails as f32 * DONE_RAIL_WIDTH + gaps <= width
-}
-
-/// Lays `columns` out at the board's `width` (FLW-12): a flow under [`LONG_FLOW_COLUMNS`] columns as today; a long
-/// flow's columns keep [`COMPACT_COLUMN_WIDTH`] (Ready for Dev's hint shortens), and when they don't fit, every
-/// empty stage folds to its rail and, if they still don't fit, the stage strip names every column.
-pub fn lay_out(columns: &mut [ColumnView], width: f32) -> Layout {
-    if columns.len() < LONG_FLOW_COLUMNS {
-        return Layout {
-            column_width: MIN_COLUMN_WIDTH,
-            strip: None,
-        };
-    }
-    let rails = |columns: &[ColumnView]| columns.iter().filter(|c| c.collapsed).count();
-    let open = |columns: &[ColumnView]| columns.len() - rails(columns);
-    for column in columns.iter_mut() {
-        if column.kind == ColumnKind::ReadyForDev {
-            column.hint = Some(READY_FOR_DEV_SHORT_HINT);
-        }
-    }
-    if !fits(width, open(columns), rails(columns), COMPACT_COLUMN_WIDTH) {
-        for column in columns.iter_mut() {
-            let stage = matches!(
-                column.kind,
-                ColumnKind::Agent | ColumnKind::HumanCheck | ColumnKind::Delivery
-            );
-            if stage && column.total == 0 {
-                column.collapsed = true;
-            }
-        }
-    }
-    let strip = (!fits(width, open(columns), rails(columns), COMPACT_COLUMN_WIDTH)).then(|| {
-        columns
-            .iter()
-            .map(|c| StripColumn {
-                column: c.id.clone(),
-                title: c.title.clone(),
-                count: c.count.clone(),
-                folded: c
-                    .folded
-                    .iter()
-                    .map(|f| (f.name.clone(), f.count.clone()))
-                    .collect(),
-            })
-            .collect()
-    });
-    Layout {
-        column_width: COMPACT_COLUMN_WIDTH,
-        strip,
-    }
+/// How many of a column's cards need the user (the folded rail's dot, `s26-10`).
+fn needs_you_in(columns: &Columns, column: &str, all: &[Ticket], cards: &[&TicketKey]) -> usize {
+    columns
+        .order(column, None, cards, all)
+        .iter()
+        .filter(|k| all.iter().any(|t| &t.key == *k && t.needs_user()))
+        .count()
 }
 
 fn section(
@@ -907,7 +857,8 @@ mod tests {
             project_base: Some("main"),
             now_ms: NOW,
             dev_budget: budget,
-            done_collapsed: false,
+            folded: &[],
+            fold_empty: false,
             agent_names: &[],
             was_validating: &[],
             agents: None,
@@ -1474,60 +1425,71 @@ mod tests {
         assert_eq!(dev.top.len(), 3, "the needs-you cards are never folded");
     }
 
-    /// SHL-01: Done opens as a column from 1360 px of board width (the main area's), folds below; the user's
-    /// choice wins either way.
+    /// BRD-02: Done is folded at first (the view preference's default) and opens from its line; a column folded from
+    /// its ⋯ is a rail that counts what needs the user; Fold empty columns folds every empty column but Backlog.
     #[test]
-    fn done_rail_state() {
-        assert!(!done_collapsed(None, 1360.), "open at 1360");
-        assert!(done_collapsed(None, 1359.), "folded at 1359");
-        // The main area at the three window classes, less the default pane and the 64 px project rail.
-        assert!(done_collapsed(None, 1280. - 64. - 320.), "1280");
-        assert!(done_collapsed(None, 1440. - 64. - 400.), "1440");
-        assert!(!done_collapsed(None, 1920. - 64. - 460.), "1920");
-        assert!(!done_collapsed(Some(false), 896.), "the user's choice wins");
-        assert!(done_collapsed(Some(true), 1920.));
-        // Six open columns at 1360 are at least the minimum, with padding 2 × 10 and five gaps of 8.
-        const { assert!((DONE_OPEN_FROM_WIDTH - 20. - 40.) / 6. >= MIN_COLUMN_WIDTH) };
+    fn columns_fold_from_their_menu_and_when_empty() {
         let tickets = board();
+        let done_folded = [otaq_core::board::settings::DONE_COLUMN.to_owned()];
         let columns = build(&BoardInput {
-            done_collapsed: true,
-            agent_names: &[],
-            was_validating: &[],
+            folded: &done_folded,
             ..input(&tickets, None)
         });
-        assert!(columns[5].collapsed && !columns[0].collapsed);
+        let folded: Vec<&str> = columns
+            .iter()
+            .filter(|c| c.collapsed)
+            .map(|c| c.title.as_str())
+            .collect();
+        assert_eq!(folded, ["Done"]);
+        // Dev folded from its ⋯: a rail with a dot for SHOP-22 and SHOP-25.
+        let dev = ["dev".to_owned()];
+        let columns = build(&BoardInput {
+            folded: &dev,
+            ..input(&tickets, None)
+        });
+        assert!(columns[2].collapsed);
+        assert!(columns[2].needs_you > 0);
+        assert!(!columns[4].collapsed, "Done opened");
+        // Fold empty columns: nothing here is empty but Backlog stays open anyway.
+        let empty: Vec<Ticket> = Vec::new();
+        let columns = build(&BoardInput {
+            fold_empty: true,
+            ..input(&empty, None)
+        });
+        let open: Vec<&str> = columns
+            .iter()
+            .filter(|c| !c.collapsed)
+            .map(|c| c.title.as_str())
+            .collect();
+        assert_eq!(open, ["Backlog"]);
         assert_eq!(dev_budget(900.), 8);
         assert_eq!(dev_budget(300.), 4);
     }
 
+    /// BRD-02's one width rule: 180 px a column at least; columns that fit share the width, else the board scrolls
+    /// and the pill counts the columns cut off at the right edge, fewer as it scrolls.
     #[test]
-    fn hidden_columns_are_named_at_their_edge() {
-        // A 551 px board: columns of the 200 px minimum from x 10 with gaps of 8, Done as a rail.
-        let columns = [
-            ("Backlog", 10., 210.),
-            ("Ready for Dev", 218., 418.),
-            ("Dev", 426., 626.),
-            ("Review", 634., 834.),
-            ("Done", 842., 876.),
-        ];
-        let start = hidden_columns(&columns, (0., 551.));
-        assert_eq!(start.before, None);
-        assert_eq!(
-            start.after.as_deref(),
-            Some("Dev · Review · Done"),
-            "a column cut off at the edge counts as hidden"
+    fn one_width_rule_and_the_more_stages_pill() {
+        // Seven columns at 180 with 6 gaps of 12 and 2 × 16 padding: 1364 px.
+        assert!(fits(1364., 7, 0));
+        assert!(!fits(1363., 7, 0));
+        assert!(
+            fits(1364. - 180. + 52., 6, 1),
+            "a folded column is a 52 px rail"
         );
-        let end = hidden_columns(&columns, (335., 886.));
-        assert_eq!(end.before.as_deref(), Some("Backlog · Ready for Dev"));
-        assert_eq!(end.after, None);
-        let middle = hidden_columns(&columns, (218., 769.));
-        assert_eq!(middle.before.as_deref(), Some("Backlog"));
-        assert_eq!(middle.after.as_deref(), Some("Review · Done"));
+        let seven = [false; 7];
+        assert_eq!(columns_after(1376., 0., &seven), 0);
+        assert_eq!(columns_after(1216., 0., &seven), 1);
         assert_eq!(
-            hidden_columns(&columns, (0.5, 876.5)),
-            HiddenColumns::default(),
-            "everything fits (a pixel of rounding is not hidden)"
+            more_stages(columns_after(1216., 0., &seven)).as_deref(),
+            Some("1 more stage")
         );
+        let fourteen = [false; 14];
+        assert_eq!(columns_after(1376., 0., &fourteen), 7);
+        assert_eq!(columns_after(1376., 192. * 3., &fourteen), 4);
+        assert_eq!(columns_after(1376., 192. * 14., &fourteen), 0);
+        assert_eq!(more_stages(0), None);
+        assert_eq!(more_stages(7).as_deref(), Some("7 more stages"));
     }
 
     #[test]
@@ -1565,7 +1527,7 @@ mod tests {
     }
 
     /// FLW-12 on the default flow: today's icons in their status colours, but Validate's shield (FLW-01); a tooltip
-    /// for each stage column; the full Ready for Dev hint; no rails but Done's and no stage strip at 1440 or 1280.
+    /// for each stage column; the Ready for Dev hint.
     #[test]
     fn the_default_board_keeps_todays_headers() {
         use crate::view_models::agents::fixtures::{agent, on};
@@ -1581,7 +1543,7 @@ mod tests {
             default_model: None,
             fallbacks: Vec::new(),
         };
-        let mut columns = build(&BoardInput {
+        let columns = build(&BoardInput {
             agent_list: Some(&list),
             ..input(&tickets, None)
         });
@@ -1628,17 +1590,6 @@ mod tests {
             })
         );
         assert_eq!(tip(5), None);
-        // Today's layout at every width: the board scrolls at 200 px a column, nothing folds but Done.
-        for width in [1440. - 64. - 400., 1280. - 64. - 320., 1920. - 64.] {
-            let layout = lay_out(&mut columns, width);
-            assert_eq!(
-                layout,
-                Layout {
-                    column_width: MIN_COLUMN_WIDTH,
-                    strip: None
-                }
-            );
-        }
         assert_eq!(columns[1].hint, Some(READY_FOR_DEV_HINT));
         assert!(columns.iter().all(|c| !c.collapsed));
     }
@@ -1757,18 +1708,17 @@ flow:
         otaq_core::flow::yaml::read(yaml).unwrap().flow
     }
 
-    /// FLW-12, a long flow: at 1440 with the pane open the columns keep 184 px, the empty Grill and Docs fold to
-    /// rails (Done too, by width), Ready for Dev's hint shortens and the strip names every column, Validate under
-    /// Dev. At 1920 with the pane hidden the rails make it fit: no strip. A card in Grill opens its column again.
+    /// BRD-02, a long flow (`s24-04`): every column keeps its 180 px, nothing folds by itself (Fold empty columns
+    /// is off), Ready for Dev keeps its hint, and at 1440 the board scrolls; Fold empty columns folds Grill and Docs.
     #[test]
-    fn a_long_flow_folds_empty_stages_and_shows_the_strip() {
+    fn a_long_flow_keeps_its_columns_and_scrolls() {
         let flow = ten_stages();
         let at = |key: &str, status, place: Place| {
             let mut t = ticket(key, "Work", status);
             t.place = place;
             t
         };
-        let mut tickets = vec![
+        let tickets = vec![
             at("SHOP-41", Status::Backlog, Place::Backlog),
             at("SHOP-35", Status::Queued, Place::Waiting(None)),
             at("SHOP-33", Status::Working, Place::stage_of("dev")),
@@ -1778,70 +1728,29 @@ flow:
             at("SHOP-18", Status::WaitingForYou, Place::stage_of("review")),
             at("SHOP-26", Status::PrOpen, Place::stage_of("ship")),
         ];
-        for key in ["SHOP-1", "SHOP-2", "SHOP-3", "SHOP-4"] {
-            tickets.push(at(key, Status::Merged, Place::Done));
-        }
-        let board = |tickets: &[Ticket], width: f32| {
-            let mut columns = build(&BoardInput {
-                flow: &flow,
-                done_collapsed: done_collapsed(None, width),
-                ..input(tickets, None)
-            });
-            let layout = lay_out(&mut columns, width);
-            (columns, layout)
-        };
-        let (columns, layout) = board(&tickets, 1440. - 64. - 400.);
+        let columns = build(&BoardInput {
+            flow: &flow,
+            ..input(&tickets, None)
+        });
         assert_eq!(columns.len(), 10);
-        assert_eq!(layout.column_width, COMPACT_COLUMN_WIDTH);
-        let rails: Vec<&str> = columns
+        assert!(columns.iter().all(|c| !c.collapsed));
+        assert_eq!(columns[1].hint, Some(READY_FOR_DEV_HINT));
+        let rails: Vec<bool> = columns.iter().map(|c| c.collapsed).collect();
+        assert_eq!(
+            more_stages(columns_after(1440. - 64., 0., &rails)).as_deref(),
+            Some("3 more stages")
+        );
+        let folded = build(&BoardInput {
+            flow: &flow,
+            fold_empty: true,
+            ..input(&tickets, None)
+        });
+        let rails: Vec<&str> = folded
             .iter()
             .filter(|c| c.collapsed)
             .map(|c| c.title.as_str())
             .collect();
         assert_eq!(rails, ["Grill", "Docs", "Done"]);
-        assert_eq!(columns[1].hint, Some(READY_FOR_DEV_SHORT_HINT));
-        type Item = (String, String, Vec<(String, String)>);
-        let strip: Vec<Item> = layout
-            .strip
-            .expect("the strip")
-            .into_iter()
-            .map(|c| (c.title, c.count, c.folded))
-            .collect();
-        let item = |title: &str, count: &str| (title.to_owned(), count.to_owned(), Vec::new());
-        assert_eq!(
-            strip,
-            [
-                item("Backlog", "1"),
-                item("Ready for Dev", "1"),
-                item("Grill", "0"),
-                (
-                    "Dev".to_owned(),
-                    "1".to_owned(),
-                    vec![("Validate".to_owned(), "1".to_owned())]
-                ),
-                item("Security", "1"),
-                item("QA", "1"),
-                item("Review", "1"),
-                item("Docs", "0"),
-                item("Done · PR", "1"),
-                item("Done", "4"),
-            ]
-        );
-
-        // Wide enough once the empty stages are rails: no strip.
-        let (columns, layout) = board(&tickets, 1920. - 64.);
-        assert_eq!(layout.strip, None);
-        let rails = columns.iter().filter(|c| c.collapsed).count();
-        assert_eq!(rails, 2, "Grill and Docs; Done is open");
-        // Wider still, everything fits open: nothing folds.
-        let (columns, layout) = board(&tickets, 2600.);
-        assert!(columns.iter().all(|c| !c.collapsed) && layout.strip.is_none());
-
-        // A card in Grill: its column opens.
-        tickets.push(at("SHOP-44", Status::Working, Place::stage_of("grill")));
-        let (columns, _) = board(&tickets, 1440. - 64. - 400.);
-        let grill = columns.iter().find(|c| c.title == "Grill").unwrap();
-        assert!(!grill.collapsed);
     }
 
     /// FLW-06 (the Ready for Dev footer): while a flow change holds starts, a card that would start says why; one

@@ -408,6 +408,9 @@ pub struct ProjectSettings {
     pub resource_template_refresh: String,
     /// Globs of the files that change the schema (`db/migrations/**`), relative to the repository root (M19-e).
     pub schema_paths: Vec<String>,
+    /// How the board looks in this project (SHB-05, d0113): written by the board as the user changes it, never by
+    /// the Settings page ([`Board::set_project_view`]; saving the settings keeps the stored one).
+    pub view: ViewPrefs,
 }
 
 impl Default for ProjectSettings {
@@ -425,8 +428,96 @@ impl Default for ProjectSettings {
             resource_remove: String::new(),
             resource_template_refresh: String::new(),
             schema_paths: Vec::new(),
+            view: ViewPrefs::default(),
         }
     }
+}
+
+/// A project's view preferences (SHB-05, BRD-01…BRD-04, LST-01, EPL-01, DPV-02): each project opens as it was
+/// left, restarts included. Only a view: nothing in the flow changes. Unknown or unreadable values fall back to
+/// their defaults one by one (`read_or_default`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ViewPrefs {
+    /// Board or List (BRD-01).
+    pub view: BoardView,
+    /// The Board's lanes (EPL-01).
+    pub lanes: Lanes,
+    /// The List's grouping (LST-01): Stage by default.
+    pub group_by: GroupBy,
+    /// "Fold empty columns" in the Board's toolbar (BRD-02).
+    pub fold_empty_columns: bool,
+    /// "Hide empty stages" in the List's toolbar (LST-01).
+    pub hide_empty_stages: bool,
+    /// Dependencies on the board: On hover or Always (DPV-02).
+    pub dependencies: Dependencies,
+    /// The Board's columns folded to their rail by their ⋯ (BRD-02), by column id (`"done"`, a stage's id). Done is
+    /// folded at first: its "Done 4 →" line under the last column.
+    pub folded_columns: Vec<String>,
+    /// The epic lanes folded by their head (EPL-01), by epic key.
+    pub folded_lanes: Vec<String>,
+    /// A human check column's sections folded by their label (Review's Approved, d0087), by section id.
+    pub folded_sections: Vec<String>,
+    /// An agent column shows every card instead of its "4 more · working" fold (T-0027).
+    pub dev_unfolded: bool,
+}
+
+/// The column id of Done ([`ViewPrefs::folded_columns`]).
+pub const DONE_COLUMN: &str = "done";
+
+impl Default for ViewPrefs {
+    fn default() -> Self {
+        Self {
+            view: BoardView::Board,
+            lanes: Lanes::None,
+            group_by: GroupBy::Stage,
+            fold_empty_columns: false,
+            hide_empty_stages: false,
+            dependencies: Dependencies::OnHover,
+            folded_columns: vec![DONE_COLUMN.to_owned()],
+            folded_lanes: Vec::new(),
+            folded_sections: Vec::new(),
+            dev_unfolded: false,
+        }
+    }
+}
+
+/// The board's two views (BRD-01).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BoardView {
+    #[default]
+    Board,
+    List,
+}
+
+/// The Board's lanes (EPL-01): none, or one per epic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Lanes {
+    #[default]
+    None,
+    Epic,
+}
+
+/// The List's grouping (LST-01).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GroupBy {
+    #[default]
+    Stage,
+    Status,
+    Epic,
+    Agent,
+}
+
+/// When the board draws dependencies (DPV-02).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Dependencies {
+    #[default]
+    OnHover,
+    Always,
 }
 
 /// One project environment variable row, `NAME = value` (ENV-01). Stored and shown as written, in plain text.
@@ -577,7 +668,11 @@ impl Board {
     pub async fn project_settings(&self, project: &str) -> Result<ProjectSettings, BoardError> {
         let project = self.project(project).await?;
         let value: Value = serde_json::from_str(&project.settings_json).unwrap_or_default();
-        Ok(read_or_default(value))
+        let view = read_or_default(value.get("view").cloned().unwrap_or_default());
+        Ok(ProjectSettings {
+            view,
+            ..read_or_default(value)
+        })
     }
 
     pub async fn set_project_settings(
@@ -636,12 +731,30 @@ impl Board {
     }
 
     /// `project_settings.set`: stores a project's settings.
+    /// Saves the Settings page's project settings. The view preferences are the board's: the stored ones stay, so a
+    /// page opened before a board change never puts the old view back (SHB-05).
     pub async fn save_project_settings(
         &self,
         project: &str,
         settings: &ProjectSettings,
     ) -> Result<(), BoardError> {
-        self.set_project_settings(project, settings).await
+        let view = self.project_settings(project).await?.view;
+        let settings = ProjectSettings {
+            view,
+            ..settings.clone()
+        };
+        self.set_project_settings(project, &settings).await
+    }
+
+    /// Stores a project's view preferences (SHB-05), the rest of its settings unchanged.
+    pub async fn set_project_view(
+        &self,
+        project: &str,
+        view: &ViewPrefs,
+    ) -> Result<(), BoardError> {
+        let mut settings = self.project_settings(project).await?;
+        settings.view = view.clone();
+        self.set_project_settings(project, &settings).await
     }
 
     /// Problems with the global settings' values.

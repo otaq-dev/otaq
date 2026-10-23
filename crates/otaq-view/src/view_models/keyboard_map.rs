@@ -78,7 +78,7 @@ use KeyAction::*;
 
 /// The single letters in the drawn order, with the drawn names where they say more than the title (where they work,
 /// "Go to").
-const LETTERS: [(Option<&str>, &[KeyAction]); 12] = [
+const LETTERS: [(Option<&str>, &[KeyAction]); 13] = [
     (
         Some("Next / previous ticket (panel, inbox)"),
         &[NextTicket, PreviousTicket],
@@ -91,6 +91,7 @@ const LETTERS: [(Option<&str>, &[KeyAction]); 12] = [
     (None, &[ShowShortcuts]),
     (None, &[ExpandPanel]),
     (Some("Go to Board"), &[ShowBoard]),
+    (Some("Go to List"), &[ShowList]),
     (Some("Go to Inbox"), &[OpenInbox]),
     (Some("Go to Activity"), &[OpenActivity]),
     (Some("Go to Terminals"), &[Terminals]),
@@ -213,6 +214,7 @@ mod tests {
                 ("Show all shortcuts", vec!["?"]),
                 ("Full page / back to the sheet", vec!["e"]),
                 ("Go to Board", vec!["g", "b"]),
+                ("Go to List", vec!["g", "l"]),
                 ("Go to Inbox", vec!["g", "i"]),
                 ("Go to Activity", vec!["g", "a"]),
                 ("Go to Terminals", vec!["g", "t"]),

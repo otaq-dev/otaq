@@ -125,6 +125,7 @@ pub fn unavailable(action: KeyAction, context: &Context) -> Option<&'static str>
         | A::FilterBoard
         | A::ShowShortcuts
         | A::ShowBoard
+        | A::ShowList
         | A::OpenInbox
         | A::OpenActivity
         | A::Settings
@@ -194,6 +195,7 @@ pub fn icon(action: KeyAction) -> IconName {
         A::FocusEpic => I::Layers,
         A::ShowShortcuts => I::Keyboard,
         A::ShowBoard => I::Columns3,
+        A::ShowList => I::List,
         A::OpenActivity => I::Activity,
         A::Settings => I::Settings,
         A::FocusPane => I::Bot,

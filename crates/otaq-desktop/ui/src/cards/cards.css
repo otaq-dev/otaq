@@ -1,7 +1,7 @@
 /*
- * The Ticket Card v2 and the Epic Card (*01 · Components → Ticket Card v2*, *Epic Card*, *04 · Ticket card
- * variants*), in the theme's variables only. The Ticket Card v2 master: padding 10/12, gap 6, radius 8, head 20 px,
- * title 13.5/500 on two lines, situation line 11.5 px (mono 11 px) with a 2 px left edge, footer 11 px mono. The Epic
+ * The one-line ticket card (BRD-03, *24 · The two views*) and the Epic Card (*01 · Components → Epic Card*), in the
+ * theme's variables only. The ticket card: padding 10/12, gap 6, radius 8, the key row 20 px, title 13.5/500 on two
+ * lines, one status line 12 px with its 7 px dot, who and when 11.5 px, a 3 px coloured edge when it needs you. The Epic
  * Card keeps its own master (padding 9/10/10, radius 6). A thicker border (chain 1.5 px, the chain's own card and
  * selected 2 px) is drawn as an inset shadow, so the content never moves.
  */
@@ -74,7 +74,7 @@
   border-color: var(--focus);
 }
 
-/* ---- Ticket Card v2: its master's sizes and *Interaction states* (`Pg6dB`) ---- */
+/* ---- The ticket card: its sizes and *Interaction states* (`Pg6dB`) ---- */
 
 .ticket-card {
   --card-lift: 0 0 transparent;
@@ -93,9 +93,14 @@
   background: var(--bg-card);
 }
 
-/* A turquoise (needs you), red or violet border stays through the hover. */
-.ticket-card:not([data-outline="normal"]):hover,
-.ticket-card:not([data-outline="normal"])[data-hovered] {
+/* A card that needs the user (BRD-03): its colour all round, 3 px on the left, through the hover. */
+.ticket-card[data-edge] {
+  border-left-width: 3px;
+  padding-left: 10px;
+}
+
+.ticket-card[data-edge]:hover,
+.ticket-card[data-edge][data-hovered] {
   border-color: var(--card-outline);
 }
 
@@ -112,18 +117,9 @@
   transform: rotate(2deg);
 }
 
-/* Dimmed: outside the hovered chain. In a sleeve the whole sleeve dims instead. */
-.ticket-card[data-chain="dimmed"],
-.card-sleeve[data-chain="dimmed"] {
+/* Dimmed: outside the hovered chain. */
+.ticket-card[data-chain="dimmed"] {
   opacity: 0.4;
-}
-
-.card-sleeve[data-faded] {
-  opacity: var(--card-faded);
-}
-
-.card-sleeve > .ticket-card {
-  opacity: 1;
 }
 
 /* ---- Head: key, priority, pin, pill ---- */
@@ -222,94 +218,113 @@
   font: 500 13.5px/1.35 var(--font-ui);
 }
 
-/* ---- Situation line, origin line, footer ---- */
+/* ---- The one status line, who and when, the one action (BRD-03, *24 · The two views*) ---- */
 
-/* One line of words with the state's 2 px edge; it wraps to two lines at narrow widths (*Cards at 1280*). */
-.card-situation,
-.card-origin {
+/* A 7 px dot in the state's colour, then 12 px words, two lines at most. */
+.card-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.card-status-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.card-status-text {
   display: -webkit-box;
   overflow: hidden;
-  padding: 1px 0 1px 8px;
-  border-left: 2px solid var(--edge);
-  font: 400 11.5px/1.4 var(--font-ui);
+  flex: 1;
+  min-width: 0;
+  font: 400 12px/1.35 var(--font-ui);
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   line-clamp: 2;
 }
 
-/* A command ("Allow rm -rf .next?"). */
-.card-situation[data-mono] {
-  font: 400 11px/1.4 var(--font-mono);
-}
-
 /* "Created by Checkout slowness": violet, agent-made (d0068). */
 .card-origin {
-  --edge: var(--st-investigate);
-  color: var(--st-investigate);
-}
-
-.card-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 15px;
-  color: var(--text-muted);
-  font: 400 11px var(--font-mono);
-}
-
-/* The agent part (M22, *Ticket Card v2 → Footer → Agent*): fills the left, two lines at most; violet when an agent
- * picked it (d0077). */
-.card-footer-agent {
-  display: -webkit-box;
   overflow: hidden;
-  flex: 1;
-  min-width: 0;
-  color: var(--text-secondary);
-  font: 400 11.5px/1.35 var(--font-ui);
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.card-footer-agent[data-picked] {
   color: var(--st-investigate);
-}
-
-.card-footer-value {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 3px;
+  font: 400 11.5px/1.35 var(--font-ui);
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* The last signal turns amber when it gets old: not you, but soon (*Working · stale signal*). */
-.card-footer-value[data-stale] {
+/* The tool mark (16 px) and the agent's name, the time, the one action on the right. */
+.card-who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 16px;
+}
+
+.card-who-name {
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-time {
+  flex: none;
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+  white-space: nowrap;
+}
+
+/* The last signal turns amber when it gets old: not you, but soon. */
+.card-time[data-stale] {
   color: var(--st-paused);
 }
 
-/* The one action: a 24 px button, 8 px sides, 11.5 px label (*Ticket Card v2 → Footer → Action*); a second one
- * beside it (Use fallback · Open agent…, *03 → A model that can't run*). */
-.card-footer .card-action {
+/* The one action: a 24 px button, 8 px sides, 11.5 px label. */
+.card-who .card-action {
   flex: none;
-  gap: 6px;
 }
 
-.card-footer .card-action > .button {
+.card-who .card-action > .button {
   flex: none;
   padding: 0 8px;
   font-size: 11.5px;
 }
 
-/* Send back with PR comments over Mark merged, Skip this check over Open agent… (`s03-46`, `s03-54`). */
-.card-footer .card-action[data-stacked] {
-  flex-direction: column;
-  align-items: flex-start;
+/* The epic's name on the key's row (an epic child): a quiet chip that gives way with …. */
+.card-epic {
+  display: inline-flex;
+  overflow: hidden;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-column);
+  color: var(--text-secondary);
 }
 
-/* The lead's markers (d0083, T-0291): a light hover card with the note, the files or the lead's view
- * (*04 → Row · Unread notes & same file → HOVER*, *03 → 25*). */
+.card-epic > .icon {
+  flex: none;
+}
+
+.card-epic-name {
+  overflow: hidden;
+  min-width: 0;
+  font: 500 11px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The key row's hover: the full status and what the card has no room for, in a light hover card. */
 .card-hover-anchor {
   display: flex;
   min-width: 0;
@@ -360,134 +375,6 @@
 .card-hover-text[data-muted] {
   color: var(--text-muted);
   font-size: 11.5px;
-}
-
-/* ---- Answer options (ATT-12), the compact list ---- */
-
-.card-options {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.card-option {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 3px 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-raised);
-  color: var(--text-primary);
-  font: 400 12px var(--font-ui);
-  text-align: left;
-  cursor: pointer;
-}
-
-.card-option:hover {
-  background: var(--bg-hover);
-}
-
-.card-option[data-picked] {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.card-option-number {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  box-sizing: border-box;
-  border: 1px solid var(--border-strong);
-  border-radius: 3px;
-  color: var(--text-secondary);
-  font: 400 10px var(--font-mono);
-}
-
-.card-option-label {
-  overflow: hidden;
-  flex: 1;
-  min-width: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-option[data-picked]:not([data-other]) .card-option-label {
-  font-weight: 600;
-}
-
-.card-option[data-other] .card-option-label {
-  color: var(--text-muted);
-}
-
-.card-option-rec {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 3px;
-  padding: 0 5px;
-  border-radius: 4px;
-  background: var(--st-approved-bg);
-  color: var(--st-approved);
-  font: 400 10px var(--font-ui);
-}
-
-/* ---- Epic Sleeve v2 (`SoOAD`, EPC-09): an epic child's violet band around its card ---- */
-
-.card-sleeve {
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  padding: 0 2px 2px;
-  border-radius: 9px;
-  background: var(--st-investigate-bg);
-}
-
-.card-sleeve > .ticket-card {
-  border-radius: 7px;
-}
-
-/* A plain child card takes the sleeve's hairline violet border; a turquoise or red one keeps its own. */
-.card-sleeve
-  > .ticket-card[data-outline="normal"]:not(:hover, [data-hovered], [data-selected], [data-chain]) {
-  --card-ring: 0px;
-  border-color: color-mix(in srgb, var(--st-investigate) 50%, transparent);
-}
-
-.card-sleeve-band {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  padding: 4px 6px;
-  color: var(--st-investigate);
-}
-
-.card-sleeve-band > .icon,
-.card-sleeve-pin {
-  display: inline-flex;
-  flex: none;
-}
-
-/* The epic's name gives way with …; the position never does (*1280 × 800 → Sleeve*). */
-.card-sleeve-name {
-  overflow: hidden;
-  min-width: 0;
-  font: 600 11px var(--font-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-sleeve-position {
-  flex: none;
-  font: 400 10.5px var(--font-mono);
-  white-space: nowrap;
 }
 
 /* ---- Actions and quick actions ---- */

@@ -626,6 +626,10 @@ pub enum Request {
     ProjectSettingsGet(ProjectParams),
     #[serde(rename = "project_settings.set")]
     ProjectSettingsSet(ProjectSettingsParams),
+    /// `{"project": "SHOP", "view": {...}}`: stores the project's view preferences (SHB-05), the rest of its
+    /// settings unchanged. Answered with [`Reply::Ok`].
+    #[serde(rename = "project_view.set")]
+    ProjectViewSet(ProjectViewParams),
 
     // A project's flow (FLW-01).
     /// `{"project": "SHOP"}`: the flow the project runs, its current stored version. Answered with
@@ -1663,6 +1667,13 @@ pub struct ProjectSettingsParams {
     pub settings: Box<ProjectSettings>,
 }
 
+/// A project's view preferences (`project_view.set`, SHB-05).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectViewParams {
+    pub project: String,
+    pub view: crate::board::settings::ViewPrefs,
+}
+
 /// A checklist row's tool and what to run for it (`tools.terminal`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolTerminalParams {
@@ -1915,6 +1926,7 @@ impl Request {
             Self::SettingsSet(_) => "settings.set",
             Self::ProjectSettingsGet(_) => "project_settings.get",
             Self::ProjectSettingsSet(_) => "project_settings.set",
+            Self::ProjectViewSet(_) => "project_view.set",
             Self::FlowCurrent(_) => "flow.current",
             Self::FlowVersions(_) => "flow.versions",
             Self::FlowProposal(_) => "flow.proposal",

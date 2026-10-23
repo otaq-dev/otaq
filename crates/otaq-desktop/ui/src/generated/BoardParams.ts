@@ -2,14 +2,10 @@
 import type { BoardFilter } from "./BoardFilter";
 
 /**
- * What the page sends with `board.view`: the project, the board's size (for the Done rail and Dev's fold) and the
- * user's own choices, kept per project by the page.
+ * What the page sends with `board.view`: the project and the board's size (for the "more stages" pill and Dev's
+ * fold). The view preferences are the service's (SHB-05), read by `board.view` itself.
  */
 export type BoardParams = { project: string, width: number, height: number, 
-/**
- * The user folded (`true`) or opened (`false`) Done; `None` follows the width.
- */
-done_collapsed: boolean | null, dev_unfolded: boolean, 
 /**
  * The header's search and filter (T-0221): cards that don't match hide, and each column says how many.
  */

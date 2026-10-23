@@ -211,15 +211,16 @@ doesn't). Esc or its close button leaves it. A new shared component gets a place
 
 ## Cards
 
-The Ticket Card and the Epic Card (_04 · Ticket card variants_, T-0218; Ticket Card v2 since T-0322, SHL-07) are in
+The ticket card and the Epic Card (_24 · The two views_; the one-line card of BRD-03 since T-0460) are in
 `ui/src/cards/`: `import { EpicCard, TicketCard, stateOfLook } from "../../cards";`. They draw a `TicketCardView` /
 `EpicCardView`, which `otaq_view::view_models::card_page` builds from the card view models with every text already
-worded: the head flag (the highest of the flag order, ≤ 12 characters), the situation line (its edge colour, mono or
-not, the hovers of the lead's markers), the origin line, the footer (tokens, last signal, one action), the hover's full
-status, the quick actions, the compact answer options, "Add ticket to epic". The board passes the moment of interaction
-as a `CardState` (selected, chain highlighted or dimmed, dragging, hovered). `look.ts` turns each union of the view
-(tone, outline, epic child state, gallery look) into theme colours with an exhaustive switch; a variant added in Rust
-fails the linter and `cards.test.ts` until it has a drawing. The gallery shows every fixture of `card_fixtures.rs`
+worded: the key (and the epic's name for an epic child), the title, one status line (its words and its dot's colour,
+`card::status_line`), who and when, the coloured edge of a card that needs you and its one action (Answer, Reply,
+Review, Decide…); the key row's hover has the full status and what the card has no room for. The pill, the model, the
+tokens and the answer options are the ticket's sheet's. The board passes the moment of interaction as a `CardState`
+(selected, chain highlighted or dimmed, dragging, hovered). `look.ts` turns each union of the view (tone, palette, epic
+child state, gallery look) into theme colours with an exhaustive switch; a variant added in Rust fails the linter and
+`cards.test.ts` until it has a drawing. The gallery shows every fixture of `card_fixtures.rs`
 (`gallery.cards`) at the card width and at 1280.
 
 ## The ticket sheet
@@ -305,6 +306,15 @@ the toasts and their time-outs. The page draws `notices.view` and each `notices`
 - **Notification clicks** bring the window forward and land in the selection store: the project and the ticket on its
   Terminal tab, plus a `terminalFocusRequests` entry (`ui/src/app/selection.ts`) the Terminal tab answers by focusing
   the terminal; a grouped notification opens the inbox.
+
+## View preferences
+
+How a project's board looks (Board or List, Lanes, Group by, Fold empty columns, Hide empty stages, Dependencies, the
+folded columns, lanes and sections) is kept by the service in `ProjectSettings.view` (SHB-05), never in the page.
+`board.view` reads it and sends it with the board (`prefs`, and the `toolbar` worded from it,
+`otaq_view::view_models::view_prefs`); the page changes one thing at a time with `board.set_view` (a `ViewChange`,
+stored with `project_view.set`) and asks for the board again. The page keeps only where each column was scrolled
+(`screens/board/prefs.ts`).
 
 ## Search, the card menu and deleting
 

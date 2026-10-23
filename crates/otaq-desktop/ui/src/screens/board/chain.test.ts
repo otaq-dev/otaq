@@ -69,18 +69,16 @@ const card = (key: string): BoardCard => {
   const view: TicketCardView = {
     key,
     key_label: key,
-    avatar: null,
-    pinned: false,
-    priority: null,
-    flag: null,
+    epic: null,
     title: "Checkout page",
-    situation: null,
+    status: null,
+    avatar: null,
+    who: null,
+    time: null,
+    edge: null,
+    action: null,
     origin: null,
-    options: [],
-    footer: null,
     hover: { status: "Ready for Dev", details: [] },
-    sleeve: null,
-    outline: "normal",
     faded: null,
     fresh: false,
     open_panel: "Open panel",
@@ -102,7 +100,9 @@ const column = (over: Partial<BoardColumn>): BoardColumn => ({
   hint: null,
   empty_hint: "",
   collapsed: false,
-  toggle: null,
+  rail: null,
+  menu: [],
+  menu_label: "Column menu",
   hidden: null,
   cards: [card("SHOP-20"), card("SHOP-28")],
   sections: [],
@@ -131,8 +131,7 @@ const props = (c: BoardColumn, chain: ChainView | null): ColumnProps => ({
   },
   scrollTop: 0,
   onScroll: () => undefined,
-  onToggleDone: () => undefined,
-  onUnfold: () => undefined,
+  onView: () => undefined,
   onAdd: () => undefined,
   element: () => undefined,
 });
@@ -146,17 +145,23 @@ describe("a column under the chain highlight", () => {
     expect(plain).not.toContain("data-chain");
   });
 
-  it("names members folded in the Done rail and behind Dev's fold", () => {
-    const done = column({
-      id: "done",
-      title: "Done",
+  it("marks a folded column's rail and Dev's fold when they hide members", () => {
+    const review = column({
+      id: "review",
+      title: "Review",
       collapsed: true,
-      toggle: "Expand Done",
+      rail: {
+        tooltip: "Review · 2 tickets",
+        hint: "Click to unfold",
+        dot: false,
+        unfold: { kind: "fold_column", column: "review", folded: false },
+      },
       cards: [card("SHOP-17"), card("SHOP-9")],
     });
-    const rail = renderToStaticMarkup(createElement(Column, props(done, SHOP_20)));
-    expect(rail).toContain('<span class="board-rail-chain">SHOP-17</span>');
-    expect(rail).not.toContain(">SHOP-9<");
+    const rail = renderToStaticMarkup(createElement(Column, props(review, SHOP_20)));
+    expect(rail).toContain('class="board-rail" data-column="review" data-chain="true"');
+    const calm = renderToStaticMarkup(createElement(Column, props(review, null)));
+    expect(calm).not.toContain("data-chain");
     const dev = column({
       id: "dev",
       title: "Dev",

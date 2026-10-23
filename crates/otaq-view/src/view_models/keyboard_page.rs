@@ -1267,6 +1267,7 @@ mod tests {
             ("Focus the epic of the selected card", vec!["g then e"]),
             ("Show all shortcuts", vec!["?"]),
             ("Board", vec!["⇧⌘B", "g then b"]),
+            ("List", vec!["g then l"]),
             ("Inbox", vec!["⇧⌘I", "g then i"]),
             ("Activity", vec!["⇧⌘U", "g then a"]),
             ("Settings", vec!["⌘,"]),

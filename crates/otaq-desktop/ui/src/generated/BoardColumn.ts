@@ -2,6 +2,8 @@
 import type { BoardCard } from "./BoardCard";
 import type { BoardColumnId } from "./BoardColumnId";
 import type { BoardColumnKind } from "./BoardColumnKind";
+import type { BoardColumnMenuItem } from "./BoardColumnMenuItem";
+import type { BoardColumnRail } from "./BoardColumnRail";
 import type { BoardColumnTooltip } from "./BoardColumnTooltip";
 import type { BoardDevSections } from "./BoardDevSections";
 import type { BoardDoneFold } from "./BoardDoneFold";
@@ -41,14 +43,21 @@ hint: string | null,
  */
 empty_hint: string, 
 /**
- * Drawn as the 34 px rail: Done folded, or an empty stage of a long flow (FLW-12).
+ * Folded (BRD-02): a stage's rail ([`ColumnRail`]); Done's is the board's "Done 4 →" line ([`DoneLine`]).
  */
 collapsed: boolean, 
 /**
- * Done only: the header button's (and the rail's) tooltip ("Collapse Done" / "Expand Done"); a click on it
- * folds or opens Done. An empty stage's rail has none: it opens when a card comes.
+ * The folded column's rail; `null` while it is open, and for Done.
  */
-toggle: string | null, 
+rail: BoardColumnRail | null, 
+/**
+ * Its ⋯ menu on hover (BRD-04); Backlog has none.
+ */
+menu: Array<BoardColumnMenuItem>, 
+/**
+ * The ⋯ button's name ("Column menu").
+ */
+menu_label: string, 
 /**
  * "6 hidden by filter".
  */

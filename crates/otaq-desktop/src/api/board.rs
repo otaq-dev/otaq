@@ -36,6 +36,10 @@
 //! Lead row on epic cards and the lead's line on tracks; `board.lead_open` is the card's Open lead (`lead.open`)
 //! and `board.lead_resume` the Resume of an ended lead (`lead.resume`).
 //!
+//! T-0460 (SHB-05, BRD-01…BRD-04; d0113): `board.view` reads the project's view preferences from the service
+//! (`ProjectSettings.view`: Board or List, lanes, folds) and the page changes one at a time with `board.set_view`
+//! (`project_view.set`); nothing is kept in the page.
+//!
 //! T-0362 (AGT-08, SHL-08; d0086, d0087): `board.agents` also brings the connected tools (avatars once two are
 //! connected, here and on every screen through `tool_avatar::set_connected`), each card's holds and row moves.
 
@@ -44,9 +48,10 @@ use otaq_core::board::stage_choices::StageOptions;
 use otaq_core::board::tickets::{Base, EventKind, Ticket};
 use otaq_core::domain::Status;
 use otaq_core::flow::Flow;
+use otaq_core::board::settings::ViewPrefs;
 use otaq_core::protocol::{
-    CloseParams, DragParams, EpicQueueParams, IdParams, KeyParams, LeadParams, ProjectParams, Reply,
-    Request, TicketChoicesParams,
+    CloseParams, DragParams, EpicQueueParams, IdParams, KeyParams, LeadParams, ProjectParams,
+    ProjectViewParams, Reply, Request, TicketChoicesParams,
 };
 use otaq_core::review::ReturnOutcome;
 use otaq_view::view_models::board_page::{
@@ -59,6 +64,7 @@ use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::search_page::{self, FilterState, SearchView};
 use otaq_view::view_models::send_back as sb;
 use otaq_view::view_models::terminal_strip::{Click, UnsentPrompt};
+use otaq_view::view_models::view_prefs::{self, Change};
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
 use serde::Deserialize;
 use serde_json::Value;
@@ -71,6 +77,7 @@ use crate::App;
 pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
     match method {
         "board.view" => reply(&view(app, parse(params)?).await?),
+        "board.set_view" => reply(&set_view(app, parse(params)?).await?),
         "board.drag" => reply(&drag(app, parse(params)?).await?),
         "board.drop" => reply(&drop(app, parse(params)?).await?),
         "board.park" => reply(&park(app, parse(params)?).await?),
@@ -146,6 +153,14 @@ pub struct FocusParams {
     pub key: Option<String>,
 }
 
+/// What `board.set_view` takes: the project and one change of its view preferences (SHB-05).
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "BoardSetViewParams")]
+pub struct SetViewParams {
+    pub project: String,
+    pub change: Change,
+}
+
 /// What `board.menu_choose` takes: the card and the chosen item's id.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "CardMenuParams")]
@@ -194,6 +209,38 @@ async fn ticket(app: &App, key: &str) -> Result<Ticket, RequestError> {
     {
         Reply::Ticket(ticket) => Ok(*ticket),
         other => Err(unexpected("ticket.get", &other)),
+    }
+}
+
+/// The project's view preferences (SHB-05), from the service; the defaults when they can't be read.
+pub(crate) async fn view_prefs(app: &App, project: &str) -> ViewPrefs {
+    match app
+        .service
+        .send(Request::ProjectSettingsGet(ProjectParams {
+            project: project.to_owned(),
+        }))
+        .await
+    {
+        Ok(Reply::ProjectSettings(reply)) => reply.settings.view,
+        _ => ViewPrefs::default(),
+    }
+}
+
+/// One change of the view preferences, stored by the service (`project_view.set`); the page then asks for the
+/// board again.
+pub async fn set_view(app: &App, params: SetViewParams) -> Result<(), RequestError> {
+    let mut view = view_prefs(app, &params.project).await;
+    view_prefs::apply(&mut view, &params.change);
+    match app
+        .service
+        .send(Request::ProjectViewSet(ProjectViewParams {
+            project: params.project,
+            view,
+        }))
+        .await?
+    {
+        Reply::Ok => Ok(()),
+        other => Err(unexpected("project_view.set", &other)),
     }
 }
 
@@ -285,6 +332,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         _ => None,
     };
     let flow = flow(app, &params.project).await;
+    let view = view_prefs(app, &params.project).await;
     let page = board_page::page(
         &tickets,
         &ProjectFacts {
@@ -299,6 +347,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
             agents: agents.as_ref(),
             agent_list: agent_list.as_ref(),
             starts_held,
+            view: &view,
         },
         &params,
         otaq_core::store::now_ms(),
@@ -723,14 +772,26 @@ mod tests {
         else {
             panic!("no project");
         };
-        let params = json!({ "project": project.key, "width": 1376.0, "height": 856.0,
-                             "done_collapsed": null, "dev_unfolded": false });
+        let params = json!({ "project": project.key, "width": 1376.0, "height": 856.0 });
 
         // No tickets yet: the empty board over the six columns.
         let view = request(&h.app, "board.view", params.clone()).await.unwrap();
         assert_eq!(view["empty"]["title"], "shop-web is ready");
         // Validate has its own column (FLW-01): Backlog · Ready for Dev · Dev · Validate · Review · Done.
         assert_eq!(view["columns"].as_array().map(Vec::len), Some(6));
+        // The view preferences are the service's (SHB-05): Done folded at first, a fold from Dev's ⋯ comes back.
+        assert_eq!(view["prefs"]["folded_columns"], json!(["done"]));
+        assert_eq!(view["done"]["text"], "Done 0 \u{2192}");
+        let fold = json!({ "project": project.key, "change": { "kind": "fold_column", "column": "dev", "folded": true } });
+        request(&h.app, "board.set_view", fold).await.unwrap();
+        let list = json!({ "project": project.key, "change": { "kind": "view", "view": "list" } });
+        request(&h.app, "board.set_view", list).await.unwrap();
+        let view = request(&h.app, "board.view", params.clone()).await.unwrap();
+        assert_eq!(view["columns"][2]["collapsed"], true);
+        assert_eq!(view["prefs"]["view"], "list");
+        assert_eq!(view["toolbar"]["views"]["options"][1]["selected"], true);
+        let back = json!({ "project": project.key, "change": { "kind": "view", "view": "board" } });
+        request(&h.app, "board.set_view", back).await.unwrap();
 
         let mut keys = Vec::new();
         for title in ["Update footer links", "Old idea"] {
@@ -758,7 +819,7 @@ mod tests {
         assert_eq!(view["columns"][0]["count"], "2");
         assert_eq!(view["columns"][0]["cards"][0]["kind"], "ticket");
         assert_eq!(view["columns"][4]["sections"][1]["empty"], "Nothing approved");
-        assert_eq!(view["min_column_width"], 200.0);
+        assert_eq!(view["min_column_width"], 180.0);
 
         // An agent filter for an agent the service doesn't know filters nothing and shows no chip.
         let mut gone = params.clone();
@@ -849,8 +910,7 @@ mod tests {
             )
             .await;
         }
-        let params = json!({ "project": project.key, "width": 1376.0, "height": 856.0,
-                             "done_collapsed": null, "dev_unfolded": false });
+        let params = json!({ "project": project.key, "width": 1376.0, "height": 856.0 });
         let view = request(&h.app, "board.view", params).await.unwrap();
         let cards = view["columns"][0]["cards"].as_array().unwrap();
         assert_eq!(cards.len(), 2);
@@ -904,8 +964,8 @@ mod tests {
         let view = request(
             &h.app,
             "board.view",
-            json!({ "project": project.key, "width": 1376.0, "height": 856.0, "done_collapsed": null,
-                    "dev_unfolded": false, "filter": { "tokens": [], "text": "checkout" } }),
+            json!({ "project": project.key, "width": 1376.0, "height": 856.0,
+                    "filter": { "tokens": [], "text": "checkout" } }),
         )
         .await
         .unwrap();
@@ -1051,8 +1111,8 @@ mod tests {
         let view = request(
             &h.app,
             "board.view",
-            json!({ "project": project.key, "width": 1376.0, "height": 856.0, "done_collapsed": null,
-                    "dev_unfolded": false, "filter": focused }),
+            json!({ "project": project.key, "width": 1376.0, "height": 856.0,
+                    "filter": focused }),
         )
         .await
         .unwrap();
@@ -1240,8 +1300,6 @@ mod tests {
                 "project": project.key,
                 "width": 1376.0,
                 "height": 856.0,
-                "done_collapsed": null,
-                "dev_unfolded": false,
                 "filter": { "tokens": [], "text": "" },
             }),
         )

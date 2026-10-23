@@ -139,6 +139,7 @@ mod usage;
 mod validation;
 mod validation_reports;
 mod validation_states;
+mod view_prefs;
 mod waiting;
 mod warm_clone;
 mod warm_keep;

@@ -198,6 +198,7 @@ export function cardRoute(kind: CardActionKind): CardRoute {
     // Answer, Reply and Open (Ticket Card v2): the panel the click opens is where it is dealt with.
     case "open":
     case "review":
+    case "decide": // BRD-03: a check out of rounds; the choices are in the ticket (T-0460).
       return { kind: "none" };
   }
 }

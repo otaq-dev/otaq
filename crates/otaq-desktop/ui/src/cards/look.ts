@@ -2,9 +2,9 @@
 // exhaustive switch here (the linter's switch-exhaustiveness-check fails on a missing case), and each list of
 // variants below is checked against its union, so a variant added in Rust can't go undrawn.
 import type { CardLook } from "../generated/CardLook";
-import type { CardOutline } from "../generated/CardOutline";
 import type { CardTone } from "../generated/CardTone";
 import type { EpicChildState } from "../generated/EpicChildState";
+import type { PillPalette } from "../generated/PillPalette";
 
 /** A tone's ink and its soft background, as CSS colours from the theme's variables. */
 export interface Ink {
@@ -40,18 +40,34 @@ export function toneInk(tone: CardTone): Ink {
   }
 }
 
-/** The card's border colour for its outline (turquoise: blocked on you; red: a closed parent blocks it; violet: a
- * never-started child the epic's lead added). */
-export function outlineColor(outline: CardOutline): string {
-  switch (outline) {
-    case "normal":
-      return "var(--border)";
-    case "attention":
+/** The coloured edge of a card that needs the user (BRD-03): its border and its 3 px left side. */
+export function edgeColor(tone: CardTone): string {
+  return toneInk(tone).fg;
+}
+
+/** A status line's dot: the state's colour (the status pills' pairs, `components.css`). */
+export function paletteInk(palette: PillPalette): string {
+  switch (palette) {
+    case "attn":
       return "var(--st-attn)";
     case "error":
       return "var(--st-error)";
+    case "review":
+      return "var(--st-review)";
+    case "paused":
+      return "var(--st-paused)";
+    case "working":
+      return "var(--st-working)";
+    case "queued":
+      return "var(--st-queued)";
+    case "approved":
+      return "var(--st-approved)";
+    case "done":
+      return "var(--st-done)";
     case "epic":
       return "var(--st-investigate)";
+    case "pinned":
+      return "var(--accent)";
   }
 }
 
@@ -135,7 +151,18 @@ export const TONES = every<CardTone>()([
   "passed",
   "paused",
 ] as const);
-export const OUTLINES = every<CardOutline>()(["normal", "attention", "error", "epic"] as const);
+export const PALETTES = every<PillPalette>()([
+  "attn",
+  "error",
+  "review",
+  "paused",
+  "working",
+  "queued",
+  "approved",
+  "done",
+  "epic",
+  "pinned",
+] as const);
 export const CHILD_STATES = every<EpicChildState>()(["merged", "closed", "working", "not_started"] as const);
 export const LOOKS = every<CardLook>()([
   "plain",

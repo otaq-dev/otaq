@@ -6,7 +6,7 @@ import type { BoardColumnId } from "../../../generated/BoardColumnId";
 import type { EpicStop } from "../../../generated/EpicStop";
 import type { EpicStrip } from "../../../generated/EpicStrip";
 import type { EpicTrack } from "../../../generated/EpicTrack";
-import { boardPrefs, prefsOf, toggleStripFold } from "../prefs";
+import { stripFolded, stripFolds, toggleStripFold } from "./fold";
 import {
   barWidth,
   fitStation,
@@ -25,7 +25,7 @@ import {
 import { Strip, type StripHandlers } from "./Strip";
 
 afterEach(() => {
-  boardPrefs.set({});
+  stripFolds.set({});
 });
 
 function stop(
@@ -318,12 +318,12 @@ describe("the narrow-stop rule", () => {
 
 describe("fold state", () => {
   it("folds and unfolds per project", () => {
-    expect(prefsOf(boardPrefs.get(), "SHOP").stripFolded).toBe(false);
+    expect(stripFolded(stripFolds.get(), "SHOP")).toBe(false);
     toggleStripFold("SHOP");
-    expect(prefsOf(boardPrefs.get(), "SHOP").stripFolded).toBe(true);
-    expect(prefsOf(boardPrefs.get(), "PAY").stripFolded).toBe(false);
+    expect(stripFolded(stripFolds.get(), "SHOP")).toBe(true);
+    expect(stripFolded(stripFolds.get(), "PAY")).toBe(false);
     toggleStripFold("SHOP");
-    expect(prefsOf(boardPrefs.get(), "SHOP").stripFolded).toBe(false);
+    expect(stripFolded(stripFolds.get(), "SHOP")).toBe(false);
   });
 
   it("folded, the strip is its one line with a chip per epic", () => {

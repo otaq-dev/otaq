@@ -2,17 +2,17 @@ import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import type { CardHover } from "../generated/CardHover";
 import type { EpicCardView } from "../generated/EpicCardView";
 import type { TicketCardView } from "../generated/TicketCardView";
 import { EpicCard, TicketCard } from ".";
-import { HoverCard, StatusHoverCard } from "./TicketCard";
+import { StatusHoverCard } from "./TicketCard";
 import {
   CHILD_STATES,
   childInk,
+  edgeColor,
   LOOKS,
-  OUTLINES,
-  outlineColor,
+  PALETTES,
+  paletteInk,
   segmentFill,
   stateOfLook,
   toneInk,
@@ -21,40 +21,38 @@ import {
 
 const html = (element: ReactElement) => renderToStaticMarkup(element);
 
-// The shape of *Needs you + running + 2 dependencies* as `card_page.rs` serves it (Ticket Card v2).
+// SHOP-22 of *24 · The two views* as `card_page.rs` serves it (BRD-03): one status line, who, the edge, one action.
 const SHOP_22: TicketCardView = {
   key: "SHOP-22",
   key_label: "SHOP-22",
-  avatar: null,
-  pinned: false,
-  priority: null,
-  flag: { palette: "attn", icon: "hand", label: "Needs you" },
+  epic: null,
   title: "Fix flaky login redirect",
-  situation: {
-    text: "Allow rm -rf .next? · also running :4022 · after SHOP-18, SHOP-19",
-    edge: "attention",
-    text_tone: "secondary",
-    mono: false,
-    hovers: [],
-  },
+  status: { text: "Needs you: allow rm -rf .next?", dot: "attn", tone: "attention" },
+  avatar: null,
+  who: "Rust developer",
+  time: null,
+  edge: "attention",
+  action: { kind: "open", label: "Answer", icon: null, primary: true },
   origin: null,
-  options: [],
-  footer: {
-    agent: null,
-    tokens: null,
-    signal: null,
-    action: { kind: "open", label: "Answer", icon: null, primary: false },
-    second: null,
-    stacked: false,
-  },
   hover: { status: "Needs you · permission", details: ["Tokens: 64k"] },
-  sleeve: null,
-  outline: "attention",
   faded: null,
   fresh: false,
   open_panel: "Open panel",
   open_panel_keys: "↵",
   open_terminal: "Open terminal",
+};
+
+// SHOP-29: working, an epic child, no action.
+const SHOP_29: TicketCardView = {
+  ...SHOP_22,
+  key: "SHOP-29",
+  key_label: "SHOP-29",
+  epic: "Checkout",
+  title: "Coupon field",
+  status: { text: "Working · back from Security", dot: "working", tone: "secondary" },
+  time: { text: "8m", stale: false },
+  edge: null,
+  action: null,
 };
 
 const WISHLIST: EpicCardView = {
@@ -86,17 +84,19 @@ const WISHLIST: EpicCardView = {
 };
 
 describe("every union the card draws has a drawing", () => {
-  it("tones, outlines, epic children and gallery looks", () => {
+  it("tones, palettes, epic children and gallery looks", () => {
     for (const tone of TONES) {
       const { fg, bg } = toneInk(tone);
       expect(fg, tone).toMatch(/^var\(--/);
       expect(bg, tone).toMatch(/^var\(--/);
+      expect(edgeColor(tone)).toBe(fg);
     }
     // Each tone has its own ink, except the amber edge of a skip (`paused`), whose words stay calm (FLW-14).
     const own = TONES.filter((t) => t !== "paused");
     expect(new Set(own.map((t) => toneInk(t).fg)).size).toBe(own.length);
     expect(toneInk("paused").fg).toBe(toneInk("warning").fg);
-    for (const outline of OUTLINES) expect(outlineColor(outline)).toMatch(/^var\(--/);
+    for (const palette of PALETTES) expect(paletteInk(palette)).toMatch(/^var\(--/);
+    expect(new Set(PALETTES.map(paletteInk)).size).toBe(PALETTES.length);
     for (const state of CHILD_STATES) {
       expect(childInk(state)).toMatch(/^var\(--/);
       expect(segmentFill(state)).toMatch(/^var\(--/);
@@ -106,217 +106,66 @@ describe("every union the card draws has a drawing", () => {
   });
 });
 
-describe("the Ticket Card v2 draws its view", () => {
-  it("head flag, two-line title, situation line, the footer's one action", () => {
+describe("the one-line card draws its view (BRD-03)", () => {
+  it("key, two-line title, one status line with its dot, who, the coloured edge and one action", () => {
     const out = html(createElement(TicketCard, { card: SHOP_22 }));
     expect(out).toContain('<span class="card-key">SHOP-22</span>');
-    expect(out).toContain('data-palette="attn"');
-    expect(out).toContain("<span>Needs you</span>");
     expect(out).toContain('class="card-title">Fix flaky login redirect</div>');
-    expect(out).toContain("Allow rm -rf .next? · also running :4022 · after SHOP-18, SHOP-19");
-    expect(out).not.toContain("data-mono");
-    expect(out).toContain('class="card-footer"');
+    expect(out).toContain("Needs you: allow rm -rf .next?");
+    expect(out).toContain('class="card-status-dot" style="background:var(--st-attn)"');
+    expect(out).toContain('class="card-status-text" style="color:var(--st-attn)"');
+    expect(out).toContain('<span class="card-who-name">Rust developer</span>');
     expect(out).toContain("<span>Answer</span>");
+    expect(out).toContain('data-edge="attention"');
     expect(out).toContain("--card-outline:var(--st-attn)");
     expect(out).not.toContain("card-quick");
     expect(out).not.toContain("tool-avatar");
-  });
-
-  it("each part only when the view has it: no flag (no empty chip), no line, no origin, no footer", () => {
-    const out = html(
-      createElement(TicketCard, { card: { ...SHOP_22, flag: null, situation: null, footer: null } }),
-    );
     expect(out).not.toContain("status-pill");
-    expect(out).not.toContain("card-situation");
-    expect(out).not.toContain("card-origin");
-    expect(out).not.toContain("card-footer");
-    expect(out).not.toContain("card-pin");
-    expect(out).not.toContain("priority-chip");
-    expect(out).not.toContain("card-options");
   });
 
-  it("the head's optional parts: tool avatar (when shown), pin, priority", () => {
+  it("a working epic child: its epic's name on the key's row, calm words, the time, no edge and no button", () => {
+    const out = html(createElement(TicketCard, { card: SHOP_29 }));
+    expect(out).toContain('<span class="card-epic-name">Checkout</span>');
+    expect(out).toContain('style="color:var(--text-secondary)">Working · back from Security</span>');
+    expect(out).toContain('<span class="card-time">8m</span>');
+    expect(out).not.toContain("data-edge");
+    expect(out).not.toContain("card-action");
+  });
+
+  it("a calm Backlog card is its key and title only", () => {
     const out = html(
       createElement(TicketCard, {
-        card: {
-          ...SHOP_22,
-          avatar: {
-            tool: "claude_code",
-            letters: "CC",
-            background: "tool-cc",
-            foreground: "tool-cc-fg",
-            hover: "Claude Code · Opus",
-          },
-          pinned: true,
-          priority: {
-            number: 1,
-            short: "P1",
-            word: "Urgent",
-            label: "P1 · Urgent",
-            icon: "chevrons-up",
-            ink: "inverted",
-          },
-        },
+        card: { ...SHOP_22, status: null, who: null, edge: null, action: null, avatar: null },
       }),
     );
-    const head = out.slice(out.indexOf('class="card-head"'), out.indexOf('class="card-title"'));
-    expect(head).toMatch(/tool-avatar.*CC.*card-key.*card-pin.*priority-chip.*status-pill/s);
+    expect(out).not.toContain("card-status");
+    expect(out).not.toContain("card-who");
+    expect(out).not.toContain("card-epic");
   });
 
-  it("the hover shows the full status and what the card has no room for, from the head", () => {
-    const out = html(createElement(TicketCard, { card: SHOP_22 }));
-    expect(out).toMatch(
-      /^<article[^>]*><span class="card-hover-anchor" role="presentation"><div class="card-head">/,
-    );
-    const hover = html(createElement(StatusHoverCard, { hover: SHOP_22.hover }));
-    expect(hover).toContain("<strong>Needs you · permission</strong>");
-    expect(hover).toContain('data-muted="true">Tokens: 64k</span>');
+  it("the hover shows the full status and what the card has no room for, from the key's row", () => {
+    const out = html(createElement(StatusHoverCard, { hover: SHOP_22.hover }));
+    expect(out).toContain("<strong>Needs you · permission</strong>");
+    expect(out).toContain("Tokens: 64k");
   });
 
-  it("the situation line: mono only for a command; the origin line in violet", () => {
-    if (!SHOP_22.situation) throw new Error("fixture");
-    const situation = { ...SHOP_22.situation, text: "Allow rm -rf .next?", mono: true };
-    const out = html(
-      createElement(TicketCard, {
-        card: { ...SHOP_22, situation, origin: "Created by Checkout slowness" },
-      }),
-    );
-    expect(out).toContain('data-mono="true"');
-    expect(out).toContain("--edge:var(--st-attn)");
-    expect(out).toContain('<div class="card-origin">Created by Checkout slowness</div>');
-  });
-
-  it("the footer's action is a label only, filled when the view says primary", () => {
-    const footer = {
-      agent: null,
-      tokens: null,
-      signal: null,
-      action: { kind: "review" as const, label: "Review", icon: "eye" as const, primary: true },
-      second: null,
-      stacked: false,
-    };
-    const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
-    expect(out).toContain('data-variant="primary"');
-    expect(out.slice(out.indexOf('class="card-footer"'))).not.toContain('class="icon"');
-    expect(html(createElement(TicketCard, { card: SHOP_22 }))).toContain('data-variant="secondary"');
-  });
-
-  it("the footer's agent part: neutral when set by you, violet when an agent picked it (M22)", () => {
-    const footer = {
-      agent: { text: "Fable test · set by you", picked: false, tooltip: null },
-      tokens: null,
-      signal: null,
-      action: null,
-      second: null,
-      stacked: false,
-    };
-    const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
-    expect(out).toContain('<span class="card-footer-agent">Fable test · set by you</span>');
-    expect(out.slice(out.indexOf('class="card-footer"'))).not.toContain("card-spacer");
-    const picked = {
-      ...footer,
-      agent: { text: "Light · picked by Checkout slowness", picked: true, tooltip: "docs-only change" },
-    };
-    expect(html(createElement(TicketCard, { card: { ...SHOP_22, footer: picked } }))).toContain(
-      '<span class="card-footer-agent" data-picked="true">Light · picked by Checkout slowness</span>',
-    );
-  });
-
-  it("a card that can't run offers Use fallback and Open agent… side by side (AGM-03)", () => {
-    const footer = {
-      agent: null,
-      tokens: null,
-      signal: null,
-      action: { kind: "use_fallback" as const, label: "Use fallback", icon: null, primary: false },
-      second: { kind: "open_agent" as const, label: "Open agent…", icon: null, primary: false },
-      stacked: false,
-    };
-    const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
-    const footerHtml = out.slice(out.indexOf('class="card-action"'));
-    expect(footerHtml.indexOf("Use fallback")).toBeGreaterThan(-1);
-    expect(footerHtml.indexOf("Open agent…")).toBeGreaterThan(footerHtml.indexOf("Use fallback"));
-    expect(out).not.toContain("data-stacked");
-  });
-
-  it("an open PR stacks Send back with PR comments over Mark merged, from the left (FLW-16, `s03-46`)", () => {
-    const footer = {
-      agent: null,
-      tokens: null,
-      signal: null,
-      action: {
-        kind: "send_back_pr" as const,
-        label: "Send back with PR comments",
-        icon: null,
-        primary: false,
-      },
-      second: { kind: "mark_merged" as const, label: "Mark merged", icon: null, primary: false },
-      stacked: true,
-    };
-    const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
-    const footerHtml = out.slice(out.indexOf('class="card-footer"'));
-    expect(footerHtml).toContain('class="card-action" data-stacked="true"');
-    expect(footerHtml).not.toContain("card-spacer");
-    expect(footerHtml.indexOf("Mark merged")).toBeGreaterThan(
-      footerHtml.indexOf("Send back with PR comments"),
-    );
-  });
-
-  it("a running agent's footer: tokens and the last signal, amber when old", () => {
-    const footer = {
-      agent: null,
-      tokens: { text: "182k", tooltip: null },
-      signal: { text: "4m", stale: true },
-      action: null,
-      second: null,
-      stacked: false,
-    };
-    const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
-    expect(out).toContain("182k");
-    expect(out).toContain('data-stale="true">4m</span>');
+  it("an old signal turns amber; a Done card fades", () => {
+    const old = html(createElement(TicketCard, { card: { ...SHOP_29, time: { text: "6m", stale: true } } }));
+    expect(old).toContain('class="card-time" data-stale="true"');
+    const done = html(createElement(TicketCard, { card: { ...SHOP_29, faded: 0.55 } }));
+    expect(done).toContain("--card-faded:0.55");
+    expect(done).toContain('data-faded="true"');
   });
 
   it("states: selected, chain-dimmed, hovered with the quick actions", () => {
-    expect(html(createElement(TicketCard, { card: SHOP_22, state: stateOfLook("selected") }))).toContain(
-      'data-selected="true"',
+    const selected = html(
+      createElement(TicketCard, { card: SHOP_29, state: { ...stateOfLook("selected") } }),
     );
-    expect(html(createElement(TicketCard, { card: SHOP_22, state: stateOfLook("dimmed") }))).toContain(
-      'data-chain="dimmed"',
-    );
-    expect(html(createElement(TicketCard, { card: SHOP_22, state: stateOfLook("dragging") }))).toContain(
-      'data-dragging="true"',
-    );
-    expect(html(createElement(TicketCard, { card: SHOP_22, state: stateOfLook("chain") }))).toContain(
-      'data-chain="highlighted"',
-    );
-    const hovered = html(createElement(TicketCard, { card: SHOP_22, state: stateOfLook("hovered") }));
-    expect(hovered).toContain('class="card-quick"');
-    expect(hovered).toContain('aria-label="Open panel"');
-  });
-
-  it("a Done card fades", () => {
-    expect(html(createElement(TicketCard, { card: { ...SHOP_22, faded: 0.55 } }))).toContain(
-      "--card-faded:0.55",
-    );
-  });
-
-  it("an epic child wears the sleeve: name, the epic's pin, position; it dims as one", () => {
-    const sleeve = { epic_key: "SHOP-40", name: "Wishlist", position: "2 of 4", pinned: false };
-    const out = html(createElement(TicketCard, { card: { ...SHOP_22, sleeve } }));
-    expect(out).toMatch(/^<div class="card-sleeve"/);
-    expect(out).toContain('<span class="card-sleeve-name">Wishlist</span>');
-    expect(out).toContain('<span class="card-sleeve-position">2 of 4</span>');
-    expect(out).toContain("--card-outline:var(--st-attn)");
-    expect(out).not.toContain("card-sleeve-pin");
-    const pinned = html(
-      createElement(TicketCard, { card: { ...SHOP_22, sleeve: { ...sleeve, pinned: true } } }),
-    );
-    expect(pinned).toContain('class="card-sleeve-pin"');
-    expect(pinned).not.toContain('class="card-pin"');
-    const dimmed = html(
-      createElement(TicketCard, { card: { ...SHOP_22, sleeve }, state: stateOfLook("dimmed") }),
-    );
-    expect(dimmed).toMatch(/^<div class="card-sleeve" data-chain="dimmed"/);
-    expect(html(createElement(TicketCard, { card: SHOP_22 }))).not.toContain("card-sleeve");
+    expect(selected).toContain('data-selected="true"');
+    const dimmed = html(createElement(TicketCard, { card: SHOP_29, state: stateOfLook("dimmed") }));
+    expect(dimmed).toContain('data-chain="dimmed"');
+    const hovered = html(createElement(TicketCard, { card: SHOP_29, state: stateOfLook("hovered") }));
+    expect(hovered).toContain("card-quick");
   });
 });
 
@@ -387,73 +236,5 @@ describe("the Epic Card's lead (T-0289)", () => {
     const out = html(createElement(EpicCard, { card: WISHLIST }));
     expect(out).not.toContain("epic-lead");
     expect(out).not.toContain("epic-child-origin");
-  });
-});
-
-describe("the children's cards with a lead (T-0291)", () => {
-  const SAME_FILE: CardHover = {
-    icon: "files",
-    tone: "muted",
-    title: "same file as SHOP-40.4",
-    sections: [
-      { label: null, text: "lib/wishlist.ts", muted: false },
-      {
-        label: null,
-        text: "Both changed it so far. Doesn't wake the lead; neither child is paused.",
-        muted: true,
-      },
-    ],
-  };
-
-  it("the unread note and the same file: one situation line with its hovers", () => {
-    const out = html(
-      createElement(TicketCard, {
-        card: {
-          ...SHOP_22,
-          situation: {
-            text: "1 unread note from Wishlist lead · same file as SHOP-40.4",
-            edge: "muted",
-            text_tone: "secondary",
-            mono: false,
-            hovers: [SAME_FILE],
-          },
-        },
-      }),
-    );
-    expect(out).toContain("1 unread note from Wishlist lead · same file as SHOP-40.4");
-    // The head's status hover and the situation line's own.
-    expect(out.match(/class="card-hover-anchor"/g)).toHaveLength(2);
-    expect(out).toMatch(/<span class="card-hover-anchor" role="presentation"><div class="card-situation"/);
-    expect(out).not.toContain('class="card-hover"');
-  });
-
-  it("new · added by Wishlist lead: the violet outline; an agent-made card: the origin line", () => {
-    const out = html(
-      createElement(TicketCard, {
-        card: { ...SHOP_22, outline: "epic", origin: "Created by Checkout slowness" },
-      }),
-    );
-    expect(out).toContain("--card-outline:var(--st-investigate)");
-    expect(out).toContain('<div class="card-origin">Created by Checkout slowness</div>');
-  });
-
-  it("the hover card: its title, eyebrows and the quiet footnote", () => {
-    const out = html(
-      createElement(HoverCard, {
-        hover: {
-          icon: "bot",
-          tone: "epic",
-          title: "Wishlist lead",
-          sections: [
-            { label: "LEAD'S NOTE · SENT AFTER ROUND 3", text: "“Fix the test.”", muted: false },
-            { label: "LEAD'S VIEW", text: "The agent keeps changing the API.", muted: true },
-          ],
-        },
-      }),
-    );
-    expect(out).toContain("<strong>Wishlist lead</strong>");
-    expect(out).toContain('<span class="card-hover-label">LEAD&#x27;S NOTE · SENT AFTER ROUND 3</span>');
-    expect(out).toContain('data-muted="true">The agent keeps changing the API.</span>');
-    expect(html(createElement(HoverCard, { hover: SAME_FILE }))).toContain("lib/wishlist.ts");
   });
 });

@@ -110,6 +110,7 @@ import { Icon } from "../../theme/Icon";
 import { THEME_KEYS, type ThemeKey } from "../../theme/generated/tokens";
 import { TokenSwatches } from "../../theme/Swatches";
 import { Column, type ColumnProps } from "../board/Column";
+import { Toolbar } from "../board/Toolbar";
 import { Strip } from "../board/strip/Strip";
 import { InboxBody, type InboxBodyProps } from "../inbox/Inbox";
 import { initialPick } from "../inbox/logic";
@@ -1004,17 +1005,17 @@ function Cards() {
   if (!view) return null;
   return (
     <>
-      <Section title="04 · Ticket Card v2 · all variants (T-0323)">
+      <Section title="24 · One-line cards · all variants (BRD-03, T-0460)">
         <Caption>Last click: {picked ?? "—"}</Caption>
         <CardGrid cells={view.variants} width={view.width} onPick={setPicked} />
       </Section>
-      <Section title="04 · Ticket Card v2 · all variants at 1280 (T-0323)">
+      <Section title="24 · One-line cards · all variants, narrowest column (BRD-03, T-0460)">
         <CardGrid cells={view.variants} width={view.width_1280} onPick={setPicked} />
       </Section>
       <Section title="04 · Ticket card variants · Row · epics (fixtures)">
         <EpicGrid cards={view} onPick={setPicked} />
       </Section>
-      <Section title="04 · Epic Sleeve v2 · epic children (T-0323, d0080)">
+      <Section title="24 · One-line cards · epic children name their epic (BRD-03, T-0460)">
         <CardGrid cells={view.sleeves} onPick={setPicked} />
       </Section>
       <Section title="04 · Ticket card variants · Row · Epic children & the lead · Unread notes & same file (T-0291, d0083)">
@@ -2142,8 +2143,7 @@ function ReviewColumnSection() {
                       handlers={NO_CARD_HANDLERS}
                       scrollTop={0}
                       onScroll={() => undefined}
-                      onToggleDone={() => undefined}
-                      onUnfold={() => undefined}
+                      onView={() => undefined}
                       onAdd={() => undefined}
                       element={() => undefined}
                       {...cell.props}
@@ -2153,6 +2153,74 @@ function ReviewColumnSection() {
               </div>
             ),
         )}
+      </div>
+    </Section>
+  );
+}
+
+/** T-0460 (BRD-01, BRD-02; *24 · The two views*, `s26-10`): the toolbar on the Board and on the List, folded
+ * columns (a rail with the needs-you dot, an empty one), Done's line and the "7 more stages" pill. */
+function BoardViewSection() {
+  const { view, error } = useServiceView(loadBoardReview, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  return (
+    <Section title="24 · The board's toolbar, folded columns, Done's line, more stages (T-0460)">
+      <Caption>Last click: {picked ?? "—"}</Caption>
+      {view.toolbars.map((t) => (
+        <div key={t.name} className="gallery-stack-tight">
+          <Caption>{t.name.toUpperCase()}</Caption>
+          <Toolbar
+            toolbar={t.toolbar}
+            onView={(change) => {
+              setPicked(JSON.stringify(change));
+            }}
+            onAllTickets={() => {
+              setPicked("all tickets");
+            }}
+            onNewTicket={() => {
+              setPicked("new ticket");
+            }}
+          />
+        </div>
+      ))}
+      <div className="gallery-wrap">
+        {view.rails.map((cell) => (
+          <div key={cell.name} className="gallery-stack-tight">
+            <Caption>{cell.name.toUpperCase()}</Caption>
+            <div className="board-columns" style={{ height: 240 }}>
+              <Column
+                column={cell.column}
+                chipWords={{ above: "{n} above", need_you: "{n} need you" }}
+                dragging={false}
+                selected={null}
+                lifted={null}
+                handlers={NO_CARD_HANDLERS}
+                scrollTop={0}
+                onScroll={() => undefined}
+                onView={(change) => {
+                  setPicked(JSON.stringify(change));
+                }}
+                onAdd={() => undefined}
+                element={() => undefined}
+              />
+            </div>
+          </div>
+        ))}
+        <div className="gallery-stack-tight">
+          <Caption>DONE FOLDED</Caption>
+          <button type="button" className="board-done-line">
+            {view.done.text}
+          </button>
+        </div>
+        <div className="gallery-stack-tight">
+          <Caption>MORE STAGES</Caption>
+          <button type="button" className="board-more-stages" style={{ position: "static" }}>
+            <span>{view.more}</span>
+            <Icon name="arrow-right" size={12} />
+          </button>
+        </div>
       </div>
     </Section>
   );
@@ -2427,22 +2495,10 @@ function OptionNotes() {
         {view.cards.map((card) => (
           <div key={card.key} className="gallery-wrap">
             <div className="gallery-card-cell">
-              <Caption>{card.key} · hover or Tab to an option</Caption>
+              {/* The options and their notes are the ticket's (BRD-03): the card's one action is Reply. */}
+              <Caption>{card.key} · Reply opens the answer</Caption>
               <TicketCard card={card} />
             </div>
-            {card.options.map(
-              (option) =>
-                option.note !== null && (
-                  <div key={option.number} className="gallery-stack-tight">
-                    <Caption>
-                      Hover card · {option.number}. {option.label}
-                    </Caption>
-                    <div className="card-hover gallery-option-notes-hover">
-                      <span className="card-hover-text">{option.note}</span>
-                    </div>
-                  </div>
-                ),
-            )}
           </div>
         ))}
       </div>
@@ -2625,6 +2681,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <WarmSwitchSection />
         <CleanupWarmGallery />
         <ReviewColumnSection />
+        <BoardViewSection />
         <TrustSection />
         <NotificationsGallerySection />
         <ShortcutsGallerySection />

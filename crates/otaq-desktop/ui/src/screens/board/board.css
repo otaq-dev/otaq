@@ -1,36 +1,51 @@
 /*
- * The board (*03 · Board — shop-web → Body → Board*): the "Epics in flight" strip while an epic is in flight
- * (`strip/strip.css`), then five columns that fill the main area's width (SHL-01), each at least `--column-width`
- * (set from the view's `min_column_width`, 200 px), 10 px around and 8 px between them; each column scrolls by itself
- * under its pinned header. Narrower boards scroll sideways, the strip with them. While the panel is open over the
+ * The board (*24 · The two views*): the toolbar on top (`.board-toolbar`), then the "Epics in flight" strip while an
+ * epic is in flight (`strip/strip.css`), then the columns of the flow, which share the main area's width (BRD-02),
+ * each at least `--column-width` (the view's `min_column_width`, 180 px), 16 px around and 12 px between them; each
+ * column scrolls by itself under its pinned header. When they don't fit, the board scrolls sideways (the strip with
+ * it) and the "7 more stages" pill sits at its right edge. While the panel is open over the
  * board, `.board-under-panel` adds its width of room after the columns, so any column can scroll to the uncovered
  * left part (*x9qiI*) without the columns changing width. While a card is dragged, a column takes its verdict's outline (*Drag · over an allowed / a forbidden
  * column*) and the lifted card follows the pointer.
  */
+.board-screen {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 100%;
+  background: var(--bg-app);
+}
+
 .board {
   position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   box-sizing: border-box;
   min-width: 0;
-  height: 100%;
-  padding: 10px;
+  min-height: 0;
+  padding: 14px 16px 16px;
   overflow-x: auto;
   overflow-y: hidden;
   background: var(--bg-app);
+}
+
+.board[hidden] {
+  display: none;
 }
 
 .board-columns {
   position: relative;
   display: flex;
   flex: 1;
-  gap: 8px;
+  gap: 12px;
   /* At least the columns' least widths, so the room after them starts where the last one ends. */
   min-width: calc(
-    var(--open-columns, 5) * var(--column-width) + var(--rail-columns, 0) * var(--rail-width, 34px) +
-      (var(--open-columns, 5) + var(--rail-columns, 0) - 1) * 8px
+    var(--open-columns, 5) * var(--column-width) + var(--rail-columns, 0) * var(--rail-width, 52px) +
+      (var(--open-columns, 5) + var(--rail-columns, 0) - 1) * 12px
   );
   min-height: 0;
 }
@@ -276,7 +291,8 @@
   gap: 6px;
   min-height: 0;
   margin: 0 -6px -6px;
-  padding: 0 6px 6px;
+  /* Room under the last card for the Ask bar floating at the bottom centre (d0113). */
+  padding: 0 6px 72px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
@@ -392,7 +408,8 @@
   color: var(--text-primary);
 }
 
-/* Done folded (*Width strategy · B*): a 34 px rail with its icon, count and the title turned on its side. */
+/* A folded column (BRD-02, `s26-10`): a 52 px rail with its icon, count, a needs-you dot and its name; a click
+ * unfolds it. */
 .board-rail {
   display: flex;
   flex: none;
@@ -400,34 +417,207 @@
   align-items: center;
   gap: 6px;
   box-sizing: border-box;
-  width: var(--rail-width, 34px);
-  padding: 10px 0;
+  width: var(--rail-width, 52px);
+  padding: 12px 4px;
   border: none;
   border-radius: var(--r-lg);
   background: var(--bg-column);
-  color: var(--text-secondary);
+  color: var(--text-muted);
   cursor: pointer;
 }
 
-button.board-rail:hover {
+.board-rail:hover {
   background: var(--bg-hover);
 }
 
-/* An empty stage's rail in a long flow (FLW-12): it opens by itself when a card comes, so no click. */
-div.board-rail {
-  cursor: default;
+.board-rail[data-chain] {
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .board-rail-count {
   color: var(--text-muted);
-  font: 400 10px/normal var(--font-mono);
+  font: 600 12px/normal var(--font-ui);
+}
+
+.board-rail-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--st-attn);
 }
 
 .board-rail-title {
-  font: 600 11px/normal var(--font-ui);
-  white-space: nowrap;
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
+  width: 44px;
+  color: var(--text-muted);
+  font: 400 10.5px/1.3 var(--font-ui);
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+/* Done folded (BRD-02, `s24-03`): "Done 4 →" under the last column's cards. */
+.board-done-line {
+  align-self: flex-start;
+  padding: 2px 4px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+  cursor: pointer;
+}
+
+.board-done-line:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* The "7 more stages" pill at the board's right edge (BRD-02, `s24-04`): a click scrolls to the next columns. */
+.board-more-stages {
+  position: absolute;
+  z-index: 5;
+  bottom: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-floating);
+  color: var(--text-primary);
+  font: 500 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.board-more-stages:hover {
+  background: var(--bg-hover);
+}
+
+/* The column's ⋯ (BRD-04): shown while the column is hovered or the menu has the focus. */
+.board-column .board-column-menu {
+  visibility: hidden;
+}
+
+.board-column:hover .board-column-menu,
+.board-column:focus-within .board-column-menu,
+.board-column-menu[aria-expanded="true"] {
+  visibility: visible;
+}
+
+/* ---- The toolbar (BRD-01, *24 · The two views*): Board · List, Lanes or Group by, the switch, All tickets, New
+ * ticket ---- */
+.board-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 16px 0;
+}
+
+.board-toolbar-label {
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+}
+
+.board-toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+}
+
+.board-toolbar-spacer {
+  flex: 1;
+}
+
+.board-segments {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--bg-column);
+}
+
+.board-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: 400 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.board-segment[aria-checked="true"] {
+  background: var(--bg-panel);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 10%);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.board-segment:focus-visible,
+.board-chip-button:focus-visible,
+.board-new-ticket:focus-visible,
+.board-done-line:focus-visible,
+.board-more-stages:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.board-chip-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: none;
+  border-radius: 6px;
+  background: var(--bg-column);
+  color: var(--text-secondary);
+  font: 400 11px var(--font-ui);
+  cursor: pointer;
+}
+
+.board-chip-button:hover {
+  background: var(--bg-hover);
+}
+
+.board-chip-button[aria-checked="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.board-new-ticket {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font: 500 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.board-new-ticket:hover {
+  background: var(--bg-hover);
+}
+
+/* The List view until it arrives (T-0461). */
+.board-list-placeholder {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--text-muted);
+  font: 400 13px var(--font-ui);
 }
 
 /* The lifted card, its hint or reason and the cursor badge follow the pointer (`translate` set by the page). */
@@ -963,17 +1153,6 @@ button.board-search-option[data-highlighted] {
   color: var(--accent);
 }
 
-/* Wider than the 34 px rail, as the frame's SHOP-17 chip. */
-.board-rail-chain {
-  flex: none;
-  padding: 2px 3px;
-  border-radius: var(--r-sm);
-  background: var(--accent);
-  color: var(--text-on-accent);
-  font: 600 9px/normal var(--font-mono);
-  white-space: nowrap;
-}
-
 /* An epic's merged children folded in Done (EPC-16, *01 · Components → Done Fold*). */
 .board-done-fold {
   display: flex;
@@ -1017,88 +1196,4 @@ button.board-search-option[data-highlighted] {
   font: 500 11.5px/1.3 var(--font-ui);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* The stage strip (FLW-12; *Row · A flow with many stages*): above a long flow that doesn't fit, it stays in view
- * while the board scrolls sideways. The columns in view are outlined. */
-.stage-strip {
-  position: sticky;
-  left: 0;
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
-  box-sizing: border-box;
-  max-width: 100%;
-  padding: 2px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.stage-strip-chevron {
-  display: flex;
-  flex: none;
-  color: var(--text-muted);
-}
-
-.stage-strip-item {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  padding: 2px 7px;
-  border: none;
-  border-radius: var(--r-sm);
-  background: transparent;
-  cursor: pointer;
-}
-
-.stage-strip-item:hover {
-  background: var(--bg-hover);
-}
-
-.stage-strip-item[data-in-view] {
-  background: var(--bg-card);
-  outline: 1px solid var(--border);
-  outline-offset: -1px;
-}
-
-.stage-strip-item:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
-
-.stage-strip-line {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-}
-
-.stage-strip-title {
-  color: var(--text-secondary);
-  font: 400 11.5px/normal var(--font-ui);
-}
-
-.stage-strip-item[data-in-view] .stage-strip-title {
-  color: var(--text-primary);
-}
-
-.stage-strip-count {
-  color: var(--text-muted);
-  font: 400 11px/normal var(--font-mono);
-}
-
-.stage-strip-folded {
-  gap: 4px;
-}
-
-.stage-strip-folded-name {
-  color: var(--text-secondary);
-  font: 400 10.5px/normal var(--font-ui);
-}
-
-.stage-strip-folded .stage-strip-count {
-  font-size: 10.5px;
 }

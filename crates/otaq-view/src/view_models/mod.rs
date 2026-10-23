@@ -76,6 +76,7 @@ pub mod menu;
 pub mod messages;
 pub mod modal;
 pub mod model_picker;
+pub mod view_prefs;
 
 pub mod onboarding;
 pub mod onboarding_page;

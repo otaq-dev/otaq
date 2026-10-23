@@ -22,7 +22,7 @@ pub use ask_bar::export_types as export_ask_bar_types;
 pub use board::{
     DragBackParams as BoardDragBackParams, DropParams as BoardDropParams,
     FocusParams as BoardFocusParams, MenuParams as CardMenuParams, SearchParams,
-    TicketParams as BoardTicketParams,
+    SetViewParams as BoardSetViewParams, TicketParams as BoardTicketParams,
 };
 #[cfg(test)]
 pub use diff::{

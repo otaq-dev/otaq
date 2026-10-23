@@ -144,6 +144,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::SearchParams::export_all(&cfg)?;
     crate::api::CardMenuParams::export_all(&cfg)?;
     crate::api::BoardFocusParams::export_all(&cfg)?;
+    crate::api::BoardSetViewParams::export_all(&cfg)?;
     // Settings (T-0234); the view also writes its sections, rows, controls and nav.
     otaq_view::view_models::settings_page::View::export_all(&cfg)?;
     otaq_view::view_models::settings_page::ToolsView::export_all(&cfg)?;

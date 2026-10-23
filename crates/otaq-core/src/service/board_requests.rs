@@ -1433,6 +1433,10 @@ pub(super) async fn handle(
             }
             Ok(Reply::AppliedNow(Box::new(answer)))
         }),
+        Request::ProjectViewSet(p) => boxed(move || async move {
+            board.set_project_view(&p.project, &p.view).await?;
+            Ok(Reply::Ok)
+        }),
         Request::ProjectSettingsSet(p) => boxed(move || async move {
             match board.save_project_settings(&p.project, &p.settings).await {
                 Ok(()) => {

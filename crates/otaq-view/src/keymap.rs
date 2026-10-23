@@ -92,8 +92,10 @@ pub enum KeyAction {
     FocusEpic,
     /// The `?` shortcut list (KEY-07).
     ShowShortcuts,
-    /// The Board view of the main area (d0087).
+    /// The Board view of the main area (d0087), its Board view (BRD-01).
     ShowBoard,
+    /// The board's List view (BRD-01, SHB-04).
+    ShowList,
     OpenInbox,
     /// The Activity popover (d0087).
     OpenActivity,
@@ -144,6 +146,7 @@ impl KeyAction {
             Self::FocusEpic,
             Self::ShowShortcuts,
             Self::ShowBoard,
+            Self::ShowList,
             Self::OpenInbox,
             Self::OpenActivity,
             Self::Settings,
@@ -199,6 +202,7 @@ impl KeyAction {
             Self::FocusEpic => "Focus the epic of the selected card",
             Self::ShowShortcuts => "Show all shortcuts",
             Self::ShowBoard => "Board",
+            Self::ShowList => "List",
             Self::OpenInbox => "Inbox",
             Self::OpenActivity => "Activity",
             Self::Settings => "Settings",
@@ -247,6 +251,7 @@ impl KeyAction {
             | Self::FocusEpic
             | Self::ShowShortcuts => KeyGroup::MovingAround,
             Self::ShowBoard
+            | Self::ShowList
             | Self::OpenInbox
             | Self::OpenActivity
             | Self::Settings
@@ -302,6 +307,7 @@ impl KeyAction {
             Self::FocusEpic => vec![letter("g e")],
             Self::ShowShortcuts => vec![letter("?")],
             Self::ShowBoard => vec![k("⇧⌘B", "Ctrl+Shift+B", ""), letter("g b")],
+            Self::ShowList => vec![letter("g l")],
             Self::OpenInbox => vec![k("⇧⌘I", "Ctrl+Shift+I", "Ctrl+Shift+I"), letter("g i")],
             Self::OpenActivity => vec![k("⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"), letter("g a")],
             Self::Settings => vec![k("⌘,", "Ctrl+,", "Ctrl+,")],
@@ -392,10 +398,11 @@ pub struct SequenceHint {
     pub name: &'static str,
 }
 
-/// The base map's sequences in the order the hint shows them ("g → b Board · i Inbox · a Activity · t Terminals · e
+/// The base map's sequences in the order the hint shows them ("g → b Board · l List · i Inbox · a Activity · t Terminals · e
 /// Epic", 0097); the user's own sequences for other actions follow, in the map's order.
-const HINT_ORDER: [KeyAction; 5] = [
+const HINT_ORDER: [KeyAction; 6] = [
     KeyAction::ShowBoard,
+    KeyAction::ShowList,
     KeyAction::OpenInbox,
     KeyAction::OpenActivity,
     KeyAction::Terminals,
@@ -1172,6 +1179,7 @@ mod tests {
             row(FocusEpic, &["g e"], &["g e"], &[]),
             row(ShowShortcuts, &["?"], &["?"], &[]),
             row(ShowBoard, &["⇧⌘B", "g b"], &["Ctrl+Shift+B", "g b"], &[]),
+            row(ShowList, &["g l"], &["g l"], &[]),
             row(
                 OpenInbox,
                 &["⇧⌘I", "g i"],
@@ -2223,6 +2231,7 @@ mod tests {
                     "Views",
                     vec![
                         "Board",
+                        "List",
                         "Inbox",
                         "Activity",
                         "Settings",
@@ -2316,7 +2325,7 @@ mod tests {
         };
         assert_eq!(
             texts(&CustomKeys::default()),
-            "b Board · i Inbox · a Activity · t Terminals · e Epic"
+            "b Board · l List · i Inbox · a Activity · t Terminals · e Epic"
         );
         let change = |action, slot, change| CustomKey {
             action,
@@ -2333,7 +2342,7 @@ mod tests {
         );
         assert_eq!(
             texts(&CustomKeys(vec![park.clone()])),
-            "b Board · i Inbox · a Activity · t Terminals · e Epic · p Park"
+            "b Board · l List · i Inbox · a Activity · t Terminals · e Epic · p Park"
         );
         let custom = CustomKeys(vec![
             park,
@@ -2348,7 +2357,7 @@ mod tests {
         ]);
         assert_eq!(
             texts(&custom),
-            "b Board · n Inbox · t Terminals · e Epic · p Park"
+            "b Board · l List · n Inbox · t Terminals · e Epic · p Park"
         );
         // Windows/Linux: the same letters (they never work in a terminal).
         assert_eq!(

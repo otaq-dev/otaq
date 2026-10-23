@@ -52,6 +52,9 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "flow.propose" {
             params["source"] = json!({"from": "project", "project": "NOPE"});
         }
+        if method == "project_view.set" {
+            params["view"] = json!({});
+        }
         if method == "flow.apply_now" {
             params["stamp"] = json!("s");
         }
@@ -285,6 +288,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::SettingsSet(_)
         | Request::ProjectSettingsGet(_)
         | Request::ProjectSettingsSet(_)
+        | Request::ProjectViewSet(_)
         | Request::FlowCurrent(_)
         | Request::FlowVersions(_)
         | Request::FlowProposal(_)

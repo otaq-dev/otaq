@@ -1,15 +1,18 @@
-// The board (*03 · Board — shop-web*, *03 · Board & columns*; UI-02, SHL-06): the five columns of the shown project
-// from `board.view`, refetched on the service's events, at the board's size (the main area's: the columns fill it, at
-// least `min_column_width` each, else it scrolls sideways; Rust folds Done below 1360 and Dev by height). The Review
-// column's sections fold per project (`prefs.ts`). A drag is the UIT-04 way (`drag.ts`): one `board.drag` at its
-// start, then only this page works while the pointer moves, drawing the targets' verdicts (Review's Approved section
-// is a target of its own), the lifted card and the hint or reason under it; a release on an allowed target sends
+// The board (*24 · The two views*; UI-02, SHL-06, BRD-01, BRD-02): the toolbar (Board · List, Lanes or Group by, Fold
+// empty columns, All tickets, New ticket; `Toolbar.tsx`), then the columns of the shown project's flow from
+// `board.view`, refetched on the service's events, at the board's size (one width rule: every open column at least
+// `min_column_width`, sharing the width when they fit, else the board scrolls sideways with the "7 more stages" pill at
+// its right edge; Rust folds Dev by height). The List view draws its placeholder until T-0461. How the board looks is
+// the project's view preferences, kept by the service (SHB-05): folds, the view and the lanes change with
+// `board.set_view`, then the board asks for its view again; `g b` and `g l` switch the view. A drag is the UIT-04 way
+// (`drag.ts`): one `board.drag` at its start, then only this page works while the pointer moves, drawing the targets'
+// verdicts (Review's Approved section is a target of its own), the lifted card and the hint or reason under it; a release on an allowed target sends
 // `board.drop`, whose answer may be the Park confirmation, the Approve choice (Ready for Review → Approved: nothing
 // moves until 1 or 2 is picked; Esc and the card stays) or the drag-back dialog (an earlier stage, FLW-18). Esc cancels a drag. While the ticket panel is open over the
 // board (SHL-05) the board keeps its width, gets the panel's width of room after the columns and scrolls the selected
 // card's column into the part the panel leaves; a click on the open card closes the panel, and so does a plain click on
 // the board's own background (`background.ts`: a column's empty area, the gaps, the room after the columns; OT-3),
-// unless that click closes an open menu or popover. The Board tab's count is the view's (`tabCounts`, Q84). "Show on board" in a Project agent's pane filters the board to its tickets
+// unless that click closes an open menu or popover. "Show on board" in a Project agent's pane filters the board to its tickets
 // (`boardAgent`, d0087), with a chip whose ✕ (or Esc) clears it.
 // Hovering (or selecting) a linked card highlights its chain (`chain.ts`, `ChainLayer`; T-0229). While an epic is in
 // flight the "Epics in flight" strip sits above the columns (`strip/`, T-0269). The epic card, one of its rows and a
@@ -18,8 +21,7 @@
 // its name (EPC-14, T-0271): onto Backlog it takes back, at once or after the Park-all confirmation. Clicking a
 // track's name or `g` `e` on a selected epic, child or track focuses the epic (EPC-18, T-0274): its `epic:` token goes in
 // the filter, the other cards, tracks and Done lines dim (Q55), the arrow keys walk only its cards, and Esc leaves.
-// A track's right click is its epic's menu. A long flow that doesn't fit (FLW-12) gets the stage strip above the
-// board (`StageStrip`): the columns in view outlined, a click scrolls to one.
+// A track's right click is its epic's menu.
 import {
   type CSSProperties,
   type KeyboardEvent,
@@ -34,7 +36,6 @@ import {
 
 import { requestCardAction } from "../../app/cardActions";
 import { openOverlay } from "../../app/overlays";
-import { tabCounts } from "../../app/layout";
 import { useShortcut } from "../../app/registry";
 import { closeTicket, openTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
@@ -49,6 +50,7 @@ import type { DragVerdict } from "../../generated/DragVerdict";
 import type { BoardDropParams } from "../../generated/BoardDropParams";
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
 import type { BoardParams } from "../../generated/BoardParams";
+import type { BoardSetViewParams } from "../../generated/BoardSetViewParams";
 import type { BoardTicketParams } from "../../generated/BoardTicketParams";
 import type { BoardView } from "../../generated/BoardView";
 import type { CardActionKind } from "../../generated/CardActionKind";
@@ -58,6 +60,7 @@ import type { NewToast } from "../../generated/NewToast";
 import type { EpicTrack } from "../../generated/EpicTrack";
 import type { ParkAllDialog } from "../../generated/ParkAllDialog";
 import type { ParkDialog } from "../../generated/ParkDialog";
+import type { ViewChange } from "../../generated/ViewChange";
 import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
@@ -82,8 +85,9 @@ import {
   verdictOf,
 } from "./drag";
 import { EmptyBoard } from "./EmptyBoard";
+import { columnsAfter, moreText, nextScroll } from "./more";
 import { NoProjects } from "./NoProjects";
-import { columnsInView, StageStrip } from "./StageStrip";
+import { Toolbar } from "./Toolbar";
 import {
   agentOf,
   boardAgent,
@@ -92,19 +96,14 @@ import {
   escapeStep,
   filterOf,
   focusEpic,
+  requestSearchFocus,
 } from "./filter";
-import {
-  boardPrefs,
-  changePrefs,
-  prefsOf,
-  rememberBoardScroll,
-  rememberColumnScroll,
-  scrollPlace,
-  toggleSectionFold,
-  toggleStripFold,
-} from "./prefs";
+import { rememberBoardScroll, rememberColumnScroll, scrollPlace } from "./prefs";
+import { stripFolded, stripFolds, toggleStripFold } from "./strip/fold";
 import { markCards, revealCard, type StripHover } from "./strip/highlight";
 import { Strip, type StripHandlers } from "./strip/Strip";
+
+const NO_SECTIONS: readonly string[] = [];
 
 /** The service events that change what the board shows. */
 export const BOARD_EVENTS = [
@@ -388,7 +387,7 @@ function AgentChip({ label, clear, onClear }: { label: string; clear: string; on
 
 export function Board() {
   const { project, ticket: selected } = useSelection();
-  const prefs = prefsOf(useStore(boardPrefs), project ?? "");
+  const folds = useStore(stripFolds);
   const filter = filterOf(useStore(boardFilter), project);
   const agent = agentOf(useStore(boardAgent), project);
   const [element, setElement] = useState<HTMLDivElement | null>(null);
@@ -397,6 +396,8 @@ export function Board() {
   const boardEl = useRef<HTMLDivElement | null>(null);
   const size = useSize(element);
   const tick = useTick(SIGNAL_REFRESH_MS);
+  // Bumped after each view change the service stored: the board asks for its view again.
+  const [viewVersion, setViewVersion] = useState(0);
 
   const load = useCallback(() => {
     if (project === null || size === null) return new Promise<never>(() => undefined);
@@ -404,25 +405,51 @@ export function Board() {
       project,
       width: size.width,
       height: size.height,
-      done_collapsed: prefs.doneCollapsed,
-      dev_unfolded: prefs.devUnfolded,
       filter: { tokens: filter.tokens, text: filter.text },
       agent,
     };
     return (request("board.view", params) as Promise<BoardView>).then((board) => ({ project, board }));
-    // `tick` refetches for the signal ages.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- tick is a refetch trigger, not read
-  }, [project, size, prefs.doneCollapsed, prefs.devUnfolded, filter, agent, tick]);
+    // `tick` refetches for the signal ages, `viewVersion` after a view change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tick and viewVersion are refetch triggers, not read
+  }, [project, size, filter, agent, tick, viewVersion]);
   const loaded = useServiceView(load, BOARD_EVENTS).view;
   // Another project's board is never drawn while the shown one loads.
   const view = loaded?.project === project ? loaded.board : undefined;
+  const foldedSections = view?.prefs.folded_sections ?? NO_SECTIONS;
 
-  // "Board 26" in the main tabs (Q84). It stays while the Files tab shows (the board isn't mounted then); a
-  // project switch replaces it once that board loads.
-  const tabCount = view?.tab_count;
-  useEffect(() => {
-    if (tabCount !== undefined || project === null) tabCounts.update((c) => ({ ...c, board: tabCount }));
-  }, [tabCount, project]);
+  // One change of the view preferences (SHB-05), stored by the service; then the view again.
+  const changeView = useCallback(
+    (change: ViewChange) => {
+      if (project === null) return;
+      const params: BoardSetViewParams = { project, change };
+      request("board.set_view", params).then(
+        () => {
+          setViewVersion((v) => v + 1);
+        },
+        (error: unknown) => {
+          toast(error);
+        },
+      );
+    },
+    [project],
+  );
+  // `g b` and `g l` (BRD-01): the view, for this project.
+  const showView = useCallback(
+    (kind: "board" | "list") => {
+      if (project === null) return false;
+      if (view?.prefs.view !== kind) changeView({ kind: "view", view: kind });
+      return true;
+    },
+    [project, view, changeView],
+  );
+  useShortcut(
+    "show_board",
+    useCallback(() => showView("board"), [showView]),
+  );
+  useShortcut(
+    "show_list",
+    useCallback(() => showView("list"), [showView]),
+  );
 
   // The drag: state for what the columns draw, the pointer only in a ref (the lifted card follows it unrendered).
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -604,12 +631,12 @@ export function Board() {
     const strong = view?.focus ? new Set(view.focus.keys) : null;
     return (
       view?.columns.map((c) =>
-        walkOf(c, prefs.foldedSections)
+        walkOf(c, foldedSections)
           .map((card) => card.card.key)
           .filter((key) => strong === null || strong.has(key)),
       ) ?? []
     );
-  }, [view, prefs.foldedSections]);
+  }, [view, foldedSections]);
   const keysRef = useRef(keys);
   const orderRef = useRef(order);
   const targetsRef = useRef(targets);
@@ -833,44 +860,58 @@ export function Board() {
     if (next !== null) board.scrollLeft = next;
   }, [selected, selectedColumn, covered]);
 
-  // The stage strip's outlines: the columns in view, again as the board scrolls or resizes (FLW-12).
-  const [inView, setInView] = useState<ReadonlySet<string>>(() => new Set());
-  const stageStrip = view?.stage_strip ?? null;
-  const measureInView = useCallback(() => {
+  // The "7 more stages" pill (BRD-02): the columns cut off at the board's right edge, again as it scrolls or resizes.
+  const [more, setMore] = useState<string | null>(null);
+  const moreWords = view?.more_stages ?? null;
+  const spansInBoard = useCallback(() => {
     const board = boardEl.current;
-    if (!board || stageStrip === null) return;
+    if (!board) return null;
     const b = board.getBoundingClientRect();
-    const spans = stageStrip.columns.flatMap(({ column }) => {
-      const r = columns.current.get(column)?.getBoundingClientRect();
-      return r ? [{ id: column, left: r.left, right: r.right }] : [];
-    });
-    const next = columnsInView(spans, { left: b.left, right: b.right - covered });
-    setInView((old) => (old.size === next.size && [...next].every((id) => old.has(id)) ? old : next));
-  }, [stageStrip, covered]);
-  useLayoutEffect(() => {
-    measureInView();
-  }, [measureInView, size]);
-  const pickColumn = useCallback((column: BoardColumnId) => {
-    const board = boardEl.current;
-    const el = columns.current.get(column);
-    if (!board || !el) return;
     const pad = parseFloat(getComputedStyle(board).paddingLeft) || 0;
-    const left =
-      el.getBoundingClientRect().left - board.getBoundingClientRect().left + board.scrollLeft - pad;
-    board.scrollTo({ left, behavior: "smooth" });
+    const spans = [...board.querySelectorAll<HTMLElement>(".board-columns > [data-column]")].map((el) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, right: r.right };
+    });
+    return { spans, b, pad };
   }, []);
+  const measureMore = useCallback(() => {
+    const measured = spansInBoard();
+    if (!measured || moreWords === null) return;
+    const after = columnsAfter(measured.spans, measured.b.right - covered - measured.pad);
+    const next = moreText(moreWords, after.length);
+    setMore((old) => (old === next ? old : next));
+  }, [spansInBoard, moreWords, covered]);
+  useLayoutEffect(() => {
+    // After the columns are laid out.
+    const frame = requestAnimationFrame(measureMore);
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [measureMore, size, view]);
+  const scrollToMore = useCallback(() => {
+    const measured = spansInBoard();
+    const board = boardEl.current;
+    if (!measured || !board) return;
+    const after = columnsAfter(measured.spans, measured.b.right - covered - measured.pad);
+    const left = nextScroll(after, measured.b.left, board.scrollLeft, measured.pad);
+    if (left !== null) board.scrollTo({ left, behavior: "smooth" });
+  }, [spansInBoard, covered]);
 
   // The columns' widths and their least total (for the room after them), from the view (SHL-01).
   const boardStyle = useMemo(() => {
     if (!view) return undefined;
-    const rails = view.columns.filter((c) => c.collapsed).length;
+    // Folded Done is a line under the last column, not a column.
+    const shown = view.columns.filter((c) => !(c.collapsed && c.rail === null));
+    const rails = shown.filter((c) => c.collapsed).length;
     return {
       "--column-width": `${String(view.min_column_width)}px`,
-      "--rail-width": `${String(view.done_rail_width)}px`,
-      "--open-columns": String(view.columns.length - rails),
+      "--rail-width": `${String(view.folded_width)}px`,
+      "--open-columns": String(shown.length - rails),
       "--rail-columns": String(rails),
     } as CSSProperties;
   }, [view]);
+  // The last open column carries Done's line while Done is folded.
+  const lastOpen = view?.columns.findLast((c) => !c.collapsed)?.id ?? null;
   const chain = useMemo(
     () => activeChain(view?.chains ?? [], hovered, selected, drag !== null),
     [view, hovered, selected, drag],
@@ -884,143 +925,162 @@ export function Board() {
   }, [drag]);
 
   return (
-    <div
-      className="board"
-      ref={(el) => {
-        boardEl.current = el;
-        setElement(el);
-      }}
-      data-dragging={drag !== null || undefined}
-      style={boardStyle}
-      onScroll={(e) => {
-        if (project !== null) rememberBoardScroll(project, e.currentTarget.scrollLeft);
-        measureInView();
-      }}
-      // A card that moved away under the pointer never reports leaving; leaving the board ends its highlight.
-      onPointerLeave={() => {
-        setHovered(null);
-      }}
-      onPointerDown={(e) => {
-        background.press(e);
-      }}
-    >
-      {stageStrip !== null && <StageStrip strip={stageStrip} inView={inView} onPick={pickColumn} />}
-      {view?.strip && (
-        <Strip
-          strip={view.strip}
-          columns={view.columns}
-          folded={prefs.stripFolded}
-          onToggleFold={() => {
-            if (project !== null) toggleStripFold(project);
-          }}
-          pulse={hovered}
-          focus={focus?.epics ?? null}
-          handlers={stripHandlers}
-        />
-      )}
-      {view?.agent_filter && (
-        <AgentChip
-          label={view.agent_filter.label}
-          clear={view.agent_filter.clear}
-          onClear={() => {
-            if (project !== null) clearAgentFilter(project);
+    <div className="board-screen">
+      {view && (
+        <Toolbar
+          toolbar={view.toolbar}
+          onView={changeView}
+          onAllTickets={requestSearchFocus}
+          onNewTicket={() => {
+            openOverlay("new_ticket");
           }}
         />
       )}
-      <div className="board-columns">
-        {view?.columns.map((column) => (
-          <Column
-            key={`${project ?? ""}:${column.id}`}
-            column={column}
-            chipWords={view.scroll_chip}
-            verdict={drag ? verdictOf(drag.answer, column.id) : undefined}
-            dragging={drag !== null}
-            selected={selected}
-            chain={chain}
-            lifted={drag?.key ?? null}
-            focus={focus}
-            handlers={handlers}
-            showEmptyHint={!view.empty}
-            scrollTop={place.columns[column.id] ?? 0}
-            onScroll={onScroll}
-            onToggleDone={() => {
-              if (project !== null) changePrefs(project, (p) => ({ ...p, doneCollapsed: !column.collapsed }));
+      {view?.list_placeholder != null && (
+        <div className="board-list-placeholder">{view.list_placeholder}</div>
+      )}
+      <div
+        className="board"
+        hidden={view?.list_placeholder != null}
+        ref={(el) => {
+          boardEl.current = el;
+          setElement(el);
+        }}
+        data-dragging={drag !== null || undefined}
+        style={boardStyle}
+        onScroll={(e) => {
+          if (project !== null) rememberBoardScroll(project, e.currentTarget.scrollLeft);
+          measureMore();
+        }}
+        // A card that moved away under the pointer never reports leaving; leaving the board ends its highlight.
+        onPointerLeave={() => {
+          setHovered(null);
+        }}
+        onPointerDown={(e) => {
+          background.press(e);
+        }}
+      >
+        {view?.strip && (
+          <Strip
+            strip={view.strip}
+            columns={view.columns}
+            folded={stripFolded(folds, project ?? "")}
+            onToggleFold={() => {
+              if (project !== null) toggleStripFold(project);
             }}
-            onUnfold={() => {
-              if (project !== null) changePrefs(project, (p) => ({ ...p, devUnfolded: true }));
-            }}
-            onAdd={() => {
-              openOverlay("new_ticket");
-            }}
-            foldedSections={prefs.foldedSections}
-            onToggleSection={(section) => {
-              if (project !== null) toggleSectionFold(project, section);
-            }}
-            approved={sectionDrag(column, drag)}
-            element={element$}
+            pulse={hovered}
+            focus={focus?.epics ?? null}
+            handlers={stripHandlers}
           />
-        ))}
-        {covered > 0 && <div className="board-under-panel" style={{ width: covered }} />}
-      </div>
-      {view?.empty && <EmptyBoard view={view.empty} />}
-      {project === null && <NoProjects />}
-      <ChainLayer chain={chain} board={element} layout={view} />
-      <div className="board-ghost" ref={ghost} hidden={drag === null}>
-        {draggedCard && (
-          <div className="board-ghost-card">
-            <Lifted card={draggedCard} />
-          </div>
         )}
-        {draggedRow && <LiftedChild row={draggedRow} />}
-        {draggedTrack && <LiftedTrack track={draggedTrack} />}
-        {ghostHint?.kind === "allowed" && ghostHint.hint !== "" && (
-          <div className="board-drop-hint">
-            <Icon name={ghostHint.icon} size={11} />
-            <span className="board-drop-hint-text">
-              <span>{ghostHint.hint}</span>
-              {ghostHint.note !== null && <span className="board-drop-hint-note">{ghostHint.note}</span>}
+        {view?.agent_filter && (
+          <AgentChip
+            label={view.agent_filter.label}
+            clear={view.agent_filter.clear}
+            onClear={() => {
+              if (project !== null) clearAgentFilter(project);
+            }}
+          />
+        )}
+        <div className="board-columns">
+          {view?.columns.map((column) => (
+            <Column
+              key={`${project ?? ""}:${column.id}`}
+              column={column}
+              chipWords={view.scroll_chip}
+              verdict={drag ? verdictOf(drag.answer, column.id) : undefined}
+              dragging={drag !== null}
+              selected={selected}
+              chain={chain}
+              lifted={drag?.key ?? null}
+              focus={focus}
+              handlers={handlers}
+              showEmptyHint={!view.empty}
+              scrollTop={place.columns[column.id] ?? 0}
+              onScroll={onScroll}
+              onView={changeView}
+              onAdd={() => {
+                openOverlay("new_ticket");
+              }}
+              foldedSections={foldedSections}
+              doneLine={column.id === lastOpen ? view.done : null}
+              approved={sectionDrag(column, drag)}
+              element={element$}
+            />
+          ))}
+          {covered > 0 && <div className="board-under-panel" style={{ width: covered }} />}
+        </div>
+        {view?.empty && <EmptyBoard view={view.empty} />}
+        {project === null && <NoProjects />}
+        <ChainLayer chain={chain} board={element} layout={view} />
+        <div className="board-ghost" ref={ghost} hidden={drag === null}>
+          {draggedCard && (
+            <div className="board-ghost-card">
+              <Lifted card={draggedCard} />
+            </div>
+          )}
+          {draggedRow && <LiftedChild row={draggedRow} />}
+          {draggedTrack && <LiftedTrack track={draggedTrack} />}
+          {ghostHint?.kind === "allowed" && ghostHint.hint !== "" && (
+            <div className="board-drop-hint">
+              <Icon name={ghostHint.icon} size={11} />
+              <span className="board-drop-hint-text">
+                <span>{ghostHint.hint}</span>
+                {ghostHint.note !== null && <span className="board-drop-hint-note">{ghostHint.note}</span>}
+              </span>
+            </div>
+          )}
+          {overVerdict?.kind === "forbidden" && (
+            <div className="board-not-allowed" role="status">
+              <Icon name="ban" size={18} />
+              <span className="board-not-allowed-title">{overVerdict.title}</span>
+              {overVerdict.detail !== null && (
+                <span className="board-not-allowed-detail">{overVerdict.detail}</span>
+              )}
+            </div>
+          )}
+          {overVerdict && overVerdict.kind !== "home" && (
+            <span className="board-cursor" data-verdict={overVerdict.kind}>
+              <Icon name={overVerdict.kind === "allowed" ? "plus" : "ban"} size={12} />
             </span>
-          </div>
+          )}
+        </div>
+        {cardMenu && (
+          <CardMenu
+            menu={cardMenu}
+            board={menuBoard}
+            onError={(error) => {
+              toast(error);
+            }}
+            onClose={() => {
+              setCardMenu(null);
+            }}
+          />
         )}
-        {overVerdict?.kind === "forbidden" && (
-          <div className="board-not-allowed" role="status">
-            <Icon name="ban" size={18} />
-            <span className="board-not-allowed-title">{overVerdict.title}</span>
-            {overVerdict.detail !== null && (
-              <span className="board-not-allowed-detail">{overVerdict.detail}</span>
-            )}
-          </div>
-        )}
-        {overVerdict && overVerdict.kind !== "home" && (
-          <span className="board-cursor" data-verdict={overVerdict.kind}>
-            <Icon name={overVerdict.kind === "allowed" ? "plus" : "ban"} size={12} />
-          </span>
+        {approve && (
+          <ApproveChoice
+            menu={approve.menu}
+            anchor={approve.anchor}
+            onChoose={(choice) => {
+              setApprove(null);
+              openApproveChoice(choice, approve.menu.key);
+            }}
+            onCancel={() => {
+              setApprove(null);
+            }}
+          />
         )}
       </div>
-      {cardMenu && (
-        <CardMenu
-          menu={cardMenu}
-          board={menuBoard}
-          onError={(error) => {
-            toast(error);
-          }}
-          onClose={() => {
-            setCardMenu(null);
-          }}
-        />
-      )}
-      {approve && (
-        <ApproveChoice
-          menu={approve.menu}
-          anchor={approve.anchor}
-          onChoose={(choice) => {
-            setApprove(null);
-            openApproveChoice(choice, approve.menu.key);
-          }}
-          onCancel={() => {
-            setApprove(null);
-          }}
-        />
+      {more !== null && (
+        <button
+          type="button"
+          className="board-more-stages"
+          style={{ right: covered + 16 }}
+          onClick={scrollToMore}
+        >
+          <span>{more}</span>
+          <Icon name="arrow-right" size={12} />
+        </button>
       )}
     </div>
   );

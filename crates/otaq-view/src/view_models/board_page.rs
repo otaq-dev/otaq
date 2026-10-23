@@ -1,9 +1,9 @@
 //! The board as the Tauri page draws it (T-0220, T-0324, T-0404; UI-02, SHL-06, SHL-01, TKT-06, CLS-03, CLS-06,
 //! REV-14, STG-08; d0087, d0108): [`board::build`]'s columns of the project's flow (on the default flow today's
 //! five) turned into plain, serialized shapes with every text already worded (counts, hints, the Review column's two
-//! sections and the Approved note, the Dev section and fold, the Done rail, the empty board, the "Created or changed
-//! by" chip), each with its kind and each section's own drop target, so the page draws any flow without naming a
-//! column. The drag is the UIT-04 way: [`drag_answer_in`] gives every drop target's verdict for one ticket at once
+//! sections and the Approved note, the Dev section and fold, the folded columns' rails and Done's line, the empty
+//! board, the "Created or changed by" chip, the toolbar and the view preferences of SHB-05), each with its kind and
+//! each section's own drop target, so the page draws any flow without naming a column. The drag is the UIT-04 way: [`drag_answer_in`] gives every drop target's verdict for one ticket at once
 //! (every column, with the Review column split into its body, which means Ready for Review, and its Approved
 //! section), from the core's `check_move_in` on the project's flow ([`drag::feedback_in`], [`drag::drop_hint_in`]),
 //! so the page draws the whole drag without asking again; a drop then asks once more what happens
@@ -31,7 +31,7 @@ use crate::key_labels::KeyLabels;
 use crate::keymap::Platform;
 use crate::view_models::approve::{self, ApproveChoice};
 use crate::view_models::board::{
-    self, BoardInput, CardEntry, ColumnView, DevSections, HeaderTooltip, SectionView, StripColumn,
+    self, BoardInput, CardEntry, ColumnView, DevSections, HeaderTooltip, SectionView,
 };
 use crate::view_models::card_page::{EpicCardView, TicketCardView};
 use crate::view_models::chain;
@@ -44,6 +44,8 @@ use crate::view_models::filter::Token;
 use crate::view_models::flow_columns::{self, ColumnKind, Columns};
 use crate::view_models::search_page::FilterState;
 use crate::view_models::ticket_comments::CommentBoxView;
+use crate::view_models::view_prefs::{self, Change, Prefs, Toolbar, ViewKind};
+use otaq_core::board::settings::ViewPrefs;
 
 /// A page column's id (SHL-06, STG-08): `"backlog"`, `"ready_for_dev"`, the id of a stage with its own column
 /// (the default flow's `"dev"` and `"review"`), `"done"`.
@@ -225,50 +227,56 @@ impl From<HeaderTooltip> for ColumnTooltip {
     }
 }
 
-/// The stage strip above a long flow's board that doesn't fit (FLW-12; *Row · A flow with many stages*): every
-/// column with its count and the stages folded into it. The page outlines the columns in view and scrolls to one
-/// on a click.
+/// A folded column's rail (BRD-02, `s26-10`): its icon, count and name, a dot when something in it needs the user;
+/// a click unfolds it. `BoardColumnRail` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "BoardStageStrip")]
-pub struct StageStrip {
-    /// "Columns": the strip's name for assistive tech.
-    pub label: String,
-    pub columns: Vec<StageStripColumn>,
+#[ts(rename = "BoardColumnRail")]
+pub struct ColumnRail {
+    /// "Grill · 2 tickets, 1 needs you".
+    pub tooltip: String,
+    /// "Click to unfold".
+    pub hint: String,
+    /// Something in it needs the user.
+    pub dot: bool,
+    pub unfold: Change,
 }
 
-/// One column in the stage strip: "Dev 1" over "Validate 1".
+/// An item of a column's ⋯ menu (BRD-04): Fold this column; the flow's items (Edit <stage>…, Add a stage after
+/// <stage>, Change the whole flow…) come with the flow editor. `BoardColumnMenuItem` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "BoardColumnMenuItem")]
+pub struct ColumnMenuItem {
+    /// The row the menu draws; its `id` is what a choice gives back.
+    pub item: crate::view_models::menu::MenuItem,
+    /// The view change it makes; `null` for an item with its own request.
+    pub change: Option<Change>,
+}
+
+pub const FOLD_THIS_COLUMN: &str = "Fold this column";
+pub const CLICK_TO_UNFOLD: &str = "Click to unfold";
+pub const COLUMN_MENU: &str = "Column menu";
+
+/// Done folded (BRD-02, `s24-03`): "Done 4 →" under the last column; a click opens Done as a column. `BoardDoneLine`
+/// on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "BoardStageStripColumn")]
-pub struct StageStripColumn {
-    pub column: ColumnId,
-    pub title: String,
-    pub count: String,
-    pub folded: Vec<StageStripFolded>,
+#[ts(rename = "BoardDoneLine")]
+pub struct DoneLine {
+    pub text: String,
+    pub unfold: Change,
 }
 
+/// The pill at the board's right edge while columns are cut off (BRD-02, `s24-04`): the page counts the columns past
+/// the edge as it scrolls and words it with `one` or `many`; a click scrolls to the next ones. `BoardMoreStages` on
+/// the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "BoardStageStripFolded")]
-pub struct StageStripFolded {
-    pub name: String,
-    pub count: String,
+#[ts(rename = "BoardMoreStages")]
+pub struct MoreStages {
+    pub one: String,
+    /// "{n} more stages".
+    pub many: String,
+    /// At the board's left edge (not scrolled): "7 more stages"; `null` when the columns fit.
+    pub at_start: Option<String>,
 }
-
-impl From<StripColumn> for StageStripColumn {
-    fn from(c: StripColumn) -> Self {
-        Self {
-            column: c.column,
-            title: c.title,
-            count: c.count,
-            folded: c
-                .folded
-                .into_iter()
-                .map(|(name, count)| StageStripFolded { name, count })
-                .collect(),
-        }
-    }
-}
-
-pub const STAGE_STRIP_LABEL: &str = "Columns";
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "BoardColumn")]
@@ -292,11 +300,14 @@ pub struct ColumnPage {
     pub hint: Option<String>,
     /// Shown when the column has no card (Review's sections have their own lines).
     pub empty_hint: String,
-    /// Drawn as the 34 px rail: Done folded, or an empty stage of a long flow (FLW-12).
+    /// Folded (BRD-02): a stage's rail ([`ColumnRail`]); Done's is the board's "Done 4 →" line ([`DoneLine`]).
     pub collapsed: bool,
-    /// Done only: the header button's (and the rail's) tooltip ("Collapse Done" / "Expand Done"); a click on it
-    /// folds or opens Done. An empty stage's rail has none: it opens when a card comes.
-    pub toggle: Option<String>,
+    /// The folded column's rail; `null` while it is open, and for Done.
+    pub rail: Option<ColumnRail>,
+    /// Its ⋯ menu on hover (BRD-04); Backlog has none.
+    pub menu: Vec<ColumnMenuItem>,
+    /// The ⋯ button's name ("Column menu").
+    pub menu_label: String,
     /// "6 hidden by filter".
     pub hidden: Option<String>,
     /// Every column but Dev and Review.
@@ -351,15 +362,21 @@ pub struct BoardPage {
     pub focus: Option<EpicFocus>,
     /// The "Created or changed by <agent> ✕" chip while the board is filtered by a Project agent (d0087).
     pub agent_filter: Option<AgentChip>,
-    /// The columns fill the board's width; below this many px per column the board scrolls sideways (SHL-01): 200,
-    /// or a long flow's compact 184 (FLW-12).
+    /// The one width rule (BRD-02): every open column at least this wide; they share the width when they fit,
+    /// else the board scrolls sideways.
     pub min_column_width: f32,
-    /// The stage strip above a long flow that doesn't fit (FLW-12).
-    pub stage_strip: Option<StageStrip>,
-    /// Done as a rail.
-    pub done_rail_width: f32,
-    /// The Board tab's count ("Board 26", Q84): the cards in every column but Done, whatever the filter.
-    pub tab_count: String,
+    /// A folded column's rail.
+    pub folded_width: f32,
+    /// The "7 more stages" pill's words (BRD-02).
+    pub more_stages: MoreStages,
+    /// Done folded: "Done 4 →" under the last column.
+    pub done: Option<DoneLine>,
+    /// The project's view preferences (SHB-05): Board or List, lanes, grouping, folds, dependencies.
+    pub prefs: Prefs,
+    /// The toolbar of both views (BRD-01).
+    pub toolbar: Toolbar,
+    /// The List's words until it arrives (T-0461); `null` on the Board.
+    pub list_placeholder: Option<String>,
 }
 
 /// The chip of the agent filter (d0087; Q-G): ✕ or Esc sets `Params::agent` back to `None`.
@@ -445,17 +462,14 @@ pub fn focus_filter(
     })
 }
 
-/// What the page sends with `board.view`: the project, the board's size (for the Done rail and Dev's fold) and the
-/// user's own choices, kept per project by the page.
+/// What the page sends with `board.view`: the project and the board's size (for the "more stages" pill and Dev's
+/// fold). The view preferences are the service's (SHB-05), read by `board.view` itself.
 #[derive(Debug, Clone, Default, Deserialize, TS)]
 #[ts(rename = "BoardParams")]
 pub struct Params {
     pub project: String,
     pub width: f32,
     pub height: f32,
-    /// The user folded (`true`) or opened (`false`) Done; `None` follows the width.
-    pub done_collapsed: Option<bool>,
-    pub dev_unfolded: bool,
     /// The header's search and filter (T-0221): cards that don't match hide, and each column says how many.
     #[serde(default)]
     pub filter: FilterState,
@@ -487,6 +501,8 @@ pub struct ProjectFacts<'a> {
     /// Why no ticket starts from Ready for Dev (FLW-06: [`board::WAITING_FOR_THE_FLOW_CHANGE`] while a flow change
     /// waits); `None` while starts run.
     pub starts_held: Option<&'a str>,
+    /// The project's view preferences (`ProjectSettings.view`, SHB-05).
+    pub view: &'a ViewPrefs,
 }
 
 pub const APPROVED_NOTE: &str =
@@ -554,6 +570,16 @@ fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
         fold: d.fold,
         folded: d.folded.iter().map(ToString::to_string).collect(),
     });
+    let rail = (view.collapsed && kind != ColumnKind::Done).then(|| ColumnRail {
+        tooltip: rail_tooltip(&view.title, view.total, view.needs_you),
+        hint: CLICK_TO_UNFOLD.to_owned(),
+        dot: view.needs_you > 0,
+        unfold: Change::FoldColumn {
+            column: view.id.as_str().to_owned(),
+            folded: false,
+        },
+    });
+    let menu = column_menu(&view.id, kind);
     ColumnPage {
         id: view.id,
         kind,
@@ -576,14 +602,9 @@ fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
         hint: view.hint.map(str::to_owned),
         empty_hint: view.empty_hint.to_owned(),
         collapsed: view.collapsed,
-        toggle: (kind == ColumnKind::Done).then(|| {
-            if view.collapsed {
-                "Expand Done"
-            } else {
-                "Collapse Done"
-            }
-            .to_owned()
-        }),
+        rail,
+        menu,
+        menu_label: COLUMN_MENU.to_owned(),
         hidden: hidden_text(view.hidden),
         cards: cards(view.cards, tickets),
         sections: view
@@ -603,6 +624,33 @@ fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
         dev,
         add: (kind == ColumnKind::Backlog).then(|| "Add ticket".to_owned()),
     }
+}
+
+/// "Grill · 2 tickets, 1 needs you" (`s26-10`).
+pub fn rail_tooltip(title: &str, tickets: usize, needs_you: usize) -> String {
+    let s = if tickets == 1 { "" } else { "s" };
+    match needs_you {
+        0 => format!("{title} \u{b7} {tickets} ticket{s}"),
+        n => format!("{title} \u{b7} {tickets} ticket{s}, {n} needs you"),
+    }
+}
+
+/// A column's ⋯ menu (BRD-04): Fold this column, on every column but Backlog. Edit <stage>…, Add a stage after
+/// <stage> and Change the whole flow… join it with the flow editor (T-0473).
+pub fn column_menu(id: &ColumnId, kind: ColumnKind) -> Vec<ColumnMenuItem> {
+    if kind == ColumnKind::Backlog {
+        return Vec::new();
+    }
+    vec![ColumnMenuItem {
+        item: crate::view_models::menu::MenuItem {
+            icon: Some(IconName::FoldHorizontal),
+            ..crate::view_models::menu::MenuItem::new("fold", FOLD_THIS_COLUMN)
+        },
+        change: Some(Change::FoldColumn {
+            column: id.as_str().to_owned(),
+            folded: true,
+        }),
+    }]
 }
 
 /// Puts each epic card's lead on it (d0083): the Lead row, Open lead, and "added by Wishlist lead" rows.
@@ -653,7 +701,7 @@ pub fn page(
         );
     }
     let strong = filter.strong(tickets);
-    let done_collapsed = board::done_collapsed(params.done_collapsed, params.width);
+    let prefs = project.view;
     let input = BoardInput {
         flow: project.flow,
         tickets,
@@ -661,8 +709,9 @@ pub fn page(
         strong: strong.as_deref(),
         project_base: Some(project.base_branch),
         now_ms,
-        dev_budget: (!params.dev_unfolded).then(|| board::dev_budget(params.height)),
-        done_collapsed,
+        dev_budget: (!prefs.dev_unfolded).then(|| board::dev_budget(params.height)),
+        folded: &prefs.folded_columns,
+        fold_empty: prefs.fold_empty_columns,
         agent_names: project.agent_names,
         was_validating: project.was_validating,
         agents: project.agents,
@@ -671,10 +720,29 @@ pub fn page(
     };
     let mut built = board::build(&input);
     with_leads(&mut built, tickets, project.leads);
-    let layout = board::lay_out(&mut built, params.width);
+    let done_folded = built
+        .iter()
+        .any(|c| c.kind == ColumnKind::Done && c.collapsed);
+    // Folded Done is a line under the last column, not a column of its own.
+    let rails: Vec<bool> = built
+        .iter()
+        .filter(|c| !(c.kind == ColumnKind::Done && c.collapsed))
+        .map(|c| c.collapsed)
+        .collect();
+    let done = built
+        .iter()
+        .find(|c| c.kind == ColumnKind::Done && c.collapsed)
+        .map(|c| DoneLine {
+            text: format!("{} {} \u{2192}", c.title, c.count),
+            unfold: Change::FoldColumn {
+                column: c.id.as_str().to_owned(),
+                folded: false,
+            },
+        });
+    let view: ViewKind = prefs.view.into();
     BoardPage {
         strip: Strip::with_leads(tickets, project.flow, project.leads)
-            .map(|s| s.with_done_rail(done_collapsed)),
+            .map(|s| s.with_done_rail(done_folded)),
         columns: built.into_iter().map(|c| column_page(c, tickets)).collect(),
         empty: empty_board::shows(tickets.len(), false)
             .then(|| empty_board::view(project.name, keys)),
@@ -692,17 +760,17 @@ pub fn page(
             keys: keys.iter().map(ToString::to_string).collect(),
         }),
         agent_filter: agent_filter.map(AgentFilter::chip),
-        min_column_width: layout.column_width,
-        stage_strip: layout.strip.map(|columns| StageStrip {
-            label: STAGE_STRIP_LABEL.to_owned(),
-            columns: columns.into_iter().map(StageStripColumn::from).collect(),
-        }),
-        done_rail_width: board::DONE_RAIL_WIDTH,
-        tab_count: tickets
-            .iter()
-            .filter(|t| board::is_card(t, tickets) && !t.place.is_done())
-            .count()
-            .to_string(),
+        min_column_width: board::COLUMN_MIN_WIDTH,
+        folded_width: board::FOLDED_COLUMN_WIDTH,
+        more_stages: MoreStages {
+            one: "1 more stage".to_owned(),
+            many: "{n} more stages".to_owned(),
+            at_start: board::more_stages(board::columns_after(params.width, 0., &rails)),
+        },
+        done,
+        prefs: Prefs::from(prefs),
+        toolbar: view_prefs::toolbar(prefs, keys),
+        list_placeholder: (view == ViewKind::List).then(|| view_prefs::LIST_PLACEHOLDER.to_owned()),
     }
 }
 
@@ -1196,12 +1264,29 @@ pub struct Gallery {
     pub drags: Vec<GalleryDrag>,
     pub empty: empty_board::View,
     pub agent_chip: AgentChip,
+    /// The toolbar on the Board (Fold empty columns on) and on the List (BRD-01, T-0460).
+    pub toolbars: Vec<GalleryToolbar>,
+    /// Folded columns (BRD-02, `s26-10`): Dev with a card that needs you (the dot), an empty Review.
+    pub rails: Vec<GalleryColumn>,
+    /// Done folded: "Done 4 →".
+    pub done: DoneLine,
+    /// The pill's words for 7 columns cut off.
+    pub more: String,
+}
+
+/// One toolbar state in the gallery.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "BoardGalleryToolbar")]
+pub struct GalleryToolbar {
+    pub name: String,
+    pub toolbar: Toolbar,
 }
 
 pub fn gallery() -> Gallery {
     use crate::view_models::card_fixtures::{NOW, ticket};
     let flow = otaq_core::flow::default_flow();
     let columns = Columns::of(&flow);
+    let view = ViewPrefs::default();
     let facts = ProjectFacts {
         flow: &flow,
         name: "shop-web",
@@ -1214,6 +1299,7 @@ pub fn gallery() -> Gallery {
         agents: None,
         agent_list: None,
         starts_held: None,
+        view: &view,
     };
     let params = Params {
         project: "SHOP".into(),
@@ -1277,7 +1363,90 @@ pub fn gallery() -> Gallery {
             keys: Vec::new(),
         }
         .chip(),
+        toolbars: gallery_toolbars(),
+        rails: gallery_rails(&flow),
+        done: DoneLine {
+            text: "Done 4 \u{2192}".to_owned(),
+            unfold: Change::FoldColumn {
+                column: flow_columns::DONE.to_owned(),
+                folded: false,
+            },
+        },
+        more: board::more_stages(7).unwrap_or_default(),
     }
+}
+
+fn gallery_toolbars() -> Vec<GalleryToolbar> {
+    let keys = KeyLabels::base(Platform::Mac);
+    let board = ViewPrefs {
+        fold_empty_columns: true,
+        ..ViewPrefs::default()
+    };
+    let list = ViewPrefs {
+        view: otaq_core::board::settings::BoardView::List,
+        ..ViewPrefs::default()
+    };
+    vec![
+        GalleryToolbar {
+            name: "Board · Fold empty columns on".into(),
+            toolbar: view_prefs::toolbar(&board, &keys),
+        },
+        GalleryToolbar {
+            name: "List · by Stage".into(),
+            toolbar: view_prefs::toolbar(&list, &keys),
+        },
+    ]
+}
+
+fn gallery_rails(flow: &Flow) -> Vec<GalleryColumn> {
+    use crate::view_models::card_fixtures::{NOW, ticket};
+    let view = ViewPrefs {
+        folded_columns: vec!["dev".into(), "review".into()],
+        ..ViewPrefs::default()
+    };
+    let facts = ProjectFacts {
+        flow,
+        name: "shop-web",
+        repo_path: "/Users/me/code/shop-web",
+        base_branch: "main",
+        agent_names: &[],
+        was_validating: &[],
+        leads: &[],
+        agent_filter: None,
+        agents: None,
+        agent_list: None,
+        starts_held: None,
+        view: &view,
+    };
+    let tickets = vec![
+        ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou),
+        ticket("SHOP-33", "Shipping estimate", Status::Working),
+    ];
+    let board = page(
+        &tickets,
+        &facts,
+        &Params {
+            project: "SHOP".into(),
+            width: 1376.,
+            height: 856.,
+            ..Params::default()
+        },
+        NOW,
+        &KeyLabels::base(Platform::Mac),
+    );
+    board
+        .columns
+        .into_iter()
+        .filter(|c| c.rail.is_some())
+        .map(|column| GalleryColumn {
+            name: column
+                .rail
+                .as_ref()
+                .map(|r| r.tooltip.clone())
+                .unwrap_or_default(),
+            column,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1540,7 +1709,16 @@ mod tests {
             agents: None,
             agent_list: None,
             starts_held: None,
+            view: view(ViewPrefs {
+                folded_columns: Vec::new(),
+                ..ViewPrefs::default()
+            }),
         }
+    }
+
+    /// View preferences that live as long as the test (`ProjectFacts` borrows them).
+    fn view(prefs: ViewPrefs) -> &'static ViewPrefs {
+        Box::leak(Box::new(prefs))
     }
 
     fn params(width: f32) -> Params {
@@ -1548,8 +1726,6 @@ mod tests {
             project: "SHOP".into(),
             width,
             height: 856.,
-            done_collapsed: None,
-            dev_unfolded: false,
             filter: FilterState::default(),
             agent: None,
         }
@@ -1791,10 +1967,8 @@ mod tests {
                 "Done"
             ]
         );
-        assert_eq!(page.min_column_width, 200.);
-        assert_eq!(page.done_rail_width, 34.);
-        // Q84: every card but Done's SHOP-17 (the epic card counts once).
-        assert_eq!(page.tab_count, "8");
+        assert_eq!(page.min_column_width, 180.);
+        assert_eq!(page.folded_width, 52.);
         assert_eq!(page.empty, None);
         let backlog = &page.columns[0];
         assert_eq!(backlog.add.as_deref(), Some("Add ticket"));
@@ -1863,8 +2037,9 @@ mod tests {
         assert_eq!(approved.fold, "Fold Approved");
         assert_eq!(ready.unfold, "Unfold Ready for Review");
         let done = &page.columns[5];
-        assert!(!done.collapsed, "1376: Done open");
-        assert_eq!(done.toggle.as_deref(), Some("Collapse Done"));
+        assert!(!done.collapsed, "Done opened");
+        assert_eq!(done.menu[0].item.label, "Fold this column");
+        assert_eq!(page.done, None);
         let json = serde_json::to_value(&page).unwrap();
         assert_eq!(json["columns"][1]["id"], "ready_for_dev");
         assert_eq!(json["columns"][0]["cards"][0]["kind"], "ticket");
@@ -1872,7 +2047,7 @@ mod tests {
     }
 
     /// EPC-16 on the page: SHOP-40.1 and 40.2 merged fold into one line before their cards, SHOP-40.5 closed stays
-    /// a card; Done (and its 1280 rail) counts the fold as one.
+    /// a card; Done (and its folded line) counts the fold as one.
     #[test]
     fn merged_children_fold_on_the_page() {
         let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
@@ -1916,40 +2091,67 @@ mod tests {
         );
         assert_eq!(json["columns"][0]["folds"], serde_json::json!([]));
 
-        let rail = page(
+        let folded = page(
             &tickets,
-            &facts(),
-            &params(1216.),
+            &ProjectFacts {
+                view: view(ViewPrefs::default()),
+                ..facts()
+            },
+            &params(1376.),
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert!(rail.columns[5].collapsed);
-        assert_eq!(rail.columns[5].count, "3");
+        assert!(folded.columns[5].collapsed);
+        assert_eq!(folded.done.unwrap().text, "Done 3 \u{2192}");
     }
 
+    /// BRD-02: Done is folded at first, "Done 4 →" under the last column, at every width; the line unfolds it, and
+    /// its ⋯ folds it back. A folded stage is a rail that says what needs the user.
     #[test]
-    fn done_folds_at_1280_and_the_user_choice_wins() {
+    fn done_is_a_line_until_opened() {
         let tickets = sample();
-        let narrow = page(
+        let first = page(
             &tickets,
-            &facts(),
-            &params(1216.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        assert!(narrow.columns[5].collapsed);
-        assert_eq!(narrow.columns[5].toggle.as_deref(), Some("Expand Done"));
-        let opened = page(
-            &tickets,
-            &facts(),
-            &Params {
-                done_collapsed: Some(false),
-                ..params(1216.)
+            &ProjectFacts {
+                view: view(ViewPrefs::default()),
+                ..facts()
             },
+            &params(1376.),
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert!(!opened.columns[5].collapsed);
+        let done = &first.columns[5];
+        assert!(done.collapsed);
+        assert_eq!(done.rail, None, "Done folds to its line, not a rail");
+        let line = first.done.as_ref().unwrap();
+        assert_eq!(line.text, "Done 1 \u{2192}");
+        assert_eq!(
+            line.unfold,
+            Change::FoldColumn {
+                column: "done".into(),
+                folded: false
+            }
+        );
+        let dev_folded = page(
+            &tickets,
+            &ProjectFacts {
+                view: view(ViewPrefs {
+                    folded_columns: vec!["dev".into()],
+                    ..ViewPrefs::default()
+                }),
+                ..facts()
+            },
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
+        let dev = &dev_folded.columns[2];
+        let rail = dev.rail.as_ref().unwrap();
+        assert!(rail.dot);
+        assert!(rail.tooltip.starts_with("Dev \u{b7} "), "{}", rail.tooltip);
+        assert!(rail.tooltip.ends_with("needs you"), "{}", rail.tooltip);
+        assert_eq!(rail.hint, "Click to unfold");
+        assert!(dev_folded.columns[0].menu.is_empty(), "Backlog has no ⋯");
     }
 
     #[test]
@@ -1973,11 +2175,14 @@ mod tests {
         assert!(dev.fold.as_deref().unwrap().ends_with("more · working"));
         let open = page(
             &tickets,
-            &facts(),
-            &Params {
-                dev_unfolded: true,
-                ..short
+            &ProjectFacts {
+                view: view(ViewPrefs {
+                    dev_unfolded: true,
+                    ..ViewPrefs::default()
+                }),
+                ..facts()
             },
+            &short,
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
@@ -2364,8 +2569,11 @@ mod tests {
         );
         let folded = page(
             &tickets,
-            &facts(),
-            &params(1359.),
+            &ProjectFacts {
+                view: view(ViewPrefs::default()),
+                ..facts()
+            },
+            &params(1360.),
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
@@ -2374,18 +2582,6 @@ mod tests {
             stations(&folded)[4],
             (ColumnId::DONE, Some(IconName::CircleCheck), 1)
         );
-        let opened = page(
-            &tickets,
-            &facts(),
-            &Params {
-                done_collapsed: Some(false),
-                ..params(1359.)
-            },
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        assert!(!opened.columns[5].collapsed, "the user's choice wins");
-        assert_eq!(stations(&opened)[4].1, None);
     }
 
     #[test]
@@ -2856,7 +3052,8 @@ mod tests {
             &KeyLabels::base(Platform::Mac),
         );
         assert!(card_text(&pr, "SHOP-20").contains("PR #482 open"));
-        assert!(card_text(&pr, "SHOP-18").contains("Mark merged"));
+        // Mark merged is the sheet's now: a card that doesn't need the user has no button (BRD-03).
+        assert!(!card_text(&pr, "SHOP-18").contains("Mark merged"));
         // 6 · Closed parent never counts as merged.
         let closed = at(
             Status::Merged,
@@ -2875,81 +3072,412 @@ mod tests {
         assert!(planning.chains.iter().all(|c| c.key != "SHOP-22"));
     }
 
-    /// FLW-12 on the page: the test flow at 1440 with the pane open is long and doesn't fit: 184 px columns, the
-    /// empty Grill a rail with no toggle (Done's keeps its own), Dev's header with "Validating 1" and the stage
-    /// strip; the default flow keeps 200 px and no strip.
-    #[test]
-    fn a_long_flow_reaches_the_page_with_its_strip() {
-        use otaq_core::domain::Place;
-        let flow = crate::view_models::flow_columns::every_kind();
-        let at = |key: &str, status, place: Place| {
-            let mut t = ticket(key, "Work", status);
+    /// The example's shop-web flow (*24 · The two views*): Grill, Dev with Validate shown in it, Security, Review
+    /// and the PR; seven columns and Done's line.
+    fn shop_web() -> Flow {
+        let yaml = "\
+flow:
+  - {id: grill, name: Grill, kind: agent, agent: Griller, skill: grill}
+  - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
+  - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agent: Validator, skill: validate, rounds: 3}
+  - {id: security, name: Security, kind: check, by: agent, agent: Security reviewer, skill: security-review, rounds: 3}
+  - {id: review, name: Review, kind: check, by: you}
+  - {id: pr, name: PR open, kind: delivery, agent: Shipper, skill: open-pr, mode: click, delivers: pr}
+";
+        otaq_core::flow::yaml::read(yaml).unwrap().flow
+    }
+
+    /// A 12-stage flow (`s24-04`): Grill, Plan, Dev, Validate, Tests, Security, Perf, A11y, QA, Review, PR, Deploy.
+    fn twelve_stages() -> Flow {
+        let yaml = "\
+flow:
+  - {id: grill, name: Grill, kind: agent, agent: Griller, skill: grill}
+  - {id: plan, name: Plan, kind: agent, agent: Planner, skill: plan}
+  - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
+  - {id: validate, name: Validate, kind: check, by: agent, agent: Validator, skill: validate, rounds: 3}
+  - {id: tests, name: Tests, kind: agent, agent: Test runner, skill: e2e}
+  - {id: security, name: Security, kind: check, by: agent, agent: Security reviewer, skill: security-review, rounds: 3}
+  - {id: perf, name: Perf, kind: check, by: agent, agent: Perf reviewer, skill: perf, rounds: 3}
+  - {id: a11y, name: A11y, kind: check, by: agent, agent: A11y reviewer, skill: a11y, rounds: 3}
+  - {id: qa, name: QA, kind: check, by: you}
+  - {id: review, name: Review, kind: check, by: you}
+  - {id: pr, name: PR, kind: delivery, agent: Shipper, skill: open-pr, mode: click, delivers: pr}
+  - {id: deploy, name: Deploy, kind: agent, agent: Deployer, skill: deploy}
+";
+        otaq_core::flow::yaml::read(yaml).unwrap().flow
+    }
+
+    /// The example's tickets on shop-web (*24 · The two views*), each in its place.
+    fn shop_web_tickets() -> Vec<Ticket> {
+        use otaq_core::board::tickets::AgentSignal;
+        use otaq_core::domain::{Place, Priority};
+        let at = |key: &str, title: &str, status, place: Place| {
+            let mut t = ticket(key, title, status);
             t.place = place;
             t
         };
-        let tickets = vec![
-            at("SHOP-33", Status::Working, Place::stage_of("dev")),
-            at("SHOP-30", Status::Checking, Place::stage_of("validate")),
-            at("SHOP-19", Status::Checking, Place::stage_of("security")),
-            at("SHOP-23", Status::WaitingForYou, Place::stage_of("qa")),
-            at("SHOP-26", Status::PrOpen, Place::stage_of("ship")),
+        let asks = |mut t: Ticket, text: &str| {
+            t.signal = Some(AgentSignal {
+                text: Some(text.into()),
+                since: Some(NOW - 60_000),
+                wakeup_at: None,
+            });
+            t
+        };
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
+        epic.kind = Kind::Epic;
+        let mut child = at(
+            "SHOP-40.3",
+            "Wishlist page",
+            Status::Backlog,
+            Place::Backlog,
+        );
+        child.epic = Some("SHOP-40".parse().unwrap());
+        let mut p1 = at(
+            "SHOP-35",
+            "Slow checkout query",
+            Status::Queued,
+            Place::Waiting(None),
+        );
+        p1.priority = Priority::Urgent;
+        p1.queued_at = Some(1);
+        let mut waits = at(
+            "SHOP-20",
+            "Checkout page",
+            Status::Queued,
+            Place::Waiting(None),
+        );
+        waits.depends_on = vec!["SHOP-18".parse().unwrap()];
+        waits.queued_at = Some(2);
+        let mut working = at(
+            "SHOP-33",
+            "Shipping estimate",
+            Status::Working,
+            Place::stage_of("dev"),
+        );
+        working.flags.last_signal_at = Some(NOW - 180_000);
+        let mut failed = at(
+            "SHOP-32",
+            "Address autocomplete",
+            Status::CheckFailed,
+            Place::stage_of("security"),
+        );
+        failed.validation_round = 3;
+        failed.flags.check = Some("Security".into());
+        let checking = |key: &str, title: &str, stage: &str, check: &str| {
+            let mut t = at(key, title, Status::Checking, Place::stage_of(stage));
+            t.flags.check = Some(check.into());
+            t.flags.validating_round = Some(otaq_core::domain::ValidationRound { round: 1, of: 3 });
+            t
+        };
+        let mut pr = at(
+            "SHOP-26",
+            "Add sitemap",
+            Status::PrOpen,
+            Place::stage_of("pr"),
+        );
+        pr.flags.pr_number = Some(481);
+        let mut merged = vec![];
+        for key in ["SHOP-1", "SHOP-2", "SHOP-3", "SHOP-4"] {
+            merged.push(at(key, "Shipped", Status::Merged, Place::Done));
+        }
+        let mut tickets = vec![
+            epic,
+            at(
+                "SHOP-31",
+                "Hotfix: checkout crash",
+                Status::Backlog,
+                Place::Backlog,
+            ),
+            at(
+                "SHOP-41",
+                "Fix README typo",
+                Status::Backlog,
+                Place::Backlog,
+            ),
+            child,
+            p1,
+            waits,
+            asks(
+                at(
+                    "SHOP-12",
+                    "Add dark mode toggle",
+                    Status::AsksYou,
+                    Place::stage_of("grill"),
+                ),
+                "Follow the system setting?",
+            ),
+            asks(
+                at(
+                    "SHOP-22",
+                    "Fix flaky login redirect",
+                    Status::NeedsYou,
+                    Place::stage_of("dev"),
+                ),
+                "Allow rm -rf .next?",
+            ),
+            working,
+            checking("SHOP-30", "Order history page", "validate", "Validate"),
+            checking("SHOP-19", "Price table", "security", "Security"),
+            failed,
+            at(
+                "SHOP-18",
+                "Checkout API",
+                Status::WaitingForYou,
+                Place::stage_of("review"),
+            ),
+            pr,
         ];
+        tickets.extend(merged);
+        tickets
+    }
+
+    fn line_of(
+        page: &BoardPage,
+        key: &str,
+    ) -> (
+        Option<String>,
+        Option<String>,
+        Option<crate::view_models::card::Tone>,
+    ) {
+        let card = page
+            .columns
+            .iter()
+            .flat_map(cards_in)
+            .find_map(|c| match c {
+                BoardCard::Ticket { card, .. } if card.key == key => Some(card),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no card {key}"));
+        (
+            card.status.as_ref().map(|l| l.text.clone()),
+            card.action.as_ref().map(|a| a.label.to_owned()),
+            card.edge,
+        )
+    }
+
+    fn cards_in(c: &ColumnPage) -> Vec<&BoardCard> {
+        let dev = c.dev.iter().flat_map(|d| d.top.iter().chain(&d.working));
+        let sections = c.sections.iter().flat_map(|s| &s.cards);
+        c.cards.iter().chain(dev).chain(sections).collect()
+    }
+
+    /// BRD-02, BRD-03 on the example (`s24-03`): at 1440 (the 64 px rail, no pane) the seven columns fit and share
+    /// the width, Done is its "Done 4 →" line, Ready says "Starts in priority order", and each card reads as drawn.
+    #[test]
+    fn the_example_board_fits_at_1440_with_one_line_cards() {
+        use crate::view_models::card::Tone;
+        let flow = shop_web();
+        let tickets = shop_web_tickets();
         let page = super::page(
             &tickets,
             &ProjectFacts {
                 flow: &flow,
+                view: view(ViewPrefs::default()),
                 ..facts()
             },
-            &params(1440. - 64. - 400.),
+            &params(1440. - 64.),
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert_eq!(page.min_column_width, board::COMPACT_COLUMN_WIDTH);
-        let grill = &page.columns[2];
-        assert!(grill.collapsed && grill.toggle.is_none());
-        let done = page.columns.last().unwrap();
-        assert!(done.collapsed && done.toggle.as_deref() == Some("Expand Done"));
-        let dev = &page.columns[3];
+        let open: Vec<&str> = page
+            .columns
+            .iter()
+            .filter(|c| !c.collapsed)
+            .map(|c| c.title.as_str())
+            .collect();
         assert_eq!(
-            dev.folded,
-            [FoldedStage {
-                tag: "Validating".into(),
-                count: "1".into()
-            }]
-        );
-        assert!(page.columns.iter().all(|c| c.quiet_icon));
-        let strip = page.stage_strip.expect("the stage strip");
-        assert_eq!(strip.label, "Columns");
-        let names: Vec<&str> = strip.columns.iter().map(|c| c.title.as_str()).collect();
-        assert_eq!(
-            names,
+            open,
             [
                 "Backlog",
                 "Ready for Dev",
                 "Grill",
                 "Dev",
                 "Security",
-                "QA",
-                "Done · PR",
-                "Done"
+                "Review",
+                "PR open \u{b7} PR"
             ]
         );
+        assert_eq!(page.more_stages.at_start, None, "seven columns fit at 1440");
+        assert_eq!(page.done.as_ref().unwrap().text, "Done 4 \u{2192}");
         assert_eq!(
-            strip.columns[3].folded,
-            [StageStripFolded {
-                name: "Validate".into(),
-                count: "1".into()
-            }]
+            page.columns[1].hint.as_deref(),
+            Some("Starts in priority order")
         );
+        assert_eq!(page.toolbar.views.options[0].label, "Board");
+        assert!(page.toolbar.views.options[0].selected);
+        assert_eq!(page.list_placeholder, None);
 
-        let default = super::page(
+        let s = |text: &str| Some(text.to_owned());
+        assert_eq!(
+            line_of(&page, "SHOP-31"),
+            (None, None, None),
+            "a calm Backlog card"
+        );
+        assert_eq!(
+            line_of(&page, "SHOP-22"),
+            (
+                s("Needs you: allow rm -rf .next?"),
+                s("Answer"),
+                Some(Tone::Attention)
+            )
+        );
+        assert_eq!(
+            line_of(&page, "SHOP-12"),
+            (
+                s("Asks you: follow the system setting?"),
+                s("Reply"),
+                Some(Tone::Attention)
+            )
+        );
+        assert_eq!(line_of(&page, "SHOP-33"), (s("Working"), None, None));
+        assert_eq!(
+            line_of(&page, "SHOP-19").0,
+            s("Checking \u{b7} round 1 of 3")
+        );
+        assert_eq!(
+            line_of(&page, "SHOP-30").0,
+            s("Validating \u{b7} round 1 of 3")
+        );
+        assert_eq!(
+            line_of(&page, "SHOP-32"),
+            (
+                s("Security failed 3 times"),
+                s("Decide"),
+                Some(Tone::Attention)
+            )
+        );
+        let check = line_of(&page, "SHOP-18");
+        assert_eq!(
+            (check.0, check.1, check.2),
+            (s("Your check"), s("Review"), Some(Tone::Review))
+        );
+        let pr = line_of(&page, "SHOP-26").0.unwrap();
+        assert!(pr.starts_with("PR #481 open"), "{pr}");
+        assert_eq!(line_of(&page, "SHOP-26").1, None);
+        let p1 = line_of(&page, "SHOP-35").0.unwrap();
+        assert!(p1.starts_with("P1 \u{b7} "), "{p1}");
+        let waits = line_of(&page, "SHOP-20").0.unwrap();
+        assert!(waits.starts_with("waits for SHOP-18"), "{waits}");
+        let child = page.columns[0].cards.iter().find_map(|c| match c {
+            BoardCard::Ticket { card, .. } if card.key == "SHOP-40.3" => Some(card),
+            _ => None,
+        });
+        // An epic child in Backlog is a row of its epic's card (EPC-11), so it isn't a card of its own.
+        assert!(child.is_none());
+        let working = page.columns[3]
+            .dev
+            .iter()
+            .flat_map(|d| &d.working)
+            .find_map(|c| match c {
+                BoardCard::Ticket { card, .. } if card.key == "SHOP-33" => Some(card),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(working.time.as_ref().unwrap().text, "3m");
+    }
+
+    /// BRD-02 on a 12-stage flow (`s24-04`): every column keeps 180 px, nothing folds by itself, and at 1440 the
+    /// board scrolls with "7 more stages"; Fold empty columns folds the empty ones to rails.
+    #[test]
+    fn a_twelve_stage_flow_scrolls_with_seven_more_stages() {
+        let flow = twelve_stages();
+        let tickets = shop_web_tickets()
+            .into_iter()
+            .filter(|t| !matches!(t.place, otaq_core::domain::Place::InStage(_)))
+            .collect::<Vec<_>>();
+        let facts_of = |prefs: ViewPrefs| ProjectFacts {
+            flow: &flow,
+            view: view(prefs),
+            ..facts()
+        };
+        let page = super::page(
             &tickets,
-            &facts(),
-            &params(1440. - 64. - 400.),
+            &facts_of(ViewPrefs::default()),
+            &params(1440. - 64.),
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert_eq!(default.min_column_width, board::MIN_COLUMN_WIDTH);
-        assert_eq!(default.stage_strip, None);
+        let open = page.columns.iter().filter(|c| !c.collapsed).count();
+        assert_eq!(open, 14, "Backlog, Ready for Dev and twelve stages");
+        assert_eq!(page.more_stages.at_start.as_deref(), Some("7 more stages"));
+        assert_eq!(
+            (
+                page.more_stages.one.as_str(),
+                page.more_stages.many.as_str()
+            ),
+            ("1 more stage", "{n} more stages")
+        );
+        let folded = super::page(
+            &tickets,
+            &facts_of(ViewPrefs {
+                fold_empty_columns: true,
+                ..ViewPrefs::default()
+            }),
+            &params(1440. - 64.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
+        let open: Vec<&str> = folded
+            .columns
+            .iter()
+            .filter(|c| !c.collapsed)
+            .map(|c| c.title.as_str())
+            .collect();
+        assert_eq!(open, ["Backlog", "Ready for Dev"]);
+        assert_eq!(folded.more_stages.at_start, None, "the rails fit");
+        assert!(folded.toolbar.switch.selected);
+        let grill = folded.columns[2].rail.as_ref().unwrap();
+        assert_eq!(grill.tooltip, "Grill \u{b7} 0 tickets");
+        assert!(!grill.dot);
+    }
+
+    /// `s26-10`: Grill folded from its ⋯ is a rail with SHOP-12's needs-you dot.
+    #[test]
+    fn a_folded_column_has_a_dot_when_something_needs_you() {
+        let flow = shop_web();
+        let tickets = shop_web_tickets();
+        let page = super::page(
+            &tickets,
+            &ProjectFacts {
+                flow: &flow,
+                view: view(ViewPrefs {
+                    folded_columns: vec!["done".into(), "grill".into()],
+                    ..ViewPrefs::default()
+                }),
+                ..facts()
+            },
+            &params(1440. - 64.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
+        let grill = &page.columns[2];
+        assert!(grill.collapsed);
+        let rail = grill.rail.as_ref().unwrap();
+        assert_eq!(rail.tooltip, "Grill \u{b7} 1 ticket, 1 needs you");
+        assert!(rail.dot);
+        assert_eq!(
+            rail.unfold,
+            Change::FoldColumn {
+                column: "grill".into(),
+                folded: false
+            }
+        );
+        let list = super::page(
+            &tickets,
+            &ProjectFacts {
+                flow: &flow,
+                view: view(ViewPrefs {
+                    view: otaq_core::board::settings::BoardView::List,
+                    ..ViewPrefs::default()
+                }),
+                ..facts()
+            },
+            &params(1440. - 64.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
+        assert!(list.list_placeholder.is_some());
+        assert_eq!(list.prefs.view, ViewKind::List);
     }
 }

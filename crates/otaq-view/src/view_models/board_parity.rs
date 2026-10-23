@@ -38,6 +38,7 @@ fn facts<'a>(name: &'static str, flow: &'a Flow) -> ProjectFacts<'a> {
         agents: None,
         agent_list: None,
         starts_held: None,
+        view: Box::leak(Box::default()),
     }
 }
 
@@ -46,8 +47,6 @@ fn params(project: &str, width: f32, filter: &[&str]) -> Params {
         project: project.into(),
         width,
         height: 856.,
-        done_collapsed: None,
-        dev_unfolded: false,
         filter: FilterState {
             tokens: filter.iter().map(|t| (*t).to_owned()).collect(),
             text: String::new(),

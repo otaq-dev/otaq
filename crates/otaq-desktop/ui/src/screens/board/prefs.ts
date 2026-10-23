@@ -1,68 +1,11 @@
-// What the user did to each project's board, kept while the app runs so switching projects brings it back (T-0219):
-// Done folded or opened by hand, Dev unfolded, the "Epics in flight" strip folded (T-0269), the Review column's folded
-// sections (T-0328), and where each column was scrolled. The page's own state (UIT-04).
+// Where each project's board was scrolled, kept while the app runs so switching projects brings it back (T-0219):
+// each column, and the board itself. Everything else about how a board looks (Board or List, folds, lanes) is a view
+// preference the service keeps (SHB-05, `ProjectSettings.view`), read with `board.view` and changed with
+// `board.set_view`.
 import type { BoardColumnId } from "../../generated/BoardColumnId";
-import type { BoardReviewSectionId } from "../../generated/BoardReviewSectionId";
-import { createStore, type Store } from "../../app/store";
 
-export interface BoardPrefs {
-  /** `null` follows the board's width (Rust's `done_collapsed`). */
-  doneCollapsed: boolean | null;
-  devUnfolded: boolean;
-  /** The strip folded to its one line by a click on its header (EPC-10). */
-  stripFolded: boolean;
-  /** The Review column's sections folded by a click on their label (d0087); their counts stay. */
-  foldedSections: readonly BoardReviewSectionId[];
-}
-
-export const DEFAULT_PREFS: BoardPrefs = {
-  doneCollapsed: null,
-  devUnfolded: false,
-  stripFolded: false,
-  foldedSections: [],
-};
-
-export type PrefsByProject = Readonly<Record<string, BoardPrefs>>;
-
-export const boardPrefs: Store<PrefsByProject> = createStore<PrefsByProject>({});
-
-export function prefsOf(all: PrefsByProject, project: string): BoardPrefs {
-  return all[project] ?? DEFAULT_PREFS;
-}
-
-export function changePrefs(
-  project: string,
-  change: (prefs: BoardPrefs) => BoardPrefs,
-  store: Store<PrefsByProject> = boardPrefs,
-): void {
-  store.update((all) => ({ ...all, [project]: change(prefsOf(all, project)) }));
-}
-
-/** A click on the strip's header: folds it to one line, or unfolds it, for this project only. */
-export function toggleStripFold(project: string, store: Store<PrefsByProject> = boardPrefs): void {
-  changePrefs(project, (p) => ({ ...p, stripFolded: !p.stripFolded }), store);
-}
-
-/** A click on a Review section's label: folds it to its label and count, or unfolds it, for this project only. */
-export function toggleSectionFold(
-  project: string,
-  section: BoardReviewSectionId,
-  store: Store<PrefsByProject> = boardPrefs,
-): void {
-  changePrefs(
-    project,
-    (p) => ({
-      ...p,
-      foldedSections: p.foldedSections.includes(section)
-        ? p.foldedSections.filter((s) => s !== section)
-        : [...p.foldedSections, section],
-    }),
-    store,
-  );
-}
-
-/** Where a project's board was scrolled: each column, and the board itself (narrow windows, the panel open). Kept
- * outside the store: scrolling re-renders nothing. */
+/** Where a project's board was scrolled: each column, and the board itself. Kept outside any store: scrolling
+ * re-renders nothing. */
 export interface ScrollPlace {
   columns: Partial<Record<BoardColumnId, number>>;
   left: number;

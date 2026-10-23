@@ -1,22 +1,19 @@
-// One board column (*03 · Board — shop-web → Body → Board*): the header with icon, title and count (Done's fold
-// button, Backlog's plus), Ready for Dev's hint, the cards (Dev: the floated cards and the "N more · working" fold;
-// Review: its two sections, below), the empty hint, Backlog's "Add ticket" row, and the "7 above · 6 need you" chip
-// of a column scrolled down (*Very full column*). Done folded is the 34 px rail, and so is an empty stage of a long
-// flow that doesn't fit (FLW-12), which has no click of its own. Which of these a column is comes from its `kind`
-// (STG-08: the columns are the project's flow's), never its id. The header (FLW-12; *Row · Stage kinds on the column
-// header*): one 13 px icon by the stage's kind, muted on any flow but the default's (whose icons keep their status
-// colours); the stages folded into an agent column after its count ("Dev 3 · Validating 1"); hovering the title
-// shows who runs it (agent, model, options).
-// The Review column (*Row · Review column (0086 · V)*, d0087) holds "READY FOR REVIEW" and "APPROVED": each
-// label folds its section (the count stays), an empty section says so, and Approved (the section with a `target`
-// of its own) is a drop target of its own: a
-// Ready for Review card dragged over it lights it with the hint, and while such a card is dragged an empty Approved
-// says how. Approved's "doesn't watch PRs" line is on its cards (Card v2), so the section doesn't repeat it.
-// Everything it says is `BoardColumn`'s; while a card is dragged over it, it takes the verdict's outline. Under the
-// chain highlight (T-0229) its cards take their chain look, and the above chip, Dev's fold and the Done rail turn
-// accent for members they hide. In Done an epic's merged children fold into one line (EPC-16, *01 · Components →
-// Done Fold*): a click shows their cards, another folds them; which folds are open is this screen's only. While an
-// epic is focused (EPC-18, Q55) the other cards and Done lines stay in place, dimmed.
+// One board column (BRD-02, BRD-04; *24 · The two views*): the header with icon, title and count (Backlog's plus,
+// the ⋯ menu on hover with Fold this column), Ready for Dev's hint, the cards (Dev: the floated cards and the "N more ·
+// working" fold; Review: its two sections, below), the empty hint, Backlog's "Add ticket" row, and the "7 above · 6
+// need you" chip of a column scrolled down (*Very full column*). A folded column is a 52 px rail with its icon,
+// count, a dot when something in it needs you, and its name (`s26-10`); a click unfolds it. Done folded is the board's
+// "Done 4 →" line, under the last column. Which of these a column is comes from its `kind` (STG-08), never its id.
+// Folds are view preferences kept by the service (SHB-05): the column asks the board to change them (`onView`). The
+// header (FLW-12): one 13 px icon by the stage's kind; the stages folded into an agent column after its count ("Dev 3
+// · Validating 1"); hovering the title shows who runs it (agent, model, options).
+// The Review column (*Row · Review column (0086 · V)*, d0087) holds "READY FOR REVIEW" and "APPROVED": each label folds
+// its section (the count stays), an empty section says so, and Approved (the section with a `target` of its own) is a
+// drop target of its own. Everything it says is `BoardColumn`'s; while a card is dragged over it, it takes the
+// verdict's outline. Under the chain highlight (T-0229) its cards take their chain look, and the above chip, Dev's
+// fold and the rail turn accent for members they hide. In Done an epic's merged children fold into one line (EPC-16):
+// a click shows their cards, another folds them; which folds are open is this screen's only. While an epic is focused
+// (EPC-18, Q55) the other cards and Done lines stay in place, dimmed.
 import {
   type KeyboardEvent,
   memo,
@@ -29,20 +26,21 @@ import {
 } from "react";
 
 import { type ChainState, EpicCard, RESTING, TicketCard } from "../../cards";
-import { Tooltip } from "../../components";
+import { AnchoredMenu, type Anchor, Tooltip } from "../../components";
 import type { BoardCard } from "../../generated/BoardCard";
 import type { BoardColumn } from "../../generated/BoardColumn";
 import type { BoardColumnId } from "../../generated/BoardColumnId";
 import type { BoardColumnKind } from "../../generated/BoardColumnKind";
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
 import type { BoardDoneFold } from "../../generated/BoardDoneFold";
+import type { BoardDoneLine } from "../../generated/BoardDoneLine";
 import type { BoardEpicFocus } from "../../generated/BoardEpicFocus";
 import type { BoardReviewSection } from "../../generated/BoardReviewSection";
-import type { BoardReviewSectionId } from "../../generated/BoardReviewSectionId";
 import type { BoardScrollChip } from "../../generated/BoardScrollChip";
 import type { CardActionKind } from "../../generated/CardActionKind";
 import type { ChainView } from "../../generated/ChainView";
 import type { DragVerdict } from "../../generated/DragVerdict";
+import type { ViewChange } from "../../generated/ViewChange";
 import { Icon } from "../../theme/Icon";
 import { chainStateOf, membersIn } from "./chain";
 import { type AboveChip, aboveChip } from "./drag";
@@ -208,10 +206,7 @@ export function cardsOf(column: BoardColumn): BoardCard[] {
 }
 
 /** The cards the keyboard walks: every card but those behind a Done fold or in a folded Review section. */
-export function walkOf(
-  column: BoardColumn,
-  foldedSections: readonly BoardReviewSectionId[] = [],
-): BoardCard[] {
+export function walkOf(column: BoardColumn, foldedSections: readonly string[] = []): BoardCard[] {
   const folded = new Set([
     ...column.folds.flatMap((f) => f.keys),
     ...column.sections
@@ -288,12 +283,13 @@ export interface ColumnProps {
   /** Where this column was scrolled when the project was last shown. */
   scrollTop: number;
   onScroll: (column: BoardColumnId, top: number) => void;
-  onToggleDone: () => void;
-  onUnfold: () => void;
+  /** A change of the view preferences: a fold from the ⋯ menu or the rail, Dev's fold, a Review section. */
+  onView: (change: ViewChange) => void;
   onAdd: () => void;
-  /** Review: the sections folded by the user (kept per project, `prefs.ts`). */
-  foldedSections?: readonly BoardReviewSectionId[];
-  onToggleSection?: (section: BoardReviewSectionId) => void;
+  /** Review: the sections folded by the user (a view preference, SHB-05). */
+  foldedSections?: readonly string[];
+  /** The last open column: Done's "Done 4 →" line goes under its cards while Done is folded. */
+  doneLine?: BoardDoneLine | null;
   /** Review, while a card is dragged: the verdict of its section with a target of its own (Approved), and whether
    * the card is over it. */
   approved?: { verdict: DragVerdict | undefined; over: boolean } | undefined;
@@ -364,58 +360,104 @@ export function iconInk(column: Pick<BoardColumn, "kind" | "quiet_icon">): strin
   return column.quiet_icon ? "var(--text-muted)" : ICON_INK[column.kind];
 }
 
-/** Done folded, or an empty stage of a long flow: only Done's rail (the one with a `toggle`) opens on a click. */
+/** A folded column (BRD-02, `s26-10`): a 52 px rail with its icon, count, a needs-you dot and its name; a click
+ * unfolds it. It stays a drop target. */
 function Rail({
   column,
   members,
-  onToggle,
+  onView,
   element,
-}: Pick<ColumnProps, "column" | "element"> & { members: string[]; onToggle: () => void }) {
-  const ref = (el: HTMLElement | null) => {
-    element(column.id, el);
-  };
-  const body = (
-    <>
-      <span style={{ color: iconInk(column) }}>
-        <Icon name={column.icon} size={13} />
-      </span>
-      <span className="board-rail-count">{column.count}</span>
-      <span className="board-rail-title">{column.title}</span>
-      {/* The chain's members folded in the rail (*Chain highlight → SHOP-17 chip*). */}
-      {members.map((key) => (
-        <span key={key} className="board-rail-chain">
-          {key}
-        </span>
-      ))}
-    </>
-  );
-  if (column.toggle === null)
-    return (
-      <Tooltip text={column.title}>
-        <div
-          className="board-rail"
-          data-column={column.id}
-          ref={ref}
-          role="group"
-          aria-label={`${column.title} ${column.count}`}
-        >
-          {body}
-        </div>
-      </Tooltip>
-    );
+}: Pick<ColumnProps, "column" | "element" | "onView"> & { members: string[] }) {
+  const rail = column.rail;
+  if (rail === null) return null;
   return (
-    <Tooltip text={column.toggle}>
+    <Tooltip text={rail.tooltip} detail={[rail.hint]}>
       <button
         type="button"
         className="board-rail"
         data-column={column.id}
-        ref={ref}
-        aria-label={`${column.title} ${column.count}`}
-        onClick={onToggle}
+        data-chain={members.length > 0 || undefined}
+        ref={(el) => {
+          element(column.id, el);
+        }}
+        aria-label={rail.tooltip}
+        onClick={() => {
+          onView(rail.unfold);
+        }}
       >
-        {body}
+        <span style={{ color: iconInk(column) }}>
+          <Icon name={column.icon} size={13} />
+        </span>
+        <span className="board-rail-count">{column.count}</span>
+        {rail.dot && <span className="board-rail-dot" aria-hidden />}
+        <span className="board-rail-title">{column.title}</span>
       </button>
     </Tooltip>
+  );
+}
+
+/** Done folded (BRD-02, `s24-03`): "Done 4 →" under the last column; a click opens Done. It stays Done's drop target. */
+function DoneLink({
+  line,
+  onView,
+  element,
+}: { line: BoardDoneLine } & Pick<ColumnProps, "onView" | "element">) {
+  const done = line.unfold.kind === "fold_column" ? line.unfold.column : "done";
+  return (
+    <button
+      type="button"
+      className="board-done-line"
+      data-column={done}
+      ref={(el) => {
+        element(done, el);
+      }}
+      onClick={() => {
+        onView(line.unfold);
+      }}
+    >
+      {line.text}
+    </button>
+  );
+}
+
+/** The column's ⋯ (BRD-04), shown on hover: Fold this column (the flow's items come with the flow editor). */
+function ColumnMenu({ column, onView }: Pick<ColumnProps, "column" | "onView">) {
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
+  if (column.menu.length === 0) return null;
+  return (
+    <>
+      <Tooltip text={column.menu_label}>
+        <button
+          type="button"
+          className="board-column-button board-column-menu"
+          aria-label={column.menu_label}
+          aria-haspopup="menu"
+          aria-expanded={anchor !== null}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setAnchor({ left: r.left, top: r.bottom + 4, width: r.width, height: 0 });
+          }}
+        >
+          <Icon name="ellipsis" size={14} />
+        </button>
+      </Tooltip>
+      {anchor && (
+        <AnchoredMenu
+          anchor={anchor}
+          label={column.menu_label}
+          items={column.menu.map((m) => m.item)}
+          width={200}
+          onChoose={(id) => {
+            setAnchor(null);
+            const change = column.menu.find((m) => m.item.id === id)?.change ?? null;
+            if (change !== null) onView(change);
+          }}
+          onClose={() => {
+            setAnchor(null);
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -459,11 +501,10 @@ export function Column({
   showEmptyHint = true,
   scrollTop,
   onScroll,
-  onToggleDone,
-  onUnfold,
+  onView,
   onAdd,
   foldedSections = [],
-  onToggleSection,
+  doneLine = null,
   approved,
   element,
 }: ColumnProps) {
@@ -512,7 +553,7 @@ export function Column({
           chain,
           all.map((c) => c.card.key),
         )}
-        onToggle={onToggleDone}
+        onView={onView}
         element={element}
       />
     );
@@ -539,18 +580,7 @@ export function Column({
             </button>
           </Tooltip>
         )}
-        {column.toggle !== null && (
-          <Tooltip text={column.toggle}>
-            <button
-              type="button"
-              className="board-column-button"
-              aria-label={column.toggle}
-              onClick={onToggleDone}
-            >
-              <Icon name="chevrons-left-right" size={13} />
-            </button>
-          </Tooltip>
-        )}
+        <ColumnMenu column={column} onView={onView} />
       </header>
       {column.hint !== null && <div className="board-column-hint">{column.hint}</div>}
       {chip !== null && (
@@ -605,7 +635,9 @@ export function Column({
                   type="button"
                   className="board-chip"
                   data-chain={membersIn(chain, column.dev.folded).length > 0 || undefined}
-                  onClick={onUnfold}
+                  onClick={() => {
+                    onView({ kind: "dev_unfolded", on: true });
+                  }}
                 >
                   <span>{column.dev.fold}</span>
                   <Icon name="chevron-down" size={12} />
@@ -621,7 +653,11 @@ export function Column({
               folded={foldedSections.includes(section.id)}
               drag={section.target !== null ? approved : undefined}
               onToggle={() => {
-                onToggleSection?.(section.id);
+                onView({
+                  kind: "fold_section",
+                  section: section.id,
+                  folded: !foldedSections.includes(section.id),
+                });
               }}
               element={element}
               column={column.id}
@@ -683,6 +719,7 @@ export function Column({
             <span>{column.add}</span>
           </button>
         )}
+        {doneLine !== null && <DoneLink line={doneLine} onView={onView} element={element} />}
       </div>
     </section>
   );

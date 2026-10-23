@@ -397,6 +397,9 @@ pub enum CardActionKind {
     AddChildFromPr,
     /// An agent check's last round failed (FLW-13): on to the next stage; its Delivery waits for a click.
     MoveOnAnyway,
+    /// A check out of rounds (BRD-03): the card's one action opens the ticket, where Move on anyway, another round
+    /// and answering the agent are.
+    Decide,
     /// An agent check held for the plan limit with no usable fallback (FLW-13, Q277).
     SkipCheck,
 }
@@ -566,6 +569,18 @@ pub struct StatusHover {
     pub details: Vec<String>,
 }
 
+/// The card's one status line in words (BRD-03; *24 · The two views*): "Needs you: allow rm -rf .next?", "Working ·
+/// back from Security", "P1 · starts next". `CardStatusLine` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CardStatusLine")]
+pub struct StatusLine {
+    pub text: String,
+    /// The dot's colour: the state's.
+    pub dot: Palette,
+    /// The words' colour: secondary, or the edge's while the card needs the user.
+    pub tone: Tone,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CardViewModel {
     pub key: TicketKey,
@@ -593,6 +608,26 @@ pub struct CardViewModel {
     pub options: Option<crate::view_models::answer_options::AnswerOptions>,
     /// A Project agent just created it: the subtle highlight that fades (*18 → live board feedback*).
     pub fresh: bool,
+    /// The one-line card of BRD-03, from the parts above. Boxed: the board keeps every card's view model.
+    pub one_line: Box<OneLine>,
+}
+
+/// What the one-line card shows (BRD-03, *24 · The two views*) besides its key, epic and title.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct OneLine {
+    /// The one status line: the head flag's words and the situation's, joined ([`status_line`]).
+    pub line: Option<StatusLine>,
+    /// Who: the agent of whoever has the turn, or where it starts ("Rust developer"); named only while there are two
+    /// or more agents (d0086). The model stays in the sheet.
+    pub who: Option<String>,
+    /// How long ago the working agent last said something ("3m").
+    pub time: Option<Signal>,
+    /// The coloured edge of a card that needs the user: turquoise, the review colour for your check, red for a
+    /// closed parent.
+    pub edge: Option<Tone>,
+    /// The card's one action: the needs-you card's (Answer, Reply, Review, **Decide** for a check out of rounds,
+    /// Resume…) or another primary one (Open PR, Local merge).
+    pub action: Option<CardAction>,
 }
 
 /// "setup command failed" → "Setup command failed".
@@ -1537,7 +1572,195 @@ impl CardViewModel {
             },
             options,
             fresh: crate::view_models::agent_activity::fresh_from_project_agent(ticket, now_ms),
+            one_line: Box::new(OneLine {
+                who: who(ticket, status, x),
+                ..OneLine::default()
+            }),
         }
+        .with_one_line(ticket, kept.is_some())
+    }
+
+    /// The one-line card of BRD-03 from the parts already worded: the line, the edge, the time and the one action.
+    fn with_one_line(mut self, ticket: &Ticket, kept: bool) -> Self {
+        let status = status::shown(ticket);
+        let one = &mut self.one_line;
+        one.edge = edge(ticket, status, kept, self.outline, self.footer.as_ref());
+        one.line = status_line(
+            ticket,
+            status,
+            self.flag.as_ref(),
+            self.situation.as_ref(),
+            one.edge,
+        );
+        one.time = self.footer.as_ref().and_then(|f| f.signal.clone());
+        one.action = one_action(ticket, self.footer.as_ref(), one.edge.is_some());
+        self
+    }
+}
+
+/// The card's coloured edge (BRD-03): a card that needs the user (turquoise; red for a closed parent), and your
+/// check (the review colour, `s24-03`'s SHOP-18), which waits for the user too.
+fn edge(
+    ticket: &Ticket,
+    status: Status,
+    kept: bool,
+    outline: Outline,
+    footer: Option<&Footer>,
+) -> Option<Tone> {
+    if outline == Outline::Error {
+        return Some(Tone::Error);
+    }
+    if kept || ticket.needs_user() {
+        return Some(Tone::Attention);
+    }
+    let reviews = footer
+        .and_then(|f| f.action.as_ref())
+        .is_some_and(|a| matches!(a.kind, CardActionKind::Pass | CardActionKind::Review));
+    (status == Status::WaitingForYou && reviews).then_some(Tone::Review)
+}
+
+/// The card's one action (BRD-03): Review for your check (Pass and Fail are in the sheet), **Decide** for a check
+/// that failed its rounds (Move on anyway, another round or answering the agent are in the sheet); otherwise the
+/// action the card already had, when the card needs the user or the action is a primary one. Second buttons leave
+/// the card.
+fn one_action(ticket: &Ticket, footer: Option<&Footer>, edge: bool) -> Option<CardAction> {
+    if ticket.status == Status::CheckFailed {
+        return Some(CardAction {
+            kind: CardActionKind::Decide,
+            label: DECIDE,
+            icon: None,
+            primary: true,
+        });
+    }
+    let action = footer.and_then(|f| f.action.clone())?;
+    match action.kind {
+        CardActionKind::Pass => Some(CardAction {
+            kind: CardActionKind::Review,
+            label: "Review",
+            icon: Some(IconName::Eye),
+            primary: true,
+        }),
+        // The answer options are the sheet's: Reply opens it.
+        CardActionKind::SendAnswer => Some(CardAction {
+            kind: CardActionKind::Open,
+            label: "Reply",
+            icon: None,
+            primary: true,
+        }),
+        _ if edge || action.primary => Some(action),
+        _ => None,
+    }
+}
+
+/// A check out of rounds: the card's one action opens the ticket, where the choices are (BRD-03).
+pub const DECIDE: &str = "Decide";
+
+/// Ready for Dev's "Ready to start" on the one line: the frame's "starts next" (`s24-03`).
+pub const STARTS_NEXT: &str = "starts next";
+
+/// The one status line (BRD-03): the head flag's words, then the situation's ("Needs you: allow rm -rf .next?" after
+/// a needs-you or stopped flag, "Checking · round 1 of 3" otherwise); the situation alone when it already says what the flag
+/// says ("Security failed 3 times · …" under "Failed ×3"); a waiting card leads with its priority ("P1 · starts
+/// next"). The words keep their case, as drawn ("waits for SHOP-18", "after SHOP-40.2"). Nothing to say: no line (a
+/// calm Backlog card).
+pub fn status_line(
+    ticket: &Ticket,
+    status: Status,
+    flag: Option<&HeadFlag>,
+    situation: Option<&Situation>,
+    edge: Option<Tone>,
+) -> Option<StatusLine> {
+    let mut words = situation.map(|s| s.text.clone());
+    if words.as_deref() == Some(READY_TO_START) {
+        words = Some(STARTS_NEXT.to_owned());
+    }
+    let text = match (flag, words) {
+        (None, None) => return None,
+        (None, Some(words)) => words,
+        (Some(flag), None) => flag_words(flag),
+        (Some(flag), Some(words)) => {
+            let lead = flag_words(flag);
+            let words = words
+                .strip_prefix("validator: ")
+                .map_or(words.clone(), str::to_owned);
+            if says(&words, &lead) {
+                words
+            } else if matches!(flag.rank, Rank::NeedsYou | Rank::Stopped) {
+                format!("{lead}: {}", lowered(&words))
+            } else {
+                format!("{lead} \u{b7} {words}")
+            }
+        }
+    };
+    let text = match priority::on_card(ticket.priority) {
+        Some(p) if ticket.place.is_waiting() && !status.is_needs_you_family() => {
+            format!("{} \u{b7} {text}", priority::short(p))
+        }
+        _ => text,
+    };
+    let dot = match (edge, flag) {
+        (Some(Tone::Attention), _) => Palette::Attn,
+        (Some(Tone::Error), _) => Palette::Error,
+        (Some(Tone::Review), _) => Palette::Review,
+        (_, Some(flag)) => flag.palette,
+        (_, None) => status::pill(status).0.spec().1,
+    };
+    Some(StatusLine {
+        text,
+        dot,
+        tone: edge.unwrap_or(Tone::Secondary),
+    })
+}
+
+/// A flag's words on the line: "Validating" without its dots, "Failed 3 times" for "Failed ×3".
+fn flag_words(flag: &HeadFlag) -> String {
+    if flag.rank == Rank::Running {
+        // ":4020" says nothing alone: "Serving :4020".
+        return flag.full.clone();
+    }
+    let label = flag.label.trim_end_matches('\u{2026}');
+    match label.split_once(" \u{d7}") {
+        Some((word, n)) => format!("{word} {}", times(n.parse().unwrap_or(0))),
+        None => label.to_owned(),
+    }
+}
+
+/// Whether `words` already say `lead` ("Merge conflict · fixing" says "Conflict"; "Security failed 3 times" says
+/// "Failed 3 times").
+fn says(words: &str, lead: &str) -> bool {
+    let words = words.to_lowercase();
+    let lead = lead.to_lowercase();
+    let stem = lead.trim_end_matches('s');
+    !stem.is_empty() && words.contains(stem)
+}
+
+/// The agent's own words after "Needs you:": "Allow rm -rf .next?" reads "allow rm -rf .next?"; a word in
+/// capitals ("SHOP-18", "API") stays.
+fn lowered(words: &str) -> String {
+    let mut chars = words.chars();
+    match (chars.next(), chars.next()) {
+        (Some(first), Some(second)) if first.is_uppercase() && second.is_lowercase() => {
+            first.to_lowercase().chain(words.chars().skip(1)).collect()
+        }
+        _ => words.to_owned(),
+    }
+}
+
+/// Who the card names (BRD-03): the agent of whoever has the turn while one runs, a held role's agent, where a
+/// waiting ticket starts; nobody while there is only one agent (d0086).
+pub fn who(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<String> {
+    let a = &x.agents;
+    if a.count < 2 {
+        return None;
+    }
+    if let Some(hold) = held(ticket, status, x) {
+        return hold.agent.clone();
+    }
+    match status {
+        Status::Checking | Status::CheckerNeedsYou => a.running_validator.clone(),
+        _ if a.running_developer.is_some() => a.running_developer.clone(),
+        _ if ticket.place.is_waiting() => a.starts.as_ref().map(|s| s.agent.clone()),
+        _ => None,
     }
 }
 

@@ -10,13 +10,13 @@ import type { BoardColumn } from "../../generated/BoardColumn";
 import type { DragAnswer } from "../../generated/DragAnswer";
 import type { DropOutcome } from "../../generated/DropOutcome";
 import type { BoardReviewSection } from "../../generated/BoardReviewSection";
-import type { BoardStageStrip } from "../../generated/BoardStageStrip";
 import { afterDrop, coveredWidth, dropCard, openApproveChoice } from "./Board";
 import { EMPTY_BOX } from "../editor/commentRules";
 import { DragBackBody, sendDragBack } from "./DragBackDialog";
 import type { CommentBoxView } from "../../generated/CommentBoxView";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
-import { columnsInView, StageStrip } from "./StageStrip";
+import { columnsAfter, moreText, nextScroll } from "./more";
+import { stepSegment, Toolbar } from "./Toolbar";
 import { Column, type ColumnProps, columnOfCard, runsOf, walkOf } from "./Column";
 import {
   aboveChip,
@@ -35,18 +35,10 @@ import { agentOf, boardAgent, clearAgentFilter, escapeStep, showAgentOnBoard } f
 import type { EpicCardView } from "../../generated/EpicCardView";
 import type { EpicTrack } from "../../generated/EpicTrack";
 import { board } from ".";
-import {
-  boardPrefs,
-  changePrefs,
-  prefsOf,
-  rememberColumnScroll,
-  scrollPlace,
-  toggleSectionFold,
-} from "./prefs";
+import { rememberColumnScroll, scrollPlace } from "./prefs";
 
 afterEach(() => {
   overlays.store.set([]);
-  boardPrefs.set({});
   cardActions.set(null);
   boardAgent.set(null);
 });
@@ -102,18 +94,16 @@ const cardOf = (key: string): BoardCard => ({
   card: {
     key,
     key_label: key,
-    avatar: null,
-    pinned: false,
-    priority: null,
-    flag: null,
+    epic: null,
     title: key,
-    situation: null,
+    status: null,
+    avatar: null,
+    who: null,
+    time: null,
+    edge: null,
+    action: null,
     origin: null,
-    options: [],
-    footer: null,
     hover: { status: "", details: [] },
-    sleeve: null,
-    outline: "normal",
     faded: null,
     fresh: false,
     open_panel: "Open panel",
@@ -263,10 +253,7 @@ describe("board helpers", () => {
     expect(moveFocus(columns, 3, 0, "ArrowRight")).toBeNull();
   });
 
-  it("keeps each project's choices and scroll places", () => {
-    changePrefs("SHOP", (p) => ({ ...p, doneCollapsed: false }));
-    expect(prefsOf(boardPrefs.get(), "SHOP").doneCollapsed).toBe(false);
-    expect(prefsOf(boardPrefs.get(), "DOCS").doneCollapsed).toBeNull();
+  it("keeps each project's scroll places (the rest is the service's, SHB-05)", () => {
     rememberColumnScroll("SHOP", "dev", 420);
     expect(scrollPlace("SHOP").columns.dev).toBe(420);
     expect(scrollPlace("DOCS").columns.dev).toBeUndefined();
@@ -649,7 +636,9 @@ describe("the board screen", () => {
     hint: null,
     empty_hint: "Agents move their ticket here when they submit it for your review.",
     collapsed: false,
-    toggle: null,
+    rail: null,
+    menu: [],
+    menu_label: "Column menu",
     hidden: null,
     cards: [],
     sections: [],
@@ -677,24 +666,48 @@ describe("the board screen", () => {
     },
     scrollTop: 0,
     onScroll: () => undefined,
-    onToggleDone: () => undefined,
-    onUnfold: () => undefined,
+    onView: () => undefined,
     onAdd: () => undefined,
     element: () => undefined,
   });
 
-  it("draws an empty column with its hint, and Done folded as the rail", () => {
-    const empty = renderToStaticMarkup(createElement(Column, props(column({}))));
+  const FOLD_MENU = [
+    {
+      item: {
+        id: "fold",
+        label: "Fold this column",
+        icon: "fold-horizontal" as const,
+        shortcut: null,
+        danger: false,
+        disabled: false,
+        hint: null,
+        separated: false,
+        checked: false,
+        header: false,
+      },
+      change: { kind: "fold_column" as const, column: "review", folded: true },
+    },
+  ];
+
+  it("draws an empty column with its hint and its ⋯; folded Done draws nothing of its own", () => {
+    const empty = renderToStaticMarkup(createElement(Column, props(column({ menu: FOLD_MENU }))));
     expect(empty).toContain("Agents move their ticket here");
     expect(empty).toContain('data-column="review"');
-    const rail = renderToStaticMarkup(
-      createElement(
-        Column,
-        props(column({ id: "done", title: "Done", count: "2", collapsed: true, toggle: "Expand Done" })),
-      ),
+    expect(empty).toContain('aria-label="Column menu"');
+    // Done folded is the board's "Done 4 →" line under the last column (BRD-02).
+    const done = renderToStaticMarkup(
+      createElement(Column, props(column({ id: "done", title: "Done", count: "2", collapsed: true }))),
     );
-    expect(rail).toContain("board-rail");
-    expect(rail).not.toContain("board-column-cards");
+    expect(done).toBe("");
+    const last = renderToStaticMarkup(
+      createElement(Column, {
+        ...props(column({})),
+        doneLine: { text: "Done 4 →", unfold: { kind: "fold_column", column: "done", folded: false } },
+      }),
+    );
+    expect(last).toContain(
+      '<button type="button" class="board-done-line" data-column="done">Done 4 →</button>',
+    );
   });
 
   it("heads a stage with its muted kind icon, its folded stages and who runs it (FLW-12)", () => {
@@ -725,25 +738,51 @@ describe("the board screen", () => {
     expect(review).not.toContain("board-column-folded");
   });
 
-  it("draws an empty stage of a long flow as a rail with no click; Done's rail opens Done", () => {
-    let toggled = 0;
-    const rail = (c: BoardColumn) =>
-      renderToStaticMarkup(
-        createElement(Column, {
-          ...props(c),
-          onToggleDone: () => {
-            toggled += 1;
-          },
-        }),
-      );
-    const grill = rail(column({ id: "grill", kind: "agent", title: "Grill", icon: "bot", collapsed: true }));
-    expect(grill).toMatch(/<div class="board-rail" data-column="grill" role="group" aria-label="Grill 0">/);
-    expect(grill).not.toContain("<button");
-    const done = rail(
-      column({ id: "done", kind: "done", title: "Done", collapsed: true, toggle: "Expand Done" }),
+  it("draws a folded column as its rail: icon, count, the needs-you dot and its name (`s26-10`)", () => {
+    const grill = renderToStaticMarkup(
+      createElement(
+        Column,
+        props(
+          column({
+            id: "grill",
+            kind: "agent",
+            title: "Grill",
+            icon: "bot",
+            count: "2",
+            collapsed: true,
+            rail: {
+              tooltip: "Grill · 2 tickets, 1 needs you",
+              hint: "Click to unfold",
+              dot: true,
+              unfold: { kind: "fold_column", column: "grill", folded: false },
+            },
+          }),
+        ),
+      ),
     );
-    expect(done).toMatch(/<button type="button" class="board-rail" data-column="done"/);
-    expect(toggled).toBe(0);
+    expect(grill).toMatch(
+      /<button type="button" class="board-rail" data-column="grill" aria-label="Grill · 2 tickets, 1 needs you">/,
+    );
+    expect(grill).toMatch(/board-rail-count">2<.*board-rail-dot.*board-rail-title">Grill</);
+    const calm = renderToStaticMarkup(
+      createElement(
+        Column,
+        props(
+          column({
+            id: "perf",
+            title: "Perf",
+            collapsed: true,
+            rail: {
+              tooltip: "Perf · 0 tickets",
+              hint: "Click to unfold",
+              dot: false,
+              unfold: { kind: "fold_column", column: "perf", folded: false },
+            },
+          }),
+        ),
+      ),
+    );
+    expect(calm).not.toContain("board-rail-dot");
   });
 
   const ticketCard = (key: string): BoardCard => ({
@@ -752,18 +791,16 @@ describe("the board screen", () => {
     card: {
       key,
       key_label: key,
-      avatar: null,
-      pinned: false,
-      priority: null,
-      flag: null,
+      epic: null,
       title: "Child",
-      situation: null,
+      status: null,
+      avatar: null,
+      who: null,
+      time: null,
+      edge: null,
+      action: null,
       origin: null,
-      options: [],
-      footer: null,
       hover: { status: "Merged", details: [] },
-      sleeve: null,
-      outline: "normal",
       faded: null,
       fresh: false,
       open_panel: "Open panel",
@@ -886,33 +923,22 @@ describe("the Review column (T-0328, d0087)", () => {
     expect(drag.release(), "home").toEqual({ kind: "none" });
   });
 
-  it("keeps each project's folded sections", () => {
-    toggleSectionFold("NOTE", "approved");
-    expect(prefsOf(boardPrefs.get(), "NOTE").foldedSections).toEqual(["approved"]);
-    expect(prefsOf(boardPrefs.get(), "API").foldedSections).toEqual([]);
-    toggleSectionFold("NOTE", "ready_for_review");
-    toggleSectionFold("NOTE", "approved");
-    expect(prefsOf(boardPrefs.get(), "NOTE").foldedSections).toEqual(["ready_for_review"]);
-  });
-
   const card = (key: string): BoardCard => ({
     kind: "ticket",
     needs_you: false,
     card: {
       key,
       key_label: key,
-      avatar: null,
-      pinned: false,
-      priority: null,
-      flag: null,
+      epic: null,
       title: "Checkout API",
-      situation: null,
+      status: null,
+      avatar: null,
+      who: null,
+      time: null,
+      edge: null,
+      action: null,
       origin: null,
-      options: [],
-      footer: null,
       hover: { status: "Ready for Review", details: [] },
-      sleeve: null,
-      outline: "normal",
       faded: null,
       fresh: false,
       open_panel: "Open panel",
@@ -946,7 +972,9 @@ describe("the Review column (T-0328, d0087)", () => {
     hint: null,
     empty_hint: "",
     collapsed: false,
-    toggle: null,
+    rail: null,
+    menu: [],
+    menu_label: "Column menu",
     hidden: null,
     cards: [],
     sections: [
@@ -983,8 +1011,7 @@ describe("the Review column (T-0328, d0087)", () => {
     },
     scrollTop: 0,
     onScroll: () => undefined,
-    onToggleDone: () => undefined,
-    onUnfold: () => undefined,
+    onView: () => undefined,
     onAdd: () => undefined,
     element: () => undefined,
   };
@@ -1024,39 +1051,99 @@ describe("the Review column (T-0328, d0087)", () => {
   });
 });
 
-describe("the stage strip (FLW-12)", () => {
-  const STRIP: BoardStageStrip = {
-    label: "Columns",
-    columns: [
-      { column: "backlog", title: "Backlog", count: "1", folded: [] },
-      { column: "dev", title: "Dev", count: "1", folded: [{ name: "Validate", count: "1" }] },
-      { column: "qa", title: "QA", count: "1", folded: [] },
-    ],
-  };
+describe("the one width rule's pill (BRD-02)", () => {
+  const WORDS = { one: "1 more stage", many: "{n} more stages", at_start: "7 more stages" };
+  const spans = [
+    { left: 16, right: 196 },
+    { left: 208, right: 388 },
+    { left: 400, right: 580 },
+    { left: 592, right: 772 },
+  ];
 
-  it("names every column with its count, a folded stage under its column, and outlines those in view", () => {
-    const html = renderToStaticMarkup(
-      createElement(StageStrip, {
-        strip: STRIP,
-        inView: new Set(["backlog", "dev"]),
-        onPick: () => undefined,
-      }),
-    );
-    expect(html).toContain('aria-label="Columns"');
-    expect(html.match(/stage-strip-chevron/g)).toHaveLength(2);
-    expect(html).toMatch(/data-column="dev" data-in-view="true"[^>]*>.*Dev<.*>1<.*Validate<.*>1</);
-    expect(html).toMatch(/data-column="qa">/);
+  it("counts the columns cut off at the right edge, a pixel of rounding aside", () => {
+    expect(columnsAfter(spans, 580)).toHaveLength(1);
+    expect(columnsAfter(spans, 400)).toHaveLength(2);
+    expect(columnsAfter(spans, 771.5)).toHaveLength(0);
+    expect(moreText(WORDS, 0)).toBeNull();
+    expect(moreText(WORDS, 1)).toBe("1 more stage");
+    expect(moreText(WORDS, 7)).toBe("7 more stages");
   });
 
-  it("counts a column in view when at least half of it shows", () => {
-    const spans = [
-      { id: "backlog", left: 0, right: 184 },
-      { id: "dev", left: 192, right: 376 },
-      { id: "qa", left: 384, right: 568 },
-    ];
-    expect([...columnsInView(spans, { left: 0, right: 500 })]).toEqual(["backlog", "dev", "qa"]);
-    expect([...columnsInView(spans, { left: 100, right: 450 })]).toEqual(["dev"]);
-    expect([...columnsInView(spans, { left: 600, right: 900 })]).toEqual([]);
+  it("a click scrolls the first cut-off column to the left edge", () => {
+    const after = columnsAfter(spans, 500);
+    expect(nextScroll(after, 0, 0, 16)).toBe(384);
+    expect(nextScroll(after, 0, 100, 16)).toBe(484);
+    expect(nextScroll([], 0, 0, 16)).toBeNull();
+  });
+});
+
+describe("the toolbar (BRD-01)", () => {
+  const option = (label: string, selected: boolean, change: object) => ({
+    label,
+    icon: null,
+    selected,
+    change,
+    tooltip: null,
+    keys: null,
+  });
+  const TOOLBAR = {
+    views: {
+      label: null,
+      options: [
+        {
+          ...option("Board", true, { kind: "view", view: "board" }),
+          icon: "columns-3",
+          tooltip: "Board view",
+          keys: "g b",
+        },
+        {
+          ...option("List", false, { kind: "view", view: "list" }),
+          icon: "list",
+          tooltip: "List view",
+          keys: "g l",
+        },
+      ],
+    },
+    lanes: {
+      label: "Lanes",
+      options: [
+        option("None", true, { kind: "lanes", lanes: "none" }),
+        option("Epic", false, { kind: "lanes", lanes: "epic" }),
+      ],
+    },
+    group_by: null,
+    switch: {
+      ...option("Fold empty columns", false, { kind: "fold_empty_columns", on: true }),
+      icon: "fold-horizontal",
+    },
+    all_tickets: "All tickets",
+    new_ticket: "New ticket",
+    new_ticket_keys: "⌘N",
+  } as unknown as Parameters<typeof Toolbar>[0]["toolbar"];
+
+  it("draws Board · List, Lanes, the switch, All tickets and New ticket as Rust words them", () => {
+    const html = renderToStaticMarkup(
+      createElement(Toolbar, {
+        toolbar: TOOLBAR,
+        onView: () => undefined,
+        onAllTickets: () => undefined,
+        onNewTicket: () => undefined,
+      }),
+    );
+    expect(html).toMatch(
+      /role="radio" class="board-segment" aria-checked="true" tabindex="0">.*<span>Board<\/span>/,
+    );
+    expect(html).toContain('<span class="board-toolbar-label">Lanes</span>');
+    expect(html).toMatch(/role="switch" class="board-chip-button" aria-checked="false">.*Fold empty columns/);
+    expect(html).toContain("<span>All tickets</span>");
+    expect(html).toContain("<span>New ticket</span>");
+  });
+
+  it("←/→ step through a segment group, wrapping", () => {
+    expect(stepSegment("ArrowRight", 0, 2)).toBe(1);
+    expect(stepSegment("ArrowRight", 1, 2)).toBe(0);
+    expect(stepSegment("ArrowLeft", 0, 4)).toBe(3);
+    expect(stepSegment("Enter", 0, 2)).toBeNull();
   });
 });
 
@@ -1074,7 +1161,9 @@ describe("the panel over the board (SHL-05)", () => {
       hint: null,
       empty_hint: "",
       collapsed: false,
-      toggle: null,
+      rail: null,
+      menu: [],
+      menu_label: "Column menu",
       hidden: null,
       cards: id === "dev" ? [{ ...cardOf("NOTE-6") }] : [],
       sections: id === "review" ? [{ ...sectionOf("NOTE-7") }] : [],

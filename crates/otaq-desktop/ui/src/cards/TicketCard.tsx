@@ -1,71 +1,35 @@
-// The Ticket Card v2 (*01 · Components → Ticket Card v2*, *04 · Ticket card variants → Ticket Card v2 · all
-// variants*; SHL-07): the head (tool avatar when shown, key, pin, priority, one short flag), the title on two lines
-// (the full title in a tooltip), the situation line with its coloured edge, the origin line, the answer options (an
-// option's note in its hover card, ATT-17) and the footer (the agent, tokens, last signal, one action). An epic child
-// wears the violet sleeve on top (*Epic Sleeve v2*, EPC-09). Everything it says comes from a `TicketCardView`
+// The one-line ticket card (BRD-03; *24 · The two views*): the key (with its epic's name on the same row for an
+// epic child), the title on two lines (the full title in a tooltip), one status line in words with a dot in the
+// state's colour, then who (tool mark and agent name) and when, and the card's one action. A card that needs the user
+// has a coloured edge (turquoise, the review colour for your check, red for a closed parent). The pill, the model,
+// the tokens and the answer options are the ticket's sheet's. Everything it says comes from a `TicketCardView`
 // (`card_page.rs`); the board (or the gallery) decides the moment of interaction: hovered, selected, chain, dragging
-// (*Interaction states*). Resting on the head shows the full status and what the card has no room for; the quick
+// (*Interaction states*). Resting on the key row shows the full status and what the card has no room for; the quick
 // actions (open terminal, open panel) show on hover.
-import {
-  type CSSProperties,
-  type ReactNode,
-  type RefObject,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
+import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 
-import { Button, PriorityChip, StatusPill, ToolAvatar, Tooltip, useFloatingStyle } from "../components";
+import { Button, ToolAvatar, Tooltip, useFloatingStyle } from "../components";
 import { TOOLTIP_DELAY } from "../components/Tooltip";
 import type { CardActionKind } from "../generated/CardActionKind";
-import type { CardAgent } from "../generated/CardAgent";
-import type { CardFooter } from "../generated/CardFooter";
-import type { CardHover } from "../generated/CardHover";
-import type { CardOption } from "../generated/CardOption";
-import type { CardSituation } from "../generated/CardSituation";
-import type { CardSleeve } from "../generated/CardSleeve";
 import type { CardStatusHover } from "../generated/CardStatusHover";
+import type { CardStatusLine } from "../generated/CardStatusLine";
 import type { TicketCardView } from "../generated/TicketCardView";
 import { Icon } from "../theme/Icon";
-import { type CardState, outlineColor, RESTING, toneInk } from "./look";
+import { type CardState, edgeColor, paletteInk, RESTING, toneInk } from "./look";
 
 export interface TicketCardProps {
   card: TicketCardView;
   state?: CardState;
   /** A click on the card (selects it). */
   onSelect?: () => void;
-  /** A button on the card: the footer's action or an answer option. */
+  /** The card's one action. */
   onAction?: (kind: CardActionKind) => void;
   /** The quick action "Open panel". */
   onOpenPanel?: () => void;
 }
 
-/** The light hover card (*04 → Row · Unread notes & same file → HOVER*, *03 → 25*): an icon and a title, then short
- * sections, each with an optional mono eyebrow. */
-export function HoverCard({ hover }: { hover: CardHover }) {
-  return (
-    <>
-      <div className="card-hover-title">
-        <span style={{ color: toneInk(hover.tone).fg }}>
-          <Icon name={hover.icon} size={12} />
-        </span>
-        <strong>{hover.title}</strong>
-      </div>
-      {hover.sections.map((section) => (
-        <div key={`${section.label ?? ""}${section.text}`} className="card-hover-section">
-          {section.label !== null && <span className="card-hover-label">{section.label}</span>}
-          <span className="card-hover-text" data-muted={section.muted || undefined}>
-            {section.text}
-          </span>
-        </div>
-      ))}
-    </>
-  );
-}
-
-/** The head's hover (SHL-07 "full status on hover"): the full status ("Needs you · permission"), then the facts the
- * card has no room for ("Tokens: 241k", "Branch otaq/SHOP-25"), one per line. */
+/** The key row's hover (BRD-03): the full status ("Needs you · permission"), then the facts the card has no room for
+ * ("Tokens: 241k", "Branch otaq/SHOP-25"), one per line. */
 export function StatusHoverCard({ hover }: { hover: CardStatusHover }) {
   return (
     <>
@@ -92,8 +56,7 @@ function HoverBubble({ anchor, children }: { anchor: RefObject<HTMLElement | nul
   );
 }
 
-/** Shows `content` after a short rest of the pointer on (or focus in) what it wraps; Esc, leave or blur hide it.
- * Without content it wraps nothing. */
+/** Shows `content` after a short rest of the pointer on (or focus in) what it wraps; Esc, leave or blur hide it. */
 function WithHover({ content, children }: { content: ReactNode; children: ReactNode }) {
   const anchor = useRef<HTMLSpanElement>(null);
   const [open, setOpen] = useState(false);
@@ -104,7 +67,6 @@ function WithHover({ content, children }: { content: ReactNode; children: ReactN
     },
     [],
   );
-  if (content === null) return <>{children}</>;
   const show = (delay: number) => {
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
@@ -138,59 +100,31 @@ function WithHover({ content, children }: { content: ReactNode; children: ReactN
   );
 }
 
-function SituationLine({ situation }: { situation: CardSituation }) {
-  const content =
-    situation.hovers.length === 0
-      ? null
-      : situation.hovers.map((hover) => <HoverCard key={hover.title} hover={hover} />);
+/** The one status line: a 7 px dot in the state's colour, then the words (in the edge's colour while the card needs
+ * the user). */
+function StatusLine({ line }: { line: CardStatusLine }) {
   return (
-    <WithHover content={content}>
-      <div
-        className="card-situation"
-        data-mono={situation.mono || undefined}
-        style={
-          {
-            "--edge": situation.edge === "muted" ? "var(--border-strong)" : toneInk(situation.edge).fg,
-            color: toneInk(situation.text_tone).fg,
-          } as CSSProperties
-        }
-      >
-        {situation.text}
-      </div>
-    </WithHover>
+    <div className="card-status">
+      <span className="card-status-dot" style={{ background: paletteInk(line.dot) }} />
+      <span className="card-status-text" style={{ color: toneInk(line.tone).fg }}>
+        {line.text}
+      </span>
+    </div>
   );
 }
 
-/** The footer's agent part on its left (M22): "Fable test · set by you" in secondary text, an agent's pick in
- * violet with its reason on hover. */
-function FooterAgent({ agent }: { agent: CardAgent }) {
-  const text = (
-    <span className="card-footer-agent" data-picked={agent.picked || undefined}>
-      {agent.text}
-    </span>
-  );
-  return agent.tooltip === null ? text : <Tooltip text={agent.tooltip}>{text}</Tooltip>;
-}
-
-/** The footer (*Ticket Card v2 → Footer*): the agent part on the left, the tokens and the last signal on the right
- * while an agent runs, or the card's one action as a small button. */
-function Footer({ footer, onAction }: { footer: CardFooter; onAction?: TicketCardProps["onAction"] }) {
-  const { agent, tokens, signal, action, second, stacked } = footer;
-  const tokenValue = tokens && (
-    <span className="card-footer-value">
-      <Icon name="coins" size={11} />
-      {tokens.text}
-    </span>
-  );
+/** Who and when, then the one action (*24 · The two views*): the tool mark and the agent's name on the left, the time
+ * and the button on the right. */
+function WhoRow({ card, onAction }: Pick<TicketCardProps, "card" | "onAction">) {
+  const { avatar, who, time, action } = card;
+  if (avatar === null && who === null && time === null && action === null) return null;
   return (
-    <div className="card-footer">
-      {/* Stacked buttons start at the left, as the frames draw them (`s03-46`). */}
-      {agent ? <FooterAgent agent={agent} /> : !stacked && <span className="card-spacer" />}
-      {tokens &&
-        (tokens.tooltip === null ? tokenValue : <Tooltip text={tokens.tooltip}>{tokenValue}</Tooltip>)}
-      {signal && (
-        <span className="card-footer-value" data-stale={signal.stale || undefined}>
-          {signal.text}
+    <div className="card-who">
+      {avatar && <ToolAvatar avatar={avatar} />}
+      <span className="card-who-name">{who ?? ""}</span>
+      {time && (
+        <span className="card-time" data-stale={time.stale || undefined}>
+          {time.text}
         </span>
       )}
       {action && (
@@ -198,27 +132,16 @@ function Footer({ footer, onAction }: { footer: CardFooter; onAction?: TicketCar
         // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- only stops the click from reaching the card; the button inside is the control
         <span
           className="card-action"
-          data-stacked={stacked || undefined}
           onClick={(e) => {
             e.stopPropagation();
           }}
         >
-          {/* The v2 footer's button is a label only (*Ticket Card v2 → Footer → Action*). */}
           <Button
             label={action.label}
             variant={action.primary ? "primary" : "secondary"}
             compact
             onClick={() => onAction?.(action.kind)}
           />
-          {/* Open agent… beside Use fallback (*03 → A model that can't run*). */}
-          {second && (
-            <Button
-              label={second.label}
-              variant={second.primary ? "primary" : "secondary"}
-              compact
-              onClick={() => onAction?.(second.kind)}
-            />
-          )}
         </span>
       )}
     </div>
@@ -250,101 +173,36 @@ function QuickActions({ card, onOpenPanel }: { card: TicketCardView; onOpenPanel
   );
 }
 
-/** The sleeve's eyebrow: the name gives way with …, the position never does (*1280 × 800 → Sleeve*). */
-function SleeveBand({ sleeve }: { sleeve: CardSleeve }) {
-  return (
-    <div className="card-sleeve-band">
-      <Icon name="layers" size={11} />
-      <span className="card-sleeve-name">{sleeve.name}</span>
-      {sleeve.pinned && (
-        <span className="card-sleeve-pin">
-          <Icon name="pin" size={10} />
-        </span>
-      )}
-      <span className="card-spacer" />
-      <span className="card-sleeve-position">{sleeve.position}</span>
-    </div>
-  );
-}
-
-/** One option of the compact list (ATT-12). Its note (ATT-17) shows whole in the light hover card while the option
- * is hovered or focused (Tab), never taking focus or changing the pick; it is the option's description. */
-function OptionButton({ option, onAction }: { option: CardOption; onAction?: TicketCardProps["onAction"] }) {
-  const noteId = useId();
-  const content = option.note === null ? null : <span className="card-hover-text">{option.note}</span>;
-  return (
-    <WithHover content={content}>
-      <button
-        type="button"
-        className="card-option"
-        data-picked={option.picked || undefined}
-        data-other={option.other || undefined}
-        aria-describedby={option.note === null ? undefined : noteId}
-        onClick={(e) => {
-          e.stopPropagation();
-          onAction?.(option.action);
-        }}
-      >
-        <span className="card-option-number">{option.number}</span>
-        <span className="card-option-label">{option.label}</span>
-        {option.recommended !== null && (
-          <span className="card-option-rec">
-            <Icon name="star" size={9} />
-            {option.recommended}
-          </span>
-        )}
-        {option.note !== null && (
-          <span id={noteId} hidden>
-            {option.note}
-          </span>
-        )}
-      </button>
-    </WithHover>
-  );
-}
-
 function Body({ card, onAction }: Pick<TicketCardProps, "card" | "onAction">) {
   return (
     <>
       <WithHover content={<StatusHoverCard hover={card.hover} />}>
         <div className="card-head">
-          {card.avatar && <ToolAvatar avatar={card.avatar} />}
           <span className="card-key">{card.key_label}</span>
-          {card.pinned && (
-            <span className="card-pin">
-              <Icon name="pin" size={12} />
+          <span className="card-spacer" />
+          {card.epic !== null && (
+            <span className="card-epic">
+              <Icon name="layers" size={11} />
+              <span className="card-epic-name">{card.epic}</span>
             </span>
           )}
-          {card.priority && <PriorityChip priority={card.priority} />}
-          <span className="card-spacer" />
-          {card.flag && <StatusPill pill={card.flag} />}
         </div>
       </WithHover>
       <Tooltip text={card.title}>
         <div className="card-title">{card.title}</div>
       </Tooltip>
-      {card.situation && <SituationLine situation={card.situation} />}
+      {card.status && <StatusLine line={card.status} />}
       {card.origin !== null && <div className="card-origin">{card.origin}</div>}
-      {card.options.length > 0 && (
-        <div className="card-options">
-          {card.options.map((option) => (
-            <OptionButton key={option.number} option={option} {...(onAction ? { onAction } : {})} />
-          ))}
-        </div>
-      )}
-      {card.footer && <Footer footer={card.footer} {...(onAction ? { onAction } : {})} />}
+      <WhoRow card={card} {...(onAction ? { onAction } : {})} />
     </>
   );
 }
 
 export function TicketCard({ card, state = RESTING, onSelect, onAction, onOpenPanel }: TicketCardProps) {
-  const sleeve = card.sleeve;
   const chain = state.chain === "none" ? undefined : state.chain;
-  // A Done card's opacity; *Dimmed* (outside the hovered chain) overrides it in the stylesheet.
-  const faded = card.faded === null ? undefined : ({ "--card-faded": card.faded } as CSSProperties);
-  const article = (
+  return (
     // The card is a pointer target; the board's keyboard moves the selection (T-0220), so it isn't a tab stop.
-    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- the board's own keys select and open cards (SDD §21.3); a card isn't a button
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- the board's own keys select and open cards (SDD §21.3); a card isn't a button
     <article
       className="ticket-card"
       aria-label={`${card.key_label} ${card.title}`}
@@ -354,35 +212,19 @@ export function TicketCard({ card, state = RESTING, onSelect, onAction, onOpenPa
       data-hovered={state.hovered || undefined}
       data-faded={card.faded === null ? undefined : true}
       data-fresh={card.fresh || undefined}
-      data-outline={card.outline}
+      data-edge={card.edge ?? undefined}
       style={
         {
-          "--card-outline": outlineColor(card.outline),
-          // In a sleeve the whole sleeve dims or fades with the card.
-          ...(sleeve === null ? faded : {}),
+          ...(card.edge === null ? {} : { "--card-outline": edgeColor(card.edge) }),
+          ...(card.faded === null ? {} : { "--card-faded": card.faded }),
         } as CSSProperties
       }
-      onClick={sleeve === null ? onSelect : undefined}
+      onClick={onSelect}
     >
       <Body card={card} {...(onAction ? { onAction } : {})} />
       {(onOpenPanel !== undefined || state.hovered) && (
         <QuickActions card={card} {...(onOpenPanel ? { onOpenPanel } : {})} />
       )}
     </article>
-  );
-  if (sleeve === null) return article;
-  return (
-    // The band selects the card too, so the sleeve takes the click.
-    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the board's own keys select and open cards (SDD §21.3); a card isn't a button
-    <div
-      className="card-sleeve"
-      data-chain={chain}
-      data-faded={faded && true}
-      style={faded}
-      onClick={onSelect}
-    >
-      <SleeveBand sleeve={sleeve} />
-      {article}
-    </div>
   );
 }

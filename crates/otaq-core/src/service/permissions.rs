@@ -465,6 +465,7 @@ async fn action_for(
         R::ProjectTerminalDismiss(_) => Action::UserOnly("dismiss the Project terminal's summary"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),
+        R::ProjectViewSet(_) => Action::UserOnly("change the board's view"),
         // Agents, the default model and the fallbacks are the user's (AGM-01, AGM-03, AGM-04).
         R::AgentsList
         | R::AgentsAdd(_)
