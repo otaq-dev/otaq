@@ -8,6 +8,7 @@ mod api;
 mod door;
 mod drops;
 mod events;
+mod fonts;
 #[cfg(test)]
 mod generated;
 mod notices;
@@ -56,6 +57,8 @@ pub struct App {
     reports: api::OpenReports,
     /// When the user last looked at each Project agent conversation, for the Ask bar's "New reply" (SHB-03).
     looked: std::sync::Mutex<otaq_view::view_models::ask_bar::Looked>,
+    /// The installed fonts, read once (d0117 point 5).
+    fonts: fonts::Fonts,
 }
 
 fn main() {
@@ -113,6 +116,7 @@ fn main() {
             otaq_core::store::now_ms(),
         )),
         usage: usage::Usage::new(runtime.handle().clone()),
+        fonts: fonts::Fonts::system(),
     });
     runtime.spawn(api::usage_loop(app.clone()));
     {

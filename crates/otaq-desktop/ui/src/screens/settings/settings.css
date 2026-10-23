@@ -1510,6 +1510,11 @@
   gap: 8px;
 }
 
+/* A row's dropdown (Terminal font, d0117 point 5; provisional width, designer notes). */
+.select.settings-select {
+  width: 240px;
+}
+
 .settings-agent-model > .select {
   width: 170px;
 }

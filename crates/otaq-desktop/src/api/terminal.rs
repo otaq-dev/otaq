@@ -1,11 +1,12 @@
 //! `terminal.*`: what a terminal sends besides its output channel (T-0216): typed input and the terminal's own
 //! answers to the program (SVC-06), its size, its keyboard focus (SES-10), the end of an attach, the terminal settings
-//! (font size, renderer) and opening a link clicked in it. The output comes over the door's channel
+//! (font size, font, renderer) and opening a link clicked in it. The output comes over the door's channel
 //! ([`crate::terminal`]).
 
 use otaq_core::board::settings::{TERMINAL_FONT_SIZES, TerminalRenderer};
 use otaq_core::protocol::{FocusParams, InputParams, Reply, Request, ResizeParams};
 use otaq_core::session::TerminalSize;
+use otaq_view::view_models::terminal_font;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -81,6 +82,9 @@ pub enum Renderer {
 pub struct TerminalSettings {
     /// Points, 8–32.
     pub font_size: u32,
+    /// The CSS font stack (d0117 point 5): the chosen font or Geist Mono, the installed Nerd Fonts for missing
+    /// symbols, then `monospace`.
+    pub font_family: String,
     pub renderer: Renderer,
 }
 
@@ -136,7 +140,9 @@ async fn settings(app: &App) -> Result<Value, RequestError> {
             )));
         }
     };
+    let fonts = app.fonts.get().await;
     reply(&TerminalSettings {
+        font_family: terminal_font::stack(&settings, &fonts),
         font_size: settings
             .terminal_font_size
             .clamp(*TERMINAL_FONT_SIZES.start(), *TERMINAL_FONT_SIZES.end()),
@@ -497,14 +503,18 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn settings_carry_the_font_size_and_the_renderer() {
+    async fn settings_carry_the_font_size_the_font_and_the_renderer() {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let got = request(&h.app, "terminal.settings", Value::Null)
             .await
             .unwrap();
         let renderer = if cfg!(target_os = "linux") { "dom" } else { "webgl" };
-        assert_eq!(got, json!({ "font_size": 13, "renderer": renderer }));
+        let geist = r#""Geist Mono", monospace"#;
+        assert_eq!(
+            got,
+            json!({ "font_size": 13, "font_family": geist, "renderer": renderer })
+        );
 
         let Reply::GlobalSettings(mut stored) = h.app.service.send(Request::SettingsGet).await.unwrap()
         else {
@@ -512,6 +522,8 @@ mod tests {
         };
         stored.settings.terminal_renderer = TerminalRenderer::Dom;
         stored.settings.terminal_font_size = 18;
+        // A font that isn't installed (here: no fonts at all) is Geist Mono, quietly.
+        stored.settings.terminal_font_family = Some("MesloLGS NF".into());
         h.app
             .service
             .send(Request::SettingsSet(stored.settings))
@@ -520,7 +532,10 @@ mod tests {
         let got = request(&h.app, "terminal.settings", Value::Null)
             .await
             .unwrap();
-        assert_eq!(got, json!({ "font_size": 18, "renderer": "dom" }));
+        assert_eq!(
+            got,
+            json!({ "font_size": 18, "font_family": geist, "renderer": "dom" })
+        );
         h.service.stop_all().await;
     }
 

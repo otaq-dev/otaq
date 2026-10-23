@@ -713,6 +713,8 @@ pub(crate) mod testing {
                 otaq_core::store::now_ms(),
             )),
             usage: crate::usage::Usage::new(tokio::runtime::Handle::current()),
+            // Tests never read the real font folders.
+            fonts: crate::fonts::Fonts::in_folders(Vec::new()),
         };
         (app, seen)
     }
