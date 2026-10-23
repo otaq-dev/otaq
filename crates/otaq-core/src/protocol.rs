@@ -708,6 +708,12 @@ pub enum Request {
     FlowDraft(ProjectParams),
     #[serde(rename = "flow.draft_update")]
     FlowDraftUpdate(crate::flow::draft::DraftUpdateParams),
+    /// `otaq flow write-skill <stage> [--done]` (FED-06): `{"project", "stage"}` gives the folder the Project agent
+    /// writes the stage's skill in (the field: "Being written by the Project agent…"); with `"done": true` the folder
+    /// is imported as Otaq's own copy and lands in the draft as the stage's skill. Answered with
+    /// [`Reply::SkillWrite`].
+    #[serde(rename = "flow.write_skill")]
+    FlowWriteSkill(crate::flow::write_skill::WriteSkillParams),
 
     // Sessions (SES-04, SVC-05).
     /// With `key`, every session the ticket ever had (newest first); without, every session in the service's
@@ -1989,6 +1995,7 @@ impl Request {
             Self::FlowAskForChanges(_) => "flow.ask_for_changes",
             Self::FlowDraft(_) => "flow.draft",
             Self::FlowDraftUpdate(_) => "flow.draft_update",
+            Self::FlowWriteSkill(_) => "flow.write_skill",
             Self::SessionList(_) => "session.list",
             Self::SessionAttach(_) => "session.attach",
             Self::SessionDetach(_) => "session.detach",
@@ -2138,6 +2145,7 @@ pub enum Reply {
     FlowVersions(Vec<crate::flow::FlowVersion>),
     FlowProposal(Option<Box<crate::flow::proposal::Proposal>>),
     FlowDraft(Box<crate::flow::draft::Draft>),
+    SkillWrite(Box<crate::flow::write_skill::SkillWrite>),
     FlowApplied(Box<crate::flow::apply::Applied>),
     FlowWaiting(Option<Box<crate::flow::apply::WaitingChange>>),
     ApplyNowPlan(Option<Box<crate::flow::apply_now::ApplyNowPlan>>),

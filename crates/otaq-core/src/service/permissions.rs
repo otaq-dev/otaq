@@ -416,6 +416,11 @@ async fn action_for(
         R::FlowPropose(p) => Action::ProposeFlow {
             project: board.project(&p.project).await?.key,
         },
+        // Writing a stage's skill is part of changing the flow (FED-06): the user, or a Project agent of the project,
+        // in the folder Otaq gives it.
+        R::FlowWriteSkill(p) => Action::ProposeFlow {
+            project: board.project(&p.project).await?.key,
+        },
         R::ServiceStop => Action::UserOnly("stop the background service"),
         R::DismissPermissionWarning => Action::UserOnly("change onboarding"),
         // Asking spends the user's tokens on their tool (ASK-02) and settling ends agents: the user's clicks only.

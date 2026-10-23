@@ -499,6 +499,14 @@ pub enum FlowCommand {
         #[arg(long, value_name = "PROJECT")]
         from: Option<String>,
     },
+    /// Write a stage's skill for the flow being edited: prints the only folder to write it in; `--done` hands it in
+    WriteSkill {
+        /// The stage's id or name, e.g. plan
+        stage: String,
+        /// The skill is written: Otaq imports the folder as its own copy and puts it in the stage
+        #[arg(long)]
+        done: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Subcommand)]

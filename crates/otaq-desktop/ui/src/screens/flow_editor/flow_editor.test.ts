@@ -15,6 +15,8 @@ import {
   nextTile,
   openFlowEditor,
   sendFirst,
+  skillButton,
+  writeSkill,
 } from "./logic";
 
 const ask = vi.fn<(method: string, params?: unknown) => Promise<unknown>>();
@@ -68,6 +70,22 @@ describe("the flow editor's calls", () => {
       project: "SHOP",
       text: "Why is Security here?",
     });
+  });
+
+  it("Ask the agent to write it goes to the panel's agent, and the panel shows the one that writes", async () => {
+    const agents = createStore<Readonly<Record<string, string>>>({});
+    ask.mockResolvedValue({ agent: "pa-1" });
+    expect(await writeSkill("SHOP", "plan", ask, agents)).toBe("pa-1");
+    expect(ask).toHaveBeenLastCalledWith("flow_editor.write_skill", { project: "SHOP", stage: "plan" });
+    expect(agents.get()).toEqual({ SHOP: "pa-1" });
+    await chipPressed("SHOP", "project", { kind: "write_skill", stage: "plan" }, vi.fn(), ask, agents);
+    expect(ask).toHaveBeenLastCalledWith("flow_editor.write_skill", {
+      project: "SHOP",
+      stage: "plan",
+      agent: "pa-1",
+    });
+    await skillButton("SHOP", "plan", "undo_skill", ask);
+    expect(ask).toHaveBeenLastCalledWith("flow_editor.undo_skill", { project: "SHOP", stage: "plan" });
   });
 
   it("Both, and compare asks each tool", async () => {

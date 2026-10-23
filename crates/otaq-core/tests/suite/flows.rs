@@ -246,6 +246,11 @@ fn each_rule_refuses_its_broken_file() {
             )],
         ),
         (
+            // The editor's draft holds a new Agent stage with no skill yet; Apply waits for one (FED-06).
+            "needs-skill",
+            &[(Rule::NeedsSkill, Some("plan"), "Plan needs a skill")],
+        ),
+        (
             "duplicate",
             &[
                 (
@@ -374,10 +379,6 @@ fn the_format_refuses_what_isnt_a_flow() {
         (
             "{name: Dev, kind: agent, skill: work-ticket}",
             "Dev is an Agent stage: name the agent that runs it with `agent:`",
-        ),
-        (
-            "{name: Dev, kind: agent, agent: Developer}",
-            "Dev is an Agent stage: name the skill it runs with `skill:`",
         ),
         (
             "{name: Dev, kind: agent, agent: D, skill: s, rounds: 2}",

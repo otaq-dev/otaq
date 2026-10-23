@@ -7,6 +7,8 @@
 // · Apply. **The Project agent** (right, 360 px): "Not started" with Otaq's hint and fixed chips until the user types
 // or clicks one, then its terminal. Everything it says is `flow_editor.view`'s; the body is its own component so
 // onboarding's Flow step and the Flow setup page (`FlowEditorPage`, FED-09) and the gallery draw the same.
+// A new stage's details start with its templates, and the Skill field offers Pick a skill… and Ask the agent to
+// write it (T-0472; FED-05, FED-06; `s26-09`, `s27-05`, `s27-06`).
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { keymap } from "../../app/keyboard";
@@ -38,6 +40,7 @@ import type { FlowEditorMark } from "../../generated/FlowEditorMark";
 import type { FlowEditorParams } from "../../generated/FlowEditorParams";
 import type { FlowEditorPick } from "../../generated/FlowEditorPick";
 import type { FlowEditorSkillField } from "../../generated/FlowEditorSkillField";
+import type { FlowEditorTemplates } from "../../generated/FlowEditorTemplates";
 import type { FlowEditorStageEdit } from "../../generated/FlowEditorStageEdit";
 import type { FlowEditorStartFrom } from "../../generated/FlowEditorStartFrom";
 import type { FlowEditorStep } from "../../generated/FlowEditorStep";
@@ -64,8 +67,10 @@ import {
   nextTile,
   pickEntry,
   sendFirst,
+  skillButton,
   TILE_MS,
   undo,
+  writeSkill,
 } from "./logic";
 
 const ignore = () => undefined;
@@ -81,9 +86,13 @@ export interface EditorActions {
   askBoth: (tools: readonly string[]) => void;
   chip: (action: FlowEditorChipAction, openChooser: () => void) => void;
   send: (text: string) => void;
+  /** The Skill field's buttons on a stage: Ask the agent to write it, Stop, Undo, Open. */
+  skill: (stage: string, button: SkillButton) => void;
   apply: () => void;
   cancel: () => void;
 }
+
+export type SkillButton = "write_skill" | "stop_writing" | "undo_skill" | "open_skill";
 
 // ---------------------------------------------------------------------------------------------------------- Start from
 
@@ -360,7 +369,7 @@ function StepItem({
   const attrs = {
     className: "fe-step",
     "data-selected": step.selected || undefined,
-    "data-marked": step.mark !== null || undefined,
+    "data-marked": step.mark !== null || step.written !== null || undefined,
     "data-added": step.added || undefined,
     "data-problem": step.problem !== null || undefined,
     "data-dragging": dragging || undefined,
@@ -399,6 +408,14 @@ function StepItem({
           mark={step.mark}
           onUndo={() => {
             actions.undo(step.id);
+          }}
+        />
+      )}
+      {step.written !== null && (
+        <MarkTag
+          mark={step.written}
+          onUndo={() => {
+            actions.skill(step.id, "undo_skill");
           }}
         />
       )}
@@ -455,19 +472,188 @@ function StepItem({
   );
 }
 
-/** The Skill field. T-0472 replaces its empty state with Pick a skill… and Ask the agent to write it. */
-export function SkillSlot({ field }: { field: FlowEditorSkillField }) {
+/**
+ * The Skill field (FED-06): the stage's skill (click it to pick another); empty with Pick a skill… (the user's own,
+ * searchable) and Ask the agent to write it; "Being written by the Project agent…" with Stop; or the skill the agent
+ * wrote, tinted, with Open and Undo.
+ */
+export function SkillField({
+  field,
+  stage,
+  actions,
+}: {
+  field: FlowEditorSkillField;
+  stage: string;
+  actions: EditorActions;
+}) {
+  const [picking, setPicking] = useState(false);
+  const anchor = useRef<HTMLSpanElement>(null);
+  const state = field.state;
+  const pick = () => {
+    setPicking(true);
+  };
+  let body: React.ReactNode;
+  switch (state.state) {
+    case "set":
+      body = (
+        <span ref={anchor} className="fe-skill-anchor">
+          <button type="button" className="fe-value fe-skill fe-skill-set" onClick={pick}>
+            <Icon name="scroll-text" size={13} />
+            {state.skill}
+            <Icon name="chevron-down" size={12} />
+          </button>
+        </span>
+      );
+      break;
+    case "empty":
+      body = (
+        <div className="fe-skill-empty">
+          <p className="fe-skill-text">{state.text}</p>
+          <div className="fe-skill-buttons">
+            <span ref={anchor} className="fe-skill-anchor">
+              <Button compact variant="secondary" icon="list" label={state.pick} onClick={pick} />
+            </span>
+            <Button
+              compact
+              variant="secondary"
+              icon="sparkles"
+              label={state.ask}
+              onClick={() => {
+                actions.skill(stage, "write_skill");
+              }}
+            />
+          </div>
+          <span className="fe-hint">
+            <Icon name="info" size={13} />
+            {state.hint}
+          </span>
+        </div>
+      );
+      break;
+    case "writing":
+      body = (
+        <div className="fe-skill-box" data-writing data-loading>
+          <Icon name="loader-circle" size={14} />
+          <span className="fe-skill-writing">{state.text}</span>
+          <span className="fe-spacer" />
+          <button
+            type="button"
+            className="fe-link"
+            onClick={() => {
+              actions.skill(stage, "stop_writing");
+            }}
+          >
+            {state.stop}
+          </button>
+        </div>
+      );
+      break;
+    case "written":
+      body = (
+        <div className="fe-skill-box" data-written>
+          <Tooltip text={state.why}>
+            <span className="fe-skill">
+              <Icon name="scroll-text" size={13} />
+              {state.skill}
+            </span>
+          </Tooltip>
+          <span className="fe-mark-label fe-skill-note">
+            <Icon name="sparkles" size={11} />
+            {state.note}
+          </span>
+          <span className="fe-spacer" />
+          <button
+            type="button"
+            className="fe-link"
+            onClick={() => {
+              actions.skill(stage, "open_skill");
+            }}
+          >
+            {state.open}
+          </button>
+          <button
+            type="button"
+            className="fe-link"
+            onClick={() => {
+              actions.skill(stage, "undo_skill");
+            }}
+          >
+            {state.undo}
+          </button>
+        </div>
+      );
+      break;
+  }
   return (
     <div className="fe-field">
       <span className="fe-label">{field.label}</span>
-      {field.skill !== null ? (
-        <span className="fe-value fe-skill">
-          <Icon name="scroll-text" size={13} />
-          {field.skill}
-        </span>
-      ) : (
-        <div className="fe-skill-empty">{field.empty}</div>
+      {body}
+      {picking && (
+        <AnchoredMenu
+          anchor={anchor}
+          align="start"
+          label={field.picker.title}
+          items={field.picker.items}
+          list
+          search={field.picker.search}
+          onChoose={(skill) => {
+            setPicking(false);
+            if (skill !== "") actions.edit({ edit: "skill", stage, skill });
+          }}
+          onClose={() => {
+            setPicking(false);
+          }}
+        />
       )}
+    </div>
+  );
+}
+
+/** A new stage's Start from (FED-05): the plain templates (name and kind) and the presets' (complete). */
+function TemplatesBlock({
+  templates,
+  stage,
+  actions,
+}: {
+  templates: FlowEditorTemplates;
+  stage: string;
+  actions: EditorActions;
+}) {
+  const row = (chips: FlowEditorTemplates["plain"]) => (
+    <div className="fe-templates-row">
+      {chips.map((chip) => (
+        <button
+          key={chip.template}
+          type="button"
+          className="fe-template"
+          data-chosen={chip.chosen || undefined}
+          aria-pressed={chip.chosen}
+          onClick={() => {
+            actions.edit({ edit: "template", stage, template: chip.template });
+          }}
+        >
+          <Icon name={chip.icon} size={11} />
+          {chip.label}
+        </button>
+      ))}
+    </div>
+  );
+  return (
+    <div className="fe-templates">
+      <div className="fe-templates-group">
+        <div className="fe-templates-head">
+          <span className="fe-templates-label">{templates.label}</span>
+          <span className="fe-muted">{templates.plain_note}</span>
+        </div>
+        {row(templates.plain)}
+      </div>
+      <div className="fe-templates-group">
+        <div className="fe-templates-head">
+          <span className="fe-templates-label">{templates.presets_label}</span>
+          <span className="fe-muted">{templates.presets_note}</span>
+        </div>
+        {row(templates.presets)}
+      </div>
     </div>
   );
 }
@@ -499,8 +685,8 @@ function DetailsPanel({ details, actions }: { details: FlowEditorDetails; action
   return (
     <section className="fe-details" aria-label={details.title}>
       <header className="fe-details-head">
-        <Icon name={details.icon} size={15} />
-        <h4>{details.title}</h4>
+        <Icon name={details.templates !== null ? "square-plus" : details.icon} size={15} />
+        <h4>{details.templates?.title ?? details.title}</h4>
         {details.mark !== null && (
           <MarkTag
             mark={details.mark}
@@ -530,6 +716,9 @@ function DetailsPanel({ details, actions }: { details: FlowEditorDetails; action
           }}
         />
       </header>
+      {details.templates !== null && (
+        <TemplatesBlock templates={details.templates} stage={stage} actions={actions} />
+      )}
       <NameField
         key={`${details.stage}-${details.name}`}
         details={details}
@@ -574,7 +763,9 @@ function DetailsPanel({ details, actions }: { details: FlowEditorDetails; action
           </span>
         </div>
       )}
-      {details.skill !== null && <SkillSlot field={details.skill} />}
+      {details.skill !== null && (
+        <SkillField key={stage} field={details.skill} stage={stage} actions={actions} />
+      )}
       {details.can.length > 0 && (
         <div className="fe-field">
           <span className="fe-label">{details.can_label}</span>
@@ -994,6 +1185,11 @@ function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null
       send: (text) => {
         sendFirst(project, text).catch(ignore);
       },
+      skill: (stage, button) => {
+        const sent =
+          button === "write_skill" ? writeSkill(project, stage) : skillButton(project, stage, button);
+        sent.catch(ignore);
+      },
       apply: () => {
         finish(applyDraft(view));
       },
@@ -1144,6 +1340,9 @@ export function recordingActions(record: (what: string) => void): EditorActions 
     },
     send: (text) => {
       record(`send ${text}`);
+    },
+    skill: (stage, button) => {
+      record(`${button} ${stage}`);
     },
     apply: () => {
       record("apply");

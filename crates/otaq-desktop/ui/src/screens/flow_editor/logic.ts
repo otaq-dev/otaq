@@ -1,7 +1,8 @@
 // The flow editor's moment of interaction (T-0471; FED-01, FED-03, FED-04, FED-07; d0115): where it opens, which
 // step is selected, which agent the panel shows, the drag of a step, the animation's clock and the calls each click
 // makes. What it says and every rule are Rust's (`flow_editor.view`, `otaq-view`'s `flow_editor.rs`); every edit of
-// the user's goes to the draft through `flow_editor.edit` / `pick` / `undo` / `import` (`flow.draft_update`).
+// the user's goes to the draft through `flow_editor.edit` / `pick` / `undo` / `import` (`flow.draft_update`), and the
+// Skill field's buttons through `write_skill` / `stop_writing` / `undo_skill` / `open_skill` (T-0472).
 // Nothing here starts an agent without the user's words, a chip or an Ask (d0087).
 import { openOverlay } from "../../app/overlays";
 import { createStore, type Store } from "../../app/store";
@@ -186,6 +187,34 @@ export async function askEach(
   for (const tool of tools) await askTool(project, from, tool, ask, agents);
 }
 
+/**
+ * Ask the agent to write it (and the Write the skill chip, FED-06): the panel's agent hears "Write a skill for the Plan
+ * stage: …" (none running: the Project agent starts with it), which the panel then shows; the field says it is being
+ * written.
+ */
+export async function writeSkill(
+  project: string,
+  stage: string,
+  ask: Ask = request,
+  agents: Store<Readonly<Record<string, string>>> = editorAgents,
+): Promise<string> {
+  const agent = editorAgent(project, agents);
+  const params = agent === null ? { project, stage } : { project, stage, agent };
+  const started = (await ask("flow_editor.write_skill", params)) as FlowEditorStarted;
+  showEditorAgent(project, started.agent, agents);
+  return started.agent;
+}
+
+/** The Skill field's other buttons: Stop (being written), Undo and Open (written by the agent). */
+export function skillButton(
+  project: string,
+  stage: string,
+  button: "stop_writing" | "undo_skill" | "open_skill",
+  ask: Ask = request,
+): Promise<unknown> {
+  return ask(`flow_editor.${button}`, { project, stage });
+}
+
 /** What a chip does: send its words, open the chooser, or ask the one tool. `chooser` opens the tool picker. */
 export function chipPressed(
   project: string,
@@ -203,6 +232,8 @@ export function chipPressed(
       return Promise.resolve(null);
     case "ask":
       return askTool(project, from, action.tool, ask, agents);
+    case "write_skill":
+      return writeSkill(project, action.stage, ask, agents);
   }
 }
 

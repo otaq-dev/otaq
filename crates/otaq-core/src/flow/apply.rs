@@ -942,10 +942,14 @@ impl Board {
                     imported.push(record);
                     SkillRef::Imported(id)
                 }
-                SkillSource::Folder { path, .. } => {
-                    let record =
-                        crate::agents::skills::import_folder(self, std::path::Path::new(&path))
-                            .await?;
+                SkillSource::Folder { path, name } => {
+                    let record = match self.own_copy(&path, &name, stored).await {
+                        Some(record) => record,
+                        None => {
+                            crate::agents::skills::import_folder(self, std::path::Path::new(&path))
+                                .await?
+                        }
+                    };
                     let id = record.id.clone();
                     imported.push(record);
                     SkillRef::Imported(id)
@@ -958,6 +962,39 @@ impl Board {
             }
         }
         Ok((skills, imported))
+    }
+
+    /// The record of Otaq's own copy at `path` (`skills/<id>/`, a skill the Project agent wrote for the draft,
+    /// FED-06): the agent holding it already, or one no agent holds yet, taken as it is instead of copied again.
+    /// `None` for any other folder, which is imported.
+    async fn own_copy(
+        &self,
+        path: &str,
+        name: &str,
+        stored: &[crate::agents::Agent],
+    ) -> Option<crate::agents::ImportedSkill> {
+        let path = std::path::Path::new(path);
+        if path.parent() != Some(self.data().skills_dir().as_path()) {
+            return None;
+        }
+        let id = path.file_name()?.to_string_lossy().into_owned();
+        if let Some(held) = stored.iter().find_map(|a| a.imported_skill(&id)) {
+            return Some(held.clone());
+        }
+        let folder = path.to_owned();
+        let fingerprint =
+            tokio::task::spawn_blocking(move || crate::skills::folder::fingerprint(&folder))
+                .await
+                .ok()?
+                .ok()?;
+        Some(crate::agents::ImportedSkill {
+            id,
+            name: name.to_owned(),
+            original: path.display().to_string(),
+            imported_at: crate::store::now_ms(),
+            fingerprint,
+            warnings: Vec::new(),
+        })
     }
 
     /// FLW-05's fallback, when `stage` starts a session for `ticket`: a choice of an agent the stage no longer offers

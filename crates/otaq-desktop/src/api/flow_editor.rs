@@ -8,6 +8,12 @@
 //! this flow · Skip, use the default in onboarding). `flow_editor.send` and `flow_editor.ask` are the agent panel's:
 //! **nothing starts before the user's words, a chip or an Ask** (d0087); the first message starts the project's
 //! Project agent on the `flow` skill (`/flow …`, through `pane.send`).
+//!
+//! The Skill field (T-0472; FED-05, FED-06): a template and Pick a skill… are edits (`flow_editor.edit`);
+//! `flow_editor.write_skill` is Ask the agent to write it (and the Write the skill chip): it sends the Project agent
+//! "Write a skill for the Plan stage: …" and the field says it is being written; `flow_editor.stop_writing` is Stop
+//! (it interrupts the agent's turn), `flow_editor.undo_skill` the written skill's Undo (Otaq's copy goes) and
+//! `flow_editor.open_skill` its Open (Otaq's copy in the file manager).
 
 use std::collections::BTreeMap;
 
@@ -17,9 +23,13 @@ use otaq_core::flow::apply::{ApplyParams, ProposeFrom};
 use otaq_core::flow::draft::{Draft, DraftEdit, DraftUpdateParams};
 use otaq_core::flow::model::FlowFile;
 use otaq_core::flow::yaml;
-use otaq_core::project_agents::FLOW_COMMAND;
 use otaq_core::project_agents::first_flow::FlowSetup;
-use otaq_core::protocol::{OnboardingAskParams, ProjectParams, Reply, Request};
+use otaq_core::project_agents::{AgentState, FLOW_COMMAND};
+use otaq_core::protocol::{
+    InputParams, OnboardingAskParams, ProjectAgentSendParams, ProjectParams, Reply, Request,
+    encode_bytes,
+};
+use otaq_core::session::deliveries::Delivery;
 use otaq_view::view_models::flow_editor::{self as vm, Opened, Pick, StageEdit};
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
 use serde::{Deserialize, Serialize};
@@ -40,6 +50,10 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "flow_editor.cancel" => reply(&cancel(app, parse(params)?).await?),
         "flow_editor.send" => reply(&send(app, parse(params)?).await?),
         "flow_editor.ask" => reply(&ask(app, parse(params)?).await?),
+        "flow_editor.write_skill" => reply(&write_skill(app, parse(params)?).await?),
+        "flow_editor.stop_writing" => reply(&stop_writing(app, parse(params)?).await?),
+        "flow_editor.undo_skill" => reply(&undo_skill(app, parse(params)?).await?),
+        "flow_editor.open_skill" => reply(&open_skill(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -70,6 +84,7 @@ pub fn export_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     ProjectFrom::export_all(cfg)?;
     SendParams::export_all(cfg)?;
     AskParams::export_all(cfg)?;
+    SkillParams::export_all(cfg)?;
     Edited::export_all(cfg)?;
     Started::export_all(cfg)?;
     vm::View::export_all(cfg)?;
@@ -151,6 +166,18 @@ pub struct AskParams {
     pub from: Opened,
     #[ts(type = "string")]
     pub tool: Tool,
+}
+
+/// The Skill field's buttons on a stage: Ask the agent to write it (with the panel's agent, which hears it when it
+/// runs), Stop, Undo, Open.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "FlowEditorSkillParams")]
+pub struct SkillParams {
+    pub project: String,
+    pub stage: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub agent: Option<String>,
 }
 
 /// After an edit: the step to select (a stage just added), if any.
@@ -323,6 +350,8 @@ pub async fn view(app: &App, params: ViewParams) -> Result<vm::View, RequestErro
         setup: &setup,
         projects: &others,
         captions: &captions,
+        writing: &draft.writing,
+        written: &draft.written,
         selected: params.selected.as_deref(),
         agent,
         new_agent: new_agent.as_ref(),
@@ -335,7 +364,8 @@ async fn edit(app: &App, params: EditParams) -> Result<Edited, RequestError> {
     let draft = draft(app, &params.project).await?;
     let file = yaml::read(&draft.proposal.yaml)
         .map_err(|e| RequestError::plain(format!("The draft doesn\u{2019}t read: {e}")))?;
-    let (file, selected) = vm::edited(&file, &params.edit).map_err(|why| {
+    let stored = super::settings::agent_list(app).await?.agents;
+    let (file, selected) = vm::edited(&file, &params.edit, &stored).map_err(|why| {
         let e = RequestError::plain(why);
         toast_error(app, "The flow didn\u{2019}t change", &e);
         e
@@ -521,6 +551,139 @@ async fn ask(app: &App, params: AskParams) -> Result<Started, RequestError> {
     Ok(Started { agent })
 }
 
+/// Ask the agent to write it, and the Write the skill chip (FED-06): the panel's running agent hears "Write a skill for
+/// the Plan stage: …" (none: the project's Project agent starts with it on the `flow` skill), and the field says it is
+/// being written by that agent.
+async fn write_skill(app: &App, params: SkillParams) -> Result<Started, RequestError> {
+    let draft = draft(app, &params.project).await?;
+    let file = yaml::read(&draft.proposal.yaml)
+        .map_err(|e| RequestError::plain(format!("The draft doesn\u{2019}t read: {e}")))?;
+    let message = vm::write_skill_message(&file, &params.stage);
+    let open = super::pane::agents(app, &params.project).await?.open;
+    let running = params
+        .agent
+        .filter(|id| open.iter().any(|a| a.id == *id && a.state == AgentState::Running));
+    let agent = match running {
+        Some(agent) => {
+            let request = Request::ProjectAgentSend(ProjectAgentSendParams {
+                id: agent.clone(),
+                message,
+            });
+            match app.service.send(request).await {
+                Ok(Reply::Delivery(Delivery::Sent { .. })) => agent,
+                Ok(_) => {
+                    let e = RequestError::plain(
+                        "Its input line has unsent text: send or clear it in its terminal.",
+                    );
+                    toast_error(app, "Not sent", &e);
+                    return Err(e);
+                }
+                Err(e) => {
+                    toast_error(app, "The message wasn\u{2019}t sent", &e);
+                    return Err(e);
+                }
+            }
+        }
+        None => {
+            super::pane::send(
+                app,
+                super::pane::SendParams {
+                    project: params.project.clone(),
+                    message: flow_message(&message),
+                    agent: None,
+                },
+            )
+            .await?
+        }
+    };
+    update(
+        app,
+        &params.project,
+        DraftEdit::SkillWriting {
+            stage: params.stage,
+            agent: Some(agent.clone()),
+        },
+    )
+    .await?;
+    Ok(Started { agent })
+}
+
+/// Stop on a skill being written: the field is empty again, the agent's folder goes, and the agent writing it (the
+/// draft's) is interrupted (Esc) when it is mid-turn.
+async fn stop_writing(app: &App, params: SkillParams) -> Result<(), RequestError> {
+    let before = draft(app, &params.project).await?;
+    let file = yaml::read(&before.proposal.yaml)
+        .map_err(|e| RequestError::plain(format!("The draft doesn\u{2019}t read: {e}")))?;
+    let writer = file.flow.stage(&params.stage).and_then(|stage| {
+        before
+            .writing
+            .iter()
+            .find(|w| w.stage_id == stage.id)
+            .and_then(|w| w.agent.clone())
+    });
+    update(
+        app,
+        &params.project,
+        DraftEdit::StopWriting {
+            stage: params.stage.clone(),
+        },
+    )
+    .await?;
+    let open = super::pane::agents(app, &params.project).await?.open;
+    let working = writer
+        .and_then(|id| open.into_iter().find(|a| a.id == id))
+        .filter(|a| a.state == AgentState::Running && a.mid_turn)
+        .and_then(|a| a.session.map(|s| s.id));
+    if let Some(session) = working {
+        app.service
+            .send(Request::SessionInput(InputParams {
+                session,
+                data: encode_bytes(b"\x1b"),
+                reply: false,
+            }))
+            .await?;
+    }
+    Ok(())
+}
+
+/// Undo on the skill the agent wrote: the stage's skill as before, and Otaq's copy deleted.
+async fn undo_skill(app: &App, params: SkillParams) -> Result<Edited, RequestError> {
+    update(
+        app,
+        &params.project,
+        DraftEdit::UndoSkill {
+            stage: params.stage,
+        },
+    )
+    .await?;
+    Ok(Edited { selected: None })
+}
+
+/// Open on the skill the agent wrote: Otaq's copy in the file manager (only a copy the draft names).
+async fn open_skill(app: &App, params: SkillParams) -> Result<(), RequestError> {
+    let draft = draft(app, &params.project).await?;
+    let file = yaml::read(&draft.proposal.yaml)
+        .map_err(|e| RequestError::plain(format!("The draft doesn\u{2019}t read: {e}")))?;
+    let stage = file
+        .flow
+        .stage(&params.stage)
+        .ok_or_else(|| RequestError::plain(format!("No stage {}", params.stage)))?;
+    let written = draft
+        .written
+        .iter()
+        .find(|w| w.stage_id == stage.id)
+        .ok_or_else(|| RequestError::plain(format!("The agent wrote no skill for {}", stage.name)))?;
+    let data = app
+        .service
+        .data()
+        .ok_or_else(|| RequestError::plain("no data folder"))?;
+    let folder = data
+        .skill_path(&written.copy)
+        .map_err(|e| RequestError::plain(e.to_string()))?;
+    open::that_detached(&folder).map_err(|e| RequestError::plain(e.to_string()))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use otaq_core::board::projects::AddProject;
@@ -663,6 +826,97 @@ mod tests {
         let v = load(&h, None).await;
         assert_eq!(v.proposal, 0);
         assert_eq!(v.flow.summary, "6 steps \u{b7} in use");
+    }
+
+    /// FED-05, FED-06: Plan picked in a new stage keeps Apply off ("Plan needs a skill"); one of the user's imported
+    /// skills picked for it turns Apply on, and applying gives it to the stage's agent.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_new_stage_waits_for_a_skill_and_takes_a_picked_one() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        shop_web(&h, &repos).await;
+        let added = request(
+            &h.app,
+            "flow_editor.edit",
+            json!({ "project": "SHOP", "edit": { "edit": "add", "after": "dev" } }),
+        )
+        .await
+        .unwrap();
+        let picked = request(
+            &h.app,
+            "flow_editor.edit",
+            json!({ "project": "SHOP", "edit": { "edit": "template", "stage": added["selected"], "template": "plan" } }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(picked["selected"], "plan");
+        let v = load(&h, Some("plan")).await;
+        let details = v.flow.details.as_ref().unwrap();
+        assert_eq!(
+            details.templates.as_ref().map(|t| t.title.as_str()),
+            Some("New stage after Dev")
+        );
+        assert!(matches!(
+            details.skill.as_ref().map(|s| &s.state),
+            Some(vm::SkillState::Empty { .. })
+        ));
+        assert!(!v.footer.apply_enabled);
+        assert_eq!(v.footer.reason.as_deref(), Some("Plan needs a skill"));
+
+        // The user's own skill, imported on the Validator.
+        let folder = tempfile::tempdir().unwrap();
+        std::fs::write(
+            folder.path().join("SKILL.md"),
+            "---\nname: plan-steps\ndescription: Lists the steps first.\n---\n# Plan\n",
+        )
+        .unwrap();
+        let agents = super::super::settings::agent_list(&h.app).await.unwrap().agents;
+        let validator = agents.iter().find(|a| a.name == "Validator").unwrap();
+        h.app
+            .service
+            .send(Request::AgentsImportSkill(
+                otaq_core::protocol::ImportSkillParams {
+                    id: validator.id.clone(),
+                    folder: folder.path().to_owned(),
+                },
+            ))
+            .await
+            .unwrap();
+        let v = load(&h, Some("plan")).await;
+        let picker = &v.flow.details.as_ref().unwrap().skill.as_ref().unwrap().picker;
+        let names: Vec<&str> = picker.items.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(names, ["plan-steps"]);
+        assert_eq!(picker.items[0].hint.as_deref(), Some("Lists the steps first."));
+
+        request(
+            &h.app,
+            "flow_editor.edit",
+            json!({ "project": "SHOP", "edit": { "edit": "skill", "stage": "plan", "skill": "plan-steps" } }),
+        )
+        .await
+        .unwrap();
+        let v = load(&h, Some("plan")).await;
+        assert_eq!(
+            v.flow.details.as_ref().unwrap().skill.as_ref().map(|s| &s.state),
+            Some(&vm::SkillState::Set {
+                skill: "plan-steps".into()
+            })
+        );
+        assert!(v.footer.apply_enabled, "{:?}", v.footer.reason);
+        request(
+            &h.app,
+            "flow_editor.apply",
+            json!({ "project": "SHOP", "from": "project", "proposal": v.proposal }),
+        )
+        .await
+        .unwrap();
+        let agents = super::super::settings::agent_list(&h.app).await.unwrap().agents;
+        let developer = agents.iter().find(|a| a.name == "Developer").unwrap();
+        assert!(
+            developer.imported.iter().any(|s| s.name == "plan-steps"),
+            "the stage's agent runs it: {developer:?}"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]

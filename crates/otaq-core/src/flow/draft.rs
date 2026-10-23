@@ -77,6 +77,39 @@ pub struct DraftMemory {
     /// Another flow copied in from Start from: applying it is a swap, which waits for the whole board (FED-08).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub swap: bool,
+    /// The stages whose skill the Project agent is writing (FED-06).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub writing: Vec<SkillWriting>,
+    /// The skills the Project agent wrote for stages, Otaq's copies (FED-06).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub written: Vec<WrittenSkill>,
+}
+
+/// A stage whose skill the Project agent is writing (FED-06, `s27-06`: "Being written by the Project agent…" with
+/// Stop): from the user's **Ask the agent to write it** until the agent hands the folder in, or the user stops it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkillWriting {
+    pub stage_id: String,
+    /// The Project agent asked (its id), when known: Stop interrupts it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+}
+
+/// A skill the Project agent wrote for a stage (FED-06, `s27-06`: tinted, "Written by the agent", Open, Undo):
+/// imported as Otaq's own copy (`$OTAQ_HOME/skills/<copy>/`, d0092), never into the repo (d0023). The draft names it
+/// as the stage's skill, and the stage's agent brings the copy's folder, which Apply gives it ([`super::apply`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WrittenSkill {
+    pub stage_id: String,
+    /// Its own name (its SKILL.md's `name:`): `plan-ticket`.
+    pub skill: String,
+    /// Otaq's id for the copy: `skills/<copy>/`.
+    pub copy: String,
+    /// The Project agent's name.
+    pub by: String,
+    /// The stage's skill before (Undo puts it back): none for a new stage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub was: Option<String>,
 }
 
 impl DraftMemory {
@@ -123,6 +156,10 @@ pub struct Draft {
     /// Copied from another flow: applying it is a swap.
     pub swap: bool,
     pub applies: DraftApplies,
+    /// The stages whose skill the Project agent is writing.
+    pub writing: Vec<SkillWriting>,
+    /// The skills it wrote.
+    pub written: Vec<WrittenSkill>,
 }
 
 /// A change to the draft (`flow.draft_update`).
@@ -141,6 +178,16 @@ pub enum DraftEdit {
     Entry { proposal: u32 },
     /// Start from the flow in use: the draft goes back to it.
     FlowInUse,
+    /// **Ask the agent to write it** (FED-06): the stage's skill is being written by the Project agent `agent`.
+    SkillWriting {
+        stage: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent: Option<String>,
+    },
+    /// **Stop** on a skill being written: the field is empty again and the folder the agent writes in goes.
+    StopWriting { stage: String },
+    /// **Undo** on a skill the agent wrote: the stage's skill as it was, and Otaq's copy deleted.
+    UndoSkill { stage: String },
 }
 
 /// `flow.draft_update`'s parameters.
@@ -261,7 +308,7 @@ fn same_place(a: &Flow, b: &Flow, id: &str) -> bool {
     before(a) == before(b)
 }
 
-fn read(text: &str) -> Result<FlowFile, BoardError> {
+pub(super) fn read(text: &str) -> Result<FlowFile, BoardError> {
     yaml::read(text)
         .map_err(|e| BoardError::refused(Refusal::BadFlow, format!("The flow doesn't read: {e}")))
 }
@@ -285,6 +332,8 @@ impl Board {
             can_undo_all: row.draft.before.is_some(),
             swap: row.draft.swap,
             applies,
+            writing: row.draft.writing.clone(),
+            written: row.draft.written.clone(),
         })
     }
 
@@ -365,7 +414,38 @@ impl Board {
                 row.source = fresh.source;
                 row.draft = DraftMemory::default();
             }
+            DraftEdit::SkillWriting { stage, agent } => {
+                let id = super::write_skill::stage_of(&read(&row.yaml)?, stage)?
+                    .id
+                    .clone();
+                row.draft.writing.retain(|w| w.stage_id != id);
+                row.draft.writing.push(SkillWriting {
+                    stage_id: id,
+                    agent: agent.clone(),
+                });
+            }
+            DraftEdit::StopWriting { stage } => {
+                let id = super::write_skill::stage_of(&read(&row.yaml)?, stage)?
+                    .id
+                    .clone();
+                row.draft.writing.retain(|w| w.stage_id != id);
+                self.drop_skill_folder(&key, &id).await;
+            }
+            DraftEdit::UndoSkill { stage } => {
+                let file = read(&row.yaml)?;
+                let id = super::write_skill::stage_of(&file, stage)?.id.clone();
+                let Some(at) = row.draft.written.iter().position(|w| w.stage_id == id) else {
+                    return Err(BoardError::refused(
+                        Refusal::BadFlow,
+                        format!("The agent wrote no skill for {stage}"),
+                    ));
+                };
+                let written = row.draft.written.remove(at);
+                row.yaml = yaml::write(&self.without_written(file, &written)?);
+                self.drop_copy(&written.copy).await;
+            }
         }
+        self.keep_skills(&mut row, &stored_agents).await?;
         if row.draft.marks.is_empty() {
             row.draft.before = None;
         }
@@ -408,6 +488,7 @@ impl Board {
         }
         row.yaml = yaml::write(&file);
         row.source = source.clone();
+        self.keep_skills(&mut row, &stored_agents).await?;
         if row.draft.marks.is_empty() {
             row.draft.before = None;
         }
@@ -450,7 +531,7 @@ impl Board {
     }
 
     /// The draft while nothing is stored: the flow as it will be, as a document with the agents it names.
-    async fn undrafted(&self, project: &str) -> Result<Row, BoardError> {
+    pub(super) async fn undrafted(&self, project: &str) -> Result<Row, BoardError> {
         let key = self.project(project).await?.key;
         let (base, _) = self.flow_as_it_will_be(&key).await?;
         Ok(Row {
@@ -466,7 +547,7 @@ impl Board {
 
     /// Stores `row` as the draft: in place of the row `existing`, else as a new open proposal (outside Flow setup it
     /// replaces any other, FLW-03). Its id.
-    async fn write_draft(
+    pub(super) async fn write_draft(
         &self,
         project: &str,
         existing: Option<u32>,

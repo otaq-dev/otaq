@@ -1710,9 +1710,10 @@ function OnboardingToolsGallerySection() {
   );
 }
 
-/** *27 → The flow editor* `s27-03`/`s27-05` (T-0471, FED-01…FED-07): the editor in the project (shop-web's flow) and in
- * onboarding (Otaq default, two tools), from `gallery.flow_editor`, in Otaq Light and Dark at the frames' 1376 × 808.
- * Clicks are only recorded. */
+/** *27 → The flow editor* `s27-03`/`s27-05`/`s27-06` (T-0471, T-0472, FED-01…FED-07): the editor in the project
+ * (shop-web's flow) and in onboarding (Otaq default, two tools), then a new stage with Plan picked (its templates, the
+ * empty skill), its skill being written and written, from `gallery.flow_editor`, in Otaq Light and Dark at the frames'
+ * 1376 × 808. Clicks are only recorded. */
 function FlowEditorGallerySection() {
   const { view, error } = useServiceView(loadFlowEditor, []);
   const [picked, setPicked] = useState<string | null>(null);
@@ -1720,7 +1721,7 @@ function FlowEditorGallerySection() {
   if (error) return <p role="alert">{error.message}</p>;
   if (!view) return null;
   return (
-    <Section title="27 · The flow editor (T-0471)">
+    <Section title="27 · The flow editor (T-0471, T-0472)">
       <Caption>Last call: {picked ?? "—"}</Caption>
       {THEMES.map((theme) => (
         <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>

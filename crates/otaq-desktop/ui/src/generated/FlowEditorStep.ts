@@ -25,7 +25,11 @@ avatar: ToolAvatarView | null, who: string | null, mark: FlowEditorMark | null,
  */
 added: boolean, 
 /**
- * Its problem from the check, in the error colour.
+ * Its skill the Project agent wrote: "New", tinted, with Undo (FED-06, `s27-06`).
+ */
+written: FlowEditorMark | null, 
+/**
+ * Its problem from the check, in the error colour ("needs a skill").
  */
 problem: string | null, selected: boolean, 
 /**

@@ -197,6 +197,12 @@ impl Stage {
         self.kind == StageKind::Delivery
     }
 
+    /// An Agent stage or an agent check with no skill yet (FED-06): the draft may hold one, an applied flow never
+    /// does ([`super::check`]'s [`super::Rule::NeedsSkill`]).
+    pub fn needs_skill(&self) -> bool {
+        (self.is_agent_stage() || self.is_agent_check()) && self.skill.is_none()
+    }
+
     /// The flow lets a ticket skip this stage.
     pub fn can_skip(&self) -> bool {
         self.options.contains(&StageOption::Skip)

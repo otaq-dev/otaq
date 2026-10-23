@@ -5,6 +5,7 @@ import type { FlowEditorKind } from "./FlowEditorKind";
 import type { FlowEditorKindOption } from "./FlowEditorKindOption";
 import type { FlowEditorMark } from "./FlowEditorMark";
 import type { FlowEditorSkillField } from "./FlowEditorSkillField";
+import type { FlowEditorTemplates } from "./FlowEditorTemplates";
 import type { IconName } from "./IconName";
 
 /**
@@ -18,4 +19,8 @@ title: string, icon: IconName, remove: string | null, name_label: string, name: 
 /**
  * The three kinds; empty for the Delivery (its kind is fixed, [`Details::fixed_kind`]).
  */
-kinds: Array<FlowEditorKindOption>, kind: FlowEditorKind | null, fixed_kind: string | null, agent: FlowEditorAgentField | null, skill: FlowEditorSkillField | null, can_label: string, can: Array<FlowEditorCanRow>, problem: string | null, mark: FlowEditorMark | null, };
+kinds: Array<FlowEditorKindOption>, kind: FlowEditorKind | null, fixed_kind: string | null, 
+/**
+ * A stage the user added: its templates (FED-05).
+ */
+templates: FlowEditorTemplates | null, agent: FlowEditorAgentField | null, skill: FlowEditorSkillField | null, can_label: string, can: Array<FlowEditorCanRow>, problem: string | null, mark: FlowEditorMark | null, };

@@ -1,5 +1,6 @@
-//! `otaq flow show`, `presets` and `propose` (FLW-02, FLW-03; d0108): a Project agent reads the project's flow,
-//! the ready-made ones, and proposes a whole document. Proposing opens Otaq's preview and returns at once; the
+//! `otaq flow show`, `presets`, `propose` and `write-skill` (FLW-02, FLW-03, FED-06; d0108, d0115): a Project agent
+//! reads the project's flow, the ready-made ones, and proposes a whole document, or writes a stage's skill in the
+//! folder Otaq gives it. Proposing opens Otaq's preview and returns at once; the
 //! user's answer (Apply, Cancel, Ask for more changes) comes back as the Project agent's next message. From the
 //! user's own terminal nothing comes back. A ticket's agent, a check and an epic lead are refused.
 //!
@@ -8,12 +9,14 @@
 //! - `show`: `{project, version, yaml, document}`, `document` the YAML as JSON.
 //! - `presets`: `[{file, name, line, stages}]`, `stages` the preset's stage names in order.
 //! - `propose`: the proposal as the preview shows it (`id`, `problems`, `diff`, …).
+//! - `write-skill`: `{stage, folder, skill?, text}`; `--quiet` prints the folder (the skill's name with `--done`).
 
 use std::io::Read;
 
 use otaq_core::data_dir::DataDir;
 use otaq_core::flow::presets::presets;
 use otaq_core::flow::propose::{ProposeParams, Proposed, waiting_text};
+use otaq_core::flow::write_skill::WriteSkillParams;
 use otaq_core::naming;
 use otaq_core::protocol::{ErrorBody, ErrorKind, ProjectParams, Reply, Request};
 use serde_json::json;
@@ -65,7 +68,39 @@ pub fn run(command: FlowCommand, global: &GlobalArgs, out: &Output) -> Result<()
             };
             propose(source, global, out)
         }
+        FlowCommand::WriteSkill { stage, done } => write_skill(stage, done, global, out),
     }
+}
+
+fn write_skill(
+    stage: String,
+    done: bool,
+    global: &GlobalArgs,
+    out: &Output,
+) -> Result<(), ErrorBody> {
+    let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
+    service::runtime()?.block_on(async {
+        let client = service::connect(&data, global).await?;
+        let project = target::require_project(&client, &data, global).await?;
+        let written = match client
+            .request(Request::FlowWriteSkill(WriteSkillParams {
+                project: project.to_string(),
+                stage,
+                done,
+            }))
+            .await
+            .map_err(client_error)?
+        {
+            Reply::SkillWrite(w) => *w,
+            other => return Err(unexpected(&other)),
+        };
+        let quiet = written
+            .skill
+            .clone()
+            .unwrap_or_else(|| written.folder.clone());
+        out.print(&written.text, &written, Some(&quiet));
+        Ok(())
+    })
 }
 
 /// One line per shipped preset: its file, name and line ("team-pr.yaml · Team PR · Teams that review on GitHub or

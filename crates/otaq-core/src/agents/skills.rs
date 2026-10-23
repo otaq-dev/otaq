@@ -135,7 +135,8 @@ pub async fn reimport(board: &Board, agent_id: &str, skill_id: &str) -> Result<A
 }
 
 /// Deletes every folder under `skills/` that no agent holds (at service start): copies left by a crash between a
-/// copy and its record, by a deleted agent or by the move-over's dropped project skills.
+/// copy and its record, by a deleted agent or by the move-over's dropped project skills. A copy an open draft names
+/// (a skill the Project agent wrote, FED-06, given to an agent on Apply) stays.
 pub async fn remove_unreferenced(board: &Board) -> Result<usize, BoardError> {
     let _changing = board.lock_skill_changes().await;
     let held: std::collections::HashSet<String> = board
@@ -144,6 +145,10 @@ pub async fn remove_unreferenced(board: &Board) -> Result<usize, BoardError> {
         .await?
         .into_iter()
         .collect();
+    let drafts: Vec<String> = sqlx::query_scalar("SELECT yaml FROM flow_proposals")
+        .fetch_all(board.store().pool())
+        .await
+        .map_err(crate::store::StoreError::from)?;
     let dir = board.data().skills_dir();
     Ok(blocking(move || {
         let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -151,6 +156,10 @@ pub async fn remove_unreferenced(board: &Board) -> Result<usize, BoardError> {
         };
         let mut removed = 0;
         for entry in entries.flatten() {
+            let path = entry.path().display().to_string();
+            if drafts.iter().any(|yaml| yaml.contains(&path)) {
+                continue;
+            }
             if !held.contains(&*entry.file_name().to_string_lossy()) {
                 folder::remove(&entry.path());
                 removed += 1;

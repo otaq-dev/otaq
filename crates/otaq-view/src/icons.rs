@@ -61,6 +61,7 @@ icons! {
     BetweenVerticalEnd = "between-vertical-end";
     BetweenVerticalStart = "between-vertical-start";
     Bold = "bold";
+    BookOpen = "book-open";
     Bot = "bot";
     BrushCleaning = "brush-cleaning";
     CalendarClock = "calendar-clock";
@@ -179,6 +180,7 @@ icons! {
     RefreshCw = "refresh-cw";
     RotateCcw = "rotate-ccw";
     RotateCw = "rotate-cw";
+    ScanEye = "scan-eye";
     ScanSearch = "scan-search";
     ScrollText = "scroll-text";
     Search = "search";
@@ -202,6 +204,7 @@ icons! {
     Square = "square";
     SquareCheck = "square-check";
     SquareCode = "square-code";
+    SquareDashed = "square-dashed";
     SquareParking = "square-parking";
     SquarePlus = "square-plus";
     SquareTerminal = "square-terminal";

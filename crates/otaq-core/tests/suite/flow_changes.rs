@@ -152,7 +152,7 @@ async fn each_refusal_names_its_stage_or_agent() {
         .map(|e| e.unwrap().path())
         .collect();
     broken.sort();
-    assert_eq!(broken.len(), 21);
+    assert_eq!(broken.len(), 22);
     for path in broken {
         let text = std::fs::read_to_string(&path).unwrap();
         let message = refusal(propose_as(&w, &key, &text, planner()).await);

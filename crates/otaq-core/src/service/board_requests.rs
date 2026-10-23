@@ -1443,6 +1443,33 @@ pub(super) async fn handle(
             );
             Ok(Reply::FlowDraft(Box::new(draft)))
         }),
+        Request::FlowWriteSkill(p) => boxed(move || async move {
+            let agent = match caller {
+                Caller::ProjectAgent { agent, .. } => Some(shared.project_agents.get(agent).await?),
+                _ => None,
+            };
+            let written = match p.done {
+                false => {
+                    board
+                        .skill_folder(&p.project, &p.stage, agent.as_ref().map(|a| a.id.as_str()))
+                        .await?
+                }
+                true => {
+                    let by = agent.map_or_else(|| "you".to_owned(), |a| a.name);
+                    board.skill_written(&p.project, &p.stage, &by).await?
+                }
+            };
+            let project = board.project(&p.project).await?.key;
+            let draft = board.draft(&project, shared.agents.models()).await?;
+            flow_event(
+                shared,
+                &project,
+                FlowEvent::DraftChanged {
+                    proposal: draft.proposal.id,
+                },
+            );
+            Ok(Reply::SkillWrite(Box::new(written)))
+        }),
         Request::FlowWaiting(p) => boxed(move || async move {
             Ok(Reply::FlowWaiting(
                 board.waiting_change(&p.project).await?.map(Box::new),

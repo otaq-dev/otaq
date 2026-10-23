@@ -279,6 +279,22 @@ fn flow_teaches_show_propose_the_format_and_the_wait() {
     }
 }
 
+/// T-0472 (FED-06; d0092, d0023): `flow` writes a stage's skill only in the folder `flow write-skill` gives, and
+/// hands it in with `--done`; it never writes in the repo for it.
+#[test]
+fn flow_writes_a_stages_skill_only_in_otaqs_folder() {
+    let cmd = naming::COMMAND_NAME;
+    let flow = read_skill("flow");
+    for text in [
+        format!("{cmd} flow write-skill <stage>"),
+        format!("{cmd} flow write-skill <stage> --done"),
+        "Write nothing anywhere else".to_owned(),
+        "never in this repo".to_owned(),
+    ] {
+        assert!(flow.contains(&text), "flow must say {text:?}");
+    }
+}
+
 /// T-0415 (FLW-11): the `flow` skill's whole example is a flow `propose` reads and the checks pass, the same as the
 /// Grill first preset.
 #[test]

@@ -144,6 +144,14 @@ impl DataDir {
         Ok(self.skills_dir().join(id))
     }
 
+    /// The folder a Project agent writes a stage's skill in (FED-06): `skill-writes/<KEY>/<stage id>`, Otaq's own,
+    /// never the repo (d0023). Otaq imports it as its copy under [`Self::skills_dir`] and deletes it.
+    pub fn skill_writing_path(&self, project: &str, stage: &str) -> Result<PathBuf, DataDirError> {
+        let project = path_component(project)?;
+        let stage = path_component(stage)?;
+        Ok(self.root.join("skill-writes").join(project).join(stage))
+    }
+
     /// The log folder; files rotate daily (see [`crate::logging`]).
     pub fn logs_dir(&self) -> PathBuf {
         self.root.join("logs")

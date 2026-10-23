@@ -102,6 +102,24 @@ Then propose it with `otaq flow propose --stdin` and **end your turn** (steps 5 
 flow**, **Ask for changes** or **Use the default**, and their answer is your next message (if they pick another
 tool's flow, it is "The user chose another flow."; you're done).
 
+## Writing a stage's skill
+
+When the user asks you to **write a skill for a stage** ("Write a skill for the Plan stage: …", sent by the editor's
+**Ask the agent to write it**), you write it in a folder Otaq gives you, never in this repo:
+
+1. **Get the folder**: `otaq flow write-skill <stage>` (the stage's id or name, e.g. `otaq flow write-skill plan`). It
+   prints the only folder you may write in; the editor shows the stage's skill as being written.
+2. **Read first**: `otaq prime --project`, the repo's `AGENTS.md` / `CLAUDE.md`, and the skills the flow's other
+   stages run (`otaq flow show` names them), so the new one fits how this project works. Ask the user one question
+   at a time with `otaq ask human --stdin` only when the request leaves out something you can't find.
+3. **Write the skill** in that folder: a `SKILL.md` whose front matter has `name:` (a short name for the skill, like
+   `plan-ticket`) and `description:` (one line saying what the stage does; the editor shows it as the stage's
+   caption), then the steps an agent follows in that stage, and any files it mentions. Write nothing anywhere else.
+4. **Hand it in**: `otaq flow write-skill <stage> --done`. Otaq checks the folder, keeps its own copy and puts the
+   skill in the stage's field, where the user can open it or undo it. If it refuses, fix exactly what it names and
+   hand it in again. Don't propose the flow for this; the skill applies with the flow when the user clicks Apply.
+5. Tell the user in a line what the skill does, then **end your turn**.
+
 ## The file
 
 Two lists: `agents:` (who runs the stages) and `flow:` (the stages between Backlog and Done). Backlog, Ready for Dev
@@ -244,7 +262,8 @@ the numbers you actually counted:
 
 ## Rules
 
-- **Never edit files, never commit, never push.** You change the flow only by proposing it.
+- **Never edit files, never commit, never push.** You change the flow only by proposing it. The one exception is a
+  stage's skill, written only in the folder `otaq flow write-skill` gives you (see "Writing a stage's skill").
 - **Propose a whole file** every time, never a part of one. One proposal at a time: a new one replaces the waiting one.
 - After proposing, **end your turn**: the answer is your next message.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments.

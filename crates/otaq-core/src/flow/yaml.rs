@@ -264,15 +264,12 @@ fn stage(raw: RawStage) -> Result<Stage, FormatError> {
         StageKind::Check { by: CheckBy::You } => false,
         StageKind::Delivery => delivery.is_some_and(|d| d.delivers != Delivers::Local),
     };
+    // An Agent stage or an agent check with no `skill:` reads (the editor's draft holds one until its skill is
+    // picked or written, FED-06); the checks refuse it ("Plan needs a skill", [`super::check`]).
     if runs_agent {
         if raw.agent.is_none() {
             return Err(FormatError(format!(
                 "{name} is {what}: name the agent that runs it with `agent:`"
-            )));
-        }
-        if raw.skill.is_none() && kind != StageKind::Delivery {
-            return Err(FormatError(format!(
-                "{name} is {what}: name the skill it runs with `skill:`"
             )));
         }
     } else {

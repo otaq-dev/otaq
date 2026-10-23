@@ -39,6 +39,8 @@ pub enum Rule {
     Duplicate,
     /// A stage or a stage option names an agent that isn't one of the agents (AGM-01).
     UnknownAgent,
+    /// An Agent stage or an agent check with no skill (FED-06: "Plan needs a skill").
+    NeedsSkill,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +49,11 @@ pub struct Problem {
     /// The id of the stage it is about, when it is about one.
     pub stage: Option<String>,
     pub message: String,
+}
+
+/// "Plan needs a skill" (FED-06): the editor's reason Apply stays off.
+pub fn needs_skill_message(stage: &Stage) -> String {
+    format!("{} needs a skill", stage.name)
 }
 
 /// "Dev names the agent Rust developer, which isn't one of your agents".
@@ -118,6 +125,10 @@ pub fn check(flow: &Flow) -> Result<(), Vec<Problem>> {
                 ),
             );
         }
+    }
+
+    for stage in stages.iter().filter(|s| s.needs_skill()) {
+        add(Rule::NeedsSkill, Some(stage), needs_skill_message(stage));
     }
 
     // One Delivery stage, last.

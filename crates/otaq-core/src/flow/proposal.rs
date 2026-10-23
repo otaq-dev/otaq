@@ -1409,9 +1409,21 @@ impl Board {
             });
         }
         let used_in = in_use::in_use(self, mine).await?.stages;
-        // A Project agent's own document changes the agent; anything brought in clashes, Keep mine by default.
-        let agent_document = matches!(row.proposed_by, ProposedBy::ProjectAgent { .. })
-            && matches!(row.source, Source::Document { .. });
+        // A Project agent's own document changes the agent, and so does the user's own (the editor's draft, a skill
+        // picked for a stage, FED-06; their terminal); anything brought in (a file, a preset) clashes, Keep mine by
+        // default. A skill the Project agent wrote for the draft's stage is given to the stage's agent, no clash.
+        let agent_document = match (&row.proposed_by, &row.source) {
+            (ProposedBy::ProjectAgent { .. }, Source::Document { .. }) => true,
+            (ProposedBy::User, Source::Document { file }) => file.is_none(),
+            _ => false,
+        };
+        let gets_written = row.draft.written.iter().any(|w| {
+            agent
+                .skills
+                .iter()
+                .any(|s| Path::new(s).file_name().is_some_and(|n| *n == *w.copy))
+        });
+        let agent_document = agent_document || gets_written;
         let clash = (!agent_document).then(|| Clash {
             add_as: row.source.file().map(|f| add_as_name(&mine.name, f)),
         });

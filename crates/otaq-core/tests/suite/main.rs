@@ -152,3 +152,4 @@ mod workflow_skills;
 mod worktree_prep;
 mod worktree_skills;
 mod worktrees;
+mod write_skill;
