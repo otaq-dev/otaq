@@ -8,6 +8,7 @@ import type { PanelTab } from "../../generated/PanelTab";
 import type { PanelView } from "../../generated/PanelView";
 import type { SheetTabView } from "../../generated/SheetTabView";
 import type { SheetView } from "../../generated/SheetView";
+import { overview as overviewScreen } from "../overview";
 import { sheet as sheetScreen } from ".";
 import { SheetBody } from "./Sheet";
 
@@ -161,10 +162,11 @@ export const VIEW: PanelView = {
   holds: [],
 };
 
-/** Registries with the sheet's screen, History's body and the Stack section stand-ins. */
+/** Registries with the sheet's and Overview's screens, History's body and the Stack section stand-ins. */
 export function sheetRegistries(): Registries {
   const app = createRegistries();
   sheetScreen(app);
+  overviewScreen(app);
   app.panelTabs.register("history", {
     Component: ({ ticket }) => createElement("p", null, `history of ${ticket}`),
   });

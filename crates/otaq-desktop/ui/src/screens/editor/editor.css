@@ -27,7 +27,7 @@
 
 /* What and why (d0078 D5, *08 → i · At max height, scrolled*): the field grows with its text up to 480 px, then the
    text scrolls inside under the pinned toolbar, which gets a hairline shadow once the text is under it. In the
-   Ticket tab the field may grow until it fills the tab (`--editor-fill`, the tab's scroll area, set by TicketTab).
+   form in place (⋯ Edit ticket…) the field may grow until it fills its scroll area (`--editor-fill`, set by EditForm).
    No transform, filter or contain here: the editor's floating parts are position: fixed. */
 .editor-description .md-editor {
   box-sizing: border-box;
@@ -148,14 +148,6 @@
   background: var(--bg-column);
   color: var(--text-primary);
   font: 400 11px var(--font-mono);
-}
-
-.editor-chip-link {
-  cursor: pointer;
-}
-
-.editor-chip-link:hover {
-  background: var(--bg-hover);
 }
 
 .editor-chip-remove {
@@ -377,25 +369,6 @@
   font: 400 12px var(--font-ui);
 }
 
-.editor-read {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.editor-origin {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0 0 4px;
-  color: var(--text-muted);
-  font: 400 11px var(--font-ui);
-}
-
-.editor-origin[data-agent] > .icon {
-  color: var(--st-investigate);
-}
-
 .editor-section {
   display: flex;
   align-items: center;
@@ -430,30 +403,6 @@
 
 .editor-link:hover {
   text-decoration: underline;
-}
-
-.editor-read-title {
-  margin: 0;
-  color: var(--text-primary);
-  font: 600 16px var(--font-ui);
-}
-
-.editor-read-priority {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.editor-read-deps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.editor-read-mono {
-  margin: 0;
-  color: var(--text-primary);
-  font: 400 12px var(--font-mono);
 }
 
 /* What and why in read mode: the read-only description editor (d0078), set in the label row's column. */
@@ -566,7 +515,6 @@
 }
 
 .editor-chip-remove:focus-visible,
-.editor-chip-link:focus-visible,
 .editor-link:focus-visible,
 .editor-tool:focus-visible,
 .editor-quick:focus-within {

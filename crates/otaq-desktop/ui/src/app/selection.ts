@@ -36,6 +36,34 @@ export function useSelection(): Selection {
   return useStore(selection);
 }
 
+/**
+ * Asked before the sheet moves away from what it shows (another ticket or tab, closing it, another project): `next` is
+ * the selection the move makes, `go` makes it. Returning `true` holds the move (the guard asks first, and calls `go`
+ * once the user agrees); `false` lets it happen. Overview's changed description holds it (T-0465, SHT-03).
+ */
+export type LeaveGuard = (next: Selection, go: () => void) => boolean;
+
+const guards = new WeakMap<Store<Selection>, LeaveGuard>();
+
+/** Sets the store's guard (one at a time: the shown Overview's). Returns the removal. */
+export function guardLeaving(guard: LeaveGuard, store: Store<Selection> = selection): () => void {
+  guards.set(store, guard);
+  return () => {
+    if (guards.get(store) === guard) guards.delete(store);
+  };
+}
+
+/** Makes the move `change`, unless the guard holds it. */
+function move(store: Store<Selection>, change: (current: Selection) => Selection): void {
+  const now = store.get();
+  const next = change(now);
+  const go = () => {
+    store.update(change);
+  };
+  if (next !== now && guards.get(store)?.(next, go) === true) return;
+  go();
+}
+
 /** What each project showed when the user left it, per store: switching back brings it back (T-0219). */
 const left = new WeakMap<Store<Selection>, Map<string, Pick<Selection, "ticket" | "tab">>>();
 
@@ -43,7 +71,7 @@ const left = new WeakMap<Store<Selection>, Map<string, Pick<Selection, "ticket" 
 export function selectProject(project: string, store: Store<Selection> = selection): void {
   const kept = left.get(store) ?? new Map<string, Pick<Selection, "ticket" | "tab">>();
   left.set(store, kept);
-  store.update((s) => {
+  move(store, (s) => {
     if (s.project === project) return s;
     if (s.project !== null) kept.set(s.project, { ticket: s.ticket, tab: s.tab });
     const back = kept.get(project) ?? { ticket: null, tab: null };
@@ -56,21 +84,21 @@ export function selectProject(project: string, store: Store<Selection> = selecti
  * already open keeps what it shows.
  */
 export function openTicket(ticket: string, tab?: PanelTab, store: Store<Selection> = selection): void {
-  store.update((s) => ({ ...s, ticket, tab: tab ?? (s.ticket === ticket ? s.tab : null) }));
+  move(store, (s) => ({ ...s, ticket, tab: tab ?? (s.ticket === ticket ? s.tab : null) }));
 }
 
 /** Moves the open sheet to the previous or next ticket (j / k), keeping the tab it shows. */
 export function stepTicket(ticket: string, store: Store<Selection> = selection): void {
-  store.update((s) => ({ ...s, ticket }));
+  move(store, (s) => ({ ...s, ticket }));
 }
 
 /** Closes the sheet. */
 export function closeTicket(store: Store<Selection> = selection): void {
-  store.update((s) => ({ ...s, ticket: null, focusedTerminal: null }));
+  move(store, (s) => ({ ...s, ticket: null, focusedTerminal: null }));
 }
 
 export function showTab(tab: PanelTab, store: Store<Selection> = selection): void {
-  store.update((s) => ({ ...s, tab }));
+  move(store, (s) => ({ ...s, tab }));
 }
 
 /** Records which terminal has the keyboard (`null`: none). */

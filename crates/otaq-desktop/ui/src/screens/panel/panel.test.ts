@@ -31,7 +31,7 @@ import { renderSheet as render, sheetRegistries, VIEW } from "../sheet/sheet_fix
 
 vi.mock("../../tauri", () => ({
   request: vi.fn(() => new Promise(() => undefined)),
-  subscribeEvents: vi.fn(),
+  subscribeEvents: vi.fn(() => new Promise(() => undefined)),
 }));
 
 afterEach(() => {

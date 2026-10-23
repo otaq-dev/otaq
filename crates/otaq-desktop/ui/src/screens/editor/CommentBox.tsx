@@ -3,7 +3,9 @@
 // dialogs (T-0447), which give it their label and line (`CommentBoxView.dialog`) and send it with their own button.
 // A paste over the limit becomes the "Pasted text · 48 KB" chip (open, remove), never text; with only the chip the
 // button stays off and the hint asks for a line; typing past the limit shows "2,140 / 2,000", the red box, and turns
-// the button off (`commentRules.ts`). Its words and the limit come from Rust (`CommentBoxView`); the box keeps only
+// the button off (`commentRules.ts`). A file added in Overview (Add, a drop; RPT-02) waits as its own chip
+// ("perf-notes.md · 2 KB ✕") with the line "A comment always has its own line; the file goes with it."; a file pasted
+// into the box becomes the pasted chip. Its words and the limit come from Rust (`CommentBoxView`); the box keeps only
 // what is typed. ⌘↵ sends it.
 import { type ClipboardEvent, type KeyboardEvent, type Ref, useCallback, useId } from "react";
 
@@ -12,7 +14,14 @@ import type { CommentBoxView } from "../../generated/CommentBoxView";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { type BoxValue, boxState, type Pasted, pasteAction, withPasted } from "./commentRules";
+import {
+  type AttachedFile,
+  type BoxValue,
+  boxState,
+  type Pasted,
+  pasteAction,
+  withPasted,
+} from "./commentRules";
 import { isSaveKey, SAVE_KEYS } from "./logic";
 import { openReport } from "./reportOpener";
 
@@ -57,6 +66,30 @@ function PastedChip({
   );
 }
 
+/** "perf-notes.md 2 KB ✕": a file added in Overview, sent as the comment's report. */
+function FileChip({
+  file,
+  view,
+  onRemove,
+}: {
+  file: AttachedFile;
+  view: CommentBoxView;
+  onRemove: () => void;
+}) {
+  return (
+    <span className="comment-chip" data-file>
+      <span className="comment-chip-open" data-static>
+        <Icon name="file-text" size={13} />
+        <span className="comment-chip-label">{file.name}</span>
+        <span className="comment-chip-size">{file.size}</span>
+      </span>
+      <button type="button" className="comment-chip-remove" aria-label={view.remove_file} onClick={onRemove}>
+        <Icon name="x" size={13} />
+      </button>
+    </span>
+  );
+}
+
 export interface CommentBoxProps {
   /** The ticket it comments on (Open on the chip names it). */
   ticket: string;
@@ -88,6 +121,18 @@ export function CommentBox({
     if (state.canSubmit && !busy) onSubmit();
   };
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    // A file (copied in Finder): its text becomes the pasted report, the comment still needs its line.
+    const file = (e.clipboardData.files as FileList | undefined)?.[0];
+    if (file !== undefined) {
+      e.preventDefault();
+      file.text().then(
+        (text) => {
+          onChange(withPasted(value, text));
+        },
+        () => undefined,
+      );
+      return;
+    }
     const text = e.clipboardData.getData("text/plain");
     if (pasteAction(text, view.limits) !== "chip") return;
     // Over the limit: the report chip, never text (d0109).
@@ -122,6 +167,17 @@ export function CommentBox({
         onPaste={onPaste}
         onKeyDown={onKeyDown}
       />
+      {value.file !== null && (
+        <div className="comment-box-chips">
+          <FileChip
+            file={value.file}
+            view={view}
+            onRemove={() => {
+              onChange({ ...value, file: null });
+            }}
+          />
+        </div>
+      )}
       {value.pasted !== null && (
         <div className="comment-box-chips">
           <PastedChip
@@ -135,6 +191,11 @@ export function CommentBox({
         </div>
       )}
       <div className="comment-box-actions">
+        {state.fileLine && (
+          <span className="comment-box-hint" role="status">
+            {view.file_line}
+          </span>
+        )}
         {state.needsLine && (
           <span className="comment-box-hint" role="status">
             <Icon name="info" size={13} />

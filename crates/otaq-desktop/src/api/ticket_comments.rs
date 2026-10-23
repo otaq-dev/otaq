@@ -57,7 +57,8 @@ pub struct ThreadParams {
     pub key: String,
 }
 
-/// `{"key": "SHOP-34", "body": "…", "pasted": "…48 KB of log…"}`: a new comment, with the pasted text as its report.
+/// `{"key": "SHOP-34", "body": "…", "pasted": "…48 KB of log…"}`: a new comment, with the pasted text as its report;
+/// or with `"file": "/Users/me/perf-notes.md"`, a file added in Overview (Add, a drop; RPT-02), copied as its report.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "CommentPostParams")]
 pub struct PostParams {
@@ -65,6 +66,8 @@ pub struct PostParams {
     pub body: String,
     #[serde(default)]
     pub pasted: Option<String>,
+    #[serde(default)]
+    pub file: Option<String>,
 }
 
 /// `{"key": "SHOP-34", "n": 3, "body": "…"}`: comment 3's new text.
@@ -162,7 +165,10 @@ pub async fn post(app: &App, params: PostParams) -> Result<Done, RequestError> {
         .send(Request::TicketCommentPost(TicketCommentPostParams {
             key: params.key,
             body: params.body,
-            report: params.pasted.map(ReportSource::Text),
+            report: match (params.file, params.pasted) {
+                (Some(path), _) => Some(ReportSource::Path(path.into())),
+                (None, pasted) => pasted.map(ReportSource::Text),
+            },
         }))
         .await?;
     posted("ticket.comment_post", answer)

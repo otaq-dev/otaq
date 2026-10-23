@@ -1,12 +1,11 @@
-// The ticket's actions and what its sheet's Overview shows until T-0465 (UI-04; *05 · Ticket side panel*, now the
-// sheet of SHT-01, T-0464): the action bar of the ticket's state, or the answer options of an Asks-you question; the
-// held roles' callouts, the refusal, the queued notice, the conflict strip and the Start interrupted callout; the
-// choices and the path; the registered sections (Epic, Stack, Messages). The sheet (`screens/sheet`) draws the header
-// and the tabs and holds the actions (`usePanelActions`): its "…" menu (`MoreMenu`) is this file's. Everything it
-// says comes from `panel.view`; it keeps only open menus and the picked answer. A board card's button lands here too
-// (`cardActions`): the sheet runs it once it shows that ticket. The M12 rows (d0063, d0064): the validation buttons,
-// the token split, the Auto-merge stop message and Answer the agent's note box. An epic (T-0290; d0083) keeps its
-// Messages with its Ticket content.
+// The ticket's actions and the top of its sheet's Overview (UI-04; *05 · Ticket side panel*, now the sheet of SHT-01,
+// T-0464; Overview's "what it needs from you", T-0465): the action bar of the ticket's state, or the answer options of
+// an Asks-you question; the held roles' callouts, the refusal, the queued notice, the conflict strip and the Start
+// interrupted callout; the choices and the path. The sheet (`screens/sheet`) draws the header and the tabs and holds
+// the actions (`usePanelActions`): its "…" menu (`MoreMenu`) is this file's. Everything it says comes from
+// `panel.view`; it keeps only open menus and the picked answer. A board card's button lands here too (`cardActions`):
+// the sheet runs it once it shows that ticket. The M12 rows (d0063, d0064): the validation buttons, the token split,
+// the Auto-merge stop message and Answer the agent's note box.
 import {
   type ReactNode,
   useCallback,
@@ -21,7 +20,7 @@ import {
 import { cardActions, takeCardAction } from "../../app/cardActions";
 import { openOverlay } from "../../app/overlays";
 import { useRegistries, useShortcut } from "../../app/registry";
-import { PANEL_SECTIONS, PANEL_UNDER_TABS } from "../../app/registry/panel";
+import { PANEL_UNDER_TABS } from "../../app/registry/panel";
 import {
   openTicket,
   requestTerminalFocus,
@@ -721,11 +720,10 @@ function MetaLine({ view }: { view: PanelView }) {
 }
 
 /**
- * The top of the sheet's Overview until T-0465 (SHT-03's "what it needs from you"): the old panel header's lower
- * part (the conflict strip, the question with its options or the action bar with its callouts, the Auto-merge stop
- * message, Answer the agent's box), the choices and the path, the queued notice, the registered sections (Epic,
- * Stack, Messages; an epic's Messages sit with its Ticket content, accepted Q9), the open PR's box and the Start
- * interrupted callout.
+ * The top of the sheet's Overview (SHT-03's "what it needs from you", T-0465): the old panel header's lower part (the
+ * conflict strip, the question with its options or the action bar with its callouts, the Auto-merge stop message,
+ * Answer the agent's box), the choices and the path, the queued notice, the open PR's box and the Start interrupted
+ * callout. The registered sections (Epic, Stack, Messages) are Overview's own, under the description.
  */
 export function PanelOverview({ view, actions }: { view: PanelView; actions: PanelActions }) {
   const app = useRegistries();
@@ -793,11 +791,6 @@ export function PanelOverview({ view, actions }: { view: PanelView; actions: Pan
       </div>
       <ChoicesAndPath view={view} />
       {view.notice && <Notice view={view} notice={view.notice} />}
-      {PANEL_SECTIONS.map((id) => {
-        if (id === "messages" && view.epic) return null;
-        const Section = app.panelSections.get(id)?.Component;
-        return Section ? <Section key={id} ticket={view.key} /> : null;
-      })}
       {UnderTabs && <UnderTabs ticket={view.key} />}
       {view.start_problem && <StartProblem key={view.key} view={view} problem={view.start_problem} />}
     </div>

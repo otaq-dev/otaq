@@ -5,6 +5,7 @@ import {
   closeTicket,
   createSelection,
   focusTerminal,
+  guardLeaving,
   openTicket,
   selectProject,
   showTab,
@@ -65,6 +66,34 @@ describe("the selection", () => {
     expect(s.get()).toEqual({ project: "SHOP", ticket: "SHOP-22", tab: "diff", focusedTerminal: null });
     selectProject("CREW", s);
     expect(s.get()).toMatchObject({ project: "CREW", ticket: "CREW-3", tab: "terminal" });
+  });
+});
+
+describe("the leave guard (T-0465: a changed description asks first)", () => {
+  it("holds every move it says so, and the move happens once it calls go", () => {
+    const s = createSelection();
+    selectProject("SHOP", s);
+    openTicket("SHOP-22", undefined, s);
+    const held: (() => void)[] = [];
+    const stop = guardLeaving((next, go) => {
+      if (next.ticket === "SHOP-22" && next.tab === "ticket") return false;
+      held.push(go);
+      return true;
+    }, s);
+    showTab("ticket", s);
+    expect(s.get().tab).toBe("ticket");
+    showTab("diff", s);
+    closeTicket(s);
+    stepTicket("SHOP-23", s);
+    openTicket("SHOP-30", undefined, s);
+    selectProject("BILL", s);
+    expect(s.get()).toMatchObject({ project: "SHOP", ticket: "SHOP-22", tab: "ticket" });
+    expect(held).toHaveLength(5);
+    held[1]?.();
+    expect(s.get().ticket).toBeNull();
+    stop();
+    openTicket("SHOP-30", undefined, s);
+    expect(s.get().ticket).toBe("SHOP-30");
   });
 });
 

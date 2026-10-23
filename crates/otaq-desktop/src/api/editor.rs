@@ -92,6 +92,10 @@ pub enum Target {
     Edit {
         key: String,
     },
+    /// The description edited in place in Overview (SHT-03): only the form's `body` is saved, nothing else.
+    Description {
+        key: String,
+    },
 }
 
 /// The form as typed: what the page keeps and sends back on save.
@@ -637,7 +641,7 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
                 ..create_view(&info, epic, &all)
             }
         }
-        Target::Edit { key } => {
+        Target::Edit { key } | Target::Description { key } => {
             let ticket = found(app, &key).await?;
             let project_key = ticket.key.project.to_string();
             let info = project(app, &project_key).await?;
@@ -835,6 +839,14 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
             }
             Ok(SaveOutcome::Saved { key, note: None })
         }
+        Target::Description { key } => {
+            let before = found(app, &key).await?;
+            let Some(update) = EditorModel::description(&before, &params.form.body).update_input() else {
+                // Untouched: nothing is saved (Q48).
+                return Ok(SaveOutcome::Saved { key, note: None });
+            };
+            update_ticket(app, key, &before, update).await
+        }
         Target::Edit { key } => {
             let before = found(app, &key).await?;
             let model = model_of(EditorModel::edit(&before), &params.form);
@@ -854,26 +866,36 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
                 },
                 None => return Ok(SaveOutcome::Saved { key, note: None }),
             };
-            let live = live_agent(app, &key).await;
-            match app
-                .service
-                .send(Request::TicketUpdate(TicketUpdateParams {
-                    key: key.clone(),
-                    update,
-                }))
-                .await
-            {
-                Ok(Reply::Ticket(after)) => Ok(SaveOutcome::Saved {
-                    note: agent_activity::saved_note(&before, &after, live),
-                    key,
-                }),
-                Ok(other) => Err(unexpected("ticket.update", &other)),
-                Err(e) => Ok(SaveOutcome::Refused {
-                    refusal: Refusal::of(&e, RefusalField::Form),
-                    created: None,
-                }),
-            }
+            update_ticket(app, key, &before, update).await
         }
+    }
+}
+
+/// Sends `update` for the ticket `key` (`before` as it was): saved, with what its agent will be told, or refused.
+async fn update_ticket(
+    app: &App,
+    key: String,
+    before: &Ticket,
+    update: TicketUpdate,
+) -> Result<SaveOutcome, RequestError> {
+    let live = live_agent(app, &key).await;
+    match app
+        .service
+        .send(Request::TicketUpdate(TicketUpdateParams {
+            key: key.clone(),
+            update,
+        }))
+        .await
+    {
+        Ok(Reply::Ticket(after)) => Ok(SaveOutcome::Saved {
+            note: agent_activity::saved_note(before, &after, live),
+            key,
+        }),
+        Ok(other) => Err(unexpected("ticket.update", &other)),
+        Err(e) => Ok(SaveOutcome::Refused {
+            refusal: Refusal::of(&e, RefusalField::Form),
+            created: None,
+        }),
     }
 }
 
@@ -1492,8 +1514,24 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(saved["outcome"], "saved");
+        let view = table(&h.app, "editor.open", edit.clone()).await.unwrap();
+        assert_eq!(view["read"]["title"], "Checkout page v2");
+
+        // Overview's Save (SHT-03): only the description, even from a form that still holds the old title.
+        let mut stale = changed.clone();
+        stale["title"] = json!("Checkout page");
+        stale["body"] = json!("Post the cart.\n\n- [ ] show 422 errors inline");
+        let in_place = json!({ "mode": "description", "key": child });
+        let saved = table(&h.app, "editor.save", json!({ "target": in_place, "form": stale }))
+            .await
+            .unwrap();
+        assert_eq!(saved["outcome"], "saved");
         let view = table(&h.app, "editor.open", edit).await.unwrap();
         assert_eq!(view["read"]["title"], "Checkout page v2");
+        assert_eq!(
+            view["read"]["body_markdown"],
+            "Post the cart.\n\n- [ ] show 422 errors inline"
+        );
 
         let compare = table(&h.app, "editor.compare", json!({ "key": child, "field": null }))
             .await

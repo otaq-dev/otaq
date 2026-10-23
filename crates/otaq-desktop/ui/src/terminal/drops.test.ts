@@ -33,6 +33,23 @@ describe("where a dropped file goes", () => {
     expect(routeDrop(undefined)).toBe("elsewhere");
   });
 
+  it("a place that takes files (Overview, RPT-02) gets every path, not a paste", () => {
+    const targets = new DropTargets();
+    const { well: w, screen } = well();
+    const taken: (readonly string[])[] = [];
+    targets.register(w, { ...target(false), takeFiles: (paths) => taken.push(paths) });
+    expect(routeDrop(targets.at(screen))).toBe("files");
+    expect(
+      filesDropped(
+        DROP,
+        () => undefined,
+        targets,
+        () => screen,
+      ),
+    ).toBe("files");
+    expect(taken).toEqual([DROP.paths]);
+  });
+
   it("a terminal is found from any element inside it, and is gone once unregistered", () => {
     const targets = new DropTargets();
     const { well: w, screen } = well();

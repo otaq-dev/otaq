@@ -392,19 +392,6 @@
   overflow: hidden;
 }
 
-.sheet-overview {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.sheet-overview-content {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-}
-
 .sheet-session {
   display: flex;
   flex: 1;
@@ -427,23 +414,6 @@
   flex: 1;
   flex-direction: column;
   min-height: 0;
-}
-
-/* Today's panel parts at the top of Overview (until T-0465) keep the sheet's 24 px gutter. */
-.sheet-overview .panel-header {
-  padding: 16px 24px 12px;
-}
-
-.sheet-overview .panel-agents {
-  padding: 4px 24px 8px;
-}
-
-.sheet-overview .panel-notice {
-  margin: 0 24px 8px;
-}
-
-.sheet-overview .panel-start-problem {
-  padding: 16px 24px;
 }
 
 /* The gallery's sheets (T-0464): their header and tabs at a fixed height. */

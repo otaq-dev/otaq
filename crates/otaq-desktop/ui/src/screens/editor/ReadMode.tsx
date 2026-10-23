@@ -1,20 +1,16 @@
-// The Ticket tab's read mode (UI-05, TKT-05, TKT-10, TKT-11; d0019, d0078; *08 → Ticket tab · read mode, with agent
-// edits, Compare · before / after*, *05 → Ticket tab · rich Markdown read mode*): who created it, What and why rendered
-// by the read-only description editor, Priority (changed in place), Depends on with live statuses, the base and the
-// External ID. A field an agent changed since the user last looked carries a violet "Updated by agent" marker with
-// Compare. The "What and why" label row ends with Copy as Markdown and Expand, in every ticket state (d0078 D7).
-// Compare (*08 → 7 · Updated by agent · compare*) renders the description's before / after, with a Rendered / Markdown
-// toggle for its source; other fields stay plain text.
+// The description read as it reads (UI-05, TKT-05, TKT-10, TKT-11; d0019, d0078; *05 → Ticket tab · rich Markdown read
+// mode*), shared by Overview (T-0465): What and why rendered by the read-only description editor; a field an agent
+// changed since the user last looked carries a violet "Updated by agent" marker with Compare on its label row, which
+// ends with Copy as Markdown and Expand (d0078 D7). Compare (*08 → 7 · Updated by agent · compare*) renders the
+// description's before / after, with a Rendered / Markdown toggle for its source; other fields stay plain text.
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
-import { openTicket } from "../../app/selection";
-import { AnchoredMenu, PriorityLabel, Segmented, StatusPill, Tooltip } from "../../components";
+import { Segmented, Tooltip } from "../../components";
 import type { EditorCompareEntry } from "../../generated/EditorCompareEntry";
 import type { EditorField } from "../../generated/EditorField";
 import type { EditorReadView } from "../../generated/EditorReadView";
 import type { EditorTexts } from "../../generated/EditorTexts";
 import { MarkdownEditor } from "../../markdown";
-import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { COPIED_FOR, copyMarkdown } from "./logic";
 
@@ -60,7 +56,7 @@ export function CopyMarkdown({ stored, texts }: { stored: string; texts: EditorT
  * The icons at the right end of the "What and why" label row: Copy as Markdown, then Expand, which opens the
  * full-window view (T-0260) through `onExpand`; without it, it shows disabled.
  */
-function DescriptionTools({
+export function DescriptionTools({
   stored,
   texts,
   onExpand,
@@ -103,12 +99,17 @@ export function Description({
   );
 }
 
-function Section({
+/**
+ * A field's label row: its name in capitals, then, when an agent changed it since the user last looked, "Updated by
+ * agent" with Compare; `hint` and `tools` at the right end (Overview's "Click to edit", Copy as Markdown and Expand).
+ */
+export function LabelRow({
   name,
   field,
   read,
   texts,
   onCompare,
+  hint,
   tools,
 }: {
   name: string;
@@ -116,6 +117,8 @@ function Section({
   read: EditorReadView;
   texts: EditorTexts;
   onCompare: (field: EditorField) => void;
+  /** Muted words after the marker and Compare. */
+  hint?: ReactNode;
   /** Icons after the marker and Compare, at the row's right end. */
   tools?: ReactNode;
 }) {
@@ -141,116 +144,8 @@ function Section({
           </button>
         </>
       )}
+      {hint}
       {tools}
-    </div>
-  );
-}
-
-function PriorityPicker({ ticket, read }: { ticket: string; read: EditorReadView }) {
-  const anchor = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  return (
-    <span className="editor-read-priority">
-      <button
-        ref={anchor}
-        type="button"
-        className="panel-priority"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => {
-          setOpen(!open);
-        }}
-      >
-        <PriorityLabel priority={read.priority} />
-        <Icon name="chevron-down" size={11} />
-      </button>
-      {read.follows !== null && <span className="editor-hint">{read.follows}</span>}
-      {open && (
-        <AnchoredMenu
-          anchor={anchor}
-          label={read.priority.label}
-          items={read.priority_menu}
-          width={180}
-          onChoose={(item) => {
-            setOpen(false);
-            request("panel.priority", { key: ticket, item }).catch(ignore);
-          }}
-          onClose={() => {
-            setOpen(false);
-          }}
-        />
-      )}
-    </span>
-  );
-}
-
-export function ReadMode({
-  ticket,
-  read,
-  texts,
-  labels,
-  onCompare,
-  onExpand,
-}: {
-  ticket: string;
-  read: EditorReadView;
-  texts: EditorTexts;
-  labels: { deps: string; base: string; externalId: string; priority: string; body: string; title: string };
-  onCompare: (field: EditorField) => void;
-  /** Expand on the "What and why" row: the full-window view (T-0260). Without it the button is disabled. */
-  onExpand?: () => void;
-}) {
-  const section = (name: string, field: EditorField | null, tools?: ReactNode) => (
-    <Section name={name} field={field} read={read} texts={texts} onCompare={onCompare} tools={tools} />
-  );
-  return (
-    <div className="editor-read">
-      <p className="editor-origin" data-agent={read.origin_agent || undefined}>
-        <Icon name={read.origin_agent ? "sparkles" : "user"} size={12} />
-        {read.origin}
-      </p>
-      {read.marked.includes("title") && (
-        <>
-          {section(labels.title, "title")}
-          <p className="editor-read-title">{read.title}</p>
-        </>
-      )}
-      {section(
-        labels.body,
-        "body",
-        <DescriptionTools stored={read.body_markdown} texts={texts} onExpand={onExpand} />,
-      )}
-      <Description read={read} texts={texts} label={labels.body} />
-      {section(labels.priority, "priority")}
-      <PriorityPicker ticket={ticket} read={read} />
-      {section(labels.deps, null)}
-      {read.deps.length === 0 ? (
-        <p className="editor-md-empty">{texts.deps_none}</p>
-      ) : (
-        <div className="editor-read-deps">
-          {read.deps.map((dep) => (
-            <button
-              key={dep.key}
-              type="button"
-              className="editor-chip editor-chip-link"
-              onClick={() => {
-                openTicket(dep.key);
-              }}
-            >
-              <span className="editor-chip-key">{dep.key}</span>
-              <StatusPill pill={dep.pill} />
-            </button>
-          ))}
-        </div>
-      )}
-      {section(labels.base, "base_branch")}
-      <p className="editor-read-mono">{read.base}</p>
-      {read.external_id !== null && (
-        <>
-          {section(labels.externalId, "external_id")}
-          <p className="editor-read-mono">{read.external_id}</p>
-        </>
-      )}
     </div>
   );
 }

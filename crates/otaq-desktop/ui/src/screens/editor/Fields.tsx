@@ -293,12 +293,14 @@ function BaseSelect({
  * live here, so only where they're drawn changes, and text, caret, undo and mode carry over both ways. Cancel there
  * collapses and the form keeps the edits; Save collapses and saves the form.
  */
-function Description({
+export function Description({
   view,
   body,
   title,
   onChange,
   onSave,
+  caret,
+  placeholder,
 }: {
   view: EditorView;
   body: string;
@@ -306,18 +308,32 @@ function Description({
   title: string;
   onChange: (body: string) => void;
   onSave: () => void;
+  /**
+   * Overview's click to edit (SHT-03): the caret goes to this position of the text once it shows (where the read view
+   * was clicked; both are loaded from the same Markdown), and the text takes the keyboard.
+   */
+  caret?: number;
+  /** The muted text while it is empty, when not the form's ("Type / for blocks"). */
+  placeholder?: string;
 }) {
   const t = view.texts;
   const mode = useSourceMode(body, openingMode(view.source_mode));
   const editor = useMarkdownEditor({
     value: mode.editorValue,
     onChange,
-    placeholder: t.body_placeholder,
+    placeholder: placeholder ?? t.body_placeholder,
     label: t.body,
     // ⌘↵ saves the form (`useFormKeys` on the form's root): the editor leaves it, or Tiptap would add a line break.
     onKeyDown: (e) => isSaveKey(e) || undefined,
   });
   useFocusOnLeave(editor, mode);
+  const placed = useRef(false);
+  useEffect(() => {
+    if (caret === undefined || placed.current || mode.on) return;
+    placed.current = true;
+    const at = Math.min(Math.max(caret, 0), editor.state.doc.content.size);
+    editor.chain().focus(at, { scrollIntoView: false }).run();
+  }, [editor, caret, mode.on]);
   const full = useFullView();
   const expanded = full.slot !== null;
   // The caret goes where the text now shows, after each Expand and Collapse (the view moved, so the focus was lost).

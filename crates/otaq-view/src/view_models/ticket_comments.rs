@@ -33,6 +33,8 @@ pub const SUBMIT: &str = "Comment";
 /// With only a pasted report, the comment still needs its own line (d0109).
 pub const NEEDS_LINE: &str = "Say what the next agent should look for";
 pub const PASTED: &str = "Pasted text";
+/// The box's line while a file added in Overview waits in it (RPT-02, `s25-05`).
+pub const FILE_LINE: &str = "A comment always has its own line; the file goes with it.";
 pub const REPORT: &str = "Report";
 pub const OPEN: &str = "Open";
 pub const EDITED: &str = "\u{b7} edited";
@@ -104,6 +106,10 @@ pub struct CommentBoxView {
     pub needs_line: String,
     /// The pasted chip's label: "Pasted text".
     pub pasted: String,
+    /// The line while a file waits in the box (Overview's Add, a drop): it still needs its own line.
+    pub file_line: String,
+    /// The file chip's ✕, for screen readers.
+    pub remove_file: String,
     pub open: String,
     /// The chip's ✕, for screen readers.
     pub remove: String,
@@ -130,6 +136,8 @@ impl CommentBoxView {
             footer,
             needs_line: NEEDS_LINE.to_owned(),
             pasted: PASTED.to_owned(),
+            file_line: FILE_LINE.to_owned(),
+            remove_file: "Remove the file".to_owned(),
             open: OPEN.to_owned(),
             remove: "Remove the pasted text".to_owned(),
             optional,

@@ -10,6 +10,7 @@ export { flowPreview } from "./flow_preview";
 export { leadTab } from "./lead_tab";
 export { notices } from "./notices";
 export { onboarding } from "./onboarding";
+export { overview } from "./overview";
 export { palette } from "./palette";
 export { pane } from "./pane";
 export { panel } from "./panel";

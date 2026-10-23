@@ -11,9 +11,7 @@ import { registered, registerScreens } from "../../app/registry";
 import { NOTHING_SELECTED, requestTicketEdit, selection, ticketEditRequests } from "../../app/selection";
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorReadView } from "../../generated/EditorReadView";
-import type { EditorTexts } from "../../generated/EditorTexts";
 import type { EditorView } from "../../generated/EditorView";
-import type { PriorityView } from "../../generated/PriorityView";
 import type { StageChoicesView } from "../../generated/StageChoicesView";
 import { FullViewHost } from "../../markdown";
 import { editor } from ".";
@@ -32,10 +30,11 @@ import {
   withDep,
   withoutDep,
 } from "./logic";
-import { Compare, ReadMode } from "./ReadMode";
+import { Compare, Description, DescriptionTools, LabelRow } from "./ReadMode";
 import { useFormKeys } from "./Modal";
-import { takeEditRequest } from "./TicketTab";
+import { takeEditRequest } from "./EditForm";
 import { useEditor } from "./useEditor";
+import { FORM, READ, TEXTS, VIEW } from "./editor_fixtures";
 
 // The service, for the form's save: `ipc.reply` answers each request (an empty list by default, for the branch list).
 type Reply = (method: string, params: unknown) => unknown;
@@ -57,169 +56,24 @@ afterEach(() => {
   ticketEditRequests.set(null);
 });
 
-const priority = (number: number, word: string): PriorityView => ({
-  number,
-  short: `P${String(number)}`,
-  word,
-  label: `P${String(number)} · ${word}`,
-  icon: "equal",
-  ink: "muted",
-});
-
-const TEXTS: EditorTexts = {
-  title: "Title",
-  title_placeholder: "Short, imperative title",
-  title_required: "Add a title",
-  priority: "Priority",
-  priority_hint: "3 Normal by default · decides start order among ready tickets",
-  kind: "Type",
-  kind_ticket: "Ticket",
-  kind_epic: "Epic",
-  epic: "Epic",
-  epic_hint: "optional · fixed once created (it sets the key)",
-  epic_none: "No epic",
-  body: "What and why",
-  plan: "Description · the plan",
-  body_hint: "Markdown · paste keeps formatting",
-  body_placeholder: "Context, constraints, links…",
-  deps: "Depends on",
-  deps_hint: "same project only",
-  deps_placeholder: "Search tickets by # or title",
-  deps_none: "None",
-  base: "Start from and merge into",
-  base_hint: "project default · local and remote branches · locked once the ticket starts",
-  base_search: { placeholder: "Search branches…", empty: "No matching branches" },
-  external_id: "External ID",
-  external_id_hint: "optional · standalone tickets only · used in the branch and PR title",
-  external_id_placeholder: "e.g. PAY-123",
-  save_word: "create",
-  discard_word: "discard",
-  close_word: "close",
-  cancel: "Cancel",
-  close: "Close",
-  primary: "Create ticket",
-  edit: "Edit",
-  back: "Back",
-  in_word: "in",
-  quick_create: "create",
-  quick_full: "full form",
-  open_terminal: "Open terminal",
-  marker: "Updated by agent",
-  compare: "Compare",
-  before: "BEFORE",
-  after: "AFTER",
-  nothing_written: "Nothing written yet.",
-  copy_markdown: "Copy as Markdown",
-  copied: "Copied",
-  expand: "Expand",
-  collapse: "Collapse",
-  editing: "Editing",
-  collapse_word: "collapse (after closing a popover)",
-  compare_view: "Show the description",
-  rendered: "Rendered",
-  markdown: "Markdown",
-};
-
-const FORM: EditorForm = {
-  title: "",
-  body: "",
-  priority: null,
-  epic_kind: false,
-  epic: null,
-  deps: [],
-  base_branch: "main",
-  external_id: "",
-  choices: [],
-};
-
-const VIEW: EditorView = {
-  create: true,
-  key: null,
-  project: "SHOP",
-  project_name: "shop-web",
-  heading: "New ticket",
-  texts: TEXTS,
-  form: FORM,
-  priorities: [priority(1, "Urgent"), priority(2, "High"), priority(3, "Normal"), priority(4, "Low")].map(
-    (view) => ({
-      number: view.number,
-      view,
-    }),
-  ),
-  shown_priority: 3,
-  follows: null,
-  epic_menu: [
-    {
-      id: "",
-      label: "No epic",
-      icon: null,
-      shortcut: null,
-      danger: false,
-      disabled: false,
-      hint: null,
-      separated: false,
-      checked: false,
-      header: false,
-    },
-    {
-      id: "SHOP-40",
-      label: "SHOP-40 Wishlist",
-      icon: "layers",
-      shortcut: null,
-      danger: false,
-      disabled: false,
-      hint: "1 of 3 merged",
-      separated: false,
-      checked: false,
-      header: false,
-    },
-  ],
-  base: { kind: "editable" },
-  external_id_shown: true,
-  deps_shown: true,
-  deps: [],
-  save_hint: null,
-  save_warning: null,
-  unsaved_warning: null,
-  read: null,
-  source_mode: false,
-  choices: null,
-};
-
-const READ: EditorReadView = {
-  origin: "Created by you  ·  edited by the agent · 4m ago",
-  origin_agent: false,
-  title: "Dark mode",
-  body_markdown: "Add a toggle.\n\n## Done when\n\n- Toggle works\n\n```\nnpm test\n```",
-  body_empty: false,
-  priority: priority(3, "Normal"),
-  priority_menu: [],
-  follows: null,
-  deps: [{ key: "SHOP-18", pill: { palette: "review", icon: "eye", label: "Ready for Review" } }],
-  base: "main",
-  external_id: "PAY-123",
-  marked: ["body"],
-};
-
 const html = (el: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(el);
 const noop = () => undefined;
 
+/** The description's label row and its rendered text, as Overview draws them (T-0465). */
 const readMode = (read: EditorReadView = READ, onExpand?: () => void) =>
-  createElement(ReadMode, {
-    ticket: "SHOP-12",
-    read,
-    texts: TEXTS,
-    labels: {
-      title: "Title",
-      body: "What and why",
-      priority: "Priority",
-      deps: "Depends on",
-      base: "Start from and merge into",
-      externalId: "External ID",
-    },
-    onCompare: noop,
-    ...(onExpand === undefined ? {} : { onExpand }),
-  });
+  createElement(
+    "div",
+    null,
+    createElement(LabelRow, {
+      name: "What and why",
+      field: "body",
+      read,
+      texts: TEXTS,
+      onCompare: noop,
+      tools: createElement(DescriptionTools, { stored: read.body_markdown, texts: TEXTS, onExpand }),
+    }),
+    createElement(Description, { read, texts: TEXTS, label: "What and why" }),
+  );
 
 let unmount = noop;
 
@@ -372,17 +226,10 @@ describe("the editor", () => {
     expect(out).toContain("disabled");
   });
 
-  it("read mode: origin, the rendered Markdown, the agent's marker with Compare, deps and the External ID", () => {
+  it("read mode: the rendered Markdown under its label, the agent's marker with Compare", () => {
     const page = mount(readMode());
     const out = page.innerHTML;
-    for (const text of [
-      "edited by the agent",
-      "WHAT AND WHY",
-      "Updated by agent",
-      "Compare",
-      "SHOP-18",
-      "PAY-123",
-    ]) {
+    for (const text of ["WHAT AND WHY", "Updated by agent", "Compare"]) {
       expect(out).toContain(text);
     }
     expect(out.match(/Updated by agent/g)).toHaveLength(1);
@@ -724,10 +571,10 @@ describe("the editor", () => {
     unmount();
   });
 
-  it("registers quick-create, the edit modal, the full-window view, the report view and the Ticket tab from its folder", () => {
+  it("registers quick-create, the edit modal, the full-window view and the report view from its folder", () => {
     expect(registered(registerScreens({ editor }))).toMatchObject({
       overlays: ["new_ticket", "edit_ticket", "full_view", "report"],
-      panelTabs: ["ticket"],
+      panelTabs: [],
     });
   });
 });

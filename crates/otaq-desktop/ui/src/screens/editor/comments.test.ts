@@ -44,6 +44,8 @@ const BOX: CommentBoxView = {
   footer_icon: "arrow-right",
   needs_line: "Say what the next agent should look for",
   pasted: "Pasted text",
+  file_line: "A comment always has its own line; the file goes with it.",
+  remove_file: "Remove the file",
   open: "Open",
   remove: "Remove the pasted text",
   optional: false,
@@ -65,21 +67,26 @@ describe("the paste rule", () => {
   it("keeps one pasted report: a second paste replaces the first", () => {
     const once = withPasted(EMPTY_BOX, "x".repeat(3000));
     const twice = withPasted({ ...once, text: "Look at limit_rows" }, "é".repeat(2500));
-    expect(twice).toEqual({ text: "Look at limit_rows", pasted: { text: "é".repeat(2500), bytes: 5000 } });
+    expect(twice).toEqual({
+      text: "Look at limit_rows",
+      pasted: { text: "é".repeat(2500), bytes: 5000 },
+      file: null,
+    });
   });
 });
 
 describe("the box's state", () => {
   it("shows 2,140 / 2,000 and turns Comment off when typing past the limit", () => {
-    const state = boxState({ text: "x".repeat(2140), pasted: null }, LIMITS);
+    const state = boxState({ text: "x".repeat(2140), pasted: null, file: null }, LIMITS);
     expect(state).toEqual({
       count: 2140,
       over: true,
       counter: "2,140 / 2,000",
       needsLine: false,
+      fileLine: false,
       canSubmit: false,
     });
-    expect(boxState({ text: "x".repeat(2000), pasted: null }, LIMITS).canSubmit).toBe(true);
+    expect(boxState({ text: "x".repeat(2000), pasted: null, file: null }, LIMITS).canSubmit).toBe(true);
   });
 
   it("asks for a line while only a chip is there", () => {

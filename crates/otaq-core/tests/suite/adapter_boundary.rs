@@ -305,6 +305,16 @@ const EXCEPTIONS: &[Exception] = &[
         reason: "`sample`, a lead for tests and the design gallery",
     },
     Exception {
+        path: "otaq-view/src/view_models/overview.rs",
+        pattern: "Tool::Claude",
+        reason: "`fixtures`, SHOP-22's comments and reports for tests and the design gallery (T-0465)",
+    },
+    Exception {
+        path: "otaq-view/src/view_models/overview.rs",
+        pattern: "Tool::Codex",
+        reason: "`fixtures`, SHOP-22's comments and reports for tests and the design gallery (T-0465)",
+    },
+    Exception {
         path: "otaq-view/src/view_models/onboarding_page.rs",
         pattern: "agent_tools::claude",
         reason: "the design gallery's trust banners show Claude Code's own failure texts (PRJ-06)",

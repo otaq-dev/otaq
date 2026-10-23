@@ -64,6 +64,8 @@ pub use onboarding::{
     AddOutcome as AddProjectOutcome, FormParams as AddProjectParams, Start as OnboardingStart,
 };
 #[cfg(test)]
+pub use overview::export_types as export_overview_types;
+#[cfg(test)]
 pub use palette::{Use as PaletteUse, ViewParams as PaletteParams};
 #[cfg(test)]
 pub use pane::{
@@ -208,6 +210,7 @@ areas! {
     apply_now,
     ticket_comments,
     report,
+    overview,
 }
 
 /// Reads the user's answer once the service answers, then sends the counts every [`crate::usage::FLUSH_EVERY`]

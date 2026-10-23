@@ -76,6 +76,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         // 25 · The ticket sheet's header, details line and path: needs you, your check, an epic's child, Backlog
         // (T-0464).
         "gallery.sheet" => reply(&super::panel::sheet_gallery()),
+        // 25 · Overview's attachments and description words for SHOP-22 (T-0465).
+        "gallery.overview" => reply(&otaq_view::view_models::overview::gallery()),
         _ => Err(unknown(method)),
     }
 }

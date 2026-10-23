@@ -1,0 +1,285 @@
+/* The sheet's Overview (T-0465), drawn from *25 → Opening a ticket*, *Editing the description* and *Attachments*
+   (`s25-03`…`s25-05`): 24 px around, the main column and the 300 px Attachments column 28 px apart, 20 px between
+   sections; labels in 11 px mono capitals with 0.8 px tracking; the description in an 8 px box that tints and outlines
+   on hover ("Click to edit"); the attachment rows as 8 px cards with a 32 px file tile; the dashed drop zone. Every
+   colour is a theme token, so both Otaq Light and Otaq Dark follow (0096). */
+
+.overview {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  padding: 24px;
+}
+
+.overview-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* Today's panel parts at the top ("what it needs from you") take Overview's gutter, not their own. */
+.overview-main .panel-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.overview-main .panel-overview:empty {
+  display: none;
+}
+
+.overview-main .panel-header,
+.overview-main .panel-agents,
+.overview-main .panel-start-problem {
+  padding: 0;
+}
+
+.overview-main .panel-notice {
+  margin: 0;
+}
+
+/* The label rows: DESCRIPTION, ATTACHMENTS · 3. */
+.overview .editor-section,
+.overview-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+  padding: 0;
+}
+
+.overview .editor-section-name {
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+  letter-spacing: 0.8px;
+}
+
+.overview-hint {
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+}
+
+/* "Click to edit" shows while the description is hovered or focused. */
+.overview-description[data-state="reading"] .overview-hint {
+  visibility: hidden;
+}
+
+.overview-description[data-state="reading"]:has(.overview-read:hover, .overview-read:focus-visible)
+  .overview-hint {
+  visibility: visible;
+}
+
+.overview-description {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.overview-read {
+  padding: 10px 12px;
+  border-radius: var(--r-lg);
+  outline: 1px solid transparent;
+  outline-offset: -1px;
+  cursor: text;
+}
+
+.overview-read:hover {
+  background: var(--bg-column);
+  outline-color: var(--border);
+}
+
+.overview-read:focus-visible {
+  outline: 2px solid var(--focus);
+}
+
+.overview-read .md-editor {
+  cursor: text;
+}
+
+.overview-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.overview-compare {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.overview-form {
+  display: flex;
+  min-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+.overview-form > .editor-tab-form {
+  flex: 1;
+}
+
+/* The comments take the main column's gap. */
+.overview-main .comments {
+  padding: 0;
+}
+
+/* ---- Attachments ---- */
+
+.overview-attachments {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  width: 300px;
+}
+
+.overview-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: 400 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.overview-add:hover {
+  text-decoration: underline;
+}
+
+.overview-attachment {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.overview-attachment:hover {
+  background: var(--bg-hover);
+}
+
+.overview-attachment-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-md);
+  background: var(--bg-column);
+  color: var(--text-secondary);
+}
+
+.overview-attachment[data-mine] .overview-attachment-icon {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.overview-attachment-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.overview-attachment-name {
+  font: 500 12.5px var(--font-ui);
+}
+
+.overview-attachment-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+}
+
+.overview-attachment-who,
+.overview-attachment-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-attachment-line {
+  color: var(--text-secondary);
+  font: 400 11.5px var(--font-ui);
+}
+
+.overview-drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 44px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-lg);
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+}
+
+.overview-note {
+  margin: 0;
+  color: var(--text-muted);
+  font: 400 11.5px/1.45 var(--font-ui);
+}
+
+/* ---- The tab row's bar (`s25-04`) ---- */
+
+.sheet-tabs {
+  position: relative;
+}
+
+.overview-save-bar {
+  position: absolute;
+  top: 0;
+  right: 24px;
+  bottom: 1px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-panel);
+}
+
+.overview-save-changed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+}
+
+.overview-save-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--st-paused);
+}
+
+/* The gallery's parts (T-0465). */
+.overview-gallery-tabs {
+  height: 40px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* "Mark as usage limit" (USG-07) under what it needs from you. */
+.overview-usage-limit {
+  display: flex;
+}

@@ -17,6 +17,7 @@ import { focusPast, inKeyLayer, routeKey } from "./keys";
 import { LinkLayer } from "./link/LinkLayer";
 import "./markdown.css";
 import { PasteNote } from "./paste/PasteNote";
+import { SlashMenu } from "./slash/SlashMenu";
 import { TableBar } from "./table/TableBar";
 
 export interface MarkdownEditorOptions {
@@ -226,6 +227,7 @@ export function MarkdownSurface({ editor, toolbar, source, className }: Markdown
         <PasteNote />
         <TableBar />
         <LinkLayer />
+        <SlashMenu />
       </div>
     </EditorContext.Provider>
   );

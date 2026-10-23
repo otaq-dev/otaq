@@ -11,24 +11,6 @@
   padding: 12px 12px 12px 16px;
 }
 
-.panel-priority {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 1px;
-  padding: 1px 4px 1px 2px;
-  border: none;
-  border-radius: var(--r-sm);
-  background: none;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.panel-priority:hover,
-.panel-priority[data-open] {
-  background: var(--bg-hover);
-}
-
 .panel-meta {
   display: flex;
   align-items: center;

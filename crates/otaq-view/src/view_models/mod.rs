@@ -78,6 +78,7 @@ pub mod view_prefs;
 
 pub mod onboarding;
 pub mod onboarding_page;
+pub mod overview;
 pub mod palette;
 pub mod panel;
 pub mod panel_actions;

@@ -471,6 +471,8 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
     footer_icon: "message-square",
     needs_line: "Say what the next agent should look for",
     pasted: "Pasted text",
+    file_line: "A comment always has its own line; the file goes with it.",
+    remove_file: "Remove the file",
     open: "Open",
     remove: "Remove the pasted text",
     optional: true,
@@ -582,7 +584,11 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
       }
       return Promise.resolve({ outcome: "done" });
     };
-    const comment = { text: "Keep the old price column", pasted: { text: "migration log", bytes: 13 } };
+    const comment = {
+      text: "Keep the old price column",
+      pasted: { text: "migration log", bytes: 13 },
+      file: null,
+    };
     await sendDragBack(sendBack, comment, false, ask);
     expect(asked).toEqual([
       [

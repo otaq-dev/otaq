@@ -123,7 +123,7 @@ describe("the sheet", () => {
     const app = registerScreens({ sheet });
     expect(registered(app)).toMatchObject({
       slots: ["panel"],
-      sheetTabs: ["overview", "session", "files", "activity", "lead"],
+      sheetTabs: ["session", "files", "activity", "lead"],
     });
   });
 });

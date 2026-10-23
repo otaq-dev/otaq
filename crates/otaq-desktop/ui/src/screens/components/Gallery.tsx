@@ -114,6 +114,7 @@ import { Strip } from "../board/strip/Strip";
 import { AnswerBox as PanelAnswerBox } from "../panel/Panel";
 import { AskBarBody } from "../ask_bar/AskBar";
 import "../ask_bar/ask_bar.css";
+import { OverviewGallery } from "../overview/OverviewGallery";
 import { SheetGallery } from "../sheet/SheetGallery";
 import { PaneBody, SwitcherList } from "../pane/Pane";
 import "../pane/pane.css";
@@ -2663,6 +2664,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <OptionNotes />
         <Section title="25 · The ticket sheet · header, details line, path and tabs (T-0464)">
           <SheetGallery />
+        </Section>
+        <Section title="25 · Overview · the description's bar and the Attachments column (T-0465)">
+          <OverviewGallery />
         </Section>
         <EnvVarsSection />
         <WarmSwitchSection />

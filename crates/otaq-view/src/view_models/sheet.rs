@@ -4,9 +4,9 @@
 //! (Assignee, Model, Working, Priority, Branch, Epic) and the flow path; then the tabs **Overview · Session · Files ·
 //! Activity**, `1`–`4` and `g o` / `g s` / `g f` / `g a` (an epic: Overview · Lead · Files in review · Activity).
 //!
-//! Until each tab's own ticket lands, a tab shows today's panel content ([`Tab`], registered by its screen): Overview
-//! the Ticket tab, Session the Terminal, Run and Shell tabs (Agent · Run · Shell), Files the Diff tab, Activity
-//! History, Lead the Lead tab. [`SheetTab::contents`] says which.
+//! Until each tab's own ticket lands, a tab shows today's panel content ([`Tab`], registered by its screen): Session
+//! the Terminal, Run and Shell tabs (Agent · Run · Shell), Files the Diff tab, Activity History, Lead the Lead tab.
+//! [`SheetTab::contents`] says which. Overview is its own (`overview.rs`, T-0465).
 
 use otaq_core::agents::facts::{PathKind, PathStage, TicketAgents};
 use otaq_core::agents::store::SessionAgentRun;
@@ -91,8 +91,9 @@ impl SheetTab {
         }
     }
 
-    /// Today's panel tabs it shows until its own ticket lands, the one it opens on first (T-0465 Overview, T-0466
-    /// Session and Activity, T-0468 Files, T-0469 the epic's).
+    /// Today's panel tabs it shows until its own ticket lands, the one it opens on first (T-0466 Session and
+    /// Activity, T-0468 Files, T-0469 the epic's). Overview has its own body (T-0465); `Tab::Ticket` stays only as
+    /// the selection's name for it (⋯ Edit ticket… asks for it), never a panel tab of its own.
     pub fn contents(self) -> &'static [Tab] {
         match self {
             Self::Overview => &[Tab::Ticket],

@@ -46,6 +46,11 @@ export function pickFlowFile(title: string): Promise<string | null> {
   return invoke<string | null>("pick_flow_file", { title });
 }
 
+/** The system file picker for a report (Overview's Add): the file chosen, or `null` when cancelled. */
+export function pickReportFile(title: string): Promise<string | null> {
+  return invoke<string | null>("pick_report_file", { title });
+}
+
 /** The system save dialog for a flow file (Export flow…), offering `fileName`: where to save, or `null` when cancelled. */
 export function saveFlowFile(title: string, fileName: string): Promise<string | null> {
   return invoke<string | null>("save_flow_file", { title, fileName });

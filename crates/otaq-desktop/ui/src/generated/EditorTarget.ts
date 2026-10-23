@@ -3,4 +3,4 @@
 /**
  * Which editor: a new ticket in a project (inside an epic when given), or an existing ticket.
  */
-export type EditorTarget = { "mode": "create", project: string | null, epic: string | null, } | { "mode": "edit", key: string, };
+export type EditorTarget = { "mode": "create", project: string | null, epic: string | null, } | { "mode": "edit", key: string, } | { "mode": "description", key: string, };

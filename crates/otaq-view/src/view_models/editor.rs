@@ -100,6 +100,17 @@ impl EditorModel {
         }
     }
 
+    /// The description edited in place in Overview (SHT-03): the saved ticket with only `body` changed, so its
+    /// [`Self::update_input`] holds the description alone (nothing at all when it is unchanged), whatever else the
+    /// ticket's fields became meanwhile.
+    pub fn description(ticket: &Ticket, body: &str) -> Self {
+        Self {
+            body: body.to_owned(),
+            tried: true,
+            ..Self::edit(ticket)
+        }
+    }
+
     pub fn is_create(&self) -> bool {
         matches!(self.mode, EditorMode::Create { .. })
     }
@@ -187,6 +198,27 @@ mod tests {
         let mut t = ticket("SHOP-20", "Checkout page", Status::Backlog);
         t.body = "Post the cart; show 422 errors inline.".into();
         t
+    }
+
+    /// Overview's Save (SHT-03): only the description goes, never a title or priority the ticket has since; an
+    /// untouched description sends nothing.
+    #[test]
+    fn the_description_in_place_sends_only_the_description() {
+        let mut t = saved_ticket();
+        t.priority = otaq_core::domain::Priority::High;
+        let m = EditorModel::description(
+            &t,
+            "Post the cart; show 422 errors inline.\n\n- [ ] keep the cart",
+        );
+        let update = m.update_input().unwrap();
+        assert_eq!(
+            update,
+            TicketUpdate {
+                body: Some("Post the cart; show 422 errors inline.\n\n- [ ] keep the cart".into()),
+                ..TicketUpdate::default()
+            }
+        );
+        assert_eq!(EditorModel::description(&t, &t.body).update_input(), None);
     }
 
     #[test]

@@ -1,0 +1,39 @@
+/* The `/` list (T-0465): the app's menu look (raised, 8 px corners, the floating shadow, 28 px rows, the accent tint
+   on the highlighted one), fixed under the caret. Every colour is a theme token. */
+
+.md-slash {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: 200px;
+  max-height: 280px;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-floating);
+  user-select: none;
+}
+
+.md-slash-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 5px;
+  color: var(--text-primary);
+  font: 400 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.md-slash-item .icon {
+  color: var(--text-secondary);
+}
+
+.md-slash-item[aria-selected="true"] {
+  background: var(--accent-soft);
+}

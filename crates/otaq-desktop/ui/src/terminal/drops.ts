@@ -1,14 +1,17 @@
 // Files dropped on the window (d0099, T-0388; the door's `files_dropped` event): over a terminal that takes typing
 // the paths are pasted into it, as in Terminal or iTerm; over one that doesn't nothing happens; anywhere else the drop
 // goes on as before (Add project). Every terminal on screen registers its element here, so the one under the pointer
-// is found without its host passing anything down.
+// is found without its host passing anything down. The sheet's Overview registers too and takes the files themselves
+// (RPT-02, T-0465: the comment box opens with the first as its chip).
 
-/** What a terminal offers a drop. */
+/** What a terminal (or Overview) offers a drop. */
 export interface DropTarget {
   /** Not read-only, and its session is live. */
   takesTyping(): boolean;
   /** Pastes the text as ⌘V does, then gives the terminal the keyboard. */
   paste(text: string): void;
+  /** Takes the dropped files' paths instead of a paste (Overview's Attachments). */
+  takeFiles?: (paths: readonly string[]) => void;
 }
 
 export class DropTargets {
@@ -34,11 +37,15 @@ export class DropTargets {
 
 export const dropTargets = new DropTargets();
 
-export type DropRoute = "paste" | "ignore" | "elsewhere";
+export type DropRoute = "paste" | "files" | "ignore" | "elsewhere";
 
-/** Where a drop goes: into the terminal under it, nowhere (a terminal that doesn't take typing), or as before. */
+/**
+ * Where a drop goes: into the terminal under it, to the place that takes files, nowhere (a terminal that doesn't take
+ * typing), or as before.
+ */
 export function routeDrop(target: DropTarget | undefined): DropRoute {
   if (!target) return "elsewhere";
+  if (target.takeFiles) return "files";
   return target.takesTyping() ? "paste" : "ignore";
 }
 
@@ -61,6 +68,7 @@ export function filesDropped(
   const target = targets.at(elementAt(drop.x, drop.y));
   const route = routeDrop(target);
   if (route === "paste") target?.paste(drop.paste);
+  else if (route === "files") target?.takeFiles?.(drop.paths);
   else if (route === "elsewhere" && drop.paths[0] !== undefined) elsewhere(drop.paths[0]);
   return route;
 }

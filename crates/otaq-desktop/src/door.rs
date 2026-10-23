@@ -74,6 +74,21 @@ async fn pick_flow_file(app: tauri::AppHandle, title: String) -> Option<String> 
         .map(|path| path.display().to_string())
 }
 
+/// The system file picker for a report (Overview's Add, RPT-02; T-0465): the file chosen, or `None` when cancelled.
+/// Any file: the service refuses what can't be a report (missing, over 20 MB) when the comment is posted.
+#[tauri::command]
+async fn pick_report_file(app: tauri::AppHandle, title: String) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog().file().set_title(title).pick_file(move |file| {
+        let _ = tx.send(file.and_then(|f| f.into_path().ok()));
+    });
+    rx.await
+        .ok()
+        .flatten()
+        .map(|path| path.display().to_string())
+}
+
 /// The system save dialog for a flow file (Export flow…, T-0422), offering `file_name`: where to save, or `None`
 /// when cancelled.
 #[tauri::command]
@@ -280,6 +295,7 @@ pub fn run(
             window,
             pick_folder,
             pick_flow_file,
+            pick_report_file,
             save_flow_file,
             save_report_file
         ])

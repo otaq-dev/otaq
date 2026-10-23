@@ -25,6 +25,7 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { dropCard } from "../board/Board";
 import { tabIndicator } from "../panel/logic";
+import { DescriptionSaveBar } from "../overview/SaveBar";
 import { MoreMenu, PANEL_EVENTS, type PanelActions, usePanelActions } from "../panel/Panel";
 import { contentOf, numberedSheetTab, sheetWidth, shownSheetTab, steppedSheetTab } from "./logic";
 
@@ -329,6 +330,7 @@ export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
               if (content !== undefined) showTab(content);
             }}
           />
+          <DescriptionSaveBar ticket={view.key} />
         </div>
         <div className="sheet-body" data-tab={shown?.tab}>
           {Body && <Body ticket={view.key} />}

@@ -30,7 +30,15 @@ needs_line: string,
 /**
  * The pasted chip's label: "Pasted text".
  */
-pasted: string, open: string, 
+pasted: string, 
+/**
+ * The line while a file waits in the box (Overview's Add, a drop): it still needs its own line.
+ */
+file_line: string, 
+/**
+ * The file chip's ✕, for screen readers.
+ */
+remove_file: string, open: string, 
 /**
  * The chip's ✕, for screen readers.
  */

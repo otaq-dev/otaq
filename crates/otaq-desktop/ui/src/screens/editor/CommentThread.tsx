@@ -3,10 +3,12 @@
 // first, each with who wrote it, in which stage and when, yours tinted with the accent; a report's chip with Open; the
 // ⋯ menu (Edit in place, Copy text, Delete… with its dialog); the box at the end. Everything it says comes from
 // `ticket_comments.thread` (Rust); it reloads on `ticket_changed`, so a comment an agent posts shows at once. React
-// keeps only the moment: the text being typed, which comment is edited, the open menu and dialog.
-import { type KeyboardEvent, useCallback, useRef, useState } from "react";
+// keeps only the moment: the text being typed, which comment is edited, the open menu and dialog. Overview's
+// Attachments (Add, a drop; RPT-02) hand it a file with `attachReport`: the box takes it as its chip and the keyboard.
+import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import type { TicketProps } from "../../app/registry";
+import { createStore, type Store, useStore } from "../../app/store";
 import { AnchoredMenu, Button, ConfirmDialog, IconButton, ToolAvatar } from "../../components";
 import type { CommentReportChip } from "../../generated/CommentReportChip";
 import type { CommentRow } from "../../generated/CommentRow";
@@ -15,7 +17,7 @@ import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { CommentBox } from "./CommentBox";
-import { type BoxValue, boxState, EMPTY_BOX } from "./commentRules";
+import { type AttachedFile, type BoxValue, boxState, EMPTY_BOX, withFile, withPasted } from "./commentRules";
 import { isSaveKey } from "./logic";
 import { openReport } from "./reportOpener";
 
@@ -23,6 +25,26 @@ import { openReport } from "./reportOpener";
 export const COMMENT_EVENTS = ["ticket_changed", "ticket_deleted", "session_state"] as const;
 
 const ignore = () => undefined;
+
+/** A report for a ticket's comment box: a file (Overview's Add or a drop) or a pasted file's text. */
+export interface AttachRequest {
+  ticket: string;
+  report: { kind: "file"; file: AttachedFile } | { kind: "pasted"; text: string };
+  /** Counts up with each request, so the same file twice is two requests. */
+  seq: number;
+}
+
+/** The newest file handed to a comment box; the thread of its ticket takes it, once. */
+export const attachRequests: Store<AttachRequest | null> = createStore<AttachRequest | null>(null);
+
+/** Opens `ticket`'s comment box with `report` as its chip (RPT-02: a comment always has its own line). */
+export function attachReport(
+  ticket: string,
+  report: AttachRequest["report"],
+  store: Store<AttachRequest | null> = attachRequests,
+): void {
+  store.update((last) => ({ ticket, report, seq: (last?.seq ?? 0) + 1 }));
+}
 
 /** A comment author's mark: yours, an agent's tool avatar, or the plain agent mark (also the report view's poster). */
 export function Mark({ row }: { row: Pick<CommentRow, "mark"> }) {
@@ -111,7 +133,7 @@ function EditInPlace({
   const [text, setText] = useState(row.body);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const state = boxState({ text, pasted: null }, view.box.limits);
+  const state = boxState({ text, pasted: null, file: null }, view.box.limits);
   const save = () => {
     if (!state.canSubmit || busy) return;
     if (text.trim() === row.body) {
@@ -279,6 +301,19 @@ export function CommentThread({ ticket }: TicketProps) {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
+  const attach = useStore(attachRequests);
+  useEffect(() => {
+    // Once the box shows: it takes the keyboard.
+    if (attach?.ticket !== ticket || view?.key !== ticket) return;
+    attachRequests.set(null);
+    const { report } = attach;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the file arrives from outside React (a store), once
+    setValue((v) => (report.kind === "file" ? withFile(v, report.file) : withPasted(v, report.text)));
+    setError(null);
+    box.current?.scrollIntoView({ block: "nearest" });
+    box.current?.focus();
+  }, [attach, ticket, view]);
   if (view?.key !== ticket) return null;
   const post = () => {
     setBusy(true);
@@ -287,6 +322,7 @@ export function CommentThread({ ticket }: TicketProps) {
       key: ticket,
       body: value.text,
       pasted: value.pasted?.text ?? null,
+      file: value.file?.path ?? null,
     }).then(
       () => {
         setBusy(false);
@@ -334,6 +370,7 @@ export function CommentThread({ ticket }: TicketProps) {
         onSubmit={post}
         busy={busy}
         error={error}
+        ref={box}
       />
       {toDelete && (
         <DeleteDialog

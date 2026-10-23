@@ -10,13 +10,27 @@ export interface Pasted {
   bytes: number;
 }
 
-/** What the box holds: the typed text and at most one pasted report. */
+/** A file added in Overview (Add, a drop; RPT-02), posted as the comment's report by its path. */
+export interface AttachedFile {
+  path: string;
+  name: string;
+  /** "2 KB". */
+  size: string;
+}
+
+/** What the box holds: the typed text and at most one report, pasted or a file (one report per comment). */
 export interface BoxValue {
   text: string;
   pasted: Pasted | null;
+  file: AttachedFile | null;
 }
 
-export const EMPTY_BOX: BoxValue = { text: "", pasted: null };
+export const EMPTY_BOX: BoxValue = { text: "", pasted: null, file: null };
+
+/** The box with `file` as its report, in place of an earlier one. */
+export function withFile(value: BoxValue, file: AttachedFile): BoxValue {
+  return { ...value, pasted: null, file };
+}
 
 /** Unicode characters (code points), as the service counts them. */
 export function chars(text: string): number {
@@ -30,7 +44,7 @@ export function pasteAction(pasted: string, limits: CommentLimits): "chip" | "te
 
 /** The box after a paste that becomes the chip: it replaces an earlier one (one report per comment). */
 export function withPasted(value: BoxValue, text: string): BoxValue {
-  return { ...value, pasted: { text, bytes: new TextEncoder().encode(text).length } };
+  return { ...value, file: null, pasted: { text, bytes: new TextEncoder().encode(text).length } };
 }
 
 /** "2,140". */
@@ -47,6 +61,8 @@ export interface BoxState {
   counter: string | null;
   /** Only a chip, no line of text: "Say what the next agent should look for". */
   needsLine: boolean;
+  /** A file waits in the box: "A comment always has its own line; the file goes with it." */
+  fileLine: boolean;
   /** The button may send it. */
   canSubmit: boolean;
 }
@@ -56,12 +72,14 @@ export function boxState(value: BoxValue, limits: CommentLimits, optional = fals
   const count = chars(value.text.trim());
   const over = count > limits.chars;
   const empty = count === 0;
-  const needsLine = value.pasted !== null && empty;
+  const fileLine = value.file !== null;
+  const needsLine = (value.pasted !== null || fileLine) && empty;
   return {
     count,
     over,
     counter: over ? `${grouped(count)} / ${grouped(limits.chars)}` : null,
-    needsLine,
+    needsLine: needsLine && !fileLine,
+    fileLine,
     canSubmit: !over && !needsLine && (!empty || optional),
   };
 }
