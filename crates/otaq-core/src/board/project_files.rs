@@ -260,7 +260,8 @@ pub struct LineSpan {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SameFile {
     pub base_branch: String,
-    /// The tickets the note names, in flow order: those whose lines overlap, else every owner on the base.
+    /// The tickets the note names, furthest along first (later stage first, ties by key): those whose lines
+    /// overlap, else every owner on the base.
     pub keys: Vec<TicketKey>,
     /// The lines they both touch: the overlapping changes, merged. Empty without overlapping lines.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -479,7 +480,7 @@ fn same_base(owners: &[FileOwner]) -> Vec<(&str, Vec<&FileOwner>)> {
     bases
 }
 
-/// The Same file notes of a file read: one per base its owners share, each naming them in flow order. Owners
+/// The Same file notes of a file read: one per base its owners share, each naming them furthest along first. Owners
 /// without changes in `changed` (the base has no such text file) are compared by path alone.
 fn same_file_notes(
     view: &View,
@@ -495,7 +496,8 @@ fn same_file_notes(
     same_base(owners)
         .into_iter()
         .map(|(base, mut group)| {
-            group.sort_by_key(|o| (rank(&o.key), o.key.clone()));
+            // Furthest along first: SHOP-19 in Security before SHOP-29 in Dev (page 28).
+            group.sort_by_key(|o| (std::cmp::Reverse(rank(&o.key)), o.key.clone()));
             let group: Vec<_> = group
                 .iter()
                 .map(|o| {
@@ -612,7 +614,7 @@ fn function_name(header: &str) -> Option<String> {
         .map(|w| (*w).to_owned())
 }
 
-/// The note of owners on one base (in flow order, with their changes; `None`: not compared by lines, as for a
+/// The note of owners on one base (furthest along first, with their changes; `None`: not compared by lines, as for a
 /// file the base doesn't have or a binary one).
 fn same_file_note(base_branch: &str, owners: &[(&TicketKey, Option<&[Change]>)]) -> SameFile {
     let mut keys = Vec::new();
