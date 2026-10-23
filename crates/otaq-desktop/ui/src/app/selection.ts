@@ -1,4 +1,4 @@
-// The selection screens share (T-0212): the project on screen, the ticket open in the side panel and its tab, and
+// The selection screens share (T-0212): the project on screen, the ticket open in the sheet and what it shows, and
 // the terminal that has the keyboard. One store for the whole page; each screen reads it with `useSelection()` and
 // changes it with the functions below (or `selection.update`).
 import type { PanelTab } from "../generated/PanelTab";
@@ -7,10 +7,13 @@ import { createStore, type Store, useStore } from "./store";
 export interface Selection {
   /** The project on screen, by key (`SHOP`); `null` before a project is added. */
   project: string | null;
-  /** The ticket open in the side panel, by key (`SHOP-22`); `null` while the panel is closed. */
+  /** The ticket open in the sheet, by key (`SHOP-22`); `null` while it is closed. */
   ticket: string | null;
-  /** The panel's tab. */
-  tab: PanelTab;
+  /**
+   * What the sheet shows, as today's panel tab its tabs hold (`run`: Session's Run; T-0464): `null` for the tab it
+   * opens on (Overview, SHT-02).
+   */
+  tab: PanelTab | null;
   /** The session whose terminal has the keyboard (SES-10's focused-terminal rule); `null` when none has. */
   focusedTerminal: string | null;
 }
@@ -18,7 +21,7 @@ export interface Selection {
 export const NOTHING_SELECTED: Selection = {
   project: null,
   ticket: null,
-  tab: "terminal",
+  tab: null,
   focusedTerminal: null,
 };
 
@@ -43,17 +46,25 @@ export function selectProject(project: string, store: Store<Selection> = selecti
   store.update((s) => {
     if (s.project === project) return s;
     if (s.project !== null) kept.set(s.project, { ticket: s.ticket, tab: s.tab });
-    const back = kept.get(project) ?? { ticket: null, tab: s.tab };
+    const back = kept.get(project) ?? { ticket: null, tab: null };
     return { ...s, project, ...back, focusedTerminal: null };
   });
 }
 
-/** Opens `ticket` in the side panel, on `tab` if given, else on the tab already shown. */
+/**
+ * Opens `ticket` in the sheet, showing `tab` if given, else on the tab it opens on (Overview, SHT-02); the ticket
+ * already open keeps what it shows.
+ */
 export function openTicket(ticket: string, tab?: PanelTab, store: Store<Selection> = selection): void {
-  store.update((s) => ({ ...s, ticket, tab: tab ?? s.tab }));
+  store.update((s) => ({ ...s, ticket, tab: tab ?? (s.ticket === ticket ? s.tab : null) }));
 }
 
-/** Closes the side panel. */
+/** Moves the open sheet to the previous or next ticket (j / k), keeping the tab it shows. */
+export function stepTicket(ticket: string, store: Store<Selection> = selection): void {
+  store.update((s) => ({ ...s, ticket }));
+}
+
+/** Closes the sheet. */
 export function closeTicket(store: Store<Selection> = selection): void {
   store.update((s) => ({ ...s, ticket: null, focusedTerminal: null }));
 }

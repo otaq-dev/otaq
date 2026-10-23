@@ -116,6 +116,7 @@ import { initialPick } from "../inbox/logic";
 import { AnswerBox as PanelAnswerBox } from "../panel/Panel";
 import { AskBarBody } from "../ask_bar/AskBar";
 import "../ask_bar/ask_bar.css";
+import { SheetGallery } from "../sheet/SheetGallery";
 import { PaneBody, SwitcherList } from "../pane/Pane";
 import "../pane/pane.css";
 import { DrawerBody } from "../terminals/Drawer";
@@ -2617,6 +2618,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <StageChoicesSection />
         <InboxLead />
         <OptionNotes />
+        <Section title="25 · The ticket sheet · header, details line, path and tabs (T-0464)">
+          <SheetGallery />
+        </Section>
         <EnvVarsSection />
         <WarmSwitchSection />
         <CleanupWarmGallery />

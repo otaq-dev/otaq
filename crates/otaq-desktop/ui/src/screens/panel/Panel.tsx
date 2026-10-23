@@ -1,15 +1,13 @@
-// The ticket side panel (UI-04; *05 · Ticket side panel*): the header with key, title, priority, status, branch,
-// base, last signal and tokens; previous / next, expand (`e`) and close (Esc); the action bar of the ticket's state
-// with its "…" menu, or the answer options of an Asks-you question; the queued notice, the conflict strip and the
-// Start interrupted callout; the registered sections (Stack, Messages); the tab strip with its indicators (`1`–`6`);
-// and the registered tab's body. It opens over the main area's right side (SHL-05; the frame places it). Everything
-// it says comes from `panel.view`; it keeps only the dragged width (per window size class), the expanded view, open
-// menus and the picked answer. A board card's button lands here too (`cardActions`): the panel
-// runs it once it shows that ticket. The M12 rows (d0063, d0064): the validation buttons, the token split, the
-// Auto-merge stop message and Answer the agent's note box. An epic's panel (T-0290; d0083) shows Ticket · Lead ·
-// History (Diff first in review), numbered `1`–`4` in that order, with its Messages inside the Ticket tab.
+// The ticket's actions and what its sheet's Overview shows until T-0465 (UI-04; *05 · Ticket side panel*, now the
+// sheet of SHT-01, T-0464): the action bar of the ticket's state, or the answer options of an Asks-you question; the
+// held roles' callouts, the refusal, the queued notice, the conflict strip and the Start interrupted callout; the
+// choices and the path; the registered sections (Epic, Stack, Messages). The sheet (`screens/sheet`) draws the header
+// and the tabs and holds the actions (`usePanelActions`): its "…" menu (`MoreMenu`) is this file's. Everything it
+// says comes from `panel.view`; it keeps only open menus and the picked answer. A board card's button lands here too
+// (`cardActions`): the sheet runs it once it shows that ticket. The M12 rows (d0063, d0064): the validation buttons,
+// the token split, the Auto-merge stop message and Answer the agent's note box. An epic (T-0290; d0083) keeps its
+// Messages with its Ticket content.
 import {
-  type PointerEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -21,29 +19,22 @@ import {
 } from "react";
 
 import { cardActions, takeCardAction } from "../../app/cardActions";
-import { mainWidth, shellLayout, toggleExpanded, useSizeClass, withDrag } from "../../app/layout";
 import { openOverlay } from "../../app/overlays";
 import { useRegistries, useShortcut } from "../../app/registry";
-import { PANEL_SECTIONS, PANEL_TOP, PANEL_UNDER_TABS, panelTabNumbered } from "../../app/registry/panel";
+import { PANEL_SECTIONS, PANEL_UNDER_TABS } from "../../app/registry/panel";
 import {
-  closeTicket,
   openTicket,
   requestTerminalFocus,
   requestTicketEdit,
-  selection,
   showTab,
   terminalFocusRequests,
-  useSelection,
 } from "../../app/selection";
-import { createStore, useStore } from "../../app/store";
+import { useStore } from "../../app/store";
 import {
   AnchoredMenu,
   Button,
   IconButton,
-  PriorityLabel,
   StageChoices,
-  StatusPill,
-  Tabs,
   TextArea,
   TicketPath,
   ToolProblemCallout,
@@ -55,18 +46,13 @@ import type { PanelButton } from "../../generated/PanelButton";
 import type { PanelButtonLook } from "../../generated/PanelButtonLook";
 import type { PanelCardParams } from "../../generated/PanelCardParams";
 import type { PanelChoiceParams } from "../../generated/PanelChoiceParams";
-import type { PanelHint } from "../../generated/PanelHint";
-import type { PanelLoad } from "../../generated/PanelLoad";
 import type { PanelNotice } from "../../generated/PanelNotice";
 import type { PanelSent } from "../../generated/PanelSent";
-import type { PanelSizes } from "../../generated/PanelSizes";
 import type { PanelRefusal } from "../../generated/PanelRefusal";
 import type { PanelStartProblem } from "../../generated/PanelStartProblem";
-import type { PanelTab } from "../../generated/PanelTab";
 import type { PanelRunPill } from "../../generated/PanelRunPill";
 import type { PanelView } from "../../generated/PanelView";
-import type { SizeClass } from "../../generated/SizeClass";
-import { asRequestError, useServiceView } from "../../service";
+import { asRequestError } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { passTicket } from "../review/CheckDialogs";
@@ -77,18 +63,10 @@ import {
   canSend,
   cardRoute,
   CLOSE_TICKET,
-  clampWidth,
-  draggedWidth,
-  iconTabs,
   initialPick,
   menuRoute,
-  numberedTab,
   pickByKey,
   picksOther,
-  shownTab,
-  shownWidth,
-  steppedTab,
-  tabIndicator,
 } from "./logic";
 import { toolProblemAction } from "./toolProblemRunner";
 
@@ -125,63 +103,8 @@ function askUnsent(sent: PanelSent, again: () => Promise<unknown>) {
   });
 }
 
-function NavButton({
-  icon,
-  hint,
-  disabled = false,
-  onClick,
-}: {
-  icon: Parameters<typeof IconButton>[0]["icon"];
-  hint: PanelHint;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <Tooltip text={hint.text} keys={hint.keys ?? undefined}>
-      <IconButton icon={icon} label={hint.text} disabled={disabled} onClick={onClick} />
-    </Tooltip>
-  );
-}
-
-function PriorityMenu({ view }: { view: PanelView }) {
-  const anchor = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  return (
-    <Tooltip text={view.priority_hint}>
-      <button
-        ref={anchor}
-        type="button"
-        className="panel-priority"
-        data-open={open || undefined}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => {
-          setOpen(!open);
-        }}
-      >
-        <PriorityLabel priority={view.priority} />
-        <Icon name="chevron-down" size={11} />
-      </button>
-      {open && (
-        <AnchoredMenu
-          anchor={anchor}
-          label={view.priority_hint}
-          items={view.priority_menu}
-          width={180}
-          onChoose={(item) => {
-            setOpen(false);
-            request("panel.priority", { key: view.key, item }).catch(ignore);
-          }}
-          onClose={() => {
-            setOpen(false);
-          }}
-        />
-      )}
-    </Tooltip>
-  );
-}
-
-function MoreMenu({ view, onChoose }: { view: PanelView; onChoose: (item: string) => void }) {
+/** The "…" menu (the sheet's header): the ticket's menu of its state, Edit ticket… first. */
+export function MoreMenu({ view, onChoose }: { view: PanelView; onChoose: (item: string) => void }) {
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   return (
@@ -536,63 +459,6 @@ function StartProblem({ view, problem }: { view: PanelView; problem: PanelStartP
   );
 }
 
-/** How far an arrow key moves the focused edge. */
-const KEY_STEP = 16;
-
-/**
- * The left edge: drag to resize (480 px to the main area minus 240), double-click for the default width; ←/→ when
- * focused. The width is kept for this window's size class.
- */
-function ResizeEdge({ view, width, cls }: { view: PanelView; width: number; cls: SizeClass | null }) {
-  const main = useStore(mainWidth);
-  const keep = (next: number | null) => {
-    if (cls === null) return;
-    shellLayout.update((l) => ({ ...l, panelWidths: withDrag(l.panelWidths, cls, next) }));
-  };
-  const resizeTo = (pointerX: number) => {
-    keep(draggedWidth(pointerX, document.documentElement.clientWidth, mainWidth.get(), view.sizes));
-  };
-  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const edge = e.currentTarget;
-    edge.setPointerCapture(e.pointerId);
-    const move = (m: globalThis.PointerEvent) => {
-      resizeTo(m.clientX);
-    };
-    const up = () => {
-      edge.removeEventListener("pointermove", move);
-      edge.removeEventListener("pointerup", up);
-    };
-    edge.addEventListener("pointermove", move);
-    edge.addEventListener("pointerup", up);
-  };
-  /* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex --
-     a focusable separator with a value is a widget in WAI-ARIA (a splitter); jsx-a11y treats every separator as static */
-  return (
-    <div
-      className="panel-edge"
-      role="separator"
-      aria-orientation="vertical"
-      aria-label={view.resize_hint}
-      aria-valuenow={width}
-      aria-valuemin={view.sizes.min_width}
-      aria-valuemax={clampWidth(Infinity, main, view.sizes)}
-      tabIndex={0}
-      onPointerDown={onPointerDown}
-      onKeyDown={(e) => {
-        const step = e.key === "ArrowLeft" ? KEY_STEP : e.key === "ArrowRight" ? -KEY_STEP : 0;
-        if (step === 0) return;
-        e.preventDefault();
-        keep(clampWidth(width + step, mainWidth.get(), view.sizes));
-      }}
-      onDoubleClick={() => {
-        keep(null);
-      }}
-    />
-  );
-  /* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex -- the splitter ends here */
-}
-
 /**
  * The held roles' callouts above the bar (§7.2, SCH-04 `[M23]`; *05 → Column 3 · several tools (M23)*): "Model
  * unavailable", "Codex isn't available · hidden in Settings", "Claude Code limit reached · resets 3:45 pm", with Use
@@ -642,20 +508,26 @@ function ChoicesAndPath({ view }: { view: PanelView }) {
   );
 }
 
-export interface PanelBodyProps {
-  view: PanelView;
-  tab: PanelTab;
-  expanded: boolean;
-  width: number;
-  /** The window's size class, which a drag of the edge keeps its width for. */
-  cls?: SizeClass | null;
+/** What the ticket's buttons, its "…" menu and a board card's button do, shared by the sheet's header and Overview. */
+export interface PanelActions {
+  press: (button: PanelButton) => void;
+  choose: (item: string) => void;
+  /** The button whose request is on its way. */
+  busy: string | null;
+  /** The ticket whose Answer the agent box is open. */
+  answering: string | null;
+  setAnswering: (key: string | null) => void;
+  /** A card's answer button, handed to the answer list. */
+  cardAnswer: CardAnswer | null;
 }
 
-/** The panel for a loaded view (also what the markup tests render). */
-export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyProps) {
-  const app = useRegistries();
+/**
+ * The ticket's actions (T-0222), held by the sheet while it shows `view`: its buttons and "…" menu, Close ticket and
+ * Re-run validation as keys while it offers them (0097: palette only unless the user gives them a key), and a board
+ * card's button for this ticket (T-0220), run once the sheet shows it.
+ */
+export function usePanelActions(view: PanelView): PanelActions {
   const [busy, setBusy] = useState<string | null>(null);
-  // The ticket whose Answer the agent box is open.
   const [answering, setAnswering] = useState<string | null>(null);
   const askMarkClosed = () => {
     if (view.mark_closed === null) return;
@@ -716,7 +588,7 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
       case "mark_closed":
         askMarkClosed();
         return;
-      // Run (RUN-01): the Run tab shows while it starts, or the run-command dialog asks first (T-0232).
+      // Run (RUN-01): Session's Run shows while it starts, or the run-command dialog asks first (T-0232).
       case "run":
         showTab("run");
         void startRun(view.key);
@@ -748,8 +620,6 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
         return;
     }
   };
-  // Close ticket and Re-run validation (0097: palette only unless the user gives them a key) do what this panel's
-  // menu item and button do, while it offers them.
   const latest = useRef({ view, press, choose });
   useLayoutEffect(() => {
     latest.current = { view, press, choose };
@@ -772,7 +642,6 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
       return true;
     }, []),
   );
-  // A board card's button for this ticket (T-0220), run once the panel shows it.
   const [cardAnswer, setCardAnswer] = useState<CardAnswer | null>(null);
   const pendingCard = useStore(cardActions);
   const runCard = useEffectEvent((kind: PanelCardParams["kind"]) => {
@@ -826,111 +695,46 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the card's click arrives from outside React (a store), once
     if (taken) runCard(taken.kind);
   }, [pendingCard, view.key]);
-  const shown = shownTab(
-    view.tabs.map((t) => t.tab),
-    tab,
+  return { press, choose, busy, answering, setAnswering, cardAnswer };
+}
+
+/** The last signal, the tokens by agent and the Run's pill (the old header's meta row), when there are any. */
+function MetaLine({ view }: { view: PanelView }) {
+  if (view.signal === null && view.token_split === null && view.run === null) return null;
+  return (
+    <div className="panel-meta">
+      {view.signal && (
+        <span className="panel-meta-item" data-stale={view.signal.stale || undefined}>
+          <Icon name="activity" size={11} />
+          <span>{view.signal.text}</span>
+        </span>
+      )}
+      {view.token_split !== null && (
+        <span className="panel-split">
+          <Icon name="coins" size={11} />
+          <span>{view.token_split}</span>
+        </span>
+      )}
+      {view.run && <RunPill ticket={view.key} pill={view.run} />}
+    </div>
   );
-  const active = view.tabs.findIndex((t) => t.tab === shown);
-  const Body = app.panelTabs.get(shown)?.Component;
-  // An epic's Messages sit in its Ticket tab (accepted Q9), not above the tabs.
-  const Messages = app.panelSections.get("messages")?.Component;
-  const Top = app.panelSections.get(PANEL_TOP)?.Component;
+}
+
+/**
+ * The top of the sheet's Overview until T-0465 (SHT-03's "what it needs from you"): the old panel header's lower
+ * part (the conflict strip, the question with its options or the action bar with its callouts, the Auto-merge stop
+ * message, Answer the agent's box), the choices and the path, the queued notice, the registered sections (Epic,
+ * Stack, Messages; an epic's Messages sit with its Ticket content, accepted Q9), the open PR's box and the Start
+ * interrupted callout.
+ */
+export function PanelOverview({ view, actions }: { view: PanelView; actions: PanelActions }) {
+  const app = useRegistries();
+  const { press, busy, answering, setAnswering, cardAnswer } = actions;
   const UnderTabs = app.panelSections.get(PANEL_UNDER_TABS)?.Component;
   return (
-    <div className="panel" data-expanded={expanded || undefined} style={expanded ? undefined : { width }}>
-      {!expanded && <ResizeEdge view={view} width={width} cls={cls} />}
-      {Top && <Top ticket={view.key} />}
+    <div className="panel-overview">
       <div className="panel-header">
-        <div className="panel-title-row">
-          <span className="panel-key">{view.key}</span>
-          <Tooltip text={view.title}>
-            <h2 className="panel-title">{view.title}</h2>
-          </Tooltip>
-          <PriorityMenu view={view} />
-          <NavButton
-            icon="chevron-up"
-            hint={view.previous_hint}
-            disabled={view.previous === null}
-            onClick={() => {
-              if (view.previous !== null) openTicket(view.previous);
-            }}
-          />
-          <NavButton
-            icon="chevron-down"
-            hint={view.next_hint}
-            disabled={view.next === null}
-            onClick={() => {
-              if (view.next !== null) openTicket(view.next);
-            }}
-          />
-          <NavButton
-            icon={expanded ? "minimize-2" : "maximize-2"}
-            hint={expanded ? view.collapse_hint : view.expand_hint}
-            onClick={toggleExpanded}
-          />
-          <NavButton
-            icon="x"
-            hint={view.close_hint}
-            onClick={() => {
-              closeTicket();
-            }}
-          />
-        </div>
-        <div className="panel-meta">
-          <StatusPill pill={view.pill} />
-          {view.branch && (
-            <>
-              <Tooltip text={view.branch.full}>
-                <span className="panel-branch">
-                  <Icon name="git-branch" size={11} />
-                  <span>{view.branch.shown}</span>
-                </span>
-              </Tooltip>
-              <Tooltip text={view.copy_branch}>
-                <button
-                  type="button"
-                  className="panel-copy"
-                  aria-label={view.copy_branch}
-                  onClick={() => {
-                    copy(view.branch?.full ?? "");
-                  }}
-                >
-                  <Icon name="copy" size={12} />
-                </button>
-              </Tooltip>
-            </>
-          )}
-          <span className="panel-muted">on</span>
-          <span className="panel-base">{view.base}</span>
-          <span className="panel-spacer" />
-          {view.signal && (
-            <span className="panel-meta-item" data-stale={view.signal.stale || undefined}>
-              <Icon name="activity" size={11} />
-              <span>{view.signal.text}</span>
-            </span>
-          )}
-          {view.tokens &&
-            (view.tokens.tooltip === null ? (
-              <span className="panel-meta-item">
-                <Icon name="coins" size={11} />
-                <span>{view.tokens.text}</span>
-              </span>
-            ) : (
-              <Tooltip text={view.tokens.tooltip}>
-                <span className="panel-meta-item">
-                  <Icon name="coins" size={11} />
-                  <span>{view.tokens.text}</span>
-                </span>
-              </Tooltip>
-            ))}
-          {view.run && <RunPill ticket={view.key} pill={view.run} />}
-        </div>
-        {view.token_split !== null && (
-          <div className="panel-split">
-            <Icon name="coins" size={11} />
-            <span>{view.token_split}</span>
-          </div>
-        )}
+        <MetaLine view={view} />
         {view.conflict && (
           <div className="panel-conflict">
             <Icon name="triangle-alert" size={13} />
@@ -942,32 +746,32 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
             key={view.answer.question}
             view={view}
             answer={view.answer}
-            more={<MoreMenu view={view} onChoose={choose} />}
+            more={null}
             fromCard={cardAnswer}
           />
         ) : (
           <>
             {view.refusal && <Refusal refusal={view.refusal} />}
             <Holds view={view} />
-            <div className="panel-bar">
-              {view.buttons.map((button) => (
-                <span key={button.action} className="panel-action-group">
-                  <ActionButton button={button} busy={busy === button.action} onPress={press} />
-                  {button.action === "approve" && view.approve_more !== null && (
-                    <Tooltip text={view.approve_more}>
-                      <Button
-                        label="▾"
-                        onClick={() => {
-                          openOverlay("local_merge", { ticket: view.key, menu: true });
-                        }}
-                      />
-                    </Tooltip>
-                  )}
-                </span>
-              ))}
-              <span className="panel-spacer" />
-              <MoreMenu view={view} onChoose={choose} />
-            </div>
+            {view.buttons.length > 0 && (
+              <div className="panel-bar">
+                {view.buttons.map((button) => (
+                  <span key={button.action} className="panel-action-group">
+                    <ActionButton button={button} busy={busy === button.action} onPress={press} />
+                    {button.action === "approve" && view.approve_more !== null && (
+                      <Tooltip text={view.approve_more}>
+                        <Button
+                          label="▾"
+                          onClick={() => {
+                            openOverlay("local_merge", { ticket: view.key, menu: true });
+                          }}
+                        />
+                      </Tooltip>
+                    )}
+                  </span>
+                ))}
+              </div>
+            )}
           </>
         )}
         {view.stop_message !== null && (
@@ -994,29 +798,8 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
         const Section = app.panelSections.get(id)?.Component;
         return Section ? <Section key={id} ticket={view.key} /> : null;
       })}
-      <div className="panel-tabs">
-        <Tabs
-          label={view.key}
-          items={view.tabs.map((t) => ({
-            icon: t.icon,
-            label: t.label,
-            indicator: tabIndicator(t.mark),
-            keys: t.keys ?? undefined,
-          }))}
-          active={Math.max(active, 0)}
-          iconsOnly={iconTabs(width, expanded, view.sizes)}
-          onSelect={(i) => {
-            const next = view.tabs[i];
-            if (next) showTab(next.tab);
-          }}
-        />
-      </div>
       {UnderTabs && <UnderTabs ticket={view.key} />}
       {view.start_problem && <StartProblem key={view.key} view={view} problem={view.start_problem} />}
-      <div className="panel-tab-body" data-tab={shown}>
-        {view.epic && shown === "ticket" && Messages && <Messages ticket={view.key} />}
-        {Body && <Body ticket={view.key} />}
-      </div>
     </div>
   );
 }
@@ -1062,112 +845,5 @@ function RunPill({ ticket, pill }: { ticket: string; pill: PanelRunPill }) {
         </button>
       </Tooltip>
     </span>
-  );
-}
-
-/** The sizes of the last view, so the panel keeps its width while the next ticket loads. */
-const lastSizes = createStore<PanelSizes | null>(null);
-
-/** The panel slot's component: the open ticket's panel, with its keys while it shows. */
-export function SidePanel() {
-  const { ticket: selected, tab } = useSelection();
-  // While the panel slides out (the frame keeps it mounted, OT-6) it goes on showing the ticket that was open.
-  const [last, setLast] = useState(selected);
-  if (selected !== null && selected !== last) setLast(selected);
-  const ticket = selected ?? last;
-  const layout = useStore(shellLayout);
-  const cls = useSizeClass();
-  const main = useStore(mainWidth);
-  const key = ticket ?? "";
-  const load = useCallback(() => request("panel.view", { key }) as Promise<PanelLoad>, [key]);
-  const { view: load_ } = useServiceView(load, PANEL_EVENTS);
-  const view = load_?.view ?? null;
-  const sizes = useStore(lastSizes);
-  const current = useRef<PanelView | null>(null);
-  useEffect(() => {
-    current.current = view;
-    if (view) lastSizes.set(view.sizes);
-  }, [view]);
-
-  useShortcut(
-    "close_panel",
-    useCallback(() => {
-      closeTicket();
-    }, []),
-  );
-  useShortcut("expand_panel", toggleExpanded);
-  useShortcut(
-    "previous_ticket",
-    useCallback(() => {
-      const previous = current.current?.previous;
-      if (previous) openTicket(previous);
-    }, []),
-  );
-  useShortcut(
-    "next_ticket",
-    useCallback(() => {
-      const next = current.current?.next;
-      if (next) openTicket(next);
-    }, []),
-  );
-  useShortcut(
-    "switch_tab",
-    useCallback(({ number }: { number: number }) => {
-      const tabs = current.current?.tabs.map((t) => t.tab);
-      const next = tabs ? numberedTab(tabs, number) : panelTabNumbered(number);
-      if (next === undefined) return false;
-      showTab(next);
-      return true;
-    }, []),
-  );
-  const stepTab = useCallback((step: 1 | -1) => {
-    const tabs = current.current?.tabs.map((t) => t.tab);
-    const next = tabs && steppedTab(tabs, shownTab(tabs, selection.get().tab), step);
-    if (next === undefined) return false;
-    showTab(next);
-    return true;
-  }, []);
-  useShortcut(
-    "next_tab",
-    useCallback(() => stepTab(1), [stepTab]),
-  );
-  useShortcut(
-    "previous_tab",
-    useCallback(() => stepTab(-1), [stepTab]),
-  );
-  // Open diff (0097, palette only unless the user gives it a key): the Diff tab, where the ticket has one.
-  useShortcut(
-    "open_diff",
-    useCallback(() => {
-      if (!current.current?.tabs.some((t) => t.tab === "diff")) return false;
-      showTab("diff");
-      return true;
-    }, []),
-  );
-
-  if (ticket === null) return null;
-  if (view === null || view.key !== ticket || cls === null) {
-    // Loading the next ticket, or gone: the panel keeps its width meanwhile.
-    const style = sizes && cls ? { width: shownWidth(layout.panelWidths, cls, main, sizes) } : undefined;
-    return (
-      // `data-loading` until there is something to show (the ticket, or that it's gone): the frame waits for it before
-      // sliding the panel in (0095).
-      <div
-        className="panel panel-gone"
-        style={style}
-        data-loading={load_ && load_.view === null ? undefined : ""}
-      >
-        {load_ && load_.view === null ? load_.gone : null}
-      </div>
-    );
-  }
-  return (
-    <PanelBody
-      view={view}
-      tab={tab}
-      expanded={layout.panelExpanded}
-      width={shownWidth(layout.panelWidths, cls, main, view.sizes)}
-      cls={cls}
-    />
   );
 }

@@ -69,7 +69,8 @@ pub struct ShortcutRow {
     pub mark: Option<&'static str>,
 }
 
-/// One key of a row, as Kbds: one ("⌘K", "⌘] / ⌘[", "1–6"), or a sequence's two ("g", "b") shown with "then".
+/// One key of a row, as Kbds: one ("⌘K", "⌘] / ⌘[", "1–4"), or a sequence's two ("g", "b") shown with "then" (a
+/// run's sequences share the "g": "g", "o / s / f / a").
 /// `ShortcutKey` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct ShortcutKey {
@@ -115,8 +116,17 @@ pub(crate) fn row_keys(members: &[KeyAction], bindings: &[&Binding]) -> Vec<RowK
         let Some(first) = parts.first() else {
             continue;
         };
+        let thens: Vec<&str> = parts
+            .iter()
+            .filter_map(|b| match &b.key {
+                Key::Sequence { then } => Some(then.as_str()),
+                _ => None,
+            })
+            .collect();
         let kbds = match (&first.key, parts.len()) {
             (Key::Sequence { then }, 1) => vec!["g".to_owned(), then.clone()],
+            // The sheet's tabs: "g" then "o / s / f / a" (`s02-24`).
+            _ if thens.len() == parts.len() => vec!["g".to_owned(), thens.join(" / ")],
             _ => vec![range(&parts, members.len()).unwrap_or_else(|| {
                 parts
                     .iter()
@@ -338,8 +348,12 @@ mod tests {
             [
                 ("New ticket", keys(&[&["⌘N"], &["c"]]), None),
                 ("Open / close the panel", keys(&[&["↵ / Esc"]]), None),
-                ("Expand / shrink the panel", keys(&[&["e"]]), None),
-                ("Switch panel tab", keys(&[&["1–6"]]), None),
+                ("Full page / back to the sheet", keys(&[&["e"]]), None),
+                (
+                    "Ticket tabs",
+                    keys(&[&["1–4"], &["g", "o / s / f / a"]]),
+                    None
+                ),
                 (
                     "Next / previous panel tab",
                     keys(&[&["⌃Tab / ⌃⇧Tab"]]),
@@ -454,7 +468,11 @@ mod tests {
         assert_eq!(ticket[2].2, Some("off"));
         assert_eq!(
             ticket[3],
-            ("Switch panel tab", keys(&[&["1–6"]]), Some("off"))
+            (
+                "Ticket tabs",
+                keys(&[&["1–4"], &["g", "o / s / f / a"]]),
+                Some("off")
+            )
         );
         let filter = row_of(&list, "Filter the board").unwrap();
         assert!(filter.off && !filter.changed);

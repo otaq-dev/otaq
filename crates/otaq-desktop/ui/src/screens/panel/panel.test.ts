@@ -2,7 +2,6 @@
 // Mostly drawn to a string; a pick in the choices is mounted (its select opens a menu).
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { cardActions, requestCardAction, takeCardAction } from "../../app/cardActions";
@@ -12,7 +11,6 @@ import { NOTHING_SELECTED, requestTicketEdit, selection, ticketEditRequests } fr
 import type { CardActionKind } from "../../generated/CardActionKind";
 import type { PanelAction } from "../../generated/PanelAction";
 import type { PanelAnswerRow } from "../../generated/PanelAnswerRow";
-import type { PanelTab } from "../../generated/PanelTab";
 import type { PanelView } from "../../generated/PanelView";
 import type { StageChoicesView } from "../../generated/StageChoicesView";
 import type { TicketPathView } from "../../generated/TicketPathView";
@@ -22,19 +20,14 @@ import {
   agentSettings,
   canSend,
   cardRoute,
-  draggedWidth,
-  iconTabs,
   initialPick,
   menuRoute,
-  numberedTab,
   pickByKey,
   picksOther,
-  shownTab,
-  shownWidth,
-  steppedTab,
 } from "./logic";
-import { PanelBody } from "./Panel";
 import { request } from "../../tauri";
+import { SheetBody } from "../sheet/Sheet";
+import { renderSheet as render, sheetRegistries, VIEW } from "../sheet/sheet_fixtures";
 
 vi.mock("../../tauri", () => ({
   request: vi.fn(() => new Promise(() => undefined)),
@@ -46,150 +39,6 @@ afterEach(() => {
   selection.set(NOTHING_SELECTED);
   ticketEditRequests.set(null);
   cardActions.set(null);
-});
-
-const SIZES = {
-  default_widths: { w1280: 600, w1440: 660, w1920: 760 },
-  min_width: 480,
-  main_keeps: 240,
-  icon_tabs_below: 560,
-};
-const hint = (text: string, keys: string | null = null) => ({ text, keys });
-const tab = (t: PanelTab, label: string, n: number) => ({
-  tab: t,
-  label,
-  icon: "file-text" as const,
-  keys: String(n),
-  mark: null,
-});
-
-const VIEW: PanelView = {
-  key: "SHOP-19",
-  title: "Price table",
-  epic: false,
-  priority: {
-    number: 3,
-    short: "P3",
-    word: "Normal",
-    label: "P3 · Normal",
-    icon: "chevron-up",
-    ink: "muted",
-  },
-  priority_hint: "Priority",
-  priority_menu: [],
-  pill: { palette: "working", icon: "loader", label: "Working" },
-  branch: { shown: "otaq/SHOP-19", full: "otaq/SHOP-19" },
-  copy_branch: "Copy branch name",
-  base: "main",
-  signal: { text: "40s ago", stale: false },
-  tokens: { text: "182k", tooltip: null },
-  token_split: null,
-  previous: null,
-  next: "SHOP-20",
-  previous_hint: hint("Previous ticket", "⌘["),
-  next_hint: hint("Next ticket", "⌘]"),
-  expand_hint: hint("Expand", "e"),
-  collapse_hint: hint("Back to the board", "e"),
-  close_hint: hint("Close", "Esc"),
-  more_hint: "More",
-  resize_hint: "Panel width",
-  buttons: [
-    {
-      action: "open_terminal",
-      label: "Open terminal",
-      tooltip: null,
-      icon: "square-terminal",
-      look: "secondary",
-    },
-  ],
-  approve_more: null,
-  approve_opens_menu: false,
-  stop_message: null,
-  answer_agent: null,
-  parent: null,
-  menu: [],
-  attach_command: "otaq attach SHOP-19",
-  answer: null,
-  notice: null,
-  conflict: null,
-  start_problem: null,
-  mark_closed: null,
-  run: null,
-  tabs: [
-    { ...tab("terminal", "Terminal", 1), mark: { kind: "live" } },
-    tab("diff", "Diff", 2),
-    tab("run", "Run", 3),
-    tab("shell", "Shell", 4),
-    tab("ticket", "Ticket", 5),
-    { ...tab("history", "History", 6), mark: { kind: "note", text: "1" } },
-  ],
-  live_agent: true,
-  sizes: SIZES,
-  choices: null,
-  path: null,
-  open_agent: null,
-  refusal: null,
-  holds: [],
-};
-
-function render(view: PanelView, opts: { tab?: PanelTab; expanded?: boolean; width?: number } = {}) {
-  const app = createRegistries();
-  app.panelTabs.register("history", {
-    Component: ({ ticket }) => createElement("p", null, `history of ${ticket}`),
-  });
-  app.panelSections.register("stack", { Component: () => createElement("p", null, "the stack") });
-  return renderToStaticMarkup(
-    createElement(
-      RegistriesContext,
-      { value: app },
-      createElement(PanelBody, {
-        view,
-        tab: opts.tab ?? "terminal",
-        expanded: opts.expanded ?? false,
-        width: opts.width ?? 660,
-      }),
-    ),
-  );
-}
-
-describe("the panel's layout", () => {
-  it("a drag keeps at least 480 px and leaves the main area 240 px", () => {
-    // The main area at 1440 with the pane at 400: 976 px, from x 464 to the window's right edge.
-    expect(draggedWidth(1440 - 700, 1440, 976, SIZES)).toBe(700);
-    expect(draggedWidth(1400, 1440, 976, SIZES)).toBe(480);
-    expect(draggedWidth(464, 1440, 976, SIZES)).toBe(736);
-    expect(draggedWidth(0, 1920, 1396, SIZES)).toBe(1156);
-    expect(draggedWidth(0, 800, 500, SIZES)).toBe(480);
-  });
-
-  it("the class's default until dragged, each class keeping its own drag; icons only under 560 px unless expanded", () => {
-    expect(shownWidth({}, "w1280", 896, SIZES)).toBe(600);
-    expect(shownWidth({}, "w1440", 976, SIZES)).toBe(660);
-    expect(shownWidth({}, "w1920", 1396, SIZES)).toBe(760);
-    const dragged = { w1920: 900 };
-    expect(shownWidth(dragged, "w1920", 1396, SIZES)).toBe(900);
-    expect(shownWidth(dragged, "w1440", 976, SIZES)).toBe(660);
-    expect(shownWidth({ w1440: 900 }, "w1440", 976, SIZES)).toBe(736);
-    expect(iconTabs(480, false, SIZES)).toBe(true);
-    expect(iconTabs(480, true, SIZES)).toBe(false);
-    expect(iconTabs(660, false, SIZES)).toBe(false);
-  });
-});
-
-describe("an epic's tabs (T-0290, d0083)", () => {
-  const EPIC: PanelTab[] = ["ticket", "lead", "history"];
-  it("shows the selected tab when the ticket has it, else its first", () => {
-    expect(shownTab(EPIC, "terminal")).toBe("ticket");
-    expect(shownTab(EPIC, "lead")).toBe("lead");
-    expect(shownTab(["diff", ...EPIC], "run")).toBe("diff");
-    expect(shownTab(["terminal", "diff"], "terminal")).toBe("terminal");
-  });
-
-  it("numbers the tabs in the shown order", () => {
-    expect(numberedTab(EPIC, 2)).toBe("lead");
-    expect(numberedTab(EPIC, 4)).toBeUndefined();
-    expect(numberedTab(EPIC, 0)).toBeUndefined();
-  });
 });
 
 describe("where buttons and menu items go", () => {
@@ -370,28 +219,15 @@ describe("answer options", () => {
   });
 });
 
-describe("the panel", () => {
-  it("draws the header, the bar, the registered section and the tab strip", () => {
+describe("the panel's content in the sheet's Overview (until T-0465)", () => {
+  it("draws the bar, the last signal and the registered section under the sheet's header and tabs", () => {
     const html = render(VIEW);
-    for (const text of ["SHOP-19", "Price table", "Working", "otaq/SHOP-19", "main", "40s ago", "182k"]) {
+    for (const text of ["SHOP-19", "Price table", "Working", "otaq/SHOP-19", "from main", "40s ago"]) {
       expect(html).toContain(text);
     }
     expect(html).toContain("Open terminal");
     expect(html).toContain("the stack");
-    expect(html.match(/role="tab"/g)).toHaveLength(6);
-    expect(html).toContain('aria-label="Previous ticket" disabled=""');
-    expect(html).toContain('role="separator"');
-  });
-
-  it("shows the registered tab's body; an unregistered tab stays empty", () => {
-    expect(render(VIEW, { tab: "history" })).toContain("history of SHOP-19");
-    expect(render(VIEW, { tab: "diff" })).toContain('<div class="panel-tab-body" data-tab="diff"></div>');
-  });
-
-  it("expanded: no resize edge and no fixed width", () => {
-    const html = render(VIEW, { expanded: true });
-    expect(html).toContain("data-expanded");
-    expect(html).not.toContain('role="separator"');
+    expect(html.indexOf("sheet-tabs")).toBeLessThan(html.indexOf("panel-bar"));
   });
 
   it("the queued notice, the conflict strip and the start callout", () => {
@@ -431,10 +267,10 @@ describe("the panel", () => {
     expect(render(VIEW)).not.toContain("▾");
   });
 
-  it("registers the panel slot and its two dialogs from its folder", () => {
+  it("registers its two dialogs from its folder; the sheet fills the panel slot", () => {
     const app = registerScreens({ panel });
     expect(registered(app)).toMatchObject({
-      slots: ["panel"],
+      slots: [],
       overlays: ["close_ticket", "submit_for_review"],
     });
   });
@@ -523,7 +359,7 @@ describe("the choices and the path in the panel (T-0411, AGM-09)", () => {
     ],
   };
 
-  it("sit under the action bar, before the tabs, with the header's token line", () => {
+  it("sit under the action bar in Overview, with the token line", () => {
     const out = render({
       ...VIEW,
       choices: CHOICES,
@@ -532,8 +368,8 @@ describe("the choices and the path in the panel (T-0411, AGM-09)", () => {
     });
     expect(out).toContain("Rust developer 61k · no validation yet");
     const at = (text: string) => out.indexOf(text);
+    expect(at("sheet-tabs")).toBeLessThan(at("panel-bar"));
     expect(at("panel-bar")).toBeLessThan(at("panel-agents"));
-    expect(at("panel-agents")).toBeLessThan(at("panel-tabs"));
     expect(out).toContain("set by the Project agent");
     expect(out).toContain('aria-label="Locked: Dev has started"');
     expect(out).toContain('data-agent="true"');
@@ -557,12 +393,12 @@ describe("the choices and the path in the panel (T-0411, AGM-09)", () => {
       root.render(
         createElement(
           RegistriesContext,
-          { value: createRegistries() },
-          createElement(PanelBody, {
+          { value: sheetRegistries() },
+          createElement(SheetBody, {
             view: { ...VIEW, choices: CHOICES },
-            tab: "terminal",
-            expanded: false,
-            width: 660,
+            tab: null,
+            fullPage: false,
+            width: 1040,
           }),
         ),
       );
@@ -616,16 +452,7 @@ describe("the held roles' callouts (M23)", () => {
   });
 });
 
-describe("the panel's keys (0097)", () => {
-  it("⌃Tab / ⌃⇧Tab step through the shown tabs, round the ends", () => {
-    const tabs: PanelTab[] = ["terminal", "diff", "ticket"];
-    expect(steppedTab(tabs, "terminal", 1)).toBe("diff");
-    expect(steppedTab(tabs, "ticket", 1)).toBe("terminal");
-    expect(steppedTab(tabs, "terminal", -1)).toBe("ticket");
-    expect(steppedTab(tabs, "run", 1)).toBe("terminal");
-    expect(steppedTab([], "run", 1)).toBeUndefined();
-  });
-
+describe("the ticket's keys (0097)", () => {
   it("Close ticket and Re-run validation do what the panel's menu item and button do, while it offers them", () => {
     const app = createRegistries();
     const host = document.body.appendChild(document.createElement("div"));
@@ -636,7 +463,7 @@ describe("the panel's keys (0097)", () => {
           createElement(
             RegistriesContext,
             { value: app },
-            createElement(PanelBody, { view, tab: "terminal", expanded: false, width: 660 }),
+            createElement(SheetBody, { view, tab: null, fullPage: false, width: 1040 }),
           ),
         );
       });

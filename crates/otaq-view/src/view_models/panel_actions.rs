@@ -410,7 +410,8 @@ pub fn validating(ticket: &Ticket) -> bool {
     matches!(ticket.status, Status::Checking | Status::CheckerNeedsYou)
 }
 
-/// The "…" menu: Stop this check and Skip this check while it validates (d0063), Edit ticket, Pin / Unpin, Copy
+/// The "…" menu: Stop this check and Skip this check while it validates (d0063), Edit ticket… (the fields the
+/// sheet's details line doesn't cover, SHT-01), Pin / Unpin, Copy
 /// branch name, Copy attach command (with a session), Move to next stage (hidden while it validates), Move to epic…, Close epic…, Close ticket…, and Delete… (enabled only for
 /// never-started tickets, d0060).
 pub fn menu(
@@ -432,7 +433,7 @@ pub fn menu(
                 .hint("never auto-merged"),
         );
     }
-    let edit = MenuItem::new(EDIT_TICKET, "Edit ticket").icon(IconName::Pencil);
+    let edit = MenuItem::new(EDIT_TICKET, "Edit ticket\u{2026}").icon(IconName::Pencil);
     items.push(if items.is_empty() {
         edit
     } else {
@@ -674,7 +675,7 @@ mod tests {
         assert_eq!(
             labels,
             [
-                "Edit ticket",
+                "Edit ticket\u{2026}",
                 "Pin to top",
                 "Copy branch name",
                 "Copy attach command",
@@ -732,7 +733,7 @@ mod tests {
             [
                 "Stop this check",
                 "Skip this check",
-                "Edit ticket",
+                "Edit ticket\u{2026}",
                 "Pin to top",
                 "Copy branch name",
                 "Close ticket…",
@@ -745,7 +746,7 @@ mod tests {
         let mut idle = ticket("SHOP-19", "Price table", Status::Idle);
         idle.started_at = Some(1);
         let items = menu(&idle, false, false, false);
-        assert_eq!(items[0].label, "Edit ticket");
+        assert_eq!(items[0].label, "Edit ticket\u{2026}");
         assert!(!items[0].separated);
         assert!(
             items

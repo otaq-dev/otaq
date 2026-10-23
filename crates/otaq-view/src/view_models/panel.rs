@@ -1,8 +1,9 @@
-//! The ticket side panel's logic (UI-04; d0058, d0035): its tabs and their indicators, previous/next ticket in
-//! the column's order (⌘[ / ⌘]), its width over the main area (SHL-05), and the header's texts.
+//! The ticket side panel's logic (UI-04; d0058, d0035), now inside the ticket sheet (`sheet.rs`, T-0464): today's
+//! tabs, which the sheet's tabs hold until their tickets move them, and their indicators; previous/next ticket in the
+//! column's order (j / k, ⌘[ / ⌘]); the Start interrupted callout and the branch the header shows.
 //!
-//! An epic's panel shows **Ticket · Lead · History**, with **Diff** first once the epic is in review (d0083, d0059;
-//! *05 → Row · Epic panel · Lead tab (0083)*); it has no Terminal, Run or Shell tab. Tab N's key (`1`–`6`) follows the shown order.
+//! An epic has **Ticket · Lead · History**, with **Diff** first once the epic is in review (d0083, d0059;
+//! *05 → Row · Epic panel · Lead tab (0083)*); it has no Terminal, Run or Shell tab.
 
 use otaq_core::board::order::sort_column;
 use otaq_core::board::tickets::Ticket;
@@ -14,11 +15,9 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::view_models::layout::{ClassWidths, SizeClass};
 
-/// The panel's tabs; a ticket shows the first six in this order, `1`–`6` switch to them (d0097). An epic shows
-/// [`epic_tabs`] (with Lead), numbered in that order. `PanelTab` on the page, where each tab's screen
-/// registers it (T-0212).
+/// Today's panel tabs, in the sheet's tabs ([`super::sheet::SheetTab::contents`]); a ticket has the first six, an
+/// epic [`epic_tabs`] (with Lead). `PanelTab` on the page, where each tab's screen registers it (T-0212).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "PanelTab")]
@@ -42,16 +41,6 @@ impl Tab {
         Tab::Ticket,
         Tab::History,
     ];
-
-    /// Tab 1 (`1`) is the Terminal tab (a ticket's tabs).
-    pub fn from_number(n: u8) -> Option<Tab> {
-        Self::ALL.get(usize::from(n).checked_sub(1)?).copied()
-    }
-
-    /// The tab ⌘⌥`n` shows among `shown` (the panel's tabs, in order).
-    pub fn numbered(shown: &[Tab], n: u8) -> Option<Tab> {
-        shown.get(usize::from(n).checked_sub(1)?).copied()
-    }
 
     pub fn label(self) -> &'static str {
         match self {
@@ -166,32 +155,8 @@ pub fn neighbour(tickets: &[Ticket], current: &TicketKey, step: i32) -> Option<T
     (next >= 0 && (next as usize) < keys.len()).then(|| keys[next as usize].clone())
 }
 
-/// The panel's width until the user drags it, per window size class (SHL-05, *Row · Panel at 1280 × 800,
-/// remembered width (0087)*): 600 / 660 / 760 px. A dragged width is kept per class.
-pub const DEFAULT_WIDTHS: ClassWidths = ClassWidths {
-    w1280: 600.,
-    w1440: 660.,
-    w1920: 760.,
-};
-/// The narrowest panel (*Narrow panel · 480 px*).
-pub const MIN_WIDTH: f32 = 480.;
-/// The panel opens over the main area and leaves at least this much of it showing on its left (SHL-05: "480 to
-/// main area − 240"); Expand (`e`) takes all of it.
-pub const MAIN_KEEPS: f32 = 240.;
-/// Below this width the tabs show icons only.
+/// Below this width a terminal tab's switch shows icons only.
 pub const ICON_TABS_BELOW: f32 = 560.;
-
-/// A width kept within its limits over a main area `main_width` px wide; a small main area still gets the minimum.
-pub fn clamp_width(width: f32, main_width: f32) -> f32 {
-    let max = (main_width - MAIN_KEEPS).max(MIN_WIDTH);
-    width.clamp(MIN_WIDTH, max)
-}
-
-/// The panel's width in a window of `class` over a main area `main_width` px wide: the dragged one for that class,
-/// else its default.
-pub fn width(class: SizeClass, dragged: Option<f32>, main_width: f32) -> f32 {
-    clamp_width(dragged.unwrap_or(DEFAULT_WIDTHS.get(class)), main_width)
-}
 
 /// "The start didn’t finish" above a Start interrupted ticket's tab (*16 → Start interrupted · SHOP-28 panel*,
 /// T-0063): the failed step and its message.
@@ -286,11 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn tabs_and_shortcut_numbers() {
-        assert_eq!(Tab::from_number(1), Some(Tab::Terminal));
-        assert_eq!(Tab::from_number(6), Some(Tab::History));
-        assert_eq!(Tab::from_number(0), None);
-        assert_eq!(Tab::from_number(7), None);
+    fn the_tabs_in_order() {
         let labels: Vec<_> = Tab::ALL.iter().map(|t| t.label()).collect();
         assert_eq!(
             labels,
@@ -347,7 +308,7 @@ mod tests {
         );
     }
 
-    /// An epic shows Ticket · Lead · History, with Diff first in review; the tab keys follow that order (d0083).
+    /// An epic shows Ticket · Lead · History, with Diff first in review (d0083).
     #[test]
     fn an_epics_tabs_per_column() {
         let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
@@ -369,9 +330,6 @@ mod tests {
         epic.status = Status::Merged;
         epic.place = otaq_core::domain::Place::of(epic.status, None, None);
         assert_eq!(tabs(&epic), [Tab::Ticket, Tab::Lead, Tab::History]);
-        let shown = tabs(&epic);
-        assert_eq!(Tab::numbered(&shown, 2), Some(Tab::Lead));
-        assert_eq!(Tab::numbered(&shown, 4), None);
         assert_eq!(
             tabs(&ticket("SHOP-18", "Checkout API", Status::Working)),
             Tab::ALL
@@ -447,32 +405,6 @@ mod tests {
         );
         assert_eq!(neighbour(&tickets, &key("SHOP-2"), 1), Some(key("SHOP-3")));
         assert_eq!(neighbour(&tickets, &key("SHOP-3"), -1), Some(key("SHOP-2")));
-    }
-
-    #[test]
-    fn width_defaults_per_class_and_limits_against_the_main_area() {
-        // The main area at 1280 / 1440 / 1920 with the pane at its default (rail 64 px).
-        assert_eq!(width(SizeClass::W1280, None, 1280. - 64. - 320.), 600.);
-        assert_eq!(width(SizeClass::W1440, None, 1440. - 64. - 400.), 660.);
-        assert_eq!(width(SizeClass::W1920, None, 1920. - 64. - 460.), 760.);
-        assert_eq!(width(SizeClass::W1920, Some(900.), 1396.), 900.);
-        assert_eq!(clamp_width(660., 976.), 660.);
-        assert_eq!(clamp_width(200., 976.), MIN_WIDTH);
-        assert_eq!(
-            clamp_width(1000., 976.),
-            976. - MAIN_KEEPS,
-            "the board keeps 240 px"
-        );
-        assert_eq!(
-            clamp_width(1200., 1396.),
-            1396. - MAIN_KEEPS,
-            "no fixed maximum"
-        );
-        assert_eq!(
-            clamp_width(900., 600.),
-            MIN_WIDTH,
-            "a small main area still gets the minimum"
-        );
     }
 
     #[test]

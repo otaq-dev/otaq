@@ -56,7 +56,8 @@ screens. A screen touches only its own folders plus **one line in the screens in
 | --------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | `app.slots`                       | `slots.ts`: title bar start/end, header, header search, rail, banners, board, panel, toasts | the component that fills the slot                  |
 | `app.overlays`                    | `overlays.ts`: every dialog, popover and drawer, with what it is opened with                | its overlay's component (gets `params`, `close`)   |
-| `app.panelTabs`                   | the generated `PanelTab` (Rust `panel::Tab`), in the order of `panel.ts`                    | its tab's content (gets the open `ticket`)         |
+| `app.sheetTabs`                   | the generated `SheetTab` (Rust `sheet::SheetTab`), in the order of `panel.ts`               | its tab's body (gets the open `ticket`)            |
+| `app.panelTabs`                   | the generated `PanelTab` (Rust `panel::Tab`): today's content inside the sheet's tabs       | its tab's content (gets the open `ticket`)         |
 | `app.panelSections`               | `panel.ts`: Stack, Messages; `inbox_run`, the ⌘J run bar on top of the panel                | its section (gets the open `ticket`)               |
 | `app.settings.global`, `.project` | `settings.ts`: the global and the project sections, in nav order                            | its section (a project section gets the `project`) |
 | `app.shortcuts`                   | the generated `KeyAction` (Rust keymap)                                                     | a handler per action, `app.shortcuts.on(...)`      |
@@ -221,17 +222,23 @@ as a `CardState` (selected, chain highlighted or dimmed, dragging, hovered). `lo
 fails the linter and `cards.test.ts` until it has a drawing. The gallery shows every fixture of `card_fixtures.rs`
 (`gallery.cards`) at the card width and at 1280.
 
-## The side panel
+## The ticket sheet
 
-The ticket side panel (_05 · Ticket side panel_, T-0222) is `ui/src/screens/panel/`, served by `src/api/panel.rs`:
-`panel.view` gives the open ticket's header, action bar, "…" menu, answer options, queued notice, conflict strip, Start
-interrupted callout and tab strip, every text worded in Rust. Buttons that talk to the service go back through
-`panel.action` (Start, Retry start, Resume, Reopen, Mark merged, Open PR in browser), which shows a refusal as a toast;
-the rest open a tab or an overlay (`logic.ts`, `actionRoute` / `menuRoute`). The panel keeps only its width and
-expanded state (`panelLayout`, per window) and the picked answer.
+The ticket opens as a sheet (_25 · The ticket view_, SHT-01, SHT-02, T-0464): `ui/src/screens/sheet/` fills the panel
+slot, served by `src/api/panel.rs`, whose `panel.view` carries the sheet's header, details line, flow path and tabs
+(`sheet`, worded by `otaq-view`'s `sheet.rs`) beside the ticket's action bar, "…" menu, answer options, queued notice,
+conflict strip and Start interrupted callout (`ui/src/screens/panel/`, until T-0465 moves them into Overview). Buttons
+that talk to the service go back through `panel.action` (Start, Retry start, Resume, Reopen, Mark merged, Open PR in
+browser), which shows a refusal as a toast; the rest open a tab or an overlay (`panel/logic.ts`, `actionRoute` /
+`menuRoute`). Move… asks `panel.move_menu` (the drag's columns) and drops like a drag. The sheet keeps only its full
+page state (`panelExpanded`), open menus and the picked answer. The selection's `tab` names today's panel tab to show
+(`run`: Session's Run; `null`: the tab it opens on, Overview); each sheet tab lists the panel tabs it holds.
 
-- **A tab or section:** register it (`app.panelTabs.register("diff", …)`, `app.panelSections.register("stack", …)`);
-  it gets `{ ticket }` and draws in the panel's body, which is empty until then.
+- **A sheet tab:** register its body (`app.sheetTabs.register("overview", …)`) in place of the interim one in
+  `screens/sheet/index.tsx`; it gets `{ ticket }`, and `useSheet()` gives the open view and its actions.
+- **A panel tab or section:** register it (`app.panelTabs.register("diff", …)` or
+  `app.panelSections.register("stack", …)`); it gets `{ ticket }` and draws inside the sheet tab that holds it
+  (Overview's top for the sections).
 - **Edit:** the bar's Edit and the menu's Edit ticket show the Ticket tab and add a `ticketEditRequests` entry
   (`ui/src/app/selection.ts`) the Ticket tab answers by opening its form.
 - **Dialogs opened from the panel:** `close_ticket` and `submit_for_review` are the panel's; `local_merge`, `send_back`,

@@ -1,70 +1,11 @@
-// The panel's interaction state and where each button goes (T-0222). What the panel says and which buttons it has
-// are Rust's (`src/api/panel.rs`); this file keeps only the moment of interaction: the dragged width (kept per window
-// size class in the frame's `shellLayout`, with the expanded view), the picked answer, and which buttons open a tab or
-// a dialog on the page instead of calling the service.
-import type { ClassDrags } from "../../app/layout";
+// Where the ticket's buttons go (T-0222), now in its sheet (T-0464). What the buttons and menus say is Rust's
+// (`src/api/panel.rs`); this file keeps only the moment of interaction: the picked answer, and which buttons open a
+// tab or a dialog on the page instead of calling the service.
 import type { CardActionKind } from "../../generated/CardActionKind";
 import type { PanelAction } from "../../generated/PanelAction";
 import type { PanelAnswerRow } from "../../generated/PanelAnswerRow";
-import type { PanelSizes } from "../../generated/PanelSizes";
-import type { PanelTab } from "../../generated/PanelTab";
 import type { PanelTabMark } from "../../generated/PanelTabMark";
-import type { SizeClass } from "../../generated/SizeClass";
 import type { TabIndicator } from "../../components";
-
-/**
- * The width a drag of the left edge gives: from the pointer to the window's right edge, within the sizes Rust sent
- * up front (`panel::clamp_width`: at least 480 px, and the main area keeps 240 px on the panel's left).
- */
-export function draggedWidth(
-  pointerX: number,
-  windowWidth: number,
-  mainWidth: number,
-  sizes: PanelSizes,
-): number {
-  return clampWidth(windowWidth - pointerX, mainWidth, sizes);
-}
-
-export function clampWidth(width: number, mainWidth: number, sizes: PanelSizes): number {
-  const max = Math.max(mainWidth - sizes.main_keeps, sizes.min_width);
-  return Math.min(Math.max(width, sizes.min_width), max);
-}
-
-/** The width drawn now in a window of `cls`: the one dragged for that class, else its default (`panel::width`). */
-export function shownWidth(
-  dragged: ClassDrags,
-  cls: SizeClass,
-  mainWidth: number,
-  sizes: PanelSizes,
-): number {
-  return clampWidth(dragged[cls] ?? sizes.default_widths[cls], mainWidth, sizes);
-}
-
-/** Narrow panels show the tabs as icons (`ICON_TABS_BELOW`); the expanded panel never does. */
-export function iconTabs(width: number, expanded: boolean, sizes: PanelSizes): boolean {
-  return !expanded && width < sizes.icon_tabs_below;
-}
-
-/**
- * The tab the panel shows: the selected one when this ticket has it, else its first (an epic has no Terminal tab, so
- * it opens on Ticket, or Diff in review; d0083). The selection itself is kept for the next ticket.
- */
-export function shownTab(tabs: readonly PanelTab[], selected: PanelTab): PanelTab {
-  return tabs.includes(selected) ? selected : (tabs[0] ?? selected);
-}
-
-/** The tab ⌘⌥`n` shows: the `n`th of the shown tabs (an epic's are numbered in their own order). */
-export function numberedTab(tabs: readonly PanelTab[], n: number): PanelTab | undefined {
-  return n >= 1 ? tabs[n - 1] : undefined;
-}
-
-/** The tab ⌃Tab / ⌃⇧Tab shows (`step` 1 / -1): the next or previous of the shown tabs, round the end. */
-export function steppedTab(tabs: readonly PanelTab[], shown: PanelTab, step: 1 | -1): PanelTab | undefined {
-  if (tabs.length === 0) return undefined;
-  const at = tabs.indexOf(shown);
-  if (at < 0) return tabs[0];
-  return tabs[(at + step + tabs.length) % tabs.length];
-}
 
 /** The tab strip's marker, as the Tabs component draws it. */
 export function tabIndicator(mark: PanelTabMark | null): TabIndicator | undefined {

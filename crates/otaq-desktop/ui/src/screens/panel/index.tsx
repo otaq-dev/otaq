@@ -1,13 +1,11 @@
-// Area 05 · Ticket side panel (T-0222): the panel slot, its Close ticket and Submit for review dialogs, and while it
-// shows its keys (Esc, `e`, ⌘[ / ⌘], `1`–`6`). Tabs and sections are filled by their own screens through the
-// registries. What it says is Rust's (`src/api/panel.rs`, the `otaq-view` panel view models).
+// Area 05 · the ticket's actions (T-0222): its Close ticket and Submit for review dialogs. The sheet
+// (`screens/sheet`, T-0464) fills the panel slot and shows this folder's action bar, answer box and callouts in its
+// Overview until T-0465. What they say is Rust's (`src/api/panel.rs`, the `otaq-view` panel view models).
 import type { Screen } from "../../app/registry";
 import { CloseTicketDialog, SubmitForReviewDialog } from "./Dialogs";
-import { SidePanel } from "./Panel";
 import "./panel.css";
 
 export const panel: Screen = (app) => {
-  app.slots.register("panel", { Component: SidePanel });
   app.overlays.register("close_ticket", { Component: CloseTicketDialog });
   app.overlays.register("submit_for_review", { Component: SubmitForReviewDialog });
 };

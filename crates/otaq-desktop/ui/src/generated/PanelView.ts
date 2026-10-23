@@ -11,12 +11,11 @@ import type { PanelNotice } from "./PanelNotice";
 import type { PanelRefusal } from "./PanelRefusal";
 import type { PanelRunPill } from "./PanelRunPill";
 import type { PanelSignal } from "./PanelSignal";
-import type { PanelSizes } from "./PanelSizes";
 import type { PanelStartProblem } from "./PanelStartProblem";
-import type { PanelTabView } from "./PanelTabView";
 import type { PanelTokens } from "./PanelTokens";
 import type { PillView } from "./PillView";
 import type { PriorityView } from "./PriorityView";
+import type { SheetView } from "./SheetView";
 import type { StageChoicesView } from "./StageChoicesView";
 import type { TicketPathView } from "./TicketPathView";
 import type { ToolProblemCallout } from "./ToolProblemCallout";
@@ -29,11 +28,11 @@ export type PanelView = { key: string, title: string, epic: boolean, priority: P
  * The tokens by named agent (VAL-14, d0086): "Strong 182k · validation —", "Strong 61k · Light 23k (1
  * round)"; "agent 61k · validation 23k (2 rounds)" when the rows can't be read.
  */
-token_split: string | null, previous: string | null, next: string | null, previous_hint: PanelHint, next_hint: PanelHint, expand_hint: PanelHint, collapse_hint: PanelHint, close_hint: PanelHint, more_hint: string, 
+token_split: string | null, 
 /**
- * The left edge's name for screen readers; it resizes with ←/→ too.
+ * The tickets before and after it in its column (j / k, ⌘[ / ⌘]).
  */
-resize_hint: string, buttons: Array<PanelButton>, 
+previous: string | null, next: string | null, close_hint: PanelHint, more_hint: string, buttons: Array<PanelButton>, 
 /**
  * The "▾" beside Approve: the approve choices (Local merge / Open PR) in the `local_merge` overlay.
  */
@@ -70,11 +69,15 @@ holds: Array<ToolProblemCallout>, mark_closed: PanelConfirm | null,
 /**
  * The compact running pill next to the tokens while the Run is up (*13 → Card & panel-header controls*).
  */
-run: PanelRunPill | null, tabs: Array<PanelTabView>, 
+run: PanelRunPill | null, 
+/**
+ * The sheet's header, details line and tabs (SHT-01, SHT-02).
+ */
+sheet: SheetView, 
 /**
  * The ticket's agent session runs.
  */
-live_agent: boolean, sizes: PanelSizes, 
+live_agent: boolean, 
 /**
  * The ticket's stage choices (AGM-09, `s05-36`): none on a flow without options and for an epic.
  */

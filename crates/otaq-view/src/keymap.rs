@@ -14,6 +14,11 @@ use ts_rs::TS;
 
 use crate::view_models::layout::FILES_VIEW;
 
+/// The ticket sheet's tabs (SHT-02): `SwitchTab(1..=4)`.
+pub const SHEET_TABS: u8 = 4;
+/// The second keys of their `g` sequences: Overview, Session, Files, Activity.
+const SHEET_TAB_LETTERS: [&str; 4] = ["o", "s", "f", "a"];
+
 /// Which column of the keyboard map applies. `KeyPlatform` on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -102,7 +107,8 @@ pub enum KeyAction {
     OpenPanel,
     ClosePanel,
     ExpandPanel,
-    /// Switch panel tab 1–6.
+    /// The ticket sheet's tabs 1–4: Overview, Session (an epic's Lead), Files, Activity (SHT-02); `1`–`4` and `g o` /
+    /// `g s` / `g f` / `g a`.
     SwitchTab(u8),
     NextTab,
     PreviousTab,
@@ -126,7 +132,7 @@ pub enum KeyAction {
 }
 
 impl KeyAction {
-    /// Every action in the order Settings and the `?` list show them, numbered ones expanded (Project 1–9, tabs 1–6).
+    /// Every action in the order Settings and the `?` list show them, numbered ones expanded (Project 1–9, tabs 1–4).
     pub fn all() -> Vec<KeyAction> {
         let mut all = vec![Self::CommandPalette, Self::SwitchProject];
         all.extend((1..=9).map(Self::Project));
@@ -148,7 +154,7 @@ impl KeyAction {
             Self::ClosePanel,
             Self::ExpandPanel,
         ]);
-        all.extend((1..=6).map(Self::SwitchTab));
+        all.extend((1..=SHEET_TABS).map(Self::SwitchTab));
         all.extend([
             Self::NextTab,
             Self::PreviousTab,
@@ -166,6 +172,12 @@ impl KeyAction {
             Self::GoToFile,
         ]);
         all
+    }
+
+    /// A key of the open ticket sheet (its tabs): it comes before another action's same key while a sheet is open,
+    /// and the other one's runs when none is (`g a`: the Activity tab, else Activity, SHB-04).
+    pub fn in_sheet(self) -> bool {
+        matches!(self, Self::SwitchTab(_))
     }
 
     /// The Files view's own actions (⇧⌘O, ⌥⌘P): unbound and unlisted while it's parked ([`FILES_VIEW`]).
@@ -194,8 +206,8 @@ impl KeyAction {
             Self::NewProjectAgent => "New Project agent conversation",
             Self::NewTicket => "New ticket",
             Self::OpenPanel | Self::ClosePanel => "Open / close the panel",
-            Self::ExpandPanel => "Expand / shrink the panel",
-            Self::SwitchTab(_) => "Switch panel tab",
+            Self::ExpandPanel => "Full page / back to the sheet",
+            Self::SwitchTab(_) => "Ticket tabs",
             Self::NextTab | Self::PreviousTab => "Next / previous panel tab",
             Self::Approve => "Approve ▾",
             Self::SendBack => "Send back",
@@ -299,7 +311,13 @@ impl KeyAction {
             Self::OpenPanel => vec![k("↵", "↵", "")],
             Self::ClosePanel => vec![k("Esc", "Esc", "")],
             Self::ExpandPanel => vec![letter("e")],
-            Self::SwitchTab(n) => vec![letter(&n.clamp(1, 6).to_string())],
+            Self::SwitchTab(n) => {
+                let n = n.clamp(1, SHEET_TABS);
+                vec![
+                    letter(&n.to_string()),
+                    letter(&format!("g {}", SHEET_TAB_LETTERS[usize::from(n) - 1])),
+                ]
+            }
             Self::NextTab => vec![k("⌃Tab", "Ctrl+Tab", "Ctrl+Tab")],
             Self::PreviousTab => vec![k("⌃⇧Tab", "Ctrl+Shift+Tab", "Ctrl+Shift+Tab")],
             Self::Approve => vec![k("⌘↵", "Ctrl+↵", "Ctrl+Shift+↵")],
@@ -385,10 +403,12 @@ const HINT_ORDER: [KeyAction; 5] = [
 ];
 
 /// **The `g` hint** for the user's keys (`bindings`, [`user_keys`]): every `g` sequence with its action's hint name,
-/// custom ones included, removed ones left out.
+/// custom ones included, removed ones left out. The sheet's tab keys aren't in it (`s02-30`): they work in an open
+/// sheet only.
 pub fn sequence_hint(bindings: &[Binding]) -> Vec<SequenceHint> {
     let mut hint: Vec<(usize, SequenceHint)> = bindings
         .iter()
+        .filter(|b| !b.action.in_sheet())
         .filter_map(|b| match &b.key {
             Key::Sequence { then } => Some((
                 HINT_ORDER
@@ -1121,7 +1141,7 @@ mod tests {
     type Row = (KeyAction, Vec<String>, Vec<String>, Vec<String>);
 
     /// Decision 0097's base map (KEY-01) and its single letters (KEY-02), one row per action: macOS, Windows/Linux, in
-    /// a terminal (Windows/Linux). Pairs are split into their two actions, Project 1–9 and the panel tabs 1–6 expanded;
+    /// a terminal (Windows/Linux). Pairs are split into their two actions, Project 1–9 and the sheet tabs 1–4 expanded;
     /// `[]` where the decision has no key ("—", and letters in a terminal).
     fn table_0097() -> Vec<Row> {
         use KeyAction::*;
@@ -1195,9 +1215,15 @@ mod tests {
             let (mac, win) = (format!("⌘{n}"), format!("Ctrl+{n}"));
             table.push(row(Project(n), &[&mac], &[&win], &[&win]));
         }
-        for n in 1..=6 {
-            let digit = n.to_string();
-            table.push(row(SwitchTab(n), &[&digit], &[&digit], &[]));
+        // The sheet's tabs (SHT-02, SHB-04): 1–4 and g o / s / f / a.
+        for (n, then) in (1..=4).zip(["o", "s", "f", "a"]) {
+            let (digit, sequence) = (n.to_string(), format!("g {then}"));
+            table.push(row(
+                SwitchTab(n),
+                &[&digit, &sequence],
+                &[&digit, &sequence],
+                &[],
+            ));
         }
         table
     }
@@ -1304,15 +1330,31 @@ mod tests {
         assert_eq!(listed, tabled);
     }
 
+    /// The bindings as the dispatcher tries them while a ticket sheet is open: the sheet's keys first.
+    fn sheet_first(bindings: &[Binding]) -> Vec<Binding> {
+        let (sheet, rest): (Vec<Binding>, Vec<Binding>) =
+            bindings.iter().cloned().partition(|b| b.action.in_sheet());
+        sheet.into_iter().chain(rest).collect()
+    }
+
     /// Each key of the table, pressed where its column applies, runs its action: macOS on the board, and in a terminal
     /// when it holds ⌘ or is ⌃` / ⌃Tab / ⌃⇧Tab; Windows/Linux on the board; the terminal column in a Windows/Linux
-    /// terminal, where a Windows/Linux key outside that column never runs its action.
+    /// terminal, where a Windows/Linux key outside that column never runs its action. The sheet's keys run theirs in
+    /// an open sheet (`g a`: Activity without one).
     #[test]
     fn each_0097_key_runs_its_action_where_it_applies() {
-        let mac = bindings_for(Platform::Mac, true);
-        let win = bindings_for(Platform::WinLinux, true);
         for row in table_0097() {
             let action = row.0;
+            let (mac, win) = match action.in_sheet() {
+                true => (
+                    sheet_first(&bindings_for(Platform::Mac, true)),
+                    sheet_first(&bindings_for(Platform::WinLinux, true)),
+                ),
+                false => (
+                    bindings_for(Platform::Mac, true),
+                    bindings_for(Platform::WinLinux, true),
+                ),
+            };
             for text in &row.1 {
                 assert_eq!(
                     runs(Platform::Mac, false, text, &mac),
@@ -1526,7 +1568,10 @@ mod tests {
                 let mut seen: HashMap<Key, KeyAction> = HashMap::new();
                 for (key, action, text) in place_keys(platform, inside, &all) {
                     if let Some(other) = seen.insert(key, action) {
-                        assert_eq!(other, action, "{text} (inside: {inside})");
+                        // `g a` is the sheet's Activity tab while a sheet is open, else Activity (SHB-04).
+                        let sheet_first = (other.in_sheet() || action.in_sheet())
+                            && [other, action].contains(&KeyAction::OpenActivity);
+                        assert!(other == action || sheet_first, "{text} (inside: {inside})");
                     }
                 }
             }
@@ -2190,8 +2235,8 @@ mod tests {
                     vec![
                         "New ticket",
                         "Open / close the panel",
-                        "Expand / shrink the panel",
-                        "Switch panel tab",
+                        "Full page / back to the sheet",
+                        "Ticket tabs",
                         "Next / previous panel tab",
                         "Approve ▾",
                         "Send back",

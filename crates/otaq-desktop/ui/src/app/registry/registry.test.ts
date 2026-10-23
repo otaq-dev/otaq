@@ -6,7 +6,7 @@ import { sample } from "../../screens/_sample";
 import { overlays } from "../overlays";
 import { createRegistries, registered, registerScreens } from ".";
 import { OVERLAY_IDS, OVERLAY_MODAL, type OverlayId } from "./overlays";
-import { PANEL_TABS, panelTabNumbered } from "./panel";
+import { PANEL_TABS, SHEET_TABS } from "./panel";
 import { createRegistry } from "./registry";
 import { createShortcuts } from "./shortcuts";
 
@@ -30,6 +30,7 @@ describe("a screen plugs in", () => {
     expect(added).toEqual({
       slots: [],
       overlays: [],
+      sheetTabs: [],
       panelTabs: [],
       panelSections: [],
       globalSettings: [],
@@ -69,9 +70,9 @@ describe("a registry", () => {
 });
 
 describe("the fixed ids", () => {
-  it("panel tabs: Terminal · Diff · Run · Shell · Ticket · History, numbered 1–6 (UI-04), and an epic's Lead", () => {
+  it("sheet tabs: Overview · Session · Files · Activity and an epic's Lead (SHT-02); today's panel tabs inside them", () => {
+    expect(SHEET_TABS).toEqual(["overview", "session", "files", "activity", "lead"]);
     expect(PANEL_TABS).toEqual(["terminal", "diff", "run", "shell", "ticket", "history", "lead"]);
-    expect([1, 2, 6, 8].map(panelTabNumbered)).toEqual(["terminal", "diff", "history", undefined]);
   });
 
   it("overlays: every id has its modality; the inbox and popovers don't hold shortcuts back", () => {

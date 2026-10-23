@@ -352,7 +352,8 @@ function useCovered(board: HTMLElement | null, open: boolean): number {
     const panel = open
       ? board?.closest(".frame-main")?.querySelector<HTMLElement>(":scope > .frame-panel")
       : null;
-    if (!board || !panel) return;
+    // The ticket sheet floats over the board, which stays as it was under it (SHT-01, T-0464).
+    if (!board || !panel || panel.querySelector(":scope > .sheet")) return;
     const measure = () => {
       setCovered(coveredWidth(board.getBoundingClientRect(), panel.getBoundingClientRect()));
     };

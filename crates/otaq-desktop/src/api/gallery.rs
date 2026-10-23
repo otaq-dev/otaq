@@ -73,6 +73,9 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.keyboard_page" => reply(&otaq_view::view_models::keyboard_page::gallery()),
         // The answer options' notes in the inbox, the panel and the card's hover card (T-0375).
         "gallery.option_notes" => reply(&super::panel::notes_gallery()),
+        // 25 · The ticket sheet's header, details line and path: needs you, your check, an epic's child, Backlog
+        // (T-0464).
+        "gallery.sheet" => reply(&super::panel::sheet_gallery()),
         _ => Err(unknown(method)),
     }
 }

@@ -202,6 +202,7 @@ describe("the components screen", () => {
     expect(registered(app)).toEqual({
       slots: [],
       overlays: ["confirm", "gallery"],
+      sheetTabs: [],
       panelTabs: [],
       panelSections: [],
       globalSettings: [],

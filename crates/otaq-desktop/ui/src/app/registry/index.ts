@@ -11,6 +11,8 @@ import {
   PANEL_UNDER_TABS,
   type PanelSectionEntries,
   type PanelTabEntries,
+  SHEET_TABS,
+  type SheetTabEntries,
 } from "./panel";
 import { createRegistry, type Registry } from "./registry";
 import {
@@ -25,6 +27,7 @@ import { SLOT_IDS, type SlotEntries } from "./slots";
 export interface Registries {
   slots: Registry<SlotEntries>;
   overlays: Registry<OverlayEntries>;
+  sheetTabs: Registry<SheetTabEntries>;
   panelTabs: Registry<PanelTabEntries>;
   panelSections: Registry<PanelSectionEntries>;
   settings: { global: Registry<GlobalSectionEntries>; project: Registry<ProjectSectionEntries> };
@@ -38,6 +41,7 @@ export function createRegistries(): Registries {
   return {
     slots: createRegistry("slots", SLOT_IDS),
     overlays: createRegistry("overlays", OVERLAY_IDS),
+    sheetTabs: createRegistry("sheet tabs", SHEET_TABS),
     panelTabs: createRegistry("panel tabs", PANEL_TABS),
     panelSections: createRegistry("panel sections", [PANEL_TOP, ...PANEL_SECTIONS, PANEL_UNDER_TABS]),
     settings: {
@@ -60,6 +64,7 @@ export function registered(app: Registries): Record<string, string[]> {
   return {
     slots: app.slots.ids(),
     overlays: app.overlays.ids(),
+    sheetTabs: app.sheetTabs.ids(),
     panelTabs: app.panelTabs.ids(),
     panelSections: app.panelSections.ids(),
     globalSettings: app.settings.global.ids(),

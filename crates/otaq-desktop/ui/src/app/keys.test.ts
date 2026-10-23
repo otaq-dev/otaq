@@ -516,9 +516,9 @@ const BASE: [KeyAction, Slot[]][] = [
   [{ action: "open_panel" }, [["↵", "↵", ""]]],
   [{ action: "close_panel" }, [["Esc", "Esc", ""]]],
   [{ action: "expand_panel" }, [letter("e")]],
-  ...[1, 2, 3, 4, 5, 6].map((n): [KeyAction, Slot[]] => [
-    { action: "switch_tab", number: n },
-    [letter(String(n))],
+  ...(["o", "s", "f", "a"] as const).map((then, i): [KeyAction, Slot[]] => [
+    { action: "switch_tab", number: i + 1 },
+    [letter(String(i + 1)), letter(`g ${then}`)],
   ]),
   [{ action: "next_tab" }, [["⌃Tab", "Ctrl+Tab", "Ctrl+Tab"]]],
   [{ action: "previous_tab" }, [["⌃⇧Tab", "Ctrl+Shift+Tab", "Ctrl+Shift+Tab"]]],
@@ -677,7 +677,7 @@ describe("0097's keys (KEY-01, KEY-02)", () => {
       [["c"], "new_ticket"],
       [["g", "b"], "show_board"],
       [["g", "i"], "open_inbox"],
-      [["g", "a"], "open_activity"],
+      [["g", "a"], "switch_tab 4"],
       [["g", "t"], "terminals"],
       [["g", "e"], "focus_epic"],
       [["⌘D"], "start_dev"],
@@ -688,9 +688,23 @@ describe("0097's keys (KEY-01, KEY-02)", () => {
     for (const [texts, action] of cases) {
       expect(run(MAC_0097, texts).ran, texts.join(" ")).toEqual([action]);
     }
-    for (const n of [1, 2, 3, 4, 5, 6]) {
+    for (const n of [1, 2, 3, 4]) {
       expect(run(MAC_0097, [String(n)]).ran).toEqual([`switch_tab ${String(n)}`]);
     }
+    expect(run(MAC_0097, ["g", "o"]).ran).toEqual(["switch_tab 1"]);
+  });
+
+  it("g a is the open sheet's Activity tab, else Activity (SHB-04)", () => {
+    const sheetOpen = setup(MAC_0097, ALL);
+    for (const t of ["g", "a"]) dispatchKey(sheetOpen.d, press(t), BOARD);
+    expect(sheetOpen.ran).toEqual(["switch_tab 4"]);
+    const noSheet = setup(
+      MAC_0097,
+      ALL.filter((a) => a !== "switch_tab"),
+    );
+    const outcomes = ["g", "a"].map((t) => dispatchKey(noSheet.d, press(t), BOARD));
+    expect(noSheet.ran).toEqual(["open_activity"]);
+    expect(outcomes[1]).toEqual({ kind: "ran", action: { action: "open_activity" } });
   });
 
   it("runs each one on Windows and Linux", () => {

@@ -20,6 +20,7 @@ export { review } from "./review";
 export { run } from "./run";
 export { sections } from "./sections";
 export { settings } from "./settings";
+export { sheet } from "./sheet";
 export { shell } from "./shell";
 export { shortcuts } from "./shortcuts";
 export { terminalTab } from "./terminal_tab";

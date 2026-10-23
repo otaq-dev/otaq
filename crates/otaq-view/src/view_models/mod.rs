@@ -100,6 +100,7 @@ pub mod search_page;
 pub mod send_back;
 pub mod settings;
 pub mod settings_page;
+pub mod sheet;
 pub mod shell;
 pub mod shortcut_list;
 pub mod stack;

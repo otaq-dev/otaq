@@ -322,13 +322,25 @@ impl Ctx<'_> {
 
     /// The cells of one action or of a pair, slot by slot; "no key" when none is left.
     fn cells(&self, actions: &[KeyAction]) -> Vec<Cell> {
+        let cells = self.cells_from(actions, 0);
+        if cells.is_empty() {
+            return vec![Cell::Keys {
+                halves: actions.iter().map(|a| self.no_key(*a, 0)).collect(),
+            }];
+        }
+        cells
+    }
+
+    /// The cells of the slots from `from` on, each recordable member by member (a numbered row's after its range:
+    /// the sheet's tabs `g o / s / f / a`).
+    fn cells_from(&self, actions: &[KeyAction], from: usize) -> Vec<Cell> {
         let slots = actions
             .iter()
             .map(|a| slot_count(self.custom, *a))
             .max()
             .unwrap_or(0);
         let mut cells = Vec::new();
-        for slot in 0..slots {
+        for slot in from..slots {
             let Ok(s) = u8::try_from(slot) else { break };
             let halves: Vec<Option<CellKey>> = actions.iter().map(|a| self.key(*a, s)).collect();
             if halves.iter().all(Option::is_none) {
@@ -340,11 +352,6 @@ impl Ctx<'_> {
                     .zip(actions)
                     .map(|(h, a)| h.unwrap_or_else(|| self.no_key(*a, slot)))
                     .collect(),
-            });
-        }
-        if cells.is_empty() {
-            cells.push(Cell::Keys {
-                halves: actions.iter().map(|a| self.no_key(*a, 0)).collect(),
             });
         }
         cells
@@ -432,7 +439,9 @@ impl Ctx<'_> {
             .collect();
         let changed = !changed_slots.is_empty();
         let cells = if range {
-            vec![self.range(actions)]
+            std::iter::once(self.range(actions))
+                .chain(self.cells_from(actions, 1))
+                .collect()
         } else {
             self.cells(actions)
         };
@@ -1265,8 +1274,11 @@ mod tests {
             ("New Project agent conversation", vec!["⇧⌘L"]),
             ("New ticket", vec!["⌘N", "c"]),
             ("Open / close the panel", vec!["↵ / Esc"]),
-            ("Expand / shrink the panel", vec!["e"]),
-            ("Switch panel tab", vec!["1–6"]),
+            ("Full page / back to the sheet", vec!["e"]),
+            (
+                "Ticket tabs",
+                vec!["1–4", "g then o / g then s / g then f / g then a"],
+            ),
             ("Next / previous panel tab", vec!["⌃Tab / ⌃⇧Tab"]),
             ("Approve ▾", vec!["⌘↵"]),
             ("Send back", vec!["⌘⌫"]),
@@ -1369,7 +1381,7 @@ mod tests {
         assert_eq!(
             tabs,
             &Cell::Range {
-                text: "1–6".into(),
+                text: "1–4".into(),
                 changed: false,
                 dimmed: true
             }

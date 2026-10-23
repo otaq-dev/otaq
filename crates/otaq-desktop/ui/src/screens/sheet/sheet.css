@@ -1,0 +1,456 @@
+/*
+ * The ticket sheet (SHT-01; *25 → Opening a ticket*, *Full page, and with the agent open*): a 12 px rounded sheet,
+ * 1040 px (920 px beside the Project agent), 40 px under the main area's top and 36 px over its bottom, centred over
+ * the board, which dims under it. At full page it fills the main area square. Colours are the theme's tokens; the
+ * scrim is the drawn #0F1115 at 15 %, the same in Light and Dark.
+ */
+
+/*
+ * The frame's panel layer (`.frame-panel`, the drawer of 0095) holds the sheet: it covers the main area and only the
+ * sheet takes clicks, so the board under the scrim stays usable (a card click opens its ticket in the sheet). A hook
+ * on the frame's layer, kept here until the frame takes it (T-0458's `Frame.tsx` / `frame.css`).
+ */
+.frame-main > .frame-panel:has(> .sheet) {
+  left: 0;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 40px 0 36px;
+  overflow: visible;
+  box-shadow: none;
+  pointer-events: none;
+}
+
+.frame-main[data-expanded] > .frame-panel:has(> .sheet) {
+  padding: 0;
+}
+
+.frame-main > .frame-panel > .sheet {
+  pointer-events: auto;
+}
+
+/* Only the board dims (`s25-10`): the rail, the title bar and the Project agent stay as they are. */
+.frame-main:has(> .frame-panel > .sheet:not([data-full-page])) > .frame-board {
+  position: relative;
+}
+
+.frame-main:has(> .frame-panel > .sheet:not([data-full-page])) > .frame-board::after {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  background: rgb(15 17 21 / 15%);
+  content: "";
+  pointer-events: none;
+}
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 12px;
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+  background: var(--bg-panel);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 20%);
+  color: var(--text-primary);
+  font: var(--text-body);
+}
+
+.sheet[data-full-page] {
+  width: 100%;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+}
+
+.sheet-gone {
+  align-items: center;
+  justify-content: center;
+  width: 1040px;
+  max-width: 100%;
+  color: var(--text-muted);
+}
+
+/* ---- Header: breadcrumb, title and status; Move…, ⋯, ⤢, ✕ ---- */
+
+.sheet-header {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px 24px 12px;
+}
+
+.sheet-heading {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sheet-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font: 400 12px/16px var(--font-ui);
+}
+
+.sheet-crumb-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sheet-crumb[data-key] {
+  font-family: var(--font-mono);
+}
+
+.sheet-crumb-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.sheet-crumb-link:hover {
+  color: var(--text-primary);
+}
+
+.sheet-crumb-link:focus-visible {
+  border-radius: var(--r-sm);
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.sheet-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.sheet-title {
+  overflow: hidden;
+  margin: 0;
+  font: 600 20px/28px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+}
+
+.sheet-move {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--text-secondary);
+  font: 500 12px var(--font-ui);
+  cursor: pointer;
+  transition: var(--motion-colors);
+}
+
+.sheet-move:hover,
+.sheet-move[aria-expanded="true"] {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.sheet-move:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ---- The details line ---- */
+
+/* One line: a narrow sheet shortens the values (the branch first, as the last), never wraps. */
+.sheet-details {
+  display: flex;
+  flex: none;
+  align-items: center;
+  overflow: hidden;
+  padding: 0 24px 10px;
+}
+
+.sheet-detail {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sheet-detail:not(:last-child) {
+  flex-shrink: 0;
+}
+
+/* The drawn 1 × 14 px rule between items, 14 px from each. */
+.sheet-detail + .sheet-detail::before {
+  width: 1px;
+  height: 14px;
+  margin: 0 6px;
+  background: var(--border);
+  content: "";
+}
+
+.sheet-detail-label {
+  flex: none;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+  white-space: nowrap;
+}
+
+.sheet-detail-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font: 400 12.5px var(--font-ui);
+}
+
+.sheet-detail-button {
+  margin: -2px -4px;
+  padding: 2px 4px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  cursor: pointer;
+}
+
+.sheet-detail-button:hover,
+.sheet-detail-button[aria-expanded="true"] {
+  background: var(--bg-hover);
+}
+
+.sheet-detail-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.sheet-detail-value {
+  overflow: hidden;
+  min-width: 0;
+  max-width: 280px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-detail-value[data-mono] {
+  font: 400 12px var(--font-mono);
+}
+
+.sheet-detail-note {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sheet-detail-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--st-working);
+}
+
+/* ---- The flow path: a 20 px node per stage in a 64 px column with its name, joined by 2 px lines ---- */
+
+.sheet-path {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  margin: 0;
+  padding: 4px 24px 14px;
+  list-style: none;
+}
+
+.sheet-step {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 64px;
+}
+
+.sheet-step-line {
+  flex: 1;
+  height: 2px;
+  margin-top: 9px;
+  background: var(--border);
+}
+
+.sheet-step-line[data-done] {
+  background: var(--st-approved);
+}
+
+.sheet-step-node {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--bg-panel);
+}
+
+.sheet-step[data-state="done"] .sheet-step-node {
+  border-color: var(--st-approved);
+  background: var(--st-approved);
+  color: var(--text-on-accent);
+}
+
+.sheet-step[data-state="current"] .sheet-step-node {
+  border: 2px solid var(--st-working);
+}
+
+.sheet-step[data-state="current"][data-attention] .sheet-step-node {
+  border-color: var(--st-attn);
+  background: var(--st-attn-bg);
+}
+
+.sheet-step[data-state="skipped"] .sheet-step-node {
+  border-style: dashed;
+}
+
+.sheet-step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--st-working);
+}
+
+.sheet-step[data-attention] .sheet-step-dot {
+  background: var(--st-attn);
+}
+
+.sheet-step-name {
+  overflow: hidden;
+  max-width: 64px;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-step[data-state="done"] .sheet-step-name,
+.sheet-step[data-state="current"] .sheet-step-name {
+  color: var(--text-primary);
+}
+
+/* ---- Tabs and body ---- */
+
+.sheet-tabs {
+  flex: none;
+  padding: 0 24px;
+}
+
+.sheet-tabs .tabs {
+  gap: 20px;
+}
+
+.sheet-tabs .tab {
+  padding: 10px 4px;
+  font-size: 13px;
+}
+
+.sheet-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Session and Files fill the body (a terminal, a diff); Overview and Activity scroll in it. */
+.sheet-body[data-tab="session"],
+.sheet-body[data-tab="files"],
+.sheet-body[data-tab="lead"] {
+  overflow: hidden;
+}
+
+.sheet-overview {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sheet-overview-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sheet-session {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sheet-session-switch {
+  margin: 10px 24px 6px;
+}
+
+.sheet-session-switch .segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sheet-session-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Today's panel parts at the top of Overview (until T-0465) keep the sheet's 24 px gutter. */
+.sheet-overview .panel-header {
+  padding: 16px 24px 12px;
+}
+
+.sheet-overview .panel-agents {
+  padding: 4px 24px 8px;
+}
+
+.sheet-overview .panel-notice {
+  margin: 0 24px 8px;
+}
+
+.sheet-overview .panel-start-problem {
+  padding: 16px 24px;
+}
+
+/* The gallery's sheets (T-0464): their header and tabs at a fixed height. */
+.sheet-gallery > .sheet {
+  height: 300px;
+}
+
+.sheet-gallery-full > .sheet {
+  width: 1376px;
+}

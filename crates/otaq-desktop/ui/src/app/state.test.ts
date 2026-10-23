@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import { createOverlayStack, modalOpen } from "./overlays";
-import { closeTicket, createSelection, focusTerminal, openTicket, selectProject, showTab } from "./selection";
+import {
+  closeTicket,
+  createSelection,
+  focusTerminal,
+  openTicket,
+  selectProject,
+  showTab,
+  stepTicket,
+} from "./selection";
 import { createStore } from "./store";
 
 describe("the store", () => {
@@ -19,7 +27,7 @@ describe("the store", () => {
 });
 
 describe("the selection", () => {
-  it("opens and closes a ticket, keeps the tab, and starts a new project closed", () => {
+  it("opens a ticket on its first tab, j / k keep the tab, and a new project starts closed (SHT-02)", () => {
     const s = createSelection();
     selectProject("SHOP", s);
     openTicket("SHOP-22", "diff", s);
@@ -31,8 +39,12 @@ describe("the selection", () => {
       focusedTerminal: "session-1",
     });
 
-    openTicket("SHOP-23", undefined, s);
+    stepTicket("SHOP-23", s);
     expect(s.get().tab).toBe("diff");
+    openTicket("SHOP-23", undefined, s);
+    expect(s.get().tab, "the open ticket keeps it").toBe("diff");
+    openTicket("SHOP-24", undefined, s);
+    expect(s.get().tab).toBeNull();
     showTab("history", s);
     closeTicket(s);
     expect(s.get()).toEqual({ project: "SHOP", ticket: null, tab: "history", focusedTerminal: null });

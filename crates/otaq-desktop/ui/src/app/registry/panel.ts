@@ -1,40 +1,37 @@
-// The side panel's tabs and sections (UI-04). The panel screen (T-0222) draws the tab strip, with each tab's label
-// and indicator from the Rust panel view model, and shows the registered tab; each tab's screen registers its own.
+// The ticket sheet's tabs and the content they show (SHT-02, T-0464). The sheet (`screens/sheet`) draws the tab bar
+// from Rust's `sheet` view and shows the body registered for the shown tab in `sheetTabs` (Overview, Session, Files,
+// Activity; an epic's Lead). Until each tab's own ticket lands (T-0465 Overview, T-0466 Session and Activity, T-0468
+// Files, T-0469 the epic's), the sheet's screen registers bodies that show today's panel tabs, which their screens
+// still register in `panelTabs`, and the panel's sections.
 import type { ComponentType } from "react";
 
 import type { PanelTab } from "../../generated/PanelTab";
+import type { SheetTab } from "../../generated/SheetTab";
+
+/** The sheet's tabs, in order (an epic's Lead takes Session's place). */
+export const SHEET_TABS: readonly SheetTab[] = ["overview", "session", "files", "activity", "lead"];
 
 /**
- * Each tab's number: its place in a ticket's strip and its ⌘⌥ key (d0058). Terminal · Diff · Run · Shell · Ticket ·
- * History. Lead is an epic's only (d0083, T-0290): an epic's panel shows Ticket · Lead · History (Diff first in
- * review) and numbers them in that shown order, from the panel view's `tabs`.
+ * Today's panel tabs, the content the sheet's tabs show until their tickets land (`SheetTabView.contents`):
+ * Terminal, Run and Shell in Session, Diff in Files, Ticket in Overview, History in Activity, Lead in an epic's Lead.
  */
-export const PANEL_TAB_NUMBER: Record<PanelTab, number> = {
-  terminal: 1,
-  diff: 2,
-  run: 3,
-  shell: 4,
-  ticket: 5,
-  history: 6,
-  lead: 7,
-};
+export const PANEL_TABS: readonly PanelTab[] = [
+  "terminal",
+  "diff",
+  "run",
+  "shell",
+  "ticket",
+  "history",
+  "lead",
+];
 
-export const PANEL_TABS: readonly PanelTab[] = (Object.keys(PANEL_TAB_NUMBER) as PanelTab[]).sort(
-  (a, b) => PANEL_TAB_NUMBER[a] - PANEL_TAB_NUMBER[b],
-);
-
-/** The tab with this number (`switch_tab`'s), if any. */
-export function panelTabNumbered(n: number): PanelTab | undefined {
-  return PANEL_TABS.find((tab) => PANEL_TAB_NUMBER[tab] === n);
-}
-
-/** The panel's sections, in order (the epic panel shows only for an epic). */
+/** The panel's sections, in order (the epic section shows only for an epic), at the top of Overview. */
 export const PANEL_SECTIONS = ["epic", "stack", "messages"] as const;
 
-/** The bar on top of the panel during a ⌘J run through the inbox (T-0230), registered like a section. */
+/** The bar on top of the sheet during a ⌘J run through the inbox (T-0230), registered like a section. */
 export const PANEL_TOP = "inbox_run" as const;
 
-/** The box under the tab strip while the ticket's PR is open (T-0227, *05 → SHOP-26 · Approved, PR open*). */
+/** The box under Overview's top while the ticket's PR is open (T-0227, *05 → SHOP-26 · Approved, PR open*). */
 export const PANEL_UNDER_TABS = "pr_open" as const;
 
 export type PanelSection = (typeof PANEL_SECTIONS)[number] | typeof PANEL_TOP | typeof PANEL_UNDER_TABS;
@@ -44,5 +41,6 @@ export interface TicketProps {
   ticket: string;
 }
 
+export type SheetTabEntries = Record<SheetTab, { Component: ComponentType<TicketProps> }>;
 export type PanelTabEntries = Record<PanelTab, { Component: ComponentType<TicketProps> }>;
 export type PanelSectionEntries = Record<PanelSection, { Component: ComponentType<TicketProps> }>;

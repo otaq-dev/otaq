@@ -265,9 +265,19 @@ export function letterFor(map: Keymap, e: KeyLike, hold: LetterHold): KeyBinding
   );
 }
 
-/** The `g` sequence whose second key `e` is. */
-export function sequenceFor(map: Keymap, e: KeyLike): KeyBinding | undefined {
-  return map.bindings.find((b) => b.key.kind === "sequence" && letterMatches(b.key.then, e));
+/**
+ * The open ticket sheet's own actions (`KeyAction::in_sheet`): where they share a key with another action (`g a`, the
+ * Activity tab and Activity, SHB-04), the sheet's is tried first and the other runs when no sheet takes it.
+ */
+const SHEET_FIRST: ReadonlySet<KeyAction["action"]> = new Set<KeyAction["action"]>(["switch_tab"]);
+
+/** The `g` sequences whose second key `e` is, the sheet's first. */
+export function sequencesFor(map: Keymap, e: KeyLike): KeyBinding[] {
+  const all = map.bindings.filter((b) => b.key.kind === "sequence" && letterMatches(b.key.then, e));
+  return [
+    ...all.filter((b) => SHEET_FIRST.has(b.action.action)),
+    ...all.filter((b) => !SHEET_FIRST.has(b.action.action)),
+  ];
 }
 
 /** Whether `e` is the `g` that starts the sequences (when the map has any). */
@@ -371,8 +381,12 @@ export function dispatchKey(d: Dispatch, e: KeyLike, ctx: KeyContext): KeyOutcom
     d.wait(false);
     // Somebody typing now (the focus moved meanwhile) gets the key as usual.
     if (map && lettersRun(map, ctx)) {
-      const second = sequenceFor(map, e);
-      return second ? runBinding(d, second, ctx) : { kind: "cancelled" };
+      let outcome: KeyOutcome = { kind: "cancelled" };
+      for (const second of sequencesFor(map, e)) {
+        outcome = runBinding(d, second, ctx);
+        if (outcome.kind === "ran") break;
+      }
+      return outcome;
     }
   }
   if (ctx.inTerminal && (map === undefined || goesToTerminal(map, e))) return { kind: "terminal" };

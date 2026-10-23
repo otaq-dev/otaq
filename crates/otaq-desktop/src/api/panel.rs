@@ -8,6 +8,10 @@
 //! An epic's panel (T-0290; d0083): Ticket · Lead · History (Diff first in review), numbered in that order; its
 //! lead's own question is the header's question bar, answered with `project_agent.answer`; "Resume lead" leads the
 //! bar while its lead ended by restart (or its agent tool exited).
+//!
+//! From M38 the panel is the ticket sheet (SHT-01, SHT-02, T-0464): [`View::sheet`] carries its header, details line
+//! and tabs (`view_models/sheet.rs`); the rest of the view is what today's tabs and Overview's top still show until
+//! T-0465, T-0466 and T-0468 move it. `panel.move_menu` is the header's Move….
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -40,9 +44,10 @@ use otaq_view::view_models::card::{
 };
 use otaq_view::view_models::close;
 use otaq_view::view_models::epic_actions;
-use otaq_view::view_models::layout::ClassWidths;
+use otaq_view::view_models::flow_columns::Columns;
 use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::panel::{self as vm, Indicator, Tab};
+use otaq_view::view_models::sheet::{self, Crumb, Detail, DetailFacts, SheetTab, Step};
 use otaq_view::view_models::panel_actions::{self as actions, Action, Look};
 use otaq_view::view_models::pr_dialog;
 use otaq_view::view_models::priority::{self, PriorityView};
@@ -76,6 +81,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "panel.setup_log" => reply(&setup_log(parse(params)?)),
         "panel.answer_agent" => reply(&answer_agent(app, parse(params)?).await?),
         "panel.set_choice" => reply(&set_choice(app, parse(params)?).await?),
+        "panel.move_menu" => reply(&move_menu(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -181,15 +187,55 @@ pub enum Mark {
     Note { text: String },
 }
 
-/// One tab of the strip.
+/// One tab of the sheet (SHT-02): its name, icon, key and dot, and today's panel tabs it shows (`contents`, the
+/// first by default) until its own ticket lands; Session's switch is its `parts` (Agent · Run · Shell).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "PanelTabView")]
+#[ts(rename = "SheetTabView")]
 pub struct TabView {
-    pub tab: Tab,
+    pub tab: SheetTab,
     pub label: &'static str,
     pub icon: IconName,
+    /// Its `SwitchTab` number: 1–4 (`g o` / `s` / `f` / `a`); an epic's Lead is 2.
+    pub number: u8,
+    /// The user's first key for it (`1`).
     pub keys: Option<String>,
+    /// The live dot (Session: the agent's; Lead: the lead's) or a problem.
     pub mark: Option<Mark>,
+    pub contents: Vec<Tab>,
+    /// Session's switch while it shows today's Terminal, Run and Shell tabs: empty for the other tabs.
+    pub parts: Vec<PartView>,
+}
+
+/// One button of Session's switch: "Agent", "Run" (":4020"), "Shell".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SheetPartView")]
+pub struct PartView {
+    pub content: Tab,
+    pub label: &'static str,
+    pub mark: Option<Mark>,
+}
+
+/// The sheet's frame (SHT-01): breadcrumb, details line, tabs, the tab it opens on and its widths.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "SheetView")]
+pub struct SheetView {
+    pub crumbs: Vec<Crumb>,
+    pub details: Vec<Detail>,
+    /// The flow path under the details line; empty for an epic.
+    pub steps: Vec<Step>,
+    pub tabs: Vec<TabView>,
+    pub opens_on: SheetTab,
+    /// "Move…": the drag's columns (`panel.move_menu`).
+    pub move_label: &'static str,
+    /// ⤢ and ⤡ (`e`).
+    pub full_page: Hint,
+    pub back: Hint,
+    /// "← Board" at full page.
+    pub board: &'static str,
+    pub width: f32,
+    pub width_beside_agent: f32,
+    /// What it keeps clear on each side over the board.
+    pub margin: f32,
 }
 
 /// One answer option (ATT-12): the recommended one is picked when the list opens.
@@ -291,25 +337,6 @@ pub struct Confirm {
     pub confirm: String,
 }
 
-/// The panel's sizes (`panel.rs`): what a drag of its edge needs, sent up front. The width is kept per window size
-/// class (SHL-05); the page picks the class with `layout.view`'s table.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "PanelSizes")]
-pub struct Sizes {
-    pub default_widths: ClassWidths,
-    pub min_width: f32,
-    /// The main area keeps this much on the panel's left: the widest panel is the main area minus it.
-    pub main_keeps: f32,
-    pub icon_tabs_below: f32,
-}
-
-pub const SIZES: Sizes = Sizes {
-    default_widths: vm::DEFAULT_WIDTHS,
-    min_width: vm::MIN_WIDTH,
-    main_keeps: vm::MAIN_KEEPS,
-    icon_tabs_below: vm::ICON_TABS_BELOW,
-};
-
 /// The open ticket's panel.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "PanelView")]
@@ -329,16 +356,11 @@ pub struct View {
     /// The tokens by named agent (VAL-14, d0086): "Strong 182k · validation —", "Strong 61k · Light 23k (1
     /// round)"; "agent 61k · validation 23k (2 rounds)" when the rows can't be read.
     pub token_split: Option<String>,
+    /// The tickets before and after it in its column (j / k, ⌘[ / ⌘]).
     pub previous: Option<String>,
     pub next: Option<String>,
-    pub previous_hint: Hint,
-    pub next_hint: Hint,
-    pub expand_hint: Hint,
-    pub collapse_hint: Hint,
     pub close_hint: Hint,
     pub more_hint: &'static str,
-    /// The left edge's name for screen readers; it resizes with ←/→ too.
-    pub resize_hint: &'static str,
     pub buttons: Vec<Button>,
     /// The "▾" beside Approve: the approve choices (Local merge / Open PR) in the `local_merge` overlay.
     pub approve_more: Option<&'static str>,
@@ -365,10 +387,10 @@ pub struct View {
     pub mark_closed: Option<Confirm>,
     /// The compact running pill next to the tokens while the Run is up (*13 → Card & panel-header controls*).
     pub run: Option<RunPill>,
-    pub tabs: Vec<TabView>,
+    /// The sheet's header, details line and tabs (SHT-01, SHT-02).
+    pub sheet: SheetView,
     /// The ticket's agent session runs.
     pub live_agent: bool,
-    pub sizes: Sizes,
     /// The ticket's stage choices (AGM-09, `s05-36`): none on a flow without options and for an epic.
     pub choices: Option<ChoicesView>,
     /// The ticket's path (AGM-09): every stage with its agent and model; none for an epic.
@@ -425,6 +447,9 @@ pub struct Facts<'a> {
     pub custom_flow: bool,
     /// Its ticket comments: the Ticket tab's count (CMT-10).
     pub comments: usize,
+    /// Its project's name and its epic's title: the breadcrumb (SHT-01).
+    pub project_name: &'a str,
+    pub epic_title: Option<&'a str>,
 }
 
 fn running_agent(sessions: &[SessionInfo]) -> bool {
@@ -625,13 +650,8 @@ pub fn view_of(f: &Facts) -> View {
         },
         previous: vm::neighbour(f.tickets, &ticket.key, -1).map(|k| k.to_string()),
         next: vm::neighbour(f.tickets, &ticket.key, 1).map(|k| k.to_string()),
-        previous_hint: Hint::new("Previous ticket", KeyAction::PreviousTicket, &f.keys),
-        next_hint: Hint::new("Next ticket", KeyAction::NextTicket, &f.keys),
-        expand_hint: Hint::new("Expand", KeyAction::ExpandPanel, &f.keys),
-        collapse_hint: Hint::new("Back to the board", KeyAction::ExpandPanel, &f.keys),
         close_hint: Hint::new("Close", KeyAction::ClosePanel, &f.keys),
         more_hint: "More",
-        resize_hint: "Panel width",
         approve_more: buttons
             .iter()
             .any(|b| b.action == Action::Approve)
@@ -676,28 +696,90 @@ pub fn view_of(f: &Facts) -> View {
             url,
             stop_hint: "Stop",
         }),
-        tabs: vm::indicators(ticket, f.sessions, f.lead.map(|l| &l.status), f.comments)
-            .into_iter()
-            .enumerate()
-            .map(|(i, (tab, indicator))| match (tab, f.run) {
-                (Tab::Run, Some(run)) => (i, tab, otaq_view::view_models::run::tab_indicator(Some(run))),
-                _ => (i, tab, indicator),
-            })
-            // Tab N's key follows the shown order (an epic's tabs too).
-            .map(|(i, tab, indicator)| TabView {
-                tab,
-                label: tab.label(),
-                icon: tab.icon(),
-                keys: f.keys.label(KeyAction::SwitchTab(i as u8 + 1)),
-                mark: mark(indicator),
-            })
-            .collect(),
+        sheet: sheet_of(f),
         live_agent: live,
-        sizes: SIZES,
         choices: f.agents.and_then(stage_choices::panel_choices),
         path: f.agents.and_then(|t| stage_choices::path(t, f.tools)),
         open_agent: f.agents.and_then(|t| open_agent(ticket, t)),
     }
+}
+
+/// The sheet's frame for `f`'s ticket. Today's tab indicators become the sheet tabs' dots and Session's switch's
+/// marks (Run's ":4020").
+fn sheet_of(f: &Facts) -> SheetView {
+    let ticket = f.ticket;
+    let marks: Vec<(Tab, Option<Mark>)> =
+        vm::indicators(ticket, f.sessions, f.lead.map(|l| &l.status), f.comments)
+            .into_iter()
+            .map(|(tab, indicator)| match (tab, f.run) {
+                (Tab::Run, Some(run)) => (tab, otaq_view::view_models::run::tab_indicator(Some(run))),
+                _ => (tab, indicator),
+            })
+            .map(|(tab, indicator)| (tab, mark(indicator)))
+            .collect();
+    let mark_of = |tab: Tab| marks.iter().find(|(t, _)| *t == tab).and_then(|(_, m)| m.clone());
+    let tabs = sheet::tabs(ticket)
+        .into_iter()
+        .map(|tab| {
+            let contents = tab.contents();
+            TabView {
+                tab,
+                label: tab.label(),
+                icon: tab.icon(),
+                number: tab.number(),
+                keys: f.keys.label(KeyAction::SwitchTab(tab.number())),
+                // Only a dot on the tab itself (`s25-03`): counts and ports stay on Session's switch.
+                mark: mark_of(contents[0]).filter(|m| !matches!(m, Mark::Note { .. })),
+                contents: contents.to_vec(),
+                parts: match contents.len() {
+                    1 => Vec::new(),
+                    _ => contents
+                        .iter()
+                        .map(|c| PartView {
+                            content: *c,
+                            label: sheet::part_label(*c),
+                            mark: mark_of(*c),
+                        })
+                        .collect(),
+                },
+            }
+        })
+        .collect();
+    SheetView {
+        crumbs: sheet::breadcrumb(ticket, f.project_name, f.epic_title),
+        details: sheet::details(&DetailFacts {
+            ticket,
+            agents: f.agents,
+            tools: f.tools,
+            epic_title: f.epic_title,
+            now: f.now,
+        }),
+        steps: sheet::steps(ticket, f.agents),
+        tabs,
+        opens_on: sheet::opens_on(ticket),
+        move_label: sheet::MOVE,
+        full_page: Hint::new(sheet::FULL_PAGE, KeyAction::ExpandPanel, &f.keys),
+        back: Hint::new(sheet::BACK_TO_SHEET, KeyAction::ExpandPanel, &f.keys),
+        board: sheet::BOARD,
+        width: sheet::WIDTH,
+        width_beside_agent: sheet::WIDTH_BESIDE_AGENT,
+        margin: sheet::MARGIN,
+    }
+}
+
+/// `panel.move_menu`: the sheet's Move… (SHT-01), the board's columns with the drag's verdicts; a pick is
+/// `board.drop`.
+pub async fn move_menu(app: &App, params: Params) -> Result<Vec<MenuItem>, RequestError> {
+    let key = key_of(&params.key)?;
+    let answer = super::board::drag(
+        app,
+        super::board::TicketParams {
+            key: params.key.clone(),
+        },
+    )
+    .await?;
+    let flow = super::board::flow(app, key.project.as_str()).await;
+    Ok(sheet::move_menu(&Columns::of(&flow), &answer))
 }
 
 async fn ticket(app: &App, key: &str) -> Result<Option<Ticket>, RequestError> {
@@ -831,6 +913,12 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         &super::board::flow(app, ticket.key.project.as_str()).await,
     );
     let comments = super::ticket_comments::count(app, &params.key).await;
+    let project_name = project_name(app, ticket.key.project.as_str()).await;
+    let epic_title = ticket
+        .epic
+        .as_ref()
+        .and_then(|epic| all.iter().find(|t| &t.key == epic))
+        .map(|epic| epic.title.clone());
     let view = view_of(&Facts {
         ticket: &ticket,
         tickets: &all,
@@ -849,11 +937,24 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         keys,
         custom_flow,
         comments,
+        project_name: &project_name,
+        epic_title: epic_title.as_deref(),
     });
     Ok(Load {
         view: Some(view),
         gone,
     })
+}
+
+/// The project's name ("shop-web"), else its key.
+async fn project_name(app: &App, project: &str) -> String {
+    match app.service.send(Request::ProjectList).await {
+        Ok(Reply::Projects(list)) => list
+            .into_iter()
+            .find(|p| p.key == project)
+            .map_or_else(|| project.to_owned(), |p| p.name),
+        _ => project.to_owned(),
+    }
 }
 
 /// The ticket's row of `usage.summary`; `None` when it can't be read (the header then shows no split).
@@ -1612,6 +1713,8 @@ pub fn notes_gallery() -> NotesGallery {
                     keys: KeyLabels::default(),
                     custom_flow: false,
                     comments: 0,
+                    project_name: "shop-web",
+                    epic_title: None,
                 })
             })
             .collect(),
@@ -1620,6 +1723,101 @@ pub fn notes_gallery() -> NotesGallery {
             .map(|t| TicketCardView::of(t, &CardExtras::default(), NOW))
             .collect(),
     }
+}
+
+/// The sheet's header and details line for the gallery (T-0464; `s25-03`, `s25-09`, `s25-11`), with two tools
+/// connected: SHOP-22 needing you in Dev on Rust developer (Codex · gpt-5.5, 3 minutes, 64k tokens), SHOP-18 in your
+/// check for 12 minutes, the Wishlist epic's 40.2 working, and SHOP-41 in Backlog with Grill's agent to pick.
+pub fn sheet_gallery() -> Vec<View> {
+    use otaq_core::agents::SessionRole;
+    use otaq_core::board::tickets::Work;
+    use otaq_core::domain::{Place, Priority, Status};
+    use otaq_view::view_models::card_fixtures::{self, NOW};
+    use otaq_view::view_models::stage_choices::fixtures as agents;
+
+    const MIN: i64 = 60_000;
+    static TOOLS: std::sync::OnceLock<Tools> = std::sync::OnceLock::new();
+    let tools = TOOLS.get_or_init(|| {
+        let mut tools = agents::tools();
+        tools.connected = vec![agents::CLAUDE, agents::CODEX];
+        tools
+    });
+    let ticket = |key: &str, title: &str, status: Status, place: Place| {
+        let mut t = card_fixtures::ticket(key, title, status);
+        t.place = place;
+        t
+    };
+    let mut shop_22 = ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou, Place::InStage("dev".into()));
+    shop_22.priority = Priority::High;
+    shop_22.flags.tokens = Some(64_000);
+    shop_22.work = Some(Work {
+        branch: Some("otaq/SHOP-22".into()),
+        ..Default::default()
+    });
+    let mut shop_18 = ticket("SHOP-18", "Checkout API", Status::WaitingForYou, Place::InStage("review".into()));
+    shop_18.priority = Priority::Urgent;
+    shop_18.status_since = Some(NOW - 12 * MIN);
+    shop_18.work = Some(Work {
+        branch: Some("otaq/SHOP-18".into()),
+        ..Default::default()
+    });
+    let mut epic = ticket("SHOP-40", "Wishlist", Status::Working, Place::Waiting(None));
+    epic.kind = otaq_core::domain::Kind::Epic;
+    let mut child = ticket("SHOP-40.2", "Wishlist button", Status::Working, Place::InStage("dev".into()));
+    child.epic = Some(epic.key.clone());
+    child.base = Base::Epic(epic.key.clone());
+    child.flags.tokens = Some(21_000);
+    let shop_41 = ticket("SHOP-41", "Fix README typo", Status::Backlog, Place::Backlog);
+    let tickets = vec![shop_22, shop_18, child, shop_41, epic];
+    let running = |agent: &str, tool, model: &str, minutes: i64| {
+        let mut s = agents::session("s1", SessionRole::Developer, agent, tool, None, Some(model));
+        s.running = true;
+        s.started_at = NOW - minutes * MIN;
+        s.ended_at = None;
+        vec![s]
+    };
+    let sessions = [
+        running("Rust developer", agents::CODEX, "gpt-5.5", 3),
+        Vec::new(),
+        running("Rust developer", agents::CLAUDE, "claude-sonnet-5-5", 8),
+        Vec::new(),
+    ];
+    tickets[..4]
+        .iter()
+        .zip(sessions)
+        .map(|(ticket, sessions)| {
+            let facts = agents::ticket(
+                &ticket.key.to_string(),
+                ticket.status,
+                ticket.place.clone(),
+                agents::shop_path("rust"),
+                agents::shop_options(),
+                Vec::new(),
+                sessions,
+            );
+            view_of(&Facts {
+                ticket,
+                tickets: &tickets,
+                sessions: &[],
+                conflict: None,
+                has_log: false,
+                pending: 0,
+                usage: None,
+                rounds: 3,
+                now: NOW,
+                run: None,
+                decisions: 0,
+                lead: None,
+                agents: Some(&facts),
+                tools,
+                keys: KeyLabels::default(),
+                custom_flow: true,
+                comments: 0,
+                project_name: "shop-web",
+                epic_title: ticket.epic.as_ref().map(|_| "Wishlist"),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1710,6 +1908,8 @@ mod tests {
             keys: KeyLabels::base(otaq_view::keymap::Platform::Mac),
             custom_flow: false,
             comments: 0,
+            project_name: "shop-web",
+            epic_title: None,
         }
     }
 
@@ -1748,35 +1948,68 @@ mod tests {
         view.buttons.iter().map(|b| b.label.as_str()).collect()
     }
 
-    /// KEY-08: the tabs show `1`–`6` (the user's keys), Expand `e`, the arrows ⌘[ / ⌘]; a recorded key shows, a removed
-    /// one and letters off show none (the arrows keep their ⌘ keys).
+    /// KEY-08: the sheet's tabs show `1`–`4` (the user's keys), full page `e`, Close Esc; a recorded key shows, a
+    /// removed one and letters off show none.
     #[test]
     fn the_tabs_and_buttons_show_the_users_keys() {
         use otaq_view::key_labels::fixtures as keys;
         let working = fixture("SHOP-19", "Price table", Status::Working);
         let all = vec![working.clone()];
         let with = |labels: KeyLabels| view_of(&Facts { keys: labels, ..facts(&working, &all, &[]) });
-        let tab_keys = |view: &View| view.tabs.iter().map(|t| t.keys.clone()).collect::<Vec<_>>();
+        let tab_keys = |view: &View| view.sheet.tabs.iter().map(|t| t.keys.clone()).collect::<Vec<_>>();
         let base = with(keys::base());
         assert_eq!(
-            tab_keys(&base)[..3],
-            [Some("1".to_owned()), Some("2".to_owned()), Some("3".to_owned())]
+            tab_keys(&base),
+            [Some("1".to_owned()), Some("2".to_owned()), Some("3".to_owned()), Some("4".to_owned())]
         );
-        assert_eq!(base.expand_hint.keys.as_deref(), Some("e"));
-        assert_eq!(base.next_hint.keys.as_deref(), Some("\u{2318}]"));
+        assert_eq!(base.sheet.full_page.keys.as_deref(), Some("e"));
+        assert_eq!(base.close_hint.keys.as_deref(), Some("Esc"));
         let custom = with(keys::with(
             true,
             &[("switch_tab", Some(2), 0, Some("⌥2")), ("expand_panel", None, 0, Some("x"))],
         ));
-        assert_eq!(custom.tabs[1].keys.as_deref(), Some("⌥2"));
-        assert_eq!(custom.expand_hint.keys.as_deref(), Some("x"));
+        assert_eq!(custom.sheet.tabs[1].keys.as_deref(), Some("⌥2"));
+        assert_eq!(custom.sheet.full_page.keys.as_deref(), Some("x"));
         let removed = with(keys::removed("switch_tab", Some(1), 0));
-        assert_eq!(removed.tabs[0].keys, None);
-        assert_eq!(removed.tabs[1].keys.as_deref(), Some("2"));
+        assert_eq!(removed.sheet.tabs[0].keys.as_deref(), Some("g o"), "its second key");
+        assert_eq!(removed.sheet.tabs[1].keys.as_deref(), Some("2"));
         let off = with(keys::letters_off());
         assert!(tab_keys(&off).iter().all(Option::is_none));
-        assert_eq!((off.expand_hint.keys, off.collapse_hint.keys), (None, None));
-        assert_eq!(off.previous_hint.keys.as_deref(), Some("\u{2318}["));
+        assert_eq!((off.sheet.full_page.keys, off.sheet.back.keys), (None, None));
+    }
+
+    /// The gallery's sheets (T-0464): SHOP-22's details as drawn in `s25-03`, SHOP-18 waiting for you, 40.2 under
+    /// its epic, SHOP-41's Grill agent to pick.
+    #[test]
+    fn the_sheet_gallery_draws_the_frames_details() {
+        let views = sheet_gallery();
+        let line = |v: &View| {
+            v.sheet
+                .details
+                .iter()
+                .map(|d| format!("{} {}", d.label, d.value))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            line(&views[0]),
+            [
+                "Assignee Rust developer",
+                "Model Codex \u{b7} gpt-5.5",
+                "Working 3 min \u{b7} 64k tokens",
+                "Priority P2",
+                "Branch otaq/SHOP-22",
+            ]
+        );
+        assert_eq!(views[0].sheet.details[0].avatar.as_ref().map(|a| a.letters.as_str()), Some("CX"));
+        assert_eq!(&line(&views[1])[..3], ["Assignee You", "Model \u{2014}", "Working waiting for you \u{b7} 12 min"]);
+        let crumbs: Vec<&str> = views[2].sheet.crumbs.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(crumbs, ["shop-web", "Wishlist", "40.2"]);
+        assert_eq!(line(&views[2]).last().map(String::as_str), Some("Epic Wishlist"));
+        assert!(matches!(
+            views[3].sheet.details[0].change,
+            Some(sheet::DetailChange::Choice { .. })
+        ));
+        assert_eq!(views[0].sheet.steps.len(), 6);
     }
 
     #[test]
@@ -1792,8 +2025,17 @@ mod tests {
         assert_eq!(view.run, None, "no Run up, no pill");
         assert_eq!(view.signal.as_ref().unwrap().text, "40s ago");
         assert_eq!(view.tokens.as_ref().unwrap().text, "182k");
-        assert_eq!(view.tabs[0].mark, Some(Mark::Live));
-        assert_eq!(view.tabs[5].mark, Some(Mark::Note { text: "1".into() }));
+        // The sheet (SHT-01, SHT-02): breadcrumb, Session's live dot, today's tabs inside.
+        let crumbs: Vec<&str> = view.sheet.crumbs.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(crumbs, ["shop-web", "SHOP-19"]);
+        let tabs: Vec<&str> = view.sheet.tabs.iter().map(|t| t.label).collect();
+        assert_eq!(tabs, ["Overview", "Session", "Files", "Activity"]);
+        assert_eq!(view.sheet.tabs[1].mark, Some(Mark::Live));
+        assert_eq!(view.sheet.tabs[3].mark, None, "no count on Activity");
+        let parts: Vec<&str> = view.sheet.tabs[1].parts.iter().map(|p| p.label).collect();
+        assert_eq!(parts, ["Agent", "Run", "Shell"]);
+        assert_eq!(view.sheet.tabs[0].contents, [Tab::Ticket]);
+        assert_eq!(view.sheet.opens_on, SheetTab::Overview);
         assert!(view.live_agent);
         assert_eq!(
             view.attach_command,
@@ -1934,17 +2176,17 @@ mod tests {
                 stop_hint: "Stop",
             })
         );
-        assert_eq!(view.tabs[2].mark, Some(Mark::Note { text: ":4020".into() }));
+        assert_eq!(view.sheet.tabs[1].parts[1].mark, Some(Mark::Note { text: ":4020".into() }));
         run.state = RunState::FailedToStart;
         let view = view_of(&Facts {
             run: Some(&run),
             ..facts(&t, &all, &[])
         });
         assert_eq!(view.run, None);
-        assert_eq!(view.tabs[2].mark, Some(Mark::Problem));
+        assert_eq!(view.sheet.tabs[1].parts[1].mark, Some(Mark::Problem));
     }
 
-    /// An epic's panel (T-0290): Ticket · Lead · History numbered in that order, the Lead tab's dot, the lead's
+    /// An epic's sheet (T-0290, until T-0469): Overview · Lead · Activity, Lead on `2`, the Lead tab's dot, the lead's
     /// question in the header bar, and Resume lead after a restart.
     #[test]
     fn an_epic_shows_its_lead() {
@@ -1952,18 +2194,18 @@ mod tests {
         use otaq_view::view_models::lead_tab::fixtures;
         let epic = fixtures::epic();
         let all = fixtures::tickets();
-        let tabs = |view: &View| view.tabs.iter().map(|t| t.label).collect::<Vec<_>>();
+        let tabs = |view: &View| view.sheet.tabs.iter().map(|t| t.label).collect::<Vec<_>>();
         let idle = fixtures::lead(LeadStatus::Idle);
         let view = view_of(&Facts {
             lead: Some(&idle),
             ..facts(&epic, &all, &[])
         });
-        assert_eq!(tabs(&view), ["Ticket", "Lead", "History"]);
-        assert_eq!(view.tabs[1].mark, Some(Mark::Live));
+        assert_eq!(tabs(&view), ["Overview", "Lead", "Activity"]);
+        assert_eq!(view.sheet.tabs[1].mark, Some(Mark::Live));
         assert_eq!(
-            view.tabs[1].keys.as_deref(),
+            view.sheet.tabs[1].keys.as_deref(),
             Some("2"),
-            "the Lead tab is the second shortcut on an epic"
+            "the Lead tab takes Session's key on an epic"
         );
         assert_eq!(view.answer, None);
         assert!(!labels(&view).contains(&"Resume lead"));
@@ -1982,7 +2224,7 @@ mod tests {
             lead: Some(&asking),
             ..facts(&epic, &all, &[])
         });
-        assert_eq!(view.tabs[1].mark, Some(Mark::LiveAttention));
+        assert_eq!(view.sheet.tabs[1].mark, Some(Mark::LiveAttention));
         let answer = view.answer.unwrap();
         assert_eq!(answer.question, "q-lead");
         assert_eq!(answer.rows.len(), 3, "two options and Other");
@@ -1994,7 +2236,7 @@ mod tests {
         });
         assert_eq!(labels(&view)[0], "Resume lead");
         assert_eq!(view.buttons[0].look, Look::Primary);
-        assert_eq!(view.tabs[1].mark, None);
+        assert_eq!(view.sheet.tabs[1].mark, None);
     }
 
     #[test]
@@ -2253,7 +2495,15 @@ mod tests {
         let load = table(&h.app, "panel.view", json!({ "key": key })).await.unwrap();
         assert_eq!(load["view"]["title"], "Price table");
         assert_eq!(load["view"]["buttons"][0]["action"], "start");
-        assert_eq!(load["view"]["tabs"][0]["tab"], "terminal");
+        assert_eq!(load["view"]["sheet"]["tabs"][0]["tab"], "overview");
+        assert_eq!(load["view"]["sheet"]["opens_on"], "overview");
+        // Move… (SHT-01): the drag's columns, its own checked, Ready for Dev allowed.
+        let moves = table(&h.app, "panel.move_menu", json!({ "key": key })).await.unwrap();
+        let moves = moves.as_array().unwrap();
+        assert_eq!(moves[0]["id"], "backlog");
+        assert_eq!(moves[0]["checked"], true);
+        let ready = moves.iter().find(|m| m["id"] == "ready_for_dev").unwrap();
+        assert_eq!(ready["disabled"], false);
 
         let item = load["view"]["priority_menu"][0]["id"].as_str().unwrap().to_owned();
         table(&h.app, "panel.priority", json!({ "key": key, "item": item }))
