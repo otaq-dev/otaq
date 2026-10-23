@@ -238,6 +238,10 @@ pub(crate) async fn add_worktree(
     }
     args.extend([path_arg.as_str(), branch]);
     git.run(repo, &args).await?;
+    // The checkout writes the files and the index in the same second, so git can't trust the index's stat data and
+    // reads every file again on each diff until something rewrites it (the Files view reads with
+    // `--no-optional-locks`, which never does: ~300 ms a diff in a 3000-file repository). No agent runs here yet.
+    let _ = git.run(path, &["update-index", "-q", "--refresh"]).await;
     Ok(())
 }
 
