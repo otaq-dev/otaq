@@ -489,20 +489,22 @@ mod tests {
             .iter()
             .map(|r| r["title"].as_str().unwrap())
             .collect();
+        // Activity lists them oldest first (SHT-05).
         assert_eq!(
-            titles[..3],
+            titles[titles.len() - 3..],
             [
-                "You deleted a comment",
-                "You edited the description \u{b7} added Admins export orders. (3 lines)",
                 "You commented \u{b7} with a report (67 KB)",
+                "You edited the description \u{b7} added Admins export orders. (3 lines)",
+                "You deleted a comment",
             ],
             "{titles:?}"
         );
-        let deleted = &history["rows"][0];
+        let last = titles.len() - 1;
+        let deleted = &history["rows"][last];
         assert_eq!(deleted["mark"]["kind"], "you");
         assert_eq!(deleted["opens"]["report"]["n"], 1);
         assert_eq!(
-            history["rows"][1]["opens"]["lines"][1]["text"],
+            history["rows"][last - 1]["opens"]["lines"][1]["text"],
             "## Agreed"
         );
         let view = table(

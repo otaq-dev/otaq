@@ -115,7 +115,7 @@ function mount() {
           ticket: KEY,
           view: EDITOR,
           overview: OVERVIEW,
-          overviewTabs: ["ticket"],
+          overviewTabs: ["overview"],
         }),
       ),
     );
@@ -167,13 +167,13 @@ describe("the description's state (`overview.rs`)", () => {
   });
 
   it("asks first only with changes, and only when the move leaves this ticket's Overview", () => {
-    const at = (ticket: string | null, tab: "terminal" | "ticket" | null) => ({ ticket, tab });
-    expect(asksFirst("changed", KEY, at(KEY, "terminal"), ["ticket"])).toBe(true);
-    expect(asksFirst("changed", KEY, at(null, null), ["ticket"])).toBe(true);
-    expect(asksFirst("changed", KEY, at("SHOP-13", null), ["ticket"])).toBe(true);
-    expect(asksFirst("changed", KEY, at(KEY, "ticket"), ["ticket"])).toBe(false);
-    expect(asksFirst("changed", KEY, at(KEY, null), ["ticket"])).toBe(false);
-    expect(asksFirst("editing", KEY, at(null, null), ["ticket"])).toBe(false);
+    const at = (ticket: string | null, tab: "agent" | "overview" | null) => ({ ticket, tab });
+    expect(asksFirst("changed", KEY, at(KEY, "agent"), ["overview"])).toBe(true);
+    expect(asksFirst("changed", KEY, at(null, null), ["overview"])).toBe(true);
+    expect(asksFirst("changed", KEY, at("SHOP-13", null), ["overview"])).toBe(true);
+    expect(asksFirst("changed", KEY, at(KEY, "overview"), ["overview"])).toBe(false);
+    expect(asksFirst("changed", KEY, at(KEY, null), ["overview"])).toBe(false);
+    expect(asksFirst("editing", KEY, at(null, null), ["overview"])).toBe(false);
   });
 
   it("⌘S on a Mac, Ctrl+S elsewhere", () => {
@@ -264,14 +264,14 @@ describe("the description in place (s25-04)", () => {
     const page = mount();
     const editor = clickToEdit(page);
     // Unchanged: nothing asks.
-    showTab("ticket");
+    showTab("overview");
     expect(overlays.store.get()).toEqual([]);
     typeAtEnd(editor, " now");
-    showTab("ticket");
+    showTab("overview");
     expect(overlays.store.get()).toEqual([]);
-    showTab("terminal");
+    showTab("agent");
     closeTicket();
-    expect(selection.get()).toMatchObject({ ticket: KEY, tab: "ticket" });
+    expect(selection.get()).toMatchObject({ ticket: KEY, tab: "overview" });
     const asked = overlays.store.get().at(-1);
     if (asked?.id !== "confirm") throw new Error("no question");
     expect(asked.params.title).toBe("Discard your description changes?");

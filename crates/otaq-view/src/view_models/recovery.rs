@@ -149,7 +149,7 @@ pub fn scratch_confirm(ticket: &Ticket) -> ScratchConfirm {
         ],
         lost_title: "Lost",
         lost: "The previous conversation: what the agent had read, planned and decided",
-        note: "The History tab records this as “Started from scratch (resume failed)”.",
+        note: "Activity records this as “Started from scratch (resume failed)”.",
         confirm: "Start from scratch",
     }
 }

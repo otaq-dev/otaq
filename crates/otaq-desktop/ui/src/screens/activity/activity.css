@@ -1,0 +1,19 @@
+/* The sheet's Activity (SHT-05, canvas `s25-07`): the filters and "oldest first" over History's rows (whose styles are
+   the sections', `sections.css`). */
+.activity {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 24px 24px;
+}
+
+.activity-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.activity-order {
+  color: var(--text-muted);
+  font-size: 12px;
+}

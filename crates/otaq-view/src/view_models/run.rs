@@ -5,7 +5,6 @@
 use otaq_core::terminals::run::{RunInfo, RunState, StopCause};
 
 use super::menu::MenuItem;
-use super::panel::Indicator;
 use crate::icons::IconName;
 
 /// The colour of the state card.
@@ -187,19 +186,6 @@ pub fn chip_menu(run: &RunInfo) -> Vec<MenuItem> {
     items
 }
 
-/// The Run tab's marker: ":4020" while it runs, a red dot when it failed or its port is taken.
-pub fn tab_indicator(run: Option<&RunInfo>) -> Indicator {
-    match run {
-        Some(r) if r.state.is_live() => r
-            .port
-            .map_or(Indicator::None, |p| Indicator::Text(format!(":{p}"))),
-        Some(r) if matches!(r.state, RunState::FailedToStart | RunState::PortInUse) => {
-            Indicator::Problem
-        }
-        _ => Indicator::None,
-    }
-}
-
 /// The panel header's running pill: the port and, when the project has one, the Open URL.
 pub fn header_pill(run: Option<&RunInfo>) -> Option<(u16, Option<String>)> {
     let run = run.filter(|r| r.state.is_live())?;
@@ -360,28 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn tab_marker() {
-        assert_eq!(tab_indicator(None), Indicator::None);
-        assert_eq!(
-            tab_indicator(Some(&run(RunState::Running))),
-            Indicator::Text(":4020".into())
-        );
-        assert_eq!(
-            tab_indicator(Some(&run(RunState::Starting))),
-            Indicator::Text(":4020".into())
-        );
-        assert_eq!(
-            tab_indicator(Some(&run(RunState::FailedToStart))),
-            Indicator::Problem
-        );
-        assert_eq!(
-            tab_indicator(Some(&run(RunState::PortInUse))),
-            Indicator::Problem
-        );
-        assert_eq!(
-            tab_indicator(Some(&run(RunState::Stopped))),
-            Indicator::None
-        );
+    fn no_pill_once_stopped() {
         assert_eq!(header_pill(Some(&run(RunState::Stopped))), None);
     }
 }

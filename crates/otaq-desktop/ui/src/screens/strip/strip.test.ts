@@ -13,6 +13,7 @@ import { overlays } from "../../app/overlays";
 import { registered, registerScreens } from "../../app/registry";
 import { createSelection, type TerminalFocusRequest } from "../../app/selection";
 import { createStore } from "../../app/store";
+import type { SheetContent } from "../../generated/SheetContent";
 import type { StripTarget } from "../../generated/StripTarget";
 import type { StripView } from "../../generated/StripView";
 import { request } from "../../tauri";
@@ -28,7 +29,7 @@ vi.mock("../../tauri", () => ({ request: vi.fn(), subscribeEvents: vi.fn(), wind
 
 const ask = vi.mocked(request);
 
-const ticket = (key: string, tab: "terminal" | "files" | "lead" | "ticket" = "terminal", project = "SHOP") =>
+const ticket = (key: string, tab: SheetContent = "agent", project = "SHOP") =>
   ({ kind: "ticket", project, key, tab }) as const;
 
 /** `needs_you_strip.rs`'s words for shop-web with every group (`s24-12`). */
@@ -128,7 +129,7 @@ const EMPTY: StripView = {
 };
 
 function routes(project: string | null = "SHOP"): StripRoutes {
-  const selection = createSelection({ project, ticket: null, tab: "terminal", focusedTerminal: null });
+  const selection = createSelection({ project, ticket: null, tab: "agent", focusedTerminal: null });
   return {
     selection,
     focus: createStore<TerminalFocusRequest | null>(null),
@@ -291,10 +292,10 @@ describe("pressing the strip", () => {
 });
 
 describe("opening and Next", () => {
-  it("a ticket opens on its tab in its project, its terminal focused on the Terminal and Lead tabs", () => {
+  it("a ticket opens on its tab in its project, its terminal focused on Session's sides and the Lead tab", () => {
     const r = routes("SHOP");
-    openTarget(ticket("BILL-7", "terminal", "BILL"), r);
-    expect(r.selection.get()).toMatchObject({ project: "BILL", ticket: "BILL-7", tab: "terminal" });
+    openTarget(ticket("BILL-7", "agent", "BILL"), r);
+    expect(r.selection.get()).toMatchObject({ project: "BILL", ticket: "BILL-7", tab: "agent" });
     expect(r.focus.get()).toEqual({ ticket: "BILL-7", seq: 1 });
     openTarget(ticket("SHOP-18", "files"), r);
     expect(r.selection.get()).toMatchObject({ project: "SHOP", ticket: "SHOP-18", tab: "files" });
@@ -302,6 +303,10 @@ describe("opening and Next", () => {
     openTarget(ticket("SHOP-40", "lead"), r);
     expect(r.focus.get()).toEqual({ ticket: "SHOP-40", seq: 2 });
     expect(r.last.get()).toEqual(ticket("SHOP-40", "lead"));
+    // A check that needs you: Session on the check's side, focused.
+    openTarget(ticket("SHOP-30", "check"), r);
+    expect(r.selection.get()).toMatchObject({ ticket: "SHOP-30", tab: "check" });
+    expect(r.focus.get()).toEqual({ ticket: "SHOP-30", seq: 3 });
   });
 
   it("a Project agent opens in the panel, focused", () => {
@@ -327,7 +332,7 @@ describe("opening and Next", () => {
   it("Next asks from what is open and opens the answer, switching project (NYS-02)", async () => {
     const r = routes("SHOP");
     r.selection.update((s) => ({ ...s, ticket: "SHOP-18" }));
-    ask.mockResolvedValueOnce(ticket("BILL-7", "terminal", "BILL"));
+    ask.mockResolvedValueOnce(ticket("BILL-7", "agent", "BILL"));
     await runNext(ask, r);
     expect(ask).toHaveBeenCalledWith("strip.next", {
       project: "SHOP",

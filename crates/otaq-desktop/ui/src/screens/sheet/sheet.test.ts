@@ -8,6 +8,7 @@ import { shellLayout, INITIAL_LAYOUT } from "../../app/layout";
 import { createRegistries, registered, registerScreens, RegistriesContext } from "../../app/registry";
 import { NOTHING_SELECTED, openTicket, selection } from "../../app/selection";
 import type { PanelView } from "../../generated/PanelView";
+import type { SheetTabView } from "../../generated/SheetTabView";
 import { sheet } from ".";
 import { contentOf, numberedSheetTab, sheetWidth, shownSheetTab, steppedSheetTab } from "./logic";
 import { useSheetKeys } from "./Sheet";
@@ -26,22 +27,31 @@ afterEach(() => {
 const TABS = SHEET.tabs;
 
 describe("the sheet's tabs (SHT-02)", () => {
-  it("opens on Overview; a selected panel tab shows the sheet tab holding it", () => {
+  it("opens on Overview; a selected content shows the sheet tab holding it", () => {
     expect(shownSheetTab(TABS, null, "overview")?.tab).toBe("overview");
     expect(shownSheetTab(TABS, "run", "overview")?.tab).toBe("session");
     expect(shownSheetTab(TABS, "files", "overview")?.tab).toBe("files");
-    expect(shownSheetTab(TABS, "history", "overview")?.tab).toBe("activity");
-    // An epic has no Session: its Terminal asked for falls back to the tab it opens on.
+    expect(shownSheetTab(TABS, "activity", "overview")?.tab).toBe("activity");
+    // An epic has no Session: its agent asked for falls back to the tab it opens on.
     const epic = TABS.filter((t) => t.tab !== "session");
-    expect(shownSheetTab(epic, "terminal", "overview")?.tab).toBe("overview");
+    expect(shownSheetTab(epic, "agent", "overview")?.tab).toBe("overview");
+    // No check ran: the check asked for falls back too.
+    expect(shownSheetTab(TABS, "check", "overview")?.tab).toBe("overview");
   });
 
-  it("Session shows what is picked in it, Agent first", () => {
+  it("Session shows what is picked in it, else the side it lands on (the check while one runs)", () => {
     const session = TABS[1];
     if (!session) throw new Error("no Session");
-    expect(contentOf(session, null)).toBe("terminal");
+    expect(contentOf(session, null)).toBe("agent");
     expect(contentOf(session, "shell")).toBe("shell");
-    expect(contentOf(session, "files")).toBe("terminal");
+    expect(contentOf(session, "files")).toBe("agent");
+    const checking: SheetTabView = {
+      ...session,
+      contents: ["agent", "check", "run", "shell"],
+      lands_on: "check",
+    };
+    expect(contentOf(checking, null)).toBe("check");
+    expect(contentOf(checking, "agent")).toBe("agent");
   });
 
   it("1–4 (g o / s / f / a) pick by number; ⌃Tab steps round the ends", () => {
@@ -86,12 +96,13 @@ describe("the sheet", () => {
     expect(html).toContain("width:1040px");
   });
 
-  it("shows the selected tab's body: Session's switch over Agent, Activity's History; Files empty until its screen", () => {
+  it("shows the selected tab's body: Session's switch over Run, Activity; Files empty until its screen", () => {
     const session = render(VIEW, { tab: "run" });
     expect(session).toContain('data-tab="session"');
     expect(session.match(/role="radio"/g)).toHaveLength(3);
     expect(session).toContain('aria-checked="true">Run');
-    expect(render(VIEW, { tab: "history" })).toContain("history of SHOP-19");
+    expect(session).toContain('Agent<span class="session-dot" data-dot="running">');
+    expect(render(VIEW, { tab: "activity" })).toContain("activity of SHOP-19");
     expect(render(VIEW, { tab: "files" })).toContain('<div class="sheet-body" data-tab="files"></div>');
   });
 
@@ -119,11 +130,12 @@ describe("the sheet", () => {
     expect(html).toContain('<button type="button" class="sheet-crumb sheet-crumb-link">Wishlist</button>');
   });
 
-  it("fills the panel slot and registers the tab bodies; Files is the Files screen's (T-0468)", () => {
+  it("fills the panel slot and registers the ticket's dialogs; each tab's body is its own screen's", () => {
     const app = registerScreens({ sheet });
     expect(registered(app)).toMatchObject({
       slots: ["panel"],
-      sheetTabs: ["session", "activity", "lead"],
+      overlays: ["close_ticket", "submit_for_review"],
+      sheetTabs: [],
     });
   });
 });
@@ -155,14 +167,14 @@ describe("the sheet's keys (0097, SHT-02)", () => {
     openTicket("SHOP-19");
     const { app, done } = mount(VIEW);
     expect(app.shortcuts.run({ action: "switch_tab", number: 2 })).toBe(true);
-    expect(selection.get().tab).toBe("terminal");
+    expect(selection.get().tab).toBe("agent");
     expect(app.shortcuts.run({ action: "switch_tab", number: 4 })).toBe(true);
-    expect(selection.get().tab).toBe("history");
+    expect(selection.get().tab).toBe("activity");
     expect(app.shortcuts.run({ action: "switch_tab", number: 5 })).toBe(false);
     app.shortcuts.run({ action: "next_tab" });
-    expect(selection.get().tab).toBe("ticket");
+    expect(selection.get().tab).toBe("overview");
     app.shortcuts.run({ action: "next_ticket" });
-    expect(selection.get()).toMatchObject({ ticket: "SHOP-20", tab: "ticket" });
+    expect(selection.get()).toMatchObject({ ticket: "SHOP-20", tab: "overview" });
     expect(app.shortcuts.run({ action: "open_diff" })).toBe(true);
     expect(selection.get().tab).toBe("files");
     app.shortcuts.run({ action: "expand_panel" });

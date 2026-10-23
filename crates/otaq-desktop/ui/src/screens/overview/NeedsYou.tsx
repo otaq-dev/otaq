@@ -1,49 +1,20 @@
-// The ticket's actions and the top of its sheet's Overview (UI-04; *05 · Ticket side panel*, now the sheet of SHT-01,
-// T-0464; Overview's "what it needs from you", T-0465): the action bar of the ticket's state, or the answer options of
-// an Asks-you question; the held roles' callouts, the refusal, the queued notice, the conflict strip and the Start
-// interrupted callout; the choices and the path. The sheet (`screens/sheet`) draws the header and the tabs and holds
-// the actions (`usePanelActions`): its "…" menu (`MoreMenu`) is this file's. Everything it says comes from
-// `panel.view`; it keeps only open menus and the picked answer. A board card's button lands here too (`cardActions`):
-// the sheet runs it once it shows that ticket. The M12 rows (d0063, d0064): the validation buttons, the token split,
-// the Auto-merge stop message and Answer the agent's note box.
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useEffectEvent,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+// The top of the sheet's Overview, what the ticket needs from you (SHT-03, T-0465; UI-04, ATT-12, ATT-17): the action
+// bar of the ticket's state, or the answer options of an Asks-you question; the held roles' callouts, the refusal, the
+// queued notice, the conflict strip and the Start interrupted callout; the choices and the path. The M12 rows (d0063,
+// d0064): the validation buttons, the token split, the Auto-merge stop message and Answer the agent's note box. The
+// actions are the sheet's (`sheet/actions`); everything it says comes from `panel.view`; it keeps only the picked
+// answer.
+import { type ReactNode, useEffect, useEffectEvent, useId, useRef, useState } from "react";
 
-import { cardActions, takeCardAction } from "../../app/cardActions";
 import { openOverlay } from "../../app/overlays";
-import { useRegistries, useShortcut } from "../../app/registry";
+import { useRegistries } from "../../app/registry";
 import { PANEL_UNDER_TABS } from "../../app/registry/panel";
-import {
-  openTicket,
-  requestTerminalFocus,
-  requestTicketEdit,
-  showTab,
-  terminalFocusRequests,
-} from "../../app/selection";
-import { useStore } from "../../app/store";
-import {
-  AnchoredMenu,
-  Button,
-  IconButton,
-  StageChoices,
-  TextArea,
-  TicketPath,
-  ToolProblemCallout,
-  Tooltip,
-} from "../../components";
+import { requestTerminalFocus, showTab } from "../../app/selection";
+import { Button, StageChoices, TextArea, TicketPath, ToolProblemCallout, Tooltip } from "../../components";
 import type { PanelAnswer } from "../../generated/PanelAnswer";
 import type { PanelAnswerAgent } from "../../generated/PanelAnswerAgent";
 import type { PanelButton } from "../../generated/PanelButton";
 import type { PanelButtonLook } from "../../generated/PanelButtonLook";
-import type { PanelCardParams } from "../../generated/PanelCardParams";
 import type { PanelChoiceParams } from "../../generated/PanelChoiceParams";
 import type { PanelNotice } from "../../generated/PanelNotice";
 import type { PanelSent } from "../../generated/PanelSent";
@@ -54,88 +25,11 @@ import type { PanelView } from "../../generated/PanelView";
 import { asRequestError } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { passTicket } from "../review/CheckDialogs";
-import { startRun } from "../run/logic";
-import {
-  actionRoute,
-  agentSettings,
-  canSend,
-  cardRoute,
-  CLOSE_TICKET,
-  initialPick,
-  menuRoute,
-  pickByKey,
-  picksOther,
-} from "./logic";
-import { toolProblemAction } from "./toolProblemRunner";
-
-/** The service events that change what the panel shows. */
-export const PANEL_EVENTS = [
-  "ticket_changed",
-  "ticket_deleted",
-  "session_state",
-  "inbox_changed",
-  "usage_changed",
-  "validation_cancelled",
-  "lead_changed",
-  "project_agent_changed",
-  // The user's keys in its tooltips (KEY-08).
-  "settings_changed",
-] as const;
+import { askUnsent, type CardAnswer, type PanelActions } from "../sheet/actions";
+import { canSend, initialPick, pickByKey, picksOther } from "../sheet/actionRoutes";
+import { toolProblemAction } from "../tool_problems/toolProblemRunner";
 
 const ignore = () => undefined;
-
-function copy(text: string) {
-  navigator.clipboard.writeText(text).catch(ignore);
-}
-
-/** The unsent-text question before a send clears the terminal's typed line (SES-07, d0048). */
-function askUnsent(sent: PanelSent, again: () => Promise<unknown>) {
-  if (sent.outcome !== "ask") return;
-  openOverlay("confirm", {
-    title: sent.title,
-    body: sent.body,
-    confirmLabel: sent.clear,
-    cancelLabel: sent.cancel,
-    destructive: false,
-    onConfirm: again,
-  });
-}
-
-/** The "…" menu (the sheet's header): the ticket's menu of its state, Edit ticket… first. */
-export function MoreMenu({ view, onChoose }: { view: PanelView; onChoose: (item: string) => void }) {
-  const anchor = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <IconButton
-        ref={anchor}
-        icon="ellipsis"
-        label={view.more_hint}
-        shown={open ? "pressed" : undefined}
-        onClick={() => {
-          setOpen(!open);
-        }}
-      />
-      {open && (
-        <AnchoredMenu
-          anchor={anchor}
-          align="end"
-          label={view.more_hint}
-          items={view.menu}
-          width={280}
-          onChoose={(item) => {
-            setOpen(false);
-            onChoose(item);
-          }}
-          onClose={() => {
-            setOpen(false);
-          }}
-        />
-      )}
-    </>
-  );
-}
 
 const LOOK_VARIANT = {
   primary: "primary",
@@ -171,9 +65,6 @@ function ActionButton({
     </span>
   );
 }
-
-/** A card's answer button handed to the answer list of `question`: an option to pick, or Send answer. */
-type CardAnswer = { question: string } & ({ kind: "pick"; number: number } | { kind: "send_answer" });
 
 /** The question bar with its options (ATT-12, ATT-17); the Gallery draws it too. */
 export function AnswerBox({
@@ -307,7 +198,7 @@ export function AnswerBox({
           icon="square-terminal"
           onClick={() => {
             // An epic's question is its lead's: its terminal is in the Lead tab.
-            showTab(view.epic ? "lead" : "terminal");
+            showTab(view.epic ? "lead" : "agent");
             requestTerminalFocus(view.key);
           }}
         />
@@ -507,196 +398,6 @@ function ChoicesAndPath({ view }: { view: PanelView }) {
   );
 }
 
-/** What the ticket's buttons, its "…" menu and a board card's button do, shared by the sheet's header and Overview. */
-export interface PanelActions {
-  press: (button: PanelButton) => void;
-  choose: (item: string) => void;
-  /** The button whose request is on its way. */
-  busy: string | null;
-  /** The ticket whose Answer the agent box is open. */
-  answering: string | null;
-  setAnswering: (key: string | null) => void;
-  /** A card's answer button, handed to the answer list. */
-  cardAnswer: CardAnswer | null;
-}
-
-/**
- * The ticket's actions (T-0222), held by the sheet while it shows `view`: its buttons and "…" menu, Close ticket and
- * Re-run validation as keys while it offers them (0097: palette only unless the user gives them a key), and a board
- * card's button for this ticket (T-0220), run once the sheet shows it.
- */
-export function usePanelActions(view: PanelView): PanelActions {
-  const [busy, setBusy] = useState<string | null>(null);
-  const [answering, setAnswering] = useState<string | null>(null);
-  const askMarkClosed = () => {
-    if (view.mark_closed === null) return;
-    openOverlay("confirm", {
-      title: view.mark_closed.title,
-      body: view.mark_closed.body,
-      confirmLabel: view.mark_closed.confirm,
-      destructive: true,
-      onConfirm: () => request("panel.mark_closed", { key: view.key }),
-    });
-  };
-  const press = (button: PanelButton) => {
-    const route = actionRoute(button.action);
-    switch (route.kind) {
-      case "service":
-        setBusy(button.action);
-        request("panel.action", { key: view.key, action: button.action })
-          .catch(ignore)
-          .finally(() => {
-            setBusy(null);
-          });
-        return;
-      case "terminal":
-        showTab("terminal");
-        requestTerminalFocus(view.key);
-        return;
-      case "validator":
-        showTab("terminal");
-        requestTerminalFocus(view.key, terminalFocusRequests, "validator");
-        return;
-      case "answer_agent":
-        setAnswering(view.key);
-        return;
-      case "diff":
-        showTab("files");
-        return;
-      case "edit":
-        requestTicketEdit(view.key);
-        return;
-      case "parent":
-        if (view.parent !== null) openTicket(view.parent);
-        return;
-      case "overlay":
-        // With open recorded decisions, "Approve · keeps N decisions" opens the choice: Local merge / Open PR (DEC-05).
-        openOverlay(
-          route.id,
-          button.action === "approve" && view.approve_opens_menu
-            ? { ticket: view.key, menu: true }
-            : { ticket: view.key },
-        );
-        return;
-      case "pass":
-        setBusy(button.action);
-        void passTicket(view.key, view.approve_opens_menu).finally(() => {
-          setBusy(null);
-        });
-        return;
-      case "mark_closed":
-        askMarkClosed();
-        return;
-      // Run (RUN-01): Session's Run shows while it starts, or the run-command dialog asks first (T-0232).
-      case "run":
-        showTab("run");
-        void startRun(view.key);
-        return;
-      case "open_agent":
-        openOverlay("settings", agentSettings(view.open_agent));
-        return;
-    }
-  };
-  const choose = (item: string) => {
-    const route = menuRoute(item);
-    switch (route.kind) {
-      case "edit":
-        requestTicketEdit(view.key);
-        return;
-      case "service":
-        request("panel.menu", { key: view.key, item }).catch(ignore);
-        return;
-      case "copy":
-        copy(route.what === "branch" ? (view.branch?.full ?? "") : view.attach_command);
-        return;
-      case "overlay":
-        openOverlay(route.id, { ticket: view.key });
-        return;
-      case "close_epic":
-        openOverlay("close_epic", { epic: view.key });
-        return;
-      case "unknown":
-        return;
-    }
-  };
-  const latest = useRef({ view, press, choose });
-  useLayoutEffect(() => {
-    latest.current = { view, press, choose };
-  });
-  useShortcut(
-    "close_ticket",
-    useCallback(() => {
-      const item = latest.current.view.menu.find((i) => i.id === CLOSE_TICKET && !i.disabled);
-      if (!item) return false;
-      latest.current.choose(item.id);
-      return true;
-    }, []),
-  );
-  useShortcut(
-    "rerun_validation",
-    useCallback(() => {
-      const button = latest.current.view.buttons.find((b) => b.action === "retry_validation");
-      if (!button) return false;
-      latest.current.press(button);
-      return true;
-    }, []),
-  );
-  const [cardAnswer, setCardAnswer] = useState<CardAnswer | null>(null);
-  const pendingCard = useStore(cardActions);
-  const runCard = useEffectEvent((kind: PanelCardParams["kind"]) => {
-    const route = cardRoute(kind);
-    switch (route.kind) {
-      case "service": {
-        const send = (clear: boolean): Promise<unknown> =>
-          (
-            request("panel.card", {
-              key: view.key,
-              kind,
-              clear,
-            } satisfies PanelCardParams) as Promise<PanelSent>
-          )
-            .then((sent) => {
-              askUnsent(sent, () => send(true));
-            })
-            .catch(ignore);
-        void send(false);
-        return;
-      }
-      case "pick":
-        if (view.answer)
-          setCardAnswer({ question: view.answer.question, kind: "pick", number: route.number });
-        return;
-      case "send_answer":
-        if (view.answer) setCardAnswer({ question: view.answer.question, kind: "send_answer" });
-        return;
-      case "overlay":
-        openOverlay(route.id, { ticket: view.key });
-        return;
-      case "pass":
-        void passTicket(view.key, view.approve_opens_menu);
-        return;
-      case "mark_closed":
-        askMarkClosed();
-        return;
-      case "run_tab":
-        showTab("run");
-        return;
-      case "open_agent":
-        openOverlay("settings", agentSettings(view.open_agent));
-        return;
-      case "none":
-        return;
-    }
-  });
-  useEffect(() => {
-    if (pendingCard?.ticket !== view.key) return;
-    const taken = takeCardAction(view.key);
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- the card's click arrives from outside React (a store), once
-    if (taken) runCard(taken.kind);
-  }, [pendingCard, view.key]);
-  return { press, choose, busy, answering, setAnswering, cardAnswer };
-}
-
 /** The last signal, the tokens by agent and the Run's pill (the old header's meta row), when there are any. */
 function MetaLine({ view }: { view: PanelView }) {
   if (view.signal === null && view.token_split === null && view.run === null) return null;
@@ -725,7 +426,7 @@ function MetaLine({ view }: { view: PanelView }) {
  * Answer the agent's box), the choices and the path, the queued notice, the open PR's box and the Start interrupted
  * callout. The registered sections (Epic, Stack, Messages) are Overview's own, under the description.
  */
-export function PanelOverview({ view, actions }: { view: PanelView; actions: PanelActions }) {
+export function NeedsYou({ view, actions }: { view: PanelView; actions: PanelActions }) {
   const app = useRegistries();
   const { press, busy, answering, setAnswering, cardAnswer } = actions;
   const UnderTabs = app.panelSections.get(PANEL_UNDER_TABS)?.Component;

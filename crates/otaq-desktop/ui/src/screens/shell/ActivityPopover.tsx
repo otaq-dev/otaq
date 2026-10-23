@@ -19,7 +19,7 @@ import type { LimitStepper } from "../../generated/LimitStepper";
 import type { LimitsPopover } from "../../generated/LimitsPopover";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { ProcessesBody } from "../run/Processes";
+import { ProcessesBody } from "../session/Processes";
 import { openTerminals } from "../terminals";
 import { activityAnchor, headerStore } from "./Header";
 

@@ -1,10 +1,9 @@
-// The panel's Shell tab (RUN-05; *13 · Run & Shell → Shell tab · BILL-4, Dark · Shell*): a plain terminal in the
+// Session's Shell (SHT-04, RUN-05; *13 · Run & Shell → Shell tab · BILL-4, Dark · Shell*): a plain terminal in the
 // ticket's worktree with `$PORT` = the Run port, in T-0216's component. It is not Claude, so its strip says so in
 // neutral colours. The shell opens the first time the tab shows (the service keeps it) and closes when the ticket is
 // Done; one a restart stopped stays stopped until Reopen (d0045).
-import { useCallback, useState } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 
-import type { TicketProps } from "../../app/registry/panel";
 import { Button, Kbd } from "../../components";
 import type { ShellTabView } from "../../generated/ShellTabView";
 import { useServiceView } from "../../service";
@@ -32,11 +31,14 @@ export function ShellStrip({ view, onReopen }: { view: ShellTabView; onReopen: (
 
 export function ShellTabBody({
   view,
+  head,
   state,
   onState,
   onReopen,
 }: {
   view: ShellTabView;
+  /** What leads its line: Session's switch. */
+  head?: ReactNode;
   state: TerminalState;
   onState: (state: TerminalState) => void;
   onReopen: () => void;
@@ -58,6 +60,7 @@ export function ShellTabBody({
     );
   return (
     <div className="shell-tab" data-focused={state.focused || undefined}>
+      <div className="session-line">{head}</div>
       <ShellStrip view={view} onReopen={onReopen} />
       <div className="shell-well">
         <div className="shell-terminal">{body}</div>
@@ -77,7 +80,7 @@ export function ShellTabBody({
   );
 }
 
-export function ShellTab({ ticket }: TicketProps) {
+export function ShellTab({ ticket, head }: { ticket: string; head?: ReactNode }) {
   // `tick` asks again after Reopen started a new shell (the service ignores it).
   const [tick, setTick] = useState(0);
   const load = useCallback(
@@ -87,10 +90,17 @@ export function ShellTab({ ticket }: TicketProps) {
   // `settings_changed`: "leave terminal" names the user's key (KEY-08).
   const { view, error } = useServiceView(load, ["session_state", "settings_changed"]);
   const [state, setState] = useState<TerminalState>(INITIAL_STATE);
-  if (!view || view.key !== ticket) return <p className="run-problem">{error?.message ?? ""}</p>;
+  if (!view || view.key !== ticket)
+    return (
+      <>
+        <div className="session-line">{head}</div>
+        <p className="run-problem">{error?.message ?? ""}</p>
+      </>
+    );
   return (
     <ShellTabBody
       view={view}
+      head={head}
       state={state}
       onState={setState}
       onReopen={() => {

@@ -1,10 +1,10 @@
-// The panel's Run tab (RUN-01, RUN-03; *13 · Run & Shell → Not started … Stopped by restart, Run · backend*): the
-// state card with the Run port, Run / Stop, Open only when the project sets an Open URL, and the Run's output below
-// in T-0216's terminal, read-only. Nothing starts without a click.
-import { useCallback, useState } from "react";
+// Session's Run (SHT-04, RUN-01, RUN-03; canvas `s25-06`, *13 · Run & Shell → Not started … Stopped by restart, Run ·
+// backend*): the line "pnpm dev · in SHOP-22’s worktree · :4022" after Session's switch, with Open URL only when the
+// project sets one; the state card with Run / Stop; and the Run's output below in T-0216's terminal, read-only.
+// Nothing starts without a click.
+import { type ReactNode, useCallback, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
-import type { TicketProps } from "../../app/registry/panel";
 import { Button } from "../../components";
 import type { RunButtonView } from "../../generated/RunButtonView";
 import type { RunCardView } from "../../generated/RunCardView";
@@ -56,7 +56,7 @@ export function RunCard({
   );
 }
 
-export function RunTabBody({ view, ticket }: { view: RunTabView; ticket: string }) {
+export function RunTabBody({ view, ticket, head }: { view: RunTabView; ticket: string; head?: ReactNode }) {
   const [busy, setBusy] = useState(false);
   const press = (button: RunButtonView) => {
     const p = pressOf(button);
@@ -85,6 +85,23 @@ export function RunTabBody({ view, ticket }: { view: RunTabView; ticket: string 
   };
   return (
     <div className="run-tab">
+      <div className="session-line">
+        {head}
+        {view.line !== null && <span className="session-line-text">{view.line}</span>}
+        <span className="run-spacer" />
+        {view.open_url !== null && (
+          <button
+            type="button"
+            className="session-open-url"
+            onClick={() => {
+              if (view.open_url) request("run.open", { url: view.open_url.url }).catch(ignore);
+            }}
+          >
+            {view.open_url.label}
+            <Icon name="external-link" size={12} />
+          </button>
+        )}
+      </div>
       <RunCard card={view.card} busy={busy} onPress={press} />
       <span className="run-output-label">{view.output_label}</span>
       <div className="run-output">
@@ -98,9 +115,15 @@ export function RunTabBody({ view, ticket }: { view: RunTabView; ticket: string 
   );
 }
 
-export function RunTab({ ticket }: TicketProps) {
+export function RunTab({ ticket, head }: { ticket: string; head?: ReactNode }) {
   const load = useCallback(() => request("run.tab", { key: ticket }) as Promise<RunTabView>, [ticket]);
   const { view, error } = useServiceView(load, RUN_EVENTS);
-  if (!view || view.key !== ticket) return <p className="run-problem">{error?.message ?? ""}</p>;
-  return <RunTabBody view={view} ticket={ticket} />;
+  if (!view || view.key !== ticket)
+    return (
+      <>
+        <div className="session-line">{head}</div>
+        <p className="run-problem">{error?.message ?? ""}</p>
+      </>
+    );
+  return <RunTabBody view={view} ticket={ticket} head={head} />;
 }

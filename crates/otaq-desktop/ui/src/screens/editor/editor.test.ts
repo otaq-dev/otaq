@@ -165,7 +165,7 @@ describe("the editor's form state", () => {
 
   it("an edit request is taken once, by its own ticket's tab", () => {
     requestTicketEdit("SHOP-12");
-    expect(selection.get().tab).toBe("ticket");
+    expect(selection.get().tab).toBe("overview");
     expect(takeEditRequest("SHOP-19")).toBe(false);
     expect(takeEditRequest("SHOP-12")).toBe(true);
     expect(takeEditRequest("SHOP-12")).toBe(false);
@@ -574,7 +574,6 @@ describe("the editor", () => {
   it("registers quick-create, the edit modal, the full-window view and the report view from its folder", () => {
     expect(registered(registerScreens({ editor }))).toMatchObject({
       overlays: ["new_ticket", "edit_ticket", "full_view", "report"],
-      panelTabs: [],
     });
   });
 });

@@ -4,15 +4,16 @@
 //! (Assignee, Model, Working, Priority, Branch, Epic) and the flow path; then the tabs **Overview · Session · Files ·
 //! Activity**, `1`–`4` and `g o` / `g s` / `g f` / `g a` (an epic: Overview · Lead · Files in review · Activity).
 //!
-//! Until each tab's own ticket lands, a tab shows today's panel content ([`Tab`], registered by its screen): Session
-//! the Terminal, Run and Shell tabs (Agent · Run · Shell), Activity History, Lead the Lead tab. [`SheetTab::contents`]
-//! says which. Overview is its own (`overview.rs`, T-0465), and so is Files (`files_tab.rs`, T-0468).
+//! What the sheet shows is a [`Content`]: a tab, or one side of Session's switch (Agent, the check's agent, Run, Shell;
+//! `session_tab.rs`, T-0466). Each tab's screen registers its body: Overview (`overview.rs`, T-0465), Session, Files
+//! (`files_tab.rs`, T-0468), Activity (`history.rs`, T-0466) and an epic's Lead.
 
 use otaq_core::agents::facts::{PathKind, PathStage, TicketAgents};
 use otaq_core::agents::store::SessionAgentRun;
 use otaq_core::agents::{Agent, SessionRole};
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Place, StatusSet};
+use otaq_core::project_agents::lead::LeadStatus;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -22,8 +23,9 @@ use crate::view_models::board_page::{DragAnswer, Verdict};
 use crate::view_models::card::tokens_label;
 use crate::view_models::flow_columns::Columns;
 use crate::view_models::menu::MenuItem;
-use crate::view_models::panel::{self, Tab};
+use crate::view_models::panel;
 use crate::view_models::priority;
+use crate::view_models::session_tab::Dot;
 use crate::view_models::stage_choices;
 use crate::view_models::tool_avatar::ToolAvatarView;
 use crate::view_models::tool_problems::Tools;
@@ -91,18 +93,37 @@ impl SheetTab {
         }
     }
 
-    /// Today's panel tabs it shows until its own ticket lands, the one it opens on first (T-0466 Session and
-    /// Activity, T-0468 Files, T-0469 the epic's). Overview has its own body (T-0465); `Tab::Ticket` stays only as
-    /// the selection's name for it (⋯ Edit ticket… asks for it), never a panel tab of its own.
-    pub fn contents(self) -> &'static [Tab] {
+    /// What it can show, the first by default: Session's switch is Agent, the check's agent, Run and Shell (the
+    /// check only once one ran on the ticket, `session_tab::check_side`); every other tab shows itself.
+    pub fn contents(self) -> &'static [Content] {
         match self {
-            Self::Overview => &[Tab::Ticket],
-            Self::Session => &[Tab::Terminal, Tab::Run, Tab::Shell],
-            Self::Files => &[Tab::Files],
-            Self::Activity => &[Tab::History],
-            Self::Lead => &[Tab::Lead],
+            Self::Overview => &[Content::Overview],
+            Self::Session => &[Content::Agent, Content::Check, Content::Run, Content::Shell],
+            Self::Files => &[Content::Files],
+            Self::Activity => &[Content::Activity],
+            Self::Lead => &[Content::Lead],
         }
     }
+}
+
+/// What the sheet shows (SHT-02, SHT-04): a tab, or one side of Session's switch. `SheetContent` on the page, where
+/// the selection names it (`run`: Session on Run) and links ask for one (a toast's "Send back to resolve →", a
+/// needs-you chip).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "SheetContent")]
+pub enum Content {
+    Overview,
+    /// Session: the ticket's agent's terminal.
+    Agent,
+    /// Session: the running or last check stage's terminal (Validator, Security reviewer).
+    Check,
+    Run,
+    Shell,
+    Files,
+    Activity,
+    /// An epic's lead (d0083).
+    Lead,
 }
 
 /// The sheet's tabs for `ticket`, in order: Overview · Session · Files · Activity; an epic shows Overview · Lead ·
@@ -116,7 +137,11 @@ pub fn tabs(ticket: &Ticket) -> Vec<SheetTab> {
             SheetTab::Activity,
         ];
     }
-    let review = panel::epic_tabs(ticket).contains(&Tab::Files);
+    // An epic shows its branch's changes once it is in review (d0059, accepted Q9).
+    let review = matches!(
+        crate::view_models::flow_columns::place_set(ticket),
+        StatusSet::HumanCheck | StatusSet::Delivery
+    );
     [SheetTab::Overview, SheetTab::Lead]
         .into_iter()
         .chain(review.then_some(SheetTab::Files))
@@ -139,12 +164,15 @@ pub fn opens_on(ticket: &Ticket) -> SheetTab {
     }
 }
 
-/// Session's switch until T-0466: "Agent", "Run", "Shell".
-pub fn part_label(content: Tab) -> &'static str {
-    match content {
-        Tab::Terminal => "Agent",
-        other => other.label(),
-    }
+/// The Lead tab's dot: violet while the lead runs (the page draws a live lead's dot in its own colour), turquoise
+/// while it asks you, none once it ended.
+pub fn lead_dot(status: Option<&LeadStatus>) -> Option<Dot> {
+    let status = status.filter(|s| super::lead_tab::is_live(s))?;
+    Some(if *status == LeadStatus::AsksYou {
+        Dot::Waiting
+    } else {
+        Dot::Running
+    })
 }
 
 /// One crumb of the breadcrumb: the project, the epic (opens it), the key.
@@ -258,7 +286,7 @@ pub fn minutes_label(ms: i64) -> String {
 }
 
 /// "Codex · gpt-5.5", "Claude Code · tool default".
-fn model_text(tool: otaq_core::agent_tools::Tool, model: Option<&str>) -> String {
+pub(crate) fn model_text(tool: otaq_core::agent_tools::Tool, model: Option<&str>) -> String {
     format!(
         "{} \u{b7} {}",
         tool.display_name(),
@@ -798,7 +826,7 @@ mod tests {
     }
 
     /// Tabs: a ticket's four, numbered 1–4; an epic's Overview · Lead · Activity with Files in review; Overview on
-    /// open; today's panel tab each one shows.
+    /// open; what each one shows.
     #[test]
     fn tabs_their_numbers_and_the_tab_on_open() {
         let t = ticket("SHOP-22", "Fix flaky login redirect", Status::Working);
@@ -826,11 +854,10 @@ mod tests {
         assert_eq!(labels, ["Overview", "Session", "Files", "Activity"]);
         assert_eq!(
             SheetTab::Session.contents(),
-            [Tab::Terminal, Tab::Run, Tab::Shell]
+            [Content::Agent, Content::Check, Content::Run, Content::Shell]
         );
-        assert_eq!(SheetTab::Files.contents(), [Tab::Files]);
-        assert_eq!(part_label(Tab::Terminal), "Agent");
-        assert_eq!(part_label(Tab::Shell), "Shell");
+        assert_eq!(SheetTab::Files.contents(), [Content::Files]);
+        assert_eq!(SheetTab::Activity.contents(), [Content::Activity]);
 
         let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
         epic.kind = otaq_core::domain::Kind::Epic;
@@ -850,6 +877,21 @@ mod tests {
                 SheetTab::Activity
             ]
         );
+        // Delivering too; back in an Agent stage it has no Files.
+        epic.status = Status::ToDeliver;
+        epic.place = Place::of(epic.status, None, None);
+        assert!(tabs(&epic).contains(&SheetTab::Files));
+        epic.status = Status::Working;
+        epic.place = Place::of(epic.status, None, None);
+        assert!(!tabs(&epic).contains(&SheetTab::Files));
+    }
+
+    #[test]
+    fn the_lead_tab_has_its_dot() {
+        assert_eq!(lead_dot(Some(&LeadStatus::Replanning)), Some(Dot::Running));
+        assert_eq!(lead_dot(Some(&LeadStatus::AsksYou)), Some(Dot::Waiting));
+        assert_eq!(lead_dot(Some(&LeadStatus::EndedByRestart)), None);
+        assert_eq!(lead_dot(None), None);
     }
 
     /// j / k follow the column's order (pinned first), as the panel's did (`panel::neighbour`).

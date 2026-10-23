@@ -22,7 +22,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::view_models::panel::Tab;
+use crate::view_models::session_tab;
+use crate::view_models::sheet::Content;
 
 /// One thing in the strip: a ticket's item, or a Project agent (an epic lead included) waiting for the user.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,18 +63,19 @@ impl Item {
                 key: i.key.to_string(),
                 tab: if i.suggestion.is_some() {
                     // A suggestion's child never started: its description.
-                    Tab::Ticket
+                    Content::Overview
                 } else if i.group == NeedsYouGroup::Review {
-                    Tab::Files
+                    Content::Files
                 } else {
-                    Tab::Terminal
+                    // Session, on the side that needs you (the check's while it asks).
+                    session_tab::lands_on(i.status)
                 },
             },
             Self::Agent(a) => match &a.epic {
                 Some(epic) => Target::Ticket {
                     project: a.project.clone(),
                     key: epic.to_string(),
-                    tab: Tab::Lead,
+                    tab: Content::Lead,
                 },
                 None => Target::Agent {
                     project: a.project.clone(),
@@ -133,7 +135,7 @@ pub enum Target {
     Ticket {
         project: String,
         key: String,
-        tab: Tab,
+        tab: Content,
     },
     /// A plain Project agent in the panel.
     Agent { project: String, agent: String },
@@ -894,7 +896,7 @@ mod tests {
             Target::Ticket {
                 project: "SHOP".into(),
                 key: "SHOP-18".into(),
-                tab: Tab::Files
+                tab: Content::Files
             }
         );
         assert_eq!(
@@ -1005,14 +1007,14 @@ mod tests {
             Target::Ticket {
                 project: "SHOP".into(),
                 key: "SHOP-40".into(),
-                tab: Tab::Lead
+                tab: Content::Lead
             }
         );
         let suggestion = every_group().remove(2);
         assert!(matches!(
             suggestion.target(),
             Target::Ticket {
-                tab: Tab::Ticket,
+                tab: Content::Overview,
                 ..
             }
         ));

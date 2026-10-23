@@ -70,7 +70,8 @@ export function openTarget(target: StripTarget, routes: StripRoutes = STRIP_ROUT
     case "ticket":
       selectProject(target.project, routes.selection);
       openTicket(target.key, target.tab, routes.selection);
-      if (target.tab === "terminal" || target.tab === "lead") requestTerminalFocus(target.key, routes.focus);
+      if (target.tab === "agent" || target.tab === "check" || target.tab === "lead")
+        requestTerminalFocus(target.key, routes.focus);
       break;
     case "agent":
       showAgentInPane(target.project, target.agent, routes.pane);

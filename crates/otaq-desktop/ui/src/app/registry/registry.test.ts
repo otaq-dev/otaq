@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { PanelTab } from "../../generated/PanelTab";
+import type { SheetContent } from "../../generated/SheetContent";
 import * as screens from "../../screens";
 import { sample } from "../../screens/_sample";
 import { overlays } from "../overlays";
 import { createRegistries, registered, registerScreens } from ".";
 import { OVERLAY_IDS, OVERLAY_MODAL, type OverlayId } from "./overlays";
-import { PANEL_TABS, SHEET_TABS } from "./panel";
+import { SHEET_TABS } from "./panel";
 import { createRegistry } from "./registry";
 import { createShortcuts } from "./shortcuts";
 
@@ -31,7 +31,6 @@ describe("a screen plugs in", () => {
       slots: [],
       overlays: [],
       sheetTabs: [],
-      panelTabs: [],
       panelSections: [],
       globalSettings: [],
       projectSettings: [],
@@ -70,9 +69,8 @@ describe("a registry", () => {
 });
 
 describe("the fixed ids", () => {
-  it("sheet tabs: Overview · Session · Files · Activity and an epic's Lead (SHT-02); today's panel tabs inside them", () => {
+  it("sheet tabs: Overview · Session · Files · Activity and an epic's Lead (SHT-02)", () => {
     expect(SHEET_TABS).toEqual(["overview", "session", "files", "activity", "lead"]);
-    expect(PANEL_TABS).toEqual(["terminal", "files", "run", "shell", "ticket", "history", "lead"]);
   });
 
   it("overlays: every id has its modality; popovers and drawers don't hold shortcuts back", () => {
@@ -90,15 +88,16 @@ describe("the fixed ids", () => {
 
   // No `default`: an id added to a union without a case here fails ESLint's switch-exhaustiveness-check.
   it("are exhaustive unions", () => {
-    const tabIcon = (tab: PanelTab): string => {
+    const tabIcon = (tab: SheetContent): string => {
       switch (tab) {
-        case "terminal":
+        case "agent":
+        case "check":
         case "shell":
           return "terminal";
         case "files":
         case "run":
-        case "ticket":
-        case "history":
+        case "overview":
+        case "activity":
           return tab;
         case "lead":
           return "bot";
@@ -150,7 +149,17 @@ describe("the fixed ids", () => {
           return "sheet";
       }
     };
-    expect(PANEL_TABS.map(tabIcon)).toHaveLength(7);
+    const contents: SheetContent[] = [
+      "overview",
+      "agent",
+      "check",
+      "run",
+      "shell",
+      "files",
+      "activity",
+      "lead",
+    ];
+    expect(contents.map(tabIcon)).toHaveLength(8);
     expect(OVERLAY_IDS.filter((id) => kind(id) === "dialog")).toHaveLength(27);
   });
 });

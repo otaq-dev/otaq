@@ -21,7 +21,7 @@ pub enum ShellRequest {
     OpenTicket {
         project: String,
         key: otaq_core::domain::TicketKey,
-        tab: crate::view_models::panel::Tab,
+        tab: crate::view_models::sheet::Content,
     },
     /// Resume all: confirm, then resume the interrupted sessions.
     ResumeAll,

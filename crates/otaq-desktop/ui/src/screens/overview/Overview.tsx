@@ -1,6 +1,6 @@
 // The sheet's Overview (SHT-03, RPT-02; d0109, d0078, d0061, d0099; T-0465; *25 → Opening a ticket* `s25-03`,
 // *Editing the description* `s25-04`, *Attachments* `s25-05`). On the left, top to bottom: what the ticket needs from
-// you (the question with its options or the action bar, the callouts; `PanelOverview`; USG-07's "Mark as usage
+// you (the question with its options or the action bar, the callouts; `NeedsYou`; USG-07's "Mark as usage
 // limit" while the agent is Idle, the Inbox's row action before T-0459), the description in place
 // (`DescriptionSection`; ⋯ Edit ticket… swaps in the whole form, `EditForm`), the agent's recorded decisions, the
 // sections not moved elsewhere yet (Epic, Stack, Messages: T-0463 replaces Stack with the dependencies section,
@@ -28,7 +28,7 @@ import { attachReport, COMMENT_EVENTS, CommentThread, Mark } from "../editor/Com
 import { EditForm, takeEditRequest } from "../editor/EditForm";
 import { EDITOR_EVENTS } from "../editor/logic";
 import { openReport } from "../editor/reportOpener";
-import { PanelOverview } from "../panel/Panel";
+import { NeedsYou } from "./NeedsYou";
 import { TicketDecisions } from "../sections/Decisions";
 import { useSheet } from "../sheet/Sheet";
 import { DescriptionSection, SavedNote } from "./Description";
@@ -187,7 +187,7 @@ export function OverviewTab({ ticket }: TicketProps) {
     // The paste of a file outside a text field is Overview's own (RPT-02); every other key stays with the page.
     <div ref={root} className="overview" onPaste={onPaste}>
       <div className="overview-main">
-        {sheet && <PanelOverview view={sheet.view} actions={sheet.actions} />}
+        {sheet && <NeedsYou view={sheet.view} actions={sheet.actions} />}
         {overview?.key === ticket && overview.usage_limit !== null && (
           <div className="overview-usage-limit">
             <Button

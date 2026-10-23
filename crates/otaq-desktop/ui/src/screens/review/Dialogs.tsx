@@ -48,7 +48,7 @@ function copy(text: string) {
 /** Done: the agent has it; its terminal shows if the ticket is open. Asked: the unsent-text question (d0048). */
 export function afterSend(key: string, sent: PanelSent, again: () => Promise<unknown>) {
   if (sent.outcome === "done") {
-    if (selection.get().ticket === key) showTab("terminal");
+    if (selection.get().ticket === key) showTab("agent");
     return;
   }
   openOverlay("confirm", {

@@ -1,20 +1,26 @@
-// SHOP-19 "Price table" working in Dev, as Rust words its sheet (`panel.view`), for the sheet's and the panel's tests,
-// and the sheet drawn to a string with the interim tab bodies and a History and a Stack stand-in registered.
+// SHOP-19 "Price table" working in Dev, as Rust words its sheet (`panel.view`), for the sheet's and its actions' tests,
+// and the sheet drawn to a string with Overview, Session and an Activity and a Stack stand-in registered.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { createRegistries, RegistriesContext, type Registries } from "../../app/registry";
-import type { PanelTab } from "../../generated/PanelTab";
 import type { PanelView } from "../../generated/PanelView";
+import type { SheetContent } from "../../generated/SheetContent";
 import type { SheetTabView } from "../../generated/SheetTabView";
 import type { SheetView } from "../../generated/SheetView";
 import { overview as overviewScreen } from "../overview";
+import { session as sessionScreen } from "../session";
 import { sheet as sheetScreen } from ".";
 import { SheetBody } from "./Sheet";
 
 const hint = (text: string, keys: string | null = null) => ({ text, keys });
 
-const tab = (t: SheetTabView["tab"], label: string, number: number, contents: PanelTab[]): SheetTabView => ({
+const tab = (
+  t: SheetTabView["tab"],
+  label: string,
+  number: number,
+  contents: SheetContent[],
+): SheetTabView => ({
   tab: t,
   label,
   icon: "file-text",
@@ -22,6 +28,7 @@ const tab = (t: SheetTabView["tab"], label: string, number: number, contents: Pa
   keys: String(number),
   mark: null,
   contents,
+  lands_on: contents[0] ?? "overview",
   parts: [],
 });
 
@@ -83,18 +90,18 @@ export const SHEET: SheetView = {
     { stage: "Review", state: "to_come", attention: false },
   ],
   tabs: [
-    tab("overview", "Overview", 1, ["ticket"]),
+    tab("overview", "Overview", 1, ["overview"]),
     {
-      ...tab("session", "Session", 2, ["terminal", "run", "shell"]),
+      ...tab("session", "Session", 2, ["agent", "run", "shell"]),
       mark: { kind: "live" },
       parts: [
-        { content: "terminal", label: "Agent", mark: { kind: "live" } },
-        { content: "run", label: "Run", mark: null },
-        { content: "shell", label: "Shell", mark: null },
+        { content: "agent", label: "Agent", dot: "running" },
+        { content: "run", label: "Run", dot: null },
+        { content: "shell", label: "Shell", dot: null },
       ],
     },
     tab("files", "Files", 3, ["files"]),
-    tab("activity", "Activity", 4, ["history"]),
+    tab("activity", "Activity", 4, ["activity"]),
   ],
   opens_on: "overview",
   move_label: "Move…",
@@ -162,13 +169,14 @@ export const VIEW: PanelView = {
   holds: [],
 };
 
-/** Registries with the sheet's and Overview's screens, History's body and the Stack section stand-ins. */
+/** Registries with the sheet's, Overview's and Session's screens, and Activity's and the Stack section's stand-ins. */
 export function sheetRegistries(): Registries {
   const app = createRegistries();
   sheetScreen(app);
   overviewScreen(app);
-  app.panelTabs.register("history", {
-    Component: ({ ticket }) => createElement("p", null, `history of ${ticket}`),
+  sessionScreen(app);
+  app.sheetTabs.register("activity", {
+    Component: ({ ticket }) => createElement("p", null, `activity of ${ticket}`),
   });
   app.panelSections.register("stack", { Component: () => createElement("p", null, "the stack") });
   return app;
@@ -177,7 +185,7 @@ export function sheetRegistries(): Registries {
 /** The sheet for `view` drawn to a string, on `tab` (`null`: the tab it opens on). */
 export function renderSheet(
   view: PanelView,
-  opts: { tab?: PanelTab | null; fullPage?: boolean; width?: number } = {},
+  opts: { tab?: SheetContent | null; fullPage?: boolean; width?: number } = {},
 ): string {
   return renderToStaticMarkup(
     createElement(

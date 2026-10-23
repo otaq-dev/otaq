@@ -2,7 +2,7 @@
 import type { TerminalTabRecoveryLine } from "./TerminalTabRecoveryLine";
 
 /**
- * The Terminal tab of an Interrupted (or Resume failed) ticket whose session is gone (REC-02, REC-03; *06 →
+ * Session's terminal for an Interrupted (or Resume failed) ticket whose session is gone (REC-02, REC-03; *06 →
  * Interrupted · Before the restart*).
  */
 export type TerminalTabRecovery = { "kind": "loading", text: string, } | { "kind": "before_restart", title: string, source: string, session: string, lines: Array<TerminalTabRecoveryLine>, ended: string, resume: string, } | { "kind": "not_available", label: string, text: string, retry: string, scratch: string, };

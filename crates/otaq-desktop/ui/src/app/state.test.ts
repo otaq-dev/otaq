@@ -46,9 +46,9 @@ describe("the selection", () => {
     expect(s.get().tab, "the open ticket keeps it").toBe("files");
     openTicket("SHOP-24", undefined, s);
     expect(s.get().tab).toBeNull();
-    showTab("history", s);
+    showTab("activity", s);
     closeTicket(s);
-    expect(s.get()).toEqual({ project: "SHOP", ticket: null, tab: "history", focusedTerminal: null });
+    expect(s.get()).toEqual({ project: "SHOP", ticket: null, tab: "activity", focusedTerminal: null });
 
     openTicket("SHOP-22", undefined, s);
     selectProject("CREW", s);
@@ -61,11 +61,11 @@ describe("the selection", () => {
     openTicket("SHOP-22", "files", s);
     focusTerminal("session-1", s);
     selectProject("CREW", s);
-    openTicket("CREW-3", "terminal", s);
+    openTicket("CREW-3", "agent", s);
     selectProject("SHOP", s);
     expect(s.get()).toEqual({ project: "SHOP", ticket: "SHOP-22", tab: "files", focusedTerminal: null });
     selectProject("CREW", s);
-    expect(s.get()).toMatchObject({ project: "CREW", ticket: "CREW-3", tab: "terminal" });
+    expect(s.get()).toMatchObject({ project: "CREW", ticket: "CREW-3", tab: "agent" });
   });
 });
 
@@ -76,18 +76,18 @@ describe("the leave guard (T-0465: a changed description asks first)", () => {
     openTicket("SHOP-22", undefined, s);
     const held: (() => void)[] = [];
     const stop = guardLeaving((next, go) => {
-      if (next.ticket === "SHOP-22" && next.tab === "ticket") return false;
+      if (next.ticket === "SHOP-22" && next.tab === "overview") return false;
       held.push(go);
       return true;
     }, s);
-    showTab("ticket", s);
-    expect(s.get().tab).toBe("ticket");
+    showTab("overview", s);
+    expect(s.get().tab).toBe("overview");
     showTab("files", s);
     closeTicket(s);
     stepTicket("SHOP-23", s);
     openTicket("SHOP-30", undefined, s);
     selectProject("BILL", s);
-    expect(s.get()).toMatchObject({ project: "SHOP", ticket: "SHOP-22", tab: "ticket" });
+    expect(s.get()).toMatchObject({ project: "SHOP", ticket: "SHOP-22", tab: "overview" });
     expect(held).toHaveLength(5);
     held[1]?.();
     expect(s.get().ticket).toBeNull();

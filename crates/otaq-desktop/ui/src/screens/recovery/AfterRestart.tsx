@@ -20,7 +20,7 @@ import type { ToolProblemButton } from "../../generated/ToolProblemButton";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { toolProblemAction } from "../panel/toolProblemRunner";
+import { toolProblemAction } from "../tool_problems/toolProblemRunner";
 import { setUnchecked } from "./logic";
 
 export interface SummaryBodyProps {

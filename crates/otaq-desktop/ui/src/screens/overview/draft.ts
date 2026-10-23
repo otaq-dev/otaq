@@ -7,7 +7,7 @@ import type { Selection } from "../../app/selection";
 import { createStore, type Store } from "../../app/store";
 import type { DescriptionSaveBar } from "../../generated/DescriptionSaveBar";
 import type { DescriptionState } from "../../generated/DescriptionState";
-import type { PanelTab } from "../../generated/PanelTab";
+import type { SheetContent } from "../../generated/SheetContent";
 
 /** `overview::state`: reading, editing with the saved text, or changed. Back to the saved text is unchanged again. */
 export function descriptionState(saved: string, text: string | null): DescriptionState {
@@ -17,13 +17,13 @@ export function descriptionState(saved: string, text: string | null): Descriptio
 
 /**
  * `overview::leaving`: whether the move to `next` asks first. Only a changed description asks, and only when the move
- * leaves this ticket's Overview (`overview` lists the selection values Overview shows: `null` and the Ticket content).
+ * leaves this ticket's Overview (`overview` lists the selection values Overview shows: `null` and `overview`).
  */
 export function asksFirst(
   state: DescriptionState,
   ticket: string,
   next: Pick<Selection, "ticket" | "tab">,
-  overview: readonly PanelTab[],
+  overview: readonly SheetContent[],
 ): boolean {
   if (state !== "changed") return false;
   const stays = next.ticket === ticket && (next.tab === null || overview.includes(next.tab));

@@ -1,7 +1,7 @@
 // The selection screens share (T-0212): the project on screen, the ticket open in the sheet and what it shows, and
 // the terminal that has the keyboard. One store for the whole page; each screen reads it with `useSelection()` and
 // changes it with the functions below (or `selection.update`).
-import type { PanelTab } from "../generated/PanelTab";
+import type { SheetContent } from "../generated/SheetContent";
 import { createStore, type Store, useStore } from "./store";
 
 export interface Selection {
@@ -10,10 +10,10 @@ export interface Selection {
   /** The ticket open in the sheet, by key (`SHOP-22`); `null` while it is closed. */
   ticket: string | null;
   /**
-   * What the sheet shows, as today's panel tab its tabs hold (`run`: Session's Run; T-0464): `null` for the tab it
-   * opens on (Overview, SHT-02).
+   * What the sheet shows: a tab, or a side of Session's switch (`run`: Session on Run; `check`: the check's agent;
+   * SHT-02, SHT-04). `null` for the tab it opens on (Overview, or Files in your check).
    */
-  tab: PanelTab | null;
+  tab: SheetContent | null;
   /** The session whose terminal has the keyboard (SES-10's focused-terminal rule); `null` when none has. */
   focusedTerminal: string | null;
 }
@@ -83,7 +83,7 @@ export function selectProject(project: string, store: Store<Selection> = selecti
  * Opens `ticket` in the sheet, showing `tab` if given, else on the tab it opens on (Overview, SHT-02); the ticket
  * already open keeps what it shows.
  */
-export function openTicket(ticket: string, tab?: PanelTab, store: Store<Selection> = selection): void {
+export function openTicket(ticket: string, tab?: SheetContent, store: Store<Selection> = selection): void {
   move(store, (s) => ({ ...s, ticket, tab: tab ?? (s.ticket === ticket ? s.tab : null) }));
 }
 
@@ -97,7 +97,7 @@ export function closeTicket(store: Store<Selection> = selection): void {
   move(store, (s) => ({ ...s, ticket: null, focusedTerminal: null }));
 }
 
-export function showTab(tab: PanelTab, store: Store<Selection> = selection): void {
+export function showTab(tab: SheetContent, store: Store<Selection> = selection): void {
   move(store, (s) => ({ ...s, tab }));
 }
 
@@ -106,45 +106,45 @@ export function focusTerminal(session: string | null, store: Store<Selection> = 
   store.update((s) => (s.focusedTerminal === session ? s : { ...s, focusedTerminal: session }));
 }
 
-/** A request to give a ticket's terminal the keyboard once its Terminal tab shows it (a notification click, T-0231). */
+/**
+ * A request to give a ticket's terminal the keyboard once Session (or an epic's Lead) shows it (a notification click,
+ * T-0231). Which side is the selection's (`agent`, `check`).
+ */
 export interface TerminalFocusRequest {
   ticket: string;
   /** Counts up with each request, so asking twice for the same ticket is two requests. */
   seq: number;
-  /** The Terminal tab's side to focus (the panel's "Open terminal · Validator"); else the side the tab lands on. */
-  side?: "agent" | "validator";
 }
 
-/** The newest terminal focus request; the Terminal tab (T-0224) focuses the terminal when it is for its ticket. */
+/** The newest terminal focus request; the shown terminal (Session's, T-0466) focuses when it is for its ticket. */
 export const terminalFocusRequests: Store<TerminalFocusRequest | null> =
   createStore<TerminalFocusRequest | null>(null);
 
 export function requestTerminalFocus(
   ticket: string,
   store: Store<TerminalFocusRequest | null> = terminalFocusRequests,
-  side?: TerminalFocusRequest["side"],
 ): void {
-  store.update((last) => ({ ticket, seq: (last?.seq ?? 0) + 1, ...(side && { side }) }));
+  store.update((last) => ({ ticket, seq: (last?.seq ?? 0) + 1 }));
 }
 
-/** A request to show a ticket's Ticket tab in its form (Edit on the panel's bar or "…" menu, T-0222). */
+/** A request to show a ticket's whole form (⋯ Edit ticket…, T-0222), in its Overview. */
 export interface TicketEditRequest {
   ticket: string;
   /** Counts up with each request, so asking twice for the same ticket is two requests. */
   seq: number;
 }
 
-/** The newest edit request; the Ticket tab (T-0228) opens its form when it is for its ticket. */
+/** The newest edit request; Overview (T-0465) opens its form when it is for its ticket. */
 export const ticketEditRequests: Store<TicketEditRequest | null> = createStore<TicketEditRequest | null>(
   null,
 );
 
-/** Shows the Ticket tab of `ticket` and asks it for its form. */
+/** Shows the Overview of `ticket` and asks it for its form. */
 export function requestTicketEdit(
   ticket: string,
   store: Store<TicketEditRequest | null> = ticketEditRequests,
   shown: Store<Selection> = selection,
 ): void {
-  openTicket(ticket, "ticket", shown);
+  openTicket(ticket, "overview", shown);
   store.update((last) => ({ ticket, seq: (last?.seq ?? 0) + 1 }));
 }

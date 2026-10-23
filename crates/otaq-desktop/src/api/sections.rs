@@ -1,8 +1,9 @@
-//! `sections.*`: the side panel's sections and its History tab (UI-04, DEP-05, REC-03, MSG-01, MSG-03, MSG-06,
+//! `sections.*`: the ticket's sections and its Activity (UI-04, DEP-05, REC-03, MSG-01, MSG-03, MSG-06,
 //! EPC-01, EPC-04, EPC-06, EPC-07, TKT-07; d0045, d0030, d0039, d0044, d0059; *05 · Ticket side panel*). The
 //! **Stack** list with parents, children and "waits for" lines (`stack.rs`); the **Messages** between linked agents
-//! with their states (`messages.rs`), answerable when one went to the inbox; the **History** tab, sessions with
-//! their tool session ids and events newest first (`history.rs`), with one entry per validation round that opens
+//! with their states (`messages.rs`), answerable when one went to the inbox; the sheet's **Activity** (SHT-05), sessions
+//! with their tool session ids and events oldest first under All · Comments · Stages · Description (`history.rs`),
+//! with one entry per validation round that opens
 //! its report and **Create ticket** from a report's note (`validation_report.rs`, VAL-12); the **epic panel**, children and progress
 //! (`epic_review.rs`); and the epic dialogs, Move to epic… and Close epic… (`epic_actions.rs`). Each view is `null`
 //! when its section has nothing to show for the ticket.
@@ -470,6 +471,18 @@ pub struct HistoryRowView {
     pub mark: Option<Mark>,
     /// What the row opens: a before / after, or what a comment said and its report (CMT-14).
     pub opens: Option<Opens>,
+    /// Activity's filter it shows under (SHT-05).
+    pub kind: history::Kind,
+}
+
+/// One of Activity's filters: "All", "Comments", "Stages", "Description".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ActivityFilterView")]
+pub struct FilterView {
+    pub filter: history::Filter,
+    pub label: &'static str,
+    /// The row kind it shows; `None` for All.
+    pub kind: Option<history::Kind>,
 }
 
 impl From<HistoryRow> for HistoryRowView {
@@ -491,6 +504,7 @@ impl From<HistoryRow> for HistoryRowView {
             palette: r.outcome.map(|(_, p)| p),
             mark: r.mark,
             opens: r.opens,
+            kind: r.kind,
         }
     }
 }
@@ -503,12 +517,16 @@ pub struct HistoryTotal {
     pub tokens: String,
 }
 
-/// The History tab: sessions and events, newest first.
+/// The sheet's Activity (SHT-05; History, UI-04): sessions and events, oldest first, under its filters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "HistoryView")]
 pub struct HistoryView {
     /// EVENT, WHEN, DURATION, TOKENS.
     pub columns: [&'static str; 4],
+    /// All · Comments · Stages · Description.
+    pub filters: Vec<FilterView>,
+    /// "oldest first".
+    pub order: &'static str,
     pub rows: Vec<HistoryRowView>,
     pub copy_hint: &'static str,
     pub copied: &'static str,
@@ -519,10 +537,23 @@ pub struct HistoryView {
     pub key: String,
 }
 
+/// Activity from History's rows (newest first): oldest first, with the filters.
 pub fn history_of(rows: Vec<HistoryRow>) -> HistoryView {
     HistoryView {
         columns: ["EVENT", "WHEN", "DURATION", "TOKENS"],
-        rows: rows.into_iter().map(Into::into).collect(),
+        filters: history::Filter::ALL
+            .into_iter()
+            .map(|filter| FilterView {
+                filter,
+                label: filter.label(),
+                kind: filter.kind(),
+            })
+            .collect(),
+        order: history::OLDEST_FIRST,
+        rows: history::oldest_first(rows)
+            .into_iter()
+            .map(Into::into)
+            .collect(),
         copy_hint: "Copy session ID",
         copied: "Copied",
         empty: "Nothing has happened to this ticket yet.",
@@ -945,6 +976,17 @@ mod tests {
         assert_eq!(view.threads[0].question.to_name.as_deref(), Some("Wishlist lead"));
         let history = history_of(Vec::new());
         assert_eq!(history.columns, ["EVENT", "WHEN", "DURATION", "TOKENS"]);
+        let filters: Vec<_> = history.filters.iter().map(|f| (f.label, f.kind)).collect();
+        assert_eq!(
+            filters,
+            [
+                ("All", None),
+                ("Comments", Some(history::Kind::Comment)),
+                ("Stages", Some(history::Kind::Stage)),
+                ("Description", Some(history::Kind::Description))
+            ]
+        );
+        assert_eq!(history.order, "oldest first");
         assert_eq!(history.copy_hint, "Copy session ID");
     }
 

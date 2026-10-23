@@ -101,6 +101,7 @@ pub mod run_command;
 pub mod run_page;
 pub mod search_page;
 pub mod send_back;
+pub mod session_tab;
 pub mod settings;
 pub mod settings_page;
 pub mod sheet;

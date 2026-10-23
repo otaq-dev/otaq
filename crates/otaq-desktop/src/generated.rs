@@ -25,7 +25,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     let cfg = Config::new().with_out_dir(dir).with_large_int("number");
     otaq_view::keymap::Modifiers::export_all(&cfg)?;
     otaq_view::keymap::KeyAction::export_all(&cfg)?;
-    otaq_view::view_models::panel::Tab::export_all(&cfg)?;
+    otaq_view::view_models::sheet::Content::export_all(&cfg)?;
     otaq_view::terminal::Phase::export_all(&cfg)?;
     // Also writes `ServiceConnection` and `ServiceCompatibility`, which it refers to.
     crate::events::PageEvent::export_all(&cfg)?;
@@ -178,7 +178,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::AgentsOpen::export_all(&cfg)?;
     // Settings → Flow, Use a preset… and the flow banner's requests (T-0422).
     crate::api::export_flow_types(&cfg)?;
-    // The panel's Stack, Messages and epic sections, the History tab and the epic dialogs (T-0223).
+    // Overview's Stack, Messages and epic sections, Activity (History) and the epic dialogs (T-0223, T-0466).
     crate::api::SectionParams::export_all(&cfg)?;
     crate::api::StackView::export_all(&cfg)?;
     crate::api::MessagesView::export_all(&cfg)?;
@@ -240,7 +240,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::decision_change::Gallery::export_all(&cfg)?;
     crate::api::DecisionChangeViewParams::export_all(&cfg)?;
     crate::api::DecisionChangeParams::export_all(&cfg)?;
-    // The Terminal tab (T-0224); the load also writes the view, its strips, hints and recovery.
+    // Session's terminal (T-0224, T-0466); the load also writes the view, its strips, hints, recovery and check.
     crate::api::TerminalTabLoad::export_all(&cfg)?;
     crate::api::TerminalTabParams::export_all(&cfg)?;
     crate::api::TerminalTabDeliverParams::export_all(&cfg)?;

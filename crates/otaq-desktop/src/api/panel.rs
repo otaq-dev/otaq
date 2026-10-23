@@ -46,8 +46,9 @@ use otaq_view::view_models::close;
 use otaq_view::view_models::epic_actions;
 use otaq_view::view_models::flow_columns::Columns;
 use otaq_view::view_models::menu::MenuItem;
-use otaq_view::view_models::panel::{self as vm, Indicator, Tab};
-use otaq_view::view_models::sheet::{self, Crumb, Detail, DetailFacts, SheetTab, Step};
+use otaq_view::view_models::panel as vm;
+use otaq_view::view_models::session_tab::{self, Dot, PartView};
+use otaq_view::view_models::sheet::{self, Content, Crumb, Detail, DetailFacts, SheetTab, Step};
 use otaq_view::view_models::panel_actions::{self as actions, Action, Look};
 use otaq_view::view_models::pr_dialog;
 use otaq_view::view_models::priority::{self, PriorityView};
@@ -176,7 +177,7 @@ pub struct Button {
     pub look: Look,
 }
 
-/// What a tab shows after its name (the page's `TabIndicator`).
+/// The dot after a tab's name (the page's `TabIndicator`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "PanelTabMark")]
@@ -184,11 +185,20 @@ pub enum Mark {
     Live,
     LiveAttention,
     Problem,
-    Note { text: String },
 }
 
-/// One tab of the sheet (SHT-02): its name, icon, key and dot, and today's panel tabs it shows (`contents`, the
-/// first by default) until its own ticket lands; Session's switch is its `parts` (Agent · Run · Shell).
+impl Mark {
+    fn of(dot: Dot) -> Self {
+        match dot {
+            Dot::Waiting => Self::LiveAttention,
+            Dot::Running => Self::Live,
+            Dot::Problem => Self::Problem,
+        }
+    }
+}
+
+/// One tab of the sheet (SHT-02): its name, icon, key and dot, and what it shows (`contents`); Session's switch is
+/// its `parts` (Agent · the check's agent · Run · Shell, SHT-04).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SheetTabView")]
 pub struct TabView {
@@ -199,20 +209,15 @@ pub struct TabView {
     pub number: u8,
     /// The user's first key for it (`1`).
     pub keys: Option<String>,
-    /// The live dot (Session: the agent's; Lead: the lead's) or a problem.
+    /// The live dot (Session: its agents'; Lead: the lead's).
     pub mark: Option<Mark>,
-    pub contents: Vec<Tab>,
-    /// Session's switch while it shows today's Terminal, Run and Shell tabs: empty for the other tabs.
+    /// What it can show: itself, or Session's parts (the check only once one ran).
+    pub contents: Vec<Content>,
+    /// What it shows when the selection names none of its contents: Session the check while one runs or needs you,
+    /// else its first.
+    pub lands_on: Content,
+    /// Session's switch: empty for the other tabs.
     pub parts: Vec<PartView>,
-}
-
-/// One button of Session's switch: "Agent", "Run" (":4020"), "Shell".
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "SheetPartView")]
-pub struct PartView {
-    pub content: Tab,
-    pub label: &'static str,
-    pub mark: Option<Mark>,
 }
 
 /// The sheet's frame (SHT-01): breadcrumb, details line, tabs, the tab it opens on and its widths.
@@ -445,8 +450,6 @@ pub struct Facts<'a> {
     /// Its project's flow isn't the default's shape: Pass · Fail, Send back with PR comments (FLW-14, FLW-16); the
     /// default flow keeps today's bar (d0108, STG-06).
     pub custom_flow: bool,
-    /// Its ticket comments: the Ticket tab's count (CMT-10).
-    pub comments: usize,
     /// Its project's name and its epic's title: the breadcrumb (SHT-01).
     pub project_name: &'a str,
     pub epic_title: Option<&'a str>,
@@ -458,18 +461,6 @@ fn running_agent(sessions: &[SessionInfo]) -> bool {
         .any(|s| s.kind == SessionKind::Agent && s.is_running())
 }
 
-fn mark(indicator: Indicator) -> Option<Mark> {
-    match indicator {
-        Indicator::None => None,
-        Indicator::Dot { attention: false } => Some(Mark::Live),
-        Indicator::Dot { attention: true } => Some(Mark::LiveAttention),
-        Indicator::Text(text) => Some(Mark::Note { text }),
-        Indicator::Count(n) => Some(Mark::Note {
-            text: n.to_string(),
-        }),
-        Indicator::Problem => Some(Mark::Problem),
-    }
-}
 
 fn answer_of(ticket: &Ticket) -> Option<Answer> {
     if ticket.status != otaq_core::domain::Status::AsksYou || ticket.flags.your_turn {
@@ -704,44 +695,54 @@ pub fn view_of(f: &Facts) -> View {
     }
 }
 
-/// The sheet's frame for `f`'s ticket. Today's tab indicators become the sheet tabs' dots and Session's switch's
-/// marks (Run's ":4020").
+/// The sheet's frame for `f`'s ticket, with Session's switch and the tabs' dots.
 fn sheet_of(f: &Facts) -> SheetView {
     let ticket = f.ticket;
-    let marks: Vec<(Tab, Option<Mark>)> =
-        vm::indicators(ticket, f.sessions, f.lead.map(|l| &l.status), f.comments)
-            .into_iter()
-            .map(|(tab, indicator)| match (tab, f.run) {
-                (Tab::Run, Some(run)) => (tab, otaq_view::view_models::run::tab_indicator(Some(run))),
-                _ => (tab, indicator),
-            })
-            .map(|(tab, indicator)| (tab, mark(indicator)))
-            .collect();
-    let mark_of = |tab: Tab| marks.iter().find(|(t, _)| *t == tab).and_then(|(_, m)| m.clone());
+    let stages = f
+        .agents
+        .map(|a| {
+            a.path
+                .iter()
+                .map(|s| (s.stage_id.clone(), s.stage.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let runs = f.agents.map_or(&[][..], |a| a.runs.as_slice());
+    let check = session_tab::check_side(ticket, f.sessions, runs, &stages);
+    let parts = session_tab::parts(&session_tab::Facts {
+        ticket,
+        sessions: f.sessions,
+        check: check.as_ref(),
+        run: f.run,
+    });
     let tabs = sheet::tabs(ticket)
         .into_iter()
         .map(|tab| {
-            let contents = tab.contents();
+            let (contents, lands_on, parts, dot) = match tab {
+                SheetTab::Session => (
+                    parts.iter().map(|p| p.content).collect(),
+                    session_tab::lands_on(ticket.status),
+                    parts.clone(),
+                    session_tab::tab_dot(&parts),
+                ),
+                SheetTab::Lead => (
+                    tab.contents().to_vec(),
+                    Content::Lead,
+                    Vec::new(),
+                    sheet::lead_dot(f.lead.map(|l| &l.status)),
+                ),
+                _ => (tab.contents().to_vec(), tab.contents()[0], Vec::new(), None),
+            };
             TabView {
                 tab,
                 label: tab.label(),
                 icon: tab.icon(),
                 number: tab.number(),
                 keys: f.keys.label(KeyAction::SwitchTab(tab.number())),
-                // Only a dot on the tab itself (`s25-03`): counts and ports stay on Session's switch.
-                mark: mark_of(contents[0]).filter(|m| !matches!(m, Mark::Note { .. })),
-                contents: contents.to_vec(),
-                parts: match contents.len() {
-                    1 => Vec::new(),
-                    _ => contents
-                        .iter()
-                        .map(|c| PartView {
-                            content: *c,
-                            label: sheet::part_label(*c),
-                            mark: mark_of(*c),
-                        })
-                        .collect(),
-                },
+                mark: dot.map(Mark::of),
+                contents,
+                lands_on,
+                parts,
             }
         })
         .collect();
@@ -912,7 +913,6 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     let custom_flow = !otaq_view::view_models::flow_columns::keeps_default_look(
         &super::board::flow(app, ticket.key.project.as_str()).await,
     );
-    let comments = super::ticket_comments::count(app, &params.key).await;
     let project_name = project_name(app, ticket.key.project.as_str()).await;
     let epic_title = ticket
         .epic
@@ -936,7 +936,6 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         tools: &tools,
         keys,
         custom_flow,
-        comments,
         project_name: &project_name,
         epic_title: epic_title.as_deref(),
     });
@@ -1710,7 +1709,6 @@ pub fn notes_gallery() -> NotesGallery {
                     tools,
                     keys: KeyLabels::default(),
                     custom_flow: false,
-                    comments: 0,
                     project_name: "shop-web",
                     epic_title: None,
                 })
@@ -1810,7 +1808,6 @@ pub fn sheet_gallery() -> Vec<View> {
                 tools,
                 keys: KeyLabels::default(),
                 custom_flow: true,
-                comments: 0,
                 project_name: "shop-web",
                 epic_title: ticket.epic.as_ref().map(|_| "Wishlist"),
             })
@@ -1905,7 +1902,6 @@ mod tests {
             tools: one_tool(),
             keys: KeyLabels::base(otaq_view::keymap::Platform::Mac),
             custom_flow: false,
-            comments: 0,
             project_name: "shop-web",
             epic_title: None,
         }
@@ -2021,16 +2017,22 @@ mod tests {
         assert_eq!(view.run, None, "no Run up, no pill");
         assert_eq!(view.signal.as_ref().unwrap().text, "40s ago");
         assert_eq!(view.tokens.as_ref().unwrap().text, "182k");
-        // The sheet (SHT-01, SHT-02): breadcrumb, Session's live dot, today's tabs inside.
+        // The sheet (SHT-01, SHT-02): breadcrumb, Session's live dot and its switch (SHT-04).
         let crumbs: Vec<&str> = view.sheet.crumbs.iter().map(|c| c.text.as_str()).collect();
         assert_eq!(crumbs, ["shop-web", "SHOP-19"]);
         let tabs: Vec<&str> = view.sheet.tabs.iter().map(|t| t.label).collect();
         assert_eq!(tabs, ["Overview", "Session", "Files", "Activity"]);
         assert_eq!(view.sheet.tabs[1].mark, Some(Mark::Live));
         assert_eq!(view.sheet.tabs[3].mark, None, "no count on Activity");
-        let parts: Vec<&str> = view.sheet.tabs[1].parts.iter().map(|p| p.label).collect();
-        assert_eq!(parts, ["Agent", "Run", "Shell"]);
-        assert_eq!(view.sheet.tabs[0].contents, [Tab::Ticket]);
+        let parts: Vec<&str> = view.sheet.tabs[1].parts.iter().map(|p| p.label.as_str()).collect();
+        assert_eq!(parts, ["Agent", "Run", "Shell"], "no check ran: no check side");
+        assert_eq!(view.sheet.tabs[1].parts[0].dot, Some(Dot::Running));
+        assert_eq!(
+            view.sheet.tabs[1].contents,
+            [Content::Agent, Content::Run, Content::Shell]
+        );
+        assert_eq!(view.sheet.tabs[1].lands_on, Content::Agent);
+        assert_eq!(view.sheet.tabs[0].contents, [Content::Overview]);
         assert_eq!(view.sheet.opens_on, SheetTab::Overview);
         assert!(view.live_agent);
         assert_eq!(
@@ -2172,14 +2174,14 @@ mod tests {
                 stop_hint: "Stop",
             })
         );
-        assert_eq!(view.sheet.tabs[1].parts[1].mark, Some(Mark::Note { text: ":4020".into() }));
+        assert_eq!(view.sheet.tabs[1].parts[1].dot, Some(Dot::Running));
         run.state = RunState::FailedToStart;
         let view = view_of(&Facts {
             run: Some(&run),
             ..facts(&t, &all, &[])
         });
         assert_eq!(view.run, None);
-        assert_eq!(view.sheet.tabs[1].parts[1].mark, Some(Mark::Problem));
+        assert_eq!(view.sheet.tabs[1].parts[1].dot, Some(Dot::Problem));
     }
 
     /// An epic's sheet (T-0290, until T-0469): Overview · Lead · Activity, Lead on `2`, the Lead tab's dot, the lead's
@@ -2307,6 +2309,31 @@ mod tests {
         assert_eq!(labels(&view), ["Open terminal \u{b7} Validator", "Run"]);
         assert_eq!(view.menu[0].label, "Stop this check");
         assert_eq!((view.answer_agent, view.approve_more), (None, None));
+        // Session's switch (SHT-04): the validator's side, running, named after its agent; Session lands on it.
+        let sessions = [
+            SessionInfo {
+                state: SessionState::Ended,
+                ..agent(SessionState::Ended)
+            },
+            SessionInfo {
+                id: "v1".into(),
+                kind: SessionKind::Validator,
+                agent: Some(otaq_core::session::SessionAgent {
+                    id: "validator".into(),
+                    name: "Validator".into(),
+                }),
+                ..agent(SessionState::Running)
+            },
+        ];
+        let view = view_of(&facts(&t, std::slice::from_ref(&t), &sessions));
+        let session = &view.sheet.tabs[1];
+        let parts: Vec<_> = session.parts.iter().map(|p| (p.label.as_str(), p.dot)).collect();
+        assert_eq!(
+            parts,
+            [("Agent", None), ("Validator", Some(Dot::Running)), ("Run", None), ("Shell", None)]
+        );
+        assert_eq!(session.lands_on, Content::Check);
+        assert_eq!(session.mark, Some(Mark::Live));
 
         let mut failed = fixture("SHOP-32", "Address autocomplete", Status::CheckFailed);
         failed.validation_round = 3;

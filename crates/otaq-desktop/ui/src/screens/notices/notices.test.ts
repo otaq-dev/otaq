@@ -173,21 +173,21 @@ describe("notification clicks", () => {
     };
   };
 
-  it("a ticket: its project, its Terminal tab, its terminal focused; again is a new focus request", () => {
+  it("a ticket: its project, Session on its agent, its terminal focused; again is a new focus request", () => {
     const r = routes();
     openTarget({ kind: "ticket", project: "SHOP", ticket: "SHOP-22" }, r);
-    expect(r.selection.get()).toMatchObject({ project: "SHOP", ticket: "SHOP-22", tab: "terminal" });
+    expect(r.selection.get()).toMatchObject({ project: "SHOP", ticket: "SHOP-22", tab: "agent" });
     expect(r.focus.get()).toEqual({ ticket: "SHOP-22", seq: 1 });
     openTarget({ kind: "ticket", project: "SHOP", ticket: "SHOP-22" }, r);
     expect(r.focus.get()?.seq).toBe(2);
     expect(r.next).not.toHaveBeenCalled();
   });
 
-  it("a validator's prompt: the Terminal tab with the validator's terminal focused", () => {
+  it("a validator's prompt: Session on the check's side, its terminal focused", () => {
     const r = routes();
     openTarget({ kind: "validator", project: "NOTE", ticket: "NOTE-3" }, r);
-    expect(r.selection.get()).toMatchObject({ project: "NOTE", ticket: "NOTE-3", tab: "terminal" });
-    expect(r.focus.get()).toEqual({ ticket: "NOTE-3", seq: 1, side: "validator" });
+    expect(r.selection.get()).toMatchObject({ project: "NOTE", ticket: "NOTE-3", tab: "check" });
+    expect(r.focus.get()).toEqual({ ticket: "NOTE-3", seq: 1 });
   });
 
   it("a Project agent: its project, the agent in the pane (shown if hidden), focused", () => {

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::view_models::panel::Tab;
+use crate::view_models::sheet::Content;
 
 /// How long a success toast stays.
 pub const AUTO_HIDE: Duration = Duration::from_secs(6);
@@ -35,7 +35,7 @@ pub enum ToastLink {
     Open {
         label: String,
         ticket: String,
-        tab: Option<Tab>,
+        tab: Option<Content>,
     },
     /// One or two buttons after the title: "Undo", or "Turn on for epic children" and "Undo" (EPC-15). A press
     /// is sent back with `notices.toast_action` and replaces the toast.

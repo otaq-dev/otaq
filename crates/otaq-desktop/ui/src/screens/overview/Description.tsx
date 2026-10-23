@@ -18,7 +18,7 @@ import type { EditorRefusal } from "../../generated/EditorRefusal";
 import type { EditorSaved } from "../../generated/EditorSaved";
 import type { EditorView } from "../../generated/EditorView";
 import type { OverviewView } from "../../generated/OverviewView";
-import type { PanelTab } from "../../generated/PanelTab";
+import type { SheetContent } from "../../generated/SheetContent";
 import { FullView, useFullView } from "../../markdown";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
@@ -69,7 +69,7 @@ export function SavedNote({
           icon="square-terminal"
           label={openTerminal}
           onClick={() => {
-            showTab("terminal");
+            showTab("agent");
             requestTerminalFocus(ticket);
           }}
         />
@@ -102,7 +102,7 @@ export interface DescriptionSectionProps {
   view: EditorView;
   overview: OverviewView;
   /** The selection values Overview shows (`null` and the Ticket content): moving between them never asks. */
-  overviewTabs: readonly PanelTab[];
+  overviewTabs: readonly SheetContent[];
 }
 
 export function DescriptionSection({ ticket, view, overview, overviewTabs }: DescriptionSectionProps) {

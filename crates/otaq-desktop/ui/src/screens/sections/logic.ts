@@ -3,7 +3,7 @@
 import type { MoveChoiceView } from "../../generated/MoveChoiceView";
 import type { MoveDialogView } from "../../generated/MoveDialogView";
 
-/** The service events that change a section or the History tab. */
+/** The service events that change a section or Activity. */
 export const SECTION_EVENTS = [
   "ticket_changed",
   "ticket_deleted",

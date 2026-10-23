@@ -40,7 +40,7 @@ import { request } from "../../tauri";
 import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
 import { Icon } from "../../theme/Icon";
 import { showAgentOnBoard } from "../board/filter";
-import { toolProblemAction } from "../panel/toolProblemRunner";
+import { toolProblemAction } from "../tool_problems/toolProblemRunner";
 import { lookedAt } from "../ask_bar/logic";
 import {
   chosenAgent,

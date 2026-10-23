@@ -16,7 +16,7 @@ import { Icon } from "../../theme/Icon";
 export function openKey(key: string): void {
   const project = key.split("-")[0];
   if (project) selectProject(project);
-  openTicket(key, "ticket");
+  openTicket(key, "overview");
 }
 
 function Text({ segments }: { segments: readonly ReportSegment[] }) {

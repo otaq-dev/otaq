@@ -6,10 +6,8 @@ import { createContext, useContext, useEffect } from "react";
 import { OVERLAY_IDS, type OverlayEntries } from "./overlays";
 import {
   PANEL_SECTIONS,
-  PANEL_TABS,
   PANEL_UNDER_TABS,
   type PanelSectionEntries,
-  type PanelTabEntries,
   SHEET_TABS,
   type SheetTabEntries,
 } from "./panel";
@@ -27,7 +25,6 @@ export interface Registries {
   slots: Registry<SlotEntries>;
   overlays: Registry<OverlayEntries>;
   sheetTabs: Registry<SheetTabEntries>;
-  panelTabs: Registry<PanelTabEntries>;
   panelSections: Registry<PanelSectionEntries>;
   settings: { global: Registry<GlobalSectionEntries>; project: Registry<ProjectSectionEntries> };
   shortcuts: Shortcuts;
@@ -41,7 +38,6 @@ export function createRegistries(): Registries {
     slots: createRegistry("slots", SLOT_IDS),
     overlays: createRegistry("overlays", OVERLAY_IDS),
     sheetTabs: createRegistry("sheet tabs", SHEET_TABS),
-    panelTabs: createRegistry("panel tabs", PANEL_TABS),
     panelSections: createRegistry("panel sections", [...PANEL_SECTIONS, PANEL_UNDER_TABS]),
     settings: {
       global: createRegistry("global settings sections", GLOBAL_SECTIONS),
@@ -64,7 +60,6 @@ export function registered(app: Registries): Record<string, string[]> {
     slots: app.slots.ids(),
     overlays: app.overlays.ids(),
     sheetTabs: app.sheetTabs.ids(),
-    panelTabs: app.panelTabs.ids(),
     panelSections: app.panelSections.ids(),
     globalSettings: app.settings.global.ids(),
     projectSettings: app.settings.project.ids(),

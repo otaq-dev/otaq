@@ -14,9 +14,9 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::keymap::{Binding, KeyAction, KeyPlace};
 use crate::view_models::flow_columns::Columns;
-use crate::view_models::panel::{self, Tab};
 use crate::view_models::panel_actions::{self, Action as PanelAction};
 use crate::view_models::pause;
+use crate::view_models::sheet::{self, SheetTab};
 use crate::view_models::{close, send_back};
 
 pub const PLACEHOLDER: &str = "Search tickets, projects and actions…";
@@ -76,7 +76,7 @@ impl OpenTicket {
             retry_validation: panel_actions::buttons(ticket)
                 .iter()
                 .any(|(a, _)| *a == PanelAction::RetryValidation),
-            diff: panel::tabs(ticket).contains(&Tab::Files),
+            diff: sheet::tabs(ticket).contains(&SheetTab::Files),
             in_epic: ticket.is_epic() || ticket.epic.is_some(),
         }
     }

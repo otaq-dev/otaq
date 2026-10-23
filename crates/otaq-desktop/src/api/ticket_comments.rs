@@ -117,11 +117,6 @@ async fn comments(
     }
 }
 
-/// How many comments the ticket has (the Ticket tab's count); 0 when the service can't say.
-pub async fn count(app: &App, key: &str) -> usize {
-    comments(app, key).await.map_or(0, |c| c.len())
-}
-
 /// The agent working on the ticket now: its running agent or check session's agent.
 fn working(sessions: &[SessionInfo]) -> Option<&str> {
     sessions
@@ -310,7 +305,6 @@ mod tests {
         assert_eq!(view["count"], 1);
         assert_eq!(view["comments"][0]["n"], 2);
         assert_eq!(view["comments"][0]["edited"], "\u{b7} edited");
-        assert_eq!(count(&h.app, &key).await, 1);
 
         let size = table(&h.app, "ticket_comments.pasted_size", json!({ "bytes": 48 * 1024 }))
             .await

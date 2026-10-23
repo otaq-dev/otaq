@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ToolProblemCallout } from "../../components";
 import type { ToolProblemCallout as CalloutView } from "../../generated/ToolProblemCallout";
-import { cardRoute } from "./logic";
+import { cardRoute } from "../sheet/actionRoutes";
 import { runToolProblemAction, type ToolProblemRunner, toolProblemStep } from "./toolProblems";
 
 function runner(answer: unknown = null) {

@@ -79,7 +79,7 @@ const html = (view: LeadTabView) =>
 
 describe("the Lead tab renders each state (T-0290)", () => {
   it("registers the Lead tab", () => {
-    expect(registered(registerScreens({ leadTab })).panelTabs).toEqual(["lead"]);
+    expect(registered(registerScreens({ leadTab })).sheetTabs).toEqual(["lead"]);
   });
 
   it("idle: the header, the changes by turn with their links, the live terminal", () => {

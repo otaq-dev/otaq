@@ -13,6 +13,7 @@ use crate::keymap::KeyAction;
 use crate::view_models::processes;
 use crate::view_models::run::{self as vm, RunButton, Tone};
 use crate::view_models::run_command::{Phase, RunCommandModel};
+use crate::view_models::session_tab;
 use crate::view_models::shell;
 use crate::view_models::toasts::{NewToast, ToastLevel};
 
@@ -185,12 +186,23 @@ pub fn card_view(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> CardView {
     }
 }
 
-/// What `run.tab` answers: the state card and the Run's output session.
+/// Session's "Open http://localhost:4022" (SHT-04), while the Run is up and the project sets an Open URL.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "RunOpenUrl")]
+pub struct OpenUrlView {
+    pub label: String,
+    pub url: String,
+}
+
+/// What `run.tab` answers: Session's Run line, the state card and the Run's output session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "RunTabView")]
 pub struct TabView {
     pub key: String,
     pub project: String,
+    /// "pnpm dev · in SHOP-22’s worktree · :4022" (SHT-04); none before a run command is set.
+    pub line: Option<String>,
+    pub open_url: Option<OpenUrlView>,
     pub card: CardView,
     pub output_label: &'static str,
     /// The Run's session, attached read-only; `None` before the first Run.
@@ -199,10 +211,21 @@ pub struct TabView {
 }
 
 pub fn tab_view(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> TabView {
+    let card = card_view(run, hhmm);
     TabView {
         key: run.key.to_string(),
         project: run.project.clone(),
-        card: card_view(run, hhmm),
+        line: session_tab::run_line(&run.command, &run.key, run.port),
+        open_url: session_tab::open_url(run).map(|(label, url)| OpenUrlView { label, url }),
+        // Open is the line's "Open http://localhost:4022", not the card's.
+        card: CardView {
+            buttons: card
+                .buttons
+                .into_iter()
+                .filter(|b| b.kind != ButtonKind::Open)
+                .collect(),
+            ..card
+        },
         output_label: "OUTPUT",
         session: run.session.clone(),
         idle: "(not running)",
@@ -477,6 +500,24 @@ mod tests {
         assert_eq!(idle.card.port.as_deref(), Some(":4020"));
         assert_eq!(idle.card.buttons[0].kind, ButtonKind::Run);
         assert_eq!(idle.output_label, "OUTPUT");
+        assert_eq!(
+            idle.line.as_deref(),
+            Some("pnpm dev --port $PORT \u{b7} in SHOP-19\u{2019}s worktree \u{b7} :4020")
+        );
+        assert_eq!(idle.open_url, None);
+        // Running, Session's line opens the URL; the card keeps Stop.
+        let up = tab_view(&run(RunState::Running), HHMM);
+        assert_eq!(
+            up.open_url,
+            Some(OpenUrlView {
+                label: "Open http://localhost:4020".into(),
+                url: "http://localhost:4020".into()
+            })
+        );
+        assert_eq!(
+            up.card.buttons.iter().map(|b| b.kind).collect::<Vec<_>>(),
+            [ButtonKind::Stop]
+        );
 
         let running = card_view(&run(RunState::Running), HHMM);
         assert_eq!(running.tone, ToneView::Success);

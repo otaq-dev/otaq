@@ -1,7 +1,9 @@
 // The ticket sheet's moment of interaction (SHT-01, SHT-02; T-0464): which of Rust's tabs shows for the selection,
-// what a tab key or ⌃Tab selects, and the sheet's width now. The tabs, their keys and the widths are Rust's
-// (`view_models/sheet.rs`, sent as `PanelView.sheet`).
-import type { PanelTab } from "../../generated/PanelTab";
+// what a tab key or ⌃Tab selects, the sheet's width now, and a tab's dot. The tabs, their keys and the widths are
+// Rust's (`view_models/sheet.rs`, sent as `PanelView.sheet`).
+import type { TabIndicator } from "../../components";
+import type { PanelTabMark } from "../../generated/PanelTabMark";
+import type { SheetContent } from "../../generated/SheetContent";
 import type { SheetTab } from "../../generated/SheetTab";
 import type { SheetTabView } from "../../generated/SheetTabView";
 import type { SheetView } from "../../generated/SheetView";
@@ -12,7 +14,7 @@ import type { SheetView } from "../../generated/SheetView";
  */
 export function shownSheetTab(
   tabs: readonly SheetTabView[],
-  selected: PanelTab | null,
+  selected: SheetContent | null,
   opensOn: SheetTab,
 ): SheetTabView | undefined {
   return (
@@ -22,9 +24,12 @@ export function shownSheetTab(
   );
 }
 
-/** What a tab shows: the selected content when it holds it (Session on Run), else its first (Agent). */
-export function contentOf(tab: SheetTabView, selected: PanelTab | null): PanelTab | undefined {
-  return selected !== null && tab.contents.includes(selected) ? selected : tab.contents[0];
+/**
+ * What a tab shows: the selected content when it holds it (Session on Run), else the one it lands on (Session: the
+ * check while one runs or needs you, else the agent).
+ */
+export function contentOf(tab: SheetTabView, selected: SheetContent | null): SheetContent {
+  return selected !== null && tab.contents.includes(selected) ? selected : tab.lands_on;
 }
 
 /** The tab `1`–`4` (or `g o` / `s` / `f` / `a`) selects: the shown one with that number. */
@@ -51,4 +56,9 @@ export function steppedSheetTab(
 export function sheetWidth(view: SheetView, besideAgent: boolean, mainWidth: number): number {
   const wanted = besideAgent ? view.width_beside_agent : view.width;
   return Math.max(Math.min(wanted, mainWidth - 2 * view.margin), 0);
+}
+
+/** A tab's dot, as the Tabs component draws it. */
+export function tabIndicator(mark: PanelTabMark | null): TabIndicator | undefined {
+  return mark ?? undefined;
 }

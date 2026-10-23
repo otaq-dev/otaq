@@ -14,7 +14,7 @@ import type { Toast as ToastView } from "../../generated/Toast";
 import type { ToastPress } from "../../generated/ToastPress";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { toolProblemAction } from "../panel/toolProblemRunner";
+import { toolProblemAction } from "../tool_problems/toolProblemRunner";
 import { type LimitLineHandlers, LimitLines } from "./LimitLines";
 import { ApplyNowOverlay } from "./ApplyNow";
 import { followNotifications, limitLinesOf, noticesStore, pressBanner, watchNotices } from "./notices";

@@ -1,0 +1,92 @@
+/* The sheet's Session (SHT-04, canvas `s25-06`): the switch and the line of the side shown, over its body. */
+.session {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 14px 24px 16px;
+}
+
+.session .run-tab {
+  padding: 0;
+}
+
+.session > * {
+  flex: 1;
+  min-height: 0;
+}
+
+.session-line {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 0 0 10px;
+}
+
+.session-switch {
+  padding: 3px;
+  border-radius: 8px;
+}
+
+.session-switch .segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 6px;
+}
+
+.session-switch .segment[aria-checked="true"] {
+  border-color: transparent;
+  background: var(--bg-panel);
+  font-weight: 600;
+}
+
+.session-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--st-approved);
+}
+
+.session-dot[data-dot="waiting"] {
+  background: var(--st-attn);
+}
+
+.session-dot[data-dot="problem"] {
+  background: var(--st-error);
+}
+
+.session-line-text {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-typing {
+  flex: none;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.session-open-url {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: 400 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.session-open-url:hover {
+  text-decoration: underline;
+}

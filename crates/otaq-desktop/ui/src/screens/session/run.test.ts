@@ -10,11 +10,11 @@ import type { RunCardView } from "../../generated/RunCardView";
 import type { RunCommandView } from "../../generated/RunCommandView";
 import type { ShellTabView } from "../../generated/ShellTabView";
 import { INITIAL_STATE } from "../../terminal/state";
-import { run } from ".";
+import { session } from ".";
 import { afterStart, pressOf, suggestionFor } from "./logic";
 import { ProcessesBody } from "./Processes";
 import { RunCommandBody } from "./RunCommand";
-import { RunCard } from "./RunTab";
+import { RunCard, RunTabBody } from "./RunTab";
 import { ShellTabBody } from "./ShellTab";
 
 afterEach(() => {
@@ -89,12 +89,35 @@ const SHELL: ShellTabView = {
 const noop = () => undefined;
 
 describe("the Run & Shell screen", () => {
-  it("registers the Run and Shell tabs, the run-command dialog and the processes menu", () => {
+  it("Session holds Run and Shell; its screen registers the run-command dialog and the processes menu", () => {
     const app = createRegistries();
-    run(app);
+    session(app);
     const r = registered(app);
-    expect(r.panelTabs).toEqual(["run", "shell"]);
+    expect(r.sheetTabs).toEqual(["session"]);
     expect(r.overlays).toEqual(["processes", "run_command"]);
+  });
+
+  it("Session's Run leads with its line and Open URL (SHT-04, `s25-06`)", () => {
+    const html = renderToStaticMarkup(
+      createElement(RunTabBody, {
+        ticket: "SHOP-22",
+        head: createElement("span", null, "the switch"),
+        view: {
+          key: "SHOP-22",
+          project: "SHOP",
+          line: "pnpm dev · in SHOP-22’s worktree · :4022",
+          open_url: { label: "Open http://localhost:4022", url: "http://localhost:4022" },
+          card: { ...RUNNING, buttons: [RUNNING.buttons[1] ?? button("stop")] },
+          output_label: "OUTPUT",
+          session: null,
+          idle: "(not running)",
+        },
+      }),
+    );
+    expect(html).toMatch(
+      /the switch.*pnpm dev · in SHOP-22’s worktree · :4022.*Open http:\/\/localhost:4022/,
+    );
+    expect(html).not.toContain("Open localhost:4020");
   });
 
   it("draws the Running card with Open and Stop", () => {

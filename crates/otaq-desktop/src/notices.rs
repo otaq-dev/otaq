@@ -142,9 +142,9 @@ pub struct NoticesView {
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "NotificationTarget")]
 pub enum OpenTarget {
-    /// The ticket's panel on the Terminal tab, its terminal focused.
+    /// The ticket's sheet on Session's agent, its terminal focused.
     Ticket { project: String, ticket: String },
-    /// The ticket's panel on the Terminal tab, its validator's terminal focused.
+    /// The ticket's sheet on Session's check, its validator's terminal focused.
     Validator { project: String, ticket: String },
     /// The agent in the Project agent pane, focused.
     ProjectAgent { project: String, agent: String },

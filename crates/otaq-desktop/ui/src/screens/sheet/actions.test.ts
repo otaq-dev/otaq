@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-// Mostly drawn to a string; a pick in the choices is mounted (its select opens a menu).
+// The ticket's actions (`actions.tsx`, `actionRoutes.ts`) and what Overview needs from you (`overview/NeedsYou.tsx`):
+// mostly drawn to a string; a pick in the choices is mounted (its select opens a menu).
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,7 +15,8 @@ import type { PanelAnswerRow } from "../../generated/PanelAnswerRow";
 import type { PanelView } from "../../generated/PanelView";
 import type { StageChoicesView } from "../../generated/StageChoicesView";
 import type { TicketPathView } from "../../generated/TicketPathView";
-import { panel } from ".";
+import { request } from "../../tauri";
+import { sheet } from ".";
 import {
   actionRoute,
   agentSettings,
@@ -24,10 +26,9 @@ import {
   menuRoute,
   pickByKey,
   picksOther,
-} from "./logic";
-import { request } from "../../tauri";
-import { SheetBody } from "../sheet/Sheet";
-import { renderSheet as render, sheetRegistries, VIEW } from "../sheet/sheet_fixtures";
+} from "./actionRoutes";
+import { SheetBody } from "./Sheet";
+import { renderSheet as render, sheetRegistries, VIEW } from "./sheet_fixtures";
 
 vi.mock("../../tauri", () => ({
   request: vi.fn(() => new Promise(() => undefined)),
@@ -78,8 +79,8 @@ describe("where buttons and menu items go", () => {
       "move_to_review",
     ];
     for (const action of service) expect(actionRoute(action)).toEqual({ kind: "service" });
-    expect(actionRoute("open_validator")).toEqual({ kind: "validator" });
-    expect(actionRoute("answer_validator")).toEqual({ kind: "validator" });
+    expect(actionRoute("open_validator")).toEqual({ kind: "check" });
+    expect(actionRoute("answer_validator")).toEqual({ kind: "check" });
     expect(actionRoute("answer_agent")).toEqual({ kind: "answer_agent" });
     for (const item of ["stop-validation", "skip-to-review", "validate-and-submit"])
       expect(menuRoute(item)).toEqual({ kind: "service" });
@@ -94,11 +95,11 @@ describe("where buttons and menu items go", () => {
     expect(menuRoute("something")).toEqual({ kind: "unknown" });
   });
 
-  it("Edit shows the Ticket tab and asks it for its form", () => {
+  it("Edit shows Overview and asks it for its form", () => {
     selection.set({ ...NOTHING_SELECTED, ticket: "SHOP-19" });
     requestTicketEdit("SHOP-19");
     requestTicketEdit("SHOP-19");
-    expect(selection.get().tab).toBe("ticket");
+    expect(selection.get().tab).toBe("overview");
     expect(ticketEditRequests.get()).toEqual({ ticket: "SHOP-19", seq: 2 });
   });
 });
@@ -219,7 +220,7 @@ describe("answer options", () => {
   });
 });
 
-describe("the panel's content in the sheet's Overview (until T-0465)", () => {
+describe("what it needs from you, at the top of Overview", () => {
   it("draws the bar, the last signal and the registered section under the sheet's header and tabs", () => {
     const html = render(VIEW);
     for (const text of ["SHOP-19", "Price table", "Working", "otaq/SHOP-19", "from main", "40s ago"]) {
@@ -267,10 +268,10 @@ describe("the panel's content in the sheet's Overview (until T-0465)", () => {
     expect(render(VIEW)).not.toContain("▾");
   });
 
-  it("registers its two dialogs from its folder; the sheet fills the panel slot", () => {
-    const app = registerScreens({ panel });
+  it("the sheet registers the ticket's two dialogs from its folder", () => {
+    const app = registerScreens({ sheet });
     expect(registered(app)).toMatchObject({
-      slots: [],
+      slots: ["panel"],
       overlays: ["close_ticket", "submit_for_review"],
     });
   });

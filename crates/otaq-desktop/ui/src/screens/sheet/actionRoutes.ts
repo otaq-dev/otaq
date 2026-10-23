@@ -1,22 +1,15 @@
-// Where the ticket's buttons go (T-0222), now in its sheet (T-0464). What the buttons and menus say is Rust's
+// Where the ticket's buttons go (T-0222), in its sheet (T-0464). What the buttons and menus say is Rust's
 // (`src/api/panel.rs`); this file keeps only the moment of interaction: the picked answer, and which buttons open a
 // tab or a dialog on the page instead of calling the service.
 import type { CardActionKind } from "../../generated/CardActionKind";
 import type { PanelAction } from "../../generated/PanelAction";
 import type { PanelAnswerRow } from "../../generated/PanelAnswerRow";
-import type { PanelTabMark } from "../../generated/PanelTabMark";
-import type { TabIndicator } from "../../components";
-
-/** The tab strip's marker, as the Tabs component draws it. */
-export function tabIndicator(mark: PanelTabMark | null): TabIndicator | undefined {
-  return mark ?? undefined;
-}
 
 /** Where a button goes: the service (`panel.action`), a tab, or a dialog. */
 export type ActionRoute =
   | { kind: "service" }
   | { kind: "terminal" }
-  | { kind: "validator" }
+  | { kind: "check" }
   | { kind: "answer_agent" }
   | { kind: "diff" }
   | { kind: "edit" }
@@ -47,10 +40,10 @@ export function actionRoute(action: PanelAction): ActionRoute {
     case "resume_lead":
     case "add_child_from_pr":
       return { kind: "service" };
-    // The Terminal tab on the validator's side (its switch is T-0237's).
+    // Session on the check's side (SHT-04).
     case "open_validator":
     case "answer_validator":
-      return { kind: "validator" };
+      return { kind: "check" };
     // Opens the note box under the bar; Send to agent calls `panel.answer_agent`.
     case "answer_agent":
       return { kind: "answer_agent" };

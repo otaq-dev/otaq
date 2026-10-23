@@ -5,8 +5,6 @@ import { describe, expect, it } from "vitest";
 import { registered, registerScreens } from "../../app/registry";
 import type { CloseEpicDialogView } from "../../generated/CloseEpicDialogView";
 import type { EpicView } from "../../generated/EpicView";
-import type { HistoryRowView } from "../../generated/HistoryRowView";
-import type { HistoryView } from "../../generated/HistoryView";
 import type { MessagesView } from "../../generated/MessagesView";
 import type { MoveDialogView } from "../../generated/MoveDialogView";
 import type { PillView } from "../../generated/PillView";
@@ -15,7 +13,6 @@ import type { ValidationReportView } from "../../generated/ValidationReportView"
 import { sections } from ".";
 import { EpicBody } from "./Epic";
 import { CloseEpicBody, MoveDialogBody } from "./EpicDialogs";
-import { HistoryBody } from "./History";
 import { canMove, followMove, pickedChoice, progressPercent, stackOpen } from "./logic";
 import { MessagesBody } from "./Messages";
 import { Report } from "./Report";
@@ -249,149 +246,12 @@ describe("the sections", () => {
     expect(out).not.toContain(">Answer<");
   });
 
-  it("History: sessions with their copyable Claude session ID, events without", () => {
-    const view: HistoryView = {
-      columns: ["EVENT", "WHEN", "DURATION", "TOKENS"],
-      copy_hint: "Copy session ID",
-      copied: "Copied",
-      empty: "Nothing has happened to this ticket yet.",
-      total: null,
-      key: "SHOP-28",
-      rows: [
-        {
-          title: "Agent session",
-          detail: "claude 9f1c-77 · exited",
-          when: "09:42",
-          duration: "38 min",
-          tokens: "74k",
-          tool_session_id: "9f1c-77",
-          is_session: true,
-          icon: "square-terminal",
-          palette: null,
-          mark: null,
-          opens: null,
-        },
-        {
-          title: "Created",
-          detail: "by you",
-          when: "09:10",
-          duration: "—",
-          tokens: "—",
-          tool_session_id: null,
-          is_session: false,
-          icon: "history",
-          palette: null,
-          mark: null,
-          opens: null,
-        },
-      ],
-    };
-    const out = html(createElement(HistoryBody, { view }));
-    for (const text of ["EVENT", "DURATION", "Agent session", "claude 9f1c-77", "38 min", "Created"]) {
-      expect(out).toContain(text);
-    }
-    expect(out.match(/Copy session ID/g)).toHaveLength(1);
-    expect(html(createElement(HistoryBody, { view: { ...view, rows: [] } }))).toContain(view.empty);
-  });
-
-  it("History: validation rounds open nothing any more; the total sits under the rows", () => {
-    const view: HistoryView = {
-      columns: ["EVENT", "WHEN", "DURATION", "TOKENS"],
-      copy_hint: "Copy session ID",
-      copied: "Copied",
-      empty: "Nothing has happened to this ticket yet.",
-      total: { label: "Validation total · 2 entries", tokens: "15k" },
-      key: "SHOP-32",
-      rows: [
-        {
-          title: "Round 1 · failed",
-          detail: "agent submitted",
-          when: "10:02",
-          duration: "4 min",
-          tokens: "12k",
-          tool_session_id: null,
-          is_session: false,
-          icon: "shield-x",
-          palette: "attn",
-          mark: null,
-          opens: null,
-        },
-      ],
-    };
-    const out = html(createElement(HistoryBody, { view }));
-    expect(out).toContain("Round 1 · failed");
-    expect(out).not.toContain("aria-expanded");
-    expect(out).toContain("Validation total · 2 entries");
-    expect(out).toContain("15k");
-  });
-
   it("the Diff tab's report draws its findings, checks and notes, with Create ticket", () => {
     const out = html(createElement(Report, { report: REPORT, ticket: "SHOP-32" }));
     expect(out).toContain("arrow keys do nothing");
     expect(out).toContain("components/AddressAutocomplete.tsx:88");
     expect(out).toContain("Create ticket");
     expect(out).toContain('class="report-key"');
-  });
-
-  it("History: description and comment lines open their before / after and a report (s05-45, CMT-14)", () => {
-    const row = (over: Partial<HistoryRowView>): HistoryRowView => ({
-      title: "",
-      detail: null,
-      when: "2:14 pm",
-      duration: "—",
-      tokens: "—",
-      tool_session_id: null,
-      is_session: false,
-      icon: "history",
-      palette: null,
-      mark: { kind: "agent" },
-      opens: null,
-      ...over,
-    });
-    const view: HistoryView = {
-      columns: ["EVENT", "WHEN", "DURATION", "TOKENS"],
-      copy_hint: "Copy session ID",
-      copied: "Copied",
-      empty: "Nothing has happened to this ticket yet.",
-      total: null,
-      key: "SHOP-34",
-      rows: [
-        row({
-          title: "Griller · Grill edited the description · added Agreed (4 lines)",
-          opens: {
-            label: "DESCRIPTION",
-            caption: "Before / after",
-            lines: [
-              { kind: "same", sign: "", text: "Admins can export the orders table as CSV." },
-              { kind: "added", sign: "+", text: "## Agreed" },
-            ],
-            report: null,
-          },
-        }),
-        row({
-          title: "Validator · Validate · round 2 commented · with a report (48 KB)",
-          detail: "“Fail: the 10,000 row limit isn't…”",
-          opens: {
-            label: "COMMENT",
-            caption: null,
-            lines: [{ kind: "same", sign: "", text: "Fail: the 10,000 row limit isn't enforced." }],
-            report: { n: 4, chip: { label: "Report", size: "· 48 KB", open: "Open" } },
-          },
-        }),
-        row({ title: "You deleted a comment", mark: { kind: "you" } }),
-      ],
-    };
-    const closed = html(createElement(HistoryBody, { view }));
-    expect(closed.match(/aria-expanded="false"/g)).toHaveLength(2);
-    expect(closed).toContain("comment-mark");
-    expect(closed).not.toContain("DESCRIPTION");
-    const opened = html(createElement(HistoryBody, { view, opened: [0, 1] }));
-    expect(opened).toContain("DESCRIPTION");
-    expect(opened).toContain("Before / after");
-    expect(opened).toContain('data-kind="added"');
-    expect(opened).toContain("## Agreed");
-    expect(opened).toContain("· 48 KB");
-    expect(opened).toContain(">Open</button>");
   });
 
   it("the epic panel: progress, branch, children and Add ticket to epic", () => {
@@ -463,10 +323,10 @@ describe("the sections", () => {
     for (const text of [close.agents[0] ?? "", close.also ?? "", close.note]) expect(out).toContain(text);
   });
 
-  it("registers the sections, the History tab and the epic dialogs from its folder", () => {
+  it("registers the sections and the epic dialogs from its folder", () => {
     expect(registered(registerScreens({ sections }))).toMatchObject({
       panelSections: ["epic", "stack", "messages"],
-      panelTabs: ["history"],
+      sheetTabs: [],
       overlays: ["move_to_epic", "close_epic"],
     });
   });

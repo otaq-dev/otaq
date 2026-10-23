@@ -16,30 +16,36 @@ import { AnchoredMenu, IconButton, StatusPill, Tabs, ToolAvatar, Tooltip } from 
 import type { MenuItem } from "../../generated/MenuItem";
 import type { PanelHint } from "../../generated/PanelHint";
 import type { PanelLoad } from "../../generated/PanelLoad";
-import type { PanelTab } from "../../generated/PanelTab";
 import type { PanelView } from "../../generated/PanelView";
+import type { SheetContent } from "../../generated/SheetContent";
 import type { SheetDetail } from "../../generated/SheetDetail";
 import type { SheetStep } from "../../generated/SheetStep";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { dropCard } from "../board/Board";
-import { tabIndicator } from "../panel/logic";
 import { DescriptionSaveBar } from "../overview/SaveBar";
 import { ReviewBar } from "../files/ReviewBar";
-import { MoreMenu, PANEL_EVENTS, type PanelActions, usePanelActions } from "../panel/Panel";
-import { contentOf, numberedSheetTab, sheetWidth, shownSheetTab, steppedSheetTab } from "./logic";
+import { MoreMenu, PANEL_EVENTS, type PanelActions, usePanelActions } from "./actions";
+import {
+  contentOf,
+  numberedSheetTab,
+  sheetWidth,
+  shownSheetTab,
+  steppedSheetTab,
+  tabIndicator,
+} from "./logic";
 
 const ignore = () => undefined;
 
 /**
- * What the sheet's tab bodies read: the ticket's view, its actions (the interim Overview's action bar) and what the
- * selection asks to show (Session's Agent, Run or Shell).
+ * What the sheet's tab bodies read: the ticket's view, its actions (Overview's action bar) and what the selection asks
+ * to show (Session's Agent, the check, Run or Shell).
  */
 export interface SheetState {
   view: PanelView;
   actions: PanelActions;
-  selected: PanelTab | null;
+  selected: SheetContent | null;
 }
 
 export const SheetContext = createContext<SheetState | null>(null);
@@ -232,7 +238,7 @@ function FlowPath({ steps }: { steps: readonly SheetStep[] }) {
 export interface SheetBodyProps {
   view: PanelView;
   /** What the selection asks the sheet to show (`null`: the tab it opens on). */
-  tab: PanelTab | null;
+  tab: SheetContent | null;
   fullPage: boolean;
   /** Its width over the board; at full page it fills the main area. */
   width: number;
@@ -327,8 +333,7 @@ export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
             )}
             onSelect={(i) => {
               const next = sheet.tabs[i];
-              const content = next && contentOf(next, tab);
-              if (content !== undefined) showTab(content);
+              if (next) showTab(contentOf(next, tab));
             }}
           />
           <DescriptionSaveBar ticket={view.key} />
@@ -387,9 +392,8 @@ export function useSheetKeys(view: PanelView | null): void {
     useCallback(({ number }: { number: number }) => {
       const tabs = current.current?.sheet.tabs ?? [];
       const next = numberedSheetTab(tabs, number);
-      const content = next && contentOf(next, selection.get().tab);
-      if (content === undefined) return false;
-      showTab(content);
+      if (!next) return false;
+      showTab(contentOf(next, selection.get().tab));
       return true;
     }, []),
   );
@@ -398,9 +402,8 @@ export function useSheetKeys(view: PanelView | null): void {
     if (!sheet) return false;
     const selectedTab = selection.get().tab;
     const next = steppedSheetTab(sheet.tabs, shownSheetTab(sheet.tabs, selectedTab, sheet.opens_on), step);
-    const content = next && contentOf(next, selectedTab);
-    if (content === undefined) return false;
-    showTab(content);
+    if (!next) return false;
+    showTab(contentOf(next, selectedTab));
     return true;
   }, []);
   useShortcut(

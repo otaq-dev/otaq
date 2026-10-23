@@ -25,8 +25,8 @@ import { request } from "../../tauri";
 import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
 import { Icon } from "../../theme/Icon";
 import { splitWithProjectAgent } from "../pane/logic";
-import { toolProblemAction } from "../panel/toolProblemRunner";
-import { BeforeRestart } from "../terminal_tab/TerminalTab";
+import { toolProblemAction } from "../tool_problems/toolProblemRunner";
+import { BeforeRestart } from "../session/TerminalTab";
 
 /** The service events that change what the tab shows. */
 export const LEAD_TAB_EVENTS = [

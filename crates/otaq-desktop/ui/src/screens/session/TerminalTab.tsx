@@ -1,11 +1,11 @@
-// The side panel's Terminal tab (*06 · Terminal tab*; SES-09, SES-10, SES-11, SES-06, SES-07, SES-08, ATT-03, REC-02):
-// the header strip (state, worktree, `$PORT`, "1 message waiting · Deliver now" or the attach command, A− / A+, find),
-// the ticket's agent session in T-0216's terminal, the hint line under it with "Instructions: shop-web" or "leave
-// terminal", the end marker of an ended session, and "Before the restart" for an Interrupted ticket whose session is
-// gone. Once a validation ran, an Agent / Validator switch leads the strip (VAL-11, d0063): the Validator side shows
-// the running validator (typing goes to it) or the last one, read-only. Everything it says comes from
-// `terminal_tab.view`; it keeps only the terminal's state, the side picked and its own width.
-import { useCallback, useEffect, useRef, useState } from "react";
+// Session's terminal (SHT-04; SES-09, SES-10, SES-11, SES-06, SES-07, SES-08, ATT-03, REC-02; canvas `s25-06`): the line
+// over it ("Rust developer · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-22", "Typing goes to Rust developer") after
+// Session's switch, the strip (state, `$PORT`, "1 message waiting · Deliver now" or the attach command, A− / A+,
+// find), the ticket's agent session (or its check's, `side`) in T-0216's terminal, the hint line under it with
+// "Instructions: shop-web" or "leave terminal", the end marker of an ended session, and "Before the restart" for an
+// Interrupted ticket whose session is gone. The check's side shows the running check (typing goes to it) or the last
+// one, read-only. Everything it says comes from `terminal_tab.view`; it keeps only the terminal's state and its width.
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
 import { terminalFocusRequests } from "../../app/selection";
@@ -14,10 +14,7 @@ import { Button, IconButton, Kbd, Tooltip } from "../../components";
 import type { PanelSent } from "../../generated/PanelSent";
 import type { TerminalTabLoad } from "../../generated/TerminalTabLoad";
 import type { TerminalTabRecovery } from "../../generated/TerminalTabRecovery";
-import type { TerminalTabSide } from "../../generated/TerminalTabSide";
-import type { TerminalStripTone } from "../../generated/TerminalStripTone";
 import type { TerminalTabView } from "../../generated/TerminalTabView";
-import type { TicketProps } from "../../app/registry/panel";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
@@ -29,11 +26,10 @@ import {
   isNarrow,
   scrolledLabel,
   sessionOf,
-  shownSide,
-  type SideChoice,
+  type Side,
   stripFor,
   toneColor,
-} from "./logic";
+} from "./terminalLogic";
 
 /** The service events that change what the tab shows. */
 export const TERMINAL_TAB_EVENTS = [
@@ -92,49 +88,12 @@ function deliverNow(key: string, clear = false): Promise<unknown> {
   }, ignore);
 }
 
-/** The Agent / Validator switch (*06 → Row · validator*): a dot on a side whose session works. */
-function SideSwitch({
-  view,
-  side,
-  onSide,
-}: {
-  view: TerminalTabView;
-  side: TerminalTabSide;
-  onSide: (side: TerminalTabSide) => void;
-}) {
-  if (view.validator === null) return null;
-  const segments: [TerminalTabSide, string, TerminalStripTone | null][] = [
-    ["agent", view.agent_label, view.agent_dot],
-    ["validator", view.validator.label, view.validator.dot],
-  ];
-  return (
-    <div className="terminal-tab-switch" role="tablist">
-      {segments.map(([value, label, dot]) => (
-        <button
-          key={value}
-          type="button"
-          role="tab"
-          aria-selected={side === value}
-          className="terminal-tab-switch-side"
-          onClick={() => {
-            onSide(value);
-          }}
-        >
-          {dot !== null && (
-            <span className="terminal-tab-switch-dot" style={{ background: toneColor(dot) }} />
-          )}
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export interface TerminalTabBodyProps {
   view: TerminalTabView;
-  /** The side of the Agent / Validator switch shown. */
-  side?: TerminalTabSide;
-  onSide?: (side: TerminalTabSide) => void;
+  /** Session's side shown: the agent's terminal or the check's. */
+  side?: Side;
+  /** What leads the line: Session's switch. */
+  head?: ReactNode;
   /** The terminal's state (from its `onState`); the markup tests pass one. */
   state: TerminalState;
   narrow: boolean;
@@ -146,25 +105,32 @@ export interface TerminalTabBodyProps {
 export function TerminalTabBody({
   view,
   side = "agent",
-  onSide = ignore,
+  head,
   state,
   narrow,
   terminal,
   onState,
 }: TerminalTabBodyProps) {
-  const validator = side === "validator" ? view.validator : null;
+  const validator = side === "check" ? view.check : null;
   const body = bodyOf(view, side);
   const session = sessionOf(view, side);
   const showTerminal = body === "terminal" && session !== null;
   const strip = stripFor(view, state.phase, showTerminal && state.focused, side);
   const attachCommand = validator?.attach_command ?? view.attach_command;
+  const line = validator ? validator.line : view.line;
+  const typing = validator ? validator.typing : view.typing;
   const [delivering, setDelivering] = useState(false);
   const scrolled =
     showTerminal && state.scrolledUp > 0 && (state.phase === "live" || state.phase === "ended");
   return (
     <div className="terminal-tab" data-focused={(showTerminal && state.focused) || undefined}>
+      <div className="session-line">
+        {head}
+        {line !== null && <span className="session-line-text">{line}</span>}
+        <span className="terminal-tab-spacer" />
+        {typing !== null && <span className="session-typing">{typing}</span>}
+      </div>
       <div className="terminal-tab-strip">
-        <SideSwitch view={view} side={side} onSide={onSide} />
         {strip && (
           <Tooltip text={view.background ?? strip.state.label}>
             <span className="terminal-tab-state" style={{ color: toneColor(strip.state.tone) }}>
@@ -172,9 +138,6 @@ export function TerminalTabBody({
               {strip.state.label}
             </span>
           </Tooltip>
-        )}
-        {!narrow && !validator && view.path !== null && (
-          <span className="terminal-tab-mono">{view.path}</span>
         )}
         {!narrow && !validator && view.port !== null && (
           <span className="terminal-tab-mono">{view.port}</span>
@@ -413,10 +376,10 @@ function RecoveryBody({ view, recovery }: { view: TerminalTabView; recovery: Ter
 }
 
 /**
- * The tab registered in the panel: the open ticket's view, the side of the switch shown, its terminal's state, and
- * focus requests (T-0231), which land on the side Rust names (the validator while it needs you).
+ * Session's Agent or check side: the open ticket's view, its terminal's state, and focus requests (T-0231) for the
+ * ticket, answered by the side the selection shows.
  */
-export function TerminalTab({ ticket }: TicketProps) {
+export function TerminalTab({ ticket, side, head }: { ticket: string; side: Side; head?: ReactNode }) {
   const load = useCallback(
     () => request("terminal_tab.view", { key: ticket }) as Promise<TerminalTabLoad>,
     [ticket],
@@ -426,20 +389,8 @@ export function TerminalTab({ ticket }: TicketProps) {
   const root = useRef<HTMLDivElement>(null);
   const width = useWidth(root);
   const terminal = useRef<TerminalHandle | null>(null);
-
-  // The side picked on the switch, until a newer focus request for this ticket.
   const focusRequest = useStore(terminalFocusRequests);
-  const forThis = focusRequest?.ticket === ticket ? focusRequest : null;
-  const focusSeq = forThis?.seq ?? 0;
-  const [choice, setChoice] = useState<SideChoice | null>(null);
-  const side = view === null ? "agent" : shownSide(view, choice, focusSeq, forThis?.side);
   const session = view === null ? null : sessionOf(view, side);
-  const onSide = useCallback(
-    (next: TerminalTabSide) => {
-      if (view !== null) setChoice({ ticket: view.key, landsOn: view.lands_on, focus: focusSeq, side: next });
-    },
-    [view, focusSeq],
-  );
 
   // The shown terminal's state; another side mounts another terminal, whose state starts over.
   const [seen, setSeen] = useState<Seen>({ session: null, state: INITIAL_STATE });
@@ -482,12 +433,15 @@ export function TerminalTab({ ticket }: TicketProps) {
   return (
     <div className="terminal-tab-root" ref={root}>
       {view === null || view.key !== ticket ? (
-        <div className="terminal-tab-empty">{loaded && loaded.view === null ? loaded.gone : null}</div>
+        <>
+          <div className="session-line">{head}</div>
+          <div className="terminal-tab-empty">{loaded && loaded.view === null ? loaded.gone : null}</div>
+        </>
       ) : (
         <TerminalTabBody
           view={view}
           side={side}
-          onSide={onSide}
+          head={head}
           state={state}
           narrow={isNarrow(width, view)}
           terminal={terminal}

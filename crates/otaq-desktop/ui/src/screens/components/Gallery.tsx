@@ -114,12 +114,13 @@ import { TokenSwatches } from "../../theme/Swatches";
 import { Column, type ColumnProps } from "../board/Column";
 import { Toolbar } from "../board/Toolbar";
 import { LaneHeadRow } from "../board/Lanes";
-import { AnswerBox as PanelAnswerBox } from "../panel/Panel";
+import { AnswerBox as PanelAnswerBox } from "../overview/NeedsYou";
 import { AskBarBody } from "../ask_bar/AskBar";
 import "../ask_bar/ask_bar.css";
 import { OverviewGallery } from "../overview/OverviewGallery";
 import { SheetGallery } from "../sheet/SheetGallery";
 import { FilesGallery } from "../files/FilesGallery";
+import { SessionGallery } from "../session/SessionGallery";
 import "../files/files.css";
 import { PaneBody, SwitcherList } from "../pane/Pane";
 import "../pane/pane.css";
@@ -2726,6 +2727,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         </Section>
         <Section title="25 · Files · the tree, a file, search, All changes, a line comment, the review bar (T-0468)">
           <FilesGallery />
+        </Section>
+        <Section title="25 · Session's switch and lines, Activity's filters (T-0466)">
+          <SessionGallery />
         </Section>
         <EnvVarsSection />
         <WarmSwitchSection />

@@ -8,6 +8,9 @@
 //! and every comment posted ("Validator · Validate · round 2 commented · with a report (48 KB)"), edited ("You edited
 //! Rust developer's comment") or deleted ("You deleted a comment"), each with its author's mark, opening a before /
 //! after or what the comment said, with its report (a deleted comment's still opens). Agents never see History.
+//!
+//! **Activity** (SHT-05, T-0466; canvas `s25-07`): the sheet's tab shows these rows oldest first ([`oldest_first`]),
+//! each tagged with its [`Kind`], under the filters **All · Comments · Stages · Description** ([`Filter`]).
 
 use std::collections::BTreeMap;
 
@@ -19,7 +22,7 @@ use otaq_core::board::validation::ValidationRecord;
 use otaq_core::domain::{Actor, StartStep, Status};
 use otaq_core::session::{SessionInfo, SessionKind};
 use otaq_core::usage::SessionUsage;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
@@ -77,6 +80,111 @@ pub struct Opens {
     pub report: Option<OpenReport>,
 }
 
+/// What a row is about, for Activity's filters (SHT-05).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "ActivityKind")]
+pub enum Kind {
+    /// A comment posted, edited or deleted.
+    Comment,
+    /// Who worked on it and where it went: sessions, check rounds, moves, passes, send-backs, merges.
+    Stage,
+    /// A change of the description (with its before / after).
+    Description,
+    /// The rest (created, pinned, a dependency, a question…): only under All.
+    Other,
+}
+
+/// Activity's filters (SHT-05), in order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "ActivityFilter")]
+pub enum Filter {
+    All,
+    Comments,
+    Stages,
+    Description,
+}
+
+impl Filter {
+    pub const ALL: [Filter; 4] = [
+        Filter::All,
+        Filter::Comments,
+        Filter::Stages,
+        Filter::Description,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Comments => "Comments",
+            Self::Stages => "Stages",
+            Self::Description => "Description",
+        }
+    }
+
+    /// The row kind it shows (`None`: every kind).
+    pub fn kind(self) -> Option<Kind> {
+        match self {
+            Self::All => None,
+            Self::Comments => Some(Kind::Comment),
+            Self::Stages => Some(Kind::Stage),
+            Self::Description => Some(Kind::Description),
+        }
+    }
+
+    pub fn shows(self, kind: Kind) -> bool {
+        self.kind().is_none_or(|k| k == kind)
+    }
+}
+
+/// Activity's order note beside the filters.
+pub const OLDEST_FIRST: &str = "oldest first";
+
+/// The rows as Activity lists them: oldest first (History builds them newest first).
+pub fn oldest_first(mut rows: Vec<HistoryRow>) -> Vec<HistoryRow> {
+    rows.reverse();
+    rows
+}
+
+/// The rows `filter` shows, in their order.
+pub fn filtered(rows: &[HistoryRow], filter: Filter) -> Vec<&HistoryRow> {
+    rows.iter().filter(|r| filter.shows(r.kind)).collect()
+}
+
+/// The kind of an event's row (descriptions and comments are told apart in [`comment_row`]).
+fn kind_of(kind: EventKind) -> Kind {
+    match kind {
+        EventKind::Moved
+        | EventKind::Dragged
+        | EventKind::StageFinished
+        | EventKind::Passed
+        | EventKind::ReviewSubmitted
+        | EventKind::SentToFix
+        | EventKind::SentBack
+        | EventKind::SentBackWithPrComments
+        | EventKind::Merged
+        | EventKind::MergedAutomatically
+        | EventKind::Reopened
+        | EventKind::Parked
+        | EventKind::Closed
+        | EventKind::StartInterrupted
+        | EventKind::StartRetried
+        | EventKind::Interrupted
+        | EventKind::SessionEnded
+        | EventKind::Resumed
+        | EventKind::ResumeFailed
+        | EventKind::StartedFromScratch
+        | EventKind::ValidationEnded
+        | EventKind::PrProposed
+        | EventKind::PrConfirmed
+        | EventKind::PrCancelled
+        | EventKind::PrOpened
+        | EventKind::AutoMergeStopped => Kind::Stage,
+        _ => Kind::Other,
+    }
+}
+
 /// One line of the History table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryRow {
@@ -99,6 +207,8 @@ pub struct HistoryRow {
     pub mark: Option<Mark>,
     /// What the row opens: a before / after, or what a comment said.
     pub opens: Option<Opens>,
+    /// Activity's filter it shows under.
+    pub kind: Kind,
 }
 
 /// "Built: only in the profile form · Other option: everywhere"; several other options read "Other options: a · b".
@@ -169,6 +279,7 @@ pub fn rows_with_rounds(
             session: None,
             mark: None,
             opens: None,
+            kind: Kind::Stage,
         }
     }));
     rows.sort_by(|a, b| b.at.cmp(&a.at).then(b.is_session.cmp(&a.is_session)));
@@ -213,6 +324,11 @@ fn session_row(s: &SessionInfo, usage: &[SessionUsage]) -> HistoryRow {
         session: Some(s.id.clone()),
         mark: None,
         opens: None,
+        // The Run's and the Shell's sessions aren't stage work.
+        kind: match s.kind {
+            SessionKind::Shell | SessionKind::Run | SessionKind::Project => Kind::Other,
+            _ => Kind::Stage,
+        },
     }
 }
 
@@ -605,6 +721,7 @@ fn told(
     detail: Option<String>,
     mark: Mark,
     opens: Opens,
+    kind: Kind,
 ) -> HistoryRow {
     HistoryRow {
         title,
@@ -618,6 +735,7 @@ fn told(
         session: None,
         mark: Some(mark),
         opens: Some(opens),
+        kind,
     }
 }
 
@@ -668,6 +786,7 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                     lines: around_changes(diff, 1),
                     report: None,
                 },
+                Kind::Description,
             ))
         }
         EventKind::CommentPosted => {
@@ -691,6 +810,7 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                     lines: excerpt.lines().map(|l| line(LineKind::Same, l)).collect(),
                     report,
                 },
+                Kind::Comment,
             ))
         }
         EventKind::CommentEdited => {
@@ -716,6 +836,7 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                     ),
                     report: None,
                 },
+                Kind::Comment,
             ))
         }
         EventKind::CommentDeleted => {
@@ -739,6 +860,7 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                     lines: body.lines().map(|l| line(LineKind::Same, l)).collect(),
                     report: report_of(p, n, "report"),
                 },
+                Kind::Comment,
             ))
         }
         _ => None,
@@ -1178,6 +1300,7 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         session: None,
         mark: None,
         opens: None,
+        kind: kind_of(e.kind),
     })
 }
 
@@ -1219,6 +1342,7 @@ pub fn with_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<Hist
                 session: None,
                 mark: None,
                 opens: None,
+                kind: Kind::Stage,
             }),
         }
     }
@@ -1494,6 +1618,94 @@ mod tests {
         assert_eq!(deleted.report.unwrap().n, 5);
         // Never "Done when" (0067).
         assert!(rows.iter().all(|r| !r.title.contains("Done when")));
+    }
+
+    /// Activity (SHT-05, `s25-07`): SHOP-22's story oldest first, under All · Comments · Stages · Description.
+    #[test]
+    fn activity_lists_oldest_first_under_its_filters() {
+        let before =
+            "Users land on /login again right after signing in, about 1 in 20 times on Safari.";
+        let after = format!(
+            "{before}\n- the redirect waits for the session cookie\n- e2e/login.spec passes 20 times in a row"
+        );
+        let facts = Facts {
+            stages: [("grill", "Grill"), ("dev", "Dev")]
+                .into_iter()
+                .map(|(a, b)| (a.to_owned(), b.to_owned()))
+                .collect(),
+            avatars: false,
+        };
+        let events = [
+            event(EventKind::Created, MIN, json!({})),
+            by_agent(
+                EventKind::Updated,
+                3 * MIN,
+                json!({"changes": [{"field": "body", "before": before, "after": after}],
+                       "author": agent("Griller", "grill", None, Tool::Claude)}),
+            ),
+            by_agent(
+                EventKind::CommentPosted,
+                4 * MIN,
+                json!({"n": 1, "excerpt": "Repro: 18 of 20 pass on Safari.", "report": null,
+                       "author": agent("Griller", "grill", None, Tool::Claude)}),
+            ),
+            event(
+                EventKind::StageFinished,
+                5 * MIN,
+                json!({"stage": "grill", "to": "dev"}),
+            ),
+            event(
+                EventKind::CommentPosted,
+                6 * MIN,
+                json!({"n": 2, "excerpt": "Don't touch the auth middleware's public API.", "report": null,
+                       "author": {"kind": "user", "name": "me"}}),
+            ),
+            event(EventKind::Pinned, 7 * MIN, json!({})),
+        ];
+        let sessions = [session("dev", 5 * MIN, None, None)];
+        let rows = oldest_first(rows_in(&events, &sessions, &[], &facts));
+        let kinds: Vec<Kind> = rows.iter().map(|r| r.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                Kind::Other,
+                Kind::Description,
+                Kind::Comment,
+                Kind::Stage,
+                Kind::Stage,
+                Kind::Comment,
+                Kind::Other
+            ]
+        );
+        assert_eq!(rows[0].title, "Created", "oldest first");
+        let titles = |filter| -> Vec<String> {
+            filtered(&rows, filter)
+                .iter()
+                .map(|r| r.title.clone())
+                .collect()
+        };
+        assert_eq!(titles(Filter::All).len(), rows.len());
+        assert_eq!(
+            titles(Filter::Comments),
+            ["Griller \u{b7} Grill commented", "You commented"]
+        );
+        assert_eq!(
+            titles(Filter::Description),
+            [
+                "Griller \u{b7} Grill edited the description \u{b7} added the redirect waits for the session\u{2026} (2 lines)"
+            ]
+        );
+        assert_eq!(filtered(&rows, Filter::Stages).len(), 2);
+        // The description edit opens its before / after.
+        let opens = filtered(&rows, Filter::Description)[0]
+            .opens
+            .clone()
+            .unwrap();
+        assert_eq!(opens.caption.as_deref(), Some("Before / after"));
+        assert_eq!(
+            Filter::ALL.map(Filter::label),
+            ["All", "Comments", "Stages", "Description"]
+        );
     }
 
     #[test]

@@ -392,30 +392,6 @@
   overflow: hidden;
 }
 
-.sheet-session {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.sheet-session-switch {
-  margin: 10px 24px 6px;
-}
-
-.sheet-session-switch .segment {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.sheet-session-body {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-}
-
 /* The gallery's sheets (T-0464): their header and tabs at a fixed height. */
 .sheet-gallery > .sheet {
   height: 300px;
