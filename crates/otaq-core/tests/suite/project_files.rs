@@ -636,7 +636,7 @@ async fn two_tickets_on_one_file_get_the_note_with_their_lines() {
     let [note] = pricing.same_file.as_slice() else {
         panic!("one note: {:?}", pricing.same_file);
     };
-    // Flow order in the note, the spans merged, the name from git's hunk header.
+    // Furthest along first in the note (a tie here: by key), the spans merged, the name from git's hunk header.
     assert_eq!(
         note.note,
         "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41\u{2013}58). Whichever merges second will rebase on the other."
@@ -678,7 +678,7 @@ async fn two_tickets_on_one_file_get_the_note_with_their_lines() {
 }
 
 #[tokio::test]
-async fn three_owners_are_named_in_flow_order_and_other_bases_are_never_compared() {
+async fn three_owners_are_named_furthest_along_first_and_other_bases_are_never_compared() {
     let f = Fixture::shop().await;
     let repo = f.repo();
     let money = "export function round(m: Money): Money {\n  const r2 = 2\n  const r3 = 3\n  const r4 = 4\n  \
@@ -737,7 +737,7 @@ async fn three_owners_are_named_in_flow_order_and_other_bases_are_never_compared
     assert_eq!(note.base_branch, "main");
     assert_eq!(
         note.note,
-        "SHOP-2, SHOP-3 and SHOP-1 all edit round (lines 4\u{2013}6). Each one that merges later will rebase on the ones before it."
+        "SHOP-1, SHOP-2 and SHOP-3 all edit round (lines 4\u{2013}6). Each one that merges later will rebase on the ones before it."
     );
     assert!(!note.keys.contains(&hotfix.key));
 }
