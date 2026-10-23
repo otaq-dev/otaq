@@ -1,6 +1,6 @@
 # Runs every step of scripts/check.sh on Linux for every pull request and every push to main (d0056), then approves
-# the maintainer's own pull requests once the checks pass, so they can merge with `gh pr merge --squash --auto`
-# (d0107). macOS and Windows join later; until then they're checked locally.
+# the maintainer's own pull requests once the checks pass, so they can merge with `gh pr merge --rebase --auto`
+# (d0107, d0116). macOS and Windows join later; until then they're checked locally.
 #
 # The steps run as parallel jobs, each one group of check.sh: the frontend steps, fmt and clippy, and the tests in two
 # shares (the doc examples with the first). Together they are the same steps as a plain `scripts/check.sh`.
