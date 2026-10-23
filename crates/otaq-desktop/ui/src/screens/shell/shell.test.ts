@@ -37,7 +37,7 @@ const HEADER: HeaderView = {
   },
   search: hint("Search  ·  is:needs-you", "/"),
   activity: {
-    agents: { count: "3", label: "running", control: false, active: true },
+    agents: { count: "3", label: "running", control: false, active: true, paused: false },
     processes: "3",
     warning: { text: "5h 18% left", token: "st-paused", limit: false },
     hover: {
@@ -88,6 +88,7 @@ const item = (key: string, name: string, extra: Partial<RailItem> = {}): RailIte
   detail: ["idle"],
   note: null,
   flow_setup: null,
+  paused: null,
   ...extra,
 });
 
@@ -300,7 +301,7 @@ describe("the header", () => {
       project: null,
       activity: {
         ...HEADER.activity,
-        agents: { count: "0/5", label: "agents", control: true, active: false },
+        agents: { count: "0/5", label: "agents", control: true, active: false, paused: false },
         processes: null,
         warning: null,
       },

@@ -72,7 +72,10 @@ async fn projects(app: &App) -> Result<Vec<ProjectInfo>, RequestError> {
 /// Every item and the projects' keys in the rail's order.
 async fn items(app: &App) -> Result<(Vec<Item>, Vec<ProjectInfo>), RequestError> {
     let (list, projects) = tokio::join!(list(app), projects(app));
-    Ok((vm::items(&list?), projects?))
+    let projects = projects?;
+    // What a pause stopped waits for its Resume, not the strip (PAU-08).
+    let items = otaq_view::view_models::pause::strip_items(vm::items(&list?), &projects);
+    Ok((items, projects))
 }
 
 fn keys_of(projects: &[ProjectInfo]) -> Vec<String> {

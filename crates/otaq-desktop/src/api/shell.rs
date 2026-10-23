@@ -178,10 +178,11 @@ impl ActivityData {
 }
 
 pub async fn header(app: &App, params: Params) -> Result<Header, RequestError> {
-    let (projects, data, keys) = tokio::join!(
+    let (projects, data, keys, paused) = tokio::join!(
         projects(app),
         ActivityData::fetch(app),
         super::keymap::labels(app),
+        super::pause::counts(app),
     );
     let (projects, data) = (projects?, data?);
     let shown = params.project.as_deref();
@@ -210,6 +211,13 @@ pub async fn header(app: &App, params: Params) -> Result<Header, RequestError> {
     );
     if let (Some(project), Some(setup)) = (view.project.as_mut(), setup.as_ref()) {
         project.flow_setup = flow_setup_page::header(setup);
+    }
+    // "5 paused" while the shown project is (PAU-08); without the counts Activity reads as before.
+    if let Some(chip) = paused
+        .ok()
+        .and_then(|counts| otaq_view::view_models::pause::activity(shown, &counts))
+    {
+        view.activity.agents = chip;
     }
     Ok(view)
 }
@@ -281,9 +289,15 @@ pub async fn rail(app: &App, params: Params) -> Result<Rail, RequestError> {
         switcher::add_waiting_agents(&mut projects, &agents);
     }
     let keys = super::keymap::labels(app).await;
+    // The paused projects' tiles count their paused agents (PAU-08); without the counts they say "paused".
+    let paused: std::collections::BTreeMap<String, u32> = super::pause::counts(app)
+        .await
+        .map(|c| c.projects.into_iter().map(|p| (p.project, p.paused)).collect())
+        .unwrap_or_default();
     let now = Instant::now();
     let mut model = app.switcher.lock().expect("switcher");
     model.keys = keys;
+    model.paused = paused;
     if let Some(shown) = params.project
         && !model.select(&shown)
     {

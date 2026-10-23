@@ -87,6 +87,8 @@ pub use panel::{
     SubmitParams as PanelSubmitParams,
 };
 #[cfg(test)]
+pub use pause::export_types as export_pause_types;
+#[cfg(test)]
 pub use pr::{
     Answer as PrAnswer, CheckParams as PrCheckParams, ConfirmParams as PrConfirmParams,
     EditParams as PrEditParams, OpenParams as PrOpenParams, Params as PrParams,
@@ -206,6 +208,7 @@ areas! {
     agent_tools,
     limits,
     palette,
+    pause,
     flow_preview,
     apply_now,
     ticket_comments,

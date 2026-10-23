@@ -408,7 +408,15 @@ impl Shared {
             agents_working: counts.working,
             agents_waiting: counts.waiting,
             unclean_start: report.unclean,
-            interrupted_at_start: u32::try_from(report.interrupted.len()).unwrap_or(u32::MAX),
+            // A paused project's tickets wait for its Resume, not the reboot summary (PAU-07).
+            interrupted_at_start: u32::try_from(
+                report
+                    .interrupted
+                    .iter()
+                    .filter(|k| !report.paused.contains(&k.project.to_string()))
+                    .count(),
+            )
+            .unwrap_or(u32::MAX),
             paused: self.pause.paused().await.unwrap_or_else(|e| {
                 tracing::warn!(error = %e, "can't read the paused projects");
                 Vec::new()

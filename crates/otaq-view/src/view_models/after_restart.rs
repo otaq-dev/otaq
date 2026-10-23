@@ -100,6 +100,23 @@ pub fn on_connect(
     })
 }
 
+/// The startup report without the paused projects' tickets (PAU-07, d0112): a pause never lifts on its own, so the
+/// reboot summary doesn't open for them; their banner says they are still paused.
+pub fn outside_pause(report: &StartupReport) -> StartupReport {
+    let kept = |keys: &[otaq_core::domain::TicketKey]| -> Vec<otaq_core::domain::TicketKey> {
+        keys.iter()
+            .filter(|k| !report.paused.contains(&k.project.to_string()))
+            .cloned()
+            .collect()
+    };
+    StartupReport {
+        interrupted: kept(&report.interrupted),
+        session_ended: kept(&report.session_ended),
+        was_validating: kept(&report.was_validating),
+        ..report.clone()
+    }
+}
+
 /// Rows the sheet lists one by one; the rest fold into one "+3" row (*Opening after a reboot*).
 pub const LISTED: usize = 5;
 
@@ -954,5 +971,22 @@ mod tests {
             (None, None)
         );
         assert!(page.skipped.is_empty());
+    }
+
+    /// PAU-07: a paused project's tickets stay out of the reboot summary.
+    #[test]
+    fn the_summary_leaves_paused_projects_out() {
+        let key = |k: &str| k.parse::<otaq_core::domain::TicketKey>().unwrap();
+        let report = StartupReport {
+            interrupted: vec![key("BILL-4"), key("SHOP-19")],
+            was_validating: vec![key("SHOP-19")],
+            session_ended: vec![key("SHOP-23")],
+            paused: vec!["SHOP".into()],
+            ..StartupReport::default()
+        };
+        let out = outside_pause(&report);
+        assert_eq!(out.interrupted, [key("BILL-4")]);
+        assert!(out.was_validating.is_empty() && out.session_ended.is_empty());
+        assert_eq!(out.paused, ["SHOP"]);
     }
 }

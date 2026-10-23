@@ -134,7 +134,11 @@ export function ActivityChip({ activity, open = false, anchor }: ActivityChipPro
           toggleOverlay("activity");
         }}
       >
-        <span className="header-dot" data-active={agents.active || undefined} />
+        <span
+          className="header-dot"
+          data-active={agents.active || undefined}
+          data-paused={agents.paused || undefined}
+        />
         <span className="header-mono">{agents.count}</span>
         <span className="header-muted">{agents.label}</span>
         {activity.processes !== null && (

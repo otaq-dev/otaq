@@ -16,6 +16,7 @@ use crate::keymap::{Binding, KeyAction, KeyPlace};
 use crate::view_models::flow_columns::Columns;
 use crate::view_models::panel::{self, Tab};
 use crate::view_models::panel_actions::{self, Action as PanelAction};
+use crate::view_models::pause;
 use crate::view_models::{close, send_back};
 
 pub const PLACEHOLDER: &str = "Search tickets, projects and actions…";
@@ -126,6 +127,7 @@ pub fn unavailable(action: KeyAction, context: &Context) -> Option<&'static str>
         | A::ShowShortcuts
         | A::ShowBoard
         | A::ShowList
+        | A::Pause
         | A::OpenActivity
         | A::Settings
         | A::FocusPane
@@ -140,7 +142,7 @@ pub fn unavailable(action: KeyAction, context: &Context) -> Option<&'static str>
 
 /// Whether the palette lists `action`. Not the palette itself; not Project 1–9 (each project is a row of its own,
 /// with its key); not the numbered panel tabs; not Open the panel (↵ on a card: a ticket row opens its panel); not
-/// the parked Files view.
+/// Pause / Resume agents (its scopes are rows of their own, [`Item::Pause`]); not the parked Files view.
 pub fn listed(action: KeyAction) -> bool {
     !matches!(
         action,
@@ -148,6 +150,7 @@ pub fn listed(action: KeyAction) -> bool {
             | KeyAction::Project(_)
             | KeyAction::SwitchTab(_)
             | KeyAction::OpenPanel
+            | KeyAction::Pause
     ) && !action.is_files_view()
 }
 
@@ -195,6 +198,7 @@ pub fn icon(action: KeyAction) -> IconName {
         A::ShowShortcuts => I::Keyboard,
         A::ShowBoard => I::Columns3,
         A::ShowList => I::List,
+        A::Pause => I::Pause,
         A::OpenActivity => I::Activity,
         A::Settings => I::Settings,
         A::FocusPane => I::Bot,
@@ -247,6 +251,15 @@ pub enum Item {
         project: String,
         title: String,
         keys: Vec<String>,
+    },
+    /// "Pause this project", "Resume all projects" (PAU-08, d0112): runs at once, no confirmation. `project` is the
+    /// open project's key for This project.
+    Pause {
+        scope: pause::Scope,
+        resume: bool,
+        project: Option<String>,
+        icon: IconName,
+        title: &'static str,
     },
     /// "Other projects": the tickets after it are other projects'.
     Divider { label: &'static str },
@@ -332,6 +345,32 @@ pub fn keys_of(action: KeyAction, inputs: &Inputs) -> Vec<String> {
         }
     }
     keys
+}
+
+/// The Pause and Resume rows for the open project and for all projects ([`pause::palette`]), with their titles.
+fn pause_rows(inputs: &Inputs) -> Vec<(&'static str, Row)> {
+    pause::palette(inputs.project, inputs.projects)
+        .into_iter()
+        .map(|(scope, resume, title)| {
+            let row = Row {
+                pickable: true,
+                item: Item::Pause {
+                    scope,
+                    resume,
+                    project: (scope == pause::Scope::Project)
+                        .then(|| inputs.project.map(str::to_owned))
+                        .flatten(),
+                    icon: if resume {
+                        IconName::Play
+                    } else {
+                        IconName::Pause
+                    },
+                    title,
+                },
+            };
+            (title, row)
+        })
+        .collect()
 }
 
 fn action_row(action: KeyAction, inputs: &Inputs) -> Row {
@@ -487,12 +526,23 @@ pub fn view(query: &str, inputs: &Inputs) -> View {
                 s.map(|s| (s, action_row(a, inputs)))
             })
             .collect();
+        for (title, row) in pause_rows(inputs) {
+            let s = if needle.is_empty() {
+                Some(0)
+            } else {
+                score(&needle, title)
+            };
+            ranked.extend(s.map(|s| (s, row)));
+        }
         ranked.sort_by_key(|(s, _)| std::cmp::Reverse(*s));
         ranked.into_iter().map(|(_, r)| r).collect()
     } else if needle.is_empty() {
         let recent = recent_rows(inputs);
         if recent.is_empty() {
-            actions().map(|a| action_row(a, inputs)).collect()
+            actions()
+                .map(|a| action_row(a, inputs))
+                .chain(pause_rows(inputs).into_iter().map(|(_, r)| r))
+                .collect()
         } else {
             section = Some(RECENT);
             recent
@@ -513,6 +563,11 @@ pub fn view(query: &str, inputs: &Inputs) -> View {
         for a in actions() {
             if let Some(s) = score(&needle, title(a)) {
                 here.push((s, action_row(a, inputs)));
+            }
+        }
+        for (title, row) in pause_rows(inputs) {
+            if let Some(s) = score(&needle, title) {
+                here.push((s, row));
             }
         }
         for (i, p) in inputs.projects.iter().enumerate() {
@@ -744,6 +799,7 @@ mod tests {
                     None => format!("ticket {key}"),
                 },
                 Item::Project { title, .. } => format!("project {title}"),
+                Item::Pause { title, .. } => format!("pause {title}"),
                 Item::Divider { label } => format!("divider {label}"),
             })
             .collect()
@@ -863,7 +919,11 @@ mod tests {
         let i = inputs(&projects, &tickets, &bindings, &[]);
         let v = view(">", &i);
         assert_eq!(v.actions_only, Some("Actions only"));
-        assert!(v.rows.iter().all(|r| matches!(r.item, Item::Action { .. })));
+        assert!(
+            v.rows
+                .iter()
+                .all(|r| matches!(r.item, Item::Action { .. } | Item::Pause { .. }))
+        );
         let all = words(&v);
         for keyless in [
             "Park",

@@ -26,6 +26,8 @@ pub struct AgentsChip {
     pub control: bool,
     /// The dot is lit while something runs.
     pub active: bool,
+    /// "5 paused" while the open project is paused (PAU-08): the dot is amber.
+    pub paused: bool,
 }
 
 /// The stepper at the top of Activity's popover (limits on): the same two values as Settings, saved on every step.
@@ -114,6 +116,7 @@ pub fn agents_chip(
             label: "agents",
             control: true,
             active: holding > 0,
+            paused: false,
         }
     } else {
         AgentsChip {
@@ -121,6 +124,7 @@ pub fn agents_chip(
             label: "running",
             control: false,
             active: running > 0,
+            paused: false,
         }
     }
 }
@@ -257,7 +261,8 @@ mod tests {
                 count: "3".into(),
                 label: "running",
                 control: false,
-                active: true
+                active: true,
+                paused: false,
             }
         );
         assert!(!agents_chip(&AgentLimits::default(), None, 0).active);

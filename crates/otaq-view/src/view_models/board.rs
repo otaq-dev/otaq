@@ -385,7 +385,14 @@ pub struct BoardInput<'a> {
     /// it holds that would start says [`WAITING_FOR_THE_FLOW_CHANGE`] in place of "Starting…". `None` while starts
     /// run.
     pub starts_held: Option<&'a Hold>,
+    /// The project is paused (PAU-03, PAU-04; d0112): the cards the pause stopped read "Paused", and a ticket that
+    /// would start waits ([`KEPT_START`]).
+    pub paused: bool,
 }
+
+/// A ticket that waits with a kept start while its project is paused (PAU-04, `agents::kept::starts_on_resume`), in
+/// a stage it was dragged or moved into; Ready for Dev's says "starts next" (`s24-07`).
+pub const KEPT_START: &str = "Paused \u{b7} starts when you resume";
 
 /// An epic waiting at the implicit Review epic stop (a flow with no human check, d0108 rule 7): its track shows it
 /// (FLW-19, Q273), so it is no card.
@@ -502,6 +509,19 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 queue.starting = false;
                 queue.waits_for = Some(WAITING_FOR_THE_FLOW_CHANGE.to_owned());
             }
+            // Nothing starts while paused (PAU-04): Ready for Dev's next one "starts next" (`s24-07`), one in a stage
+            // waits for Resume.
+            if otaq_core::agents::kept::starts_on_resume(t, all, input.paused) {
+                queue.starting = false;
+                queue.waits_for = Some(
+                    if t.place == otaq_core::domain::Place::Waiting(None) {
+                        crate::view_models::card::STARTS_NEXT
+                    } else {
+                        KEPT_START
+                    }
+                    .to_owned(),
+                );
+            }
             let extras = CardExtras {
                 waits_for: queue.waits_for,
                 waits_for_merge: queue.waits_for_merge,
@@ -526,6 +546,7 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                     .map(|d| d.delivers),
                 delivery_agent: delivery_agent(input.flow),
                 custom_flow,
+                paused: input.paused,
                 agent_name: match &t.created_by {
                     otaq_core::domain::Actor::ProjectAgent(id) => input
                         .agent_names
@@ -867,6 +888,7 @@ mod tests {
             agents: None,
             agent_list: None,
             starts_held: None,
+            paused: false,
         }
     }
 
@@ -1790,6 +1812,46 @@ flow:
         };
         assert_eq!(vm.key.to_string(), "SHOP-21");
         assert!(vm.situation.clone().unwrap().text.starts_with("Starting"));
+    }
+
+    /// PAU-04 (`s24-07`): while paused nothing says "Starting…": Ready for Dev's next one "starts next", and one
+    /// dragged into a stage waits for Resume.
+    #[test]
+    fn while_paused_a_ticket_that_would_start_waits() {
+        let mut tickets = board();
+        let paused = build(&BoardInput {
+            paused: true,
+            ..input(&tickets, None)
+        });
+        let line = |columns: &[ColumnView], key: &str| -> String {
+            columns
+                .iter()
+                .flat_map(|c| {
+                    let dev = c.dev.iter().flat_map(|d| d.top.iter().chain(&d.working));
+                    c.cards.iter().chain(dev)
+                })
+                .find_map(|e| match e {
+                    CardEntry::Ticket(vm) if vm.key.to_string() == key => {
+                        vm.one_line.line.clone().map(|l| l.text)
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+        assert!(line(&paused, "SHOP-21").ends_with("starts next"));
+        let t = tickets
+            .iter_mut()
+            .find(|t| t.key.to_string() == "SHOP-21")
+            .unwrap();
+        t.place = otaq_core::domain::Place::of(Status::Queued, Some("dev"), None);
+        let paused = build(&BoardInput {
+            paused: true,
+            ..input(&tickets, None)
+        });
+        assert_eq!(
+            line(&paused, "SHOP-21"),
+            "Paused \u{b7} starts when you resume"
+        );
     }
 
     /// FLW-19, Q273: an epic of a flow with no human check, done with its children, waits at Review epic on its

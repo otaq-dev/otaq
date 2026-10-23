@@ -2268,7 +2268,8 @@ pub struct ServiceStatus {
     /// This run of the service followed a crash or a reboot (its previous run didn't stop cleanly; REC-06).
     #[serde(default)]
     pub unclean_start: bool,
-    /// Tickets the startup reconcile set to Interrupted ("4 sessions were interrupted", REC-01, REC-06).
+    /// Tickets the startup reconcile set to Interrupted ("4 sessions were interrupted", REC-01, REC-06), outside the
+    /// paused projects (PAU-07: theirs wait for Resume).
     #[serde(default)]
     pub interrupted_at_start: u32,
     /// The paused projects with their counts (PAU-01, PAU-07; d0112), by name.

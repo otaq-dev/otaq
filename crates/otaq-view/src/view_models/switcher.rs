@@ -76,6 +76,9 @@ pub struct RailItem {
     /// "Flow setup" under the name while the project's flow isn't settled (ASK-04): selecting it opens its Flow setup
     /// page, not its board.
     pub flow_setup: Option<String>,
+    /// While the project is paused (PAU-08, `s24-08`): how many agents Resume resumes, the tile's working badge in
+    /// amber.
+    pub paused: Option<u32>,
 }
 
 /// One row of the quick switcher: the project, "shop-web · SHOP · current" for the shown one, and "2 running".
@@ -124,6 +127,8 @@ pub struct SwitcherModel {
     /// The user's keys as the rail last read them, so the quick switcher's rows and hints show them without asking
     /// the service while the user types.
     pub keys: KeyLabels,
+    /// The paused agents of each paused project, by key (`agents.pause_counts`), as the rail last read them.
+    pub paused: std::collections::BTreeMap<String, u32>,
 }
 
 impl SwitcherModel {
@@ -209,6 +214,16 @@ impl SwitcherModel {
                 if p.agents_working > 0 {
                     detail.push(format!("{} running", p.agents_working));
                 }
+                let paused = p
+                    .paused_since
+                    .map(|_| self.paused.get(&p.key).copied().unwrap_or(0));
+                if let Some(n) = paused {
+                    detail.push(if n > 0 {
+                        format!("{n} paused")
+                    } else {
+                        "paused".to_owned()
+                    });
+                }
                 if detail.is_empty() {
                     detail.push("idle".to_owned());
                 }
@@ -221,7 +236,7 @@ impl SwitcherModel {
                     agents_working: p.agents_working,
                     needs_you: p.needs_you,
                     selected: self.selected.as_deref() == Some(p.key.as_str()),
-                    idle: p.agents_working == 0 && p.needs_you == 0,
+                    idle: p.agents_working == 0 && p.needs_you == 0 && paused.is_none(),
                     ringing: self
                         .ring_until
                         .iter()
@@ -230,6 +245,7 @@ impl SwitcherModel {
                     shortcut,
                     detail,
                     flow_setup,
+                    paused,
                 }
             })
             .collect()
@@ -321,6 +337,27 @@ mod tests {
             project("BILL", "billing-api", 1, 1),
             project("PORT", "customer-portal-frontend", 3, 0),
         ]
+    }
+
+    /// PAU-08 (`s24-08`): a paused project's tile counts its paused agents (the badge in amber) and says so.
+    #[test]
+    fn a_paused_projects_tile_counts_its_paused_agents() {
+        let mut m = model();
+        let mut shop = project("SHOP", "shop-web", 0, 4);
+        shop.paused_since = Some(1);
+        let mut bill = project("BILL", "billing-api", 0, 0);
+        bill.paused_since = Some(1);
+        m.paused.insert("SHOP".into(), 5);
+        m.set_projects(
+            vec![shop, bill, project("CREW", "crew", 0, 0)],
+            Instant::now(),
+        );
+        let rail = m.rail(Instant::now());
+        assert_eq!(rail[0].paused, Some(5));
+        assert_eq!(rail[0].detail, ["4 needs you", "5 paused"]);
+        assert_eq!((rail[1].paused, rail[1].idle), (Some(0), false));
+        assert_eq!(rail[1].detail, ["paused"]);
+        assert_eq!((rail[2].paused, rail[2].idle), (None, true));
     }
 
     #[test]

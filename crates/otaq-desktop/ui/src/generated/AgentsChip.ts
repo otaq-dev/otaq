@@ -19,4 +19,8 @@ control: boolean,
 /**
  * The dot is lit while something runs.
  */
-active: boolean, };
+active: boolean, 
+/**
+ * "5 paused" while the open project is paused (PAU-08): the dot is amber.
+ */
+paused: boolean, };

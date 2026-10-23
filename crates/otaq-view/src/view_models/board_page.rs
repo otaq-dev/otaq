@@ -503,6 +503,8 @@ pub struct ProjectFacts<'a> {
     pub starts_held: Option<&'a otaq_core::flow::apply::Hold>,
     /// The project's view preferences (`ProjectSettings.view`, SHB-05).
     pub view: &'a ViewPrefs,
+    /// The project is paused (PAU-03, d0112).
+    pub paused: bool,
 }
 
 pub const APPROVED_NOTE: &str =
@@ -717,6 +719,7 @@ pub fn page(
         agents: project.agents,
         agent_list: project.agent_list,
         starts_held: project.starts_held,
+        paused: project.paused,
     };
     let mut built = board::build(&input);
     with_leads(&mut built, tickets, project.leads);
@@ -1300,6 +1303,7 @@ pub fn gallery() -> Gallery {
         agent_list: None,
         starts_held: None,
         view: &view,
+        paused: false,
     };
     let params = Params {
         project: "SHOP".into(),
@@ -1417,6 +1421,7 @@ fn gallery_rails(flow: &Flow) -> Vec<GalleryColumn> {
         agent_list: None,
         starts_held: None,
         view: &view,
+        paused: false,
     };
     let tickets = vec![
         ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou),
@@ -1713,6 +1718,7 @@ mod tests {
                 folded_columns: Vec::new(),
                 ..ViewPrefs::default()
             }),
+            paused: false,
         }
     }
 

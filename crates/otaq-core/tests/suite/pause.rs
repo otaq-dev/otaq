@@ -393,6 +393,16 @@ async fn pause_stops_the_projects_agents_survives_a_restart_and_resume_brings_ea
         .map(|p| (p.project.as_str(), p.paused))
         .collect();
     assert_eq!(paused, [("SHOP", 5)]);
+    // The reboot summary counts outside the paused projects (PAU-07, T-0457).
+    let outside = w
+        .recovery
+        .startup_report()
+        .interrupted
+        .iter()
+        .filter(|k| k.project.to_string() != "SHOP")
+        .count();
+    assert_eq!(status.interrupted_at_start as usize, outside);
+    assert!(outside > 0, "billing-api's ticket");
     // billing-api's agent was ended by the restart, not the pause.
     assert_eq!(w.status("BILL-1").await, Status::Interrupted);
 

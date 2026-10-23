@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::models::ModelList;
 use otaq_core::agents::limits::ToolLines;
+use otaq_core::agents::pause::{PauseCounts, PauseScope};
 use otaq_core::attention::notify::{Target, open_env_var};
 use otaq_core::attention::os_permission::NotificationsState;
 use otaq_core::client::{Client, Compatibility};
@@ -28,15 +29,15 @@ use otaq_core::protocol::{
     Event, ModelsParams, OnboardingState, ProjectParams, Reply, Request, UsageParams,
 };
 use otaq_core::store::now_ms;
-use otaq_view::view_models::after_restart::{OnConnect, on_connect};
+use otaq_view::view_models::after_restart::{ALREADY_RUNNING_MS, OnConnect, on_connect};
 use otaq_view::view_models::banners::{
     BannerModel, BannerView, Situation, SituationKind, TrustFailure,
 };
 use otaq_view::view_models::connection::{ConnectionViewModel, LinkState};
-use otaq_view::view_models::flow_settings;
 use otaq_view::view_models::limit_banner::{self, LimitLine};
 use otaq_view::view_models::restart;
 use otaq_view::view_models::toasts::{NewToast, RECONNECTED, ToastLevel, ToastModel, ToastView};
+use otaq_view::view_models::{flow_settings, pause};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
@@ -57,6 +58,14 @@ const TRUST_EVENTS: &[&str] = &["trust_changed", "projects_changed"];
 /// The service events after which every project's waiting flow change is fetched again: a change waits, applies or
 /// is cancelled, or the tickets it waits for moved (FLW-06).
 const FLOW_EVENTS: &[&str] = &["flow_changed", "ticket_changed", "projects_changed"];
+/// The service events after which every project's pause counts are fetched again: a project paused or resumed, or
+/// what it stopped moved (PAU-08).
+const PAUSE_EVENTS: &[&str] = &[
+    "pause_changed",
+    "projects_changed",
+    "ticket_changed",
+    "session_state",
+];
 
 /// The service events that show a toast: one registration per kind, each turning its event into the toast (with the
 /// wording the service sent) or passing.
@@ -211,6 +220,10 @@ struct State {
     /// Every project's name and its waiting flow change, as last fetched (FLW-06): the banner of the project on
     /// screen, and the toasts' words when one applies or is cancelled.
     flows: BTreeMap<String, FlowWatch>,
+    /// Every project's pause counts, as last fetched (PAU-08): the paused banner of the project on screen.
+    pause: Option<PauseCounts>,
+    /// The service start the "… restarted; a pause never lifts on its own" toast was shown for (PAU-07).
+    paused_toast_for: Option<i64>,
 }
 
 /// A project as the flow change banner and toasts name it, and its waiting change if one waits.
@@ -257,6 +270,8 @@ impl Notices {
                 published: None,
                 project: None,
                 flows: BTreeMap::new(),
+                pause: None,
+                paused_toast_for: None,
             }),
             events,
         }
@@ -462,6 +477,7 @@ impl Notices {
             let mut state = self.lock();
             state.project = project;
             state.sync_flow();
+            state.sync_pause();
         }
         self.publish();
     }
@@ -510,6 +526,16 @@ impl Notices {
                 state.toasts.push_toast(toast, now);
             }
             state.sync_flow();
+        }
+        self.publish();
+    }
+
+    /// Every project's pause counts, freshly fetched (`agents.pause_counts`): the paused banner follows (PAU-08).
+    pub fn on_pause(&self, counts: PauseCounts) {
+        {
+            let mut state = self.lock();
+            state.pause = Some(counts);
+            state.sync_pause();
         }
         self.publish();
     }
@@ -607,6 +633,14 @@ impl State {
                 OnConnect::Nothing => {}
             }
             self.connected_once = true;
+            // A service that started again while projects were paused (PAU-07): once per service start.
+            let fresh = info.status.started_at + ALREADY_RUNNING_MS >= self.opened_ms;
+            if fresh && self.paused_toast_for != Some(info.status.started_at) {
+                self.paused_toast_for = Some(info.status.started_at);
+                if let Some(toast) = pause::restart_toast(&info.status) {
+                    self.toasts.push_toast(toast, now);
+                }
+            }
             if self.was_disconnected && !self.busy && !summarized {
                 self.toasts
                     .push(ToastLevel::Success, RECONNECTED, None, now);
@@ -614,7 +648,23 @@ impl State {
         }
         self.was_disconnected = disconnected;
         self.link = link.clone();
+        self.sync_pause();
         summarized
+    }
+
+    /// Raises, updates or clears the paused banner: the project on screen's, "still paused" after a restart (PAU-07,
+    /// PAU-08). Kept as it is while not connected (the service's start is unknown then).
+    fn sync_pause(&mut self) {
+        let LinkState::Connected(info) = &self.link else {
+            return;
+        };
+        let banner = self.pause.as_ref().and_then(|counts| {
+            pause::banner(self.project.as_deref(), counts, info.status.started_at)
+        });
+        match banner {
+            Some(situation) => self.banners.raise(situation),
+            None => self.banners.clear(SituationKind::Paused),
+        }
     }
 
     /// Raises, updates or clears the one usage-limit banner with its line per tool (USG-06, USG-10, P6).
@@ -722,6 +772,7 @@ async fn follow(
     let mut trust_due = true;
     let mut notifications_due = true;
     let mut flows_due = true;
+    let mut pause_due = true;
     // After the summary: the startup report names the Project agents the restart ended (T-0244).
     let mut report_due = false;
     let first = states.borrow_and_update().clone();
@@ -741,6 +792,7 @@ async fn follow(
                     trust_due = true;
                     notifications_due = true;
                     flows_due = true;
+                    pause_due = true;
                 }
                 report_due |= notices.on_link(&state);
             }
@@ -753,12 +805,14 @@ async fn follow(
                         trust_due = true;
                         notifications_due = true;
                         flows_due = true;
+                        pause_due = true;
                     }
                     Some("service") => {
                         let name = event["name"].as_str().unwrap_or_default();
                         usage_due |= USAGE_EVENTS.contains(&name);
                         trust_due |= TRUST_EVENTS.contains(&name);
                         flows_due |= FLOW_EVENTS.contains(&name);
+                        pause_due |= PAUSE_EVENTS.contains(&name);
                         if let Ok(event) = serde_json::from_value::<Event>(event["event"].clone()) {
                             if let Event::NotificationsChanged { state } = &event {
                                 notices.on_notifications(state);
@@ -822,6 +876,18 @@ async fn follow(
                     flows_due = false;
                     if let Some(flows) = fetch_flows(&client).await {
                         notices.on_flows(flows);
+                    }
+                }
+                let client = clients.borrow().clone();
+                if pause_due && let Some(client) = client {
+                    pause_due = false;
+                    let counts = tokio::time::timeout(
+                        USAGE_TIMEOUT,
+                        client.request(Request::AgentsPauseCounts(PauseScope::All)),
+                    )
+                    .await;
+                    if let Ok(Ok(Reply::PauseCounts(counts))) = counts {
+                        notices.on_pause(*counts);
                     }
                 }
                 let client = clients.borrow().clone();
@@ -1088,6 +1154,95 @@ mod tests {
         n.on_link(&connected(Compatibility::Same, running(0, 0)));
         assert_eq!(toasts(&n.view()), [RECONNECTED]);
         assert!(n.view().banners.is_empty(), "reconnecting cleared");
+    }
+
+    /// PAU-07, PAU-08: the paused banner is the project on screen's, first and closed only by Resume; after the
+    /// service started again it says "still paused", and a toast says a pause never lifts on its own, once.
+    #[test]
+    fn the_paused_banner_and_the_restart_toast() {
+        use otaq_core::agents::pause::ProjectPause;
+        let n = notices();
+        let project = |key: &str, name: &str, since: Option<i64>, working, paused| ProjectPause {
+            project: key.into(),
+            name: name.into(),
+            paused_since: since,
+            working,
+            paused,
+        };
+        let counts = |shop_since| PauseCounts {
+            working: 0,
+            paused: 0,
+            projects: vec![
+                project("BILL", "billing-api", None, 2, 0),
+                project("SHOP", "shop-web", shop_since, 0, 5),
+            ],
+        };
+        n.on_link(&connected(Compatibility::Same, running(2, 0)));
+        n.on_notifications(&NotificationsState {
+            permission: otaq_core::attention::notify::PermissionState::TurnedOff,
+            ask_pending: false,
+            blocked_banner: true,
+        });
+        n.set_project(Some("SHOP".into()));
+        n.on_pause(counts(Some(OPENED)));
+        let view = n.view();
+        assert_eq!(
+            titles(&view)[0],
+            (
+                "shop-web is paused.",
+                "5 agents stopped; Resume continues where each one was. Queued tickets wait; questions for you stay \
+                 open. billing-api keeps working."
+            )
+        );
+        assert_eq!(view.banners[0].kind, SituationKind::Paused);
+        assert_eq!(
+            view.banners[0].tone,
+            otaq_view::view_models::banners::BannerTone::Warning
+        );
+        assert!(!view.banners[0].dismissable && view.banners[0].buttons.is_empty());
+        assert_eq!(
+            view.banners[1].kind,
+            SituationKind::NotificationsBlocked,
+            "first in the stack"
+        );
+        n.dismiss_banner(SituationKind::Paused);
+        assert_eq!(n.view().banners[0].kind, SituationKind::Paused, "no close");
+        n.set_project(Some("BILL".into()));
+        assert_ne!(
+            n.view().banners[0].kind,
+            SituationKind::Paused,
+            "billing-api runs"
+        );
+        n.set_project(Some("SHOP".into()));
+        assert_eq!(toasts(&n.view()), [RECONNECTED], "no restart yet");
+        n.dismiss_toast(n.view().toasts[0].id);
+
+        // The service starts again: the pause stays, the banner says so, one toast.
+        let restarted = ServiceStatus {
+            started_at: OPENED + 60_000,
+            paused: vec![project("SHOP", "shop-web", Some(OPENED), 0, 5)],
+            ..Default::default()
+        };
+        n.on_link(&LinkState::Reconnecting { attempt: 1 });
+        n.on_link(&connected(Compatibility::Same, restarted.clone()));
+        let view = n.view();
+        assert_eq!(titles(&view)[0].0, "shop-web is still paused.");
+        assert_eq!(
+            view.toasts
+                .iter()
+                .map(|t| (t.title.as_str(), t.text.as_deref()))
+                .collect::<Vec<_>>()[0],
+            (
+                pause::restarted_line().as_str(),
+                Some("5 agents wait where each one was; Resume when you\u{2019}re ready.")
+            )
+        );
+        let shown = n.view().toasts.len();
+        n.on_link(&connected(Compatibility::Same, restarted));
+        assert_eq!(n.view().toasts.len(), shown, "once per service start");
+
+        n.on_pause(counts(None));
+        assert_ne!(n.view().banners[0].kind, SituationKind::Paused, "resumed");
     }
 
     #[test]

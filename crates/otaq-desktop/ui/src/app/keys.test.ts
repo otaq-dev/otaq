@@ -507,6 +507,8 @@ const BASE: [KeyAction, Slot[]][] = [
   [{ action: "focus_epic" }, [letter("g e")]],
   [{ action: "show_shortcuts" }, [letter("?")]],
   [{ action: "show_board" }, [["⇧⌘B", "Ctrl+Shift+B", ""], letter("g b")]],
+  // 0097's Stop all row, Pause's (d0112): in terminals too.
+  [{ action: "pause" }, [["⇧⌘.", "Ctrl+Shift+.", "Ctrl+Shift+."]]],
   [{ action: "open_activity" }, [["⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"], letter("g a")]],
   [{ action: "settings" }, [["⌘,", "Ctrl+,", "Ctrl+,"]]],
   [{ action: "focus_pane" }, [["⌘L", "Ctrl+L", "Ctrl+Shift+L"]]],
@@ -534,6 +536,7 @@ const CODES: Record<string, string> = {
   "[": "BracketLeft",
   "]": "BracketRight",
   ",": "Comma",
+  ".": "Period",
 };
 
 /** A key text of the map ("⇧⌘L", "Ctrl+Shift+B", "j", "g b") as `keymap::Key` sends it. */

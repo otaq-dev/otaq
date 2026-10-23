@@ -141,11 +141,19 @@ export function RailTiles({ view, broom, actions, agent }: RailProps) {
             <span className="rail-tile" data-ringing={item.ringing || undefined}>
               {item.key}
               {item.needs_you > 0 && <span className="rail-needs">{item.needs_you}</span>}
-              {item.agents_working > 0 && (
-                <span className="rail-working">
+              {item.paused !== null ? (
+                // A paused project's badge counts what Resume resumes, in amber (PAU-08, `s24-08`).
+                <span className="rail-working" data-paused>
                   <Icon name="activity" size={8} />
-                  {item.agents_working}
+                  {item.paused > 0 && item.paused}
                 </span>
+              ) : (
+                item.agents_working > 0 && (
+                  <span className="rail-working">
+                    <Icon name="activity" size={8} />
+                    {item.agents_working}
+                  </span>
+                )
               )}
             </span>
             <span className="rail-name">{item.name}</span>

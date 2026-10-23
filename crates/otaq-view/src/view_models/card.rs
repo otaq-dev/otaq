@@ -129,6 +129,9 @@ pub struct CardExtras {
     /// those cards stay today's (d0108: "a project that never changes its flow sees today's board"; STG-06); the
     /// renames and new features (PR comments, conflicts) show on every flow.
     pub custom_flow: bool,
+    /// Its project is paused (PAU-03, d0112): a ticket the pause stopped reads "Paused" in amber with what it was
+    /// doing, its timer held; one that needs the user keeps its question.
+    pub paused: bool,
 }
 
 /// What the card knows about its agents (`board.agents`, AGT-04): the footer's agent part ([`footer_agent`]).
@@ -1417,14 +1420,17 @@ impl CardViewModel {
         // The user is in its terminal: the card stays calm, "your turn · in terminal" (ATT-03, d0042).
         let status = status::shown(ticket);
         let flags = &ticket.flags;
+        let paused = paused_stop(ticket, status, x);
         // A needs-you ticket interrupted by a restart keeps its flag (d0045); answering resumes it.
         let kept = ticket
             .interrupted_from
-            .filter(|_| status == Status::Interrupted);
+            .filter(|_| status == Status::Interrupted && !paused);
         let stale = is_stale(status, flags.last_signal_at, now_ms);
 
         let mut parts = Vec::new();
         match kept {
+            // A pause leaves the question as it was (PAU-03, `s24-07`); a restart says what ended the session.
+            Some(was) if x.paused => parts.extend(status_part(ticket, was, x, now_ms)),
             Some(was) => {
                 if let Some(part) = status_part(ticket, was, x, now_ms) {
                     parts.push(Part {
@@ -1434,6 +1440,7 @@ impl CardViewModel {
                     });
                 }
             }
+            None if paused => parts.push(paused_part(ticket)),
             // A role held before it starts: the hold says why, not "Held", "Validating…" or the limit wait (M23).
             None if held(ticket, status, x).is_some() && !status.is_needs_you_family() => {}
             None => parts.extend(status_part(ticket, status, x, now_ms)),
@@ -1588,13 +1595,31 @@ impl CardViewModel {
                 ..OneLine::default()
             }),
         }
-        .with_one_line(ticket, kept.is_some())
+        .with_one_line(ticket, kept.is_some(), paused)
     }
 
     /// The one-line card of BRD-03 from the parts already worded: the line, the edge, the time and the one action.
-    fn with_one_line(mut self, ticket: &Ticket, kept: bool) -> Self {
+    fn with_one_line(mut self, ticket: &Ticket, kept: bool, paused: bool) -> Self {
         let status = status::shown(ticket);
         let one = &mut self.one_line;
+        if paused {
+            // What the pause stopped (PAU-03, `s24-07`): amber words, no edge and no action (Resume is the title
+            // bar's, or the sheet's for this one ticket), and the time it had when it stopped.
+            one.line = status_line(
+                ticket,
+                status,
+                self.flag.as_ref(),
+                self.situation.as_ref(),
+                None,
+            )
+            .map(|line| StatusLine {
+                dot: Palette::Paused,
+                tone: Tone::Paused,
+                ..line
+            });
+            one.time = held_time(ticket);
+            return self;
+        }
         one.edge = edge(ticket, status, kept, self.outline, self.footer.as_ref());
         one.line = status_line(
             ticket,
@@ -1607,6 +1632,51 @@ impl CardViewModel {
         one.action = one_action(ticket, self.footer.as_ref(), one.edge.is_some());
         self
     }
+}
+
+/// "Paused": the card's word for a ticket the user's Pause stopped (PAU-03, d0112).
+pub const PAUSED: &str = "Paused";
+
+/// Whether the user's Pause stopped this ticket's agent (PAU-03): Interrupted in a paused project, unless it waited
+/// for the user (then it keeps its question).
+fn paused_stop(ticket: &Ticket, status: Status, x: &CardExtras) -> bool {
+    x.paused
+        && status == Status::Interrupted
+        && !ticket
+            .interrupted_from
+            .is_some_and(|s| s.is_needs_you_family())
+}
+
+/// The pause's part (`s24-07`): "Paused", and for a check what it was doing ("validating · round 1 of 3",
+/// "checking · round 1 of 3"); the card's other facts follow ("Paused · back from Security").
+fn paused_part(ticket: &Ticket) -> Part {
+    let flags = &ticket.flags;
+    let text = (ticket.interrupted_from == Some(Status::Checking)).then(|| {
+        let doing = if is_validate(flags.check.as_deref()) {
+            "validating"
+        } else {
+            "checking"
+        };
+        match flags.validating_round {
+            Some(r) => format!("{doing} \u{b7} round {} of {}", r.round, r.of),
+            None => doing.to_owned(),
+        }
+    });
+    Part::flag(
+        HeadFlag::new(Rank::Busy, PAUSED, PAUSED, Legend::Idle).colored(Palette::Paused),
+        text,
+        Tone::Paused,
+    )
+}
+
+/// The timer a pause holds (PAU-03): how long the agent had been quiet when it stopped, as the card last showed it.
+fn held_time(ticket: &Ticket) -> Option<Signal> {
+    let stopped = ticket.status_since?;
+    let at = ticket.flags.last_signal_at?;
+    Some(Signal {
+        text: age_label(stopped - at),
+        stale: false,
+    })
 }
 
 /// The card's coloured edge (BRD-03): a card that needs the user (turquoise; red for a closed parent), and your

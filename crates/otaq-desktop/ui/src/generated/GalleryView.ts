@@ -15,8 +15,8 @@ import type { TypeScaleRow } from "./TypeScaleRow";
  */
 export type GalleryView = { legend: Array<LegendTier>, priority: LegendPriority, type_scale: Array<TypeScaleRow>, spacing: Array<GalleryMeasure>, radii: Array<GalleryMeasure>, density: string, icons: Array<GalleryIcon>, keyboard_map: KeyMapView, 
 /**
- * The `?` list (design `s02-24`…`s02-27`): the defaults, with Inbox on ⌘I and New ticket's letter n, and with
- * the letters off.
+ * The `?` list (design `s02-24`…`s02-27`): the defaults, with Pause / Resume agents on ⌘I and New ticket's letter
+ * n, and with the letters off.
  */
 shortcut_lists: [ShortcutListView, ShortcutListView, ShortcutListView], 
 /**

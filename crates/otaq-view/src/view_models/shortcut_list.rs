@@ -337,6 +337,7 @@ mod tests {
             [
                 ("Board", keys(&[&["⇧⌘B"], &["g", "b"]]), None),
                 ("List", keys(&[&["g", "l"]]), None),
+                ("Pause / Resume agents", keys(&[&["⇧⌘."]]), None),
                 ("Activity", keys(&[&["⇧⌘U"], &["g", "a"]]), None),
                 ("Settings", keys(&[&["⌘,"]]), None),
                 ("Open / close the Project agent", keys(&[&["⌘L"]]), None),
@@ -394,21 +395,22 @@ mod tests {
             .find(|r| r.title == title)
     }
 
-    /// `s02-24`'s second card (a key on ⌘I, New ticket's letter n; Activity here until Pause exists) and the ticket's example (Activity on ⌘J, which takes
-    /// it from Next item that needs you): a changed row says "changed"; an action left with no key leaves the list.
+    /// `s02-24`'s second card (Pause / Resume agents on ⌘I, New ticket's letter n) and the ticket's example (Activity on
+    /// ⌘J, which takes it from Next item that needs you): a changed row says "changed"; an action left with no key
+    /// leaves the list.
     #[test]
     fn a_changed_key_is_marked() {
         let list = mac(
             &CustomKeys(vec![
-                replaced(KeyAction::OpenActivity, 0, "⌘I"),
+                replaced(KeyAction::Pause, 0, "⌘I"),
                 replaced(KeyAction::NewTicket, 1, "n"),
             ]),
             true,
         );
-        let activity = row_of(&list, "Activity").unwrap();
-        assert_eq!(activity.keys[0].kbds, ["⌘I"]);
-        assert!(activity.changed);
-        assert_eq!(activity.mark, Some("changed"));
+        let pause = row_of(&list, "Pause / Resume agents").unwrap();
+        assert_eq!(pause.keys[0].kbds, ["⌘I"]);
+        assert!(pause.changed);
+        assert_eq!(pause.mark, Some("changed"));
         let new_ticket = row_of(&list, "New ticket").unwrap();
         let shown: Vec<&Vec<String>> = new_ticket.keys.iter().map(|k| &k.kbds).collect();
         assert_eq!(shown, [&["⌘N"], &["n"]]);
@@ -508,7 +510,7 @@ mod tests {
             ] {
                 assert!(!titles(&list).contains(&title), "{title}");
             }
-            assert_eq!(titles(&list).len(), 24);
+            assert_eq!(titles(&list).len(), 25);
         }
         let list = mac(&CustomKeys(vec![replaced(KeyAction::Park, 0, "g p")]), true);
         let park = row_of(&list, "Park").unwrap();

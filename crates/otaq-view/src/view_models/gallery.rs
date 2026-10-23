@@ -77,8 +77,8 @@ pub struct GalleryView {
     pub density: String,
     pub icons: Vec<IconEntry>,
     pub keyboard_map: KeyMap,
-    /// The `?` list (design `s02-24`…`s02-27`): the defaults, with Inbox on ⌘I and New ticket's letter n, and with
-    /// the letters off.
+    /// The `?` list (design `s02-24`…`s02-27`): the defaults, with Pause / Resume agents on ⌘I and New ticket's letter
+    /// n, and with the letters off.
     pub shortcut_lists: [ShortcutList; 3],
     /// The `g` hint (design `s02-30`): with the base map's sequences, and with a recorded `g` `p` Park.
     pub g_hints: [Vec<SequenceHint>; 2],
@@ -283,7 +283,8 @@ fn shortcut_lists() -> [ShortcutList; 3] {
         works_in_terminals: false,
     };
     let changed = CustomKeys(vec![
-        replaced(KeyAction::OpenActivity, 0, "⌘I"),
+        // `s02-24`'s second list: Pause / Resume agents on ⌘I.
+        replaced(KeyAction::Pause, 0, "⌘I"),
         replaced(KeyAction::NewTicket, 1, "n"),
     ]);
     let list = |custom: &CustomKeys, letters| {

@@ -93,6 +93,7 @@ import type { ShortcutsGallery } from "../../generated/ShortcutsGallery";
 import type { StageChoicesGallery } from "../../generated/StageChoicesGallery";
 import type { OptionNotesGallery } from "../../generated/OptionNotesGallery";
 import type { StripGallery } from "../../generated/StripGallery";
+import type { PauseGallery } from "../../generated/PauseGallery";
 import {
   MarkdownEditor,
   MarkdownSurface,
@@ -123,6 +124,7 @@ import "../terminals/terminals.css";
 import { CleanupBody } from "../recovery/Cleanup";
 import "../recovery/recovery.css";
 import { StripBody, SuggestionCard } from "../strip/Strip";
+import { PauseButton, PauseMenuBox } from "../pause/Pause";
 import { SuggestedBy } from "../strip/SuggestedBy";
 import { ChangeDecisionBody } from "../review/Dialogs";
 import { ShortcutCard } from "../shortcuts/ShortcutList";
@@ -2457,6 +2459,39 @@ function NeedsYouStripSection() {
   );
 }
 
+const loadPause = () => request("gallery.pause") as Promise<PauseGallery>;
+
+/**
+ * *24 → Row · Pause and resume* `s24-07` and *Row · Resume asks for the scope too, and a restart* `s24-08` (T-0457):
+ * Pause and Resume in the title bar with their scope menus open (This project highlighted), and the paused banner's
+ * three texts. Nothing is sent.
+ */
+function PauseSection() {
+  const { view, error } = useServiceView(loadPause, []);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  return (
+    <Section title="24 · Pause and Resume (T-0457)">
+      <div className="gallery-stack">
+        <div className="gallery-wrap">
+          {view.states.map((state) => (
+            <div key={state.name} className="gallery-stack-tight">
+              <Caption>{state.name}</Caption>
+              <PauseButton button={state.view.button} open />
+              <div className="popover">
+                <PauseMenuBox menu={state.view.menu} cursor={0} />
+              </div>
+            </div>
+          ))}
+        </div>
+        {view.banners.map((b) => (
+          <Banner key={b.title} tone={b.tone} icon={b.icon} title={b.title} text={b.text} />
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 const loadOptionNotes = () => request("gallery.option_notes") as Promise<OptionNotesGallery>;
 
 /** ATT-17, d0061 (T-0375): answer options with notes, from `gallery.option_notes`: NOTE-1's four options (one note
@@ -2661,6 +2696,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <LeadTabs />
         <StageChoicesSection />
         <NeedsYouStripSection />
+        <PauseSection />
         <OptionNotes />
         <Section title="25 · The ticket sheet · header, details line, path and tabs (T-0464)">
           <SheetGallery />

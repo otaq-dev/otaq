@@ -14,6 +14,7 @@ export { overview } from "./overview";
 export { palette } from "./palette";
 export { pane } from "./pane";
 export { panel } from "./panel";
+export { pause } from "./pause";
 export { pr } from "./pr";
 export { recovery } from "./recovery";
 export { review } from "./review";

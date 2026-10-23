@@ -121,8 +121,9 @@ async fn ticket(app: &App, key: &str) -> Result<Option<Ticket>, RequestError> {
 
 /// The after-restart sheet, or `null` when this service start interrupted nothing.
 pub async fn summary(app: &App, p: SummaryParams) -> Result<Option<SummaryPage>, RequestError> {
+    // A paused project's tickets wait for its Resume, not this sheet (PAU-07).
     let report = match app.service.send(Request::StartupReport).await? {
-        Reply::StartupReport(r) => *r,
+        Reply::StartupReport(r) => after_restart::outside_pause(&r),
         other => return Err(unexpected("service.startup_report", &other)),
     };
     let StartupReport {

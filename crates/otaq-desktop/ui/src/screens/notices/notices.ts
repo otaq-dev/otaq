@@ -121,7 +121,9 @@ export async function pressBanner(
     case "notifications_blocked":
       await ask("notices.open_notification_settings");
       return;
-    // The folder trust note and warning have no button (PRJ-08).
+    // The folder trust note and warning have no button (PRJ-08); nor has the paused banner (Resume is the title
+    // bar's, PAU-08).
+    case "paused":
     case "trust_failed":
     case "trust_note":
     case "reconnecting":

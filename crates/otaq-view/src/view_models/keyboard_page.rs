@@ -1268,6 +1268,7 @@ mod tests {
             ("Show all shortcuts", vec!["?"]),
             ("Board", vec!["⇧⌘B", "g then b"]),
             ("List", vec!["g then l"]),
+            ("Pause / Resume agents", vec!["⇧⌘."]),
             ("Activity", vec!["⇧⌘U", "g then a"]),
             ("Settings", vec!["⌘,"]),
             ("Open / close the Project agent", vec!["⌘L"]),

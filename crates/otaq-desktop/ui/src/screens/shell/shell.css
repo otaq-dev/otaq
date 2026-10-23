@@ -158,6 +158,11 @@ button.header-activity[data-open] {
   background: var(--st-working);
 }
 
+/* "5 paused" while the open project is paused (PAU-08, `s24-07`). */
+.header-dot[data-paused] {
+  background: var(--st-paused);
+}
+
 /* ---- Activity popover (*Activity popover*, *Activity popover states*) ---- */
 
 .activity {
@@ -497,6 +502,12 @@ button.rail-item[data-selected]:hover .rail-tile {
   background: var(--st-working-bg);
   color: var(--st-working);
   font-size: 9px;
+}
+
+/* A paused project's badge (PAU-08, `s24-08`): amber on the paused tint, which keeps WCAG AA in Otaq Light (0096). */
+.rail-working[data-paused] {
+  background: var(--st-paused-bg);
+  color: var(--st-paused);
 }
 
 .rail-name {

@@ -120,6 +120,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::PaneResumeParams::export_all(&cfg)?;
     // The Ask bar and the rail's Project agent button (T-0458): its view, gallery and requests.
     crate::api::export_ask_bar_types(&cfg)?;
+    // Pause in the title bar (T-0457, PAU-08).
+    crate::api::export_pause_types(&cfg)?;
     // The board (T-0220): its view with the cards, the drag's one answer, the drop's outcome, and the requests'.
     otaq_view::view_models::board_page::BoardPage::export_all(&cfg)?;
     otaq_view::view_models::board_page::Params::export_all(&cfg)?;

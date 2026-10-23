@@ -8,7 +8,8 @@
 //! notifications?" ask right below the folder trust note. The whole order: error › restart required › usage limit ›
 //! folder trust failed › notifications blocked › permission warning › flow change waiting › folder trust note ›
 //! notifications ask › service update ready › reconnecting. The flow change waiting (FLW-06, d0108; *11 → A flow change
-//! waiting*) is the project on screen's: amber, under the other warnings.
+//! waiting*) is the project on screen's: amber, under the other warnings. The paused banner (PAU-08, d0112; `s24-07`)
+//! is the project on screen's too, amber and first of all.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -29,6 +30,9 @@ pub const PERMISSION_DOCS_URL: &str = "https://code.claude.com/docs/en/permissio
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "BannerKind")]
 pub enum SituationKind {
+    /// Amber, first: the open project is paused (PAU-08, d0112); it can't be closed while paused, and Resume is the
+    /// title bar's.
+    Paused,
     /// Red: the background service has ended (reboot or crash).
     ServiceStopped,
     /// Red: the service came back and its sessions were interrupted (REC-06).
@@ -53,6 +57,12 @@ pub enum SituationKind {
 /// A situation with what its banner shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Situation {
+    /// The open project is paused ([`crate::view_models::pause::banner`]): "shop-web is paused." and what that
+    /// left, or "All projects are paused.", "… still paused." after a restart.
+    Paused {
+        title: String,
+        text: String,
+    },
     ServiceStopped,
     /// The service couldn't be reached or started at all: the banner says why (Q40), with Start service to try
     /// again. The same situation as [`Situation::ServiceStopped`], so never a second banner.
@@ -117,6 +127,7 @@ pub struct TrustFailure {
 impl Situation {
     pub fn kind(&self) -> SituationKind {
         match self {
+            Self::Paused { .. } => SituationKind::Paused,
             Self::ServiceStopped | Self::ServiceCouldNotStart { .. } => {
                 SituationKind::ServiceStopped
             }
@@ -241,6 +252,7 @@ impl BannerRow {
     /// so and nothing can be pressed twice.
     pub fn view(&self, busy: bool) -> BannerView {
         let (tone, icon) = match self.kind {
+            SituationKind::Paused => (BannerTone::Warning, IconName::Pause),
             SituationKind::ServiceStopped => (BannerTone::Error, IconName::ServerOff),
             SituationKind::SessionsInterrupted => (BannerTone::Error, IconName::ZapOff),
             SituationKind::RestartRequired => (BannerTone::Warning, IconName::ServerCog),
@@ -428,6 +440,8 @@ fn row(situation: &Situation) -> BannerRow {
     let mut tooltip = None;
     let mut lines = Vec::new();
     let (title, text, action) = match situation {
+        // `s24-07`, `s24-08`: no button; Resume is the title bar's.
+        Situation::Paused { title, text } => (title.clone(), text.clone(), None),
         Situation::ServiceStopped => (
             "Background service stopped".to_owned(),
             "Its agent sessions ended with it. Nothing restarts on its own.".to_owned(),

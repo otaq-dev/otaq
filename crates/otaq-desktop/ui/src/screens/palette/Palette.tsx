@@ -10,6 +10,7 @@ import { Kbd } from "../../components";
 import type { PaletteParams } from "../../generated/PaletteParams";
 import type { PaletteRow } from "../../generated/PaletteRow";
 import type { PaletteView } from "../../generated/PaletteView";
+import type { PauseRunParams } from "../../generated/PauseRunParams";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { ACTIONS_PREFIX, firstPickable, joinQuery, paletteKey, splitQuery } from "./logic";
@@ -59,6 +60,13 @@ function RowContent({ row }: { row: PaletteRow }) {
           <span className="palette-title">{item.title}</span>
           <span className="palette-fill" />
           <Keys keys={item.keys} dim={false} />
+        </>
+      );
+    case "pause":
+      return (
+        <>
+          <Icon name={item.icon} size={14} />
+          <span className="palette-title">{item.title}</span>
         </>
       );
     case "divider":
@@ -216,6 +224,14 @@ export function Palette({ params, close }: OverlayProps<"command_palette">) {
         close();
         selectProject(item.project);
         return;
+      case "pause": {
+        // At once, no confirmation (d0112); the title bar and the banner follow the service's events.
+        close();
+        const params: PauseRunParams = { scope: item.scope, resume: item.resume };
+        if (item.project !== null) params.project = item.project;
+        request("pause.run", params).catch(() => undefined);
+        return;
+      }
       case "divider":
         return;
     }

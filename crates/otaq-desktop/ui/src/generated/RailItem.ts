@@ -29,4 +29,9 @@ note: string | null,
  * "Flow setup" under the name while the project's flow isn't settled (ASK-04): selecting it opens its Flow setup
  * page, not its board.
  */
-flow_setup: string | null, };
+flow_setup: string | null, 
+/**
+ * While the project is paused (PAU-08, `s24-08`): how many agents Resume resumes, the tile's working badge in
+ * amber.
+ */
+paused: number | null, };

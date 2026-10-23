@@ -97,6 +97,9 @@ pub enum KeyAction {
     ShowBoard,
     /// The board's List view (BRD-01, SHB-04).
     ShowList,
+    /// Pause / Resume agents (PAU-08, d0112): opens the title bar's scope menu (This project · All projects). 0097's
+    /// Stop all row, reused.
+    Pause,
     /// The Activity popover (d0087).
     OpenActivity,
     Settings,
@@ -147,6 +150,7 @@ impl KeyAction {
             Self::ShowShortcuts,
             Self::ShowBoard,
             Self::ShowList,
+            Self::Pause,
             Self::OpenActivity,
             Self::Settings,
             Self::FocusPane,
@@ -202,6 +206,7 @@ impl KeyAction {
             Self::ShowShortcuts => "Show all shortcuts",
             Self::ShowBoard => "Board",
             Self::ShowList => "List",
+            Self::Pause => "Pause / Resume agents",
             Self::OpenActivity => "Activity",
             Self::Settings => "Settings",
             Self::FocusPane => "Open / close the Project agent",
@@ -250,6 +255,7 @@ impl KeyAction {
             | Self::ShowShortcuts => KeyGroup::MovingAround,
             Self::ShowBoard
             | Self::ShowList
+            | Self::Pause
             | Self::OpenActivity
             | Self::Settings
             | Self::FocusPane
@@ -305,6 +311,8 @@ impl KeyAction {
             Self::ShowShortcuts => vec![letter("?")],
             Self::ShowBoard => vec![k("⇧⌘B", "Ctrl+Shift+B", ""), letter("g b")],
             Self::ShowList => vec![letter("g l")],
+            // 0097's Stop all row (d0112): in terminals too.
+            Self::Pause => vec![k("⇧⌘.", "Ctrl+Shift+.", "Ctrl+Shift+.")],
             Self::OpenActivity => vec![k("⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"), letter("g a")],
             Self::Settings => vec![k("⌘,", "Ctrl+,", "Ctrl+,")],
             Self::FocusPane => vec![k("⌘L", "Ctrl+L", "Ctrl+Shift+L")],
@@ -1175,6 +1183,8 @@ mod tests {
             row(ShowShortcuts, &["?"], &["?"], &[]),
             row(ShowBoard, &["⇧⌘B", "g b"], &["Ctrl+Shift+B", "g b"], &[]),
             row(ShowList, &["g l"], &["g l"], &[]),
+            // Stop all's row, reused for Pause (d0112).
+            row(Pause, &["⇧⌘."], &["Ctrl+Shift+."], &["Ctrl+Shift+."]),
             row(
                 OpenActivity,
                 &["⇧⌘U", "g a"],
@@ -2216,6 +2226,7 @@ mod tests {
                     vec![
                         "Board",
                         "List",
+                        "Pause / Resume agents",
                         "Activity",
                         "Settings",
                         "Open / close the Project agent",

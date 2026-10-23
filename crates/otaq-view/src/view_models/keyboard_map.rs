@@ -100,7 +100,7 @@ const LETTERS: [(Option<&str>, &[KeyAction]); 12] = [
 ];
 
 /// The modifier keys in the drawn order (0097's base map table).
-const MODIFIERS: [&[KeyAction]; 19] = [
+const MODIFIERS: [&[KeyAction]; 20] = [
     &[CommandPalette],
     &[SwitchProject],
     &[
@@ -128,6 +128,8 @@ const MODIFIERS: [&[KeyAction]; 19] = [
     &[SendBack],
     &[StartDev],
     &[FindInTerminal],
+    // 0097's Stop all row is Pause's (d0112), before the parked two.
+    &[Pause],
     &[ShowFiles],
     &[GoToFile],
 ];
@@ -316,6 +318,12 @@ mod tests {
                     one("⌘F"),
                     none(),
                     one("Ctrl+Shift+F")
+                ),
+                row(
+                    "Pause / Resume agents",
+                    "⇧⌘.",
+                    "Ctrl+Shift+.",
+                    "Ctrl+Shift+."
                 ),
                 (
                     "Files view",

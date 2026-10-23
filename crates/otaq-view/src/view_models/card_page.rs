@@ -259,6 +259,63 @@ mod tests {
         (line.text.as_str(), line.dot, line.tone)
     }
 
+    /// PAU-03, PAU-08 (`s24-07`): a ticket the pause stopped reads "Paused" in amber, with what it was doing, its
+    /// timer held, no edge and no action; one waiting for the user keeps its question; a ticket in a stage that
+    /// would start waits ("Paused · starts when you resume").
+    #[test]
+    fn a_paused_card_reads_paused_in_amber_with_its_timer_held() {
+        use crate::view_models::card_fixtures::{NOW, ticket};
+        use otaq_core::domain::{Status, ValidationRound};
+        let paused = CardExtras {
+            paused: true,
+            ..CardExtras::default()
+        };
+        let stopped = |status_from: Option<Status>| {
+            let mut t = ticket("SHOP-33", "Shipping estimate", Status::Interrupted);
+            t.interrupted_from = status_from;
+            t.status_since = Some(NOW - 600_000);
+            t.flags.last_signal_at = Some(NOW - 600_000 - 180_000);
+            t
+        };
+
+        let working = TicketCardView::of(&stopped(None), &paused, NOW);
+        assert_eq!(line(&working), ("Paused", Palette::Paused, Tone::Paused));
+        assert_eq!(
+            working.time.as_ref().unwrap().text,
+            "3m",
+            "the time it had when it stopped"
+        );
+        assert_eq!(working.edge, None);
+        assert!(working.action.is_none());
+
+        let mut validating = stopped(Some(Status::Checking));
+        validating.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
+        assert_eq!(
+            line(&TicketCardView::of(&validating, &paused, NOW)).0,
+            "Paused \u{b7} validating \u{b7} round 1 of 3"
+        );
+        validating.flags.check = Some("Security".into());
+        assert_eq!(
+            line(&TicketCardView::of(&validating, &paused, NOW)).0,
+            "Paused \u{b7} checking \u{b7} round 1 of 3"
+        );
+
+        // A question keeps its words and its edge; answering starts that agent only (PAU-05).
+        let mut asks = stopped(Some(Status::AsksYou));
+        asks.title = "Add dark mode toggle".into();
+        let question = CardExtras {
+            question: Some("Follow the system setting?".into()),
+            ..paused.clone()
+        };
+        let card = TicketCardView::of(&asks, &question, NOW);
+        assert_eq!(line(&card).0, "Asks you: follow the system setting?");
+        assert_eq!(card.edge, Some(Tone::Attention));
+
+        // The same ticket outside a pause is interrupted, as after a restart.
+        let card = TicketCardView::of(&stopped(None), &CardExtras::default(), NOW);
+        assert_ne!(line(&card).0, "Paused");
+    }
+
     #[test]
     fn a_needs_you_card_has_one_line_an_edge_and_one_action() {
         let g = gallery();

@@ -30,6 +30,10 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.lead_tabs" => reply(&lead_tab::gallery()),
         // The Needs you strip in each state of `s24-03` and `s24-12` (T-0459).
         "gallery.needs_you_strip" => reply(&needs_you_strip::gallery()),
+        // Pause and Resume in the title bar with their scope menus (T-0457, `s24-07`, `s24-08`).
+        "gallery.pause" => reply(&otaq_view::view_models::pause::gallery(
+            &otaq_view::key_labels::KeyLabels::base(otaq_view::keymap::Platform::Mac),
+        )),
         // Settings' Environment variables row in each state (T-0300).
         "gallery.env_vars" => reply(&settings_page::env_vars_gallery()),
         // Settings' warm build switch in each state (T-0301).

@@ -346,6 +346,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
             agent_list: agent_list.as_ref(),
             starts_held: starts_held.as_ref(),
             view: &view,
+            paused: project.paused_since.is_some(),
         },
         &params,
         otaq_core::store::now_ms(),

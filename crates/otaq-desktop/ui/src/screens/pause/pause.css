@@ -1,0 +1,111 @@
+/* Pause in the title bar (`s24-07`, `s24-08`): the 28 px button after Activity, Resume in the accent, and the scope
+   menu under it. */
+
+button.header-pause {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-column);
+  color: var(--text-secondary);
+  font: 600 12.5px var(--font-ui);
+  cursor: pointer;
+}
+
+button.header-pause:hover {
+  background: var(--bg-hover);
+}
+
+button.header-pause[data-open] {
+  border-color: var(--focus);
+}
+
+button.header-pause[data-resumes] {
+  width: auto;
+  padding: 0 10px;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+button.header-pause[data-resumes]:hover {
+  filter: brightness(1.06);
+}
+
+button.header-pause[data-resumes][data-open] {
+  border-color: var(--focus);
+}
+
+.pause-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-sizing: border-box;
+  width: 306px;
+  margin: -4px;
+}
+
+.pause-menu-title {
+  padding: 0 2px 2px;
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+button.pause-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+button.pause-row[data-highlighted] {
+  background: var(--bg-column);
+}
+
+.pause-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.pause-row-label {
+  color: var(--text-primary);
+  font: 500 13px var(--font-ui);
+}
+
+.pause-row-detail {
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+}
+
+.pause-menu-rule {
+  height: 1px;
+  background: var(--border);
+}
+
+.pause-menu-note {
+  margin: 0;
+  padding: 0 2px;
+  color: var(--text-muted);
+  font: 400 11.5px/1.45 var(--font-ui);
+}

@@ -252,6 +252,7 @@ mod tests {
                 agents: None,
                 agent_list: None,
                 starts_held: None,
+                paused: false,
             })[0]
                 .cards
                 .iter()

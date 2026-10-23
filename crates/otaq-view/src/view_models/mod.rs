@@ -82,6 +82,7 @@ pub mod overview;
 pub mod palette;
 pub mod panel;
 pub mod panel_actions;
+pub mod pause;
 pub mod pr_dialog;
 pub mod pr_page;
 pub mod priority;
