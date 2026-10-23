@@ -1118,10 +1118,7 @@ impl Board {
         let tips = Arc::new(branch_tips(git, Path::new(&project.repo_path)).await?);
 
         // Every owner's changes side by side (each is several `git` calls, and a slow one in a big repository).
-        let candidates: Vec<&Ticket> = tickets
-            .iter()
-            .filter(|t| !t.is_epic() && open(t))
-            .collect();
+        let candidates: Vec<&Ticket> = tickets.iter().filter(|t| !t.is_epic() && open(t)).collect();
         let mut read: Vec<Option<Arc<Owned>>> = vec![None; candidates.len()];
         {
             let _reading = self.project_files().reading.lock().await;
