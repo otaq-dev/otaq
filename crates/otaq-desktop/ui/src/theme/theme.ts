@@ -73,6 +73,8 @@ export interface TerminalColors {
   foreground: string;
   cursor: string;
   selectionBackground: string;
+  selectionInactiveBackground: string;
+  selectionForeground: string;
   black: string;
   red: string;
   green: string;
@@ -102,7 +104,10 @@ export function terminalColors(style: Pick<CSSStyleDeclaration, "getPropertyValu
     background: read("term-bg"),
     foreground: read("term-fg"),
     cursor: read("term-fg"),
+    // Selected text keeps the terminal's text colour on the same tint, focused or not (d0117 point 2).
     selectionBackground: read("selection"),
+    selectionInactiveBackground: read("selection"),
+    selectionForeground: read("term-fg"),
     black: ansi(0),
     red: ansi(1),
     green: ansi(2),

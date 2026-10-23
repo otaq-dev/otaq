@@ -116,8 +116,8 @@ lists what it filled (see `ui/src/app/registry/registry.test.ts`). The frame ren
 ## The terminal component
 
 `ui/src/terminal/Terminal.tsx` is the one terminal of the app (T-0216, UIT-05, SES-09): Session's agent, check,
-Run and Shell, Project terminals and Project agents all show a session with it. It is **xterm.js 6** with its WebGL, fit, search
-and web-links add-ons, inside the frame (it needs the registries' context for its Find shortcut):
+Run and Shell, Project terminals and Project agents all show a session with it. It is **xterm.js 6** with its WebGL, fit, search,
+web-links and Unicode 11 add-ons, inside the frame (it needs the registries' context for its Find shortcut):
 
 ```tsx
 import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
@@ -164,6 +164,11 @@ attach command, the hint line under it) are the host's, drawn from `onState` (`T
   Windows, Q37) picks xterm.js's renderer for every terminal; only a WebGL context that fails to start falls back to
   DOM, because a broken driver that draws garbage raises no error. Its row in Settings → Appearance is T-0234's (Q38).
 - **Theme.** The colours are `terminalColors(...)` (T-0213), read again whenever the frame swaps `data-theme`.
+  Selected text is drawn in `term-fg` on the `selection` tint, focused or not (d0117 point 2).
+- **Drawing** (d0117, T-0481; `drawing.ts`). Options of the terminal itself, so the WebGL and DOM renderers draw alike:
+  a contrast floor of 4.5 (`minimumContrastRatio`, WCAG AA: xterm.js shifts a text colour too close to its background
+  at draw time, the theme's values stay), Option-drag always selects (`macOptionClickForcesSelection`), and character
+  widths by Unicode 11 as the tools count them, set before anything is written, the replay included.
 - **Links.** A clicked `http(s)` link opens in the system browser (`terminal.open_link`).
 
 ## Components

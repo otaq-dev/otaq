@@ -18,6 +18,7 @@ vi.mock("@xterm/xterm", () => {
   const disposable = () => ({ dispose: () => undefined });
   class Terminal {
     options: Record<string, unknown> = {};
+    unicode = { activeVersion: "6" };
     cols = 80;
     rows = 24;
     element = undefined;
