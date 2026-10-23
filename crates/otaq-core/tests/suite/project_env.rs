@@ -212,6 +212,7 @@ async fn every_session_kind_gets_the_rows() {
                 agent: None,
                 effort: None,
                 fallback: None,
+                theme: None,
             })
             .await
             .unwrap();
@@ -416,6 +417,7 @@ async fn spawn_writing_env(
             agent: None,
             effort: None,
             fallback: None,
+            theme: None,
         })
         .await
         .unwrap();

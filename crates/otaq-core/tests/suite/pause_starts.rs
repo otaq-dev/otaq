@@ -172,6 +172,7 @@ async fn the_backstop_refuses_only_an_automatic_start_in_a_paused_project() {
         agent: None,
         effort: None,
         fallback: None,
+        theme: None,
     };
     let shop_id = w.board.project("SHOP").await.unwrap().id;
     let bill_id = w.board.project("BILL").await.unwrap().id;

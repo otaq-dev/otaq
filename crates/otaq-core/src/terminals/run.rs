@@ -314,6 +314,7 @@ impl Runs {
                 agent: None,
                 effort: None,
                 fallback: None,
+                theme: None,
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;

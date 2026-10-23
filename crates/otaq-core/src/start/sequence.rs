@@ -971,7 +971,7 @@ impl Starter {
                     model: runs_on.model,
                     effort: runs_on.effort.clone(),
                     title: Some(ticket.title.clone()),
-                    theme: inner.board.theme_in_use().await.kind(),
+                    theme: inner.board.theme_in_use().await,
                 },
             )
             .map_err(|e| StartError::Other(e.to_string()))?;
@@ -998,6 +998,7 @@ impl Starter {
                 agent: runs_on.agent,
                 effort: runs_on.effort,
                 fallback: runs_on.fallback,
+                theme: Some(launched.theme),
             })
             .await
             .map_err(|e| StartError::Other(e.to_string()))

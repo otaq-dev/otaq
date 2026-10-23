@@ -34,7 +34,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub use crate::board::settings::ThemeKind;
+pub use crate::board::settings::{Theme, ThemeKind};
 use crate::domain::{TicketKey, stored_enum};
 pub use crate::recovery::TranscriptEntry;
 pub use crate::tools::Os;
@@ -304,9 +304,10 @@ pub struct LaunchRequest {
     /// The ticket's or the epic's own title ("Add coupon codes"), for a tool that names its conversations (OpenCode's
     /// session list: "Otaq · SHOP-18 · Add coupon codes"); `None` for a Project agent.
     pub title: Option<String>,
-    /// Whether Otaq's theme is light or dark when the agent starts (d0117 point 4), for a tool with a setting for
-    /// it, set for this session only. A running agent keeps what it was told.
-    pub theme: ThemeKind,
+    /// Otaq's theme when the agent starts (d0117 point 4), read once per start: its kind goes to a tool with a
+    /// light/dark setting, set for this session only, and the session gets the same theme ([`Launched::theme`]). A
+    /// running agent keeps what it was told.
+    pub theme: Theme,
 }
 
 /// What [`AgentTool::launch`] answers: the program to start in the session's terminal, and how the tool id is
@@ -870,6 +871,7 @@ impl Adapters {
             model: request.model.clone(),
             prepare,
             plan,
+            theme: request.theme,
         })
     }
 }
@@ -884,6 +886,9 @@ pub struct Launched {
     /// [`ToolIdMode::CreatedBeforeLaunch`]'s step, for [`crate::session::Sessions::prepared`].
     pub prepare: Option<PrepareStep>,
     pub plan: LaunchPlan,
+    /// The launch's theme, for the session ([`crate::session::SpawnSpec::theme`]): what the tool was told and
+    /// what its terminal tells it agree.
+    pub theme: Theme,
 }
 
 /// What the adapters' tests share: a tool context on a test PATH, and a stand-in program on it that prints what a
@@ -1024,7 +1029,7 @@ mod tests {
             model: None,
             title: None,
             effort: None,
-            theme: crate::agent_tools::ThemeKind::Dark,
+            theme: crate::board::settings::Theme::OtaqDark,
         };
         let launched = adapters.launch(Some(Tool::OpenCode), &request).unwrap();
         let ToolIdMode::CreatedBeforeLaunch { id, step } = &launched.plan.tool_id else {
@@ -1060,7 +1065,7 @@ mod tests {
             },
         };
         let adapters = Adapters::launching_only(Some(launch), data);
-        let plan = |tool: Tool, theme: ThemeKind| {
+        let plan = |tool: Tool, theme: Theme| {
             let request = LaunchRequest {
                 role: LaunchRole::TicketAgent,
                 cwd: "/wt/SHOP-18".into(),
@@ -1083,7 +1088,7 @@ mod tests {
                 .find(|(n, _)| n == name)
                 .map(|(_, v)| v.clone())
         };
-        for (theme, word) in [(ThemeKind::Light, "light"), (ThemeKind::Dark, "dark")] {
+        for (theme, word) in [(Theme::OtaqLight, "light"), (Theme::RosePine, "dark")] {
             let claude = plan(Tool::Claude, theme);
             let at = claude.args.iter().position(|a| a == "--settings").unwrap();
             let file = Path::new(&claude.args[at + 1]);
@@ -1118,8 +1123,8 @@ mod tests {
         }
         for tool in [Tool::Codex, Tool::Copilot] {
             assert_eq!(
-                plan(tool, ThemeKind::Light),
-                plan(tool, ThemeKind::Dark),
+                plan(tool, Theme::OtaqLight),
+                plan(tool, Theme::OtaqDark),
                 "{tool:?}: no setting; covered by COLORFGBG and the colour answers"
             );
         }
@@ -1145,7 +1150,7 @@ mod tests {
             model: Some("opus".into()),
             title: None,
             effort: None,
-            theme: crate::agent_tools::ThemeKind::Dark,
+            theme: crate::board::settings::Theme::OtaqDark,
         };
 
         let none = Adapters::launching_only(None, data.clone());

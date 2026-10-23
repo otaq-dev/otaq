@@ -40,6 +40,7 @@ fn spec(f: &Fixture, ticket: Option<SessionTicket>, script: &str) -> SpawnSpec {
         agent: None,
         effort: None,
         fallback: None,
+        theme: None,
     }
 }
 
@@ -327,6 +328,7 @@ async fn protocol_list_attach_resize_detach() {
             agent: None,
             effort: None,
             fallback: None,
+            theme: None,
         })
         .await
         .unwrap();
@@ -508,6 +510,7 @@ async fn keystrokes_from_several_clients_reach_cat_and_track_unsent_text() {
             agent: None,
             effort: None,
             fallback: None,
+            theme: None,
         })
         .await
         .unwrap();
@@ -598,7 +601,7 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
                 model: None,
                 title: None,
                 effort: None,
-                theme: otaq_core::agent_tools::ThemeKind::Dark,
+                theme: otaq_core::board::settings::Theme::OtaqDark,
             },
         )
         .unwrap();
@@ -622,6 +625,7 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
             agent: None,
             effort: None,
             fallback: None,
+            theme: None,
         })
         .await
         .unwrap();
@@ -730,6 +734,7 @@ async fn attaching_again_on_one_connection_keeps_the_running_feed_whole() {
             agent: None,
             effort: None,
             fallback: None,
+            theme: None,
         })
         .await
         .unwrap();

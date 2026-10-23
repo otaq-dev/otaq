@@ -454,6 +454,7 @@ impl TestService {
                 agent: None,
                 effort: None,
                 fallback: None,
+                theme: None,
             })
             .await
             .expect("session starts");

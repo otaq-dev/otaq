@@ -1294,6 +1294,7 @@ impl ProjectAgents {
                 agent: runs_on.agent.clone(),
                 effort: runs_on.effort.clone(),
                 fallback: runs_on.fallback.clone(),
+                theme: Some(launched.theme),
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
@@ -1481,7 +1482,7 @@ async fn request(
         model: None,
         effort: None,
         title: None,
-        theme: board.theme_in_use().await.kind(),
+        theme: board.theme_in_use().await,
     }
 }
 

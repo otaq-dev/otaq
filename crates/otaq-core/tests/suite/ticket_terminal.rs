@@ -83,6 +83,7 @@ async fn printing(
             agent: None,
             effort: None,
             fallback: None,
+            theme: None,
         })
         .await
         .unwrap();

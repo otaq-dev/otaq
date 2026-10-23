@@ -49,6 +49,7 @@ async fn cat_agent(w: &TestService, ticket: &Ticket) -> String {
             agent: None,
             effort: None,
             fallback: None,
+            theme: None,
         })
         .await
         .unwrap()
