@@ -244,6 +244,7 @@ mod tests {
             agents_working: working,
             needs_you: 0,
             flow_setup_since: None,
+            paused_since: None,
         }
     }
 

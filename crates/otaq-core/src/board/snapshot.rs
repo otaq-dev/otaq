@@ -27,6 +27,10 @@ pub struct ProjectInfo {
     /// is settled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flow_setup_since: Option<i64>,
+    /// Since when it is paused (PAU-01, d0112): nothing starts an agent there on its own until the user's Resume.
+    /// `None` while it runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paused_since: Option<i64>,
 }
 
 /// One group of cards, in board order (SDD §7.5): the statuses of one of [`StatusSet::BOARD`].
@@ -134,6 +138,7 @@ impl Board {
             agents_working: u32::try_from(working).unwrap_or(0),
             needs_you: u32::try_from(needs_you).unwrap_or(u32::MAX),
             flow_setup_since: project.flow_setup_since,
+            paused_since: project.paused_since,
         })
     }
 }

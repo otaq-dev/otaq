@@ -590,6 +590,7 @@ pub fn gallery() -> Vec<GalleryFrame> {
         agents_working: 0,
         needs_you: 0,
         flow_setup_since: None,
+        paused_since: None,
     };
     let projects = [project("SHOP", "shop-web"), project("BILL", "billing-api")];
     let tickets = [
@@ -688,6 +689,7 @@ mod tests {
             agents_working: 0,
             needs_you: 0,
             flow_setup_since: None,
+            paused_since: None,
         }
     }
 

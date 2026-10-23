@@ -84,6 +84,8 @@ pub enum LeadStatus {
     AsksYou,
     /// "ended by restart · Resume".
     EndedByRestart,
+    /// The user's Pause ended it (PAU-03, d0112): "paused · Resume", the same conversation.
+    Paused,
     /// "ended · epic in review".
     EndedInReview,
     /// Its agent tool exited for another reason: "ended · Resume".
@@ -119,6 +121,8 @@ pub fn lead_status(facts: &LeadFacts) -> LeadStatus {
             LeadStatus::EndedInReview
         } else if state == AgentState::EndedByRestart {
             LeadStatus::EndedByRestart
+        } else if state == AgentState::Paused {
+            LeadStatus::Paused
         } else {
             LeadStatus::Ended
         };

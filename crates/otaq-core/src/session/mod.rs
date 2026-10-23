@@ -97,6 +97,9 @@ pub const END_STOPPED_BY_RESTART: &str = "stopped by restart";
 /// A session Otaq ended because the tool refused its model on the first turn (AGT-05, d0088): it counts as not
 /// started (its row unlocks) and its conversation isn't kept for Resume.
 pub const END_MODEL_REFUSED: &str = "model refused";
+/// An agent session the user's **Pause** ended (PAU-02, d0112): recovery takes its ticket through a restart's path
+/// with the cause "paused" ([`crate::recovery::REASON_PAUSED`]); a Project agent or an epic lead becomes Paused.
+pub const END_PAUSED: &str = "paused";
 
 /// A terminal's size in character cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

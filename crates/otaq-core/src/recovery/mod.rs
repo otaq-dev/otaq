@@ -9,6 +9,8 @@
 //!   so reconcile leaves them alone.
 //! - **The agent tool exited** (d0018): a session that ends on its own while its ticket is at work in the stage it
 //!   runs interrupts the ticket the same way. Sessions Otaq stopped itself (Park, Close, Done) don't.
+//! - **Pause** (PAU-02, PAU-03; d0112): the sessions it ended ([`END_PAUSED`]) take their tickets the restart's way,
+//!   with the cause "paused" ([`REASON_PAUSED`], [`Recovery::paused`]): one path, the same table.
 //! - **Nothing resumes automatically.** Resume is the user's click (T-0112).
 //!
 //! Each service start is recorded in `service_runs`; a previous run without a clean stop means this start followed
@@ -33,8 +35,8 @@ use crate::flow::Flow;
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::{
-    END_MODEL_REFUSED, END_SERVICE_STOPPED, END_STOPPED, END_STOPPED_BY_RESTART, SessionInfo,
-    SessionKind, Sessions,
+    END_MODEL_REFUSED, END_PAUSED, END_SERVICE_STOPPED, END_STOPPED, END_STOPPED_BY_RESTART,
+    SessionInfo, SessionKind, Sessions,
 };
 use crate::store::tickets::set_state_since;
 use crate::store::{Store, StoreError, new_id, now_ms};
@@ -210,6 +212,30 @@ pub async fn before_restart(
 
 /// Why a ticket was interrupted, as written in its History.
 pub const REASON_RESTART: &str = "restart";
+/// The user's Pause ended its session (PAU-03, d0112): "Paused" instead of "Interrupted by restart".
+pub const REASON_PAUSED: &str = "paused";
+
+/// Why reconcile runs: a service start, or a Pause.
+#[derive(Debug, Clone, Copy)]
+struct Why {
+    /// The cause History records ([`REASON_RESTART`], [`REASON_PAUSED`]).
+    reason: &'static str,
+    /// The end the stage's sessions were given ([`END_SERVICE_STOPPED`], [`END_PAUSED`]), for the History note of a
+    /// ticket that only waits for a click.
+    end_reason: &'static str,
+    /// Sessions started before this don't get a note (the previous run's start, for a restart).
+    since: i64,
+}
+
+/// What reconcile did with one ticket.
+enum Reconciled {
+    Nothing,
+    Interrupted(TicketKey),
+    /// Interrupted from an agent check: Resume starts a fresh check.
+    WasValidating(TicketKey),
+    /// A ticket waiting for a click: a History note only.
+    SessionEnded(TicketKey),
+}
 
 /// `tickets.return_mode`: the next start continues the stored conversation (Resume, Retry).
 pub const RETURN_RESUME: &str = "resume";
@@ -306,6 +332,10 @@ pub struct StartupReport {
     /// ended", d0083). Not part of Resume all.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub leads_ended: Vec<String>,
+    /// The projects that are paused (PAU-07, d0112), by key: the pause survived the restart, nothing of theirs
+    /// resumes, and the app's reboot summary leaves them out.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paused: Vec<String>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -386,6 +416,12 @@ impl Recovery {
         let since = previous.map_or(0, |p| p.started_at);
         let mut report = StartupReport {
             unclean: previous.is_some_and(|p| !p.clean),
+            // A pause never lifts on its own (PAU-07): read, never cleared here.
+            paused: crate::agents::pause::paused_projects(inner.board.store())
+                .await?
+                .into_iter()
+                .map(|(key, _)| key)
+                .collect(),
             ..Default::default()
         };
 
@@ -400,45 +436,22 @@ impl Recovery {
             query = query.bind(*state);
         }
         let mut flows = Flows::default();
+        let why = Why {
+            reason: REASON_RESTART,
+            end_reason: END_SERVICE_STOPPED,
+            since,
+        };
         for (id,) in query.fetch_all(pool).await? {
             let ticket = inner.board.ticket_by_id(&id).await?;
             let flow = flows.of(&inner.board, &ticket).await?;
-            let from = self.interrupted_from(&ticket).await?;
-            let alive = self.stage_session_alive(flow, &ticket, from);
-            let reason = json!({ "reason": REASON_RESTART });
-            match reconcile(flow, &ticket.place, ticket.status, from, alive) {
-                Outcome::Unchanged => {}
-                Outcome::Interrupt { keep_label } => {
-                    if let Some(key) = self
-                        .interrupt(&id, ticket.status, keep_label, reason)
-                        .await?
-                    {
-                        report.interrupted.push(key);
-                    }
+            match self.reconcile_ticket(&ticket, flow, why).await? {
+                Reconciled::Nothing => {}
+                Reconciled::Interrupted(key) => report.interrupted.push(key),
+                Reconciled::WasValidating(key) => {
+                    report.was_validating.push(key.clone());
+                    report.interrupted.push(key);
                 }
-                Outcome::InterruptIn { stage } => {
-                    if let Some(key) = self
-                        .interrupt_as(&id, ticket.status, None, Some(&stage), false, reason)
-                        .await?
-                    {
-                        report.interrupted.push(key);
-                    }
-                }
-                Outcome::NoteSessionEnded => {
-                    if let Some(key) = self.note_session_ended(&id, since).await? {
-                        report.session_ended.push(key);
-                    }
-                }
-                // The checker is gone (REC-01's M12 row): Resume starts a fresh check.
-                Outcome::InterruptValidation => {
-                    if let Some(key) = self
-                        .interrupt_validation(&id, ticket.status, reason)
-                        .await?
-                    {
-                        report.was_validating.push(key.clone());
-                        report.interrupted.push(key);
-                    }
-                }
+                Reconciled::SessionEnded(key) => report.session_ended.push(key),
             }
         }
 
@@ -476,6 +489,82 @@ impl Recovery {
         }
         *inner.report.lock().expect("startup report") = report.clone();
         Ok(report)
+    }
+
+    /// One ticket through REC-01's table (STG-09), by the kind of the stage it is in and whether that stage's
+    /// session runs: a restart's reconcile and a Pause's are the same path, only `why` differs.
+    async fn reconcile_ticket(
+        &self,
+        ticket: &Ticket,
+        flow: &Flow,
+        why: Why,
+    ) -> Result<Reconciled, BoardError> {
+        let id = ticket.id.as_str();
+        let from = self.interrupted_from(ticket).await?;
+        let alive = self.stage_session_alive(flow, ticket, from);
+        let reason = json!({ "reason": why.reason });
+        let done = match reconcile(flow, &ticket.place, ticket.status, from, alive) {
+            Outcome::Unchanged => None,
+            Outcome::Interrupt { keep_label } => self
+                .interrupt(id, ticket.status, keep_label, reason)
+                .await?
+                .map(Reconciled::Interrupted),
+            Outcome::InterruptIn { stage } => self
+                .interrupt_as(id, ticket.status, None, Some(&stage), false, reason)
+                .await?
+                .map(Reconciled::Interrupted),
+            Outcome::NoteSessionEnded => self
+                .note_session_ended(id, why)
+                .await?
+                .map(Reconciled::SessionEnded),
+            // The checker is gone (REC-01's M12 row): Resume starts a fresh check.
+            Outcome::InterruptValidation => self
+                .interrupt_validation(id, ticket.status, reason)
+                .await?
+                .map(Reconciled::WasValidating),
+        };
+        Ok(done.unwrap_or(Reconciled::Nothing))
+    }
+
+    /// The tickets of the sessions a **Pause** ended ([`END_PAUSED`]; PAU-03, d0112), the restart's way with the
+    /// cause "paused": a working ticket becomes Interrupted ("Paused"), a needs-you one keeps its label and question,
+    /// a check ends interrupted and its round doesn't count, an automatic Delivery is interrupted in the Agent stage
+    /// that runs it, a ticket waiting for a click gets a History note. Project agents and leads are their own
+    /// ([`crate::project_agents::AgentState::Paused`]). Called once every session has ended; the tickets that
+    /// became Interrupted, in key order.
+    pub async fn paused(&self, stopped: &[SessionInfo]) -> Result<Vec<TicketKey>, BoardError> {
+        let mut keys: Vec<&TicketKey> = stopped
+            .iter()
+            .filter(|s| s.kind != SessionKind::ProjectAgent)
+            .filter_map(|s| s.ticket.as_ref())
+            .collect();
+        keys.sort();
+        keys.dedup();
+        let why = Why {
+            reason: REASON_PAUSED,
+            end_reason: END_PAUSED,
+            since: 0,
+        };
+        let mut flows = Flows::default();
+        let mut interrupted = Vec::new();
+        for key in keys {
+            let ticket = match self.inner.board.ticket(&key.to_string()).await {
+                Ok(ticket) => ticket,
+                Err(BoardError::NotFound(_)) => continue,
+                Err(e) => return Err(e),
+            };
+            let flow = flows.of(&self.inner.board, &ticket).await?;
+            match self.reconcile_ticket(&ticket, flow, why).await? {
+                Reconciled::Interrupted(key) | Reconciled::WasValidating(key) => {
+                    interrupted.push(key);
+                }
+                Reconciled::Nothing | Reconciled::SessionEnded(_) => {}
+            }
+        }
+        if !interrupted.is_empty() {
+            tracing::info!(interrupted = interrupted.len(), "paused tickets");
+        }
+        Ok(interrupted)
     }
 
     /// An agent session ended while the service runs. If the agent tool exited on its own (not stopped by Otaq)
@@ -607,8 +696,13 @@ impl Recovery {
             return Ok(None);
         }
         let reason = info.end_reason.as_deref().unwrap_or_default();
-        // Ended by Otaq on a refused model: its ticket's state is already set (AGT-05).
-        if reason == END_STOPPED || reason == END_SERVICE_STOPPED || reason == END_MODEL_REFUSED {
+        // Ended by Otaq on a refused model: its ticket's state is already set (AGT-05). A Pause's ends go the
+        // restart's way once they all ended ([`Self::paused`]).
+        if reason == END_STOPPED
+            || reason == END_SERVICE_STOPPED
+            || reason == END_MODEL_REFUSED
+            || reason == END_PAUSED
+        {
             return Ok(None);
         }
         let Some(key) = &info.ticket else {
@@ -879,12 +973,12 @@ impl Recovery {
         Ok(Some(ticket.key))
     }
 
-    /// History notes "session ended (restart)" for a Review / Approved ticket whose agent session the previous run
-    /// ended (once).
+    /// History notes "session ended (restart)" ("(paused)" after a Pause) for a Review / Approved ticket whose agent
+    /// session the previous run (or the Pause) ended (once).
     async fn note_session_ended(
         &self,
         ticket_id: &str,
-        since: i64,
+        why: Why,
     ) -> Result<Option<TicketKey>, BoardError> {
         let board = &self.inner.board;
         let ended: Option<(String,)> = sqlx::query_as(
@@ -894,8 +988,8 @@ impl Recovery {
              ORDER BY started_at DESC LIMIT 1",
         )
         .bind(ticket_id)
-        .bind(END_SERVICE_STOPPED)
-        .bind(since)
+        .bind(why.end_reason)
+        .bind(why.since)
         .bind(EventKind::SessionEnded.as_str())
         .fetch_optional(board.store().pool())
         .await?;
@@ -908,7 +1002,7 @@ impl Recovery {
             ticket_id,
             EventKind::SessionEnded,
             &Actor::current_user(),
-            json!({ "reason": REASON_RESTART, "session": session }),
+            json!({ "reason": why.reason, "session": session }),
         )
         .await?;
         tx.commit().await?;

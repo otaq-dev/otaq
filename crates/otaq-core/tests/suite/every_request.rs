@@ -88,6 +88,10 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "agents.reads" {
             params["agent"] = json!("nope");
         }
+        // The made-up project: refused, so the sample never pauses the test's own project.
+        if method.starts_with("agents.pause") || method == "agents.resume" {
+            params["scope"] = json!("project");
+        }
         if method.starts_with("agent_tools.")
             || method.starts_with("limits.")
             || method == "agents.fallback"
@@ -344,6 +348,9 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentsImportSkill(_)
         | Request::AgentsReimportSkill(_)
         | Request::AgentsReads(_)
+        | Request::AgentsPause(_)
+        | Request::AgentsResume(_)
+        | Request::AgentsPauseCounts(_)
         | Request::TicketAgents(_)
         | Request::BoardAgents(_)
         | Request::TicketChoices(_)

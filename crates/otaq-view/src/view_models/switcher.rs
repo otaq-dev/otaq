@@ -310,6 +310,7 @@ mod tests {
             agents_working: working,
             needs_you: needs,
             flow_setup_since: None,
+            paused_since: None,
         }
     }
 

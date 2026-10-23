@@ -237,6 +237,7 @@ mod tests {
                 agents_working: 0,
                 needs_you: 0,
                 flow_setup_since: None,
+                paused_since: None,
             },
             ProjectInfo {
                 key: "BILL".into(),
@@ -246,6 +247,7 @@ mod tests {
                 agents_working: 0,
                 needs_you: 0,
                 flow_setup_since: None,
+                paused_since: None,
             },
         ]
     }

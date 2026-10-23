@@ -33,6 +33,7 @@ pub fn state_pill(agent: &ProjectAgent) -> PillView {
     match agent.state {
         AgentState::Ended => quiet(IconName::CircleStop, "Ended"),
         AgentState::EndedByRestart => quiet(IconName::CircleStop, "Ended by restart"),
+        AgentState::Paused => quiet(IconName::CirclePause, "Paused"),
         AgentState::Running if agent.needs_you.is_some() => {
             pill(Legend::NeedsYou, IconName::Hand, "Waiting for you")
         }
@@ -64,7 +65,7 @@ pub fn resume_button(agent: &ProjectAgent) -> Option<ResumeButton> {
             label: "Resume",
             primary: false,
         }),
-        AgentState::EndedByRestart => Some(ResumeButton {
+        AgentState::EndedByRestart | AgentState::Paused => Some(ResumeButton {
             label: "Resume",
             primary: true,
         }),
@@ -178,6 +179,7 @@ pub fn recent(agents: &[ProjectAgent], project_name: &str, now_ms: i64) -> Recen
             .map(|a| {
                 let how = match a.state {
                     AgentState::EndedByRestart => "ended by restart",
+                    AgentState::Paused => "paused",
                     _ => "ended normally",
                 };
                 RecentRow {

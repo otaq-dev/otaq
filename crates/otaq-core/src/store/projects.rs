@@ -16,6 +16,9 @@ pub struct Project {
     pub created_at: i64,
     /// Since when the project is in Flow setup (ASK-04, d0108): no board and no tickets until its flow is settled.
     pub flow_setup_since: Option<i64>,
+    /// Since when the project is paused (PAU-01, d0112), `None` while it runs. Read and written by
+    /// [`crate::agents::pause`].
+    pub paused_since: Option<i64>,
 }
 
 #[derive(Debug, Clone)]

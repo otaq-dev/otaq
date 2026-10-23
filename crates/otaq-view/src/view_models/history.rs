@@ -922,6 +922,10 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                 "Interrupted by restart".to_owned(),
                 Some("conversation saved".to_owned()),
             ),
+            // The user's Pause (PAU-03, d0112).
+            Some(otaq_core::recovery::REASON_PAUSED) => {
+                ("Paused".to_owned(), Some("conversation saved".to_owned()))
+            }
             // "codex exited (crash) · conversation saved": the session's tool, by its command (Q77).
             Some(reason) => {
                 let program = text(p, "tool")
@@ -933,7 +937,10 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                 )
             }
         },
-        EventKind::SessionEnded => ("Session ended (restart)".to_owned(), None),
+        EventKind::SessionEnded => match text(p, "reason").as_deref() {
+            Some(otaq_core::recovery::REASON_PAUSED) => ("Session ended (paused)".to_owned(), None),
+            _ => ("Session ended (restart)".to_owned(), None),
+        },
         EventKind::Resumed => (
             if p.get("retry").is_some() {
                 "Retry resume"
@@ -2085,6 +2092,37 @@ mod tests {
                 ),
                 ("Resumed", "same conversation · by you"),
                 ("Interrupted by restart", "conversation saved"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_pause_reads_paused() {
+        let rows = rows(
+            &[
+                event(
+                    EventKind::Interrupted,
+                    3 * MIN,
+                    json!({"reason": "paused", "from": "working"}),
+                ),
+                event(
+                    EventKind::SessionEnded,
+                    4 * MIN,
+                    json!({"reason": "paused", "session": "s2"}),
+                ),
+            ],
+            &[],
+            &[],
+        );
+        let shown: Vec<(&str, &str)> = rows
+            .iter()
+            .map(|r| (r.title.as_str(), r.detail.as_deref().unwrap_or_default()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("Session ended (paused)", ""),
+                ("Paused", "conversation saved"),
             ]
         );
     }

@@ -124,6 +124,7 @@ mod tests {
             agents_working: 0,
             needs_you: 0,
             flow_setup_since: flow_setup.then_some(NOW),
+            paused_since: None,
         }
     }
 

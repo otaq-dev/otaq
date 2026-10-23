@@ -13,13 +13,14 @@
 //!   start; [`in_use`]: what uses an agent; [`resolve`]: which agent a session runs (AGM-05);
 //!   [`gate`]: the check before every launch and the fallback (AGM-03); [`limits`]: the plan-limit banner's lines,
 //!   Resume per tool and Use fallback now; [`mark`]: the amber mark of a model the tool refused; [`skills`]:
-//!   importing a skill folder onto an agent (WSK-02…WSK-04).
+//!   importing a skill folder onto an agent (WSK-02…WSK-04); [`pause`]: Pause and Resume per project (d0112).
 
 pub mod facts;
 pub mod gate;
 pub mod in_use;
 pub mod limits;
 pub mod mark;
+pub mod pause;
 pub mod resolve;
 pub mod shipped;
 pub mod skills;

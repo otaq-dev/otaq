@@ -463,7 +463,12 @@ fn lead_answer_of(lead: &Lead) -> Option<Answer> {
 
 /// An epic lead that ended and can continue: "Resume lead" leads the bar (*05 → Lead tab · ended by restart*).
 fn resumes_lead(lead: Option<&Lead>) -> bool {
-    lead.is_some_and(|l| matches!(l.status, LeadStatus::EndedByRestart | LeadStatus::Ended))
+    lead.is_some_and(|l| {
+        matches!(
+            l.status,
+            LeadStatus::EndedByRestart | LeadStatus::Paused | LeadStatus::Ended
+        )
+    })
 }
 
 fn question_bar(question: &otaq_core::board::questions::HumanQuestion) -> Option<Answer> {

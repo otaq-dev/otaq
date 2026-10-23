@@ -87,6 +87,7 @@ mod option_notes;
 mod order;
 mod parent_merged;
 mod park;
+mod pause;
 mod permissions;
 mod plan_limit;
 mod plugin;

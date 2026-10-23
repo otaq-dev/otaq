@@ -2157,3 +2157,83 @@ async fn migration_0054_keeps_the_proposals_and_their_numbers() {
             .unwrap();
     assert_eq!(since, None);
 }
+
+/// T-0455 (PAU-01, PAU-03; d0112): migration 0057 starts every project unpaused and rebuilds `project_agents` so an
+/// agent can be `paused`, keeping every row, column and the sessions and questions that point at it.
+#[tokio::test]
+async fn projects_start_unpaused_and_project_agents_can_be_paused() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 56).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, kind, title, state, created_by, created_at, updated_at)
+         VALUES ('t40', 'p', 40, 'epic', 'Wishlist', 'backlog', 'me', 0, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO project_agents (id, project_id, name, name_source, tool, tool_session_id, model, state,
+                                     first_request, limit_stopped, created_at, ended_at, closed_at, epic_id,
+                                     agent_id, agent_name, model_ran, effort)
+         VALUES ('a1', 'p', 'Import GitHub issues', 'agent', 'claude', 'c-agent', 'opus', 'ended_by_restart',
+                 'Import the issues', 1, 3, 4, NULL, NULL, 'ag', 'Planner', 'opus', 'high'),
+                ('l40', 'p', 'Wishlist lead', NULL, 'codex', 'c-lead', NULL, 'running', NULL, 0, 6, NULL, NULL,
+                 't40', NULL, NULL, NULL, NULL)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO sessions (id, project_id, kind, tool, tool_session_id, state, started_at, project_agent_id)
+         VALUES ('s1', 'p', 'project_agent', 'claude', 'c-agent', 'ended', 5, 'a1')",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let paused: Option<i64> =
+        sqlx::query_scalar("SELECT paused_since FROM projects WHERE id = 'p'")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(paused, None);
+    let rows = sqlx::query("SELECT * FROM project_agents ORDER BY id")
+        .fetch_all(store.pool())
+        .await
+        .unwrap();
+    let a1 = &rows[0];
+    assert_eq!(
+        (
+            a1.get::<String, _>("name"),
+            a1.get::<String, _>("state"),
+            a1.get::<String, _>("agent_name"),
+            a1.get::<String, _>("effort"),
+            a1.get::<i64, _>("limit_stopped"),
+        ),
+        (
+            "Import GitHub issues".to_owned(),
+            "ended_by_restart".to_owned(),
+            "Planner".to_owned(),
+            "high".to_owned(),
+            1
+        )
+    );
+    assert_eq!(rows[1].get::<String, _>("epic_id"), "t40");
+    exec(
+        store.pool(),
+        "UPDATE project_agents SET state = 'paused' WHERE id = 'l40'",
+    )
+    .await;
+    let session: Option<String> =
+        sqlx::query_scalar("SELECT project_agent_id FROM sessions WHERE id = 's1'")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(session.as_deref(), Some("a1"));
+}

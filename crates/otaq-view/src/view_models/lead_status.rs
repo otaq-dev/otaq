@@ -156,13 +156,16 @@ impl LeadStatusView {
         };
         let (state, short) = words(&lead.status);
         let tone = tone(&lead.status);
-        let action =
-            matches!(lead.status, LeadStatus::EndedByRestart | LeadStatus::Ended).then(|| Button {
-                kind: ActionKind::Resume,
-                label: RESUME.to_owned(),
-                icon: IconName::RotateCcw,
-                split: None,
-            });
+        let action = matches!(
+            lead.status,
+            LeadStatus::EndedByRestart | LeadStatus::Paused | LeadStatus::Ended
+        )
+        .then(|| Button {
+            kind: ActionKind::Resume,
+            label: RESUME.to_owned(),
+            icon: IconName::RotateCcw,
+            split: None,
+        });
         let full = format!("{} \u{b7} {state}", lead.name);
         Self {
             epic: epic.key.to_string(),
@@ -258,6 +261,7 @@ pub fn words(status: &LeadStatus) -> (String, String) {
         ),
         LeadStatus::AsksYou => both("asks you"),
         LeadStatus::EndedByRestart => both("ended by restart"),
+        LeadStatus::Paused => both("paused"),
         LeadStatus::EndedInReview => (
             "ended \u{b7} epic in review".to_owned(),
             "ended \u{b7} in review".to_owned(),
@@ -274,7 +278,10 @@ pub fn tone(status: &LeadStatus) -> Tone {
             Tone::Working
         }
         LeadStatus::AsksYou => Tone::AsksYou,
-        LeadStatus::EndedByRestart | LeadStatus::EndedInReview | LeadStatus::Ended => Tone::Ended,
+        LeadStatus::EndedByRestart
+        | LeadStatus::Paused
+        | LeadStatus::EndedInReview
+        | LeadStatus::Ended => Tone::Ended,
     }
 }
 
@@ -304,8 +311,8 @@ fn tooltip(epic: &Ticket, lead: &Lead, full: &str) -> Tooltip {
                 lines,
             }
         }
-        // *16 → Epic lead after a restart*.
-        LeadStatus::EndedByRestart => Tooltip {
+        // *16 → Epic lead after a restart*; a Pause leaves it the same way (PAU-03).
+        LeadStatus::EndedByRestart | LeadStatus::Paused => Tooltip {
             title: full.to_owned(),
             lines: vec![format!(
                 "Resume continues the same conversation. Until then, {}'s children ask you directly.",
@@ -353,6 +360,7 @@ pub fn sample(epic: &Ticket, status: LeadStatus, tokens: u64) -> Lead {
     use otaq_core::project_agents::{AgentState, ProjectAgent};
     let state = match status {
         LeadStatus::EndedByRestart => AgentState::EndedByRestart,
+        LeadStatus::Paused => AgentState::Paused,
         LeadStatus::EndedInReview | LeadStatus::Ended => AgentState::Ended,
         _ => AgentState::Running,
     };

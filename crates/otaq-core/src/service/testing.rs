@@ -48,6 +48,7 @@ pub struct TestService {
     pub review: Review,
     pub starter: Starter,
     pub recovery: Recovery,
+    pub pause: crate::agents::pause::Pause,
     pub inbox: Inbox,
     pub cleanup: Cleanup,
     pub usage: Usage,
@@ -600,6 +601,7 @@ impl TestService {
             .await
             .expect("service starts");
         let inbox = service.inbox();
+        let pause = service.pause();
         let cleanup = service.cleanup();
         let usage = service.usage();
         let plan_limit = service.plan_limit();
@@ -637,6 +639,7 @@ impl TestService {
             review,
             starter,
             recovery,
+            pause,
             inbox,
             cleanup,
             usage,

@@ -215,6 +215,7 @@ async fn action_for(
         | R::ToolsCheck
         | R::OnboardingState
         | R::NotificationsState
+        | R::AgentsPauseCounts(_)
         | R::ProjectList
         | R::ProjectProbe(_)
         | R::ProjectBranches(_)
@@ -418,6 +419,8 @@ async fn action_for(
         R::DismissTrustNote => Action::UserOnly("dismiss notices"),
         R::NotificationsAskAnswered => Action::UserOnly("answer the notifications ask"),
         R::NotificationsDismissBlocked => Action::UserOnly("dismiss notices"),
+        // A pause never lifts on its own, and no agent stops or starts the others (PAU-01, d0112).
+        R::AgentsPause(_) | R::AgentsResume(_) => Action::UserOnly("pause or resume agents"),
         R::ProjectAdd(_) | R::ProjectUpdate(_) | R::ProjectRemove(_) => {
             Action::UserOnly("change projects")
         }

@@ -462,6 +462,7 @@ mod tests {
                         agents_waiting: 0,
                         unclean_start: false,
                         interrupted_at_start: 0,
+                        paused: Vec::new(),
                     }),
                     Request::SessionAttach(_) => {
                         let mut state = state.lock().unwrap();

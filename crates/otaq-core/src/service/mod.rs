@@ -208,6 +208,8 @@ struct Shared {
     messages: crate::messages::Messages,
     validation: crate::validation::Validation,
     project_agents: crate::project_agents::ProjectAgents,
+    /// Pause and Resume per project (d0112).
+    pause: crate::agents::pause::Pause,
     warm: crate::warm::store::WarmBuilds,
     /// Every agent tool's adapter, built once.
     adapters: Adapters,
@@ -407,6 +409,10 @@ impl Shared {
             agents_waiting: counts.waiting,
             unclean_start: report.unclean,
             interrupted_at_start: u32::try_from(report.interrupted.len()).unwrap_or(u32::MAX),
+            paused: self.pause.paused().await.unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "can't read the paused projects");
+                Vec::new()
+            }),
         }
     }
 }
@@ -938,6 +944,15 @@ impl Service {
             events: events.clone(),
         })
         .register_hand_back();
+        let pause = crate::agents::pause::Pause::new(crate::agents::pause::PauseParts {
+            board: board.clone(),
+            sessions: sessions.clone(),
+            recovery: recovery.clone(),
+            review: review.clone(),
+            project_agents: project_agents.clone(),
+            scheduler: scheduler.clone(),
+            events: events.clone(),
+        });
         plan_limit.set_project_agents(project_agents.clone());
         inbox.set_project_agents(project_agents.clone());
         project_agents.set_gate(gate.clone());
@@ -970,6 +985,7 @@ impl Service {
             });
         }
         let shared = Arc::new(Shared {
+            pause,
             agents,
             adapters,
             models,
@@ -1113,6 +1129,11 @@ impl Service {
     /// Startup reconcile and agent exits.
     pub fn recovery(&self) -> Recovery {
         self.shared.recovery.clone()
+    }
+
+    /// Pause and Resume per project (d0112).
+    pub fn pause(&self) -> crate::agents::pause::Pause {
+        self.shared.pause.clone()
     }
 
     /// The warm builds (d0082).

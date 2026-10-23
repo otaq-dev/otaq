@@ -46,7 +46,8 @@ use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, Delivery, IdleSignal};
 use crate::session::{
-    END_SERVICE_STOPPED, SessionAgent, SessionInfo, SessionKind, Sessions, SpawnSpec, TerminalSize,
+    END_PAUSED, END_SERVICE_STOPPED, SessionAgent, SessionInfo, SessionKind, Sessions, SpawnSpec,
+    TerminalSize,
 };
 use crate::signals::Signal;
 use crate::store::projects::Project;
@@ -119,6 +120,9 @@ stored_enum! {
         Ended = "ended",
         /// A restart ended it: "Ended by restart · Resume".
         EndedByRestart = "ended_by_restart",
+        /// The user's Pause ended it (PAU-03, d0112): "Paused · Resume", which continues the same conversation, as
+        /// after a restart. The project's Resume resumes it; a restart leaves it as it is.
+        Paused = "paused",
     }
 }
 
@@ -691,19 +695,20 @@ impl ProjectAgents {
     }
 
     /// **Close ended agents** (SHL-04, d0087): every Project agent of `project` that has ended (Ended, Ended by
-    /// restart) and isn't closed yet is closed; it leaves the switcher and stays in Recently ended. Running agents
+    /// restart, Paused) and isn't closed yet is closed; it leaves the switcher and stays in Recently ended. Running agents
     /// and epic leads are left alone. The project's list afterwards.
     pub async fn close_ended(&self, project: &str) -> Result<ProjectAgentList, BoardError> {
         let project = self.inner.board.project(project).await?;
         let closed: Vec<(String,)> = sqlx::query_as(
             "UPDATE project_agents SET closed_at = ?
-             WHERE project_id = ? AND epic_id IS NULL AND closed_at IS NULL AND state IN (?, ?)
+             WHERE project_id = ? AND epic_id IS NULL AND closed_at IS NULL AND state IN (?, ?, ?)
              RETURNING id",
         )
         .bind(now_ms())
         .bind(&project.id)
         .bind(AgentState::Ended.as_str())
         .bind(AgentState::EndedByRestart.as_str())
+        .bind(AgentState::Paused.as_str())
         .fetch_all(self.inner.board.store().pool())
         .await?;
         tracing::info!(project = %project.key, closed = closed.len(), "ended project agents closed");
@@ -1238,7 +1243,8 @@ impl ProjectAgents {
                 .set_epic_lead(&session.id, epic_id, epic)
                 .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
         }
-        // The agent tool exiting on its own ends the agent; the service stopping doesn't (the next start reconciles).
+        // The agent tool exiting on its own ends the agent; the service stopping doesn't (the next start reconciles);
+        // a Pause makes it Paused (PAU-03).
         let this = self.clone();
         let (session_id, id, project) = (session.id.clone(), id.to_owned(), project.key.clone());
         tokio::spawn(async move {
@@ -1250,21 +1256,12 @@ impl ProjectAgents {
             if ended.end_reason.as_deref() == Some(END_SERVICE_STOPPED) {
                 return;
             }
-            let done = sqlx::query(
-                "UPDATE project_agents SET state = ?, ended_at = ?
-                 WHERE id = ? AND state = ?
-                   AND ? = (SELECT id FROM sessions WHERE project_agent_id = ?
-                            ORDER BY started_at DESC, id DESC LIMIT 1)",
-            )
-            .bind(AgentState::Ended.as_str())
-            .bind(now_ms())
-            .bind(&id)
-            .bind(AgentState::Running.as_str())
-            .bind(&session_id)
-            .bind(&id)
-            .execute(this.inner.board.store().pool())
-            .await;
-            match done {
+            let state = if ended.end_reason.as_deref() == Some(END_PAUSED) {
+                AgentState::Paused
+            } else {
+                AgentState::Ended
+            };
+            match this.record_end(&id, &session_id, state).await {
                 Ok(_) => this.changed(&project, &id),
                 Err(e) => tracing::warn!(agent = id, error = %e, "can't record the agent's end"),
             }
@@ -1272,6 +1269,73 @@ impl ProjectAgents {
             this.lead_session_ended(&id).await;
         });
         Ok(session)
+    }
+
+    /// Records that the agent `id`'s session `session_id` ended, as `state`, if that is its latest session and the
+    /// agent still runs. Whether it did.
+    async fn record_end(
+        &self,
+        id: &str,
+        session_id: &str,
+        state: AgentState,
+    ) -> Result<bool, BoardError> {
+        let done = sqlx::query(
+            "UPDATE project_agents SET state = ?, ended_at = ?
+             WHERE id = ? AND state = ?
+               AND ? = (SELECT id FROM sessions WHERE project_agent_id = ?
+                        ORDER BY started_at DESC, id DESC LIMIT 1)",
+        )
+        .bind(state.as_str())
+        .bind(now_ms())
+        .bind(id)
+        .bind(AgentState::Running.as_str())
+        .bind(session_id)
+        .bind(id)
+        .execute(self.inner.board.store().pool())
+        .await?;
+        Ok(done.rows_affected() > 0)
+    }
+
+    /// The Project agents and epic leads of the sessions a **Pause** ended (PAU-03, d0112) become Paused at once,
+    /// whether or not their end watchers ran yet (they do the same). Their ids.
+    pub async fn paused(&self, stopped: &[SessionInfo]) -> Result<Vec<String>, BoardError> {
+        let mut paused = Vec::new();
+        for session in stopped
+            .iter()
+            .filter(|s| s.kind == SessionKind::ProjectAgent)
+        {
+            let agent: Option<(String,)> = sqlx::query_as(
+                "SELECT project_agent_id FROM sessions WHERE id = ? AND project_agent_id IS NOT NULL",
+            )
+            .bind(&session.id)
+            .fetch_optional(self.inner.board.store().pool())
+            .await?;
+            let Some((id,)) = agent else {
+                continue;
+            };
+            if self
+                .record_end(&id, &session.id, AgentState::Paused)
+                .await?
+            {
+                self.changed(&session.project, &id);
+            }
+            paused.push(id);
+        }
+        Ok(paused)
+    }
+
+    /// The Project agents and epic leads of `project` a Pause ended (Paused), oldest first: what its Resume resumes
+    /// (PAU-06).
+    pub async fn paused_of(&self, project: &str) -> Result<Vec<String>, BoardError> {
+        let project = self.inner.board.project(project).await?;
+        let ids: Vec<(String,)> = sqlx::query_as(
+            "SELECT id FROM project_agents WHERE project_id = ? AND state = ? ORDER BY created_at, id",
+        )
+        .bind(&project.id)
+        .bind(AgentState::Paused.as_str())
+        .fetch_all(self.inner.board.store().pool())
+        .await?;
+        Ok(ids.into_iter().map(|(id,)| id).collect())
     }
 
     async fn set_name(&self, id: &str, name: &str, source: NameSource) -> Result<(), BoardError> {

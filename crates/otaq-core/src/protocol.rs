@@ -920,6 +920,16 @@ pub enum Request {
     /// Answered with [`Reply::AgentReads`].
     #[serde(rename = "agents.reads")]
     AgentsReads(crate::agent_reads::AgentReadsParams),
+    /// **Pause** (PAU-01, PAU-02; d0112), `{"scope": "project", "project": "SHOP"}` or `{"scope": "all"}`: sets the
+    /// pause first, then stops every agent session there at once; `agents.resume` lifts it and resumes what it
+    /// stopped (PAU-06); `agents.pause_counts` reads the menus' counts. Each answered with [`Reply::PauseCounts`];
+    /// every change publishes [`Event::PauseChanged`]. The user's only: agents are refused.
+    #[serde(rename = "agents.pause")]
+    AgentsPause(crate::agents::pause::PauseScope),
+    #[serde(rename = "agents.resume")]
+    AgentsResume(crate::agents::pause::PauseScope),
+    #[serde(rename = "agents.pause_counts")]
+    AgentsPauseCounts(crate::agents::pause::PauseScope),
     /// `{"key": "SHOP-19"}`, or `{"project": "SHOP", "new_epic": true}` for the ⌘N form: the agent each stage of the
     /// ticket's flow runs (an epic's lead), the sessions with their agents, the holds. Answered with
     /// [`Reply::TicketAgents`].
@@ -1966,6 +1976,9 @@ impl Request {
             Self::AgentsImportSkill(_) => "agents.import_skill",
             Self::AgentsReimportSkill(_) => "agents.reimport_skill",
             Self::AgentsReads(_) => "agents.reads",
+            Self::AgentsPause(_) => "agents.pause",
+            Self::AgentsResume(_) => "agents.resume",
+            Self::AgentsPauseCounts(_) => "agents.pause_counts",
             Self::TicketAgents(_) => "ticket.agents",
             Self::BoardAgents(_) => "board.agents",
             Self::TicketChoices(_) => "ticket.choices",
@@ -2112,6 +2125,8 @@ pub enum Reply {
     TicketChoices(Box<crate::board::stage_choices::TicketChoices>),
     AgentInUse(Box<crate::agents::InUse>),
     AgentReads(Box<crate::agent_reads::AgentReads>),
+    /// What Pause and Resume cover (`agents.pause`, `agents.resume`, `agents.pause_counts`).
+    PauseCounts(Box<crate::agents::pause::PauseCounts>),
     /// Every agent tool's row (`agent_tools.list`, `agent_tools.set_hidden`).
     AgentTools(Box<crate::agent_tools::connected::AgentToolsList>),
     /// The command palette's recent items, newest first (`recent.items`).
@@ -2178,6 +2193,9 @@ pub struct ServiceStatus {
     /// Tickets the startup reconcile set to Interrupted ("4 sessions were interrupted", REC-01, REC-06).
     #[serde(default)]
     pub interrupted_at_start: u32,
+    /// The paused projects with their counts (PAU-01, PAU-07; d0112), by name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paused: Vec<crate::agents::pause::ProjectPause>,
 }
 
 /// Something that happened in the service, pushed to subscribers (SDD §5.4).
@@ -2207,6 +2225,13 @@ pub enum Event {
     },
     /// A project was added, changed or removed. Refetch `project.list`.
     ProjectsChanged,
+    /// A project was paused (`paused_since` set) or resumed (`None`) (PAU-01, d0112); sent with
+    /// [`Event::ProjectsChanged`].
+    PauseChanged {
+        project: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        paused_since: Option<i64>,
+    },
     /// A project's flow: a proposal opened or closed, a change waits, a new flow applied, a waiting change cancelled
     /// (FLW-03…FLW-06). Refetch `flow.proposal`, `flow.waiting` or the board.
     FlowChanged {
@@ -2588,6 +2613,14 @@ mod tests {
                 status: Status::Queued,
             }),
             Message::event(Event::ProjectsChanged),
+            Message::request(
+                14,
+                Request::AgentsPause(crate::agents::pause::PauseScope::All),
+            ),
+            Message::event(Event::PauseChanged {
+                project: "SHOP".into(),
+                paused_since: Some(1),
+            }),
             Message::event(Event::TrustChanged),
             Message::request(13, Request::NotificationsState),
             Message::request(13, Request::NotificationsAskAnswered),

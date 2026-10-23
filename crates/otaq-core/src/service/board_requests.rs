@@ -288,6 +288,19 @@ pub(super) async fn handle(
             shared.notifications.dismiss_blocked().await?;
             Ok(Reply::Ok)
         }),
+        // Pause and Resume (PAU-01, PAU-02, PAU-06, PAU-08; d0112).
+        Request::AgentsPause(scope) => boxed(move || async move {
+            let counts = shared.pause.pause(&scope).await?;
+            Ok(Reply::PauseCounts(Box::new(counts)))
+        }),
+        Request::AgentsResume(scope) => boxed(move || async move {
+            let counts = shared.pause.resume(&scope, &actor).await?;
+            Ok(Reply::PauseCounts(Box::new(counts)))
+        }),
+        Request::AgentsPauseCounts(scope) => boxed(move || async move {
+            let counts = shared.pause.counts(&scope).await?;
+            Ok(Reply::PauseCounts(Box::new(counts)))
+        }),
         Request::RecentItems(p) => boxed(move || async move {
             let items = match p.record {
                 Some(used) => {

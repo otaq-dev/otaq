@@ -349,6 +349,11 @@ pub fn footer(agent: &ProjectAgent, keys: &KeyLabels) -> Footer {
             "Ended by restart \u{b7} Resume continues it",
             Some("continues the same conversation".to_owned()),
         ),
+        // The user's Pause (PAU-03, d0112).
+        AgentState::Paused => (
+            "Paused \u{b7} Resume continues it",
+            Some("continues the same conversation".to_owned()),
+        ),
     };
     Footer {
         text,
